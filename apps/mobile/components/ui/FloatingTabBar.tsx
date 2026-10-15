@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
-import { Text, View, type LayoutChangeEvent } from "react-native";
+import { useEffect, useMemo, useRef, type ComponentProps } from "react";
+import { View, type LayoutChangeEvent } from "react-native";
 import { Tabs } from "expo-router";
 import Animated, {
   useAnimatedStyle,
@@ -16,50 +16,10 @@ export const FLOATING_TAB_HEIGHT = 58;
 export const FLOATING_TAB_MARGIN = 12;
 const PILL_INSET_X = 4;
 const PILL_INSET_Y = 5;
-// A large system font must not push "Dashboard" past its tab.
-const LABEL_MAX_SCALE = 1.15;
 const VISIBLE_TABS = new Set(["home", "dashboard", "calendar", "tasks", "search", "files"]);
 
 export function floatingTabBarInset(bottomInset: number) {
   return Math.max(bottomInset, 8) + FLOATING_TAB_MARGIN + FLOATING_TAB_HEIGHT;
-}
-
-// Air each side of a label when there is room; the pill's inset at least.
-const LABEL_SIDE = PILL_INSET_X + 4;
-// Reported layout widths are rounded; without slack a label can lose a
-// fraction of a pixel and get an ellipsis.
-const LABEL_SLACK = 2;
-
-/**
- * Six tabs don't fit as equal columns on a 360dp phone ("Dashboard" is wider
- * than a sixth of the bar). Tabs whose label needs more than an equal share
- * get exactly what they need; the rest split what is left evenly, so short
- * labels keep the widest tap targets. When the bar is too narrow for full
- * side air, the air shrinks before any label does.
- */
-export function fitTabWidths(total: number, labelWidths: number[]): number[] {
-  const n = labelWidths.length;
-  const text = labelWidths.map((width) => Math.ceil(width) + LABEL_SLACK);
-  const textSum = text.reduce((a, b) => a + b, 0);
-  if (textSum >= total) return text.map((width) => (width / textSum) * total);
-  const side = Math.min(LABEL_SIDE, (total - textSum) / (2 * n));
-  const needs = text.map((width) => width + side * 2);
-  const widths = needs.map(() => 0);
-  let open = needs.map((_, i) => i);
-  let room = total;
-  for (;;) {
-    const share = room / open.length;
-    const wide = open.filter((i) => needs[i] > share);
-    if (!wide.length) {
-      for (const i of open) widths[i] = share;
-      return widths;
-    }
-    for (const i of wide) {
-      widths[i] = needs[i];
-      room -= needs[i];
-    }
-    open = open.filter((i) => needs[i] <= share);
-  }
 }
 
 function primaryWash(alpha: number) {
@@ -77,23 +37,12 @@ export default function FloatingTabBar({ state, descriptors, navigation }: TabBa
   const pillX = useSharedValue(0);
   const pillW = useSharedValue(0);
   const ready = useSharedValue(0);
-  const [barWidth, setBarWidth] = useState(0);
-  const [labelWidths, setLabelWidths] = useState<Record<string, number>>({});
 
   const tabs = useMemo(
     () => state.routes.filter((route) => VISIBLE_TABS.has(route.name)),
     [state.routes],
   );
   const activeKey = state.routes[state.index]?.key;
-  const labels = tabs.map((route) => {
-    const { options } = descriptors[route.key];
-    const raw = options.tabBarLabel;
-    return typeof raw === "string" ? raw : options.title ?? route.name;
-  });
-  const measured = barWidth > 0 && tabs.every((route) => labelWidths[route.key] !== undefined);
-  const widths = measured
-    ? fitTabWidths(barWidth, tabs.map((route) => labelWidths[route.key]))
-    : null;
   const wash = primaryWash(0.18);
 
   function movePill(x: number, width: number, animate: boolean) {
@@ -128,38 +77,19 @@ export default function FloatingTabBar({ state, descriptors, navigation }: TabBa
       style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 8) }]}
     >
       <View style={styles.bar}>
-        {/* Off-screen copy of the labels at their natural width, for fitTabWidths. */}
-        <View pointerEvents="none" aria-hidden style={styles.measure}>
-          {tabs.map((route, i) => (
-            <Text
-              key={route.key}
-              numberOfLines={1}
-              maxFontSizeMultiplier={LABEL_MAX_SCALE}
-              style={styles.label}
-              onLayout={(event: LayoutChangeEvent) => {
-                const width = event.nativeEvent.layout.width;
-                setLabelWidths((prev) => (prev[route.key] === width ? prev : { ...prev, [route.key]: width }));
-              }}
-            >
-              {labels[i]}
-            </Text>
-          ))}
-        </View>
-        <View
-          style={styles.row}
-          onLayout={(event: LayoutChangeEvent) => setBarWidth(event.nativeEvent.layout.width)}
-        >
+        <View style={styles.row}>
           <Animated.View pointerEvents="none" style={[styles.pill, { backgroundColor: wash }, pillStyle]} />
-          {tabs.map((route, i) => {
+          {tabs.map((route) => {
             const focused = route.key === activeKey;
             const { options } = descriptors[route.key];
             const color = focused ? colors.primary : colors.mutedForeground;
-            const label = labels[i];
+            const rawLabel = options.tabBarLabel;
+            const label = typeof rawLabel === "string" ? rawLabel : options.title ?? route.name;
             return (
               <View
                 key={route.key}
                 collapsable={false}
-                style={widths ? { width: widths[i] } : styles.tab}
+                style={styles.tab}
                 onLayout={(event: LayoutChangeEvent) => {
                   const { x, width } = event.nativeEvent.layout;
                   layouts.current[route.key] = { x, width };
@@ -188,10 +118,7 @@ export default function FloatingTabBar({ state, descriptors, navigation }: TabBa
                   }}
                   style={styles.tabHit}
                 >
-                  {options.tabBarIcon?.({ focused, color, size: 20 })}
-                  <Text numberOfLines={1} maxFontSizeMultiplier={LABEL_MAX_SCALE} style={[styles.label, { color }]}>
-                    {label}
-                  </Text>
+                  {options.tabBarIcon?.({ focused, color, size: 22 })}
                 </AnimatedPressable>
               </View>
             );
@@ -239,18 +166,11 @@ const styles = createThemedStyleSheet((colors) => ({
     bottom: PILL_INSET_Y,
     borderRadius: radius,
   },
-  // Until the labels are measured (first frame).
   tab: {
     flex: 1,
   },
-  measure: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    flexDirection: "row",
-    opacity: 0,
-  },
-  // The whole column takes the tap, not just the pill inside it.
+  // Icons only, so the name lives in accessibilityLabel; the whole column
+  // takes the tap, not just the pill inside it.
   tabHit: {
     flex: 1,
     marginVertical: PILL_INSET_Y,
@@ -258,7 +178,5 @@ const styles = createThemedStyleSheet((colors) => ({
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
-    gap: 2,
   },
-  label: { fontSize: 11, fontWeight: "600" },
 }));

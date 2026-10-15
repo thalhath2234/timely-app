@@ -50,27 +50,27 @@ export default function TabLayout() {
       >
         <Tabs.Screen
           name="home"
-          options={{ title: "Home", tabBarIcon: ({ color }) => <Home size={20} color={color} /> }}
+          options={{ title: "Home", tabBarIcon: ({ color, size }) => <Home size={size} color={color} /> }}
         />
         <Tabs.Screen
           name="dashboard"
-          options={{ title: "Dashboard", tabBarIcon: ({ color }) => <LayoutDashboard size={20} color={color} /> }}
+          options={{ title: "Dashboard", tabBarIcon: ({ color, size }) => <LayoutDashboard size={size} color={color} /> }}
         />
         <Tabs.Screen
           name="calendar"
-          options={{ title: "Calendar", tabBarIcon: ({ color }) => <Calendar size={20} color={color} /> }}
+          options={{ title: "Calendar", tabBarIcon: ({ color, size }) => <Calendar size={size} color={color} /> }}
         />
         <Tabs.Screen
           name="tasks"
-          options={{ title: "Tasks", tabBarIcon: ({ color }) => <ListTodo size={20} color={color} /> }}
+          options={{ title: "Tasks", tabBarIcon: ({ color, size }) => <ListTodo size={size} color={color} /> }}
         />
         <Tabs.Screen
           name="search"
-          options={{ title: "Search", tabBarIcon: ({ color }) => <Search size={20} color={color} /> }}
+          options={{ title: "Search", tabBarIcon: ({ color, size }) => <Search size={size} color={color} /> }}
         />
         <Tabs.Screen
           name="files"
-          options={{ title: "Files", tabBarIcon: ({ color }) => <FileText size={20} color={color} /> }}
+          options={{ title: "Files", tabBarIcon: ({ color, size }) => <FileText size={size} color={color} /> }}
         />
         <Tabs.Screen name="more" options={{ href: null, title: "Settings" }} />
       </Tabs>
