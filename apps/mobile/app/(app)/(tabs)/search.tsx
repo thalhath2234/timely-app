@@ -204,7 +204,7 @@ export default function SearchTab() {
           })}
         </ScrollView>
       </View>
-      <ScrollView ref={scroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={styles.results}>
+      <ScrollView showsVerticalScrollIndicator={false} ref={scroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={styles.results}>
         {!pending && !failed && smartCategory ? (
           <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Looking for ${smartCategory.label}? Show only ${smartCategory.label.toLowerCase()}`}
             onPress={() => { setCategory(smartCategory.id); scroll.current?.scrollTo({ y: 0, animated: false }); }}

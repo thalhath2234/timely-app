@@ -2,11 +2,9 @@ import { useEffect, useMemo, useRef } from "react";
 import { useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { keys, useCalendarQuery, useInvalidateAll } from "../lib/hooks";
-import { markNotificationRead } from "../lib/api/notifications";
-import { prioritizeOverdueTask } from "../lib/api/notifications";
 import { useToastStore } from "../lib/toast";
+import { addNotificationResponseHandler } from "../lib/notificationActions";
 import {
-  addReminderResponseListener,
   notificationsSupported,
   registerServerPush,
   reminderHorizonDays,
@@ -43,29 +41,15 @@ export default function ReminderNotifications() {
   }, [calendar.data?.items]);
 
   useEffect(() => {
-    return addReminderResponseListener(
-      (href) => {
-        router.push(href as never);
-      },
-      (notificationId) => {
-        void markNotificationRead(notificationId).catch(() => undefined);
-      },
-      (taskId) => {
-        void prioritizeOverdueTask(taskId)
-          .then((plan) => {
-            void invalidateRef.current().catch(() => undefined);
-            void queryClient.invalidateQueries({ queryKey: keys.notifications });
-            void queryClient.invalidateQueries({ queryKey: keys.unreadNotifications });
-            const placed = plan.proposals?.some((proposal) => proposal.taskId === taskId);
-            useToastStore.getState().show(placed ? "Rescheduled with urgent priority" : "Set to urgent; task wasn't moved");
-            router.push(`/(app)/tasks/${taskId}`);
-          })
-          .catch((error: unknown) => {
-            useToastStore.getState().show(error instanceof Error ? error.message : "Could not reschedule task");
-            router.push(`/(app)/tasks/${taskId}`);
-          });
-      },
-    );
+    return addNotificationResponseHandler((result) => {
+      if (result.message) {
+        useToastStore.getState().show(result.message);
+        void invalidateRef.current().catch(() => undefined);
+      }
+      void queryClient.invalidateQueries({ queryKey: keys.notifications });
+      void queryClient.invalidateQueries({ queryKey: keys.unreadNotifications });
+      if (result.route) router.push(result.route as never);
+    });
   }, [router, queryClient]);
 
   return null;

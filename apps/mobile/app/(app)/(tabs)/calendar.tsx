@@ -334,7 +334,7 @@ export default function CalendarScreen() {
               </View>
             ) : null}
             {view === "agenda" ? (
-              <ScrollView
+              <ScrollView showsVerticalScrollIndicator={false}
                 style={{ flex: 1 }}
                 contentContainerStyle={{ paddingBottom: 110 }}
                 keyboardShouldPersistTaps="handled"

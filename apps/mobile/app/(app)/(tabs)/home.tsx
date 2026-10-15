@@ -402,7 +402,7 @@ export default function HomeScreen() {
   return (
     <Screen>
       <MobileHeader title="Today" subtitle={dateLabel} statusDot accountActions />
-      <ScrollView
+      <ScrollView showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.body}
         refreshControl={

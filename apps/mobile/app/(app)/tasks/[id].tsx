@@ -733,7 +733,7 @@ export default function TaskDetailScreen() {
         <ScrollView
           keyboardShouldPersistTaps="handled"
           nestedScrollEnabled
-          showsVerticalScrollIndicator={(activity.data ?? []).length > 4}
+          showsVerticalScrollIndicator={false}
           style={(activity.data ?? []).length > 4 ? styles.activityLog : undefined}
         >
           {(activity.data ?? []).map((row) => (

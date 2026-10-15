@@ -17,7 +17,10 @@
         "android.permission.SCHEDULE_EXACT_ALARM",
         "android.permission.USE_EXACT_ALARM",
         "android.permission.VIBRATE",
-        "android.permission.RECEIVE_BOOT_COMPLETED"
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
+        "android.permission.POST_PROMOTED_NOTIFICATIONS"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#111319",
@@ -25,7 +28,7 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": true
     },
     "web": {
       "bundler": "metro",
@@ -64,7 +67,8 @@
           "cameraPermission": "Take receipt photos for the Timely assistant.",
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-background-task"
     ],
     "updates": {
       "enabled": false

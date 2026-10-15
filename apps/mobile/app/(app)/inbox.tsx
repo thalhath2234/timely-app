@@ -120,7 +120,7 @@ export default function InboxScreen() {
     <Screen>
       <MobileHeader title="Inbox" back subtitle={subtitle} />
       <View style={{ flex: 1, paddingBottom: keyboard }}>
-        <ScrollView
+        <ScrollView showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.body}
           keyboardShouldPersistTaps="handled"
           refreshControl={

@@ -59,7 +59,7 @@ export default function MobileDay({
   const timed = layout(items.filter((i) => !i.allDay));
 
   return (
-    <ScrollView
+    <ScrollView showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
       contentOffset={{ x: 0, y: isToday ? Math.max(0, nowY - 160) : 7 * HOUR_PX }}
       contentContainerStyle={{ paddingBottom: floatingTabBarInset(insets.bottom) }}

@@ -12,13 +12,24 @@ export type QuickAddPreset = {
 type Listener = (preset: QuickAddPreset) => void;
 
 const listeners = new Set<Listener>();
+/** A request made before the tabs mounted (a launcher shortcut or widget opening the app). */
+let pending: QuickAddPreset | null = null;
 
 export function requestQuickAdd(preset: QuickAddPreset = {}) {
+  if (listeners.size === 0) {
+    pending = preset;
+    return;
+  }
   listeners.forEach((listener) => listener(preset));
 }
 
 export function subscribeQuickAdd(listener: Listener) {
   listeners.add(listener);
+  if (pending) {
+    const preset = pending;
+    pending = null;
+    listener(preset);
+  }
   return () => {
     listeners.delete(listener);
   };

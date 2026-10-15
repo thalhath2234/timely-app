@@ -48,6 +48,9 @@ export function buildEditorHtml(
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, editable=true" />
   <style>
+    /* The phone app shows no scrollbars anywhere. */
+    * { scrollbar-width: none; }
+    *::-webkit-scrollbar { display: none; width: 0; height: 0; }
     :root { color-scheme: ${t.mode}; }
     html, body { margin: 0; padding: 0; background: ${t.background}; }
     body { min-height: 100%; }

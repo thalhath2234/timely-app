@@ -292,9 +292,15 @@ function SheetFrame({ open, onClose, title, subtitle, leading, children, footer,
                 {presented.children}
               </FocusGroupScrollView>
             </SheetStackContext.Provider>
-            {page ? (
-              <SheetStackContext.Provider value={stack}>
-                <Animated.View key={page.id} entering={reduceMotion ? undefined : FadeIn.duration(overlayDuration)} style={styles.pageWrap}>
+            {/* Every open page stays mounted (only the top one shows), so a
+                picker opened from a page (a field's type on its edit page)
+                keeps the page that owns it alive. */}
+            {pages.map((entry) => (
+              <SheetStackContext.Provider key={entry.id} value={stack}>
+                <Animated.View
+                  entering={reduceMotion ? undefined : FadeIn.duration(overlayDuration)}
+                  style={[styles.pageWrap, entry !== page ? styles.hidden : null]}
+                >
                   <FocusGroupScrollView
                     onGroupChange={setGroupActive}
                     keyboardShouldPersistTaps="always"
@@ -304,11 +310,11 @@ function SheetFrame({ open, onClose, title, subtitle, leading, children, footer,
                     style={styles.body}
                     contentContainerStyle={styles.bodyContent}
                   >
-                    {page.children}
+                    {entry.children}
                   </FocusGroupScrollView>
                 </Animated.View>
               </SheetStackContext.Provider>
-            ) : null}
+            ))}
             {footerNode ? <View style={[styles.footer, typing && styles.footerTyping]}>{footerNode}</View> : null}
           </Animated.View>
         </View>

@@ -142,7 +142,7 @@ export default function HelpMeWriteSheet({
         </View>
       ) : result ? (
         <View style={styles.gap}>
-          <ScrollView
+          <ScrollView showsVerticalScrollIndicator={false}
             style={styles.preview}
             contentContainerStyle={styles.previewContent}
             nestedScrollEnabled
