@@ -277,21 +277,24 @@ export const plan: HelpSection = {
             <>
               <Shot
                 src="today"
-                alt="The Today page: habits and goals at the top, a Today focus list of three tasks with Start Focus buttons, and the scheduled agenda."
+                alt="The Today page in three columns: the Today focus list and suggestions, the day's schedule on a clock with a line at now, and habits, goals, reminders, overdue tasks and end of day on the right."
               />
               <ul>
+                <li>
+                  <strong>Today focus</strong>: up to seven tasks you want done today, whatever their deadlines. The
+                  bar of seven slots shows how many are done, still open and free.
+                </li>
+                <li>
+                  <strong>Schedule</strong>: today&apos;s blocks and events on a clock, with reminders pinned at their
+                  time, a line at now and the free time until your next item.
+                </li>
                 <li>
                   <strong>Habits and goals</strong>: tick a habit when you&apos;ve done it today. The flame shows the
                   streak.
                 </li>
                 <li>
-                  <strong>Today focus</strong>: up to seven tasks you want done today, whatever their deadlines.
-                </li>
-                <li>
-                  <strong>Scheduled agenda</strong>: today&apos;s blocks and events on a timeline.
-                </li>
-                <li>
-                  <strong>Reminders</strong> for today, and a nudge when the Inbox has items waiting.
+                  <strong>Reminders</strong>, <strong>Overdue</strong> and <strong>End of day</strong> sit beside the
+                  schedule; the header links to the Inbox when items are waiting.
                 </li>
               </ul>
             </>
@@ -302,7 +305,7 @@ export const plan: HelpSection = {
           title: "Focus sessions",
           body: (
             <p>
-              <strong>Start Focus</strong> on a task to time your work on it. Only one task can be in focus at a time.
+              <strong>Start focus</strong> on a task to time your work on it. Only one task can be in focus at a time.
               When you stop, the minutes are added to the task&apos;s actual time and show up in the Dashboard&apos;s
               Focus time card. The phone can also pause and resume a session.
             </p>
@@ -319,7 +322,7 @@ export const plan: HelpSection = {
                 toward. Both sync with the phone.
               </p>
               <PhoneShots
-                shots={[{ src: "phone-home", alt: "Phone Home tab with habit chips, three goals and the Today focus list." }]}
+                shots={[{ src: "phone-home", alt: "Phone Home tab with habit chips, two goals, the Inbox row and the Today focus card." }]}
               />
             </>
           ),
