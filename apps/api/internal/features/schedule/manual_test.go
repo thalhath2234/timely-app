@@ -40,11 +40,11 @@ func planFor(t *testing.T, rows []models.Task, req PlanRequest) (*PlanResponse, 
 	t.Helper()
 	s := &service{repo: planRepo{}, tasks: planTasks{rows: rows}, events: planEvents{}}
 	req.Timezone = "UTC"
-	plan, _, replaceManual, _, err := s.plan("usr", req)
+	plan, scope, err := s.plan("usr", req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return plan, replaceManual
+	return plan, scope.replaceManual
 }
 
 func manualTask(id string, blocks ...models.ScheduledBlock) models.Task {
