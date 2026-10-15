@@ -23,6 +23,7 @@ import {
 import { showUndoToast } from "@/app/_store/toastStore";
 import { useQueryClient } from "@tanstack/react-query";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
+import { BUCKET_GROUP_FIELDS, bucketGroupLabels, bucketGroupRank, queryContext } from "@timely/contract/taskQuery";
 import { latestTaskSchedule } from "@/app/utils/overdue";
 import { useWorkingHoursZone } from "@/app/utils/hooks/workspaces";
 import { formatTaskDatePoint, nextTaskSlot, taskDateSourceLabel, taskNextDate } from "@/app/utils/taskDates";
@@ -107,7 +108,8 @@ export default function KanbanView({
 }) {
   const updateTask = useUpdateTask();
   const queryClient = useQueryClient();
-  const today = todayInZone(useWorkingHoursZone());
+  const timeZone = useWorkingHoursZone();
+  const today = todayInZone(timeZone);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const openMenu = useContextMenu();
   const taskMenu = useTaskContextMenu();
@@ -137,6 +139,32 @@ export default function KanbanView({
       const priorityGroups = levels.map((level) => ({ key: level, name: level, color: priorityColor(level), items: rows.filter((row) => row.priorityLevel === level), statuses: [] as Status[] }));
       const noPriority = rows.filter((row) => !row.priorityLevel);
       return { groups: priorityGroups, uncategorized: noPriority };
+    }
+    if (BUCKET_GROUP_FIELDS.has(groupField)) {
+      // Date buckets, labels, effort, done and repeating: columns in their
+      // natural order (Overdue, Today, ...); a card with two labels shows twice.
+      const ctx = queryContext(rows, timeZone);
+      const byLabel = new Map<string, { key: string; name: string; color: string | null; items: Task[]; statuses: Status[] }>();
+      for (const row of rows) {
+        for (const label of bucketGroupLabels(row, groupField, ctx) ?? []) {
+          const existing = byLabel.get(label) ?? {
+            key: `bucket:${label}`,
+            name: label,
+            color: groupField === "label" ? row.labels?.find((item) => item.name === label)?.color ?? null : null,
+            items: [],
+            statuses: [],
+          };
+          existing.items.push(row);
+          byLabel.set(label, existing);
+        }
+      }
+      const groups = [...byLabel.values()].sort((a, b) => {
+        const left = bucketGroupRank(groupField, a.name);
+        const right = bucketGroupRank(groupField, b.name);
+        if (left !== undefined && right !== undefined && left !== right) return left - right;
+        return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
+      });
+      return { groups, uncategorized: [] as Task[] };
     }
     if (groupField !== "status") {
       const byValue = new Map<string, { key: string; name: string; color: string | null; items: Task[]; statuses: Status[] }>();
@@ -182,7 +210,7 @@ export default function KanbanView({
       })),
       uncategorized,
     };
-  }, [rows, workspaces, selectedWorkspaceIds, selectedStatusIds, selectedPriorityLevels, groupField]);
+  }, [rows, workspaces, selectedWorkspaceIds, selectedStatusIds, selectedPriorityLevels, groupField, timeZone]);
 
   const moveTask = async (task: Task, group: NamedStatusGroup & { key: string; name: string }) => {
     if (dataMode !== "task") return;

@@ -40,6 +40,7 @@ import { cn } from "@/app/utils/cn";
 import { resolvedColor, taskEntityColor } from "@/app/utils/entityColor";
 import { normalizePriority, priorityColor } from "@/app/utils/priority";
 import { filterTasks, type TaskListFilters } from "@/app/utils/taskFilters";
+import { bucketGroupLabels, bucketGroupRank, queryContext, sortTasks, type QueryContext } from "@timely/contract/taskQuery";
 import ColorChip from "@/app/_components/_ui/colorChip";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
@@ -58,6 +59,12 @@ type TasksTableProps = {
   selectedWorkspaceIds: string[];
   sortBy: TaskViewSortBy;
   sortDirection: TaskListSortDirection;
+  thenSortBy?: TaskViewSortBy;
+  thenSortDirection?: TaskListSortDirection;
+  /** Show only the first rows after sorting. */
+  limit?: number;
+  /** Shown instead of "No tasks yet." when the list is empty. */
+  emptyText?: string;
   columnOrder: string[];
   onColumnOrderChange: (order: string[]) => void;
   onSelectRow: (row: Task) => void;
@@ -253,22 +260,6 @@ function scheduledStamp(task: Task): string | null | undefined {
   return task.scheduledOn || task.blocks?.[0]?.start;
 }
 
-function getPriorityWeight(priority?: string | null): number {
-  switch ((priority ?? "").trim().toLowerCase()) {
-    case "critical":
-    case "urgent":
-      return 4;
-    case "high":
-      return 3;
-    case "medium":
-      return 2;
-    case "low":
-      return 1;
-    default:
-      return 0;
-  }
-}
-
 function getCustomFieldDisplayValue(task: Task, fieldId: string): string {
   const value = task.customFieldValues?.find((entry) => entry.customFieldId === fieldId);
   if (!value) return "-";
@@ -334,6 +325,25 @@ function getGroupMeta(
   groupBy: TaskListGroupField,
   stageNames: Record<string, string> = {},
   stageColors: Record<string, string> = {},
+  ctx?: QueryContext,
+): { label: string; color: string | null }[] {
+  // Dates, labels, effort and done/repeating are bucketed by the shared
+  // engine so web and phone agree; a task with two labels sits in both.
+  const buckets = ctx ? bucketGroupLabels(task, groupBy, ctx) : undefined;
+  if (buckets) {
+    return buckets.map((label) => ({
+      label,
+      color: groupBy === "label" ? task.labels?.find((item) => item.name === label)?.color ?? null : null,
+    }));
+  }
+  return [singleGroupMeta(task, groupBy, stageNames, stageColors)];
+}
+
+function singleGroupMeta(
+  task: Task,
+  groupBy: TaskListGroupField,
+  stageNames: Record<string, string>,
+  stageColors: Record<string, string>,
 ): { label: string; color: string | null } {
   if (groupBy === "workspace") {
     return {
@@ -369,7 +379,8 @@ function compareGroupLabel(
   a: string,
   b: string,
   direction: TaskListGroupSortDirection,
-  customOrder?: string[]
+  customOrder?: string[],
+  field?: TaskListGroupField,
 ): number {
   if (customOrder && customOrder.length > 0) {
     const aIndex = customOrder.indexOf(a);
@@ -383,7 +394,12 @@ function compareGroupLabel(
     if (bIndex >= 0) return 1;
   }
 
-  const compared = a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
+  const aRank = field ? bucketGroupRank(field, a) : undefined;
+  const bRank = field ? bucketGroupRank(field, b) : undefined;
+  const compared =
+    aRank !== undefined && bRank !== undefined
+      ? aRank - bRank
+      : a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
   return direction === "asc" ? compared : compared * -1;
 }
 
@@ -394,6 +410,7 @@ function buildNestedGroups(
   groupValueOrders: Record<string, string[]>,
   stageNames: Record<string, string> = {},
   stageColors: Record<string, string> = {},
+  ctx?: QueryContext,
   depth = 0,
   parentKey = ""
 ): GroupNode[] {
@@ -403,19 +420,20 @@ function buildNestedGroups(
   const grouped = new Map<string, { color: string | null; rows: Task[] }>();
 
   rows.forEach((task) => {
-    const meta = getGroupMeta(task, field, stageNames, stageColors);
-    const existing = grouped.get(meta.label);
-    if (existing) {
-      existing.rows.push(task);
-      if (!existing.color && meta.color) existing.color = meta.color;
-    } else {
-      grouped.set(meta.label, { color: meta.color, rows: [task] });
+    for (const meta of getGroupMeta(task, field, stageNames, stageColors, ctx)) {
+      const existing = grouped.get(meta.label);
+      if (existing) {
+        existing.rows.push(task);
+        if (!existing.color && meta.color) existing.color = meta.color;
+      } else {
+        grouped.set(meta.label, { color: meta.color, rows: [task] });
+      }
     }
   });
 
   return Array.from(grouped.entries())
     .sort(([aLabel], [bLabel]) =>
-      compareGroupLabel(aLabel, bLabel, groupSortDirection, groupValueOrders[field])
+      compareGroupLabel(aLabel, bLabel, groupSortDirection, groupValueOrders[field], field)
     )
     .map(([label, group]) => {
       const nodeKey = parentKey ? `${parentKey}::${label}` : label;
@@ -426,6 +444,7 @@ function buildNestedGroups(
         groupValueOrders,
         stageNames,
         stageColors,
+        ctx,
         depth + 1,
         nodeKey
       );
@@ -441,31 +460,6 @@ function buildNestedGroups(
         rows: group.rows,
       };
     });
-}
-
-function compareTasks(a: Task, b: Task, sortBy: TaskViewSortBy): number {
-  switch (sortBy) {
-    case "name":
-      return (a.name || "").localeCompare(b.name || "");
-    case "deadline":
-      return (new Date(a.deadline || "").getTime() || 0) - (new Date(b.deadline || "").getTime() || 0);
-    case "scheduledOn":
-      return (new Date(a.scheduledOn || a.blocks?.[0]?.start || "").getTime() || 0) - (new Date(b.scheduledOn || b.blocks?.[0]?.start || "").getTime() || 0);
-    case "startDate":
-      return (new Date(a.startDate || "").getTime() || 0) - (new Date(b.startDate || "").getTime() || 0);
-    case "createdAt":
-      return (new Date(a.createdAt || "").getTime() || 0) - (new Date(b.createdAt || "").getTime() || 0);
-    case "priority":
-      return getPriorityWeight(a.priorityLevel) - getPriorityWeight(b.priorityLevel);
-    case "status":
-      return (a.status?.name || "").localeCompare(b.status?.name || "");
-    case "project":
-      return (a.project?.title || "").localeCompare(
-        b.project?.title || ""
-      );
-    default:
-      return 0;
-  }
 }
 
 function getBlockedByDisplayValue(task: Task): string {
@@ -530,6 +524,10 @@ export default function TasksTable({
   selectedWorkspaceIds,
   sortBy,
   sortDirection,
+  thenSortBy,
+  thenSortDirection,
+  limit,
+  emptyText,
   columnOrder,
   onColumnOrderChange,
   onSelectRow,
@@ -568,18 +566,17 @@ export default function TasksTable({
     });
   }, [dataRows, selectedWorkspaceIds, filters]);
 
-  const sortedTasks = useMemo(() => {
-    const sorted = [...filteredRows].sort((a, b) => {
-      const compared = compareTasks(a, b, sortBy);
-      return sortDirection === "asc" ? compared : compared * -1;
-    });
+  const timeZone = config.workingHours?.timezone;
+  const queryCtx = useMemo(() => queryContext(typedTasks, timeZone, new Date(), stageNames), [typedTasks, timeZone, stageNames]);
 
-    return sorted;
-  }, [filteredRows, sortBy, sortDirection]);
+  const sortedTasks = useMemo(() => {
+    const sorted = sortTasks(filteredRows, { sortBy, sortDirection, thenSortBy, thenSortDirection }, queryCtx);
+    return limit && limit > 0 ? sorted.slice(0, limit) : sorted;
+  }, [filteredRows, sortBy, sortDirection, thenSortBy, thenSortDirection, limit, queryCtx]);
 
   const nestedGroups = useMemo(
-    () => buildNestedGroups(sortedTasks, groupFields, groupSortDirection, groupValueOrders, stageNames, stageColors),
-    [sortedTasks, groupFields, groupSortDirection, groupValueOrders, stageNames, stageColors]
+    () => buildNestedGroups(sortedTasks, groupFields, groupSortDirection, groupValueOrders, stageNames, stageColors, queryCtx),
+    [sortedTasks, groupFields, groupSortDirection, groupValueOrders, stageNames, stageColors, queryCtx]
   );
 
   const toggleGroup = (key: string) => {
@@ -1009,7 +1006,7 @@ export default function TasksTable({
   }
 
   if (!sortedTasks.length) {
-    return <div className="p-4 text-sm text-muted-foreground">No tasks yet.</div>;
+    return <div className="p-4 text-sm text-muted-foreground">{emptyText ?? "No tasks yet."}</div>;
   }
 
   const headerCellClass =

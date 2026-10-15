@@ -27,7 +27,7 @@ import {
   useWorkspacesQuery,
 } from "../../../lib/hooks";
 import { addDays, formatShortDate, PRIORITY_META, startOfDay, toDateInputValue } from "../../../lib/format";
-import { normalizePriority, PRIORITIES, priorityRank } from "../../../lib/priority";
+import { normalizePriority, PRIORITIES } from "../../../lib/priority";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
 import { bulkUndoSnapshot, labelIdsWithNamed, mergeLabelsByName, type BulkUndoField, type NamedLabelGroup } from "@timely/contract/bulkEdit";
 import { resolvedColor } from "../../../lib/entityColor";
@@ -50,11 +50,28 @@ import {
   useNativeTaskViews,
 } from "../../../lib/nativeTaskViews";
 import type { Task, TaskListGroupField, TaskViewConfig } from "../../../lib/types";
+import {
+  BUCKET_GROUP_FIELDS,
+  bucketGroupLabels,
+  bucketGroupRank,
+  queryContext,
+  sortTasks,
+  viewLimit,
+  viewSort,
+  type QueryContext,
+} from "@timely/contract/taskQuery";
+import { vocabularyFrom } from "@timely/contract/viewLanguage";
+import ViewRulesBar from "../../../components/tasks/ViewRulesBar";
+import { useViewPreviewStore } from "../../../lib/viewPreviewStore";
 import type { UpdateTaskPayload } from "../../../lib/api/tasks";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 function groupField(view?: TaskViewConfig): TaskListGroupField | undefined {
-  if (view?.renderMode === "kanban") return view.groupFields?.[0] ?? "status";
+  // The phone board groups by status, priority, workspace, project or stage.
+  if (view?.renderMode === "kanban") {
+    const first = view.groupFields?.[0];
+    return first && !BUCKET_GROUP_FIELDS.has(first) ? first : "status";
+  }
   return view?.groupFields?.[0];
 }
 
@@ -82,16 +99,29 @@ function groupValueTitle(task: Task, field: TaskListGroupField, stageNames: Reco
 }
 
 function groupFields(view?: TaskViewConfig): TaskListGroupField[] {
-  if (view?.renderMode === "kanban") return [view.groupFields?.[0] ?? "status"];
+  if (view?.renderMode === "kanban") return [groupField(view) ?? "status"];
   return view?.groupFields?.length ? view.groupFields.slice(0, 3) : ["project"];
 }
 
-function groupKey(task: Task, view: TaskViewConfig | undefined, stageNames: Record<string, string>) {
-  return groupFields(view).map((field) => `${field}:${groupValue(task, field, stageNames)}`).join("|");
-}
-
-function groupTitle(task: Task, view: TaskViewConfig | undefined, stageNames: Record<string, string>) {
-  return groupFields(view).map((field) => groupValueTitle(task, field, stageNames)).join(" › ");
+/**
+ * Every group a task sits in, as key and title: one, or several when it
+ * carries several labels. Dates, labels, effort, done and repeating are
+ * bucketed by the shared engine so the phone and web show the same groups.
+ */
+function taskGroups(task: Task, view: TaskViewConfig | undefined, stageNames: Record<string, string>, ctx: QueryContext) {
+  let parts: { key: string; title: string }[] = [{ key: "", title: "" }];
+  for (const field of groupFields(view)) {
+    const values = bucketGroupLabels(task, field, ctx)?.map((label) => ({ key: label, title: label })) ?? [
+      { key: groupValue(task, field, stageNames), title: groupValueTitle(task, field, stageNames) },
+    ];
+    parts = parts.flatMap((part) =>
+      values.map((value) => ({
+        key: `${part.key}|${field}:${value.key}`,
+        title: part.title ? `${part.title} › ${value.title}` : value.title,
+      })),
+    );
+  }
+  return parts;
 }
 
 /** The group's own colour, as the desktop list and board show it; groups
@@ -115,7 +145,8 @@ function groupColor(task: Task, view: TaskViewConfig | undefined, stageColors: R
 function viewHasCustomFilters(view?: TaskViewConfig) {
   if (!view) return false;
   return Boolean(
-    view.selectedWorkspaceIds?.length ||
+    view.rules?.length ||
+      view.selectedWorkspaceIds?.length ||
       view.selectedStatusIds?.length ||
       view.selectedProjectIds?.length ||
       view.selectedPriorityLevels?.length ||
@@ -127,39 +158,6 @@ function viewHasCustomFilters(view?: TaskViewConfig) {
       view.onlyDated ||
       view.showCompleted === false,
   );
-}
-
-function sortTasks(a: Task, b: Task, view?: TaskViewConfig) {
-  const dir = view?.sortDirection === "desc" ? -1 : 1;
-  const by = view?.sortBy ?? "deadline";
-  const cmp = (left: number | string, right: number | string) => {
-    if (left < right) return -1 * dir;
-    if (left > right) return 1 * dir;
-    return 0;
-  };
-  switch (by) {
-    case "name":
-      return cmp(a.name.toLowerCase(), b.name.toLowerCase());
-    case "createdAt":
-      return cmp(a.createdAt, b.createdAt);
-    case "startDate":
-      return cmp(a.startDate ?? "zzz", b.startDate ?? "zzz");
-    case "scheduledOn":
-      return cmp(a.scheduledOn ?? a.blocks?.[0]?.start ?? "zzz", b.scheduledOn ?? b.blocks?.[0]?.start ?? "zzz");
-    case "priority":
-      return (priorityRank(a.priorityLevel) - priorityRank(b.priorityLevel)) * dir;
-    case "status":
-      return cmp((a.status?.name ?? "").toLowerCase(), (b.status?.name ?? "").toLowerCase());
-    case "project":
-      return cmp((a.project?.title ?? "").toLowerCase(), (b.project?.title ?? "").toLowerCase());
-    case "deadline":
-    default: {
-      if (a.deadline && b.deadline && a.deadline !== b.deadline) return cmp(a.deadline, b.deadline);
-      if (a.deadline && !b.deadline) return -1;
-      if (!a.deadline && b.deadline) return 1;
-      return priorityRank(a.priorityLevel) - priorityRank(b.priorityLevel);
-    }
-  }
 }
 
 export default function TasksScreen() {
@@ -179,8 +177,22 @@ export default function TasksScreen() {
   const workspaces = spacesQ.data ?? [];
   const networkCopy = needsNetworkCopy(tasksQ);
   const views = nativeViews.views;
-  const activeView = nativeViews.activeView;
-  const activeViewId = nativeViews.activeViewId;
+  // A view read from words in Search shows as an unsaved Preview tab.
+  const preview = useViewPreviewStore((state) => state.preview);
+  const setPreview = useViewPreviewStore((state) => state.setPreview);
+  const patchPreview = useViewPreviewStore((state) => state.patchPreview);
+  const activeView = preview ?? nativeViews.activeView;
+  const activeViewId = preview ? preview.id : nativeViews.activeViewId;
+  const patchView = preview ? patchPreview : nativeViews.patchActiveView;
+  const pendingSave = useViewPreviewStore((state) => state.pendingSave);
+  const setPendingSave = useViewPreviewStore((state) => state.setPendingSave);
+  const { saveViewAsNew } = nativeViews;
+  useEffect(() => {
+    if (!pendingSave || !nativeViews.ready) return;
+    setPendingSave(null);
+    if (saveViewAsNew(pendingSave)) setPreview(null);
+    else setPreview(pendingSave);
+  }, [pendingSave, nativeViews.ready, setPendingSave, saveViewAsNew, setPreview]);
   // Search and the assistant open a saved view by id (?view=…). A view the
   // assistant just made may not be here yet, so the views are fetched once
   // more before the param is dropped.
@@ -235,28 +247,42 @@ export default function TasksScreen() {
     return out;
   }, [projects]);
 
+  const queryCtx = useMemo(
+    () => queryContext(tasks, workingHoursZone, new Date(), stageNames),
+    [tasks, workingHoursZone, stageNames],
+  );
   const visible = useMemo(() => {
     if (!activeView || activeView.dataMode === "project") return [];
-    return filterTasks(tasks, filtersFromView(activeView), workingHoursZone)
-      .filter((task) => (projectId ? task.projectId === projectId : true))
-      .sort((a, b) => sortTasks(a, b, activeView));
-  }, [tasks, projectId, activeView, workingHoursZone]);
+    const rows = sortTasks(
+      filterTasks(tasks, filtersFromView(activeView), workingHoursZone).filter((task) =>
+        projectId ? task.projectId === projectId : true,
+      ),
+      viewSort(activeView),
+      queryCtx,
+    );
+    const limit = viewLimit(activeView);
+    return limit ? rows.slice(0, limit) : rows;
+  }, [tasks, projectId, activeView, workingHoursZone, queryCtx]);
 
   const groups = useMemo(() => {
-    const map = new Map<string, { title: string; color: string | null; tasks: Task[] }>();
+    const map = new Map<string, { title: string; rank?: number; color: string | null; tasks: Task[] }>();
+    const first = groupField(activeView) ?? "project";
     for (const task of visible) {
-      const key = groupKey(task, activeView, stageNames);
-      if (!map.has(key)) {
-        map.set(key, {
-          title: groupTitle(task, activeView, stageNames),
-          color: groupColor(task, activeView, stageColors),
-          tasks: [],
-        });
+      for (const group of taskGroups(task, activeView, stageNames, queryCtx)) {
+        if (!map.has(group.key)) {
+          const firstTitle = group.title.split(" › ")[0];
+          map.set(group.key, {
+            title: group.title,
+            rank: bucketGroupRank(first, firstTitle),
+            color: BUCKET_GROUP_FIELDS.has(first) ? null : groupColor(task, activeView, stageColors),
+            tasks: [],
+          });
+        }
+        map.get(group.key)!.tasks.push(task);
       }
-      map.get(key)!.tasks.push(task);
     }
     const rows = [...map.values()];
-    const ordered = activeView?.groupValueOrders?.[groupField(activeView) ?? ""];
+    const ordered = activeView?.groupValueOrders?.[first];
     rows.sort((a, b) => {
       if (ordered?.length) {
         const left = ordered.indexOf(a.title);
@@ -265,11 +291,15 @@ export default function TasksScreen() {
           return (left === -1 ? ordered.length : left) - (right === -1 ? ordered.length : right);
         }
       }
-      const cmp = a.title.localeCompare(b.title);
+      const cmp = a.rank !== undefined && b.rank !== undefined && a.rank !== b.rank ? a.rank - b.rank : a.title.localeCompare(b.title);
       return activeView?.groupSortDirection === "desc" ? -cmp : cmp;
     });
     return rows;
-  }, [visible, activeView, stageNames, stageColors]);
+  }, [visible, activeView, stageNames, stageColors, queryCtx]);
+  const vocab = useMemo(
+    () => vocabularyFrom({ workspaces, projects, customFields }),
+    [workspaces, projects, customFields],
+  );
 
   const sections = useMemo(
     () => groups.map((group) => ({ title: group.title, color: group.color, data: group.tasks })),
@@ -452,6 +482,8 @@ export default function TasksScreen() {
 
   function selectView(id: string) {
     setSelectedIds((current) => (current.length > 0 ? [] : current));
+    if (preview && id === preview.id) return;
+    setPreview(null);
     nativeViews.setActiveId(id);
   }
 
@@ -540,12 +572,27 @@ export default function TasksScreen() {
           </AnimatedPressable>
         ) : null}
         <TaskFilterBar
-          views={views}
+          views={preview ? [...views, { ...preview, name: `Preview: ${preview.name}` }] : views}
           activeViewId={activeViewId}
           onView={selectView}
           onAdd={nativeViews.addView}
         />
       </MobileHeader>
+      <ViewRulesBar
+        view={activeView}
+        vocab={vocab}
+        onPatch={patchView}
+        preview={
+          preview
+            ? {
+                onSave: () => {
+                  if (nativeViews.saveViewAsNew(preview)) setPreview(null);
+                },
+                onClose: () => setPreview(null),
+              }
+            : undefined
+        }
+      />
       {selecting ? (
         <View style={styles.bulk}>
           <Text style={styles.bulkCount}>{selectedIds.length} selected</Text>
@@ -690,9 +737,9 @@ export default function TasksScreen() {
         open={filtersOpen}
         onClose={() => setFiltersOpen(false)}
         view={activeView ?? views[0] ?? defaultNativeTaskViews()[0]}
-        onPatch={nativeViews.patchActiveView}
+        onPatch={patchView}
         onAdd={nativeViews.addView}
-        onDelete={() => setConfirmDeleteView(true)}
+        onDelete={() => (preview ? setPreview(null) : setConfirmDeleteView(true))}
         canDelete={views.length > 1}
         customFields={customFields}
         statusGroups={statusGroups}

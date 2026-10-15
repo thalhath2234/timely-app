@@ -4,7 +4,7 @@ import { buttonClass } from "@/app/_components/_ui/button";
 import { controlClass, popoverSurface } from "@/app/_components/_ui/field";
 import SegmentedControl from "@/app/_components/_ui/segmentedControl";
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, GripVertical, List, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, GripVertical, List, X } from "lucide-react";
 import Select from "@/app/_components/_ui/select";
 import type {
   CustomField,
@@ -18,11 +18,27 @@ import type {
   Workspace,
 } from "@/app/_types/types";
 import { PRIORITY_OPTIONS } from "@/app/utils/priority";
+import { GROUP_FIELD_LABELS } from "@timely/contract/taskQuery";
 import { useModKey } from "@/app/utils/hooks/useModKey";
 import { mergeStatusesByName, statusNameKey } from "@/app/utils/status";
 import { plural, pluralWord } from "@/app/utils/plural";
 
 export type TaskListScope = "global" | "project";
+
+// Dates group into buckets (Overdue, Today, This week, ...) by the shared
+// engine, so web and phone show the same groups.
+const BUCKET_GROUPS: TaskListGroupField[] = [
+  "label",
+  "deadline",
+  "planned",
+  "startDate",
+  "createdAt",
+  "updatedAt",
+  "completedAt",
+  "effort",
+  "done",
+  "recurring",
+];
 
 const GLOBAL_GROUP_FIELDS: TaskListGroupField[] = [
   "workspace",
@@ -30,9 +46,10 @@ const GLOBAL_GROUP_FIELDS: TaskListGroupField[] = [
   "stage",
   "status",
   "priority",
+  ...BUCKET_GROUPS,
 ];
 
-const PROJECT_GROUP_FIELDS: TaskListGroupField[] = ["stage", "status", "priority"];
+const PROJECT_GROUP_FIELDS: TaskListGroupField[] = ["stage", "status", "priority", ...BUCKET_GROUPS];
 
 const GLOBAL_DEFAULT_GROUPS: TaskListGroupField[] = ["workspace", "project", "stage"];
 
@@ -64,6 +81,12 @@ type TaskToolbarProps = {
   /** Project hub lists are already scoped, so workspace/project tools stay hidden. */
   scope?: TaskListScope;
   defaultGroupFields?: TaskListGroupField[];
+  /** Second sort and "show first N"; the Sort panel offers them when set. */
+  thenSortBy?: TaskViewSortBy;
+  thenSortDirection?: TaskListSortDirection;
+  setThenSort?: (by: TaskViewSortBy | undefined, direction: TaskListSortDirection | undefined) => void;
+  limit?: number;
+  setLimit?: (value: number | undefined) => void;
 };
 
 export function TaskToolbar({
@@ -93,11 +116,17 @@ export function TaskToolbar({
   setShowReminders,
   scope = "global",
   defaultGroupFields,
+  thenSortBy,
+  thenSortDirection,
+  setThenSort,
+  limit,
+  setLimit,
 }: TaskToolbarProps) {
   const [groupPanelOpen, setGroupPanelOpen] = useState(false);
   const [groupSortPanelOpen, setGroupSortPanelOpen] = useState(false);
   const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false);
   const [statusPanelOpen, setStatusPanelOpen] = useState(false);
+  const [sortPanelOpen, setSortPanelOpen] = useState(false);
   const [dragGroupIndex, setDragGroupIndex] = useState<number | null>(null);
   const [dragGroupValue, setDragGroupValue] = useState<{
     field: TaskListGroupField;
@@ -107,6 +136,7 @@ export function TaskToolbar({
   const groupSortPanelRef = useRef<HTMLDivElement>(null);
   const workspacePanelRef = useRef<HTMLDivElement>(null);
   const statusPanelRef = useRef<HTMLDivElement>(null);
+  const sortPanelRef = useRef<HTMLDivElement>(null);
   const isProjectScope = scope === "project";
 
   useEffect(() => {
@@ -142,6 +172,10 @@ export function TaskToolbar({
       if (statusPanelOpen && statusPanelRef.current && !statusPanelRef.current.contains(target)) {
         setStatusPanelOpen(false);
       }
+
+      if (sortPanelOpen && sortPanelRef.current && !sortPanelRef.current.contains(target)) {
+        setSortPanelOpen(false);
+      }
     };
 
     const handleEscape = (event: KeyboardEvent) => {
@@ -150,6 +184,7 @@ export function TaskToolbar({
         setGroupSortPanelOpen(false);
         setWorkspacePanelOpen(false);
         setStatusPanelOpen(false);
+        setSortPanelOpen(false);
       }
     };
 
@@ -162,7 +197,7 @@ export function TaskToolbar({
       document.removeEventListener("touchstart", handleOutsideClick);
       document.removeEventListener("keydown", handleEscape);
     };
-  }, [groupPanelOpen, groupSortPanelOpen, workspacePanelOpen, statusPanelOpen]);
+  }, [groupPanelOpen, groupSortPanelOpen, workspacePanelOpen, statusPanelOpen, sortPanelOpen]);
 
   const availableGroups: TaskListGroupField[] = [
     ...(isProjectScope ? PROJECT_GROUP_FIELDS : GLOBAL_GROUP_FIELDS),
@@ -228,7 +263,7 @@ export function TaskToolbar({
       const field = customFields.find((item) => item.id === value.slice(3));
       return field?.name ?? "Custom Field";
     }
-    return value[0].toUpperCase() + value.slice(1);
+    return GROUP_FIELD_LABELS[value] ?? value[0].toUpperCase() + value.slice(1);
   };
 
   const toggleWorkspace = (workspaceId: string) => {
@@ -268,9 +303,24 @@ export function TaskToolbar({
     { value: "scheduledOn", label: "Scheduled date" },
     { value: "startDate", label: "Start date" },
     { value: "createdAt", label: "Created at" },
+    { value: "updatedAt", label: "Last updated" },
+    { value: "completedAt", label: "Completed at" },
     { value: "priority", label: "Priority" },
+    { value: "urgency", label: "Urgency" },
     { value: "status", label: "Status" },
-    ...(isProjectScope ? [] : [{ value: "project", label: "Project" }]),
+    { value: "stage", label: "Stage" },
+    ...(isProjectScope ? [] : [{ value: "project", label: "Project" }, { value: "workspace", label: "Workspace" }]),
+    { value: "duration", label: "Duration" },
+    { value: "tracked", label: "Time tracked" },
+    { value: "progress", label: "Checklist progress" },
+    { value: "effort", label: "Effort" },
+    ...customFields.map((field) => ({ value: `cf:${field.id}`, label: field.name })),
+  ];
+
+  const sortName = (value: TaskViewSortBy) => sortOptions.find((option) => option.value === value)?.label ?? "Deadline";
+  const directionOptions: { value: TaskListSortDirection; label: string; title: string }[] = [
+    { value: "asc", label: "Asc", title: "Ascending: A to Z, soonest, lowest first" },
+    { value: "desc", label: "Desc", title: "Descending: Z to A, latest, highest first" },
   ];
 
   const dataModeOptions = [
@@ -467,25 +517,98 @@ export function TaskToolbar({
           ]}
         />
 
-        <div className="inline-flex items-center gap-1.5">
-          <span className="text-muted-foreground">Sort</span>
-          <div className="w-32">
-            <Select
-              size="sm"
-              value={sortBy}
-              onChange={(next) => setSortBy(next as TaskViewSortBy)}
-              options={sortOptions}
-              aria-label="Sort by"
-            />
-          </div>
+        <div className="relative" ref={sortPanelRef}>
           <button
             type="button"
-            className={buttonClass({ variant: "outline", size: "sm", className: "font-normal" })}
-            title="Sort direction"
-            onClick={() => setSortDirection(sortDirection === "asc" ? "desc" : "asc")}
+            className={buttonClass({ variant: "outline", size: "sm", className: "max-w-80 font-normal" })}
+            aria-expanded={sortPanelOpen}
+            onClick={() => setSortPanelOpen((prev) => !prev)}
           >
-            {sortDirection === "asc" ? "Ascending" : "Descending"}
+            <span className="text-muted-foreground">Sort</span>
+            <span className="inline-flex min-w-0 items-center gap-1 font-medium text-foreground">
+              <span className="truncate">{sortName(sortBy)}</span>
+              {sortDirection === "desc" ? <ArrowDown aria-label="descending" /> : <ArrowUp aria-label="ascending" />}
+              {thenSortBy ? <span className="truncate text-muted-foreground">then {sortName(thenSortBy)}</span> : null}
+              {limit ? <span className="shrink-0 text-muted-foreground">· first {limit}</span> : null}
+            </span>
+            <ChevronDown className="text-muted-foreground" />
           </button>
+
+          {sortPanelOpen && (
+            <div className="absolute top-9 left-0 z-40 w-[300px] space-y-3 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg">
+              <div className="space-y-1.5">
+                <h4 className="text-xs font-medium text-muted-foreground">Sort by</h4>
+                <div className="flex items-center gap-1.5">
+                  <div className="min-w-0 flex-1">
+                    <Select
+                      size="sm"
+                      searchable
+                      value={sortBy}
+                      onChange={(next) => setSortBy(next as TaskViewSortBy)}
+                      options={sortOptions}
+                      aria-label="Sort by"
+                    />
+                  </div>
+                  <SegmentedControl
+                    size="sm"
+                    aria-label="Sort direction"
+                    value={sortDirection}
+                    onChange={setSortDirection}
+                    options={directionOptions}
+                  />
+                </div>
+              </div>
+              {setThenSort ? (
+                <div className="space-y-1.5">
+                  <h4 className="text-xs font-medium text-muted-foreground">Then by</h4>
+                  <div className="flex items-center gap-1.5">
+                    <div className="min-w-0 flex-1">
+                      <Select
+                        size="sm"
+                        searchable
+                        value={thenSortBy ?? ""}
+                        onChange={(next) =>
+                          next ? setThenSort(next as TaskViewSortBy, thenSortDirection ?? "asc") : setThenSort(undefined, undefined)
+                        }
+                        options={[
+                          { value: "", label: "Nothing" },
+                          ...sortOptions.filter((option) => option.value !== sortBy),
+                        ]}
+                        aria-label="Then sort by"
+                      />
+                    </div>
+                    {thenSortBy ? (
+                      <SegmentedControl
+                        size="sm"
+                        aria-label="Second sort direction"
+                        value={thenSortDirection ?? "asc"}
+                        onChange={(next) => setThenSort(thenSortBy, next)}
+                        options={directionOptions}
+                      />
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+              {setLimit ? (
+                <div className="space-y-1.5 border-t border-border pt-3">
+                  <h4 className="text-xs font-medium text-muted-foreground">Show</h4>
+                  <div className="flex items-center gap-1.5">
+                    <SegmentedControl
+                      size="sm"
+                      aria-label="How many to show"
+                      value={limit ? "first" : "all"}
+                      onChange={(next) => setLimit(next === "first" ? (limit ?? 10) : undefined)}
+                      options={[
+                        { value: "all", label: "All" },
+                        { value: "first", label: "First" },
+                      ]}
+                    />
+                    {limit ? <LimitInput value={limit} onChange={setLimit} /> : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )}
         </div>
       </div>
 
@@ -628,6 +751,34 @@ export function TaskToolbar({
           {plural(dataCount, dataMode === "task" ? (showReminders ? "reminder" : "task") : "project")}
         </span>
       </div>
+    </div>
+  );
+}
+
+/** "Show first N": saves on Enter or blur, between 1 and 500. */
+function LimitInput({ value, onChange }: { value: number; onChange: (value: number | undefined) => void }) {
+  const [draft, setDraft] = useState({ from: value, text: String(value) });
+  const text = draft.from === value ? draft.text : String(value);
+  const commit = () => {
+    const number = Math.round(Number(text));
+    if (Number.isFinite(number) && number >= 1) onChange(Math.min(number, 500));
+    else setDraft({ from: value, text: String(value) });
+  };
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        type="number"
+        min={1}
+        max={500}
+        inputMode="numeric"
+        value={text}
+        onChange={(event) => setDraft({ from: value, text: event.target.value })}
+        onBlur={commit}
+        onKeyDown={(event) => event.key === "Enter" && commit()}
+        aria-label="Number of tasks to show"
+        className={controlClass("sm", "w-16")}
+      />
+      <span className="text-xs text-muted-foreground">after sorting</span>
     </div>
   );
 }

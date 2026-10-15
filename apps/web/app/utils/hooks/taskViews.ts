@@ -9,6 +9,12 @@ import { resolveViewOnlyDated, resolveViewShowCompleted } from "@/app/utils/task
 
 const EMPTY_VIEWS: TaskViewConfig[] = [];
 
+/** The server keeps at most this many saved views (models.MaxTaskViews). */
+export const MAX_TASK_VIEWS = 20;
+
+/** The id of the unsaved view search opens; never saved under this id. */
+export const PREVIEW_VIEW_ID = "preview";
+
 export const NEW_VIEW_TEMPLATE: Omit<TaskViewConfig, "id" | "name"> = {
   dataMode: "task",
   renderMode: "list",
@@ -50,15 +56,18 @@ export function useTaskViewsState() {
   const configViews = typedConfig?.taskViews ?? EMPTY_VIEWS;
   const [draft, setDraft] = useState<{ views: TaskViewConfig[]; activeId: string } | null>(null);
   const [syncError, setSyncError] = useState("");
+  // A view read from words in search, shown until it is saved or closed.
+  const [preview, setPreview] = useState<TaskViewConfig | null>(null);
 
   const taskViews = draft?.views ?? configViews;
-  const activeTaskViewId = resolveActiveId(
+  const savedActiveId = resolveActiveId(
     taskViews,
     draft?.activeId ?? typedConfig?.activeTaskViewId,
   );
+  const activeTaskViewId = preview ? PREVIEW_VIEW_ID : savedActiveId;
   const activeTaskView = useMemo(
-    () => taskViews.find((view) => view.id === activeTaskViewId),
-    [taskViews, activeTaskViewId],
+    () => preview ?? taskViews.find((view) => view.id === savedActiveId),
+    [preview, taskViews, savedActiveId],
   );
   const viewsReady = Boolean(typedConfig);
 
@@ -80,22 +89,53 @@ export function useTaskViewsState() {
 
   const setActiveTaskViewId = useCallback(
     (id: string) => {
+      setPreview(null);
+      if (id === PREVIEW_VIEW_ID) return;
       withDraft((views) => ({ views, activeId: id }));
     },
     [withDraft],
   );
 
+  const openPreview = useCallback((view: TaskViewConfig) => {
+    setPreview({ ...view, id: PREVIEW_VIEW_ID });
+  }, []);
+
+  const closePreview = useCallback(() => setPreview(null), []);
+
+  /** Saves a view as a new tab and opens it; false when the 20 tabs are used. */
+  const saveViewAsNew = useCallback(
+    (view: TaskViewConfig, name?: string): boolean => {
+      if (taskViews.length >= MAX_TASK_VIEWS) return false;
+      const id = `view_${Date.now()}`;
+      const saved: TaskViewConfig = { ...view, id, name: (name ?? view.name).trim().slice(0, 100) || "New view" };
+      setPreview(null);
+      withDraft((views) => ({ views: [...views, saved], activeId: id }));
+      return true;
+    },
+    [taskViews.length, withDraft],
+  );
+
+  const savePreview = useCallback(
+    (name?: string) => (preview ? saveViewAsNew(preview, name) : false),
+    [preview, saveViewAsNew],
+  );
+
   const patchActiveView = useCallback(
     (patch: Partial<TaskViewConfig>) => {
+      if (preview) {
+        setPreview((current) => (current ? { ...current, ...patch } : current));
+        return;
+      }
       withDraft((views, activeId) => ({
         views: views.map((view) => (view.id === activeId ? { ...view, ...patch } : view)),
         activeId,
       }));
     },
-    [withDraft],
+    [preview, withDraft],
   );
 
   const addNewView = useCallback(() => {
+    setPreview(null);
     withDraft((views, activeId) => {
       const base = views.find((view) => view.id === activeId) ?? views[0];
       const id = `view_${Date.now()}`;
@@ -109,6 +149,10 @@ export function useTaskViewsState() {
   }, [withDraft]);
 
   const deleteActiveView = useCallback(() => {
+    if (preview) {
+      setPreview(null);
+      return;
+    }
     withDraft((views, activeId) => {
       if (views.length <= 1) return { views, activeId };
       const activeIndex = views.findIndex((view) => view.id === activeId);
@@ -116,12 +160,16 @@ export function useTaskViewsState() {
       const fallbackIndex = activeIndex > 0 ? activeIndex - 1 : 0;
       return { views: next, activeId: next[fallbackIndex]?.id ?? next[0]?.id ?? "" };
     });
-  }, [withDraft]);
+  }, [preview, withDraft]);
 
   const renameView = useCallback(
     (viewId: string, name: string) => {
       const nextName = name.trim();
       if (!nextName) return;
+      if (viewId === PREVIEW_VIEW_ID) {
+        setPreview((current) => (current ? { ...current, name: nextName } : current));
+        return;
+      }
       withDraft((views, activeId) => ({
         views: views.map((view) =>
           view.id === viewId && view.name !== nextName ? { ...view, name: nextName } : view,
@@ -135,7 +183,7 @@ export function useTaskViewsState() {
   useEffect(() => {
     if (!viewsReady || !draft || taskViews.length === 0) return;
 
-    const resolvedActiveTaskViewId = activeTaskViewId;
+    const resolvedActiveTaskViewId = savedActiveId;
     if (!resolvedActiveTaskViewId) return;
 
     const timer = setTimeout(() => {
@@ -176,7 +224,7 @@ export function useTaskViewsState() {
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [viewsReady, draft, taskViews, activeTaskViewId, queryClient, saveViews]);
+  }, [viewsReady, draft, taskViews, savedActiveId, queryClient, saveViews]);
 
   const view = activeTaskView;
 
@@ -188,6 +236,11 @@ export function useTaskViewsState() {
     activeTaskViewId,
     activeTaskView,
     setActiveTaskViewId,
+    preview,
+    openPreview,
+    closePreview,
+    savePreview,
+    saveViewAsNew,
     patchActiveView,
     addNewView,
     deleteActiveView,
@@ -213,5 +266,10 @@ export function useTaskViewsState() {
     groupValueOrders: view?.groupValueOrders ?? {},
     sortBy: view?.sortBy ?? "deadline",
     sortDirection: view?.sortDirection ?? "asc",
+    thenSortBy: view?.thenSortBy,
+    thenSortDirection: view?.thenSortDirection,
+    limit: view?.limit,
+    rules: view?.rules,
+    ruleMatch: view?.ruleMatch,
   };
 }
