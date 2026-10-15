@@ -10,6 +10,7 @@
     "./calendar": "./src/calendar.ts",
     "./config": "./src/config.ts",
     "./dashboard": "./src/dashboard.ts",
+    "./dashboardFiles": "./src/dashboardFiles.ts",
     "./designTokens": "./src/designTokens.ts",
     "./docChecklist": "./src/docChecklist.ts",
     "./documents": "./src/documents.ts",

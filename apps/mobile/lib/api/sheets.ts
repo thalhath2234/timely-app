@@ -6,6 +6,7 @@ import type {
 } from "@timely/contract/sheet";
 import { normalizeSheet } from "../sheet";
 import { api, unwrap } from "./client";
+import { watchStream, type WatchEvent } from "./watch";
 import { clearNulls, type Clearable } from "./clearable";
 
 export type { CreateSheetPayload, UpdateSheetTemplatePayload };
@@ -35,6 +36,13 @@ export async function updateSheet(id: string, data: UpdateSheetPayload) {
     body: clearNulls<WireUpdateSheetPayload>(data, ["projectId"]),
   });
   return normalizeSheet(unwrap(res, "sheet"));
+}
+
+/** Every save to a sheet (from any device or an agent), as it happens. Returns a function that stops watching. */
+export function watchSheet(id: string, onEvent: (event: WatchEvent<Sheet>) => void) {
+  return watchStream<Sheet>(`/sheets/${id}/watch`, "sheet", id, () => getSheet(id), (event) =>
+    onEvent(event.document ? { ...event, document: normalizeSheet(event.document) } : event),
+  );
 }
 
 export function deleteSheet(id: string) {

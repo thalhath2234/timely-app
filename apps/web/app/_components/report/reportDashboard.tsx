@@ -51,6 +51,7 @@ import { useConfig } from "@/app/utils/hooks/workspaces";
 import AddCardDialog from "./addCardDialog";
 import CardWorkshop, { DISPLAY_ICON, type WorkshopResult } from "./cardWorkshop";
 import CustomCardView, { useCardResult } from "./customCardView";
+import FileCardView, { FILE_ICON, isFileQuery, useFileWatches } from "./fileCards";
 import DashboardGrid from "./dashboardGrid";
 import PomodoroCard from "./pomodoroCard";
 import HighlightsCard from "./highlightsCard";
@@ -88,7 +89,7 @@ function useNow(intervalMs: number) {
   return now;
 }
 
-type WorkshopTarget = { cardId?: string } | null;
+type WorkshopTarget = { cardId?: string; source?: "sheets" | "docs" } | null;
 
 export default function ReportDashboard() {
   const router = useRouter();
@@ -96,6 +97,7 @@ export default function ReportDashboard() {
   const { layout, isLoading, error, retry, update, updateCard, saveState } = useDashboardLayout();
   const cards = useMemo(() => layout?.cards ?? [], [layout]);
   const { data, today, failures, loading, timeZone } = useDashboardData(cards);
+  useFileWatches(cards);
   const configQuery = useConfig();
   const now = useNow(30_000);
   const [adding, setAdding] = useState(false);
@@ -339,7 +341,7 @@ export default function ReportDashboard() {
 
   const renderIcon = (card: DashboardCard) => {
     if (card.type === "custom") {
-      const Icon = DISPLAY_ICON[card.query?.display ?? "number"];
+      const Icon = card.query?.sheet ? FILE_ICON[card.query.sheet.view] : card.query?.doc ? FILE_ICON[card.query.doc.view] : DISPLAY_ICON[card.query?.display ?? "number"];
       return <Icon className="size-3.5" />;
     }
     return <BuiltinIcon type={card.type} className="size-3.5" />;
@@ -511,16 +513,17 @@ export default function ReportDashboard() {
           onClose={() => setAdding(false)}
           onAddBuiltin={addBuiltin}
           onAddTemplate={addTemplate}
-          onOpenWorkshop={() => {
+          onOpenWorkshop={(source) => {
             setAdding(false);
-            setWorkshop({});
+            setWorkshop({ source });
           }}
         />
       ) : null}
 
       {workshop ? (
         <CardWorkshop
-          key={workshop.cardId ?? "new"}
+          key={workshop.cardId ?? `new-${workshop.source ?? ""}`}
+          startSource={workshop.source}
           initial={editing?.query ? { title: editing.title ?? "", query: editing.query, w: editing.w, h: editing.h } : undefined}
           data={data}
           timeZone={timeZone}
@@ -550,7 +553,12 @@ function CustomCardSlot({
   onRowContextMenu: (event: ReactMouseEvent, row: CardRow) => void;
 }) {
   const result = useCardResult(card.query, data, timeZone, now);
-  if (!card.query || !result) return null;
+  if (!card.query) return null;
+  if (isFileQuery(card.query)) {
+    if (loading) return <p className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading…</p>;
+    return <FileCardView query={card.query} data={data} />;
+  }
+  if (!result) return null;
   if (loading) return <p className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading…</p>;
   return <CustomCardView query={card.query} result={result} onOpen={onOpen} onRowContextMenu={onRowContextMenu} />;
 }

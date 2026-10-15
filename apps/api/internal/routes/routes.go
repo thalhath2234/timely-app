@@ -289,6 +289,7 @@ func setupSheetRoutes(g *echo.Group, sheetHandler *sheet.Handler) {
 	g.DELETE("/sheet-templates/:id", sheetHandler.DeleteTemplate)
 	g.POST("/sheet-templates/:id/tab", sheetHandler.MaterializeTemplateTab)
 	g.GET("/sheets/:id", sheetHandler.GetSheetById)
+	g.GET("/sheets/:id/watch", sheetHandler.Watch)
 	g.POST("/sheets/:id/duplicate", sheetHandler.Duplicate)
 	g.PUT("/sheets/:id", sheetHandler.Update)
 	g.DELETE("/sheets/:id", sheetHandler.Delete)

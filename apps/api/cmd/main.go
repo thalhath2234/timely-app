@@ -125,7 +125,7 @@ func main() {
 	workspaceService := workspace.NewWorkspaceService(workspaceRepo)
 	live := realtime.NewHub()
 	documentService := doc.NewDocumentService(documentRepo, indexer, live)
-	sheetService := sheet.NewSheetService(sheetRepo, indexer)
+	sheetService := sheet.NewSheetService(sheetRepo, indexer, live)
 	eventService := event.NewEventService(eventRepo, recurrenceStore, place, indexer)
 	calendarService := calendar.NewService(taskRepo, eventRepo, scheduleRepo.GetWorkingHours)
 	scheduleService := schedule.NewService(scheduleRepo, taskRepo, eventRepo, place)
@@ -233,7 +233,7 @@ func main() {
 		Document:  doc.NewHandler(documentService, live),
 		DocFiles:  docfile.New(db),
 		Links:     linkpreview.New(),
-		Sheet:     sheet.NewHandler(sheetService),
+		Sheet:     sheet.NewHandler(sheetService, live),
 		Event:     event.NewHandler(eventService),
 		Calendar:  calendar.NewHandler(calendarService),
 		Schedule:  schedule.NewHandler(scheduleService),
