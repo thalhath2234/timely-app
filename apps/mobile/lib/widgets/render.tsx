@@ -38,6 +38,12 @@ const PAD = 14;
 const GAP = 6;
 const HEADER_H = lineH(12) + GAP;
 const ROW_H = 28;
+/**
+ * The column a checkbox sits in. The whole column is the tick's tap target:
+ * a 16dp box with 10dp after it left a 26dp target, so taps just right of the
+ * box opened the item instead of ticking it.
+ */
+const CHECK_COL = 40;
 const BAR_LABEL_H = lineH(10) + 3;
 const METER_H = 20;
 const NOTE_LINE_H = 20;
@@ -205,17 +211,19 @@ function Row({ row, p, fallbackUri, checks, height = ROW_H }: { row: WidgetRow; 
           clickAction={WIDGET_ACTION}
           clickActionData={actionData(row.toggle)}
           accessibilityLabel={`${row.done ? "Untick" : "Tick"} ${row.title}`}
-          style={{ height, paddingRight: 10, justifyContent: "center" }}
+          style={{ width: CHECK_COL, height, justifyContent: "center" }}
         >
           <Check row={row} p={p} />
         </FlexWidget>
       ) : row.done !== undefined ? (
-        <FlexWidget style={{ marginRight: 10 }}>
+        <FlexWidget style={{ width: CHECK_COL }}>
           <Check row={row} p={p} />
         </FlexWidget>
       ) : checks ? (
-        <FlexWidget style={{ width: 16, height: 16, marginRight: 10, alignItems: "center", justifyContent: "center" }}>
-          <FlexWidget style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: bar }} />
+        <FlexWidget style={{ width: CHECK_COL, height: 16, justifyContent: "center" }}>
+          <FlexWidget style={{ width: 16, height: 16, alignItems: "center", justifyContent: "center" }}>
+            <FlexWidget style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: bar }} />
+          </FlexWidget>
         </FlexWidget>
       ) : (
         <FlexWidget style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: bar, marginRight: 8 }} />

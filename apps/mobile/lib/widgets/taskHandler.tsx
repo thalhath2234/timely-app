@@ -1,5 +1,5 @@
 "use no memo";
-import { requestWidgetUpdate, type WidgetInfo, type WidgetTaskHandlerProps } from "react-native-android-widget";
+import { getWidgetInfo, requestWidgetUpdate, requestWidgetUpdateById, type WidgetInfo, type WidgetTaskHandlerProps } from "react-native-android-widget";
 import { clockState } from "@timely/contract/dashboard";
 import { scheduleWidgetRefresh } from "../../modules/timely-android";
 import { clockChange, optimisticModel, parseWidgetAction, WIDGET_ACTION, type WidgetAction } from "./actions";
@@ -132,10 +132,11 @@ async function handleAction(info: WidgetInfo, data: Record<string, unknown> | un
     if (cached) renderWidget(renderCard(cached, size));
   }
   // Other widgets may show the same task, habit or sheet; they share what
-  // this redraw just loaded.
+  // this redraw just loaded. This one was just drawn: a third draw only
+  // rewrote its image while the launcher read it.
   void refreshAllWidgets(
     WIDGET_NAMES.filter((name) => name !== "TimelyQuickAdd"),
-    { fresh: false },
+    { fresh: false, skipId: info.widgetId },
   );
 }
 
@@ -171,14 +172,24 @@ export async function widgetTaskHandler({ widgetInfo, widgetAction, renderWidget
 
 /**
  * Redraws every Timely widget on the home screen (the app calls this after
- * changes). `fresh: false` reuses what was just loaded, when nothing on the
- * server changed since (a pomodoro, which lives on the phone).
+ * changes), except `skipId`. `fresh: false` reuses what was just loaded, when
+ * nothing on the server changed since (a pomodoro, which lives on the phone).
  */
-export async function refreshAllWidgets(names: readonly string[] = WIDGET_NAMES, { fresh = true }: { fresh?: boolean } = {}) {
+export async function refreshAllWidgets(
+  names: readonly string[] = WIDGET_NAMES,
+  { fresh = true, skipId }: { fresh?: boolean; skipId?: number } = {},
+) {
   if (fresh) forgetWidgetLoads();
   await Promise.all(
-    names.map((widgetName) =>
-      requestWidgetUpdate({ widgetName, renderWidget: (info) => renderWidgetFor({ ...info, widgetName }) }).catch(() => undefined),
-    ),
+    names.map(async (widgetName) => {
+      const renderWidget = (info: WidgetInfo) => renderWidgetFor({ ...info, widgetName });
+      try {
+        if (skipId === undefined) return await requestWidgetUpdate({ widgetName, renderWidget });
+        const others = (await getWidgetInfo(widgetName)).filter((info) => info.widgetId !== skipId);
+        await Promise.all(others.map((info) => requestWidgetUpdateById({ widgetName, widgetId: info.widgetId, renderWidget })));
+      } catch {
+        // A widget that can't redraw keeps what it last drew.
+      }
+    }),
   );
 }

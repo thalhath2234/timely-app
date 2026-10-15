@@ -1,5 +1,5 @@
 diff --git a/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java b/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
-index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..b0c532a59086941033c03b6701830f8e69f7bdf2 100644
+index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..94af49f4e23d01a81ad9e79f17a56c5eb236ccf1 100644
 --- a/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
 +++ b/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
 @@ -6,12 +6,15 @@ import android.content.ComponentName;
@@ -45,7 +45,26 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..b0c532a59086941033c03b6701830f8e
  
          AppWidgetManager.getInstance(appContext)
              .updateAppWidget(widgetId, remoteWidgetView);
-@@ -215,6 +221,61 @@ public class RNWidget {
+@@ -205,16 +211,78 @@ public class RNWidget {
+         intent.putExtra("widgetId", id);
+         intent.putExtra("clickAction", clickableView.getClickAction());
+         intent.putExtra("clickActionData", Arguments.toBundle(clickableView.getClickActionData()));
++        // Timely patch: one PendingIntent per clickable. Android ignores extras when
++        // matching PendingIntents, and the old request code (the current time in ms)
++        // repeated for clickables built in the same millisecond, so FLAG_CANCEL_CURRENT
++        // cancelled the earlier one and its button did nothing. The data URI makes each
++        // intent distinct; the request code keeps them apart on older matching rules.
++        String clickKey = widgetName + "/" + id + "/" + clickableView.getId();
++        intent.setData(Uri.parse("rnwidget://click/" + Uri.encode(clickKey)));
+         PendingIntent pendingIntent = PendingIntent.getBroadcast(
+             appContext,
+-            (int) System.currentTimeMillis(),
++            clickKey.hashCode(),
+             intent,
+-            PendingIntent.FLAG_CANCEL_CURRENT
++            PendingIntent.FLAG_UPDATE_CURRENT
+                 | PendingIntent.FLAG_MUTABLE
+         );
          widgetView.setOnClickPendingIntent(button, pendingIntent);
      }
  
@@ -107,6 +126,58 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..b0c532a59086941033c03b6701830f8e
      private void addCollectionViews(int widgetId, RemoteViews remoteWidgetView, WidgetWithViews widgetWithViews) {
          remoteWidgetView.removeAllViews(R.id.rn_widget_collection_container);
  
+diff --git a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetCollectionService.java b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetCollectionService.java
+index f818d97e1985938d4af6bfc20bce9855cc2ff4a5..7b3ff93c8423a54c15111a269e950e5a3e174bb2 100644
+--- a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetCollectionService.java
++++ b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetCollectionService.java
+@@ -154,17 +154,22 @@ class ListRemoteViewsFactory implements RemoteViewsService.RemoteViewsFactory {
+         return fillInIntent;
+     }
+ 
++    private static final java.util.concurrent.atomic.AtomicInteger LIST_CLICKS = new java.util.concurrent.atomic.AtomicInteger();
++
+     private PendingIntent createPendingIntent(Bundle clickableArea) {
+         Intent intent = new Intent(mContext.getPackageName() + ".WIDGET_CLICK");
+         intent.setComponent(new ComponentName(mContext, RNWidgetUtil.getWidgetProviderClassName(mContext, widgetName)));
+         intent.putExtra("widgetId", mAppWidgetId);
+         intent.putExtra("clickAction", clickableArea.getString("clickAction"));
+         intent.putExtra("clickActionData", clickableArea.getBundle("clickActionData"));
++        // Timely patch: a distinct intent per list click (see RNWidget.registerClickTask).
++        String clickKey = widgetName + "/" + mAppWidgetId + "/list/" + LIST_CLICKS.incrementAndGet();
++        intent.setData(Uri.parse("rnwidget://click/" + Uri.encode(clickKey)));
+         return PendingIntent.getBroadcast(
+             mContext,
+-            (int) System.currentTimeMillis(),
++            clickKey.hashCode(),
+             intent,
+-            PendingIntent.FLAG_CANCEL_CURRENT
++            PendingIntent.FLAG_UPDATE_CURRENT
+                 | PendingIntent.FLAG_MUTABLE
+         );
+     }
+diff --git a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetImageProvider.java b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetImageProvider.java
+index 0f963f0303eb70bb814dcab50f821036929ebed2..9494c81438eb6a612f8efb2c19ce8b7648d85175 100644
+--- a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetImageProvider.java
++++ b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetImageProvider.java
+@@ -90,11 +90,17 @@ public class RNWidgetImageProvider extends ContentProvider {
+         File folder = getFolderWithImages(context);
+         if (!folder.exists()) folder.mkdirs();
+         File file = new File(folder, imageName);
++        // Timely patch: write beside the image and rename over it, so the launcher
++        // never reads a half-written PNG ("Input was incomplete") during a redraw.
++        File partial = new File(folder, imageName + "." + Thread.currentThread().getId() + ".part");
+ 
+         FileOutputStream fos = null;
+         try {
+-            fos = new FileOutputStream(file);
++            fos = new FileOutputStream(partial);
+             bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
++            fos.close();
++            fos = null;
++            if (!partial.renameTo(file)) partial.delete();
+         } catch (Exception e) {
+             e.printStackTrace();
+         } finally {
 diff --git a/android/src/main/java/com/reactnativeandroidwidget/builder/ChronometerView.java b/android/src/main/java/com/reactnativeandroidwidget/builder/ChronometerView.java
 new file mode 100644
 index 0000000000000000000000000000000000000000..77b008dfc28d562e7086d05c461857bd01a10f8e
@@ -146,7 +217,7 @@ index 0000000000000000000000000000000000000000..77b008dfc28d562e7086d05c461857bd
 +    }
 +}
 diff --git a/android/src/main/java/com/reactnativeandroidwidget/builder/WidgetFactory.java b/android/src/main/java/com/reactnativeandroidwidget/builder/WidgetFactory.java
-index 78e37ac9689cf149caf6dbcb811fca26b29b2956..713424ed3ac05e7ab3642f2acfc6b53caba3f04e 100644
+index 78e37ac9689cf149caf6dbcb811fca26b29b2956..0abbb1dac5c4694a90c4ccdd2c4871c36803de8d 100644
 --- a/android/src/main/java/com/reactnativeandroidwidget/builder/WidgetFactory.java
 +++ b/android/src/main/java/com/reactnativeandroidwidget/builder/WidgetFactory.java
 @@ -29,11 +29,13 @@ import java.util.Objects;
@@ -187,7 +258,7 @@ index 78e37ac9689cf149caf6dbcb811fca26b29b2956..713424ed3ac05e7ab3642f2acfc6b53c
              String accessibilityLabel = null;
              if (props.hasKey("accessibilityLabel")) {
 diff --git a/android/src/main/java/com/reactnativeandroidwidget/builder/WidgetWithViews.java b/android/src/main/java/com/reactnativeandroidwidget/builder/WidgetWithViews.java
-index 9b9e94ea290870e7a001ca50467b7eb95c3d8d45..a9576d8058522cf37427223b674dfb2990460df5 100644
+index 9b9e94ea290870e7a001ca50467b7eb95c3d8d45..6974ef355048be1c3b744928888c60a64f5cf80c 100644
 --- a/android/src/main/java/com/reactnativeandroidwidget/builder/WidgetWithViews.java
 +++ b/android/src/main/java/com/reactnativeandroidwidget/builder/WidgetWithViews.java
 @@ -11,6 +11,7 @@ public class WidgetWithViews {
@@ -214,7 +285,7 @@ index 9b9e94ea290870e7a001ca50467b7eb95c3d8d45..a9576d8058522cf37427223b674dfb29
      public String getRootAccessibilityLabel() {
          return rootAccessibilityLabel;
 diff --git a/android/src/main/res/layout/rn_widget.xml b/android/src/main/res/layout/rn_widget.xml
-index 870d18b36ff15ed69ab14632e6bee54f3a9e2920..ed26b86562578aad1403a6675e9767a61c22a2d4 100644
+index 870d18b36ff15ed69ab14632e6bee54f3a9e2920..13da28c777b4c3dd8c7367ba107d50daf3c805bc 100644
 --- a/android/src/main/res/layout/rn_widget.xml
 +++ b/android/src/main/res/layout/rn_widget.xml
 @@ -19,6 +19,11 @@
@@ -261,7 +332,7 @@ index 0000000000000000000000000000000000000000..524f811628b91ea2bd11220f6a3668c4
 +        android:visibility="gone" />
 +</FrameLayout>
 diff --git a/android/src/main/res/layout-night/rn_widget.xml b/android/src/main/res/layout-night/rn_widget.xml
-index e00a8c15199ed304f9d7080f995278c7544f6965..0ee9348e93eb9be4825eb62f4817510b37087125 100644
+index e00a8c15199ed304f9d7080f995278c7544f6965..6551194e068c70119e481c2ad1b424ee7d272dd7 100644
 --- a/android/src/main/res/layout-night/rn_widget.xml
 +++ b/android/src/main/res/layout-night/rn_widget.xml
 @@ -19,6 +19,11 @@
