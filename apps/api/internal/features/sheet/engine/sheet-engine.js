@@ -38,7 +38,8 @@ var SheetEngine = (() => {
   // packages/contract/src/sheetEngine.ts
   var sheetEngine_exports = {};
   __export(sheetEngine_exports, {
-    evaluate: () => evaluate
+    evaluate: () => evaluate,
+    restructure: () => restructure
   });
 
   // packages/contract/src/sheetRefs.ts
@@ -49,8 +50,227 @@ var SheetEngine = (() => {
     }
     return index - 1;
   }
+  function columnIndexToLetter(index) {
+    let result = "";
+    let current = index + 1;
+    while (current > 0) {
+      const remainder = (current - 1) % 26;
+      result = String.fromCharCode(65 + remainder) + result;
+      current = Math.floor((current - 1) / 26);
+    }
+    return result;
+  }
   var ENDPOINT = String.raw`\$?[A-Za-z]{1,3}\$?\d+|\$?[A-Za-z]{1,3}|\$?\d+`;
   var RANGE_RE = new RegExp(`(${ENDPOINT})\\s*:\\s*(${ENDPOINT})`, "y");
+  var CELL_RE = /\$?[A-Za-z]{1,3}\$?\d+/y;
+  var UNQUOTED_SHEET_RE = /[\p{L}_][\p{L}\p{N}_.]*!/uy;
+  var WORD_CHAR = /[\p{L}\p{N}_.$']/u;
+  var AFTER_REF_CHAR = /[\p{L}\p{N}_(!.]/u;
+  function parseEndpoint(text2) {
+    const match = /^(\$?)([A-Za-z]{1,3})?(\$?)(\d+)?$/.exec(text2);
+    if (!match || !match[2] && !match[4]) return null;
+    const endpoint = { colAbs: false, rowAbs: false };
+    if (match[2]) {
+      endpoint.col = columnLetterToIndex(match[2]);
+      endpoint.colAbs = match[1] === "$";
+      endpoint.rowAbs = match[3] === "$";
+    } else {
+      endpoint.rowAbs = match[1] === "$" || match[3] === "$";
+    }
+    if (match[4]) endpoint.row = Number(match[4]) - 1;
+    return endpoint;
+  }
+  function formatEndpoint(endpoint) {
+    let out = "";
+    if (endpoint.col !== void 0) {
+      out += `${endpoint.colAbs ? "$" : ""}${columnIndexToLetter(endpoint.col)}`;
+    }
+    if (endpoint.row !== void 0) {
+      out += `${endpoint.rowAbs ? "$" : ""}${endpoint.row + 1}`;
+    }
+    return out;
+  }
+  function bareSheetName(name) {
+    return /^[\p{L}_][\p{L}\p{N}_.]*$/u.test(name) && !/^[A-Za-z]{1,3}\d+$/.test(name) && !/^(TRUE|FALSE)$/i.test(name);
+  }
+  function sheetPrefix(name) {
+    return bareSheetName(name) ? `${name}!` : `'${name.replace(/'/g, "''")}'!`;
+  }
+  function formatRef(ref) {
+    const body = ref.to ? `${formatEndpoint(ref.from)}:${formatEndpoint(ref.to)}` : formatEndpoint(ref.from);
+    if (ref.prefix !== void 0) return ref.prefix + body;
+    return ref.sheet ? `${sheetPrefix(ref.sheet)}${body}` : body;
+  }
+  function skipString(formula, index) {
+    let i = index + 1;
+    while (i < formula.length) {
+      if (formula[i] === '"') {
+        if (formula[i + 1] === '"') {
+          i += 2;
+          continue;
+        }
+        return i + 1;
+      }
+      i += 1;
+    }
+    return i;
+  }
+  function readSheetPrefix(formula, index) {
+    if (formula[index] === "'") {
+      let i = index + 1;
+      let name = "";
+      while (i < formula.length) {
+        if (formula[i] === "'") {
+          if (formula[i + 1] === "'") {
+            name += "'";
+            i += 2;
+            continue;
+          }
+          break;
+        }
+        name += formula[i];
+        i += 1;
+      }
+      if (formula[i] === "'" && formula[i + 1] === "!" && name) return { name, next: i + 2 };
+      return null;
+    }
+    UNQUOTED_SHEET_RE.lastIndex = index;
+    const match = UNQUOTED_SHEET_RE.exec(formula);
+    if (!match) return null;
+    return { name: match[0].slice(0, -1), next: index + match[0].length };
+  }
+  function scanFormulaRefs(formula) {
+    var _a, _b, _c, _d;
+    const refs = [];
+    if (!formula.trim().startsWith("=")) return refs;
+    let i = formula.indexOf("=") + 1;
+    while (i < formula.length) {
+      const char = formula[i];
+      if (char === '"') {
+        i = skipString(formula, i);
+        continue;
+      }
+      const before = i > 0 ? formula[i - 1] : "";
+      if (before && WORD_CHAR.test(before)) {
+        i += 1;
+        continue;
+      }
+      const prefix = readSheetPrefix(formula, i);
+      const at = prefix ? prefix.next : i;
+      RANGE_RE.lastIndex = at;
+      const range = RANGE_RE.exec(formula);
+      if (range && !AFTER_REF_CHAR.test((_a = formula[at + range[0].length]) != null ? _a : "")) {
+        const from = parseEndpoint(range[1]);
+        const to = parseEndpoint(range[2]);
+        if (from && to) {
+          refs.push({ start: i, end: at + range[0].length, sheet: (_b = prefix == null ? void 0 : prefix.name) != null ? _b : null, prefix: formula.slice(i, at), from, to });
+          i = at + range[0].length;
+          continue;
+        }
+      }
+      CELL_RE.lastIndex = at;
+      const cell = CELL_RE.exec(formula);
+      if (cell && !AFTER_REF_CHAR.test((_c = formula[at + cell[0].length]) != null ? _c : "")) {
+        const from = parseEndpoint(cell[0]);
+        if (from) {
+          refs.push({ start: i, end: at + cell[0].length, sheet: (_d = prefix == null ? void 0 : prefix.name) != null ? _d : null, prefix: formula.slice(i, at), from, to: null });
+          i = at + cell[0].length;
+          continue;
+        }
+      }
+      if (prefix) {
+        i = prefix.next;
+        continue;
+      }
+      i += 1;
+    }
+    return refs;
+  }
+  function rewriteRefs(formula, rewrite) {
+    const refs = scanFormulaRefs(formula);
+    if (refs.length === 0) return formula;
+    let out = "";
+    let last = 0;
+    let changed = false;
+    for (const ref of refs) {
+      const next = rewrite(ref);
+      if (next === null) continue;
+      out += formula.slice(last, ref.start) + next;
+      last = ref.end;
+      changed = true;
+    }
+    return changed ? out + formula.slice(last) : formula;
+  }
+  var sameSheet = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+  function adjustFormulaForStructure(value, change, context) {
+    if (!value.trim().startsWith("=") || change.count <= 0) return value;
+    const key = change.axis === "row" ? "row" : "col";
+    const position = change.axis === "row" ? context.formulaRow : context.formulaCol;
+    const lastDeleted = change.at + change.count - 1;
+    return rewriteRefs(value, (ref) => {
+      var _a;
+      const target = (_a = ref.sheet) != null ? _a : context.formulaSheet;
+      if (!sameSheet(target, context.changedSheet)) return null;
+      const from = __spreadValues({}, ref.from);
+      const to = ref.to ? __spreadValues({}, ref.to) : null;
+      const a = from[key];
+      const b = to ? to[key] : void 0;
+      if (change.kind === "insert") {
+        if (!to) {
+          if (a === void 0 || a < change.at) return null;
+          from[key] = a + change.count;
+          return formatRef(__spreadProps(__spreadValues({}, ref), { from, to }));
+        }
+        if (a === void 0 && b === void 0) return null;
+        if (a === void 0 || b === void 0) {
+          const endpoint = a === void 0 ? to : from;
+          if (endpoint[key] < change.at) return null;
+          endpoint[key] = endpoint[key] + change.count;
+          return formatRef(__spreadProps(__spreadValues({}, ref), { from, to }));
+        }
+        const lowEndpoint2 = a <= b ? from : to;
+        const highEndpoint2 = a <= b ? to : from;
+        const low2 = Math.min(a, b);
+        const high2 = Math.max(a, b);
+        const local = !ref.sheet || sameSheet(ref.sheet, context.formulaSheet);
+        if (low2 >= change.at) {
+          lowEndpoint2[key] = low2 + change.count;
+          highEndpoint2[key] = high2 + change.count;
+        } else if (high2 >= change.at) {
+          highEndpoint2[key] = high2 + change.count;
+        } else if (local && high2 === change.at - 1 && position !== void 0 && position >= change.at) {
+          highEndpoint2[key] = high2 + change.count;
+        } else {
+          return null;
+        }
+        return formatRef(__spreadProps(__spreadValues({}, ref), { from, to }));
+      }
+      if (!to) {
+        if (a === void 0 || a < change.at) return null;
+        if (a <= lastDeleted) return "#REF!";
+        from[key] = a - change.count;
+        return formatRef(__spreadProps(__spreadValues({}, ref), { from, to }));
+      }
+      if (a === void 0 || b === void 0) {
+        const endpoint = a === void 0 ? to : from;
+        const coordinate = endpoint[key];
+        if (coordinate < change.at) return null;
+        endpoint[key] = coordinate <= lastDeleted ? change.at : coordinate - change.count;
+        return formatRef(__spreadProps(__spreadValues({}, ref), { from, to }));
+      }
+      const low = Math.min(a, b);
+      const high = Math.max(a, b);
+      if (high < change.at) return null;
+      const nextLow = low > lastDeleted ? low - change.count : low >= change.at ? change.at : low;
+      const nextHigh = high > lastDeleted ? high - change.count : change.at - 1;
+      if (nextHigh < nextLow) return "#REF!";
+      const lowEndpoint = a <= b ? from : to;
+      const highEndpoint = a <= b ? to : from;
+      lowEndpoint[key] = nextLow;
+      highEndpoint[key] = nextHigh;
+      return formatRef(__spreadProps(__spreadValues({}, ref), { from, to }));
+    });
+  }
 
   // packages/contract/src/sheetValues.ts
   var SERIAL_EPOCH_UTC = Date.UTC(1899, 11, 30);
@@ -1648,6 +1868,125 @@ var SheetEngine = (() => {
     return self;
   }
 
+  // packages/contract/src/sheetCell.ts
+  function isFormulaValue(value) {
+    return value.trim().startsWith("=");
+  }
+  var CURRENCY_PREFIX = new RegExp("^(?:[A-Z]{3}|rs\\.?|Rs\\.?|RS\\.?|R\\$|kr|Kr|zł|Fr\\.?|\\p{Sc})\\s*", "u");
+  var CURRENCY_SUFFIX = new RegExp("\\s*(?:[A-Z]{3}|rs\\.?|Rs\\.?|RS\\.?|kr|Kr|zł|Fr\\.?|\\p{Sc})$", "u");
+  var FRACTIONS = { "½": 0.5, "¼": 0.25, "¾": 0.75, "⅓": 1 / 3, "⅔": 2 / 3, "⅛": 0.125 };
+
+  // packages/contract/src/sheetOps.ts
+  function mapFormulas(rows, columns, rewrite) {
+    let changed = false;
+    const next = rows.map((row2, rowIndex) => {
+      let cells = null;
+      columns.forEach((column2, colIndex) => {
+        var _a;
+        const value = (_a = row2.cells) == null ? void 0 : _a[column2.id];
+        if (!value || !isFormulaValue(value)) return;
+        const rewritten = rewrite(value, rowIndex, colIndex);
+        if (rewritten === value) return;
+        cells != null ? cells : cells = __spreadValues({}, row2.cells);
+        cells[column2.id] = rewritten;
+      });
+      if (!cells) return row2;
+      changed = true;
+      return __spreadProps(__spreadValues({}, row2), { cells });
+    });
+    return changed ? next : rows;
+  }
+  function adjustTabForStructure(tab, change, changedSheet) {
+    const rows = mapFormulas(
+      tab.rows,
+      tab.columns,
+      (value, formulaRow, formulaCol) => adjustFormulaForStructure(value, change, { changedSheet, formulaSheet: tab.name, formulaRow, formulaCol })
+    );
+    return rows === tab.rows ? tab : __spreadProps(__spreadValues({}, tab), { rows });
+  }
+  function shiftMerges(merges, change) {
+    const start = change.axis === "row" ? "startRow" : "startCol";
+    const span = change.axis === "row" ? "rowSpan" : "colSpan";
+    const out = [];
+    for (const merge of merges != null ? merges : []) {
+      const first = merge[start];
+      const last = first + merge[span] - 1;
+      if (change.kind === "insert") {
+        if (first >= change.at) out.push(__spreadProps(__spreadValues({}, merge), { [start]: first + change.count }));
+        else if (last >= change.at) out.push(__spreadProps(__spreadValues({}, merge), { [span]: merge[span] + change.count }));
+        else out.push(merge);
+        continue;
+      }
+      const lastDeleted = change.at + change.count - 1;
+      if (last < change.at) {
+        out.push(merge);
+      } else if (first > lastDeleted) {
+        out.push(__spreadProps(__spreadValues({}, merge), { [start]: first - change.count }));
+      } else {
+        const keptBefore = Math.max(0, change.at - first);
+        const keptAfter = Math.max(0, last - lastDeleted);
+        const size = keptBefore + keptAfter;
+        if (size <= 0) continue;
+        const next = __spreadProps(__spreadValues({}, merge), { [start]: Math.min(first, change.at), [span]: size });
+        if (next.colSpan > 1 || next.rowSpan > 1) out.push(next);
+      }
+    }
+    return out;
+  }
+  function shiftFrozen(frozen, change) {
+    if (!frozen) return frozen;
+    if (change.kind === "insert") return change.at < frozen ? frozen + change.count : frozen;
+    const removed = Math.max(0, Math.min(frozen, change.at + change.count) - change.at);
+    return frozen - removed;
+  }
+  function applyStructureChange(grid, change, make) {
+    if (change.count <= 0) return grid;
+    const adjusted = adjustTabForStructure(grid, change, grid.name);
+    let { columns, rows } = adjusted;
+    let conditionalFormats = grid.conditionalFormats;
+    if (change.axis === "row") {
+      rows = [...rows];
+      if (change.kind === "insert") {
+        const blanks = Array.from({ length: change.count }, () => make.row(columns));
+        rows.splice(change.at, 0, ...blanks);
+      } else {
+        rows.splice(change.at, change.count);
+      }
+    } else if (change.kind === "insert") {
+      const added = Array.from({ length: change.count }, (_, index) => make.column(change.at + index));
+      columns = [...columns];
+      columns.splice(change.at, 0, ...added);
+      rows = rows.map((row2) => {
+        const cells = __spreadValues({}, row2.cells);
+        for (const column2 of added) cells[column2.id] = "";
+        return __spreadProps(__spreadValues({}, row2), { cells });
+      });
+    } else {
+      const removed = columns.slice(change.at, change.at + change.count);
+      const removedIds = new Set(removed.map((column2) => column2.id));
+      columns = columns.filter((column2) => !removedIds.has(column2.id));
+      rows = rows.map((row2) => {
+        var _a;
+        const cells = __spreadValues({}, row2.cells);
+        const formats = __spreadValues({}, (_a = row2.formats) != null ? _a : {});
+        for (const id of removedIds) {
+          delete cells[id];
+          delete formats[id];
+        }
+        return __spreadProps(__spreadValues({}, row2), { cells, formats: Object.keys(formats).length ? formats : void 0 });
+      });
+      conditionalFormats = conditionalFormats == null ? void 0 : conditionalFormats.filter((rule) => !removedIds.has(rule.columnId));
+    }
+    return __spreadProps(__spreadValues({}, adjusted), {
+      columns,
+      rows,
+      merges: shiftMerges(grid.merges, change),
+      frozenRows: change.axis === "row" ? shiftFrozen(grid.frozenRows, change) : grid.frozenRows,
+      frozenCols: change.axis === "col" ? shiftFrozen(grid.frozenCols, change) : grid.frozenCols,
+      conditionalFormats
+    });
+  }
+
   // packages/contract/src/sheetEngine.ts
   function plain(result, column2) {
     switch (result.type) {
@@ -1693,6 +2032,24 @@ var SheetEngine = (() => {
       );
     });
     return JSON.stringify({ tabs: values });
+  }
+  var noNewCells = () => {
+    throw new Error("restructure only deletes rows and columns");
+  };
+  function restructure(json) {
+    var _a, _b;
+    const request = JSON.parse(json);
+    let tabs = (_a = request.tabs) != null ? _a : [];
+    for (const change of (_b = request.changes) != null ? _b : []) {
+      if (change.kind !== "delete") noNewCells();
+      const index = tabs.findIndex((tab) => tab.id === request.tabId);
+      if (index < 0) throw new Error("tab not found");
+      const changed = tabs[index].name;
+      tabs = tabs.map(
+        (tab, i) => i === index ? applyStructureChange(tab, change, { row: noNewCells, column: noNewCells }) : adjustTabForStructure(tab, change, changed)
+      );
+    }
+    return JSON.stringify({ tabs });
   }
   return __toCommonJS(sheetEngine_exports);
 })();

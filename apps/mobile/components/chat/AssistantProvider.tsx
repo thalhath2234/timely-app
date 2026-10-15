@@ -38,6 +38,7 @@ import {
 } from "../../lib/chat/storage";
 import {
   contextChip,
+  draftForScreen,
   mergeContext,
   routeContext,
   routeObject,
@@ -82,7 +83,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const query = useQueryClient();
   const root = useRef<View>(null);
-  const screens = useRef(new Map<string, ScreenRegistration>());
+  const screens = useRef(new Map<object, ScreenRegistration>());
   const [visible, setVisible] = useState(false);
   const backHandler = useRef<(() => void) | null>(null);
   const chatIdRef = useRef<string | null>(null);
@@ -151,12 +152,17 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
   }, [path, navigationKey]);
 
   const register = useCallback(
-    (location: string, data: ScreenRegistration | null) => {
-      if (data) screens.current.set(location, data);
-      else screens.current.delete(location);
+    (owner: object, data: ScreenRegistration | null) => {
+      if (data) screens.current.set(owner, data);
+      else screens.current.delete(owner);
     },
     [],
   );
+  const focusedScreen = () => {
+    for (const screen of screens.current.values())
+      if (screen.isFocused()) return screen;
+    return undefined;
+  };
   const currentContext = () => {
     const match = routeObject(path);
     const key = match
@@ -180,10 +186,12 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
           projectId?: string;
         }>(key)
       : undefined;
-    const registered = screens.current.get(path)?.chips;
+    // A detail screen registers no chips until its item loads; the route
+    // still names the item, so a quick pinch keeps it.
+    const registered = focusedScreen()?.chips;
     return mergeContext(
       [],
-      registered
+      registered?.length
         ? [contextChip("location", "Current screen", path), ...registered]
         : routeContext(path, params, entity),
     );
@@ -195,12 +203,12 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
     if (id) setChatId(id);
     else {
       try {
-        if (!cacheRef.current.draft)
-          setCache((value) => ({
-            ...value,
-            draft: emptyDraft(currentContext()),
-          }));
-        setChatId(cacheRef.current.draft?.conversationId ?? null);
+        const draft = draftForScreen(cacheRef.current.draft, currentContext);
+        // Keep the ref in step so a second open before the next render sees
+        // this draft rather than the one it replaced.
+        cacheRef.current = { ...cacheRef.current, draft };
+        setCache((value) => ({ ...value, draft }));
+        setChatId(draft.conversationId ?? null);
       } catch (error) {
         Alert.alert("Screen context", String((error as Error).message));
         return;
@@ -220,7 +228,7 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
         event.numberOfPointers === 2 &&
         event.scale <= 0.78 &&
         !gestureTriggered.current &&
-        !screens.current.get(path)?.pinchZoom
+        !focusedScreen()?.pinchZoom
       ) {
         gestureTriggered.current = true;
         open();
@@ -279,7 +287,11 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
             {children}
           </View>
         </GestureDetector>
-        {onTabRoot && uid && hydratedUser === uid && !cache.hintDismissed && !visible ? (
+        {onTabRoot &&
+        uid &&
+        hydratedUser === uid &&
+        !cache.hintDismissed &&
+        !visible ? (
           <View style={[styles.hint, { bottom: hintBottom }]}>
             <View style={styles.hintIcon}>
               <Sparkles size={18} color={colors.primary} />

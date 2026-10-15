@@ -144,7 +144,8 @@ func (s *Service) ApplyTriage(userID, notificationID, action string) (string, er
 		return "", errors.New("it's no longer past its deadline")
 	}
 	// The person asked to move this task, so its hand-placed blocks still
-	// ahead are replaced too (the missed one is history and stays); other
+	// ahead are replaced too (a missed hand-placed block is history and
+	// stays; engine time missed earlier today moves with the task); other
 	// tasks are not touched. A dry run comes first: Apply drops those blocks
 	// even when the engine finds no new time, so nothing changes unless the
 	// task gets placed. It skips the Preview hook, so no model call waits.

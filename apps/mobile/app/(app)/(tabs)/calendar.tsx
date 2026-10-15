@@ -81,8 +81,10 @@ export default function CalendarScreen() {
 
   const visibleFrom = view === "month" ? new Date(selected.getFullYear(), selected.getMonth(), 1) : view === "week" ? startOfWeek(selected) : selected;
   const visibleTo = view === "month" ? new Date(selected.getFullYear(), selected.getMonth() + 1, 1) : addDays(visibleFrom, view === "day" ? 1 : view === "week" ? 7 : Math.ceil((toCalendarEnd(selected).getTime() - visibleFrom.getTime()) / 86400000));
+  const isoDay = (date: Date) => date.toLocaleDateString("en-CA");
   useAssistantScreen([
-    contextChip("calendar", `${view} · ${dayKey(selected)}`, { view, selectedDate: dayKey(selected), from: dayKey(visibleFrom), toExclusive: dayKey(visibleTo) }),
+    // Real dates (YYYY-MM-DD) for the assistant; dayKey is a 0-based-month lookup key.
+    contextChip("calendar", `${view[0].toUpperCase()}${view.slice(1)} · ${selected.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}`, { view, selectedDate: isoDay(selected), from: isoDay(visibleFrom), toExclusive: isoDay(visibleTo) }),
     ...(workspaceId ? [contextChip("workspace", "Workspace", workspaceId)] : []),
     ...(projectId ? [contextChip("project", "Project", projectId)] : []),
     ...(open ? [contextChip("object", open.title, `${open.kind === "event" ? "events" : "tasks"}/${open.eventId || open.taskId || open.id}`)] : []),
