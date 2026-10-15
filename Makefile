@@ -385,8 +385,8 @@ test-mobile-widgets-native: ## Draw every phone widget with Android's real widge
 test-mobile-meeting-url: ## Test which Meet, Zoom and Teams links give a phone Home item its Join call button
 	@node --experimental-strip-types --test scripts/mobile-meeting-url.test.mjs
 
-test-mobile-back-fallback: ## Test where phone Back goes on a screen opened with no history
-	@node --experimental-strip-types --test scripts/mobile-back-fallback.test.mjs
+test-mobile-back-fallback: ## Test where Android Back goes on every phone screen, and that only a true root leaves the app
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/mobile-back-fallback.test.mjs
 
 .PHONY: test-mobile-assistant format-mobile-assistant
 test-mobile-assistant: ## Test mobile assistant context and notification routing

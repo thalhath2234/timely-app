@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
+import { readdirSync, readFileSync } from "node:fs";
 import { backFallback } from "../apps/mobile/lib/backFallback.ts";
+import { backPlan } from "../apps/mobile/lib/backPlan.ts";
 
 // Back on a screen opened with no history (a link, a notification, a reload)
 // goes to the tab or list the screen belongs to.
@@ -27,5 +29,64 @@ describe("backFallback", () => {
   test("anything else goes Home", () => {
     assert.equal(backFallback("/notifications"), "/(app)/(tabs)/home");
     assert.equal(backFallback("/"), "/(app)/(tabs)/home");
+  });
+});
+
+// Every phone screen, reached with no history to pop (a widget, a launcher
+// shortcut, a notification): Back goes where it belongs, and only a true root
+// leaves the app.
+const appDir = new URL("../apps/mobile/app/", import.meta.url);
+const screens = readdirSync(appDir, { recursive: true })
+  .filter((file) => file.endsWith(".tsx") && !/(^|\/)(_layout|\+html|\+not-found)\.tsx$/.test(file))
+  .map((file) => file.replace(/\.tsx$/, ""));
+
+/** The root state for one screen, nested the way expo-router nests groups. */
+function stateFor(file) {
+  const parts = file.split("/");
+  const groups = [];
+  while (parts.length && /^\(.+\)$/.test(parts[0])) groups.push(parts.shift());
+  let state = { index: 0, routes: [{ name: parts.join("/") }] };
+  for (const group of groups.reverse()) state = { index: 0, routes: [{ name: group, state }] };
+  return state;
+}
+
+function routeExists(href) {
+  const path = href.replace(/^\//, "");
+  return screens.some((file) => file === path || file === `${path}/index`);
+}
+
+describe("backPlan", () => {
+  test("covers every screen", () => {
+    assert.ok(screens.length > 30, `found ${screens.length} screens`);
+    for (const file of screens) {
+      const plan = backPlan(stateFor(file), false);
+      if (file.startsWith("(app)/(tabs)/") || !file.startsWith("(app)/")) {
+        assert.deepEqual(plan, { kind: "leave" }, file);
+      } else {
+        assert.equal(plan.kind, "up", file);
+        assert.ok(routeExists(plan.href), `${file} goes up to ${plan.href}, which is not a screen`);
+      }
+    }
+  });
+
+  test("anything with history pops, so tabs return Home first", () => {
+    for (const file of screens) assert.deepEqual(backPlan(stateFor(file), true), { kind: "pop" }, file);
+  });
+
+  test("screens go up to where they belong", () => {
+    assert.deepEqual(backPlan(stateFor("(app)/sheets/[id]"), false), { kind: "up", href: "/(app)/(tabs)/files" });
+    assert.deepEqual(backPlan(stateFor("(app)/today"), false), { kind: "up", href: "/(app)/(tabs)/home" });
+    assert.deepEqual(backPlan(stateFor("(app)/settings/index"), false), { kind: "up", href: "/(app)/(tabs)/home" });
+    assert.deepEqual(backPlan(stateFor("(app)/settings/agent"), false), { kind: "up", href: "/(app)/settings" });
+  });
+
+  test("before the navigators mount the app keeps Back", () => {
+    assert.deepEqual(backPlan(undefined, false), { kind: "pop" });
+  });
+
+  test("follows every navigation, not just the first render", () => {
+    const source = readFileSync(new URL("../apps/mobile/lib/predictiveBack.tsx", import.meta.url), "utf8");
+    assert.doesNotMatch(source, /useRootNavigationState/);
+    assert.match(source, /addListener\("state"/);
   });
 });
