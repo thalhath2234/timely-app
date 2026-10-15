@@ -1,5 +1,6 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { useToastStore } from "@/app/_store/toastStore";
 import { DocContent } from "@/app/_types/types";
@@ -61,7 +62,7 @@ import {
   Workflow,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AutoCapitalize } from "./autoCapitalize";
 import { Callout } from "./callout";
 import { DocImage } from "./docImage";
@@ -135,6 +136,15 @@ export interface RichTextEditorProps {
   /** Turns on Help me write (toolbar button and "/" entry) for this editor,
    * shown only while an AI provider is set up. */
   writeContext?: WriteContext;
+  /** Fixed toolbar only: renders the toolbar as one row inside this element
+   * (the doc page's bar under the tabs) and leaves scrolling to the page
+   * instead of a box of its own. */
+  toolbarHost?: HTMLElement | null;
+}
+
+/** Puts the toolbar in the page's own toolbar row when there is one. */
+function ToolbarSlot({ host, children }: { host?: HTMLElement | null; children: ReactNode }) {
+  return host ? createPortal(children, host) : children;
 }
 
 /** Adds a protocol so that "example.com" becomes a usable href. */
@@ -216,6 +226,7 @@ export default function RichTextEditor({
   editable = true,
   docId,
   writeContext,
+  toolbarHost,
 }: RichTextEditorProps) {
   const router = useRouter();
   const onChangeRef = useRef(onChange);
@@ -999,8 +1010,13 @@ export default function RichTextEditor({
           }}
         >
           {toolbar === "fixed" || focusedWithin || writeAnchor || linkPosition ? (
+          <ToolbarSlot host={toolbarHost}>
           <div
-            className="mb-3 flex shrink-0 flex-wrap items-center gap-0.5 rounded-lg border border-border bg-muted/20 p-1"
+            className={
+              toolbarHost
+                ? "flex min-w-0 flex-1 flex-nowrap items-center gap-0.5 overflow-x-auto scrollbar-none"
+                : "mb-3 flex shrink-0 flex-wrap items-center gap-0.5 rounded-lg border border-border bg-muted/20 p-1"
+            }
             onMouseDown={(event) => event.preventDefault()}
           >
             {writeOn && (
@@ -1059,15 +1075,28 @@ export default function RichTextEditor({
               </button>
             )}
           </div>
+          </ToolbarSlot>
           ) : null}
 
           <div className="relative flex min-h-0 flex-1 flex-col">
-            {findOpen && <FindBar editor={editor} onClose={() => setFindOpen(false)} />}
+            {findOpen && (
+              // On a page that scrolls, the find bar hangs under the toolbar row so it stays in view.
+              <ToolbarSlot host={toolbarHost}>
+                <div className={toolbarHost ? "absolute inset-x-0 top-full h-0" : "contents"}>
+                  <FindBar editor={editor} onClose={() => setFindOpen(false)} />
+                </div>
+              </ToolbarSlot>
+            )}
             {variant === "page" && <BlockTransferDialog />}
-            {/* The page variant's left gutter holds the block drag handle, inside the scroll box so it is not clipped. */}
-            <div className={`min-h-0 flex-1 overflow-y-auto ${variant === "page" ? "-ml-10 pl-10" : ""}`}>
+            {toolbarHost ? (
+              // The page scrolls, and its padding holds the block drag handle's gutter.
               <EditorContent editor={editor} className="min-h-full" />
-            </div>
+            ) : (
+              // The page variant's left gutter holds the block drag handle, inside the scroll box so it is not clipped.
+              <div className={`min-h-0 flex-1 overflow-y-auto ${variant === "page" ? "-ml-10 pl-10" : ""}`}>
+                <EditorContent editor={editor} className="min-h-full" />
+              </div>
+            )}
           </div>
         </div>
       ) : (

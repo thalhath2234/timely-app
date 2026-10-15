@@ -1364,6 +1364,49 @@ html.reduce-motion:not([data-public-site]) .tl-bar {
   display: none;
 }
 
+/* Doc page (docPage.tsx): title, then suggestions, then the text, in one
+ * column that scrolls as a whole. When the page is wide enough the
+ * suggestions move to a rail beside the text and stay in view. */
+.doc-page-scroll {
+  container-type: inline-size;
+}
+.doc-page-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "head" "rail" "body";
+  max-width: 48rem;
+  margin-inline: auto;
+}
+.doc-page-head {
+  grid-area: head;
+}
+.doc-page-rail {
+  grid-area: rail;
+  min-width: 0;
+}
+.doc-page-body {
+  grid-area: body;
+  min-width: 0;
+}
+@container (min-width: 74rem) {
+  .doc-page-grid:has(> .doc-page-rail:not(:empty)) {
+    max-width: 74rem;
+    grid-template-columns: minmax(0, 1fr) 22rem;
+    grid-template-rows: auto 1fr;
+    grid-template-areas: "head rail" "body rail";
+    column-gap: 2.5rem;
+  }
+  .doc-page-rail {
+    position: sticky;
+    top: 1.5rem;
+    align-self: start;
+    /* The window less the tab strip, the toolbar row and a margin. */
+    max-height: calc(100dvh - 8rem);
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+}
+
 /* Block drag handle (blockHandle.ts): a grip in the left gutter of the
  * hovered block. */
 .doc-block-handle-host {

@@ -19,6 +19,10 @@ import { setDocProperty } from "@/app/_components/editor/frontmatter";
 import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import { requestConfirm } from "@/app/_store/confirmStore";
 
+/** Checklist rows listed before "Show N more", so a long checklist does not
+ * push the doc itself out of view. */
+const TODOS_SHOWN = 4;
+
 /** What smart suggestions read in a doc: a template for a near-empty page,
  * the project or page it may belong under, its type and properties, lines
  * that read like something to do, and whether it looks out of date. Above
@@ -48,6 +52,7 @@ export default function DocHints({
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [sent, setSent] = useState(false);
   const [making, setMaking] = useState<string | null>(null);
+  const [showAllTodos, setShowAllTodos] = useState(false);
 
   // The checklist is read from the open editor, a moment after typing stops,
   // so a ticked or deleted item leaves at once and a new one shows up.
@@ -156,56 +161,81 @@ export default function DocHints({
   const strong = "font-medium text-foreground";
 
   return (
-    <section className="mb-4 rounded-xl border border-border bg-card p-3" data-testid="doc-hints" aria-label="Doc suggestions">
+    <section className="@container mb-4 rounded-xl border border-border bg-card p-3" data-testid="doc-hints" aria-label="Doc suggestions">
       {open.length > 0 && (
         <div data-testid="doc-checklist-tasks">
-          <div className="flex items-center gap-2">
-            <h3 className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-muted-foreground">
-              <ListTodo className="size-4 shrink-0 text-primary" />
-              <span className="font-medium text-foreground">
+          <div className="flex items-start gap-2">
+            <ListTodo className="mt-0.5 size-4 shrink-0 text-primary" />
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-medium text-foreground">
                 {open.length === 1 ? "1 checklist item isn’t a task yet" : `${open.length} checklist items aren’t tasks yet`}
-              </span>
+              </h3>
               {target && (
-                <span className="inline-flex items-center gap-1">
-                  · goes to <FolderKanban className="size-3.5" /> <span className="font-medium text-foreground">{target.title}</span>
-                </span>
+                <p className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                  Goes to <FolderKanban className="size-3.5 shrink-0" /> <span className="truncate font-medium text-foreground">{target.title}</span>
+                </p>
               )}
-            </h3>
+            </div>
             {open.length > 1 && (
-              <Button size="sm" variant="soft" loading={making === "all"} disabled={making !== null} leading={<Plus />} onClick={() => void make(open, "all")}>
+              <Button size="sm" variant="soft" className="@max-lg:hidden" loading={making === "all"} disabled={making !== null} leading={<Plus />} onClick={() => void make(open, "all")}>
                 Make {open.length} tasks
               </Button>
             )}
           </div>
+          {open.length > 1 && (
+            <Button size="sm" variant="soft" className="mt-2 w-full @lg:hidden" loading={making === "all"} disabled={making !== null} leading={<Plus />} onClick={() => void make(open, "all")}>
+              Make {open.length} tasks
+            </Button>
+          )}
           <ul className="mt-1.5 flex flex-col gap-0.5 text-sm text-muted-foreground">
-            {open.map((todo) => {
+            {(showAllTodos ? open : open.slice(0, TODOS_SHOWN)).map((todo) => {
               const key = `todo:${todo.name.toLowerCase()}`;
               return (
                 <li key={key} className="flex items-center gap-2 rounded-md py-1 pl-6 pr-1">
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium text-foreground" title={todo.text}>{todo.name}</span>
+                    <span className="line-clamp-2 font-medium text-foreground" title={todo.text}>{todo.name}</span>
                     {todo.details && <span className="block truncate text-xs">{todo.details}</span>}
                   </span>
-                  <Button size="sm" variant="outline" loading={making === key} disabled={making !== null} leading={<Plus />} onClick={() => void make([todo], key)}>
-                    Make task
+                  {/* Icon only in the narrow side rail, so the item's own words keep the room. */}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="@max-lg:w-7 @max-lg:px-0"
+                    title="Make task"
+                    aria-label={`Make task: ${todo.name}`}
+                    loading={making === key}
+                    disabled={making !== null}
+                    leading={<Plus />}
+                    onClick={() => void make([todo], key)}
+                  >
+                    <span className="@max-lg:hidden">Make task</span>
                   </Button>
                   {dismiss(key)}
                 </li>
               );
             })}
           </ul>
+          {open.length > TODOS_SHOWN && (
+            <Button size="sm" variant="ghost" className="ml-4 text-xs" aria-expanded={showAllTodos} onClick={() => setShowAllTodos((all) => !all)}>
+              {showAllTodos ? "Show fewer" : `Show ${open.length - TODOS_SHOWN} more`}
+            </Button>
+          )}
           {already.length > 0 && (
-            <p className="mt-1 pl-6 text-xs text-muted-foreground">
-              Already {already.length === 1 ? "a task" : "tasks"}:{" "}
-              {already.map((task, i) => (
-                <span key={task.taskId}>
-                  {i > 0 && ", "}
-                  <Button size="sm" variant="link" className="text-xs" onClick={() => openTasksEntity({ kind: "task", id: task.taskId })}>
-                    {todos.find((todo) => todo.name.toLowerCase() === task.name.toLowerCase())?.name ?? task.name}
-                  </Button>
-                </span>
-              ))}
-            </p>
+            <div className="mt-1 pl-6 text-xs text-muted-foreground">
+              Already {already.length === 1 ? "a task" : "tasks"}:
+              {/* One per line: long names wrapped mid-list in the narrow side rail. */}
+              <ul className="mt-0.5 flex flex-col items-start gap-0.5">
+                {already.map((task) => (
+                  <li key={task.taskId} className="flex max-w-full">
+                    <Button size="sm" variant="link" className="max-w-full text-xs" onClick={() => openTasksEntity({ kind: "task", id: task.taskId })}>
+                      <span className="truncate">
+                        {todos.find((todo) => todo.name.toLowerCase() === task.name.toLowerCase())?.name ?? task.name}
+                      </span>
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
       )}

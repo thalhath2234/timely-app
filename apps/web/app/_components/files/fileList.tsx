@@ -17,7 +17,6 @@ import {
   ChevronRight,
   FileText,
   LayoutTemplate,
-  PanelLeftClose,
   Plus,
   Search,
   Sheet as SheetIcon,
@@ -145,7 +144,8 @@ export default function FileList() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [kindFilter, setKindFilter] = useState<KindFilter>("all");
-  const { collapsed, toggle } = useCollapsedPanel("timely.filesListCollapsed");
+  // The toggle lives at the left end of the tab strip (tabbedPane.tsx).
+  const { collapsed } = useCollapsedPanel("timely.filesListCollapsed");
   const openMenu = useContextMenu();
   const docMenu = useDocContextMenu();
   const sheetMenu = useSheetContextMenu();
@@ -606,14 +606,6 @@ export default function FileList() {
           {showArchived ? "Archived" : "Files"}
         </h2>
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            title="Collapse files list"
-            onClick={toggle}
-            className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
-          >
-            <PanelLeftClose className="size-4" />
-          </button>
           <button
             type="button"
             title="New doc or sheet"

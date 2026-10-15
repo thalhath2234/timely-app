@@ -4,9 +4,10 @@ import { useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
-import { FolderKanban, ListTodo, Plus, Sparkles, X } from "lucide-react-native";
+import { ChevronRight, FolderKanban, ListTodo, Plus, Sparkles, X } from "lucide-react-native";
 import { contentFromTemplate, templateVars } from "@timely/contract/templates";
 import AnimatedPressable from "../ui/AnimatedPressable";
+import BottomSheet from "../ui/BottomSheet";
 import ConfirmSheet from "../ui/ConfirmSheet";
 import { getDoc } from "../../lib/api/docs";
 import { Button, SectionLabel } from "../ui/primitives";
@@ -31,7 +32,8 @@ type Row = { key: string; text: string; label?: string; run?: () => void; manual
  * property values (set in the doc's Properties block), lines that read like
  * tasks, and whether it looks out of date. Above them, the doc's unchecked
  * checklist items that are not tasks yet, offered as tasks even while
- * suggestions are off. */
+ * suggestions are off. Above the doc it is one summary row; the rows
+ * themselves open in a sheet, so the doc keeps the screen. */
 export default function DocHintsCard({
   doc,
   content,
@@ -65,6 +67,7 @@ export default function DocHintsCard({
   const [sent, setSent] = useState(false);
   const [confirmTemplate, setConfirmTemplate] = useState(false);
   const [making, setMaking] = useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   const todos = useMemo(() => (live ? openChecklistItems(content) : []), [content, live]);
   const names = useMemo(() => todos.map((todo) => todo.name), [todos]);
@@ -215,8 +218,8 @@ export default function DocHintsCard({
   const shown = rows.filter((row) => !hidden.has(row.key));
   if (!shown.length && !open.length && !confirmTemplate) return null;
 
-  return (
-    <View style={styles.card} testID="doc-hints">
+  const body = (
+    <View style={styles.body} testID="doc-hints">
       {open.length > 0 ? (
         <View style={styles.todos} testID="doc-checklist-tasks">
           <View style={styles.todoHeader}>
@@ -317,6 +320,42 @@ export default function DocHintsCard({
           </AnimatedPressable>
         </View>
       ))}
+    </View>
+  );
+
+  const summary = open.length
+    ? open.length === 1
+      ? "1 checklist item isn’t a task yet"
+      : `${open.length} checklist items aren’t tasks yet`
+    : shown.length === 1
+      ? "1 suggestion for this doc"
+      : `${shown.length} suggestions for this doc`;
+  const detail = [
+    open.length && target ? `Goes to ${target.title}` : "",
+    open.length && shown.length ? `${shown.length} more ${shown.length === 1 ? "suggestion" : "suggestions"}` : "",
+  ].filter(Boolean).join(" · ");
+
+  return (
+    <>
+      {shown.length || open.length ? (
+        <AnimatedPressable
+          accessibilityRole="button"
+          accessibilityLabel={`${summary}. Show`}
+          onPress={() => setSheetOpen(true)}
+          style={styles.summary}
+          testID="doc-hints-summary"
+        >
+          {open.length ? <ListTodo size={16} color={colors.primary} /> : <Sparkles size={16} color={colors.primary} />}
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text numberOfLines={1} style={styles.todoTitle}>{summary}</Text>
+            {detail ? <Text numberOfLines={1} style={styles.text}>{detail}</Text> : null}
+          </View>
+          <ChevronRight size={18} color={colors.mutedForeground} />
+        </AnimatedPressable>
+      ) : null}
+      <BottomSheet open={sheetOpen && (shown.length > 0 || open.length > 0)} onClose={() => setSheetOpen(false)} title="Suggestions">
+        {body}
+      </BottomSheet>
       <ConfirmSheet
         open={confirmTemplate}
         onClose={() => setConfirmTemplate(false)}
@@ -325,12 +364,26 @@ export default function DocHintsCard({
         confirmLabel="Replace"
         onConfirm={() => void applyTemplate()}
       />
-    </View>
+    </>
   );
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  card: { gap: 8, marginHorizontal: 16, marginBottom: 8, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14 },
+  summary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 52,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  body: { gap: 8, paddingHorizontal: 4, paddingBottom: 8 },
   header: { flexDirection: "row", alignItems: "center", gap: 6 },
   row: { flexDirection: "row", alignItems: "center", gap: 6 },
   text: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
