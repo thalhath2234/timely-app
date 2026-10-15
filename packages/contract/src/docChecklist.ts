@@ -66,23 +66,43 @@ export function checklistTaskName(text: string): { name: string; details: string
   return { name, details };
 }
 
+/** A checklist item's own words: its paragraphs, not its nested items. */
+function itemText(node: Node): string {
+  return (node.content ?? [])
+    .map(asNode)
+    .filter((child): child is Node => child?.type === "paragraph")
+    .map(inlineText)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Unchecked checklist items in a doc, in order, one per distinct task name.
  * Checked items, empty ones, ones that already mention a task and ones inside
- * code or properties are left out. A nested item is its own entry. */
-export function openChecklistItems(content: DocContent | null | undefined): ChecklistTodo[] {
+ * code or properties are left out. A nested item is its own entry.
+ *
+ * `keptLists` are the words of items (lower case) on checklists that are kept
+ * in the doc rather than worked as tasks, such as groceries or packing (the
+ * API's doc hints, `keptLists`). A checklist holding any of them is left out
+ * whole, so an item added to it later is left out too. */
+export function openChecklistItems(content: DocContent | null | undefined, keptLists?: readonly string[]): ChecklistTodo[] {
   const out: ChecklistTodo[] = [];
   const seen = new Set<string>();
+  const kept = new Set(keptLists ?? []);
   const walk = (raw: unknown) => {
     const node = asNode(raw);
     if (!node || SKIP.has(node.type ?? "")) return;
+    if (
+      kept.size &&
+      node.type === "taskList" &&
+      (node.content ?? []).some((child) => {
+        const row = asNode(child);
+        return row?.type === "taskItem" && kept.has(itemText(row).toLowerCase());
+      })
+    )
+      return;
     if (node.type === "taskItem" && node.attrs?.checked !== true && !linksTask(node)) {
-      const text = (node.content ?? [])
-        .map(asNode)
-        .filter((child): child is Node => child?.type === "paragraph")
-        .map(inlineText)
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim();
+      const text = itemText(node);
       if ([...text].length >= 2) {
         const { name, details } = checklistTaskName(text);
         const key = name.toLowerCase();

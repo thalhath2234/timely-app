@@ -63,6 +63,22 @@ describe("openChecklistItems", () => {
     assert.deepEqual(openChecklistItems(undefined), []);
     assert.deepEqual(openChecklistItems({ type: "doc" }), []);
   });
+
+  test("a list kept in the doc is left out whole, new items too", () => {
+    const content = {
+      type: "doc",
+      content: [
+        list(item(false, para("Call the plumber"))),
+        list(item(true, para("Milk")), item(false, para("Eggs")), item(false, para("Oat bread")), item(false, para("Flour", list(item(false, para("Rye")))))),
+      ],
+    };
+    // The API named the list by the items it saw; "Oat bread" was added later.
+    assert.deepEqual(
+      openChecklistItems(content, ["milk", "eggs"]).map((t) => t.name),
+      ["Call the plumber"],
+    );
+    assert.deepEqual(openChecklistItems(content, []).length, 5);
+  });
 });
 
 describe("checklistTaskDescription", () => {

@@ -82,7 +82,9 @@ export default function DocHintsCard({
   // its default model for a clean title and a brief description.
   const aiReady = readyProviders(useAgentProvidersQuery().data).length > 0;
 
-  const todos = useMemo(() => (live ? openChecklistItems(content) : []), [content, live]);
+  // Checklists Jev reads as kept in the doc (groceries, packing) offer no tasks.
+  const kept = data?.available ? data.keptLists : undefined;
+  const todos = useMemo(() => (live ? openChecklistItems(content, kept) : []), [content, live, kept]);
   const names = useMemo(() => todos.map((todo) => todo.name), [todos]);
   // New tasks go to the doc's project, else the one suggestions place the doc
   // in, else the project it is most related to; the server checks the pick.
