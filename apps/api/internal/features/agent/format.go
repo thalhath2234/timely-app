@@ -178,16 +178,6 @@ func columnLetters(index int) string {
 	return letters
 }
 
-func sheetPayload(sh *models.Sheet) map[string]any {
-	if sh == nil {
-		return nil
-	}
-	return map[string]any{
-		"sheet":    sh,
-		"markdown": sheetMarkdown(sh),
-	}
-}
-
 func confirmOrFail(confirm bool, action string) error {
 	if confirm {
 		return nil
