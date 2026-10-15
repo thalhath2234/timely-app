@@ -24,17 +24,24 @@ function useWidth() {
   return [width, onLayout] as const;
 }
 
+/** Writes a value: as a count or hours, or the way a sheet column shows it when the card reads a sheet. */
+export type ValueFormat = (value: number) => string;
+
+function show(value: number, unit: CardUnit, format?: ValueFormat) {
+  return format ? format(value) : formatMetric(value, unit);
+}
+
 /** The tapped point's value, or the chart's hint when nothing is picked. */
-function Readout({ point, unit, hint }: { point: SeriesPoint | null; unit: CardUnit; hint: string }) {
+function Readout({ point, unit, hint, format }: { point: SeriesPoint | null; unit: CardUnit; hint: string; format?: ValueFormat }) {
   return (
     <Text style={styles.readout} numberOfLines={1}>
-      {point ? `${point.detail ?? point.label}: ${formatMetric(point.value, unit)}` : hint}
+      {point ? `${point.detail ?? point.label}: ${show(point.value, unit, format)}` : hint}
     </Text>
   );
 }
 
 /** Horizontal bars with the label above and the value at the right, so long names never get cut. */
-export function CategoryBars({ points, unit, color }: { points: SeriesPoint[]; unit: CardUnit; color: number }) {
+export function CategoryBars({ points, unit, color, format }: { points: SeriesPoint[]; unit: CardUnit; color: number; format?: ValueFormat }) {
   const max = Math.max(...points.map((point) => point.value), 0) || 1;
   return (
     <View style={{ gap: 10 }}>
@@ -44,7 +51,7 @@ export function CategoryBars({ points, unit, color }: { points: SeriesPoint[]; u
             <Text style={styles.barLabel} numberOfLines={1}>
               {point.label}
             </Text>
-            <Text style={styles.value}>{formatMetric(point.value, unit)}</Text>
+            <Text style={styles.value}>{show(point.value, unit, format)}</Text>
           </View>
           <View
             style={[
@@ -105,7 +112,7 @@ function pickIndex(x: number, width: number, count: number) {
 }
 
 /** Columns over time: one baseline, 4px rounded tops. Tap a column for its value. */
-export function ColumnChart({ points, unit, color }: { points: SeriesPoint[]; unit: CardUnit; color: number }) {
+export function ColumnChart({ points, unit, color, format }: { points: SeriesPoint[]; unit: CardUnit; color: number; format?: ValueFormat }) {
   const [width, onLayout] = useWidth();
   const [picked, setPicked] = useState<number | null>(null);
   const plotW = Math.max(0, width - AXIS_LEFT - PAD_RIGHT);
@@ -118,7 +125,7 @@ export function ColumnChart({ points, unit, color }: { points: SeriesPoint[]; un
 
   return (
     <View>
-      <Readout point={picked === null ? null : points[picked]} unit={unit} hint={`${formatMetric(total, unit)} in total · tap a column`} />
+      <Readout point={picked === null ? null : points[picked]} unit={unit} format={format} hint={`${show(total, unit, format)} in total · tap a column`} />
       <Pressable onLayout={onLayout} onPress={(event) => setPicked(pickIndex(event.nativeEvent.locationX, width, points.length))}>
         {width > 0 ? (
           <Svg width={width} height={height}>
@@ -156,7 +163,7 @@ export function ColumnChart({ points, unit, color }: { points: SeriesPoint[]; un
 }
 
 /** A 2px line over time with a dot on the picked point. */
-export function LineChart({ points, unit, color }: { points: SeriesPoint[]; unit: CardUnit; color: number }) {
+export function LineChart({ points, unit, color, format }: { points: SeriesPoint[]; unit: CardUnit; color: number; format?: ValueFormat }) {
   const [width, onLayout] = useWidth();
   const [picked, setPicked] = useState<number | null>(null);
   const plotW = Math.max(0, width - AXIS_LEFT - PAD_RIGHT);
@@ -172,7 +179,7 @@ export function LineChart({ points, unit, color }: { points: SeriesPoint[]; unit
 
   return (
     <View>
-      <Readout point={picked === null ? null : points[picked]} unit={unit} hint={`${formatMetric(total, unit)} in total · tap the chart`} />
+      <Readout point={picked === null ? null : points[picked]} unit={unit} format={format} hint={`${show(total, unit, format)} in total · tap the chart`} />
       <Pressable
         onLayout={onLayout}
         onPress={(event) => {
@@ -233,7 +240,7 @@ function donutArcs(points: SeriesPoint[], total: number) {
 }
 
 /** A donut with the total in the middle and a legend that carries every value. */
-export function DonutChart({ points, unit, total }: { points: SeriesPoint[]; unit: CardUnit; total: number }) {
+export function DonutChart({ points, unit, total, format }: { points: SeriesPoint[]; unit: CardUnit; total: number; format?: ValueFormat }) {
   const size = 132;
   const outer = size / 2;
   const inner = outer - 16;
@@ -253,7 +260,7 @@ export function DonutChart({ points, unit, total }: { points: SeriesPoint[]; uni
           )}
         </Svg>
         <View style={styles.donutCenter} pointerEvents="none">
-          <Text style={styles.donutTotal}>{formatMetric(total, unit)}</Text>
+          <Text style={styles.donutTotal}>{show(total, unit, format)}</Text>
           <Text style={styles.muted}>total</Text>
         </View>
       </View>
@@ -265,7 +272,7 @@ export function DonutChart({ points, unit, total }: { points: SeriesPoint[]; uni
               {point.label}
             </Text>
             <Text style={styles.value}>
-              {formatMetric(point.value, unit)}
+              {show(point.value, unit, format)}
               {total > 0 ? ` · ${Math.round((point.value / total) * 100)}%` : ""}
             </Text>
           </View>

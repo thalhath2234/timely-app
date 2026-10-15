@@ -3,6 +3,7 @@ package sheet
 import (
 	"testing"
 	"timely-api/internal/models"
+	"timely-api/internal/realtime"
 )
 
 func TestWorkbookTabsWrapsPrimaryGrid(t *testing.T) {
@@ -70,7 +71,7 @@ func (projectScopeRepo) ProjectBelongsToUser(userID, projectID string) (bool, er
 }
 
 func TestSheetRejectsForeignProject(t *testing.T) {
-	svc := NewSheetService(projectScopeRepo{}, nil)
+	svc := NewSheetService(projectScopeRepo{}, nil, nil)
 	theirs := "pr_theirs"
 	if _, err := svc.Update("usr_1", "sht_1", SheetUpdate{ProjectID: &theirs}); err == nil || err.Error() != "project not found" {
 		t.Fatalf("update: expected project not found, got %v", err)
@@ -114,5 +115,53 @@ func TestPrepareGridMakesTabNamesUnique(t *testing.T) {
 	}
 	if tabs[0].Name != "Food" || tabs[1].Name != "food (2)" || tabs[2].Name != "Food (3)" {
 		t.Fatalf("names = %q %q %q", tabs[0].Name, tabs[1].Name, tabs[2].Name)
+	}
+}
+
+type liveRepo struct {
+	SheetRepository
+}
+
+func (liveRepo) UpdateSheet(userID, sheetID string, updates map[string]any) (*models.Sheet, error) {
+	return &models.Sheet{ID: sheetID, UserID: userID, Title: "Budget", UpdatedAt: "2026-10-15T07:00:00Z"}, nil
+}
+
+func (liveRepo) GetSheetByID(userID, sheetID string) (*models.Sheet, error) {
+	return &models.Sheet{ID: sheetID, UserID: userID}, nil
+}
+
+func (liveRepo) DeleteSheet(userID, sheetID string) error { return nil }
+
+// Dashboard cards built from a sheet watch it: every save, including an
+// agent's, must reach the open watch streams with the saved sheet.
+func TestSheetSavesReachWatchers(t *testing.T) {
+	hub := realtime.NewHub()
+	svc := NewSheetService(liveRepo{}, nil, hub)
+	events, cancel := hub.Subscribe("usr_1", "sht_1")
+	defer cancel()
+	other, cancelOther := hub.Subscribe("usr_2", "sht_1")
+	defer cancelOther()
+
+	title := "Budget"
+	if _, err := svc.Update("usr_1", "sht_1", SheetUpdate{Title: &title}); err != nil {
+		t.Fatal(err)
+	}
+	ev := <-events
+	if ev.Type != "updated" || ev.Kind != "sheet" || ev.ID != "sht_1" || ev.UpdatedAt != "2026-10-15T07:00:00Z" {
+		t.Fatalf("unexpected event %+v", ev)
+	}
+	if sheet, ok := ev.Document.(*models.Sheet); !ok || sheet.Title != "Budget" {
+		t.Fatalf("event should carry the saved sheet, got %#v", ev.Document)
+	}
+	if err := svc.Delete("usr_1", "sht_1"); err != nil {
+		t.Fatal(err)
+	}
+	if ev := <-events; ev.Type != "deleted" {
+		t.Fatalf("expected deleted, got %+v", ev)
+	}
+	select {
+	case ev := <-other:
+		t.Fatalf("another account's watcher got %+v", ev)
+	default:
 	}
 }
