@@ -29,6 +29,7 @@ import DateTimeSheet from "../../../components/ui/DateTimeSheet";
 import { Button, Field, PrimaryButton, PropertyGroup, PropertyRow, SectionLabel } from "../../../components/ui/primitives";
 import { ColorDot, GroupLabel, ListGroup, ListRow } from "../../../components/settings/SettingsList";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
+import ColourSheet from "../../../components/ui/ColourSheet";
 import {
   useCreateStage,
   useCreateTask,
@@ -48,7 +49,7 @@ import {
 import { PRIORITIES, normalizePriority } from "../../../lib/priority";
 import { showUndoToast } from "../../../lib/toast";
 import { formatShortDate, timeAgo, toDateInputValue } from "../../../lib/format";
-import { ENTITY_COLORS, colorName, resolvedColor, stableColorForId } from "../../../lib/entityColor";
+import { colorName, resolvedColor, stableColorForId } from "../../../lib/entityColor";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { useDraftText } from "../../../lib/draftText";
 import { useAutosave } from "../../../lib/autosave";
@@ -506,45 +507,13 @@ export default function ProjectDetailScreen() {
           onConfirm={() => confirm?.onConfirm()}
         />
       </BottomSheet>
-      <BottomSheet open={picker === "color"} onClose={() => setPicker(null)} title="Colour" subtitle={colorName(project.color)}>
-        <SheetOption
-          selected={!project.color}
-          leading={<View style={[styles.colourIcon, { backgroundColor: stableColorForId(project.id) }]} />}
-          onSelect={() => {
-            persist({ color: "" });
-            setPicker(null);
-          }}
-        >
-          Auto
-        </SheetOption>
-        <View style={styles.swatches}>
-          {ENTITY_COLORS.map((color) => {
-            const selected = project.color?.toUpperCase() === color.toUpperCase();
-            return (
-              <AnimatedPressable
-                key={color}
-                accessibilityRole="button"
-                accessibilityLabel={colorName(color)}
-                accessibilityState={{ selected }}
-                onPress={() => {
-                  persist({ color });
-                  setPicker(null);
-                }}
-                style={styles.swatchCell}
-              >
-                <View style={[styles.swatchRing, selected && { borderColor: colors.foreground }]}>
-                  <View style={[styles.swatchBig, { backgroundColor: color }]}>
-                    {selected ? <Check size={16} color="#ffffff" strokeWidth={3} /> : null}
-                  </View>
-                </View>
-                <Text numberOfLines={1} style={[styles.swatchName, selected && { color: colors.foreground }]}>
-                  {colorName(color)}
-                </Text>
-              </AnimatedPressable>
-            );
-          })}
-        </View>
-      </BottomSheet>
+      <ColourSheet
+        open={picker === "color"}
+        onClose={() => setPicker(null)}
+        value={project.color ?? ""}
+        autoColor={stableColorForId(project.id)}
+        onChange={(color) => persist({ color })}
+      />
       <BottomSheet open={picker === "status"} onClose={() => setPicker(null)} title="Status">
         <SheetOption
           selected={!project.statusId}
@@ -663,9 +632,4 @@ const styles = createThemedStyleSheet((colors) => ({
   stageMoves: { flexDirection: "row", alignItems: "center", marginRight: -8 },
   deleteRow: { alignItems: "flex-start", marginLeft: -12 },
   colourIcon: { width: 16, height: 16, borderRadius: 8 },
-  swatches: { flexDirection: "row", flexWrap: "wrap", rowGap: 12, paddingTop: 8, paddingBottom: 8 },
-  swatchCell: { width: "25%", alignItems: "center", gap: 6 },
-  swatchRing: { width: 50, height: 50, borderRadius: 25, borderWidth: 2, borderColor: "transparent", alignItems: "center", justifyContent: "center" },
-  swatchBig: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  swatchName: { color: colors.mutedForeground, fontSize: 12, fontWeight: "500" },
 }));

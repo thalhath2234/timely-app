@@ -4,7 +4,6 @@ import Animated, { useReducedMotion } from "react-native-reanimated";
 import { Braces, Tags, Plus, X } from "lucide-react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import CustomFieldBuilder, {
-  FIELD_PALETTE,
   LabelComposer,
   cleanedOptions,
   needsOptions,
@@ -17,6 +16,7 @@ import { createCustomField, createLabel } from "../../lib/api/workspaces";
 import { emptyCustomFieldDrafts, withCustomFieldDraft } from "../../lib/customFields";
 import { keys } from "../../lib/hooks";
 import type { CustomField, CustomFieldType, CustomFieldValueInput, Workspace } from "../../lib/types";
+import { colorForIndex } from "../../lib/entityColor";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { expandEntering, expandExiting, listLayout } from "../../lib/motion";
 import TaskSectionHeader from "../tasks/TaskSectionHeader";
@@ -84,10 +84,10 @@ export default function TaskMetaEditor({
   const labels = workspace?.lables ?? [];
   const fields = workspace?.customFields ?? [];
   const [labelName, setLabelName] = useState("");
-  const [labelColor, setLabelColor] = useState(FIELD_PALETTE[0]);
+  const [labelColor, setLabelColor] = useState(colorForIndex(0));
   const [fieldName, setFieldName] = useState("");
   const [fieldType, setFieldType] = useState<CustomFieldType>("select");
-  const [options, setOptions] = useState<OptionDraft[]>([{ value: "", color: FIELD_PALETTE[0] }]);
+  const [options, setOptions] = useState<OptionDraft[]>([{ value: "", color: colorForIndex(0) }]);
   const [addingLabel, setAddingLabel] = useState(false);
   const [addingField, setAddingField] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -95,13 +95,13 @@ export default function TaskMetaEditor({
 
   function resetLabelDraft() {
     setLabelName("");
-    setLabelColor(FIELD_PALETTE[0]);
+    setLabelColor(colorForIndex(0));
   }
 
   function resetFieldDraft() {
     setFieldName("");
     setFieldType("select");
-    setOptions([{ value: "", color: FIELD_PALETTE[0] }]);
+    setOptions([{ value: "", color: colorForIndex(0) }]);
   }
 
   function toggleAddingLabel() {
