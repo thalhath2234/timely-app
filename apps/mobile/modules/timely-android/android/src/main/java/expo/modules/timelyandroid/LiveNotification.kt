@@ -100,7 +100,7 @@ object LiveNotification {
     ensureChannel(context)
     val builder =
       NotificationCompat.Builder(context, CHANNEL)
-        .setSmallIcon(smallIcon(context))
+        .setSmallIcon(R.drawable.timely_live_icon)
         .setContentTitle(payload.title)
         .setContentText(payload.text)
         .setOngoing(true)
@@ -134,12 +134,6 @@ object LiveNotification {
     payload.chip?.let { extras.putCharSequence(EXTRA_SHORT_CRITICAL_TEXT, it) }
     builder.addExtras(extras)
     return builder.build()
-  }
-
-  private fun smallIcon(context: Context): Int {
-    val res = context.resources
-    val id = res.getIdentifier("notification_icon", "drawable", context.packageName)
-    return if (id != 0) id else context.applicationInfo.icon
   }
 
   fun openIntent(context: Context, uri: String?, requestCode: Int): PendingIntent {

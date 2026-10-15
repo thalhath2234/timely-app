@@ -54,6 +54,19 @@ describe("live notification", () => {
     assert.equal(model.actions[1].label, "Skip break");
   });
 
+  test("a pomodoro shows how far through the phase it is on the progress bar", () => {
+    const running = liveModel({
+      ...base,
+      pomodoros: [{ cardId: "p1", phase: "focus", endsAt: NOW + 10 * 60_000, leftMs: 600_000, totalMs: 25 * 60_000 }],
+    });
+    assert.deepEqual(running.progress, { max: 1000, value: 600 });
+    assert.match(running.text, /^Ends \d/);
+    const paused = liveModel({ ...base, pomodoros: [{ cardId: "p1", phase: "short", endsAt: null, leftMs: 60_000, totalMs: 5 * 60_000 }] });
+    assert.deepEqual(paused.progress, { max: 1000, value: 800 });
+    const unknown = liveModel({ ...base, pomodoros: [{ cardId: "p1", phase: "short", endsAt: null, leftMs: 60_000 }] });
+    assert.equal(unknown.progress, undefined);
+  });
+
   test("several things running list one line each when expanded", () => {
     const model = liveModel({
       ...base,

@@ -14,6 +14,8 @@ export type LivePomodoro = {
   endsAt: number | null;
   /** Milliseconds left (frozen while paused). */
   leftMs: number;
+  /** The phase's full length in ms, for the progress bar. */
+  totalMs?: number;
   taskId?: string | null;
   taskName?: string | null;
 };
@@ -142,13 +144,18 @@ export function liveModel(input: LiveInput): LiveModel | null {
     const running = timer.endsAt !== null;
     const left = running ? Math.max(0, (timer.endsAt ?? now) - now) : timer.leftMs;
     const phase = PHASE_LABEL[timer.phase];
+    const progress = phaseProgress(left, timer.totalMs);
     const what = timer.taskName ? ` · ${timer.taskName}` : "";
     items.push({
       line: `${running ? phase : "Paused"} · ${clock(left)} left${what}`,
       build: () => ({
         title: timer.taskName || `Pomodoro · ${phase}`,
-        text: running ? `${phase} · ends ${timeOfDay(timer.endsAt ?? now)}` : `Paused · ${clock(left)} left`,
+        // The title already names the phase unless it shows the linked task.
+        text: running
+          ? `${timer.taskName ? `${phase} · ends` : "Ends"} ${timeOfDay(timer.endsAt ?? now)}`
+          : `Paused · ${clock(left)} left`,
         ...(running ? { chronometer: { base: timer.endsAt ?? now, countDown: true } } : { chip: clock(left) }),
+        ...(progress ? { progress } : {}),
         uri: `${scheme}://dashboard`,
         actions: [
           running
@@ -187,6 +194,16 @@ export function liveModel(input: LiveInput): LiveModel | null {
         }
       : {}),
   };
+}
+
+/** Steps on the notification's progress bar; fine enough that a 25 minute round moves smoothly. */
+export const PROGRESS_STEPS = 1000;
+
+/** How far through the phase the bar sits; none when the length isn't known. */
+function phaseProgress(leftMs: number, totalMs?: number) {
+  if (!totalMs || totalMs <= 0) return null;
+  const done = Math.min(1, Math.max(0, 1 - leftMs / totalMs));
+  return { max: PROGRESS_STEPS, value: Math.round(done * PROGRESS_STEPS) };
 }
 
 function timeOfDay(at: number) {
