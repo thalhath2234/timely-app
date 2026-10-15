@@ -150,7 +150,7 @@ function DocEditor({ docId }: { docId: string }) {
 
   useAssistantScreen(doc ? [
     contextChip("object", title || "Document", `docs/${docId}`),
-    contextChip("workspace", "Workspace", doc.workspaceId),
+    ...(doc.workspaceId ? [contextChip("workspace", "Workspace", doc.workspaceId)] : []),
     ...(doc.projectId ? [contextChip("project", "Project", doc.projectId)] : []),
     ...(selectedText ? [contextChip("selection", "Selected text", selectedText)] : []),
     ...(hasUnsavedChanges() ? [contextChip("draft", "Unsaved document", { title, plainText: assistantText })] : []),
