@@ -44,7 +44,6 @@ export default function AppLayout() {
             route.name === "search" ||
             route.name === "today" ||
             route.name === "inbox" ||
-            route.name === "dashboard" ||
             route.name === "notifications" ||
             route.name === "shortcut/[action]";
           return {

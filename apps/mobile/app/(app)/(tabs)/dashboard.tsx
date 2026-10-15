@@ -50,18 +50,18 @@ import {
   type DashboardCard,
 } from "@timely/contract/dashboard";
 import { dateInZone } from "@timely/contract/workStatus";
-import Screen from "../../components/ui/Screen";
-import MobileHeader, { HeaderIconButton } from "../../components/ui/MobileHeader";
-import BottomSheet from "../../components/ui/BottomSheet";
-import ConfirmSheet from "../../components/ui/ConfirmSheet";
-import AnimatedPressable from "../../components/ui/AnimatedPressable";
-import { SectionLabel } from "../../components/ui/primitives";
-import CustomCardView from "../../components/report/customCardView";
-import FileCardView, { FILE_ICON, isFileQuery, useFileWatches } from "../../components/report/fileCards";
-import FileCardBuilder from "../../components/report/fileCardBuilder";
-import PomodoroCard from "../../components/report/pomodoroCard";
-import HighlightsCard from "../../components/report/highlightsCard";
-import { CountdownCard, DayProgressCard, MatrixCard, NotesCard, QuickCaptureCard, StreakCard, TodayCard } from "../../components/report/builtinCards";
+import Screen from "../../../components/ui/Screen";
+import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
+import BottomSheet from "../../../components/ui/BottomSheet";
+import ConfirmSheet from "../../../components/ui/ConfirmSheet";
+import AnimatedPressable from "../../../components/ui/AnimatedPressable";
+import { SectionLabel } from "../../../components/ui/primitives";
+import CustomCardView from "../../../components/report/customCardView";
+import FileCardView, { FILE_ICON, isFileQuery, useFileWatches } from "../../../components/report/fileCards";
+import FileCardBuilder from "../../../components/report/fileCardBuilder";
+import PomodoroCard from "../../../components/report/pomodoroCard";
+import HighlightsCard from "../../../components/report/highlightsCard";
+import { CountdownCard, DayProgressCard, MatrixCard, NotesCard, QuickCaptureCard, StreakCard, TodayCard } from "../../../components/report/builtinCards";
 import {
   ClockCard,
   FocusTimeCard,
@@ -72,17 +72,17 @@ import {
   NextUpCard,
   TopThreeCard,
   WeeklyReviewCard,
-} from "../../components/report/productivityCards";
-import type { SettingsUpdate } from "../../components/report/cardParts";
-import { useDashboardData, useDashboardLayout, useNow } from "../../lib/dashboard";
-import { forgetPomodoro } from "../../lib/pomodoroStore";
-import { cancelPomodoroNotification } from "../../lib/notifications";
-import { useConfigQuery, useDecisionsStatusQuery, useInvalidateAll } from "../../lib/hooks";
-import { fileHref } from "../../lib/fileRoutes";
-import { eventHref } from "../../lib/eventOccurrence";
-import { showUndoToast, useToastStore } from "../../lib/toast";
-import type { CalendarItem } from "../../lib/types";
-import { colors, createThemedStyleSheet } from "../../lib/theme";
+} from "../../../components/report/productivityCards";
+import type { SettingsUpdate } from "../../../components/report/cardParts";
+import { useDashboardData, useDashboardLayout, useNow } from "../../../lib/dashboard";
+import { forgetPomodoro } from "../../../lib/pomodoroStore";
+import { cancelPomodoroNotification } from "../../../lib/notifications";
+import { useConfigQuery, useDecisionsStatusQuery, useInvalidateAll } from "../../../lib/hooks";
+import { fileHref } from "../../../lib/fileRoutes";
+import { eventHref } from "../../../lib/eventOccurrence";
+import { showUndoToast, useToastStore } from "../../../lib/toast";
+import type { CalendarItem } from "../../../lib/types";
+import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 const BUILTIN_ICON: Record<BuiltinCardType, typeof Timer> = {
   pomodoro: Timer,
@@ -283,7 +283,6 @@ export default function DashboardScreen() {
     <Screen>
       <MobileHeader
         title="Dashboard"
-        back
         actions={
           <>
             {editing ? null : (
@@ -458,7 +457,7 @@ export default function DashboardScreen() {
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  list: { padding: 12, gap: 12, paddingBottom: 48 },
+  list: { padding: 12, gap: 12, paddingBottom: 130 },
   card: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14, gap: 12 },
   cardHead: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 24 },
   cardTitle: { flex: 1, color: colors.foreground, fontSize: 14, fontWeight: "600" },
