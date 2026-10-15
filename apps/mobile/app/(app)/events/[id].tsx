@@ -69,7 +69,7 @@ export default function EventDetailScreen() {
 
   useAssistantScreen(event ? [
     contextChip("object", title || "Event", `events/${event.id}`),
-    contextChip("workspace", "Workspace", event.workspaceId),
+    ...(event.workspaceId ? [contextChip("workspace", "Workspace", event.workspaceId)] : []),
     ...(projectId ? [contextChip("project", "Project", projectId)] : []),
     contextChip("draft", "Local event form", { title, description, start: start.toISOString(), end: end.toISOString(), allDay, scope, recurrence }),
   ] : []);
