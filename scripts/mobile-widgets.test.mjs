@@ -67,6 +67,15 @@ describe("home screen widgets", () => {
     assert.equal(model.rows[0].uri, "timelymobile://tasks/a");
   });
 
+  test("sheet and doc cards from the Card workshop open the Dashboard instead of showing a wrong count", () => {
+    const base = defaultDashboard().cards.find((c) => c.id === "default_open");
+    for (const extra of [{ sheet: { sheetId: "s1", range: "B7", view: "value" } }, { doc: { docId: "d1", view: "checklist" } }]) {
+      const model = cardWidgetModel({ ...base, query: { ...base.query, ...extra } }, input);
+      assert.equal(model.value, undefined);
+      assert.equal(model.buttons[0].uri, "timelymobile://dashboard");
+    }
+  });
+
   test("Inbox zero counts open Inbox items and offers Capture", () => {
     const model = cardWidgetModel({ id: "z", type: "inboxZero", w: 3, h: 2 }, input);
     assert.equal(model.value, "1");

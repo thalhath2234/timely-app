@@ -176,6 +176,18 @@ const SOURCE_NOUN: Record<string, string> = {
 function customModel(card: DashboardCard, input: WidgetInput, title: string): WidgetModel {
   const uri = link(input.scheme, "dashboard");
   if (!card.query) return { title, uri, empty: "This card has no query yet." };
+  // Sheet and doc cards from the Card workshop (query.sheet / query.doc, PR
+  // #201) read cells or doc blocks, not the task lists computeCard counts;
+  // until widgets draw them, say so rather than show a wrong number.
+  const picked = card.query as unknown as { sheet?: unknown; doc?: unknown };
+  if (picked.sheet || picked.doc) {
+    return {
+      title,
+      uri,
+      note: picked.sheet ? "This card reads cells from a sheet. Open it on your Dashboard." : "This card shows part of a doc. Open it on your Dashboard.",
+      buttons: [{ label: "Open", uri }],
+    };
+  }
   const result = computeCard(card.query, input.data, { now: input.now, timeZone: input.timeZone });
   switch (result.kind) {
     case "number": {
