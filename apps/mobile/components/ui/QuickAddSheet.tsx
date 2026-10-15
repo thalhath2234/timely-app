@@ -2,6 +2,7 @@ import { startTransition, useEffect, useMemo, useState } from "react";
 import { Alert, Text, View } from "react-native";
 import Animated, { useReducedMotion } from "react-native-reanimated";
 import { useRouter } from "expo-router";
+import InboxCapture from "../inbox/InboxCapture";
 import { Bell, CalendarClock, CalendarDays, Check, ChevronDown, ChevronUp, Clock, FileText, Flag, FolderKanban, Inbox, ListTodo, Palette, Plus, Sheet as SheetIcon, Sparkles } from "lucide-react-native";
 import BottomSheet, { SheetOption } from "./BottomSheet";
 import DateTimeSheet from "./DateTimeSheet";
@@ -23,6 +24,7 @@ import type { QuickAddPreset } from "../../lib/quickAddIntent";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { ENTITY_COLORS, colorName } from "../../lib/entityColor";
 import { expandEntering, listLayout, pageDuration } from "../../lib/motion";
+import { useToastStore } from "../../lib/toast";
 
 function runWhenIdle(callback: () => void, timeout: number) {
   const timer = setTimeout(callback, timeout);
@@ -302,11 +304,6 @@ export default function QuickAddSheet({
   async function submit() {
     const name = title.trim();
     if (!name || pending) return;
-    if (kind === "inbox") {
-      await createTask.mutateAsync({ name, kind: "inbox", priorityLevel: priority });
-      finish("/(app)/inbox");
-      return;
-    }
     if (kind === "task" || kind === "reminder") {
       if (!isReminder && !activeWorkspaceId) return;
       if (!isReminder && (Boolean(preferFrom) !== Boolean(preferTo) ||
@@ -370,6 +367,17 @@ export default function QuickAddSheet({
     reset();
     onClose();
     router.push(fileHref(fileId));
+  }
+
+  // The Inbox form is the Inbox screen's own capture box: it saves itself,
+  // so the sheet only closes and says where the thought went.
+  function captured() {
+    reset();
+    onClose();
+    useToastStore.getState().show("Captured to Inbox", {
+      label: "Open",
+      onAction: () => router.push("/(app)/inbox"),
+    });
   }
 
   function finish(href: string) {
@@ -443,10 +451,10 @@ export default function QuickAddSheet({
       onClose={closeSheet}
       onClosed={finishClose}
       // Hidden behind the kind chip in the form; a picker shows it under its own title.
-      title={phase === "form" ? title.trim() || `New ${kindMeta.label.toLowerCase()}` : "New"}
+      title={phase === "form" ? (kind === "inbox" ? "Capture to Inbox" : title.trim() || `New ${kindMeta.label.toLowerCase()}`) : "New"}
       leading={header}
       footer={
-        phase === "form" ? (
+        phase === "form" && kind !== "inbox" ? (
           <View style={styles.actionBar}>
             <View style={styles.summary}>
               <Text style={styles.summaryMain} numberOfLines={1}>{summary.main}</Text>
@@ -454,7 +462,7 @@ export default function QuickAddSheet({
             </View>
             <Button
               testID="quick-add-submit"
-              label={pending ? "Saving…" : kind === "inbox" ? "Capture" : "Create"}
+              label={pending ? "Saving…" : "Create"}
               icon={pending ? undefined : <Check size={16} color={colors.primaryForeground} strokeWidth={2.5} />}
               loading={pending}
               disabled={!canSubmit}
@@ -483,6 +491,9 @@ export default function QuickAddSheet({
         </Animated.View>
       ) : (
       <Animated.View key={`form-${kind}`} entering={expandEntering(Boolean(reduceMotion))} style={styles.fields}>
+        {kind === "inbox" ? (
+          <InboxCapture autoFocus initialTitle={title} onCaptured={captured} />
+        ) : (
         <View style={styles.titleBlock}>
           <Field
             bare
@@ -500,9 +511,7 @@ export default function QuickAddSheet({
                   ? "Remind me to…"
                   : kind === "event"
                     ? "Event name"
-                    : kind === "inbox"
-                      ? "What's on your mind?"
-                      : `Untitled ${kind}`
+                    : `Untitled ${kind}`
             }
           />
 
@@ -511,6 +520,7 @@ export default function QuickAddSheet({
               {editorOpen ? (
                 <RichTextEditor
                   compact
+                  openMentions={false}
                   content={descriptionRich}
                   syncKey={noteSync}
                   focusRequest={editorFocus}
@@ -558,10 +568,9 @@ export default function QuickAddSheet({
               autoCapitalize="sentences"
               placeholder="Notes, place, links"
             />
-          ) : kind === "inbox" ? (
-            <Text style={styles.hint}>Nothing is scheduled until you decide.</Text>
           ) : null}
         </View>
+        )}
 
         {kind === "task" ? (
           <PropertyChips>

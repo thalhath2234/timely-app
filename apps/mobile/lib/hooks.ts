@@ -956,7 +956,11 @@ export function useCaptureInbox() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (name: string) => captureInbox(name),
-    onSuccess: () => client.invalidateQueries({ queryKey: keys.inbox }),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: keys.inbox });
+      // Home's Inbox card counts captures too (the + sheet captures from any tab).
+      client.invalidateQueries({ queryKey: keys.today });
+    },
   });
 }
 
