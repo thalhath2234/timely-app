@@ -166,6 +166,26 @@ export async function findOrphans(input: { secret: string; dataDir: string; self
 }
 
 /** Field 4 of /proc/<pid>/stat; the command name (field 2) may hold spaces and parentheses. */
+/**
+ * Waits for an orphan scan for at most capMs: a /proc read can hang on a
+ * process stuck in the kernel. onTimeout runs only when the cap wins, and the
+ * timer is cleared when the scan finishes first.
+ */
+export async function scanWithCap(scan: Promise<Orphan[]>, capMs: number, onTimeout: () => void): Promise<Orphan[]> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const cap = new Promise<Orphan[]>((resolve) => {
+    timer = setTimeout(() => {
+      onTimeout();
+      resolve([]);
+    }, capMs);
+  });
+  try {
+    return await Promise.race([scan, cap]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function parseStatParent(stat: string): number | null {
   const close = stat.lastIndexOf(")");
   if (close < 0) return null;

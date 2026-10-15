@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { buildApiEnv } from "../apps/web/electron/supervisor/api.ts";
-import { classifyProcess, findOrphans, parseStatParent, parseStatState, setprivPath, stopOrphans, withDeathSignal } from "../apps/web/electron/supervisor/lifetime.ts";
+import { classifyProcess, findOrphans, parseStatParent, parseStatState, scanWithCap, setprivPath, stopOrphans, withDeathSignal } from "../apps/web/electron/supervisor/lifetime.ts";
 import { GUARD_FILE, WEB_HEAP_LIMIT_MB, nodeArgs } from "../apps/web/electron/supervisor/next.ts";
 
 const guard = path.join(import.meta.dirname, "..", "apps", "web", "electron", "next-guard.cjs");
@@ -95,6 +95,17 @@ test("classifyProcess needs both the program and our identity", () => {
   assert.equal(classifyProcess({ ...next, env: NEXT_ENV.filter((e) => !e.startsWith("ELECTRON_RUN_AS_NODE")) }, OURS), null);
   // "Timely Dev" has its own secret and data folder.
   assert.equal(classifyProcess({ ...api, env: ["JWT_SECRET=dev"], cwd: "/home/u/.config/Timely Dev/data" }, OURS), null);
+});
+
+test("scanWithCap warns only when the scan runs past its cap", async () => {
+  const found = [{ pid: 700, kind: "web" }];
+  let warned = 0;
+  assert.deepEqual(await scanWithCap(Promise.resolve(found), 50, () => warned++), found);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(warned, 0, "a scan that finished first must not log a timeout later");
+  const hung = new Promise(() => {});
+  assert.deepEqual(await scanWithCap(hung, 20, () => warned++), []);
+  assert.equal(warned, 1);
 });
 
 test("findOrphans skips its own children and processes it cannot read", async () => {
