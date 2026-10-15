@@ -235,7 +235,7 @@ function SheetPicker({ sheet, pick, onChange }: { sheet: ContractSheet; pick: Sh
         {rows === 0 ? (
           <Text style={styles.muted}>This tab is empty.</Text>
         ) : (
-          <ScrollView style={styles.gridWrap} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+          <ScrollView style={styles.gridWrap} nestedScrollEnabled keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <ScrollView horizontal nestedScrollEnabled keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false}>
               <View>
                 <View style={[styles.gridRow, styles.gridHead]}>

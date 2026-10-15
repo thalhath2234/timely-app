@@ -67,13 +67,45 @@ describe("home screen widgets", () => {
     assert.equal(model.rows[0].uri, "timelymobile://tasks/a");
   });
 
-  test("sheet and doc cards from the Card workshop open the Dashboard instead of showing a wrong count", () => {
+  test("sheet and doc cards from the Card workshop draw the picked cells and doc", () => {
     const base = defaultDashboard().cards.find((c) => c.id === "default_open");
-    for (const extra of [{ sheet: { sheetId: "s1", range: "B7", view: "value" } }, { doc: { docId: "d1", view: "checklist" } }]) {
-      const model = cardWidgetModel({ ...base, query: { ...base.query, ...extra } }, input);
-      assert.equal(model.value, undefined);
-      assert.equal(model.buttons[0].uri, "timelymobile://dashboard");
-    }
+    const card = (extra) => ({ ...base, query: { ...base.query, ...extra } });
+    const columns = [
+      { id: "cat", name: "Category", width: 120, type: "text" },
+      { id: "spent", name: "Spent", width: 100, type: "number" },
+    ];
+    const rows = [
+      { id: "h", cells: { cat: "Category", spent: "Spent" } },
+      { id: "r1", cells: { cat: "Rent", spent: "1400" } },
+      { id: "r2", cells: { cat: "Food", spent: "300" } },
+      { id: "t", cells: { cat: "Total", spent: "=SUM(B2:B3)" } },
+    ];
+    const sheet = { id: "s1", title: "Budget", columns, rows, merges: [], tabs: [{ id: "tab", name: "Budget", columns, rows, merges: [] }], archivedAt: null };
+    const t = (text) => ({ type: "text", text });
+    const item = (text, checked) => ({ type: "taskItem", attrs: { checked }, content: [{ type: "paragraph", content: [t(text)] }] });
+    const doc = { id: "d1", content: { type: "doc", content: [{ type: "taskList", content: [item("Passport", true), item("Jacket", false)] }] } };
+    const files = { sheets: { s1: sheet }, docs: { d1: doc } };
+
+    const value = cardWidgetModel(card({ sheet: { sheetId: "s1", tabId: "tab", range: "B4", view: "value" } }), { ...input, files });
+    assert.equal(value.value, "1700");
+    assert.equal(value.uri, "timelymobile://sheets/s1");
+
+    const table = cardWidgetModel(card({ sheet: { sheetId: "s1", tabId: "tab", range: "A2:B3", view: "table" } }), { ...input, files });
+    assert.deepEqual(table.rows.map((row) => [row.title, row.meta]), [["Rent", "1400"], ["Food", "300"]]);
+
+    const checklist = cardWidgetModel(card({ doc: { docId: "d1", view: "checklist" } }), { ...input, files });
+    assert.equal(checklist.value, "1/2");
+    assert.deepEqual(checklist.rows.map((row) => [row.title, row.done]), [["Passport", true], ["Jacket", false]]);
+    assert.equal(checklist.uri, "timelymobile://docs/d1");
+
+    const page = cardWidgetModel(card({ doc: { docId: "d1", view: "page" } }), { ...input, files });
+    assert.equal(page.note, "☑ Passport\n☐ Jacket");
+
+    // Offline or deleted: say so instead of showing a wrong number.
+    const gone = cardWidgetModel(card({ sheet: { sheetId: "s1", range: "B4", view: "value" } }), input);
+    assert.equal(gone.value, undefined);
+    assert.ok(gone.empty);
+    assert.ok(cardWidgetModel(card({ doc: { docId: "d1", view: "page" } }), input).empty);
   });
 
   test("Inbox zero counts open Inbox items and offers Capture", () => {

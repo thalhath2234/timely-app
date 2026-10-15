@@ -35,6 +35,15 @@ import {
   type FocusSessionLike,
   type MatrixQuadrant,
 } from "@timely/contract/dashboard";
+import {
+  computeSheetCard,
+  pickDocBlocks,
+  pickDocChecks,
+  type DocPick,
+  type SheetPick,
+} from "@timely/contract/dashboardFiles";
+import type { DocContent } from "@timely/contract/documents";
+import type { Sheet } from "@timely/contract/sheet";
 import { calendarItemDone, type TodayResponse } from "@timely/contract/calendar";
 import { addDaysToDate, dateInZone, todayInZone } from "@timely/contract/workStatus";
 import type { WorkingHours } from "@timely/contract/schedule";
@@ -73,7 +82,11 @@ export type WidgetInput = {
   pomodoros?: WidgetPomodoro[];
   timeZone?: string;
   scheme: string;
+  /** Full sheets and docs that sheet and doc cards read, by id (lib/widgets/data.ts loads them). */
+  files?: { sheets?: Record<string, Sheet | undefined>; docs?: Record<string, WidgetDoc | undefined> };
 };
+
+export type WidgetDoc = { id: string; title?: string; content?: unknown; archivedAt?: string | null };
 
 function link(scheme: string, path: string) {
   return `${scheme}://${path}`;
@@ -163,6 +176,107 @@ export function todayModel(input: WidgetInput, title = "Today"): WidgetModel {
   };
 }
 
+function sheetModel(pick: SheetPick, input: WidgetInput, title: string): WidgetModel {
+  const uri = link(input.scheme, `sheets/${pick.sheetId}`);
+  const sheet = input.files?.sheets?.[pick.sheetId];
+  const result = computeSheetCard(sheet, pick);
+  switch (result.kind) {
+    case "missing":
+      return { title, uri, empty: result.message };
+    case "value":
+      return { title, uri, value: result.text || "–", caption: result.label ?? pick.range, captionTone: "muted" };
+    case "counter":
+      return {
+        title,
+        uri,
+        value: result.text,
+        caption: result.label ?? "Counter",
+        captionTone: "muted",
+        buttons: [{ label: "Change", uri: link(input.scheme, "dashboard") }],
+      };
+    case "progress":
+      return {
+        title,
+        uri,
+        ring: { value: result.value, target: result.target, label: `${result.valueText} of ${result.targetText}` },
+      };
+    case "table":
+      return {
+        title,
+        uri,
+        rows: result.rows.slice(0, 8).map((cells) => {
+          const [first, ...rest] = cells.filter((cell) => cell.text.trim());
+          return { title: first?.text ?? "", meta: rest.slice(-1)[0]?.text };
+        }),
+        empty: result.rows.length ? undefined : "No rows yet.",
+      };
+    case "chart": {
+      const points = result.series[0]?.points ?? [];
+      if (result.view === "pie") {
+        const total = points.reduce((sum, point) => sum + Math.max(0, point.value), 0) || 1;
+        return {
+          title,
+          uri,
+          meters: points.slice(0, 5).map((point) => ({ label: point.label, value: Math.max(0, point.value) / total, detail: point.text })),
+          empty: points.length ? undefined : "No numbers in the picked cells.",
+        };
+      }
+      return {
+        title,
+        uri,
+        value: points.length ? points[points.length - 1].text : undefined,
+        caption: points.length ? points[points.length - 1].label : undefined,
+        captionTone: "muted",
+        bars: points.slice(-8).map((point, index, all) => ({ label: point.label, value: point.value, highlight: index === all.length - 1 })),
+        empty: points.length ? undefined : "No numbers in the picked cells.",
+      };
+    }
+    case "addRow":
+      return {
+        title,
+        uri,
+        caption: `Adds a row to ${result.tabName}`,
+        captionTone: "muted",
+        buttons: [{ label: "Add a row", uri: link(input.scheme, "dashboard") }],
+      };
+  }
+}
+
+function docModel(pick: DocPick, input: WidgetInput, title: string): WidgetModel {
+  const uri = link(input.scheme, `docs/${pick.docId}`);
+  const doc = input.files?.docs?.[pick.docId];
+  if (!doc || doc.archivedAt) return { title, uri, empty: "This doc was deleted or archived." };
+  const content = doc.content as DocContent | undefined;
+  if (pick.view === "checklist") {
+    const { checks } = pickDocChecks(content, pick);
+    const shown = pick.hideDone ? checks.filter((check) => !check.checked) : checks;
+    return {
+      title,
+      uri,
+      value: checks.length ? `${checks.filter((check) => check.checked).length}/${checks.length}` : undefined,
+      rows: shown.slice(0, 8).map((check) => ({ title: check.text, done: check.checked, uri })),
+      empty: shown.length ? undefined : checks.length ? "All done." : "No checkboxes in this doc.",
+    };
+  }
+  const { blocks } = pickDocBlocks(content, pick, 40);
+  const lines = blocks.flatMap((block) => {
+    switch (block.kind) {
+      case "heading":
+      case "paragraph":
+      case "quote":
+      case "code":
+        return block.text ? [block.text] : [];
+      case "bullet":
+        return [`${block.marker === "•" || !block.marker ? "•" : block.marker} ${block.text}`];
+      case "check":
+        return [`${block.checked ? "☑" : "☐"} ${block.text}`];
+      default:
+        return [];
+    }
+  });
+  return { title, uri, note: lines.join("\n") || undefined, empty: lines.length ? undefined : "This doc is empty." };
+}
+
 const SOURCE_NOUN: Record<string, string> = {
   tasks: "tasks",
   projects: "projects",
@@ -176,18 +290,9 @@ const SOURCE_NOUN: Record<string, string> = {
 function customModel(card: DashboardCard, input: WidgetInput, title: string): WidgetModel {
   const uri = link(input.scheme, "dashboard");
   if (!card.query) return { title, uri, empty: "This card has no query yet." };
-  // Sheet and doc cards from the Card workshop (query.sheet / query.doc, PR
-  // #201) read cells or doc blocks, not the task lists computeCard counts;
-  // until widgets draw them, say so rather than show a wrong number.
-  const picked = card.query as unknown as { sheet?: unknown; doc?: unknown };
-  if (picked.sheet || picked.doc) {
-    return {
-      title,
-      uri,
-      note: picked.sheet ? "This card reads cells from a sheet. Open it on your Dashboard." : "This card shows part of a doc. Open it on your Dashboard.",
-      buttons: [{ label: "Open", uri }],
-    };
-  }
+  // Card workshop cards read picked sheet cells or a doc, not task lists.
+  if (card.query.sheet) return sheetModel(card.query.sheet, input, title);
+  if (card.query.doc) return docModel(card.query.doc, input, title);
   const result = computeCard(card.query, input.data, { now: input.now, timeZone: input.timeZone });
   switch (result.kind) {
     case "number": {

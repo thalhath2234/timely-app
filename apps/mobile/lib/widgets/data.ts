@@ -2,14 +2,15 @@ import Constants from "expo-constants";
 import { normalizeDashboard, sourcesUsed, weekStart, type DashboardCard, type DashboardData } from "@timely/contract/dashboard";
 import { addDaysToDate, todayInZone } from "@timely/contract/workStatus";
 import { getToken } from "../auth/session";
-import { getDocs } from "../api/docs";
+import { getDoc, getDocs } from "../api/docs";
 import { getProjects } from "../api/projects";
 import { getCalendarRange, getToday } from "../api/schedule";
-import { getSheets } from "../api/sheets";
+import { getSheet, getSheets } from "../api/sheets";
 import { getFocusSessions, getTasks } from "../api/tasks";
 import { getConfig, getWorkspaces } from "../api/workspaces";
 import { pomodoroTimeLeft, selectActivePomodoros, usePomodoroStore } from "../pomodoroStore";
-import type { WidgetInput } from "./model";
+import type { Sheet } from "@timely/contract/sheet";
+import type { WidgetDoc, WidgetInput } from "./model";
 
 /**
  * Loads what a widget's card reads, straight from the API (widgets redraw in
@@ -69,6 +70,14 @@ export async function loadWidgetInput(cards: DashboardCard[], options: { today?:
       : undefined,
   ]);
 
+  // Card workshop cards read whole sheets and docs (picked cells, sections).
+  const sheetIds = [...new Set(cards.flatMap((card) => (card.query?.sheet ? [card.query.sheet.sheetId] : [])))];
+  const docIds = [...new Set(cards.flatMap((card) => (card.query?.doc ? [card.query.doc.docId] : [])))];
+  const [sheetFiles, docFiles] = await Promise.all([
+    Promise.all(sheetIds.map(async (id) => [id, (await quiet(getSheet(id))) as unknown as Sheet | undefined] as const)),
+    Promise.all(docIds.map(async (id) => [id, (await quiet(getDoc(id))) as WidgetDoc | undefined] as const)),
+  ]);
+
   const data: DashboardData = {
     tasks: tasks ?? [],
     projects: projects ?? [],
@@ -97,5 +106,6 @@ export async function loadWidgetInput(cards: DashboardCard[], options: { today?:
     pomodoros,
     timeZone,
     scheme: appScheme(),
+    files: { sheets: Object.fromEntries(sheetFiles), docs: Object.fromEntries(docFiles) },
   };
 }
