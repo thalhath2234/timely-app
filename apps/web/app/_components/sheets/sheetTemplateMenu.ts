@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutTemplate, Plus } from "lucide-react";
+import { LayoutTemplate, Plus, Trash2 } from "lucide-react";
 import type { SheetTemplate } from "@/app/_types/types";
 import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
 import { templateTabChoices } from "@/app/utils/sheetWorkbook";
@@ -19,7 +19,10 @@ export function newSheetMenuItems(options: {
   templates: SheetTemplate[];
   onBlank: () => void;
   onTemplate: (templateId: string) => void;
+  /** Offers "Delete template" for the person's own templates (never the ready-made ones). */
+  onDeleteTemplate?: (template: SheetTemplate) => void;
 }): ContextMenuEntry[] {
+  const { onDeleteTemplate } = options;
   return tidyEntries([
     {
       kind: "action",
@@ -42,6 +45,19 @@ export function newSheetMenuItems(options: {
       icon: LayoutTemplate,
       onSelect: () => options.onTemplate(template.id),
     })),
+    onDeleteTemplate && options.templates.length > 0 && { kind: "separator" },
+    onDeleteTemplate &&
+      options.templates.length > 0 && {
+        kind: "submenu",
+        label: "Delete template",
+        icon: Trash2,
+        items: options.templates.map((template) => ({
+          kind: "action" as const,
+          label: template.name || "Untitled",
+          danger: true,
+          onSelect: () => onDeleteTemplate(template),
+        })),
+      },
   ]);
 }
 

@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Code2,
   CopyPlus,
+  Copy,
   Download,
   FileInput,
   FileOutput,
@@ -28,7 +29,7 @@ import {
 import { pageChoices } from "@timely/contract/documents";
 import type { DocContent } from "../../lib/types";
 import { createDoc, getDoc, getDocs, updateDoc } from "../../lib/api/docs";
-import { shareImage } from "../../lib/api/portability";
+import { copyImage, shareImage } from "../../lib/api/portability";
 import { resolveDocContent } from "../../lib/markdown";
 import { useToastStore } from "../../lib/toast";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
@@ -242,6 +243,21 @@ export default function BlockSheet({
               }}
             >
               {block.images.length === 1 ? "Save image" : `Save ${block.images.length} images`}
+            </SheetOption>
+          ) : null}
+          {block.images.length === 1 ? (
+            <SheetOption
+              leading={icon(Copy)}
+              onSelect={() => {
+                run("blockDone");
+                close();
+                const [image] = block.images;
+                void copyImage(image.src, image.alt)
+                  .then(() => useToastStore.getState().show("Image copied"))
+                  .catch((error) => useToastStore.getState().show(error instanceof Error ? error.message : "Could not copy the image"));
+              }}
+            >
+              Copy image
             </SheetOption>
           ) : null}
           <SheetOption leading={icon(CopyPlus)} onSelect={() => act("duplicate")}>

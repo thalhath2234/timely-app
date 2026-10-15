@@ -20,7 +20,7 @@ import { isRichContentEmpty } from "../../lib/richText";
 import type { UpdateDocPayload } from "../../lib/api/docs";
 import type { DocContent } from "../../lib/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
-import { shareExport } from "../../lib/api/portability";
+import { hasUploadedImages, shareExport } from "../../lib/api/portability";
 import { getDocVersion, getDocVersions, restoreDocVersion, type DocVersion } from "../../lib/api/docs";
 import { DOC_VERSION_REASONS } from "@timely/contract/documents";
 import RichDoc from "./RichDoc";
@@ -93,6 +93,7 @@ function DocEditor({ docId }: { docId: string }) {
     if (remoteContent) setLiveContent(remoteContent);
   }, [remoteContent]);
   const lastSavedAtRef = useRef<string | null>(doc?.updatedAt ?? null);
+  const remotePendingRef = useRef(false);
   const editorFocusedRef = useRef(false);
   const [editorFocused, setEditorFocused] = useState(false);
   // While typing in the doc, the title, related items and suggestions step
@@ -138,12 +139,19 @@ function DocEditor({ docId }: { docId: string }) {
     lastSavedAtRef,
     hasLocalEdits: hasUnsavedChanges,
     isEditorFocused: () => editorFocusedRef.current,
-    onRemote: () => setRemoteEpoch((epoch) => epoch + 1),
+    onRemote: () => {
+      remotePendingRef.current = true;
+      setRemoteEpoch((epoch) => epoch + 1);
+    },
     onDeleted: () => router.replace(FILES_TAB),
   });
 
+  // Applies a copy from another device once the cache holds it (the watch
+  // stores its time in lastSavedAtRef). Only then: the cache also changes on
+  // every save of our own, and loading that back reset the page each save.
   useEffect(() => {
-    if (remoteEpoch === 0 || !doc) return;
+    if (!remotePendingRef.current || !doc || doc.updatedAt !== lastSavedAtRef.current) return;
+    remotePendingRef.current = false;
     setTitle(doc.title);
     setIcon(doc.icon ?? "");
     setFavorite(Boolean(doc.isFavorite));
@@ -152,7 +160,7 @@ function DocEditor({ docId }: { docId: string }) {
     contentEmptyRef.current = isRichContentEmpty(next);
     setRemoteContent(next);
     setEditorSync((value) => value + 1);
-  }, [remoteEpoch, doc?.title, doc?.icon, doc?.isFavorite, doc?.plainText, doc?.content]);
+  }, [remoteEpoch, doc?.updatedAt, doc?.title, doc?.icon, doc?.isFavorite, doc?.plainText, doc?.content]);
 
   useAssistantScreen(doc ? [
     contextChip("object", title || "Document", `docs/${docId}`),
@@ -162,6 +170,7 @@ function DocEditor({ docId }: { docId: string }) {
     ...(hasUnsavedChanges() ? [contextChip("draft", "Unsaved document", { title, plainText: assistantText })] : []),
   ] : []);
   if (!doc) return null;
+  const versionIsCurrent = Boolean(version && versions?.find((item) => item.id === version.id)?.current);
 
   const workspace = spaces.find((w) => w.id === doc.workspaceId);
   const descendantCount = countDescendants(docs, doc.id);
@@ -314,8 +323,9 @@ function DocEditor({ docId }: { docId: string }) {
         }}
         title="Doc"
       >
-        <SheetOption onSelect={() => { setMenu(null); void shareExport(`/docs/${doc.id}/export?format=markdown`, `${doc.title || "untitled"}.md`, "text/markdown"); }} leading={<Download size={18} color={colors.mutedForeground} />}>
-          Export Markdown
+        {/* A doc with uploaded images comes back as a .zip of the .md and its images. */}
+        <SheetOption onSelect={() => { setMenu(null); void shareExport(`/docs/${doc.id}/export?format=markdown&images=zip`, `${doc.title || "untitled"}.md`, "text/markdown"); }} leading={<Download size={18} color={colors.mutedForeground} />}>
+          {hasUploadedImages(doc.content) ? "Export Markdown + images" : "Export Markdown"}
         </SheetOption>
         <SheetOption
           onSelect={() => {
@@ -414,7 +424,7 @@ function DocEditor({ docId }: { docId: string }) {
           <Text style={styles.sheetEmpty}>Loading…</Text>
         ) : versions.length === 0 ? (
           <Text style={styles.sheetEmpty}>
-            No earlier versions yet. Timely saves one when you start editing again after a pause, every hour while you keep editing, and before the assistant changes this doc.
+            No versions yet. Timely keeps the doc as it is after each editing session, and each change the assistant makes.
           </Text>
         ) : (
           versions.map((item) => {
@@ -436,6 +446,7 @@ function DocEditor({ docId }: { docId: string }) {
                     {edited.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
                   </Text>
                   <Text style={styles.linkSnippet}>
+                    {item.current ? "Current · " : ""}
                     {DOC_VERSION_REASONS[item.reason] ?? "Saved"} · {item.words} {item.words === 1 ? "word" : "words"}
                   </Text>
                 </View>
@@ -451,8 +462,8 @@ function DocEditor({ docId }: { docId: string }) {
         title={version ? version.title || "Untitled" : "Version"}
         footer={
           <PrimaryButton
-            label={restoring ? "Restoring…" : "Restore this version"}
-            disabled={!version || restoring}
+            label={versionIsCurrent ? "This is the doc now" : restoring ? "Restoring…" : "Restore this version"}
+            disabled={!version || restoring || versionIsCurrent}
             onPress={() => {
               if (!version) return;
               setRestoring(true);
@@ -467,7 +478,7 @@ function DocEditor({ docId }: { docId: string }) {
                   setWordCount(countWords(restored.plainText));
                   setRemoteContent(resolveDocContent(restored.content, restored.plainText));
                   setEditorSync((value) => value + 1);
-                  showUndoToast("Version restored. The doc as it was is in the history too.");
+                  showUndoToast("Version restored. The doc as it was stays in the history.");
                   setMenu(null);
                 } catch (error) {
                   Alert.alert("Could not restore", error instanceof Error ? error.message : "Try again.");

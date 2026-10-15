@@ -1,5 +1,5 @@
 import { docTypePhrase } from "@timely/contract/documents";
-import { checklistTaskDescription, openChecklistItems, type ChecklistTodo } from "@timely/contract/docChecklist";
+import { checklistTask, draftChecklistTasks, openChecklistItems, type ChecklistTodo } from "@timely/contract/docChecklist";
 import { useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
@@ -10,8 +10,11 @@ import AnimatedPressable from "../ui/AnimatedPressable";
 import BottomSheet from "../ui/BottomSheet";
 import ConfirmSheet from "../ui/ConfirmSheet";
 import { getDoc } from "../../lib/api/docs";
+import { checklistTaskDrafts } from "../../lib/api/write";
+import { readyProviders } from "../chat/ModelSheet";
 import { Button, SectionLabel } from "../ui/primitives";
 import {
+  useAgentProvidersQuery,
   useCreateTask,
   useDecisionFeedback,
   useDeleteTask,
@@ -68,6 +71,9 @@ export default function DocHintsCard({
   const [confirmTemplate, setConfirmTemplate] = useState(false);
   const [making, setMaking] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  // With an AI provider set up (Settings > Agent keys), Make task first asks
+  // its default model for a clean title and a brief description.
+  const aiReady = readyProviders(useAgentProvidersQuery().data).length > 0;
 
   const todos = useMemo(() => (live ? openChecklistItems(content) : []), [content, live]);
   const names = useMemo(() => todos.map((todo) => todo.name), [todos]);
@@ -91,19 +97,23 @@ export default function DocHintsCard({
   const hide = (key: string) => setHidden((prev) => new Set(prev).add(key));
   const make = async (list: ChecklistTodo[], key: string) => {
     setMaking(key);
+    // One request for all the items, a few seconds at most; without a
+    // provider, or on any error, the tasks keep the items' own words.
+    const drafts = aiReady ? await draftChecklistTasks(list, doc, (body) => checklistTaskDrafts(body)) : list.map(() => null);
     const made: Task[] = [];
-    for (const todo of list) {
+    // The card's key of the item each task came from; the name may differ.
+    const from = new Map<string, string>();
+    for (const [i, todo] of list.entries()) {
       try {
-        made.push(
-          await createTask.mutateAsync({
-            name: todo.name,
-            kind: "task",
-            duration: 30,
-            workspaceId: target?.workspaceId ?? doc.workspaceId,
-            projectId: target?.id,
-            ...checklistTaskDescription(todo.details, doc),
-          }),
-        );
+        const task = await createTask.mutateAsync({
+          ...checklistTask(todo, doc, drafts[i]),
+          kind: "task",
+          duration: 30,
+          workspaceId: target?.workspaceId ?? doc.workspaceId,
+          projectId: target?.id,
+        });
+        made.push(task);
+        from.set(task.id, `todo:${todo.name.toLowerCase()}`);
         hide(`todo:${todo.name.toLowerCase()}`);
       } catch {
         // Reported below with the count.
@@ -122,7 +132,7 @@ export default function DocHintsCard({
       for (const task of made) deleteTask.mutate(task.id);
       setHidden((prev) => {
         const next = new Set(prev);
-        for (const task of made) next.delete(`todo:${task.name.toLowerCase()}`);
+        for (const task of made) next.delete(from.get(task.id) ?? `todo:${task.name.toLowerCase()}`);
         return next;
       });
       void queryClient.invalidateQueries({ queryKey: ["doc-checklist", doc.id] });
@@ -282,7 +292,7 @@ export default function DocHintsCard({
               size="sm"
               variant="secondary"
               stretch
-              label={`Make ${open.length} tasks`}
+              label={aiReady && making === "all" ? "Writing titles…" : `Make ${open.length} tasks`}
               icon={<Plus size={16} color={colors.foreground} />}
               loading={making === "all"}
               disabled={making !== null}

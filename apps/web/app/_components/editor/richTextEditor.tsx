@@ -66,10 +66,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { AutoCapitalize } from "./autoCapitalize";
 import { Callout } from "./callout";
 import { DocImage } from "./docImage";
+import { applyRemoteContent } from "./applyRemote";
 import { Details, DetailsSummary } from "./details";
 import { BlockHandle } from "./blockHandle";
 import { BlockSelection } from "./blockSelection";
 import BlockTransferDialog from "./blockTransfer";
+import ImageViewer from "./imageViewer";
 import { Bookmark, Embed } from "./linkBlocks";
 import { FindReplace } from "./findReplace";
 import { Column, Columns } from "./columns";
@@ -466,9 +468,7 @@ export default function RichTextEditor({
     }
     if (appliedSyncKey.current === syncKey) return;
     appliedSyncKey.current = syncKey;
-    editor.commands.setContent(JSON.parse(incomingContentKey) as JSONContent, {
-      emitUpdate: false,
-    });
+    applyRemoteContent(editor, JSON.parse(incomingContentKey) as JSONContent);
   }, [editor, incomingContentKey, syncKey]);
 
   useEffect(() => {
@@ -1088,6 +1088,7 @@ export default function RichTextEditor({
               </ToolbarSlot>
             )}
             {variant === "page" && <BlockTransferDialog />}
+            {variant === "page" && <ImageViewer />}
             {toolbarHost ? (
               // The page scrolls, and its padding holds the block drag handle's gutter.
               <EditorContent editor={editor} className="min-h-full" />

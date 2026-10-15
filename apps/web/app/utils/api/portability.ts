@@ -22,12 +22,26 @@ async function jsonOrThrow<T>(response: Response, fallback: string): Promise<T> 
   return response.json() as Promise<T>;
 }
 
+/** The file name the server gave a download: filename* (any letters) first,
+ * then filename; failing both, fallbackName with the extension the content
+ * type calls for (a doc with images comes back as a .zip). */
+function downloadName(response: Response, fallbackName: string) {
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  if (encoded) {
+    try { return decodeURIComponent(encoded); } catch { /* fall through */ }
+  }
+  const plain = disposition.match(/filename="([^"]+)"/)?.[1];
+  if (plain) return plain;
+  const zipped = response.headers.get("content-type")?.includes("zip");
+  return zipped ? fallbackName.replace(/\.[^.]+$/, "") + ".zip" : fallbackName;
+}
+
 export async function downloadPortable(path: string, fallbackName: string) {
   const response = await apiFetch(path);
   if (!response.ok) throw new Error("Could not download the export.");
   const blob = await response.blob();
-  const disposition = response.headers.get("content-disposition") ?? "";
-  const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? fallbackName;
+  const filename = downloadName(response, fallbackName);
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
