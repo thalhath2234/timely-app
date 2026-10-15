@@ -11,7 +11,7 @@ import TaskCard from "../../../components/tasks/TaskCard";
 import TaskFilterBar from "../../../components/tasks/TaskFilterBar";
 import StaleWorkCard from "../../../components/tasks/StaleWorkCard";
 import ScreenTip from "../../../components/ui/ScreenTip";
-import MobileKanban, { kanbanColumns } from "../../../components/tasks/MobileKanban";
+import MobileKanban, { type KanbanColumn, kanbanColumns } from "../../../components/tasks/MobileKanban";
 import TaskFiltersSheet from "../../../components/tasks/TaskFiltersSheet";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ConfirmSheet from "../../../components/ui/ConfirmSheet";
@@ -397,15 +397,33 @@ export default function TasksScreen() {
     setBulkPicker(null);
   }
 
-  function applyStatus(task: Task, nameKey: string) {
-    const group = statusGroups.find((item) => item.key === nameKey);
-    if (!group) return;
-    const status = statusForWorkspace(group, task.workspaceId);
-    if (!status) return;
-    const patch = statusPatch(status, task.completedAt);
-    const previous = { statusId: task.statusId ?? null, completedAt: task.completedAt ?? null };
-    save.mutate({ id: task.id, data: patch });
-    showUndoToast("Status updated", () => save.mutate({ id: task.id, data: previous }));
+  // A board drop. Same rules and copy as the desktop board: no-op when nothing
+  // changes, "Moved to X" with Undo otherwise, and never a status from
+  // another workspace.
+  function moveOnBoard(task: Task, column: KanbanColumn) {
+    const field = groupField(activeView) ?? "status";
+    if (field === "status") {
+      const group = statusGroups.find((item) => item.key === column.key);
+      if (!group) return;
+      const status = task.workspaceId ? group.statuses.find((item) => item.workspaceId === task.workspaceId) : group.statuses[0];
+      if (!status) {
+        showUndoToast(`${task.workspace?.name ?? "This workspace"} has no "${group.name}" status`);
+        return;
+      }
+      if ((task.statusId ?? task.status?.id) === status.id) return;
+      const patch = statusPatch(status, task.completedAt);
+      const previous = { statusId: task.statusId ?? task.status?.id ?? "", completedAt: task.completedAt ?? "" };
+      save.mutate({ id: task.id, data: patch, optimistic: { status } });
+      showUndoToast(`Moved to ${status.name}`, () => save.mutate({ id: task.id, data: previous, optimistic: { status: task.status } }));
+      return;
+    }
+    const key = field === "priority" ? "priorityLevel" : field === "workspace" ? "workspaceId" : field === "project" ? "projectId" : field === "stage" ? "stageId" : null;
+    if (!key) return;
+    const next = column.key === "none" ? "" : column.key;
+    const previous = String(task[key] ?? "");
+    if (next === previous) return;
+    save.mutate({ id: task.id, data: { [key]: next } });
+    showUndoToast(`Moved to ${column.title}`, () => save.mutate({ id: task.id, data: { [key]: previous } }));
   }
 
   function applyNamedStatus(nameKey: string) {
@@ -575,14 +593,8 @@ export default function TasksScreen() {
           selectedIds={selectedIds}
           selecting={selecting}
           onSelect={toggleSelect}
-          onMove={(task, column) => {
-            if (groupField(activeView) === "status") applyStatus(task, column.key);
-            else {
-              const field = groupField(activeView);
-              const key = field === "priority" ? "priorityLevel" : field === "workspace" ? "workspaceId" : field === "project" ? "projectId" : field === "stage" ? "stageId" : null;
-              if (key) save.mutate({ id: task.id, data: { [key]: column.key === "none" ? "" : column.key } });
-            }
-          }}
+          onMove={moveOnBoard}
+          hideStatus={(groupField(activeView) ?? "status") === "status"}
           onToggle={toggleComplete}
           refreshControl={refreshControl}
         />

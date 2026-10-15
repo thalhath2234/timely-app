@@ -25,8 +25,10 @@ export function buildEditorHtml(
   },
   /** The server address; uploaded images are stored as "/files/<id>". */
   apiBase = "",
-  /** Compact: a short description box inside a card, not a full page. */
-  options: { compact?: boolean } = {},
+  /** Compact: a short description box inside a card, not a full page.
+   * openMentions: a tap on a mention chip opens what it links to (the app
+   * gets an openMention message) instead of placing the caret. */
+  options: { compact?: boolean; openMentions?: boolean } = {},
 ) {
   const initial = content && typeof content.type === "string" ? content : BLANK;
   const t = theme ?? {
@@ -49,7 +51,8 @@ export function buildEditorHtml(
     :root { color-scheme: ${t.mode}; }
     html, body { margin: 0; padding: 0; background: ${t.background}; }
     body { min-height: 100%; }
-    #editor { min-height: 70vh; padding: 4px 2px 120px; box-sizing: border-box; }
+    /* 20px sides, as the doc title, word count and Related row above it. */
+    #editor { min-height: 70vh; padding: 4px 20px 120px; box-sizing: border-box; }
     ${options.compact ? "#editor { min-height: 100%; padding: 2px 0 16px; } .tiptap > :last-child { margin-bottom: 0; }" : ""}
     .tiptap { outline: none; color: ${t.foreground}; font-size: 16px; line-height: 1.55; font-family: ui-sans-serif, system-ui, sans-serif; }
     .tiptap p { margin: 0 0 0.75em; }
@@ -88,7 +91,7 @@ export function buildEditorHtml(
     .tiptap th { background: ${t.muted}; font-weight: 600; }
     .tiptap ul[data-type="taskList"] { list-style: none; padding-left: 0; }
     .tiptap ul[data-type="taskList"] li { display: flex; gap: 8px; align-items: flex-start; }
-    .tiptap ul[data-type="taskList"] input { margin-top: 4px; }
+    .tiptap ul[data-type="taskList"] input { margin: 4px 0 0; }
     .mention { color: ${t.primary}; font-weight: 600; background: ${t.accent}; border-radius: 6px; padding: 0 4px; }
     .math-inline { border-radius: 4px; padding: 0 2px; }
     .math-inline.ProseMirror-selectednode, .wiki-link.ProseMirror-selectednode, .footnote-ref.ProseMirror-selectednode { background: ${t.accent}; }
@@ -151,6 +154,10 @@ export function buildEditorHtml(
     .wiki-link::before { content: "[["; opacity: 0.5; }
     .wiki-link::after { content: "]]"; opacity: 0.5; }
     .wiki-link[data-embed="true"]::before { content: "![["; }
+    /* A long press selects a mention chip for editing; with openMentions a tap opens it. */
+    .mention { -webkit-tap-highlight-color: transparent; }
+    .mention.ProseMirror-selectednode { box-shadow: 0 0 0 2px ${t.primary}; }
+    ${options.openMentions ? ".mention { cursor: pointer; } .mention.is-pressed { opacity: 0.6; }" : ""}
     .mermaid-out svg.map-svg { width: 100%; height: auto; max-height: 420px; }
     .map-polygon { fill: color-mix(in oklab, ${t.primary} 25%, transparent); stroke: ${t.primary}; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
     .map-line { fill: none; stroke: ${t.primary}; stroke-width: 2; vector-effect: non-scaling-stroke; }
@@ -172,7 +179,7 @@ export function buildEditorHtml(
     import Image from "https://esm.sh/@tiptap/extension-image@3.31.4";
     import CodeBlock from "https://esm.sh/@tiptap/extension-code-block@3.31.4";
     import { Placeholder } from "https://esm.sh/@tiptap/extensions@3.31.4";
-    import { TextSelection, Plugin, PluginKey } from "https://esm.sh/@tiptap/pm@3.31.4/state";
+    import { TextSelection, NodeSelection, Plugin, PluginKey } from "https://esm.sh/@tiptap/pm@3.31.4/state";
     import { Decoration, DecorationSet } from "https://esm.sh/@tiptap/pm@3.31.4/view";
 
     const placeholder = ${embed(placeholder)};
@@ -456,6 +463,55 @@ export function buildEditorHtml(
         };
       },
     });
+    // A tap on a mention chip opens what it links to. The press is taken
+    // before ProseMirror sees it, so the caret stays put and the keyboard
+    // does not come up. A long press selects the chip for editing instead:
+    // Backspace removes it, typing replaces it.
+    function mentionAt(view, event) {
+      const el = event.target && event.target.closest ? event.target.closest(".mention") : null;
+      if (!el || !view.dom.contains(el)) return null;
+      const pos = view.posAtDOM(el, 0);
+      for (const at of [pos, pos - 1]) {
+        const node = at >= 0 ? view.state.doc.nodeAt(at) : null;
+        if (node && node.type.name === "mention") return { el, pos: at, node };
+      }
+      return null;
+    }
+    let pressedMention = null;
+    function releaseMention() {
+      if (pressedMention) pressedMention.classList.remove("is-pressed");
+      pressedMention = null;
+    }
+    const MENTION_TAPS = {
+      mousedown(view, event) {
+        if (event.button !== 0) return false;
+        const hit = mentionAt(view, event);
+        if (!hit || !hit.node.attrs.id) return false;
+        event.preventDefault();
+        releaseMention();
+        pressedMention = hit.el;
+        hit.el.classList.add("is-pressed");
+        return true;
+      },
+      mouseup() { setTimeout(releaseMention, 120); return false; },
+      click(view, event) {
+        const hit = mentionAt(view, event);
+        if (!hit || !hit.node.attrs.id) return false;
+        event.preventDefault();
+        if (view.hasFocus()) view.dom.blur();
+        send({ type: "openMention", id: hit.node.attrs.id, entityType: hit.node.attrs.entityType || "doc" });
+        return true;
+      },
+      contextmenu(view, event) {
+        const hit = mentionAt(view, event);
+        if (!hit) return false;
+        event.preventDefault();
+        releaseMention();
+        view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, hit.pos)));
+        view.focus();
+        return true;
+      },
+    };
     const Mention = Node.create({
       name: "mention",
       group: "inline",
@@ -1602,11 +1658,13 @@ export function buildEditorHtml(
       return editor.isActive("table") || editor.isActive("tableCell") || editor.isActive("tableHeader");
     }
 
+    // Height of an open "/" or "@" menu over the bottom of the page.
+    let caretReserve = 0;
     function scrollCaret() {
       try {
         const { from } = editor.state.selection;
         const coords = editor.view.coordsAtPos(from);
-        const limit = (window.visualViewport ? window.visualViewport.height : window.innerHeight) - 28;
+        const limit = (window.visualViewport ? window.visualViewport.height : window.innerHeight) - 28 - caretReserve;
         if (coords.bottom > limit) {
           const delta = coords.bottom - limit + 16;
           window.scrollBy(0, delta);
@@ -1711,6 +1769,7 @@ export function buildEditorHtml(
       editorProps: {
         attributes: { class: "tiptap", autocapitalize: "sentences", spellcheck: "true" },
         handleTextInput(view, from, to, text) { return capitalizeTyped(view, from, to, text); },
+        handleDOMEvents: ${options.openMentions ? "MENTION_TAPS" : "{}"},
       },
       onCreate({ editor }) {
         send({ type: "ready" });
@@ -1973,6 +2032,7 @@ export function buildEditorHtml(
       cmd(name, payload) {
         if (name === "setChrome") {
           const pad = Number(payload && payload.bottomPad) || 120;
+          caretReserve = Math.max(0, Number(payload && payload.reserve) || 0);
           const root = document.getElementById("editor");
           if (root) root.style.paddingBottom = pad + "px";
           requestAnimationFrame(scrollCaret);

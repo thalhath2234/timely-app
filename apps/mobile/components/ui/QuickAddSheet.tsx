@@ -466,6 +466,7 @@ export default function QuickAddSheet({
             {editorOpen ? (
               <RichTextEditor
                 compact
+                openMentions={false}
                 content={descriptionRich}
                 syncKey={noteSync}
                 focusRequest={editorFocus}

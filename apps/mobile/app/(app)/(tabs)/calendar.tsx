@@ -1,9 +1,9 @@
 import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
 import { contextChip } from "../../../lib/chat/context";
 import { startOfWeek } from "../../../lib/format";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { ChevronLeft, ChevronRight, Sparkles } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
@@ -72,6 +72,16 @@ export default function CalendarScreen() {
   const router = useRouter();
   const [view, setView] = useState<CalView>("agenda");
   const [selected, setSelected] = useState(() => startOfDay(new Date()));
+  // Today's "Plan tomorrow" opens this tab on a given day: ?date=YYYY-MM-DD&view=day.
+  const params = useLocalSearchParams<{ date?: string; view?: string }>();
+  useEffect(() => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(params.date ?? "");
+    if (!match) return;
+    setSelected(new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+    if (params.view === "day" || params.view === "week" || params.view === "agenda" || params.view === "month") {
+      setView(params.view);
+    }
+  }, [params.date, params.view]);
   const [open, setOpen] = useState<CalendarItem | null>(null);
   const [autoOpen, setAutoOpen] = useState(false);
   const [slot, setSlot] = useState<Date | null>(null);
@@ -82,8 +92,10 @@ export default function CalendarScreen() {
 
   const visibleFrom = view === "month" ? new Date(selected.getFullYear(), selected.getMonth(), 1) : view === "week" ? startOfWeek(selected) : selected;
   const visibleTo = view === "month" ? new Date(selected.getFullYear(), selected.getMonth() + 1, 1) : addDays(visibleFrom, view === "day" ? 1 : view === "week" ? 7 : Math.ceil((toCalendarEnd(selected).getTime() - visibleFrom.getTime()) / 86400000));
+  const isoDay = (date: Date) => date.toLocaleDateString("en-CA");
   useAssistantScreen([
-    contextChip("calendar", `${view} · ${dayKey(selected)}`, { view, selectedDate: dayKey(selected), from: dayKey(visibleFrom), toExclusive: dayKey(visibleTo) }),
+    // Real dates (YYYY-MM-DD) for the assistant; dayKey is a 0-based-month lookup key.
+    contextChip("calendar", `${view[0].toUpperCase()}${view.slice(1)} · ${selected.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}`, { view, selectedDate: isoDay(selected), from: isoDay(visibleFrom), toExclusive: isoDay(visibleTo) }),
     ...(workspaceId ? [contextChip("workspace", "Workspace", workspaceId)] : []),
     ...(projectId ? [contextChip("project", "Project", projectId)] : []),
     ...(open ? [contextChip("object", open.title, `${open.kind === "event" ? "events" : "tasks"}/${open.eventId || open.taskId || open.id}`)] : []),
