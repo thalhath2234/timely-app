@@ -181,11 +181,38 @@ func (s *workspaceService) UpdateWorkspace(userID string, workspaceID string, na
 	return s.repo.GetWorkspaceById(userID, workspaceID)
 }
 
+// ErrLabelName is a label with no name; ErrLabelTaken is a name the
+// workspace already has a label for, ignoring case and outer spaces.
+var (
+	ErrLabelName  = errors.New("Give the label a name.")
+	ErrLabelTaken = errors.New("This workspace already has a label with that name.")
+)
+
+// checkLabelName trims the name and refuses one another label in the
+// workspace already uses, so "deep work" never sits next to "Deep work".
+func (s *workspaceService) checkLabelName(lable *models.Lable) error {
+	lable.Name = strings.TrimSpace(lable.Name)
+	if lable.Name == "" {
+		return ErrLabelName
+	}
+	taken, err := s.repo.LabelNameTaken(lable.WorkspaceID, lable.Name, lable.ID)
+	if err != nil {
+		return err
+	}
+	if taken {
+		return ErrLabelTaken
+	}
+	return nil
+}
+
 func (s *workspaceService) CreateLabels(userID string, lable *models.Lable) (*models.Lable, error) {
 	if lable == nil {
 		return nil, errors.New("invalid lable data")
 	}
 	if err := s.requireOwned(userID, lable.WorkspaceID); err != nil {
+		return nil, err
+	}
+	if err := s.checkLabelName(lable); err != nil {
 		return nil, err
 	}
 
@@ -239,6 +266,9 @@ func (s *workspaceService) UpdateLabels(userID string, lable *models.Lable) (*mo
 		return nil, errors.New("invalid lable data")
 	}
 	if err := s.requireOwned(userID, lable.WorkspaceID); err != nil {
+		return nil, err
+	}
+	if err := s.checkLabelName(lable); err != nil {
 		return nil, err
 	}
 

@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -13,10 +14,15 @@ import (
 
 type Queue struct {
 	db *gorm.DB
+	// now is the API clock. run_at is written from it, so every query that
+	// compares against run_at or locked_at passes it in rather than using the
+	// database's now(): a database clock that runs behind would otherwise
+	// leave due jobs unclaimed, and one that runs ahead would fire them early.
+	now func() time.Time
 }
 
 func NewQueue(db *gorm.DB) *Queue {
-	return &Queue{db: db}
+	return &Queue{db: db, now: time.Now}
 }
 
 type Enqueue struct {
@@ -95,23 +101,24 @@ func (q *Queue) EnqueueIndex(userID, kind, entityID, title, body string) error {
 
 func (q *Queue) Claim(ctx context.Context, workerID string) (*models.Job, error) {
 	var job models.Job
+	now := q.now().UTC()
 	res := q.db.WithContext(ctx).Raw(`
 		UPDATE jobs
 		SET status = 'running',
-		    locked_at = now(),
-		    locked_by = ?,
-		    started_at = now(),
+		    locked_at = @now,
+		    locked_by = @worker,
+		    started_at = @now,
 		    attempts = attempts + 1,
-		    updated_at = now()
+		    updated_at = @now
 		WHERE id = (
 			SELECT id FROM jobs
-			WHERE status = 'pending' AND run_at <= now()
+			WHERE status = 'pending' AND run_at <= @now
 			ORDER BY run_at
 			FOR UPDATE SKIP LOCKED
 			LIMIT 1
 		)
 		RETURNING *
-	`, workerID).Scan(&job)
+	`, sql.Named("now", now), sql.Named("worker", workerID)).Scan(&job)
 	if res.Error != nil {
 		return nil, res.Error
 	}
@@ -274,10 +281,10 @@ func (q *Queue) HasJob(dedupeKey string) bool {
 }
 
 func (q *Queue) RecoverStuck(olderThan time.Duration) error {
-	cutoff := time.Now().UTC().Add(-olderThan)
+	now := q.now().UTC()
 	return q.db.Exec(`
 		UPDATE jobs
-		SET status = 'pending', locked_at = NULL, locked_by = NULL, updated_at = now()
+		SET status = 'pending', locked_at = NULL, locked_by = NULL, updated_at = ?
 		WHERE status = 'running' AND locked_at IS NOT NULL AND locked_at < ?
-	`, cutoff).Error
+	`, now, now.Add(-olderThan)).Error
 }

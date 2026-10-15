@@ -39,6 +39,7 @@ import { isInboxTask, isReminderTask } from "@/app/utils/taskFilters";
 import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
 import { useCalendarContextMenu } from "@/app/utils/hooks/useCalendarContextMenu";
 import type { CalendarItem, Task } from "@/app/_types/types";
+import { calendarItemDone } from "@timely/contract/calendar";
 import { entityTitleKey } from "@/app/utils/titleMorph";
 import TodaySuggestions from "@/app/_components/today/todaySuggestions";
 import HabitsGoals from "@/app/_components/today/habitsGoals";
@@ -437,7 +438,7 @@ export default function TodayDashboard() {
   const nextEvent = useMemo(() => {
     const upcoming = timedScheduled
       .map((item) => ({ item, start: parseDate(item.start) }))
-      .filter((entry): entry is { item: CalendarItem; start: Date } => Boolean(entry.start && entry.start.getTime() > now))
+      .filter((entry): entry is { item: CalendarItem; start: Date } => Boolean(entry.start && entry.start.getTime() > now && !calendarItemDone(entry.item)))
       .sort((a, b) => a.start.getTime() - b.start.getTime())[0];
     return upcoming ?? null;
   }, [now, timedScheduled]);

@@ -261,3 +261,30 @@ func TestIntegrationWorkspaceSameAccountCallsWork(t *testing.T) {
 		t.Fatalf("workspace should be gone, got %v", err)
 	}
 }
+
+// A label name is unique in its workspace ignoring case and outer spaces;
+// renaming a label to its own name in another case still works, and another
+// workspace may use the same name.
+func TestIntegrationLabelNamesUniqueIgnoringCase(t *testing.T) {
+	f := newFixture(t) // the owner's workspace has the label "Bug"
+	for _, name := range []string{"Bug", "bug", "  BUG "} {
+		if _, err := f.svc.CreateLabels(f.owner, &models.Lable{Name: name, Color: "#000000", WorkspaceID: f.ws}); !errors.Is(err, ErrLabelTaken) {
+			t.Fatalf("%q: err = %v, want ErrLabelTaken", name, err)
+		}
+	}
+	if _, err := f.svc.CreateLabels(f.owner, &models.Lable{Name: "   ", Color: "#000000", WorkspaceID: f.ws}); !errors.Is(err, ErrLabelName) {
+		t.Fatalf("blank name: err = %v", err)
+	}
+	other, err := f.svc.CreateLabels(f.owner, &models.Lable{Name: " Idea ", Color: "#000000", WorkspaceID: f.ws})
+	must(t, err)
+	if other.Name != "Idea" {
+		t.Fatalf("name not trimmed: %q", other.Name)
+	}
+	if _, err := f.svc.UpdateLabels(f.owner, &models.Lable{ID: other.ID, Name: "bug", Color: "#000000", WorkspaceID: f.ws}); !errors.Is(err, ErrLabelTaken) {
+		t.Fatalf("rename onto another label: err = %v", err)
+	}
+	_, err = f.svc.UpdateLabels(f.owner, &models.Lable{ID: f.label, Name: "BUG", Color: "#000000", WorkspaceID: f.ws})
+	must(t, err)
+	_, err = f.svc.CreateLabels(f.other, &models.Lable{Name: "Bug", Color: "#000000", WorkspaceID: f.otherWs})
+	must(t, err)
+}

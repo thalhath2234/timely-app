@@ -388,6 +388,8 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, planScope
 				cand.TaskID = t.ID
 				cand.OccurrenceStart = &original
 				cand.EarliestStart = maxTimePtr(cand.EarliestStart, &occ.Start)
+				fixedStart := occ.Start
+				cand.FixedStart = &fixedStart
 				cand.Unscheduled = !hasOccurrenceBlock(t, original)
 				candidates = append(candidates, cand)
 				candidateSet[t.ID] = true
@@ -519,6 +521,7 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, planScope
 		}
 	}
 	current := currentEngineBlocks(tasks, candidateSet, from, to, freezeUntil)
+	lateTasks := map[string]bool{}
 	for id, blocks := range missedEngineBlocks(tasks, movedSet, missedSince, from) {
 		current[id] = append(blocks, current[id]...)
 	}
@@ -554,7 +557,9 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, planScope
 		}
 		out.Change = classifyChange(current[proposal.TaskID], out.Blocks)
 		response.Proposals = append(response.Proposals, out)
-		if proposal.PastDeadline {
+		// One warning per task: every occurrence of a series shares its deadline.
+		if proposal.PastDeadline && !lateTasks[proposal.TaskID] {
+			lateTasks[proposal.TaskID] = true
 			response.Risks = append(response.Risks, PlanRisk{
 				Kind: "past_deadline", TaskID: proposal.TaskID, TaskName: proposal.TaskName,
 				Message: proposal.TaskName + " finishes after its deadline",

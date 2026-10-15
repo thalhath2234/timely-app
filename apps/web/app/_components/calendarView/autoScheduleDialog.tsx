@@ -297,7 +297,7 @@ function AutoSchedulePanel({
               {risks.length > 0 && (
                 <ul className="flex flex-col gap-1 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
                   {risks.map((risk, index) => (
-                    <li key={`${risk.kind}-${risk.taskId ?? index}`} className="flex items-start gap-1">
+                    <li key={`${risk.kind}-${risk.taskId ?? ""}-${index}`} className="flex items-start gap-1">
                       <AlertTriangle className="mt-0.5 size-3 shrink-0" />
                       <span>
                         {risk.taskName ? `${risk.taskName}: ` : ""}

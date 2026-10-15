@@ -7,6 +7,7 @@ import {
   Clock,
   FileText,
   FolderKanban,
+  KeyRound,
   ListTree,
   LockOpen,
   ReceiptText,
@@ -15,10 +16,14 @@ import {
   Table2,
   type LucideIcon,
 } from "lucide-react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useChatPrompts, useDecisionFeedback } from "@/app/utils/hooks/decisions";
 import { motion } from "motion/react";
 import { cn } from "@/app/utils/cn";
+import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
+import { buttonClass } from "@/app/_components/_ui/button";
+import { readyProviders } from "./modelMenu";
 import {
   listContainerVariants,
   listItemVariants,
@@ -74,6 +79,10 @@ export default function EmptyHero({
   const match = pathname?.match(/^\/projects\/([^/?#]+)/);
   const prompts = useChatPrompts(match ? decodeURIComponent(match[1]) : undefined);
   const feedback = useDecisionFeedback();
+  const providers = useAgentProviders();
+  // Chat needs a provider; the rest of Timely does not. Say so before a
+  // message is sent rather than after it fails.
+  const needsProvider = Boolean(providers.data) && readyProviders(providers.data).length === 0;
   const fitted = prompts.data?.prompts?.length ? prompts.data : null;
   const shown = fitted
     ? fitted.prompts.map((prompt) => ({ icon: PROMPT_ICONS[prompt.key] ?? Sparkles, title: prompt.title, text: prompt.text }))
@@ -102,38 +111,59 @@ export default function EmptyHero({
         Turn an idea into a project, shape a sheet, or plan your week. Small
         changes happen right away; bigger ones wait for your approval.
       </p>
-      {fitted?.project ? (
+      {needsProvider ? (
+        <div
+          data-testid="chat-needs-provider"
+          className={cn("mt-7 flex items-start gap-3 rounded-lg border border-border bg-card p-4", compact && "mt-5")}
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <KeyRound className="size-4" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Connect an AI provider to chat</p>
+            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+              The assistant runs on your own OpenRouter key, Claude Code or Codex. Everything else in Timely works without one.
+            </p>
+            <Link href="/settings?tab=agent" className={buttonClass({ size: "sm", className: "mt-3" })}>
+              Open Agent settings
+            </Link>
+          </div>
+        </div>
+      ) : null}
+      {needsProvider ? null : fitted?.project ? (
         <p className="mt-6 text-xs font-medium text-muted-foreground" data-testid="chat-prompts-project">
           Ideas for {fitted.project}
         </p>
       ) : null}
-      <motion.div
-        key={fitted ? "fitted" : "fixed"}
-        variants={listContainerVariants}
-        initial="hidden"
-        animate="visible"
-        className={cn("mt-7 grid gap-2.5 sm:grid-cols-2", compact && "mt-5", fitted?.project && "mt-2")}
-      >
-        {shown.map(({ icon: Icon, title, text }) => (
-          <motion.button
-            key={title}
-            variants={listItemVariants}
-            type="button"
-            onClick={() => pick(text)}
-            className="group flex items-start gap-3 rounded-xl border border-border bg-card p-3.5 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
-          >
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Icon className="size-4" />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-sm font-medium">{title}</span>
-              <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
-                {text}
+      {needsProvider ? null : (
+        <motion.div
+          key={fitted ? "fitted" : "fixed"}
+          variants={listContainerVariants}
+          initial="hidden"
+          animate="visible"
+          className={cn("mt-7 grid gap-2.5 sm:grid-cols-2", compact && "mt-5", fitted?.project && "mt-2")}
+        >
+          {shown.map(({ icon: Icon, title, text }) => (
+            <motion.button
+              key={title}
+              variants={listItemVariants}
+              type="button"
+              onClick={() => pick(text)}
+              className="group flex items-start gap-3 rounded-xl border border-border bg-card p-3.5 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
+            >
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Icon className="size-4" />
               </span>
-            </span>
-          </motion.button>
-        ))}
-      </motion.div>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">{title}</span>
+                <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
+                  {text}
+                </span>
+              </span>
+            </motion.button>
+          ))}
+        </motion.div>
+      )}
     </div>
   );
 }

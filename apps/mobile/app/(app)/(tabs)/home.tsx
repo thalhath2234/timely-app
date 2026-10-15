@@ -38,6 +38,8 @@ import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import type { CalendarItem, Task } from "../../../lib/types";
 import { taskEntityColor } from "../../../lib/entityColor";
 import { normalizePriority } from "../../../lib/priority";
+import { eventHref } from "../../../lib/eventOccurrence";
+import { findMeetingUrl } from "../../../lib/meetingUrl";
 import TimelyLogo from "../../../components/ui/TimelyLogo";
 import { Button, SectionLabel } from "../../../components/ui/primitives";
 import TodaySuggestionsCard from "../../../components/tasks/TodaySuggestionsCard";
@@ -45,7 +47,6 @@ import HabitsGoalsCard from "../../../components/tasks/HabitsGoalsCard";
 import ScreenTip from "../../../components/ui/ScreenTip";
 
 const MAX_TODAY_FOCUS = 7;
-const MEETING_URL = /https?:\/\/[^\s]+(?:meet\.google\.com|zoom\.us|teams\.microsoft\.com)[^\s]*/i;
 
 function formatElapsed(totalSeconds: number) {
   const hours = Math.floor(totalSeconds / 3600);
@@ -56,8 +57,7 @@ function formatElapsed(totalSeconds: number) {
 }
 
 function meetingUrl(item: CalendarItem) {
-  const text = [item.event?.description, item.task?.description].filter(Boolean).join("\n");
-  return text.match(MEETING_URL)?.[0] ?? null;
+  return findMeetingUrl([item.event?.description, item.task?.description].filter(Boolean).join("\n"));
 }
 
 /** A card on Today: icon, title, a line of meta and an action, like the
@@ -255,6 +255,17 @@ export default function HomeScreen() {
   const scheduled = useMemo(() => data?.items ?? [], [data?.items]);
   const focusCount = data?.todayFocus.length ?? 0;
   const completedFocusCount = data?.todayFocus.filter((task) => task.completedAt).length ?? 0;
+  // Left for tomorrow: open work from today's calendar plus open focus tasks
+  // that never got a time (the server's `unfinished` only covers the first).
+  const leftover = useMemo(() => {
+    if (!data) return [];
+    const seen = new Set<string>();
+    return [...data.unfinished, ...data.todayFocus.filter((task) => !task.completedAt)].filter((task) => {
+      if (seen.has(task.id)) return false;
+      seen.add(task.id);
+      return true;
+    });
+  }, [data]);
   const remainingSlots = Math.max(0, MAX_TODAY_FOCUS - focusCount);
   const remainingEstimate = (data?.todayFocus ?? [])
     .filter((task) => !task.completedAt)
@@ -350,7 +361,7 @@ export default function HomeScreen() {
       openTask(item.taskId);
       return;
     }
-    if (item.eventId) router.push(`/(app)/events/${item.eventId}`);
+    if (item.eventId) router.push(eventHref(item));
   }
 
   function completeTask(task: Task) {
@@ -366,7 +377,7 @@ export default function HomeScreen() {
   function shutdown() {
     if (!data) return;
     const date = addCalendarDays(data.date, 1);
-    const unfinished = data.unfinished;
+    const unfinished = leftover;
     if (unfinished.length === 0) {
       showUndoToast("Nothing left to shut down.");
       return;
@@ -645,7 +656,7 @@ export default function HomeScreen() {
             <Panel icon={<Moon size={16} color={colors.primary} />} title="End of day" testID="today-shutdown">
               <View style={styles.metrics}>
                 <Metric label="Done" value={data.completedToday.length} hint={focusCount > 0 ? `of ${focusCount}` : undefined} color={colors.success} />
-                <Metric label="Unfinished" value={data.unfinished.length} color={colors.warning} />
+                <Metric label="Unfinished" value={leftover.length} color={colors.warning} />
                 <Metric label="Tomorrow" value={data.tomorrowFocus.length} color={colors.primary} />
               </View>
               <View style={styles.actions}>
@@ -662,7 +673,7 @@ export default function HomeScreen() {
                   variant="secondary"
                   label="Shut down day"
                   icon={<Moon size={14} color={colors.foreground} />}
-                  disabled={data.unfinished.length === 0}
+                  disabled={leftover.length === 0}
                   onPress={shutdown}
                 />
               </View>

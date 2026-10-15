@@ -8,6 +8,7 @@ import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
+import { projectDeleteCopy } from "@timely/contract/projectDelete";
 import ConfirmSheet, { type ConfirmRequest } from "../../../components/ui/ConfirmSheet";
 import DateTimeSheet from "../../../components/ui/DateTimeSheet";
 import { Field, PrimaryButton, SectionLabel } from "../../../components/ui/primitives";
@@ -368,13 +369,15 @@ export default function ProjectDetailScreen() {
           </View>
         ))}
         <Pressable
-          onPress={() =>
+          onPress={() => {
+            const copy = projectDeleteCopy(title, projectTasks.length, stages.length);
             setConfirm({
-              title: "Delete project",
-              message: "This cannot be undone.",
+              title: copy.title,
+              message: copy.description,
+              confirmLabel: copy.confirmLabel,
               onConfirm: () => remove.mutate(project.id, { onSuccess: () => router.replace("/(app)/projects") }),
-            })
-          }
+            });
+          }}
           style={styles.delete}
         >
           <Trash2 size={16} color={colors.destructive} />

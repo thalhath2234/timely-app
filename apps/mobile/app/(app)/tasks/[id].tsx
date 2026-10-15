@@ -50,12 +50,13 @@ import {
   useInboxSuggestionsQuery,
 } from "../../../lib/hooks";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
-import { dateOnly, formatDuration, formatRelativeDay, formatShortDate, formatTime, formatTimeRange, localDateStamp, PRIORITY_META, PRIORITY_ORDER, toDateInputValue } from "../../../lib/format";
+import { dateOnly, formatDuration, formatRelativeDay, formatShortDate, formatShortDay, formatTime, formatTimeRange, localDateStamp, PRIORITY_META, PRIORITY_ORDER, toDateInputValue } from "../../../lib/format";
 import { normalizePriority } from "../../../lib/priority";
 import { buildRecurrenceInput, rruleToDraft } from "../../../lib/recurrence";
 import { richToPlain, toRichContent, isRichContentEmpty } from "../../../lib/richText";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { useDraftText } from "../../../lib/draftText";
+import { useToastStore } from "../../../lib/toast";
 import { useAutosave } from "../../../lib/autosave";
 import type { UpdateTaskPayload } from "../../../lib/api/tasks";
 
@@ -983,15 +984,29 @@ export default function TaskDetailScreen() {
         }
         onClose={() => setPicker(null)}
         onChange={(next) => {
-          if (picker === "due") persist({ deadline: next ? toDateInputValue(next) : null });
+          // The server refuses a start after the deadline; say so up front
+          // instead of letting the save fail and the value snap back.
+          if (picker === "due") {
+            const deadline = next ? toDateInputValue(next) : null;
+            const start = dateOnly(task.startDate);
+            if (deadline && start && deadline < start) {
+              useToastStore.getState().show(`Deadline can’t be before the start date (${formatShortDay(start)}).`);
+              return;
+            }
+            persist({ deadline });
+          }
           if (picker === "start") {
             if (!next) {
               persist({ startDate: null });
               return;
             }
-            persist({
-              startDate: toDateInputValue(next),
-            });
+            const start = toDateInputValue(next);
+            const deadline = dateOnly(task.deadline);
+            if (deadline && start > deadline) {
+              useToastStore.getState().show(`Start date can’t be after the deadline (${formatShortDay(deadline)}).`);
+              return;
+            }
+            persist({ startDate: start });
           }
           if (picker === "earliest") persist({ earliestStartAt: next ? next.toISOString() : null });
           if (picker === "preferStart") {

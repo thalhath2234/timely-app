@@ -26,6 +26,7 @@ import DayPanel from "@/app/_components/auth/dayPanel";
 import { AuthField, ChoiceChip } from "@/app/_components/auth/fields";
 import { onboardingDay } from "@/app/_components/auth/sampleDay";
 import { routeAfterOnboarding } from "@/app/utils/desktopInstance";
+import { splitStarterLabels } from "@timely/contract/starterLabels";
 
 const workspaceSchema = z.object({
   name: z
@@ -106,6 +107,8 @@ export default function Onboarding() {
   const extraWorkspaces = starterWorkspaces.filter(
     (n) => alsoCreate.has(n) && n.toLowerCase() !== workspaceName.toLowerCase(),
   );
+  const split = splitStarterLabels(chosenLabels, uses, useOptions, extraWorkspaces);
+  const extrasHaveLabels = Object.values(split.extras).some((l) => l.length > 0);
   const nameWorkspace = (name: string) =>
     setValue("name", name, { shouldValidate: true, shouldDirty: true });
   const toggleAlso = (name: string) =>
@@ -126,10 +129,14 @@ export default function Onboarding() {
         .map((u) => u.label)
         .join(", ");
       if (useCase) await savePersonalUseCase(useCase).catch(() => {});
-      if (workspace?.id && chosenLabels.length > 0)
-        await applyStarterLabels(workspace.id, chosenLabels).catch(() => {});
-      for (const name of extraWorkspaces)
-        await createWorkspace({ name }).catch(() => {});
+      if (workspace?.id && split.first.length > 0)
+        await applyStarterLabels(workspace.id, split.first).catch(() => {});
+      for (const name of extraWorkspaces) {
+        const extra = await createWorkspace({ name }).catch(() => null);
+        const own = split.extras[name] ?? [];
+        if (extra?.id && own.length > 0)
+          await applyStarterLabels(extra.id, own).catch(() => {});
+      }
 
       if (!isOnboardingDone) {
         await completeOnboarding();
@@ -397,7 +404,7 @@ export default function Onboarding() {
                   ? `Adds ${chosenLabels.length} starter label${chosenLabels.length === 1 ? "" : "s"}`
                   : "",
                 extraWorkspaces.length > 0
-                  ? `${chosenLabels.length > 0 ? "and" : "Adds"} ${extraWorkspaces.length} more workspace${extraWorkspaces.length === 1 ? "" : "s"}`
+                  ? `${chosenLabels.length > 0 ? "and" : "Adds"} ${extraWorkspaces.length} more workspace${extraWorkspaces.length === 1 ? "" : "s"}${extrasHaveLabels ? ", each with its own labels" : ""}`
                   : "",
               ]
                 .filter(Boolean)

@@ -477,7 +477,7 @@ function Tasks() {
             shown={dataCount}
             total={showReminders || dataMode !== "task" ? dataCount : headerTaskCount}
             synced={!syncError}
-            noun={showReminders ? "reminders" : dataMode === "project" ? "projects" : "tasks"}
+            noun={showReminders ? "reminder" : dataMode === "project" ? "project" : "task"}
           />
         </>
       )}

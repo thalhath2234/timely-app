@@ -35,11 +35,12 @@ import {
   useWorkingHoursZone,
   useWorkspacesQuery,
 } from "../../../lib/hooks";
-import { isReminderItem, matchesCalendarScope } from "../../../components/calendar/CalendarItemRow";
+import { isItemDone, isReminderItem, matchesCalendarScope } from "../../../components/calendar/CalendarItemRow";
 import { overdueAgendaTasks, taskToCalendarItem } from "../../../lib/overdue";
 import { findNextFreeSlot } from "../../../lib/nextFreeSlot";
 import { requestQuickAdd } from "../../../lib/quickAddIntent";
-import { addDays, dayKey, formatDuration, formatMonthYear, formatTime, isSameDay, startOfDay } from "../../../lib/format";
+import { addDays, dayKey, formatDuration, formatMonthYear, formatRelativeDay, formatTime, isSameDay, startOfDay } from "../../../lib/format";
+import { useToastStore } from "../../../lib/toast";
 import { taskDeadlineDate } from "../../../lib/taskDates";
 import type { CalendarItem, Task } from "../../../lib/types";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
@@ -177,8 +178,15 @@ export default function CalendarScreen() {
   function reschedule(item: CalendarItem, start: Date) {
     const duration = new Date(item.end).getTime() - new Date(item.start).getTime();
     const end = isReminderItem(item) ? start : new Date(start.getTime() + Math.max(duration, 0));
+    // Close the item sheet: it would keep showing the old time. The toast
+    // confirms where the item went, since it may now be off screen.
+    setOpen(null);
+    const toast = useToastStore.getState().show;
+    const moved = () => toast(`Moved to ${formatRelativeDay(start, undefined)} · ${formatTime(start.toISOString())}`);
+    const failed = (error: unknown) =>
+      toast(error instanceof Error && error.message ? `Couldn’t move “${item.title}”: ${error.message}` : `Couldn’t move “${item.title}”. Try again.`);
     if (item.kind === "task" && isReminderItem(item) && item.taskId) {
-      void save.mutateAsync({ id: item.taskId, data: { scheduledOn: start.toISOString() } });
+      void save.mutateAsync({ id: item.taskId, data: { scheduledOn: start.toISOString() } }).then(moved, failed);
     } else if (item.kind === "taskOccurrence" && item.taskId && item.originalStart) {
       void editOccurrence.mutateAsync({
         id: item.taskId,
@@ -186,19 +194,17 @@ export default function CalendarScreen() {
         action: "move",
         newStart: start.toISOString(),
         newEnd: end.toISOString(),
-      });
+      }).then(moved, failed);
     } else if (item.kind === "task" && item.blockId) {
       void moveBlk
         .mutateAsync({ id: item.blockId, start: start.toISOString(), end: end.toISOString() })
-        .catch((error: unknown) => {
-          Alert.alert("Could not move", error instanceof Error ? error.message : "Try again.");
-        });
+        .then(moved, failed);
     } else if ((item.kind === "event" || item.kind === "eventOccurrence") && item.eventId) {
       void moveEvt.mutateAsync({
         id: item.eventId,
         start: start.toISOString(),
         end: end.toISOString(),
-      });
+      }).then(moved, failed);
     }
   }
 
@@ -213,7 +219,7 @@ export default function CalendarScreen() {
     } else {
       save.mutate({
         id: item.taskId,
-        data: { completedAt: item.completedAt ? "" : new Date().toISOString() },
+        data: { completedAt: isItemDone(item) ? "" : new Date().toISOString() },
       });
     }
     setOpen(null);

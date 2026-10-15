@@ -18,6 +18,7 @@ type WorkspaceRepository interface {
 	CreateStatuses(status *models.Status) (*models.Status, error)
 	CreateCustomFields(customField *models.CustomField) (*models.CustomField, error)
 	UpdateLabels(lable *models.Lable) (*models.Lable, error)
+	LabelNameTaken(workspaceID, name, exceptID string) (bool, error)
 	DeleteLabels(lableID string, workspaceID string) error
 	UpdateStatuses(status *models.Status) (*models.Status, error)
 	DeleteStatuses(statusID string, workspaceID string) error
@@ -42,8 +43,11 @@ func (r *workspaceRepository) CreateWorkspace(workspace *models.Workspace, defau
 		if err := tx.Create(workspace).Error; err != nil {
 			return err
 		}
+		// One INSERT writes them all, so each BeforeCreate would read the
+		// same next position; number them here in the order given.
 		for i := range defaultStatuses {
 			defaultStatuses[i].WorkspaceID = workspace.ID
+			defaultStatuses[i].Position = int64(i + 1)
 		}
 		return tx.Create(&defaultStatuses).Error
 	})
@@ -55,9 +59,9 @@ func (r *workspaceRepository) GetAllWorkspaceByUser(userID string) ([]models.Wor
 	err := r.db.
 		Where("user_id = ?", userID).
 		Preload("Projects").
-		Preload("Status").
-		Preload("CustomFields").
-		Preload("Lables").
+		Preload("Status", models.OrderWorkspaceItems).
+		Preload("CustomFields", models.OrderWorkspaceItems).
+		Preload("Lables", models.OrderWorkspaceItems).
 		Find(&workspaces).Error
 
 	if err != nil {
@@ -74,9 +78,9 @@ func (r *workspaceRepository) GetWorkspaceById(userID string, workspaceID string
 		Where("user_id = ?", userID).
 		Where("id = ?", workspaceID).
 		Preload("Projects").
-		Preload("Status").
-		Preload("CustomFields").
-		Preload("Lables").
+		Preload("Status", models.OrderWorkspaceItems).
+		Preload("CustomFields", models.OrderWorkspaceItems).
+		Preload("Lables", models.OrderWorkspaceItems).
 		First(&workspace).Error
 	if err != nil {
 		return nil, err
@@ -152,6 +156,16 @@ func foundOne(result *gorm.DB) error {
 		return gorm.ErrRecordNotFound
 	}
 	return nil
+}
+
+// LabelNameTaken reports whether another label in the workspace has this
+// name, ignoring case and outer spaces.
+func (r *workspaceRepository) LabelNameTaken(workspaceID, name, exceptID string) (bool, error) {
+	var n int64
+	err := r.db.Model(&models.Lable{}).
+		Where("workspace_id = ? AND lower(trim(name)) = lower(?) AND id <> ?", workspaceID, name, exceptID).
+		Count(&n).Error
+	return n > 0, err
 }
 
 func (r *workspaceRepository) UpdateLabels(lable *models.Lable) (*models.Lable, error) {
@@ -288,6 +302,7 @@ func (r *workspaceRepository) GetAllCustomFields(userID string) ([]models.Custom
 
 	err = r.db.
 		Where("workspace_id IN ?", ids).
+		Order("workspace_id, " + models.WorkspaceItemOrder).
 		Find(&customFields).Error
 	if err != nil {
 		return nil, err

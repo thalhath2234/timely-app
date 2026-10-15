@@ -286,3 +286,53 @@ func TestIntegrationMissedAddTimeKeepsHistory(t *testing.T) {
 		t.Fatalf("missed block ends %v, want %v", kept.EndAt, end)
 	}
 }
+
+// Finishing a task settles its overdue and missed notices, so they stop
+// offering steps that would fail with "already done". A repeating task's
+// missed notice and another task's notice stay unread.
+func TestIntegrationDoneTaskSettlesAlerts(t *testing.T) {
+	svc, db := zoneService(t, models.NotificationSettings{Reminders: true})
+	user := zoneTestUser
+	ws := models.Workspace{ID: "ws_settle", Name: "Home", UserID: &user}
+	if err := db.Create(&ws).Error; err != nil {
+		t.Fatal(err)
+	}
+	done := time.Now().UTC().Format(time.RFC3339)
+	rows := []models.Task{
+		{ID: "tsk_done", Name: "Send the invoice", Kind: models.KindTask, Duration: 30, UserID: &user, WorkspaceID: &ws.ID, CompletedAt: &done},
+		{ID: "tsk_open", Name: "Draft the brief", Kind: models.KindTask, Duration: 30, UserID: &user, WorkspaceID: &ws.ID},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	add := func(id, category, entity string) {
+		row := models.Notification{ID: id, UserID: user, Category: category, Title: id, EntityType: ptrTo("task"), EntityID: ptrTo(entity)}
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("ntf_overdue_done", models.NotifyOverdue, "tsk_done")
+	add("ntf_missed_done", models.NotifyMissed, "tsk_done")
+	add("ntf_missed_gone", models.NotifyMissed, "tsk_deleted")
+	add("ntf_overdue_open", models.NotifyOverdue, "tsk_open")
+	add("ntf_reminder_done", models.NotifyReminder, "tsk_done")
+
+	count, err := svc.UnreadCount(user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("unread %d, want the open task's overdue notice and the reminder", count)
+	}
+	list, err := svc.List(user, true, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unread := map[string]bool{}
+	for _, row := range list {
+		unread[row.ID] = true
+	}
+	if len(unread) != 2 || !unread["ntf_overdue_open"] || !unread["ntf_reminder_done"] {
+		t.Fatalf("unread after settling: %v", unread)
+	}
+}

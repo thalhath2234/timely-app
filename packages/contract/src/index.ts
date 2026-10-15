@@ -15,7 +15,10 @@
  *   account        User, ApiKey, DeviceSession
  *   config         Config and saved task views
  *   dashboard      Dashboard layout, card queries and the card engine
+ *   starterLabels  onboarding's starter labels split across new workspaces
  *   viewSearch     search finding a saved task view by its name
+ *   projectDelete  the confirm before deleting a project and its tasks
+ *   bulkEdit       bulk task edits: per-task Undo, adding a label by name
  */
 
 /**

@@ -166,6 +166,7 @@ import SheetColumnSettings from "@/app/_components/sheets/sheetColumnSettings";
 import SheetConditionalPanel from "@/app/_components/sheets/sheetConditionalPanel";
 import SheetColumnFilter from "@/app/_components/sheets/sheetColumnFilter";
 import { sheetPrintHtml } from "@/app/_components/sheets/sheetPrint";
+import { plural } from "@/app/utils/plural";
 
 const MIN_COLUMN_WIDTH = 72;
 const MAX_COLUMN_WIDTH = 640;
@@ -1615,8 +1616,6 @@ export default function SheetGrid({
     return index >= first && index <= last ? { at: first, count: last - first + 1 } : { at: index, count: 1 };
   };
 
-  const plural = (count: number, word: string) => (count === 1 ? `1 ${word}` : `${count} ${word}s`);
-
   const rowEntries = (index: number): ContextMenuEntry[] => {
     const span = spanFor("row", index);
     const label = span.count === 1 ? `row ${span.at + 1}` : `rows ${span.at + 1}–${span.at + span.count}`;
@@ -2400,7 +2399,7 @@ export default function SheetGrid({
               />
               <p className="mt-1.5 px-0.5 text-[11px] text-muted-foreground">
                 {filtering
-                  ? `Showing ${visibleRows.length} of ${rows.length} rows`
+                  ? `Showing ${visibleRows.length} of ${plural(rows.length, "row")}`
                   : `Sorts by column ${columnIndexToLetter(selected.col)}. Right-click a column to filter by its values.`}
               </p>
               {activeFilters.length > 0 || filterQuery ? (

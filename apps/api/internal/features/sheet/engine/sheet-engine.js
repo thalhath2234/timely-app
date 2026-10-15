@@ -706,7 +706,15 @@ var SheetEngine = (() => {
     const mean = numbers.reduce((a, b) => a + b, 0) / n;
     return numbers.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (sample ? n - 1 : n);
   }
+  var NO_ARGUMENT_FUNCTIONS = /* @__PURE__ */ new Set(["PI", "RAND", "TRUE", "FALSE", "NA", "ROW", "COLUMN", "TODAY", "NOW"]);
   function callFunction(name, args, context) {
+    if (args.length === 0 && !NO_ARGUMENT_FUNCTIONS.has(name)) {
+      const result = callFunctionWith(name, args, context);
+      return isError(result) && result.message === "#NAME?" ? result : error("#N/A");
+    }
+    return callFunctionWith(name, args, context);
+  }
+  function callFunctionWith(name, args, context) {
     var _a, _b, _c, _d, _e, _f, _g;
     const arg = (index) => single(args[index]);
     const numberArg = (index, fallback) => {
