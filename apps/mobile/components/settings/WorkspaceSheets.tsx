@@ -3,10 +3,10 @@ import { Text, View } from "react-native";
 import { Trash2 } from "lucide-react-native";
 import BottomSheet from "../ui/BottomSheet";
 import ConfirmSheet, { type ConfirmRequest } from "../ui/ConfirmSheet";
-import { Button, Field, FieldLabel, PrimaryButton, Select } from "../ui/primitives";
+import { Button, Field, PrimaryButton, Select } from "../ui/primitives";
+import { ColourField } from "../ui/ColourSheet";
+import { colorForIndex } from "../../lib/entityColor";
 import {
-  ColorRow,
-  FIELD_PALETTE,
   FIELD_TYPES,
   OptionList,
   cleanedOptions,
@@ -122,7 +122,7 @@ export function NamedColorSheet({
 }) {
   const [editing, setEditing] = useState<NamedColorItem | "new" | null>(null);
   const [name, setName] = useState("");
-  const [color, setColor] = useState(FIELD_PALETTE[0]);
+  const [color, setColor] = useState(colorForIndex(0));
   const [saving, setSaving] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
   const Noun = noun.charAt(0).toUpperCase() + noun.slice(1);
@@ -130,7 +130,7 @@ export function NamedColorSheet({
   const openItem = (item: NamedColorItem | "new") => {
     setEditing(item);
     setName(item === "new" ? "" : item.name);
-    setColor(item === "new" ? FIELD_PALETTE[items.length % FIELD_PALETTE.length] : item.color || FIELD_PALETTE[0]);
+    setColor(item === "new" ? colorForIndex(items.length) : item.color || colorForIndex(0));
   };
   const trimmed = name.trim();
   const save = async () => {
@@ -190,10 +190,7 @@ export function NamedColorSheet({
       >
         <View style={styles.form}>
           <Field label="Name" value={name} onChangeText={setName} placeholder={`${Noun} name`} autoCapitalize="words" />
-          <View style={styles.fieldWrap}>
-            <FieldLabel>Colour</FieldLabel>
-            <ColorRow value={color} onChange={setColor} />
-          </View>
+          <ColourField value={color} onChange={setColor} subtitle={trimmed || undefined} />
           {current ? (
             <View style={styles.deleteRow}>
               <Button
@@ -278,15 +275,15 @@ export function CustomFieldsSheet({
     if (field === "new") {
       setName("");
       setType("select");
-      setOptions([{ value: "", color: FIELD_PALETTE[0] }]);
+      setOptions([{ value: "", color: colorForIndex(0) }]);
       return;
     }
     setName(field.name);
     setType(field.type);
     setOptions(
       field.options?.options?.length
-        ? field.options.options.map((option) => ({ id: option.id, value: option.value, color: option.color || FIELD_PALETTE[0] }))
-        : [{ value: "", color: FIELD_PALETTE[0] }],
+        ? field.options.options.map((option) => ({ id: option.id, value: option.value, color: option.color || colorForIndex(0) }))
+        : [{ value: "", color: colorForIndex(0) }],
     );
   };
   const current = editing && editing !== "new" ? editing : null;
@@ -385,7 +382,6 @@ export function CustomFieldsSheet({
 const styles = createThemedStyleSheet((colors) => ({
   list: { gap: 10, paddingBottom: 4 },
   form: { gap: 14, paddingBottom: 4 },
-  fieldWrap: { gap: 6 },
   hint: { color: colors.mutedForeground, fontSize: 12, lineHeight: 17, marginHorizontal: 4 },
   error: { color: colors.destructive, fontSize: 13 },
   deleteRow: { alignItems: "flex-start", marginLeft: -12 },
