@@ -13,6 +13,7 @@ import Backlinks from "@/app/_components/docs/backlinks";
 import DocHistory from "@/app/_components/docs/docHistory";
 import DocHints from "@/app/_components/docs/docHints";
 import { insertPageMention } from "@/app/_components/editor/mention";
+import { hasUploadedImages } from "@/app/_components/editor/docImage";
 import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedListButton";
 import { Doc } from "@/app/_types/types";
 import { UpdateDocPayload } from "@/app/utils/api/docs";
@@ -130,6 +131,8 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
+  // Read when the menu opens, so the Markdown item says what it will give.
+  const [exportHasImages, setExportHasImages] = useState(false);
   const [remoteEpoch, setRemoteEpoch] = useState(0);
   const [remoteContent, setRemoteContent] = useState<Doc["content"] | null>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -301,7 +304,10 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
             aria-label="Download document"
             aria-haspopup="menu"
             aria-expanded={isExportOpen}
-            onClick={() => setIsExportOpen((open) => !open)}
+            onClick={() => {
+              setExportHasImages(hasUploadedImages(editorRef.current));
+              setIsExportOpen((open) => !open);
+            }}
             className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent"
           >
             <Download className="size-4" />
@@ -309,7 +315,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
           {isExportOpen && (
             <>
               <div className="fixed inset-0 z-40" onMouseDown={() => setIsExportOpen(false)} />
-              <div role="menu" aria-label="Download as" className="absolute right-0 top-9 z-50 w-48 rounded-lg border border-border bg-popover p-1 shadow-xl">
+              <div role="menu" aria-label="Download as" className="absolute right-0 top-9 z-50 w-56 rounded-lg border border-border bg-popover p-1 shadow-xl">
                 <button
                   type="button"
                   role="menuitem"
@@ -317,12 +323,14 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
                     setIsExportOpen(false);
                     // The file comes from the server, so save the latest typing first.
                     await flush();
-                    void downloadPortable(`/docs/${doc.id}/export?format=markdown`, `${doc.title}.md`);
+                    // A doc with uploaded images comes back as a .zip holding
+                    // the .md and an images/ folder it links to.
+                    void downloadPortable(`/docs/${doc.id}/export?format=markdown&images=zip`, `${doc.title}.md`);
                   }}
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
                 >
                   <FileText className="size-4 text-muted-foreground" />
-                  Markdown (.md)
+                  {exportHasImages ? "Markdown + images (.zip)" : "Markdown (.md)"}
                 </button>
                 <button
                   type="button"

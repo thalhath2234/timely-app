@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
-import { Plus, Wrench, X } from "lucide-react";
+import { FileText, Plus, Sheet as SheetIcon, Wrench, X } from "lucide-react";
 import { CARD_TEMPLATES, catalogCards, type BuiltinCardType, type CardTemplate } from "@timely/contract/dashboard";
 import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 import { cn } from "@/app/utils/cn";
@@ -21,7 +21,8 @@ export default function AddCardDialog({
 }: {
   onAddBuiltin: (type: BuiltinCardType) => void;
   onAddTemplate: (template: CardTemplate) => void;
-  onOpenWorkshop: () => void;
+  /** Opens the workshop, on a sheet or a doc for the "from a file" entries. */
+  onOpenWorkshop: (source?: "sheets" | "docs") => void;
   onClose: () => void;
   /** Built-in types already on the board, marked so a second copy is a choice. */
   present: Set<string>;
@@ -62,22 +63,26 @@ export default function AddCardDialog({
             </button>
           </header>
 
-          <div className="px-5">
-            <button
-              type="button"
-              onClick={onOpenWorkshop}
-              className="flex w-full items-center gap-3 rounded-xl border border-dashed border-primary/50 bg-accent/30 px-4 py-3 text-left transition-colors hover:bg-accent/60"
-            >
-              <span className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <Wrench className="size-4" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium text-foreground">Build a custom card</span>
-                <span className="block text-xs text-muted-foreground">
-                  Open the card workshop: choose the data, filters, grouping, time range and chart.
-                </span>
-              </span>
-            </button>
+          <div className="grid gap-2 px-5 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
+            <WorkshopEntry
+              primary
+              icon={<Wrench className="size-4" />}
+              title="Build a custom card"
+              description="Choose the data, filters, grouping, time range and chart."
+              onClick={() => onOpenWorkshop()}
+            />
+            <WorkshopEntry
+              icon={<SheetIcon className="size-4" />}
+              title="From a sheet"
+              description="Pick cells: a value, chart, counter or quick add that stays live."
+              onClick={() => onOpenWorkshop("sheets")}
+            />
+            <WorkshopEntry
+              icon={<FileText className="size-4" />}
+              title="From a doc"
+              description="Pin a doc, or tick its checklist from the dashboard."
+              onClick={() => onOpenWorkshop("docs")}
+            />
           </div>
 
           <div className="mt-4 flex gap-1 border-b border-border px-5" role="tablist">
@@ -132,6 +137,25 @@ export default function AddCardDialog({
       </OverlayFrame>
     </>,
     document.body,
+  );
+}
+
+function WorkshopEntry({ primary, icon, title, description, onClick }: { primary?: boolean; icon: React.ReactNode; title: string; description: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-start gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors",
+        primary ? "border-dashed border-primary/50 bg-accent/30 hover:bg-accent/60" : "border-border bg-card hover:border-primary/50 hover:bg-accent/40",
+      )}
+    >
+      <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg", primary ? "bg-primary text-primary-foreground" : "bg-muted text-foreground")}>{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-foreground">{title}</span>
+        <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">{description}</span>
+      </span>
+    </button>
   );
 }
 

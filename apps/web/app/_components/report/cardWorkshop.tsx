@@ -33,10 +33,14 @@ import {
   SOURCE_CAPABILITIES,
   SOURCE_LABELS,
   computeCard,
+  defaultCardSize,
   defaultQuery,
   describeQuery,
+  displaysFor,
   fitQuery,
+  groupsFor,
   minCardSize,
+  rangesFor,
   priorityName,
   type CardDisplay,
   type CardFilters,
@@ -45,11 +49,16 @@ import {
   type CardSource,
   type DashboardData,
 } from "@timely/contract/dashboard";
+import { computeSheetCard, docChecks, suggestSheetPick, type DocPick, type SheetPick } from "@timely/contract/dashboardFiles";
+import type { Sheet as ContractSheet } from "@timely/contract/sheet";
+import type { Doc, Sheet } from "@/app/_types/types";
 import Select from "@/app/_components/_ui/select";
 import DatePicker from "@/app/_components/_ui/datePicker";
 import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 import { cn } from "@/app/utils/cn";
 import CustomCardView from "./customCardView";
+import FileCardView, { FILE_ICON, isFileQuery } from "./fileCards";
+import { DocPickPanel, FileChips, SheetPickPanel, Switch } from "./filePicker";
 import { seriesColor } from "./charts";
 import { ROW_HEIGHT, GRID_GAP } from "./dashboardGrid";
 import { controlClass } from "@/app/_components/_ui/field";
@@ -101,6 +110,7 @@ export interface WorkshopResult {
 
 export default function CardWorkshop({
   initial,
+  startSource,
   data,
   timeZone,
   onSave,
@@ -108,13 +118,15 @@ export default function CardWorkshop({
 }: {
   /** Editing an existing card; absent starts a new one. */
   initial?: WorkshopResult;
+  /** A new card starts on this source (the add dialog's "From a sheet" / "From a doc"). */
+  startSource?: CardSource;
   data: DashboardData;
   timeZone?: string;
   onSave: (result: WorkshopResult) => void;
   onClose: () => void;
 }) {
   const titleId = useId();
-  const [query, setQueryRaw] = useState<CardQuery>(() => fitQuery(initial?.query ?? defaultQuery("tasks")));
+  const [query, setQueryRaw] = useState<CardQuery>(() => fitQuery(initial?.query ?? defaultQuery(startSource ?? "tasks")));
   const [title, setTitle] = useState(initial?.title ?? "");
   const [size, setSize] = useState({ w: initial?.w ?? 4, h: initial?.h ?? 3 });
   const now = useMemo(() => new Date(), []);
@@ -132,6 +144,11 @@ export default function CardWorkshop({
 
   const caps = SOURCE_CAPABILITIES[query.source];
   const result = useMemo(() => computeCard(query, data, { now, timeZone }), [query, data, now, timeZone]);
+  const sheets = (data.sheets ?? []) as Sheet[];
+  const docs = (data.docs ?? []) as Doc[];
+  const pickedSheet = query.sheet ? sheets.find((sheet) => sheet.id === query.sheet!.sheetId) : undefined;
+  const pickedDoc = query.doc ? docs.find((doc) => doc.id === query.doc!.docId) : undefined;
+  const filePick = isFileQuery(query);
   const min = minCardSize({ type: "custom", query });
   const w = Math.max(size.w, min.w);
   const h = Math.max(size.h, min.h);
@@ -153,17 +170,31 @@ export default function CardWorkshop({
   };
 
   const pickDisplay = (display: CardDisplay) => {
-    const sizes: Record<CardDisplay, { w: number; h: number }> = {
-      number: { w: 3, h: 2 },
-      progress: { w: 3, h: 2 },
-      list: { w: 4, h: 4 },
-      bar: { w: 4, h: 3 },
-      line: { w: 6, h: 3 },
-      pie: { w: 4, h: 4 },
-    };
-    if (!initial) setSize(sizes[display]);
+    if (!initial) setSize(defaultCardSize({ display }));
     setQuery({ display });
   };
+
+  /** Picks one file to read (or all of them again) and sizes a new card for what it shows. */
+  const pickFile = (id: string | null) => {
+    let next: CardQuery = { ...query, sheet: undefined, doc: undefined };
+    if (id && query.source === "sheets") {
+      const sheet = sheets.find((entry) => entry.id === id);
+      if (sheet) next = { ...next, sheet: suggestSheetPick(sheet as ContractSheet) };
+    }
+    if (id && query.source === "docs") {
+      const doc = docs.find((entry) => entry.id === id);
+      if (doc) next = { ...next, doc: { docId: doc.id, fileTitle: doc.title || undefined, view: docChecks(doc.content as never).length > 0 ? "checklist" : "page" } };
+    }
+    const fitted = fitQuery(next);
+    if (!initial) setSize(defaultCardSize(fitted));
+    setQueryRaw(fitted);
+  };
+
+  const setSheetPick = (pick: SheetPick) => {
+    if (!initial && pick.view !== query.sheet?.view) setSize(defaultCardSize({ display: query.display, sheet: pick }));
+    setQuery({ sheet: pick });
+  };
+  const setDocPick = (pick: DocPick) => setQuery({ doc: pick });
 
   const workspaces = data.workspaces ?? [];
   const projects = (data.projects ?? []).filter((project) => !project.completedAt);
@@ -174,6 +205,10 @@ export default function CardWorkshop({
   const priorities = ["Urgent", "High", "Medium", "Low", "None"];
 
   const autoTitle = describeQuery(query);
+  const displays = displaysFor(query.source);
+  const groups = groupsFor(query);
+  const ranges = RANGE_ORDER.filter((preset) => rangesFor(query.dateField).includes(preset));
+  const progressModes = caps.completable ? (["completion", "goal"] as const) : (["goal"] as const);
   const save = () => onSave({ title: title.trim(), query, w, h });
 
   // Preview at the card's real height, and the width it would get on a 12-column board up to the panel width.
@@ -190,14 +225,16 @@ export default function CardWorkshop({
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
-          className="report-dashboard flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
+          className="report-dashboard flex h-[min(92vh,880px)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
         >
           <header className="flex items-center gap-3 border-b border-border px-5 py-3">
             <div className="min-w-0 flex-1">
               <h2 id={titleId} className="text-base font-semibold text-foreground">
                 {initial ? "Edit card" : "Card workshop"}
               </h2>
-              <p className="text-xs text-muted-foreground">Pick the data, narrow it down, choose how it looks. The preview updates as you go.</p>
+              <p className="text-xs text-muted-foreground">
+                {filePick ? "Pick the cells or the doc, choose how it looks. The card stays in step with the file." : "Pick the data, narrow it down, choose how it looks. The preview updates as you go."}
+              </p>
             </div>
             {!initial ? (
               <div className="w-56">
@@ -235,14 +272,52 @@ export default function CardWorkshop({
                     );
                   })}
                 </div>
+                {query.source === "sheets" || query.source === "docs" ? (
+                  <FileChips
+                    kind={query.source}
+                    files={query.source === "sheets" ? sheets : docs}
+                    selected={query.sheet?.sheetId ?? query.doc?.docId ?? null}
+                    onSelect={pickFile}
+                  />
+                ) : null}
               </Section>
 
+              {query.sheet ? (
+                pickedSheet ? (
+                  <SheetPickPanel sheet={pickedSheet} pick={query.sheet} onChange={setSheetPick} />
+                ) : (
+                  <p className="text-sm text-muted-foreground">This sheet was deleted or archived. Pick another one above.</p>
+                )
+              ) : null}
+              {query.doc ? (
+                pickedDoc ? (
+                  <DocPickPanel doc={pickedDoc} pick={query.doc} onChange={setDocPick} />
+                ) : (
+                  <p className="text-sm text-muted-foreground">This doc was deleted or archived. Pick another one above.</p>
+                )
+              ) : null}
+              {query.sheet && ["value", "bar", "line", "progress", "counter"].includes(query.sheet.view) ? (
+                <Section title="Colour">
+                  <ColourRow value={query.color ?? 0} onChange={(color) => setQuery({ color })} />
+                </Section>
+              ) : null}
+
+              {filePick ? null : (
+              <>
               <Section title="Show as">
                 <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
                   {(Object.keys(DISPLAY_LABELS) as CardDisplay[]).map((display) => {
                     const Icon = DISPLAY_ICON[display];
+                    const off = !displays.includes(display);
                     return (
-                      <Tile key={display} active={query.display === display} onClick={() => pickDisplay(display)} icon={<Icon className="size-4" />}>
+                      <Tile
+                        key={display}
+                        active={query.display === display}
+                        disabled={off}
+                        title={off ? `${SOURCE_LABELS[query.source]} have nothing but dates to split by, so a donut would be one full ring.` : undefined}
+                        onClick={() => pickDisplay(display)}
+                        icon={<Icon className="size-4" />}
+                      >
                         {DISPLAY_LABELS[display]}
                       </Tile>
                     );
@@ -278,11 +353,7 @@ export default function CardWorkshop({
                         size="sm"
                         value={query.groupBy}
                         onChange={(value) => setQuery({ groupBy: value as CardQuery["groupBy"] })}
-                        options={caps.groups
-                          .filter((group) => group !== "none")
-                          .filter((group) => (query.display === "line" ? ["day", "week", "month"].includes(group) : true))
-                          .filter((group) => (query.display === "pie" ? !["day", "week", "month", "weekday"].includes(group) : true))
-                          .map((group) => ({ value: group, label: GROUP_LABELS[group] }))}
+                        options={groups.map((group) => ({ value: group, label: GROUP_LABELS[group] }))}
                       />
                     </Field>
                   ) : null}
@@ -304,7 +375,7 @@ export default function CardWorkshop({
                       size="sm"
                       value={query.range.preset}
                       onChange={(value) => setQuery({ range: { ...query.range, preset: value as CardRangePreset } })}
-                      options={RANGE_ORDER.map((preset) => ({ value: preset, label: RANGE_LABELS[preset] }))}
+                      options={ranges.map((preset) => ({ value: preset, label: RANGE_LABELS[preset] }))}
                     />
                   </Field>
                   {query.range.preset === "custom" ? (
@@ -330,7 +401,7 @@ export default function CardWorkshop({
 
               <Section title="Filters">
                 <div className="flex flex-col gap-3">
-                  {caps.filters.includes("state") ? (
+                  {caps.filters.includes("state") && !(query.display === "progress" && query.progress === "completion") ? (
                     <Field label={query.source === "projects" ? "Projects" : "Items"}>
                       <Segmented
                         value={query.filters.state ?? "all"}
@@ -473,18 +544,20 @@ export default function CardWorkshop({
                   ) : null}
                   {query.display === "progress" ? (
                     <>
-                      <Field label="Progress of">
-                        <Segmented
-                          value={query.progress ?? "completion"}
-                          onChange={(progress) => setQuery({ progress: progress as "completion" | "goal" })}
-                          options={[
-                            ...(caps.completable ? [{ value: "completion", label: "Done out of all" }] : []),
-                            { value: "goal", label: "Toward a goal" },
-                          ]}
-                        />
-                      </Field>
+                      {progressModes.length > 1 ? (
+                        <Field label="Progress of">
+                          <Segmented
+                            value={query.progress ?? "completion"}
+                            onChange={(progress) => setQuery({ progress: progress as "completion" | "goal" })}
+                            options={[
+                              { value: "completion", label: "Done out of all" },
+                              { value: "goal", label: "Toward a goal" },
+                            ]}
+                          />
+                        </Field>
+                      ) : null}
                       {query.progress === "goal" ? (
-                        <Field label="Goal">
+                        <Field label={`Goal (${query.measure === "count" ? `number of ${SOURCE_LABELS[query.source].toLowerCase()}` : MEASURE_LABELS[query.measure].toLowerCase()})`}>
                           <NumberInput value={query.goal ?? 10} min={1} max={100000} onChange={(goal) => setQuery({ goal })} />
                         </Field>
                       ) : null}
@@ -492,28 +565,13 @@ export default function CardWorkshop({
                   ) : null}
                   {query.display !== "list" && query.display !== "pie" ? (
                     <Field label="Colour">
-                      <div className="flex flex-wrap gap-1.5">
-                        {Array.from({ length: 8 }, (_, index) => (
-                          <button
-                            key={index}
-                            type="button"
-                            onClick={() => setQuery({ color: index })}
-                            className={cn(
-                              "flex size-6 items-center justify-center rounded-full ring-offset-2 ring-offset-background transition",
-                              query.color === index && "ring-2 ring-foreground/60",
-                            )}
-                            style={{ background: seriesColor(index) }}
-                            aria-label={`Colour ${index + 1}`}
-                            aria-pressed={query.color === index}
-                          >
-                            {query.color === index ? <Check className="size-3.5 text-white" /> : null}
-                          </button>
-                        ))}
-                      </div>
+                      <ColourRow value={query.color ?? 0} onChange={(color) => setQuery({ color })} />
                     </Field>
                   ) : null}
                 </div>
               </Section>
+              </>
+              )}
             </div>
 
             <div className="flex flex-col gap-4 border-t border-border bg-muted/40 px-5 py-4 lg:overflow-y-auto lg:border-l lg:border-t-0">
@@ -538,16 +596,16 @@ export default function CardWorkshop({
                 >
                   <div className="flex h-9 shrink-0 items-center gap-1.5 px-3">
                     {(() => {
-                      const Icon = DISPLAY_ICON[query.display];
+                      const Icon = query.sheet ? FILE_ICON[query.sheet.view] : query.doc ? FILE_ICON[query.doc.view] : DISPLAY_ICON[query.display];
                       return <Icon className="size-3.5 text-muted-foreground" />;
                     })()}
                     <span className="truncate text-sm font-medium text-foreground">{title.trim() || autoTitle}</span>
                   </div>
                   <div className="min-h-0 flex-1 px-3 pb-3">
-                    <CustomCardView query={query} result={result} compact />
+                    {filePick ? <FileCardView query={query} data={data} preview /> : <CustomCardView query={query} result={result} compact />}
                   </div>
                 </div>
-                <p className="mt-2 text-xs text-muted-foreground">{matchSummary(result)}</p>
+                <p className="mt-2 text-xs text-muted-foreground">{filePick ? fileSummary(query, pickedSheet) : matchSummary(result)}</p>
               </div>
             </div>
           </div>
@@ -569,6 +627,37 @@ export default function CardWorkshop({
       </OverlayFrame>
     </>,
     document.body,
+  );
+}
+
+function fileSummary(query: CardQuery, sheet: Sheet | undefined) {
+  if (query.doc) return "Live: edits to the doc show here, and ticks on the card save into the doc.";
+  if (!query.sheet) return "";
+  const interactive = { counter: "Taps on + and − save into the cell.", addRow: "The form adds a row to the sheet.", table: query.sheet.editable ? "Values you change on the card save into the sheet." : "" }[
+    query.sheet.view as "counter" | "addRow" | "table"
+  ];
+  const result = sheet ? computeSheetCard(sheet as ContractSheet, query.sheet) : null;
+  if (result?.kind === "missing") return result.message;
+  return `Live: worked out with ${sheet?.title || "the sheet"}'s own formulas, so a change there redraws this card on every device. ${interactive ?? ""}`.trim();
+}
+
+function ColourRow({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {Array.from({ length: 8 }, (_, index) => (
+        <button
+          key={index}
+          type="button"
+          onClick={() => onChange(index)}
+          className={cn("flex size-6 items-center justify-center rounded-full ring-offset-2 ring-offset-background transition", value === index && "ring-2 ring-foreground/60")}
+          style={{ background: seriesColor(index) }}
+          aria-label={`Colour ${index + 1}`}
+          aria-pressed={value === index}
+        >
+          {value === index ? <Check className="size-3.5 text-white" /> : null}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -608,12 +697,14 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 function Tile({
   active,
   disabled,
+  title,
   onClick,
   icon,
   children,
 }: {
   active: boolean;
   disabled?: boolean;
+  title?: string;
   onClick: () => void;
   icon: ReactNode;
   children: ReactNode;
@@ -622,6 +713,7 @@ function Tile({
     <button
       type="button"
       disabled={disabled}
+      title={title}
       onClick={onClick}
       aria-pressed={active}
       className={cn(
@@ -657,14 +749,7 @@ function Segmented({ value, onChange, options }: { value: string; onChange: (val
   );
 }
 
-function Toggle({ checked, disabled, onChange, children }: { checked: boolean; disabled?: boolean; onChange: (value: boolean) => void; children: ReactNode }) {
-  return (
-    <label className={cn("flex items-center gap-2 text-sm text-foreground", disabled && "opacity-50")}>
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} className="accent-[var(--primary)]" />
-      {children}
-    </label>
-  );
-}
+const Toggle = Switch;
 
 function Chips({
   options,
@@ -717,12 +802,10 @@ function Chips({
 function NumberInput({ value, min, max, onChange }: { value: number; min: number; max: number; onChange: (value: number) => void }) {
   return (
     <input
-      type="number"
-      min={min}
-      max={max}
+      inputMode="numeric"
       value={value}
       onChange={(event) => {
-        const next = Number(event.target.value);
+        const next = Number(event.target.value.replace(/[^0-9]/g, ""));
         if (Number.isFinite(next)) onChange(Math.min(max, Math.max(min, Math.round(next))));
       }}
       className={inputClass}

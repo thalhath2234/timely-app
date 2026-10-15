@@ -8,6 +8,7 @@ import {
   BarChart3,
   BookOpen,
   CalendarCheck,
+  FileText,
   CalendarClock,
   Check,
   ClipboardList,
@@ -28,6 +29,7 @@ import {
   Plus,
   Repeat,
   RotateCcw,
+  Sheet as SheetIcon,
   Sparkles,
   Sun,
   Timer,
@@ -55,6 +57,8 @@ import ConfirmSheet from "../../components/ui/ConfirmSheet";
 import AnimatedPressable from "../../components/ui/AnimatedPressable";
 import { SectionLabel } from "../../components/ui/primitives";
 import CustomCardView from "../../components/report/customCardView";
+import FileCardView, { FILE_ICON, isFileQuery, useFileWatches } from "../../components/report/fileCards";
+import FileCardBuilder from "../../components/report/fileCardBuilder";
 import PomodoroCard from "../../components/report/pomodoroCard";
 import HighlightsCard from "../../components/report/highlightsCard";
 import { CountdownCard, DayProgressCard, MatrixCard, NotesCard, QuickCaptureCard, StreakCard, TodayCard } from "../../components/report/builtinCards";
@@ -117,20 +121,25 @@ const DISPLAY_ICON: Record<CardDisplay, typeof Hash> = {
 };
 
 function cardIcon(card: DashboardCard) {
+  if (card.type === "custom" && card.query?.sheet) return FILE_ICON[card.query.sheet.view];
+  if (card.type === "custom" && card.query?.doc) return FILE_ICON[card.query.doc.view];
   if (card.type === "custom") return DISPLAY_ICON[card.query?.display ?? "number"];
   return BUILTIN_ICON[card.type];
 }
 
 /**
  * The Dashboard on a phone: the same saved cards as web and desktop,
- * stacked in one column. Edit mode moves and removes cards; sizes and the
- * card workshop stay on the bigger screens.
+ * stacked in one column. Edit mode moves and removes cards. Cards built from
+ * a sheet or a doc can be made here too; sizes and the full card workshop
+ * stay on the bigger screens.
  */
 export default function DashboardScreen() {
   const router = useRouter();
   const { layout, isLoading, isError, retry, update, updateCard } = useDashboardLayout();
   const cards = useMemo(() => layout?.cards ?? [], [layout]);
   const { data, today, failures, loading, eventsLoading, timeZone } = useDashboardData(cards);
+  useFileWatches(cards);
+  const [building, setBuilding] = useState<"sheets" | "docs" | null>(null);
   const config = useConfigQuery();
   const invalidateAll = useInvalidateAll();
   const now = useNow(30_000);
@@ -171,6 +180,7 @@ export default function DashboardScreen() {
     const id = newCardId();
     update((current) => ({ ...current, cards: [{ ...card, id }, ...current.cards] }));
     setAdding(false);
+    setBuilding(null);
   };
 
   const move = (index: number, by: -1 | 1) =>
@@ -208,6 +218,7 @@ export default function DashboardScreen() {
       case "custom": {
         if (!card.query) return null;
         if (loading) return <Text style={styles.muted}>Loading…</Text>;
+        if (isFileQuery(card.query)) return <FileCardView query={card.query} data={data} />;
         return <CustomCardView query={card.query} result={computeCard(card.query, data, { now, timeZone })} onOpen={openRow} />;
       }
       case "pomodoro":
@@ -355,7 +366,7 @@ export default function DashboardScreen() {
 
         {editing ? (
           <View style={{ gap: 10 }}>
-            <Text style={[styles.muted, { textAlign: "center" }]}>Card sizes and the card workshop are on web and desktop.</Text>
+            <Text style={[styles.muted, { textAlign: "center" }]}>Card sizes and the full card workshop are on web and desktop.</Text>
             <AnimatedPressable accessibilityRole="button" onPress={() => setConfirmReset(true)} style={styles.secondary}>
               <RotateCcw size={15} color={colors.foreground} />
               <Text style={styles.secondaryText}>Reset to the default dashboard</Text>
@@ -365,6 +376,29 @@ export default function DashboardScreen() {
       </ScrollView>
 
       <BottomSheet open={adding} onClose={() => setAdding(false)} title="Add a card">
+        <SectionLabel>From your files</SectionLabel>
+        {(
+          [
+            ["sheets", SheetIcon, "Card from a sheet", "Pick cells: a live value, chart, table, counter or quick add that saves into the sheet."],
+            ["docs", FileText, "Card from a doc", "Pin a doc or one of its sections, or tick its checklist from here."],
+          ] as const
+        ).map(([kind, Icon, title, description]) => (
+          <AnimatedPressable
+            key={kind}
+            accessibilityRole="button"
+            onPress={() => {
+              setAdding(false);
+              setBuilding(kind);
+            }}
+            style={styles.option}
+          >
+            <Icon size={18} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.optionTitle}>{title}</Text>
+              <Text style={styles.muted}>{description}</Text>
+            </View>
+          </AnimatedPressable>
+        ))}
         <SectionLabel>Productivity tools</SectionLabel>
         {catalogCards(smart).map((info) => {
           const Icon = BUILTIN_ICON[info.type];
@@ -401,8 +435,10 @@ export default function DashboardScreen() {
             </AnimatedPressable>
           );
         })}
-        <Text style={[styles.muted, { marginTop: 12 }]}>Build your own cards in the card workshop on web or desktop. They show up here too.</Text>
+        <Text style={[styles.muted, { marginTop: 12 }]}>Cards from tasks, events and other data are built in the card workshop on web or desktop. They show up here too.</Text>
       </BottomSheet>
+
+      <FileCardBuilder kind={building} data={data} onClose={() => setBuilding(null)} onAdd={addCard} />
 
       <ConfirmSheet
         open={confirmReset}

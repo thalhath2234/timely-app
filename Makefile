@@ -323,7 +323,7 @@ test-project-delete: ## Test the confirm that names the tasks a project delete t
 
 .PHONY: test-dashboard
 test-dashboard: ## Test the shared Report dashboard engine (card queries, layouts, built-in cards)
-	@node --experimental-strip-types --test scripts/dashboard.test.mjs
+	@node --experimental-strip-types --test scripts/dashboard.test.mjs scripts/dashboard-files.test.mjs
 
 .PHONY: test-mobile-clearable
 test-mobile-clearable: ## Test how mobile update bodies turn null into a server-side clear

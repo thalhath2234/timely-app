@@ -19,6 +19,7 @@ import { BUILTIN_SHEET_TEMPLATES } from "../packages/contract/src/sheetTemplates
 // siblings without an extension; teach Node that before loading it.
 await import("./ts-siblings.mjs");
 const { normalizeSheet, normalizeTab, tabsFromSheet, workbookPayload } = await import("../apps/mobile/lib/sheet.ts");
+const { isOwnTemplate, subpageIds, templateDeleteCopy } = await import("../packages/contract/src/templates.ts");
 
 const builtins = [
   { id: "builtin:daily", title: "Daily note", icon: "📅" },
@@ -199,4 +200,42 @@ test("the API's built-in doc templates match the shared ones", () => {
   const api = readFileSync(new URL("../apps/api/internal/features/suggest/doc_template.go", import.meta.url), "utf8");
   const ids = (text) => [...text.matchAll(/"(builtin:[a-z]+)"/g)].map((m) => m[1]).sort();
   assert.deepEqual(ids(api), ids(contract));
+});
+
+describe("deleting a template", () => {
+  test("only the person's own templates can be deleted", () => {
+    assert.equal(isOwnTemplate("doc_1"), true);
+    assert.equal(isOwnTemplate("shtpl_1"), true);
+    assert.equal(isOwnTemplate("builtin:meeting"), false);
+  });
+
+  test("finds every page below a doc, not its siblings", () => {
+    const docs = [
+      { id: "t", parentId: null },
+      { id: "a", parentId: "t" },
+      { id: "b", parentId: "a" },
+      { id: "c", parentId: "b" },
+      { id: "other", parentId: null },
+      { id: "d", parentId: "other" },
+    ];
+    assert.deepEqual(subpageIds(docs, "t").sort(), ["a", "b", "c"]);
+    assert.deepEqual(subpageIds(docs, "c"), []);
+  });
+
+  test("a doc template's confirmation names it, counts subpages and says how to keep it", () => {
+    const one = templateDeleteCopy("doc", "Interview", 1);
+    assert.equal(one.title, "Delete template “Interview”?");
+    assert.match(one.message, /deletes the doc and its 1 subpage for good/);
+    assert.match(one.message, /stop using it as a template instead/);
+    assert.match(templateDeleteCopy("doc", "Interview", 3).message, /its 3 subpages/);
+    assert.match(templateDeleteCopy("doc", "Interview").message, /^This deletes the doc for good\./);
+    assert.equal(templateDeleteCopy("doc", "  ").title, "Delete template “Untitled”?");
+  });
+
+  test("a sheet template's confirmation keeps the sheets made from it", () => {
+    assert.deepEqual(templateDeleteCopy("sheet", "Budget"), {
+      title: "Delete template “Budget”?",
+      message: "Sheets already made from it are kept.",
+    });
+  });
 });

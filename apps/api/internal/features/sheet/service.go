@@ -7,6 +7,7 @@ import (
 	"sync"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/models"
+	"timely-api/internal/realtime"
 	"timely-api/internal/utils"
 )
 
@@ -93,6 +94,8 @@ type sheetService struct {
 	// (laptop and phone at once) both land instead of the later one
 	// overwriting the tab the other just changed.
 	gridLocks sync.Map
+	// live tells open watch streams (dashboard sheet cards) a sheet changed.
+	live *realtime.Hub
 }
 
 func (s *sheetService) lockGrid(sheetID string) func() {
@@ -102,8 +105,8 @@ func (s *sheetService) lockGrid(sheetID string) func() {
 	return mu.Unlock
 }
 
-func NewSheetService(repo SheetRepository, indexer embed.Indexer) SheetService {
-	return &sheetService{repo: repo, indexer: indexer}
+func NewSheetService(repo SheetRepository, indexer embed.Indexer, live *realtime.Hub) SheetService {
+	return &sheetService{repo: repo, indexer: indexer, live: live}
 }
 
 func (s *sheetService) Create(sheet *models.Sheet) (*models.Sheet, error) {
@@ -251,7 +254,20 @@ func (s *sheetService) update(userID string, sheetID string, update SheetUpdate)
 		return nil, err
 	}
 	s.indexSheet(sheet)
+	s.publish(userID, sheet.ID, realtime.Event{
+		Type:      "updated",
+		Kind:      "sheet",
+		ID:        sheet.ID,
+		UpdatedAt: sheet.UpdatedAt,
+		Document:  sheet,
+	})
 	return sheet, nil
+}
+
+func (s *sheetService) publish(userID, sheetID string, event realtime.Event) {
+	if s.live != nil {
+		s.live.Publish(userID, sheetID, event)
+	}
 }
 
 func (s *sheetService) Duplicate(userID, sheetID string) (*models.Sheet, error) {
@@ -423,6 +439,7 @@ func (s *sheetService) Delete(userID string, sheetID string) error {
 	if s.indexer != nil {
 		s.indexer.Delete(userID, embed.KindSheet, sheetID)
 	}
+	s.publish(userID, sheetID, realtime.Event{Type: "deleted", Kind: "sheet", ID: sheetID})
 	return nil
 }
 

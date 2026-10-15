@@ -95,24 +95,29 @@ export interface DocBacklink {
 }
 
 /** A saved state of a doc (GET /docs/:id/versions). `content` is only on
- * GET /docs/:id/versions/:versionId. `reason` is why it was saved: "edit"
- * (editing started again after a pause), "assistant" (just before the
- * assistant changed the doc) or "restore" (just before an older version was
- * put back). */
+ * GET /docs/:id/versions/:versionId. A version holds the doc as it was at
+ * the end of an editing session (the newest one follows the doc as it is
+ * saved, and `current` marks it while it matches the doc). `reason`: "edit"
+ * (typing), "assistant_change" (as the assistant left it), "restored" (an
+ * older version put back); older rows have "assistant" and "restore", the doc
+ * just before such a change. */
 export interface DocVersion {
   id: string;
   documentId: string;
   title: string;
   words: number;
-  reason: "edit" | "assistant" | "restore" | string;
+  reason: "edit" | "assistant_change" | "restored" | "assistant" | "restore" | string;
   editedAt: string;
   createdAt: string;
+  current?: boolean;
   content?: DocContent;
   plainText?: string;
 }
 
 export const DOC_VERSION_REASONS: Record<string, string> = {
   edit: "Edited",
+  assistant_change: "Changed by the assistant",
+  restored: "Restored an earlier version",
   assistant: "Before an assistant change",
   restore: "Before a restore",
 };

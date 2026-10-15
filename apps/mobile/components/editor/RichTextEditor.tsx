@@ -15,6 +15,8 @@ import { useRouter } from "expo-router";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
+import * as Clipboard from "expo-clipboard";
+import { File, Paths } from "expo-file-system";
 import type { ShouldStartLoadRequest } from "react-native-webview/lib/WebViewTypes";
 import {
   AtSign,
@@ -34,6 +36,7 @@ import {
   Heading2,
   Heading3,
   Highlighter,
+  ClipboardPaste,
   Image as ImageIcon,
   Info,
   Italic,
@@ -113,6 +116,7 @@ const SLASH: {
   { title: "Columns", description: "Blocks side by side (stacked on a phone)", cmd: "columns", Icon: Columns2, keywords: ["columns", "side", "layout", "split"] },
   { title: "Code block", description: "Monospaced code", cmd: "code", Icon: Code2, shortcut: "```", keywords: ["pre"] },
   { title: "Image", description: "Add a photo from this device", cmd: "imagePick", Icon: ImageIcon, keywords: ["image", "picture", "photo", "upload", "img"] },
+  { title: "Paste image", description: "Add the picture you copied", cmd: "imagePaste", Icon: ClipboardPaste, keywords: ["paste", "clipboard", "screenshot", "image", "picture", "img"] },
   { title: "Embed", description: "A YouTube, Vimeo, Loom, Spotify, Figma or CodePen link", cmd: "embedPrompt", Icon: MonitorPlay, keywords: ["video", "youtube", "vimeo", "loom", "spotify", "figma", "codepen"] },
   { title: "Bookmark", description: "A link card with the page's title", cmd: "bookmarkPrompt", Icon: BookmarkIcon, keywords: ["link", "card", "preview", "url", "web"] },
   { title: "Diagram", description: "Mermaid flowchart or other diagram", cmd: "diagram", Icon: Workflow, keywords: ["mermaid", "flowchart", "chart", "graph"] },
@@ -149,6 +153,7 @@ const FORMAT_TOOLS = [
   { label: "Code block", Icon: Code2, cmd: "code" },
   { label: "Callout", Icon: Info, cmd: "callout" },
   { label: "Image", Icon: ImageIcon, cmd: "imagePick" },
+  { label: "Paste image", Icon: ClipboardPaste, cmd: "imagePaste" },
   { label: "Embed", Icon: MonitorPlay, cmd: "embedPrompt" },
   { label: "Bookmark", Icon: BookmarkIcon, cmd: "bookmarkPrompt" },
   { label: "Diagram", Icon: Workflow, cmd: "diagram" },
@@ -469,6 +474,7 @@ export default function RichTextEditor({
         selection?: string;
         id?: string;
         entityType?: string;
+        images?: { data: string; mime?: string; name?: string }[];
       };
       if (msg.type === "linkSelection") {
         if (!msg.ok || typeof msg.from !== "number" || typeof msg.to !== "number") {
@@ -540,6 +546,7 @@ export default function RichTextEditor({
         setInTable(Boolean(msg.inTable));
         if (msg.active) setActive(msg.active);
       }
+      if (msg.type === "pasteImages" && Array.isArray(msg.images)) void uploadImageData(msg.images);
       if (msg.type === "ready") setReady(true);
       if (msg.type === "hidePickers") setPicker(null);
     } catch {
@@ -610,6 +617,11 @@ export default function RichTextEditor({
       void pickImages();
       return;
     }
+    if (item.cmd === "imagePaste") {
+      if (range) run("deleteRange", range);
+      void pasteClipboardImage();
+      return;
+    }
     if (item.cmd === "helpMeWrite") {
       if (range) run("deleteRange", range);
       run("writeInfo");
@@ -661,6 +673,42 @@ export default function RichTextEditor({
       }
     }
     if (images.length) run("image", { images });
+  }
+
+  /** Uploads pictures handed over as data (the clipboard, or a paste in the
+   * page) and puts them at the caret. */
+  async function uploadImageData(list: { data: string; mime?: string; name?: string }[]) {
+    if (list.length === 0) return;
+    useToastStore.getState().show(list.length === 1 ? "Uploading image…" : `Uploading ${list.length} images…`);
+    const images: { src: string; alt: string }[] = [];
+    for (const [index, item] of list.entries()) {
+      try {
+        const match = /^data:(image\/[a-z+.-]+);base64,(.*)$/i.exec(item.data);
+        const mime = (match?.[1] ?? item.mime ?? "image/png").toLowerCase();
+        const ext = mime === "image/jpeg" ? "jpg" : mime.split("/")[1] || "png";
+        const file = new File(Paths.cache, `pasted-${Date.now()}-${index}.${ext}`);
+        file.write(match ? match[2] : item.data, { encoding: "base64" });
+        const saved = await uploadDocFile(file.uri);
+        file.delete();
+        const alt = (item.name ?? "").replace(/\.[^.]+$/, "").trim();
+        images.push({ src: saved.url, alt: alt && alt !== "image" ? alt : "Pasted image" });
+      } catch (error) {
+        useToastStore.getState().show(error instanceof Error ? error.message : "Could not upload the image");
+      }
+    }
+    if (images.length) {
+      run("image", { images });
+      useToastStore.getState().show(images.length === 1 ? "Image added" : `${images.length} images added`);
+    }
+  }
+
+  async function pasteClipboardImage() {
+    const image = await Clipboard.getImageAsync({ format: "png" }).catch(() => null);
+    if (!image?.data) {
+      useToastStore.getState().show("No picture on the clipboard. Copy one, then paste it here.");
+      return;
+    }
+    await uploadImageData([{ data: image.data, mime: "image/png", name: "Pasted image" }]);
   }
 
   /** Adds an embed or bookmark for the link typed in the link sheet. */
@@ -722,6 +770,10 @@ export default function RichTextEditor({
     }
     if (cmd === "imagePick") {
       void pickImages();
+      return;
+    }
+    if (cmd === "imagePaste") {
+      void pasteClipboardImage();
       return;
     }
     if (cmd === "callout" && active.callout) {

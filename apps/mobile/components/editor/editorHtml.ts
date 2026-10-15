@@ -73,7 +73,7 @@ export function buildEditorHtml(
     .mermaid-out { padding: 10px 12px; background: ${t.background}; border-top: 1px solid ${t.border}; overflow-x: auto; font-size: 13px; color: ${t.mutedForeground}; }
     .mermaid-out svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
     .mermaid-out.mermaid-error { color: #e5484d; font-family: ui-monospace, monospace; white-space: pre-wrap; }
-    .tiptap img { display: inline-block; max-width: 100%; border-radius: 8px; vertical-align: bottom; }
+    .tiptap img { display: inline-block; max-width: 100%; max-height: 440px; width: auto; height: auto; border-radius: 8px; vertical-align: bottom; }
     .tiptap ul, .tiptap ol { padding-left: 1.3em; margin: 0 0 0.75em; }
     .tiptap blockquote { border-left: 3px solid ${t.primary}; margin: 0 0 0.75em; padding: 0 0 0 12px; color: ${t.accentForeground}; }
     .tiptap pre { position: relative; background: ${t.muted}; border: 1px solid ${t.border}; border-radius: 10px; padding: 36px 12px 12px; overflow-x: auto; color: ${t.foreground}; }
@@ -202,6 +202,37 @@ export function buildEditorHtml(
             renderHTML: (attrs) => ({ src: attrs.src && attrs.src.startsWith("/files/") ? apiBase + attrs.src : attrs.src }),
           },
         };
+      },
+      // A pasted picture (the keyboard's clipboard, or Paste on an image) goes
+      // to the app, which uploads it and puts it at the caret. Images copied
+      // from a Timely doc paste as they are, with no second upload.
+      addProseMirrorPlugins() {
+        return [
+          ...(this.parent?.() || []),
+          new Plugin({
+            key: new PluginKey("docImagePaste"),
+            props: {
+              handlePaste(_view, event) {
+                const data = event.clipboardData;
+                if (!data) return false;
+                if (/<img[^>]+src="[^"]*\\/files\\/fil_[0-9a-f]{32}"/.test(data.getData("text/html") || "")) return false;
+                const files = Array.from(data.files || []).filter((file) => /^image\\/(png|jpeg|gif|webp)$/.test(file.type));
+                if (files.length === 0) return false;
+                event.preventDefault();
+                Promise.all(files.map((file) => new Promise((resolve) => {
+                  const reader = new FileReader();
+                  reader.onload = () => resolve({ data: String(reader.result || ""), mime: file.type, name: file.name || "Pasted image" });
+                  reader.onerror = () => resolve(null);
+                  reader.readAsDataURL(file);
+                }))).then((images) => {
+                  const ready = images.filter(Boolean);
+                  if (ready.length) send({ type: "pasteImages", images: ready });
+                });
+                return true;
+              },
+            },
+          }),
+        ];
       },
     });
     // Find and replace, as on web (apps/web/app/_components/editor/findReplace.ts).
@@ -2031,7 +2062,28 @@ export function buildEditorHtml(
     }
 
     window.__timely = {
-      set(content) { editor.commands.setContent(content, { emitUpdate: false }); },
+      // A newer copy from the server replaces only the range that differs, so
+      // unchanged blocks keep their DOM (images do not reload) and the caret
+      // stays put; an equal copy changes nothing.
+      set(content) {
+        try {
+          const next = editor.schema.nodeFromJSON(content);
+          const current = editor.state.doc;
+          const start = current.content.findDiffStart(next.content);
+          if (start == null) return;
+          const end = current.content.findDiffEnd(next.content);
+          let endA = end ? end.a : current.content.size;
+          let endB = end ? end.b : next.content.size;
+          const overlap = start - Math.min(endA, endB);
+          if (overlap > 0) { endA += overlap; endB += overlap; }
+          const tr = editor.state.tr.replace(start, endA, next.slice(start, endB));
+          tr.setMeta("addToHistory", false);
+          tr.setMeta("preventUpdate", true);
+          editor.view.dispatch(tr);
+        } catch (_) {
+          editor.commands.setContent(content, { emitUpdate: false });
+        }
+      },
       cmd(name, payload) {
         if (name === "setChrome") {
           const pad = Number(payload && payload.bottomPad) || 120;

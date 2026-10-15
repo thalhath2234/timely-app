@@ -65,10 +65,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AutoCapitalize } from "./autoCapitalize";
 import { Callout } from "./callout";
 import { DocImage } from "./docImage";
+import { applyRemoteContent } from "./applyRemote";
 import { Details, DetailsSummary } from "./details";
 import { BlockHandle } from "./blockHandle";
 import { BlockSelection } from "./blockSelection";
 import BlockTransferDialog from "./blockTransfer";
+import ImageViewer from "./imageViewer";
 import { Bookmark, Embed } from "./linkBlocks";
 import { FindReplace } from "./findReplace";
 import { Column, Columns } from "./columns";
@@ -455,9 +457,7 @@ export default function RichTextEditor({
     }
     if (appliedSyncKey.current === syncKey) return;
     appliedSyncKey.current = syncKey;
-    editor.commands.setContent(JSON.parse(incomingContentKey) as JSONContent, {
-      emitUpdate: false,
-    });
+    applyRemoteContent(editor, JSON.parse(incomingContentKey) as JSONContent);
   }, [editor, incomingContentKey, syncKey]);
 
   useEffect(() => {
@@ -1064,6 +1064,7 @@ export default function RichTextEditor({
           <div className="relative flex min-h-0 flex-1 flex-col">
             {findOpen && <FindBar editor={editor} onClose={() => setFindOpen(false)} />}
             {variant === "page" && <BlockTransferDialog />}
+            {variant === "page" && <ImageViewer />}
             {/* The page variant's left gutter holds the block drag handle, inside the scroll box so it is not clipped. */}
             <div className={`min-h-0 flex-1 overflow-y-auto ${variant === "page" ? "-ml-10 pl-10" : ""}`}>
               <EditorContent editor={editor} className="min-h-full" />
