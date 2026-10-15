@@ -1,8 +1,11 @@
 package sheet
 
 import (
+	"errors"
 	"testing"
 	"timely-api/internal/models"
+
+	"gorm.io/gorm"
 )
 
 func TestWorkbookTabsWrapsPrimaryGrid(t *testing.T) {
@@ -114,5 +117,47 @@ func TestPrepareGridMakesTabNamesUnique(t *testing.T) {
 	}
 	if tabs[0].Name != "Food" || tabs[1].Name != "food (2)" || tabs[2].Name != "Food (3)" {
 		t.Fatalf("names = %q %q %q", tabs[0].Name, tabs[1].Name, tabs[2].Name)
+	}
+}
+
+// templateStore keeps sheet templates in memory, scoped by owner like the
+// real repository's WHERE user_id = ?.
+type templateStore struct {
+	SheetRepository
+	owners map[string]string
+}
+
+func (s *templateStore) GetTemplateByID(userID, templateID string) (*models.SheetTemplate, error) {
+	if s.owners[templateID] != userID {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return &models.SheetTemplate{ID: templateID, UserID: userID}, nil
+}
+
+func (s *templateStore) DeleteTemplate(userID, templateID string) error {
+	if s.owners[templateID] == userID {
+		delete(s.owners, templateID)
+	}
+	return nil
+}
+
+func TestDeleteTemplateOnlyByItsOwner(t *testing.T) {
+	store := &templateStore{owners: map[string]string{"shtpl_1": "usr_1"}}
+	svc := NewSheetService(store, nil)
+
+	if err := svc.DeleteTemplate("usr_2", "shtpl_1"); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("someone else's delete: expected not found, got %v", err)
+	}
+	if _, ok := store.owners["shtpl_1"]; !ok {
+		t.Fatal("someone else deleted the template")
+	}
+	if err := svc.DeleteTemplate("usr_1", "shtpl_1"); err != nil {
+		t.Fatalf("owner delete: %v", err)
+	}
+	if _, ok := store.owners["shtpl_1"]; ok {
+		t.Fatal("template still there after the owner deleted it")
+	}
+	if err := svc.DeleteTemplate("usr_1", "shtpl_1"); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("second delete: expected not found, got %v", err)
 	}
 }

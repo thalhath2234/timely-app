@@ -2,6 +2,7 @@ import { Extension, type Editor } from "@tiptap/core";
 import type { EditorState } from "@tiptap/pm/state";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
+import { copyImageToClipboard, onlyImage } from "./docImage";
 import { openBlockMenu } from "./blockMenu";
 
 /**
@@ -84,6 +85,9 @@ function copyBlocks(view: EditorView, range: BlockRange, event: ClipboardEvent) 
   event.clipboardData.clearData();
   event.clipboardData.setData("text/html", dom.innerHTML);
   event.clipboardData.setData("text/plain", text);
+  // A block that is just a picture copies the picture itself.
+  const image = onlyImage(view.state.doc.slice(range.from, range.to).content);
+  if (image?.attrs.src) copyImageToClipboard(image.attrs.src, image.attrs.alt ?? "").catch(() => undefined);
   return true;
 }
 

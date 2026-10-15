@@ -12,7 +12,6 @@ import (
 	"unicode"
 
 	"timely-api/internal/models"
-	"timely-api/internal/richtext"
 )
 
 func (s *Service) TasksCSV(userID string) ([]byte, error) {
@@ -111,10 +110,7 @@ func (s *Service) DocumentExport(userID, documentID, format string) ([]byte, str
 	if err := s.db.Where("id = ? AND user_id = ?", documentID, userID).First(&document).Error; err != nil {
 		return nil, "", "", err
 	}
-	markdown := richtext.ToMarkdown(document.Content)
-	if markdown == "" {
-		markdown = document.PlainText
-	}
+	markdown := documentMarkdown(document)
 	base := safeFilename(document.Title)
 	switch strings.ToLower(format) {
 	case "", "markdown", "md":

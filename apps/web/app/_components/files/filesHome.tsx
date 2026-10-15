@@ -8,7 +8,6 @@ import { ChevronDown, Plus, Upload } from "lucide-react";
 import { useCreateDoc, useDocs, useUpdateDoc } from "@/app/utils/hooks/docs";
 import {
   useCreateSheet,
-  useDeleteSheetTemplate,
   useSheets,
   useSheetTemplates,
   useUpdateSheet,
@@ -23,10 +22,10 @@ import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedList
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useDocContextMenu } from "@/app/utils/hooks/useDocContextMenu";
 import { useSheetContextMenu } from "@/app/utils/hooks/useSheetContextMenu";
+import { useTemplateDelete } from "@/app/utils/hooks/useTemplateDelete";
 import { newSheetMenuItems, sheetCreatePayload } from "@/app/_components/sheets/sheetTemplateMenu";
 import { DocCard } from "@/app/_components/docs/docCard";
 import { SheetCard, TemplateCard } from "@/app/_components/sheets/sheetCards";
-import { requestConfirm } from "@/app/_store/confirmStore";
 import { tidyEntries } from "@/app/_store/contextMenuStore";
 import { useToastStore } from "@/app/_store/toastStore";
 import type { Doc, Sheet } from "@/app/_types/types";
@@ -51,7 +50,7 @@ export default function FilesHome() {
   const createSheet = useCreateSheet();
   const updateSheet = useUpdateSheet();
   const updateTemplate = useUpdateSheetTemplate();
-  const deleteTemplate = useDeleteSheetTemplate();
+  const { confirmSheetTemplate } = useTemplateDelete();
   const openMenu = useContextMenu();
   const docMenu = useDocContextMenu();
   const sheetMenu = useSheetContextMenu();
@@ -83,6 +82,7 @@ export default function FilesHome() {
         templates,
         onBlank: () => void createNewSheet(),
         onTemplate: (templateId) => void createNewSheet(templateId),
+        onDeleteTemplate: confirmSheetTemplate,
       }),
       { title: "New sheet" },
     );
@@ -307,15 +307,7 @@ export default function FilesHome() {
                           kind: "action",
                           label: "Delete",
                           danger: true,
-                          onSelect: () =>
-                            requestConfirm({
-                              title: `Delete template “${template.name}”?`,
-                              description: "Sheets already created from it are kept.",
-                              onConfirm: async () => {
-                                await deleteTemplate.mutateAsync(template.id);
-                                useToastStore.getState().show("Template deleted");
-                              },
-                            }),
+                          onSelect: () => confirmSheetTemplate(template),
                         },
                       ]),
                       { title: template.name },

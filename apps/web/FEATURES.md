@@ -754,7 +754,7 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 
 **Workspaces:** CRUD, labels, statuses, custom fields, `GET/PUT /config`
 
-**Docs / sheets:** CRUD; archive flag; `GET /docs/:id/watch` (SSE); doc export `?format=markdown` (PDF still accepted by the exporter, unused in UI); sheet template list/get/create/update/delete and materialize-tab endpoints
+**Docs / sheets:** CRUD; archive flag; `GET /docs/:id/watch` (SSE); doc export `?format=markdown` (add `&images=zip` for a .zip of the .md plus an `images/` folder when the doc has uploaded images; PDF still accepted by the exporter, unused in UI); sheet template list/get/create/update/delete and materialize-tab endpoints
 
 **API keys / search / notifications:** list/create/revoke keys; `GET /search`; `POST /search/reindex`; notifications list/read/clear/snooze and overdue-task urgent reschedule; `PUT/DELETE /devices/push`; `GET/PUT /notifications/settings`; jobs list/health/retry
 

@@ -1,6 +1,7 @@
 import { File, Paths } from "expo-file-system";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
+import * as Clipboard from "expo-clipboard";
 import { api, ApiError, getApiUrl, readError, tunnelHeaders } from "./client";
 import { getToken } from "../auth/session";
 
@@ -27,6 +28,18 @@ export async function listBackups() {
 export function createBackup() { return api<BackupFile>("/backups", { method: "POST" }); }
 export function deleteBackup(id: string) { return api<void>(`/backups/${encodeURIComponent(id)}`, { method: "DELETE" }); }
 
+/** The file name the server gave a download (filename* first), kept to
+ * characters every file system takes. */
+function serverFilename(response: Response) {
+  const disposition = response.headers.get("content-disposition") ?? "";
+  let name = disposition.match(/filename="([^"]+)"/)?.[1];
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  if (encoded) {
+    try { name = decodeURIComponent(encoded); } catch { /* keep the plain name */ }
+  }
+  return name?.replace(/[\\/:*?"<>|]+/g, " ").trim() || undefined;
+}
+
 async function authenticatedDownload(path: string, filename: string) {
   const baseUrl = await getApiUrl();
   const token = await getToken();
@@ -34,16 +47,29 @@ async function authenticatedDownload(path: string, filename: string) {
   if (token) headers.Authorization = `Bearer ${token}`;
   const response = await fetch(`${baseUrl}${path}`, { headers });
   if (!response.ok) throw new ApiError(await readError(response, "Download failed"), response.status);
-  const target = new File(Paths.cache, filename);
+  const target = new File(Paths.cache, serverFilename(response) ?? filename);
   if (target.exists) target.delete();
   target.write(new Uint8Array(await response.arrayBuffer()));
-  return target;
+  return { file: target, mimeType: response.headers.get("content-type")?.split(";")[0].trim() };
 }
 
+/** Downloads an export and opens the share sheet. The server's file name
+ * and type win over the ones given, since a doc with images comes back as
+ * a .zip rather than a .md. */
 export async function shareExport(path: string, filename: string, mimeType: string) {
   if (!(await Sharing.isAvailableAsync())) throw new Error("File sharing is not available on this device.");
-  const file = await authenticatedDownload(path, filename);
-  await Sharing.shareAsync(file.uri, { mimeType, dialogTitle: `Export ${filename}` });
+  const { file, mimeType: served } = await authenticatedDownload(path, filename);
+  await Sharing.shareAsync(file.uri, { mimeType: served || mimeType, dialogTitle: `Export ${file.name}` });
+}
+
+/** Whether a doc's content shows an image uploaded to Timely ("/files/<id>");
+ * its Markdown export then holds the images too, as a .zip. */
+export function hasUploadedImages(node: unknown): boolean {
+  if (Array.isArray(node)) return node.some(hasUploadedImages);
+  if (!node || typeof node !== "object") return false;
+  const { type, attrs, content } = node as { type?: unknown; attrs?: { src?: unknown }; content?: unknown };
+  if (type === "image" && typeof attrs?.src === "string" && attrs.src.startsWith("/files/")) return true;
+  return hasUploadedImages(content);
 }
 
 export async function shareLocalText(filename: string, contents: string, mimeType: string) {
@@ -58,8 +84,8 @@ const IMAGE_EXTENSIONS: Record<string, string> = { "image/png": "png", "image/jp
 
 /** Shares a doc image ("/files/<id>" on the server, or a web address), so it
  * can be saved to Photos or Files from the share sheet. */
-export async function shareImage(src: string, name: string) {
-  if (!(await Sharing.isAvailableAsync())) throw new Error("File sharing is not available on this device.");
+/** Downloads a doc image ("/files/<id>" or a full address) into the cache. */
+async function downloadImage(src: string, name: string) {
   const base = (name || "image").replace(/[\\/:*?"<>|]+/g, " ").trim().slice(0, 100) || "image";
   const url = src.startsWith("/files/") ? `${await getApiUrl()}${src}` : src;
   const response = await fetch(url, { headers: src.startsWith("/files/") ? tunnelHeaders(await getApiUrl()) : {} });
@@ -68,7 +94,20 @@ export async function shareImage(src: string, name: string) {
   const target = new File(Paths.cache, `${base}.${IMAGE_EXTENSIONS[mimeType] ?? "png"}`);
   if (target.exists) target.delete();
   target.write(new Uint8Array(await response.arrayBuffer()));
-  await Sharing.shareAsync(target.uri, { mimeType, dialogTitle: `Save ${base}` });
+  return { file: target, base, mimeType };
+}
+
+export async function shareImage(src: string, name: string) {
+  if (!(await Sharing.isAvailableAsync())) throw new Error("File sharing is not available on this device.");
+  const { file, base, mimeType } = await downloadImage(src, name);
+  await Sharing.shareAsync(file.uri, { mimeType, dialogTitle: `Save ${base}` });
+}
+
+/** Puts the picture itself on the clipboard, so other apps paste the image. */
+export async function copyImage(src: string, name: string) {
+  const { file } = await downloadImage(src, name);
+  await Clipboard.setImageAsync(await file.base64());
+  file.delete();
 }
 
 /** Lays an HTML page out as a PDF on the device and shares it. */

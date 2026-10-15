@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -37,9 +38,24 @@ func portableError(err error) error {
 
 func attachment(c *echo.Context, data []byte, filename, contentType string) error {
 	c.Response().Header().Set(echo.HeaderContentType, contentType)
-	c.Response().Header().Set(echo.HeaderContentDisposition, fmt.Sprintf(`attachment; filename="%s"`, strings.ReplaceAll(filename, `"`, "")))
+	c.Response().Header().Set(echo.HeaderContentDisposition, contentDisposition(filename))
 	c.Response().Header().Set(echo.HeaderCacheControl, "no-store")
 	return c.Blob(http.StatusOK, contentType, data)
+}
+
+// contentDisposition names a download. A title can hold any letter, so the
+// full name goes in filename* (RFC 6266) with an ASCII filename beside it
+// for clients that do not read that.
+func contentDisposition(filename string) string {
+	var ascii strings.Builder
+	for _, r := range filename {
+		if r >= 0x20 && r < 0x7f && r != '"' && r != '\\' {
+			ascii.WriteRune(r)
+		} else if r > 0x7f {
+			ascii.WriteRune('_')
+		}
+	}
+	return fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`, ascii.String(), url.PathEscape(filename))
 }
 
 func (h *Handler) ExportFull(c *echo.Context) error {
@@ -109,7 +125,16 @@ func (h *Handler) ExportDocument(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	data, filename, contentType, err := h.service.DocumentExport(uid, c.Param("id"), c.QueryParam("format"))
+	format := strings.ToLower(c.QueryParam("format"))
+	var data []byte
+	var filename, contentType string
+	// images=zip asks for the doc's images too; the default stays plain
+	// Markdown text for callers that read it as such.
+	if c.QueryParam("images") == "zip" && (format == "" || format == "markdown" || format == "md") {
+		data, filename, contentType, err = h.service.DocumentMarkdownBundle(uid, c.Param("id"))
+	} else {
+		data, filename, contentType, err = h.service.DocumentExport(uid, c.Param("id"), format)
+	}
 	if err != nil {
 		return portableError(err)
 	}
