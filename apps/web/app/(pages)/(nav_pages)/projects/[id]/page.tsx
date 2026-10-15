@@ -30,8 +30,9 @@ import {
 import LoadError from "@/app/_components/_ui/loadError";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useProjectContextMenu } from "@/app/utils/hooks/useProjectContextMenu";
+import { projectDeleteCopy } from "@timely/contract/projectDelete";
 import { useTasks } from "@/app/utils/hooks/tasks";
-import { useWorkspaces } from "@/app/utils/hooks/workspaces";
+import { useWorkingHoursZone, useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { saveStatusLabel, useAutosave } from "@/app/utils/hooks/useAutosave";
 import type { Project, Status, Task, Workspace } from "@/app/_types/types";
 
@@ -168,9 +169,7 @@ function ProjectHub({ project }: { project: Project }) {
           className="hover:text-destructive"
           onClick={() =>
             requestConfirm({
-              title: "Delete this project?",
-              description: "Its stages are deleted too.",
-              confirmLabel: "Delete project",
+              ...projectDeleteCopy(title, projectTasks.length, project.stages?.length ?? 0),
               onConfirm: async () => {
                 await deleteProject.mutateAsync(project.id);
                 router.push("/projects");
@@ -334,7 +333,8 @@ function ProjectHub({ project }: { project: Project }) {
   );
 }
 
-function formatActivityStamp(value: string) {
+/** When a change happened, in the person's Working hours zone. */
+function formatActivityStamp(value: string, timeZone?: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString(undefined, {
@@ -342,6 +342,7 @@ function formatActivityStamp(value: string) {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone,
   });
 }
 
@@ -353,6 +354,7 @@ function formatActivityStamp(value: string) {
  */
 function ProjectActivityFeed({ project, recent }: { project: Project; recent: Task[] }) {
   const activity = useProjectActivity(project.id);
+  const timeZone = useWorkingHoursZone();
   const entries = activity.data ?? [];
 
   return (
@@ -404,7 +406,7 @@ function ProjectActivityFeed({ project, recent }: { project: Project; recent: Ta
                     </span>
                   </span>
                   <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                    {formatActivityStamp(entry.createdAt)}
+                    {formatActivityStamp(entry.createdAt, timeZone)}
                   </span>
                 </>
               );
@@ -498,7 +500,7 @@ function UpNext({
   today.setHours(0, 0, 0, 0);
 
   return (
-    <OverviewCard title="Up next" action={`All ${tasks.length} tasks`} onAction={onSeeAll}>
+    <OverviewCard title="Up next" action={tasks.length === 1 ? "Open in Tasks" : `All ${tasks.length} tasks`} onAction={onSeeAll}>
       {open.length === 0 ? (
         <p className="px-4 pb-4 pt-2 text-sm text-muted-foreground">Nothing open. Add work from the Tasks tab.</p>
       ) : (
@@ -547,6 +549,7 @@ function UpNext({
 function RecentChanges({ project, onSeeAll }: { project: Project; onSeeAll: () => void }) {
   const activity = useProjectActivity(project.id);
   const openTask = useEntityDetailStore((state) => state.openTask);
+  const timeZone = useWorkingHoursZone();
   const entries = (activity.data ?? []).slice(0, 6);
 
   return (
@@ -574,7 +577,7 @@ function RecentChanges({ project, onSeeAll }: { project: Project; onSeeAll: () =
                   </span>
                 </span>
                 <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                  {formatActivityStamp(entry.createdAt)}
+                  {formatActivityStamp(entry.createdAt, timeZone)}
                 </span>
               </button>
             </li>

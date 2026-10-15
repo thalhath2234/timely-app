@@ -1,11 +1,12 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { Pressable, Text, View } from "react-native";
 import { X } from "lucide-react-native";
 import { Field, PrimaryButton, Select } from "./primitives";
 import { FocusGroup } from "./FocusGroup";
+import ColourSheet, { ColourField } from "./ColourSheet";
+import { colorForIndex, colorName } from "../../lib/entityColor";
 import type { CustomFieldType } from "../../lib/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
-
-export const FIELD_PALETTE = ["#8b7cf7", "#ef6b5c", "#e8b54a", "#4caf7a", "#5aa7ff", "#f472b6"];
 
 export const FIELD_TYPES: { value: CustomFieldType; label: string }[] = [
   { value: "text", label: "Text" },
@@ -28,26 +29,9 @@ export function cleanedOptions(drafts: OptionDraft[]) {
     .map((option) => ({
       id: option.id,
       value: option.value.trim(),
-      color: option.color || FIELD_PALETTE[0],
+      color: option.color || colorForIndex(0),
     }))
     .filter((option) => option.value.length > 0);
-}
-
-export function ColorRow({ value, onChange }: { value: string; onChange: (color: string) => void }) {
-  return (
-    <View style={styles.colors}>
-      {FIELD_PALETTE.map((color) => (
-        <Pressable
-          key={color}
-          onPress={() => onChange(color)}
-          style={[
-            styles.swatch,
-            { backgroundColor: color, borderColor: value === color ? colors.foreground : "transparent" },
-          ]}
-        />
-      ))}
-    </View>
-  );
 }
 
 export function OptionList({
@@ -57,20 +41,20 @@ export function OptionList({
   options: OptionDraft[];
   onChange: (next: OptionDraft[]) => void;
 }) {
+  const [picking, setPicking] = useState<number | null>(null);
+  const picked = picking !== null ? options[picking] : undefined;
   return (
     <View style={styles.options}>
       <Text style={styles.optionHint}>Option values</Text>
       {options.map((option, index) => (
         <View key={option.id ?? `new-${index}`} style={styles.optionRow}>
           <Pressable
-            onPress={() => {
-              const nextColor =
-                FIELD_PALETTE[(FIELD_PALETTE.indexOf(option.color) + 1) % FIELD_PALETTE.length] ?? FIELD_PALETTE[0];
-              const next = [...options];
-              next[index] = { ...option, color: nextColor };
-              onChange(next);
-            }}
-            style={[styles.optionDot, { backgroundColor: option.color || FIELD_PALETTE[0] }]}
+            onPress={() => setPicking(index)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`Colour, ${colorName(option.color)}`}
+            testID="option-colour"
+            style={[styles.optionDot, { backgroundColor: option.color || colorForIndex(index) }]}
           />
           <View style={{ flex: 1 }}>
             <Field
@@ -94,10 +78,22 @@ export function OptionList({
         </View>
       ))}
       <Pressable
-        onPress={() => onChange([...options, { value: "", color: FIELD_PALETTE[options.length % FIELD_PALETTE.length] }])}
+        onPress={() => onChange([...options, { value: "", color: colorForIndex(options.length) }])}
       >
         <Text style={styles.addOption}>+ Add option</Text>
       </Pressable>
+      <ColourSheet
+        open={picked !== undefined}
+        onClose={() => setPicking(null)}
+        value={picked?.color ?? ""}
+        subtitle={picked?.value.trim() || (picking !== null ? `Option ${picking + 1}` : undefined)}
+        onChange={(color) => {
+          if (picking === null || !options[picking]) return;
+          const next = [...options];
+          next[picking] = { ...options[picking], color };
+          onChange(next);
+        }}
+      />
     </View>
   );
 }
@@ -158,7 +154,7 @@ export function LabelComposer({
   return (
     <FocusGroup style={styles.root}>
       <Field value={name} onChangeText={onName} placeholder="New label" autoCapitalize="words" />
-      <ColorRow value={color} onChange={onColor} />
+      <ColourField value={color} onChange={onColor} subtitle={name.trim() || undefined} />
       <PrimaryButton label={submitLabel} disabled={disabled} onPress={onSubmit} />
     </FocusGroup>
   );
@@ -166,8 +162,6 @@ export function LabelComposer({
 
 const styles = createThemedStyleSheet((colors) => ({
   root: { gap: 14 },
-  colors: { flexDirection: "row", gap: 12, paddingVertical: 6 },
-  swatch: { width: 36, height: 36, borderRadius: 18, borderWidth: 3 },
   options: { gap: 12 },
   optionHint: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
   optionRow: { flexDirection: "row", alignItems: "center", gap: 12 },

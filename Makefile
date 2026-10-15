@@ -197,7 +197,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-inbox test-view-search test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-electron-guards test-electron-supervisor test-desktop-instance ## Run all tests
+test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-inbox test-starter-labels test-view-search test-view-language test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-project-delete test-bulk-edit test-mobile-event-occurrence test-mobile-meeting-url test-mobile-back-fallback ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -285,6 +285,10 @@ format-sheet-formulas: ## Format shared sheet logic and tests
 test-markdown-parity: ## Test that the web/mobile Markdown importer reads the API's export back into the same doc
 	@node --experimental-strip-types --test scripts/markdown-parity.test.mjs
 
+.PHONY: test-bulk-edit
+test-bulk-edit: ## Test that bulk task edits undo per task and that Set label adds the label by name per workspace
+	@node --experimental-strip-types --test scripts/bulk-edit.test.mjs
+
 .PHONY: test-doc-checklist
 test-doc-checklist: ## Test which doc checklist items are offered as tasks, and the task name and description they get
 	@node --experimental-strip-types --test scripts/doc-checklist.test.mjs
@@ -301,13 +305,25 @@ test-help-me-write: ## Test the shared Help me write starters and how answers be
 test-inbox: ## Test the shared Inbox order (Up next, skips) and waiting-time labels
 	@node --experimental-strip-types --test scripts/inbox.test.mjs
 
+.PHONY: test-starter-labels
+test-starter-labels: ## Test how onboarding splits starter labels across the workspaces it creates
+	@node --experimental-strip-types --test scripts/starter-labels.test.mjs
+
 .PHONY: test-view-search
 test-view-search: ## Test how search finds a saved task view by its name ("show my deadline")
 	@node --experimental-strip-types --test scripts/view-search.test.mjs
 
+.PHONY: test-view-language
+test-view-language: ## Test how plain words become a task view ("overdue bugs in Home by project"), the shared filter, sort and group engine, and the rule builder
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/view-language.test.mjs scripts/task-query.test.mjs scripts/rule-builder.test.mjs
+
+.PHONY: test-project-delete
+test-project-delete: ## Test the confirm that names the tasks a project delete takes with it
+	@node --experimental-strip-types --test scripts/project-delete.test.mjs
+
 .PHONY: test-dashboard
 test-dashboard: ## Test the shared Report dashboard engine (card queries, layouts, built-in cards)
-	@node --experimental-strip-types --test scripts/dashboard.test.mjs
+	@node --experimental-strip-types --test scripts/dashboard.test.mjs scripts/dashboard-files.test.mjs
 
 .PHONY: test-mobile-clearable
 test-mobile-clearable: ## Test how mobile update bodies turn null into a server-side clear
@@ -316,6 +332,10 @@ test-mobile-clearable: ## Test how mobile update bodies turn null into a server-
 .PHONY: test-mobile-next-free-slot
 test-mobile-next-free-slot: ## Test how mobile picks its next free slot from the server's free time
 	@node --experimental-strip-types --test scripts/mobile-next-free-slot.test.mjs
+
+.PHONY: test-mobile-event-occurrence
+test-mobile-event-occurrence: ## Test how the phone opens, edits and ends one occurrence of a repeating event
+	@node --experimental-strip-types --test scripts/mobile-event-occurrence.test.mjs
 
 .PHONY: test-mobile-picker-seed
 test-mobile-picker-seed: ## Test when a date-time picker adopts a value that arrives while it is open
@@ -344,6 +364,29 @@ test-mobile-task-views: ## Test how the phone's saved views merge with the serve
 .PHONY: test-mobile-keyboard-taps
 test-mobile-keyboard-taps: ## Test that phone scrollers let a sheet's buttons work on the first tap while the keyboard is up
 	@node --test scripts/mobile-keyboard-taps.test.mjs
+
+.PHONY: test-mobile-scrollbars
+test-mobile-scrollbars: ## Test that no phone scroller, editor page or Expo web page shows a scrollbar
+	@node --test scripts/mobile-scrollbars.test.mjs
+
+.PHONY: test-mobile-live-activity
+test-mobile-live-activity: ## Test the phone's live notification and the quick action buttons on its notifications
+	@node --experimental-strip-types --test scripts/mobile-live-activity.test.mjs
+
+.PHONY: test-mobile-widgets
+test-mobile-widgets: ## Test that every Dashboard card, custom ones included, becomes a phone home screen widget
+	@node --experimental-strip-types --test scripts/mobile-widgets.test.mjs scripts/mobile-widget-render.test.mjs
+
+.PHONY: test-mobile-widgets-native
+test-mobile-widgets-native: ## Draw every phone widget with Android's real widget code (needs `make build-apk` once); PNGs in /tmp/timely-widget-test
+	@scripts/mobile-widget-native/run.sh
+
+.PHONY: test-mobile-meeting-url test-mobile-back-fallback
+test-mobile-meeting-url: ## Test which Meet, Zoom and Teams links give a phone Home item its Join call button
+	@node --experimental-strip-types --test scripts/mobile-meeting-url.test.mjs
+
+test-mobile-back-fallback: ## Test where Android Back goes on every phone screen, and that only a true root leaves the app
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/mobile-back-fallback.test.mjs
 
 .PHONY: test-mobile-assistant format-mobile-assistant
 test-mobile-assistant: ## Test mobile assistant context and notification routing

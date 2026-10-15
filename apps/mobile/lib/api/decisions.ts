@@ -199,6 +199,8 @@ export type DocHints = {
   properties?: { key: string; value: string }[];
   template?: { id: string; title: string };
   outdated?: boolean;
+  /** Items (lower case) of checklists kept in the doc, not worked as tasks. */
+  keptLists?: string[];
 };
 export const getDocHints = (id: string) => api<DocHints>(`/suggestions/doc/${encodeURIComponent(id)}`);
 
@@ -260,7 +262,7 @@ export const runNotificationTriage = (id: string, action: TriageStep) =>
 /** Onboarding and personalisation: what the person uses Timely for, starter
  * labels, the one tip for a screen, and example prompts for the chat. */
 export type StarterUse = { key: string; label: string; workspace?: string };
-export type StarterLabel = { name: string; color: string };
+export type StarterLabel = { name: string; color: string; uses?: string[] };
 export type PersonalPrefs = { useCase: string; dismissedTips: string[] };
 export const getPersonalPrefs = () => api<{ prefs: PersonalPrefs; uses: StarterUse[] }>("/suggestions/prefs");
 export const savePersonalUseCase = (useCase: string) =>

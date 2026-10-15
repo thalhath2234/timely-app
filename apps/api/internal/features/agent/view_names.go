@@ -17,6 +17,8 @@ type namedRef struct{ ID, Name, Parent string }
 
 type viewCatalog struct {
 	workspaces, statuses, labels, projects, stages, fields []namedRef
+	// options are each select field's options by field id.
+	options map[string][]namedRef
 }
 
 // viewCatalog lists what a view filter can name. Stages need the projects
@@ -47,6 +49,12 @@ func (s *Server) viewCatalog(uid string, withStages bool) (viewCatalog, error) {
 		for _, f := range w.CustomFields {
 			if f != nil {
 				c.fields = append(c.fields, namedRef{ID: f.ID, Name: f.Name, Parent: w.ID})
+				if c.options == nil {
+					c.options = map[string][]namedRef{}
+				}
+				for _, option := range f.Options.Options {
+					c.options[f.ID] = append(c.options[f.ID], namedRef{ID: option.ID, Name: option.Value, Parent: f.ID})
+				}
 			}
 		}
 	}
@@ -72,20 +80,156 @@ func (s *Server) viewCatalog(uid string, withStages bool) (viewCatalog, error) {
 // "Done" means each workspace's Done.
 func (s *Server) resolveViewNames(uid string, in createViewIn) (createViewIn, error) {
 	needsCatalog := len(in.SelectedWorkspaceIds)+len(in.SelectedStatusIds)+len(in.SelectedProjectIds)+
-		len(in.SelectedLabelIds)+len(in.SelectedStageIds) > 0
+		len(in.SelectedLabelIds)+len(in.SelectedStageIds)+len(in.Rules) > 0
 	for _, g := range in.GroupFields {
-		if !models.StaticGroupFields[strings.ToLower(strings.TrimSpace(g))] {
+		if staticGroupKey(g) == "" {
+			needsCatalog = true
+		}
+	}
+	for _, by := range []string{in.SortBy, in.ThenSortBy} {
+		if by != "" && sortAliases[strings.ToLower(strings.Join(strings.Fields(by), " "))] == "" {
 			needsCatalog = true
 		}
 	}
 	var c viewCatalog
 	if needsCatalog {
 		var err error
-		if c, err = s.viewCatalog(uid, len(in.SelectedStageIds) > 0); err != nil {
+		if c, err = s.viewCatalog(uid, len(in.SelectedStageIds) > 0 || rulesName(in.Rules, "stage")); err != nil {
 			return in, err
 		}
 	}
 	return resolveViewInput(c, in)
+}
+
+// rulesName reports whether any rule reads the field.
+func rulesName(rules []agentRule, field string) bool {
+	for _, rule := range rules {
+		if rule.Field == field {
+			return true
+		}
+		for _, leaf := range rule.Rules {
+			if leaf.Field == field {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// staticGroupKey is the stored group key for a built-in group name in any case.
+func staticGroupKey(g string) string {
+	key := strings.ToLower(strings.TrimSpace(g))
+	for field := range models.StaticGroupFields {
+		if strings.ToLower(field) == key {
+			return field
+		}
+	}
+	return ""
+}
+
+func ruleStrings(value any) []string {
+	switch v := value.(type) {
+	case string:
+		return []string{v}
+	case []any:
+		out := []string{}
+		for _, item := range v {
+			if text, ok := item.(string); ok {
+				out = append(out, text)
+			}
+		}
+		return out
+	case []string:
+		return v
+	}
+	return nil
+}
+
+// resolveField maps "cf:Type" or "cf:<id>" to the stored "cf:<id>".
+func resolveField(c viewCatalog, field string) (string, error) {
+	if !strings.HasPrefix(field, "cf:") {
+		return field, nil
+	}
+	ids, err := resolveRefs("custom field", "custom fields", []string{strings.TrimPrefix(field, "cf:")}, c.fields, nil)
+	if err != nil {
+		return "", err
+	}
+	return "cf:" + ids[0], nil
+}
+
+func resolveLeaf(c viewCatalog, leaf agentRuleLeaf) (agentRuleLeaf, error) {
+	field, err := resolveField(c, strings.TrimSpace(leaf.Field))
+	if err != nil {
+		return leaf, err
+	}
+	leaf.Field = field
+	if leaf.Op != "anyOf" && leaf.Op != "noneOf" && leaf.Op != "allOf" {
+		if leaf.Field == "priority" && (leaf.Op == "gte" || leaf.Op == "lte") {
+			if text, ok := leaf.Value.(string); ok {
+				leaf.Value = models.NormalizePriority(text)
+			}
+		}
+		return leaf, nil
+	}
+	refs := ruleStrings(leaf.Value)
+	var ids []string
+	switch {
+	case leaf.Field == "workspace":
+		ids, err = resolveRefs("workspace", "workspaces", refs, c.workspaces, nil)
+	case leaf.Field == "project":
+		ids, err = resolveRefs("project", "projects", refs, c.projects, nil)
+	case leaf.Field == "status":
+		ids, err = resolveRefs("status", "statuses", refs, c.statuses, nil)
+	case leaf.Field == "label":
+		ids, err = resolveRefs("label", "labels", refs, c.labels, nil)
+	case leaf.Field == "stage":
+		ids, err = resolveRefs("stage", "stages", refs, c.stages, nil)
+	case leaf.Field == "priority":
+		for _, p := range refs {
+			level := models.NormalizePriority(p)
+			if !models.ValidatePriority(level) {
+				return leaf, fmt.Errorf("unknown priority %q: use Low, Medium, High or Urgent", p)
+			}
+			ids = append(ids, level)
+		}
+	case strings.HasPrefix(leaf.Field, "cf:"):
+		ids, err = resolveRefs("option", "options of that field", refs, c.options[strings.TrimPrefix(leaf.Field, "cf:")], nil)
+	default:
+		ids = refs
+	}
+	if err != nil {
+		return leaf, err
+	}
+	leaf.Value = ids
+	return leaf, nil
+}
+
+// resolveRules turns names in rules into ids and checks their shape.
+func resolveRules(c viewCatalog, rules []agentRule) ([]agentRule, error) {
+	out := make([]agentRule, 0, len(rules))
+	for _, rule := range rules {
+		if len(rule.Rules) > 0 || rule.Match != "" && rule.Field == "" {
+			group := agentRule{Match: rule.Match}
+			for _, leaf := range rule.Rules {
+				resolved, err := resolveLeaf(c, leaf)
+				if err != nil {
+					return nil, err
+				}
+				group.Rules = append(group.Rules, resolved)
+			}
+			out = append(out, group)
+			continue
+		}
+		leaf, err := resolveLeaf(c, agentRuleLeaf{Field: rule.Field, Op: rule.Op, Value: rule.Value, To: rule.To})
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, agentRule{Field: leaf.Field, Op: leaf.Op, Value: leaf.Value, To: leaf.To})
+	}
+	if err := models.ValidateRules(toViewRules(out), ""); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func resolveViewInput(c viewCatalog, in createViewIn) (createViewIn, error) {
@@ -129,14 +273,14 @@ func resolveViewInput(c viewCatalog, in createViewIn) (createViewIn, error) {
 			switch {
 			case key == "":
 				continue
-			case models.StaticGroupFields[key]:
-				groups = append(groups, key)
+			case staticGroupKey(key) != "":
+				groups = append(groups, staticGroupKey(key))
 			case strings.HasPrefix(g, "cf:"):
 				groups = append(groups, g)
 			default:
 				ids, err := resolveRefs("group field", "custom fields", []string{g}, c.fields, inWorkspaces)
 				if err != nil {
-					return in, fmt.Errorf("%w (or group by workspace, project, stage, status or priority)", err)
+					return in, fmt.Errorf("%w (or group by workspace, project, stage, status, priority, label, deadline, planned, createdAt, completedAt, effort or done)", err)
 				}
 				groups = append(groups, "cf:"+ids[0])
 			}
@@ -149,11 +293,35 @@ func resolveViewInput(c viewCatalog, in createViewIn) (createViewIn, error) {
 			return in, fmt.Errorf("unknown renderMode: use list, kanban (board) or gantt (timeline)")
 		}
 	}
-	if in.SortBy != "" {
-		in.SortBy = sortAliases[strings.ToLower(strings.Join(strings.Fields(in.SortBy), " "))]
-		if in.SortBy == "" {
-			return in, fmt.Errorf("unknown sortBy: use name, deadline, startDate, scheduledOn, createdAt, priority, status or project")
+	resolveSort := func(by string) (string, error) {
+		if by == "" {
+			return "", nil
 		}
+		if key := sortAliases[strings.ToLower(strings.Join(strings.Fields(by), " "))]; key != "" {
+			return key, nil
+		}
+		ref := strings.TrimPrefix(by, "cf:")
+		if ids, err := resolveRefs("custom field", "custom fields", []string{ref}, c.fields, inWorkspaces); err == nil {
+			return "cf:" + ids[0], nil
+		}
+		return "", fmt.Errorf("unknown sortBy %q: use name, deadline, startDate, scheduledOn, createdAt, updatedAt, completedAt, priority, status, project, workspace, stage, duration, tracked, urgency, progress, effort or a custom field name", by)
+	}
+	if in.SortBy, err = resolveSort(in.SortBy); err != nil {
+		return in, err
+	}
+	if in.ThenSortBy, err = resolveSort(in.ThenSortBy); err != nil {
+		return in, err
+	}
+	if in.Rules != nil {
+		if in.Rules, err = resolveRules(c, in.Rules); err != nil {
+			return in, err
+		}
+	}
+	if in.RuleMatch != "" && in.RuleMatch != "all" && in.RuleMatch != "any" {
+		return in, fmt.Errorf("unknown ruleMatch %q: use all or any", in.RuleMatch)
+	}
+	if in.Limit != nil && (*in.Limit < 0 || *in.Limit > models.MaxViewLimit) {
+		return in, fmt.Errorf("limit must be 0 to %d", models.MaxViewLimit)
 	}
 	return in, nil
 }
@@ -168,6 +336,10 @@ var sortAliases = map[string]string{
 	"scheduledon": "scheduledOn", "scheduled": "scheduledOn", "planned day": "scheduledOn",
 	"createdat": "createdAt", "created": "createdAt", "date added": "createdAt",
 	"priority": "priority", "status": "status", "project": "project",
+	"updatedat": "updatedAt", "updated": "updatedAt", "last updated": "updatedAt",
+	"completedat": "completedAt", "completed": "completedAt", "workspace": "workspace", "stage": "stage",
+	"duration": "duration", "estimate": "duration", "tracked": "tracked", "time tracked": "tracked",
+	"urgency": "urgency", "progress": "progress", "effort": "effort",
 }
 
 // resolveRefs maps each id or name to ids. scope narrows a name to items

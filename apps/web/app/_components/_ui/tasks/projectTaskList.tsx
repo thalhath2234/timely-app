@@ -341,7 +341,7 @@ export default function ProjectTaskList({
         shown={dataRows.length}
         total={scopedTotal}
         synced={!syncError}
-        noun={showReminders ? "reminders" : "tasks"}
+        noun={showReminders ? "reminder" : "task"}
       />
 
     </div>

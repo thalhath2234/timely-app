@@ -222,9 +222,11 @@ func columnID(columns models.SheetColumns, name string) string {
 }
 
 // rowFinder is the sheet module's read-only search, the only way receipts
-// reach existing sheet content.
+// reach existing sheet content. Sheet reads a whole workbook; the get_sheet
+// tool only shows agents one tab's grid at a time.
 type rowFinder interface {
 	FindRows(userID string, match sheet.TabMatcher) ([]sheet.RowMatch, error)
+	Sheet(userID, sheetID string) (*models.Sheet, error)
 }
 
 // findReceiptDuplicates lists recorded receipts matching the draft's merchant,
@@ -372,20 +374,14 @@ func (s *Service) buildReceiptProposal(ctx context.Context, tx *gorm.DB, row *Co
 	expenseIndex := 0
 	targetID := d.SheetID
 	if targetID != "" {
-		result, err := catalog["get_sheet"].Call(ctx, row.UserID, raw(map[string]string{"sheetId": targetID}))
+		found, err := s.rows(tx).Sheet(row.UserID, targetID)
 		if err != nil {
 			return err
 		}
-		var payload struct {
-			Sheet models.Sheet `json:"sheet"`
-		}
-		if err = json.Unmarshal(raw(result), &payload); err != nil {
-			return err
-		}
-		existing := payload.Sheet
-		if existing.ID == "" {
+		if found == nil || found.ID == "" {
 			return fmt.Errorf("Could not read the selected sheet")
 		}
+		existing := *found
 		tabs = sheet.TabsOf(existing)
 		if d.ExpenseTabID != "" {
 			expenseIndex = -1

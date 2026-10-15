@@ -192,7 +192,7 @@ func (s *service) DryRun(userID string, req PlanRequest) (*PlanResponse, error) 
 }
 
 func (s *service) preview(userID string, req PlanRequest) (*PlanResponse, error) {
-	plan, _, _, _, err := s.plan(userID, req)
+	plan, _, err := s.plan(userID, req)
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +207,7 @@ func (s *service) preview(userID string, req PlanRequest) (*PlanResponse, error)
 // shows a plan the engine would not produce again. A revision is stored so
 // the last apply can be undone. Concurrent applies for one user serialize.
 func (s *service) Apply(userID string, req PlanRequest) (*PlanResponse, error) {
-	plan, candidateIDs, replaceManual, freezeUntil, err := s.plan(userID, req)
+	plan, scope, err := s.plan(userID, req)
 	if err != nil {
 		return nil, err
 	}
@@ -227,14 +227,16 @@ func (s *service) Apply(userID string, req PlanRequest) (*PlanResponse, error) {
 		}
 	}
 	err = s.placement.ApplyAutoSchedule(userID, placement.AutoScheduleApply{
-		CandidateIDs:     candidateIDs,
+		CandidateIDs:     scope.candidateIDs,
 		From:             plan.From,
 		To:               plan.To,
-		FreezeUntil:      freezeUntil,
-		ReplaceManualIDs: replaceManual,
+		FreezeUntil:      scope.freezeUntil,
+		ReplaceManualIDs: scope.replaceManual,
+		MovedIDs:         scope.movedIDs,
+		MissedSince:      scope.missedSince,
 		Next:             next,
 		Revision: func(replaced []models.ScheduledBlock) (*models.ScheduleRevision, error) {
-			raw, err := json.Marshal(revisionSnapshot{Blocks: replaced, TaskIDs: candidateIDs})
+			raw, err := json.Marshal(revisionSnapshot{Blocks: replaced, TaskIDs: scope.candidateIDs})
 			if err != nil {
 				return nil, err
 			}
@@ -256,21 +258,34 @@ func (s *service) Apply(userID string, req PlanRequest) (*PlanResponse, error) {
 	return plan, nil
 }
 
+// planScope is what Apply replaces besides the plan itself.
+type planScope struct {
+	// candidateIDs are the tasks whose engine blocks are replaceable.
+	candidateIDs []string
+	// replaceManual are the tasks whose manual blocks the caller agreed to
+	// replace.
+	replaceManual []string
+	freezeUntil   time.Time
+	// movedIDs are the one-off tasks the plan places again; their engine
+	// blocks that ended between missedSince (the start of the plan's first
+	// day) and the plan's start move with them instead of staying behind.
+	movedIDs    []string
+	missedSince time.Time
+}
+
 // plan gathers availability, busy time and candidates, then runs the engine.
-// It returns the candidate ids (whose engine blocks are replaceable) and the
-// ids whose manual blocks the caller agreed to replace.
-func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string, []string, time.Time, error) {
+func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, planScope, error) {
 	if userID == "" {
-		return nil, nil, nil, time.Time{}, errors.New("user not authenticated")
+		return nil, planScope{}, errors.New("user not authenticated")
 	}
 
 	hours, err := s.repo.GetWorkingHours(userID)
 	if err != nil {
-		return nil, nil, nil, time.Time{}, err
+		return nil, planScope{}, err
 	}
 	settings, err := s.repo.GetSettings(userID)
 	if err != nil {
-		return nil, nil, nil, time.Time{}, err
+		return nil, planScope{}, err
 	}
 	settings = settings.Normalized()
 	loc := task.DayLocation(hours, req.Timezone)
@@ -280,17 +295,17 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 
 	tasks, err := s.tasks.GetAllTaskByUser(userID)
 	if err != nil {
-		return nil, nil, nil, time.Time{}, err
+		return nil, planScope{}, err
 	}
 
 	from, to, err := s.horizon(req, tasks, loc)
 	if err != nil {
-		return nil, nil, nil, time.Time{}, err
+		return nil, planScope{}, err
 	}
 
 	events, err := s.events.ListInRange(userID, from, to)
 	if err != nil {
-		return nil, nil, nil, time.Time{}, err
+		return nil, planScope{}, err
 	}
 
 	requested := map[string]bool{}
@@ -357,7 +372,7 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 			}
 			occs, err := recurrence.Expand(t.Recurrence, time.Duration(t.Duration)*time.Minute, from, to)
 			if err != nil {
-				return nil, nil, nil, time.Time{}, err
+				return nil, planScope{}, err
 			}
 			for _, occ := range occs {
 				if occ.CompletedAt != nil {
@@ -373,6 +388,8 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 				cand.TaskID = t.ID
 				cand.OccurrenceStart = &original
 				cand.EarliestStart = maxTimePtr(cand.EarliestStart, &occ.Start)
+				fixedStart := occ.Start
+				cand.FixedStart = &fixedStart
 				cand.Unscheduled = !hasOccurrenceBlock(t, original)
 				candidates = append(candidates, cand)
 				candidateSet[t.ID] = true
@@ -492,7 +509,22 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 	if response.Skipped == nil {
 		response.Skipped = []Skipped{}
 	}
+	// Engine time a task missed earlier on the plan's first day moves with
+	// it when the engine places it again, so the task does not show twice
+	// (once on time that has gone by, once on its new slot). Earlier days
+	// stay as Missed history.
+	missedSince := time.Date(from.In(loc).Year(), from.In(loc).Month(), from.In(loc).Day(), 0, 0, 0, 0, loc)
+	movedSet := map[string]bool{}
+	for _, proposal := range result.Proposals {
+		if proposal.OccurrenceStart == nil && len(proposal.Blocks) > 0 {
+			movedSet[proposal.TaskID] = true
+		}
+	}
 	current := currentEngineBlocks(tasks, candidateSet, from, to, freezeUntil)
+	lateTasks := map[string]bool{}
+	for id, blocks := range missedEngineBlocks(tasks, movedSet, missedSince, from) {
+		current[id] = append(blocks, current[id]...)
+	}
 	for _, proposal := range result.Proposals {
 		out := ProposalOut{
 			TaskID:           proposal.TaskID,
@@ -525,7 +557,9 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 		}
 		out.Change = classifyChange(current[proposal.TaskID], out.Blocks)
 		response.Proposals = append(response.Proposals, out)
-		if proposal.PastDeadline {
+		// One warning per task: every occurrence of a series shares its deadline.
+		if proposal.PastDeadline && !lateTasks[proposal.TaskID] {
+			lateTasks[proposal.TaskID] = true
 			response.Risks = append(response.Risks, PlanRisk{
 				Kind: "past_deadline", TaskID: proposal.TaskID, TaskName: proposal.TaskName,
 				Message: proposal.TaskName + " finishes after its deadline",
@@ -553,7 +587,17 @@ func (s *service) plan(userID string, req PlanRequest) (*PlanResponse, []string,
 	for id := range candidateSet {
 		candidateIDs = append(candidateIDs, id)
 	}
-	return response, candidateIDs, replaceManual, freezeUntil, nil
+	movedIDs := make([]string, 0, len(movedSet))
+	for id := range movedSet {
+		movedIDs = append(movedIDs, id)
+	}
+	return response, planScope{
+		candidateIDs:  candidateIDs,
+		replaceManual: replaceManual,
+		freezeUntil:   freezeUntil,
+		movedIDs:      movedIDs,
+		missedSince:   missedSince,
+	}, nil
 }
 
 // horizon picks the planning window: now (or `from`) to two weeks out, pushed

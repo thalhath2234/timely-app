@@ -17,6 +17,7 @@ import {
   type BackupSettings,
 } from "@/app/utils/api/portability";
 import Button, { buttonClass } from "@/app/_components/_ui/button";
+import { plural } from "@/app/utils/plural";
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -81,7 +82,7 @@ export default function DataSettings() {
       const result = await restoreBackup(file);
       await queryClient.invalidateQueries();
       const count = Object.values(result.counts).reduce((sum, value) => sum + value, 0);
-      setMessage(`Restore complete. ${count} records loaded.`);
+      setMessage(`Restore complete. ${plural(count, "record")} loaded.`);
     } catch (cause) {
       setMessage(null);
       setError(cause instanceof Error ? cause.message : "Restore failed.");

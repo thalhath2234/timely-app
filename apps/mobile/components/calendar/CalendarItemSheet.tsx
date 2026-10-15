@@ -6,8 +6,9 @@ import { formatRelativeDay, formatTime, formatTimeRange, startOfDay } from "../.
 import BottomSheet from "../ui/BottomSheet";
 import DateTimeSheet from "../ui/DateTimeSheet";
 import { PrimaryButton } from "../ui/primitives";
-import { itemColor, isReminderItem, isTaskItem } from "./CalendarItemRow";
+import { isItemDone, itemColor, isReminderItem, isTaskItem } from "./CalendarItemRow";
 import { useEditEventOccurrence, useEditTaskOccurrence } from "../../lib/hooks";
+import { eventHref } from "../../lib/eventOccurrence";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { useState } from "react";
 
@@ -56,7 +57,7 @@ export default function CalendarItemSheet({
         </View>
         {task ? (
           <PrimaryButton
-            label={item.completedAt ? "Mark incomplete" : occurrence ? "Complete this day" : "Complete"}
+            label={isItemDone(item) ? "Mark incomplete" : occurrence ? "Complete this day" : "Complete"}
             onPress={() => onToggleComplete(item)}
           />
         ) : null}
@@ -95,7 +96,7 @@ export default function CalendarItemSheet({
           <Pressable
             onPress={() => {
               onClose();
-              router.push(`/(app)/events/${item.eventId}`);
+              router.push(eventHref(item));
             }}
             style={styles.row}
           >
@@ -107,6 +108,8 @@ export default function CalendarItemSheet({
       <DateTimeSheet
         open={picking}
         value={new Date(item.start)}
+        title="Reschedule"
+        clearable={false}
         onClose={() => setPicking(false)}
         onChange={(next) => {
           if (next) onReschedule(item, next);

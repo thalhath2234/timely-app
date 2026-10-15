@@ -16,13 +16,16 @@ import {
   SquarePen,
   Trash2,
 } from "lucide-react";
-import type { Project, Workspace } from "@/app/_types/types";
+import { projectDeleteCopy } from "@timely/contract/projectDelete";
+import type { Project, Task, Workspace } from "@/app/_types/types";
 import { addDays, dateOnly, localDateStamp } from "@/app/utils/calendar";
 import { PRIORITIES, priorityColor } from "@/app/utils/priority";
 import { mergeStatusesByName, statusForWorkspace } from "@/app/utils/status";
 import { openTasksEntity } from "@/app/utils/entityDetail";
 import { useDeleteProject, useDuplicateProject, useUpdateProject } from "@/app/utils/hooks/projects";
+import { useTasks } from "@/app/utils/hooks/tasks";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
+import { tasksForProject } from "@/app/utils/projectStats";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import { requestConfirm } from "@/app/_store/confirmStore";
@@ -50,6 +53,7 @@ export function useProjectContextMenu() {
   const deleteProject = useDeleteProject();
   const duplicateProject = useDuplicateProject();
   const { data: workspaces } = useWorkspaces();
+  const { data: tasks } = useTasks();
   const setAddNewMode = useSidebarStore((state) => state.setAddNewMode);
   const setIsAddItemModalOpen = useSidebarStore((state) => state.setIsAddItemModalOpen);
 
@@ -249,8 +253,11 @@ export function useProjectContextMenu() {
           danger: true,
           onSelect: () =>
             requestConfirm({
-              title: `Delete “${name}”?`,
-              description: "Its tasks stay, but they lose this project. This cannot be undone.",
+              ...projectDeleteCopy(
+                name,
+                tasksForProject((tasks ?? []) as Task[], project.id).length,
+                project.stages?.length ?? 0,
+              ),
               onConfirm: async () => {
                 await deleteProject.mutateAsync(project.id);
                 options.onDeleted?.(project.id);
@@ -264,6 +271,7 @@ export function useProjectContextMenu() {
       deleteProject,
       duplicateProject,
       router,
+      tasks,
       setAddNewMode,
       setIsAddItemModalOpen,
       updateProject,

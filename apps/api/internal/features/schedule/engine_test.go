@@ -268,3 +268,34 @@ func TestOrderKeepsCloseGroupMembersTogether(t *testing.T) {
 		t.Fatalf("order %s", ids)
 	}
 }
+
+// A repeating occurrence keeps the time it was set for, even outside working
+// hours and on a weekend, and only moves when something else holds that time.
+func TestPlanKeepsRepeatingOccurrenceTime(t *testing.T) {
+	from := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC) // Friday
+	to := from.AddDate(0, 0, 4)
+	occurrence := func(id string, start time.Time) Candidate {
+		s := start
+		return Candidate{ID: id, TaskID: "series", Name: "Fix login bug", DurationMinutes: 60, MinChunkMinutes: 15,
+			EarliestStart: &s, FixedStart: &s, OccurrenceStart: &s}
+	}
+	friday := time.Date(2026, 9, 18, 18, 0, 0, 0, time.UTC)
+	saturday := friday.AddDate(0, 0, 1)
+	sunday := friday.AddDate(0, 0, 2)
+	result := Plan(PlanInput{
+		From: from, To: to, Location: time.UTC, Hours: testHours(),
+		Busy:       []Interval{{Start: sunday, End: sunday.Add(30 * time.Minute)}},
+		Candidates: []Candidate{occurrence("fri", friday), occurrence("sat", saturday), occurrence("sun", sunday)},
+	})
+	starts := map[string]time.Time{}
+	for _, p := range result.Proposals {
+		starts[p.CandidateID] = p.Blocks[0].Start
+	}
+	if !starts["fri"].Equal(friday) || !starts["sat"].Equal(saturday) {
+		t.Fatalf("occurrences moved off their time: %v", starts)
+	}
+	// Sunday 18:00 is taken, so that one is fitted into working time after it.
+	if got := starts["sun"]; got.Before(sunday) || got.Weekday() == time.Sunday || got.Hour() < 9 {
+		t.Fatalf("held occurrence placed at %s", got)
+	}
+}

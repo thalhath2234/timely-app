@@ -1,17 +1,35 @@
 import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
 import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Check, ChevronDown, ChevronUp, FolderKanban, ListTodo, Trash2 } from "lucide-react-native";
+import {
+  CalendarClock,
+  CalendarDays,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  CircleDot,
+  Columns3,
+  Copy,
+  Flag,
+  FolderKanban,
+  ListTodo,
+  Plus,
+  Settings2,
+  Trash2,
+} from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
-import MobileHeader from "../../../components/ui/MobileHeader";
+import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
+import { projectDeleteCopy } from "@timely/contract/projectDelete";
 import ConfirmSheet, { type ConfirmRequest } from "../../../components/ui/ConfirmSheet";
 import DateTimeSheet from "../../../components/ui/DateTimeSheet";
-import { Field, PrimaryButton, SectionLabel } from "../../../components/ui/primitives";
+import { Button, Field, PrimaryButton, PropertyGroup, PropertyRow, SectionLabel } from "../../../components/ui/primitives";
+import { ColorDot, GroupLabel, ListGroup, ListRow } from "../../../components/settings/SettingsList";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
+import ColourSheet from "../../../components/ui/ColourSheet";
 import {
   useCreateStage,
   useCreateTask,
@@ -31,7 +49,7 @@ import {
 import { PRIORITIES, normalizePriority } from "../../../lib/priority";
 import { showUndoToast } from "../../../lib/toast";
 import { formatShortDate, timeAgo, toDateInputValue } from "../../../lib/format";
-import { ENTITY_COLORS, colorName, resolvedColor } from "../../../lib/entityColor";
+import { colorName, resolvedColor, stableColorForId } from "../../../lib/entityColor";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { useDraftText } from "../../../lib/draftText";
 import { useAutosave } from "../../../lib/autosave";
@@ -69,10 +87,9 @@ export default function ProjectDetailScreen() {
   const saveTask = useSaveTask();
   const createTask = useCreateTask();
   const activity = useProjectActivityQuery(id);
-  const [stageName, setStageName] = useState("");
   const [taskTitle, setTaskTitle] = useState("");
-  const [picker, setPicker] = useState<"status" | "priority" | "start" | "deadline" | "color" | null>(null);
-  const [editingStage, setEditingStage] = useState<Stage | null>(null);
+  const [picker, setPicker] = useState<"status" | "priority" | "start" | "deadline" | "color" | "settings" | null>(null);
+  const [editingStage, setEditingStage] = useState<Stage | "new" | null>(null);
   const [stageDraft, setStageDraft] = useState("");
   const [movingTask, setMovingTask] = useState<Task | null>(null);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
@@ -161,6 +178,18 @@ export default function ProjectDetailScreen() {
     setMovingTask(null);
   }
 
+  const statusRecord = project.status ?? workspace?.status?.find((status) => status.id === project.statusId);
+  const priority = normalizePriority(project.priorityLevel);
+  const stageDraftTrimmed = stageDraft.trim();
+  const editingStageItem = editingStage && editingStage !== "new" ? editingStage : null;
+
+  function saveStage() {
+    if (!stageDraftTrimmed || !editingStage) return;
+    if (editingStage === "new") addStage.mutate({ projectId: current.id, name: stageDraftTrimmed });
+    else renameStage.mutate({ projectId: current.id, stageId: editingStage.id, name: stageDraftTrimmed });
+    setEditingStage(null);
+  }
+
   return (
     <Screen>
       <MobileHeader
@@ -168,39 +197,79 @@ export default function ProjectDetailScreen() {
         back
         large={false}
         actions={
-          <Pressable
-            onPress={() => {
-              const completing = !project.completedAt;
-              persist({ completedAt: completing ? new Date().toISOString() : "" });
-              if (completing) showUndoToast("Project completed", () => persist({ completedAt: "" }));
-            }}
-            style={styles.done}
-          >
-            <Check size={16} color={colors.primaryForeground} />
-            <Text style={styles.doneText}>{project.completedAt ? "Reopen" : "Done"}</Text>
-          </Pressable>
+          <>
+            <HeaderIconButton label="Project settings" onPress={() => setPicker("settings")}>
+              <Settings2 size={19} color={colors.foreground} />
+            </HeaderIconButton>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                const completing = !project.completedAt;
+                persist({ completedAt: completing ? new Date().toISOString() : "" });
+                if (completing) showUndoToast("Project completed", () => persist({ completedAt: "" }));
+              }}
+              style={styles.done}
+            >
+              <Check size={16} color={colors.primaryForeground} />
+              <Text style={styles.doneText}>{project.completedAt ? "Reopen" : "Done"}</Text>
+            </Pressable>
+          </>
         }
       />
-      <FocusGroupScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 12 }}>
+      <FocusGroupScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 12 }}>
         <Field
+          bare
+          large
           value={title}
           onChangeText={(next) => {
             setTitle(next);
             scheduleSave({ title: next });
           }}
           onBlur={() => void flushSave()}
-          placeholder="Title"
+          placeholder="Project title"
           autoCapitalize="words"
+          testID="project-title"
         />
-        <Pressable onPress={() => setPicker("color")} style={styles.card}>
-          <Text style={styles.label}>Color</Text>
-          <View style={styles.colorRow}>
-            <View style={[styles.swatch, { backgroundColor: accent }]} />
-            <Text style={styles.value}>{colorName(project.color)}</Text>
-          </View>
-        </Pressable>
+        <PropertyGroup tone="card">
+          <PropertyRow
+            icon={<CircleDot size={16} color={statusRecord?.color || colors.mutedForeground} />}
+            label="Status"
+            value={statusRecord?.name || "None"}
+            onPress={() => setPicker("status")}
+          />
+          <PropertyRow
+            icon={<Flag size={16} color={colors.mutedForeground} />}
+            label="Priority"
+            value={priority || "None"}
+            onPress={() => setPicker("priority")}
+          />
+          <PropertyRow
+            icon={<CalendarDays size={16} color={colors.mutedForeground} />}
+            label="Start"
+            value={project.startDate ? formatShortDate(project.startDate) : "None"}
+            onPress={() => setPicker("start")}
+          />
+          <PropertyRow
+            icon={<CalendarClock size={16} color={colors.mutedForeground} />}
+            label="Deadline"
+            value={project.deadline ? formatShortDate(project.deadline) : "None"}
+            onPress={() => setPicker("deadline")}
+          />
+          <PropertyRow
+            icon={<View style={[styles.colourIcon, { backgroundColor: accent }]} />}
+            label="Colour"
+            value={colorName(project.color)}
+            onPress={() => setPicker("color")}
+          />
+          <PropertyRow
+            icon={<Columns3 size={16} color={colors.mutedForeground} />}
+            label="Stages"
+            value={project.doesHaveStages || stages.length ? `${stages.length} stage${stages.length === 1 ? "" : "s"}` : "Off"}
+            onPress={() => setPicker("settings")}
+          />
+        </PropertyGroup>
         <DescriptionCard
-            onSelectionChange={setAssistantSelection}
+          onSelectionChange={setAssistantSelection}
           content={isRichContentEmpty(noteRich) ? { type: "doc", content: [{ type: "paragraph" }] } : noteRich}
           syncKey={noteSync}
           placeholder="Write a description. Type '/' for blocks…"
@@ -211,40 +280,30 @@ export default function ProjectDetailScreen() {
             scheduleSave({ description: plainText, descriptionRich: content });
           }}
         />
-        <Pressable onPress={() => setPicker("status")} style={styles.card}>
-          <Text style={styles.label}>Status</Text>
-          <Text style={styles.value}>
-            {project.status?.name || workspace?.status?.find((status) => status.id === project.statusId)?.name || "None"}
-          </Text>
-        </Pressable>
-        <Pressable onPress={() => setPicker("priority")} style={styles.card}>
-          <Text style={styles.label}>Priority</Text>
-          <Text style={styles.value}>{normalizePriority(project.priorityLevel) || "None"}</Text>
-        </Pressable>
         {/* Under the brief and its fields, where web's Overview shows it. */}
         <ProjectInsightsCard project={project} />
-        <SectionLabel>Schedule</SectionLabel>
-        <Pressable onPress={() => setPicker("start")} style={styles.card}>
-          <Text style={styles.label}>Start</Text>
-          <Text style={styles.value}>{project.startDate ? formatShortDate(project.startDate) : "Pick a date"}</Text>
-        </Pressable>
-        <Pressable onPress={() => setPicker("deadline")} style={styles.card}>
-          <Text style={styles.label}>Deadline</Text>
-          <Text style={styles.value}>{project.deadline ? formatShortDate(project.deadline) : "Pick a date"}</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => router.push({ pathname: "/(app)/(tabs)/tasks", params: { projectId: project.id } })}
-          style={styles.card}
+        <SectionLabel
+          action={
+            <Button
+              label={`Open ${projectTasks.length} in Tasks`}
+              variant="ghost"
+              size="sm"
+              onPress={() => router.push({ pathname: "/(app)/(tabs)/tasks", params: { projectId: project.id } })}
+            />
+          }
         >
-          <Text style={styles.value}>Open tasks in this project</Text>
-          <Text style={styles.meta}>{projectTasks.length} tasks · same filters as Tasks</Text>
-        </Pressable>
-        <SectionLabel>New task</SectionLabel>
-        <FocusGroup style={{ gap: 12 }}>
-          <Field value={taskTitle} onChangeText={setTaskTitle} placeholder="Task title" autoCapitalize="sentences" />
-          <PrimaryButton
-            label={createTask.isPending ? "Adding…" : "Add task"}
-            disabled={!taskTitle.trim() || createTask.isPending}
+          Tasks
+        </SectionLabel>
+        <FocusGroup style={styles.addRow}>
+          <View style={{ flex: 1 }}>
+            <Field value={taskTitle} onChangeText={setTaskTitle} placeholder="Add a task" autoCapitalize="sentences" />
+          </View>
+          <Button
+            label="Add"
+            size="lg"
+            loading={createTask.isPending}
+            disabled={!taskTitle.trim()}
+            icon={<Plus size={16} color={colors.primaryForeground} />}
             onPress={() => {
               const name = taskTitle.trim();
               if (!name) return;
@@ -262,99 +321,40 @@ export default function ProjectDetailScreen() {
           />
         </FocusGroup>
         <Pressable
+          accessibilityRole="button"
           onPress={() =>
             requestQuickAdd({ kind: "task", projectId: project.id, workspaceId: project.workspaceId })
           }
+          hitSlop={6}
+          style={styles.composer}
         >
           <Text style={styles.link}>Full composer</Text>
         </Pressable>
-        <SectionLabel>Stages</SectionLabel>
-        {stages.map((stage, index) => (
-          <View key={stage.id} style={styles.stage}>
-            {editingStage?.id === stage.id ? (
-              <Field value={stageDraft} onChangeText={setStageDraft} autoCapitalize="words" />
-            ) : (
-              <Text style={styles.item}>{stage.name}</Text>
-            )}
-            <Pressable disabled={index === 0} onPress={() => moveStage(index, -1)}>
-              <ChevronUp size={16} color={index === 0 ? colors.border : colors.mutedForeground} />
-            </Pressable>
-            <Pressable disabled={index === stages.length - 1} onPress={() => moveStage(index, 1)}>
-              <ChevronDown size={16} color={index === stages.length - 1 ? colors.border : colors.mutedForeground} />
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                if (editingStage?.id === stage.id) {
-                  if (stageDraft.trim()) {
-                    renameStage.mutate({ projectId: project.id, stageId: stage.id, name: stageDraft.trim() });
-                  }
-                  setEditingStage(null);
-                } else {
-                  setEditingStage(stage);
-                  setStageDraft(stage.name);
-                }
-              }}
-            >
-              <Text style={styles.link}>{editingStage?.id === stage.id ? "Save" : "Rename"}</Text>
-            </Pressable>
-            <Pressable
-              onPress={() =>
-                setConfirm({
-                  title: "Delete stage",
-                  message: "Tasks in this stage become unstaged.",
-                  onConfirm: () => deleteStage.mutate({ projectId: project.id, stageId: stage.id }),
-                })
-              }
-            >
-              <Text style={styles.remove}>Delete</Text>
-            </Pressable>
-          </View>
-        ))}
-        <FocusGroup style={{ gap: 12 }}>
-          <Field value={stageName} onChangeText={setStageName} placeholder="New stage" autoCapitalize="words" />
-          <PrimaryButton
-            label={project.doesHaveStages ? "Add stage" : "Enable stages"}
-            disabled={project.doesHaveStages && !stageName.trim()}
-            onPress={() => {
-              if (!project.doesHaveStages) {
-                persist({ doesHaveStages: true });
-                return;
-              }
-              addStage.mutate({ projectId: project.id, name: stageName.trim() });
-              setStageName("");
-            }}
-          />
-        </FocusGroup>
-        <SectionLabel>Board</SectionLabel>
         {projectTasks.length === 0 ? (
           <EmptyState icon={ListTodo} title="No tasks" description="Add a task above or open the full composer." compact />
         ) : (
-          board.map((column) => (
-            <View key={column.id || "unstaged"} style={styles.column}>
-              <View style={styles.head}>
-                <Text style={styles.group}>{column.name}</Text>
-                <Text style={styles.meta}>{column.tasks.length}</Text>
+          board
+            .filter((column) => column.id || column.tasks.length > 0)
+            .map((column) => (
+              <View key={column.id || "unstaged"} style={styles.column}>
+                <View style={styles.head}>
+                  <Text style={styles.group}>{column.name}</Text>
+                  <Text style={styles.meta}>{column.tasks.length}</Text>
+                </View>
+                {column.tasks.map((task) => (
+                  <AnimatedPressable
+                    key={task.id}
+                    onPress={() => router.push(`/(app)/tasks/${task.id}`)}
+                    onLongPress={() => setMovingTask(task)}
+                    style={styles.task}
+                  >
+                    <Text style={[styles.item, task.completedAt ? styles.itemDone : null]}>{task.name}</Text>
+                    <Text style={styles.meta}>{task.status?.name || "Hold to move stage"}</Text>
+                  </AnimatedPressable>
+                ))}
               </View>
-              {column.tasks.map((task) => (
-                <AnimatedPressable
-                  key={task.id}
-                  onPress={() => router.push(`/(app)/tasks/${task.id}`)}
-                  onLongPress={() => setMovingTask(task)}
-                  style={styles.task}
-                >
-                  <Text style={[styles.item, task.completedAt ? styles.itemDone : null]}>{task.name}</Text>
-                  <Text style={styles.meta}>{task.status?.name || "Hold to move stage"}</Text>
-                </AnimatedPressable>
-              ))}
-            </View>
-          ))
+            ))
         )}
-        <PrimaryButton
-          label={duplicate.isPending ? "Duplicating…" : "Duplicate project"}
-          onPress={() =>
-            void duplicate.mutateAsync(project.id).then((copy) => router.push(`/(app)/projects/${copy.id}`))
-          }
-        />
         <RelatedList kind="project" id={project.id} />
         <SectionLabel>Activity</SectionLabel>
         <Text style={styles.meta}>Edits to the project’s own title, dates and description are not recorded yet.</Text>
@@ -367,44 +367,153 @@ export default function ProjectDetailScreen() {
             </Text>
           </View>
         ))}
-        <Pressable
-          onPress={() =>
-            setConfirm({
-              title: "Delete project",
-              message: "This cannot be undone.",
-              onConfirm: () => remove.mutate(project.id, { onSuccess: () => router.replace("/(app)/projects") }),
-            })
-          }
-          style={styles.delete}
-        >
-          <Trash2 size={16} color={colors.destructive} />
-          <Text style={styles.deleteText}>Delete project</Text>
-        </Pressable>
       </FocusGroupScrollView>
-      <BottomSheet open={picker === "color"} onClose={() => setPicker(null)} title="Color">
-        <SheetOption
-          selected={!project.color}
-          onSelect={() => {
-            persist({ color: "" });
-            setPicker(null);
-          }}
+
+      <BottomSheet
+        open={picker === "settings"}
+        onClose={() => {
+          setEditingStage(null);
+          setPicker(null);
+        }}
+        title="Project settings"
+        subtitle={title || project.title}
+      >
+        <View style={styles.sheetBody}>
+          <GroupLabel aside={stages.length || undefined}>Stages</GroupLabel>
+          {!project.doesHaveStages ? (
+            <View style={styles.stagesOff}>
+              <Text style={styles.hint}>Group this project's tasks into stages such as Design, Build and Launch.</Text>
+              <Button label="Turn on stages" variant="outline" size="sm" onPress={() => persist({ doesHaveStages: true })} />
+            </View>
+          ) : null}
+          {project.doesHaveStages || stages.length > 0 ? (
+            <ListGroup testID="project-stages">
+              {stages.map((stage, index) => (
+                <ListRow
+                  key={stage.id}
+                  title={stage.name}
+                  leading={<Text style={styles.stageIndex}>{index + 1}</Text>}
+                  onPress={() => {
+                    setEditingStage(stage);
+                    setStageDraft(stage.name);
+                  }}
+                  chevron={false}
+                  trailing={
+                    <View style={styles.stageMoves}>
+                      <Button
+                        label={`Move ${stage.name} up`}
+                        iconOnly
+                        variant="ghost"
+                        size="sm"
+                        disabled={index === 0}
+                        icon={<ChevronUp size={18} color={colors.mutedForeground} />}
+                        onPress={() => moveStage(index, -1)}
+                      />
+                      <Button
+                        label={`Move ${stage.name} down`}
+                        iconOnly
+                        variant="ghost"
+                        size="sm"
+                        disabled={index === stages.length - 1}
+                        icon={<ChevronDown size={18} color={colors.mutedForeground} />}
+                        onPress={() => moveStage(index, 1)}
+                      />
+                    </View>
+                  }
+                />
+              ))}
+              {project.doesHaveStages ? (
+                <ListRow
+                  key="__new"
+                  tone="add"
+                  title="New stage"
+                  testID="project-new-stage"
+                  onPress={() => {
+                    setEditingStage("new");
+                    setStageDraft("");
+                  }}
+                />
+              ) : null}
+            </ListGroup>
+          ) : null}
+          <GroupLabel>Project</GroupLabel>
+          <ListGroup>
+            <ListRow
+              title={duplicate.isPending ? "Duplicating…" : "Duplicate project"}
+              meta="Copies its stages and tasks"
+              leading={<Copy size={18} color={colors.mutedForeground} />}
+              chevron={false}
+              disabled={duplicate.isPending}
+              onPress={() =>
+                void duplicate.mutateAsync(project.id).then((copy) => {
+                  setPicker(null);
+                  router.push(`/(app)/projects/${copy.id}`);
+                })
+              }
+            />
+            <ListRow
+              tone="danger"
+              title="Delete project"
+              testID="project-delete"
+              leading={<Trash2 size={18} color={colors.destructive} />}
+              onPress={() => {
+                const copy = projectDeleteCopy(title, projectTasks.length, stages.length);
+                setConfirm({
+                  title: copy.title,
+                  message: copy.description,
+                  confirmLabel: copy.confirmLabel,
+                  onConfirm: () => remove.mutate(project.id, { onSuccess: () => router.replace("/(app)/projects") }),
+                });
+              }}
+            />
+          </ListGroup>
+        </View>
+        <BottomSheet
+          open={editingStage !== null}
+          onClose={() => setEditingStage(null)}
+          title={editingStageItem ? "Edit stage" : "New stage"}
+          footer={<PrimaryButton label={editingStageItem ? "Save stage" : "Add stage"} disabled={!stageDraftTrimmed} onPress={saveStage} />}
         >
-          Auto
-        </SheetOption>
-        {ENTITY_COLORS.map((color) => (
-          <SheetOption
-            key={color}
-            selected={project.color?.toUpperCase() === color.toUpperCase()}
-            onSelect={() => {
-              persist({ color });
-              setPicker(null);
-            }}
-            leading={<View style={[styles.swatch, { backgroundColor: color }]} />}
-          >
-            {colorName(color)}
-          </SheetOption>
-        ))}
+          <View style={styles.sheetBody}>
+            <Field label="Name" value={stageDraft} onChangeText={setStageDraft} placeholder="Design" autoCapitalize="words" />
+            {editingStageItem ? (
+              <View style={styles.deleteRow}>
+                <Button
+                  label="Delete stage"
+                  variant="destructive-ghost"
+                  size="sm"
+                  icon={<Trash2 size={16} color={colors.destructive} />}
+                  onPress={() =>
+                    setConfirm({
+                      title: `Delete “${editingStageItem.name}”?`,
+                      message: "Tasks in this stage become unstaged.",
+                      onConfirm: () => {
+                        deleteStage.mutate({ projectId: project.id, stageId: editingStageItem.id });
+                        setEditingStage(null);
+                      },
+                    })
+                  }
+                />
+              </View>
+            ) : null}
+          </View>
+        </BottomSheet>
+        <ConfirmSheet
+          open={confirm !== null}
+          onClose={() => setConfirm(null)}
+          title={confirm?.title ?? ""}
+          message={confirm?.message}
+          confirmLabel={confirm?.confirmLabel}
+          onConfirm={() => confirm?.onConfirm()}
+        />
       </BottomSheet>
+      <ColourSheet
+        open={picker === "color"}
+        onClose={() => setPicker(null)}
+        value={project.color ?? ""}
+        autoColor={stableColorForId(project.id)}
+        onChange={(color) => persist({ color })}
+      />
       <BottomSheet open={picker === "status"} onClose={() => setPicker(null)} title="Status">
         <SheetOption
           selected={!project.statusId}
@@ -419,6 +528,7 @@ export default function ProjectDetailScreen() {
           <SheetOption
             key={status.id}
             selected={status.id === project.statusId}
+            leading={<ColorDot color={status.color} />}
             onSelect={() => {
               persist({ statusId: status.id });
               setPicker(null);
@@ -430,7 +540,7 @@ export default function ProjectDetailScreen() {
       </BottomSheet>
       <BottomSheet open={picker === "priority"} onClose={() => setPicker(null)} title="Priority">
         <SheetOption
-          selected={!normalizePriority(project.priorityLevel)}
+          selected={!priority}
           onSelect={() => {
             persist({ priorityLevel: "" });
             setPicker(null);
@@ -438,16 +548,16 @@ export default function ProjectDetailScreen() {
         >
           None
         </SheetOption>
-        {PRIORITIES.map((priority) => (
+        {PRIORITIES.map((level) => (
           <SheetOption
-            key={priority}
-            selected={normalizePriority(project.priorityLevel) === priority}
+            key={level}
+            selected={priority === level}
             onSelect={() => {
-              persist({ priorityLevel: priority });
+              persist({ priorityLevel: level });
               setPicker(null);
             }}
           >
-            {priority}
+            {level}
           </SheetOption>
         ))}
       </BottomSheet>
@@ -483,14 +593,6 @@ export default function ProjectDetailScreen() {
           if (picker === "deadline") persist({ deadline: value });
         }}
       />
-      <ConfirmSheet
-        open={confirm !== null}
-        onClose={() => setConfirm(null)}
-        title={confirm?.title ?? ""}
-        message={confirm?.message}
-        confirmLabel={confirm?.confirmLabel}
-        onConfirm={() => confirm?.onConfirm()}
-      />
     </Screen>
   );
 }
@@ -504,25 +606,16 @@ const styles = createThemedStyleSheet((colors) => ({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
+    marginLeft: 4,
   },
   doneText: { color: colors.primaryForeground, fontWeight: "600", fontSize: 12 },
-  card: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    padding: 12,
-  },
-  label: { color: colors.mutedForeground, fontSize: 12 },
-  value: { color: colors.foreground, fontSize: 15, marginTop: 4 },
-  colorRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6 },
-  swatch: { width: 18, height: 18, borderRadius: 9 },
   meta: { color: colors.mutedForeground, fontSize: 12 },
-  stage: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 40 },
+  hint: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
   item: { flex: 1, color: colors.foreground },
   itemDone: { color: colors.mutedForeground, textDecorationLine: "line-through" },
-  link: { color: colors.mutedForeground, fontWeight: "600" },
-  remove: { color: colors.destructive, fontSize: 13 },
+  link: { color: colors.mutedForeground, fontWeight: "600", fontSize: 13 },
+  composer: { alignSelf: "flex-start", paddingHorizontal: 2, marginTop: -4 },
+  addRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   column: { gap: 8 },
   head: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 4 },
   group: { flex: 1, color: colors.foreground, fontWeight: "600" },
@@ -533,6 +626,10 @@ const styles = createThemedStyleSheet((colors) => ({
     padding: 12,
     gap: 4,
   },
-  delete: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, paddingVertical: 20 },
-  deleteText: { color: colors.destructive, fontWeight: "600" },
+  sheetBody: { gap: 10, paddingBottom: 4 },
+  stagesOff: { gap: 10, alignItems: "flex-start", paddingHorizontal: 4 },
+  stageIndex: { width: 18, color: colors.mutedForeground, fontSize: 13, fontWeight: "600", textAlign: "center" },
+  stageMoves: { flexDirection: "row", alignItems: "center", marginRight: -8 },
+  deleteRow: { alignItems: "flex-start", marginLeft: -12 },
+  colourIcon: { width: 16, height: 16, borderRadius: 8 },
 }));

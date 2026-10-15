@@ -18,6 +18,7 @@ import {
   FolderKanban,
   History,
   Info,
+  KeyRound,
   ReceiptText,
   RefreshCw,
   Sparkles,
@@ -33,7 +34,14 @@ import ImagePreview from "./ImagePreview";
 import { dayLabel, isBusy, phaseLabel, timeOfDay } from "./chatMeta";
 import { Action, ChatText, styles as common } from "./shared";
 import { LogoSpinner } from "../ui/TimelyLogo";
-import { useChatPromptsQuery, useDecisionFeedback } from "../../lib/hooks";
+import { useAgentProvidersQuery, useChatPromptsQuery, useDecisionFeedback } from "../../lib/hooks";
+import { readyProviders } from "./ModelSheet";
+
+/** Chat needs a connected provider; the rest of Timely works without one. */
+function useNeedsProvider() {
+  const { data } = useAgentProvidersQuery();
+  return Boolean(data) && readyProviders(data).length === 0;
+}
 
 const suggestions: { icon: LucideIcon; title: string; text: string }[] = [
   { icon: CalendarDays, title: "Plan my day", text: "Help me plan today." },
@@ -72,12 +80,16 @@ export function Welcome({
   disabled,
   projectId,
   onPick,
+  onOpenSettings,
 }: {
   disabled: boolean;
   /** The project on the screen the assistant was opened from, if any. */
   projectId?: string;
   onPick: (text: string) => void;
+  /** Opens Settings > Agent, shown when no provider is connected. */
+  onOpenSettings: () => void;
 }) {
+  const needsProvider = useNeedsProvider();
   // With smart suggestions on, the examples fit the project on screen, or
   // else the one the person worked on most recently; otherwise the fixed
   // ones show.
@@ -103,13 +115,25 @@ export function Welcome({
         Plan your day, shape a sheet, or attach a receipt. Small changes happen
         right away; bigger ones wait for your approval.
       </Text>
-      {project ? (
+      {needsProvider ? (
+        <View testID="chat-needs-provider">
+          <StatusCard
+            tone="primary"
+            icon={KeyRound}
+            title="Connect an AI provider to chat"
+            body="The assistant runs on your own OpenRouter key or another provider. Everything else in Timely works without one."
+          >
+            <Action label="Open Agent settings" primary compact onPress={onOpenSettings} />
+          </StatusCard>
+        </View>
+      ) : null}
+      {!needsProvider && project ? (
         <Text style={common.muted} testID="chat-prompts-project">
           Ideas for {project}
         </Text>
       ) : null}
       <View style={{ gap: 10, marginTop: 6 }}>
-        {items.map(({ icon: Icon, title, text }, i) => (
+        {(needsProvider ? [] : items).map(({ icon: Icon, title, text }, i) => (
           <ListEnter key={title} index={i}>
             <AnimatedPressable
               accessibilityRole="button"
@@ -410,20 +434,25 @@ export function FailureCard({
   chat,
   locked,
   onRetry,
+  onOpenSettings,
 }: {
   chat: Chat;
   locked: boolean;
   onRetry: () => void;
+  onOpenSettings: () => void;
 }) {
+  const needsProvider = useNeedsProvider();
   if (!chat.error || chat.plan.length) return null;
   return (
     <StatusCard
       tone="destructive"
       icon={AlertTriangle}
-      title="Something went wrong"
+      title={needsProvider ? "Connect an AI provider to chat" : "Something went wrong"}
       body={chat.error}
     >
-      {["failed", "stopped"].includes(chat.status) ? (
+      {needsProvider ? (
+        <Action label="Open Agent settings" compact onPress={onOpenSettings} />
+      ) : ["failed", "stopped"].includes(chat.status) ? (
         <Action
           label="Try again"
           icon={RefreshCw}

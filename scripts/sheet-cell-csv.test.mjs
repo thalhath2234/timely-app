@@ -130,7 +130,7 @@ describe("sheet CSV", () => {
     assert.equal(csvToGrid("A,B", ids()).rows.length, 1);
   });
 
-  test("sheetToCsv escapes values and keeps formulas raw", () => {
+  test("sheetToCsv escapes values and writes formula results", () => {
     const columns = [
       { id: "a", name: "Name, full", width: 100, type: "text" },
       { id: "b", name: "Total", width: 100, type: "number" },
@@ -139,8 +139,38 @@ describe("sheet CSV", () => {
     const display = (col) => (col === 0 ? 'say "hi"' : "42");
     assert.equal(
       sheetToCsv(columns, rows, display),
-      '"Name, full",Total\n"say ""hi""",=SUM(A1)',
+      '"Name, full",Total\n"say ""hi""",42',
     );
+  });
+
+  test("sheetToCsv leaves out empty rows at the bottom and empty letter columns on the right", () => {
+    const columns = ["A", "B", "Notes", "D", "E"].map((name, i) => ({
+      id: `c${i}`,
+      name,
+      width: 100,
+      type: "text",
+    }));
+    const values = [
+      ["Item", "Total", "", "", ""],
+      ["Rent", "1200", "", "", ""],
+      ["", "", "", "", ""],
+      ["Food", '"yes"', "", "", ""],
+      ["", "", "", "", ""],
+      ["  ", "", "", "", ""],
+    ];
+    const rows = values.map((_, i) => ({ id: `r${i}`, cells: {} }));
+    const csv = sheetToCsv(columns, rows, (col, row) => values[row][col]);
+    // The named "Notes" column stays; D and E go. The blank middle row stays.
+    assert.equal(
+      csv,
+      'A,B,Notes\nItem,Total,\nRent,1200,\n,,\nFood,"""yes""",',
+    );
+  });
+
+  test("sheetToCsv with only empty cells writes the header", () => {
+    const columns = [{ id: "a", name: "A", width: 100, type: "text" }, { id: "b", name: "B", width: 100, type: "text" }];
+    const rows = [{ id: "r1", cells: {} }, { id: "r2", cells: {} }];
+    assert.equal(sheetToCsv(columns, rows, () => ""), "A");
   });
 
   test("sheetToCsv output round-trips through csvToGrid", () => {

@@ -17,6 +17,7 @@ import {
   List,
   ListCollapse,
   ListOrdered,
+  Maximize2,
   Repeat2,
   Trash2,
   Type,
@@ -25,6 +26,7 @@ import { openContextMenu, tidyEntries, type ContextMenuEntry } from "@/app/_stor
 import { useToastStore } from "@/app/_store/toastStore";
 import { imageSrc } from "./docImage";
 import { openBlockTransfer } from "./blockTransfer";
+import { openImageViewer } from "./imageViewer";
 import { deleteBlocks, duplicateBlocks, moveBlocks, rangeBlocks, setBlockRange, type BlockRange } from "./blockSelection";
 
 /**
@@ -156,6 +158,12 @@ export function openBlockMenu(editor: Editor, range: BlockRange, x: number, y: n
     title: single ? blockName(single) : `${nodes.length} blocks`,
     items: tidyEntries([
       textual && { kind: "submenu", label: "Turn into", icon: Repeat2, items: turnIntoItems },
+      images.length === 1 && {
+        kind: "action",
+        label: "View full size",
+        icon: Maximize2,
+        onSelect: () => openImageViewer(images[0].src, images[0].alt),
+      },
       images.length > 0 && {
         kind: "action",
         label: images.length === 1 ? "Download image" : `Download ${images.length} images`,

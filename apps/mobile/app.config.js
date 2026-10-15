@@ -2,6 +2,8 @@ const fs = require("fs");
 const path = require("path");
 const { withAndroidManifest } = require("expo/config-plugins");
 const appJson = require("./app.json");
+const withTimelyAndroid = require("./plugins/withTimelyAndroid");
+const { WIDGETS } = require("./lib/widgets/catalog.json");
 
 // The phone pairs with a Desktop host over plain http inside the Tailscale
 // tunnel (ADR 0011). Android blocks cleartext by default and Expo has no
@@ -42,7 +44,13 @@ module.exports = {
     ...appJson.expo,
     // expo-sharing (SDK 57) registers its config plugin; `expo install --fix`
     // cannot write it into a dynamic config, so it is added here.
-    plugins: [...(appJson.expo.plugins ?? []), "expo-sharing", withCleartextTraffic],
+    plugins: [
+      ...(appJson.expo.plugins ?? []),
+      "expo-sharing",
+      withCleartextTraffic,
+      withTimelyAndroid,
+      ["react-native-android-widget", { widgets: WIDGETS, fonts: ["./assets/fonts/Archivo-CondensedExtraBold.ttf"] }],
+    ],
     extra: apiUrl ? { apiUrl } : {},
   },
 };

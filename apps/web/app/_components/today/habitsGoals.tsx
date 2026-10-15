@@ -24,6 +24,7 @@ import { requestConfirm } from "@/app/_store/confirmStore";
 import { useToastStore } from "@/app/_store/toastStore";
 import { controlClass } from "@/app/_components/_ui/field";
 import Button from "@/app/_components/_ui/button";
+import TodayPanel from "@/app/_components/today/todayPanel";
 
 const failed = (fallback: string) => (error: unknown) => {
   useToastStore.getState().show(error instanceof Error ? error.message : fallback);
@@ -40,7 +41,6 @@ function shortDate(date: string) {
   return new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-const heading = "flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground";
 const label = "text-xs font-medium text-muted-foreground";
 const linkButton = "font-medium text-primary hover:underline disabled:opacity-50";
 const input =
@@ -48,7 +48,7 @@ const input =
 const iconButton =
   "shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
 
-/** Habits and goals at the top of Today: tick a habit for today and see its
+/** Habits and goals in the side column of Today: tick a habit for today and see its
  * streak, and see each goal with the open Work that moves it forward (only
  * with smart suggestions on). Edit mode adds, renames, reorders and deletes. */
 export default function HabitsGoals({ today, version }: { today: string; version: string }) {
@@ -68,40 +68,43 @@ export default function HabitsGoals({ today, version }: { today: string; version
 
   if (!editing && habitList.length === 0 && goalList.length === 0) {
     return (
-      <section
+      <TodayPanel
+        title="Habits and goals"
+        icon={<Flame className="size-3.5 text-warning" />}
         aria-label="Habits and goals"
         data-testid="today-habits-goals"
-        className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
       >
-        <Flame className="size-3.5 text-warning" />
-        <span>Track a daily habit or name what you are working toward.</span>
-        <button type="button" onClick={() => startEditing("habit")} className={linkButton}>
-          Add a habit
-        </button>
-        <button type="button" onClick={() => startEditing("goal")} className={linkButton}>
-          Add a goal
-        </button>
-      </section>
+        <p className="text-xs text-muted-foreground">Track a daily habit or name what you are working toward.</p>
+        <div className="mt-2 flex flex-wrap gap-3 text-xs">
+          <button type="button" onClick={() => startEditing("habit")} className={linkButton}>
+            Add a habit
+          </button>
+          <button type="button" onClick={() => startEditing("goal")} className={linkButton}>
+            Add a goal
+          </button>
+        </div>
+      </TodayPanel>
     );
   }
 
   return (
-    <section className="space-y-3" data-testid="today-habits-goals" aria-label="Habits and goals">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className={heading}>
-          <Flame className="size-3.5 text-warning" />
-          Habits and goals
-        </h2>
-        <button
-          type="button"
+    <TodayPanel
+      title="Habits and goals"
+      icon={<Flame className="size-3.5 text-warning" />}
+      aria-label="Habits and goals"
+      data-testid="today-habits-goals"
+      action={
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => (editing ? setEditing(false) : startEditing(null))}
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          leading={editing ? <Check /> : <Pencil />}
         >
-          {editing ? <Check className="size-3.5" /> : <Pencil className="size-3.5" />}
           {editing ? "Done" : "Edit"}
-        </button>
-      </div>
-      <div className="space-y-3 rounded-2xl border border-border bg-muted/20 p-4 text-sm">
+        </Button>
+      }
+    >
+      <div className="space-y-3 text-sm">
         {editing ? (
           <>
             <HabitEditor today={today} habits={habitList} autoFocus={focusAdd === "habit"} />
@@ -114,7 +117,7 @@ export default function HabitsGoals({ today, version }: { today: string; version
           </>
         )}
       </div>
-    </section>
+    </TodayPanel>
   );
 }
 
@@ -162,7 +165,7 @@ function HabitChips({ today, habits, onAdd }: { today: string; habits: Habit[]; 
               >
                 {habit.doneToday ? <Check className="size-3 stroke-[3]" /> : null}
               </span>
-              <span className="max-w-[14rem] truncate">{habit.name}</span>
+              <span className="max-w-[12rem] truncate">{habit.name}</span>
               <span
                 className={cn(
                   "inline-flex items-center gap-0.5 tabular-nums",

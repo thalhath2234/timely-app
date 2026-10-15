@@ -166,6 +166,7 @@ import SheetColumnSettings from "@/app/_components/sheets/sheetColumnSettings";
 import SheetConditionalPanel from "@/app/_components/sheets/sheetConditionalPanel";
 import SheetColumnFilter from "@/app/_components/sheets/sheetColumnFilter";
 import { sheetPrintHtml } from "@/app/_components/sheets/sheetPrint";
+import { plural } from "@/app/utils/plural";
 
 const MIN_COLUMN_WIDTH = 72;
 const MAX_COLUMN_WIDTH = 640;
@@ -342,7 +343,6 @@ export default function SheetGrid({
   const [typeMenuIndex, setTypeMenuIndex] = useState<number | null>(null);
   const [optionsEditorIndex, setOptionsEditorIndex] = useState<number | null>(null);
   const [filterMenuIndex, setFilterMenuIndex] = useState<number | null>(null);
-  const columnPopoverAnchorRef = useRef<HTMLDivElement>(null);
   const [filterQuery, setFilterQuery] = useState("");
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
@@ -1126,6 +1126,10 @@ export default function SheetGrid({
 
   const handleGridKeyDown = (event: React.KeyboardEvent) => {
     if (editing) return;
+    // Keys typed into the column rename box or a column popover (which
+    // bubble here through the portal) belong to that field, not the grid.
+    const target = event.target as HTMLElement;
+    if (target !== event.currentTarget && target.closest("input, textarea, select, [contenteditable='true']")) return;
     const extend = event.shiftKey;
     const mod = event.metaKey || event.ctrlKey;
     const nav = normalizedRange(range);
@@ -1614,8 +1618,6 @@ export default function SheetGrid({
     const last = axis === "row" ? bounds.maxRow : bounds.maxCol;
     return index >= first && index <= last ? { at: first, count: last - first + 1 } : { at: index, count: 1 };
   };
-
-  const plural = (count: number, word: string) => (count === 1 ? `1 ${word}` : `${count} ${word}s`);
 
   const rowEntries = (index: number): ContextMenuEntry[] => {
     const span = spanFor("row", index);
@@ -2400,7 +2402,7 @@ export default function SheetGrid({
               />
               <p className="mt-1.5 px-0.5 text-[11px] text-muted-foreground">
                 {filtering
-                  ? `Showing ${visibleRows.length} of ${rows.length} rows`
+                  ? `Showing ${visibleRows.length} of ${plural(rows.length, "row")}`
                   : `Sorts by column ${columnIndexToLetter(selected.col)}. Right-click a column to filter by its values.`}
               </p>
               {activeFilters.length > 0 || filterQuery ? (
@@ -2676,6 +2678,7 @@ export default function SheetGrid({
                   if (!isEditingFormula) return;
                   beginFormulaPick({ col: index, row: 0 }, "formula-col");
                 }}
+                data-column-header
                 onMouseEnter={() => {
                   if (dragRef.current === "formula-col") {
                     extendFormulaPick({ col: index, row: 0 });
@@ -2749,15 +2752,7 @@ export default function SheetGrid({
                   </button>
                 ) : null}
 
-                <div
-                  ref={
-                    typeMenuIndex === index || optionsEditorIndex === index || filterMenuIndex === index
-                      ? columnPopoverAnchorRef
-                      : undefined
-                  }
-                  className="relative shrink-0"
-                  data-sheet-popover
-                >
+                <div className="relative shrink-0" data-sheet-popover>
                   <button
                     type="button"
                     title="Column type and format"
@@ -2770,7 +2765,6 @@ export default function SheetGrid({
                   </button>
                   {typeMenuIndex === index ? (
                     <AnchoredPopover
-                      anchorRef={columnPopoverAnchorRef}
                       boundsRef={gridRef}
                       className="rounded-lg border border-border bg-popover p-1.5 shadow-xl"
                     >
@@ -2787,7 +2781,6 @@ export default function SheetGrid({
                   ) : null}
                   {filterMenuIndex === index ? (
                     <AnchoredPopover
-                      anchorRef={columnPopoverAnchorRef}
                       boundsRef={gridRef}
                       className="rounded-lg border border-border bg-popover p-1.5 shadow-xl"
                     >
@@ -2807,7 +2800,6 @@ export default function SheetGrid({
                   ) : null}
                   {optionsEditorIndex === index ? (
                     <AnchoredPopover
-                      anchorRef={columnPopoverAnchorRef}
                       boundsRef={gridRef}
                       className="w-64 rounded-md border border-border bg-popover p-2 shadow-lg"
                     >
@@ -3574,25 +3566,29 @@ const VIEWPORT_MARGIN = 8;
 
 /**
  * Column-header menus render into `document.body` so the grid's scroll
- * container cannot clip them. The panel hangs below the anchor, right-aligned
- * to it, and is clamped to stay inside `boundsRef` and the viewport.
+ * container cannot clip them. The panel hangs below its column header,
+ * lined up with the column's left edge, and is clamped to stay inside
+ * `boundsRef` and the viewport.
+ *
+ * The header is found from a marker rendered in place. A ref on the header
+ * would be attached only after this effect runs on the first open, which in
+ * a production build left the panel at the window's top-left corner.
  */
 function AnchoredPopover({
-  anchorRef,
   boundsRef,
   className,
   children,
 }: {
-  anchorRef: RefObject<HTMLElement | null>;
   boundsRef: RefObject<HTMLElement | null>;
   className?: string;
   children: ReactNode;
 }) {
+  const markerRef = useRef<HTMLSpanElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
     const place = () => {
-      const anchor = anchorRef.current;
+      const anchor = markerRef.current?.closest<HTMLElement>("[data-column-header]");
       const panel = panelRef.current;
       if (!anchor || !panel) return;
       const anchorRect = anchor.getBoundingClientRect();
@@ -3600,8 +3596,11 @@ function AnchoredPopover({
       const width = panel.offsetWidth;
       const height = panel.offsetHeight;
       const minLeft = Math.max(VIEWPORT_MARGIN, bounds ? bounds.left + POPOVER_GAP : 0);
-      const maxLeft = window.innerWidth - width - VIEWPORT_MARGIN;
-      const left = Math.max(minLeft, Math.min(anchorRect.right - width, maxLeft));
+      const maxLeft = Math.min(
+        window.innerWidth - VIEWPORT_MARGIN,
+        bounds ? bounds.right - POPOVER_GAP : Infinity,
+      ) - width;
+      const left = Math.max(minLeft, Math.min(anchorRect.left, maxLeft));
       const below = anchorRect.bottom + POPOVER_GAP;
       const top =
         below + height > window.innerHeight - VIEWPORT_MARGIN
@@ -3609,6 +3608,7 @@ function AnchoredPopover({
           : below;
       panel.style.left = `${left}px`;
       panel.style.top = `${top}px`;
+      panel.style.visibility = "visible";
     };
     place();
     window.addEventListener("resize", place);
@@ -3617,18 +3617,23 @@ function AnchoredPopover({
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [anchorRef, boundsRef]);
+  }, [boundsRef]);
 
-  return createPortal(
-    <div
-      ref={panelRef}
-      data-sheet-popover
-      className={`fixed left-0 top-0 z-[100] ${className ?? ""}`}
-      onMouseDown={(event) => event.stopPropagation()}
-    >
-      {children}
-    </div>,
-    document.body,
+  return (
+    <>
+      <span ref={markerRef} hidden />
+      {createPortal(
+        <div
+          ref={panelRef}
+          data-sheet-popover
+          className={`invisible fixed left-0 top-0 z-[100] ${className ?? ""}`}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          {children}
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 

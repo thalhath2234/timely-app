@@ -15,7 +15,6 @@ import {
   Trash2,
 } from "lucide-react";
 import SheetGrid, { type SheetGridChange } from "@/app/_components/sheets/sheetGrid";
-import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedListButton";
 import { Sheet, SheetTab } from "@/app/_types/types";
 import { UpdateSheetPayload } from "@/app/utils/api/sheets";
 import {
@@ -243,10 +242,6 @@ function SheetView({ sheet }: { sheet: Sheet }) {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background text-foreground" style={KINETIC_THEME}>
       <header className="flex min-h-14 items-center gap-2 border-b border-border bg-background px-4 py-2">
-        <ExpandCollapsedListButton
-          storageKey="timely.filesListCollapsed"
-          label="sheets list"
-        />
         <nav className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
           <Link
             href={FILES_PATH}

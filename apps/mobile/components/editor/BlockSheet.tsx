@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Code2,
   CopyPlus,
+  Copy,
   Download,
   FileInput,
   FileOutput,
@@ -28,7 +29,7 @@ import {
 import { pageChoices } from "@timely/contract/documents";
 import type { DocContent } from "../../lib/types";
 import { createDoc, getDoc, getDocs, updateDoc } from "../../lib/api/docs";
-import { shareImage } from "../../lib/api/portability";
+import { copyImage, shareImage } from "../../lib/api/portability";
 import { resolveDocContent } from "../../lib/markdown";
 import { useToastStore } from "../../lib/toast";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
@@ -221,7 +222,7 @@ export default function BlockSheet({
           {block.textual ? (
             <SheetOption leading={icon(Repeat2)} onSelect={() => setStep("turn")}>
               <View style={styles.row}>
-                <Text style={styles.label}>Turn into</Text>
+                <Text style={[styles.label, styles.grow]}>Turn into</Text>
                 <ChevronRight size={18} color={colors.mutedForeground} />
               </View>
             </SheetOption>
@@ -242,6 +243,21 @@ export default function BlockSheet({
               }}
             >
               {block.images.length === 1 ? "Save image" : `Save ${block.images.length} images`}
+            </SheetOption>
+          ) : null}
+          {block.images.length === 1 ? (
+            <SheetOption
+              leading={icon(Copy)}
+              onSelect={() => {
+                run("blockDone");
+                close();
+                const [image] = block.images;
+                void copyImage(image.src, image.alt)
+                  .then(() => useToastStore.getState().show("Image copied"))
+                  .catch((error) => useToastStore.getState().show(error instanceof Error ? error.message : "Could not copy the image"));
+              }}
+            >
+              Copy image
             </SheetOption>
           ) : null}
           <SheetOption leading={icon(CopyPlus)} onSelect={() => act("duplicate")}>
@@ -278,7 +294,10 @@ export default function BlockSheet({
 
 const styles = createThemedStyleSheet((colors) => ({
   row: { flexDirection: "row", alignItems: "center", gap: 8 },
-  label: { flex: 1, color: colors.foreground, fontSize: 15, fontWeight: "600" },
+  // No flex here: inside SheetOption's column wrapper a flex: 1 label stretched
+  // to the row's height and drew its text at the top, above the icon (Delete).
+  label: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
+  grow: { flex: 1 },
   emoji: { width: 18, textAlign: "center", fontSize: 15 },
   hint: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
   empty: { color: colors.mutedForeground, fontSize: 14, paddingVertical: 10, paddingHorizontal: 4 },

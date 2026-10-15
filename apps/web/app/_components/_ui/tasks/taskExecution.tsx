@@ -15,6 +15,7 @@ import {
   useToggleChecklistItem,
 } from "@/app/utils/hooks/tasks";
 import { showUndoToast } from "@/app/_store/toastStore";
+import { isReminderTask } from "@/app/utils/taskFilters";
 
 function todayStamp() {
   return localDateStamp();
@@ -42,6 +43,8 @@ export default function TaskExecution({
   const submittingRef = useRef(false);
 
   const focusing = Boolean(task.focusStartedAt);
+  // Finished work and reminders have nothing left to focus on.
+  const focusable = !task.completedAt && !isReminderTask(task);
   const onToday = dateOnly(task.todayFocusOn) === todayStamp();
   const checklist = useMemo(
     () => [...(task.checklist ?? [])].sort((a, b) => a.order - b.order),
@@ -62,7 +65,7 @@ export default function TaskExecution({
           >
             <Square className="size-3.5" /> Stop focus
           </button>
-        ) : (
+        ) : focusable ? (
           <button
             type="button"
             onClick={() => void startFocus.mutateAsync(task.id)}
@@ -74,20 +77,22 @@ export default function TaskExecution({
             <Play className="size-3.5" />
             Focus Now
           </button>
-        )}
-        <button
-          type="button"
-          onClick={() => void setFocus.mutateAsync({ taskId: task.id, date: onToday ? null : todayStamp() })}
-          className={cn(
-            actionClass,
-            onToday
-              ? "border-primary/40 bg-primary/10 text-primary"
-              : "border-border bg-muted/40 text-foreground hover:border-border",
-          )}
-        >
-          <Star className={cn("size-3.5", onToday ? "fill-current text-warning" : "text-warning")} />
-          {onToday ? "In Today" : "Today Focus"}
-        </button>
+        ) : null}
+        {focusable || onToday ? (
+          <button
+            type="button"
+            onClick={() => void setFocus.mutateAsync({ taskId: task.id, date: onToday ? null : todayStamp() })}
+            className={cn(
+              actionClass,
+              onToday
+                ? "border-primary/40 bg-primary/10 text-primary"
+                : "border-border bg-muted/40 text-foreground hover:border-border",
+            )}
+          >
+            <Star className={cn("size-3.5", onToday ? "fill-current text-warning" : "text-warning")} />
+            {onToday ? "In Today" : "Today Focus"}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={() =>

@@ -47,6 +47,9 @@ async function withOnboardingState(user: User): Promise<User> {
   }
 }
 
+/** Longest a launch with a saved account waits on the server before opening. */
+const STARTUP_WAIT_MS = 3000;
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [state, setState] = useState<AuthState>({ ready: false, token: null, user: null });
@@ -64,6 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    let openCachedTimer: ReturnType<typeof setTimeout> | undefined;
     (async () => {
       const token = await getToken();
       if (!token) {
@@ -75,7 +79,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (cachedUser && !cancelled) {
         setOfflineQueueUser(cachedUser.id);
         queryClient.setQueryData(["me"], cachedUser);
-        setState({ ready: true, token, user: cachedUser });
+        // "Preparing Timely" stays up while hydrate() loads the account and
+        // the first screen's data, but a slow or unreachable server never
+        // holds the app longer than STARTUP_WAIT_MS: it opens on the saved
+        // account and the data fills in when it arrives.
+        openCachedTimer = setTimeout(() => {
+          if (!cancelled) setState((prev) => (prev.ready ? prev : { ready: true, token, user: cachedUser }));
+        }, STARTUP_WAIT_MS);
       }
       try {
         if (!cancelled) await hydrate(token, true);
@@ -106,6 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
     return () => {
       cancelled = true;
+      clearTimeout(openCachedTimer);
     };
   }, []);
 

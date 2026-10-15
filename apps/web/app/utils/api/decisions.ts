@@ -239,6 +239,8 @@ export type DocHints = {
   properties?: { key: string; value: string }[];
   template?: { id: string; title: string };
   outdated?: boolean;
+  /** Items (lower case) of checklists kept in the doc, not worked as tasks. */
+  keptLists?: string[];
 };
 
 export const getDocHints = (docId: string) => request<DocHints>(`/suggestions/doc/${encodeURIComponent(docId)}`);
@@ -305,7 +307,7 @@ export const runNotificationTriage = (notificationId: string, action: TriageStep
 
 // Personalisation (Phase 9).
 export type StarterUse = { key: string; label: string; workspace?: string };
-export type StarterLabel = { name: string; color: string };
+export type StarterLabel = { name: string; color: string; uses?: string[] };
 export type PersonalPrefs = { useCase: string; dismissedTips: string[] };
 
 export const getPersonalPrefs = () => request<{ prefs: PersonalPrefs; uses: StarterUse[] }>("/suggestions/prefs");

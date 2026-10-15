@@ -1,0 +1,45 @@
+{
+  "WIDGETS": [
+    {
+      "name": "TimelyCard",
+      "label": "Timely card",
+      "description": "Any card from your Timely dashboard, including the ones you made.",
+      "minWidth": "110dp",
+      "minHeight": "110dp",
+      "targetCellWidth": 2,
+      "targetCellHeight": 2,
+      "maxResizeWidth": "520dp",
+      "maxResizeHeight": "520dp",
+      "resizeMode": "horizontal|vertical",
+      "widgetFeatures": "reconfigurable",
+      "updatePeriodMillis": 1800000,
+      "previewImage": "./assets/widgets/timely-card.png"
+    },
+    {
+      "name": "TimelyToday",
+      "label": "Today",
+      "description": "What you're focusing on and what's next on your calendar.",
+      "minWidth": "250dp",
+      "minHeight": "110dp",
+      "targetCellWidth": 4,
+      "targetCellHeight": 2,
+      "maxResizeWidth": "520dp",
+      "maxResizeHeight": "520dp",
+      "resizeMode": "horizontal|vertical",
+      "updatePeriodMillis": 1800000,
+      "previewImage": "./assets/widgets/timely-today.png"
+    },
+    {
+      "name": "TimelyQuickAdd",
+      "label": "Quick add",
+      "description": "Add a task, capture to the Inbox, ask the assistant or search in one tap.",
+      "minWidth": "250dp",
+      "minHeight": "40dp",
+      "targetCellWidth": 4,
+      "targetCellHeight": 1,
+      "maxResizeWidth": "520dp",
+      "resizeMode": "horizontal",
+      "previewImage": "./assets/widgets/timely-quick-add.png"
+    }
+  ]
+}

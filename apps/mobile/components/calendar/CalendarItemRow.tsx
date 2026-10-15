@@ -1,6 +1,7 @@
 import { Text, View } from "react-native";
 import { CalendarClock, Check, ListTodo, Repeat } from "lucide-react-native";
 import type { CalendarItem } from "../../lib/types";
+import { calendarItemDone } from "@timely/contract/calendar";
 import { formatRelativeDay, formatTime, formatTimeRange } from "../../lib/format";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { taskEntityColor } from "../../lib/entityColor";
@@ -14,6 +15,8 @@ export function itemColor(item: CalendarItem) {
 export function isTaskItem(item: CalendarItem) {
   return item.kind === "task" || item.kind === "taskOccurrence";
 }
+
+export const isItemDone = calendarItemDone;
 
 export function isReminderItem(item: CalendarItem) {
   return Boolean(
@@ -52,11 +55,11 @@ export default function CalendarItemRow({
   overdue?: boolean;
   timeline?: boolean;
 }) {
-  const done = Boolean(item.completedAt);
+  const done = isItemDone(item);
   const recurring = item.kind.endsWith("Occurrence") || Boolean(item.seriesId);
   const Icon = isTaskItem(item) ? ListTodo : CalendarClock;
   const when = timeline
-    ? item.allDay ? "All day event" : overdue ? "Overdue" : isReminderItem(item) ? "Reminder" : "Scheduled"
+    ? done ? "Done" : item.allDay ? "All day event" : overdue ? "Overdue" : isReminderItem(item) ? "Reminder" : "Scheduled"
     : item.allDay
     ? overdue
       ? `Due ${formatRelativeDay(new Date(item.start), undefined)}`

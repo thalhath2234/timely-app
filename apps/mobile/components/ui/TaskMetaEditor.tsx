@@ -4,7 +4,6 @@ import Animated, { useReducedMotion } from "react-native-reanimated";
 import { Braces, Tags, Plus, X } from "lucide-react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import CustomFieldBuilder, {
-  FIELD_PALETTE,
   LabelComposer,
   cleanedOptions,
   needsOptions,
@@ -17,6 +16,7 @@ import { createCustomField, createLabel } from "../../lib/api/workspaces";
 import { emptyCustomFieldDrafts, withCustomFieldDraft } from "../../lib/customFields";
 import { keys } from "../../lib/hooks";
 import type { CustomField, CustomFieldType, CustomFieldValueInput, Workspace } from "../../lib/types";
+import { colorForIndex } from "../../lib/entityColor";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { expandEntering, expandExiting, listLayout } from "../../lib/motion";
 import TaskSectionHeader from "../tasks/TaskSectionHeader";
@@ -66,6 +66,7 @@ export default function TaskMetaEditor({
   onValues,
   showLabels = true,
   showCustomFields = true,
+  compact,
 }: {
   workspace?: Workspace;
   workspaceId: string;
@@ -75,16 +76,18 @@ export default function TaskMetaEditor({
   onValues: (next: CustomFieldValueInput[]) => void;
   showLabels?: boolean;
   showCustomFields?: boolean;
+  /** Inside a create sheet: plain "Labels" / "Custom fields" captions. */
+  compact?: boolean;
 }) {
   const client = useQueryClient();
   const reduceMotion = useReducedMotion();
   const labels = workspace?.lables ?? [];
   const fields = workspace?.customFields ?? [];
   const [labelName, setLabelName] = useState("");
-  const [labelColor, setLabelColor] = useState(FIELD_PALETTE[0]);
+  const [labelColor, setLabelColor] = useState(colorForIndex(0));
   const [fieldName, setFieldName] = useState("");
   const [fieldType, setFieldType] = useState<CustomFieldType>("select");
-  const [options, setOptions] = useState<OptionDraft[]>([{ value: "", color: FIELD_PALETTE[0] }]);
+  const [options, setOptions] = useState<OptionDraft[]>([{ value: "", color: colorForIndex(0) }]);
   const [addingLabel, setAddingLabel] = useState(false);
   const [addingField, setAddingField] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -92,13 +95,13 @@ export default function TaskMetaEditor({
 
   function resetLabelDraft() {
     setLabelName("");
-    setLabelColor(FIELD_PALETTE[0]);
+    setLabelColor(colorForIndex(0));
   }
 
   function resetFieldDraft() {
     setFieldName("");
     setFieldType("select");
-    setOptions([{ value: "", color: FIELD_PALETTE[0] }]);
+    setOptions([{ value: "", color: colorForIndex(0) }]);
   }
 
   function toggleAddingLabel() {
@@ -189,7 +192,7 @@ export default function TaskMetaEditor({
       {showLabels ? (
         <>
           <View style={styles.heading}>
-            <View style={styles.headingCopy}><TaskSectionHeader icon={<Tags size={18} color={colors.primary} />} title="Labels & Taxonomy" subtitle="Visual categories and focus filters" badge={`${labelIds.length} active`} badgeTone="muted" /></View>
+            <View style={styles.headingCopy}>{compact ? <Text style={styles.caption}>{labelIds.length ? `Labels · ${labelIds.length}` : "Labels"}</Text> : <TaskSectionHeader icon={<Tags size={18} color={colors.primary} />} title="Labels & Taxonomy" subtitle="Visual categories and focus filters" badge={`${labelIds.length} active`} badgeTone="muted" />}</View>
             <SubtlePlus label="Add label" open={addingLabel} onPress={toggleAddingLabel} />
           </View>
           {labels.length > 0 ? (
@@ -232,7 +235,7 @@ export default function TaskMetaEditor({
       {showCustomFields ? (
         <>
           <View style={styles.heading}>
-            <View style={styles.headingCopy}><TaskSectionHeader icon={<Braces size={18} color={colors.primary} />} title="Custom Fields" subtitle="Configurable task details" /></View>
+            <View style={styles.headingCopy}>{compact ? <Text style={styles.caption}>Custom fields</Text> : <TaskSectionHeader icon={<Braces size={18} color={colors.primary} />} title="Custom Fields" subtitle="Configurable task details" />}</View>
             <SubtlePlus label="Add custom field" open={addingField} onPress={toggleAddingField} />
           </View>
           <CustomFieldEditor hideTitle fields={fields} values={values} onChange={onValues} />
@@ -263,6 +266,7 @@ export default function TaskMetaEditor({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
+  caption: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500", marginLeft: 2 },
   root: { gap: 10 },
   heading: { flexDirection: "row", alignItems: "flex-start", gap: 6 },
   headingCopy: { flex: 1, minWidth: 0 },

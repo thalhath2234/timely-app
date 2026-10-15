@@ -18,6 +18,9 @@ import { defaultNativeTaskViews, normalizeViews } from "../../../lib/nativeTaskV
 import { matchViewByName } from "@timely/contract/viewSearch";
 import { SEARCH_KIND_ICONS, searchKindIcon } from "../../../components/search/kindIcon";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
+import ListingCard from "../../../components/search/ListingCard";
+import { useViewPreviewStore } from "../../../lib/viewPreviewStore";
+import type { TaskViewConfig } from "../../../lib/types";
 
 const categories = [
   { id: "all", label: "All", icon: LayoutGrid },
@@ -87,6 +90,16 @@ export default function SearchTab() {
     navigate({ pathname: "/(app)/(tabs)/tasks", params: { view: view.id } });
   }
 
+  // Words read as a list of tasks open on the Tasks tab as a Preview, or are
+  // saved there as a new view.
+  const setPreview = useViewPreviewStore((state) => state.setPreview);
+  const setPendingSave = useViewPreviewStore((state) => state.setPendingSave);
+  function openListing(view: TaskViewConfig, save: boolean) {
+    if (save) setPendingSave(view);
+    else setPreview(view);
+    navigate("/(app)/(tabs)/tasks");
+  }
+
   function create(kind: SmartCategory, title?: string) {
     Keyboard.dismiss();
     if (kind === "project") router.push(title ? { pathname: "/(app)/projects", params: { title } } : destinations.project);
@@ -129,6 +142,8 @@ export default function SearchTab() {
       </AnimatedPressable>
     );
   }
+
+  const listing = trimmed && (category === "all" || category === "task") ? <ListingCard query={trimmed} onOpen={openListing} /> : null;
 
   const weak = `${hidden.length} weak ${hidden.length === 1 ? "match" : "matches"}`;
   // Stays while the weak matches show, so they read as set apart and can be
@@ -189,7 +204,7 @@ export default function SearchTab() {
           })}
         </ScrollView>
       </View>
-      <ScrollView ref={scroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={styles.results}>
+      <ScrollView showsVerticalScrollIndicator={false} ref={scroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={styles.results}>
         {!pending && !failed && smartCategory ? (
           <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Looking for ${smartCategory.label}? Show only ${smartCategory.label.toLowerCase()}`}
             onPress={() => { setCategory(smartCategory.id); scroll.current?.scrollTo({ y: 0, animated: false }); }}
@@ -198,6 +213,10 @@ export default function SearchTab() {
             <Text style={styles.suggestText}>Looking for {smartCategory.label}?</Text>
           </AnimatedPressable>
         ) : null}
+        {/* A saved view named outright comes first; Smart suggestions' looser
+            pick follows the listing the words themselves describe. */}
+        {viewPick && viewPick !== namedView ? listing : null}
+        {!viewPick ? listing : null}
         {viewPick ? (
           <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Open your saved view ${viewPick.name}`}
             onPress={() => openView(viewPick)} style={styles.viewRow}>
@@ -209,6 +228,7 @@ export default function SearchTab() {
             <ArrowUpRight size={16} color={colors.mutedForeground} />
           </AnimatedPressable>
         ) : null}
+        {viewPick && viewPick === namedView ? listing : null}
         {createPick ? (
           <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Create ${nounFor(createPick.kind)} ${createPick.title}`}
             onPress={() => create(createPick.kind, createPick.title)} style={styles.viewRow}>

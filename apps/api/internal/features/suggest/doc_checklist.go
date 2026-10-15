@@ -122,10 +122,52 @@ func (s *Service) DocChecklist(ctx context.Context, userID, docID string, names 
 			found[r.Name] = r.ID
 		}
 	}
+	// A task named with AI has a cleaner name than the item, so it is found
+	// by its description instead: it links this doc and quotes the item
+	// (`From <doc>: “<item>”`, checklistTaskDescription in the contract).
+	if len(found) < len(order) {
+		var named []struct {
+			ID          string
+			Description string
+		}
+		s.db.WithContext(ctx).Model(&models.Task{}).Select("id", "description").
+			Where("user_id = ? AND description_rich::text LIKE ?", userID, "%"+likeEscape(docID)+"%").
+			Where("completed_at IS NULL OR created_at >= ?", since).
+			Order("completed_at IS NOT NULL, created_at DESC").
+			Limit(500).
+			Scan(&named)
+		for _, l := range order {
+			if _, ok := found[l]; ok {
+				continue
+			}
+			for _, r := range named {
+				if quotesItem(r.Description, l) {
+					found[l] = r.ID
+					break
+				}
+			}
+		}
+	}
 	for _, l := range order {
 		if id, ok := found[l]; ok {
 			out.Existing = append(out.Existing, ChecklistTask{Name: byLower[l], TaskID: id})
 		}
 	}
 	return out, nil
+}
+
+// quotesItem reports whether a task description quotes the checklist item
+// whose (lower-cased) name is given, as `From <doc>: “<item text>”` does. The
+// item's text starts with its name; a name cut short ends in an ellipsis.
+func quotesItem(description, name string) bool {
+	name = strings.TrimSuffix(name, "…")
+	if name == "" {
+		return false
+	}
+	text := strings.ToLower(strings.Join(strings.Fields(description), " "))
+	return strings.Contains(text, ": “"+name)
+}
+
+func likeEscape(s string) string {
+	return strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(s)
 }

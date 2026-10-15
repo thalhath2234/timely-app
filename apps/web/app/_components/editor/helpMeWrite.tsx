@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { generateHTML, type Editor, type JSONContent } from "@tiptap/react";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { ArrowUp, RotateCcw, Sparkles, X } from "lucide-react";
 import {
   SELECTION_ACTIONS,
@@ -40,7 +43,42 @@ export function useHelpMeWriteAvailable() {
 
 /** The labelled toolbar entry. It sits first in the bar, so it is never lost
  * among the formatting icons. */
-export function HelpMeWriteButton({ active, onClick }: { active: boolean; onClick: (anchor: DOMRect) => void }) {
+export function HelpMeWriteButton({
+  active,
+  kept,
+  onClick,
+  compact,
+}: {
+  active: boolean;
+  /** A prompt or draft is waiting in the closed panel; a dot says so. */
+  kept?: boolean;
+  onClick: (anchor: DOMRect) => void;
+  compact?: boolean;
+}) {
+  const dot = kept && !active && (
+    <span aria-hidden="true" className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-primary ring-2 ring-card" />
+  );
+  const label = kept && !active ? "Help me write, draft waiting" : "Help me write";
+  // Icon only in the doc page's toolbar rail, which is one button wide.
+  if (compact) {
+    return (
+      <button
+        type="button"
+        title={label}
+        aria-label={label}
+        aria-haspopup="dialog"
+        aria-expanded={active}
+        onClick={(event) => onClick(event.currentTarget.getBoundingClientRect())}
+        className={cn(
+          "relative flex size-7 shrink-0 items-center justify-center rounded-md text-primary transition-colors hover:bg-primary/15",
+          active && "bg-primary/15",
+        )}
+      >
+        <Sparkles className="size-3.5" />
+        {dot}
+      </button>
+    );
+  }
   return (
     <Button
       variant="soft"
@@ -48,10 +86,12 @@ export function HelpMeWriteButton({ active, onClick }: { active: boolean; onClic
       aria-haspopup="dialog"
       aria-expanded={active}
       leading={<Sparkles />}
+      aria-label={label}
       onClick={(event) => onClick(event.currentTarget.getBoundingClientRect())}
-      className={cn("font-semibold", active && "bg-primary/15")}
+      className={cn("relative font-semibold", active && "bg-primary/15")}
     >
       Help me write
+      {dot}
     </Button>
   );
 }
@@ -73,17 +113,66 @@ function enclosingListItem(editor: Editor, range: Captured) {
 }
 type Run = { action: WriteAction; prompt?: string; selection?: string; label?: string };
 
+/** Where the draft will go, kept in step with edits made while the panel
+ * stays open, and the lines there marked while it shows. */
+type Target = { from: number; to: number; show: boolean };
+const targetKey = new PluginKey<Target>("helpMeWriteTarget");
+const targetPlugin = (start: Target) =>
+  new Plugin<Target>({
+    key: targetKey,
+    state: {
+      init: () => start,
+      apply: (tr, value) => {
+        const show = tr.getMeta(targetKey) as boolean | undefined;
+        let next = show === undefined ? value : { ...value, show };
+        if (tr.docChanged) {
+          const caret = next.from === next.to;
+          const from = tr.mapping.map(next.from, caret ? -1 : 1);
+          next = { ...next, from, to: caret ? from : Math.max(from, tr.mapping.map(next.to, -1)) };
+        }
+        return next;
+      },
+    },
+    props: {
+      decorations: (state) => {
+        const target = targetKey.getState(state);
+        if (!target?.show) return null;
+        const size = state.doc.content.size;
+        const marks: Decoration[] = [];
+        state.doc.nodesBetween(Math.min(target.from, size), Math.min(Math.max(target.to, target.from + 1), size), (node, pos) => {
+          if (!node.isTextblock) return true;
+          if (marks.length < 40) marks.push(Decoration.node(pos, pos + node.nodeSize, { class: "doc-line-hinted" }));
+          return false;
+        });
+        return DecorationSet.create(state.doc, marks);
+      },
+    },
+  });
+
 export default function HelpMeWritePanel({
   editor,
   context,
   anchor,
-  onClose,
+  shown,
+  dock,
+  onHide,
+  onDone,
 }: {
   editor: Editor;
   context: WriteContext;
   /** Screen point the panel hangs from (the toolbar button or the caret). */
   anchor: { top: number; left: number };
-  onClose: () => void;
+  /** Closing only hides the panel while it holds a prompt or a draft, so
+   * opening it again picks up where it was. */
+  shown: boolean;
+  /** The doc page's right margin on a wide page: the panel sits there level
+   * with the line it writes into and stays open while the doc is edited. */
+  dock?: HTMLElement | null;
+  /** Closed with X, Escape or a click outside; `keep` when there is a prompt
+   * or a draft to come back to. */
+  onHide: (keep: boolean) => void;
+  /** The draft went into the doc. */
+  onDone: () => void;
 }) {
   // The selection when the panel opened; focus moves into the panel after this.
   const [captured] = useState<Captured>(() => {
@@ -103,27 +192,81 @@ export default function HelpMeWritePanel({
   const abort = useRef<AbortController | null>(null);
   const panel = useRef<HTMLDivElement>(null);
   const [top, setTop] = useState(anchor.top);
+  const docked = Boolean(dock);
+  const keep = Boolean(prompt.trim() || refine.trim() || result || busy);
+  const hide = () => onHide(keep);
+  const hideRef = useRef(hide);
+  useLayoutEffect(() => {
+    hideRef.current = hide;
+  });
+
+  // The target follows edits for as long as the panel lives.
+  useEffect(() => {
+    if (editor.isDestroyed) return;
+    editor.registerPlugin(targetPlugin({ from: captured.from, to: captured.to, show: false }));
+    return () => {
+      if (!editor.isDestroyed) editor.unregisterPlugin(targetKey);
+    };
+  }, [editor, captured]);
+  useEffect(() => {
+    if (editor.isDestroyed || !targetKey.getState(editor.state)) return;
+    editor.view.dispatch(editor.state.tr.setMeta(targetKey, shown).setMeta("addToHistory", false));
+  }, [editor, shown]);
+
+  // A draft still being written finishes while the panel is hidden; only
+  // leaving the editor stops it.
+  useEffect(() => () => abort.current?.abort(), []);
 
   // Keep the panel on screen: below the anchor when it fits, else pinned to
   // the bottom edge.
   useLayoutEffect(() => {
+    if (docked || !shown) return;
     const height = panel.current?.offsetHeight ?? 0;
     setTop(Math.max(8, Math.min(anchor.top, window.innerHeight - height - 12)));
-  }, [anchor.top, busy, result, error]);
+  }, [anchor.top, busy, result, error, docked, shown]);
 
+  // Docked: level with the target line, following it as the doc changes.
+  useLayoutEffect(() => {
+    if (!dock || !shown) return;
+    let frame = 0;
+    const place = () => {
+      const target = targetKey.getState(editor.state);
+      if (!target || editor.isDestroyed) return;
+      const line = editor.view.coordsAtPos(Math.min(target.from, editor.state.doc.content.size));
+      setTop(Math.max(0, Math.round(line.top - dock.getBoundingClientRect().top - 10)));
+    };
+    const soon = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(place);
+    };
+    place();
+    editor.on("update", soon);
+    const observer = new ResizeObserver(soon);
+    observer.observe(editor.view.dom);
+    observer.observe(dock);
+    return () => {
+      cancelAnimationFrame(frame);
+      editor.off("update", soon);
+      observer.disconnect();
+    };
+  }, [editor, dock, shown]);
   useEffect(() => {
+    if (docked && shown) panel.current?.scrollIntoView({ block: "nearest" });
+  }, [docked, shown]);
+
+  // Escape closes the popover from anywhere; the docked panel only when the
+  // key is pressed inside it, so Escape in the doc leaves it be.
+  useEffect(() => {
+    if (!shown || docked) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        hideRef.current();
       }
     };
     window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      abort.current?.abort();
-    };
-  }, [onClose]);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [shown, docked]);
 
   const start = async (run: Run) => {
     abort.current?.abort();
@@ -169,7 +312,10 @@ export default function HelpMeWritePanel({
     if (!result) return "";
     const { blocks } = toNodes(result.text);
     try {
-      return generateHTML({ type: "doc", content: blocks }, editor.extensionManager.extensions);
+      // Links and checkboxes in the preview are for looking at, so they are
+      // left out of the tab order as well as out of reach of the pointer.
+      return generateHTML({ type: "doc", content: blocks }, editor.extensionManager.extensions)
+        .replace(/<(a|input)\b/g, '<$1 tabindex="-1"');
     } catch {
       return "";
     }
@@ -180,26 +326,29 @@ export default function HelpMeWritePanel({
     const { blocks, inline } = toNodes(result.text);
     if (blocks.length === 0) return;
     const { doc } = editor.state;
+    // Where the panel opened, moved along with any edits made since.
+    const mapped = targetKey.getState(editor.state);
+    const target = { ...captured, from: mapped?.from ?? captured.from, to: mapped?.to ?? captured.to };
     const size = doc.content.size;
     const chain = editor.chain().focus();
     const replacing = hasSelection && mode === "replace";
-    if (hasSelection && (captured.to > size || doc.textBetween(captured.from, captured.to, "\n").trim() !== captured.text)) {
+    if (hasSelection && (target.to > size || doc.textBetween(target.from, target.to, "\n").trim() !== captured.text)) {
       useToastStore.getState().show("The text changed while writing. Select it again.");
       return;
     }
     if (replacing) {
       // A list answer for text inside a list item replaces that item, so the
       // new items sit beside it instead of nesting inside it.
-      const item = !inline ? enclosingListItem(editor, captured) : null;
+      const item = !inline ? enclosingListItem(editor, target) : null;
       if (item && blocks.length === 1 && blocks[0].type === item.listType) {
         chain.insertContentAt({ from: item.from, to: item.to }, blocks[0].content ?? []).run();
       } else {
-        chain.insertContentAt({ from: captured.from, to: captured.to }, inline ?? blocks).run();
+        chain.insertContentAt({ from: target.from, to: target.to }, inline ?? blocks).run();
       }
     } else if (result.run.action === "continue") {
       chain.insertContentAt(size, blocks).run();
     } else {
-      const at = doc.resolve(Math.min(hasSelection ? captured.to : captured.from, size));
+      const at = doc.resolve(Math.min(hasSelection ? target.to : target.from, size));
       const block = at.depth > 0 ? at.node(1) : null;
       if (!hasSelection && block?.isTextblock && block.content.size === 0) {
         // An empty line becomes the draft.
@@ -210,21 +359,30 @@ export default function HelpMeWritePanel({
         chain.insertContentAt(size, blocks).run();
       }
     }
-    onClose();
+    onDone();
   };
 
   const where = hasSelection ? "Rewrite the selected text" : context.kind === "doc" ? "Draft into this doc" : "Draft the description";
   const left = Math.max(8, Math.min(anchor.left, window.innerWidth - PANEL_WIDTH - 8));
 
-  return (
-    <>
-      <div className="fixed inset-0 z-50" onMouseDown={onClose} />
+  if (!shown) return null;
+  const surface = (
       <div
         ref={panel}
         role="dialog"
         aria-label="Help me write"
-        className={cn(popoverSurface, "fixed z-[60] flex max-h-[min(560px,calc(100vh-24px))] flex-col overflow-hidden")}
-        style={{ top, left, width: `min(${PANEL_WIDTH}px, calc(100vw - 16px))` }}
+        className={cn(
+          popoverSurface,
+          "flex max-h-[min(560px,calc(100vh-24px))] flex-col overflow-hidden",
+          docked ? "absolute inset-x-0 z-30" : "fixed z-[60]",
+        )}
+        style={docked ? { top } : { top, left, width: `min(${PANEL_WIDTH}px, calc(100vw - 16px))` }}
+        onKeyDown={(event) => {
+          if (docked && event.key === "Escape") {
+            event.preventDefault();
+            hide();
+          }
+        }}
       >
         <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
           <span className="flex size-6 items-center justify-center rounded-md bg-accent text-accent-foreground">
@@ -234,7 +392,7 @@ export default function HelpMeWritePanel({
             <p className="text-sm font-semibold leading-tight">Help me write</p>
             <p className="truncate text-xs text-muted-foreground">{where}</p>
           </div>
-          <Button variant="ghost" size="sm" icon aria-label="Close" onClick={onClose}>
+          <Button variant="ghost" size="sm" icon aria-label="Close" onClick={hide}>
             <X />
           </Button>
         </div>
@@ -257,7 +415,13 @@ export default function HelpMeWritePanel({
           ) : result ? (
             <>
               <div
-                className="doc-editor-content doc-editor-compact pointer-events-none max-h-72 overflow-y-auto rounded-md border border-border bg-background/60 px-3 py-2 text-sm"
+                // The preview must take pointer events or the wheel, trackpad and
+                // scrollbar can't scroll it; only the links and checkboxes inside
+                // are switched off so the draft can't be clicked into.
+                className="doc-editor-content doc-editor-compact max-h-72 overflow-y-auto overscroll-contain rounded-md border border-border bg-background/60 px-3 py-2 text-sm [&_a]:pointer-events-none [&_input]:pointer-events-none [&_label]:pointer-events-none"
+                tabIndex={0}
+                role="region"
+                aria-label="Draft preview"
                 // generateHTML serialises through the editor schema, which escapes text.
                 dangerouslySetInnerHTML={{ __html: preview }}
               />
@@ -368,6 +532,12 @@ export default function HelpMeWritePanel({
           </div>
         )}
       </div>
+  );
+  if (dock) return createPortal(surface, dock);
+  return (
+    <>
+      <div className="fixed inset-0 z-50" onMouseDown={hide} />
+      {surface}
     </>
   );
 }

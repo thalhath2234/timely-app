@@ -1,0 +1,23 @@
+// Adds the native widget drawing test (scripts/mobile-widget-native/java) to
+// the generated app project for one run, without editing apps/mobile/android.
+// Used by scripts/mobile-widget-native/run.sh; see `make test-mobile-widgets-native`.
+def testSrc = System.getenv("WIDGET_TEST_SRC")
+def robolectricRepo = System.getenv("TIMELY_ROBOLECTRIC_REPO")
+
+gradle.beforeProject { p ->
+  if (p.path != ":app") return
+  p.pluginManager.withPlugin("com.android.application") {
+    p.android.sourceSets.test.java.srcDirs += testSrc
+    p.android.testOptions.unitTests.includeAndroidResources = true
+    p.dependencies.add("testImplementation", "junit:junit:4.13.2")
+    p.dependencies.add("testImplementation", "org.robolectric:robolectric:4.14.1")
+    p.tasks.withType(Test).configureEach { t ->
+      t.maxHeapSize = "3g"
+      t.systemProperty "robolectric.graphicsMode", "NATIVE"
+      if (robolectricRepo) t.systemProperty "robolectric.dependency.repo.url", robolectricRepo
+      t.systemProperty "widgetCases", System.getenv("WIDGET_CASES") ?: ""
+      t.systemProperty "widgetOut", System.getenv("WIDGET_OUT") ?: ""
+      t.testLogging { events "failed"; exceptionFormat "full"; showStandardStreams true }
+    }
+  }
+}

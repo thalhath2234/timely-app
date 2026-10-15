@@ -27,6 +27,8 @@ const (
 	maxDocParents   = 8
 	maxWorkLines    = 20
 	maxWorkHints    = 8
+	maxChecklists   = 8
+	maxListItems    = 12
 	maxPropertyKeys = 5
 	maxKeyValues    = 15
 	maxDocTemplates = 20
@@ -82,6 +84,10 @@ type DocHints struct {
 	Properties []PropertyHint `json:"properties,omitempty"` // [52]
 	Template   *DocRef        `json:"template,omitempty"`   // [52] for a near-empty doc
 	Outdated   bool           `json:"outdated,omitempty"`   // [57]
+	// KeptLists are the items (lower case) of checklists kept in the doc to
+	// tick off there, like groceries or packing, not worked as tasks; the
+	// clients offer none of a list's items as tasks (docChecklist).
+	KeptLists []string `json:"keptLists,omitempty"`
 }
 
 func (s *Service) docHints(c *echo.Context) error {
@@ -212,6 +218,28 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 			state["lines"] = list
 		}
 	}
+	// An unchecked item says it is a to-do, but not every list is work: a
+	// grocery or packing list is ticked off in the doc. Jev judges each list
+	// whole, by its heading and items, even in a short doc.
+	lists := checklists(doc.Content)
+	if len(lists) > 0 {
+		described := make([]map[string]any, len(lists))
+		for i, l := range lists {
+			key := fmt.Sprintf("c%d", i+1)
+			items := l.items
+			if len(items) > maxListItems {
+				items = items[:maxListItems]
+			}
+			shown := make([]string, len(items))
+			for j, it := range items {
+				shown[j] = clip(it, 120)
+			}
+			described[i] = map[string]any{"list": key, "heading": clip(l.heading, 120), "items": shown}
+			questions[key] = decide.YesNo(fmt.Sprintf("Is checklist %s a list of things the person has to get done, each worth tracking as its own task (work, errands, calls, follow-ups), rather than a list kept in the doc to tick off there, such as groceries, a shopping or packing list, ingredients, or things to read or watch?", key),
+				"Yes, its items are tasks to get done.", "No, it is a list kept in the doc.")
+		}
+		state["checklists"] = described
+	}
 	if len(questions) == 0 {
 		return out, nil
 	}
@@ -260,7 +288,106 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 			}
 		}
 	}
+	// Hiding suggestions is unprompted, so it waits for a confident "no".
+	for i, l := range lists {
+		if yes, ok := a.Yes(fmt.Sprintf("c%d", i+1), decide.Route); ok && !yes {
+			for _, it := range l.items {
+				out.KeptLists = append(out.KeptLists, strings.ToLower(it))
+			}
+		}
+	}
 	return out, nil
+}
+
+// checklist is one checklist in a doc: the heading above it and the words of
+// its items, nested ones included.
+type checklist struct {
+	heading string
+	items   []string
+}
+
+// checklists are the doc's checklists in order, outermost lists only, with
+// their items read the way the clients read them (docChecklist, itemText):
+// the item's own paragraphs, a mention as its label, spaces collapsed.
+func checklists(content map[string]any) []checklist {
+	var out []checklist
+	heading := ""
+	var items func(node map[string]any, into *[]string)
+	items = func(node map[string]any, into *[]string) {
+		children, _ := node["content"].([]any)
+		if node["type"] == "taskItem" {
+			var parts []string
+			for _, c := range children {
+				if m, ok := c.(map[string]any); ok && m["type"] == "paragraph" {
+					parts = append(parts, inlineText(m))
+				}
+			}
+			if t := strings.Join(strings.Fields(strings.Join(parts, " ")), " "); t != "" {
+				*into = append(*into, t)
+			}
+		}
+		for _, c := range children {
+			if m, ok := c.(map[string]any); ok {
+				items(m, into)
+			}
+		}
+	}
+	var walk func(node map[string]any)
+	walk = func(node map[string]any) {
+		if len(out) >= maxChecklists {
+			return
+		}
+		switch node["type"] {
+		case "frontmatter", "codeBlock", "mermaid":
+			return
+		case "heading":
+			heading = strings.Join(strings.Fields(inlineText(node)), " ")
+			return
+		case "taskList":
+			var list []string
+			items(node, &list)
+			if len(list) > 0 {
+				out = append(out, checklist{heading: heading, items: list})
+			}
+			return
+		}
+		children, _ := node["content"].([]any)
+		for _, c := range children {
+			if m, ok := c.(map[string]any); ok {
+				walk(m)
+			}
+		}
+	}
+	walk(content)
+	return out
+}
+
+// inlineText is a block's text with a mention read as its label and a line
+// break as a space, as the clients read it.
+func inlineText(node map[string]any) string {
+	var b strings.Builder
+	children, _ := node["content"].([]any)
+	for _, c := range children {
+		m, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		switch m["type"] {
+		case "text":
+			t, _ := m["text"].(string)
+			b.WriteString(t)
+		case "mention":
+			attrs, _ := m["attrs"].(map[string]any)
+			if l, ok := attrs["label"]; ok && l != nil {
+				b.WriteString(fmt.Sprint(l))
+			}
+		case "hardBreak":
+			b.WriteString(" ")
+		default:
+			b.WriteString(inlineText(m))
+		}
+	}
+	return b.String()
 }
 
 // idleLabel says how long ago something happened in words, so Jev never

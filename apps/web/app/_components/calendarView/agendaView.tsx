@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, type MouseEvent as ReactMouseEvent } from "react";
+import { Bell } from "lucide-react";
 import {
   addDays,
   eventsForDay,
@@ -51,7 +52,9 @@ function AgendaRow({
     ? overdue
       ? `Due ${relativeDay(event.start, today)}`
       : "All day"
-    : `${formatTime(event.start)} – ${formatTime(event.end)}`;
+    : event.reminder
+      ? formatTime(event.start)
+      : `${formatTime(event.start)} – ${formatTime(event.end)}`;
   const subtitle = [
     overdue && !event.allDay ? relativeDay(event.start, today) : null,
     event.statusName,
@@ -87,8 +90,9 @@ function AgendaRow({
       </div>
 
       <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+        {/* The subtitle already says "Reminder"; the bell matches Week's chip. */}
         {event.reminder
-          ? "Reminder"
+          ? <Bell className="size-3.5" aria-hidden />
           : formatDuration(
               overdue && event.allDay
                 ? event.task?.duration || event.durationMinutes
@@ -114,7 +118,8 @@ export default function AgendaView({
     return Array.from({ length: AGENDA_DAYS }, (_, i) => addDays(start, i))
       .map((day) => ({
         day,
-        dayEvents: eventsForDay(events, day).filter((event) => !event.reminder),
+        // Reminders too, as in Week and Month.
+        dayEvents: eventsForDay(events, day),
       }))
       .filter((group) => group.dayEvents.length > 0);
   }, [selectedDate, events]);

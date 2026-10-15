@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, Pipette } from "lucide-react";
 import { cn } from "@/app/utils/cn";
+import { propertyChipClass } from "@/app/_components/_ui/propertyChip";
 import { PopoverView, useClientGate, useViewOpen } from "@/app/_components/_ui/motion";
 import { controlClass } from "@/app/_components/_ui/field";
 
@@ -32,6 +33,12 @@ type ColorPickerProps = {
   className?: string;
   disabled?: boolean;
   size?: "sm" | "md";
+  /**
+   * "chip": a property chip in a create form, the colour dot and `chipLabel`.
+   * "dot": just the dot, for a colour inside a chip-shaped composer.
+   */
+  variant?: "swatch" | "chip" | "dot";
+  chipLabel?: string;
   "aria-label"?: string;
 };
 
@@ -54,6 +61,8 @@ export default function ColorPicker({
   className,
   disabled,
   size = "md",
+  variant = "swatch",
+  chipLabel = "Colour",
   "aria-label": ariaLabel,
 }: ColorPickerProps) {
   const panelId = useId();
@@ -108,12 +117,14 @@ export default function ColorPicker({
       setOpen(false);
     }
 
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setOpen(false);
-        triggerRef.current?.focus();
-      }
+    // Capture phase + stopPropagation, like DatePicker: Escape closes only
+    // this menu, not the dialog it sits in.
+    function onEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+      triggerRef.current?.focus();
     }
 
     function onReposition() {
@@ -122,14 +133,14 @@ export default function ColorPicker({
     }
 
     window.addEventListener("mousedown", onPointerDown);
-    window.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onEscape, true);
     window.addEventListener("resize", onReposition);
     window.addEventListener("scroll", onReposition, true);
 
     return () => {
       window.cancelAnimationFrame(frame);
       window.removeEventListener("mousedown", onPointerDown);
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onEscape, true);
       window.removeEventListener("resize", onReposition);
       window.removeEventListener("scroll", onReposition, true);
     };
@@ -163,19 +174,29 @@ export default function ColorPicker({
         aria-controls={panelId}
         aria-label={ariaLabel ?? "Choose color"}
         onClick={() => (open ? setOpen(false) : openPanel())}
-        className={cn(
-          "inline-flex shrink-0 items-center justify-center rounded-md border border-input bg-card shadow-xs transition focus:border-ring focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-60",
-          size === "sm" ? "size-7" : "h-8 w-10",
-          className,
-        )}
+        className={
+          variant === "chip"
+            ? propertyChipClass({ className })
+            : variant === "dot"
+              ? cn(
+                  "inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[8px] outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40 aria-expanded:bg-muted disabled:cursor-not-allowed disabled:opacity-60",
+                  className,
+                )
+              : cn(
+                "inline-flex shrink-0 items-center justify-center rounded-md border border-input bg-card shadow-xs transition focus:border-ring focus:ring-2 focus:ring-ring/20 disabled:cursor-not-allowed disabled:opacity-60",
+                size === "sm" ? "size-7" : "h-8 w-10",
+                className,
+              )
+        }
       >
         <span
           className={cn(
-            "rounded-md ring-1 ring-foreground/15",
-            size === "sm" ? "size-4" : "size-5",
+            "ring-1 ring-foreground/15",
+            variant === "chip" || variant === "dot" ? "size-2.5 rounded-full" : cn("rounded-md", size === "sm" ? "size-4" : "size-5"),
           )}
           style={{ backgroundColor: current }}
         />
+        {variant === "chip" ? <span className="truncate">{chipLabel}</span> : null}
       </button>
 
       {mounted &&

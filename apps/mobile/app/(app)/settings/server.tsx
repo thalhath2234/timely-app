@@ -40,7 +40,7 @@ export default function ServerSettings() {
   return (
     <Screen>
       <MobileHeader title="Server" back large={false} />
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, paddingBottom: 24 + insets.bottom, gap: 12 }}>
+      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, paddingBottom: 24 + insets.bottom, gap: 12 }}>
         <Text style={styles.help}>
           This phone talks to the Timely desktop below over Tailscale. Every launch re-checks the known
           addresses and keeps using the first one that answers.
