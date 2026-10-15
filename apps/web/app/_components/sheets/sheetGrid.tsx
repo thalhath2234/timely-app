@@ -1126,6 +1126,10 @@ export default function SheetGrid({
 
   const handleGridKeyDown = (event: React.KeyboardEvent) => {
     if (editing) return;
+    // Keys typed into the column rename box or a column popover (which
+    // bubble here through the portal) belong to that field, not the grid.
+    const target = event.target as HTMLElement;
+    if (target !== event.currentTarget && target.closest("input, textarea, select, [contenteditable='true']")) return;
     const extend = event.shiftKey;
     const mod = event.metaKey || event.ctrlKey;
     const nav = normalizedRange(range);
