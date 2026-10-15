@@ -375,14 +375,18 @@ test-mobile-live-activity: ## Test the phone's live notification and the quick a
 
 .PHONY: test-mobile-widgets
 test-mobile-widgets: ## Test that every Dashboard card, custom ones included, becomes a phone home screen widget
-	@node --experimental-strip-types --test scripts/mobile-widgets.test.mjs
+	@node --experimental-strip-types --test scripts/mobile-widgets.test.mjs scripts/mobile-widget-render.test.mjs
+
+.PHONY: test-mobile-widgets-native
+test-mobile-widgets-native: ## Draw every phone widget with Android's real widget code (needs `make build-apk` once); PNGs in /tmp/timely-widget-test
+	@scripts/mobile-widget-native/run.sh
 
 .PHONY: test-mobile-meeting-url test-mobile-back-fallback
 test-mobile-meeting-url: ## Test which Meet, Zoom and Teams links give a phone Home item its Join call button
 	@node --experimental-strip-types --test scripts/mobile-meeting-url.test.mjs
 
-test-mobile-back-fallback: ## Test where phone Back goes on a screen opened with no history
-	@node --experimental-strip-types --test scripts/mobile-back-fallback.test.mjs
+test-mobile-back-fallback: ## Test where Android Back goes on every phone screen, and that only a true root leaves the app
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/mobile-back-fallback.test.mjs
 
 .PHONY: test-mobile-assistant format-mobile-assistant
 test-mobile-assistant: ## Test mobile assistant context and notification routing

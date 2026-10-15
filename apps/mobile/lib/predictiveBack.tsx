@@ -1,8 +1,9 @@
 import { useEffect, type ReactNode } from "react";
-import { StyleSheet, View } from "react-native";
+import { BackHandler, StyleSheet, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
-import { useRootNavigationState, useRouter } from "expo-router";
+import { useNavigationContainerRef, useRouter } from "expo-router";
 import { addBackListener, hasTimelyAndroid, setAppHandlesBack } from "../modules/timely-android";
+import { backPlan, type NavState } from "./backPlan";
 import { colors } from "./theme";
 
 /**
@@ -72,32 +73,39 @@ export function PredictiveBackScreen({ navigation, children }: { navigation: Sta
   );
 }
 
-/** Tells Android whether Back has somewhere to go inside the app. */
+/**
+ * Keeps Android's Back in step with the app on every navigation: Android only
+ * takes Back (and leaves the app) at a true root, and a screen with nothing to
+ * pop goes up to where it belongs instead of closing the app.
+ */
 export function useBackSync() {
   const router = useRouter();
-  const state = useRootNavigationState();
+  const navigation = useNavigationContainerRef();
   useEffect(() => {
     if (!hasTimelyAndroid()) return;
-    // Screens opened from a link have a header Back that goes somewhere even
-    // without history (MobileHeader), so only a tab root with no history and
-    // the signed-out screens let Android take over.
-    const route = focusedPath(state as NavState | undefined);
-    const atRoot = !router.canGoBack() && (route.includes("(tabs)") || !route.includes("(app)"));
-    setAppHandlesBack(!atRoot);
-  }, [router, state]);
-}
-
-type NavState = { index?: number; routes: { name: string; state?: NavState }[] };
-
-function focusedPath(state: NavState | undefined): string[] {
-  const names: string[] = [];
-  let node = state;
-  while (node && node.routes?.length) {
-    const route = node.routes[node.index ?? node.routes.length - 1];
-    names.push(route.name);
-    node = route.state;
-  }
-  return names;
+    const plan = () =>
+      navigation.isReady()
+        ? backPlan(navigation.getRootState() as NavState | undefined, navigation.canGoBack())
+        : backPlan(undefined, false);
+    // The container's state event fires for every nested change (a push, a
+    // tab switch, a pop), unlike reading the root state during render.
+    const sync = () => setAppHandlesBack(plan().kind !== "leave");
+    sync();
+    const offState = navigation.addListener("state", sync);
+    const offReady = navigation.addListener("ready", sync);
+    // Registered at the root, so a screen's own Back handler runs first.
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      const next = plan();
+      if (next.kind !== "up") return false;
+      router.replace(next.href as never);
+      return true;
+    });
+    return () => {
+      offState();
+      offReady();
+      sub.remove();
+    };
+  }, [navigation, router]);
 }
 
 const styles = StyleSheet.create({
