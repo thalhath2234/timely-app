@@ -48,6 +48,7 @@ export default function DocHistory({
     staleTime: Infinity,
   });
   const [restoring, setRestoring] = useState(false);
+  const activeIsCurrent = Boolean(versions.data?.find((item) => item.id === activeId)?.current);
 
   const restore = async () => {
     if (!activeId) return;
@@ -56,7 +57,7 @@ export default function DocHistory({
       await beforeRestore();
       const doc = await restoreDocVersion(docId, activeId);
       onRestored(doc);
-      useToastStore.getState().show("Version restored. The doc as it was is in the history too.");
+      useToastStore.getState().show("Version restored. The doc as it was stays in the history.");
       onClose();
     } catch (error) {
       useToastStore.getState().show(error instanceof Error ? error.message : "Could not restore this version");
@@ -86,21 +87,25 @@ export default function DocHistory({
               <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
                 {version.data ? version.data.title || "Untitled" : "Version history"}
               </h2>
-              <button
-                type="button"
-                disabled={!activeId || restoring || !version.data}
-                onClick={() => void restore()}
-                className={buttonClass({ size: "sm" })}
-              >
-                <RotateCcw className="size-3.5" />
-                {restoring ? "Restoring…" : "Restore this version"}
-              </button>
+              {activeIsCurrent ? (
+                <span className="text-xs text-muted-foreground">The doc as it is now</span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={!activeId || restoring || !version.data}
+                  onClick={() => void restore()}
+                  className={buttonClass({ size: "sm" })}
+                >
+                  <RotateCcw className="size-3.5" />
+                  {restoring ? "Restoring…" : "Restore this version"}
+                </button>
+              )}
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-10 py-6">
               {versions.data?.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No earlier versions yet. Timely saves one when you start editing again after a pause, every hour while
-                  you keep editing, and before the assistant changes this doc.
+                  No versions yet. Timely keeps the doc as it is after each editing session, and each change the
+                  assistant makes.
                 </p>
               ) : version.data?.content ? (
                 <RichTextEditor
@@ -140,8 +145,11 @@ export default function DocHistory({
                         item.id === activeId ? "bg-accent text-accent-foreground" : ""
                       }`}
                     >
-                      <span className="block text-sm font-medium">
+                      <span className="flex items-center gap-1.5 text-sm font-medium">
                         {edited.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                        {item.current && (
+                          <span className="rounded-full bg-primary/12 px-1.5 py-px text-[11px] font-medium text-primary">Current</span>
+                        )}
                       </span>
                       <span className="block text-xs text-muted-foreground">
                         {DOC_VERSION_REASONS[item.reason] ?? "Saved"} · {item.words} {item.words === 1 ? "word" : "words"}

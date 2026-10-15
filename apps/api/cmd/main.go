@@ -278,6 +278,9 @@ func main() {
 			"X-Timely-Restore",
 			"ngrok-skip-browser-warning",
 		},
+		// Downloads name their file from it when the web app calls the API
+		// on another origin.
+		ExposeHeaders: []string{echo.HeaderContentDisposition},
 	}))
 
 	// Setup all routes
