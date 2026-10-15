@@ -306,8 +306,8 @@ test-view-search: ## Test how search finds a saved task view by its name ("show 
 	@node --experimental-strip-types --test scripts/view-search.test.mjs
 
 .PHONY: test-view-language
-test-view-language: ## Test how plain words become a task view ("overdue bugs in Home by project") and the shared filter, sort and group engine
-	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/view-language.test.mjs scripts/task-query.test.mjs
+test-view-language: ## Test how plain words become a task view ("overdue bugs in Home by project"), the shared filter, sort and group engine, and the rule builder
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/view-language.test.mjs scripts/task-query.test.mjs scripts/rule-builder.test.mjs
 
 .PHONY: test-dashboard
 test-dashboard: ## Test the shared Report dashboard engine (card queries, layouts, built-in cards)

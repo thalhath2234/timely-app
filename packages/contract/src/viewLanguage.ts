@@ -28,6 +28,7 @@ import { GROUP_FIELD_LABELS, isRuleGroup, mondayOf, normalizeRules, priorityValu
 export interface VocabItem {
   id: string;
   name: string;
+  color?: string;
 }
 
 /** The person's own names the reader knows; statuses repeat per workspace. */
@@ -50,11 +51,17 @@ export function vocabularyFrom(input: {
   const workspaces = input.workspaces ?? [];
   const projects = input.projects ?? [];
   return {
-    workspaces: workspaces.map((item) => ({ id: item.id, name: item.name })),
-    statuses: workspaces.flatMap((item) => (item.status ?? []).map((status) => ({ id: status.id, name: status.name }))),
-    labels: workspaces.flatMap((item) => (item.lables ?? []).map((label) => ({ id: label.id, name: label.name }))),
-    projects: projects.map((item) => ({ id: item.id, name: item.title })),
-    stages: projects.flatMap((item) => (item.stages ?? []).map((stage) => ({ id: stage.id, name: stage.name }))),
+    workspaces: workspaces.map((item) => ({ id: item.id, name: item.name, color: item.color || undefined })),
+    statuses: workspaces.flatMap((item) =>
+      (item.status ?? []).map((status) => ({ id: status.id, name: status.name, color: status.color || undefined })),
+    ),
+    labels: workspaces.flatMap((item) =>
+      (item.lables ?? []).map((label) => ({ id: label.id, name: label.name, color: label.color || undefined })),
+    ),
+    projects: projects.map((item) => ({ id: item.id, name: item.title, color: item.color || undefined })),
+    stages: projects.flatMap((item) =>
+      (item.stages ?? []).map((stage) => ({ id: stage.id, name: stage.name, color: stage.color || undefined })),
+    ),
     customFields: input.customFields ?? [],
   };
 }
@@ -78,6 +85,16 @@ export interface ViewReading {
   entities: number;
   /** Words nothing placed; each became a "mentions" filter. */
   leftover: string[];
+  /** Which parts beyond the filters the words named (or a date implied, for the sort). */
+  parts: ReadingParts;
+}
+
+export interface ReadingParts {
+  sort: boolean;
+  groups: boolean;
+  layout: boolean;
+  limit: boolean;
+  scope: boolean;
 }
 
 // ---- Words ----
@@ -1269,6 +1286,13 @@ function finish(r: Reader): ViewReading {
     understood: r.understood,
     entities: r.entityParts,
     leftover: r.leftover,
+    parts: {
+      sort: Boolean(sort),
+      groups: r.groups.length > 0 || r.render === "kanban",
+      layout: r.render !== undefined,
+      limit: r.limit !== undefined,
+      scope: r.dataMode !== undefined || r.reminders,
+    },
   };
 }
 
@@ -1468,6 +1492,11 @@ export function conditionLabel(rule: TaskViewCondition, vocab: ViewVocabulary = 
     }
     if (op === "isNotEmpty") {
       const label = rule.field === "label" ? "Has labels" : `Has a ${fieldName.toLowerCase()}`;
+      return { label, short: label };
+    }
+    if ((op === "anyOf" || op === "noneOf" || op === "allOf") && (Array.isArray(value) ? value.length === 0 : !value)) {
+      // A rule the builder just added, before anything is ticked: it lets everything through.
+      const label = `${noun}: pick ${rule.field === "label" ? "labels" : "values"}`;
       return { label, short: label };
     }
     if (rule.field === "priority") {
@@ -1683,6 +1712,65 @@ export function viewFromAiDraft(draft: AiViewDraft, id: string, vocab: ViewVocab
   view.name = (draft.name?.trim() || viewName(view, vocab)).slice(0, 100);
   if (options.prompt) view.prompt = options.prompt.slice(0, 300);
   return view;
+}
+
+const CLEARED_FILTERS: Partial<TaskViewConfig> = {
+  selectedWorkspaceIds: [],
+  selectedStatusIds: [],
+  selectedProjectIds: [],
+  selectedPriorityLevels: [],
+  selectedLabelIds: [],
+  selectedStageIds: [],
+  onlyOverdue: false,
+  onlyScheduled: false,
+  onlyRecurring: false,
+};
+
+/**
+ * What applying described words does to an open view: the words replace its
+ * filters, and change its sort, groups, layout, limit and scope only where
+ * they name them ("by project", "as a board", "top 5"), so describing
+ * "urgent bugs" keeps the person's grouping.
+ */
+export function viewPatchFrom(view: Partial<TaskViewConfig>, parts: ReadingParts): Partial<TaskViewConfig> {
+  const patch: Partial<TaskViewConfig> = {
+    ...CLEARED_FILTERS,
+    rules: view.rules ?? [],
+    ruleMatch: view.ruleMatch === "any" ? "any" : undefined,
+    showCompleted: view.showCompleted,
+    onlyDated: Boolean(view.onlyDated),
+  };
+  if (parts.sort) {
+    patch.sortBy = view.sortBy;
+    patch.sortDirection = view.sortDirection;
+    patch.thenSortBy = view.thenSortBy;
+    patch.thenSortDirection = view.thenSortDirection;
+  }
+  if (parts.groups) patch.groupFields = view.groupFields;
+  if (parts.layout) patch.renderMode = view.renderMode;
+  if (parts.limit) patch.limit = view.limit;
+  if (parts.scope) {
+    patch.dataMode = view.dataMode;
+    patch.showReminders = view.showReminders;
+  }
+  return patch;
+}
+
+/** `viewPatchFrom` for a plain-words reading. */
+export function readingPatch(reading: ViewReading): Partial<TaskViewConfig> {
+  return viewPatchFrom(reading.view, reading.parts);
+}
+
+/** `viewPatchFrom` for an AI answer, whose parts are the ones it filled in. */
+export function aiDraftPatch(draft: AiViewDraft, vocab: ViewVocabulary = {}): Partial<TaskViewConfig> {
+  const view = viewFromAiDraft(draft, "draft", vocab);
+  return viewPatchFrom(view, {
+    sort: Boolean(draft.sortBy),
+    groups: Boolean(draft.groupFields?.length),
+    layout: Boolean(draft.renderMode && draft.renderMode !== "list"),
+    limit: typeof draft.limit === "number" && draft.limit > 0,
+    scope: Boolean(draft.showReminders || draft.dataMode === "project"),
+  });
 }
 
 /**

@@ -62,6 +62,8 @@ type TasksTableProps = {
   thenSortDirection?: TaskListSortDirection;
   /** Show only the first rows after sorting. */
   limit?: number;
+  /** Shown instead of "No tasks yet." when the list is empty. */
+  emptyText?: string;
   columnOrder: string[];
   onColumnOrderChange: (order: string[]) => void;
   onSelectRow: (row: Task) => void;
@@ -524,6 +526,7 @@ export default function TasksTable({
   thenSortBy,
   thenSortDirection,
   limit,
+  emptyText,
   columnOrder,
   onColumnOrderChange,
   onSelectRow,
@@ -1002,7 +1005,7 @@ export default function TasksTable({
   }
 
   if (!sortedTasks.length) {
-    return <div className="p-4 text-sm text-muted-foreground">No tasks yet.</div>;
+    return <div className="p-4 text-sm text-muted-foreground">{emptyText ?? "No tasks yet."}</div>;
   }
 
   const headerCellClass =

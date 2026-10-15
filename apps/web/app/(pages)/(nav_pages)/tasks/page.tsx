@@ -28,6 +28,9 @@ import { useProjects } from "@/app/utils/hooks/projects";
 import { filterTasks } from "@/app/utils/taskFilters";
 import { bucketGroupLabels, queryContext, sortTasks } from "@timely/contract/taskQuery";
 import { vocabularyFrom } from "@timely/contract/viewLanguage";
+import { todayInZone } from "@timely/contract/workStatus";
+import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
+import { readyProviders } from "@/app/_components/chat/modelMenu";
 import ViewRulesBar from "@/app/_components/_ui/tasks/viewRulesBar";
 import { useViewPreviewStore } from "@/app/_store/viewPreviewStore";
 import { stageColorMap, stageNameMap } from "@/app/utils/stages";
@@ -121,6 +124,8 @@ function Tasks() {
   );
   const stageNames = useMemo(() => stageNameMap(typedProjects), [typedProjects]);
   const stageColors = useMemo(() => stageColorMap(typedProjects), [typedProjects]);
+  const { data: providers } = useAgentProviders();
+  const aiReady = readyProviders(providers).length > 0;
   const vocab = useMemo(
     () => vocabularyFrom({ workspaces: typedWorkspaces, projects: typedProjects, customFields }),
     [typedWorkspaces, typedProjects, customFields],
@@ -427,6 +432,11 @@ function Tasks() {
             customFields={customFields}
             showReminders={showReminders}
             setShowReminders={(next) => patchActiveView({ showReminders: next })}
+            thenSortBy={thenSortBy}
+            thenSortDirection={thenSortDirection}
+            setThenSort={(by, direction) => patchActiveView({ thenSortBy: by, thenSortDirection: direction })}
+            limit={limit}
+            setLimit={(next) => patchActiveView({ limit: next })}
           />
 
           {optionsVisible && (
@@ -457,6 +467,9 @@ function Tasks() {
           <ViewRulesBar
             view={activeTaskView}
             vocab={vocab}
+            customFields={customFields}
+            today={todayInZone(typedConfig?.workingHours?.timezone)}
+            aiReady={aiReady}
             onPatch={patchActiveView}
             preview={
               preview
@@ -500,6 +513,7 @@ function Tasks() {
                 dataMode={showReminders ? "task" : dataMode}
                 sortBy={sortBy}
                 sortDirection={sortDirection}
+                emptyText={allTasks.length ? "Nothing matches this view. Change or remove a filter above." : undefined}
                 thenSortBy={thenSortBy}
                 thenSortDirection={thenSortDirection}
                 limit={limit}
