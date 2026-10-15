@@ -155,6 +155,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const [editor, setEditor] = useState<Editor | null>(null);
   const [toolbarHost, setToolbarHost] = useState<HTMLDivElement | null>(null);
   const [railHost, setRailHost] = useState<HTMLDivElement | null>(null);
+  const [marginHost, setMarginHost] = useState<HTMLElement | null>(null);
   const [scrollBox, setScrollBox] = useState<HTMLDivElement | null>(null);
   // A wide page puts the toolbar in a rail left of the doc and the
   // suggestions in the margin beside their lines; a narrow one keeps the
@@ -537,7 +538,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
           </div>
 
           {/* In the margin beside their lines on a wide page, above the text otherwise (globals.css). */}
-          <aside className="doc-page-rail" aria-label="Suggestions">
+          <aside ref={setMarginHost} className="doc-page-rail" aria-label="Suggestions">
             {/* Rechecks once an empty doc gets a title or text, then as it grows by about fifty words. */}
             <DocHints
               doc={doc}
@@ -554,6 +555,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
               toolbar="fixed"
               toolbarHost={wide ? railHost : toolbarHost}
               toolbarLayout={wide ? "rail" : "row"}
+              writeDock={wide ? marginHost : null}
               content={remoteContent ?? seedContent}
               syncKey={remoteEpoch}
               onReady={handleEditorReady}
