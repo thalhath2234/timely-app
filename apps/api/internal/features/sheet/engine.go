@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
+	"sort"
 	"sync"
 	"time"
 
@@ -37,6 +38,12 @@ type engineRequest struct {
 }
 
 func runEngine(request engineRequest, out any) error {
+	return callEngine("evaluate", request, out)
+}
+
+// callEngine runs one of the bundle's exported functions, which take and
+// return JSON.
+func callEngine(name string, request any, out any) error {
 	program, err := engineProgram()
 	if err != nil {
 		return err
@@ -51,9 +58,9 @@ func runEngine(request engineRequest, out any) error {
 	if _, err := vm.RunProgram(program); err != nil {
 		return err
 	}
-	evaluate, ok := goja.AssertFunction(vm.Get("SheetEngine").ToObject(vm).Get("evaluate"))
+	evaluate, ok := goja.AssertFunction(vm.Get("SheetEngine").ToObject(vm).Get(name))
 	if !ok {
-		return errors.New("sheet engine has no evaluate function")
+		return errors.New("sheet engine has no " + name + " function")
 	}
 	result, err := evaluate(goja.Undefined(), vm.ToValue(string(input)))
 	if err != nil {
@@ -91,4 +98,58 @@ func EvaluateFormula(sh *models.Sheet, tabID, formula string) (CellValue, error)
 // primary grid as one tab.
 func WorkbookTabs(sh *models.Sheet) models.SheetTabs {
 	return workbookTabs(sh)
+}
+
+// structureChange is one insert or delete as the apps describe it: at is the
+// first 0-based row or column, count how many.
+type structureChange struct {
+	Kind  string `json:"kind"`
+	Axis  string `json:"axis"`
+	At    int    `json:"at"`
+	Count int    `json:"count"`
+}
+
+// deleteFromTab removes rows (axis "row") or columns ("col") of one tab, given
+// by 0-based index, with the apps' own logic: formulas on every tab keep
+// pointing at the same cells (=IF(G7...) on the row below a deleted row 6
+// becomes =IF(G6...)), references to deleted cells become #REF!, and merges,
+// frozen panes and colour rules follow.
+func deleteFromTab(tabs models.SheetTabs, tabID, axis string, indexes []int) (models.SheetTabs, error) {
+	sorted := append([]int{}, indexes...)
+	sort.Sort(sort.Reverse(sort.IntSlice(sorted)))
+	// Bottom block first, so the blocks above keep their positions.
+	var changes []structureChange
+	for _, index := range sorted {
+		if n := len(changes); n > 0 && changes[n-1].At == index+1 {
+			changes[n-1].At, changes[n-1].Count = index, changes[n-1].Count+1
+			continue
+		} else if n > 0 && changes[n-1].At <= index {
+			continue // a repeated index
+		}
+		changes = append(changes, structureChange{Kind: "delete", Axis: axis, At: index, Count: 1})
+	}
+	request := struct {
+		Tabs    models.SheetTabs  `json:"tabs"`
+		TabID   string            `json:"tabId"`
+		Changes []structureChange `json:"changes"`
+	}{Tabs: make(models.SheetTabs, len(tabs)), TabID: tabID, Changes: changes}
+	for i, tab := range tabs {
+		if tab.Columns == nil {
+			tab.Columns = models.SheetColumns{}
+		}
+		if tab.Rows == nil {
+			tab.Rows = models.SheetRows{}
+		}
+		request.Tabs[i] = tab
+	}
+	var out struct {
+		Tabs models.SheetTabs `json:"tabs"`
+	}
+	if err := callEngine("restructure", request, &out); err != nil {
+		return nil, err
+	}
+	if len(out.Tabs) != len(tabs) {
+		return nil, errors.New("sheet engine lost tabs")
+	}
+	return out.Tabs, nil
 }

@@ -1,8 +1,13 @@
-import { createContext, useContext, useCallback } from "react";
-import { useFocusEffect, usePathname } from "expo-router";
+import { createContext, useContext, useEffect, useRef } from "react";
+import { useNavigation } from "expo-router";
 import type { AssistantCache } from "./storage";
 import type { AssistantDraft, ChatContext } from "./types";
-export type ScreenRegistration = { chips: ChatContext[]; pinchZoom?: boolean };
+export type ScreenRegistration = {
+  chips: ChatContext[];
+  pinchZoom?: boolean;
+  /** Asked at the moment of a pinch, so it never goes stale mid-navigation. */
+  isFocused: () => boolean;
+};
 export type AssistantState = {
   visible: boolean;
   chatId: string | null;
@@ -19,7 +24,7 @@ export type AssistantState = {
   currentContext: () => ChatContext[];
   screenshot: () => Promise<string>;
   openResult: (href: string) => void;
-  register: (path: string, data: ScreenRegistration | null) => void;
+  register: (owner: object, data: ScreenRegistration | null) => void;
 };
 export const Context = createContext<AssistantState | null>(null);
 export const emptyDraft = (context: ChatContext[] = []): AssistantDraft => ({
@@ -34,21 +39,26 @@ export function useAssistant() {
   if (!state) throw new Error("AssistantProvider is required");
   return state;
 }
-/** Screens publish local view state; the provider captures it only on explicit invocation. */
+/**
+ * Screens publish local view state; the provider captures it only on explicit
+ * invocation, from whichever screen navigation says is focused then. Not keyed
+ * by `usePathname()`: that is the app's path, not the screen's,
+ * so a tab left behind could file its chips under the next screen's path.
+ */
 export function useAssistantScreen(
   chips: ChatContext[],
   options: { pinchZoom?: boolean } = {},
 ) {
   const { register } = useAssistant();
-  const path = usePathname();
+  const navigation = useNavigation();
+  const owner = useRef({}).current;
   const serialized = JSON.stringify(chips);
-  useFocusEffect(
-    useCallback(() => {
-      register(path, {
-        chips: JSON.parse(serialized),
-        pinchZoom: options.pinchZoom,
-      });
-      return () => register(path, null);
-    }, [path, serialized, options.pinchZoom, register]),
-  );
+  useEffect(() => {
+    register(owner, {
+      chips: JSON.parse(serialized),
+      pinchZoom: options.pinchZoom,
+      isFocused: () => navigation.isFocused(),
+    });
+  }, [serialized, options.pinchZoom, navigation, register, owner]);
+  useEffect(() => () => register(owner, null), [register, owner]);
 }

@@ -198,7 +198,7 @@ export default function TaskDetailScreen() {
   useAssistantScreen(task ? [
     contextChip("object", name || "Task", `tasks/${task.id}`),
     ...(assistantSelection ? [contextChip("selection", "Selected text", assistantSelection)] : []),
-    contextChip("workspace", "Workspace", task.workspaceId),
+    ...(task.workspaceId ? [contextChip("workspace", "Workspace", task.workspaceId)] : []),
     ...(task.projectId ? [contextChip("project", "Project", task.projectId)] : []),
     ...(name !== task.name || note !== (task.description || "") ? [contextChip("draft", "Unsaved task text", { name, description: note })] : []),
   ] : []);

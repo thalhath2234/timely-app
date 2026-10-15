@@ -67,13 +67,15 @@ export default function TodaySuggestionsCard({
     <View style={styles.card} testID="today-suggestions">
       <View style={styles.header}>
         <Sparkles size={16} color={colors.primary} />
-        <SectionLabel compact>Suggestions</SectionLabel>
+        <SectionLabel compact>Suggested for today</SectionLabel>
       </View>
       {data.error ? <Text style={styles.meta}>{data.error}</Text> : null}
       {focus.length ? <Text style={styles.label}>Worth focusing on today</Text> : null}
       {focus.map((pick) => {
         const tags = [
-          ...pick.reasons.filter((reason) => reason !== "open work" && reason !== "unscheduled"),
+          ...pick.reasons
+            .filter((reason) => reason !== "open work" && reason !== "unscheduled")
+            .map((reason) => reason.charAt(0).toUpperCase() + reason.slice(1)),
           ...(pick.effortKind ? [EFFORT[pick.effortKind]] : []),
         ];
         return (
