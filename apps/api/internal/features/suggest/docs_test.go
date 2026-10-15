@@ -1,6 +1,7 @@
 package suggest
 
 import (
+	"reflect"
 	"testing"
 	"time"
 )
@@ -37,5 +38,31 @@ func TestSentences(t *testing.T) {
 		if got := sentences(text); got != want {
 			t.Errorf("%q: got %d, want %d", text, got, want)
 		}
+	}
+}
+
+func TestChecklists(t *testing.T) {
+	text := func(t string) map[string]any { return map[string]any{"type": "text", "text": t} }
+	para := func(c ...any) map[string]any { return map[string]any{"type": "paragraph", "content": c} }
+	item := func(c ...any) map[string]any { return map[string]any{"type": "taskItem", "content": c} }
+	list := func(c ...any) map[string]any { return map[string]any{"type": "taskList", "content": c} }
+	heading := func(t string) map[string]any { return map[string]any{"type": "heading", "content": []any{text(t)}} }
+	doc := map[string]any{"type": "doc", "content": []any{
+		list(item(para(text("Call  the plumber")))),
+		heading("Groceries"),
+		list(
+			item(para(text("Milk"))),
+			item(para(text("Ask "), map[string]any{"type": "mention", "attrs": map[string]any{"label": "Sam"}}), list(item(para(text("Rye"))))),
+			item(para(text(" "))),
+		),
+		map[string]any{"type": "codeBlock", "content": []any{list(item(para(text("not a list"))))}},
+	}}
+	got := checklists(doc)
+	want := []checklist{
+		{heading: "", items: []string{"Call the plumber"}},
+		{heading: "Groceries", items: []string{"Milk", "Ask Sam", "Rye"}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %#v, want %#v", got, want)
 	}
 }

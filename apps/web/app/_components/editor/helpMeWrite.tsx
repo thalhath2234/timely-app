@@ -40,7 +40,26 @@ export function useHelpMeWriteAvailable() {
 
 /** The labelled toolbar entry. It sits first in the bar, so it is never lost
  * among the formatting icons. */
-export function HelpMeWriteButton({ active, onClick }: { active: boolean; onClick: (anchor: DOMRect) => void }) {
+export function HelpMeWriteButton({ active, onClick, compact }: { active: boolean; onClick: (anchor: DOMRect) => void; compact?: boolean }) {
+  // Icon only in the doc page's toolbar rail, which is one button wide.
+  if (compact) {
+    return (
+      <button
+        type="button"
+        title="Help me write"
+        aria-label="Help me write"
+        aria-haspopup="dialog"
+        aria-expanded={active}
+        onClick={(event) => onClick(event.currentTarget.getBoundingClientRect())}
+        className={cn(
+          "flex size-7 shrink-0 items-center justify-center rounded-md text-primary transition-colors hover:bg-primary/15",
+          active && "bg-primary/15",
+        )}
+      >
+        <Sparkles className="size-3.5" />
+      </button>
+    );
+  }
   return (
     <Button
       variant="soft"

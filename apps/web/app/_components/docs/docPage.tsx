@@ -13,8 +13,8 @@ import Backlinks from "@/app/_components/docs/backlinks";
 import DocHistory from "@/app/_components/docs/docHistory";
 import DocHints from "@/app/_components/docs/docHints";
 import { insertPageMention } from "@/app/_components/editor/mention";
+import TabStripActions from "@/app/_components/pageTabs/stripActions";
 import { hasUploadedImages } from "@/app/_components/editor/docImage";
-import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedListButton";
 import { Doc } from "@/app/_types/types";
 import { UpdateDocPayload } from "@/app/utils/api/docs";
 import type { RelatedItem } from "@/app/utils/api/search";
@@ -36,6 +36,22 @@ import { downloadPortable } from "@/app/utils/api/portability";
 import { readMarkdownFile } from "@/app/utils/importMarkdown";
 import { fileHref, FILES_PATH } from "@/app/utils/fileRoutes";
 import { buttonClass } from "@/app/_components/_ui/button";
+
+/** Page width (px) from which the doc gets the toolbar rail and margin
+ * suggestions: room for the rail, the doc and an 18rem margin. */
+const MARGIN_LAYOUT_WIDTH = 1024;
+
+/** Whether an element is at least `width` px wide, following resizes. */
+function useWiderThan(element: HTMLElement | null, width: number) {
+  const [wider, setWider] = useState(false);
+  useEffect(() => {
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) => setWider(entry.contentRect.width >= width));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element, width]);
+  return wider;
+}
 
 const ICON_CHOICES = [
   "📄", "📝", "📌", "📊", "🗂️", "💡", "🚀", "🎯",
@@ -137,6 +153,13 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const [remoteContent, setRemoteContent] = useState<Doc["content"] | null>(null);
   const editorRef = useRef<Editor | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [toolbarHost, setToolbarHost] = useState<HTMLDivElement | null>(null);
+  const [railHost, setRailHost] = useState<HTMLDivElement | null>(null);
+  const [scrollBox, setScrollBox] = useState<HTMLDivElement | null>(null);
+  // A wide page puts the toolbar in a rail left of the doc and the
+  // suggestions in the margin beside their lines; a narrow one keeps the
+  // toolbar row under the tabs and the suggestions above the text.
+  const wide = useWiderThan(scrollBox, MARGIN_LAYOUT_WIDTH);
   const lastSavedAtRef = useRef<string | null>(doc.updatedAt);
   // The editor is seeded once per document; later remote updates arrive via
   // `remoteContent`, so this deliberately does not track content changes.
@@ -248,33 +271,8 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   return (
     // Dragging a box from anywhere around the doc selects blocks (blockSelection.ts).
     <div className="relative flex h-full flex-col overflow-hidden" data-block-select-root="">
-      <header className="flex items-center gap-2 border-b border-border px-6 py-2.5">
-        <ExpandCollapsedListButton
-          storageKey="timely.filesListCollapsed"
-          label="docs list"
-        />
-        <nav className="flex min-w-0 flex-1 items-center gap-1 text-xs text-muted-foreground">
-          <Link
-            href={FILES_PATH}
-            className="shrink-0 transition-colors hover:text-foreground"
-          >
-            Files
-          </Link>
-          {breadcrumb.map((parent) => (
-            <span key={parent.id} className="flex min-w-0 items-center gap-1">
-              <ChevronRight className="size-3 shrink-0" />
-              <Link
-                href={fileHref(parent.id)}
-                className="truncate transition-colors hover:text-foreground"
-              >
-                {parent.title}
-              </Link>
-            </span>
-          ))}
-          <ChevronRight className="size-3 shrink-0" />
-          <span className="truncate text-foreground">{doc.title}</span>
-        </nav>
-
+      {/* Save status and page actions sit at the right end of the tab strip. */}
+      <TabStripActions>
         <SaveStatusBadge status={status} onRetry={() => void flush()} />
 
         <button
@@ -293,7 +291,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
             };
             input.click();
           }}
-          className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent"
+          className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-foreground"
         >
           <Upload className="size-4" />
         </button>
@@ -308,14 +306,14 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
               setExportHasImages(hasUploadedImages(editorRef.current));
               setIsExportOpen((open) => !open);
             }}
-            className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent"
+            className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-foreground"
           >
             <Download className="size-4" />
           </button>
           {isExportOpen && (
             <>
               <div className="fixed inset-0 z-40" onMouseDown={() => setIsExportOpen(false)} />
-              <div role="menu" aria-label="Download as" className="absolute right-0 top-9 z-50 w-56 rounded-lg border border-border bg-popover p-1 shadow-xl">
+              <div role="menu" aria-label="Download as" className="absolute right-0 top-9 z-50 w-56 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-xl">
                 <button
                   type="button"
                   role="menuitem"
@@ -361,7 +359,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
               .getState()
               .show(next ? "Now offered under Template in the docs list" : "No longer a template");
           }}
-          className={`flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent ${
+          className={`flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-foreground ${
             doc.isTemplate ? "text-primary" : ""
           }`}
         >
@@ -373,7 +371,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
           title="Version history"
           aria-label="Version history"
           onClick={() => setIsHistoryOpen(true)}
-          className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent"
+          className="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-foreground"
         >
           <History className="size-4" />
         </button>
@@ -399,7 +397,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
               schedule({ archived: !next }),
             );
           }}
-          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent"
+          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-foreground"
         >
           <Archive className={`size-4 ${doc.archivedAt ? "text-warning" : ""}`} />
         </button>
@@ -415,7 +413,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
           </button>
 
           {isConfirmingDelete && (
-            <div className="absolute right-0 top-9 z-50 w-56 rounded-lg border border-border bg-card p-3 text-xs shadow-xl">
+            <div className="absolute right-0 top-9 z-50 w-56 rounded-lg border border-border bg-card p-3 text-xs text-card-foreground shadow-xl">
               <p className="text-muted-foreground">
                 Delete <span className="text-foreground">{doc.title || "this doc"}</span>
                 {descendantCount > 0
@@ -443,100 +441,128 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
             </div>
           )}
         </div>
-      </header>
+      </TabStripActions>
 
-      <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-10 pt-10">
-        <div className="shrink-0">
-          <div className="relative mb-1">
-            <button
-              type="button"
-              onClick={() => setIsIconPickerOpen((previous) => !previous)}
-              title="Change icon"
-              className="flex size-11 cursor-pointer items-center justify-center rounded-lg text-3xl transition-colors hover:bg-accent"
-            >
-              {doc.icon ?? <Smile className="size-6 text-muted-foreground" />}
-            </button>
+      {/* The editor's toolbar, one row across the page under the tabs. */}
+      {!wide && <div ref={setToolbarHost} className="relative z-20 flex h-10 shrink-0 items-center border-b border-border px-3" />}
 
-            {isIconPickerOpen && (
-              <div className="absolute left-0 top-12 z-50 w-64 rounded-lg border border-border bg-card p-2 shadow-xl">
-                <div className="grid grid-cols-8 gap-1">
-                  {ICON_CHOICES.map((icon) => (
-                    <button
-                      key={icon}
-                      type="button"
-                      onClick={() => {
-                        schedule({ icon });
-                        setIsIconPickerOpen(false);
-                      }}
-                      className="flex size-7 cursor-pointer items-center justify-center rounded transition-colors hover:bg-accent"
-                    >
-                      {icon}
-                    </button>
-                  ))}
+      <div ref={setScrollBox} className="doc-page-scroll min-h-0 flex-1 overflow-y-auto">
+        <div className={`doc-page-grid pb-16 pt-8 ${wide ? "px-6" : "px-10"}`} data-layout={wide ? "margin" : undefined}>
+          {wide && (
+            <div className="doc-page-tools">
+              <div ref={setRailHost} className="sticky top-4 z-20 rounded-xl border border-border bg-card p-1.5" />
+            </div>
+          )}
+          <div className="doc-page-head">
+            {breadcrumb.length > 0 && (
+              <nav aria-label="Parent pages" className="mb-2 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                {breadcrumb.map((parent, index) => (
+                  <span key={parent.id} className="flex min-w-0 items-center gap-1">
+                    {index > 0 && <ChevronRight className="size-3 shrink-0" />}
+                    <Link href={fileHref(parent.id)} className="truncate transition-colors hover:text-foreground">
+                      {parent.title || "Untitled"}
+                    </Link>
+                  </span>
+                ))}
+              </nav>
+            )}
+            <div className="relative mb-1">
+              <button
+                type="button"
+                onClick={() => setIsIconPickerOpen((previous) => !previous)}
+                title="Change icon"
+                className="flex size-11 cursor-pointer items-center justify-center rounded-lg text-3xl transition-colors hover:bg-accent"
+              >
+                {doc.icon ?? <Smile className="size-6 text-muted-foreground" />}
+              </button>
+
+              {isIconPickerOpen && (
+                <div className="absolute left-0 top-12 z-50 w-64 rounded-lg border border-border bg-card p-2 shadow-xl">
+                  <div className="grid grid-cols-8 gap-1">
+                    {ICON_CHOICES.map((icon) => (
+                      <button
+                        key={icon}
+                        type="button"
+                        onClick={() => {
+                          schedule({ icon });
+                          setIsIconPickerOpen(false);
+                        }}
+                        className="flex size-7 cursor-pointer items-center justify-center rounded transition-colors hover:bg-accent"
+                      >
+                        {icon}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      schedule({ icon: "" });
+                      setIsIconPickerOpen(false);
+                    }}
+                    className={buttonClass({ variant: "secondary", size: "sm", className: "mt-2 w-full" })}
+                  >
+                    Remove icon
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    schedule({ icon: "" });
-                    setIsIconPickerOpen(false);
-                  }}
-                  className={buttonClass({ variant: "secondary", size: "sm", className: "mt-2 w-full" })}
-                >
-                  Remove icon
-                </button>
-              </div>
-            )}
+              )}
+            </div>
+
+            <input
+              value={title}
+              onChange={(event) => {
+                setTitle(event.target.value);
+                schedule({ title: event.target.value });
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === "ArrowDown") {
+                  event.preventDefault();
+                  editorRef.current?.commands.focus("start");
+                }
+              }}
+              onBlur={() => void flush()}
+              placeholder="Untitled"
+              className="w-full bg-transparent text-4xl font-bold text-foreground outline-none placeholder:text-muted-foreground/50"
+            />
+
+            <div className="mb-4 mt-3 flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
+              <span>
+                {wordCount} {wordCount === 1 ? "word" : "words"}
+              </span>
+              {doc.isTemplate && (
+                <span className="rounded-full bg-primary/12 px-2 py-0.5 font-medium text-primary">Template</span>
+              )}
+              <Backlinks docId={doc.id} />
+              <RelatedItems kind="doc" id={doc.id} onLink={linkRelated} />
+            </div>
           </div>
 
-          <input
-            value={title}
-            onChange={(event) => {
-              setTitle(event.target.value);
-              schedule({ title: event.target.value });
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === "ArrowDown") {
-                event.preventDefault();
-                editorRef.current?.commands.focus("start");
-              }
-            }}
-            onBlur={() => void flush()}
-            placeholder="Untitled"
-            className="w-full bg-transparent text-4xl font-bold text-foreground outline-none placeholder:text-muted-foreground/50"
-          />
+          {/* In the margin beside their lines on a wide page, above the text otherwise (globals.css). */}
+          <aside className="doc-page-rail" aria-label="Suggestions">
+            {/* Rechecks once an empty doc gets a title or text, then as it grows by about fifty words. */}
+            <DocHints
+              doc={doc}
+              editor={editor}
+              nearEmpty={wordCount < 8}
+              version={wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50))}
+              onApplyContent={applyContent}
+              layout={wide ? "margin" : "card"}
+            />
+          </aside>
 
-          <div className="mb-4 mt-3 flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
-            <span>
-              {wordCount} {wordCount === 1 ? "word" : "words"}
-            </span>
-            {doc.isTemplate && (
-              <span className="rounded-full bg-primary/12 px-2 py-0.5 font-medium text-primary">Template</span>
-            )}
-            <Backlinks docId={doc.id} />
-            <RelatedItems kind="doc" id={doc.id} onLink={linkRelated} />
+          <div className="doc-page-body">
+            <RichTextEditor
+              toolbar="fixed"
+              toolbarHost={wide ? railHost : toolbarHost}
+              toolbarLayout={wide ? "rail" : "row"}
+              content={remoteContent ?? seedContent}
+              syncKey={remoteEpoch}
+              onReady={handleEditorReady}
+              onChange={handleEditorChange}
+              onCreateSubpage={handleCreateSubpage}
+              docId={doc.id}
+              writeContext={{ kind: "doc", title }}
+            />
           </div>
-
-          {/* Rechecks once an empty doc gets a title or text, then as it grows by about fifty words. */}
-          <DocHints
-            doc={doc}
-            editor={editor}
-            nearEmpty={wordCount < 8}
-            version={wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50))}
-            onApplyContent={applyContent}
-          />
-        </div>
-
-        <div className="min-h-0 flex-1 pb-8">
-          <RichTextEditor
-            toolbar="fixed"
-            content={remoteContent ?? seedContent}
-            syncKey={remoteEpoch}
-            onReady={handleEditorReady}
-            onChange={handleEditorChange}
-            onCreateSubpage={handleCreateSubpage}
-            docId={doc.id}
-            writeContext={{ kind: "doc", title }}
-          />
         </div>
       </div>
 

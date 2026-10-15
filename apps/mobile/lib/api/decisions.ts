@@ -199,6 +199,8 @@ export type DocHints = {
   properties?: { key: string; value: string }[];
   template?: { id: string; title: string };
   outdated?: boolean;
+  /** Items (lower case) of checklists kept in the doc, not worked as tasks. */
+  keptLists?: string[];
 };
 export const getDocHints = (id: string) => api<DocHints>(`/suggestions/doc/${encodeURIComponent(id)}`);
 

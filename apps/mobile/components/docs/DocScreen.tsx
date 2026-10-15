@@ -26,7 +26,9 @@ import { DOC_VERSION_REASONS } from "@timely/contract/documents";
 import RichDoc from "./RichDoc";
 import RelatedList from "../search/RelatedList";
 import DocHintsCard from "./DocHintsCard";
+import type { LineHints } from "./lineHints";
 import { PrimaryButton } from "../ui/primitives";
+import { useKeyboardCover } from "../ui/useKeyboardCover";
 import { FILES_TAB, fileHref } from "../../lib/fileRoutes";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -86,6 +88,8 @@ function DocEditor({ docId }: { docId: string }) {
   // What the editor holds, a moment after typing stops, for the checklist
   // items the suggestions card offers as tasks.
   const [liveContent, setLiveContent] = useState<DocContent | null>(null);
+  // Markers and cards for checklist rows, from the suggestions to the editor.
+  const [lineHints, setLineHints] = useState<LineHints | null>(null);
   const liveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(liveTimerRef.current), []);
   useEffect(() => {
@@ -94,6 +98,11 @@ function DocEditor({ docId }: { docId: string }) {
   const lastSavedAtRef = useRef<string | null>(doc?.updatedAt ?? null);
   const remotePendingRef = useRef(false);
   const editorFocusedRef = useRef(false);
+  const [editorFocused, setEditorFocused] = useState(false);
+  // While typing in the doc, the title, related items and suggestions step
+  // aside: with the toolbar and the keyboard up they left no room for the text.
+  const keyboardCover = useKeyboardCover();
+  const typing = editorFocused && keyboardCover > 0;
   // Whether the page holds nothing at all, for the template suggestion.
   const contentEmptyRef = useRef(doc ? isRichContentEmpty(resolveDocContent(doc.content, doc.plainText)) : true);
 
@@ -202,62 +211,66 @@ function DocEditor({ docId }: { docId: string }) {
         }
       />
 
-      <View style={styles.head}>
-        <Pressable
-          accessibilityLabel="Change icon"
-          onPress={() => setMenu("icon")}
-          hitSlop={12}
-          style={styles.iconBtn}
-        >
-          {icon ? <Text style={styles.icon}>{icon}</Text> : <Smile size={22} color={colors.mutedForeground} />}
-        </Pressable>
-        <TextInput
-          value={title}
-          placeholder="Untitled"
-          placeholderTextColor={colors.mutedForeground}
-          onChangeText={(next) => {
-            setTitle(next);
-            schedule({ title: next });
+      {/* Hidden, not unmounted, so dismissed suggestions stay dismissed. */}
+      <View style={typing ? styles.hidden : undefined}>
+        <View style={styles.head}>
+          <Pressable
+            accessibilityLabel="Change icon"
+            onPress={() => setMenu("icon")}
+            hitSlop={12}
+            style={styles.iconBtn}
+          >
+            {icon ? <Text style={styles.icon}>{icon}</Text> : <Smile size={22} color={colors.mutedForeground} />}
+          </Pressable>
+          <TextInput
+            value={title}
+            placeholder="Untitled"
+            placeholderTextColor={colors.mutedForeground}
+            onChangeText={(next) => {
+              setTitle(next);
+              schedule({ title: next });
+            }}
+            onBlur={() => void flush()}
+            style={styles.title}
+          />
+        </View>
+        <View style={styles.metaRow}>
+          <Text style={styles.words}>
+            {wordCount} {wordCount === 1 ? "word" : "words"}
+          </Text>
+          {backlinks.length > 0 ? (
+            <Pressable accessibilityRole="button" onPress={() => setMenu("backlinks")} hitSlop={8} style={styles.backlinkChip}>
+              <Link2 size={12} color={colors.primary} />
+              <Text style={styles.backlinkText}>
+                Linked from {backlinks.length} {backlinks.length === 1 ? "page" : "pages"}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+        <RelatedList
+          kind="doc"
+          id={docId}
+          variant="chips"
+          onLink={(item) => setMentionRequest({ id: item.id, label: item.title || "Untitled", entityType: "doc" })}
+        />
+        <DocHintsCard
+          doc={doc}
+          content={liveContent ?? remoteContent ?? seedContent}
+          version={wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50))}
+          nearEmpty={wordCount < 8}
+          isEmpty={() => contentEmptyRef.current}
+          onSetProperty={(key, value) => setPropertyRequest({ key, value })}
+          onApplyContent={(content, plainText) => {
+            contentEmptyRef.current = isRichContentEmpty(content);
+            setAssistantText(plainText);
+            setWordCount(countWords(plainText));
+            setRemoteContent(content);
+            setEditorSync((value) => value + 1);
+            schedule({ content, plainText });
           }}
-          onBlur={() => void flush()}
-          style={styles.title}
+          onLineHints={setLineHints}
         />
       </View>
-      <View style={styles.metaRow}>
-        <Text style={styles.words}>
-          {wordCount} {wordCount === 1 ? "word" : "words"}
-        </Text>
-        {backlinks.length > 0 ? (
-          <Pressable accessibilityRole="button" onPress={() => setMenu("backlinks")} hitSlop={8} style={styles.backlinkChip}>
-            <Link2 size={12} color={colors.primary} />
-            <Text style={styles.backlinkText}>
-              Linked from {backlinks.length} {backlinks.length === 1 ? "page" : "pages"}
-            </Text>
-          </Pressable>
-        ) : null}
-      </View>
-      <RelatedList
-        kind="doc"
-        id={docId}
-        variant="chips"
-        onLink={(item) => setMentionRequest({ id: item.id, label: item.title || "Untitled", entityType: "doc" })}
-      />
-      <DocHintsCard
-        doc={doc}
-        content={liveContent ?? remoteContent ?? seedContent}
-        version={wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50))}
-        nearEmpty={wordCount < 8}
-        isEmpty={() => contentEmptyRef.current}
-        onSetProperty={(key, value) => setPropertyRequest({ key, value })}
-        onApplyContent={(content, plainText) => {
-          contentEmptyRef.current = isRichContentEmpty(content);
-          setAssistantText(plainText);
-          setWordCount(countWords(plainText));
-          setRemoteContent(content);
-          setEditorSync((value) => value + 1);
-          schedule({ content, plainText });
-        }}
-      />
 
       <RichTextEditor
         content={
@@ -270,11 +283,13 @@ function DocEditor({ docId }: { docId: string }) {
         pdfRequest={pdfRequest}
         propertyRequest={propertyRequest}
         mentionRequest={mentionRequest}
+        lineHints={lineHints}
         linkDocId={docId}
         writeContext={{ kind: "doc", title }}
         onFindClose={() => setFindOpen(false)}
         onFocusChange={(focused) => {
           editorFocusedRef.current = focused;
+          setEditorFocused(focused);
         }}
         onChange={({ content, plainText }) => {
           contentEmptyRef.current = isRichContentEmpty(content);
@@ -598,6 +613,7 @@ const styles = createThemedStyleSheet((colors) => ({
   words: { color: colors.mutedForeground, fontSize: 12 },
   backlinkChip: { flexDirection: "row", alignItems: "center", gap: 4 },
   backlinkText: { color: colors.primary, fontSize: 12, fontWeight: "600" },
+  hidden: { display: "none" },
   sheetEmpty: { color: colors.mutedForeground, fontSize: 14, padding: 12 },
   linkTitle: { color: colors.foreground, fontSize: 15, fontWeight: "500" },
   linkSnippet: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },

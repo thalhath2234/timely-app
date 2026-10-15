@@ -1370,6 +1370,58 @@ html.reduce-motion:not([data-public-site]) .tl-bar {
   display: none;
 }
 
+/* Doc page (docPage.tsx): title, then suggestions, then the text, in one
+ * column that scrolls as a whole. When the page is wide enough the
+ * suggestions move to a rail beside the text and stay in view. */
+.doc-page-scroll {
+  container-type: inline-size;
+}
+.doc-page-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "head" "rail" "body";
+  max-width: 48rem;
+  margin-inline: auto;
+}
+.doc-page-head {
+  grid-area: head;
+}
+.doc-page-rail {
+  grid-area: rail;
+  min-width: 0;
+}
+.doc-page-body {
+  grid-area: body;
+  min-width: 0;
+}
+.doc-page-tools {
+  grid-area: tools;
+  min-width: 0;
+}
+/* Wide pages (docPage.tsx): the toolbar is a rail in the left gutter and the
+ * suggestions sit in the right margin, each level with its line. The middle
+ * gap holds the block drag handle. */
+.doc-page-grid[data-layout="margin"] {
+  max-width: none;
+  grid-template-columns: 2.5rem 3.5rem minmax(0, 52rem);
+  grid-template-rows: auto 1fr;
+  grid-template-areas: "tools . head" "tools . body";
+  justify-content: center;
+}
+.doc-page-grid[data-layout="margin"]:has(> .doc-page-rail:not(:empty)) {
+  grid-template-columns: 2.5rem 3.5rem minmax(0, 52rem) 2.5rem minmax(18rem, 22rem);
+  grid-template-areas: "tools . head . rail" "tools . body . rail";
+}
+.doc-page-grid[data-layout="margin"] > .doc-page-rail {
+  position: relative;
+}
+/* The line a margin suggestion is about, while its card is open or hovered. */
+.doc-line-hinted {
+  border-radius: 0.375rem;
+  background: color-mix(in oklab, var(--primary) 9%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--primary) 9%, transparent);
+}
+
 /* Block drag handle (blockHandle.ts): a grip in the left gutter of the
  * hovered block. */
 .doc-block-handle-host {

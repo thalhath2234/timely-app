@@ -18,7 +18,6 @@ import { importCsvGrid } from "@/app/utils/sheetCsv";
 import { formatSheetDate, sheetMetaLabel } from "@/app/utils/sheetWorkbook";
 import { fileHref } from "@/app/utils/fileRoutes";
 import { QueryFailure } from "@/app/_components/_ui/loadError";
-import ExpandCollapsedListButton from "@/app/_components/_ui/expandCollapsedListButton";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useDocContextMenu } from "@/app/utils/hooks/useDocContextMenu";
 import { useSheetContextMenu } from "@/app/utils/hooks/useSheetContextMenu";
@@ -170,12 +169,7 @@ export default function FilesHome() {
   return (
     <div className="h-full overflow-y-auto">
       <PageHeader
-        title={
-          <span className="flex items-center gap-2">
-            <ExpandCollapsedListButton storageKey="timely.filesListCollapsed" label="files list" />
-            Files
-          </span>
-        }
+        title="Files"
         description={
           <>
             Docs for notes, specs and meeting minutes; sheets for numbers in a grid. Type{" "}

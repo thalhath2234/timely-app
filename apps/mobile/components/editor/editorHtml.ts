@@ -98,6 +98,24 @@ export function buildEditorHtml(
     .math-empty { color: ${t.mutedForeground}; font-style: italic; font-size: 13px; }
     .math-block, .frontmatter { border: 1px solid ${t.border}; border-radius: 10px; margin: 0 0 0.75em; overflow: hidden; }
     .frontmatter { border-style: dashed; }
+    /* Suggestions for checklist rows: a marker at the row's end, and under
+       the open one a card with its actions (lineHints below). */
+    .tiptap ul[data-type="taskList"] li.has-hint { position: relative; padding-right: 30px; }
+    .tiptap li.hint-open { background: color-mix(in oklab, ${t.primary} 10%, transparent); border-radius: 8px; box-shadow: 0 0 0 4px color-mix(in oklab, ${t.primary} 10%, transparent); }
+    .hint-mark { position: absolute; top: -10px; right: -10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; background: none; color: ${t.mutedForeground}; opacity: 0.75; -webkit-tap-highlight-color: transparent; }
+    .hint-mark svg { width: 15px; height: 15px; }
+    .hint-mark.is-open { color: ${t.primary}; opacity: 1; }
+    .hint-mark.is-open svg { fill: currentColor; }
+    .hint-card { margin: 8px -22px 4px 0; padding: 12px; border: 1px solid color-mix(in oklab, ${t.primary} 35%, transparent); border-radius: 12px; background: ${t.background}; font-size: 14px; line-height: 1.4; user-select: none; -webkit-user-select: none; }
+    .hint-label { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: ${t.primary}; }
+    .hint-title { margin-top: 4px; font-weight: 600; color: ${t.foreground}; }
+    .hint-details { margin-top: 2px; font-size: 13px; color: ${t.mutedForeground}; }
+    .hint-row { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+    .hint-target { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: ${t.mutedForeground}; padding: 6px 10px; border-radius: 8px; background: ${t.muted}; }
+    .hint-gap { flex: 1; }
+    .hint-btn { min-height: 44px; padding: 0 14px; border: 0; border-radius: 10px; background: none; color: ${t.mutedForeground}; font: inherit; font-size: 14px; font-weight: 500; -webkit-tap-highlight-color: transparent; }
+    .hint-btn.hint-primary { background: ${t.primary}; color: ${t.background}; font-weight: 600; }
+    .hint-btn:disabled { opacity: 0.6; }
     .ProseMirror .block-picked { background: rgba(59, 130, 246, 0.16); border-radius: 6px; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16); }
     .props-list { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; padding: 8px 12px 10px; font-size: 13px; }
     .props-key { color: ${t.mutedForeground}; }
@@ -284,6 +302,130 @@ export function buildEditorHtml(
                 const picked = blockPickKey.getState(state);
                 return picked ? DecorationSet.create(state.doc, [Decoration.node(picked.from, picked.to, { class: "block-picked" })]) : null;
               },
+            },
+          }),
+        ];
+      },
+    });
+
+    // Suggestions for checklist rows, sent by the app (setLineHints): a
+    // marker at the end of each row they are about and, under the open one, a
+    // card with its actions. Taps go back to the app as lineHint messages.
+    const lineHintKey = new PluginKey("lineHints");
+    // A row's words as the app reads them from the saved content: the text of
+    // its own paragraphs, spaces collapsed.
+    function hintLineText(node) {
+      const parts = [];
+      node.forEach((child) => {
+        if (child.type.name !== "paragraph") return;
+        let text = "";
+        child.descendants((inner) => {
+          if (inner.isText) text += inner.text;
+          return true;
+        });
+        parts.push(text);
+      });
+      return parts.join(" ").replace(/\\s+/g, " ").trim();
+    }
+    const HINT_SPARK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg>';
+    const HINT_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+    function hintEl(tag, cls, text) {
+      const el = document.createElement(tag);
+      if (cls) el.className = cls;
+      if (text != null) el.textContent = text;
+      return el;
+    }
+    function hintButton(cls, label, key, action) {
+      const button = hintEl("button", cls);
+      button.type = "button";
+      button.setAttribute("aria-label", label);
+      // Taps act without moving the caret or raising the keyboard.
+      button.addEventListener("pointerdown", (event) => { event.preventDefault(); event.stopPropagation(); });
+      button.addEventListener("mousedown", (event) => event.preventDefault());
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        send({ type: "lineHint", key, action });
+      });
+      return button;
+    }
+    function hintDecorations(doc, config) {
+      if (!config || !config.hints || !config.hints.length) return DecorationSet.empty;
+      const byText = new Map();
+      for (const hint of config.hints) if (hint.text && !byText.has(hint.text)) byText.set(hint.text, hint);
+      const used = new Set();
+      const decorations = [];
+      doc.descendants((node, pos) => {
+        if (node.type.name !== "taskItem") return true;
+        const hint = byText.get(hintLineText(node));
+        if (!hint || used.has(hint.key)) return true;
+        used.add(hint.key);
+        const open = config.open === hint.key && hint.kind === "todo";
+        const busy = config.busy === hint.key;
+        decorations.push(Decoration.node(pos, pos + node.nodeSize, { class: open ? "has-hint hint-open" : "has-hint" }));
+        const first = node.firstChild;
+        // The end of the row's first line, inside its paragraph.
+        const lineEnd = pos + 1 + (first ? Math.max(0, first.nodeSize - 1) : 0);
+        decorations.push(
+          Decoration.widget(
+            lineEnd,
+            () => {
+              const label = hint.kind === "task" ? "Already a task. Open it" : open ? "Hide suggestion" : "Show suggestion";
+              const mark = hintButton("hint-mark" + (open ? " is-open" : ""), label, hint.key, "toggle");
+              mark.contentEditable = "false";
+              mark.innerHTML = hint.kind === "task" ? HINT_CHECK : HINT_SPARK;
+              return mark;
+            },
+            { key: "mark:" + hint.key + (open ? ":open" : ""), side: 1, ignoreSelection: true, stopEvent: () => true },
+          ),
+        );
+        if (open) {
+          decorations.push(
+            Decoration.widget(
+              pos + node.nodeSize - 1,
+              () => {
+                const card = hintEl("div", "hint-card");
+                card.contentEditable = "false";
+                card.appendChild(hintEl("div", "hint-label", "Checklist item"));
+                card.appendChild(hintEl("div", "hint-title", hint.name));
+                if (hint.details) card.appendChild(hintEl("div", "hint-details", hint.details));
+                const row = hintEl("div", "hint-row");
+                if (config.target) row.appendChild(hintEl("span", "hint-target", config.target));
+                row.appendChild(hintEl("span", "hint-gap"));
+                const dismiss = hintButton("hint-btn", "Dismiss", hint.key, "dismiss");
+                dismiss.textContent = "Dismiss";
+                const make = hintButton("hint-btn hint-primary", "Make task", hint.key, "make");
+                make.textContent = busy ? (config.writing ? "Writing…" : "Adding…") : "Make task";
+                make.disabled = Boolean(config.busy);
+                row.appendChild(dismiss);
+                row.appendChild(make);
+                card.appendChild(row);
+                return card;
+              },
+              { key: "card:" + hint.key + ":" + (config.busy || "") + ":" + (config.target || ""), side: 1, ignoreSelection: true, stopEvent: () => true },
+            ),
+          );
+        }
+        return true;
+      });
+      return DecorationSet.create(doc, decorations);
+    }
+    const LineHints = Extension.create({
+      name: "lineHints",
+      addProseMirrorPlugins() {
+        return [
+          new Plugin({
+            key: lineHintKey,
+            state: {
+              init: () => ({ config: null, set: DecorationSet.empty }),
+              apply(tr, value, _old, state) {
+                const config = tr.getMeta(lineHintKey);
+                if (config !== undefined) return { config, set: hintDecorations(state.doc, config) };
+                return tr.docChanged ? { config: value.config, set: hintDecorations(state.doc, value.config) } : value;
+              },
+            },
+            props: {
+              decorations: (state) => lineHintKey.getState(state).set,
             },
           }),
         ];
@@ -1790,6 +1932,7 @@ export function buildEditorHtml(
         ColumnNode,
         FindReplace,
         BlockPick,
+        LineHints,
         FootnoteRef,
         Footnote,
         Frontmatter,
@@ -2191,6 +2334,19 @@ export function buildEditorHtml(
             .run();
           send({ type: "linkDone" });
           requestAnimationFrame(scrollCaret);
+          return;
+        }
+        // From the app's suggestions; no focus, so the keyboard stays as it is.
+        if (name === "setLineHints") {
+          const before = lineHintKey.getState(editor.state).config;
+          editor.view.dispatch(editor.state.tr.setMeta(lineHintKey, payload || null).setMeta("addToHistory", false));
+          // A card that just opened below the fold scrolls up into view.
+          if (payload && payload.open && (!before || before.open !== payload.open)) {
+            requestAnimationFrame(() => {
+              const card = document.querySelector(".hint-card");
+              if (card) card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+            });
+          }
           return;
         }
         // Picked in the app's callout sheet; no focus, so the keyboard
