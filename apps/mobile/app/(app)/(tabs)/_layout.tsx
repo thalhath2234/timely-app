@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Tabs, usePathname } from "expo-router";
 import { useReducedMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Calendar, FileText, Home, ListTodo, Plus, Search } from "lucide-react-native";
+import { Calendar, FileText, Home, LayoutDashboard, ListTodo, Plus, Search } from "lucide-react-native";
 import QuickAddSheet from "../../../components/ui/QuickAddSheet";
 import AutoScheduleBanner from "../../../components/ui/AutoScheduleBanner";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
@@ -17,7 +17,8 @@ export default function TabLayout() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
-  const hideFab = pathname.endsWith("/more") || pathname.endsWith("/search");
+  // Dashboard's header has its own Add card +; a second + would compete.
+  const hideFab = pathname.endsWith("/more") || pathname.endsWith("/search") || pathname.endsWith("/dashboard");
   const tabOffset = floatingTabBarInset(insets.bottom);
 
   useEffect(() => {
@@ -50,6 +51,10 @@ export default function TabLayout() {
         <Tabs.Screen
           name="home"
           options={{ title: "Home", tabBarIcon: ({ color }) => <Home size={20} color={color} /> }}
+        />
+        <Tabs.Screen
+          name="dashboard"
+          options={{ title: "Dashboard", tabBarIcon: ({ color }) => <LayoutDashboard size={20} color={color} /> }}
         />
         <Tabs.Screen
           name="calendar"
