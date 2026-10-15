@@ -15,10 +15,17 @@ import ConnectivityBanner from "../components/ConnectivityBanner";
 import { SheetHost } from "../components/ui/SheetHost";
 import { requestNotificationPermission } from "../lib/notifications";
 import { createQueryClient } from "../lib/queryClient";
+import { useBackSync } from "../lib/predictiveBack";
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 const queryClient = createQueryClient();
+
+/** Inside the navigator so it can read the route state. */
+function BackSync() {
+  useBackSync();
+  return null;
+}
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
@@ -86,6 +93,7 @@ export default function RootLayout() {
                 <Stack.Screen name="onboarding" options={{ animation: stackFadeAnimation(reduceMotion) }} />
                 <Stack.Screen name="(app)" options={{ animation: stackFadeAnimation(reduceMotion) }} />
               </Stack>
+              <BackSync />
               <ConnectivityBanner />
               <SheetHost />
             </View>
