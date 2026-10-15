@@ -9,7 +9,7 @@ register(
     ),
 );
 
-const { addPickRow, anchorFor, computeSheetCard, docBlocks, docChecks, docSections, pickDocBlocks, pickDocChecks, parseRange, formatRange, previewGrid, repick, setPickCell, setPickTarget, suggestSheetPick, toggleDocCheck, usedBox } = await import(
+const { addPickRow, addToPick, anchorFor, parsePickRanges, pickColumnIndexes, pickRangeText, toggleColumn, computeSheetCard, docBlocks, docChecks, docSections, pickDocBlocks, pickDocChecks, parseRange, formatRange, previewGrid, repick, setPickCell, setPickTarget, suggestSheetPick, toggleDocCheck, usedBox } = await import(
   "../packages/contract/src/dashboardFiles.ts"
 );
 const { fitQuery, normalizeDashboard, describeQuery, defaultQuery } = await import("../packages/contract/src/dashboard.ts");
@@ -213,6 +213,72 @@ describe("picking cells", () => {
     assert.equal(preview.cols, 4);
     assert.equal(preview.grid[4][3].text, "223.6");
     assert.equal(preview.grid[4][3].address, "D5");
+  });
+});
+
+describe("columns that are not next to each other", () => {
+  const base = { sheetId: "sht_1", tabId: "tab_main", range: "A1:D4", headers: true, labelCol: 0, view: "bar" };
+
+  test("clicking a column letter takes that column out, leaving a gap the chart skips", () => {
+    const pick = toggleColumn(sheet(), base, 1);
+    assert.equal(pick.range, "A1:D4");
+    assert.deepEqual(pick.cols, ["cat", "spent", "left"]);
+    assert.equal(pickRangeText(sheet(), pick), "A1:A4, C1:D4");
+    const result = computeSheetCard(sheet(), pick);
+    assert.deepEqual(result.series.map((series) => series.name), ["Spent", "Left"]);
+    assert.deepEqual(result.series[0].points.map((point) => point.label), ["Rent", "Groceries", "Fun"]);
+  });
+
+  test("adding a column further along widens the range; a full run drops the column list", () => {
+    const narrow = repick(sheet(), base, parseRange("A1:B4"));
+    const wide = toggleColumn(sheet(), narrow, 3);
+    assert.equal(wide.range, "A1:D4");
+    assert.deepEqual(wide.cols, ["cat", "budget", "left"]);
+    const table = computeSheetCard(sheet(), { ...wide, view: "table" });
+    assert.deepEqual(table.headers, ["Category", "Budget", "Left"]);
+    const full = toggleColumn(sheet(), wide, 2);
+    assert.equal(full.cols, undefined);
+    assert.equal(full.range, "A1:D4");
+  });
+
+  test("the last column can't be taken out, and a dragged block clears the gaps", () => {
+    const one = { ...base, range: "B1:B4" };
+    assert.deepEqual(toggleColumn(sheet(), one, 1), one);
+    const gappy = toggleColumn(sheet(), base, 1);
+    assert.equal(repick(sheet(), gappy, parseRange("A1:B3")).cols, undefined);
+  });
+
+  test("a column letter clicked on a one-cell pick reads the whole used column", () => {
+    const pick = toggleColumn(sheet(), { ...base, range: "A2", view: "value" }, 2);
+    assert.equal(pick.range, "A1:C5");
+    assert.deepEqual(pick.cols, ["cat", "spent"]);
+  });
+
+  test("the picked columns follow a column moved in between", () => {
+    const pick = toggleColumn(sheet(), base, 1);
+    const moved = [columns[0], columns[1], { id: "new", name: "Note", width: 80, type: "text" }, columns[2], columns[3]];
+    const tab = { id: "tab_main", name: "Budget", columns: moved, rows, merges: [] };
+    const next = sheet({ tabs: [tab], columns: moved });
+    assert.deepEqual(pickColumnIndexes(next, pick), [0, 3, 4]);
+    assert.equal(pickRangeText(next, pick), "A1:A4, D1:E4");
+  });
+
+  test("ctrl/cmd+click adds a cell's column, growing the rows; again takes it out", () => {
+    const pick = repick(sheet(), base, parseRange("A1:A3"));
+    const added = addToPick(sheet(), pick, parseRange("C4"));
+    assert.equal(added.range, "A1:C4");
+    assert.deepEqual(added.cols, ["cat", "spent"]);
+    const removed = addToPick(sheet(), added, parseRange("C2"));
+    assert.equal(removed.range, "A1:A4");
+    assert.equal(removed.cols, undefined);
+    const dragged = addToPick(sheet(), pick, parseRange("C1:D2"));
+    assert.equal(pickRangeText(sheet(), dragged), "A1:A3, C1:D3");
+  });
+
+  test("typed ranges with commas pick their columns over the shared rows", () => {
+    assert.deepEqual(parsePickRanges("A1:A8, C1:D8"), { columns: [0, 2, 3], rows: { r0: 0, r1: 7 } });
+    assert.deepEqual(parsePickRanges("B2:B"), { columns: [1], rows: { r0: 1, r1: null } });
+    assert.equal(parsePickRanges("A1, nope"), null);
   });
 });
 

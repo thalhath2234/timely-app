@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Check } from "lucide-react";
 import {
+  addToPick,
   DOC_VIEW_HINTS,
   DOC_VIEW_LABELS,
   SHEET_VIEWS,
@@ -12,13 +13,18 @@ import {
   docSections,
   pickDocChecks,
   fitSheetPick,
-  formatRange,
+  parsePickRanges,
   parseRange,
+  pickColumnIndexes,
+  pickColumns,
+  pickRangeText,
   previewGrid,
+  readPick,
   repick,
   setPickTarget,
   sheetTabs,
   suggestSheetPick,
+  toggleColumn,
   type DocPick,
   type DocView,
   type RangeBox,
@@ -124,8 +130,10 @@ export function SheetPickPanel({ sheet, pick, onChange }: { sheet: Sheet; pick: 
     const read = computeSheetCard(contract, { ...pick, view: "table" });
     return read.kind === "table" ? read.headers : null;
   }, [contract, pick]);
+  const pickedColumns = useMemo(() => pickColumnIndexes(contract, pick), [contract, pick]);
+  const readIndexes = useMemo(() => readPick(contract, pick)?.indexes ?? [], [contract, pick]);
   const columnName = (index: number) => {
-    const letter = box ? columnIndexToLetter(box.c0 + index) : "";
+    const letter = readIndexes[index] !== undefined ? columnIndexToLetter(readIndexes[index]) : "";
     const name = headers?.[index]?.trim() || columnsInPick[index]?.name;
     return name ? `${letter} · ${name}` : letter;
   };
@@ -137,9 +145,9 @@ export function SheetPickPanel({ sheet, pick, onChange }: { sheet: Sheet; pick: 
       <section>
         <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Pick cells</h3>
-          <span className="text-xs text-muted-foreground">Drag across the cells the card should read.</span>
+          <span className="text-xs text-muted-foreground">Drag across the cells, or click a column letter to add or leave out that column.</span>
           <span className="flex-1" />
-          <RangeInput value={pick.range} onCommit={(next) => onChange(repick(contract, pick, next))} />
+          <RangeInput value={pickRangeText(contract, pick)} onCommit={(next) => onChange(pickColumns(contract, pick, next.columns, next.rows))} />
         </div>
         {tabs.length > 1 ? (
           <div className="mb-2 overflow-x-auto">
@@ -152,7 +160,14 @@ export function SheetPickPanel({ sheet, pick, onChange }: { sheet: Sheet; pick: 
             />
           </div>
         ) : null}
-        <MiniGrid sheet={contract} tabId={pick.tabId} pick={pick} onPick={(next) => onChange(repick(contract, pick, next))} />
+        <MiniGrid
+          sheet={contract}
+          tabId={pick.tabId}
+          pick={pick}
+          picked={pickedColumns}
+          onPick={(next, add) => onChange(add ? addToPick(contract, pick, next) : repick(contract, pick, next))}
+          onToggleColumn={(column) => onChange(toggleColumn(contract, pick, column))}
+        />
         <div className="mt-2.5 flex flex-wrap gap-x-5 gap-y-2">
           <Switch checked={Boolean(pick.headers)} disabled={bodyRows < 2} onChange={(on) => onChange(fitSheetPick({ ...pick, headers: on || undefined }))}>
             First row is names
@@ -236,12 +251,33 @@ export function SheetPickPanel({ sheet, pick, onChange }: { sheet: Sheet; pick: 
   );
 }
 
-function MiniGrid({ sheet, tabId, pick, onPick }: { sheet: ContractSheet; tabId: string | undefined; pick: SheetPick; onPick: (box: RangeBox) => void }) {
+/** How close to the grid's edge (px) a drag starts scrolling it, and the most it scrolls per frame. */
+const EDGE = 28;
+const MAX_STEP = 22;
+
+function MiniGrid({
+  sheet,
+  tabId,
+  pick,
+  picked,
+  onPick,
+  onToggleColumn,
+}: {
+  sheet: ContractSheet;
+  tabId: string | undefined;
+  pick: SheetPick;
+  /** Column indexes the pick reads; gaps allowed. */
+  picked: number[];
+  /** `add`: Ctrl/Cmd was held, so the cells join the pick instead of replacing it. */
+  onPick: (box: RangeBox, add: boolean) => void;
+  onToggleColumn: (column: number) => void;
+}) {
   const { grid, rows, cols } = useMemo(() => previewGrid(sheet, tabId), [sheet, tabId]);
   const stored = parseRange(pick.range);
-  type Drag = { from: { r: number; c: number }; to: { r: number; c: number } } | null;
+  type Drag = { from: { r: number; c: number }; to: { r: number; c: number }; add: boolean } | null;
   const [drag, setDragState] = useState<Drag>(null);
   const dragRef = useRef<Drag>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const setDrag = (next: Drag) => {
     dragRef.current = next;
     setDragState(next);
@@ -249,28 +285,78 @@ function MiniGrid({ sheet, tabId, pick, onPick }: { sheet: ContractSheet; tabId:
 
   useEffect(() => {
     if (!drag) return;
+    const scroller = scrollerRef.current;
+    let pointer: { x: number; y: number } | null = null;
+    let frame = 0;
+    // The cell under a point, held inside the grid so a pointer past an edge picks the edge cell.
+    const cellAt = (x: number, y: number) => {
+      if (!scroller) return null;
+      const rect = scroller.getBoundingClientRect();
+      const head = scroller.querySelector("thead")?.getBoundingClientRect().height ?? 0;
+      const numbers = scroller.querySelector("tbody th")?.getBoundingClientRect().width ?? 0;
+      const cx = Math.min(Math.max(x, rect.left + numbers + 2), rect.right - 4);
+      const cy = Math.min(Math.max(y, rect.top + head + 2), rect.bottom - 4);
+      const target = document.elementFromPoint(cx, cy)?.closest<HTMLElement>("td[data-r]");
+      if (!target || !scroller.contains(target)) return null;
+      return { r: Number(target.dataset.r), c: Number(target.dataset.c) };
+    };
+    const follow = () => {
+      const current = dragRef.current;
+      if (!current || !pointer) return;
+      const cell = cellAt(pointer.x, pointer.y);
+      if (cell && (cell.r !== current.to.r || cell.c !== current.to.c)) setDrag({ ...current, to: cell });
+    };
+    // Near or past an edge, scroll that way: faster the further out the pointer is.
+    const tick = () => {
+      frame = requestAnimationFrame(tick);
+      if (!scroller || !pointer) return;
+      const rect = scroller.getBoundingClientRect();
+      const head = scroller.querySelector("thead")?.getBoundingClientRect().height ?? 0;
+      const numbers = scroller.querySelector("tbody th")?.getBoundingClientRect().width ?? 0;
+      const speed = (past: number) => Math.min(MAX_STEP, Math.ceil(past / 3) + 2);
+      let dx = 0;
+      let dy = 0;
+      if (pointer.x > rect.right - EDGE) dx = speed(pointer.x - (rect.right - EDGE));
+      else if (pointer.x < rect.left + numbers + EDGE) dx = -speed(rect.left + numbers + EDGE - pointer.x);
+      if (pointer.y > rect.bottom - EDGE) dy = speed(pointer.y - (rect.bottom - EDGE));
+      else if (pointer.y < rect.top + head + EDGE) dy = -speed(rect.top + head + EDGE - pointer.y);
+      if (!dx && !dy) return;
+      const { scrollLeft, scrollTop } = scroller;
+      scroller.scrollBy(dx, dy);
+      if (scroller.scrollLeft !== scrollLeft || scroller.scrollTop !== scrollTop) follow();
+    };
+    const move = (event: PointerEvent) => {
+      pointer = { x: event.clientX, y: event.clientY };
+      follow();
+    };
     const end = () => {
       const current = dragRef.current;
       dragRef.current = null;
       setDragState(null);
       if (!current) return;
-      onPick({
-        r0: Math.min(current.from.r, current.to.r),
-        r1: Math.max(current.from.r, current.to.r),
-        c0: Math.min(current.from.c, current.to.c),
-        c1: Math.max(current.from.c, current.to.c),
-      });
+      onPick(
+        {
+          r0: Math.min(current.from.r, current.to.r),
+          r1: Math.max(current.from.r, current.to.r),
+          c0: Math.min(current.from.c, current.to.c),
+          c1: Math.max(current.from.c, current.to.c),
+        },
+        current.add,
+      );
     };
+    window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);
-    return () => window.removeEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    frame = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+    };
     // Only (re)bind when a drag starts or stops.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drag !== null]);
-
-  const box: RangeBox | null = drag
-    ? { r0: Math.min(drag.from.r, drag.to.r), r1: Math.max(drag.from.r, drag.to.r), c0: Math.min(drag.from.c, drag.to.c), c1: Math.max(drag.from.c, drag.to.c) }
-    : stored;
-  const inBox = (r: number, c: number) => box !== null && c >= box.c0 && c <= box.c1 && r >= box.r0 && (box.r1 === null || r <= box.r1);
 
   if (rows === 0) return <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">This tab is empty.</p>;
 
@@ -280,44 +366,75 @@ function MiniGrid({ sheet, tabId, pick, onPick }: { sheet: ContractSheet; tabId:
   const visibleCols = letters.map((letter, index) => ({ letter, index })).filter(({ letter }) => byAddress.has(`${letter}1`));
   const names = new Map(visibleCols.map(({ letter }) => [letter, byAddress.get(`${letter}1`)?.column.name ?? ""]));
 
+  // While dragging, the block under the pointer (added to the pick with Ctrl/Cmd); otherwise the stored rows and the picked columns.
+  const dragRows = drag ? { r0: Math.min(drag.from.r, drag.to.r), r1: Math.max(drag.from.r, drag.to.r) } : null;
+  const dragCols = drag ? Array.from({ length: Math.abs(drag.to.c - drag.from.c) + 1 }, (_, i) => Math.min(drag.from.c, drag.to.c) + i) : [];
+  const rowsBox: { r0: number; r1: number | null } | null =
+    dragRows && !(drag?.add && stored) ? dragRows : dragRows && stored ? { r0: Math.min(stored.r0, dragRows.r0), r1: stored.r1 === null ? null : Math.max(stored.r1, dragRows.r1) } : stored;
+  const columnSet = new Set(drag && !drag.add ? dragCols : [...(stored ? picked : []), ...dragCols]);
+  const inRows = (r: number) => rowsBox !== null && r >= rowsBox.r0 && (rowsBox.r1 === null || r <= rowsBox.r1);
+  const inPick = (r: number, c: number) => columnSet.has(c) && inRows(r);
+  const position = new Map(visibleCols.map(({ index }, at) => [index, at]));
+  const neighbour = (c: number, step: number) => visibleCols[(position.get(c) ?? -2) + step]?.index;
+
   return (
-    <div className="max-h-64 overflow-auto rounded-lg border border-border bg-card text-xs tabular-nums select-none" style={{ touchAction: "none" }}>
+    <div ref={scrollerRef} className="max-h-64 overflow-auto rounded-lg border border-border bg-card text-xs tabular-nums select-none" style={{ touchAction: "none" }}>
       <table className="w-full border-collapse">
         <thead className="sticky top-0 z-10 bg-muted">
           <tr>
             <th className="sticky left-0 z-10 w-8 bg-muted" />
-            {visibleCols.map(({ letter, index }) => (
-              <th key={letter} className={cn("px-2 py-1 text-left font-medium", box && index >= box.c0 && index <= box.c1 ? "text-primary" : "text-muted-foreground")}>
-                {letter}
-                {names.get(letter) && names.get(letter) !== letter ? <span className="ml-1.5 font-normal text-muted-foreground">{names.get(letter)}</span> : null}
-              </th>
-            ))}
+            {visibleCols.map(({ letter, index }) => {
+              const on = columnSet.has(index);
+              const name = names.get(letter) && names.get(letter) !== letter ? names.get(letter) : "";
+              return (
+                <th key={letter} className="p-0 text-left font-medium">
+                  <button
+                    type="button"
+                    aria-pressed={on}
+                    aria-label={`Column ${letter}${name ? `, ${name}` : ""}: ${on ? "in the card" : "not in the card"}`}
+                    title={on ? `Leave column ${letter} out of the card` : `Add column ${letter} to the card`}
+                    onClick={() => onToggleColumn(index)}
+                    className={cn(
+                      "flex w-full items-baseline gap-1.5 whitespace-nowrap px-2 py-1 text-left transition-colors",
+                      on ? "bg-primary/15 text-primary hover:bg-primary/20" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                    )}
+                  >
+                    {letter}
+                    {name ? <span className={cn("font-normal", on ? "text-foreground/80" : "text-muted-foreground")}>{name}</span> : null}
+                  </button>
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
           {Array.from({ length: rows }, (_, r) => (
             <tr key={r} className="border-t border-border/60">
-              <th className={cn("sticky left-0 bg-muted px-1.5 py-1 text-right font-normal", inBox(r, box?.c0 ?? -1) ? "text-primary" : "text-muted-foreground")}>{r + 1}</th>
+              <th className={cn("sticky left-0 bg-muted px-1.5 py-1 text-right font-normal", inRows(r) && columnSet.size > 0 ? "text-primary" : "text-muted-foreground")}>{r + 1}</th>
               {visibleCols.map(({ letter, index: c }) => {
                 const cell = byAddress.get(`${letter}${r + 1}`);
-                const selected = inBox(r, c);
-                const isHeader = selected && pick.headers && !drag && box !== null && r === box.r0;
+                const selected = inPick(r, c);
+                const isHeader = selected && pick.headers && !drag && rowsBox !== null && r === rowsBox.r0;
+                // Each run of picked columns gets its own outline, so gaps show.
                 const edges = selected
                   ? [
-                      r === box!.r0 && "inset 0 2px 0 var(--primary)",
-                      box!.r1 !== null && r === box!.r1 && "inset 0 -2px 0 var(--primary)",
-                      c === box!.c0 && "inset 2px 0 0 var(--primary)",
-                      c === box!.c1 && "inset -2px 0 0 var(--primary)",
+                      r === rowsBox!.r0 && "inset 0 2px 0 var(--primary)",
+                      rowsBox!.r1 !== null && r === rowsBox!.r1 && "inset 0 -2px 0 var(--primary)",
+                      !columnSet.has(neighbour(c, -1) ?? -1) && "inset 2px 0 0 var(--primary)",
+                      !columnSet.has(neighbour(c, 1) ?? -1) && "inset -2px 0 0 var(--primary)",
                     ].filter(Boolean)
                   : [];
                 return (
                   <td
                     key={letter}
+                    data-r={r}
+                    data-c={c}
                     onPointerDown={(event) => {
                       event.preventDefault();
-                      setDrag({ from: { r, c }, to: { r, c } });
+                      setDrag({ from: { r, c }, to: { r, c }, add: event.ctrlKey || event.metaKey });
                     }}
-                    onPointerEnter={() => dragRef.current && setDrag({ ...dragRef.current, to: { r, c } })}
+                    // On a Mac, Ctrl+click opens the context menu; here it adds to the pick.
+                    onContextMenu={(event) => event.ctrlKey && event.preventDefault()}
                     className={cn(
                       "max-w-36 cursor-cell truncate px-2 py-1",
                       cell?.number !== null && cell?.number !== undefined && "text-right",
@@ -327,7 +444,7 @@ function MiniGrid({ sheet, tabId, pick, onPick }: { sheet: ContractSheet; tabId:
                     style={edges.length ? { boxShadow: edges.join(", ") } : undefined}
                     title={cell?.formula ? `${cell.address}: ${cell.raw}` : cell?.address}
                   >
-                    {cell?.text || " "}
+                    {cell?.text || " "}
                   </td>
                 );
               })}
@@ -339,22 +456,24 @@ function MiniGrid({ sheet, tabId, pick, onPick }: { sheet: ContractSheet; tabId:
   );
 }
 
-/** The picked range as text: shows the drag result, and takes a typed range for cells the mini grid doesn't show. */
-function RangeInput(props: { value: string; onCommit: (box: RangeBox) => void }) {
+type PickedCells = { columns: number[]; rows: { r0: number; r1: number | null } };
+
+/** The picked cells as text: shows the drag result, and takes typed ranges (`A1:C6`, or `A1:A8, C1:D8` for columns apart) for cells the mini grid doesn't show. */
+function RangeInput(props: { value: string; onCommit: (cells: PickedCells) => void }) {
   // Keyed by the stored range, so a drag on the grid replaces what was typed.
   return <RangeText key={props.value} {...props} />;
 }
 
-function RangeText({ value, onCommit }: { value: string; onCommit: (box: RangeBox) => void }) {
+function RangeText({ value, onCommit }: { value: string; onCommit: (cells: PickedCells) => void }) {
   const [text, setText] = useState(value);
   const [bad, setBad] = useState(false);
   const commit = () => {
-    const box = parseRange(text);
-    if (!box) {
+    const cells = parsePickRanges(text);
+    if (!cells) {
       setBad(true);
       return;
     }
-    if (formatRange(box) !== value) onCommit(box);
+    if (text.replace(/\s+/g, "") !== value.replace(/\s+/g, "")) onCommit(cells);
   };
   return (
     <input
@@ -370,10 +489,11 @@ function RangeText({ value, onCommit }: { value: string; onCommit: (box: RangeBo
           commit();
         }
       }}
-      aria-label="Cells, as a range like A1:C6"
+      aria-label="Cells, as a range like A1:C6, or A1:A8, C1:D8 for columns apart"
       aria-invalid={bad}
       spellCheck={false}
-      className={controlClass("sm", cn("w-28 text-center font-mono tabular-nums", bad && "border-destructive"))}
+      style={{ width: `${Math.min(Math.max(text.length + 3, 9), 32)}ch` }}
+      className={controlClass("sm", cn("text-center font-mono tabular-nums", bad && "border-destructive"))}
     />
   );
 }
