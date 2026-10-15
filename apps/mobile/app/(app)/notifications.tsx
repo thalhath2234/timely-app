@@ -108,7 +108,7 @@ export default function NotificationsScreen() {
   return (
     <Screen>
       <MobileHeader title="Notifications" back large={false} />
-      <ScrollView
+      <ScrollView showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.body}
         refreshControl={

@@ -155,6 +155,7 @@ export function FocusGroupScrollView({
   return (
     <HostContext.Provider value={host}>
       <ScrollView
+        showsVerticalScrollIndicator={false}
         ref={scrollRef}
         keyboardShouldPersistTaps={keyboardShouldPersistTaps}
         scrollEventThrottle={scrollEventThrottle}

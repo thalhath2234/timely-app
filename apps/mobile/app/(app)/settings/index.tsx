@@ -59,7 +59,7 @@ export default function SettingsIndex() {
   return (
     <Screen>
       <MobileHeader title="Settings" back />
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, paddingBottom: 24 + insets.bottom, gap: 4 }}>
+      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, paddingBottom: 24 + insets.bottom, gap: 4 }}>
         <AnimatedPressable onPress={() => router.push("/(app)/settings/account")} style={styles.profile}>
           <View style={styles.avatar}>
             <Text style={styles.initials}>{initials}</Text>

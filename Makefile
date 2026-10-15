@@ -197,7 +197,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-inbox test-starter-labels test-view-search test-view-language test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-electron-guards test-electron-supervisor test-desktop-instance test-project-delete test-bulk-edit test-mobile-event-occurrence test-mobile-meeting-url test-mobile-back-fallback ## Run all tests
+test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-inbox test-starter-labels test-view-search test-view-language test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-electron-guards test-electron-supervisor test-desktop-instance test-project-delete test-bulk-edit test-mobile-event-occurrence test-mobile-meeting-url test-mobile-back-fallback ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -364,6 +364,10 @@ test-mobile-task-views: ## Test how the phone's saved views merge with the serve
 .PHONY: test-mobile-keyboard-taps
 test-mobile-keyboard-taps: ## Test that phone scrollers let a sheet's buttons work on the first tap while the keyboard is up
 	@node --test scripts/mobile-keyboard-taps.test.mjs
+
+.PHONY: test-mobile-scrollbars
+test-mobile-scrollbars: ## Test that no phone scroller, editor page or Expo web page shows a scrollbar
+	@node --test scripts/mobile-scrollbars.test.mjs
 
 .PHONY: test-mobile-meeting-url test-mobile-back-fallback
 test-mobile-meeting-url: ## Test which Meet, Zoom and Teams links give a phone Home item its Join call button

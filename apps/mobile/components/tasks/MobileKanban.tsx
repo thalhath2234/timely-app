@@ -336,7 +336,7 @@ export default function MobileKanban({
                 </Text>
                 <Text style={styles.count}>{column.tasks.length}</Text>
               </View>
-              <FlatList
+              <FlatList showsVerticalScrollIndicator={false}
                 data={column.tasks}
                 extraData={`${dragId}:${selectedIds.join(",")}:${selecting}`}
                 keyExtractor={(item) => item.id}

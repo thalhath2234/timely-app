@@ -648,7 +648,7 @@ export default function TasksScreen() {
       ) : networkCopy ? (
         <EmptyState icon={ListTodo} title="Couldn't load tasks" description={networkCopy} />
       ) : activeView?.dataMode === "project" ? (
-        <SectionList
+        <SectionList showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           sections={projectSections}
           keyExtractor={(item) => item.id}
@@ -702,7 +702,7 @@ export default function TasksScreen() {
           description="Tap the + button to capture something new, then drag cards between board columns."
         />
       ) : (
-        <SectionList
+        <SectionList showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           sections={sections}
           keyExtractor={(item) => item.id}

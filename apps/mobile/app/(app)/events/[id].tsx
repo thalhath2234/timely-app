@@ -210,7 +210,7 @@ export default function EventDetailScreen() {
   return (
     <Screen>
       <MobileHeader title="Event" back large={false} />
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, gap: 12 }}>
+      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, gap: 12 }}>
         <Field value={title} onChangeText={setTitle} placeholder="Event title" autoCapitalize="sentences" />
         <Field value={description} onChangeText={setDescription} placeholder="Notes, location, links..." multiline autoCapitalize="sentences" />
         <SectionLabel>Color</SectionLabel>

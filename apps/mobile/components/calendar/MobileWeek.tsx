@@ -32,7 +32,7 @@ export default function MobileWeek({
   }
 
   return (
-    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.body, { paddingBottom: floatingTabBarInset(insets.bottom) }]}>
+    <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.body, { paddingBottom: floatingTabBarInset(insets.bottom) }]}>
       {days.map((day) => {
         const key = dayKey(day);
         const dayItems = (byDay.get(key) ?? []).sort((a, b) => a.start.localeCompare(b.start));

@@ -29,6 +29,14 @@ export default function Root({ children }: { children: ReactNode }) {
 }
 
 const responsiveBackground = `
+* {
+  scrollbar-width: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
 body {
   background-color: #fff;
 }

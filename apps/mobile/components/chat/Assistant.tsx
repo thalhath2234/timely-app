@@ -763,7 +763,7 @@ export default function Assistant() {
         />
         {preview ? (
           <View style={styles.preview}>
-            <ScrollView
+            <ScrollView showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               maximumZoomScale={4}
               minimumZoomScale={1}
@@ -806,7 +806,7 @@ export default function Assistant() {
           />
         ) : (
           <>
-            <ScrollView
+            <ScrollView showsVerticalScrollIndicator={false}
               ref={scroll}
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.content}

@@ -753,7 +753,7 @@ export default function RichTextEditor({
       ) : (
         <Text style={styles.pickerTitle}>Insert block</Text>
       )}
-      <ScrollView keyboardShouldPersistTaps="always" style={{ maxHeight: pickerMax - 30 }} nestedScrollEnabled>
+      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="always" style={{ maxHeight: pickerMax - 30 }} nestedScrollEnabled>
         {picker.kind === "slash" ? (
           slashItems.length === 0 ? (
             <Text style={styles.empty}>No blocks found</Text>
@@ -824,7 +824,7 @@ export default function RichTextEditor({
       style={[styles.dock, compact && !floatBar && styles.dockCompact, { paddingBottom: floatBar ? 0 : safeBottom }]}
     >
       {inTable ? (
-        <ScrollView horizontal keyboardShouldPersistTaps="always" contentContainerStyle={styles.bar} style={styles.tableBar}>
+        <ScrollView showsHorizontalScrollIndicator={false} horizontal keyboardShouldPersistTaps="always" contentContainerStyle={styles.bar} style={styles.tableBar}>
           {TABLE_TOOLS.map((btn) => (
             <Pressable key={btn.label} accessibilityLabel={btn.label} onPress={() => run(btn.cmd)} style={styles.tableTool}>
               <btn.Icon size={16} color={btn.cmd === "deleteTable" ? colors.destructive : colors.foreground} />
@@ -848,7 +848,7 @@ export default function RichTextEditor({
           <Text style={styles.writeToolText}>Write</Text>
         </Pressable>
       ) : null}
-      <ScrollView horizontal keyboardShouldPersistTaps="always" contentContainerStyle={styles.bar} style={styles.barWrap}>
+      <ScrollView showsHorizontalScrollIndicator={false} horizontal keyboardShouldPersistTaps="always" contentContainerStyle={styles.bar} style={styles.barWrap}>
         {linkOn && hasSelection ? (
           <Pressable
             accessibilityRole="button"
@@ -916,6 +916,8 @@ export default function RichTextEditor({
           // which is often plain http on a home network.
           mixedContentMode="compatibility"
           nestedScrollEnabled
+          showsVerticalScrollIndicator={false}
+          showsHorizontalScrollIndicator={false}
           style={[styles.web, compact && styles.webCompact]}
           onMessage={onMessage}
           onError={() => setFailed(true)}

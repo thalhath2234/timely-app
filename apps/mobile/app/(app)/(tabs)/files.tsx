@@ -507,7 +507,7 @@ export default function FilesScreen() {
           />
         </View>
       </MobileHeader>
-      <ScrollView
+      <ScrollView showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.listContent}
         refreshControl={

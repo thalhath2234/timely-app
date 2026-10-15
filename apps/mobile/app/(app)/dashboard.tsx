@@ -286,7 +286,7 @@ export default function DashboardScreen() {
           </>
         }
       />
-      <ScrollView
+      <ScrollView showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
         refreshControl={
