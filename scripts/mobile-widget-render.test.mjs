@@ -60,6 +60,8 @@ function draw(rendered, label) {
     const walk = (node, path) => {
       for (const [key, value] of Object.entries(node.props ?? {})) {
         if (typeof value === "number") assert.ok(Number.isFinite(value), `${path}.${key} is ${value}`);
+        // Android reads a weight as a whole number, so 0.4 would draw as 0.
+        if (key === "weight") assert.ok(Number.isInteger(value) && value > 0, `${path}.weight is ${value}`);
       }
       if (node.type === "TextWidget") assert.equal(typeof node.props.text, "string", `${path} text`);
       (node.children ?? []).forEach((child, index) => walk(child, `${path}/${node.type}[${index}]`));

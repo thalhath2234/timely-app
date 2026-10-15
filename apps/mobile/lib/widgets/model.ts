@@ -66,7 +66,7 @@ export type WidgetRow = {
   toggle?: WidgetAction;
 };
 
-export type WidgetGlyph = "play" | "pause" | "skip" | "reset" | "plus" | "minus" | "lap";
+export type WidgetGlyph = "play" | "pause" | "skip" | "reset" | "plus" | "minus" | "lap" | "inbox";
 
 /** A button opens `uri`, or runs `action` on the home screen. */
 export type WidgetButton = { label: string; uri?: string; action?: WidgetAction; glyph?: WidgetGlyph };
@@ -88,6 +88,8 @@ export type WidgetModel = {
   captionTone?: WidgetTone;
   rows?: WidgetRow[];
   bars?: { label: string; value: number; highlight?: boolean }[];
+  /** Draws `bars` as a line instead (a line chart card). */
+  line?: boolean;
   ring?: { value: number; target: number; label: string };
   meters?: { label: string; value: number; detail?: string }[];
   note?: string;
@@ -281,6 +283,7 @@ function sheetModel(pick: SheetPick, input: WidgetInput, title: string, cardId: 
         value: points.length ? points[points.length - 1].text : undefined,
         caption: points.length ? points[points.length - 1].label : undefined,
         captionTone: "muted",
+        line: result.view === "line",
         bars: points.slice(-8).map((point, index, all) => ({ label: point.label, value: point.value, highlight: index === all.length - 1 })),
         empty: points.length ? undefined : "No numbers in the picked cells.",
       };
@@ -390,6 +393,7 @@ function customModel(card: DashboardCard, input: WidgetInput, title: string): Wi
         value: formatMetric(result.total, result.unit),
         caption: "total",
         captionTone: "muted",
+        line: card.query.display === "line",
         bars: points.map((point, index) => ({
           label: point.label,
           value: point.value,
@@ -591,15 +595,30 @@ export function cardWidgetModel(card: DashboardCard, input: WidgetInput): Widget
       };
     }
     case "inboxZero": {
-      const inbox = (data.inbox ?? []).filter((task) => !task.completedAt);
-      const oldest = [...inbox].sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""))[0];
+      // Oldest first, with their age: the ones that have waited longest come up first.
+      const inbox = (data.inbox ?? [])
+        .filter((task) => !task.completedAt)
+        .sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
+      const age = (task: (typeof inbox)[number]) => (task.createdAt ? Math.max(0, -(daysUntil(task.createdAt.slice(0, 10), day) ?? 0)) : null);
+      const oldest = inbox[0] ? age(inbox[0]) : null;
       return {
         title,
         uri: link(scheme, "inbox"),
         value: String(inbox.length),
-        caption: inbox.length === 0 ? "Inbox zero" : oldest ? `Oldest: ${oldest.name}` : "waiting",
+        caption:
+          inbox.length === 0
+            ? "Inbox zero"
+            : oldest === null
+              ? "waiting"
+              : oldest === 0
+                ? "waiting, all from today"
+                : `waiting, oldest ${oldest} day${oldest === 1 ? "" : "s"}`,
         captionTone: inbox.length === 0 ? "success" : "muted",
-        buttons: [{ label: "Capture", uri: link(scheme, "shortcut/capture") }],
+        rows: inbox.slice(0, 8).map((task) => {
+          const days = age(task);
+          return { title: task.name, meta: days ? `${days}d` : undefined, tone: "muted" as const, uri: link(scheme, `tasks/${task.id}`) };
+        }),
+        buttons: [{ label: "Capture", uri: link(scheme, "shortcut/capture"), glyph: "inbox" }],
       };
     }
     case "topThree": {
@@ -680,17 +699,23 @@ export function cardWidgetModel(card: DashboardCard, input: WidgetInput): Widget
         ],
       };
     }
-    case "quickCapture":
+    case "quickCapture": {
+      // Newest first: what was just captured, filling a tall widget's middle.
+      const inbox = (data.inbox ?? [])
+        .filter((task) => !task.completedAt)
+        .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
       return {
         title,
         uri: link(scheme, "shortcut/capture"),
-        caption: `${(data.inbox ?? []).filter((task) => !task.completedAt).length} in your Inbox`,
+        caption: `${inbox.length} in your Inbox`,
         captionTone: "muted",
+        rows: inbox.slice(0, 8).map((task) => ({ title: task.name, tone: "muted" as const, uri: link(scheme, `tasks/${task.id}`) })),
         buttons: [
-          { label: "Capture", uri: link(scheme, "shortcut/capture") },
-          { label: "New task", uri: link(scheme, "shortcut/new-task") },
+          { label: "Capture", uri: link(scheme, "shortcut/capture"), glyph: "inbox" },
+          { label: "New task", uri: link(scheme, "shortcut/new-task"), glyph: "plus" },
         ],
       };
+    }
     case "notes": {
       const text = typeof settings.text === "string" ? settings.text.trim() : "";
       return { title, uri: dashboard, note: text || undefined, empty: text ? undefined : "Your scratchpad is empty." };
