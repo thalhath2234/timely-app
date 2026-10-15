@@ -75,3 +75,6 @@ overrides:
   "brace-expansion@>=4.0.0 <5.0.12": ">=5.0.12"
   "query-string>decode-uri-component": ">=0.4.3"
   "xcode>uuid": ">=11.1.1"
+
+patchedDependencies:
+  react-native-android-widget@0.22.1: patches/react-native-android-widget@0.22.1.patch

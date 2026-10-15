@@ -137,7 +137,7 @@ export function CardPicker({ widgetInfo, renderWidget, setResult }: WidgetConfig
           <View style={styles.previewWell}>
             {Platform.OS === "android" && model ? (
               <WidgetPreview
-                renderWidget={(size) => renderCard(model, size).light}
+                renderWidget={(size) => renderCard(model, size, { preview: true }).light}
                 width={previewWidth}
                 height={PREVIEW_HEIGHT}
               />

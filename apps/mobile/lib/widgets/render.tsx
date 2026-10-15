@@ -1,7 +1,8 @@
 "use no memo";
 import { FlexWidget, SvgWidget, TextWidget, type ColorProp } from "react-native-android-widget";
 import { darkColors, lightColors, type ColorTokens } from "@timely/contract/designTokens";
-import type { WidgetModel, WidgetRow, WidgetTone } from "./model";
+import { WIDGET_ACTION, type WidgetAction } from "./actions";
+import type { WidgetButton, WidgetGlyph, WidgetModel, WidgetRow, WidgetTone } from "./model";
 
 /**
  * Draws a WidgetModel as an Android home screen widget, in Timely's light and
@@ -12,6 +13,15 @@ import type { WidgetModel, WidgetRow, WidgetTone } from "./model";
 
 type Hex = `#${string}`;
 type Size = { width: number; height: number };
+/** `preview`: the card picker's still preview, where a live clock is drawn as plain text. */
+type Options = { preview?: boolean };
+
+const TRANSPARENT = "#00000000" as Hex;
+
+/** clickActionData for a button that works on the home screen (Android passes it as a flat bundle). */
+function actionData(action: WidgetAction): Record<string, unknown> {
+  return { ...action };
+}
 
 const DISPLAY_FONT = "Archivo-CondensedExtraBold";
 
@@ -67,14 +77,34 @@ function Header({ model, p }: { model: WidgetModel; p: Palette }) {
   );
 }
 
-function Stat({ model, p, size, alone }: { model: WidgetModel; p: Palette; size: Size; alone?: boolean }) {
+function Stat({ model, p, size, alone, live }: { model: WidgetModel; p: Palette; size: Size; alone?: boolean; live?: boolean }) {
   if (!model.value && !model.caption) return null;
   const big = size.height >= 110 && size.width >= 110;
   // A figure with nothing under it grows with the widget instead of leaving it empty.
-  const figure = alone ? Math.max(34, Math.min(64, Math.round(Math.min(size.width, size.height) * 0.3))) : big ? 34 : 24;
+  // A live clock is the point of its widget, so it grows too, leaving room for its buttons.
+  const hero = Boolean(model.timer) && !model.rows?.length;
+  const figure = alone
+    ? Math.max(34, Math.min(64, Math.round(Math.min(size.width, size.height) * 0.3)))
+    : hero
+      ? Math.max(30, Math.min(56, Math.round(Math.min(size.width, size.height - 50) * 0.32)))
+      : big
+        ? 34
+        : 24;
   return (
     <FlexWidget style={{ flexDirection: "column", width: "match_parent", marginBottom: 6 }}>
-      {model.value ? (
+      {model.value && model.timer?.running && live ? (
+        // The launcher ticks this one itself: the bitmap keeps the space, a
+        // system Chronometer draws the time (patches/react-native-android-widget).
+        // A paused clock stays bitmap text: a stopped Chronometer works its
+        // time out again whenever the launcher redraws, and would drift.
+        <TextWidget
+          text={model.value}
+          maxLines={1}
+          clickAction="CHRONOMETER"
+          clickActionData={{ ...model.timer, color: p.fg, fontSize: figure, gravity: "start" }}
+          style={{ fontSize: figure, fontFamily: DISPLAY_FONT, color: TRANSPARENT, letterSpacing: -0.3 }}
+        />
+      ) : model.value ? (
         <TextWidget
           text={model.value}
           maxLines={1}
@@ -94,26 +124,59 @@ function Stat({ model, p, size, alone }: { model: WidgetModel; p: Palette; size:
   );
 }
 
-function Row({ row, p, fallbackUri }: { row: WidgetRow; p: Palette; fallbackUri: string }) {
-  const bar = isHex(row.color) ? row.color : row.tone === "accent" ? p.accent : p.soft;
+function Check({ row, p }: { row: WidgetRow; p: Palette }) {
   return (
     <FlexWidget
-      clickAction="OPEN_URI"
-      clickActionData={{ uri: row.uri ?? fallbackUri }}
-      style={{ flexDirection: "row", alignItems: "center", width: "match_parent", height: 26 }}
+      style={{
+        width: 16,
+        height: 16,
+        borderRadius: 8,
+        borderWidth: row.done ? 0 : 1.5,
+        borderColor: row.toggle ? p.accent : p.muted,
+        backgroundColor: row.done ? p.success : p.bg,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
     >
-      {row.done !== undefined ? (
+      {row.done ? <SvgWidget svg={TICK(p.bg)} style={{ width: 10, height: 10 }} /> : null}
+    </FlexWidget>
+  );
+}
+
+const TICK = (color: string) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`;
+
+/** `checks`: some rows in the list have a checkbox, so markers take the same column and titles line up. */
+function Row({ row, p, fallbackUri, checks }: { row: WidgetRow; p: Palette; fallbackUri: string; checks?: boolean }) {
+  const bar = isHex(row.color) ? row.color : row.tone === "accent" ? p.accent : p.soft;
+  // A row with nothing to open (a habit) ticks wherever it's tapped.
+  const ticksAll = Boolean(row.toggle && !row.uri);
+  return (
+    <FlexWidget
+      {...(ticksAll
+        ? { clickAction: WIDGET_ACTION, clickActionData: actionData(row.toggle!) }
+        : { clickAction: "OPEN_URI", clickActionData: { uri: row.uri ?? fallbackUri } })}
+      accessibilityLabel={row.toggle ? `${row.title}, ${row.done ? "done" : "not done"}` : row.title}
+      style={{ flexDirection: "row", alignItems: "center", width: "match_parent", height: 28 }}
+    >
+      {row.toggle && !ticksAll ? (
+        // The checkbox gets its own wide tap target; the title still opens the item.
         <FlexWidget
-          style={{
-            width: 14,
-            height: 14,
-            borderRadius: 7,
-            borderWidth: row.done ? 0 : 1.5,
-            borderColor: p.muted,
-            backgroundColor: row.done ? p.success : p.bg,
-            marginRight: 8,
-          }}
-        />
+          clickAction={WIDGET_ACTION}
+          clickActionData={actionData(row.toggle)}
+          accessibilityLabel={`${row.done ? "Untick" : "Tick"} ${row.title}`}
+          style={{ height: 28, paddingRight: 10, justifyContent: "center" }}
+        >
+          <Check row={row} p={p} />
+        </FlexWidget>
+      ) : row.done !== undefined ? (
+        <FlexWidget style={{ marginRight: 10 }}>
+          <Check row={row} p={p} />
+        </FlexWidget>
+      ) : checks ? (
+        <FlexWidget style={{ width: 16, height: 16, marginRight: 10, alignItems: "center", justifyContent: "center" }}>
+          <FlexWidget style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: bar }} />
+        </FlexWidget>
       ) : (
         <FlexWidget style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: bar, marginRight: 8 }} />
       )}
@@ -199,40 +262,78 @@ function Meters({ model, p }: { model: WidgetModel; p: Palette }) {
   );
 }
 
-function Buttons({ model, p }: { model: WidgetModel; p: Palette }) {
+const BUTTON_GLYPHS: Record<WidgetGlyph, string[]> = {
+  play: ["M6 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L7.5 3.64A1 1 0 0 0 6 4.5z"],
+  pause: ["M8 4v16", "M16 4v16"],
+  skip: ["M5 4.5v15l10-7.5z", "M19 5v14"],
+  reset: ["M3 12a9 9 0 1 0 3-6.7L3 8", "M3 3v5h5"],
+  plus: ["M5 12h14", "M12 5v14"],
+  minus: ["M5 12h14"],
+  lap: ["M12 13V9", "M10 2h4", "M12 22a8 8 0 1 0 0-16 8 8 0 0 0 0 16z"],
+};
+
+/** Counter buttons read − value +, so + is the main one; otherwise the first button is. */
+function primaryIndex(buttons: WidgetButton[]) {
+  return buttons.length === 2 && buttons[0].glyph === "minus" ? 1 : 0;
+}
+
+/** `stacked`: one above the other, beside a wide widget's clock. */
+function Buttons({ model, p, size, stacked }: { model: WidgetModel; p: Palette; size: Size; stacked?: boolean }) {
+  const buttons = model.buttons ?? [];
+  const primary = primaryIndex(buttons);
+  // Narrow widgets show icon-only buttons; each still has its label for TalkBack.
+  const labels = stacked || size.width >= 150 * buttons.length || !buttons.some((button) => button.glyph);
   return (
-    <FlexWidget style={{ flexDirection: "row", width: "match_parent", marginTop: 6 }}>
-      {(model.buttons ?? []).map((button, index) => (
-        <FlexWidget
-          key={button.label}
-          clickAction="OPEN_URI"
-          clickActionData={{ uri: button.uri }}
-          style={{
-            flex: 1,
-            height: 34,
-            borderRadius: 12,
-            backgroundColor: index === 0 ? p.accent : p.soft,
-            alignItems: "center",
-            justifyContent: "center",
-            marginLeft: index === 0 ? 0 : 6,
-          }}
-        >
-          <TextWidget text={button.label} style={{ fontSize: 13, fontWeight: "600", color: index === 0 ? p.accentFg : p.softFg }} />
-        </FlexWidget>
-      ))}
+    <FlexWidget style={{ flexDirection: stacked ? "column" : "row", width: "match_parent", marginTop: stacked ? 0 : 6 }}>
+      {buttons.map((button, index) => {
+        const main = index === primary;
+        const fg = main ? p.accentFg : p.softFg;
+        const glyph = button.glyph ? BUTTON_GLYPHS[button.glyph] : null;
+        return (
+          <FlexWidget
+            key={button.label}
+            {...(button.action
+              ? { clickAction: WIDGET_ACTION, clickActionData: actionData(button.action) }
+              : { clickAction: "OPEN_URI", clickActionData: { uri: button.uri ?? model.uri } })}
+            accessibilityLabel={button.label}
+            style={{
+              ...(stacked ? { width: "match_parent" as const, marginTop: index === 0 ? 0 : 6 } : { flex: 1, marginLeft: index === 0 ? 0 : 6 }),
+              height: 40,
+              borderRadius: 12,
+              backgroundColor: main ? p.accent : p.soft,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {glyph ? <SvgWidget svg={GLYPH(glyph, fg, button.glyph === "play")} style={{ width: 16, height: 16 }} /> : null}
+            {labels || !glyph ? (
+              <TextWidget
+                text={button.label}
+                maxLines={1}
+                style={{ fontSize: 13, fontWeight: "600", color: fg, marginLeft: glyph ? 6 : 0 }}
+              />
+            ) : null}
+          </FlexWidget>
+        );
+      })}
     </FlexWidget>
   );
 }
 
-function Card({ model, dark, size }: { model: WidgetModel; dark: boolean; size: Size }) {
+function Card({ model, dark, size, options }: { model: WidgetModel; dark: boolean; size: Size; options: Options }) {
+  const live = !options.preview;
   const p = palette(dark);
-  const roomForRows = Math.max(0, Math.floor((size.height - 40 - (model.value ? 54 : 0) - (model.buttons ? 40 : 0)) / 26));
+  const roomForRows = Math.max(0, Math.floor((size.height - 40 - (model.value ? 54 : 0) - (model.buttons ? 46 : 0)) / 28));
   const rows = (model.rows ?? []).slice(0, roomForRows);
   const showBars = Boolean(model.bars?.length) && size.height >= 150;
   const alone = !rows.length && !showBars && !model.meters && !model.note && !model.buttons && !model.empty;
   const wide = size.width >= 260 && size.height < 220 && Boolean(model.value) && !model.ring && !model.meters && !model.buttons && Boolean(model.rows?.length || model.bars?.length);
+  // A wide clock keeps its buttons beside the time instead of under it.
+  const wideClock = size.width >= 260 && size.height < 220 && Boolean(model.timer || model.buttons?.some((button) => button.action)) && !model.rows?.length && Boolean(model.buttons?.length);
   const wideBars = wide && !model.rows?.length;
-  const wideRows = (model.rows ?? []).slice(0, Math.max(1, Math.floor((size.height - 50) / 26)));
+  const checks = (model.rows ?? []).some((row) => row.done !== undefined);
+  const wideRows = (model.rows ?? []).slice(0, Math.max(1, Math.floor((size.height - 50) / 28)));
   return (
     <FlexWidget
       clickAction="OPEN_URI"
@@ -250,17 +351,26 @@ function Card({ model, dark, size }: { model: WidgetModel; dark: boolean; size: 
       }}
     >
       <Header model={model} p={p} />
-      {wide ? (
+      {wideClock ? (
+        <FlexWidget style={{ flexDirection: "row", width: "match_parent", flex: 1, alignItems: "center" }}>
+          <FlexWidget style={{ flexDirection: "column", flex: 1, marginRight: 12 }}>
+            <Stat model={model} p={p} size={{ width: size.width / 2, height: size.height }} live={live} />
+          </FlexWidget>
+          <FlexWidget style={{ flexDirection: "column", width: 132 }}>
+            <Buttons model={model} p={p} size={size} stacked />
+          </FlexWidget>
+        </FlexWidget>
+      ) : wide ? (
         // A wide widget puts the figure on the left and the detail beside it,
         // so a 4x2 shows twice the rows instead of an empty right half.
         <FlexWidget style={{ flexDirection: "row", width: "match_parent", flex: 1 }}>
           <FlexWidget style={{ flexDirection: "column", width: 112, marginRight: 12 }}>
-            <Stat model={model} p={p} size={size} />
+            <Stat model={model} p={p} size={size} live={live} />
           </FlexWidget>
           <FlexWidget style={{ flexDirection: "column", flex: 1 }}>
             {wideBars ? <Bars model={model} p={p} tall={Math.max(24, Math.min(140, size.height - 74))} /> : null}
             {!wideBars
-              ? wideRows.map((row, index) => <Row key={`${row.title}-${index}`} row={row} p={p} fallbackUri={model.uri} />)
+              ? wideRows.map((row, index) => <Row key={`${row.title}-${index}`} row={row} p={p} fallbackUri={model.uri} checks={checks} />)
               : null}
           </FlexWidget>
         </FlexWidget>
@@ -272,7 +382,7 @@ function Card({ model, dark, size }: { model: WidgetModel; dark: boolean; size: 
             <>
               {/* A lone figure sits at the bottom, under the title, like a clock widget. */}
               {alone ? <FlexWidget style={{ flex: 1, width: "match_parent" }} /> : null}
-              <Stat model={model} p={p} size={size} alone={alone} />
+              <Stat model={model} p={p} size={size} alone={alone} live={live} />
             </>
           )}
           {model.meters ? <Meters model={model} p={p} /> : null}
@@ -280,7 +390,7 @@ function Card({ model, dark, size }: { model: WidgetModel; dark: boolean; size: 
           {!showBars && rows.length ? (
             <FlexWidget style={{ flexDirection: "column", width: "match_parent" }}>
               {rows.map((row, index) => (
-                <Row key={`${row.title}-${index}`} row={row} p={p} fallbackUri={model.uri} />
+                <Row key={`${row.title}-${index}`} row={row} p={p} fallbackUri={model.uri} checks={checks} />
               ))}
             </FlexWidget>
           ) : null}
@@ -297,23 +407,26 @@ function Card({ model, dark, size }: { model: WidgetModel; dark: boolean; size: 
       {model.empty && !rows.length && !model.note ? (
         <TextWidget text={model.empty} maxLines={3} style={{ fontSize: 13, color: p.muted }} />
       ) : null}
-      {model.buttons?.length ? (
+      {model.buttons?.length && !wideClock ? (
         <FlexWidget style={{ flex: 1, width: "match_parent", flexDirection: "column", justifyContent: "flex-end" }}>
-          <Buttons model={model} p={p} />
+          <Buttons model={model} p={p} size={size} />
         </FlexWidget>
       ) : null}
     </FlexWidget>
   );
 }
 
-export function renderCard(model: WidgetModel, size: Size) {
-  return { light: <Card model={model} dark={false} size={size} />, dark: <Card model={model} dark size={size} /> };
+export function renderCard(model: WidgetModel, size: Size, options: Options = {}) {
+  return {
+    light: <Card model={model} dark={false} size={size} options={options} />,
+    dark: <Card model={model} dark size={size} options={options} />,
+  };
 }
 
 export type QuickAddButton = { label: string; uri: string; glyph: string };
 
-const GLYPH = (paths: string[], color: string) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths
+const GLYPH = (paths: string[], color: string, filled = false) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="${filled ? color : "none"}" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths
     .map((d) => `<path d="${d}"/>`)
     .join("")}</svg>`;
 

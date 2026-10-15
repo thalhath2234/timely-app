@@ -13,6 +13,8 @@ register(
 
 const { BUILTIN_CARDS, defaultDashboard } = await import("../packages/contract/src/dashboard.ts");
 const { cardWidgetModel, todayModel, widgetChoices } = await import("../apps/mobile/lib/widgets/model.ts");
+const { clockChange, optimisticModel, parseWidgetAction } = await import("../apps/mobile/lib/widgets/actions.ts");
+const { clockState, initialPomodoro, pomodoroRemaining, pomodoroSettings } = await import("../packages/contract/src/dashboard.ts");
 const catalog = (await import("../apps/mobile/lib/widgets/catalog.json", { with: { type: "json" } })).default;
 
 const now = new Date("2026-10-15T09:00:00Z");
@@ -154,5 +156,150 @@ describe("home screen widgets", () => {
     assert.deepEqual(names, ["TimelyCard", "TimelyToday", "TimelyQuickAdd"]);
     assert.equal(catalog.WIDGETS[0].widgetFeatures, "reconfigurable");
     for (const widget of catalog.WIDGETS) assert.match(widget.previewImage, /^\.\/assets\/widgets\/.+\.png$/);
+  });
+});
+
+describe("widgets that work on the home screen", () => {
+  const t0 = now.getTime();
+  const pomodoro = { id: "pomo", type: "pomodoro", w: 3, h: 2 };
+  const ops = (model) => model.buttons.map((button) => button.action?.op ?? button.action?.kind);
+
+  test("an idle pomodoro shows the round's length and starts from the widget", () => {
+    const model = cardWidgetModel(pomodoro, input);
+    const length = pomodoroRemaining(initialPomodoro(), pomodoroSettings(undefined), t0);
+    assert.equal(model.timer.running, false);
+    assert.equal(model.timer.base, t0 + length);
+    assert.deepEqual(ops(model), ["start"]);
+    assert.equal(model.buttons[0].label, "Start focus");
+  });
+
+  test("a running pomodoro ticks down to its end, with Pause and Skip", () => {
+    const endsAt = t0 + 10 * 60_000;
+    const model = cardWidgetModel(pomodoro, { ...input, pomodoros: [{ cardId: "pomo", phase: "focus", endsAt, leftMs: 600_000, active: true, taskName: "Report" }] });
+    assert.deepEqual(model.timer, { base: endsAt, countDown: true, running: true });
+    assert.equal(model.value, "10:00");
+    assert.equal(model.caption, "Focus · Report");
+    assert.deepEqual(ops(model), ["pause", "skip"]);
+  });
+
+  test("a paused pomodoro holds its time, with Resume and Reset", () => {
+    const model = cardWidgetModel(pomodoro, { ...input, pomodoros: [{ cardId: "pomo", phase: "short", endsAt: null, leftMs: 90_000, active: true }] });
+    assert.equal(model.timer.running, false);
+    assert.equal(model.value, "1:30");
+    assert.deepEqual(ops(model), ["start", "reset"]);
+  });
+
+  test("a stopwatch counts up from when it would read 0:00", () => {
+    const settings = { mode: "stopwatch", startedAt: t0 - 30_000, elapsed: 15_000, laps: [] };
+    const model = cardWidgetModel({ id: "sw", type: "clock", w: 3, h: 2, settings }, input);
+    assert.deepEqual(model.timer, { base: t0 - 45_000, countDown: false, running: true });
+    assert.deepEqual(ops(model), ["pause", "lap"]);
+  });
+
+  test("a timer that ran out says so and offers Restart", () => {
+    const settings = { mode: "timer", minutes: 1, startedAt: t0 - 120_000, elapsed: 0 };
+    const model = cardWidgetModel({ id: "tm", type: "clock", w: 3, h: 2, settings }, input);
+    assert.equal(model.caption, "Time's up");
+    assert.equal(model.timer, undefined);
+    assert.deepEqual(ops(model), ["start", "reset"]);
+  });
+
+  test("stopwatch and timer buttons change the card the way the Dashboard does", () => {
+    const idle = clockState({ mode: "stopwatch" });
+    assert.deepEqual(clockChange(idle, "start", t0), { startedAt: t0, done: false });
+    const running = clockState({ mode: "stopwatch", startedAt: t0 - 5_000, elapsed: 1_000 });
+    assert.deepEqual(clockChange(running, "pause", t0), { elapsed: 6_000, startedAt: null });
+    assert.deepEqual(clockChange(running, "lap", t0), { laps: [6_000] });
+    assert.equal(clockChange(running, "start", t0), null);
+    assert.equal(clockChange(idle, "pause", t0), null);
+    const ranOut = clockState({ mode: "timer", minutes: 1, startedAt: t0 - 120_000 });
+    assert.deepEqual(clockChange(ranOut, "start", t0), { startedAt: t0, elapsed: 0, done: false });
+  });
+
+  test("habits, Top 3, task lists and doc checklists tick in place", () => {
+    const habits = cardWidgetModel({ id: "h", type: "habits", w: 3, h: 3, settings: { habits: [{ id: "walk", name: "Walk" }], log: {} } }, input);
+    assert.deepEqual(habits.rows[0].toggle, { kind: "habit", cardId: "h", habitId: "walk" });
+    assert.equal(habits.rows[0].uri, undefined);
+
+    const top = cardWidgetModel({ id: "t3", type: "topThree", w: 3, h: 3, settings: { day: "2026-10-15", taskIds: ["b", "d"] } }, input);
+    assert.deepEqual(top.rows.map((row) => row.toggle), [
+      { kind: "task", taskId: "b", done: false },
+      { kind: "task", taskId: "d", done: true },
+    ]);
+
+    const list = cardWidgetModel(defaultDashboard().cards.find((c) => c.id === "default_overdue"), input);
+    assert.deepEqual(list.rows[0].toggle, { kind: "task", taskId: "a", done: true });
+    assert.equal(list.rows[0].uri, "timelymobile://tasks/a");
+  });
+
+  test("a Today task occurrence ticks just that day", () => {
+    const today = {
+      items: [{ kind: "taskOccurrence", taskId: "r1", originalStart: "2026-10-15T10:00:00Z", title: "Stretch", start: "2026-10-15T10:00:00Z", end: "2026-10-15T10:15:00Z", allDay: false }],
+      completedToday: [],
+      todayFocus: [],
+      overdue: [],
+    };
+    const model = todayModel({ ...input, today });
+    assert.deepEqual(model.rows[0].toggle, { kind: "task", taskId: "r1", done: true, originalStart: "2026-10-15T10:00:00Z" });
+  });
+
+  test("a sheet counter steps from the widget unless its cell is a formula", () => {
+    const base = defaultDashboard().cards.find((c) => c.id === "default_open");
+    const columns = [{ id: "n", name: "Glasses", width: 100, type: "number" }];
+    const rows = [{ id: "r1", cells: { n: "3" } }, { id: "r2", cells: { n: "=A1*2" } }];
+    const sheet = { id: "s1", title: "Water", columns, rows, merges: [], tabs: [{ id: "tab", name: "Water", columns, rows, merges: [] }], archivedAt: null };
+    const card = (range) => ({ ...base, id: "cnt", query: { ...base.query, sheet: { sheetId: "s1", tabId: "tab", range, view: "counter", step: 1 } } });
+    const files = { sheets: { s1: sheet } };
+    const counter = cardWidgetModel(card("A1"), { ...input, files });
+    assert.deepEqual(counter.buttons.map((button) => button.action), [
+      { kind: "counter", cardId: "cnt", by: -1 },
+      { kind: "counter", cardId: "cnt", by: 1 },
+    ]);
+    assert.equal(cardWidgetModel(card("A2"), { ...input, files }).buttons, undefined);
+  });
+
+  test("a doc checklist row toggles its own checkbox", () => {
+    const base = defaultDashboard().cards.find((c) => c.id === "default_open");
+    const item = (text, checked) => ({ type: "taskItem", attrs: { checked }, content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
+    const doc = { id: "d1", content: { type: "doc", content: [{ type: "taskList", content: [item("Milk", false), item("Eggs", true)] }] } };
+    const model = cardWidgetModel({ ...base, id: "dc", query: { ...base.query, doc: { docId: "d1", view: "checklist" } } }, { ...input, files: { docs: { d1: doc } } });
+    assert.deepEqual(model.rows.map((row) => row.toggle), [
+      { kind: "docCheck", cardId: "dc", index: 0, checked: true },
+      { kind: "docCheck", cardId: "dc", index: 1, checked: false },
+    ]);
+  });
+
+  test("a tap redraws at once: the row flips and the tally moves", () => {
+    const model = {
+      title: "Habits",
+      uri: "timelymobile://dashboard",
+      value: "1/2",
+      rows: [
+        { title: "Walk", done: false, toggle: { kind: "habit", cardId: "h", habitId: "walk" } },
+        { title: "Read", done: true, toggle: { kind: "habit", cardId: "h", habitId: "read" } },
+      ],
+    };
+    const next = optimisticModel(model, { kind: "habit", cardId: "h", habitId: "walk" });
+    assert.equal(next.value, "2/2");
+    assert.equal(next.rows[0].done, true);
+    const task = { title: "T", uri: "x://", rows: [{ title: "A", done: false, toggle: { kind: "task", taskId: "a", done: true } }] };
+    assert.deepEqual(optimisticModel(task, { kind: "task", taskId: "a", done: true }).rows[0].toggle, { kind: "task", taskId: "a", done: false });
+    assert.equal(optimisticModel({ title: "C", uri: "x://", value: "3" }, { kind: "counter", cardId: "c", by: 1 }).value, "4");
+  });
+
+  test("actions survive Android's flat bundle and junk is ignored", () => {
+    const actions = [
+      { kind: "pomodoro", cardId: "p", op: "skip" },
+      { kind: "clock", cardId: "c", op: "lap" },
+      { kind: "habit", cardId: "h", habitId: "walk" },
+      { kind: "task", taskId: "t", done: false },
+      { kind: "task", taskId: "t", done: true, originalStart: "2026-10-15T10:00:00Z" },
+      { kind: "counter", cardId: "c", by: -2 },
+      { kind: "docCheck", cardId: "d", index: 0, checked: true },
+    ];
+    for (const action of actions) assert.deepEqual(parseWidgetAction({ ...action }), action);
+    assert.equal(parseWidgetAction({ kind: "pomodoro", cardId: "p", op: "explode" }), null);
+    assert.equal(parseWidgetAction({ kind: "counter", cardId: "c", by: 0 }), null);
+    assert.equal(parseWidgetAction(null), null);
   });
 });

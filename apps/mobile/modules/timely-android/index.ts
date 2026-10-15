@@ -40,6 +40,7 @@ declare class TimelyAndroidNative extends NativeModule<Events> {
   updateLiveActivity(payload: string): boolean;
   stopLiveActivity(): void;
   isLiveActivityRunning(): boolean;
+  scheduleWidgetRefresh(atMs: number): void;
 }
 
 // Android only; Expo Go, iOS and web get no module and every call is a no-op.
@@ -74,4 +75,9 @@ export function isLiveActivityRunning() {
 export function addLiveActionListener(listener: (event: LiveActionEvent) => void) {
   const sub = native?.addListener("onLiveAction", listener);
   return () => sub?.remove();
+}
+
+/** Redraws the home screen widgets at `atMs` (epoch ms), e.g. when a widget's timer ends; 0 cancels. */
+export function scheduleWidgetRefresh(atMs: number) {
+  native?.scheduleWidgetRefresh(atMs);
 }

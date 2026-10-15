@@ -9,6 +9,7 @@ import {
   builtinInfo,
   cardTitle,
   clockElapsed,
+  clockEndsAt,
   clockRemaining,
   clockState,
   completionStreak,
@@ -22,9 +23,12 @@ import {
   habitList,
   habitLog,
   habitStreak,
+  initialPomodoro,
   journalPrompt,
   MATRIX_LABELS,
   nextUp,
+  pomodoroRemaining,
+  pomodoroSettings,
   priorityMatrix,
   timeProgress,
   topThreePicks,
@@ -47,10 +51,31 @@ import type { Sheet } from "@timely/contract/sheet";
 import { calendarItemDone, type TodayResponse } from "@timely/contract/calendar";
 import { addDaysToDate, dateInZone, todayInZone } from "@timely/contract/workStatus";
 import type { WorkingHours } from "@timely/contract/schedule";
+import type { WidgetAction } from "./actions";
 
 export type WidgetTone = "default" | "muted" | "accent" | "danger" | "success";
 
-export type WidgetRow = { title: string; meta?: string; tone?: WidgetTone; done?: boolean; color?: string; uri?: string };
+export type WidgetRow = {
+  title: string;
+  meta?: string;
+  tone?: WidgetTone;
+  done?: boolean;
+  color?: string;
+  uri?: string;
+  /** Tapping the checkbox does this in place (the rest of the row still opens `uri`). */
+  toggle?: WidgetAction;
+};
+
+export type WidgetGlyph = "play" | "pause" | "skip" | "reset" | "plus" | "minus" | "lap";
+
+/** A button opens `uri`, or runs `action` on the home screen. */
+export type WidgetButton = { label: string; uri?: string; action?: WidgetAction; glyph?: WidgetGlyph };
+
+/**
+ * A figure the launcher ticks by itself (a system Chronometer): `base` is the
+ * epoch ms where a stopwatch reads 0:00, or where a countdown ends.
+ */
+export type WidgetTimer = { base: number; countDown: boolean; running: boolean };
 
 export type WidgetModel = {
   title: string;
@@ -66,12 +91,22 @@ export type WidgetModel = {
   ring?: { value: number; target: number; label: string };
   meters?: { label: string; value: number; detail?: string }[];
   note?: string;
-  buttons?: { label: string; uri: string }[];
+  buttons?: WidgetButton[];
+  /** Makes `value` a live clock. */
+  timer?: WidgetTimer;
   /** Shown when there's nothing to draw. */
   empty?: string;
 };
 
-export type WidgetPomodoro = { cardId: string; phase: "focus" | "short" | "long"; endsAt: number | null; leftMs: number; taskName?: string | null };
+export type WidgetPomodoro = {
+  cardId: string;
+  phase: "focus" | "short" | "long";
+  endsAt: number | null;
+  leftMs: number;
+  /** Running or paused mid-phase (not waiting at the start of a phase). */
+  active?: boolean;
+  taskName?: string | null;
+};
 
 export type WidgetInput = {
   now: Date;
@@ -163,6 +198,17 @@ export function todayModel(input: WidgetInput, title = "Today"): WidgetModel {
       tone: live ? "accent" : "default",
       color: item.color ?? undefined,
       uri: item.taskId ? link(scheme, `tasks/${item.taskId}`) : item.eventId ? link(scheme, `events/${item.eventId}`) : uri,
+      ...(item.taskId && (item.kind === "task" || item.kind === "taskOccurrence")
+        ? {
+            done: false,
+            toggle: {
+              kind: "task" as const,
+              taskId: item.taskId,
+              done: true,
+              ...(item.kind === "taskOccurrence" && item.originalStart ? { originalStart: item.originalStart } : {}),
+            },
+          }
+        : {}),
     });
   }
   return {
@@ -176,7 +222,7 @@ export function todayModel(input: WidgetInput, title = "Today"): WidgetModel {
   };
 }
 
-function sheetModel(pick: SheetPick, input: WidgetInput, title: string): WidgetModel {
+function sheetModel(pick: SheetPick, input: WidgetInput, title: string, cardId: string): WidgetModel {
   const uri = link(input.scheme, `sheets/${pick.sheetId}`);
   const sheet = input.files?.sheets?.[pick.sheetId];
   const result = computeSheetCard(sheet, pick);
@@ -185,15 +231,23 @@ function sheetModel(pick: SheetPick, input: WidgetInput, title: string): WidgetM
       return { title, uri, empty: result.message };
     case "value":
       return { title, uri, value: result.text || "–", caption: result.label ?? pick.range, captionTone: "muted" };
-    case "counter":
+    case "counter": {
+      // A formula cell can't count; the widget then just shows it.
+      const locked = !result.cell || Boolean(result.cell.formula);
       return {
         title,
         uri,
         value: result.text,
-        caption: result.label ?? "Counter",
+        caption: locked ? "This cell is a formula, so it can't count" : (result.label ?? `Saves into ${sheet?.title || "the sheet"}`),
         captionTone: "muted",
-        buttons: [{ label: "Change", uri: link(input.scheme, "dashboard") }],
+        buttons: locked
+          ? undefined
+          : [
+              { label: `Take away ${result.step}`, glyph: "minus", action: { kind: "counter", cardId, by: -result.step } },
+              { label: `Add ${result.step}`, glyph: "plus", action: { kind: "counter", cardId, by: result.step } },
+            ],
       };
+    }
     case "progress":
       return {
         title,
@@ -242,7 +296,7 @@ function sheetModel(pick: SheetPick, input: WidgetInput, title: string): WidgetM
   }
 }
 
-function docModel(pick: DocPick, input: WidgetInput, title: string): WidgetModel {
+function docModel(pick: DocPick, input: WidgetInput, title: string, cardId: string): WidgetModel {
   const uri = link(input.scheme, `docs/${pick.docId}`);
   const doc = input.files?.docs?.[pick.docId];
   if (!doc || doc.archivedAt) return { title, uri, empty: "This doc was deleted or archived." };
@@ -254,7 +308,12 @@ function docModel(pick: DocPick, input: WidgetInput, title: string): WidgetModel
       title,
       uri,
       value: checks.length ? `${checks.filter((check) => check.checked).length}/${checks.length}` : undefined,
-      rows: shown.slice(0, 8).map((check) => ({ title: check.text, done: check.checked, uri })),
+      rows: shown.slice(0, 8).map((check) => ({
+        title: check.text,
+        done: check.checked,
+        uri,
+        toggle: { kind: "docCheck" as const, cardId, index: check.index, checked: !check.checked },
+      })),
       empty: shown.length ? undefined : checks.length ? "All done." : "No checkboxes in this doc.",
     };
   }
@@ -291,8 +350,8 @@ function customModel(card: DashboardCard, input: WidgetInput, title: string): Wi
   const uri = link(input.scheme, "dashboard");
   if (!card.query) return { title, uri, empty: "This card has no query yet." };
   // Card workshop cards read picked sheet cells or a doc, not task lists.
-  if (card.query.sheet) return sheetModel(card.query.sheet, input, title);
-  if (card.query.doc) return docModel(card.query.doc, input, title);
+  if (card.query.sheet) return sheetModel(card.query.sheet, input, title, card.id);
+  if (card.query.doc) return docModel(card.query.doc, input, title, card.id);
   const result = computeCard(card.query, input.data, { now: input.now, timeZone: input.timeZone });
   switch (result.kind) {
     case "number": {
@@ -316,7 +375,8 @@ function customModel(card: DashboardCard, input: WidgetInput, title: string): Wi
         rows: result.rows.slice(0, 8).map((row) => ({
           title: row.title,
           meta: row.meta,
-          done: row.done,
+          done: row.entity === "task" ? Boolean(row.done) : row.done,
+          ...(row.entity === "task" ? { toggle: { kind: "task" as const, taskId: row.id, done: !row.done } } : {}),
           tone: row.tone === "danger" ? "danger" : row.tone === "success" ? "success" : row.tone === "muted" ? "muted" : "default",
           uri: link(input.scheme, row.entity === "task" ? `tasks/${row.id}` : row.entity === "project" ? `projects/${row.id}` : row.entity === "event" ? `events/${row.id}` : `files/${row.id}`),
         })),
@@ -345,6 +405,109 @@ function customModel(card: DashboardCard, input: WidgetInput, title: string): Wi
         ring: { value: result.value, target: result.target, label: `${formatMetric(result.value, result.unit)} of ${formatMetric(result.target, result.unit)}` },
       };
   }
+}
+
+const PHASE_LABEL = { focus: "Focus", short: "Short break", long: "Long break" } as const;
+
+/** A pomodoro card: a live countdown with Start, Pause, Skip and Reset right on the widget. */
+function pomodoroModel(card: DashboardCard, input: WidgetInput, title: string): WidgetModel {
+  const now = input.now.getTime();
+  const cardId = card.id;
+  const uri = link(input.scheme, "dashboard");
+  const timer = (input.pomodoros ?? []).find((t) => t.cardId === cardId);
+  const phase = timer?.phase ?? "focus";
+  const running = Boolean(timer && timer.endsAt !== null);
+  const paused = Boolean(timer && !running && timer.active);
+  const left = running ? Math.max(0, (timer!.endsAt ?? 0) - now) : (timer?.leftMs ?? pomodoroRemaining(initialPomodoro(), pomodoroSettings(card.settings), now));
+  const action = (op: "start" | "pause" | "skip" | "reset") => ({ kind: "pomodoro" as const, cardId, op });
+  const task = timer?.taskName ? ` · ${timer.taskName}` : "";
+  return {
+    title,
+    uri,
+    value: clockText(left),
+    timer: { base: running ? (timer!.endsAt ?? now) : now + left, countDown: true, running },
+    caption: running ? `${PHASE_LABEL[phase]}${task}` : paused ? `Paused · ${PHASE_LABEL[phase]}` : `${PHASE_LABEL[phase]}${task}`,
+    captionTone: running ? "accent" : "muted",
+    buttons: running
+      ? [
+          { label: "Pause", glyph: "pause", action: action("pause") },
+          { label: "Skip", glyph: "skip", action: action("skip") },
+        ]
+      : paused
+        ? [
+            { label: "Resume", glyph: "play", action: action("start") },
+            { label: "Reset", glyph: "reset", action: action("reset") },
+          ]
+        : [{ label: phase === "focus" ? "Start focus" : "Start break", glyph: "play", action: action("start") }],
+  };
+}
+
+/** A stopwatch or timer card, running on the widget. */
+function clockModel(card: DashboardCard, input: WidgetInput, title: string): WidgetModel {
+  const now = input.now.getTime();
+  const cardId = card.id;
+  const uri = link(input.scheme, "dashboard");
+  const state = clockState(card.settings);
+  const running = state.startedAt !== null;
+  const action = (op: "start" | "pause" | "reset" | "lap") => ({ kind: "clock" as const, cardId, op });
+  if (state.mode === "timer") {
+    const remaining = clockRemaining(state, now);
+    const done = state.done || (running && remaining <= 0);
+    if (done) {
+      return {
+        title,
+        uri,
+        value: "0:00",
+        caption: "Time's up",
+        captionTone: "accent",
+        buttons: [
+          { label: "Restart", glyph: "play", action: action("start") },
+          { label: "Reset", glyph: "reset", action: action("reset") },
+        ],
+      };
+    }
+    const started = running || state.elapsed > 0;
+    return {
+      title,
+      uri,
+      value: clockText(remaining),
+      timer: { base: running ? (clockEndsAt(state) ?? now) : now + remaining, countDown: true, running },
+      caption: running ? "Timer running" : started ? "Timer paused" : `${state.minutes} min timer`,
+      captionTone: running ? "accent" : "muted",
+      buttons: running
+        ? [
+            { label: "Pause", glyph: "pause", action: action("pause") },
+            { label: "Reset", glyph: "reset", action: action("reset") },
+          ]
+        : started
+          ? [
+              { label: "Resume", glyph: "play", action: action("start") },
+              { label: "Reset", glyph: "reset", action: action("reset") },
+            ]
+          : [{ label: "Start", glyph: "play", action: action("start") }],
+    };
+  }
+  const elapsed = clockElapsed(state, now);
+  const lastLap = state.laps[state.laps.length - 1];
+  return {
+    title,
+    uri,
+    value: clockText(elapsed),
+    timer: { base: now - elapsed, countDown: false, running },
+    caption: lastLap !== undefined ? `Lap ${state.laps.length} · ${clockText(lastLap)}` : running ? "Stopwatch running" : elapsed ? "Stopwatch paused" : "Stopwatch",
+    captionTone: running ? "accent" : "muted",
+    buttons: running
+      ? [
+          { label: "Pause", glyph: "pause", action: action("pause") },
+          { label: "Lap", glyph: "lap", action: action("lap") },
+        ]
+      : elapsed
+        ? [
+            { label: "Resume", glyph: "play", action: action("start") },
+            { label: "Reset", glyph: "reset", action: action("reset") },
+          ]
+        : [{ label: "Start", glyph: "play", action: action("start") }],
+  };
 }
 
 /** One Dashboard card as a widget. */
@@ -445,7 +608,12 @@ export function cardWidgetModel(card: DashboardCard, input: WidgetInput): Widget
       const rows = picks
         .map((id) => byId.get(id))
         .filter((task): task is NonNullable<typeof task> => Boolean(task))
-        .map((task) => ({ title: task.name, done: Boolean(task.completedAt), uri: link(scheme, `tasks/${task.id}`) }));
+        .map((task) => ({
+          title: task.name,
+          done: Boolean(task.completedAt),
+          uri: link(scheme, `tasks/${task.id}`),
+          toggle: { kind: "task" as const, taskId: task.id, done: !task.completedAt },
+        }));
       return {
         title,
         uri: dashboard,
@@ -474,7 +642,12 @@ export function cardWidgetModel(card: DashboardCard, input: WidgetInput): Widget
         value: habits.length ? `${habits.filter((habit) => log[day]?.includes(habit.id)).length}/${habits.length}` : undefined,
         rows: habits.slice(0, 6).map((habit) => {
           const streak = habitStreak(log, habit.id, day);
-          return { title: habit.name, done: Boolean(log[day]?.includes(habit.id)), meta: streak ? `${streak}🔥` : undefined };
+          return {
+            title: habit.name,
+            done: Boolean(log[day]?.includes(habit.id)),
+            meta: streak ? `${streak}🔥` : undefined,
+            toggle: { kind: "habit" as const, cardId: card.id, habitId: habit.id },
+          };
         }),
         empty: habits.length ? undefined : "Add habits on the Dashboard.",
       };
@@ -529,31 +702,10 @@ export function cardWidgetModel(card: DashboardCard, input: WidgetInput): Widget
         note: journalPrompt(day),
         buttons: [{ label: settings.day === day && settings.savedDocId ? "Saved today" : "Write", uri: dashboard }],
       };
-    case "pomodoro": {
-      const timer = (input.pomodoros ?? []).find((t) => t.cardId === card.id);
-      if (!timer) return { title, uri: dashboard, value: "Ready", caption: "Start a round on the Dashboard", captionTone: "muted" };
-      const running = timer.endsAt !== null;
-      const left = running ? Math.max(0, (timer.endsAt ?? 0) - now.getTime()) : timer.leftMs;
-      const phase = timer.phase === "focus" ? "Focus" : timer.phase === "short" ? "Short break" : "Long break";
-      return {
-        title,
-        uri: dashboard,
-        value: running ? `ends ${timeLabel(new Date(timer.endsAt ?? 0).toISOString(), timeZone)}` : clockText(left),
-        caption: running ? `${phase}${timer.taskName ? ` · ${timer.taskName}` : ""}` : `Paused · ${phase}`,
-        captionTone: running ? "accent" : "muted",
-      };
-    }
-    case "clock": {
-      const state = clockState(settings);
-      const ms = state.mode === "timer" ? clockRemaining(state, now.getTime()) : clockElapsed(state, now.getTime());
-      return {
-        title,
-        uri: dashboard,
-        value: clockText(ms),
-        caption: state.startedAt ? (state.mode === "timer" ? "Timer running" : "Stopwatch running") : state.mode === "timer" ? "Timer" : "Stopwatch",
-        captionTone: state.startedAt ? "accent" : "muted",
-      };
-    }
+    case "pomodoro":
+      return pomodoroModel(card, input, title);
+    case "clock":
+      return clockModel(card, input, title);
     case "highlights":
       return { title, uri: dashboard, note: "This week's highlights, blockers and tips are on your Dashboard.", buttons: [{ label: "Open", uri: dashboard }] };
     default:

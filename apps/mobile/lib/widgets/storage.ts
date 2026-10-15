@@ -1,4 +1,5 @@
 import { documentTextFile } from "../textFile";
+import type { DashboardCard } from "@timely/contract/dashboard";
 import type { WidgetModel } from "./model";
 
 /**
@@ -6,7 +7,8 @@ import type { WidgetModel } from "./model";
  * drew, so a widget redrawn while offline (or signed out) keeps its content.
  */
 
-type Entry = { cardId?: string; model?: WidgetModel };
+/** `card` and `timeZone` are what a button tap needs to redraw at once, before the network answers. */
+type Entry = { cardId?: string; model?: WidgetModel; card?: DashboardCard; timeZone?: string };
 type Store = Record<string, Entry>;
 
 const file = documentTextFile("timely-widgets.json");
@@ -37,6 +39,11 @@ export function setWidgetEntry(widgetId: number, change: Entry) {
   const store = load();
   store[String(widgetId)] = { ...store[String(widgetId)], ...change };
   save(store);
+}
+
+/** Every widget's entry, by widget id. */
+export function allWidgetEntries(): Record<string, Entry> {
+  return load();
 }
 
 export function forgetWidget(widgetId: number) {

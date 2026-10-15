@@ -8,9 +8,9 @@ import { getCalendarRange, getToday } from "../api/schedule";
 import { getSheet, getSheets } from "../api/sheets";
 import { getFocusSessions, getTasks } from "../api/tasks";
 import { getConfig, getWorkspaces } from "../api/workspaces";
-import { pomodoroTimeLeft, selectActivePomodoros, usePomodoroStore } from "../pomodoroStore";
+import { pomodoroTimeLeft, usePomodoroStore } from "../pomodoroStore";
 import type { Sheet } from "@timely/contract/sheet";
-import type { WidgetDoc, WidgetInput } from "./model";
+import type { WidgetDoc, WidgetInput, WidgetPomodoro } from "./model";
 
 /**
  * Loads what a widget's card reads, straight from the API (widgets redraw in
@@ -39,6 +39,20 @@ export async function loadCards(): Promise<{ cards: DashboardCard[]; config: Awa
   const config = await quiet(getConfig());
   if (!config) return null;
   return { cards: normalizeDashboard(config.reportDashboard).cards, config };
+}
+
+/** Every pomodoro on the device, including ones waiting at the start of a phase. */
+export function widgetPomodoros(now: number): WidgetPomodoro[] {
+  // A phase that ended while JS was asleep moves on before it's drawn.
+  usePomodoroStore.getState().tick(now);
+  return Object.values(usePomodoroStore.getState().timers).map((timer) => ({
+    cardId: timer.cardId,
+    phase: timer.phase,
+    endsAt: timer.endsAt,
+    leftMs: pomodoroTimeLeft(timer, now),
+    active: timer.endsAt !== null || timer.remaining !== null,
+    taskName: timer.taskName ?? null,
+  }));
 }
 
 export async function loadWidgetInput(cards: DashboardCard[], options: { today?: boolean } = {}): Promise<WidgetInput | null> {
@@ -89,13 +103,7 @@ export async function loadWidgetInput(cards: DashboardCard[], options: { today?:
     events: events?.items ?? [],
   };
 
-  const pomodoros = selectActivePomodoros(usePomodoroStore.getState()).map((timer) => ({
-    cardId: timer.cardId,
-    phase: timer.phase,
-    endsAt: timer.endsAt,
-    leftMs: pomodoroTimeLeft(timer, now.getTime()),
-    taskName: timer.taskName ?? null,
-  }));
+  const pomodoros = widgetPomodoros(now.getTime());
 
   return {
     now,

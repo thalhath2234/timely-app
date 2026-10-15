@@ -12,5 +12,6 @@
         android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
         android:value="Keeps the Timely Activity island (assistant runs, task focus, timers) up to date in an ongoing notification while something is running." />
     </service>
+    <receiver android:name=".WidgetRefreshReceiver" android:exported="false" />
   </application>
 </manifest>

@@ -53,6 +53,20 @@ if (Platform.OS === "android") {
   const { WidgetConfigurationScreen } = require("../widgets/configure") as typeof import("../widgets/configure");
   widgets.registerWidgetTaskHandler(widgetTaskHandler);
   widgets.registerWidgetConfigurationScreen(WidgetConfigurationScreen);
+
+  // A pomodoro started, paused or finished anywhere (the app, the live
+  // notification, a widget) redraws the card widgets.
+  const { usePomodoroStore } = require("../pomodoroStore") as typeof import("../pomodoroStore");
+  let redraw: ReturnType<typeof setTimeout> | null = null;
+  usePomodoroStore.subscribe((state, previous) => {
+    if (state.timers === previous.timers) return;
+    if (redraw) clearTimeout(redraw);
+    redraw = setTimeout(() => {
+      redraw = null;
+      const { refreshAllWidgets } = require("../widgets/taskHandler") as typeof import("../widgets/taskHandler");
+      void refreshAllWidgets(["TimelyCard"]);
+    }, 600);
+  });
 }
 
 let registered = false;

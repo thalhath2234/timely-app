@@ -58,5 +58,10 @@ class TimelyAndroidModule : Module() {
     }
 
     Function("isLiveActivityRunning") { LiveActivityService.running }
+
+    Function("scheduleWidgetRefresh") { atMs: Double ->
+      appContext.reactContext?.let { WidgetRefresh.schedule(it, atMs.toLong()) }
+      Unit
+    }
   }
 }
