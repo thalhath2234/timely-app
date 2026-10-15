@@ -35,6 +35,7 @@ import {
   type SheetCardResult,
   type SheetPick,
   type SheetView,
+  pickRangeText,
 } from "@timely/contract/dashboardFiles";
 import type { DocContent } from "@timely/contract/documents";
 import type { Sheet as ContractSheet, UpdateSheetPayload } from "@timely/contract/sheet";
@@ -216,7 +217,7 @@ function Missing({ text }: { text: string }) {
 function SheetCard({ pick, sheet, color, preview }: { pick: SheetPick; sheet: Sheet | undefined; color: number; preview: boolean }) {
   const result = useMemo(() => computeSheetCard(sheet as ContractSheet | undefined, pick), [sheet, pick]);
   const write = useSheetWrite();
-  const where = `${sheet?.title || pick.fileTitle || "Sheet"} · ${pick.range}`;
+  const where = `${sheet?.title || pick.fileTitle || "Sheet"} · ${pickRangeText(sheet as ContractSheet | undefined, pick)}`;
   const href = sheet && !preview ? fileHref(sheet.id) : undefined;
   const footer = <Footer href={href}>{where}</Footer>;
   if (result.kind === "missing") return <Missing text={sheet === undefined && !pick.sheetId ? "Pick a sheet." : result.message} />;

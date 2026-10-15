@@ -62,6 +62,12 @@ export interface SheetPick {
    * above or before them. The A1 range is the fallback.
    */
   anchor?: { fromRow?: string; toRow?: string; fromCol?: string; toCol?: string };
+  /**
+   * Ids of the columns the card reads, when they are not all next to each
+   * other (`A1:A8, C1:D8` picks A, C and D). Left out, the card reads every
+   * column in the range. The range spans from the first picked column to the last.
+   */
+  cols?: string[];
   /** The first picked row holds names, not values. */
   headers?: boolean;
   /** Keep reading rows added below the range. */
@@ -114,6 +120,10 @@ export function fitSheetPick(raw: SheetPick): SheetPick {
       if (typeof raw.anchor[key] === "string" && raw.anchor[key]) anchor[key] = raw.anchor[key];
     }
     if (Object.keys(anchor).length) pick.anchor = anchor;
+  }
+  if (Array.isArray(raw.cols)) {
+    const cols = [...new Set(raw.cols.filter((id): id is string => typeof id === "string" && id !== ""))].slice(0, 26);
+    if (cols.length) pick.cols = cols;
   }
   if (raw.headers) pick.headers = true;
   if (raw.grow) pick.grow = true;
@@ -283,10 +293,122 @@ export function setPickTarget(sheet: Sheet, pick: SheetPick, text: string): Shee
 export function repick(sheet: Sheet, pick: SheetPick, box: RangeBox): SheetPick {
   const tab = findTab(sheet, pick.tabId);
   const next: SheetPick = { ...pick, range: formatRange(box) };
+  delete next.cols;
   if (tab) next.anchor = anchorFor(tab, box);
   else delete next.anchor;
   if (next.headers && box.r1 !== null && box.r0 === box.r1) delete next.headers;
   return fitSheetPick(next);
+}
+
+/** The column indexes a pick reads (in sheet order), with hidden columns left in; empty when its cells are gone. */
+export function pickColumnIndexes(sheet: Sheet, pick: SheetPick): number[] {
+  const bounds = pickBounds(sheet, pick);
+  if (!bounds) return [];
+  return columnsOf(bounds, pick);
+}
+
+function columnsOf(bounds: PickBounds, pick: SheetPick): number[] {
+  if (pick.cols?.length) {
+    const indexes = pick.cols.map((id) => bounds.tab.columns.findIndex((column) => column.id === id)).filter((index) => index >= 0);
+    if (indexes.length) return [...new Set(indexes)].sort((a, b) => a - b);
+  }
+  const all: number[] = [];
+  for (let col = bounds.c0; col <= bounds.c1; col += 1) all.push(col);
+  return all;
+}
+
+/** Picks these columns (any order, gaps allowed) over rows r0..r1 (null: down to the last row). */
+export function pickColumns(sheet: Sheet, pick: SheetPick, columns: number[], rows: { r0: number; r1: number | null }): SheetPick {
+  const indexes = [...new Set(columns)].sort((a, b) => a - b);
+  if (indexes.length === 0) return pick;
+  const box: RangeBox = { r0: rows.r0, r1: rows.r1, c0: indexes[0], c1: indexes[indexes.length - 1] };
+  const next = repick(sheet, pick, box);
+  const tab = findTab(sheet, pick.tabId);
+  if (tab && indexes.length < box.c1 - box.c0 + 1) {
+    const ids = indexes.map((index) => tab.columns[index]?.id).filter((id): id is string => Boolean(id));
+    if (ids.length === indexes.length) next.cols = ids;
+  }
+  return fitSheetPick(next);
+}
+
+/**
+ * Adds a column to a pick, or takes it out, keeping the picked rows. A pick
+ * of one row (or one cell) grows to the tab's used rows when a column is
+ * added, since a whole column is what clicking its letter means.
+ */
+export function toggleColumn(sheet: Sheet, pick: SheetPick, column: number): SheetPick {
+  const tab = findTab(sheet, pick.tabId);
+  const bounds = pickBounds(sheet, pick);
+  const box = parseRange(pick.range);
+  if (!tab || !box) return pick;
+  const current = bounds ? columnsOf(bounds, pick) : [];
+  const has = current.includes(column);
+  if (has && current.length === 1) return pick;
+  const columns = has ? current.filter((index) => index !== column) : [...current, column];
+  let rows: { r0: number; r1: number | null } = box.r1 === null ? { r0: bounds?.r0 ?? box.r0, r1: null } : { r0: bounds?.r0 ?? box.r0, r1: bounds?.r1 ?? box.r1 };
+  if (!has && rows.r1 !== null && rows.r0 === rows.r1) {
+    const used = usedBox(tab);
+    if (used && used.r1 !== null && used.r1 > 0) rows = { r0: 0, r1: used.r1 };
+  }
+  return pickColumns(sheet, pick, columns, rows);
+}
+
+/**
+ * Ctrl/Cmd+click or drag: adds the dragged cells' columns to a pick (rows
+ * grow to cover them too). Ctrl/Cmd+clicking one cell of a picked column
+ * takes that column out instead.
+ */
+export function addToPick(sheet: Sheet, pick: SheetPick, box: RangeBox): SheetPick {
+  const bounds = pickBounds(sheet, pick);
+  const stored = parseRange(pick.range);
+  if (!bounds || !stored) return repick(sheet, pick, box);
+  const current = columnsOf(bounds, pick);
+  const open = stored.r1 === null;
+  const single = box.c0 === box.c1 && box.r0 === box.r1;
+  if (single && current.includes(box.c0) && box.r0 >= bounds.r0 && (open || box.r0 <= bounds.r1)) return toggleColumn(sheet, pick, box.c0);
+  const columns = [...current];
+  for (let col = box.c0; col <= box.c1; col += 1) columns.push(col);
+  const r1 = open ? null : Math.max(bounds.r1, box.r1 ?? bounds.r1);
+  return pickColumns(sheet, pick, columns, { r0: Math.min(bounds.r0, box.r0), r1 });
+}
+
+/** A pick's cells as text: `A1:C6`, or `A1:A8, C1:D8` when its columns have gaps. */
+export function pickRangeText(sheet: Sheet | undefined, pick: SheetPick): string {
+  if (!pick.cols?.length || !sheet) return pick.range;
+  const bounds = pickBounds(sheet, pick);
+  const box = parseRange(pick.range);
+  if (!bounds || !box) return pick.range;
+  const indexes = columnsOf(bounds, pick);
+  const runs: [number, number][] = [];
+  for (const index of indexes) {
+    const last = runs[runs.length - 1];
+    if (last && index === last[1] + 1) last[1] = index;
+    else runs.push([index, index]);
+  }
+  const r1 = box.r1 === null ? null : bounds.r1;
+  return runs.map(([c0, c1]) => formatRange({ r0: bounds.r0, r1, c0, c1 })).join(", ");
+}
+
+/**
+ * Reads typed cells: one range, or several split by commas (`A1:A8, C1:D8`).
+ * Several ranges pick their columns over the rows they share the most of:
+ * from the highest first row to the lowest last row of any of them.
+ */
+export function parsePickRanges(text: string): { columns: number[]; rows: { r0: number; r1: number | null } } | null {
+  const parts = text.split(",").map((part) => part.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+  const boxes = parts.map(parseRange);
+  if (boxes.some((box) => box === null)) return null;
+  const columns = new Set<number>();
+  let r0 = Infinity;
+  let r1: number | null = -1;
+  for (const box of boxes as RangeBox[]) {
+    for (let col = box.c0; col <= box.c1; col += 1) columns.add(col);
+    r0 = Math.min(r0, box.r0);
+    if (box.r1 === null) r1 = null;
+    else if (r1 !== null) r1 = Math.max(r1, box.r1);
+  }
+  return { columns: [...columns], rows: { r0, r1 } };
 }
 
 /**
@@ -356,14 +478,13 @@ function numberOf(result: CellResult, column: SheetColumn): number | null {
 }
 
 /** Reads the picked cells, worked out with the sheet's own formula engine (every tab, so cross-tab formulas work). */
-export function readPick(sheet: Sheet, pick: SheetPick): { bounds: PickBounds; columns: SheetColumn[]; grid: PickCell[][] } | null {
+export function readPick(sheet: Sheet, pick: SheetPick): { bounds: PickBounds; columns: SheetColumn[]; indexes: number[]; grid: PickCell[][] } | null {
   const bounds = pickBounds(sheet, pick);
   if (!bounds) return null;
   const tabs = sheetTabs(sheet);
   const evaluator = createWorkbookEvaluators({ tabs })(bounds.tab.id);
   if (!evaluator) return null;
-  const columnIndexes: number[] = [];
-  for (let col = bounds.c0; col <= bounds.c1; col += 1) if (!bounds.tab.columns[col]?.hidden) columnIndexes.push(col);
+  const columnIndexes = columnsOf(bounds, pick).filter((col) => !bounds.tab.columns[col]?.hidden);
   const grid: PickCell[][] = [];
   for (let row = bounds.r0; row <= bounds.r1; row += 1) {
     const sheetRow = bounds.tab.rows[row];
@@ -386,7 +507,7 @@ export function readPick(sheet: Sheet, pick: SheetPick): { bounds: PickBounds; c
       }),
     );
   }
-  return { bounds, columns: columnIndexes.map((col) => bounds.tab.columns[col]), grid };
+  return { bounds, columns: columnIndexes.map((col) => bounds.tab.columns[col]), indexes: columnIndexes, grid };
 }
 
 /** Formats a number the way a column shows it (currency, percent, decimals). */
@@ -467,7 +588,8 @@ export function computeSheetCard(sheet: Sheet | undefined, rawPick: SheetPick): 
   if (!sheet || sheet.archivedAt) return { kind: "missing", message: MISSING_SHEET };
   const read = readPick(sheet, pick);
   if (!read) return { kind: "missing", message: MISSING_CELLS };
-  const { grid, columns, bounds } = read;
+  const { grid, columns, indexes, bounds } = read;
+  const letterOf = (index: number) => columnIndexToLetter(indexes[index] ?? bounds.c0 + index);
   const headerRow = pick.headers && grid.length > 1 ? grid[0] : null;
   const rows = body(grid, pick);
   const cells = rows.flat();
@@ -480,7 +602,7 @@ export function computeSheetCard(sheet: Sheet | undefined, rawPick: SheetPick): 
         return { kind: "value", text: cell.text, number: cell.number, label, address: cell.address, count: 1 };
       }
       const sum = sumOf(cells);
-      return { kind: "value", text: formatLike(sum.total, sum.column), number: sum.total, label, address: pick.range, count: sum.count };
+      return { kind: "value", text: formatLike(sum.total, sum.column), number: sum.total, label, address: pickRangeText(sheet, pick), count: sum.count };
     }
     case "counter": {
       const cell = cells[0] ?? null;
@@ -502,7 +624,7 @@ export function computeSheetCard(sheet: Sheet | undefined, rawPick: SheetPick): 
     }
     case "table": {
       // Without a names row, the sheet's own column names head the table (when it has real ones, not just letters).
-      const named = columns.some((column, index) => column.name && column.name !== columnIndexToLetter(bounds.c0 + index));
+      const named = columns.some((column, index) => column.name && column.name !== letterOf(index));
       const headers = headerRow ? headerRow.map((cell) => cell.text) : named ? columns.map((column) => column.name) : null;
       return { kind: "table", headers, columns, rows, editable: Boolean(pick.editable) };
     }
@@ -513,7 +635,7 @@ export function computeSheetCard(sheet: Sheet | undefined, rawPick: SheetPick): 
       columns.forEach((column, index) => {
         // Columns whose last row is a formula copy it down instead of asking.
         if (last && isFormulaValue(last.cells?.[column.id] ?? "") && !(pick.headers && bounds.r0 === bounds.r1)) return;
-        const name = headerRow?.[index]?.text.trim() || column.name || columnIndexToLetter(bounds.c0 + index);
+        const name = headerRow?.[index]?.text.trim() || column.name || letterOf(index);
         fields.push({ colId: column.id, name, type: column.type, options: column.options });
       });
       return { kind: "addRow", fields, tabName: bounds.tab.name, afterLabel: `row ${end + 1}` };
@@ -524,7 +646,7 @@ export function computeSheetCard(sheet: Sheet | undefined, rawPick: SheetPick): 
       const valueCols = columns.map((_, index) => index).filter((index) => index !== labelCol);
       const used = view === "bar" ? valueCols.slice(0, 4) : valueCols.slice(0, 1);
       const series = used.map((col) => ({
-        name: headerRow?.[col]?.text || columns[col]?.name || columnIndexToLetter(bounds.c0 + col),
+        name: headerRow?.[col]?.text || columns[col]?.name || letterOf(col),
         points: rows
           .map((row, index) => {
             const cell = row[col];

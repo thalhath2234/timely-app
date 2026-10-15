@@ -20,12 +20,15 @@ import {
   docSections,
   fitSheetPick,
   parseRange,
+  pickColumnIndexes,
   pickDocChecks,
+  pickRangeText,
   previewGrid,
   repick,
   setPickTarget,
   sheetTabs,
   suggestSheetPick,
+  toggleColumn,
   type DocPick,
   type DocView,
   type SheetPick,
@@ -200,7 +203,8 @@ function SheetPicker({ sheet, pick, onChange }: { sheet: ContractSheet; pick: Sh
   const result = useMemo(() => computeSheetCard(sheet, pick), [sheet, pick]);
   const byAddress = useMemo(() => new Map(grid.flat().map((cell) => [cell.address, cell])), [grid]);
   const letters = Array.from({ length: cols }, (_, index) => columnIndexToLetter(index)).filter((letter) => byAddress.has(`${letter}1`));
-  const inBox = (r: number, c: number) => box !== null && c >= box.c0 && c <= box.c1 && r >= box.r0 && (box.r1 === null || r <= box.r1);
+  const picked = useMemo(() => new Set(pickColumnIndexes(sheet, pick)), [sheet, pick]);
+  const inBox = (r: number, c: number) => box !== null && picked.has(c) && r >= box.r0 && (box.r1 === null || r <= box.r1);
   const bodyRows = box && box.r1 !== null ? box.r1 - box.r0 + 1 : Infinity;
 
   const tap = (r: number, c: number) => {
@@ -229,8 +233,8 @@ function SheetPicker({ sheet, pick, onChange }: { sheet: ContractSheet; pick: Sh
       ) : null}
       <View style={{ gap: 8 }}>
         <View style={styles.pickHead}>
-          <Text style={[styles.muted, { flex: 1 }]}>{first ? "Now tap the last cell. Tap the same one again for just that cell." : "Tap the first cell, then the last."}</Text>
-          <Text style={styles.rangePill}>{pick.range}</Text>
+          <Text style={[styles.muted, { flex: 1 }]}>{first ? "Now tap the last cell. Tap the same one again for just that cell." : "Tap the first cell, then the last. Tap a column letter to add or leave out that column."}</Text>
+          <Text style={styles.rangePill}>{pickRangeText(sheet, pick)}</Text>
         </View>
         {rows === 0 ? (
           <Text style={styles.muted}>This tab is empty.</Text>
@@ -242,11 +246,26 @@ function SheetPicker({ sheet, pick, onChange }: { sheet: ContractSheet; pick: Sh
                   <Text style={styles.rowNumber} />
                   {letters.map((letter) => {
                     const name = byAddress.get(`${letter}1`)?.column.name;
+                    const c = parseRange(`${letter}1`)!.c0;
+                    const on = picked.has(c);
                     return (
-                      <Text key={letter} style={styles.colHead} numberOfLines={1}>
-                        {letter}
-                        {name && name !== letter ? <Text style={styles.colName}> {name}</Text> : null}
-                      </Text>
+                      <AnimatedPressable
+                        key={letter}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Column ${letter}${name && name !== letter ? `, ${name}` : ""}`}
+                        accessibilityHint={on ? "Leaves this column out of the card" : "Adds this column to the card"}
+                        accessibilityState={{ selected: on }}
+                        onPress={() => {
+                          setFirst(null);
+                          onChange(toggleColumn(sheet, pick, c));
+                        }}
+                        style={[styles.colHeadButton, on && styles.colHeadOn]}
+                      >
+                        <Text style={[styles.colHead, on && styles.colHeadTextOn]} numberOfLines={1}>
+                          {letter}
+                          {name && name !== letter ? <Text style={[styles.colName, on && styles.colNameOn]}> {name}</Text> : null}
+                        </Text>
+                      </AnimatedPressable>
                     );
                   })}
                 </View>
@@ -396,8 +415,12 @@ const styles = createThemedStyleSheet((colors) => ({
   gridRow: { flexDirection: "row", borderTopWidth: 1, borderTopColor: colors.border },
   gridHead: { borderTopWidth: 0, backgroundColor: colors.muted },
   rowNumber: { width: 30, textAlign: "center", textAlignVertical: "center", color: colors.mutedForeground, fontSize: 12, paddingVertical: 10, backgroundColor: colors.muted },
-  colHead: { width: 96, paddingHorizontal: 8, paddingVertical: 8, color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
+  colHeadButton: { width: 96, minHeight: 40, justifyContent: "center" },
+  colHeadOn: { backgroundColor: `${colors.primary}26` },
+  colHead: { paddingHorizontal: 8, color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
+  colHeadTextOn: { color: colors.primary },
   colName: { fontWeight: "400" },
+  colNameOn: { color: colors.foreground },
   cell: { width: 96, minHeight: 40, paddingHorizontal: 8, justifyContent: "center" },
   cellOn: { backgroundColor: `${colors.primary}1f` },
   cellStart: { borderWidth: 2, borderColor: colors.primary, borderRadius: 4 },

@@ -34,6 +34,7 @@ import {
   type SheetCardResult,
   type SheetPick,
   type SheetView,
+  pickRangeText,
 } from "@timely/contract/dashboardFiles";
 import type { DocContent } from "@timely/contract/documents";
 import type { Sheet as ContractSheet } from "@timely/contract/sheet";
@@ -195,7 +196,7 @@ function SheetCard({ pick, sheet, color, preview }: { pick: SheetPick; sheet: Sh
   const write = useSheetWrite();
   const contract = sheet as unknown as ContractSheet | undefined;
   const result = useMemo(() => computeSheetCard(contract, pick), [contract, pick]);
-  const label = `${sheet?.title || pick.fileTitle || "Sheet"} · ${pick.range}`;
+  const label = `${sheet?.title || pick.fileTitle || "Sheet"} · ${pickRangeText(contract, pick)}`;
   const setCell = (cell: PickCell, input: string, done?: string) =>
     sheet && contract && !preview ? write(sheet, setPickCell(contract, pick.tabId, cell.rowId, cell.colId, input), done) : Promise.resolve(false);
   const addRow = (values: Record<string, string>) =>
