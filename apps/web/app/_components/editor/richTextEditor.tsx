@@ -115,8 +115,12 @@ export interface RichTextEditorProps {
   placeholder?: string;
   /** "page" is a full document body; "compact" is a description field. */
   variant?: "page" | "compact";
-  /** "fixed" pins formatting controls above the editor. "float" shows them on selection. */
-  toolbar?: "float" | "fixed";
+  /**
+   * "fixed" pins formatting controls above the editor. "float" shows them on
+   * selection. "focus" pins them only while the editor (or its link or Help
+   * me write panel) is in use, for a notes field in a create form.
+   */
+  toolbar?: "float" | "fixed" | "focus";
   enableSlashCommands?: boolean;
   enableMentions?: boolean;
   autoFocus?: boolean;
@@ -244,6 +248,7 @@ export default function RichTextEditor({
   const writeOn = Boolean(writeContext) && writeAvailable && editable;
   const [writeBox] = useState(() => createHandlerBox(writeOn));
   const [writeAnchor, setWriteAnchor] = useState<FloatingPosition | null>(null);
+  const [focusedWithin, setFocusedWithin] = useState(false);
   useEffect(() => {
     writeBox.set(writeOn);
   }, [writeBox, writeOn]);
@@ -592,7 +597,7 @@ export default function RichTextEditor({
       const { empty, from, to } = state.selection;
 
       if (
-        toolbar === "fixed" ||
+        toolbar !== "float" ||
         empty ||
         !view.hasFocus() ||
         editor.isActive("codeBlock")
@@ -985,8 +990,15 @@ export default function RichTextEditor({
 
   return (
     <>
-      {toolbar === "fixed" ? (
-        <div className="flex h-full min-h-0 flex-col">
+      {toolbar !== "float" ? (
+        <div
+          className="flex h-full min-h-0 flex-col"
+          onFocus={() => setFocusedWithin(true)}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusedWithin(false);
+          }}
+        >
+          {toolbar === "fixed" || focusedWithin || writeAnchor || linkPosition ? (
           <div
             className="mb-3 flex shrink-0 flex-wrap items-center gap-0.5 rounded-lg border border-border bg-muted/20 p-1"
             onMouseDown={(event) => event.preventDefault()}
@@ -1047,6 +1059,7 @@ export default function RichTextEditor({
               </button>
             )}
           </div>
+          ) : null}
 
           <div className="relative flex min-h-0 flex-1 flex-col">
             {findOpen && <FindBar editor={editor} onClose={() => setFindOpen(false)} />}

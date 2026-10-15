@@ -15,6 +15,7 @@ import {
 } from "@/app/utils/hooks/workspaces";
 import { controlClass } from "@/app/_components/_ui/field";
 import { buttonClass } from "@/app/_components/_ui/button";
+import { PropertyChip } from "@/app/_components/_ui/propertyChip";
 
 const DEFAULT_COLOR = "#889096";
 
@@ -40,6 +41,10 @@ function stopEnterSubmit(event: React.KeyboardEvent) {
   }
 }
 
+/**
+ * "+ New label" chip that opens a chip-shaped composer in the same row:
+ * colour dot, name, Add and close. Enter adds, Escape closes.
+ */
 export function CreateLabelInline({
   workspaceId,
   onCreated,
@@ -48,9 +53,17 @@ export function CreateLabelInline({
   onCreated?: (label: Label) => void;
 }) {
   const createLabel = useCreateLabel();
+  const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [color, setColor] = useState(DEFAULT_COLOR);
   const [error, setError] = useState<string | null>(null);
+
+  const close = () => {
+    setOpen(false);
+    setName("");
+    setColor(DEFAULT_COLOR);
+    setError(null);
+  };
 
   const submit = async () => {
     const trimmed = name.trim();
@@ -70,45 +83,69 @@ export function CreateLabelInline({
         name: trimmed,
         color,
       });
-      setName("");
-      setColor(DEFAULT_COLOR);
+      close();
       onCreated?.(label);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create label.");
     }
   };
 
+  if (!open) {
+    return (
+      <PropertyChip
+        empty
+        icon={<Plus />}
+        disabled={!workspaceId}
+        onClick={() => {
+          setError(null);
+          setOpen(true);
+        }}
+      >
+        New label
+      </PropertyChip>
+    );
+  }
+
   return (
-    <div className="mt-2 px-1">
-      <div className="flex items-center gap-1.5">
-        <ColorPicker
-          value={color}
-          onChange={setColor}
-          aria-label="New label color"
-        />
+    <span className="inline-flex flex-col gap-1">
+      <span className="inline-flex h-8 items-center gap-1 rounded-[10px] border border-input bg-card pl-1 pr-1 shadow-xs transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
+        <ColorPicker variant="dot" value={color} onChange={setColor} aria-label="New label colour" />
         <input
+          autoFocus
           value={name}
           onChange={(event) => setName(event.target.value)}
           onKeyDown={(event) => {
             stopEnterSubmit(event);
             if (event.key === "Enter") void submit();
+            if (event.key === "Escape") {
+              event.stopPropagation();
+              close();
+            }
           }}
-          placeholder="New label"
+          placeholder="Label name"
+          aria-label="Label name"
           disabled={!workspaceId || createLabel.isPending}
-          className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+          className="w-36 min-w-0 bg-transparent text-[13px] font-medium text-foreground outline-none placeholder:font-normal placeholder:text-muted-foreground"
         />
         <button
           type="button"
-          title="Create label"
-          disabled={!workspaceId || createLabel.isPending}
+          disabled={!workspaceId || !name.trim() || createLabel.isPending}
           onClick={() => void submit()}
-          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          className={buttonClass({ variant: "soft", size: "sm", className: "h-6 rounded-[8px] px-2" })}
         >
-          <Plus className="size-3.5" />
+          {createLabel.isPending ? "Adding…" : "Add"}
         </button>
-      </div>
-      {error && <p className="mt-1 text-[11px] text-destructive">{error}</p>}
-    </div>
+        <button
+          type="button"
+          aria-label="Cancel new label"
+          onClick={close}
+          className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[8px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <X className="size-3.5" />
+        </button>
+      </span>
+      {error && <span className="px-1 text-[11px] text-destructive">{error}</span>}
+    </span>
   );
 }
 
@@ -178,18 +215,18 @@ export function CreateCustomFieldInline({
 
   if (!open) {
     return (
-      <button
-        type="button"
+      <PropertyChip
+        empty
+        icon={<Plus />}
         disabled={!workspaceId}
+        className="mt-1 ml-1.5 self-start"
         onClick={() => {
           setError(null);
           setOpen(true);
         }}
-        className="mt-2 inline-flex cursor-pointer items-center gap-1 px-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <Plus className="size-3.5" />
         New custom field
-      </button>
+      </PropertyChip>
     );
   }
 
@@ -219,6 +256,8 @@ export function CreateCustomFieldInline({
             {options.map((option, index) => (
               <div key={index} className="flex items-center gap-1.5">
                 <ColorPicker
+                  variant="dot"
+                  aria-label={`Option ${index + 1} colour`}
                   value={option.color}
                   onChange={(color) => {
                     const next = [...options];

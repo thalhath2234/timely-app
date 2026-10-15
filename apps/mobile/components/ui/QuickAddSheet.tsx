@@ -3,14 +3,12 @@ import { Alert, Text, View } from "react-native";
 import Animated, { useReducedMotion } from "react-native-reanimated";
 import { useRouter } from "expo-router";
 import InboxCapture from "../inbox/InboxCapture";
-import { Bell, CalendarClock, CalendarDays, Check, CircleDot, Clock, FileText, Flag, FolderKanban, Inbox, ListTodo, Palette, Sheet as SheetIcon, Sparkles } from "lucide-react-native";
+import { Bell, CalendarClock, CalendarDays, Check, ChevronDown, ChevronUp, Clock, FileText, Flag, FolderKanban, Inbox, ListTodo, Palette, Plus, Sheet as SheetIcon, Sparkles } from "lucide-react-native";
 import BottomSheet, { SheetOption } from "./BottomSheet";
 import DateTimeSheet from "./DateTimeSheet";
 import TaskMetaEditor from "./TaskMetaEditor";
 import RecurrenceEditor from "./RecurrenceEditor";
-import TaskSectionHeader from "../tasks/TaskSectionHeader";
-import SegmentedControl from "./SegmentedControl";
-import { Dot, Field, PrimaryButton, PropertyGroup, PropertyRow } from "./primitives";
+import { Button, Dot, Field, PropertyChip, PropertyChips, PropertyGroup, PropertyRow } from "./primitives";
 import RichTextEditor from "../editor/RichTextEditor";
 import AnimatedPressable from "./AnimatedPressable";
 import { emptyCustomFieldDrafts, filledCustomFieldValues } from "../../lib/customFields";
@@ -151,6 +149,9 @@ export default function QuickAddSheet({
   const editorOpen = editor !== "closed";
   const [editorFocus, setEditorFocus] = useState(0);
   const [detailsReady, setDetailsReady] = useState(false);
+  // Repeat, the Auto-schedule window, labels and custom fields sit behind
+  // one chip so a new task starts as a title and a row of chips.
+  const [more, setMore] = useState(false);
 
   const list = workspaces.data ?? [];
   const projectList = projects.data ?? [];
@@ -166,6 +167,13 @@ export default function QuickAddSheet({
   const fileTemplates = useNewFileTemplates(kind === "sheet" ? "sheet" : "doc", title, open && (kind === "doc" || kind === "sheet"));
 
   const isReminder = kind === "reminder";
+  const moreCount =
+    (taskRecurrence ? 1 : 0) +
+    (startDate ? 1 : 0) +
+    (earliestStartAt ? 1 : 0) +
+    (preferFrom || preferTo ? 1 : 0) +
+    (labelIds.length > 0 ? 1 : 0) +
+    filledCustomFieldValues(customFieldValues).length;
   const taskTimeOnly = Boolean(taskRecurrence);
   const taskAnchor = useMemo(() => scheduledOn ?? nextRoundHour(), [scheduledOn]);
   const eventMinutes = Math.max(15, eventDuration || 60);
@@ -239,6 +247,7 @@ export default function QuickAddSheet({
   }
 
   function finishClose() {
+    setMore(false);
     setPhase("menu");
     setSelectedKind(null);
     setEditor("closed");
@@ -394,66 +403,104 @@ export default function QuickAddSheet({
             ? eventStart
             : null;
 
+  const kindMeta = KINDS.find((item) => item.value === kind) ?? KINDS[1];
+  const workspaceName = selectedWorkspace?.name ?? "Workspace";
+  const statusMeta = selectedWorkspace?.status?.find((status) => status.id === statusId);
+  const stageName = stages.find((stage) => stage.id === stageId)?.name;
+  const eventWorkspace = list.find((workspace) => workspace.id === eventWorkspaceId);
+  const eventProject = projectList.find((project) => project.id === eventProjectId);
+  const needsWorkspace = (kind === "task" && !isReminder) || kind === "doc" || kind === "sheet";
+  const canSubmit = Boolean(title.trim()) && !pending && !(needsWorkspace && !activeWorkspaceId);
+  const summary = quickAddSummary({
+    kind,
+    where: selectedProject?.title ?? workspaceName,
+    duration,
+    deadline,
+    scheduledOn,
+    timeOnly: taskTimeOnly,
+    recurring: Boolean(taskRecurrence),
+    eventStart,
+    eventMinutes,
+    allDay,
+    template: (kind === "doc" || kind === "sheet") ? fileTemplates.choices.find((template) => template.id === templateId)?.name : undefined,
+  });
+
+  const header =
+    phase === "form" ? (
+      <AnimatedPressable
+        accessibilityRole="button"
+        accessibilityLabel={`${kindMeta.label}, change type`}
+        onPress={() => {
+          setSelectedKind(null);
+          setPhase("menu");
+          setEditor("closed");
+          setMore(false);
+        }}
+        hitSlop={6}
+        style={styles.kindSwitch}
+      >
+        <kindMeta.Icon size={16} color={colors.accentForeground} />
+        <Text style={styles.kindSwitchText}>{kindMeta.label}</Text>
+        <ChevronDown size={14} color={colors.accentForeground} />
+      </AnimatedPressable>
+    ) : undefined;
+
   return (
-    <>
-      <BottomSheet
-        open={open}
-        onClose={closeSheet}
-        onClosed={finishClose}
-        title={phase === "menu" ? "New" : kind === "inbox" ? "Capture to Inbox" : `New ${kind}`}
-        footer={
-          phase === "form" && kind !== "inbox" ? (
-          <View style={{ gap: 8 }}>
-            <PrimaryButton
-              label={pending ? "Saving…" : kind === "reminder" ? "Add reminder" : `Add ${kind}`}
-              disabled={!title.trim() || pending || (((kind === "task" && !isReminder) || kind === "doc" || kind === "sheet") && !activeWorkspaceId)}
+    <BottomSheet
+      open={open}
+      onClose={closeSheet}
+      onClosed={finishClose}
+      // Hidden behind the kind chip in the form; a picker shows it under its own title.
+      title={phase === "form" ? (kind === "inbox" ? "Capture to Inbox" : title.trim() || `New ${kindMeta.label.toLowerCase()}`) : "New"}
+      leading={header}
+      footer={
+        phase === "form" && kind !== "inbox" ? (
+          <View style={styles.actionBar}>
+            <View style={styles.summary}>
+              <Text style={styles.summaryMain} numberOfLines={1}>{summary.main}</Text>
+              {summary.detail ? <Text style={styles.summaryDetail} numberOfLines={1}>{summary.detail}</Text> : null}
+            </View>
+            <Button
+              testID="quick-add-submit"
+              label={pending ? "Saving…" : "Create"}
+              icon={pending ? undefined : <Check size={16} color={colors.primaryForeground} strokeWidth={2.5} />}
+              loading={pending}
+              disabled={!canSubmit}
               onPress={() => void submit()}
             />
-            <View style={styles.hintRow}>
-              <Check size={14} color={colors.mutedForeground} />
-              <Text style={styles.hint}>
-                {kind === "reminder" ? "Shows on the calendar at that time" : "Creates it in your workspace immediately"}
-              </Text>
-            </View>
           </View>
-          ) : undefined
-        }
-      >
-        <Animated.View layout={listLayout(Boolean(reduceMotion))}>
-        {phase === "menu" ? (
+        ) : undefined
+      }
+    >
+      <Animated.View layout={listLayout(Boolean(reduceMotion))}>
+      {phase === "menu" ? (
         <Animated.View key="menu" entering={expandEntering(Boolean(reduceMotion))} style={styles.kinds}>
           {KINDS.map((item) => (
-              <AnimatedPressable
-                key={item.value}
-                onPress={() => pickKind(item.value)}
-                android_ripple={{ color: `${colors.primary}22` }}
-                style={[styles.kind, selectedKind === item.value && styles.kindSelected]}
-              >
-                <View style={[styles.kindIcon, selectedKind === item.value && styles.kindIconSelected]}>
-                  <item.Icon size={22} color={selectedKind === item.value ? colors.primary : colors.mutedForeground} />
-                </View>
-                <Text style={[styles.kindText, selectedKind === item.value && styles.kindTextSelected]}>{item.label}</Text>
-              </AnimatedPressable>
+            <AnimatedPressable
+              key={item.value}
+              onPress={() => pickKind(item.value)}
+              android_ripple={{ color: `${colors.primary}22` }}
+              style={[styles.kind, selectedKind === item.value && styles.kindSelected]}
+            >
+              <View style={[styles.kindIcon, selectedKind === item.value && styles.kindIconSelected]}>
+                <item.Icon size={20} color={selectedKind === item.value ? colors.primary : colors.mutedForeground} />
+              </View>
+              <Text style={[styles.kindText, selectedKind === item.value && styles.kindTextSelected]}>{item.label}</Text>
+            </AnimatedPressable>
           ))}
         </Animated.View>
-        ) : (
-        <Animated.View key={`form-${kind}`} entering={expandEntering(Boolean(reduceMotion))} style={styles.fields}>
-        <AnimatedPressable onPress={() => { setSelectedKind(null); setPhase("menu"); setEditor("closed"); }} style={styles.changeType}>
-          <Text style={styles.changeTypeText}>← Change type</Text>
-        </AnimatedPressable>
+      ) : (
+      <Animated.View key={`form-${kind}`} entering={expandEntering(Boolean(reduceMotion))} style={styles.fields}>
         {kind === "inbox" ? (
-          <View style={styles.objectiveCard}>
-            <InboxCapture autoFocus initialTitle={title} onCaptured={captured} />
-          </View>
+          <InboxCapture autoFocus initialTitle={title} onCaptured={captured} />
         ) : (
-        <View style={styles.objectiveCard}>
-          <Text style={styles.cardEyebrow}>
-            {kind === "task" ? "TASK OBJECTIVE" : kind === "event" ? "EVENT TITLE" : kind === "reminder" ? "REMINDER" : `${kind.toUpperCase()} TITLE`}
-          </Text>
+        <View style={styles.titleBlock}>
           <Field
             bare
+            large
             multiline
             autoGrow
+            autoFocus={!preset?.title}
             value={title}
             onChangeText={setTitle}
             autoCapitalize="sentences"
@@ -461,77 +508,165 @@ export default function QuickAddSheet({
               kind === "task"
                 ? "What needs to be done?"
                 : kind === "reminder"
-                  ? "What should Timely remind you about?"
+                  ? "Remind me to…"
                   : kind === "event"
-                    ? "Event title"
+                    ? "Event name"
                     : `Untitled ${kind}`
             }
           />
-        </View>
-        )}
 
-        {kind === "task" || kind === "reminder" ? (
-          <View style={styles.descriptionCard}>
-            <View style={styles.descriptionHeader}>
-              <Text style={styles.cardEyebrow}>DESCRIPTION</Text>
-              {editorOpen ? <Text style={styles.markdownLabel}>Markdown enabled</Text> : null}
-            </View>
-          <View>
-            {editorOpen ? (
-              <RichTextEditor
-                compact
-                openMentions={false}
-                content={descriptionRich}
-                syncKey={noteSync}
-                focusRequest={editorFocus}
-                placeholder="Description. Type '/' for blocks, markdown welcome…"
-                writeContext={{ kind: "task", title }}
-                onFocusChange={(focused) => {
-                  if (focused) setEditor("open");
-                }}
-                onChange={({ content, plainText }) => {
-                  setDescriptionRich(content);
-                  setDescription(plainText);
-                }}
-              />
-            ) : null}
-            {editor !== "open" ? (
-              // This field stays mounted (on top of the loading editor) until
-              // the editor has focus. Unmounting it while focused sends the
-              // focus to the title, so the first tap would land there.
-              <View style={editorOpen ? styles.descriptionBridge : undefined}>
-                <Field
-                  bare
-                  multiline
-                  value={description}
-                  onChangeText={(text) => {
-                    setDescription(text);
-                    setDescriptionRich(text.trim() ? toRichContent(null, text) : EMPTY_DESCRIPTION);
+          {kind === "task" || kind === "reminder" ? (
+            <View>
+              {editorOpen ? (
+                <RichTextEditor
+                  compact
+                  openMentions={false}
+                  content={descriptionRich}
+                  syncKey={noteSync}
+                  focusRequest={editorFocus}
+                  placeholder="Add notes, type / for blocks"
+                  writeContext={{ kind: "task", title }}
+                  onFocusChange={(focused) => {
+                    if (focused) setEditor("open");
                   }}
-                  onFocus={() => {
-                    setEditor((current) => (current === "closed" ? "opening" : current));
-                    setEditorFocus((count) => count + 1);
+                  onChange={({ content, plainText }) => {
+                    setDescriptionRich(content);
+                    setDescription(plainText);
                   }}
-                  onBlur={() => setEditorFocus(0)}
-                  autoCapitalize="sentences"
-                  placeholder="Add a description…"
                 />
-              </View>
-            ) : null}
-          </View>
-          </View>
-        ) : kind === "event" ? (
-          <View style={styles.descriptionCard}>
-            <Text style={styles.cardEyebrow}>DESCRIPTION</Text>
+              ) : null}
+              {editor !== "open" ? (
+                // This field stays mounted (on top of the loading editor) until
+                // the editor has focus. Unmounting it while focused sends the
+                // focus to the title, so the first tap would land there.
+                <View style={editorOpen ? styles.descriptionBridge : undefined}>
+                  <Field
+                    bare
+                    multiline
+                    value={description}
+                    onChangeText={(text) => {
+                      setDescription(text);
+                      setDescriptionRich(text.trim() ? toRichContent(null, text) : EMPTY_DESCRIPTION);
+                    }}
+                    onFocus={() => {
+                      setEditor((current) => (current === "closed" ? "opening" : current));
+                      setEditorFocus((count) => count + 1);
+                    }}
+                    onBlur={() => setEditorFocus(0)}
+                    autoCapitalize="sentences"
+                    placeholder="Add notes, type / for blocks"
+                  />
+                </View>
+              ) : null}
+            </View>
+          ) : kind === "event" ? (
             <Field
               bare
               value={description}
               onChangeText={setDescription}
               multiline
               autoCapitalize="sentences"
-              placeholder="Notes, location, links…"
+              placeholder="Notes, place, links"
             />
-          </View>
+          ) : null}
+        </View>
+        )}
+
+        {kind === "task" ? (
+          <PropertyChips>
+            <PropertyChip icon={<FolderKanban size={15} color={colors.mutedForeground} />} label={workspaceName} onPress={() => setPicking("workspace")} accessibilityLabel={`Workspace, ${workspaceName}`} />
+            {scopedProjects.length > 0 ? (
+              <PropertyChip
+                dot={selectedProject?.color}
+                icon={selectedProject ? undefined : <ListTodo size={15} color={colors.mutedForeground} />}
+                label={selectedProject?.title ?? "Project"}
+                empty={!selectedProject}
+                onPress={() => setPicking("project")}
+                accessibilityLabel={`Project, ${selectedProject?.title ?? "none"}`}
+              />
+            ) : null}
+            {stages.length > 0 ? (
+              <PropertyChip label={stageName ?? "Stage"} empty={!stageName} onPress={() => setPicking("stage")} accessibilityLabel={`Stage, ${stageName ?? "none"}`} />
+            ) : null}
+            {(selectedWorkspace?.status ?? []).length > 0 ? (
+              <PropertyChip dot={statusMeta?.color ?? colors.mutedForeground} label={statusMeta?.name ?? "Status"} onPress={() => setPicking("status")} accessibilityLabel={`Status, ${statusMeta?.name ?? "none"}`} />
+            ) : null}
+            <PriorityChip priority={priority} onPress={() => setPicking("priority")} />
+            <PropertyChip icon={<Clock size={15} color={colors.mutedForeground} />} label={formatDuration(duration) ?? `${duration}m`} onPress={() => setPicking("duration")} accessibilityLabel={`Duration, ${formatDuration(duration) ?? `${duration} minutes`}`} />
+            <PropertyChip
+              icon={<CalendarDays size={15} color={colors.mutedForeground} />}
+              label={deadline ? `Due ${formatShortDate(deadline.toISOString())}` : "Deadline"}
+              empty={!deadline}
+              onPress={() => setPicking("due")}
+              accessibilityLabel={`Deadline, ${deadline ? formatShortDate(deadline.toISOString()) : "none"}`}
+            />
+            <PropertyChip
+              icon={<CalendarClock size={15} color={scheduledOn ? colors.mutedForeground : colors.mutedForeground} />}
+              label={scheduledOn ? (taskTimeOnly ? formatTime(scheduledOn.toISOString()) : formatDateValue(scheduledOn, true)) : "Schedule"}
+              empty={!scheduledOn}
+              onPress={() => setPicking("schedule")}
+              accessibilityLabel={`Schedule, ${scheduledOn ? formatDateValue(scheduledOn, true) : "none"}`}
+            />
+            <MoreChip open={more} count={moreCount} onPress={() => setMore((value) => !value)} />
+          </PropertyChips>
+        ) : null}
+
+        {kind === "reminder" ? (
+          <PropertyChips>
+            <PropertyChip
+              icon={<Bell size={15} color={colors.mutedForeground} />}
+              label={scheduledOn ? (taskTimeOnly ? formatTime(scheduledOn.toISOString()) : formatDateValue(scheduledOn, true)) : "Pick a time"}
+              empty={!scheduledOn}
+              onPress={() => setPicking("schedule")}
+              accessibilityLabel={`Notify at, ${scheduledOn ? formatDateValue(scheduledOn, true) : "not set"}`}
+            />
+            <PriorityChip priority={priority} onPress={() => setPicking("priority")} />
+            {list.length > 0 ? (
+              <PropertyChip icon={<FolderKanban size={15} color={colors.mutedForeground} />} label={selectedWorkspace?.name ?? "Workspace"} onPress={() => setPicking("workspace")} accessibilityLabel={`Workspace, ${selectedWorkspace?.name ?? "none"}`} />
+            ) : null}
+            <MoreChip open={more} count={moreCount} onPress={() => setMore((value) => !value)} />
+          </PropertyChips>
+        ) : null}
+
+        {kind === "event" ? (
+          <PropertyChips>
+            <PropertyChip
+              icon={<CalendarDays size={15} color={colors.mutedForeground} />}
+              label={eventRecurrence && !allDay ? formatTime(eventStart.toISOString()) : formatDateValue(eventStart, !allDay)}
+              onPress={() => setPicking("eventStart")}
+              accessibilityLabel={`Starts, ${formatDateValue(eventStart, !allDay)}`}
+            />
+            {!allDay ? (
+              <PropertyChip icon={<Clock size={15} color={colors.mutedForeground} />} label={formatDuration(eventMinutes) ?? `${eventMinutes}m`} onPress={() => setPicking("eventDuration")} accessibilityLabel={`Duration, ${formatDuration(eventMinutes) ?? `${eventMinutes} minutes`}`} />
+            ) : null}
+            <PropertyChip label="All day" active={allDay} empty={!allDay} onPress={() => setAllDay((value) => !value)} />
+            <PropertyChip
+              icon={<FolderKanban size={15} color={colors.mutedForeground} />}
+              label={eventWorkspace?.name ?? "Workspace"}
+              empty={!eventWorkspace}
+              onPress={() => setPicking("eventWorkspace")}
+              accessibilityLabel={`Workspace, ${eventWorkspace?.name ?? "none"}`}
+            />
+            {eventScopedProjects.length > 0 ? (
+              <PropertyChip
+                dot={eventProject?.color}
+                icon={eventProject ? undefined : <ListTodo size={15} color={colors.mutedForeground} />}
+                label={eventProject?.title ?? "Project"}
+                empty={!eventProject}
+                onPress={() => setPicking("eventProject")}
+                accessibilityLabel={`Project, ${eventProject?.title ?? "none"}`}
+              />
+            ) : null}
+            <PropertyChip
+              icon={eventColor ? undefined : <Palette size={15} color={colors.mutedForeground} />}
+              dot={eventColor || undefined}
+              label={eventColor ? colorName(eventColor) : "Colour"}
+              empty={!eventColor}
+              onPress={() => setPicking("eventColor")}
+              accessibilityLabel={`Colour, ${colorName(eventColor)}`}
+            />
+            <MoreChip open={more} count={eventRecurrence ? 1 : 0} label="Repeat" onPress={() => setMore((value) => !value)} />
+          </PropertyChips>
         ) : null}
 
         {(kind === "doc" || kind === "sheet") && list.length > 0 ? (
@@ -546,80 +681,10 @@ export default function QuickAddSheet({
           </PropertyGroup>
         ) : null}
 
-        {kind === "task" || kind === "reminder" ? (
-          <View style={{ gap: 10 }}>
-            <SegmentedControl options={[{ label: "Work", value: "task" }, { label: "Reminder", value: "reminder" }]} value={kind} onChange={(next) => next === "reminder" ? turnIntoReminder() : addDuration()} />
-            <PropertyGroup tone="card">
-              {!isReminder ? (
-                <PropertyRow
-                  icon={<FolderKanban size={16} color={colors.mutedForeground} />}
-                  label="Workspace"
-                  value={selectedWorkspace?.name ?? "Select workspace"}
-                  onPress={() => setPicking("workspace")}
-                />
-              ) : null}
-              {!isReminder && (selectedWorkspace?.status ?? []).length > 0 ? (
-                <PropertyRow
-                  icon={<CircleDot size={16} color={selectedWorkspace?.status?.find((status) => status.id === statusId)?.color || colors.mutedForeground} />}
-                  label="Status"
-                  value={selectedWorkspace?.status?.find((status) => status.id === statusId)?.name ?? "None"}
-                  swatch={selectedWorkspace?.status?.find((status) => status.id === statusId)?.color}
-                  onPress={() => setPicking("status")}
-                />
-              ) : null}
-              <PropertyRow
-                icon={<Flag size={16} color={colors.mutedForeground} />}
-                label="Priority"
-                value={PRIORITY_META[priority]?.label ?? priority}
-                onPress={() => setPicking("priority")}
-              />
-              {!isReminder && scopedProjects.length > 0 ? (
-                <PropertyRow
-                  icon={<ListTodo size={16} color={colors.mutedForeground} />}
-                  label="Project"
-                  value={selectedProject?.title ?? "None"}
-                  onPress={() => setPicking("project")}
-                />
-              ) : null}
-              {!isReminder && stages.length > 0 ? (
-                <PropertyRow
-                  icon={<ListTodo size={16} color={colors.mutedForeground} />}
-                  label="Stage"
-                  value={stages.find((stage) => stage.id === stageId)?.name ?? "None"}
-                  onPress={() => setPicking("stage")}
-                />
-              ) : null}
-              {isReminder && list.length > 0 ? (
-                <PropertyRow
-                  icon={<FolderKanban size={16} color={colors.mutedForeground} />}
-                  label="Workspace"
-                  value={selectedWorkspace?.name ?? "None"}
-                  onPress={() => setPicking("workspace")}
-                />
-              ) : null}
-              {!isReminder ? (
-                <PropertyRow
-                  icon={<Clock size={16} color={colors.mutedForeground} />}
-                  label="Duration"
-                  value={formatDuration(duration) ?? `${duration}m`}
-                  onPress={() => setPicking("duration")}
-                />
-              ) : null}
-              <PropertyRow
-                icon={<CalendarDays size={16} color={colors.mutedForeground} />}
-                label="Start date"
-                value={formatDateValue(startDate)}
-                onPress={() => setPicking("startDate")}
-              />
-              <PropertyRow
-                icon={<CalendarDays size={16} color={colors.mutedForeground} />}
-                label="Deadline"
-                value={formatDateValue(deadline)}
-                onPress={() => setPicking("due")}
-              />
-            </PropertyGroup>
-
+        {more && (kind === "task" || kind === "reminder") ? (
+          <Animated.View entering={expandEntering(Boolean(reduceMotion))} style={styles.more}>
             <RecurrenceEditor
+              compact
               value={taskRecurrence}
               onChange={(next) => {
                 setTaskRecurrence(next);
@@ -627,158 +692,67 @@ export default function QuickAddSheet({
               }}
               anchor={taskAnchor}
             />
-
-            <View style={styles.scheduleCard}>
-              <TaskSectionHeader icon={<Sparkles size={18} color={colors.primary} />} title={isReminder ? "Reminder Schedule" : "Smart Schedule"} subtitle={isReminder ? "Choose when to get notified" : "Choose when to work on this task"} />
-            <PropertyGroup>
-              {isReminder ? (
-                <PropertyRow
-                  icon={<Clock size={16} color={colors.mutedForeground} />}
-                  label={taskTimeOnly ? "Time" : "Notify at"}
-                  value={
-                    scheduledOn
-                      ? taskTimeOnly
-                        ? formatTime(scheduledOn.toISOString())
-                        : formatDateValue(scheduledOn, true)
-                      : "Pick a time"
-                  }
-                  onPress={() => setPicking("schedule")}
-                />
-              ) : (
-                <>
-                <PropertyRow
-                  icon={<CalendarDays size={16} color={colors.mutedForeground} />}
-                  label={taskTimeOnly ? "Time" : "Schedule"}
-                  value={
-                    taskTimeOnly
-                      ? scheduledOn
-                        ? formatTime(scheduledOn.toISOString())
-                        : "None"
-                      : formatDateValue(scheduledOn, true)
-                  }
-                  onPress={() => setPicking("schedule")}
-                />
-                <PropertyRow
-                  icon={<CalendarClock size={16} color={colors.mutedForeground} />}
-                  label="Earliest start"
-                  value={formatDateValue(earliestStartAt, true)}
-                  onPress={() => setPicking("earliest")}
-                />
-                <PropertyRow
-                  icon={<Clock size={16} color={colors.mutedForeground} />}
-                  label="Prefer from"
-                  value={preferFrom ? formatTime(preferFrom.toISOString()) : "Any time"}
-                  onPress={() => setPicking("preferFrom")}
-                />
-                <PropertyRow
-                  icon={<Clock size={16} color={colors.mutedForeground} />}
-                  label="Prefer to"
-                  value={preferTo ? formatTime(preferTo.toISOString()) : "Any time"}
-                  onPress={() => setPicking("preferTo")}
-                />
-                </>
-              )}
-            </PropertyGroup>
-            <Text style={styles.hint}>
-              {isReminder
-                ? taskRecurrence
-                  ? "Each repeat pings at this time. No work block is reserved."
-                  : "Pings at this date and time. Does not reserve a work block."
-                : taskRecurrence
-                  ? "Each occurrence starts at this time. Auto-schedule keeps that block for this task."
-                  : "Tasks appear on the calendar once scheduled, by hand or with Auto-schedule."}
-            </Text>
-            </View>
-
-            {detailsReady && !isReminder ? (
-              <>
-                <View style={styles.metaPanel}>
-                  <TaskMetaEditor
-                    workspace={selectedWorkspace}
-                    workspaceId={activeWorkspaceId}
-                    labelIds={labelIds}
-                    onLabelIds={setLabelIds}
-                    values={customFieldValues}
-                    onValues={setCustomFieldValues}
-                    showCustomFields={false}
+            {!isReminder ? (
+              <View style={styles.moreSection}>
+                <Text style={styles.moreLabel}>Auto-schedule</Text>
+                <PropertyGroup>
+                  <PropertyRow
+                    icon={<CalendarDays size={16} color={colors.mutedForeground} />}
+                    label="Start date"
+                    value={formatDateValue(startDate)}
+                    onPress={() => setPicking("startDate")}
                   />
-                </View>
-                <View style={styles.metaPanel}>
-                  <TaskMetaEditor
-                    workspace={selectedWorkspace}
-                    workspaceId={activeWorkspaceId}
-                    labelIds={labelIds}
-                    onLabelIds={setLabelIds}
-                    values={customFieldValues}
-                    onValues={setCustomFieldValues}
-                    showLabels={false}
+                  <PropertyRow
+                    icon={<CalendarClock size={16} color={colors.mutedForeground} />}
+                    label="Earliest start"
+                    value={formatDateValue(earliestStartAt, true)}
+                    onPress={() => setPicking("earliest")}
                   />
-                </View>
-              </>
+                  <PropertyRow
+                    icon={<Clock size={16} color={colors.mutedForeground} />}
+                    label="Work from"
+                    value={preferFrom ? formatTime(preferFrom.toISOString()) : "Any time"}
+                    onPress={() => setPicking("preferFrom")}
+                  />
+                  <PropertyRow
+                    icon={<Clock size={16} color={colors.mutedForeground} />}
+                    label="Work until"
+                    value={preferTo ? formatTime(preferTo.toISOString()) : "Any time"}
+                    onPress={() => setPicking("preferTo")}
+                  />
+                </PropertyGroup>
+                <Text style={styles.hint}>
+                  {taskRecurrence
+                    ? "Each occurrence starts at its scheduled time. Auto-schedule keeps that block for this task."
+                    : "Auto-schedule places the work after the start and inside these hours."}
+                </Text>
+              </View>
             ) : null}
-          </View>
+            {detailsReady && !isReminder ? (
+              <TaskMetaEditor
+                compact
+                workspace={selectedWorkspace}
+                workspaceId={activeWorkspaceId}
+                labelIds={labelIds}
+                onLabelIds={setLabelIds}
+                values={customFieldValues}
+                onValues={setCustomFieldValues}
+              />
+            ) : null}
+          </Animated.View>
         ) : null}
 
-        {kind === "event" ? (
-          <View style={{ gap: 10 }}>
-            <PropertyGroup>
-              <PropertyRow
-                icon={<CalendarDays size={16} color={colors.mutedForeground} />}
-                label={eventRecurrence && !allDay ? "Time" : "Starts"}
-                value={
-                  eventRecurrence && !allDay
-                    ? formatTime(eventStart.toISOString())
-                    : formatDateValue(eventStart, !allDay)
-                }
-                onPress={() => setPicking("eventStart")}
-              />
-              <PropertyRow
-                icon={<Clock size={16} color={colors.mutedForeground} />}
-                label="Duration"
-                value={formatDuration(eventMinutes) ?? `${eventMinutes}m`}
-                onPress={() => setPicking("eventDuration")}
-              />
-              <PropertyRow
-                icon={<CalendarClock size={16} color={colors.mutedForeground} />}
-                label="All day"
-                value={allDay ? "On" : "Off"}
-                onPress={() => setAllDay((value) => !value)}
-              />
-              <PropertyRow
-                icon={<FolderKanban size={16} color={colors.mutedForeground} />}
-                label="Workspace"
-                value={list.find((workspace) => workspace.id === eventWorkspaceId)?.name ?? "None"}
-                onPress={() => setPicking("eventWorkspace")}
-              />
-              <PropertyRow
-                icon={<Palette size={16} color={eventColor || colors.mutedForeground} />}
-                label="Color"
-                value={colorName(eventColor)}
-                swatch={eventColor || undefined}
-                onPress={() => setPicking("eventColor")}
-              />
-              {eventScopedProjects.length > 0 ? (
-                <PropertyRow
-                  icon={<ListTodo size={16} color={colors.mutedForeground} />}
-                  label="Project"
-                  value={projectList.find((project) => project.id === eventProjectId)?.title ?? "None"}
-                  onPress={() => setPicking("eventProject")}
-                />
-              ) : null}
-            </PropertyGroup>
-            <RecurrenceEditor value={eventRecurrence} onChange={setEventRecurrence} anchor={eventStart} />
-            <Text style={styles.hint}>
-              {eventRecurrence && !allDay
-                ? "Each occurrence starts at this time. Dates come from the repeat rule."
-                : "Events block time on the calendar; Auto-schedule plans tasks around them."}
-            </Text>
-          </View>
+        {more && kind === "event" ? (
+          <Animated.View entering={expandEntering(Boolean(reduceMotion))} style={styles.more}>
+            <RecurrenceEditor compact value={eventRecurrence} onChange={setEventRecurrence} anchor={eventStart} />
+          </Animated.View>
         ) : null}
+      </Animated.View>
+      )}
+      </Animated.View>
 
-        </Animated.View>
-        )}
-        </Animated.View>
-      </BottomSheet>
+      {/* Pickers: opened from inside this sheet, each one takes its place
+          with a back arrow instead of stacking a second sheet on top. */}
       <BottomSheet open={picking === "workspace"} onClose={() => setPicking(null)} title="Workspace">
         {list.map((workspace) => (
           <SheetOption
@@ -808,6 +782,7 @@ export default function QuickAddSheet({
           <SheetOption
             key={project.id}
             selected={project.id === projectId}
+            leading={project.color ? <Dot color={project.color} /> : undefined}
             onSelect={() => {
               setProjectId(project.id);
               setStageId("");
@@ -855,6 +830,7 @@ export default function QuickAddSheet({
           <SheetOption
             key={level}
             selected={priority === level}
+            leading={<Flag size={16} color={PRIORITY_META[level].color} />}
             onSelect={() => {
               setPriority(level as (typeof PRIORITIES)[number]);
               setPicking(null);
@@ -940,6 +916,7 @@ export default function QuickAddSheet({
           <SheetOption
             key={project.id}
             selected={project.id === eventProjectId}
+            leading={project.color ? <Dot color={project.color} /> : undefined}
             onSelect={() => {
               setEventProjectId(project.id);
               setPicking(null);
@@ -949,7 +926,7 @@ export default function QuickAddSheet({
           </SheetOption>
         ))}
       </BottomSheet>
-      <BottomSheet open={picking === "eventColor"} onClose={() => setPicking(null)} title="Color">
+      <BottomSheet open={picking === "eventColor"} onClose={() => setPicking(null)} title="Colour">
         <SheetOption selected={!eventColor} onSelect={() => { setEventColor(""); setPicking(null); }}>
           Auto
         </SheetOption>
@@ -971,7 +948,23 @@ export default function QuickAddSheet({
         key={picking ?? "closed"}
         open={picking === "due" || picking === "startDate" || picking === "schedule" || picking === "earliest" || picking === "preferFrom" || picking === "preferTo" || picking === "eventStart"}
         value={pickerValue}
-        title={picking === "earliest" ? "Earliest start" : picking === "preferFrom" ? "Prefer from" : picking === "preferTo" ? "Prefer to" : undefined}
+        title={
+          picking === "due"
+            ? "Deadline"
+            : picking === "startDate"
+              ? "Start date"
+              : picking === "schedule"
+                ? isReminder ? "Notify at" : "Schedule"
+                : picking === "earliest"
+                  ? "Earliest start"
+                  : picking === "preferFrom"
+                    ? "Work from"
+                    : picking === "preferTo"
+                      ? "Work until"
+                      : picking === "eventStart"
+                        ? "Starts"
+                        : undefined
+        }
         mode={
           picking === "due" || picking === "startDate" || (picking === "eventStart" && allDay)
             ? "date"
@@ -1010,40 +1003,120 @@ export default function QuickAddSheet({
           }
         }}
       />
-    </>
+    </BottomSheet>
   );
 }
 
+function PriorityChip({ priority, onPress }: { priority: string; onPress: () => void }) {
+  const meta = PRIORITY_META[priority];
+  // Medium is the default: only a raised priority earns a colour.
+  const tint = priority === "High" || priority === "Urgent" ? meta?.color : undefined;
+  return (
+    <PropertyChip
+      icon={<Flag size={15} color={tint ?? colors.mutedForeground} />}
+      tint={tint}
+      label={meta?.label ?? priority}
+      onPress={onPress}
+      accessibilityLabel={`Priority, ${meta?.label ?? priority}`}
+    />
+  );
+}
+
+function MoreChip({ open, count, label, onPress }: { open: boolean; count: number; label?: string; onPress: () => void }) {
+  const text = label ?? "Repeat, schedule, labels";
+  return (
+    <PropertyChip
+      icon={open ? <ChevronUp size={15} color={colors.accentForeground} /> : <Plus size={15} color={colors.mutedForeground} />}
+      label={count > 0 && !open ? `${text} · ${count}` : text}
+      empty={!open}
+      active={open}
+      onPress={onPress}
+      accessibilityLabel={open ? `Hide ${text.toLowerCase()}` : `Show ${text.toLowerCase()}`}
+    />
+  );
+}
+
+/** The line in the action bar: where the new item lands and when. */
+function quickAddSummary(input: {
+  kind: Kind;
+  where: string;
+  duration: number;
+  deadline: Date | null;
+  scheduledOn: Date | null;
+  timeOnly: boolean;
+  recurring: boolean;
+  eventStart: Date;
+  eventMinutes: number;
+  allDay: boolean;
+  template?: string;
+}): { main: string; detail?: string } {
+  const day = (value: Date) => formatShortDate(value.toISOString());
+  const time = (value: Date) => formatTime(value.toISOString());
+  switch (input.kind) {
+    case "inbox":
+      return { main: "Goes to your Inbox", detail: "Sort it later" };
+    case "reminder":
+      return {
+        main: input.scheduledOn ? `Reminds you ${input.timeOnly ? `at ${time(input.scheduledOn)}` : `${day(input.scheduledOn)} at ${time(input.scheduledOn)}`}` : "Reminds you in an hour",
+        detail: input.recurring ? "Repeats" : undefined,
+      };
+    case "event": {
+      if (input.allDay) return { main: day(input.eventStart), detail: "All day" };
+      const end = new Date(input.eventStart.getTime() + input.eventMinutes * 60_000);
+      return { main: `${day(input.eventStart)}, ${time(input.eventStart)} to ${time(end)}`, detail: input.recurring ? "Repeats" : undefined };
+    }
+    case "doc":
+    case "sheet":
+      return { main: `In ${input.where}`, detail: input.template ?? (input.kind === "doc" ? "Blank doc" : "Blank sheet") };
+    default: {
+      const detail = input.scheduledOn
+        ? `Scheduled ${input.timeOnly ? time(input.scheduledOn) : `${day(input.scheduledOn)} ${time(input.scheduledOn)}`}`
+        : input.deadline
+          ? `Auto-schedule finds ${formatDuration(input.duration) ?? `${input.duration}m`} before ${day(input.deadline)}`
+          : "Auto-schedule can place it";
+      return { main: `In ${input.where}`, detail };
+    }
+  }
+}
+
 const styles = createThemedStyleSheet((colors) => ({
-  fields: { gap: 16 },
-  objectiveCard: { borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 16, gap: 8 },
-  descriptionCard: { borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 16, gap: 10 },
-  descriptionBridge: { position: "absolute", top: 0, bottom: 0, left: -16, right: -16, paddingHorizontal: 16, backgroundColor: colors.card },
-  descriptionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  cardEyebrow: { color: colors.mutedForeground, fontSize: 11, fontWeight: "600", letterSpacing: 0.5 },
-  markdownLabel: { color: colors.mutedForeground, fontSize: 11 },
-  kinds: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 8 },
+  fields: { gap: 18 },
+  titleBlock: { gap: 4 },
+  descriptionBridge: { position: "absolute", top: 0, bottom: 0, left: 0, right: 0, backgroundColor: colors.popover },
+  kinds: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
   kind: {
     width: "31%",
     flexGrow: 1,
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    minHeight: 108,
+    minHeight: 88,
     borderRadius: 16,
     backgroundColor: colors.muted,
-    paddingVertical: 12,
+    paddingVertical: 10,
   },
   kindSelected: { backgroundColor: colors.accent },
-  kindIcon: { width: 44, height: 44, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: colors.card },
+  kindIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: colors.card },
   kindIconSelected: { backgroundColor: colors.popover },
   kindText: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
   kindTextSelected: { color: colors.primary, fontWeight: "600" },
-  changeType: { alignSelf: "flex-start", paddingVertical: 8, paddingRight: 12 },
-  changeTypeText: { color: colors.primary, fontSize: 14, fontWeight: "600" },
-  metaPanel: { borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 16 },
-  scheduleCard: { gap: 12, borderRadius: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 16 },
-  section: { color: colors.foreground, fontSize: 16, fontWeight: "600", marginTop: 8 },
-  hintRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, marginTop: 10 },
+  kindSwitch: {
+    alignSelf: "flex-start",
+    minHeight: 34,
+    borderRadius: 10,
+    paddingHorizontal: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.accent,
+  },
+  kindSwitchText: { color: colors.accentForeground, fontSize: 15, fontWeight: "600" },
+  more: { gap: 16 },
+  moreSection: { gap: 8 },
+  moreLabel: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500", marginLeft: 2 },
+  actionBar: { flexDirection: "row", alignItems: "center", gap: 12 },
+  summary: { flex: 1, minWidth: 0, gap: 2 },
+  summaryMain: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
+  summaryDetail: { color: colors.mutedForeground, fontSize: 12 },
   hint: { color: colors.mutedForeground, fontSize: 12, lineHeight: 18 },
 }));
