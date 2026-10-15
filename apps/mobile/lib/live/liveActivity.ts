@@ -10,6 +10,7 @@ import {
 import { chatRequest } from "../api/chat";
 import { getToday } from "../api/schedule";
 import { stopFocus } from "../api/tasks";
+import { pomodoroLength } from "@timely/contract/dashboard";
 import { pomodoroTimeLeft, selectActivePomodoros, usePomodoroStore } from "../pomodoroStore";
 import { useScheduleActivity } from "../scheduleActivity";
 import { useToastStore } from "../toast";
@@ -27,6 +28,8 @@ import { LIVE_ACTIONS, isBusyChat, liveKey, liveModel, type LiveChat, type LiveF
 const BUSY_TICK_MS = 6_000;
 const IDLE_TICK_MS = 20_000;
 const TODAY_EVERY_MS = 30_000;
+/** While a pomodoro runs, its progress bar is redrawn this often between fetches. */
+const PROGRESS_TICK_MS = 5_000;
 
 let chats: LiveChat[] = [];
 let focusing: LiveFocus | null = null;
@@ -74,6 +77,7 @@ function pomodoros(now: number) {
     phase: timer.phase,
     endsAt: timer.endsAt,
     leftMs: pomodoroTimeLeft(timer, now),
+    totalMs: pomodoroLength(timer, timer.settings),
     taskId: timer.taskId ?? null,
     taskName: timer.taskName ?? null,
   }));
@@ -137,6 +141,15 @@ export function redrawLiveActivity() {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Waits until the next fetch, moving a running pomodoro's progress bar on the way. */
+async function waitForNextFetch(ms: number) {
+  const until = Date.now() + ms;
+  while (isLiveActivityRunning() && Date.now() < until) {
+    await sleep(Math.min(PROGRESS_TICK_MS, until - Date.now()));
+    if (selectActivePomodoros(usePomodoroStore.getState()).some((timer) => timer.endsAt !== null)) render();
+  }
+}
+
 /** The headless task the live notification's service runs. */
 export async function runLiveActivityTask() {
   while (isLiveActivityRunning()) {
@@ -145,7 +158,7 @@ export async function runLiveActivityTask() {
     // run, an overdue task) are fetched while the service keeps JS awake.
     await pollServerNotifications().catch(() => undefined);
     if (!active) break;
-    await sleep(chats.some((chat) => isBusyChat(chat.status)) ? BUSY_TICK_MS : IDLE_TICK_MS);
+    await waitForNextFetch(chats.some((chat) => isBusyChat(chat.status)) ? BUSY_TICK_MS : IDLE_TICK_MS);
   }
 }
 
