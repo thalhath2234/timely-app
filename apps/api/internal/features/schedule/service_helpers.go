@@ -351,6 +351,34 @@ func currentEngineBlocks(tasks []models.Task, candidates map[string]bool, from, 
 	return out
 }
 
+// missedEngineBlocks returns the moved tasks' engine blocks that ended in
+// [since, before), using exactly the predicate of Placement's missed-block
+// delete: one-off, engine source, not locked. Preview lists them as part of
+// the task's current time so the change reads as a move, not an add.
+func missedEngineBlocks(tasks []models.Task, moved map[string]bool, since, before time.Time) map[string][]BlockOut {
+	out := map[string][]BlockOut{}
+	for i := range tasks {
+		t := &tasks[i]
+		if !moved[t.ID] {
+			continue
+		}
+		for _, block := range t.Blocks {
+			if block.Source != models.BlockSourceEngine || block.Locked || block.OccurrenceStart != nil {
+				continue
+			}
+			if !block.EndAt.After(since) || block.EndAt.After(before) {
+				continue
+			}
+			out[t.ID] = append(out[t.ID], BlockOut{
+				Start:      block.StartAt,
+				End:        block.EndAt,
+				ChunkIndex: block.ChunkIndex,
+			})
+		}
+	}
+	return out
+}
+
 func classifyChange(before, after []BlockOut) string {
 	if len(before) == 0 {
 		return "add"

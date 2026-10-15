@@ -9,6 +9,7 @@ import {
   Text,
   View,
   Dimensions,
+  useWindowDimensions,
 } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import * as ImagePicker from "expo-image-picker";
@@ -94,36 +95,38 @@ const SLASH: {
   title: string;
   description: string;
   cmd: string;
+  /** The same lucide icon as web's slash menu (slashMenu.tsx) and the toolbar. */
+  Icon: typeof Type;
   shortcut?: string;
   keywords: string[];
 }[] = [
-  { title: "Text", description: "Plain paragraph", cmd: "paragraph", keywords: ["paragraph", "plain"] },
-  { title: "Heading 1", description: "Large section heading", cmd: "h1", shortcut: "#", keywords: ["h1", "title"] },
-  { title: "Heading 2", description: "Medium section heading", cmd: "h2", shortcut: "##", keywords: ["h2"] },
-  { title: "Heading 3", description: "Small section heading", cmd: "h3", shortcut: "###", keywords: ["h3"] },
-  { title: "Bulleted list", description: "Simple bulleted list", cmd: "bullet", shortcut: ".", keywords: ["ul", "bullet", "-"] },
-  { title: "Numbered list", description: "List with ordering", cmd: "ordered", shortcut: "1.", keywords: ["ol", "number"] },
-  { title: "To-do list", description: "Track tasks with checkboxes", cmd: "task", shortcut: "[]", keywords: ["todo", "check"] },
-  { title: "Toggle", description: "A title that folds the blocks under it", cmd: "toggle", keywords: ["fold", "collapse", "details", "expand", "accordion"] },
-  { title: "Columns", description: "Blocks side by side (stacked on a phone)", cmd: "columns", keywords: ["columns", "side", "layout", "split"] },
-  { title: "Code block", description: "Monospaced code", cmd: "code", shortcut: "```", keywords: ["pre"] },
-  { title: "Image", description: "Add a photo from this device", cmd: "imagePick", keywords: ["image", "picture", "photo", "upload", "img"] },
-  { title: "Embed", description: "A YouTube, Vimeo, Loom, Spotify, Figma or CodePen link", cmd: "embedPrompt", keywords: ["video", "youtube", "vimeo", "loom", "spotify", "figma", "codepen"] },
-  { title: "Bookmark", description: "A link card with the page's title", cmd: "bookmarkPrompt", keywords: ["link", "card", "preview", "url", "web"] },
-  { title: "Diagram", description: "Mermaid flowchart or other diagram", cmd: "diagram", keywords: ["mermaid", "flowchart", "chart", "graph"] },
-  { title: "Callout", description: "Note, tip, warning or caution box", cmd: "callout", shortcut: ">", keywords: ["note", "tip", "warning", "caution", "important", "alert", "quote", "blockquote"] },
-  { title: "Formula", description: "Inline math, like $E = mc^2$", cmd: "math", keywords: ["math", "latex", "tex", "inline"] },
-  { title: "Equation", description: "A displayed formula on its own line", cmd: "mathBlock", keywords: ["math", "latex", "tex", "block"] },
-  { title: "Footnote", description: "A numbered note at the end of the page", cmd: "footnote", keywords: ["reference", "citation", "note"] },
-  { title: "Properties", description: "Key: value lines at the top (frontmatter)", cmd: "frontmatter", keywords: ["frontmatter", "yaml", "metadata", "tags"] },
-  { title: "Map", description: "Draw GeoJSON or TopoJSON shapes", cmd: "map", keywords: ["geojson", "topojson", "geo", "location"] },
-  { title: "3D model", description: "Show an ASCII STL model", cmd: "stl", keywords: ["stl", "3d", "model", "mesh"] },
-  { title: "Table", description: "Insert a 3×3 table", cmd: "table", keywords: ["grid"] },
-  { title: "Divider", description: "Line — type - then space", cmd: "hr", shortcut: "-", keywords: ["hr", "rule"] },
-  { title: "Link", description: "Add a URL to the selected text", cmd: "linkPrompt", shortcut: "[]", keywords: ["url", "href", "anchor"] },
-  { title: "Mention", description: "Reference a doc, sheet, task or project", cmd: "mentionChar", shortcut: "@", keywords: ["@", "mention"] },
-  { title: "Page", description: "Create a nested subpage", cmd: "page", keywords: ["subpage", "child", "nested"] },
-  { title: "Help me write", description: "Draft or rewrite text with AI", cmd: "helpMeWrite", keywords: ["ai", "write", "draft", "generate", "rewrite", "assistant", "summarize"] },
+  { title: "Text", description: "Plain paragraph", cmd: "paragraph", Icon: Type, keywords: ["paragraph", "plain"] },
+  { title: "Heading 1", description: "Large section heading", cmd: "h1", Icon: Heading1, shortcut: "#", keywords: ["h1", "title"] },
+  { title: "Heading 2", description: "Medium section heading", cmd: "h2", Icon: Heading2, shortcut: "##", keywords: ["h2"] },
+  { title: "Heading 3", description: "Small section heading", cmd: "h3", Icon: Heading3, shortcut: "###", keywords: ["h3"] },
+  { title: "Bulleted list", description: "Simple bulleted list", cmd: "bullet", Icon: List, shortcut: ".", keywords: ["ul", "bullet", "-"] },
+  { title: "Numbered list", description: "List with ordering", cmd: "ordered", Icon: ListOrdered, shortcut: "1.", keywords: ["ol", "number"] },
+  { title: "To-do list", description: "Track tasks with checkboxes", cmd: "task", Icon: CheckSquare, shortcut: "[]", keywords: ["todo", "check"] },
+  { title: "Toggle", description: "A title that folds the blocks under it", cmd: "toggle", Icon: ListCollapse, keywords: ["fold", "collapse", "details", "expand", "accordion"] },
+  { title: "Columns", description: "Blocks side by side (stacked on a phone)", cmd: "columns", Icon: Columns2, keywords: ["columns", "side", "layout", "split"] },
+  { title: "Code block", description: "Monospaced code", cmd: "code", Icon: Code2, shortcut: "```", keywords: ["pre"] },
+  { title: "Image", description: "Add a photo from this device", cmd: "imagePick", Icon: ImageIcon, keywords: ["image", "picture", "photo", "upload", "img"] },
+  { title: "Embed", description: "A YouTube, Vimeo, Loom, Spotify, Figma or CodePen link", cmd: "embedPrompt", Icon: MonitorPlay, keywords: ["video", "youtube", "vimeo", "loom", "spotify", "figma", "codepen"] },
+  { title: "Bookmark", description: "A link card with the page's title", cmd: "bookmarkPrompt", Icon: BookmarkIcon, keywords: ["link", "card", "preview", "url", "web"] },
+  { title: "Diagram", description: "Mermaid flowchart or other diagram", cmd: "diagram", Icon: Workflow, keywords: ["mermaid", "flowchart", "chart", "graph"] },
+  { title: "Callout", description: "Note, tip, warning or caution box", cmd: "callout", Icon: Info, shortcut: ">", keywords: ["note", "tip", "warning", "caution", "important", "alert", "quote", "blockquote"] },
+  { title: "Formula", description: "Inline math, like $E = mc^2$", cmd: "math", Icon: Radical, keywords: ["math", "latex", "tex", "inline"] },
+  { title: "Equation", description: "A displayed formula on its own line", cmd: "mathBlock", Icon: SquareSigma, keywords: ["math", "latex", "tex", "block"] },
+  { title: "Footnote", description: "A numbered note at the end of the page", cmd: "footnote", Icon: Superscript, keywords: ["reference", "citation", "note"] },
+  { title: "Properties", description: "Key: value lines at the top (frontmatter)", cmd: "frontmatter", Icon: Tags, keywords: ["frontmatter", "yaml", "metadata", "tags"] },
+  { title: "Map", description: "Draw GeoJSON or TopoJSON shapes", cmd: "map", Icon: MapIcon, keywords: ["geojson", "topojson", "geo", "location"] },
+  { title: "3D model", description: "Show an ASCII STL model", cmd: "stl", Icon: Box, keywords: ["stl", "3d", "model", "mesh"] },
+  { title: "Table", description: "Insert a 3×3 table", cmd: "table", Icon: Table2, keywords: ["grid"] },
+  { title: "Divider", description: "Line — type - then space", cmd: "hr", Icon: Minus, shortcut: "-", keywords: ["hr", "rule"] },
+  { title: "Link", description: "Add a URL to the selected text", cmd: "linkPrompt", Icon: Link2, shortcut: "[]", keywords: ["url", "href", "anchor"] },
+  { title: "Mention", description: "Reference a doc, sheet, task or project", cmd: "mentionChar", Icon: AtSign, shortcut: "@", keywords: ["@", "mention"] },
+  { title: "Page", description: "Create a nested subpage", cmd: "page", Icon: FileText, keywords: ["subpage", "child", "nested"] },
+  { title: "Help me write", description: "Draft or rewrite text with AI", cmd: "helpMeWrite", Icon: Sparkles, keywords: ["ai", "write", "draft", "generate", "rewrite", "assistant", "summarize"] },
 ];
 
 const FORMAT_TOOLS = [
@@ -198,6 +201,12 @@ function filterMentions<T extends { label: string; hint?: string }>(items: T[], 
 }
 
 type EditorActive = Record<string, boolean>;
+
+/** The "/" and "@" menu's height range, and the room it leaves at the top of
+ * the editor for the line being typed. */
+const PICKER_MAX = 296;
+const PICKER_MIN = 152;
+const PICKER_CARET_ROOM = 64;
 
 function keyboardCover(coords?: { height: number; screenY: number } | null) {
   if (!coords) return 0;
@@ -309,6 +318,7 @@ export default function RichTextEditor({
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   const [picker, setPicker] = useState<Picker>(null);
+  const pickerOpen = picker !== null;
   const [inTable, setInTable] = useState(false);
   const [active, setActive] = useState<EditorActive>({});
   const linkFeedback = useRef<{ logId: string; accepted: boolean } | null>(null);
@@ -323,6 +333,10 @@ export default function RichTextEditor({
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [barHeight, setBarHeight] = useState(56);
   const [focused, setFocused] = useState(false);
+  const [pickerHeight, setPickerHeight] = useState(0);
+  const [editorTop, setEditorTop] = useState(0);
+  const webWrapRef = useRef<View>(null);
+  const { height: windowHeight } = useWindowDimensions();
   const mentionItems = useMentionItems();
   const remoteMentions = useSearchQuery(picker?.kind === "mention" ? picker.query : "");
   const linkOn = useDecisionsStatusQuery(Boolean(linkDocId)).data?.available === true && Boolean(linkDocId);
@@ -379,8 +393,24 @@ export default function RichTextEditor({
 
   useEffect(() => {
     if (!ready) return;
-    run("setChrome", { bottomPad: focused && keyboardHeight > 8 ? 12 : barHeight + 32 });
-  }, [ready, barHeight, focused, keyboardHeight, run]);
+    // An open menu covers the bottom of the page: keep the caret above it.
+    // With the keyboard up the page ends at the keyboard, under the floating
+    // toolbar, so the toolbar counts too.
+    const floating = focused && keyboardHeight > 8;
+    const reserve = pickerOpen && pickerHeight ? pickerHeight + 8 + (floating ? barHeight : 0) : 0;
+    run("setChrome", { bottomPad: (floating ? 12 : barHeight + 32) + reserve, reserve });
+  }, [ready, barHeight, focused, keyboardHeight, pickerOpen, pickerHeight, run]);
+
+  // Where the editor starts on screen, to size the menu to the room left.
+  // Read on layout and again when a menu opens (the screen may have scrolled).
+  const measureEditorTop = useCallback(() => {
+    webWrapRef.current?.measureInWindow((_x, y) => {
+      if (Number.isFinite(y)) setEditorTop(Math.max(0, Math.round(y)));
+    });
+  }, []);
+  useEffect(() => {
+    if (pickerOpen) measureEditorTop();
+  }, [pickerOpen, keyboardHeight, measureEditorTop]);
 
   const applyRemoteIfIdle = useCallback(() => {
     if (!ready) return;
@@ -532,6 +562,15 @@ export default function RichTextEditor({
 
   const safeBottom = 8;
   const floatBar = focused && keyboardHeight > 8;
+  // Room for the menu: the part of the editor the keyboard and toolbar leave,
+  // minus a line at the top so the "/" being typed stays in view above it.
+  const pickerMax = Math.max(
+    PICKER_MIN,
+    Math.min(
+      PICKER_MAX,
+      windowHeight - (floatBar ? keyboardHeight : 0) - barHeight - 8 - editorTop - PICKER_CARET_ROOM,
+    ),
+  );
 
   function openLinkPrompt(range?: { from: number; to: number } | null, kind: "link" | "embed" | "bookmark" = "link") {
     setLinkKind(kind);
@@ -686,6 +725,85 @@ export default function RichTextEditor({
     run(cmd);
   }
 
+  // The "/" and "@" menu. With the keyboard up it rides above the floating
+  // toolbar (see the accessory below); otherwise it sits over the docked one.
+  const pickerCard = picker ? (
+    <View
+      onLayout={(event) => setPickerHeight(Math.round(event.nativeEvent.layout.height))}
+      style={[styles.pickerCard, { maxHeight: pickerMax }]}
+    >
+      {picker.kind === "mention" ? (
+        <Text style={styles.pickerTitle}>
+          {picker.query ? `Search “${picker.query}”` : "Search docs, sheets, tasks, projects"}
+        </Text>
+      ) : (
+        <Text style={styles.pickerTitle}>Insert block</Text>
+      )}
+      <ScrollView keyboardShouldPersistTaps="always" style={{ maxHeight: pickerMax - 30 }} nestedScrollEnabled>
+        {picker.kind === "slash" ? (
+          slashItems.length === 0 ? (
+            <Text style={styles.empty}>No blocks found</Text>
+          ) : (
+            slashItems.map((item) => (
+              <Pressable
+                key={item.cmd}
+                onPress={() => {
+                  void applySlash(item);
+                }}
+                style={styles.pickerRow}
+              >
+                <View style={styles.pickerIcon}>
+                  <item.Icon size={16} color={item.cmd === "helpMeWrite" ? colors.primary : colors.foreground} />
+                </View>
+                <View style={styles.pickerCopy}>
+                  <Text style={styles.itemTitle} numberOfLines={1}>{item.title}</Text>
+                  <Text style={styles.itemMeta} numberOfLines={1}>{item.description}</Text>
+                </View>
+                {item.shortcut ? (
+                  <View style={styles.shortcut}>
+                    <Text style={styles.shortcutText}>{item.shortcut}</Text>
+                  </View>
+                ) : null}
+              </Pressable>
+            ))
+          )
+        ) : mentionHits.length === 0 ? (
+          <Text style={styles.empty}>{picker.query ? "No matches" : "Nothing to mention yet"}</Text>
+        ) : (
+          mentionHits.map((hit) => {
+            const Icon = MENTION_ICONS[hit.entityType] ?? FileText;
+            return (
+              <Pressable
+                key={`${hit.entityType}-${hit.id}`}
+                onPress={() => {
+                  run("mention", {
+                    ...(picker.from >= 0 ? { from: picker.from, to: picker.to } : {}),
+                    attrs: {
+                      id: hit.id,
+                      label: hit.label,
+                      entityType: hit.entityType,
+                    },
+                  });
+                  setPicker(null);
+                }}
+                style={styles.pickerRow}
+              >
+                <View style={styles.pickerIcon}>
+                  <Icon size={16} color={colors.foreground} />
+                </View>
+                <View style={styles.pickerCopy}>
+                  <Text style={styles.itemTitle} numberOfLines={1}>{hit.label || "Untitled"}</Text>
+                  {hit.hint ? <Text style={styles.itemMeta} numberOfLines={1}>{hit.hint}</Text> : null}
+                </View>
+                <Text style={styles.kind}>{MENTION_LABELS[hit.entityType]}</Text>
+              </Pressable>
+            );
+          })
+        )}
+      </ScrollView>
+    </View>
+  ) : null;
+
   const dock = (
     <View
       onLayout={(event) => setBarHeight(event.nativeEvent.layout.height)}
@@ -752,12 +870,23 @@ export default function RichTextEditor({
     </View>
   );
 
-  useKeyboardAccessory(floatBar, keyboardHeight, () => dock);
+  // With the keyboard up the whole editor sits behind it (Android no longer
+  // resizes the screen), so the menu floats with the toolbar, above both.
+  useKeyboardAccessory(floatBar, keyboardHeight, () => (
+    <>
+      {pickerCard ? (
+        <View pointerEvents="box-none" style={styles.pickerFloat}>
+          {pickerCard}
+        </View>
+      ) : null}
+      {dock}
+    </>
+  ));
 
   return (
     <View style={compact ? undefined : styles.wrap}>
       {findOpen && ready ? <FindBar run={run} result={findResult} onClose={() => onFindClose?.()} /> : null}
-      <View style={compact ? styles.compactWeb : styles.webWrap}>
+      <View ref={webWrapRef} onLayout={measureEditorTop} style={compact ? styles.compactWeb : styles.webWrap}>
         <WebView
           key={themeKey}
           ref={webRef}
@@ -791,75 +920,9 @@ export default function RichTextEditor({
         ) : null}
       </View>
 
-      {picker ? (
+      {picker && !floatBar ? (
         <View pointerEvents="box-none" style={[styles.pickerDock, { bottom: barHeight + 8 }]}>
-          <View style={styles.pickerCard}>
-            {picker.kind === "mention" ? (
-              <Text style={styles.pickerTitle}>
-                {picker.query ? `Search “${picker.query}”` : "Search docs, sheets, tasks, projects"}
-              </Text>
-            ) : (
-              <Text style={styles.pickerTitle}>Insert block</Text>
-            )}
-            <ScrollView keyboardShouldPersistTaps="always" style={styles.pickerList} nestedScrollEnabled>
-              {picker.kind === "slash" ? (
-                slashItems.length === 0 ? (
-                  <Text style={styles.empty}>No blocks found</Text>
-                ) : (
-                  slashItems.map((item) => (
-                    <Pressable
-                      key={item.cmd}
-                      onPress={() => {
-                        void applySlash(item);
-                      }}
-                      style={styles.pickerRow}
-                    >
-                      {item.cmd === "helpMeWrite" ? (
-                        <Sparkles size={16} color={colors.primary} />
-                      ) : (
-                        <Type size={16} color={colors.mutedForeground} />
-                      )}
-                      <View style={styles.pickerCopy}>
-                        <Text style={styles.itemTitle}>{item.title}</Text>
-                        <Text style={styles.itemMeta}>{item.description}</Text>
-                      </View>
-                      {item.shortcut ? <Text style={styles.shortcut}>{item.shortcut}</Text> : null}
-                    </Pressable>
-                  ))
-                )
-              ) : mentionHits.length === 0 ? (
-                <Text style={styles.empty}>{picker.query ? "No matches" : "Nothing to mention yet"}</Text>
-              ) : (
-                mentionHits.map((hit) => {
-                  const Icon = MENTION_ICONS[hit.entityType] ?? FileText;
-                  return (
-                    <Pressable
-                      key={`${hit.entityType}-${hit.id}`}
-                      onPress={() => {
-                        run("mention", {
-                          ...(picker.from >= 0 ? { from: picker.from, to: picker.to } : {}),
-                          attrs: {
-                            id: hit.id,
-                            label: hit.label,
-                            entityType: hit.entityType,
-                          },
-                        });
-                        setPicker(null);
-                      }}
-                      style={styles.pickerRow}
-                    >
-                      <Icon size={16} color={colors.mutedForeground} />
-                      <View style={styles.pickerCopy}>
-                        <Text style={styles.itemTitle}>{hit.label || "Untitled"}</Text>
-                        {hit.hint ? <Text style={styles.itemMeta}>{hit.hint}</Text> : null}
-                      </View>
-                      <Text style={styles.kind}>{MENTION_LABELS[hit.entityType]}</Text>
-                    </Pressable>
-                  );
-                })
-              )}
-            </ScrollView>
-          </View>
+          {pickerCard}
         </View>
       ) : null}
 
@@ -1068,15 +1131,20 @@ const styles = createThemedStyleSheet((colors) => ({
     left: 8,
     right: 8,
     zIndex: 20,
-    maxHeight: 280,
   },
+  // Above the floating toolbar, in the keyboard accessory.
+  pickerFloat: { marginHorizontal: 8, marginBottom: 8 },
   pickerCard: {
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
     backgroundColor: colors.popover,
     overflow: "hidden",
-    maxHeight: 280,
+    paddingBottom: 4,
+    ...Platform.select({
+      android: { elevation: 12 },
+      default: { shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 16, shadowOffset: { width: 0, height: 6 } },
+    }),
   },
   pickerTitle: {
     color: colors.mutedForeground,
@@ -1086,27 +1154,43 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingTop: 10,
     paddingBottom: 4,
   },
-  pickerList: { maxHeight: 240 },
   pickerRow: {
-    minHeight: 48,
+    minHeight: 52,
     paddingHorizontal: 12,
+    paddingVertical: 6,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
+  },
+  // A tile per block, as in web's slash menu.
+  pickerIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    alignItems: "center",
+    justifyContent: "center",
   },
   pickerCopy: { flex: 1, minWidth: 0 },
   pickerRowOn: { backgroundColor: colors.accent, borderRadius: 12 },
   itemTitle: { color: colors.foreground, fontSize: 15, fontWeight: "500" },
   itemMeta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
+  // One width for "#" to "###", so the chips share a right edge.
   shortcut: {
+    minWidth: 36,
+    height: 24,
+    paddingHorizontal: 6,
+    borderRadius: 6,
+    backgroundColor: colors.muted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shortcutText: {
     color: colors.mutedForeground,
     fontSize: 12,
-    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
-    backgroundColor: colors.muted,
-    overflow: "hidden",
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    fontWeight: "600",
   },
   kind: { color: colors.mutedForeground, fontSize: 10, fontWeight: "600", letterSpacing: 0.6 },
   empty: { color: colors.mutedForeground, padding: 12, fontSize: 14 },

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { routeForNotification } from "../apps/mobile/lib/notificationRoute.ts";
 import {
   contextChip,
+  draftForScreen,
   mergeContext,
   routeContext,
 } from "../apps/mobile/lib/chat/context.ts";
@@ -27,15 +28,29 @@ test("agent notification targets its chat and retains existing reminder routing"
 });
 test("a smart alert about several tasks opens the first, a project or Inbox alert its own screen", () => {
   assert.equal(
-    routeForNotification({ category: "suggestion", kind: "stale", taskIds: ["task-a", "task-b"], entityId: null }),
+    routeForNotification({
+      category: "suggestion",
+      kind: "stale",
+      taskIds: ["task-a", "task-b"],
+      entityId: null,
+    }),
     "/(app)/tasks/task-a",
   );
   assert.equal(
-    routeForNotification({ category: "suggestion", kind: "project", projectId: "pr-a", taskIds: ["task-a"] }),
+    routeForNotification({
+      category: "suggestion",
+      kind: "project",
+      projectId: "pr-a",
+      taskIds: ["task-a"],
+    }),
     "/(app)/projects/pr-a",
   );
   assert.equal(
-    routeForNotification({ category: "suggestion", kind: "inbox", taskIds: ["task-a"] }),
+    routeForNotification({
+      category: "suggestion",
+      kind: "inbox",
+      taskIds: ["task-a"],
+    }),
     "/(app)/inbox",
   );
 });
@@ -86,6 +101,53 @@ test("scope is never silently dropped to fit context limits", () => {
   );
 });
 
+const screenA = routeContext("/tasks/task-a", {}, { title: "Call mum" });
+const screenB = routeContext("/projects/pr-b", {}, { title: "Garden" });
+const draft = (fields = {}) => ({
+  text: "",
+  context: screenA,
+  webSearch: false,
+  images: [],
+  ...fields,
+});
+test("a pinch on another screen replaces the context an empty draft kept", () => {
+  // Opened on task A and closed without typing (or used to read old chats).
+  const next = draftForScreen(draft(), () => screenB);
+  assert.deepEqual(next.context, screenB);
+  assert.equal(next.conversationId, undefined);
+  assert.deepEqual(draftForScreen(null, () => screenB).context, screenB);
+  // An emptied reply in an old conversation no longer reopens that chat.
+  const emptied = draftForScreen(
+    draft({ conversationId: "chat-a" }),
+    () => screenB,
+  );
+  assert.equal(emptied.conversationId, undefined);
+  assert.deepEqual(emptied.context, screenB);
+});
+test("typed text moves to the pinched screen, unless it is the same screen", () => {
+  const moved = draftForScreen(
+    draft({ text: "What is left here?", provider: "openrouter", model: "m" }),
+    () => screenB,
+  );
+  assert.equal(moved.text, "What is left here?");
+  assert.equal(moved.model, "m");
+  assert.deepEqual(moved.context, screenB);
+  // Same screen: chips the person removed stay removed.
+  const trimmed = draft({ text: "Hi", context: screenA.slice(0, 1) });
+  assert.equal(
+    draftForScreen(trimmed, () => screenA),
+    trimmed,
+  );
+});
+test("a reply to an old chat and a message being sent reopen untouched", () => {
+  const reply = draft({ text: "And tomorrow?", conversationId: "chat-a" });
+  const sending = draft({ text: "Plan my day", requestId: "req-1" });
+  const unused = () => {
+    throw new Error("screen context is not needed");
+  };
+  assert.equal(draftForScreen(reply, unused), reply);
+  assert.equal(draftForScreen(sending, unused), sending);
+});
 const { receiptReviewProblems } = await import(
   "../apps/mobile/lib/chat/receiptReview.ts"
 );
