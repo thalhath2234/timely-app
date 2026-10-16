@@ -1,13 +1,13 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Text, View } from "react-native";
-import { Check, ListFilter, Sparkles, X } from "lucide-react-native";
+import { Check, ChevronRight, CornerDownLeft, Plus, Sparkles, Trash2, X } from "lucide-react-native";
 import { replaceRule } from "@timely/contract/ruleBuilder";
 import { isRuleGroup, normalizeRules } from "@timely/contract/taskQuery";
 import { aiDraftPatch, readingPatch, readViewQuery, ruleLabel, vocabularyFrom } from "@timely/contract/viewLanguage";
 import { todayInZone } from "@timely/contract/workStatus";
-import BottomSheet from "../ui/BottomSheet";
+import BottomSheet, { SheetOption } from "../ui/BottomSheet";
 import SegmentedControl from "../ui/SegmentedControl";
-import { Button, Field, PrimaryButton, SectionLabel, Select } from "../ui/primitives";
+import { Button, Field, PrimaryButton, PropertyChip, PropertyChips, Select } from "../ui/primitives";
 import RuleEditorSheet from "./RuleEditorSheet";
 import { readyProviders } from "../chat/ModelSheet";
 import { readViewWithAi } from "../../lib/api/viewQuery";
@@ -39,45 +39,71 @@ function toggleId(ids: string[], id: string) {
   return ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id];
 }
 
-function FilterChip({
+/** "Bug, Design" or "Bug, Design +2"; `none` when nothing is picked. */
+function summary(names: string[], none: string) {
+  if (names.length === 0) return none;
+  if (names.length <= 2) return names.join(", ");
+  return `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
+}
+
+/** A row of a settings card: muted label on the left, a control on the right. */
+function ControlRow({ label, children, last }: { label: string; children: ReactNode; last?: boolean }) {
+  return (
+    <View style={[styles.controlRow, last && styles.rowLast]}>
+      <Text style={styles.rowLabel}>{label}</Text>
+      <View style={styles.rowControl}>{children}</View>
+    </View>
+  );
+}
+
+/** A row that opens a page of the sheet; the value sums up what is picked. */
+function PageRow({
   label,
+  value,
   active,
-  color,
+  swatch,
   onPress,
+  last,
 }: {
   label: string;
+  value: string;
   active?: boolean;
-  color?: string | null;
+  swatch?: string | null;
   onPress: () => void;
+  last?: boolean;
 }) {
-  const tint = color && active ? `${color}33` : undefined;
-  const border = color ? (active ? `${color}88` : "transparent") : undefined;
   return (
     <AnimatedPressable
       accessibilityRole="button"
-      accessibilityState={{ selected: Boolean(active) }}
-      hitSlop={8}
+      accessibilityLabel={`${label}, ${value}`}
       onPress={onPress}
-      style={[
-        styles.chip,
-        active && !color ? styles.chipOn : null,
-        color ? { borderColor: border, backgroundColor: tint || colors.muted } : null,
-      ]}
+      android_ripple={{ color: `${colors.primary}22` }}
+      style={[styles.controlRow, last && styles.rowLast]}
     >
-      {active ? <Check size={15} color={color || colors.primaryForeground} strokeWidth={2.5} /> : null}
-      {color ? <View style={[styles.chipDot, { backgroundColor: color }]} /> : null}
-      <Text
-        style={[
-          styles.chipText,
-          active && !color ? { color: colors.primaryForeground } : null,
-          active && color ? { color } : null,
-        ]}
-      >
-        {label}
-      </Text>
+      <Text style={styles.rowLabel}>{label}</Text>
+      <View style={styles.rowValueWrap}>
+        {swatch ? <View style={[styles.chipDot, { backgroundColor: swatch }]} /> : null}
+        <Text numberOfLines={1} style={[styles.rowValue, active && styles.rowValueOn]}>
+          {value}
+        </Text>
+      </View>
+      <ChevronRight size={16} color={colors.mutedForeground} />
     </AnimatedPressable>
   );
 }
+
+function GroupHeading({ children, count }: { children: string; count?: number }) {
+  return (
+    <View style={styles.heading}>
+      <Text style={styles.headingText}>{children}</Text>
+      {count ? <Text style={styles.headingCount}>{count}</Text> : null}
+    </View>
+  );
+}
+
+type Page = "group" | "sort" | "workspace" | "project" | "status" | "priority" | "labels" | "stages";
+
+const LIMITS = [5, 10, 20];
 
 const BASE_GROUP_FIELDS: TaskListGroupField[] = ["workspace", "project", "stage", "status", "priority"];
 // Grouped into buckets (Overdue, Today, This week, ...) by the shared engine;
@@ -219,6 +245,25 @@ export default function TaskFiltersSheet({
     onPatch({ ...NATIVE_VIEW_TEMPLATE });
   }
 
+  const [page, setPage] = useState<Page | null>(null);
+  const sortName = (value?: string) => NATIVE_SORT_OPTIONS.find((option) => option.value === value)?.label ?? "Name";
+  const arrow = (direction?: string) => (direction === "desc" ? "↓" : "↑");
+  const sortSummary = `${sortName(view.sortBy)} ${arrow(view.sortDirection)}${
+    view.thenSortBy ? `, then ${sortName(view.thenSortBy)} ${arrow(view.thenSortDirection)}` : ""
+  }`;
+  const workspace = workspaces.find((space) => space.id === workspaceId);
+  const project = projects.find((item) => item.id === projectId);
+  const activeStatusGroups = statusGroups.filter((group) => group.statuses.some((status) => statusIds.includes(status.id)));
+  const priorities = view.selectedPriorityLevels ?? [];
+  const labelIds = view.selectedLabelIds ?? [];
+  const stageIds = view.selectedStageIds ?? [];
+  const limitValue = view.limit ? String(view.limit) : "all";
+  const limitOptions = [
+    { value: "all", label: "All" },
+    ...[...new Set([...LIMITS, ...(view.limit ? [view.limit] : [])])].sort((a, b) => a - b).map((n) => ({ value: String(n), label: String(n) })),
+  ];
+  const showCompleted = view.showCompleted !== false;
+
   return (
     <BottomSheet
       open={open}
@@ -235,81 +280,97 @@ export default function TaskFiltersSheet({
         </View>
       }
     >
-      <View style={styles.block}>
-        <SectionLabel>Name</SectionLabel>
-        <Field value={view.name} onChangeText={(name) => onPatch({ name })} placeholder="View name" autoCapitalize="words" />
-        <View style={styles.row}>
-          <FilterChip label="Add view" onPress={onAdd} />
-          {canDelete ? <FilterChip label="Delete view" onPress={onDelete} /> : null}
+      <View style={[styles.card, styles.nameCard]}>
+        <Text style={styles.rowLabel}>Name</Text>
+        <View style={{ flex: 1 }}>
+          <Field bare value={view.name} onChangeText={(name) => onPatch({ name })} placeholder="View name" autoCapitalize="words" />
         </View>
+        <AnimatedPressable accessibilityRole="button" onPress={onAdd} hitSlop={8} style={styles.textAction}>
+          <Plus size={15} color={colors.primary} strokeWidth={2.5} />
+          <Text style={styles.textActionLabel}>New view</Text>
+        </AnimatedPressable>
       </View>
 
-      <View style={styles.block}>
-        <SectionLabel action={rules.length ? <Text style={styles.hint}>{rules.length}</Text> : undefined}>Filters</SectionLabel>
-        <View style={styles.describeRow}>
-          <View style={{ flex: 1 }}>
-            <Field
-              value={text}
-              onChangeText={(next) => setWords({ viewId: view.id, text: next })}
-              placeholder="Describe: urgent bugs due this week"
-              autoCapitalize="sentences"
-            />
-          </View>
-          <Button label="Apply" variant="secondary" icon={<ListFilter size={16} color={colors.foreground} />} onPress={describe} disabled={!query} />
-        </View>
-        {aiReady && query && (pendingWords.length > 0 || aiState) && !aiState?.done ? (
-          <Button
-            label={aiState?.busy ? "Reading…" : "Read with AI"}
-            variant="ghost"
-            size="sm"
-            icon={<Sparkles size={16} color={colors.mutedForeground} />}
-            loading={aiState?.busy}
-            onPress={askAi}
-          />
-        ) : null}
-        {aiState?.error ? <Text style={styles.error}>{aiState.error}</Text> : null}
-        {rules.map((rule, index) => {
-          const { label } = ruleLabel(rule, vocab);
-          const group = isRuleGroup(rule);
-          return (
-            <View key={`${index}-${label}`} style={styles.ruleRow}>
-              <AnimatedPressable
-                accessibilityRole="button"
-                accessibilityLabel={group ? label : `Edit filter: ${label}`}
-                disabled={group}
-                onPress={() => setEditing({ index })}
-                style={styles.ruleBody}
-              >
-                <Text numberOfLines={2} style={styles.ruleText}>{label}</Text>
-              </AnimatedPressable>
-              <AnimatedPressable
-                accessibilityRole="button"
-                accessibilityLabel={`Remove filter: ${label}`}
-                hitSlop={8}
-                onPress={() => onPatch({ rules: replaceRule(rules, index, null) })}
-                style={styles.ruleRemove}
-              >
-                <X size={16} color={colors.mutedForeground} />
-              </AnimatedPressable>
+      <GroupHeading count={rules.length}>Filters</GroupHeading>
+      <View style={styles.card}>
+        <View style={styles.filtersPad}>
+          <View style={styles.describeRow}>
+            <View style={{ flex: 1 }}>
+              <Field
+                value={text}
+                onChangeText={(next) => setWords({ viewId: view.id, text: next })}
+                placeholder="Describe: urgent bugs due this week"
+                autoCapitalize="sentences"
+              />
             </View>
-          );
-        })}
-        <View style={styles.row}>
-          <FilterChip label="Add filter" onPress={() => setEditing({ index: null })} />
-        </View>
-        {rules.length > 1 ? (
-          <View style={styles.block}>
-            <Text style={styles.toggleHint}>A task must pass</Text>
-            <SegmentedControl
-              value={view.ruleMatch === "any" ? "any" : "all"}
-              onChange={(next) => onPatch({ ruleMatch: next === "any" ? "any" : undefined })}
-              options={[
-                { value: "all", label: "Every filter" },
-                { value: "any", label: "Any filter" },
-              ]}
+            <Button
+              label="Apply"
+              iconOnly
+              variant={query ? "primary" : "secondary"}
+              icon={<CornerDownLeft size={16} color={query ? colors.primaryForeground : colors.mutedForeground} />}
+              onPress={describe}
+              disabled={!query}
             />
           </View>
-        ) : null}
+          {aiReady && query && (pendingWords.length > 0 || aiState) && !aiState?.done ? (
+            <Button
+              label={aiState?.busy ? "Reading…" : "Read with AI"}
+              variant="ghost"
+              size="sm"
+              icon={<Sparkles size={16} color={colors.mutedForeground} />}
+              loading={aiState?.busy}
+              onPress={askAi}
+            />
+          ) : null}
+          {aiState?.error ? <Text style={styles.error}>{aiState.error}</Text> : null}
+          {rules.map((rule, index) => {
+            const { label } = ruleLabel(rule, vocab);
+            const group = isRuleGroup(rule);
+            return (
+              <View key={`${index}-${label}`} style={styles.ruleRow}>
+                <AnimatedPressable
+                  accessibilityRole="button"
+                  accessibilityLabel={group ? label : `Edit filter: ${label}`}
+                  disabled={group}
+                  onPress={() => setEditing({ index })}
+                  style={styles.ruleBody}
+                >
+                  <Text numberOfLines={2} style={styles.ruleText}>{label}</Text>
+                </AnimatedPressable>
+                <AnimatedPressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove filter: ${label}`}
+                  hitSlop={6}
+                  onPress={() => onPatch({ rules: replaceRule(rules, index, null) })}
+                  style={styles.ruleRemove}
+                >
+                  <X size={16} color={colors.mutedForeground} />
+                </AnimatedPressable>
+              </View>
+            );
+          })}
+        </View>
+        <View style={[styles.controlRow, styles.rowLast]}>
+          <AnimatedPressable accessibilityRole="button" onPress={() => setEditing({ index: null })} hitSlop={8} style={styles.textAction}>
+            <Plus size={15} color={colors.primary} strokeWidth={2.5} />
+            <Text style={styles.textActionLabel}>Add filter</Text>
+          </AnimatedPressable>
+          {rules.length > 1 ? (
+            <View style={styles.rowControl}>
+              <Text style={styles.matchLabel}>Match</Text>
+              <SegmentedControl
+                size="sm"
+                accessibilityLabel="Which filters a task must pass"
+                value={view.ruleMatch === "any" ? "any" : "all"}
+                onChange={(next) => onPatch({ ruleMatch: next === "any" ? "any" : undefined })}
+                options={[
+                  { value: "all", label: "Every" },
+                  { value: "any", label: "Any" },
+                ]}
+              />
+            </View>
+          ) : null}
+        </View>
         <RuleEditorSheet
           open={editing !== null}
           rule={editingRule && !isRuleGroup(editingRule) ? editingRule : null}
@@ -331,304 +392,387 @@ export default function TaskFiltersSheet({
         />
       </View>
 
-      <View style={styles.block}>
-        <SectionLabel>Layout</SectionLabel>
-        <View style={styles.row}>
-          {NATIVE_RENDER_OPTIONS.map((option) => (
-            <FilterChip
-              key={option.value}
-              label={option.label}
-              active={renderMode === option.value}
-              onPress={() => onPatch({ renderMode: option.value, groupFields: option.value === "kanban" && !BASE_GROUP_FIELDS.includes(view.groupFields?.[0] ?? "status") ? ["status"] : view.groupFields, dataMode: option.value === "kanban" ? "task" : view.dataMode, showReminders: option.value === "kanban" ? false : view.showReminders })}
-            />
-          ))}
-        </View>
-      </View>
-
-      <View style={styles.block}>
-        <SectionLabel>Show</SectionLabel>
-        <View style={styles.row}>
-          <FilterChip label="Tasks" active={dataValue === "task"} onPress={() => setData("task")} />
-          <FilterChip label="Reminders" active={dataValue === "reminder"} onPress={() => setData("reminder")} />
-          <FilterChip label="Projects" active={dataValue === "project"} onPress={() => setData("project")} />
-        </View>
-      </View>
-
-      <View style={styles.block}>
-        <SectionLabel action={<Text style={styles.hint}>{groupFields.length}/3</Text>}>Group by</SectionLabel>
-        {groupFields.map((field, index) => (
-          <View key={`${field}-${index}`} style={styles.groupRow}>
-            <View style={{ flex: 1 }}>
-              <Select
-                value={field}
-                onChange={(next) => updateGroupField(index, next)}
-                placeholder="Group field"
-                options={availableGroups
-                  .filter((option) => option === field || !groupFields.includes(option))
-                  .map((option) => ({ value: option, label: groupFieldLabel(option, customFields) }))}
-              />
-            </View>
-            <AnimatedPressable onPress={() => updateGroupField(index, "")} style={styles.remove}>
-              <Text style={styles.removeText}>Remove</Text>
-            </AnimatedPressable>
-          </View>
-        ))}
-        <View style={styles.row}>
-          <FilterChip label="Add group" active={false} onPress={addGroupField} />
-          <FilterChip
-            label={view.groupSortDirection === "desc" ? "Groups Z–A" : "Groups A–Z"}
-            active={view.groupSortDirection === "desc"}
-            onPress={() => onPatch({ groupSortDirection: view.groupSortDirection === "asc" ? "desc" : "asc" })}
+      <GroupHeading>Arrange</GroupHeading>
+      <View style={styles.card}>
+        <ControlRow label="Layout">
+          <SegmentedControl
+            size="sm"
+            accessibilityLabel="Layout"
+            value={renderMode}
+            onChange={(next) =>
+              onPatch({
+                renderMode: next,
+                groupFields: next === "kanban" && !BASE_GROUP_FIELDS.includes(view.groupFields?.[0] ?? "status") ? ["status"] : view.groupFields,
+                dataMode: next === "kanban" ? "task" : view.dataMode,
+                showReminders: next === "kanban" ? false : view.showReminders,
+              })
+            }
+            options={NATIVE_RENDER_OPTIONS}
           />
-        </View>
-      </View>
-
-      <View style={styles.block}>
-        <SectionLabel>Sort</SectionLabel>
-        <Select
-          value={view.sortBy}
-          onChange={(next) => onPatch({ sortBy: next as TaskViewSortBy })}
-          placeholder="Sort by"
-          options={NATIVE_SORT_OPTIONS}
+        </ControlRow>
+        <ControlRow label="Show">
+          <SegmentedControl
+            size="sm"
+            accessibilityLabel="Show"
+            value={dataValue}
+            onChange={setData}
+            options={[
+              { value: "task", label: "Tasks" },
+              { value: "reminder", label: "Reminders" },
+              { value: "project", label: "Projects" },
+            ]}
+          />
+        </ControlRow>
+        <PageRow
+          label="Group by"
+          value={groupFields.length ? groupFields.map((field) => groupFieldLabel(field, customFields)).join(" › ") : "None"}
+          onPress={() => setPage("group")}
         />
-        <View style={styles.row}>
-          <FilterChip
-            label="Ascending"
-            active={view.sortDirection !== "desc"}
-            onPress={() => onPatch({ sortDirection: "asc" })}
+        <PageRow label="Sort" value={sortSummary} onPress={() => setPage("sort")} />
+        <ControlRow label="Limit" last>
+          <SegmentedControl
+            size="sm"
+            accessibilityLabel="How many to show"
+            value={limitValue}
+            onChange={(next) => onPatch({ limit: next === "all" ? undefined : Number(next) })}
+            options={limitOptions}
           />
-          <FilterChip
-            label="Descending"
-            active={view.sortDirection === "desc"}
-            onPress={() => onPatch({ sortDirection: "desc" })}
+        </ControlRow>
+      </View>
+
+      <GroupHeading>Narrow down</GroupHeading>
+      <View style={styles.card}>
+        {workspaces.length > 0 ? (
+          <PageRow
+            label="Workspace"
+            value={workspace?.name ?? "All spaces"}
+            swatch={workspace?.color}
+            active={Boolean(workspace)}
+            onPress={() => setPage("workspace")}
           />
-        </View>
-        <Select
-          label="Then by"
-          value={view.thenSortBy ?? ""}
-          onChange={(next) =>
-            onPatch(
-              next
-                ? { thenSortBy: next as TaskViewSortBy, thenSortDirection: view.thenSortDirection ?? "asc" }
-                : { thenSortBy: undefined, thenSortDirection: undefined },
-            )
-          }
-          placeholder="Nothing"
-          options={[{ value: "", label: "Nothing" }, ...NATIVE_SORT_OPTIONS.filter((option) => option.value !== view.sortBy)]}
-        />
-        {view.thenSortBy ? (
-          <View style={styles.row}>
-            <FilterChip
-              label="Ascending"
-              active={view.thenSortDirection !== "desc"}
-              onPress={() => onPatch({ thenSortDirection: "asc" })}
-            />
-            <FilterChip
-              label="Descending"
-              active={view.thenSortDirection === "desc"}
-              onPress={() => onPatch({ thenSortDirection: "desc" })}
-            />
-          </View>
         ) : null}
-      </View>
-
-      <View style={styles.block}>
-        <SectionLabel>Show</SectionLabel>
-        <View style={styles.row}>
-          <FilterChip label="All" active={!view.limit} onPress={() => onPatch({ limit: undefined })} />
-          <FilterChip label="First 5" active={view.limit === 5} onPress={() => onPatch({ limit: 5 })} />
-          <FilterChip label="First 10" active={view.limit === 10} onPress={() => onPatch({ limit: 10 })} />
-          <FilterChip label="First 20" active={view.limit === 20} onPress={() => onPatch({ limit: 20 })} />
-        </View>
-        {view.limit && ![5, 10, 20].includes(view.limit) ? <Text style={styles.toggleHint}>Showing the first {view.limit}</Text> : null}
-      </View>
-
-      <View style={styles.block}>
-        <SectionLabel>Quick filters</SectionLabel>
-        <View style={styles.row}>
-          <FilterChip
-            label="Overdue"
-            active={Boolean(view.onlyOverdue)}
-            onPress={() => onPatch({ onlyOverdue: !view.onlyOverdue })}
+        {scopedProjects.length > 0 ? (
+          <PageRow
+            label="Project"
+            value={project ? project.title || "Untitled project" : "All projects"}
+            swatch={project?.color}
+            active={Boolean(project)}
+            onPress={() => setPage("project")}
           />
-          <FilterChip
-            label="Scheduled"
-            active={Boolean(view.onlyScheduled)}
-            onPress={() => onPatch({ onlyScheduled: !view.onlyScheduled })}
+        ) : null}
+        {statusGroups.length > 0 ? (
+          <PageRow
+            label="Status"
+            value={summary(activeStatusGroups.map((group) => group.name), "Any")}
+            swatch={activeStatusGroups.length === 1 ? activeStatusGroups[0].color : undefined}
+            active={activeStatusGroups.length > 0}
+            onPress={() => setPage("status")}
           />
-          <FilterChip
-            label="Recurring"
-            active={Boolean(view.onlyRecurring)}
-            onPress={() => onPatch({ onlyRecurring: !view.onlyRecurring })}
+        ) : null}
+        <PageRow
+          label="Priority"
+          value={summary(PRIORITIES.filter((level) => priorities.includes(level)), "Any")}
+          active={priorities.length > 0}
+          onPress={() => setPage("priority")}
+        />
+        {labels.length > 0 ? (
+          <PageRow
+            label="Labels"
+            value={summary(labels.filter((label) => labelIds.includes(label.id)).map((label) => label.name), "Any")}
+            active={labelIds.length > 0}
+            onPress={() => setPage("labels")}
           />
-          <FilterChip
-            label="Dated"
-            active={Boolean(view.onlyDated)}
-            onPress={() => onPatch({ onlyDated: !view.onlyDated })}
+        ) : null}
+        {stages.length > 0 ? (
+          <PageRow
+            label="Release stage"
+            value={summary(stages.filter((stage) => stageIds.includes(stage.id)).map((stage) => stage.name), "Any")}
+            active={stageIds.length > 0}
+            onPress={() => setPage("stages")}
           />
+        ) : null}
+        <View style={styles.quickPad}>
+          <PropertyChips>
+            {(
+              [
+                ["Overdue", "onlyOverdue"],
+                ["Scheduled", "onlyScheduled"],
+                ["Recurring", "onlyRecurring"],
+                ["Dated", "onlyDated"],
+              ] as const
+            ).map(([label, key]) => (
+              <PropertyChip
+                key={key}
+                label={label}
+                active={Boolean(view[key])}
+                icon={view[key] ? <Check size={14} color={colors.accentForeground} strokeWidth={2.5} /> : undefined}
+                onPress={() => onPatch({ [key]: !view[key] })}
+              />
+            ))}
+          </PropertyChips>
         </View>
         <AnimatedPressable
           accessibilityRole="switch"
-          accessibilityState={{ checked: view.showCompleted !== false }}
-          onPress={() => onPatch({ showCompleted: view.showCompleted === false })}
-          style={styles.toggleRow}
+          accessibilityLabel="Show completed tasks"
+          accessibilityState={{ checked: showCompleted }}
+          onPress={() => onPatch({ showCompleted: !showCompleted })}
+          style={[styles.controlRow, styles.rowLast]}
         >
-          <View>
-            <Text style={styles.toggleTitle}>Show completed tasks</Text>
-            <Text style={styles.toggleHint}>Include finished work in this view</Text>
-          </View>
-          <View style={[styles.switchTrack, view.showCompleted !== false && styles.switchTrackOn]}>
-            <View style={[styles.switchThumb, view.showCompleted !== false && styles.switchThumbOn]} />
+          <Text style={[styles.rowLabel, styles.rowLabelWide]}>Show completed tasks</Text>
+          <View style={[styles.switchTrack, showCompleted && styles.switchTrackOn]}>
+            <View style={[styles.switchThumb, showCompleted && styles.switchThumbOn]} />
           </View>
         </AnimatedPressable>
       </View>
 
-      {workspaces.length > 0 ? (
-        <View style={styles.block}>
-          <SectionLabel>Workspace</SectionLabel>
+      {canDelete ? (
+        <AnimatedPressable accessibilityRole="button" onPress={onDelete} style={[styles.card, styles.deleteRow]}>
+          <Trash2 size={16} color={colors.destructive} />
+          <Text style={styles.deleteText}>Delete view</Text>
+        </AnimatedPressable>
+      ) : null}
+
+      <BottomSheet open={page === "group"} onClose={() => setPage(null)} title="Group by">
+        <View style={styles.pageStack}>
+          {groupFields.map((field, index) => (
+            <View key={`${field}-${index}`} style={styles.groupRow}>
+              <Text style={styles.groupIndex}>{index + 1}</Text>
+              <View style={{ flex: 1 }}>
+                <Select
+                  value={field}
+                  onChange={(next) => updateGroupField(index, next)}
+                  placeholder="Group field"
+                  options={availableGroups
+                    .filter((option) => option === field || !groupFields.includes(option))
+                    .map((option) => ({ value: option, label: groupFieldLabel(option, customFields) }))}
+                />
+              </View>
+              <Button
+                label={`Stop grouping by ${groupFieldLabel(field, customFields)}`}
+                iconOnly
+                variant="ghost"
+                icon={<X size={16} color={colors.mutedForeground} />}
+                onPress={() => updateGroupField(index, "")}
+              />
+            </View>
+          ))}
+          {groupFields.length < 3 ? (
+            <AnimatedPressable accessibilityRole="button" onPress={addGroupField} hitSlop={8} style={[styles.textAction, styles.pageAction]}>
+              <Plus size={15} color={colors.primary} strokeWidth={2.5} />
+              <Text style={styles.textActionLabel}>{groupFields.length ? "Add a level" : "Add a group"}</Text>
+            </AnimatedPressable>
+          ) : null}
+          {groupFields.length > 0 ? (
+            <View style={[styles.card, styles.pageCard]}>
+              <ControlRow label="Group order" last>
+                <SegmentedControl
+                  size="sm"
+                  accessibilityLabel="Group order"
+                  value={view.groupSortDirection === "desc" ? "desc" : "asc"}
+                  onChange={(next) => onPatch({ groupSortDirection: next })}
+                  options={[
+                    { value: "asc", label: "A–Z" },
+                    { value: "desc", label: "Z–A" },
+                  ]}
+                />
+              </ControlRow>
+            </View>
+          ) : null}
+        </View>
+      </BottomSheet>
+
+      <BottomSheet open={page === "sort"} onClose={() => setPage(null)} title="Sort">
+        <View style={styles.pageStack}>
           <Select
-            value={workspaceId}
-            onChange={(id) => {
+            label="Sort by"
+            value={view.sortBy}
+            onChange={(next) => onPatch({ sortBy: next as TaskViewSortBy })}
+            placeholder="Sort by"
+            options={NATIVE_SORT_OPTIONS}
+          />
+          <SegmentedControl
+            accessibilityLabel="Sort direction"
+            value={view.sortDirection === "desc" ? "desc" : "asc"}
+            onChange={(next) => onPatch({ sortDirection: next })}
+            options={[
+              { value: "asc", label: "Ascending" },
+              { value: "desc", label: "Descending" },
+            ]}
+          />
+          <Select
+            label="Then by"
+            value={view.thenSortBy ?? ""}
+            onChange={(next) =>
+              onPatch(
+                next
+                  ? { thenSortBy: next as TaskViewSortBy, thenSortDirection: view.thenSortDirection ?? "asc" }
+                  : { thenSortBy: undefined, thenSortDirection: undefined },
+              )
+            }
+            placeholder="Nothing"
+            options={[{ value: "", label: "Nothing" }, ...NATIVE_SORT_OPTIONS.filter((option) => option.value !== view.sortBy)]}
+          />
+          {view.thenSortBy ? (
+            <SegmentedControl
+              accessibilityLabel="Then by direction"
+              value={view.thenSortDirection === "desc" ? "desc" : "asc"}
+              onChange={(next) => onPatch({ thenSortDirection: next })}
+              options={[
+                { value: "asc", label: "Ascending" },
+                { value: "desc", label: "Descending" },
+              ]}
+            />
+          ) : null}
+        </View>
+      </BottomSheet>
+
+      <BottomSheet open={page === "workspace"} onClose={() => setPage(null)} title="Workspace">
+        {[{ id: "", name: "All spaces", color: null as string | null | undefined }, ...workspaces].map((space) => (
+          <SheetOption
+            key={space.id || "__all"}
+            selected={space.id === workspaceId}
+            leading={space.color ? <View style={[styles.chipDot, { backgroundColor: space.color }]} /> : undefined}
+            onSelect={() => {
+              const id = space.id;
               const nextProject =
-                id && projectId && !projects.some((project) => project.id === projectId && project.workspaceId === id)
+                id && projectId && !projects.some((item) => item.id === projectId && item.workspaceId === id)
                   ? []
                   : view.selectedProjectIds ?? [];
-              onPatch({
-                selectedWorkspaceIds: id ? [id] : [],
-                selectedProjectIds: nextProject,
-              });
+              onPatch({ selectedWorkspaceIds: id ? [id] : [], selectedProjectIds: nextProject });
+              setPage(null);
             }}
-            placeholder="All spaces"
-            options={[
-              { value: "", label: "All spaces" },
-              ...workspaces.map((space) => ({ value: space.id, label: space.name, color: space.color ?? undefined })),
-            ]}
-          />
-        </View>
-      ) : null}
+          >
+            {space.name}
+          </SheetOption>
+        ))}
+      </BottomSheet>
 
-      {scopedProjects.length > 0 ? (
-        <View style={styles.block}>
-          <SectionLabel>Project</SectionLabel>
-          <Select
-            value={projectId}
-            onChange={(id) => onPatch({ selectedProjectIds: id ? [id] : [] })}
-            placeholder="All projects"
-            options={[
-              { value: "", label: "All projects" },
-              ...scopedProjects.map((project) => ({
-                value: project.id,
-                label: project.title || "Untitled project",
-                color: project.color ?? undefined,
-              })),
-            ]}
-          />
-        </View>
-      ) : null}
+      <BottomSheet open={page === "project"} onClose={() => setPage(null)} title="Project">
+        {[{ id: "", title: "All projects", color: null as string | null | undefined }, ...scopedProjects].map((item) => (
+          <SheetOption
+            key={item.id || "__all"}
+            selected={item.id === projectId}
+            leading={item.color ? <View style={[styles.chipDot, { backgroundColor: item.color }]} /> : undefined}
+            onSelect={() => {
+              onPatch({ selectedProjectIds: item.id ? [item.id] : [] });
+              setPage(null);
+            }}
+          >
+            {item.title || "Untitled project"}
+          </SheetOption>
+        ))}
+      </BottomSheet>
 
-      {statusGroups.length > 0 ? (
-        <View style={styles.block}>
-          <SectionLabel>Status</SectionLabel>
-          <View style={styles.row}>
-            {statusGroups.map((group) => (
-              <FilterChip
-                key={group.key}
-                label={group.name}
-                color={group.color}
-                active={statusKeys.includes(group.key) || group.statuses.some((status) => statusIds.includes(status.id))}
-                onPress={() => toggleStatusGroup(group)}
-              />
-            ))}
-          </View>
-        </View>
-      ) : null}
+      <BottomSheet open={page === "status"} onClose={() => setPage(null)} title="Status" subtitle="Show tasks in any of these">
+        {statusGroups.map((group) => (
+          <SheetOption
+            key={group.key}
+            selected={activeStatusGroups.includes(group)}
+            leading={<View style={[styles.chipDot, { backgroundColor: group.color }]} />}
+            onSelect={() => toggleStatusGroup(group)}
+          >
+            {group.name}
+          </SheetOption>
+        ))}
+      </BottomSheet>
 
-      <View style={styles.block}>
-        <SectionLabel>Priority</SectionLabel>
-        <View style={styles.row}>
-          {PRIORITIES.map((level) => (
-            <FilterChip
-              key={level}
-              label={level}
-              active={(view.selectedPriorityLevels ?? []).includes(level)}
-              onPress={() => onPatch({ selectedPriorityLevels: toggleId(view.selectedPriorityLevels ?? [], level) })}
-            />
-          ))}
-        </View>
-      </View>
+      <BottomSheet open={page === "priority"} onClose={() => setPage(null)} title="Priority" subtitle="Show tasks with any of these">
+        {PRIORITIES.map((level) => (
+          <SheetOption
+            key={level}
+            selected={priorities.includes(level)}
+            onSelect={() => onPatch({ selectedPriorityLevels: toggleId(priorities, level) })}
+          >
+            {level}
+          </SheetOption>
+        ))}
+      </BottomSheet>
 
-      {labels.length > 0 ? (
-        <View style={styles.block}>
-          <SectionLabel>Labels</SectionLabel>
-          <View style={styles.row}>
-            {labels.map((label) => (
-              <FilterChip
-                key={label.id}
-                label={label.name}
-                color={label.color}
-                active={(view.selectedLabelIds ?? []).includes(label.id)}
-                onPress={() => onPatch({ selectedLabelIds: toggleId(view.selectedLabelIds ?? [], label.id) })}
-              />
-            ))}
-          </View>
-        </View>
-      ) : null}
+      <BottomSheet open={page === "labels"} onClose={() => setPage(null)} title="Labels" subtitle="Show tasks with any of these">
+        {labels.map((label) => (
+          <SheetOption
+            key={label.id}
+            selected={labelIds.includes(label.id)}
+            leading={<View style={[styles.chipDot, { backgroundColor: label.color || colors.mutedForeground }]} />}
+            onSelect={() => onPatch({ selectedLabelIds: toggleId(labelIds, label.id) })}
+          >
+            {label.name}
+          </SheetOption>
+        ))}
+      </BottomSheet>
 
-      {stages.length > 0 ? (
-        <View style={styles.block}>
-          <SectionLabel>Release stage</SectionLabel>
-          <View style={styles.row}>
-            {stages.map((stage) => (
-              <FilterChip
-                key={stage.id}
-                label={stage.name}
-                active={(view.selectedStageIds ?? []).includes(stage.id)}
-                onPress={() => onPatch({ selectedStageIds: toggleId(view.selectedStageIds ?? [], stage.id) })}
-              />
-            ))}
-          </View>
-        </View>
-      ) : null}
+      <BottomSheet open={page === "stages"} onClose={() => setPage(null)} title="Release stage" subtitle="Show tasks in any of these">
+        {stages.map((stage) => (
+          <SheetOption
+            key={stage.id}
+            selected={stageIds.includes(stage.id)}
+            onSelect={() => onPatch({ selectedStageIds: toggleId(stageIds, stage.id) })}
+          >
+            {stage.name}
+          </SheetOption>
+        ))}
+      </BottomSheet>
     </BottomSheet>
   );
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  block: { gap: 12, marginBottom: 24 },
-  row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  groupRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  // Cards of rows, like the phone settings screens (docs/design-system.md):
+  // 16px between cards, a 13px heading 6px above its card.
+  card: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    overflow: "hidden",
+    marginBottom: 16,
+  },
+  pageCard: { marginBottom: 0 },
+  nameCard: { flexDirection: "row", alignItems: "center", gap: 12, paddingLeft: 14, paddingRight: 12, minHeight: 52 },
+  heading: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", marginHorizontal: 4, marginBottom: 6 },
+  headingText: { color: colors.mutedForeground, fontSize: 13, fontWeight: "600" },
+  headingCount: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", fontVariant: ["tabular-nums"] },
+  controlRow: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  rowLast: { borderBottomWidth: 0 },
+  rowLabel: { flexShrink: 0, color: colors.foreground, fontSize: 14, fontWeight: "500" },
+  rowLabelWide: { flex: 1 },
+  rowControl: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 },
+  rowValueWrap: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 6 },
+  rowValue: { flexShrink: 1, color: colors.mutedForeground, fontSize: 14, textAlign: "right" },
+  rowValueOn: { color: colors.foreground, fontWeight: "500" },
+  matchLabel: { color: colors.mutedForeground, fontSize: 12.5 },
+  textAction: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6 },
+  textActionLabel: { color: colors.primary, fontSize: 14, fontWeight: "600" },
+  pageAction: { alignSelf: "flex-start" },
+  filtersPad: { padding: 10, gap: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
   footer: { flexDirection: "row", alignItems: "center", gap: 12 },
   reset: { paddingHorizontal: 12, paddingVertical: 12 },
   resetText: { color: colors.primary, fontWeight: "600" },
-  hint: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
   error: { color: colors.destructive, fontSize: 12 },
   describeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  ruleRow: { minHeight: 48, borderRadius: 16, backgroundColor: colors.muted, flexDirection: "row", alignItems: "center", paddingLeft: 14, paddingRight: 6 },
-  ruleBody: { flex: 1, minHeight: 48, justifyContent: "center", paddingVertical: 8 },
+  ruleRow: { minHeight: 42, borderRadius: 10, backgroundColor: colors.muted, flexDirection: "row", alignItems: "center", paddingLeft: 12, paddingRight: 4 },
+  ruleBody: { flex: 1, minHeight: 42, justifyContent: "center", paddingVertical: 6 },
   ruleText: { color: colors.foreground, fontSize: 14, fontWeight: "500" },
-  ruleRemove: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  remove: { paddingHorizontal: 8, paddingVertical: 10 },
-  removeText: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
-  chip: {
-    minHeight: 44,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "transparent",
-    backgroundColor: colors.muted,
-    paddingHorizontal: 15,
-    paddingVertical: 9,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  chipOn: { backgroundColor: colors.primary },
-  chipText: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
+  ruleRemove: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+  quickPad: { paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
+  deleteRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, minHeight: 48 },
+  deleteText: { color: colors.destructive, fontSize: 14, fontWeight: "600" },
+  pageStack: { gap: 12 },
+  groupRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  groupIndex: { width: 16, color: colors.mutedForeground, fontSize: 13, fontWeight: "600", fontVariant: ["tabular-nums"] },
   chipDot: { width: 8, height: 8, borderRadius: 4 },
-  toggleRow: { minHeight: 64, marginTop: 4, paddingHorizontal: 16, borderRadius: 16, backgroundColor: colors.muted, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  toggleTitle: { color: colors.foreground, fontSize: 14, fontWeight: "600" },
-  toggleHint: { color: colors.mutedForeground, fontSize: 11, marginTop: 2 },
-  switchTrack: { width: 42, height: 24, borderRadius: 12, padding: 3, backgroundColor: colors.muted },
+  // Off: border track, muted thumb, so it reads on a card in both themes.
+  switchTrack: { width: 40, height: 24, borderRadius: 12, padding: 3, backgroundColor: colors.border },
   switchTrackOn: { backgroundColor: colors.primary },
-  switchThumb: { width: 18, height: 18, borderRadius: 9, backgroundColor: colors.foreground },
-  switchThumbOn: { alignSelf: "flex-end" },
+  switchThumb: { width: 18, height: 18, borderRadius: 9, backgroundColor: colors.mutedForeground },
+  switchThumbOn: { alignSelf: "flex-end", backgroundColor: colors.primaryForeground },
 }));
