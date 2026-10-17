@@ -56,7 +56,7 @@ cards, one violet primary accent.
   haven't seen in a component's `.prompt.md`.
 - `components/<group>/<Name>/<Name>.prompt.md` and `.d.ts`: each component's props and
   verified usage examples. Groups: `ui` (primitives: Select, DatePicker, ColorPicker, EmptyState,
-  ConfirmDialog…), `modal` (EntityModalShell + ModalMain/ModalSidebar/PropertyRow), `tasks`,
+  ConfirmDialog…), `modal` (EntityModalShell + ModalMain/ModalSidebar; property rows are ListGroup/ListRow), `tasks`,
   `calendarview`, `today`, `chat`, `settings`, `docs`, `sheets`, `editor`, `projects`, `layout`
   (AppShell, Sidebar), `landing` + `scenes` (marketing site, dark `.landing` theme of its own).
 

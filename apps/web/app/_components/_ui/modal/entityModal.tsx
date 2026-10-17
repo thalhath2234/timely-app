@@ -120,36 +120,6 @@ export function ModalSidebar({ children }: { children: ReactNode }) {
   );
 }
 
-export function PropertyRow({
-  icon: Icon,
-  label,
-  children,
-}: {
-  icon: LucideIcon;
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-2 rounded-md px-1.5 py-1 hover:bg-muted/40">
-      <span className="inline-flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-        <Icon className="size-3.5 shrink-0" />
-        <span title={label} className="truncate">
-          {label}
-        </span>
-      </span>
-      <div className="flex min-w-0 flex-1 items-center justify-end gap-1">{children}</div>
-    </div>
-  );
-}
-
-export function SidebarSectionTitle({ children }: { children: ReactNode }) {
-  return (
-    <p className="mb-1.5 px-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-      {children}
-    </p>
-  );
-}
-
 /** Title field of a create dialog. */
 export const createTitleClass =
   "w-full bg-transparent text-[26px] font-semibold leading-tight tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50";

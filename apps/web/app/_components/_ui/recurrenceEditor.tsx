@@ -1,9 +1,10 @@
 "use client";
 
-import { useId, useState } from "react";
-import type { LucideIcon } from "lucide-react";
+import { Fragment, useState, type ReactNode } from "react";
+import { Minus, Plus } from "lucide-react";
 import DatePicker from "@/app/_components/_ui/datePicker";
 import Select from "@/app/_components/_ui/select";
+import SegmentedControl from "@/app/_components/_ui/segmentedControl";
 import { cn } from "@/app/utils/cn";
 import {
   LAST_DAY,
@@ -18,7 +19,7 @@ import {
   type RecurrenceFreq,
   type RecurrencePreset,
 } from "@/app/utils/recurrence";
-import { controlClass } from "@/app/_components/_ui/field";
+import { ListRow } from "@/app/_components/_ui/groupedList";
 
 type RecurrenceEditorProps = {
   value: RecurrenceDraft | null;
@@ -27,32 +28,27 @@ type RecurrenceEditorProps = {
   anchor: Date;
   disabled?: boolean;
   className?: string;
-  /**
-   * Renders as a property row (icon + label + select) with the custom panel
-   * below at full width, instead of squeezing the panel beside the label.
-   */
+  /** The row's label; "Repeat" by default. */
   label?: string;
-  icon?: LucideIcon;
 };
 
-const FREQ_OPTIONS: { value: RecurrenceFreq; label: string }[] = [
-  { value: "DAILY", label: "day(s)" },
-  { value: "WEEKLY", label: "week(s)" },
-  { value: "MONTHLY", label: "month(s)" },
-  { value: "YEARLY", label: "year(s)" },
+const FREQS: { value: RecurrenceFreq; label: string }[] = [
+  { value: "DAILY", label: "Days" },
+  { value: "WEEKLY", label: "Weeks" },
+  { value: "MONTHLY", label: "Months" },
+  { value: "YEARLY", label: "Years" },
 ];
+type EndType = "never" | "until" | "count";
 
-const inputClass =
-  controlClass("sm");
-
-const chipClass =
-  "flex h-6 items-center justify-center rounded-md border text-[11px] font-medium tabular-nums transition-colors disabled:opacity-50";
-const chipOn = "border-primary bg-primary text-primary-foreground";
-const chipOff = "border-border text-muted-foreground hover:bg-muted";
+const cellClass =
+  "flex h-7 cursor-pointer items-center justify-center rounded-md text-xs font-medium tabular-nums transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+const cellOn = "bg-primary text-primary-foreground";
+const cellOff = "bg-muted text-foreground hover:bg-muted-foreground/15";
 
 /**
- * "Does not repeat" by default; a preset covers the common cadences and
- * "Custom" opens interval, weekday / date / month pickers and end controls.
+ * The Repeat row of a grouped form (docs/design-system.md#sheets-and-create-forms):
+ * a preset on the right, and for Custom more rows under it (Every, Unit, On,
+ * Ends) in the same card, like the phone's Repeat page.
  */
 export default function RecurrenceEditor({
   value,
@@ -60,19 +56,14 @@ export default function RecurrenceEditor({
   anchor,
   disabled,
   className,
-  label,
-  icon: Icon,
+  label = "Repeat",
 }: RecurrenceEditorProps) {
-  // Radio groups are namespaced so two editors on one page do not share state.
-  const id = useId();
-  const monthlyModeName = `${id}-monthly-mode`;
-  const endName = `${id}-end`;
   const matched = draftToPreset(value, anchor);
   const [customOpen, setCustomOpen] = useState(matched === "custom");
   const showCustom = value !== null && (customOpen || matched === "custom");
 
   const presetOptions: { value: RecurrencePreset; label: string }[] = [
-    { value: "none", label: "Does not repeat" },
+    { value: "none", label: "Never" },
     { value: "daily", label: "Daily" },
     { value: "weekly", label: `Weekly on ${weekdayLabel(anchor.getDay(), true)}` },
     { value: "weekdays", label: "Every weekday" },
@@ -86,50 +77,34 @@ export default function RecurrenceEditor({
     onChange({ ...value, ...patch });
   };
 
-  const select = (
-    <Select
-      size="sm"
-      value={matched}
-      disabled={disabled}
-      onChange={(preset) => {
-        setCustomOpen(preset === "custom");
-        if (preset === "custom" && value) return;
-        onChange(presetToDraft(preset as RecurrencePreset, anchor));
-      }}
-      options={presetOptions}
-      variant={label ? "bare" : "default"}
-      aria-label={label ?? "Repeat"}
-    />
-  );
-
-  const panel = showCustom && value && (
-    <div className="flex w-full flex-col gap-3 rounded-lg border border-border bg-muted/20 p-2.5 text-xs">
-      <div className="flex items-center gap-1.5">
-        <span className="text-muted-foreground">Every</span>
-        <input
-          type="number"
-          min={1}
-          max={999}
+  const rows: ReactNode[] = [];
+  if (showCustom && value) {
+    const unit = FREQS.find((f) => f.value === value.freq)!.label.toLowerCase();
+    rows.push(
+      <ListRow key="every" label="Every">
+        <Stepper
+          label="Repeat every"
           value={value.interval}
+          unit={value.interval === 1 ? unit.slice(0, -1) : unit}
           disabled={disabled}
-          onChange={(event) =>
-            update({ interval: Math.max(1, Number(event.target.value) || 1) })
-          }
-          className={cn(inputClass, "w-14 text-center")}
+          onChange={(interval) => update({ interval })}
         />
-        <Select
+      </ListRow>,
+      <ListRow key="unit" label="Unit">
+        <SegmentedControl
           size="sm"
+          aria-label="Repeat unit"
+          className="*:px-2"
+          options={FREQS}
           value={value.freq}
-          disabled={disabled}
-          onChange={(freq) => onChange(withFreq(value, freq as RecurrenceFreq, anchor))}
-          options={FREQ_OPTIONS}
-          className="min-w-0 flex-1"
+          onChange={(freq) => !disabled && onChange(withFreq(value, freq, anchor))}
         />
-      </div>
-
-      {value.freq === "WEEKLY" && (
-        <Field label="On">
-          <div className="grid grid-cols-7 gap-1">
+      </ListRow>,
+    );
+    if (value.freq === "WEEKLY") {
+      rows.push(
+        <ListRow key="on" label="On">
+          <div className="flex gap-1">
             {[0, 1, 2, 3, 4, 5, 6].map((day) => {
               const active = value.byDay.includes(day);
               return (
@@ -138,182 +113,190 @@ export default function RecurrenceEditor({
                   type="button"
                   disabled={disabled}
                   aria-pressed={active}
-                  title={weekdayLabel(day, true)}
+                  aria-label={weekdayLabel(day)}
+                  title={weekdayLabel(day)}
                   onClick={() => {
-                    const next = active
-                      ? value.byDay.filter((d) => d !== day)
-                      : [...value.byDay, day];
+                    const next = active ? value.byDay.filter((d) => d !== day) : [...value.byDay, day];
                     // A weekly rule needs at least one day.
                     update({ byDay: next.length ? next : [day] });
                   }}
-                  className={cn(chipClass, active ? chipOn : chipOff)}
+                  className={cn(cellClass, "size-6 rounded-full text-[11px]", active ? cellOn : cellOff)}
                 >
-                  {weekdayLabel(day).slice(0, 2)}
+                  {weekdayLabel(day).slice(0, 1)}
                 </button>
               );
             })}
           </div>
-        </Field>
-      )}
-
-      {value.freq === "MONTHLY" && (
-        <div className="flex flex-col gap-2">
-          <Radio
-            name={monthlyModeName}
-            checked={value.monthlyMode === "day"}
-            disabled={disabled}
-            onChange={() => update({ monthlyMode: "day" })}
-          >
-            On these dates
-          </Radio>
-          {value.monthlyMode === "day" && (
-            <MonthDayGrid
-              value={value.byMonthDay}
-              disabled={disabled}
-              onChange={(byMonthDay) => update({ byMonthDay })}
-            />
-          )}
-          <Radio
-            name={monthlyModeName}
-            checked={value.monthlyMode === "weekday"}
-            disabled={disabled}
-            onChange={() => update({ monthlyMode: "weekday" })}
-          >
-            On the {ordinalWeek(anchor)} {weekdayLabel(anchor.getDay(), true)}
-          </Radio>
-        </div>
-      )}
-
-      {value.freq === "YEARLY" && (
-        <>
-          <Field label="In">
-            <div className="grid grid-cols-6 gap-1">
-              {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => {
-                const active = value.byMonth.includes(month);
-                return (
-                  <button
-                    key={month}
-                    type="button"
-                    disabled={disabled}
-                    aria-pressed={active}
-                    onClick={() => {
-                      const next = active
-                        ? value.byMonth.filter((m) => m !== month)
-                        : [...value.byMonth, month];
-                      update({ byMonth: next.length ? next : [month] });
-                    }}
-                    className={cn(chipClass, active ? chipOn : chipOff)}
-                  >
-                    {monthLabel(month)}
-                  </button>
-                );
-              })}
-            </div>
-          </Field>
-          <Field label="On these dates">
-            <MonthDayGrid
-              value={value.byMonthDay}
-              disabled={disabled}
-              onChange={(byMonthDay) => update({ byMonthDay })}
-            />
-          </Field>
-        </>
-      )}
-
-      <Field label="Ends">
-        <div className="flex flex-col gap-1.5">
-          <Radio
-            name={endName}
-            checked={value.end.type === "never"}
-            disabled={disabled}
-            onChange={() => update({ end: { type: "never" } })}
-          >
-            Never
-          </Radio>
-
-          <div className="flex items-center gap-2">
-            <Radio
-              name={endName}
-              checked={value.end.type === "until"}
-              disabled={disabled}
-              onChange={() =>
-                update({
-                  end: {
-                    type: "until",
-                    date: value.end.type === "until" ? value.end.date : "",
-                  },
-                })
-              }
-            >
-              On
-            </Radio>
-            <DatePicker
-              mode="date"
-              value={value.end.type === "until" ? value.end.date : ""}
-              disabled={disabled || value.end.type !== "until"}
-              clearable={false}
-              placeholder="Pick a date"
-              onChange={(date) => update({ end: { type: "until", date } })}
-              size="sm"
-              className="min-w-0 flex-1"
-            />
+        </ListRow>,
+      );
+    }
+    if (value.freq === "MONTHLY") {
+      rows.push(
+        <ListRow key="by" label="By">
+          <SegmentedControl
+            size="sm"
+            aria-label="Monthly by"
+            className="*:px-2"
+            options={[
+              { label: "Dates", value: "day" as const },
+              { label: `${capitalise(ordinalWeek(anchor))} ${weekdayLabel(anchor.getDay(), true)}`, value: "weekday" as const },
+            ]}
+            value={value.monthlyMode}
+            onChange={(monthlyMode) => !disabled && update({ monthlyMode })}
+          />
+        </ListRow>,
+      );
+      if (value.monthlyMode === "day") {
+        rows.push(
+          <div key="dates" className="px-3.5 py-2.5">
+            <MonthDayGrid value={value.byMonthDay} disabled={disabled} onChange={(byMonthDay) => update({ byMonthDay })} />
+          </div>,
+        );
+      }
+    }
+    if (value.freq === "YEARLY") {
+      rows.push(
+        <div key="months" className="flex flex-col gap-2 px-3.5 py-2.5">
+          <span className="text-xs font-medium text-muted-foreground">In</span>
+          <div className="grid grid-cols-6 gap-1">
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => {
+              const active = value.byMonth.includes(month);
+              return (
+                <button
+                  key={month}
+                  type="button"
+                  disabled={disabled}
+                  aria-pressed={active}
+                  onClick={() => {
+                    const next = active ? value.byMonth.filter((m) => m !== month) : [...value.byMonth, month];
+                    update({ byMonth: next.length ? next : [month] });
+                  }}
+                  className={cn(cellClass, active ? cellOn : cellOff)}
+                >
+                  {monthLabel(month)}
+                </button>
+              );
+            })}
           </div>
-
-          <div className="flex items-center gap-2">
-            <Radio
-              name={endName}
-              checked={value.end.type === "count"}
-              disabled={disabled}
-              onChange={() => update({ end: { type: "count", count: 10 } })}
-            >
-              After
-            </Radio>
-            <input
-              type="number"
-              min={1}
-              max={999}
-              disabled={disabled || value.end.type !== "count"}
-              value={value.end.type === "count" ? value.end.count : 10}
-              onChange={(event) =>
-                update({
-                  end: {
-                    type: "count",
-                    count: Math.max(1, Number(event.target.value) || 1),
-                  },
-                })
-              }
-              className={cn(inputClass, "w-14 text-center")}
-            />
-            <span className="text-muted-foreground">times</span>
-          </div>
-        </div>
-      </Field>
-
-      <p className="border-t border-border pt-2 text-[11px] leading-snug text-muted-foreground">
+        </div>,
+        <div key="year-dates" className="flex flex-col gap-2 px-3.5 py-2.5">
+          <span className="text-xs font-medium text-muted-foreground">On</span>
+          <MonthDayGrid value={value.byMonthDay} disabled={disabled} onChange={(byMonthDay) => update({ byMonthDay })} />
+        </div>,
+      );
+    }
+    rows.push(
+      <ListRow key="ends" label="Ends">
+        <SegmentedControl<EndType>
+          size="sm"
+          aria-label="Ends"
+          className="*:px-2"
+          options={[
+            { label: "Never", value: "never" },
+            { label: "On date", value: "until" },
+            { label: "After", value: "count" },
+          ]}
+          value={value.end.type}
+          onChange={(type) => {
+            if (disabled) return;
+            if (type === "never") update({ end: { type: "never" } });
+            if (type === "until") update({ end: { type: "until", date: value.end.type === "until" ? value.end.date : "" } });
+            if (type === "count") update({ end: { type: "count", count: value.end.type === "count" ? value.end.count : 10 } });
+          }}
+        />
+      </ListRow>,
+    );
+    if (value.end.type === "until") {
+      rows.push(
+        <ListRow key="until" label="End date">
+          <DatePicker
+            variant="row"
+            mode="date"
+            aria-label="End date"
+            value={value.end.date}
+            disabled={disabled}
+            clearable={false}
+            placeholder="Pick a date"
+            onChange={(date) => update({ end: { type: "until", date } })}
+          />
+        </ListRow>,
+      );
+    }
+    if (value.end.type === "count") {
+      const count = value.end.count;
+      rows.push(
+        <ListRow key="count" label="Times">
+          <Stepper
+            label="Number of times"
+            value={count}
+            unit={count === 1 ? "time" : "times"}
+            disabled={disabled}
+            onChange={(next) => update({ end: { type: "count", count: next } })}
+          />
+        </ListRow>,
+      );
+    }
+    rows.push(
+      <p key="summary" className="px-3.5 py-2 text-xs leading-relaxed text-muted-foreground">
         {describeRRule(draftToRRule(value, anchor), anchor)}
-      </p>
-    </div>
-  );
-
-  if (label) {
-    return (
-      <div className={cn("flex flex-col gap-1", className)}>
-        <div className="flex items-center gap-2 rounded-lg px-1 py-1.5">
-          {Icon && <Icon className="size-4 shrink-0 text-muted-foreground" />}
-          <span title={label} className="w-20 shrink-0 truncate text-xs text-muted-foreground">
-            {label}
-          </span>
-          <div className="flex min-w-0 flex-1 items-center">{select}</div>
-        </div>
-        {panel && <div className="px-1">{panel}</div>}
-      </div>
+      </p>,
     );
   }
 
   return (
-    <div className={cn("flex min-w-0 flex-1 flex-col gap-2", className)}>
-      {select}
-      {panel}
+    <div className={className}>
+      <ListRow label={label}>
+        <Select
+          size="sm"
+          variant="row"
+          value={showCustom ? "custom" : matched}
+          disabled={disabled}
+          onChange={(preset) => {
+            setCustomOpen(preset === "custom");
+            if (preset === "custom" && value) return;
+            onChange(presetToDraft(preset as RecurrencePreset, anchor));
+          }}
+          options={presetOptions}
+          aria-label={label}
+        />
+      </ListRow>
+      {/* The custom rows join the card the Repeat row sits in, with the same dividers. */}
+      {rows.map((row, index) => (
+        <Fragment key={index}>
+          <div aria-hidden className="ml-3.5 h-px bg-border" />
+          {row}
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+/** − 2 weeks +: a small stepper for the right side of a row. */
+function Stepper({
+  label,
+  value,
+  unit,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  unit: string;
+  disabled?: boolean;
+  onChange: (value: number) => void;
+}) {
+  const step = "flex size-6 cursor-pointer items-center justify-center rounded-md bg-muted text-foreground transition-colors hover:bg-muted-foreground/15 disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:size-3.5";
+  return (
+    <div role="group" aria-label={label} className="flex items-center gap-2">
+      <button type="button" aria-label="Fewer" disabled={disabled || value <= 1} onClick={() => onChange(Math.max(1, value - 1))} className={step}>
+        <Minus />
+      </button>
+      <span className="min-w-16 text-center text-[13px] font-semibold tabular-nums text-foreground">
+        {value} <span className="font-medium text-muted-foreground">{unit}</span>
+      </span>
+      <button type="button" aria-label="More" disabled={disabled || value >= 999} onClick={() => onChange(Math.min(999, value + 1))} className={step}>
+        <Plus />
+      </button>
     </div>
   );
 }
@@ -345,7 +328,7 @@ function MonthDayGrid({
             disabled={disabled}
             aria-pressed={active}
             onClick={() => toggle(day)}
-            className={cn(chipClass, active ? chipOn : chipOff)}
+            className={cn(cellClass, active ? cellOn : cellOff)}
           >
             {day}
           </button>
@@ -357,48 +340,11 @@ function MonthDayGrid({
         aria-pressed={value.includes(LAST_DAY)}
         title="Last day of the month"
         onClick={() => toggle(LAST_DAY)}
-        className={cn(chipClass, "col-span-4", value.includes(LAST_DAY) ? chipOn : chipOff)}
+        className={cn(cellClass, "col-span-4", value.includes(LAST_DAY) ? cellOn : cellOff)}
       >
         Last day
       </button>
     </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-muted-foreground">{label}</span>
-      {children}
-    </div>
-  );
-}
-
-function Radio({
-  name,
-  checked,
-  disabled,
-  onChange,
-  children,
-}: {
-  name: string;
-  checked: boolean;
-  disabled?: boolean;
-  onChange: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="flex shrink-0 cursor-pointer items-center gap-2 text-foreground">
-      <input
-        type="radio"
-        name={name}
-        checked={checked}
-        disabled={disabled}
-        onChange={onChange}
-        className="accent-primary"
-      />
-      {children}
-    </label>
   );
 }
 
@@ -414,4 +360,8 @@ function ordinalWeek(anchor: Date) {
   const isLast = anchor.getDate() + 7 > lastOfMonth.getDate();
   if (isLast && nth >= 4) return "last";
   return ["", "first", "second", "third", "fourth", "fifth"][nth];
+}
+
+function capitalise(word: string) {
+  return word.charAt(0).toUpperCase() + word.slice(1);
 }

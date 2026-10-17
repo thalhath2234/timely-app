@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, ListTodo, Repeat, Search, X } from "lucide-react";
+import { CalendarDays, ListTodo, Search, X } from "lucide-react";
 import DatePicker, { TimeField } from "@/app/_components/_ui/datePicker";
 import RecurrenceEditor from "@/app/_components/_ui/recurrenceEditor";
+import Select from "@/app/_components/_ui/select";
+import SegmentedControl from "@/app/_components/_ui/segmentedControl";
+import { GroupHint, ListGroup, ListRow, ListSwitch } from "@/app/_components/_ui/groupedList";
 import { Task } from "@/app/_types/types";
 import {
   applyClockToDate,
@@ -19,7 +22,6 @@ import { cn } from "@/app/utils/cn";
 import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 import { isUnscheduled } from "@timely/contract/workStatus";
 import { useWorkingHoursZone } from "@/app/utils/hooks/workspaces";
-import { controlClass } from "@/app/_components/_ui/field";
 import { buttonClass } from "@/app/_components/_ui/button";
 import { normalizePriority } from "@/app/utils/priority";
 
@@ -39,8 +41,13 @@ type ScheduleDialogProps = {
   onScheduled?: (taskId: string) => void;
 };
 
-const fieldClass =
-  controlClass("md", "w-full");
+
+const DURATION_STEPS = [15, 30, 45, 60, 90, 120, 180, 240, 480];
+
+function durationOptions(current: number) {
+  const steps = current > 0 && !DURATION_STEPS.includes(current) ? [...DURATION_STEPS, current].sort((a, b) => a - b) : DURATION_STEPS;
+  return steps.map((minutes) => ({ value: String(minutes), label: formatDuration(minutes) }));
+}
 
 export default function ScheduleDialog({
   slot,
@@ -215,91 +222,78 @@ function ScheduleDialogPanel({
             </p>
           </div>
 
-          <div className="flex gap-1 rounded-lg bg-muted/40 p-1" role="tablist">
-            {(
-              [
-                { value: "task", label: "Schedule a task", icon: ListTodo },
-                { value: "event", label: "New event", icon: CalendarDays },
-              ] as const
-            ).map((tab) => (
-              <button
-                key={tab.value}
-                type="button"
-                role="tab"
-                aria-selected={mode === tab.value}
-                onClick={() => {
-                  setMode(tab.value);
-                  setError(null);
-                }}
-                className={cn(
-                  "inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
-                  mode === tab.value
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <tab.icon className="size-3.5" />
-                {tab.label}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            fill
+            aria-label="Add"
+            value={mode}
+            onChange={(next) => {
+              setMode(next);
+              setError(null);
+            }}
+            options={[
+              { value: "task", label: "Schedule a task", icon: <ListTodo /> },
+              { value: "event", label: "New event", icon: <CalendarDays /> },
+            ]}
+          />
 
           {mode === "event" && (
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground">Title</span>
+            <ListGroup>
               <input
                 autoFocus
                 value={title}
+                aria-label="Title"
                 onChange={(event) => setTitle(event.target.value)}
                 placeholder="Dentist, team stand-up, gym..."
-                className={fieldClass}
+                className="h-10 w-full bg-transparent px-3.5 text-[13px] font-medium text-foreground outline-none placeholder:text-muted-foreground"
               />
-            </label>
+            </ListGroup>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground">
-                {eventTimeOnly ? "Time" : "When"}
-              </span>
-              {eventTimeOnly ? (
-                <TimeField
-                  value={toTimeInputValue(when)}
-                  clearable={false}
-                  aria-label="Time"
-                  onChange={(hhmm) =>
-                    setWhen(toDatetimeLocalValue(applyClockToDate(startDate, hhmm)))
-                  }
-                />
-              ) : (
-                <DatePicker
-                  mode={mode === "event" && allDay ? "date" : "datetime"}
-                  value={when}
-                  onChange={setWhen}
-                  clearable={false}
-                />
-              )}
-            </label>
-
-            {reminderTask ? (
-              <p className="flex flex-col justify-end text-xs text-muted-foreground">
-                Reminder — pings at this time, no work block.
-              </p>
-            ) : (
-              <label className="flex flex-col gap-1">
-                <span className="text-xs text-muted-foreground">
-                  Duration ({formatDuration(Math.max(15, duration || 30))})
-                </span>
-                <input
-                  type="number"
-                  min={15}
-                  step={15}
-                  value={duration}
-                  onChange={(event) => setDuration(Number(event.target.value) || 30)}
-                  className={fieldClass}
-                />
-              </label>
-            )}
+          <div>
+            <ListGroup>
+              <ListRow label={eventTimeOnly ? "Time" : "When"}>
+                {eventTimeOnly ? (
+                  <TimeField
+                    variant="row"
+                    value={toTimeInputValue(when)}
+                    clearable={false}
+                    aria-label="Time"
+                    onChange={(hhmm) =>
+                      setWhen(toDatetimeLocalValue(applyClockToDate(startDate, hhmm)))
+                    }
+                  />
+                ) : (
+                  <DatePicker
+                    variant="row"
+                    aria-label="When"
+                    mode={mode === "event" && allDay ? "date" : "datetime"}
+                    value={when}
+                    onChange={setWhen}
+                    clearable={false}
+                  />
+                )}
+              </ListRow>
+              {!reminderTask ? (
+                <ListRow label="Duration">
+                  <Select
+                    variant="row"
+                    aria-label="Duration"
+                    value={String(duration)}
+                    onChange={(value) => setDuration(Number(value) || 30)}
+                    options={durationOptions(duration)}
+                  />
+                </ListRow>
+              ) : null}
+              {mode === "event" ? (
+                <ListRow label="All day">
+                  <ListSwitch label="All day" checked={allDay} onChange={setAllDay} />
+                </ListRow>
+              ) : null}
+              {mode === "event" ? (
+                <RecurrenceEditor label="Repeat" value={recurrence} anchor={startDate} onChange={setRecurrence} />
+              ) : null}
+            </ListGroup>
+            {reminderTask ? <GroupHint>Pings at this time. It does not reserve a work block.</GroupHint> : null}
           </div>
 
           {mode === "task" ? (
@@ -315,7 +309,7 @@ function ScheduleDialogPanel({
                 />
               </div>
 
-              <div className="max-h-56 overflow-y-auto rounded-lg border border-border">
+              <div className="max-h-56 overflow-y-auto rounded-[12px] border border-border bg-card">
                 {unscheduled.length === 0 ? (
                   <p className="px-3 py-6 text-center text-sm text-muted-foreground">
                     No unscheduled open tasks
@@ -355,37 +349,14 @@ function ScheduleDialogPanel({
                 )}
               </div>
               {selectedTask && selectedTask.duration > duration && (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="-mt-2 px-1 text-xs text-muted-foreground">
                   This block covers {formatDuration(duration)} of the{" "}
                   {formatDuration(selectedTask.duration)} estimate. Auto-schedule can fill
                   in the rest.
                 </p>
               )}
             </>
-          ) : (
-            <>
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={allDay}
-                  onChange={(event) => setAllDay(event.target.checked)}
-                  className="size-3.5 accent-primary"
-                />
-                All day
-              </label>
-              <div className="flex flex-col gap-1">
-                <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Repeat className="size-3" />
-                  Repeat
-                </span>
-                <RecurrenceEditor
-                  value={recurrence}
-                  anchor={startDate}
-                  onChange={setRecurrence}
-                />
-              </div>
-            </>
-          )}
+          ) : null}
 
           {error && <p className="text-xs text-destructive">{error}</p>}
 

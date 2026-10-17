@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Check, Pipette } from "lucide-react";
 import { cn } from "@/app/utils/cn";
 import { propertyChipClass } from "@/app/_components/_ui/propertyChip";
+import { rowValueClass } from "@/app/_components/_ui/groupedList";
 import { PopoverView, useClientGate, useViewOpen } from "@/app/_components/_ui/motion";
 import { controlClass } from "@/app/_components/_ui/field";
 
@@ -36,8 +37,9 @@ type ColorPickerProps = {
   /**
    * "chip": a property chip in a create form, the colour dot and `chipLabel`.
    * "dot": just the dot, for a colour inside a chip-shaped composer.
+   * "row": the value of a grouped row, the dot and its hex code.
    */
-  variant?: "swatch" | "chip" | "dot";
+  variant?: "swatch" | "chip" | "dot" | "row";
   chipLabel?: string;
   "aria-label"?: string;
 };
@@ -177,7 +179,9 @@ export default function ColorPicker({
         className={
           variant === "chip"
             ? propertyChipClass({ className })
-            : variant === "dot"
+            : variant === "row"
+              ? cn(rowValueClass, className)
+              : variant === "dot"
               ? cn(
                   "inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[8px] outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40 aria-expanded:bg-muted disabled:cursor-not-allowed disabled:opacity-60",
                   className,
@@ -192,11 +196,12 @@ export default function ColorPicker({
         <span
           className={cn(
             "ring-1 ring-foreground/15",
-            variant === "chip" || variant === "dot" ? "size-2.5 rounded-full" : cn("rounded-md", size === "sm" ? "size-4" : "size-5"),
+            variant === "chip" || variant === "dot" || variant === "row" ? "size-2.5 rounded-full" : cn("rounded-md", size === "sm" ? "size-4" : "size-5"),
           )}
           style={{ backgroundColor: current }}
         />
         {variant === "chip" ? <span className="truncate">{chipLabel}</span> : null}
+        {variant === "row" ? <span className="font-mono text-xs uppercase">{current}</span> : null}
       </button>
 
       {mounted &&

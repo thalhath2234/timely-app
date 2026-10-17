@@ -3,12 +3,13 @@ import { Alert, Text, View } from "react-native";
 import Animated, { useReducedMotion } from "react-native-reanimated";
 import { useRouter } from "expo-router";
 import InboxCapture from "../inbox/InboxCapture";
-import { Bell, CalendarClock, CalendarDays, Check, ChevronDown, ChevronUp, Clock, FileText, Flag, FolderKanban, Inbox, ListTodo, Palette, Plus, Sheet as SheetIcon, Sparkles } from "lucide-react-native";
+import { Bell, CalendarClock, Check, ChevronDown, ChevronUp, FileText, Flag, Inbox, ListTodo, Sheet as SheetIcon, Sparkles } from "lucide-react-native";
 import BottomSheet, { SheetOption } from "./BottomSheet";
 import DateTimeSheet from "./DateTimeSheet";
-import TaskMetaEditor from "./TaskMetaEditor";
-import RecurrenceEditor from "./RecurrenceEditor";
-import { Button, Dot, Field, PropertyChip, PropertyChips, PropertyGroup, PropertyRow } from "./primitives";
+import { Button, Dot, Field } from "./primitives";
+import { TimeField } from "./DateTimeField";
+import { ColorDot, GroupHint, GroupLabel, ListGroup, ListRow, SwitchRow } from "../settings/SettingsList";
+import { CustomFieldsGroup, LabelsRow, RepeatRow } from "../tasks/TaskMetaRows";
 import RichTextEditor from "../editor/RichTextEditor";
 import AnimatedPressable from "./AnimatedPressable";
 import { emptyCustomFieldDrafts, filledCustomFieldValues } from "../../lib/customFields";
@@ -168,7 +169,6 @@ export default function QuickAddSheet({
 
   const isReminder = kind === "reminder";
   const moreCount =
-    (taskRecurrence ? 1 : 0) +
     (startDate ? 1 : 0) +
     (earliestStartAt ? 1 : 0) +
     (preferFrom || preferTo ? 1 : 0) +
@@ -573,178 +573,128 @@ export default function QuickAddSheet({
         )}
 
         {kind === "task" ? (
-          <PropertyChips>
-            <PropertyChip icon={<FolderKanban size={15} color={colors.mutedForeground} />} label={workspaceName} onPress={() => setPicking("workspace")} accessibilityLabel={`Workspace, ${workspaceName}`} />
-            {scopedProjects.length > 0 ? (
-              <PropertyChip
-                dot={selectedProject?.color}
-                icon={selectedProject ? undefined : <ListTodo size={15} color={colors.mutedForeground} />}
-                label={selectedProject?.title ?? "Project"}
-                empty={!selectedProject}
-                onPress={() => setPicking("project")}
-                accessibilityLabel={`Project, ${selectedProject?.title ?? "none"}`}
-              />
-            ) : null}
-            {stages.length > 0 ? (
-              <PropertyChip label={stageName ?? "Stage"} empty={!stageName} onPress={() => setPicking("stage")} accessibilityLabel={`Stage, ${stageName ?? "none"}`} />
-            ) : null}
-            {(selectedWorkspace?.status ?? []).length > 0 ? (
-              <PropertyChip dot={statusMeta?.color ?? colors.mutedForeground} label={statusMeta?.name ?? "Status"} onPress={() => setPicking("status")} accessibilityLabel={`Status, ${statusMeta?.name ?? "none"}`} />
-            ) : null}
-            <PriorityChip priority={priority} onPress={() => setPicking("priority")} />
-            <PropertyChip icon={<Clock size={15} color={colors.mutedForeground} />} label={formatDuration(duration) ?? `${duration}m`} onPress={() => setPicking("duration")} accessibilityLabel={`Duration, ${formatDuration(duration) ?? `${duration} minutes`}`} />
-            <PropertyChip
-              icon={<CalendarDays size={15} color={colors.mutedForeground} />}
-              label={deadline ? `Due ${formatShortDate(deadline.toISOString())}` : "Deadline"}
-              empty={!deadline}
-              onPress={() => setPicking("due")}
-              accessibilityLabel={`Deadline, ${deadline ? formatShortDate(deadline.toISOString()) : "none"}`}
-            />
-            <PropertyChip
-              icon={<CalendarClock size={15} color={scheduledOn ? colors.mutedForeground : colors.mutedForeground} />}
-              label={scheduledOn ? (taskTimeOnly ? formatTime(scheduledOn.toISOString()) : formatDateValue(scheduledOn, true)) : "Schedule"}
-              empty={!scheduledOn}
-              onPress={() => setPicking("schedule")}
-              accessibilityLabel={`Schedule, ${scheduledOn ? formatDateValue(scheduledOn, true) : "none"}`}
-            />
-            <MoreChip open={more} count={moreCount} onPress={() => setMore((value) => !value)} />
-          </PropertyChips>
+          <View style={styles.groups}>
+            <ListGroup>
+              <ListRow title="Workspace" trailing={workspaceName} onPress={() => setPicking("workspace")} />
+              {scopedProjects.length > 0 ? (
+                <ListRow title="Project" trailing={<RowValue text={selectedProject?.title ?? "None"} dot={selectedProject?.color} />} onPress={() => setPicking("project")} />
+              ) : null}
+              {stages.length > 0 ? <ListRow title="Stage" trailing={stageName ?? "None"} onPress={() => setPicking("stage")} /> : null}
+              {(selectedWorkspace?.status ?? []).length > 0 ? (
+                <ListRow title="Status" trailing={<RowValue text={statusMeta?.name ?? "None"} dot={statusMeta?.color ?? colors.mutedForeground} />} onPress={() => setPicking("status")} />
+              ) : null}
+              <PriorityRow priority={priority} onPress={() => setPicking("priority")} />
+              <ListRow title="Duration" trailing={formatDuration(duration) ?? `${duration}m`} onPress={() => setPicking("duration")} />
+            </ListGroup>
+            <View style={styles.section}>
+              <GroupLabel>When</GroupLabel>
+              <ListGroup>
+                <ListRow title="Deadline" trailing={deadline ? formatShortDate(deadline.toISOString()) : "None"} onPress={() => setPicking("due")} />
+                <ListRow
+                  title={taskTimeOnly ? "Time" : "Schedule"}
+                  trailing={scheduledOn ? (taskTimeOnly ? formatTime(scheduledOn.toISOString()) : formatDateValue(scheduledOn, true)) : "None"}
+                  onPress={() => setPicking("schedule")}
+                />
+                <RepeatRow
+                  value={taskRecurrence}
+                  anchor={taskAnchor}
+                  subtitle={title.trim() || undefined}
+                  onChange={(next) => {
+                    setTaskRecurrence(next);
+                    if (next && !scheduledOn) setScheduledOn(nextRoundHour());
+                  }}
+                />
+              </ListGroup>
+            </View>
+            <MoreRow open={more} count={moreCount} onPress={() => setMore((value) => !value)} />
+          </View>
         ) : null}
 
         {kind === "reminder" ? (
-          <PropertyChips>
-            <PropertyChip
-              icon={<Bell size={15} color={colors.mutedForeground} />}
-              label={scheduledOn ? (taskTimeOnly ? formatTime(scheduledOn.toISOString()) : formatDateValue(scheduledOn, true)) : "Pick a time"}
-              empty={!scheduledOn}
-              onPress={() => setPicking("schedule")}
-              accessibilityLabel={`Notify at, ${scheduledOn ? formatDateValue(scheduledOn, true) : "not set"}`}
-            />
-            <PriorityChip priority={priority} onPress={() => setPicking("priority")} />
-            {list.length > 0 ? (
-              <PropertyChip icon={<FolderKanban size={15} color={colors.mutedForeground} />} label={selectedWorkspace?.name ?? "Workspace"} onPress={() => setPicking("workspace")} accessibilityLabel={`Workspace, ${selectedWorkspace?.name ?? "none"}`} />
-            ) : null}
-            <MoreChip open={more} count={moreCount} onPress={() => setMore((value) => !value)} />
-          </PropertyChips>
+          <View style={styles.groups}>
+            <ListGroup>
+              <ListRow
+                title="Notify at"
+                trailing={scheduledOn ? (taskTimeOnly ? formatTime(scheduledOn.toISOString()) : formatDateValue(scheduledOn, true)) : "Pick a time"}
+                onPress={() => setPicking("schedule")}
+              />
+              <RepeatRow
+                value={taskRecurrence}
+                anchor={taskAnchor}
+                subtitle={title.trim() || undefined}
+                onChange={(next) => {
+                  setTaskRecurrence(next);
+                  if (next && !scheduledOn) setScheduledOn(nextRoundHour());
+                }}
+              />
+              <PriorityRow priority={priority} onPress={() => setPicking("priority")} />
+              {list.length > 0 ? <ListRow title="Workspace" trailing={selectedWorkspace?.name ?? "None"} onPress={() => setPicking("workspace")} /> : null}
+            </ListGroup>
+            <GroupHint>Pings at this time. It does not reserve a work block.</GroupHint>
+          </View>
         ) : null}
 
         {kind === "event" ? (
-          <PropertyChips>
-            <PropertyChip
-              icon={<CalendarDays size={15} color={colors.mutedForeground} />}
-              label={eventRecurrence && !allDay ? formatTime(eventStart.toISOString()) : formatDateValue(eventStart, !allDay)}
-              onPress={() => setPicking("eventStart")}
-              accessibilityLabel={`Starts, ${formatDateValue(eventStart, !allDay)}`}
-            />
-            {!allDay ? (
-              <PropertyChip icon={<Clock size={15} color={colors.mutedForeground} />} label={formatDuration(eventMinutes) ?? `${eventMinutes}m`} onPress={() => setPicking("eventDuration")} accessibilityLabel={`Duration, ${formatDuration(eventMinutes) ?? `${eventMinutes} minutes`}`} />
-            ) : null}
-            <PropertyChip label="All day" active={allDay} empty={!allDay} onPress={() => setAllDay((value) => !value)} />
-            <PropertyChip
-              icon={<FolderKanban size={15} color={colors.mutedForeground} />}
-              label={eventWorkspace?.name ?? "Workspace"}
-              empty={!eventWorkspace}
-              onPress={() => setPicking("eventWorkspace")}
-              accessibilityLabel={`Workspace, ${eventWorkspace?.name ?? "none"}`}
-            />
-            {eventScopedProjects.length > 0 ? (
-              <PropertyChip
-                dot={eventProject?.color}
-                icon={eventProject ? undefined : <ListTodo size={15} color={colors.mutedForeground} />}
-                label={eventProject?.title ?? "Project"}
-                empty={!eventProject}
-                onPress={() => setPicking("eventProject")}
-                accessibilityLabel={`Project, ${eventProject?.title ?? "none"}`}
+          <View style={styles.groups}>
+            <ListGroup>
+              <ListRow
+                title="Starts"
+                trailing={eventRecurrence && !allDay ? formatTime(eventStart.toISOString()) : formatDateValue(eventStart, !allDay)}
+                onPress={() => setPicking("eventStart")}
               />
-            ) : null}
-            <PropertyChip
-              icon={eventColor ? undefined : <Palette size={15} color={colors.mutedForeground} />}
-              dot={eventColor || undefined}
-              label={eventColor ? colorName(eventColor) : "Colour"}
-              empty={!eventColor}
-              onPress={() => setPicking("eventColor")}
-              accessibilityLabel={`Colour, ${colorName(eventColor)}`}
-            />
-            <MoreChip open={more} count={eventRecurrence ? 1 : 0} label="Repeat" onPress={() => setMore((value) => !value)} />
-          </PropertyChips>
+              {!allDay ? <ListRow title="Duration" trailing={formatDuration(eventMinutes) ?? `${eventMinutes}m`} onPress={() => setPicking("eventDuration")} /> : null}
+              <SwitchRow title="All day" value={allDay} onChange={setAllDay} />
+              <RepeatRow value={eventRecurrence} anchor={eventStart} subtitle={title.trim() || undefined} onChange={setEventRecurrence} />
+            </ListGroup>
+            <ListGroup>
+              <ListRow title="Workspace" trailing={eventWorkspace?.name ?? "None"} onPress={() => setPicking("eventWorkspace")} />
+              {eventScopedProjects.length > 0 ? (
+                <ListRow title="Project" trailing={<RowValue text={eventProject?.title ?? "None"} dot={eventProject?.color} />} onPress={() => setPicking("eventProject")} />
+              ) : null}
+              <ListRow title="Colour" trailing={<RowValue text={eventColor ? colorName(eventColor) : "Auto"} dot={eventColor || undefined} />} onPress={() => setPicking("eventColor")} />
+            </ListGroup>
+          </View>
         ) : null}
 
         {(kind === "doc" || kind === "sheet") && list.length > 0 ? (
-          <PropertyGroup>
-            <PropertyRow
-              icon={<FolderKanban size={16} color={colors.mutedForeground} />}
-              label="Workspace"
-              value={selectedWorkspace?.name ?? "Select workspace"}
-              onPress={() => setPicking("workspace")}
-            />
+          <ListGroup>
+            <ListRow title="Workspace" trailing={selectedWorkspace?.name ?? "Select"} onPress={() => setPicking("workspace")} />
             <TemplateField templates={fileTemplates} value={templateId} onChange={setTemplateId} />
-          </PropertyGroup>
+          </ListGroup>
         ) : null}
 
-        {more && (kind === "task" || kind === "reminder") ? (
-          <Animated.View entering={expandEntering(Boolean(reduceMotion))} style={styles.more}>
-            <RecurrenceEditor
-              compact
-              value={taskRecurrence}
-              onChange={(next) => {
-                setTaskRecurrence(next);
-                if (next && !scheduledOn) setScheduledOn(nextRoundHour());
-              }}
-              anchor={taskAnchor}
-            />
-            {!isReminder ? (
-              <View style={styles.moreSection}>
-                <Text style={styles.moreLabel}>Auto-schedule</Text>
-                <PropertyGroup>
-                  <PropertyRow
-                    icon={<CalendarDays size={16} color={colors.mutedForeground} />}
-                    label="Start date"
-                    value={formatDateValue(startDate)}
-                    onPress={() => setPicking("startDate")}
-                  />
-                  <PropertyRow
-                    icon={<CalendarClock size={16} color={colors.mutedForeground} />}
-                    label="Earliest start"
-                    value={formatDateValue(earliestStartAt, true)}
-                    onPress={() => setPicking("earliest")}
-                  />
-                  <PropertyRow
-                    icon={<Clock size={16} color={colors.mutedForeground} />}
-                    label="Work from"
-                    value={preferFrom ? formatTime(preferFrom.toISOString()) : "Any time"}
-                    onPress={() => setPicking("preferFrom")}
-                  />
-                  <PropertyRow
-                    icon={<Clock size={16} color={colors.mutedForeground} />}
-                    label="Work until"
-                    value={preferTo ? formatTime(preferTo.toISOString()) : "Any time"}
-                    onPress={() => setPicking("preferTo")}
-                  />
-                </PropertyGroup>
-                <Text style={styles.hint}>
-                  {taskRecurrence
-                    ? "Each occurrence starts at its scheduled time. Auto-schedule keeps that block for this task."
-                    : "Auto-schedule places the work after the start and inside these hours."}
-                </Text>
-              </View>
+        {more && kind === "task" ? (
+          <Animated.View entering={expandEntering(Boolean(reduceMotion))} style={styles.groups}>
+            <View style={styles.section}>
+              <GroupLabel>Auto-schedule</GroupLabel>
+              <ListGroup>
+                <ListRow title="Start date" trailing={formatDateValue(startDate)} onPress={() => setPicking("startDate")} />
+                <ListRow title="Earliest start" trailing={formatDateValue(earliestStartAt, true)} onPress={() => setPicking("earliest")} />
+                <ListRow
+                  title="Work hours"
+                  trailing={
+                    <View style={styles.pills}>
+                      <TimeField compact clearable label="Work from" placeholder="Any" value={preferFrom ? clockValue(preferFrom) : ""} onChange={(next) => setPreferFrom(clockDate(next))} />
+                      <Text style={styles.pillDash}>–</Text>
+                      <TimeField compact clearable label="Work until" placeholder="Any" value={preferTo ? clockValue(preferTo) : ""} onChange={(next) => setPreferTo(clockDate(next))} />
+                    </View>
+                  }
+                />
+              </ListGroup>
+              <GroupHint>
+                {taskRecurrence
+                  ? "Each occurrence starts at its scheduled time. Auto-schedule keeps that block for this task."
+                  : "Auto-schedule places the work after the start and inside these hours."}
+              </GroupHint>
+            </View>
+            {detailsReady ? (
+              <>
+                <ListGroup>
+                  <LabelsRow workspace={selectedWorkspace} workspaceId={activeWorkspaceId} labelIds={labelIds} onLabelIds={setLabelIds} />
+                </ListGroup>
+                <CustomFieldsGroup workspace={selectedWorkspace} workspaceId={activeWorkspaceId} values={customFieldValues} onValues={setCustomFieldValues} />
+              </>
             ) : null}
-            {detailsReady && !isReminder ? (
-              <TaskMetaEditor
-                compact
-                workspace={selectedWorkspace}
-                workspaceId={activeWorkspaceId}
-                labelIds={labelIds}
-                onLabelIds={setLabelIds}
-                values={customFieldValues}
-                onValues={setCustomFieldValues}
-              />
-            ) : null}
-          </Animated.View>
-        ) : null}
-
-        {more && kind === "event" ? (
-          <Animated.View entering={expandEntering(Boolean(reduceMotion))} style={styles.more}>
-            <RecurrenceEditor compact value={eventRecurrence} onChange={setEventRecurrence} anchor={eventStart} />
           </Animated.View>
         ) : null}
       </Animated.View>
@@ -1007,33 +957,64 @@ export default function QuickAddSheet({
   );
 }
 
-function PriorityChip({ priority, onPress }: { priority: string; onPress: () => void }) {
+function PriorityRow({ priority, onPress }: { priority: string; onPress: () => void }) {
   const meta = PRIORITY_META[priority];
   // Medium is the default: only a raised priority earns a colour.
   const tint = priority === "High" || priority === "Urgent" ? meta?.color : undefined;
   return (
-    <PropertyChip
-      icon={<Flag size={15} color={tint ?? colors.mutedForeground} />}
-      tint={tint}
-      label={meta?.label ?? priority}
+    <ListRow
+      title="Priority"
+      trailing={
+        <View style={styles.value}>
+          {tint ? <Flag size={14} color={tint} /> : null}
+          <Text numberOfLines={1} style={[styles.valueText, tint ? { color: tint } : null]}>{meta?.label ?? priority}</Text>
+        </View>
+      }
       onPress={onPress}
       accessibilityLabel={`Priority, ${meta?.label ?? priority}`}
     />
   );
 }
 
-function MoreChip({ open, count, label, onPress }: { open: boolean; count: number; label?: string; onPress: () => void }) {
-  const text = label ?? "Repeat, schedule, labels";
+/** A row's value with an optional colour dot (a project, a status). */
+function RowValue({ text, dot }: { text: string; dot?: string | null }) {
   return (
-    <PropertyChip
-      icon={open ? <ChevronUp size={15} color={colors.accentForeground} /> : <Plus size={15} color={colors.mutedForeground} />}
-      label={count > 0 && !open ? `${text} · ${count}` : text}
-      empty={!open}
-      active={open}
-      onPress={onPress}
-      accessibilityLabel={open ? `Hide ${text.toLowerCase()}` : `Show ${text.toLowerCase()}`}
-    />
+    <View style={styles.value}>
+      {dot ? <ColorDot color={dot} size={8} /> : null}
+      <Text numberOfLines={1} style={styles.valueText}>{text}</Text>
+    </View>
   );
+}
+
+/** The last card of a new task: reveals Auto-schedule, Labels and Custom fields. */
+function MoreRow({ open, count, onPress }: { open: boolean; count: number; onPress: () => void }) {
+  const Icon = open ? ChevronUp : ChevronDown;
+  return (
+    <ListGroup>
+      <ListRow
+        title={open ? "Fewer options" : "More options"}
+        meta={open ? undefined : "Auto-schedule window, labels, fields"}
+        trailing={
+          <View style={styles.value}>
+            {count > 0 && !open ? <Text style={styles.valueText}>{count} set</Text> : null}
+            <Icon size={16} color={colors.mutedForeground} />
+          </View>
+        }
+        chevron={false}
+        onPress={onPress}
+        accessibilityLabel={open ? "Hide more options" : "Show more options"}
+        testID="quick-add-more"
+      />
+    </ListGroup>
+  );
+}
+
+function clockDate(value: string) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value);
+  if (!match) return null;
+  const next = new Date();
+  next.setHours(Number(match[1]), Number(match[2]), 0, 0);
+  return next;
 }
 
 /** The line in the action bar: where the new item lands and when. */
@@ -1111,9 +1092,12 @@ const styles = createThemedStyleSheet((colors) => ({
     backgroundColor: colors.accent,
   },
   kindSwitchText: { color: colors.accentForeground, fontSize: 15, fontWeight: "600" },
-  more: { gap: 16 },
-  moreSection: { gap: 8 },
-  moreLabel: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500", marginLeft: 2 },
+  groups: { gap: 14 },
+  section: { gap: 6 },
+  value: { flexShrink: 1, maxWidth: 190, flexDirection: "row", alignItems: "center", gap: 6 },
+  valueText: { flexShrink: 1, color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
+  pills: { flexDirection: "row", alignItems: "center", gap: 6 },
+  pillDash: { color: colors.mutedForeground, fontSize: 13 },
   actionBar: { flexDirection: "row", alignItems: "center", gap: 12 },
   summary: { flex: 1, minWidth: 0, gap: 2 },
   summaryMain: { color: colors.foreground, fontSize: 13, fontWeight: "600" },

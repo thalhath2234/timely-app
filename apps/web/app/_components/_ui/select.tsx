@@ -7,6 +7,7 @@ import { cn } from "@/app/utils/cn";
 import { PopoverView, useClientGate, useViewOpen } from "@/app/_components/_ui/motion";
 import { controlClass, menuItemClass, popoverSurface, type ControlSize } from "@/app/_components/_ui/field";
 import { propertyChipClass } from "@/app/_components/_ui/propertyChip";
+import { rowValueClass } from "@/app/_components/_ui/groupedList";
 
 export type SelectOption = {
   value: string;
@@ -34,8 +35,10 @@ type SelectProps = {
    * running content (a doc callout's kind, a code block's language). "chip"
    * is a property chip in a create form: dashed while nothing (or the ""
    * option) is picked, the option's colour dot or `icon` before the label.
+   * "row" is the value on the right of a grouped row (`ListRow`): muted
+   * text, the option's dot or icon, and a small chevron.
    */
-  variant?: "default" | "bare" | "inline" | "chip";
+  variant?: "default" | "bare" | "inline" | "chip" | "row";
   /** Chip only: drawn before the label when the option has no colour or icon. */
   icon?: ReactNode;
   /** Chip only: tint the chip with this colour (High or Urgent priority). */
@@ -44,6 +47,14 @@ type SelectProps = {
   active?: boolean;
   /** Adds a filter box at the top of the menu, for long lists (timezones). */
   searchable?: boolean;
+  /**
+   * Multi-pick: every option in `values` is ticked, picking one calls
+   * `onChange` with it (the caller toggles) and the menu stays open. The
+   * "row" trigger then shows a summary ("Design, Bug +1").
+   */
+  values?: string[];
+  /** Under the options inside the menu (a "New label" composer). */
+  footer?: ReactNode;
   "aria-label"?: string;
 };
 
@@ -56,6 +67,13 @@ const bareTrigger: Record<ControlSize, string> = {
   md: `${bareBase} h-8 text-sm`,
   lg: `${bareBase} h-9 text-sm`,
 };
+/** "Design, Bug" or "Design, Bug +2" for a multi-pick row. */
+function pickSummary(picked: SelectOption[], none: string) {
+  if (picked.length === 0) return none;
+  const names = picked.map((option) => option.label);
+  return names.length <= 2 ? names.join(", ") : `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
+}
+
 const inlineTrigger =
   "inline-flex h-6 max-w-full cursor-pointer items-center gap-1 rounded-md px-1.5 text-left text-inherit outline-none transition-colors hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring/30 aria-expanded:bg-foreground/[0.06] disabled:cursor-default disabled:hover:bg-transparent";
 
@@ -72,6 +90,8 @@ export default function Select({
   icon,
   tint,
   active,
+  values,
+  footer,
   "aria-label": ariaLabel,
 }: SelectProps) {
   const listId = useId();
@@ -83,7 +103,8 @@ export default function Select({
   const [query, setQuery] = useState("");
   const mounted = useClientGate();
 
-  const selected = options.find((option) => option.value === value);
+  const selected = values ? undefined : options.find((option) => option.value === value);
+  const picked = values ? options.filter((option) => values.includes(option.value)) : [];
   const needle = query.trim().toLowerCase();
   const visible = useMemo(
     () =>
@@ -163,6 +184,7 @@ export default function Select({
         const option = enabledOptions[activeIndex];
         if (option) {
           onChange(option.value);
+          if (values) return;
           setOpen(false);
           triggerRef.current?.focus();
         }
@@ -198,7 +220,7 @@ export default function Select({
       window.removeEventListener("resize", onReposition);
       window.removeEventListener("scroll", onReposition, true);
     };
-  }, [open, activeIndex, enabledOptions, onChange, measure, setOpen, searchable]);
+  }, [open, activeIndex, enabledOptions, onChange, measure, setOpen, searchable, values]);
 
   // Keep the highlighted row visible while moving through a long list.
   useEffect(() => {
@@ -210,6 +232,7 @@ export default function Select({
 
   const pick = (next: string) => {
     onChange(next);
+    if (values) return;
     setOpen(false);
     triggerRef.current?.focus();
   };
@@ -269,7 +292,7 @@ export default function Select({
                       (item) => item.value === option.value,
                     );
                     const active = enabledIndex === activeIndex;
-                    const isSelected = option.value === value;
+                    const isSelected = values ? values.includes(option.value) : option.value === value;
                     const heading =
                       option.group && option.group !== visible[index - 1]?.group ? option.group : null;
 
@@ -325,12 +348,46 @@ export default function Select({
                   })
                 )}
               </div>
+              {footer ? <div className="mt-1 border-t border-border pt-1">{footer}</div> : null}
             </div>
           </div>
         </PopoverView>
       ) : null,
       document.body,
     );
+
+  if (variant === "row") {
+    return (
+      <>
+        <button
+          ref={triggerRef}
+          type="button"
+          disabled={disabled}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-controls={listId}
+          aria-label={ariaLabel ? `${ariaLabel}, ${values ? pickSummary(picked, placeholder) : (selected?.label ?? placeholder)}` : undefined}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => (open ? setOpen(false) : openMenu())}
+          className={cn(rowValueClass, className)}
+          style={tint && selected?.value ? { color: tint } : undefined}
+        >
+          {values ? (
+            picked.slice(0, 3).map((option) =>
+              option.color ? <span key={option.value} className="size-2 shrink-0 rounded-full" style={{ backgroundColor: option.color }} /> : null,
+            )
+          ) : selected?.color ? (
+            <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: selected.color }} />
+          ) : (
+            selected?.icon ?? null
+          )}
+          <span className="truncate">{values ? pickSummary(picked, placeholder) : (selected?.label ?? placeholder)}</span>
+          <ChevronDown aria-hidden className={cn("size-3.5 shrink-0 opacity-60 transition-transform", open && "rotate-180")} />
+        </button>
+        {menu}
+      </>
+    );
+  }
 
   if (variant === "chip") {
     const empty = !selected || selected.value === "";

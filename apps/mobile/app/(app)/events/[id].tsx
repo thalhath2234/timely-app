@@ -1,7 +1,7 @@
 import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
 import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { CalendarClock, Trash2 } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
@@ -9,8 +9,9 @@ import MobileHeader from "../../../components/ui/MobileHeader";
 import DateTimeSheet from "../../../components/ui/DateTimeSheet";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ConfirmSheet from "../../../components/ui/ConfirmSheet";
-import RecurrenceEditor from "../../../components/ui/RecurrenceEditor";
-import { Chip, Field, PrimaryButton, SectionLabel } from "../../../components/ui/primitives";
+import { Field, PrimaryButton } from "../../../components/ui/primitives";
+import { ColorDot, GroupHint, ListGroup, ListRow, SwitchRow } from "../../../components/settings/SettingsList";
+import { RepeatRow } from "../../../components/tasks/TaskMetaRows";
 import EmptyState from "../../../components/ui/EmptyState";
 import {
   useCalendarQuery,
@@ -72,6 +73,7 @@ export default function EventDetailScreen() {
   const [scope, setScope] = useState<"this" | "future" | "all">("all");
   const [picking, setPicking] = useState<"start" | "end" | null>(null);
   const [scopeOpen, setScopeOpen] = useState(false);
+  const [sheet, setSheet] = useState<"project" | "colour" | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
@@ -210,80 +212,66 @@ export default function EventDetailScreen() {
   return (
     <Screen>
       <MobileHeader title="Event" back large={false} />
-      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, gap: 12 }}>
-        <Field value={title} onChangeText={setTitle} placeholder="Event title" autoCapitalize="sentences" />
-        <Field value={description} onChangeText={setDescription} placeholder="Notes, location, links..." multiline autoCapitalize="sentences" />
-        <SectionLabel>Color</SectionLabel>
-        <View style={styles.row}>
-          <Chip label="Auto" active={!color} onPress={() => setColor("")} />
-          {ENTITY_COLORS.map((swatch) => (
-            <Pressable
-              key={swatch}
-              accessibilityLabel={`Color ${colorName(swatch)}`}
-              onPress={() => setColor(swatch)}
-              style={[styles.swatch, { backgroundColor: swatch }, color === swatch && styles.swatchOn]}
-            />
-          ))}
+      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+        <View style={styles.titleCard}>
+          <Field bare large multiline autoGrow value={title} onChangeText={setTitle} placeholder="Event title" autoCapitalize="sentences" />
+          <Field bare multiline autoGrow value={description} onChangeText={setDescription} placeholder="Notes, location, links" autoCapitalize="sentences" />
         </View>
-        {scopedProjects.length > 0 ? (
-          <>
-            <SectionLabel>Project</SectionLabel>
-            <View style={styles.row}>
-              <Chip label="None" active={!projectId} onPress={() => setProjectId("")} />
-              {scopedProjects.map((project) => (
-                <Chip
-                  key={project.id}
-                  label={project.title}
-                  active={project.id === projectId}
-                  onPress={() => setProjectId(project.id)}
-                />
-              ))}
-            </View>
-          </>
-        ) : null}
-        <Chip label={allDay ? "All day on" : "All day off"} active={allDay} onPress={() => setAllDay((v) => !v)} />
-        <Pressable onPress={() => setPicking("start")} style={styles.meta}>
-          <Text style={styles.label}>{timeOnly ? "Time" : "Starts"}</Text>
-          <Text style={styles.value}>
-            {timeOnly
-              ? formatTime(start.toISOString())
-              : `${formatShortDate(start.toISOString())}${allDay ? "" : ` ${formatTime(start.toISOString())}`}`}
-          </Text>
-        </Pressable>
-        {timeOnly ? (
-          <Pressable onPress={() => setPicking("end")} style={styles.meta}>
-            <Text style={styles.label}>Duration ends</Text>
-            <Text style={styles.value}>{formatTime(end.toISOString())}</Text>
-          </Pressable>
-        ) : (
-          <Pressable onPress={() => setPicking("end")} style={styles.meta}>
-            <Text style={styles.label}>Ends</Text>
-            <Text style={styles.value}>
-              {formatShortDate(end.toISOString())} {allDay ? "" : formatTime(end.toISOString())}
-            </Text>
-          </Pressable>
-        )}
-        <RecurrenceEditor value={recurrence} onChange={setRecurrence} anchor={isOccurrence && seriesAnchor ? seriesAnchor : start} />
-        {isOccurrence ? (
-          <Pressable onPress={() => setScopeOpen(true)} style={styles.meta}>
-            <Text style={styles.label}>Scope</Text>
-            <Text style={styles.value}>{scopeLabel(scope)}</Text>
-          </Pressable>
-        ) : null}
-        {isOccurrence && seriesOnlyChange && scope !== "all" ? (
-          <Text style={styles.hint}>Title, notes, color, project and repeat changes apply to every occurrence, so Save updates the entire series.</Text>
-        ) : null}
+        <View style={styles.section}>
+          <ListGroup>
+            <ListRow
+              title={timeOnly ? "Time" : "Starts"}
+              trailing={
+                timeOnly
+                  ? formatTime(start.toISOString())
+                  : `${formatShortDate(start.toISOString())}${allDay ? "" : ` ${formatTime(start.toISOString())}`}`
+              }
+              onPress={() => setPicking("start")}
+            />
+            <ListRow
+              title={timeOnly ? "Ends at" : "Ends"}
+              trailing={
+                timeOnly
+                  ? formatTime(end.toISOString())
+                  : `${formatShortDate(end.toISOString())}${allDay ? "" : ` ${formatTime(end.toISOString())}`}`
+              }
+              onPress={() => setPicking("end")}
+            />
+            <SwitchRow title="All day" value={allDay} onChange={setAllDay} />
+            <RepeatRow
+              value={recurrence}
+              onChange={setRecurrence}
+              anchor={isOccurrence && seriesAnchor ? seriesAnchor : start}
+              subtitle={title || undefined}
+            />
+            {isOccurrence ? <ListRow title="Edits apply to" trailing={scopeLabel(scope)} onPress={() => setScopeOpen(true)} /> : null}
+          </ListGroup>
+          {isOccurrence && seriesOnlyChange && scope !== "all" ? (
+            <GroupHint>Title, notes, colour, project and repeat changes apply to every occurrence, so Save updates the entire series.</GroupHint>
+          ) : null}
+        </View>
+        <ListGroup>
+          {scopedProjects.length > 0 ? (
+            <ListRow
+              title="Project"
+              trailing={<RowValue text={scopedProjects.find((project) => project.id === projectId)?.title ?? "None"} dot={scopedProjects.find((project) => project.id === projectId)?.color} />}
+              onPress={() => setSheet("project")}
+            />
+          ) : null}
+          <ListRow title="Colour" trailing={<RowValue text={color ? colorName(color) : "Auto"} dot={color || undefined} />} onPress={() => setSheet("colour")} />
+        </ListGroup>
         <PrimaryButton
           label={save.isPending || editOcc.isPending || split.isPending ? "Saving…" : "Save event"}
           onPress={() => void persist()}
         />
-        <Pressable
-          onPress={() => setConfirmDelete(true)}
-          style={styles.delete}
-        >
-          <Trash2 size={16} color={colors.destructive} />
-          <Text style={styles.deleteText}>Delete event</Text>
-        </Pressable>
+        <ListGroup>
+          <ListRow
+            tone="danger"
+            leading={<Trash2 size={16} color={colors.destructive} />}
+            title="Delete event"
+            onPress={() => setConfirmDelete(true)}
+          />
+        </ListGroup>
       </ScrollView>
       <DateTimeSheet
         open={picking !== null}
@@ -327,6 +315,42 @@ export default function EventDetailScreen() {
           </SheetOption>
         ))}
       </BottomSheet>
+      <BottomSheet open={sheet === "project"} onClose={() => setSheet(null)} title="Project">
+        <SheetOption selected={!projectId} onSelect={() => { setProjectId(""); setSheet(null); }}>
+          None
+        </SheetOption>
+        {scopedProjects.map((project) => (
+          <SheetOption
+            key={project.id}
+            selected={project.id === projectId}
+            leading={project.color ? <ColorDot color={project.color} /> : undefined}
+            onSelect={() => {
+              setProjectId(project.id);
+              setSheet(null);
+            }}
+          >
+            {project.title}
+          </SheetOption>
+        ))}
+      </BottomSheet>
+      <BottomSheet open={sheet === "colour"} onClose={() => setSheet(null)} title="Colour">
+        <SheetOption selected={!color} onSelect={() => { setColor(""); setSheet(null); }}>
+          Auto
+        </SheetOption>
+        {ENTITY_COLORS.map((swatch) => (
+          <SheetOption
+            key={swatch}
+            selected={color === swatch}
+            leading={<ColorDot color={swatch} />}
+            onSelect={() => {
+              setColor(swatch);
+              setSheet(null);
+            }}
+          >
+            {colorName(swatch)}
+          </SheetOption>
+        ))}
+      </BottomSheet>
       <ConfirmSheet
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
@@ -344,30 +368,19 @@ export default function EventDetailScreen() {
   );
 }
 
+function RowValue({ text, dot }: { text: string; dot?: string | null }) {
+  return (
+    <View style={styles.value}>
+      {dot ? <ColorDot color={dot} size={8} /> : null}
+      <Text numberOfLines={1} style={styles.valueText}>{text}</Text>
+    </View>
+  );
+}
+
 const styles = createThemedStyleSheet((colors) => ({
-  meta: {
-    minHeight: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.input,
-    backgroundColor: colors.card,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  label: { color: colors.mutedForeground, fontSize: 13 },
-  hint: { color: colors.mutedForeground, fontSize: 12, marginLeft: 2 },
-  value: { color: colors.foreground, fontSize: 14 },
-  row: { flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center" },
-  swatch: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 2,
-    borderColor: "transparent",
-  },
-  swatchOn: { borderColor: colors.primary },
-  delete: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, paddingVertical: 16 },
-  deleteText: { color: colors.destructive, fontWeight: "600" },
+  content: { padding: 16, paddingBottom: 32, gap: 14 },
+  titleCard: { borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, paddingHorizontal: 14, paddingVertical: 12, gap: 4 },
+  section: { gap: 6 },
+  value: { flexShrink: 1, maxWidth: 190, flexDirection: "row", alignItems: "center", gap: 6 },
+  valueText: { flexShrink: 1, color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
 }));

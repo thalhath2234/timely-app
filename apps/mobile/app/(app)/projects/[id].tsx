@@ -4,15 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
-  CalendarClock,
-  CalendarDays,
   Check,
   ChevronDown,
   ChevronUp,
-  CircleDot,
-  Columns3,
   Copy,
-  Flag,
   FolderKanban,
   ListTodo,
   Plus,
@@ -26,7 +21,7 @@ import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import { projectDeleteCopy } from "@timely/contract/projectDelete";
 import ConfirmSheet, { type ConfirmRequest } from "../../../components/ui/ConfirmSheet";
 import DateTimeSheet from "../../../components/ui/DateTimeSheet";
-import { Button, Field, PrimaryButton, PropertyGroup, PropertyRow, SectionLabel } from "../../../components/ui/primitives";
+import { Button, Field, PrimaryButton, SectionLabel } from "../../../components/ui/primitives";
 import { ColorDot, GroupLabel, ListGroup, ListRow } from "../../../components/settings/SettingsList";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import ColourSheet from "../../../components/ui/ColourSheet";
@@ -48,7 +43,7 @@ import {
 } from "../../../lib/hooks";
 import { PRIORITIES, normalizePriority } from "../../../lib/priority";
 import { showUndoToast } from "../../../lib/toast";
-import { formatShortDate, timeAgo, toDateInputValue } from "../../../lib/format";
+import { formatShortDate, PRIORITY_META, timeAgo, toDateInputValue } from "../../../lib/format";
 import { colorName, resolvedColor, stableColorForId } from "../../../lib/entityColor";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { useDraftText } from "../../../lib/draftText";
@@ -230,44 +225,31 @@ export default function ProjectDetailScreen() {
           autoCapitalize="words"
           testID="project-title"
         />
-        <PropertyGroup tone="card">
-          <PropertyRow
-            icon={<CircleDot size={16} color={statusRecord?.color || colors.mutedForeground} />}
-            label="Status"
-            value={statusRecord?.name || "None"}
+        <ListGroup>
+          <ListRow
+            title="Status"
+            trailing={<RowValue text={statusRecord?.name || "None"} dot={statusRecord?.color || colors.mutedForeground} />}
             onPress={() => setPicker("status")}
           />
-          <PropertyRow
-            icon={<Flag size={16} color={colors.mutedForeground} />}
-            label="Priority"
-            value={priority || "None"}
+          <ListRow
+            title="Priority"
+            trailing={
+              <RowValue
+                text={priority || "None"}
+                tint={priority === "High" || priority === "Urgent" ? PRIORITY_META[priority]?.color : undefined}
+              />
+            }
             onPress={() => setPicker("priority")}
           />
-          <PropertyRow
-            icon={<CalendarDays size={16} color={colors.mutedForeground} />}
-            label="Start"
-            value={project.startDate ? formatShortDate(project.startDate) : "None"}
-            onPress={() => setPicker("start")}
-          />
-          <PropertyRow
-            icon={<CalendarClock size={16} color={colors.mutedForeground} />}
-            label="Deadline"
-            value={project.deadline ? formatShortDate(project.deadline) : "None"}
-            onPress={() => setPicker("deadline")}
-          />
-          <PropertyRow
-            icon={<View style={[styles.colourIcon, { backgroundColor: accent }]} />}
-            label="Colour"
-            value={colorName(project.color)}
-            onPress={() => setPicker("color")}
-          />
-          <PropertyRow
-            icon={<Columns3 size={16} color={colors.mutedForeground} />}
-            label="Stages"
-            value={project.doesHaveStages || stages.length ? `${stages.length} stage${stages.length === 1 ? "" : "s"}` : "Off"}
+          <ListRow title="Start date" trailing={project.startDate ? formatShortDate(project.startDate) : "None"} onPress={() => setPicker("start")} />
+          <ListRow title="Deadline" trailing={project.deadline ? formatShortDate(project.deadline) : "None"} onPress={() => setPicker("deadline")} />
+          <ListRow title="Colour" trailing={<RowValue text={colorName(project.color)} dot={accent} />} onPress={() => setPicker("color")} />
+          <ListRow
+            title="Stages"
+            trailing={project.doesHaveStages || stages.length ? `${stages.length} stage${stages.length === 1 ? "" : "s"}` : "Off"}
             onPress={() => setPicker("settings")}
           />
-        </PropertyGroup>
+        </ListGroup>
         <DescriptionCard
           onSelectionChange={setAssistantSelection}
           content={isRichContentEmpty(noteRich) ? { type: "doc", content: [{ type: "paragraph" }] } : noteRich}
@@ -597,7 +579,18 @@ export default function ProjectDetailScreen() {
   );
 }
 
+function RowValue({ text, dot, tint }: { text: string; dot?: string | null; tint?: string }) {
+  return (
+    <View style={styles.value}>
+      {dot ? <ColorDot color={dot} size={8} /> : null}
+      <Text numberOfLines={1} style={[styles.valueText, tint ? { color: tint } : null]}>{text}</Text>
+    </View>
+  );
+}
+
 const styles = createThemedStyleSheet((colors) => ({
+  value: { flexShrink: 1, maxWidth: 190, flexDirection: "row", alignItems: "center", gap: 6 },
+  valueText: { flexShrink: 1, color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
   done: {
     flexDirection: "row",
     alignItems: "center",
@@ -631,5 +624,4 @@ const styles = createThemedStyleSheet((colors) => ({
   stageIndex: { width: 18, color: colors.mutedForeground, fontSize: 13, fontWeight: "600", textAlign: "center" },
   stageMoves: { flexDirection: "row", alignItems: "center", marginRight: -8 },
   deleteRow: { alignItems: "flex-start", marginLeft: -12 },
-  colourIcon: { width: 16, height: 16, borderRadius: 8 },
 }));
