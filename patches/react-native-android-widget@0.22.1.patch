@@ -1,5 +1,5 @@
 diff --git a/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java b/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
-index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..94af49f4e23d01a81ad9e79f17a56c5eb236ccf1 100644
+index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..71a6938197aafa5808099f5b5003f4a7da991d68 100644
 --- a/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
 +++ b/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
 @@ -6,12 +6,15 @@ import android.content.ComponentName;
@@ -45,7 +45,59 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..94af49f4e23d01a81ad9e79f17a56c5e
  
          AppWidgetManager.getInstance(appContext)
              .updateAppWidget(widgetId, remoteWidgetView);
-@@ -205,16 +211,78 @@ public class RNWidget {
+@@ -168,17 +174,10 @@ public class RNWidget {
+         Rect offsetViewBounds = new Rect();
+         clickableWidget.getDrawingRect(offsetViewBounds);
+         rootWidget.offsetDescendantRectToMyCoords(clickableWidget, offsetViewBounds);
+-        RemoteViews clickableRemoteView = new RemoteViews(appContext.getPackageName(), R.layout.rn_widget_clickable);
+-
+-        clickableRemoteView.setViewPadding(
+-            R.id.rn_widget_clickable_positioner,
+-            offsetViewBounds.left,
+-            offsetViewBounds.top,
+-            RNWidgetUtil.dpToPx(appContext, RNWidgetUtil.getWidgetWidth(appContext, widgetId)) - offsetViewBounds.right,
+-            0
+-        );
+-
+-        clickableRemoteView.setInt(R.id.rn_widget_clickable_area, "setMinimumHeight", offsetViewBounds.height());
++        RemoteViews clickableRemoteView = new RemoteViews(appContext.getPackageName(), R.layout.rn_widget_clickable_placed);
++        if (!placeByProportion(clickableRemoteView, offsetViewBounds, rootWidget.getMeasuredWidth(), rootWidget.getMeasuredHeight())) {
++            return;
++        }
+ 
+         // The clickable overlay draws its own ripple, so match it to the view's radius when supported
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && clickableView.getBorderRadius() > 0f) {
+@@ -199,22 +198,133 @@ public class RNWidget {
+         widgetView.addView(R.id.rn_widget_clickable_container, clickableRemoteView);
+     }
+ 
++    /**
++     * Timely patch: places an rn_widget_clickable_placed / rn_widget_chronometer
++     * area over `bounds` (pixels in a widget `width` x `height` pixels) by
++     * proportion, so it stays on its button however the launcher sizes or
++     * scales the widget. False when the area is empty and should be skipped.
++     */
++    private static boolean placeByProportion(RemoteViews views, Rect bounds, int width, int height) {
++        int left = Math.max(0, bounds.left);
++        int top = Math.max(0, bounds.top);
++        int right = Math.min(width, bounds.right);
++        int bottom = Math.min(height, bounds.bottom);
++        if (width <= 0 || height <= 0 || right <= left || bottom <= top) return false;
++        views.setFloat(R.id.rn_widget_place_to_bottom, "setWeightSum", (float) height / bottom);
++        views.setFloat(R.id.rn_widget_place_from_top, "setWeightSum", (float) bottom / (bottom - top));
++        views.setFloat(R.id.rn_widget_place_to_right, "setWeightSum", (float) width / right);
++        views.setFloat(R.id.rn_widget_place_from_left, "setWeightSum", (float) right / (right - left));
++        return true;
++    }
++
+     private void registerClickTask(int id, ClickableView clickableView, RemoteViews widgetView, Integer button) {
++        PendingIntent opener = openingIntent(clickableView);
++        if (opener != null) {
++            widgetView.setOnClickPendingIntent(button, opener);
++            return;
++        }
+         Intent intent = new Intent(appContext.getPackageName() + ".WIDGET_CLICK");
+         intent.setComponent(new ComponentName(appContext, RNWidgetUtil.getWidgetProviderClassName(appContext, widgetName)));
          intent.putExtra("widgetId", id);
          intent.putExtra("clickAction", clickableView.getClickAction());
          intent.putExtra("clickActionData", Arguments.toBundle(clickableView.getClickActionData()));
@@ -68,6 +120,35 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..94af49f4e23d01a81ad9e79f17a56c5e
          widgetView.setOnClickPendingIntent(button, pendingIntent);
      }
  
++    /**
++     * Timely patch: a tap that only opens the app starts its activity directly.
++     * Going through the widget provider's broadcast needs the app's process, and
++     * launchers like HyperOS refuse to start it while Autostart is off, so those
++     * taps did nothing whenever the app wasn't already running.
++     */
++    private PendingIntent openingIntent(ClickableView clickableView) {
++        String action = clickableView.getClickAction();
++        Intent intent = null;
++        if ("OPEN_URI".equals(action)) {
++            ReadableMap data = clickableView.getClickActionData();
++            String uri = data != null && data.hasKey("uri") && !data.isNull("uri") ? data.getString("uri") : null;
++            if (uri == null || uri.isEmpty()) return null;
++            intent = new Intent(Intent.ACTION_VIEW, Uri.parse(uri));
++            intent.setPackage(appContext.getPackageName());
++        } else if ("OPEN_APP".equals(action)) {
++            intent = appContext.getPackageManager().getLaunchIntentForPackage(appContext.getPackageName());
++        }
++        if (intent == null) return null;
++        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
++        String key = intent.toUri(0);
++        return PendingIntent.getActivity(
++            appContext,
++            key.hashCode(),
++            intent,
++            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
++        );
++    }
++
 +    // Timely patch: live timers. Each ChronometerView is a text area whose
 +    // bitmap text is transparent; a system Chronometer ticks in its place.
 +    private void addChronometers(int widgetId, RemoteViews remoteWidgetView, WidgetWithViews light, WidgetWithViews dark) {
@@ -75,8 +156,8 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..94af49f4e23d01a81ad9e79f17a56c5e
 +        List<ChronometerView> lightViews = light.getChronometerViews();
 +        List<ChronometerView> darkViews = dark != null ? dark.getChronometerViews() : lightViews;
 +        ViewGroup rootView = (ViewGroup) light.getRootView();
-+        int widthPx = RNWidgetUtil.dpToPx(appContext, RNWidgetUtil.getWidgetWidth(appContext, widgetId));
-+        int heightPx = RNWidgetUtil.dpToPx(appContext, RNWidgetUtil.getWidgetHeight(appContext, widgetId));
++        int widthPx = rootView.getMeasuredWidth();
++        int heightPx = rootView.getMeasuredHeight();
 +        for (int i = 0; i < lightViews.size(); i++) {
 +            ChronometerView lightView = lightViews.get(i);
 +            ChronometerView darkView = i < darkViews.size() ? darkViews.get(i) : lightView;
@@ -86,13 +167,9 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..94af49f4e23d01a81ad9e79f17a56c5e
 +
 +            RemoteViews chronometer = new RemoteViews(appContext.getPackageName(), R.layout.rn_widget_chronometer);
 +            String gravity = stringOr(lightView.getData(), "gravity", "start");
-+            chronometer.setViewPadding(
-+                R.id.rn_widget_chronometer_positioner,
-+                bounds.left,
-+                bounds.top,
-+                "start".equals(gravity) ? 0 : Math.max(0, widthPx - bounds.right),
-+                Math.max(0, heightPx - bounds.bottom)
-+            );
++            // A start-aligned timer may grow to the widget's right edge as its digits change.
++            if ("start".equals(gravity)) bounds.right = widthPx;
++            if (!placeByProportion(chronometer, bounds, widthPx, heightPx)) continue;
 +            setUpChronometer(chronometer, R.id.rn_widget_chronometer_light, lightView.getData(), gravity);
 +            setUpChronometer(chronometer, R.id.rn_widget_chronometer_dark, darkView.getData(), gravity);
 +            remoteWidgetView.addView(R.id.rn_widget_chronometer_container, chronometer);
@@ -127,7 +204,7 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..94af49f4e23d01a81ad9e79f17a56c5e
          remoteWidgetView.removeAllViews(R.id.rn_widget_collection_container);
  
 diff --git a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetCollectionService.java b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetCollectionService.java
-index f818d97e1985938d4af6bfc20bce9855cc2ff4a5..7b3ff93c8423a54c15111a269e950e5a3e174bb2 100644
+index f818d97e1985938d4af6bfc20bce9855cc2ff4a5..94fc4de8941358e50059a830e16907aae38ec3d3 100644
 --- a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetCollectionService.java
 +++ b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetCollectionService.java
 @@ -154,17 +154,22 @@ class ListRemoteViewsFactory implements RemoteViewsService.RemoteViewsFactory {
@@ -156,7 +233,7 @@ index f818d97e1985938d4af6bfc20bce9855cc2ff4a5..7b3ff93c8423a54c15111a269e950e5a
          );
      }
 diff --git a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetImageProvider.java b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetImageProvider.java
-index 0f963f0303eb70bb814dcab50f821036929ebed2..9494c81438eb6a612f8efb2c19ce8b7648d85175 100644
+index 0f963f0303eb70bb814dcab50f821036929ebed2..4c7530e73c76ff608d7ec8344c454660b2dcb90c 100644
 --- a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetImageProvider.java
 +++ b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetImageProvider.java
 @@ -90,11 +90,17 @@ public class RNWidgetImageProvider extends ContentProvider {
@@ -302,35 +379,131 @@ index 870d18b36ff15ed69ab14632e6bee54f3a9e2920..13da28c777b4c3dd8c7367ba107d50da
          android:layout_width="match_parent"
 diff --git a/android/src/main/res/layout/rn_widget_chronometer.xml b/android/src/main/res/layout/rn_widget_chronometer.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..524f811628b91ea2bd11220f6a3668c487f1584a
+index 0000000000000000000000000000000000000000..5e7fccd38097287434b96f6073a6e8cc0420ac21
 --- /dev/null
 +++ b/android/src/main/res/layout/rn_widget_chronometer.xml
-@@ -0,0 +1,25 @@
-+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-+    android:id="@+id/rn_widget_chronometer_positioner"
+@@ -0,0 +1,66 @@
++<!--
++  Timely patch: a live timer placed by proportion, not by pixel padding. Some
++  launchers (HyperOS) scale the padding a widget sets by its own factor (0.78)
++  while the widget image stays 1:1, so pixel-placed areas drifted off the
++  buttons they belonged to. Each LinearLayout's weightSum is set from code so
++  that its single weighted child covers the right fraction of the widget:
++  rows 0..bottom, then top..bottom, then columns 0..right, then left..right.
++-->
++<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
++    android:id="@+id/rn_widget_place_to_bottom"
 +    android:layout_width="match_parent"
-+    android:layout_height="match_parent">
++    android:layout_height="match_parent"
++    android:orientation="vertical">
 +
-+    <Chronometer
-+        android:id="@+id/rn_widget_chronometer_light"
++    <LinearLayout
++        android:id="@+id/rn_widget_place_from_top"
 +        android:layout_width="match_parent"
-+        android:layout_height="match_parent"
-+        android:fontFamily="sans-serif-condensed"
-+        android:includeFontPadding="false"
-+        android:maxLines="1"
-+        android:textStyle="bold"
-+        android:visibility="visible" />
++        android:layout_height="0dp"
++        android:layout_weight="1"
++        android:gravity="bottom"
++        android:orientation="vertical">
 +
-+    <Chronometer
-+        android:id="@+id/rn_widget_chronometer_dark"
++        <LinearLayout
++            android:id="@+id/rn_widget_place_to_right"
++            android:layout_width="match_parent"
++            android:layout_height="0dp"
++            android:layout_weight="1"
++            android:orientation="horizontal">
++
++            <LinearLayout
++                android:id="@+id/rn_widget_place_from_left"
++                android:layout_width="0dp"
++                android:layout_height="match_parent"
++                android:layout_weight="1"
++                android:gravity="end"
++                android:orientation="horizontal">
++
++                <FrameLayout
++                    android:layout_width="0dp"
++                    android:layout_height="match_parent"
++                    android:layout_weight="1">
++
++                    <Chronometer
++                        android:id="@+id/rn_widget_chronometer_light"
++                        android:layout_width="match_parent"
++                        android:layout_height="match_parent"
++                        android:fontFamily="sans-serif-condensed"
++                        android:includeFontPadding="false"
++                        android:maxLines="1"
++                        android:textStyle="bold"
++                        android:visibility="visible" />
++
++                    <Chronometer
++                        android:id="@+id/rn_widget_chronometer_dark"
++                        android:layout_width="match_parent"
++                        android:layout_height="match_parent"
++                        android:fontFamily="sans-serif-condensed"
++                        android:includeFontPadding="false"
++                        android:maxLines="1"
++                        android:textStyle="bold"
++                        android:visibility="gone" />
++                </FrameLayout>
++            </LinearLayout>
++        </LinearLayout>
++    </LinearLayout>
++</LinearLayout>
+diff --git a/android/src/main/res/layout/rn_widget_clickable_placed.xml b/android/src/main/res/layout/rn_widget_clickable_placed.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..d3dd71a014ca17c4d06dc68dfa4885aef2bfc40b
+--- /dev/null
++++ b/android/src/main/res/layout/rn_widget_clickable_placed.xml
+@@ -0,0 +1,49 @@
++<!--
++  Timely patch: a tap area placed by proportion, not by pixel padding. Some
++  launchers (HyperOS) scale the padding a widget sets by its own factor (0.78)
++  while the widget image stays 1:1, so pixel-placed areas drifted off the
++  buttons they belonged to. Each LinearLayout's weightSum is set from code so
++  that its single weighted child covers the right fraction of the widget:
++  rows 0..bottom, then top..bottom, then columns 0..right, then left..right.
++-->
++<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
++    android:id="@+id/rn_widget_place_to_bottom"
++    android:layout_width="match_parent"
++    android:layout_height="match_parent"
++    android:orientation="vertical">
++
++    <LinearLayout
++        android:id="@+id/rn_widget_place_from_top"
 +        android:layout_width="match_parent"
-+        android:layout_height="match_parent"
-+        android:fontFamily="sans-serif-condensed"
-+        android:includeFontPadding="false"
-+        android:maxLines="1"
-+        android:textStyle="bold"
-+        android:visibility="gone" />
-+</FrameLayout>
++        android:layout_height="0dp"
++        android:layout_weight="1"
++        android:gravity="bottom"
++        android:orientation="vertical">
++
++        <LinearLayout
++            android:id="@+id/rn_widget_place_to_right"
++            android:layout_width="match_parent"
++            android:layout_height="0dp"
++            android:layout_weight="1"
++            android:orientation="horizontal">
++
++            <LinearLayout
++                android:id="@+id/rn_widget_place_from_left"
++                android:layout_width="0dp"
++                android:layout_height="match_parent"
++                android:layout_weight="1"
++                android:gravity="end"
++                android:orientation="horizontal">
++
++                <FrameLayout
++                    android:id="@+id/rn_widget_clickable_area"
++                    android:layout_width="0dp"
++                    android:layout_height="match_parent"
++                    android:layout_weight="1"
++                    android:background="?android:attr/selectableItemBackground"
++                    android:clickable="true"
++                    android:focusable="true" />
++            </LinearLayout>
++        </LinearLayout>
++    </LinearLayout>
++</LinearLayout>
 diff --git a/android/src/main/res/layout-night/rn_widget.xml b/android/src/main/res/layout-night/rn_widget.xml
 index e00a8c15199ed304f9d7080f995278c7544f6965..6551194e068c70119e481c2ad1b424ee7d272dd7 100644
 --- a/android/src/main/res/layout-night/rn_widget.xml
@@ -349,32 +522,73 @@ index e00a8c15199ed304f9d7080f995278c7544f6965..6551194e068c70119e481c2ad1b424ee
          android:layout_width="match_parent"
 diff --git a/android/src/main/res/layout-night/rn_widget_chronometer.xml b/android/src/main/res/layout-night/rn_widget_chronometer.xml
 new file mode 100644
-index 0000000000000000000000000000000000000000..b94301627780b68d004e3fb8c7ac1c59ea903ae7
+index 0000000000000000000000000000000000000000..731df1f4cd78dded2acf37fbc76edfde600f4f89
 --- /dev/null
 +++ b/android/src/main/res/layout-night/rn_widget_chronometer.xml
-@@ -0,0 +1,25 @@
-+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-+    android:id="@+id/rn_widget_chronometer_positioner"
+@@ -0,0 +1,66 @@
++<!--
++  Timely patch: a live timer placed by proportion, not by pixel padding. Some
++  launchers (HyperOS) scale the padding a widget sets by its own factor (0.78)
++  while the widget image stays 1:1, so pixel-placed areas drifted off the
++  buttons they belonged to. Each LinearLayout's weightSum is set from code so
++  that its single weighted child covers the right fraction of the widget:
++  rows 0..bottom, then top..bottom, then columns 0..right, then left..right.
++-->
++<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
++    android:id="@+id/rn_widget_place_to_bottom"
 +    android:layout_width="match_parent"
-+    android:layout_height="match_parent">
++    android:layout_height="match_parent"
++    android:orientation="vertical">
 +
-+    <Chronometer
-+        android:id="@+id/rn_widget_chronometer_light"
++    <LinearLayout
++        android:id="@+id/rn_widget_place_from_top"
 +        android:layout_width="match_parent"
-+        android:layout_height="match_parent"
-+        android:fontFamily="sans-serif-condensed"
-+        android:includeFontPadding="false"
-+        android:maxLines="1"
-+        android:textStyle="bold"
-+        android:visibility="gone" />
++        android:layout_height="0dp"
++        android:layout_weight="1"
++        android:gravity="bottom"
++        android:orientation="vertical">
 +
-+    <Chronometer
-+        android:id="@+id/rn_widget_chronometer_dark"
-+        android:layout_width="match_parent"
-+        android:layout_height="match_parent"
-+        android:fontFamily="sans-serif-condensed"
-+        android:includeFontPadding="false"
-+        android:maxLines="1"
-+        android:textStyle="bold"
-+        android:visibility="visible" />
-+</FrameLayout>
++        <LinearLayout
++            android:id="@+id/rn_widget_place_to_right"
++            android:layout_width="match_parent"
++            android:layout_height="0dp"
++            android:layout_weight="1"
++            android:orientation="horizontal">
++
++            <LinearLayout
++                android:id="@+id/rn_widget_place_from_left"
++                android:layout_width="0dp"
++                android:layout_height="match_parent"
++                android:layout_weight="1"
++                android:gravity="end"
++                android:orientation="horizontal">
++
++                <FrameLayout
++                    android:layout_width="0dp"
++                    android:layout_height="match_parent"
++                    android:layout_weight="1">
++
++                    <Chronometer
++                        android:id="@+id/rn_widget_chronometer_light"
++                        android:layout_width="match_parent"
++                        android:layout_height="match_parent"
++                        android:fontFamily="sans-serif-condensed"
++                        android:includeFontPadding="false"
++                        android:maxLines="1"
++                        android:textStyle="bold"
++                        android:visibility="gone" />
++
++                    <Chronometer
++                        android:id="@+id/rn_widget_chronometer_dark"
++                        android:layout_width="match_parent"
++                        android:layout_height="match_parent"
++                        android:fontFamily="sans-serif-condensed"
++                        android:includeFontPadding="false"
++                        android:maxLines="1"
++                        android:textStyle="bold"
++                        android:visibility="visible" />
++                </FrameLayout>
++            </LinearLayout>
++        </LinearLayout>
++    </LinearLayout>
++</LinearLayout>
