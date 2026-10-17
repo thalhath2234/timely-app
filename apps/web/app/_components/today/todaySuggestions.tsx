@@ -128,7 +128,14 @@ export default function TodaySuggestions({
           <div className="flex items-center gap-2 rounded-md border border-dashed border-border px-3 py-2">
             <span className="min-w-0 flex-1 text-muted-foreground">
               Free {formatTime(new Date(gap.start))}–{formatTime(new Date(gap.end))} ({formatDuration(gap.minutes)}):{" "}
-              <strong className="font-medium text-foreground">{gap.task.name}</strong> fits here
+              <button
+                type="button"
+                onClick={() => openTask(gap.task!.id)}
+                className="font-medium text-foreground hover:text-primary"
+              >
+                {gap.task.name}
+              </button>{" "}
+              fits here
               {gap.task.effortKind ? ` · ${EFFORT_LABELS[gap.task.effortKind]}` : ""}.
             </span>
             <Button
