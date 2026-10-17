@@ -110,3 +110,23 @@ describe("back preview", () => {
     assert.match(back, /well: \{ flex: 1 \}/);
   });
 });
+
+// The screen stays put until the swipe passes the threshold; letting go
+// under it cancels instead of going back.
+describe("back swipe threshold", () => {
+  const native = readFileSync(
+    new URL("../apps/mobile/modules/timely-android/android/src/main/java/expo/modules/timelyandroid/TimelyBack.kt", import.meta.url),
+    "utf8",
+  );
+
+  test("letting go under the threshold cancels", () => {
+    assert.match(native, /const val COMMIT_AT = 0\.\d+f/);
+    assert.match(native, /if \(swipe != null && swipe < COMMIT_AT\) \{\s*emitter\?\.invoke\(mapOf\("type" to "cancelled"/);
+  });
+
+  test("the screen moves on the threshold, not with the finger", () => {
+    const back = readFileSync(new URL("../apps/mobile/lib/predictiveBack.tsx", import.meta.url), "utf8");
+    assert.match(back, /const target = event\.armed \? 1 : 0;/);
+    assert.doesNotMatch(back, /progress\.value = Math\.min\(1, Math\.max\(0, event\.progress\)\)/);
+  });
+});

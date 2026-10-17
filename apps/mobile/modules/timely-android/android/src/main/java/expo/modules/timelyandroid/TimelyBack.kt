@@ -18,6 +18,12 @@ import java.lang.ref.WeakReference
  * back-to-home animation.
  */
 object TimelyBack {
+  /**
+   * How far a swipe has to go before letting go means Back. Under it the
+   * screen stays put and letting go cancels; past it the screen slides away.
+   */
+  private const val COMMIT_AT = 0.2f
+
   private val main = Handler(Looper.getMainLooper())
   private var activityRef: WeakReference<ComponentActivity>? = null
   private var callback: OnBackPressedCallback? = null
@@ -26,6 +32,9 @@ object TimelyBack {
   /** JS says whether Back has somewhere to go inside the app. */
   @Volatile
   private var appHandlesBack = true
+
+  /** The running swipe's progress; null for a button Back or once the swipe ends. */
+  private var swipeProgress: Float? = null
 
   /** True while React Native runs its own default Back (moving the task to the background). */
   private var defaultBackRunning = false
@@ -48,10 +57,18 @@ object TimelyBack {
           }
 
           override fun handleOnBackCancelled() {
+            swipeProgress = null
             emitter?.invoke(mapOf("type" to "cancelled", "progress" to 0.0))
           }
 
           override fun handleOnBackPressed() {
+            val swipe = swipeProgress
+            swipeProgress = null
+            // Let go before the threshold: the swipe was only a peek.
+            if (swipe != null && swipe < COMMIT_AT) {
+              emitter?.invoke(mapOf("type" to "cancelled", "progress" to 0.0))
+              return
+            }
             emitter?.invoke(mapOf("type" to "invoked", "progress" to 1.0))
             val react = activity as? ReactActivity
             if (react != null) {
@@ -97,10 +114,12 @@ object TimelyBack {
   }
 
   private fun emit(type: String, event: BackEventCompat) {
+    swipeProgress = event.progress
     emitter?.invoke(
       mapOf(
         "type" to type,
         "progress" to event.progress.toDouble(),
+        "armed" to (event.progress >= COMMIT_AT),
         "edge" to if (event.swipeEdge == BackEventCompat.EDGE_RIGHT) "right" else "left",
         "touchY" to event.touchY.toDouble(),
       ),
