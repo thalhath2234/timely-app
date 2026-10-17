@@ -5,6 +5,8 @@ export type BackEvent = {
   type: "started" | "progress" | "cancelled" | "invoked";
   /** 0 to 1 across the swipe. */
   progress: number;
+  /** Android's back arrow is armed: letting go now goes back. */
+  armed?: boolean;
   edge?: "left" | "right";
   touchY?: number;
 };

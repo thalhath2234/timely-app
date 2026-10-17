@@ -9,7 +9,7 @@ import ToastHost from "../../components/ui/ToastHost";
 import { isOnboarded, useAuth } from "../../lib/auth/AuthProvider";
 import { stackFadeAnimation, stackPushAnimation } from "../../lib/motion";
 import { colors } from "../../lib/theme";
-import { PredictiveBackScreen } from "../../lib/predictiveBack";
+import { PredictiveBackScreen, predictiveBackScreenOptions } from "../../lib/predictiveBack";
 import { hasTimelyAndroid } from "../../modules/timely-android";
 
 export default function AppLayout() {
@@ -53,6 +53,8 @@ export default function AppLayout() {
             animationDuration: fade ? 220 : 320,
             gestureEnabled: !reduceMotion && !fade,
             fullScreenGestureEnabled: !reduceMotion && !fade,
+            // Android: the screen underneath stays drawn for the back preview.
+            ...predictiveBackScreenOptions(route.name === "(tabs)"),
           };
         }}
       />
