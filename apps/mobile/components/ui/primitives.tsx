@@ -311,6 +311,7 @@ export function Select({
   placeholder = "Select…",
   label,
   searchable = false,
+  trigger = "field",
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -320,6 +321,8 @@ export function Select({
   label?: string;
   /** Adds a filter box at the top of the sheet, for long lists (timezones). */
   searchable?: boolean;
+  /** "row": a `ListRow`-style row for a `ListGroup`, label left and the picked value right. */
+  trigger?: "field" | "row";
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -331,21 +334,26 @@ export function Select({
   // Long lists render the first rows only; typing narrows them down.
   const shown = searchable ? matches.slice(0, 60) : matches;
   if (searchable && !needle && selected && !shown.includes(selected)) shown.unshift(selected);
+  const row = trigger === "row";
   return (
-    <View style={label ? styles.fieldWrap : undefined}>
-      {label ? <FieldLabel>{label}</FieldLabel> : null}
+    <View style={label && !row ? styles.fieldWrap : undefined}>
+      {label && !row ? <FieldLabel>{label}</FieldLabel> : null}
       <AnimatedPressable
         accessibilityRole="button"
-        accessibilityLabel={selected?.label ?? placeholder}
+        accessibilityLabel={row && label ? `${label}, ${selected?.label ?? placeholder}` : selected?.label ?? placeholder}
         accessibilityState={{ expanded: open }}
         onPress={() => setOpen(true)}
-        style={styles.selectTrigger}
+        style={row ? styles.selectRow : styles.selectTrigger}
       >
+        {row && label ? <Text style={styles.selectRowLabel}>{label}</Text> : null}
         {selected?.color ? <Dot color={selected.color} /> : null}
-        <Text style={[styles.selectValue, !selected && { color: colors.mutedForeground }]} numberOfLines={1}>
+        <Text
+          style={[row ? styles.selectRowValue : styles.selectValue, !selected && { color: colors.mutedForeground }]}
+          numberOfLines={1}
+        >
           {selected?.label ?? placeholder}
         </Text>
-        <ChevronDown size={16} color={colors.mutedForeground} />
+        {row ? <ChevronRight size={16} color={colors.mutedForeground} /> : <ChevronDown size={16} color={colors.mutedForeground} />}
       </AnimatedPressable>
       <BottomSheet
         open={open}
@@ -511,6 +519,10 @@ const styles = createThemedStyleSheet((colors) => ({
   chipFill: { alignSelf: "stretch", justifyContent: "center" },
   chipText: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
   chipDot: { width: 8, height: 8, borderRadius: 4 },
+  // Matches ListRow in components/settings/SettingsList.tsx.
+  selectRow: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14 },
+  selectRowLabel: { flexShrink: 0, color: colors.foreground, fontSize: 15, fontWeight: "500" },
+  selectRowValue: { flex: 1, minWidth: 0, color: colors.mutedForeground, fontSize: 13, fontWeight: "500", textAlign: "right" },
   selectTrigger: {
     minHeight: 48,
     borderRadius: controlRadius + 2,

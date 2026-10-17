@@ -42,14 +42,14 @@ Phone `Field` (`label`, `hint`): 48px, 12px corners, 1px border that turns accen
 
 Web `app/_components/_ui/select.tsx`: same trigger as `Input` (`size` sm/md/lg), `variant="bare"` for a value inside a property row. Never use a native `<select>`. The open menu uses `popoverSurface` and `menuItemClass` from `field.tsx`.
 
-Phone `Select` in `primitives.tsx`: field-looking trigger (`label` optional) that opens a bottom sheet of `SheetOption`s.
+Phone `Select` in `primitives.tsx`: field-looking trigger (`label` optional) that opens a bottom sheet of `SheetOption`s; `trigger="row"` draws it as a settings row (label left, value and chevron right) for use inside a `ListGroup`.
 
 ## Date and time
 
 Always Timely's own picker, never `<input type="date|time">` and never a typed "HH:mm".
 
 - Web: `DatePicker`, `DateField`, `TimeField`, `DateTimeField` in `app/_components/_ui/datePicker.tsx`; triggers use `controlClass`.
-- Phone: `DateField` and `TimeField` in `components/ui/DateTimeField.tsx` (a field row that opens `DateTimeSheet`), or `DateTimeSheet` directly for custom triggers.
+- Phone: `DateField` and `TimeField` in `components/ui/DateTimeField.tsx` (a field row that opens `DateTimeSheet`), or `DateTimeSheet` directly for custom triggers. `TimeField compact` is a small time pill for a row (working hours, digest times).
 
 ## Segmented control
 
@@ -67,7 +67,7 @@ On the phone, `BottomSheet` in `components/ui/BottomSheet.tsx` is the phone's on
 
 - **Keyboard.** While the keyboard is up the sheet sits on top of it (`useKeyboardCover`, which adds Android's navigation bar back), so the footer is always the row right above the keys. Never put a form's main button inside the scrolling body.
 - **Pickers open in place.** A `BottomSheet` rendered inside another open sheet (a `Select`, a `DateTimeSheet`, a status list) does not stack a second sheet: it replaces the body with a back arrow, its title, and the parent's title as the subtitle. Back, the backdrop and Android back return to the form. `presentation="modal"` opts out for the rare sheet that must sit on top. A page can open its own picker (a field's Type on its edit page): earlier pages stay mounted underneath, and Back returns to them with their state.
-- **Settings screens** (a workspace, project settings) show a summary first and edit in sheets: `ListGroup`/`ListRow` in `components/settings/SettingsList.tsx` (one card, hairline dividers, 48px rows, a `tone="add"` "+ New …" row last), each row opening an edit page of the sheet with Save in the footer and Delete as a quiet destructive button in the body, confirmed by a `ConfirmSheet` page. No inline add forms or Edit/Remove text links.
+- **Settings screens** (a workspace, project settings) show a summary first and edit in sheets: `ListGroup`/`ListRow` in `components/settings/SettingsList.tsx` (one card, hairline dividers, 48px rows, a `tone="add"` "+ New …" row last), each row opening an edit page of the sheet with Save in the footer and Delete as a quiet destructive button in the body, confirmed by a `ConfirmSheet` page. No inline add forms or Edit/Remove text links. Settings pages with inline values (Schedule, Account, Notifications, Data & backups) use the same groups: `GroupLabel` above, `GroupHint` below, `ListRow` with a `trailing` control (a bare `Field`, a time pill, a `size="sm"` `SegmentedControl`) and `SwitchRow`/`ListSwitch` for on/off, never the native `Switch`.
 - **Create forms** (Quick add) are a large bare title field, an optional notes line, a wrapping row of `PropertyChip`s (filled when set, dashed when empty, a tint only for a value that carries meaning such as High priority) and one chip that reveals the rest (repeat, the Auto-schedule window, labels, custom fields). The footer is a live summary of where the item lands and when, plus one primary button (Create, or Capture for the Inbox).
 - **Desktop create dialog.** `CreateDialogShell` and `CreateDialogFooter` in `app/_components/_ui/modal/entityModal.tsx` give the web add-item form the same anatomy: a kind chip in the header that switches the form in place (a typed title comes along), the title, notes whose toolbar shows only while you write in them (`RichTextEditor toolbar="focus"`), a row of chips (`Select`, `DatePicker` and `ColorPicker` with `variant="chip"`, `PropertyChip` for toggles and "More"), and a footer with the summary, Cancel and the primary. It is 720px wide (560px for a doc, sheet or workspace), as tall as its content, and sits near the top of the screen so opening "More" grows it downward.
 
