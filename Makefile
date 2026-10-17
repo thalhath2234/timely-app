@@ -197,7 +197,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-inbox test-starter-labels test-view-search test-view-language test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-project-delete test-bulk-edit test-mobile-event-occurrence test-mobile-meeting-url test-mobile-back-fallback ## Run all tests
+test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-inbox test-starter-labels test-view-search test-view-language test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-project-delete test-bulk-edit test-mobile-event-occurrence test-mobile-meeting-url test-mobile-back-fallback ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -356,6 +356,10 @@ test-mobile-file-templates: ## Test the mobile new doc and sheet template picker
 .PHONY: test-mobile-sheet-freeze
 test-mobile-sheet-freeze: ## Test how the phone fits frozen rows and columns on screen and maps touches past them
 	@node --experimental-strip-types --test scripts/mobile-sheet-freeze.test.mjs
+
+.PHONY: test-mobile-dashboard-reorder
+test-mobile-dashboard-reorder: ## Test where a dragged phone Dashboard card lands and how the list makes room for it
+	@node --experimental-strip-types --test scripts/mobile-dashboard-reorder.test.mjs
 
 .PHONY: test-mobile-task-views
 test-mobile-task-views: ## Test how the phone's saved views merge with the server's copy (rebase, first sync, 20-view cap)

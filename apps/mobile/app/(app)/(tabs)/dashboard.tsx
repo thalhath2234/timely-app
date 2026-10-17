@@ -1,10 +1,8 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { RefreshControl, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import {
   AlarmClock,
-  ArrowDown,
-  ArrowUp,
   BarChart3,
   BookOpen,
   CalendarCheck,
@@ -33,7 +31,6 @@ import {
   Sparkles,
   Sun,
   Timer,
-  Trash2,
   Zap,
 } from "lucide-react-native";
 import {
@@ -59,6 +56,7 @@ import { SectionLabel } from "../../../components/ui/primitives";
 import CustomCardView from "../../../components/report/customCardView";
 import FileCardView, { FILE_ICON, isFileQuery, useFileWatches } from "../../../components/report/fileCards";
 import FileCardBuilder from "../../../components/report/fileCardBuilder";
+import DashboardEditList, { type EditListScroll } from "../../../components/report/DashboardEditList";
 import PomodoroCard from "../../../components/report/pomodoroCard";
 import HighlightsCard from "../../../components/report/highlightsCard";
 import { CountdownCard, DayProgressCard, MatrixCard, NotesCard, QuickCaptureCard, StreakCard, TodayCard } from "../../../components/report/builtinCards";
@@ -75,6 +73,7 @@ import {
 } from "../../../components/report/productivityCards";
 import type { SettingsUpdate } from "../../../components/report/cardParts";
 import { useDashboardData, useDashboardLayout, useNow } from "../../../lib/dashboard";
+import { moveItem } from "../../../lib/dashboardReorder";
 import { forgetPomodoro } from "../../../lib/pomodoroStore";
 import { cancelPomodoroNotification } from "../../../lib/notifications";
 import { useConfigQuery, useDecisionsStatusQuery, useInvalidateAll } from "../../../lib/hooks";
@@ -129,9 +128,9 @@ function cardIcon(card: DashboardCard) {
 
 /**
  * The Dashboard on a phone: the same saved cards as web and desktop,
- * stacked in one column. Edit mode moves and removes cards. Cards built from
- * a sheet or a doc can be made here too; sizes and the full card workshop
- * stay on the bigger screens.
+ * stacked in one column. Edit mode drags cards into a new order and removes
+ * them. Cards built from a sheet or a doc can be made here too; sizes and the
+ * full card workshop stay on the bigger screens.
  */
 export default function DashboardScreen() {
   const router = useRouter();
@@ -148,6 +147,11 @@ export default function DashboardScreen() {
   const smart = useDecisionsStatusQuery().data?.available === true;
   const [confirmReset, setConfirmReset] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const scrollerRef = useRef<ScrollView>(null);
+  const frameRef = useRef<View>(null);
+  const scrollState = useRef({ y: 0, contentH: 0 });
+  const editScroll = useMemo<EditListScroll>(() => ({ ref: scrollerRef, frame: frameRef, state: scrollState }), []);
   const tasks = useMemo(() => data.tasks ?? [], [data.tasks]);
   const day = dateInZone(now, timeZone);
 
@@ -183,14 +187,8 @@ export default function DashboardScreen() {
     setBuilding(null);
   };
 
-  const move = (index: number, by: -1 | 1) =>
-    update((current) => {
-      const target = index + by;
-      if (target < 0 || target >= current.cards.length) return current;
-      const next = current.cards.slice();
-      [next[index], next[target]] = [next[target], next[index]];
-      return { ...current, cards: next };
-    });
+  const reorder = (from: number, to: number) =>
+    update((current) => (from === to || !current.cards[from] ? current : { ...current, cards: moveItem(current.cards, from, to) }));
 
   const remove = (card: DashboardCard) => {
     const index = cards.findIndex((entry) => entry.id === card.id);
@@ -296,83 +294,96 @@ export default function DashboardScreen() {
           </>
         }
       />
-      <ScrollView showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.list}
-        keyboardShouldPersistTaps="handled"
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={async () => {
-              setRefreshing(true);
-              await Promise.all([invalidateAll(), retry()]).catch(() => undefined);
-              setRefreshing(false);
-            }}
-          />
-        }
-      >
-        {isError && !layout ? (
-          <View style={styles.banner}>
-            <Text style={styles.bannerText}>Couldn't load your dashboard.</Text>
-            <Text style={styles.link} onPress={() => void retry()}>
-              Try again
-            </Text>
-          </View>
-        ) : null}
-        {failures.length > 0 ? (
-          <View style={styles.banner}>
-            <Text style={styles.bannerText}>Couldn't load {failures.join(", ")}. Some cards may be empty.</Text>
-          </View>
-        ) : null}
-        {isLoading && !layout ? <Text style={[styles.muted, { textAlign: "center", padding: 24 }]}>Loading your dashboard…</Text> : null}
-        {layout && cards.length === 0 ? (
-          <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>Your dashboard is empty</Text>
-            <Text style={styles.muted}>Add a productivity tool or a chart to get started.</Text>
-            <AnimatedPressable accessibilityRole="button" onPress={() => setAdding(true)} style={styles.primary}>
-              <Plus size={16} color={colors.primaryForeground} />
-              <Text style={styles.primaryText}>Add card</Text>
-            </AnimatedPressable>
-          </View>
-        ) : null}
-
-        {cards.map((card, index) => {
-          const Icon = cardIcon(card);
-          return (
-            <View key={card.id} style={styles.card}>
-              <View style={styles.cardHead}>
-                <Icon size={15} color={colors.mutedForeground} />
-                <Text style={styles.cardTitle} numberOfLines={1}>
-                  {cardTitle(card)}
-                </Text>
-                {editing ? (
-                  <View style={styles.editActions}>
-                    <HeaderIconButton label="Move up" onPress={() => move(index, -1)}>
-                      <ArrowUp size={17} color={index === 0 ? colors.border : colors.foreground} />
-                    </HeaderIconButton>
-                    <HeaderIconButton label="Move down" onPress={() => move(index, 1)}>
-                      <ArrowDown size={17} color={index === cards.length - 1 ? colors.border : colors.foreground} />
-                    </HeaderIconButton>
-                    <HeaderIconButton label={`Remove ${cardTitle(card)}`} onPress={() => remove(card)}>
-                      <Trash2 size={17} color={colors.destructive} />
-                    </HeaderIconButton>
-                  </View>
-                ) : null}
-              </View>
-              {editing ? null : renderBody(card)}
+      <View ref={frameRef} collapsable={false} style={{ flex: 1 }}>
+        <ScrollView
+          ref={scrollerRef}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.list}
+          keyboardShouldPersistTaps="handled"
+          // Read by the edit list's drag, which scrolls this list near its edges. scrollEnabled is
+          // not toggled while dragging (on web that resets the scroll to 0); the grip holds the touch.
+          scrollEventThrottle={16}
+          onScroll={(event) => {
+            scrollState.current.y = event.nativeEvent.contentOffset.y;
+          }}
+          onContentSizeChange={(_width, height) => {
+            scrollState.current.contentH = height;
+          }}
+          refreshControl={
+            <RefreshControl
+              enabled={!dragging}
+              refreshing={refreshing}
+              onRefresh={async () => {
+                setRefreshing(true);
+                await Promise.all([invalidateAll(), retry()]).catch(() => undefined);
+                setRefreshing(false);
+              }}
+            />
+          }
+        >
+          {isError && !layout ? (
+            <View style={styles.banner}>
+              <Text style={styles.bannerText}>Couldn't load your dashboard.</Text>
+              <Text style={styles.link} onPress={() => void retry()}>
+                Try again
+              </Text>
             </View>
-          );
-        })}
+          ) : null}
+          {failures.length > 0 ? (
+            <View style={styles.banner}>
+              <Text style={styles.bannerText}>Couldn't load {failures.join(", ")}. Some cards may be empty.</Text>
+            </View>
+          ) : null}
+          {isLoading && !layout ? <Text style={[styles.muted, { textAlign: "center", padding: 24 }]}>Loading your dashboard…</Text> : null}
+          {layout && cards.length === 0 ? (
+            <View style={styles.empty}>
+              <Text style={styles.emptyTitle}>Your dashboard is empty</Text>
+              <Text style={styles.muted}>Add a productivity tool or a chart to get started.</Text>
+              <AnimatedPressable accessibilityRole="button" onPress={() => setAdding(true)} style={styles.primary}>
+                <Plus size={16} color={colors.primaryForeground} />
+                <Text style={styles.primaryText}>Add card</Text>
+              </AnimatedPressable>
+            </View>
+          ) : null}
 
-        {editing ? (
-          <View style={{ gap: 10 }}>
-            <Text style={[styles.muted, { textAlign: "center" }]}>Card sizes and the full card workshop are on web and desktop.</Text>
-            <AnimatedPressable accessibilityRole="button" onPress={() => setConfirmReset(true)} style={styles.secondary}>
-              <RotateCcw size={15} color={colors.foreground} />
-              <Text style={styles.secondaryText}>Reset to the default dashboard</Text>
-            </AnimatedPressable>
-          </View>
-        ) : null}
-      </ScrollView>
+          {editing ? (
+            <DashboardEditList
+              cards={cards}
+              iconFor={cardIcon}
+              titleFor={cardTitle}
+              scroll={editScroll}
+              onReorder={reorder}
+              onRemove={remove}
+              onDragging={setDragging}
+            />
+          ) : (
+            cards.map((card) => {
+              const Icon = cardIcon(card);
+              return (
+                <View key={card.id} style={styles.card}>
+                  <View style={styles.cardHead}>
+                    <Icon size={15} color={colors.mutedForeground} />
+                    <Text style={styles.cardTitle} numberOfLines={1}>
+                      {cardTitle(card)}
+                    </Text>
+                  </View>
+                  {renderBody(card)}
+                </View>
+              );
+            })
+          )}
+
+          {editing ? (
+            <View style={{ gap: 10 }}>
+              <Text style={[styles.muted, { textAlign: "center" }]}>Drag a card by its grip to move it. Card sizes and the full card workshop are on web and desktop.</Text>
+              <AnimatedPressable accessibilityRole="button" onPress={() => setConfirmReset(true)} style={styles.secondary}>
+                <RotateCcw size={15} color={colors.foreground} />
+                <Text style={styles.secondaryText}>Reset to the default dashboard</Text>
+              </AnimatedPressable>
+            </View>
+          ) : null}
+        </ScrollView>
+      </View>
 
       <BottomSheet open={adding} onClose={() => setAdding(false)} title="Add a card">
         <SectionLabel>From your files</SectionLabel>
@@ -461,7 +472,6 @@ const styles = createThemedStyleSheet((colors) => ({
   card: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14, gap: 12 },
   cardHead: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 24 },
   cardTitle: { flex: 1, color: colors.foreground, fontSize: 14, fontWeight: "600" },
-  editActions: { flexDirection: "row", alignItems: "center", marginVertical: -8 },
   muted: { color: colors.mutedForeground, fontSize: 13 },
   banner: { borderRadius: 12, borderWidth: 1, borderColor: colors.destructive, padding: 12, gap: 4 },
   bannerText: { color: colors.foreground, fontSize: 13 },
