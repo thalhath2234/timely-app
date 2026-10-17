@@ -114,7 +114,7 @@ function TaskSidebar({ withLabels = true }: { withLabels?: boolean }) {
             <ListRow label="Deadline">
               <DatePicker variant="row" mode="date" value={deadline} onChange={setDeadline} />
             </ListRow>
-            <RecurrenceEditor row label="Repeat" value={repeat} anchor={anchor} onChange={setRepeat} />
+            <RecurrenceEditor label="Repeat" value={repeat} anchor={anchor} onChange={setRepeat} />
           </ListGroup>
         </div>
       </div>

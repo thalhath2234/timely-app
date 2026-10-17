@@ -336,6 +336,7 @@ export default function TaskDetailScreen() {
               trailing={
                 <SegmentedControl
                   size="sm"
+                  itemWidth={84}
                   accessibilityLabel="Type"
                   options={[
                     { label: "Work", value: "task" },
@@ -480,6 +481,10 @@ export default function TaskDetailScreen() {
         ) : (
           <View style={styles.section}>
             <GroupLabel aside={task.scheduleLocked ? "Pinned" : (task.blocks ?? []).length ? `${(task.blocks ?? []).length} reserved` : undefined}>Schedule</GroupLabel>
+            {isInactive && !(task.blocks ?? []).length ? (
+              <GroupHint>{task.blockedById ? "Not scheduled while it waits on its blocker." : "Not scheduled while it is done or blocked."}</GroupHint>
+            ) : null}
+            {!isInactive || (task.blocks ?? []).length ? (
             <ListGroup>
               {(task.blocks ?? []).map((block) => (
                 <ListRow
@@ -549,6 +554,7 @@ export default function TaskDetailScreen() {
                 />
               ) : null}
             </ListGroup>
+            ) : null}
             {scheduleError ? <Text style={styles.error}>{scheduleError}</Text> : null}
             {!isInbox && !isInactive ? (
               <>

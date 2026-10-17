@@ -290,7 +290,7 @@ function ScheduleDialogPanel({
                 </ListRow>
               ) : null}
               {mode === "event" ? (
-                <RecurrenceEditor row label="Repeat" value={recurrence} anchor={startDate} onChange={setRecurrence} />
+                <RecurrenceEditor label="Repeat" value={recurrence} anchor={startDate} onChange={setRecurrence} />
               ) : null}
             </ListGroup>
             {reminderTask ? <GroupHint>Pings at this time. It does not reserve a work block.</GroupHint> : null}

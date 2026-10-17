@@ -9,6 +9,7 @@ export default function SegmentedControl<T extends string>({
   value,
   onChange,
   size = "md",
+  itemWidth,
   accessibilityLabel,
 }: {
   options: { label: string; value: T }[];
@@ -16,6 +17,8 @@ export default function SegmentedControl<T extends string>({
   onChange: (v: T) => void;
   /** "sm": segments as wide as their words, 28px tall, for the right side of a settings row. */
   size?: "md" | "sm";
+  /** Equal segments of this width, for a pair whose words differ in length (Work / Reminder). */
+  itemWidth?: number;
   accessibilityLabel?: string;
 }) {
   const sm = size === "sm";
@@ -35,7 +38,7 @@ export default function SegmentedControl<T extends string>({
               onPress={() => onChange(opt.value)}
               onLayout={(event) => onItemLayout(opt.value, event)}
               android_ripple={{ color: "transparent", borderless: false }}
-              style={[styles.item, sm && styles.itemSm]}
+              style={[styles.item, sm && styles.itemSm, itemWidth ? { width: itemWidth, paddingHorizontal: 0 } : null]}
             >
               <Text style={[styles.text, sm && styles.textSm, on && styles.onText]}>{opt.label}</Text>
             </AnimatedPressable>
@@ -72,7 +75,8 @@ const styles = createThemedStyleSheet((colors) => ({
     shadowRadius: 2,
     shadowOffset: { width: 0, height: 1 },
   },
-  wrapSm: { padding: 2, alignSelf: "flex-start" },
+  // Centred, so it sits in the middle of a 48px settings row next to its label.
+  wrapSm: { padding: 2, alignSelf: "center" },
   itemSm: { flexGrow: 0, flexShrink: 0, flexBasis: "auto", height: 28, paddingHorizontal: 11 },
   textSm: { fontSize: 12.5 },
   item: { flex: 1, height: 32, borderRadius: controlRadius - 3, alignItems: "center", justifyContent: "center" },

@@ -465,7 +465,8 @@ const styles = createThemedStyleSheet((colors) => ({
   inputBareFocused: { borderBottomWidth: 2, borderColor: colors.primary },
   area: { minHeight: 112, textAlignVertical: "top", paddingTop: 12 },
   // No focus underline: the caret and the size already say where you type.
-  inputRight: { textAlign: "right", fontSize: 15 },
+  // Lines up with the values of the chevron rows around it (16px chevron + 10px gap).
+  inputRight: { textAlign: "right", fontSize: 13, fontWeight: "500", paddingRight: 26 },
   inputLarge: { minHeight: 34, fontSize: 22, fontWeight: "600", letterSpacing: -0.3, lineHeight: 28, paddingVertical: 2, borderBottomWidth: 0 },
   chip: {
     minHeight: 36,

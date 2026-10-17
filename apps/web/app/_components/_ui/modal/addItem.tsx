@@ -1371,7 +1371,6 @@ function AddItemModalInner() {
     );
     const repeatEditor = (
       <RecurrenceEditor
-        row
         label="Repeat"
         value={taskRecurrence}
         anchor={taskRecurrenceAnchor}
@@ -1748,7 +1747,7 @@ function AddItemModalInner() {
                 <ListRow label="All day">
                   <ListSwitch label="All day" checked={eventAllDay} onChange={setEventAllDay} />
                 </ListRow>
-                <RecurrenceEditor row label="Repeat" value={eventRecurrence} anchor={eventStartDate} onChange={setEventRecurrence} />
+                <RecurrenceEditor label="Repeat" value={eventRecurrence} anchor={eventStartDate} onChange={setEventRecurrence} />
               </ListGroup>
               <GroupHint>
                 {eventTimeOnly

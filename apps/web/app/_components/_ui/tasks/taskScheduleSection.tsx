@@ -475,7 +475,6 @@ export function TaskRepeatRow({
   const draft: RecurrenceDraft | null = recurrence ? rruleToDraft(recurrence.rrule, anchor) : null;
   return (
     <RecurrenceEditor
-      row
       label="Repeat"
       value={draft}
       anchor={anchor}

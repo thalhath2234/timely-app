@@ -920,7 +920,6 @@ function EventPanel({ event, onClose }: { event: CalendarEvent; onClose: () => v
           </ListRow>,
           <RecurrenceEditor
             key="repeat"
-            row
             label="Repeat"
             value={draft}
             anchor={seriesAnchor}

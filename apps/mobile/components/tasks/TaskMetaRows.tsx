@@ -67,7 +67,7 @@ export function RepeatRow({
     <View>
       <ListRow title="Repeat" trailing={repeatSummary(value, anchor)} onPress={() => setOpen(true)} disabled={disabled} testID="repeat-row" />
       <BottomSheet open={open} onClose={() => setOpen(false)} title="Repeat" subtitle={subtitle}>
-        <RecurrenceEditor list value={value} onChange={onChange} anchor={anchor} />
+        <RecurrenceEditor value={value} onChange={onChange} anchor={anchor} />
       </BottomSheet>
     </View>
   );
@@ -324,7 +324,7 @@ export function CustomFieldsGroup({
               bare
               value={stringValue}
               onChangeText={(next) => patch(field, { stringValue: next })}
-              placeholder={field.type === "url" ? "https://" : field.type === "number" ? "0" : "Empty"}
+              placeholder={field.type === "url" ? "https://" : "None"}
               keyboardType={field.type === "number" ? "decimal-pad" : field.type === "url" ? "url" : "default"}
               autoCapitalize={field.type === "url" ? "none" : "sentences"}
               accessibilityLabel={field.name}
