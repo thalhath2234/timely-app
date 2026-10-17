@@ -64,7 +64,7 @@ if (Platform.OS === "android") {
     redraw = setTimeout(() => {
       redraw = null;
       const { refreshAllWidgets } = require("../widgets/taskHandler") as typeof import("../widgets/taskHandler");
-      void refreshAllWidgets(["TimelyCard"]);
+      void refreshAllWidgets(["TimelyCard"], { fresh: false });
     }, 600);
   });
 }
