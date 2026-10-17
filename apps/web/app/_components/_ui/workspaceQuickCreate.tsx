@@ -16,6 +16,8 @@ import {
 import { controlClass } from "@/app/_components/_ui/field";
 import { buttonClass } from "@/app/_components/_ui/button";
 import { PropertyChip } from "@/app/_components/_ui/propertyChip";
+import { ListRow } from "@/app/_components/_ui/groupedList";
+import { cn } from "@/app/utils/cn";
 
 const DEFAULT_COLOR = "#889096";
 
@@ -48,9 +50,12 @@ function stopEnterSubmit(event: React.KeyboardEvent) {
 export function CreateLabelInline({
   workspaceId,
   onCreated,
+  variant = "chip",
 }: {
   workspaceId?: string;
   onCreated?: (label: Label) => void;
+  /** "row": a "+ New label" row of a grouped card (`ListGroup`). */
+  variant?: "chip" | "row";
 }) {
   const createLabel = useCreateLabel();
   const [open, setOpen] = useState(false);
@@ -91,6 +96,18 @@ export function CreateLabelInline({
   };
 
   if (!open) {
+    if (variant === "row") {
+      return workspaceId ? (
+        <ListRow
+          tone="add"
+          label="New label"
+          onClick={() => {
+            setError(null);
+            setOpen(true);
+          }}
+        />
+      ) : null;
+    }
     return (
       <PropertyChip
         empty
@@ -107,7 +124,7 @@ export function CreateLabelInline({
   }
 
   return (
-    <span className="inline-flex flex-col gap-1">
+    <span className={cn("inline-flex flex-col gap-1", variant === "row" && "flex px-2.5 py-1.5")}>
       <span className="inline-flex h-8 items-center gap-1 rounded-[10px] border border-input bg-card pl-1 pr-1 shadow-xs transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
         <ColorPicker variant="dot" value={color} onChange={setColor} aria-label="New label colour" />
         <input
@@ -152,9 +169,12 @@ export function CreateLabelInline({
 export function CreateCustomFieldInline({
   workspaceId,
   onCreated,
+  variant = "chip",
 }: {
   workspaceId?: string;
   onCreated?: (field: CustomField) => void;
+  /** "row": a "+ New field" row of a grouped card (`ListGroup`). */
+  variant?: "chip" | "row";
 }) {
   const createCustomField = useCreateCustomField();
   const [open, setOpen] = useState(false);
@@ -214,6 +234,18 @@ export function CreateCustomFieldInline({
   };
 
   if (!open) {
+    if (variant === "row") {
+      return workspaceId ? (
+        <ListRow
+          tone="add"
+          label="New field"
+          onClick={() => {
+            setError(null);
+            setOpen(true);
+          }}
+        />
+      ) : null;
+    }
     return (
       <PropertyChip
         empty
@@ -231,7 +263,7 @@ export function CreateCustomFieldInline({
   }
 
   return (
-    <div className="mt-2 rounded-lg border border-border bg-background/60 p-2">
+    <div className={cn(variant === "row" ? "m-2" : "mt-2", "rounded-lg border border-border bg-background/60 p-2")}>
       <div className="flex flex-col gap-2">
         <input
           autoFocus

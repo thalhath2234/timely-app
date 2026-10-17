@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import { Text, TextInput, View } from "react-native";
 import { Check, ChevronDown, ChevronRight } from "lucide-react-native";
 import { colors, controlRadius, createThemedStyleSheet, radius } from "../../lib/theme";
 import { LogoSpinner } from "./TimelyLogo";
@@ -127,9 +127,15 @@ export function Field({
   autoFocus,
   label,
   hint,
+  align,
+  accessibilityLabel,
 }: {
   /** Caption above the field. Required unless the screen already names it. */
   label?: string;
+  /** "right" for a bare value on the right of a grouped row. */
+  align?: "left" | "right";
+  /** Screen-reader name when there is no visible `label` (a grouped row's title). */
+  accessibilityLabel?: string;
   hint?: string;
   value: string;
   onChangeText: (v: string) => void;
@@ -153,7 +159,7 @@ export function Field({
   const input = (
     <TextInput
       testID={testID}
-      accessibilityLabel={label ?? placeholder}
+      accessibilityLabel={label ?? accessibilityLabel ?? placeholder}
       value={value}
       onChangeText={onChangeText}
       onFocus={() => { setFocused(true); group?.onFocus(); onFocus?.(); }}
@@ -174,7 +180,7 @@ export function Field({
       } : undefined}
       selectionColor={colors.primary}
       autoFocus={autoFocus}
-      style={[styles.input, multiline && styles.area, focused && styles.inputFocused, bare && styles.inputBare, bare && multiline && styles.inputBareArea, bare && focused && styles.inputBareFocused, large && styles.inputLarge, autoGrow && { height: Math.max(large ? 34 : bare ? 30 : 38, contentHeight + 2) }]}
+      style={[styles.input, multiline && styles.area, focused && styles.inputFocused, bare && styles.inputBare, bare && multiline && styles.inputBareArea, bare && focused && styles.inputBareFocused, large && styles.inputLarge, autoGrow && { height: Math.max(large ? 34 : bare ? 30 : 38, contentHeight + 2) }, align === "right" && styles.inputRight]}
     />
   );
   if (!label && !hint) return input;
@@ -419,48 +425,6 @@ export function Card({ children, onPress }: { children: ReactNode; onPress?: () 
   return <View style={styles.card}>{children}</View>;
 }
 
-/** Grouped property list used on task detail and the new-item form. */
-export function PropertyGroup({ children, tone = "muted" }: { children: ReactNode; tone?: "muted" | "card" }) {
-  return <View style={[styles.propertyGroup, tone === "card" && styles.propertyGroupCard]}>{children}</View>;
-}
-
-export function PropertyRow({
-  icon,
-  label,
-  value,
-  onPress,
-  tone,
-  swatch,
-  action,
-}: {
-  icon?: ReactNode;
-  label: string;
-  value: string;
-  onPress?: () => void;
-  tone?: string;
-  swatch?: string | null;
-  action?: ReactNode;
-}) {
-  return (
-    <AnimatedPressable
-      accessibilityRole={onPress ? "button" : "none"}
-      accessibilityLabel={`${label}, ${value}`}
-      onPress={onPress}
-      disabled={!onPress}
-      style={styles.propertyRow}
-    >
-      {icon}
-      <Text style={styles.propertyLabel}>{label}</Text>
-      {swatch ? <Dot color={swatch} /> : null}
-      <Text style={[styles.propertyValue, tone ? { color: tone } : null]} numberOfLines={2} ellipsizeMode="tail">
-        {value}
-      </Text>
-      {action}
-      {onPress && !action ? <ChevronRight size={16} color={colors.mutedForeground} /> : null}
-    </AnimatedPressable>
-  );
-}
-
 export function Dot({ color }: { color?: string | null }) {
   return <View style={[styles.dot, { backgroundColor: color || colors.mutedForeground }]} />;
 }
@@ -501,6 +465,7 @@ const styles = createThemedStyleSheet((colors) => ({
   inputBareFocused: { borderBottomWidth: 2, borderColor: colors.primary },
   area: { minHeight: 112, textAlignVertical: "top", paddingTop: 12 },
   // No focus underline: the caret and the size already say where you type.
+  inputRight: { textAlign: "right", fontSize: 15 },
   inputLarge: { minHeight: 34, fontSize: 22, fontWeight: "600", letterSpacing: -0.3, lineHeight: 28, paddingVertical: 2, borderBottomWidth: 0 },
   chip: {
     minHeight: 36,
@@ -564,23 +529,6 @@ const styles = createThemedStyleSheet((colors) => ({
     backgroundColor: colors.card,
     padding: 18,
   },
-  propertyGroup: {
-    borderRadius: radius + 4,
-    backgroundColor: colors.muted,
-    overflow: "hidden",
-  },
-  propertyGroupCard: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
-  propertyRow: {
-    minHeight: 48,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  propertyLabel: { minWidth: 76, flexShrink: 0, color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
-  propertyValue: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 14, fontWeight: "500", textAlign: "right" },
   dot: { width: 10, height: 10, borderRadius: 5 },
   propertyChips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   propertyChip: {

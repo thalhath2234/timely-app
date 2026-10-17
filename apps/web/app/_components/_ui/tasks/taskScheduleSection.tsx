@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarDays, Clock, Pin, Plus, Repeat, Sparkles, X } from "lucide-react";
+import { Pin, Sparkles, X } from "lucide-react";
 import { DateTimeField, TimeField } from "@/app/_components/_ui/datePicker";
-import { SidebarSectionTitle } from "@/app/_components/_ui/modal/entityModal";
+import { GroupHint, GroupLabel, ListGroup, ListRow, ListSwitch } from "@/app/_components/_ui/groupedList";
 import RecurrenceEditor from "@/app/_components/_ui/recurrenceEditor";
+import SegmentedControl from "@/app/_components/_ui/segmentedControl";
 import type {
   PreferredWindow,
   RecurrenceInput,
@@ -36,7 +37,6 @@ import {
 } from "@/app/utils/hooks/calendar";
 import { useUpdateTask } from "@/app/utils/hooks/tasks";
 import { cn } from "@/app/utils/cn";
-import { controlClass } from "@/app/_components/_ui/field";
 import { buttonClass } from "@/app/_components/_ui/button";
 
 type TaskScheduleSectionProps = {
@@ -62,8 +62,10 @@ type TaskScheduleSectionProps = {
 
 
 /**
- * Sidebar block for a task's time on the calendar: its repeat rule, the blocks
- * it occupies, an ETA against the deadline, and a one-click auto-schedule.
+ * Sidebar groups for a task's time on the calendar: the blocks it occupies
+ * (or its reminder time), an ETA against the deadline, a one-click
+ * auto-schedule, and the engine's preferences. The Repeat row lives in the
+ * Dates card (`TaskRepeatRow`).
  */
 export default function TaskScheduleSection({
   taskId,
@@ -180,165 +182,140 @@ export default function TaskScheduleSection({
     onScheduledOnChange?.(applyClockToDate(day, hhmm).toISOString());
   };
 
+  const pinned = (block: ScheduledBlock) => block.locked || block.source !== "engine";
+
   return (
-    <div className="mt-4 border-t border-border pt-3">
-      <SidebarSectionTitle>{reminder ? "Reminder" : "Schedule"}</SidebarSectionTitle>
-
-      <RecurrenceEditor
-        label="Repeat"
-        icon={Repeat}
-        value={draft}
-        anchor={anchor}
-        onChange={(next) => {
-          // A rule only carries an anchor when it already exists; a new one
-          // starts from the next round hour so the first occurrence is soon.
-          onRecurrenceChange(buildRecurrenceInput(next, anchor));
-        }}
-      />
-
-      {recurrence ? (
-        <>
-          <div className="mt-2 flex items-center gap-2 px-1">
-            <Clock className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="w-20 shrink-0 text-xs text-muted-foreground">
-              Time
-            </span>
-            <TimeField
-              className="min-w-0 flex-1"
-              value={toTimeInputValue(recurrence.dtstart)}
-              clearable={false}
-              onChange={setClock}
-            />
-          </div>
-          <p className="px-1 pt-1 text-xs text-muted-foreground">
-            {describeRRule(recurrence.rrule, anchor)} at {formatTime(anchor)}.
-            {reminder
-              ? " Each repeat pings at this time and does not reserve a work block."
-              : " Each occurrence starts at this time; auto-schedule will not give the block to other tasks."}
-          </p>
-        </>
-      ) : reminder ? (
-        <>
-          <div className="mt-2 px-1">
-            <DateTimeField
-              value={scheduledOn}
-              clearable={false}
-              onChange={(iso) => onScheduledOnChange?.(iso)}
-            />
-          </div>
-          <p className="px-1 pt-1 text-xs text-muted-foreground">
-            {scheduledOn
-              ? `Pings at ${formatDateTime(new Date(scheduledOn))}. Does not reserve a work block.`
-              : "Pick a date and time to ping. This does not reserve a work block."}
-          </p>
-        </>
-      ) : (
-        <>
-          {!completed && (
-            <p
-              className={cn(
-                "mx-1 mt-2 rounded-lg px-3 py-2 text-xs",
-                eta
-                  ? lateEta
-                    ? "bg-destructive/10 text-destructive"
-                    : "bg-muted text-muted-foreground"
-                  : "bg-muted text-muted-foreground",
+    <div className="flex flex-col gap-4">
+      {recurrence || reminder ? (
+        <div>
+          <GroupLabel>{reminder ? "Reminder" : "Schedule"}</GroupLabel>
+          <ListGroup>
+            <ListRow label={reminder && !recurrence ? "Notify at" : "Time"}>
+              {recurrence ? (
+                <TimeField
+                  variant="row"
+                  value={toTimeInputValue(recurrence.dtstart)}
+                  clearable={false}
+                  aria-label="Time"
+                  onChange={setClock}
+                />
+              ) : (
+                <DateTimeField
+                  variant="row"
+                  placeholder="Pick a time"
+                  value={scheduledOn}
+                  clearable={false}
+                  aria-label="Notify at"
+                  onChange={(iso) => onScheduledOnChange?.(iso)}
+                />
               )}
-            >
-              {eta
-                ? `ETA ${formatDateTime(eta)}${lateEta ? " · after deadline" : ""}`
-                : "No ETA yet: this task is not on the calendar."}
-              {eta && duration > plannedMinutes
-                ? ` · ${formatDuration(duration - plannedMinutes)} still unplanned`
-                : ""}
-            </p>
-          )}
-
-          {sorted.length > 0 && (
-            <ul className="mt-2 flex flex-col gap-1 px-1">
-              {sorted.map((block) => {
-                const start = new Date(block.start);
-                const end = new Date(block.end);
-                return (
-                  <li
-                    key={block.id}
-                    className="flex items-center gap-2 rounded-md border border-border px-2 py-1 text-xs"
-                  >
-                    {block.source === "engine" && !block.locked ? (
-                      <Sparkles className="size-3 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <Pin className="size-3 shrink-0 text-muted-foreground" />
-                    )}
-                    <span className="min-w-0 flex-1 truncate tabular-nums text-foreground">
-                      {formatDateTime(start)} – {formatTime(end)}
-                      {!isSameDay(start, end) ? ` (${formatDateTime(end)})` : ""}
-                    </span>
-                    {block.source === "engine" && !block.locked && (
-                      <button
-                        type="button"
-                        aria-label="Pin this time"
-                        disabled={pending}
-                        onClick={() =>
-                          run(() => pinBlock.mutateAsync({ blockId: block.id, locked: true }), "Could not pin block.")
-                        }
-                        className="rounded px-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                      >
-                        Pin
-                      </button>
-                    )}
+            </ListRow>
+          </ListGroup>
+          <GroupHint>
+            {recurrence
+              ? `${describeRRule(recurrence.rrule, anchor)} at ${formatTime(anchor)}.${
+                  reminder
+                    ? " Each repeat pings at this time and does not reserve a work block."
+                    : " Each occurrence starts at this time; auto-schedule will not give the block to other tasks."
+                }`
+              : scheduledOn
+                ? `Pings at ${formatDateTime(new Date(scheduledOn))}. Does not reserve a work block.`
+                : "Pick a date and time to ping. This does not reserve a work block."}
+          </GroupHint>
+        </div>
+      ) : (
+        <div>
+          <GroupLabel aside={scheduleLocked ? "Pinned" : sorted.length ? `${sorted.length} reserved` : undefined}>Schedule</GroupLabel>
+          <ListGroup>
+            {sorted.map((block) => {
+              const start = new Date(block.start);
+              const end = new Date(block.end);
+              return (
+                <ListRow
+                  key={block.id}
+                  icon={<Pin className={cn("size-3.5 shrink-0", pinned(block) ? "text-primary" : "text-muted-foreground")} />}
+                  label={<span className="tabular-nums">{formatTime(start)} – {formatTime(end)}</span>}
+                  meta={`${shortDay(start)}${!isSameDay(start, end) ? ` to ${shortDay(end)}` : ""}${pinned(block) ? " · Pinned" : ""}`}
+                >
+                  {!pinned(block) ? (
                     <button
                       type="button"
-                      aria-label="Remove block"
+                      aria-label="Pin this time"
                       disabled={pending}
                       onClick={() =>
-                        run(() => deleteBlock.mutateAsync(block.id), "Could not remove block.")
+                        run(() => pinBlock.mutateAsync({ blockId: block.id, locked: true }), "Could not pin block.")
                       }
-                      className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      className="cursor-pointer rounded-md px-1.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-muted"
                     >
-                      <X className="size-3" />
+                      Pin
                     </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-
-          {adding && (
-            <div className="mt-2 flex items-center gap-1 px-1">
-              <DateTimeField
-                className="min-w-0 flex-1"
-                value={pickAt || null}
-                clearable={false}
-                onChange={setPickAt}
-              />
-              <button
-                type="button"
-                disabled={pending || !pickAt}
-                onClick={() =>
-                  run(async () => {
-                    await addBlock.mutateAsync({
-                      taskId,
-                      start: pickAt,
-                      durationMinutes: Math.max(15, duration || 30),
-                    });
+                  ) : null}
+                  <button
+                    type="button"
+                    aria-label="Remove this time"
+                    disabled={pending}
+                    onClick={() => run(() => deleteBlock.mutateAsync(block.id), "Could not remove block.")}
+                    className="-mr-1.5 flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </ListRow>
+              );
+            })}
+            {!completed && adding ? (
+              <ListRow key="__pick" label="Starts">
+                <DateTimeField variant="row" aria-label="New time" value={pickAt || null} clearable={false} onChange={setPickAt} />
+                <button
+                  type="button"
+                  disabled={pending || !pickAt}
+                  onClick={() =>
+                    run(async () => {
+                      await addBlock.mutateAsync({
+                        taskId,
+                        start: pickAt,
+                        durationMinutes: Math.max(15, duration || 30),
+                      });
+                      setAdding(false);
+                      setPickAt("");
+                    }, "Could not add block.")
+                  }
+                  className={buttonClass({ size: "sm" })}
+                >
+                  Add
+                </button>
+                <button
+                  type="button"
+                  aria-label="Cancel"
+                  onClick={() => {
                     setAdding(false);
                     setPickAt("");
-                  }, "Could not add block.")
-                }
-                className={buttonClass({ size: "sm" })}
-              >
-                Add
-              </button>
-            </div>
-          )}
-
-          {!completed && (
-            <div className="mt-2 flex flex-wrap gap-1 px-1">
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() =>
-                  run(async () => {
+                  }}
+                  className="-mr-1.5 flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </ListRow>
+            ) : null}
+            {!completed && !adding ? (
+              <ListRow
+                key="__add"
+                tone="add"
+                label="Add time"
+                onClick={() => {
+                  setPickAt(nextRoundHour().toISOString());
+                  setAdding(true);
+                }}
+              />
+            ) : null}
+            {!completed ? (
+              <ListRow
+                key="__auto"
+                tone="add"
+                icon={<Sparkles className="size-4 shrink-0 text-primary" />}
+                label={applySchedule.isPending ? "Scheduling…" : "Auto-schedule"}
+                onClick={() => {
+                  if (pending) return;
+                  void run(async () => {
                     const plan = await applySchedule.mutateAsync({ taskIds: [taskId] });
                     const skipped = plan.skipped?.find((item) => item.taskId === taskId);
                     if (skipped) {
@@ -347,177 +324,168 @@ export default function TaskScheduleSection({
                     if (!plan.proposals?.some((item) => item.taskId === taskId)) {
                       throw new Error("The engine did not place this task.");
                     }
-                  }, "Could not auto-schedule.")
-                }
-                className={buttonClass({ size: "sm" })}
-              >
-                <Sparkles className="size-3" />
-                {applySchedule.isPending ? "Scheduling..." : "Auto-schedule"}
-              </button>
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() =>
-                  setAdding((open) => {
-                    if (open) {
-                      setPickAt("");
-                      return false;
-                    }
-                    setPickAt(nextRoundHour().toISOString());
-                    return true;
-                  })
-                }
-                className={buttonClass({ variant: "secondary", size: "sm" })}
-              >
-                {adding ? <X className="size-3" /> : <Plus className="size-3" />}
-                {adding ? "Cancel" : "Pick a time"}
-              </button>
-              {sorted.length > 0 && (
-                <button
-                  type="button"
-                  disabled={pending}
-                  onClick={() =>
-                    run(() => clearBlocks.mutateAsync(taskId), "Could not unschedule.")
-                  }
-                  className={buttonClass({ variant: "destructive-ghost", size: "sm" })}
-                >
-                  <CalendarDays className="size-3" />
-                  Unschedule
-                </button>
-              )}
-            </div>
-          )}
-        </>
-      )}
-
-      {!reminder && !completed && (
-        <div className="mt-3 flex min-w-0 flex-col gap-2 rounded-lg border border-border px-2 py-2">
-              <p className="px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Engine
-              </p>
-              <label className="flex items-center gap-2 px-1 text-xs text-foreground">
-                <input
-                  type="checkbox"
-                  checked={scheduleLocked}
-                  disabled={pending}
-                  onChange={(event) =>
-                    run(
-                      () => pinTask.mutateAsync({ taskId, locked: event.target.checked }),
-                      "Could not pin task.",
-                    )
-                  }
-                  className="size-3.5 accent-primary"
-                />
-                Pin this task (engine will not move it)
-              </label>
-              <label className="flex items-center gap-2 px-1 text-xs text-foreground">
-                <input
-                  type="checkbox"
-                  checked={contiguous}
-                  disabled={pending}
-                  onChange={(event) =>
-                    run(
-                      () => updateTask.mutateAsync({ id: taskId, contiguous: event.target.checked }),
-                      "Could not update chunking.",
-                    )
-                  }
-                  className="size-3.5 accent-primary"
-                />
-                Must run in one sitting
-              </label>
-              <div className="grid grid-cols-2 gap-2 px-1">
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px] text-muted-foreground">Min chunk (min)</span>
-                  <input
-                    type="number"
-                    min={15}
-                    max={480}
-                    defaultValue={minChunkMinutes || 15}
-                    disabled={pending}
-                    onBlur={(event) => {
-                      const value = Number(event.target.value);
-                      if (!Number.isFinite(value) || value === minChunkMinutes) return;
-                      void run(
-                        () =>
-                          updateTask.mutateAsync({
-                            id: taskId,
-                            minChunkMinutes: Math.max(15, Math.round(value)),
-                          }),
-                        "Could not update min chunk.",
-                      );
-                    }}
-                    className={controlClass("sm")}
-                  />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px] text-muted-foreground">Preferred chunk</span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={480}
-                    defaultValue={preferredChunkMinutes ?? ""}
-                    disabled={pending}
-                    placeholder="Any"
-                    onBlur={(event) => {
-                      const raw = event.target.value.trim();
-                      const value = raw === "" ? null : Number(raw);
-                      if (raw !== "" && !Number.isFinite(value)) return;
-                      void run(
-                        () =>
-                          updateTask.mutateAsync({
-                            id: taskId,
-                            // 0 clears the preference; the server ignores null.
-                            preferredChunkMinutes: value === null ? 0 : Math.max(5, Math.round(value)),
-                          }),
-                        "Could not update preferred chunk.",
-                      );
-                    }}
-                    className={controlClass("sm")}
-                  />
-                </label>
-              </div>
-              <div className="flex items-center gap-2 px-1">
-                <span className="w-20 shrink-0 text-xs text-muted-foreground">Earliest</span>
-                <DateTimeField
-                  className="min-w-0 flex-1"
-                  value={earliestStartAt}
-                  clearable
-                  onChange={(iso) =>
-                    void run(
-                      () => updateTask.mutateAsync({ id: taskId, earliestStartAt: iso || "" }),
-                      "Could not update earliest start.",
-                    )
-                  }
-                />
-              </div>
-              <div className="flex min-w-0 flex-col gap-1 px-1">
-                <span className="text-xs text-muted-foreground">Prefer</span>
-                <div className="flex min-w-0 items-center gap-2">
-                  <div className="min-w-0 flex-1">
-                    <TimeField
-                      value={preferStart}
-                      clearable
-                      aria-label="Preferred start"
-                      onChange={(start) => persistPreferred(start, preferEnd)}
-                    />
-                  </div>
-                  <span className="shrink-0 text-xs text-muted-foreground">to</span>
-                  <div className="min-w-0 flex-1">
-                    <TimeField
-                      value={preferEnd}
-                      clearable
-                      aria-label="Preferred end"
-                      onChange={(end) => persistPreferred(preferStart, end)}
-                    />
-                  </div>
-                </div>
-              </div>
+                  }, "Could not auto-schedule.");
+                }}
+              />
+            ) : null}
+            {!completed && sorted.length > 0 ? (
+              <ListRow
+                key="__clear"
+                tone="danger"
+                label="Clear all time"
+                onClick={() => {
+                  if (pending) return;
+                  void run(() => clearBlocks.mutateAsync(taskId), "Could not unschedule.");
+                }}
+              />
+            ) : null}
+          </ListGroup>
+          {!completed ? (
+            <GroupHint className={lateEta ? "text-destructive" : undefined}>
+              {eta
+                ? `ETA ${formatDateTime(eta)}${lateEta ? ", after the deadline" : ""}`
+                : "Not on the calendar yet."}
+              {eta && duration > plannedMinutes
+                ? ` ${formatDuration(duration - plannedMinutes)} still unplanned.`
+                : eta
+                  ? "."
+                  : ""}
+            </GroupHint>
+          ) : null}
         </div>
       )}
 
-      {error && <p className="mt-1 px-1 text-xs text-destructive">{error}</p>}
+      {error && <p className="-mt-2 px-1 text-xs text-destructive">{error}</p>}
+
+      {!reminder && !completed && (
+        <div>
+          <GroupLabel>Auto-schedule</GroupLabel>
+          <ListGroup>
+            <ListRow label="Pin task" meta="Auto-schedule will not move it">
+              <ListSwitch
+                label="Pin task"
+                checked={scheduleLocked}
+                disabled={pending}
+                onChange={(locked) => run(() => pinTask.mutateAsync({ taskId, locked }), "Could not pin task.")}
+              />
+            </ListRow>
+            <ListRow label="One sitting" meta="Place it as one block">
+              <ListSwitch
+                label="One sitting"
+                checked={contiguous}
+                disabled={pending}
+                onChange={(next) =>
+                  run(() => updateTask.mutateAsync({ id: taskId, contiguous: next }), "Could not update chunking.")
+                }
+              />
+            </ListRow>
+            <ListRow label="Minimum chunk">
+              <SegmentedControl
+                size="sm"
+                className="*:px-2"
+                aria-label="Minimum chunk"
+                value={String(minChunkMinutes || 15)}
+                options={[15, 30, 45, 60].map((minutes) => ({ value: String(minutes), label: `${minutes}m` }))}
+                onChange={(next) =>
+                  run(
+                    () => updateTask.mutateAsync({ id: taskId, minChunkMinutes: Number(next) }),
+                    "Could not update min chunk.",
+                  )
+                }
+              />
+            </ListRow>
+            <ListRow label="Preferred chunk">
+              <SegmentedControl
+                size="sm"
+                className="*:px-2"
+                aria-label="Preferred chunk"
+                value={preferredChunkMinutes ? String(preferredChunkMinutes) : "any"}
+                options={[
+                  { value: "any", label: "Any" },
+                  ...[30, 60, 90].map((minutes) => ({ value: String(minutes), label: `${minutes}m` })),
+                ]}
+                onChange={(next) =>
+                  run(
+                    () =>
+                      updateTask.mutateAsync({
+                        id: taskId,
+                        // 0 clears the preference; the server ignores null.
+                        preferredChunkMinutes: next === "any" ? 0 : Number(next),
+                      }),
+                    "Could not update preferred chunk.",
+                  )
+                }
+              />
+            </ListRow>
+            <ListRow label="Earliest start">
+              <DateTimeField
+                variant="row"
+                placeholder="Any time"
+                aria-label="Earliest start"
+                value={earliestStartAt}
+                clearable
+                onChange={(iso) =>
+                  void run(
+                    () => updateTask.mutateAsync({ id: taskId, earliestStartAt: iso || "" }),
+                    "Could not update earliest start.",
+                  )
+                }
+              />
+            </ListRow>
+            <ListRow label="Work hours">
+              <TimeField
+                variant="row"
+                placeholder="Any"
+                value={preferStart}
+                clearable
+                aria-label="Work from"
+                onChange={(start) => persistPreferred(start, preferEnd)}
+              />
+              <span className="text-xs text-muted-foreground">–</span>
+              <TimeField
+                variant="row"
+                placeholder="Any"
+                value={preferEnd}
+                clearable
+                aria-label="Work until"
+                onChange={(end) => persistPreferred(preferStart, end)}
+              />
+            </ListRow>
+          </ListGroup>
+        </div>
+      )}
     </div>
   );
+}
+
+/**
+ * The task's Repeat row, for the Dates card. A new rule starts from the
+ * reminder time, or the next round hour, so the first occurrence is soon.
+ */
+export function TaskRepeatRow({
+  recurrence,
+  scheduledOn,
+  onRecurrenceChange,
+}: {
+  recurrence: RecurrenceRule | null | undefined;
+  scheduledOn?: string | null;
+  onRecurrenceChange: (recurrence: RecurrenceInput | null) => void;
+}) {
+  const anchor = recurrence ? new Date(recurrence.dtstart) : scheduledOn ? new Date(scheduledOn) : nextRoundHour();
+  const draft: RecurrenceDraft | null = recurrence ? rruleToDraft(recurrence.rrule, anchor) : null;
+  return (
+    <RecurrenceEditor
+      row
+      label="Repeat"
+      value={draft}
+      anchor={anchor}
+      onChange={(next) => onRecurrenceChange(buildRecurrenceInput(next, anchor))}
+    />
+  );
+}
+
+function shortDay(date: Date) {
+  return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
 function nextRoundHour(): Date {

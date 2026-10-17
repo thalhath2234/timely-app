@@ -19,6 +19,7 @@ import {
   type RecurrencePreset,
 } from "@/app/utils/recurrence";
 import { controlClass } from "@/app/_components/_ui/field";
+import { ListRow } from "@/app/_components/_ui/groupedList";
 
 type RecurrenceEditorProps = {
   value: RecurrenceDraft | null;
@@ -33,6 +34,8 @@ type RecurrenceEditorProps = {
    */
   label?: string;
   icon?: LucideIcon;
+  /** A grouped row (`ListRow`): label left, the preset on the right, the custom panel under it. */
+  row?: boolean;
 };
 
 const FREQ_OPTIONS: { value: RecurrenceFreq; label: string }[] = [
@@ -62,6 +65,7 @@ export default function RecurrenceEditor({
   className,
   label,
   icon: Icon,
+  row,
 }: RecurrenceEditorProps) {
   // Radio groups are namespaced so two editors on one page do not share state.
   const id = useId();
@@ -72,7 +76,7 @@ export default function RecurrenceEditor({
   const showCustom = value !== null && (customOpen || matched === "custom");
 
   const presetOptions: { value: RecurrencePreset; label: string }[] = [
-    { value: "none", label: "Does not repeat" },
+    { value: "none", label: row ? "Never" : "Does not repeat" },
     { value: "daily", label: "Daily" },
     { value: "weekly", label: `Weekly on ${weekdayLabel(anchor.getDay(), true)}` },
     { value: "weekdays", label: "Every weekday" },
@@ -97,7 +101,7 @@ export default function RecurrenceEditor({
         onChange(presetToDraft(preset as RecurrencePreset, anchor));
       }}
       options={presetOptions}
-      variant={label ? "bare" : "default"}
+      variant={row ? "row" : label ? "bare" : "default"}
       aria-label={label ?? "Repeat"}
     />
   );
@@ -294,6 +298,15 @@ export default function RecurrenceEditor({
       </p>
     </div>
   );
+
+  if (row) {
+    return (
+      <div className={className}>
+        <ListRow label={label ?? "Repeat"}>{select}</ListRow>
+        {panel && <div className="px-3.5 pb-3">{panel}</div>}
+      </div>
+    );
+  }
 
   if (label) {
     return (

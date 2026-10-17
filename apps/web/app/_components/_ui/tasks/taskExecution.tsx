@@ -15,6 +15,7 @@ import {
   useToggleChecklistItem,
 } from "@/app/utils/hooks/tasks";
 import { showUndoToast } from "@/app/_store/toastStore";
+import { GroupHint, GroupLabel, ListGroup } from "@/app/_components/_ui/groupedList";
 import { isReminderTask } from "@/app/utils/taskFilters";
 
 function todayStamp() {
@@ -52,7 +53,6 @@ export default function TaskExecution({
   );
   const doneCount = checklist.filter((item) => item.completedAt).length;
   const totalCount = checklist.length;
-  const progressPct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
 
   return (
     <div className="space-y-5">
@@ -110,37 +110,11 @@ export default function TaskExecution({
       </div>
 
       {!compact ? (
-        <section className="space-y-3 border-t border-border pt-5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Checklist
-              </h3>
-              {totalCount > 0 ? (
-                <span className="rounded-full border border-success/20 bg-success/10 px-2 py-0.5 tabular-nums text-[11px] font-medium text-success">
-                  {doneCount} of {totalCount} done
-                </span>
-              ) : null}
-            </div>
-            {totalCount > 0 ? (
-              <span className="tabular-nums text-xs text-muted-foreground">{progressPct}%</span>
-            ) : null}
-          </div>
-          {totalCount > 0 ? (
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-success to-primary"
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
-          ) : null}
-
-          <ul className="space-y-1.5">
+        <section>
+          <GroupLabel aside={totalCount > 0 ? `${doneCount} of ${totalCount} done` : undefined}>Checklist</GroupLabel>
+          <ListGroup>
             {checklist.map((item) => (
-              <li
-                key={item.id}
-                className="group flex items-center gap-3 rounded-lg border border-border/70 bg-muted/20 px-2.5 py-2.5 hover:bg-muted/40"
-              >
+              <div key={item.id} className="group flex min-h-10 items-center gap-2.5 px-3.5">
                 <button
                   type="button"
                   onClick={() =>
@@ -149,7 +123,7 @@ export default function TaskExecution({
                       completed: !item.completedAt,
                     })
                   }
-                  className="text-muted-foreground"
+                  className="cursor-pointer text-muted-foreground"
                   aria-label={item.completedAt ? "Reopen" : "Complete"}
                 >
                   {item.completedAt ? (
@@ -162,7 +136,7 @@ export default function TaskExecution({
                 </button>
                 <span
                   className={cn(
-                    "min-w-0 flex-1 text-xs",
+                    "min-w-0 flex-1 text-[13px]",
                     item.completedAt ? "text-muted-foreground line-through" : "font-medium text-foreground",
                   )}
                 >
@@ -170,48 +144,53 @@ export default function TaskExecution({
                 </span>
                 <button
                   type="button"
-                  className="text-[11px] text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
+                  className="cursor-pointer text-xs text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
                   onClick={() => void removeItem.mutateAsync(item.id)}
                 >
                   Remove
                 </button>
-              </li>
+              </div>
             ))}
-          </ul>
-
-          <form
-            className="flex items-center gap-2 px-1 text-muted-foreground"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const title = checkTitle.trim();
-              if (!title || submittingRef.current) return;
-              submittingRef.current = true;
-              void addItem
-                .mutateAsync(title)
-                .then(() => setCheckTitle(""))
-                .catch(() => {
-                  // addItem.isError already renders the failure.
-                })
-                .finally(() => {
-                  submittingRef.current = false;
-                });
-            }}
-          >
-            <Plus className="size-3.5 shrink-0" />
-            <input
-              ref={addInputRef}
-              value={checkTitle}
-              onChange={(event) => setCheckTitle(event.target.value)}
-              placeholder="Add checklist item... (Press Enter)"
-              className="flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
-            />
-          </form>
+            <form
+              className="flex min-h-10 items-center gap-2.5 px-3.5"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const title = checkTitle.trim();
+                if (!title || submittingRef.current) return;
+                submittingRef.current = true;
+                void addItem
+                  .mutateAsync(title)
+                  .then(() => setCheckTitle(""))
+                  .catch(() => {
+                    // addItem.isError already renders the failure.
+                  })
+                  .finally(() => {
+                    submittingRef.current = false;
+                  });
+              }}
+            >
+              <Plus className="size-4 shrink-0 text-primary" />
+              <input
+                ref={addInputRef}
+                value={checkTitle}
+                onChange={(event) => setCheckTitle(event.target.value)}
+                aria-label="New checklist item"
+                placeholder="Add an item"
+                className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-primary"
+              />
+              {checkTitle.trim() ? (
+                <button type="submit" className="cursor-pointer text-[13px] font-medium text-primary">
+                  Add
+                </button>
+              ) : null}
+            </form>
+          </ListGroup>
           {addItem.isError ? (
-            <p className="px-1 text-xs text-destructive">
+            <GroupHint className="text-destructive">
               {addItem.error instanceof Error
                 ? addItem.error.message
                 : "Could not add checklist item."}
-            </p>
+            </GroupHint>
           ) : null}
         </section>
       ) : null}

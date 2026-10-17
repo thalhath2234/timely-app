@@ -7,6 +7,7 @@ import { cn } from "@/app/utils/cn";
 import { controlClass, popoverSurface, type ControlSize } from "@/app/_components/_ui/field";
 import { PopoverView, useClientGate, useViewOpen } from "@/app/_components/_ui/motion";
 import { propertyChipClass } from "@/app/_components/_ui/propertyChip";
+import { rowValueClass } from "@/app/_components/_ui/groupedList";
 import {
   fromDatetimeLocalValue,
   toDateInputValue,
@@ -30,8 +31,10 @@ type DatePickerProps = {
   /**
    * "chip" is a property chip in a create form: dashed `chipLabel` while
    * empty, otherwise `chipPrefix` and a short date ("Due Fri, Oct 16").
+   * "row" is the value on the right of a grouped row: a short date, or
+   * `placeholder` ("None") while empty.
    */
-  variant?: "default" | "chip";
+  variant?: "default" | "chip" | "row";
   chipLabel?: string;
   chipPrefix?: string;
   /** Chip only: replaces the calendar or clock icon. */
@@ -422,7 +425,36 @@ export default function DatePicker({
     ? [chipPrefix, formatChip(value, mode)].filter(Boolean).join(" ")
     : chipLabel ?? label;
   const trigger =
-    variant === "chip" ? (
+    variant === "row" ? (
+      <button
+        ref={triggerRef}
+        type="button"
+        disabled={disabled}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={panelId}
+        aria-label={ariaLabel ? `${ariaLabel}, ${value ? formatChip(value, mode) : "none"}` : undefined}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={() => (open ? setOpen(false) : openPanel())}
+        className={cn(rowValueClass, className)}
+      >
+        <span className="truncate">{value ? formatChip(value, mode) : (placeholder ?? "None")}</span>
+        {clearable && value && !disabled ? (
+          <span
+            role="button"
+            tabIndex={-1}
+            aria-label="Clear date"
+            className="-mr-1 rounded p-0.5 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+            onClick={(event) => {
+              event.stopPropagation();
+              onChange("");
+            }}
+          >
+            <X />
+          </span>
+        ) : null}
+      </button>
+    ) : variant === "chip" ? (
       <button
         ref={triggerRef}
         type="button"
@@ -705,7 +737,7 @@ export function TimeField({
   className?: string;
   clearable?: boolean;
   "aria-label"?: string;
-} & Pick<DatePickerProps, "variant" | "chipLabel" | "chipPrefix" | "icon">) {
+} & Pick<DatePickerProps, "variant" | "chipLabel" | "chipPrefix" | "icon" | "placeholder">) {
   return (
     <DatePicker
       mode="time"
@@ -725,12 +757,15 @@ export function DateTimeField({
   onChange,
   className,
   clearable,
+  "aria-label": ariaLabel,
+  ...chip
 }: {
   value?: string | Date | null;
   onChange: (isoOrEmpty: string) => void;
   className?: string;
   clearable?: boolean;
-}) {
+  "aria-label"?: string;
+} & Pick<DatePickerProps, "variant" | "placeholder">) {
   return (
     <DatePicker
       mode="datetime"
@@ -740,6 +775,8 @@ export function DateTimeField({
       }
       className={className}
       clearable={clearable}
+      aria-label={ariaLabel}
+      {...chip}
     />
   );
 }

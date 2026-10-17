@@ -7,7 +7,8 @@ import { builtinSheetTemplate, isBuiltinSheetTemplate } from "@timely/contract/s
 import BottomSheet from "../ui/BottomSheet";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import ConfirmSheet from "../ui/ConfirmSheet";
-import { Button, Field, PropertyRow } from "../ui/primitives";
+import { Button, Field } from "../ui/primitives";
+import { ListRow } from "../settings/SettingsList";
 import { useCreateDoc, useCreateSheet, useDecisionsStatusQuery, useDeleteDoc, useDeleteSheetTemplate, useDocsQuery, useSheetTemplatesQuery } from "../../lib/hooks";
 import { useToastStore } from "../../lib/toast";
 import { getDocTemplateSuggestion, getSheetTemplateSuggestion, sendDecisionFeedback } from "../../lib/api/decisions";
@@ -365,11 +366,10 @@ export function TemplateField({
   const current = choices.find((choice) => choice.id === value);
   if (!choices.length) return null;
   return (
-    <>
-      <PropertyRow
-        icon={<LayoutTemplate size={16} color={colors.mutedForeground} />}
-        label="Template"
-        value={current?.name ?? (kind === "doc" ? "Blank doc" : "Blank sheet")}
+    <View>
+      <ListRow
+        title="Template"
+        trailing={current?.name ?? (kind === "doc" ? "Blank doc" : "Blank sheet")}
         onPress={() => setPicking(true)}
       />
       {suggested && value !== suggested.id ? (
@@ -400,7 +400,7 @@ export function TemplateField({
           }}
         />
       </BottomSheet>
-    </>
+    </View>
   );
 }
 
@@ -423,7 +423,7 @@ const styles = createThemedStyleSheet((colors) => ({
   section: { color: colors.mutedForeground, fontSize: 11, fontWeight: "600", letterSpacing: 0.6, textTransform: "uppercase", marginTop: 8, marginBottom: 2, paddingHorizontal: 10 },
   error: { color: colors.destructive, fontSize: 13, paddingHorizontal: 10, paddingTop: 6 },
   footnote: { color: colors.mutedForeground, fontSize: 12, lineHeight: 17, paddingHorizontal: 10, paddingTop: 8 },
-  inlineSuggestion: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 40, marginHorizontal: 8, marginBottom: 6, paddingHorizontal: 10, borderRadius: 12, borderWidth: 1, borderColor: `${colors.primary}55`, backgroundColor: colors.card },
+  inlineSuggestion: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 40, marginHorizontal: 10, marginBottom: 10, paddingHorizontal: 10, borderRadius: 12, borderWidth: 1, borderColor: `${colors.primary}55`, backgroundColor: colors.card },
   inlineText: { flex: 1, color: colors.mutedForeground, fontSize: 13 },
   inlineName: { color: colors.foreground, fontWeight: "600" },
   inlineAction: { color: colors.primary, fontSize: 13, fontWeight: "600" },

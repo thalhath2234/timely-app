@@ -1,4 +1,4 @@
-import { CreateCustomFieldInline, ModalSidebar, SidebarSectionTitle } from "@timely/ui";
+import { CreateCustomFieldInline, GroupLabel, ListGroup } from "@timely/ui";
 import { useEffect, useRef } from "react";
 
 /** Opens the inline form, types a name, and (optionally) switches the type via the Select panel and fills two options. */
@@ -40,27 +40,23 @@ function OpenForm({ name, type, children }: { name: string; type?: string; child
 
 const Sidebar = ({ children }: { children: React.ReactNode }) => (
   <div className="p-4">
-    <div className="flex overflow-hidden rounded-2xl border border-border bg-background" style={{ width: 320 }}>
-      <ModalSidebar>
-        <div className="pt-3">
-          <SidebarSectionTitle>Custom fields</SidebarSectionTitle>
-          {children}
-        </div>
-      </ModalSidebar>
+    <div style={{ width: 320 }}>
+      <GroupLabel>Custom fields</GroupLabel>
+      <ListGroup>{children}</ListGroup>
     </div>
   </div>
 );
 
 export const Collapsed = () => (
   <Sidebar>
-    <CreateCustomFieldInline workspaceId="ws_studio" />
+    <CreateCustomFieldInline variant="row" workspaceId="ws_studio" />
   </Sidebar>
 );
 
 export const TextField = () => (
   <Sidebar>
     <OpenForm name="Client">
-      <CreateCustomFieldInline workspaceId="ws_studio" />
+      <CreateCustomFieldInline variant="row" workspaceId="ws_studio" />
     </OpenForm>
   </Sidebar>
 );
@@ -68,7 +64,7 @@ export const TextField = () => (
 export const SelectWithOptions = () => (
   <Sidebar>
     <OpenForm name="Review round" type="Select">
-      <CreateCustomFieldInline workspaceId="ws_studio" />
+      <CreateCustomFieldInline variant="row" workspaceId="ws_studio" />
     </OpenForm>
   </Sidebar>
 );

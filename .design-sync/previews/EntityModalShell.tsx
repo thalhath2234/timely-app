@@ -1,22 +1,18 @@
 import {
-  ColorPicker, DatePicker, EntityModalShell, LabelPicker, ModalMain, ModalSidebar, PropertyRow, RecurrenceEditor,
-  SaveStatusBadge, Select, SidebarSectionTitle, TaskTypeToggle,
+  ColorPicker, DatePicker, EntityModalShell, GroupHint, GroupLabel, ListGroup, ListRow, ModalMain, ModalSidebar,
+  RecurrenceEditor, SaveStatusBadge, Select, TaskTypeToggle,
 } from "@timely/ui";
-import {
-  CalendarDays, Check, Circle, Clock, Cloud, Copy, Flag, FolderKanban, GitBranch, Link2, ListTodo, Plus, Repeat, Trash2,
-} from "lucide-react";
+import { Check, Cloud, Copy, FolderKanban, Link2, ListTodo, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 const titleClass =
   "w-full bg-transparent text-3xl font-semibold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50";
-const selectClass = "border-0 bg-transparent px-0 shadow-none";
 const iconButton =
   "inline-flex size-7 cursor-pointer items-center justify-center rounded-lg border border-border bg-muted/40 text-muted-foreground transition-colors hover:border-border hover:text-foreground";
-const t = "2024-05-01T09:00:00Z";
 const LABELS = [
-  { id: "l1", name: "Deep work", color: "#6E56CF", workspaceId: "w1", createdAt: t, updatedAt: t },
-  { id: "l2", name: "Meeting prep", color: "#0090FF", workspaceId: "w1", createdAt: t, updatedAt: t },
-  { id: "l3", name: "Quick win", color: "#30A66D", workspaceId: "w1", createdAt: t, updatedAt: t },
+  { value: "l1", label: "Deep work", color: "#6E56CF" },
+  { value: "l2", label: "Meeting prep", color: "#0090FF" },
+  { value: "l3", label: "Quick win", color: "#30A66D" },
 ];
 const PRIORITY = [
   { value: "Low", label: "Low", color: "#30A66D" },
@@ -63,59 +59,65 @@ function TaskSidebar({ withLabels = true }: { withLabels?: boolean }) {
   const [stage, setStage] = useState("st2");
   const [status, setStatus] = useState("s2");
   const [priority, setPriority] = useState("High");
+  const [duration, setDuration] = useState("90");
   const [start, setStart] = useState("2024-05-16");
   const [deadline, setDeadline] = useState("2024-05-24");
   const [repeat, setRepeat] = useState<any>(null);
   const [labels, setLabels] = useState(["l1"]);
   return (
     <ModalSidebar>
-      <div className="flex flex-col gap-1">
-        <div className="px-1 py-1.5">
-          <TaskTypeToggle value={kind} onChange={setKind} />
-          <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
-            Estimated minutes of work the scheduler can place.
-          </p>
+      <div className="flex flex-col gap-4">
+        <div>
+          <ListGroup>
+            <ListRow label="Type">
+              <TaskTypeToggle className="w-48" value={kind} onChange={setKind} />
+            </ListRow>
+            <ListRow label="Workspace">
+              <Select variant="row" value={workspace} onChange={setWorkspace}
+                options={[{ value: "w1", label: "Studio", color: "#6E56CF" }, { value: "w2", label: "Personal", color: "#12A594" }]} />
+            </ListRow>
+            <ListRow label="Status">
+              <Select variant="row" value={status} onChange={setStatus}
+                options={[{ value: "s1", label: "Backlog", color: "#889096" }, { value: "s2", label: "In progress", color: "#0090FF" }]} />
+            </ListRow>
+            <ListRow label="Priority">
+              <Select variant="row" value={priority} tint="#F76808" onChange={setPriority} options={PRIORITY} />
+            </ListRow>
+            <ListRow label="Project">
+              <Select variant="row" value={project} onChange={setProject}
+                options={[{ value: "", label: "None" }, { value: "p1", label: "Website relaunch", color: "#3E63DD" }]} />
+            </ListRow>
+            <ListRow label="Stage">
+              <Select variant="row" value={stage} onChange={setStage}
+                options={[{ value: "st1", label: "Discovery", color: "#889096" }, { value: "st2", label: "Design", color: "#6E56CF" }]} />
+            </ListRow>
+            <ListRow label="Duration">
+              <Select variant="row" value={duration} onChange={setDuration}
+                options={[{ value: "30", label: "30m" }, { value: "60", label: "1h" }, { value: "90", label: "1h 30m" }]} />
+            </ListRow>
+            {withLabels ? (
+              <ListRow label="Labels">
+                <Select variant="row" value="" values={labels} placeholder="None"
+                  onChange={(id) => setLabels((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))}
+                  options={LABELS} />
+              </ListRow>
+            ) : null}
+          </ListGroup>
+          <GroupHint>Work is estimated minutes the scheduler can place.</GroupHint>
         </div>
-        <PropertyRow icon={FolderKanban} label="Workspace">
-          <Select size="sm" value={workspace} onChange={setWorkspace} className={selectClass}
-            options={[{ value: "w1", label: "Studio", color: "#6E56CF" }, { value: "w2", label: "Personal", color: "#12A594" }]} />
-        </PropertyRow>
-        <PropertyRow icon={ListTodo} label="Project">
-          <Select size="sm" value={project} onChange={setProject} className={selectClass}
-            options={[{ value: "", label: "No project" }, { value: "p1", label: "Website relaunch", color: "#3E63DD" }]} />
-        </PropertyRow>
-        <PropertyRow icon={GitBranch} label="Stage">
-          <Select size="sm" value={stage} onChange={setStage} className={selectClass}
-            options={[{ value: "st1", label: "Discovery", color: "#889096" }, { value: "st2", label: "Design", color: "#6E56CF" }]} />
-        </PropertyRow>
-        <PropertyRow icon={Circle} label="Status">
-          <Select size="sm" value={status} onChange={setStatus} className={selectClass}
-            options={[{ value: "s1", label: "Backlog", color: "#889096" }, { value: "s2", label: "In progress", color: "#0090FF" }]} />
-        </PropertyRow>
-        <PropertyRow icon={Flag} label="Priority">
-          <Select size="sm" value={priority} onChange={setPriority} className={selectClass} options={PRIORITY} />
-        </PropertyRow>
-        <PropertyRow icon={Clock} label="Duration">
-          <input type="number" defaultValue={90} className="w-full bg-transparent text-sm text-foreground outline-none" />
-          <span className="shrink-0 text-xs text-muted-foreground">min</span>
-        </PropertyRow>
-        <PropertyRow icon={CalendarDays} label="Start date">
-          <DatePicker mode="date" value={start} onChange={setStart} />
-        </PropertyRow>
-        <PropertyRow icon={CalendarDays} label="Deadline">
-          <DatePicker mode="date" value={deadline} onChange={setDeadline} />
-        </PropertyRow>
-        <RecurrenceEditor label="Repeat" icon={Repeat} value={repeat} anchor={anchor} onChange={setRepeat} />
+        <div>
+          <GroupLabel>Dates</GroupLabel>
+          <ListGroup>
+            <ListRow label="Start date">
+              <DatePicker variant="row" mode="date" value={start} onChange={setStart} />
+            </ListRow>
+            <ListRow label="Deadline">
+              <DatePicker variant="row" mode="date" value={deadline} onChange={setDeadline} />
+            </ListRow>
+            <RecurrenceEditor row label="Repeat" value={repeat} anchor={anchor} onChange={setRepeat} />
+          </ListGroup>
+        </div>
       </div>
-      <p className="mt-1 px-1 text-[11px] text-muted-foreground">
-        Tasks appear on the calendar once scheduled, by hand or with Auto-schedule.
-      </p>
-      {withLabels ? (
-        <div className="pt-3">
-          <SidebarSectionTitle>Labels</SidebarSectionTitle>
-          <LabelPicker labels={LABELS} selectedIds={labels} onChange={setLabels} />
-        </div>
-      ) : null}
     </ModalSidebar>
   );
 }

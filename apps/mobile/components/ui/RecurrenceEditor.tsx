@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Repeat2 } from "lucide-react-native";
 import { Chip } from "./primitives";
+import { SheetOption } from "./BottomSheet";
 import TaskSectionHeader from "../tasks/TaskSectionHeader";
 import DateTimeSheet from "./DateTimeSheet";
 import {
@@ -30,7 +31,7 @@ const FREQS: { value: RecurrenceFreq; label: string }[] = [
   { value: "YEARLY", label: "year(s)" },
 ];
 
-function presetLabel(preset: RecurrencePreset, anchor: Date) {
+export function presetLabel(preset: RecurrencePreset, anchor: Date) {
   switch (preset) {
     case "none":
       return "Does not repeat";
@@ -54,12 +55,15 @@ export default function RecurrenceEditor({
   onChange,
   anchor,
   compact,
+  list,
 }: {
   value: RecurrenceDraft | null;
   onChange: (draft: RecurrenceDraft | null) => void;
   anchor: Date;
   /** Inside a create sheet: a plain "Repeat" caption, no card around it. */
   compact?: boolean;
+  /** On a Repeat page (`RepeatRow`): the presets as a list of options, no caption. */
+  list?: boolean;
 }) {
   const matched = draftToPreset(value, anchor);
   const [customOpen, setCustomOpen] = useState(matched === "custom");
@@ -76,14 +80,31 @@ export default function RecurrenceEditor({
   }
 
   return (
-    <View style={compact ? styles.rootCompact : styles.root}>
-      {compact ? <Text style={styles.caption}>Repeat</Text> : <TaskSectionHeader
+    <View style={list ? styles.rootList : compact ? styles.rootCompact : styles.root}>
+      {list ? null : compact ? <Text style={styles.caption}>Repeat</Text> : <TaskSectionHeader
         icon={<Repeat2 size={18} color={colors.accentForeground} />}
         title="Repeat Cadence"
         subtitle="Automate recurring placement"
         badge={value ? presetLabel(matched, anchor) : "Off"}
         badgeTone={value ? "primary" : "muted"}
       />}
+      {list ? (
+        <View>
+          {PRESETS.map((preset) => (
+            <SheetOption
+              key={preset}
+              selected={matched === preset || (preset === "custom" && showCustom && matched === "custom")}
+              onSelect={() => {
+                setCustomOpen(preset === "custom");
+                if (preset === "custom" && value) return;
+                onChange(presetToDraft(preset, anchor));
+              }}
+            >
+              {presetLabel(preset, anchor)}
+            </SheetOption>
+          ))}
+        </View>
+      ) : (
       <View style={styles.wrap}>
         {PRESETS.map((preset) => (
           <Chip
@@ -98,6 +119,7 @@ export default function RecurrenceEditor({
           />
         ))}
       </View>
+      )}
 
       {showCustom && value ? (
         <View style={styles.panel}>
@@ -288,6 +310,7 @@ function MonthDayGrid({ value, onChange }: { value: number[]; onChange: (days: n
 const styles = createThemedStyleSheet((colors) => ({
   root: { gap: 14, borderRadius: 16, backgroundColor: colors.card, padding: 16 },
   rootCompact: { gap: 8 },
+  rootList: { gap: 12 },
   caption: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500", marginLeft: 2 },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   row: { gap: 8 },

@@ -25,12 +25,12 @@ export { default as CustomFieldControl } from "@/app/_components/_ui/customField
 export { default as DatePicker, DateField, TimeField, DateTimeField } from "@/app/_components/_ui/datePicker";
 export { default as EmptyState } from "@/app/_components/_ui/emptyState";
 export { default as ExpandCollapsedListButton } from "@/app/_components/_ui/expandCollapsedListButton";
-export { default as LabelPicker } from "@/app/_components/_ui/labelPicker";
+export { ListGroup, ListRow, GroupLabel, GroupHint, ListSwitch } from "@/app/_components/_ui/groupedList";
 export { default as LoadError, LoadErrorBanner, QueryFailure } from "@/app/_components/_ui/loadError";
 
 // _ui/modal
 export { default as AddItemModal } from "@/app/_components/_ui/modal/addItem";
-export { EntityModalShell, ModalMain, ModalSidebar, PropertyRow, SidebarSectionTitle } from "@/app/_components/_ui/modal/entityModal";
+export { EntityModalShell, ModalMain, ModalSidebar } from "@/app/_components/_ui/modal/entityModal";
 export { default as SearchModal } from "@/app/_components/_ui/modal/search";
 
 // _ui
