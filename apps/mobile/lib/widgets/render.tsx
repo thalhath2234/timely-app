@@ -48,7 +48,7 @@ const CHECK_COL = 40;
 const COLUMN_HEAD_H = lineH(11) + 4;
 const CELL_W = 72;
 /** A pomodoro's phase tabs (and its −/+), with the gap under them. */
-const TAB_H = 24;
+const TAB_H = 28;
 const TAB_ROW_H = TAB_H + 4;
 const BAR_LABEL_H = lineH(10) + 3;
 const METER_H = 20;
@@ -571,9 +571,10 @@ function ringAsFigure(model: WidgetModel, size: Size): WidgetModel {
 /** Works out what fits: every height here is what Android really draws. */
 export function planCard(model: WidgetModel, size: Size): CardPlan {
   const innerW = size.width - 2 * PAD - 2;
-  // Tabs need about 60dp each beside the −/+, and leave the clock its figure and buttons.
-  const tabs = Boolean(model.tabs?.length) && innerW >= 240 && size.height - 2 * PAD - 2 - HEADER_H - TAB_ROW_H >= 72;
-  const innerH = size.height - 2 * PAD - 2 - (tabs ? TAB_ROW_H : 0);
+  // Three tabs need about 36dp each beside the −/+, and must leave the clock its figure and buttons.
+  const tabs = Boolean(model.tabs?.length) && innerW >= 180 && size.height - 2 * PAD - 2 - TAB_ROW_H >= 72;
+  // The tabs take the title's line (they say what the widget is), so the clock keeps its size.
+  const innerH = size.height - 2 * PAD - 2 - (tabs ? TAB_ROW_H - HEADER_H : 0);
   const buttons = model.buttons?.length ?? 0;
   const rowsWanted = model.rows?.length ?? 0;
   const short = size.height < 220;
@@ -586,7 +587,7 @@ export function planCard(model: WidgetModel, size: Size): CardPlan {
     !wideClock && size.width >= 260 && short && Boolean(model.value) && !model.ring && !model.meters && buttons <= 1 && Boolean(rowsWanted || model.bars?.length);
   const plan: CardPlan = {
     mode: wideClock ? "wideClock" : wide ? "wide" : "column",
-    header: true,
+    header: !tabs,
     figure: 0,
     captionLines: 0,
     rows: 0,
@@ -652,7 +653,7 @@ export function planCard(model: WidgetModel, size: Size): CardPlan {
     plan.buttonH = innerH >= 130 ? 40 : 34;
     left -= plan.buttonH + GAP;
     // A small clock gives up its title before its figure.
-    if (model.value && left < figureH(22)) {
+    if (plan.header && model.value && left < figureH(22)) {
       plan.header = false;
       left += HEADER_H;
     }
