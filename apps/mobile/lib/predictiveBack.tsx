@@ -7,11 +7,11 @@ import { backPlan, type NavState } from "./backPlan";
 import { colors } from "./theme";
 
 /**
- * Android's back swipe. The top screen stays put until the swipe passes a
- * threshold (TimelyBack.COMMIT_AT), then slides fully away and the screen
- * you're going back to shows, live, behind it. Letting go there goes back;
- * moving back under the threshold slides the screen back in, and letting go
- * under it cancels. Pushed screens are transparent stack screens on Android (see
+ * Android's back swipe. The top screen stays put until Android's back arrow
+ * arms (the same thresholds as the system gesture, mirrored in TimelyBack),
+ * then slides fully away and the screen you're going back to shows, live,
+ * behind it. Letting go there goes back; bringing the finger back disarms it,
+ * the screen slides back in, and letting go cancels. Pushed screens are transparent stack screens on Android (see
  * `predictiveBackScreenOptions`), so the one underneath stays drawn.
  * At the root (Home with nothing to go back to) the app steps aside and
  * Android plays its own back-to-home animation.

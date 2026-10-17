@@ -111,17 +111,21 @@ describe("back preview", () => {
   });
 });
 
-// The screen stays put until the swipe passes the threshold; letting go
-// under it cancels instead of going back.
+// The screen stays put until Android's back arrow arms, using the system
+// gesture's own thresholds, and Android alone decides go back or cancel.
 describe("back swipe threshold", () => {
   const native = readFileSync(
     new URL("../apps/mobile/modules/timely-android/android/src/main/java/expo/modules/timelyandroid/TimelyBack.kt", import.meta.url),
     "utf8",
   );
 
-  test("letting go under the threshold cancels", () => {
-    assert.match(native, /const val COMMIT_AT = 0\.\d+f/);
-    assert.match(native, /if \(swipe != null && swipe < COMMIT_AT\) \{\s*emitter\?\.invoke\(mapOf\("type" to "cancelled"/);
+  test("uses Android's own thresholds and never overrides its decision", () => {
+    assert.match(native, /ARM_DP = 16f/);
+    assert.match(native, /DISARM_DP = 32f/);
+    assert.match(native, /REARM_DP = 32f/);
+    assert.match(native, /MIN_ARMED_MS = 300L/);
+    assert.match(native, /REARM_DELAY_MS = 160f/);
+    assert.doesNotMatch(native, /COMMIT_AT/);
   });
 
   test("the screen moves on the threshold, not with the finger", () => {
