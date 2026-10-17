@@ -1,22 +1,38 @@
 import { useEffect, type ReactNode } from "react";
-import { BackHandler, StyleSheet, View } from "react-native";
-import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
+import { BackHandler, StyleSheet, useWindowDimensions, View } from "react-native";
+import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { useNavigationContainerRef, useRouter } from "expo-router";
 import { addBackListener, hasTimelyAndroid, setAppHandlesBack } from "../modules/timely-android";
 import { backPlan, type NavState } from "./backPlan";
 import { colors } from "./theme";
 
 /**
- * Android's predictive back gesture. While the swipe runs, the top screen
- * shrinks toward the edge it came from and rounds its corners (the Material
- * 3 "back preview"), so you see Back is about to happen before you let go.
+ * Android's back swipe. The top screen stays put until Android's back arrow
+ * arms (the same thresholds as the system gesture, mirrored in TimelyBack),
+ * then slides fully away and the screen you're going back to shows, live,
+ * behind it. Letting go there goes back; bringing the finger back disarms it,
+ * the screen slides back in, and letting go cancels. Pushed screens are transparent stack screens on Android (see
+ * `predictiveBackScreenOptions`), so the one underneath stays drawn.
  * At the root (Home with nothing to go back to) the app steps aside and
  * Android plays its own back-to-home animation.
  */
 
-const SCALE_AT_END = 0.9;
-const SHIFT_AT_END = 24;
-const RADIUS_AT_END = 28;
+/** Corner radius of the page once it starts moving (the kit's large radius). */
+const RADIUS = 20;
+/** How dark the screen behind is at the start of the swipe; it clears as the page leaves. */
+const SCRIM = 0.28;
+/** How long the stack's pop takes to cover the screen; after that it settles if it's still here. */
+const POP_GRACE_MS = 400;
+
+/**
+ * Stack options that keep the screen underneath drawn, so the back preview
+ * shows it. Only with the native back module (a dev or release build); Expo
+ * Go and iOS keep plain cards.
+ */
+export function predictiveBackScreenOptions(isRoot: boolean) {
+  if (isRoot || !hasTimelyAndroid()) return null;
+  return { presentation: "transparentModal" as const, contentStyle: { backgroundColor: "transparent" } };
+}
 
 type StackNavigation = {
   isFocused: () => boolean;
@@ -28,47 +44,76 @@ export function PredictiveBackScreen({ navigation, children }: { navigation: Sta
   const progress = useSharedValue(0);
   const direction = useSharedValue(1);
   const reduceMotion = useReducedMotion();
+  const { width } = useWindowDimensions();
 
   useEffect(() => {
     if (!hasTimelyAndroid() || reduceMotion) return;
-    return addBackListener((event) => {
+    let settle: ReturnType<typeof setTimeout> | undefined;
+    let armed = 0;
+    const remove = addBackListener((event) => {
+      clearTimeout(settle);
       // Only the screen on top of a stack that can pop previews; tab roots
       // and the first screen leave the gesture to the navigator or Android.
       if (!navigation.isFocused() || navigation.getState().index === 0) {
+        armed = 0;
         progress.value = 0;
         return;
       }
       switch (event.type) {
         case "started":
-        case "progress":
-          direction.value = event.edge === "right" ? -1 : 1;
-          progress.value = Math.min(1, Math.max(0, event.progress));
+        case "progress": {
+          const target = event.armed ? 1 : 0;
+          if (target === armed) break;
+          armed = target;
+          if (target) direction.value = event.edge === "right" ? -1 : 1;
+          progress.value = withTiming(target, { duration: target ? 220 : 200, easing: Easing.out(Easing.cubic) });
           break;
+        }
         case "cancelled":
-          progress.value = withSpring(0, { damping: 18, stiffness: 220 });
+          armed = 0;
+          progress.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) });
           break;
         case "invoked":
-          // The stack's pop animation takes it from here; if Back was used for
-          // something else (closing a menu), the screen settles back.
-          progress.value = withTiming(0, { duration: 260 });
+          // The page is already gone, so the stack's pop just reveals the
+          // screen behind. If Back went to something else and the screen is
+          // still on top, it slides back in.
+          armed = 0;
+          settle = setTimeout(() => {
+            if (navigation.isFocused()) progress.value = withTiming(0, { duration: 260 });
+          }, POP_GRACE_MS);
           break;
       }
     });
+    return () => {
+      clearTimeout(settle);
+      remove();
+    };
   }, [navigation, progress, direction, reduceMotion]);
 
   const style = useAnimatedStyle(() => {
-    const p = Easing.out(Easing.quad)(progress.value);
+    const p = progress.value;
     return {
-      borderRadius: RADIUS_AT_END * p,
-      transform: [{ translateX: direction.value * SHIFT_AT_END * p }, { scale: 1 - (1 - SCALE_AT_END) * p }],
+      borderRadius: RADIUS * Math.min(1, p * 8),
+      transform: [{ translateX: direction.value * width * p }],
     };
   });
+  // Dark page over a dark screen: a hairline keeps the page's edge visible.
+  const edgeStyle = useAnimatedStyle(() => {
+    const p = progress.value;
+    return { borderRadius: RADIUS * Math.min(1, p * 8), opacity: Math.min(1, p * 8) };
+  });
+  // The screen behind starts a little dim and brightens as the page leaves.
+  const scrimStyle = useAnimatedStyle(() => ({ opacity: progress.value > 0 ? SCRIM * (1 - progress.value) : 0 }));
 
-  // The well behind the shrinking screen is the app's fill colour, so its
-  // rounded edges read against it.
+  // The well is clear so the previous screen shows through, under a scrim
+  // that clears as the page goes. The shadow and hairline show once it moves.
   return (
-    <View style={[styles.well, { backgroundColor: colors.muted }]}>
-      <Animated.View style={[styles.screen, { backgroundColor: colors.background }, style]}>{children}</Animated.View>
+    <View style={styles.well}>
+      <Animated.View pointerEvents="none" style={[styles.fill, styles.scrim, scrimStyle]} />
+      <Animated.View style={[styles.screen, { backgroundColor: colors.background }, style]}>
+        {children}
+        <Animated.View pointerEvents="none" style={[styles.edge, { borderColor: colors.border }, edgeStyle]} />
+      </Animated.View>
     </View>
   );
 }
@@ -110,5 +155,8 @@ export function useBackSync() {
 
 const styles = StyleSheet.create({
   well: { flex: 1 },
-  screen: { flex: 1, overflow: "hidden" },
+  screen: { flex: 1, overflow: "hidden", elevation: 16 },
+  fill: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 },
+  scrim: { backgroundColor: "#000" },
+  edge: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, borderWidth: StyleSheet.hairlineWidth },
 });

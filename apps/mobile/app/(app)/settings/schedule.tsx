@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
-import { Button, Chip, Field, PrimaryButton, Select } from "../../../components/ui/primitives";
-import { Plus, Trash2 } from "lucide-react-native";
+import { Button, Field, PrimaryButton, Select } from "../../../components/ui/primitives";
+import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
+import { ColorDot, GroupLabel, ListGroup, ListRow, ListSwitch } from "../../../components/settings/SettingsList";
+import { Plus, X } from "lucide-react-native";
 import {
   useSaveScheduleSettings,
   useSaveWorkingHours,
@@ -17,14 +19,14 @@ import type { WeekdayKey, WorkingHours, WorkingWindow } from "../../../lib/types
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { FocusGroup, FocusGroupScrollView } from "../../../components/ui/FocusGroup";
 
-const DAYS: { key: WeekdayKey; label: string }[] = [
-  { key: "mon", label: "Mon" },
-  { key: "tue", label: "Tue" },
-  { key: "wed", label: "Wed" },
-  { key: "thu", label: "Thu" },
-  { key: "fri", label: "Fri" },
-  { key: "sat", label: "Sat" },
-  { key: "sun", label: "Sun" },
+const DAYS: { key: WeekdayKey; label: string; name: string }[] = [
+  { key: "mon", label: "Mon", name: "Monday" },
+  { key: "tue", label: "Tue", name: "Tuesday" },
+  { key: "wed", label: "Wed", name: "Wednesday" },
+  { key: "thu", label: "Thu", name: "Thursday" },
+  { key: "fri", label: "Fri", name: "Friday" },
+  { key: "sat", label: "Sat", name: "Saturday" },
+  { key: "sun", label: "Sun", name: "Sunday" },
 ];
 
 const DEFAULT_WINDOW: WorkingWindow = { start: "09:00", end: "17:00" };
@@ -72,48 +74,67 @@ export default function ScheduleSettings() {
         {hoursQ.isError ? (
           <Text style={styles.error}>Could not load working hours.</Text>
         ) : null}
-        <Select
-          label="Timezone"
-          searchable
-          value={hours.timezone}
-          onChange={(timezone) => setHours({ ...hours, timezone })}
-          options={listTimezones(hours.timezone).map((zone) => ({ value: zone, label: zone.replace(/_/g, " ") }))}
-        />
-        {DAYS.map((d) => {
-          const windows = hours.days[d.key] ?? [];
-          const on = windows.length > 0;
-          return (
-            <View key={d.key} style={styles.block}>
-              <View style={styles.row}>
-                <Pressable onPress={() => toggle(d.key)} style={[styles.day, on && styles.dayOn]}>
-                  <Text style={[styles.dayText, on && { color: colors.accentForeground }]}>{d.label}</Text>
-                </Pressable>
-                {on ? (
-                  <Button label="Add window" variant="ghost" size="sm" icon={<Plus size={16} color={colors.mutedForeground} />} onPress={() => addWindow(d.key)} />
-                ) : (
-                  <Text style={styles.off}>Off</Text>
-                )}
+        <ListGroup>
+          <Select
+            trigger="row"
+            label="Timezone"
+            searchable
+            value={hours.timezone}
+            onChange={(timezone) => setHours({ ...hours, timezone })}
+            options={listTimezones(hours.timezone).map((zone) => ({ value: zone, label: zone.replace(/_/g, " ") }))}
+          />
+        </ListGroup>
+        <GroupLabel>Working hours</GroupLabel>
+        <ListGroup>
+          {DAYS.map((d) => {
+            const windows = hours.days[d.key] ?? [];
+            const on = windows.length > 0;
+            return (
+              <View key={d.key} style={styles.day}>
+                {(on ? windows : [null]).map((window, index) => (
+                  <View key={`${d.key}-${index}`} style={styles.dayLine}>
+                    <Text style={[styles.dayLabel, !on && styles.dayOff]} accessibilityLabel={d.name}>
+                      {index === 0 ? d.label : ""}
+                    </Text>
+                    {window ? (
+                      <View style={styles.windowPills}>
+                        <TimeField compact label={`${d.name} start`} value={window.start} onChange={(v) => setWindow(d.key, index, "start", v)} />
+                        <Text style={styles.dash}>–</Text>
+                        <TimeField compact label={`${d.name} end`} value={window.end} onChange={(v) => setWindow(d.key, index, "end", v)} />
+                      </View>
+                    ) : (
+                      <Text style={[styles.windowPills, styles.offText]}>Off</Text>
+                    )}
+                    {index === 0 ? (
+                      <>
+                        {on ? (
+                          <Button
+                            label={`Add a ${d.name} window`}
+                            variant="ghost"
+                            size="sm"
+                            iconOnly
+                            icon={<Plus size={16} color={colors.mutedForeground} />}
+                            onPress={() => addWindow(d.key)}
+                          />
+                        ) : null}
+                        <ListSwitch label={`Work on ${d.name}`} value={on} onChange={() => toggle(d.key)} />
+                      </>
+                    ) : (
+                      <Button
+                        label={`Remove ${d.name} window ${index + 1}`}
+                        variant="ghost"
+                        size="sm"
+                        iconOnly
+                        icon={<X size={16} color={colors.mutedForeground} />}
+                        onPress={() => removeWindow(d.key, index)}
+                      />
+                    )}
+                  </View>
+                ))}
               </View>
-              {windows.map((window, index) => (
-                <View key={`${d.key}-${index}`} style={styles.windowRow}>
-                  <View style={{ flex: 1 }}>
-                    <TimeField value={window.start} onChange={(v) => setWindow(d.key, index, "start", v)} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <TimeField value={window.end} onChange={(v) => setWindow(d.key, index, "end", v)} />
-                  </View>
-                  <Button
-                    label={`Remove ${d.label} window`}
-                    variant="ghost"
-                    iconOnly
-                    icon={<Trash2 size={18} color={colors.destructive} />}
-                    onPress={() => removeWindow(d.key, index)}
-                  />
-                </View>
-              ))}
-            </View>
-          );
-        })}
+            );
+          })}
+        </ListGroup>
         {message ? <Text style={styles.msg}>{message}</Text> : null}
         <PrimaryButton
           label={save.isPending ? "Saving…" : "Save hours"}
@@ -140,6 +161,7 @@ function EngineSettings() {
   const [freezeHours, setFreezeHours] = useState("0");
   const [excluded, setExcluded] = useState<string[]>([]);
   const [message, setMessage] = useState("");
+  const [picking, setPicking] = useState(false);
 
   useEffect(() => {
     if (!settingsQ.data) return;
@@ -153,39 +175,58 @@ function EngineSettings() {
   }
 
   return (
-    <FocusGroup style={{ gap: 12, marginTop: 20 }}>
-      <Text style={styles.heading}>Engine</Text>
-      <Text style={styles.hint}>
-        Buffer sits between placed blocks. Freeze keeps the next hours from being rewritten.
-      </Text>
+    <FocusGroup style={{ gap: 12, marginTop: 8 }}>
+      <GroupLabel>Auto-schedule</GroupLabel>
       {settingsQ.isError ? <Text style={styles.error}>Could not load engine settings.</Text> : null}
-      <Field
-        value={breakMinutes}
-        onChangeText={setBreakMinutes}
-        placeholder="Buffer minutes (1–60)"
-        keyboardType="number-pad"
-      />
-      <Field
-        value={freezeHours}
-        onChangeText={setFreezeHours}
-        placeholder="Freeze next hours (0–168)"
-        keyboardType="number-pad"
-      />
-      {spaces.length > 0 ? (
-        <View style={{ gap: 8 }}>
-          <Text style={styles.hint}>Exclude workspaces</Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-            {spaces.map((space) => (
-              <Chip
-                key={space.id}
-                label={space.name}
-                active={excluded.includes(space.id)}
-                onPress={() => toggle(space.id)}
-              />
-            ))}
-          </View>
-        </View>
-      ) : null}
+      <ListGroup>
+        <ListRow
+          title="Buffer between blocks"
+          meta="1–60 minutes"
+          trailing={
+            <View style={styles.numberRow}>
+              <View style={styles.number}>
+                <Field bare value={breakMinutes} onChangeText={setBreakMinutes} placeholder="5" keyboardType="number-pad" />
+              </View>
+              <Text style={styles.unit}>min</Text>
+            </View>
+          }
+        />
+        <ListRow
+          title="Don't move the next"
+          meta="0–168 hours stay as planned"
+          trailing={
+            <View style={styles.numberRow}>
+              <View style={styles.number}>
+                <Field bare value={freezeHours} onChangeText={setFreezeHours} placeholder="0" keyboardType="number-pad" />
+              </View>
+              <Text style={styles.unit}>h</Text>
+            </View>
+          }
+        />
+        {spaces.length > 0 ? (
+          <ListRow
+            title="Skip workspaces"
+            trailing={
+              excluded.length
+                ? spaces.filter((space) => excluded.includes(space.id)).map((space) => space.name).join(", ")
+                : "None"
+            }
+            onPress={() => setPicking(true)}
+          />
+        ) : null}
+      </ListGroup>
+      <BottomSheet open={picking} onClose={() => setPicking(false)} title="Skip workspaces" subtitle="The scheduler won't place their tasks">
+        {spaces.map((space) => (
+          <SheetOption
+            key={space.id}
+            selected={excluded.includes(space.id)}
+            leading={space.color ? <ColorDot color={space.color} size={8} /> : undefined}
+            onSelect={() => toggle(space.id)}
+          >
+            {space.name}
+          </SheetOption>
+        ))}
+      </BottomSheet>
       {message ? <Text style={styles.msg}>{message}</Text> : null}
       <PrimaryButton
         label={save.isPending ? "Saving…" : "Save engine settings"}
@@ -220,25 +261,16 @@ function EngineSettings() {
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  block: { gap: 8 },
-  row: { flexDirection: "row", alignItems: "center", gap: 10 },
-  windowRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  day: {
-    width: 56,
-    height: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  dayOn: { backgroundColor: colors.accent, borderColor: colors.primary },
-  dayText: { color: colors.mutedForeground, fontWeight: "600" },
-  off: { color: colors.mutedForeground },
-  link: { color: colors.primary, fontSize: 13, fontWeight: "600" },
-  remove: { color: colors.destructive, fontSize: 12 },
-  heading: { color: colors.foreground, fontSize: 16, fontWeight: "600" },
-  hint: { color: colors.mutedForeground, fontSize: 13 },
+  day: { paddingHorizontal: 14, paddingVertical: 6, gap: 2 },
+  dayLine: { minHeight: 40, flexDirection: "row", alignItems: "center", gap: 8 },
+  dayLabel: { width: 40, color: colors.foreground, fontSize: 14, fontWeight: "600" },
+  dayOff: { color: colors.mutedForeground, fontWeight: "500" },
+  windowPills: { flex: 1, flexDirection: "row", alignItems: "center", gap: 6 },
+  offText: { color: colors.mutedForeground, fontSize: 14 },
+  dash: { color: colors.mutedForeground, fontSize: 14 },
+  numberRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  number: { width: 52, minHeight: 32, borderRadius: 8, backgroundColor: colors.muted, paddingHorizontal: 10, justifyContent: "center" },
+  unit: { width: 24, color: colors.mutedForeground, fontSize: 13 },
   msg: { color: colors.mutedForeground, fontSize: 13 },
   error: { color: colors.destructive, fontSize: 13 },
 }));

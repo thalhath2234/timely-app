@@ -90,3 +90,47 @@ describe("backPlan", () => {
     assert.match(source, /addListener\("state"/);
   });
 });
+
+// The back preview shows the screen you're going back to, so every pushed
+// screen keeps the one underneath drawn and the preview well stays clear.
+describe("back preview", () => {
+  const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
+
+  test("pushed screens keep the screen underneath drawn", () => {
+    const layout = read("../apps/mobile/app/(app)/_layout.tsx");
+    assert.match(layout, /\.\.\.predictiveBackScreenOptions\(route\.name === "\(tabs\)"\)/);
+    const back = read("../apps/mobile/lib/predictiveBack.tsx");
+    assert.match(back, /presentation: "transparentModal"/);
+    assert.match(back, /if \(isRoot \|\| !hasTimelyAndroid\(\)\) return null/);
+  });
+
+  test("nothing paints over the screen behind the shrinking page", () => {
+    const back = read("../apps/mobile/lib/predictiveBack.tsx");
+    assert.match(back, /<View style=\{styles\.well\}>/);
+    assert.match(back, /well: \{ flex: 1 \}/);
+  });
+});
+
+// The screen stays put until Android's back arrow arms, using the system
+// gesture's own thresholds, and Android alone decides go back or cancel.
+describe("back swipe threshold", () => {
+  const native = readFileSync(
+    new URL("../apps/mobile/modules/timely-android/android/src/main/java/expo/modules/timelyandroid/TimelyBack.kt", import.meta.url),
+    "utf8",
+  );
+
+  test("uses Android's own thresholds and never overrides its decision", () => {
+    assert.match(native, /ARM_DP = 16f/);
+    assert.match(native, /DISARM_DP = 32f/);
+    assert.match(native, /REARM_DP = 32f/);
+    assert.match(native, /MIN_ARMED_MS = 300L/);
+    assert.match(native, /REARM_DELAY_MS = 160f/);
+    assert.doesNotMatch(native, /COMMIT_AT/);
+  });
+
+  test("the screen moves on the threshold, not with the finger", () => {
+    const back = readFileSync(new URL("../apps/mobile/lib/predictiveBack.tsx", import.meta.url), "utf8");
+    assert.match(back, /const target = event\.armed \? 1 : 0;/);
+    assert.doesNotMatch(back, /progress\.value = Math\.min\(1, Math\.max\(0, event\.progress\)\)/);
+  });
+});

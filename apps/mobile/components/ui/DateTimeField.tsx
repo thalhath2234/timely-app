@@ -17,6 +17,7 @@ export function TimeField({
   onChange,
   placeholder = "Pick a time",
   clearable = false,
+  compact = false,
 }: {
   label?: string;
   /** "HH:mm", or "" for none. */
@@ -24,19 +25,33 @@ export function TimeField({
   onChange: (value: string) => void;
   placeholder?: string;
   clearable?: boolean;
+  /** A small time pill for the right side of a settings row; `label` names it for screen readers and the sheet. */
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const date = parseTime(value);
   return (
     <>
-      <FieldTrigger
-        label={label}
-        icon="time"
-        text={date ? formatClock(date) : ""}
-        placeholder={placeholder}
-        onPress={() => setOpen(true)}
-        onClear={clearable && value ? () => onChange("") : undefined}
-      />
+      {compact ? (
+        <AnimatedPressable
+          accessibilityRole="button"
+          accessibilityLabel={`${label ?? "Time"}, ${date ? formatClock(date) : placeholder}`}
+          hitSlop={8}
+          onPress={() => setOpen(true)}
+          style={styles.pill}
+        >
+          <Text style={[styles.pillText, !date && { color: colors.mutedForeground }]}>{date ? formatClock(date) : placeholder}</Text>
+        </AnimatedPressable>
+      ) : (
+        <FieldTrigger
+          label={label}
+          icon="time"
+          text={date ? formatClock(date) : ""}
+          placeholder={placeholder}
+          onPress={() => setOpen(true)}
+          onClear={clearable && value ? () => onChange("") : undefined}
+        />
+      )}
       <DateTimeSheet
         open={open}
         mode="time"
@@ -143,6 +158,8 @@ function formatClock(date: Date) {
 }
 
 const styles = createThemedStyleSheet((colors) => ({
+  pill: { minHeight: 32, borderRadius: 8, backgroundColor: colors.muted, paddingHorizontal: 10, alignItems: "center", justifyContent: "center" },
+  pillText: { color: colors.foreground, fontSize: 14, fontWeight: "500", fontVariant: ["tabular-nums"] },
   wrap: { gap: 6 },
   trigger: {
     minHeight: 48,

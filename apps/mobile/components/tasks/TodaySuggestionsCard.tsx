@@ -112,14 +112,19 @@ export default function TodaySuggestionsCard({
       })}
       {gap?.task ? (
         <View style={[styles.row, styles.gap]}>
-          <View style={{ flex: 1 }}>
+          <AnimatedPressable
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${gap.task.name}`}
+            style={{ flex: 1 }}
+            onPress={() => onOpenTask(gap.task!.id)}
+          >
             <Text style={styles.meta}>
               Free {clock(gap.start)}–{clock(gap.end)} ({formatDuration(gap.minutes)})
             </Text>
             <Text style={styles.title} numberOfLines={2}>
               {gap.task.name} fits here{gap.task.effortKind ? ` · ${EFFORT[gap.task.effortKind]}` : ""}
             </Text>
-          </View>
+          </AnimatedPressable>
           <AnimatedPressable
             accessibilityRole="button"
             disabled={addBlock.isPending}

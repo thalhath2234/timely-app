@@ -25,8 +25,9 @@ import { LIVE_ACTIONS, isBusyChat, liveKey, liveModel, type LiveChat, type LiveF
  * The app also nudges it (`refreshLiveActivity`) when it starts something.
  */
 
+/** How often the server is checked while an Assistant run works, and otherwise (a focus or pomodoro runs on the phone). */
 const BUSY_TICK_MS = 6_000;
-const IDLE_TICK_MS = 20_000;
+const IDLE_TICK_MS = 60_000;
 const TODAY_EVERY_MS = 30_000;
 /** While a pomodoro runs, its progress bar is redrawn this often between fetches. */
 const PROGRESS_TICK_MS = 5_000;
@@ -141,12 +142,19 @@ export function redrawLiveActivity() {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Waits until the next fetch, moving a running pomodoro's progress bar on the way. */
+const busy = () => chats.some((chat) => isBusyChat(chat.status));
+
+/**
+ * Waits until the next fetch, moving a running pomodoro's progress bar on the
+ * way. A run the app starts meanwhile ends a long wait early.
+ */
 async function waitForNextFetch(ms: number) {
   const until = Date.now() + ms;
+  const wasBusy = busy();
   while (isLiveActivityRunning() && Date.now() < until) {
     await sleep(Math.min(PROGRESS_TICK_MS, until - Date.now()));
     if (selectActivePomodoros(usePomodoroStore.getState()).some((timer) => timer.endsAt !== null)) render();
+    if (!wasBusy && busy()) return;
   }
 }
 
@@ -158,7 +166,7 @@ export async function runLiveActivityTask() {
     // run, an overdue task) are fetched while the service keeps JS awake.
     await pollServerNotifications().catch(() => undefined);
     if (!active) break;
-    await waitForNextFetch(chats.some((chat) => isBusyChat(chat.status)) ? BUSY_TICK_MS : IDLE_TICK_MS);
+    await waitForNextFetch(busy() ? BUSY_TICK_MS : IDLE_TICK_MS);
   }
 }
 

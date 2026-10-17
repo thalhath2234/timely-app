@@ -12,7 +12,6 @@
       "maxResizeHeight": "520dp",
       "resizeMode": "horizontal|vertical",
       "widgetFeatures": "reconfigurable",
-      "updatePeriodMillis": 1800000,
       "previewImage": "./assets/widgets/timely-card.png"
     },
     {
@@ -26,7 +25,6 @@
       "maxResizeWidth": "520dp",
       "maxResizeHeight": "520dp",
       "resizeMode": "horizontal|vertical",
-      "updatePeriodMillis": 1800000,
       "previewImage": "./assets/widgets/timely-today.png"
     },
     {

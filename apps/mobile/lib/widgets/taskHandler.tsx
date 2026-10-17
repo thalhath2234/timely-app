@@ -5,14 +5,15 @@ import { scheduleWidgetRefresh } from "../../modules/timely-android";
 import { clockChange, optimisticModel, parseWidgetAction, WIDGET_ACTION, type WidgetAction } from "./actions";
 import { cardWidgetModel, todayModel, type WidgetInput, type WidgetModel } from "./model";
 import { renderCard, renderQuickAdd, type QuickAddButton } from "./render";
-import { appScheme, loadCards, loadWidgetInput, signedIn, widgetPomodoros } from "./data";
+import { appScheme, forgetWidgetLoads, loadCards, loadWidgetInput, signedIn, widgetPomodoros } from "./data";
 import { runPomodoro, runWidgetAction } from "./run";
 import { allWidgetEntries, forgetWidget, setWidgetEntry, widgetEntry } from "./storage";
 
 /**
  * Draws Timely's home screen widgets. Android asks for a redraw when one is
- * added, resized or every 30 minutes (headless, through this handler); the
- * app also redraws them after changes (lib/widgets/sync.ts).
+ * added or resized (headless, through this handler). There is no fixed
+ * update period: the app redraws them after changes, the background refresh
+ * every 15 minutes or so, and an alarm when a timer ends.
  */
 
 export const WIDGET_NAMES = ["TimelyCard", "TimelyToday", "TimelyQuickAdd"] as const;
@@ -119,6 +120,7 @@ async function handleAction(info: WidgetInfo, data: Record<string, unknown> | un
     // Offline or refused: put back what was there, then redraw from the server.
     if (entry.model) setWidgetEntry(info.widgetId, { model: entry.model });
   }
+  forgetWidgetLoads();
   if (action.kind === "pomodoro") {
     const { refreshLiveActivity } = require("../live/liveActivity") as typeof import("../live/liveActivity");
     void refreshLiveActivity();
@@ -129,8 +131,12 @@ async function handleAction(info: WidgetInfo, data: Record<string, unknown> | un
     const cached = widgetEntry(info.widgetId).model;
     if (cached) renderWidget(renderCard(cached, size));
   }
-  // Other widgets may show the same task, habit or sheet.
-  void refreshAllWidgets(WIDGET_NAMES.filter((name) => name !== "TimelyQuickAdd"));
+  // Other widgets may show the same task, habit or sheet; they share what
+  // this redraw just loaded.
+  void refreshAllWidgets(
+    WIDGET_NAMES.filter((name) => name !== "TimelyQuickAdd"),
+    { fresh: false },
+  );
 }
 
 export async function renderWidgetFor(info: WidgetInfo, cardId?: string) {
@@ -163,8 +169,13 @@ export async function widgetTaskHandler({ widgetInfo, widgetAction, renderWidget
   }
 }
 
-/** Redraws every Timely widget on the home screen (the app calls this after changes). */
-export async function refreshAllWidgets(names: readonly string[] = WIDGET_NAMES) {
+/**
+ * Redraws every Timely widget on the home screen (the app calls this after
+ * changes). `fresh: false` reuses what was just loaded, when nothing on the
+ * server changed since (a pomodoro, which lives on the phone).
+ */
+export async function refreshAllWidgets(names: readonly string[] = WIDGET_NAMES, { fresh = true }: { fresh?: boolean } = {}) {
+  if (fresh) forgetWidgetLoads();
   await Promise.all(
     names.map((widgetName) =>
       requestWidgetUpdate({ widgetName, renderWidget: (info) => renderWidgetFor({ ...info, widgetName }) }).catch(() => undefined),
