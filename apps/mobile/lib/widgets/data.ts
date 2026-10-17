@@ -11,11 +11,13 @@ import { getConfig, getWorkspaces } from "../api/workspaces";
 import { pomodoroTimeLeft, usePomodoroStore } from "../pomodoroStore";
 import type { Sheet } from "@timely/contract/sheet";
 import type { WidgetDoc, WidgetInput, WidgetPomodoro } from "./model";
+import { sharedLoads } from "./sharedLoads";
 
 /**
  * Loads what a widget's card reads, straight from the API (widgets redraw in
  * a headless task, without the app's query cache). Each source fails on its
- * own, so one slow endpoint never blanks the widget.
+ * own, so one slow endpoint never blanks the widget, and widgets drawn
+ * together share each request (sharedLoads).
  */
 
 export function appScheme() {
@@ -23,7 +25,10 @@ export function appScheme() {
   return (Array.isArray(value) ? value[0] : value) || "timelymobile";
 }
 
-const quiet = <T,>(promise: Promise<T>): Promise<T | undefined> => promise.catch(() => undefined);
+const { shared, forget } = sharedLoads();
+
+/** Drops the shared requests, so the next draw reads fresh data (something changed). */
+export const forgetWidgetLoads = forget;
 
 export async function signedIn() {
   try {
@@ -36,7 +41,7 @@ export async function signedIn() {
 /** The account's Dashboard cards, or null when signed out or offline. */
 export async function loadCards(): Promise<{ cards: DashboardCard[]; config: Awaited<ReturnType<typeof getConfig>> } | null> {
   if (!(await signedIn())) return null;
-  const config = await quiet(getConfig());
+  const config = await shared("config", getConfig);
   if (!config) return null;
   return { cards: normalizeDashboard(config.reportDashboard).cards, config };
 }
@@ -68,19 +73,19 @@ export async function loadWidgetInput(cards: DashboardCard[], options: { today?:
   const wantsTasks = used.has("tasks") || wantsFocus;
 
   const [tasks, projects, workspaces, docs, sheets, inbox, reminders, events, today, focusSessions] = await Promise.all([
-    wantsTasks ? quiet(getTasks()) : undefined,
-    used.has("projects") || custom ? quiet(getProjects()) : undefined,
-    custom ? quiet(getWorkspaces()) : undefined,
-    used.has("docs") ? quiet(getDocs()) : undefined,
-    used.has("sheets") ? quiet(getSheets()) : undefined,
-    used.has("inbox") || cards.some((card) => card.type === "quickCapture") ? quiet(getTasks({ inbox: true })) : undefined,
-    used.has("reminders") ? quiet(getTasks({ reminders: true })) : undefined,
+    wantsTasks ? shared("tasks", () => getTasks()) : undefined,
+    used.has("projects") || custom ? shared("projects", getProjects) : undefined,
+    custom ? shared("workspaces", getWorkspaces) : undefined,
+    used.has("docs") ? shared("docs", getDocs) : undefined,
+    used.has("sheets") ? shared("sheets", getSheets) : undefined,
+    used.has("inbox") || cards.some((card) => card.type === "quickCapture") ? shared("inbox", () => getTasks({ inbox: true })) : undefined,
+    used.has("reminders") ? shared("reminders", () => getTasks({ reminders: true })) : undefined,
     used.has("events")
-      ? quiet(getCalendarRange(new Date(`${addDaysToDate(day, -1)}T00:00:00`), new Date(`${addDaysToDate(day, 2)}T00:00:00`)))
+      ? shared(`events:${day}`, () => getCalendarRange(new Date(`${addDaysToDate(day, -1)}T00:00:00`), new Date(`${addDaysToDate(day, 2)}T00:00:00`)))
       : undefined,
-    wantsToday ? quiet(getToday()) : undefined,
+    wantsToday ? shared("today", getToday) : undefined,
     wantsFocus
-      ? quiet(getFocusSessions(new Date(`${addDaysToDate(weekStart(day), -1)}T00:00:00`), new Date(`${addDaysToDate(day, 1)}T00:00:00`)))
+      ? shared(`focus:${day}`, () => getFocusSessions(new Date(`${addDaysToDate(weekStart(day), -1)}T00:00:00`), new Date(`${addDaysToDate(day, 1)}T00:00:00`)))
       : undefined,
   ]);
 
@@ -88,8 +93,8 @@ export async function loadWidgetInput(cards: DashboardCard[], options: { today?:
   const sheetIds = [...new Set(cards.flatMap((card) => (card.query?.sheet ? [card.query.sheet.sheetId] : [])))];
   const docIds = [...new Set(cards.flatMap((card) => (card.query?.doc ? [card.query.doc.docId] : [])))];
   const [sheetFiles, docFiles] = await Promise.all([
-    Promise.all(sheetIds.map(async (id) => [id, (await quiet(getSheet(id))) as unknown as Sheet | undefined] as const)),
-    Promise.all(docIds.map(async (id) => [id, (await quiet(getDoc(id))) as WidgetDoc | undefined] as const)),
+    Promise.all(sheetIds.map(async (id) => [id, (await shared(`sheet:${id}`, () => getSheet(id))) as unknown as Sheet | undefined] as const)),
+    Promise.all(docIds.map(async (id) => [id, (await shared(`doc:${id}`, () => getDoc(id))) as WidgetDoc | undefined] as const)),
   ]);
 
   const data: DashboardData = {

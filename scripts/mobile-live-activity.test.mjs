@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test, { describe } from "node:test";
 import { LIVE_ACTIONS, clock, liveKey, liveModel } from "../apps/mobile/lib/live/liveModel.ts";
 import { NOTIFICATION_CATEGORIES, categoryFor, freshAlerts, notificationBody } from "../apps/mobile/lib/notificationCategories.ts";
@@ -169,5 +170,18 @@ describe("server alerts fetched by the phone", () => {
     const seen = { since: new Date(NOW).toISOString(), ids: [] };
     assert.equal(freshAlerts([item("a", 0.5)], seen, NOW).length, 1);
     assert.equal(freshAlerts([item("b", 2)], seen, NOW).length, 0);
+  });
+});
+
+describe("live notification battery", () => {
+  const loop = readFileSync(new URL("../apps/mobile/lib/live/liveActivity.ts", import.meta.url), "utf8");
+
+  test("checks the server every minute unless an Assistant run is working", () => {
+    assert.match(loop, /const IDLE_TICK_MS = 60_000;/);
+    assert.match(loop, /const BUSY_TICK_MS = 6_000;/);
+  });
+
+  test("a run started during a long wait ends the wait", () => {
+    assert.match(loop, /if \(!wasBusy && busy\(\)\) return;/);
   });
 });

@@ -14,6 +14,7 @@ register(
 const { BUILTIN_CARDS, defaultDashboard } = await import("../packages/contract/src/dashboard.ts");
 const { cardWidgetModel, todayModel, widgetChoices } = await import("../apps/mobile/lib/widgets/model.ts");
 const { clockChange, optimisticModel, parseWidgetAction } = await import("../apps/mobile/lib/widgets/actions.ts");
+const { SHARED_MS, sharedLoads } = await import("../apps/mobile/lib/widgets/sharedLoads.ts");
 const { clockState, initialPomodoro, pomodoroRemaining, pomodoroSettings } = await import("../packages/contract/src/dashboard.ts");
 const catalog = (await import("../apps/mobile/lib/widgets/catalog.json", { with: { type: "json" } })).default;
 
@@ -156,6 +157,47 @@ describe("home screen widgets", () => {
     assert.deepEqual(names, ["TimelyCard", "TimelyToday", "TimelyQuickAdd"]);
     assert.equal(catalog.WIDGETS[0].widgetFeatures, "reconfigurable");
     for (const widget of catalog.WIDGETS) assert.match(widget.previewImage, /^\.\/assets\/widgets\/.+\.png$/);
+  });
+
+  test("no fixed update period: the app and the background refresh redraw widgets, so Android never wakes the phone for them", () => {
+    for (const widget of catalog.WIDGETS) assert.equal(widget.updatePeriodMillis, undefined, widget.name);
+  });
+});
+
+describe("widget loads", () => {
+  test("widgets drawn together share each request", async () => {
+    let time = 0;
+    let calls = 0;
+    const { shared } = sharedLoads(() => time);
+    const tasks = () => {
+      calls++;
+      return Promise.resolve(["task"]);
+    };
+    const [a, b] = await Promise.all([shared("tasks", tasks), shared("tasks", tasks)]);
+    time += 1_000;
+    const c = await shared("tasks", tasks);
+    assert.deepEqual([a, b, c], [["task"], ["task"], ["task"]]);
+    assert.equal(calls, 1);
+  });
+
+  test("a request goes stale, and a change drops it", async () => {
+    let time = 0;
+    let calls = 0;
+    const { shared, forget } = sharedLoads(() => time);
+    const load = () => Promise.resolve(++calls);
+    await shared("config", load);
+    time += SHARED_MS;
+    assert.equal(await shared("config", load), 2);
+    forget();
+    assert.equal(await shared("config", load), 3);
+  });
+
+  test("a failed request isn't kept, so the next widget tries again", async () => {
+    let calls = 0;
+    const { shared } = sharedLoads(() => 0);
+    const load = () => (++calls === 1 ? Promise.reject(new Error("offline")) : Promise.resolve("ok"));
+    assert.equal(await shared("today", load), undefined);
+    assert.equal(await shared("today", load), "ok");
   });
 });
 
