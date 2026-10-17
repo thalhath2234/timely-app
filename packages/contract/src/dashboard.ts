@@ -1931,12 +1931,16 @@ export interface PomodoroSettings {
   sound: boolean;
 }
 
+/** The setting that holds each phase's length in minutes, and the most it can be. */
+export const POMODORO_PHASE_SETTING = { focus: "focus", short: "shortBreak", long: "longBreak" } as const;
+export const POMODORO_PHASE_MAX: Record<PomodoroPhase, number> = { focus: 180, short: 60, long: 90 };
+
 export function pomodoroSettings(settings?: Record<string, unknown>): PomodoroSettings {
   const read = (key: string, fallback: number, max: number) => clampInt(settings?.[key] ?? fallback, 1, max);
   return {
-    focus: read("focus", 25, 180),
-    shortBreak: read("shortBreak", 5, 60),
-    longBreak: read("longBreak", 15, 90),
+    focus: read("focus", 25, POMODORO_PHASE_MAX.focus),
+    shortBreak: read("shortBreak", 5, POMODORO_PHASE_MAX.short),
+    longBreak: read("longBreak", 15, POMODORO_PHASE_MAX.long),
     rounds: read("rounds", 4, 12),
     autoStart: settings?.autoStart === true,
     sound: settings?.sound !== false,

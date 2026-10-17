@@ -1,5 +1,5 @@
 diff --git a/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java b/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
-index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..71a6938197aafa5808099f5b5003f4a7da991d68 100644
+index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..ea132069d6fd15e380b8284d93dcd4b72b881ccf 100644
 --- a/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
 +++ b/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
 @@ -6,12 +6,15 @@ import android.content.ComponentName;
@@ -67,7 +67,7 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..71a6938197aafa5808099f5b5003f4a7
  
          // The clickable overlay draws its own ripple, so match it to the view's radius when supported
          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && clickableView.getBorderRadius() > 0f) {
-@@ -199,22 +198,133 @@ public class RNWidget {
+@@ -199,37 +198,136 @@ public class RNWidget {
          widgetView.addView(R.id.rn_widget_clickable_container, clickableRemoteView);
      }
  
@@ -120,6 +120,8 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..71a6938197aafa5808099f5b5003f4a7
          widgetView.setOnClickPendingIntent(button, pendingIntent);
      }
  
+-    private void addCollectionViews(int widgetId, RemoteViews remoteWidgetView, WidgetWithViews widgetWithViews) {
+-        remoteWidgetView.removeAllViews(R.id.rn_widget_collection_container);
 +    /**
 +     * Timely patch: a tap that only opens the app starts its activity directly.
 +     * Going through the widget provider's broadcast needs the app's process, and
@@ -148,7 +150,18 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..71a6938197aafa5808099f5b5003f4a7
 +            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
 +        );
 +    }
-+
+ 
+-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+-            remoteWidgetView.setViewLayoutWidth(
+-                R.id.rn_widget_collection_container,
+-                RNWidgetUtil.getWidgetWidth(appContext, widgetId),
+-                TypedValue.COMPLEX_UNIT_DIP
+-            );
+-            remoteWidgetView.setViewLayoutHeight(
+-                R.id.rn_widget_collection_container,
+-                RNWidgetUtil.getWidgetHeight(appContext, widgetId),
+-                TypedValue.COMPLEX_UNIT_DIP
+-            );
 +    // Timely patch: live timers. Each ChronometerView is a text area whose
 +    // bitmap text is transparent; a system Chronometer ticks in its place.
 +    private void addChronometers(int widgetId, RemoteViews remoteWidgetView, WidgetWithViews light, WidgetWithViews dark) {
@@ -191,7 +204,7 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..71a6938197aafa5808099f5b5003f4a7
 +            views.setTextColor(id, Color.parseColor(stringOr(data, "color", "#000000")));
 +        } catch (IllegalArgumentException ignored) {
 +            // Keep the default text colour.
-+        }
+         }
 +        int horizontal = "center".equals(gravity) ? Gravity.CENTER_HORIZONTAL : "end".equals(gravity) ? Gravity.END : Gravity.START;
 +        views.setInt(id, "setGravity", horizontal | Gravity.CENTER_VERTICAL);
 +    }
@@ -200,14 +213,77 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..71a6938197aafa5808099f5b5003f4a7
 +        return data != null && data.hasKey(key) && !data.isNull(key) ? data.getString(key) : fallback;
 +    }
 +
-     private void addCollectionViews(int widgetId, RemoteViews remoteWidgetView, WidgetWithViews widgetWithViews) {
-         remoteWidgetView.removeAllViews(R.id.rn_widget_collection_container);
++    private void addCollectionViews(int widgetId, RemoteViews remoteWidgetView, WidgetWithViews widgetWithViews) {
++        remoteWidgetView.removeAllViews(R.id.rn_widget_collection_container);
++        // Timely patch: no fixed container size; each list is placed by proportion (rn_widget_list.xml).
  
+         ViewGroup rootView = (ViewGroup) widgetWithViews.getRootView();
+         List<CollectionView> collectionViews = widgetWithViews.getCollectionViews();
+@@ -248,13 +346,9 @@ public class RNWidget {
+ 
+         RemoteViews collectionRemoteView = new RemoteViews(appContext.getPackageName(), R.layout.rn_widget_list);
+ 
+-        collectionRemoteView.setViewPadding(
+-            R.id.rn_widget_list_positioner,
+-            offsetViewBounds.left,
+-            offsetViewBounds.top,
+-            RNWidgetUtil.dpToPx(appContext, RNWidgetUtil.getWidgetWidth(appContext, widgetId)) - offsetViewBounds.right,
+-            RNWidgetUtil.dpToPx(appContext, RNWidgetUtil.getWidgetHeight(appContext, widgetId)) - offsetViewBounds.bottom
+-        );
++        if (!placeByProportion(collectionRemoteView, offsetViewBounds, rootView.getMeasuredWidth(), rootView.getMeasuredHeight())) {
++            return;
++        }
+ 
+         for (int i = 0; i < listWrappers.length; i++) {
+             if (i != collectionId) {
+@@ -262,7 +356,9 @@ public class RNWidget {
+             }
+         }
+ 
+-        PendingIntent collectionPendingIntentTemplate = createCollectionPendingIntentTemplate(widgetId);
++        PendingIntent collectionPendingIntentTemplate = onlyOpens(collectionView)
++            ? createOpeningPendingIntentTemplate(widgetId, collectionId)
++            : createCollectionPendingIntentTemplate(widgetId);
+         Intent remoteAdapterIntent = createCollectionRemoteAdapterIntent(widgetId, collectionId, collectionView);
+ 
+         collectionRemoteView.setPendingIntentTemplate(lists[collectionId], collectionPendingIntentTemplate);
+@@ -331,6 +427,23 @@ public class RNWidget {
+         return intent;
+     }
+ 
++    /** Timely patch: every item only opens a link, so the list can start the app directly (see openingIntent). */
++    private static boolean onlyOpens(CollectionView collectionView) {
++        for (CollectionViewItem item : collectionView.getRenderedViews()) {
++            if (!"OPEN_URI".equals(item.getClickAction()) || !item.getClickableViews().isEmpty()) return false;
++        }
++        return true;
++    }
++
++    /** Timely patch: an activity template; each item's fill-in intent supplies its link as the data. */
++    private PendingIntent createOpeningPendingIntentTemplate(int widgetId, int collectionId) {
++        Intent intent = new Intent(Intent.ACTION_VIEW);
++        intent.setPackage(appContext.getPackageName());
++        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
++        return PendingIntent.getActivity(appContext, ("rnwidget-list/" + widgetName + "/" + widgetId + "/" + collectionId).hashCode(), intent,
++            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
++    }
++
+     private PendingIntent createCollectionPendingIntentTemplate(int widgetId) {
+         // This section makes it possible for items to have individualized
+         // behavior. It does this by setting up a pending intent template.
 diff --git a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetCollectionService.java b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetCollectionService.java
-index f818d97e1985938d4af6bfc20bce9855cc2ff4a5..94fc4de8941358e50059a830e16907aae38ec3d3 100644
+index f818d97e1985938d4af6bfc20bce9855cc2ff4a5..136af55557433f66f0fd6419cb1043bdf2a8ba95 100644
 --- a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetCollectionService.java
 +++ b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetCollectionService.java
-@@ -154,17 +154,22 @@ class ListRemoteViewsFactory implements RemoteViewsService.RemoteViewsFactory {
+@@ -151,20 +151,30 @@ class ListRemoteViewsFactory implements RemoteViewsService.RemoteViewsFactory {
+ 
+         Intent fillInIntent = new Intent();
+         fillInIntent.putExtras(extras);
++        // Timely patch: a list that only opens links uses an activity template, which takes its link from here.
++        Bundle data = bundle.getBundle("clickActionData");
++        if ("OPEN_URI".equals(bundle.getString("clickAction")) && data != null && data.getString("uri") != null) {
++            fillInIntent.setData(Uri.parse(data.getString("uri")));
++        }
          return fillInIntent;
      }
  
@@ -500,6 +576,107 @@ index 0000000000000000000000000000000000000000..d3dd71a014ca17c4d06dc68dfa4885ae
 +                    android:background="?android:attr/selectableItemBackground"
 +                    android:clickable="true"
 +                    android:focusable="true" />
++            </LinearLayout>
++        </LinearLayout>
++    </LinearLayout>
++</LinearLayout>
+diff --git a/android/src/main/res/layout/rn_widget_list.xml b/android/src/main/res/layout/rn_widget_list.xml
+index 6935b8653cd7cc29b4109e7873abf4fa2869484b..cf21c3c6dd4765382736066d233c64915d31145e 100644
+--- a/android/src/main/res/layout/rn_widget_list.xml
++++ b/android/src/main/res/layout/rn_widget_list.xml
+@@ -1,31 +1,72 @@
+-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+-    android:id="@+id/rn_widget_list_positioner"
++<!--
++  Timely patch: a scrolling list placed by proportion, not by pixel padding. Some
++  launchers (HyperOS) scale the padding a widget sets by its own factor (0.78)
++  while the widget image stays 1:1, so pixel-placed areas drifted off the
++  buttons they belonged to. Each LinearLayout's weightSum is set from code so
++  that its single weighted child covers the right fraction of the widget:
++  rows 0..bottom, then top..bottom, then columns 0..right, then left..right.
++-->
++<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
++    android:id="@+id/rn_widget_place_to_bottom"
+     android:layout_width="match_parent"
+-    android:layout_height="match_parent">
++    android:layout_height="match_parent"
++    android:orientation="vertical">
+ 
+-    <FrameLayout
+-        android:id="@+id/rn_widget_list_0_wrapper"
++    <LinearLayout
++        android:id="@+id/rn_widget_place_from_top"
+         android:layout_width="match_parent"
+-        android:layout_height="match_parent">
++        android:layout_height="0dp"
++        android:layout_weight="1"
++        android:gravity="bottom"
++        android:orientation="vertical">
+ 
+-        <ListView
+-            android:id="@+id/rn_widget_list_0"
++        <LinearLayout
++            android:id="@+id/rn_widget_place_to_right"
+             android:layout_width="match_parent"
+-            android:layout_height="match_parent"
+-            android:divider="@null"
+-            android:gravity="center" />
+-    </FrameLayout>
++            android:layout_height="0dp"
++            android:layout_weight="1"
++            android:orientation="horizontal">
+ 
+-    <FrameLayout
+-        android:id="@+id/rn_widget_list_1_wrapper"
+-        android:layout_width="match_parent"
+-        android:layout_height="match_parent">
++            <LinearLayout
++                android:id="@+id/rn_widget_place_from_left"
++                android:layout_width="0dp"
++                android:layout_height="match_parent"
++                android:layout_weight="1"
++                android:gravity="end"
++                android:orientation="horizontal">
+ 
+-        <ListView
+-            android:id="@+id/rn_widget_list_1"
+-            android:layout_width="match_parent"
+-            android:layout_height="match_parent"
+-            android:divider="@null"
+-            android:gravity="center" />
+-    </FrameLayout>
+-</FrameLayout>
++                <FrameLayout
++                    android:layout_width="0dp"
++                    android:layout_height="match_parent"
++                    android:layout_weight="1">
++
++                    <FrameLayout
++                        android:id="@+id/rn_widget_list_0_wrapper"
++                        android:layout_width="match_parent"
++                        android:layout_height="match_parent">
++
++                        <ListView
++                            android:id="@+id/rn_widget_list_0"
++                            android:layout_width="match_parent"
++                            android:layout_height="match_parent"
++                            android:divider="@null"
++                            android:gravity="center" />
++                    </FrameLayout>
++
++                    <FrameLayout
++                        android:id="@+id/rn_widget_list_1_wrapper"
++                        android:layout_width="match_parent"
++                        android:layout_height="match_parent">
++
++                        <ListView
++                            android:id="@+id/rn_widget_list_1"
++                            android:layout_width="match_parent"
++                            android:layout_height="match_parent"
++                            android:divider="@null"
++                            android:gravity="center" />
++                    </FrameLayout>
++                </FrameLayout>
 +            </LinearLayout>
 +        </LinearLayout>
 +    </LinearLayout>

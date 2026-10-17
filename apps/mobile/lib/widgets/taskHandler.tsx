@@ -6,7 +6,7 @@ import { clockChange, optimisticModel, parseWidgetAction, WIDGET_ACTION, type Wi
 import { cardWidgetModel, todayModel, type WidgetInput, type WidgetModel } from "./model";
 import { renderCard, renderQuickAdd, type QuickAddButton } from "./render";
 import { appScheme, forgetWidgetLoads, loadCards, loadWidgetInput, signedIn, widgetPomodoros } from "./data";
-import { runPomodoro, runWidgetAction } from "./run";
+import { isPomodoroAction, runPomodoro, runWidgetAction, steppedPomodoroSettings } from "./run";
 import { allWidgetEntries, forgetWidget, setWidgetEntry, widgetEntry } from "./storage";
 
 /**
@@ -89,10 +89,16 @@ function instantCard(entry: Entry, card: NonNullable<Entry["card"]>) {
 }
 
 /** What the widget shows the moment a button is tapped, before the save comes back. */
-function instantModel(entry: Entry, action: WidgetAction): WidgetModel | null {
+function instantModel(entry: Entry, action: WidgetAction, ranLocally: boolean): WidgetModel | null {
   const now = new Date();
   const quick = (card: NonNullable<Entry["card"]>) => instantCard(entry, card);
-  if (action.kind === "pomodoro") return entry.card ? quick(entry.card) : null;
+  if (isPomodoroAction(action)) {
+    if (!entry.card) return null;
+    if (ranLocally) return quick(entry.card);
+    // A waiting phase's new length shows straight away; the card setting saves after.
+    const settings = action.kind === "pomodoroStep" ? steppedPomodoroSettings(entry.card, action.by) : null;
+    return settings ? quick({ ...entry.card, settings }) : null;
+  }
   if (action.kind === "clock") {
     if (!entry.card) return null;
     const change = clockChange(clockState(entry.card.settings), action.op, now.getTime());
@@ -107,8 +113,8 @@ async function handleAction(info: WidgetInfo, data: Record<string, unknown> | un
   const size = { width: info.width, height: info.height };
   const entry = widgetEntry(info.widgetId);
   // The pomodoro lives on the phone, so it changes before the redraw.
-  const ranLocally = action.kind === "pomodoro" && runPomodoro(action, entry.card, entry.timeZone);
-  const instant = instantModel(entry, action);
+  const ranLocally = isPomodoroAction(action) && runPomodoro(action, entry.card, entry.timeZone);
+  const instant = instantModel(entry, action, ranLocally);
   if (instant && instant !== entry.model) {
     renderWidget(renderCard(instant, size));
     setWidgetEntry(info.widgetId, { model: instant });
@@ -121,7 +127,7 @@ async function handleAction(info: WidgetInfo, data: Record<string, unknown> | un
     if (entry.model) setWidgetEntry(info.widgetId, { model: entry.model });
   }
   forgetWidgetLoads();
-  if (action.kind === "pomodoro") {
+  if (isPomodoroAction(action)) {
     const { refreshLiveActivity } = require("../live/liveActivity") as typeof import("../live/liveActivity");
     void refreshLiveActivity();
   }

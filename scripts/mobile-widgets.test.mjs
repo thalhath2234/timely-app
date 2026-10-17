@@ -94,7 +94,8 @@ describe("home screen widgets", () => {
     assert.equal(value.uri, "timelymobile://sheets/s1");
 
     const table = cardWidgetModel(card({ sheet: { sheetId: "s1", tabId: "tab", range: "A2:B3", view: "table" } }), { ...input, files });
-    assert.deepEqual(table.rows.map((row) => [row.title, row.meta]), [["Rent", "1400"], ["Food", "300"]]);
+    assert.deepEqual(table.rows.map((row) => [row.title, ...row.cells]), [["Rent", "1400"], ["Food", "300"]]);
+    assert.equal(table.scroll, true);
 
     const checklist = cardWidgetModel(card({ doc: { docId: "d1", view: "checklist" } }), { ...input, files });
     assert.equal(checklist.value, "1/2");
@@ -211,8 +212,30 @@ describe("widgets that work on the home screen", () => {
     const length = pomodoroRemaining(initialPomodoro(), pomodoroSettings(undefined), t0);
     assert.equal(model.timer.running, false);
     assert.equal(model.timer.base, t0 + length);
-    assert.deepEqual(ops(model), ["start"]);
+    assert.deepEqual(ops(model), ["start", "skip"]);
     assert.equal(model.buttons[0].label, "Start focus");
+  });
+
+  test("a pomodoro switches phase and changes its length from the widget", () => {
+    const model = cardWidgetModel({ ...pomodoro, settings: { focus: 30 } }, input);
+    assert.deepEqual(
+      model.tabs.map((tab) => [tab.label, tab.selected, tab.action.phase]),
+      [["Focus", true, "focus"], ["Short", false, "short"], ["Long", false, "long"]],
+    );
+    assert.equal(model.value, "30:00");
+    assert.deepEqual([model.stepper.minus?.by, model.stepper.plus?.by], [-1, 1]);
+    // At the shortest length there's nothing to take off.
+    const shortest = cardWidgetModel({ ...pomodoro, settings: { focus: 1 } }, input);
+    assert.equal(shortest.stepper.minus, undefined);
+    assert.deepEqual(parseWidgetAction({ kind: "pomodoroPhase", cardId: "pomo", phase: "long" }), { kind: "pomodoroPhase", cardId: "pomo", phase: "long" });
+    assert.deepEqual(parseWidgetAction({ kind: "pomodoroStep", cardId: "pomo", by: -1 }), { kind: "pomodoroStep", cardId: "pomo", by: -1 });
+    assert.equal(parseWidgetAction({ kind: "pomodoroPhase", cardId: "pomo", phase: "nap" }), null);
+  });
+
+  test("a waiting break can be skipped back to focus from the widget", () => {
+    const model = cardWidgetModel(pomodoro, { ...input, pomodoros: [{ cardId: "pomo", phase: "short", endsAt: null, leftMs: 300_000, active: false }] });
+    assert.equal(model.buttons[0].label, "Start break");
+    assert.deepEqual(ops(model), ["start", "skip"]);
   });
 
   test("a running pomodoro ticks down to its end, with Pause and Skip", () => {

@@ -5,7 +5,7 @@
  * handler runs them (lib/widgets/run.ts) and redraws. Pure, so
  * `make test-mobile-widgets` checks it under Node.
  */
-import { CLOCK_MAX_LAPS, clockElapsed, clockRemaining, type ClockState } from "@timely/contract/dashboard";
+import { CLOCK_MAX_LAPS, clockElapsed, clockRemaining, type ClockState, type PomodoroPhase } from "@timely/contract/dashboard";
 import type { WidgetModel, WidgetRow } from "./model";
 
 export const WIDGET_ACTION = "TIMELY_ACTION";
@@ -15,6 +15,10 @@ export type ClockOp = "start" | "pause" | "reset" | "lap";
 
 export type WidgetAction =
   | { kind: "pomodoro"; cardId: string; op: PomodoroOp }
+  /** Switches the pomodoro to Focus, Short break or Long break, as its tabs do on the Dashboard. */
+  | { kind: "pomodoroPhase"; cardId: string; phase: PomodoroPhase }
+  /** Minutes on or off: the phase's length before it starts, this round only once it runs. */
+  | { kind: "pomodoroStep"; cardId: string; by: number }
   | { kind: "clock"; cardId: string; op: ClockOp }
   | { kind: "habit"; cardId: string; habitId: string }
   /** `done` is the state the tap asks for; `originalStart` marks one occurrence of a repeating task. */
@@ -33,6 +37,14 @@ export function parseWidgetAction(data: Record<string, unknown> | undefined | nu
     case "pomodoro": {
       const op = str("op");
       return cardId && (op === "start" || op === "pause" || op === "skip" || op === "reset") ? { kind: "pomodoro", cardId, op } : null;
+    }
+    case "pomodoroPhase": {
+      const phase = str("phase");
+      return cardId && (phase === "focus" || phase === "short" || phase === "long") ? { kind: "pomodoroPhase", cardId, phase } : null;
+    }
+    case "pomodoroStep": {
+      const by = num("by");
+      return cardId && by ? { kind: "pomodoroStep", cardId, by } : null;
     }
     case "clock": {
       const op = str("op");

@@ -1,9 +1,12 @@
 import {
+  POMODORO_PHASE_MAX,
+  POMODORO_PHASE_SETTING,
   cardTitle,
   clockEndsAt,
   clockState,
   habitLog,
   normalizeDashboard,
+  pomodoroSettings,
   toggleHabit,
   type DashboardCard,
 } from "@timely/contract/dashboard";
@@ -35,14 +38,49 @@ export function runWidgetAction(action: WidgetAction, context: ActionContext): P
   return next;
 }
 
-/** The pomodoro part runs at once, so the widget can redraw from the store before anything else. */
-export function runPomodoro(action: Extract<WidgetAction, { kind: "pomodoro" }>, card: DashboardCard | undefined, timeZone?: string) {
+export type PomodoroAction = Extract<WidgetAction, { kind: "pomodoro" | "pomodoroPhase" | "pomodoroStep" }>;
+
+export function isPomodoroAction(action: WidgetAction): action is PomodoroAction {
+  return action.kind === "pomodoro" || action.kind === "pomodoroPhase" || action.kind === "pomodoroStep";
+}
+
+/** A pomodoro that hasn't started its phase: −/+ change that phase's length on the card. */
+function waiting(cardId: string) {
+  const timer = usePomodoroStore.getState().timers[cardId];
+  return !timer || (timer.endsAt === null && timer.remaining === null);
+}
+
+/**
+ * The pomodoro part runs at once, so the widget can redraw from the store
+ * before anything else. False when it needs the server: a phase's length is a
+ * card setting.
+ */
+export function runPomodoro(action: PomodoroAction, card: DashboardCard | undefined, timeZone?: string) {
   const store = usePomodoroStore.getState();
   // A card started from the widget before the Dashboard ever showed it.
   if (card) store.sync(action.cardId, card.settings, timeZone);
   if (!usePomodoroStore.getState().timers[action.cardId]) return false;
-  store[action.op](action.cardId);
-  return true;
+  switch (action.kind) {
+    case "pomodoro":
+      store[action.op](action.cardId);
+      return true;
+    case "pomodoroPhase":
+      store.setPhase(action.cardId, action.phase);
+      return true;
+    case "pomodoroStep":
+      if (waiting(action.cardId)) return false;
+      store.adjust(action.cardId, action.by * 60_000);
+      return true;
+  }
+}
+
+/** The card's settings with the waiting phase made `by` minutes longer or shorter, or null at a limit. */
+export function steppedPomodoroSettings(card: DashboardCard, by: number) {
+  const phase = usePomodoroStore.getState().timers[card.id]?.phase ?? "focus";
+  const key = POMODORO_PHASE_SETTING[phase];
+  const current = pomodoroSettings(card.settings)[key];
+  const next = Math.min(POMODORO_PHASE_MAX[phase], Math.max(1, current + by));
+  return next === current ? null : { ...card.settings, [key]: next };
 }
 
 async function boardCard(cardId: string) {
@@ -65,8 +103,15 @@ async function saveSettings(cardId: string, change: (card: DashboardCard, timeZo
 
 async function run(action: WidgetAction, context: ActionContext) {
   switch (action.kind) {
-    case "pomodoro": {
+    case "pomodoro":
+    case "pomodoroPhase":
+    case "pomodoroStep": {
       if (runPomodoro(action, context.card, context.timeZone)) break;
+      if (action.kind === "pomodoroStep" && waiting(action.cardId)) {
+        const next = await saveSettings(action.cardId, (card) => steppedPomodoroSettings(card, action.by));
+        if (next) usePomodoroStore.getState().sync(action.cardId, next.settings, context.timeZone);
+        break;
+      }
       const { card, config } = await boardCard(action.cardId);
       runPomodoro(action, card, config.workingHours?.timezone || undefined);
       break;
