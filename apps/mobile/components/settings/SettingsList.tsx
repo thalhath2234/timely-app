@@ -90,6 +90,59 @@ export function GroupLabel({ children, aside }: { children: string; aside?: Reac
   );
 }
 
+/** A line of muted help under a group. */
+export function GroupHint({ children }: { children: ReactNode }) {
+  return <Text style={styles.hint}>{children}</Text>;
+}
+
+/** Timely's drawn on/off switch, readable on a card in both themes. */
+export function ListSwitch({ value, onChange, label }: { value: boolean; onChange: (next: boolean) => void; label: string }) {
+  return (
+    <AnimatedPressable
+      accessibilityRole="switch"
+      accessibilityLabel={label}
+      accessibilityState={{ checked: value }}
+      hitSlop={8}
+      onPress={() => onChange(!value)}
+      style={[styles.track, value && styles.trackOn]}
+    >
+      <View style={[styles.thumb, value && styles.thumbOn]} />
+    </AnimatedPressable>
+  );
+}
+
+/** A row that turns something on or off; tapping the title toggles too. `children` sit before the switch (a time pill). */
+export function SwitchRow({
+  title,
+  meta,
+  value,
+  onChange,
+  children,
+}: {
+  title: string;
+  meta?: string;
+  value: boolean;
+  onChange: (next: boolean) => void;
+  children?: ReactNode;
+}) {
+  return (
+    <View style={[styles.row, meta ? styles.rowTall : null]}>
+      <AnimatedPressable accessibilityRole="none" onPress={() => onChange(!value)} style={styles.text}>
+        <Text numberOfLines={1} style={[styles.title, { color: colors.foreground }]}>
+          {title}
+        </Text>
+        {meta ? (
+          <Text numberOfLines={2} style={styles.meta}>
+            {meta}
+          </Text>
+        ) : null}
+      </AnimatedPressable>
+      {children}
+      <ListSwitch label={title} value={value} onChange={onChange} />
+    </View>
+  );
+}
+
 export function ColorDot({ color, size = 10 }: { color?: string | null; size?: number }) {
   return <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color || colors.mutedForeground }} />;
 }
@@ -164,4 +217,9 @@ const styles = createThemedStyleSheet((colors) => ({
     gap: 5,
   },
   chipText: { flexShrink: 1, color: colors.foreground, fontSize: 12, fontWeight: "500" },
+  hint: { color: colors.mutedForeground, fontSize: 12, lineHeight: 17, marginHorizontal: 4 },
+  track: { width: 40, height: 24, borderRadius: 12, padding: 3, backgroundColor: colors.border },
+  trackOn: { backgroundColor: colors.primary },
+  thumb: { width: 18, height: 18, borderRadius: 9, backgroundColor: colors.mutedForeground },
+  thumbOn: { alignSelf: "flex-end", backgroundColor: colors.primaryForeground },
 }));
