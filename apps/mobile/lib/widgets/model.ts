@@ -540,7 +540,8 @@ export function pomodoroWidgetModel({ cardId, title, uri, settings: given, now, 
             { label: "Reset", glyph: "reset", action: action("reset") },
           ]
         : [
-            { label: phase === "focus" ? "Start focus" : "Start break", glyph: "play", action: action("start") },
+            // The tabs already say which phase; a short label stays on the button at 3x2.
+            { label: phoneOnly ? "Start" : phase === "focus" ? "Start focus" : "Start break", glyph: "play", action: action("start") },
             // As on the Dashboard: a waiting phase can be skipped, so a break isn't the only way on.
             { label: "Skip", glyph: "skip", action: action("skip") },
           ],
