@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { CopyCheck, Plus } from "lucide-react";
-import ColorChip from "@/app/_components/_ui/colorChip";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
 import { useProjectContextMenu } from "@/app/utils/hooks/useProjectContextMenu";
@@ -57,22 +56,25 @@ export function cardDateMeta(
   item: Task,
   dataMode: "task" | "project",
   today: string,
-): { text: string; overdue: boolean } {
+): { text: string; short: string; overdue: boolean } {
   if (dataMode === "project") {
-    return { text: `Deadline: ${formatDateLabel(item.deadline)}`, overdue: false };
+    const short = formatDateLabel(item.deadline);
+    return { text: `Deadline: ${short}`, short, overdue: false };
   }
   const overdue = isOverdue(item, today);
   const point = taskNextDate(item);
-  if (!point) return { text: "No date", overdue: false };
+  if (!point) return { text: "No date", short: "", overdue: false };
   if (!overdue) {
-    return { text: `${taskDateSourceLabel(point.source)}: ${formatTaskDatePoint(point)}`, overdue: false };
+    const short = formatTaskDatePoint(point);
+    return { text: `${taskDateSourceLabel(point.source)}: ${short}`, short, overdue: false };
   }
   const slot = nextTaskSlot(item) ?? latestTaskSchedule(item);
   if (slot) {
     const day = slot.end.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    return { text: `Overdue: ${day} ${formatTimeOfDay(slot.end)}`, overdue: true };
+    return { text: `Overdue: ${day} ${formatTimeOfDay(slot.end)}`, short: `Overdue ${day}`, overdue: true };
   }
-  return { text: `Overdue: ${formatTaskDatePoint(point)}`, overdue: true };
+  const short = formatTaskDatePoint(point);
+  return { text: `Overdue: ${short}`, short: `Overdue ${short}`, overdue: true };
 }
 
 function statusPatch(status: Status, completedAt: string | null) {
@@ -328,10 +330,24 @@ export default function KanbanView({
     return <div className="p-4 text-sm text-muted-foreground">No items found for Kanban view.</div>;
   }
 
+  // Up to six columns share the width (the film's board fills the page);
+  // columns with nothing in them fold to a narrow strip that still takes a
+  // drop. More columns than that scroll sideways at a fixed width.
+  const fills = sections.length <= 6;
+  const template = fills
+    ? sections.map((column) => (column.items.length ? "minmax(220px, 1fr)" : "2.75rem")).join(" ")
+    : undefined;
+
   return (
     <div className="h-full overflow-auto">
-      <div className="flex min-w-max gap-3 p-4">
-        {sections.map((column) => (
+      <div
+        className={fills ? "grid gap-3 p-4" : "flex min-w-max gap-3 p-4"}
+        style={fills ? { gridTemplateColumns: template } : undefined}
+        data-testid="kanban-board"
+      >
+        {sections.map((column) => {
+          const folded = column.items.length === 0 && fills;
+          return (
           <section
             key={column.key}
             onDragOver={(event) => {
@@ -342,8 +358,26 @@ export default function KanbanView({
               if (task && column.group) void moveTask(task, column.group);
               setDraggingId(null);
             }}
-            className="w-72 shrink-0 rounded-lg border border-border bg-muted/40"
+            data-folded={folded || undefined}
+            className={
+              folded
+                ? "flex min-h-40 flex-col items-center rounded-lg border border-dashed border-border bg-muted/20 py-2 text-muted-foreground transition-colors hover:border-primary/40"
+                : fills
+                  ? "min-w-0 rounded-lg border border-border bg-muted/40"
+                  : "w-72 shrink-0 rounded-lg border border-border bg-muted/40"
+            }
           >
+            {folded ? (
+              <h3
+                onContextMenu={(event) => onColumnContextMenu(event, column)}
+                className="flex items-center gap-2 text-xs font-semibold [writing-mode:vertical-rl]"
+                title={`${column.name}: nothing here. Drop a card to move it.`}
+              >
+                {column.color ? <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: column.color }} /> : null}
+                <span className="truncate">{column.name}</span>
+              </h3>
+            ) : (
+              <>
             <header
               onContextMenu={(event) => onColumnContextMenu(event, column)}
               className="flex items-center justify-between gap-2 border-b border-border px-3 py-2"
@@ -354,11 +388,12 @@ export default function KanbanView({
                 ) : null}
                 <span className="truncate">{column.name}</span>
               </h3>
-              <span className="text-xs text-muted-foreground">{column.items.length}</span>
+              <span className="text-xs tabular-nums text-muted-foreground">{column.items.length}</span>
             </header>
-            <div className="max-h-[calc(100vh-270px)] min-h-24 space-y-2 overflow-auto p-2">
+            <div className="max-h-[calc(100vh-230px)] min-h-24 space-y-1.5 overflow-auto p-2">
               {column.items.map((item) => {
                 const dateMeta = cardDateMeta(item, dataMode, today);
+                const where = dataMode === "task" && item.project?.title ? item.project.title : item.workspace?.name ?? null;
                 return (
                 <motion.article
                   key={item.id}
@@ -383,39 +418,33 @@ export default function KanbanView({
                   }}
                   className="cursor-pointer overflow-hidden rounded-lg border border-border bg-card shadow-xs hover:border-primary/40"
                 >
+                  {/* One line per card: a colour strip, the name, and when; the
+                      project (or workspace) as a small second line only when there is one. */}
                   <div className="flex items-stretch">
                     <span
                       className="w-1 shrink-0"
                       style={{ backgroundColor: taskEntityColor(item) }}
                       aria-hidden
                     />
-                    <div className="min-w-0 flex-1 p-3">
-                      <div className={item.completedAt ? "line-clamp-2 text-sm font-medium text-muted-foreground line-through" : "line-clamp-2 text-sm font-medium text-foreground"}>{item.name}</div>
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        {item.workspace?.name ? (
-                          <ColorChip color={resolvedColor(item.workspace.color, item.workspace.id)}>
-                            {item.workspace.name}
-                          </ColorChip>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">No workspace</span>
-                        )}
-                        {dataMode === "task" && item.project?.title ? (
-                          <ColorChip color={resolvedColor(item.project.color, item.project.id)}>
-                            {item.project.title}
-                          </ColorChip>
-                        ) : null}
+                    <div className="min-w-0 flex-1 px-2.5 py-2">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className={item.completedAt ? "truncate text-[13px] font-medium text-muted-foreground line-through" : "truncate text-[13px] font-medium text-foreground"}>{item.name}</span>
+                        <span title={dateMeta.text} className={dateMeta.overdue ? "shrink-0 text-[11px] tabular-nums text-destructive" : "shrink-0 text-[11px] tabular-nums text-muted-foreground"}>
+                          {dateMeta.short}
+                        </span>
                       </div>
-                      <div className={dateMeta.overdue ? "mt-2 text-xs text-destructive" : "mt-2 text-xs text-muted-foreground"}>
-                        {dateMeta.text}
-                      </div>
+                      {where ? <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{where}</div> : null}
                     </div>
                   </div>
                 </motion.article>
                 );
               })}
             </div>
+              </>
+            )}
           </section>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

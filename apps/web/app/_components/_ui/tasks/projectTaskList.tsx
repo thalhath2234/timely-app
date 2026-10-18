@@ -2,13 +2,13 @@
 
 import Button from "@/app/_components/_ui/button";
 import { useCallback, useMemo, useState } from "react";
-import { Plus, Eye, EyeOff } from "lucide-react";
+import { Plus } from "lucide-react";
 import type { Project, Task, Workspace } from "@/app/_types/types";
 import BulkActionBar from "@/app/_components/_ui/tasks/bulkActionBar";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import GanttView from "@/app/_components/_ui/tasks/ganttView";
 import KanbanView from "@/app/_components/_ui/tasks/kanbanView";
-import { TaskListStatusBar, TaskOptionsBar, TaskToolbar } from "@/app/_components/_ui/tasks/taskToolbar";
+import { FiltersMenu, boardGroupField, TaskListStatusBar, TaskOptionsBar, TaskToolbar, countActiveOptions } from "@/app/_components/_ui/tasks/taskToolbar";
 import TasksTable from "@/app/_components/_ui/tasks/tasktable";
 import LoadError from "@/app/_components/_ui/loadError";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
@@ -67,8 +67,6 @@ export default function ProjectTaskList({
     setSortBy,
     sortDirection,
     setSortDirection,
-    optionsVisible,
-    setOptionsVisible,
     defaultGroups,
     syncError,
   } = view;
@@ -213,15 +211,7 @@ export default function ProjectTaskList({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center justify-between border-b border-border px-6 py-2">
-        <Button
-          variant="ghost"
-          onClick={() => setOptionsVisible((previous) => !previous)}
-          aria-pressed={!optionsVisible}
-          leading={optionsVisible ? <EyeOff /> : <Eye />}
-        >
-          {optionsVisible ? "Hide options" : "Show options"}
-        </Button>
+      <div className="flex items-center justify-end border-b border-border px-6 py-2">
         <Button onClick={openCreate} leading={<Plus />}>
           New task
         </Button>
@@ -260,33 +250,47 @@ export default function ProjectTaskList({
         setShowReminders={setShowReminders}
         scope="project"
         defaultGroupFields={defaultGroups}
+        filters={
+          <FiltersMenu
+            count={countActiveOptions({
+              showCompleted,
+              onlyOverdue,
+              onlyScheduled,
+              onlyRecurring,
+              onlyDated,
+              selectedPriorityLevels,
+              selectedLabelIds,
+              selectedStageIds,
+            })}
+          >
+            <TaskOptionsBar
+              showCompleted={showCompleted}
+              setShowCompleted={setShowCompleted}
+              onlyOverdue={onlyOverdue}
+              setOnlyOverdue={setOnlyOverdue}
+              onlyScheduled={onlyScheduled}
+              setOnlyScheduled={setOnlyScheduled}
+              onlyRecurring={onlyRecurring}
+              setOnlyRecurring={setOnlyRecurring}
+              onlyDated={onlyDated}
+              setOnlyDated={setOnlyDated}
+              projects={[project]}
+              workspaces={scopedWorkspaces}
+              selectedProjectIds={[project.id]}
+              setSelectedProjectIds={() => undefined}
+              selectedPriorityLevels={selectedPriorityLevels}
+              setSelectedPriorityLevels={setSelectedPriorityLevels}
+              selectedLabelIds={selectedLabelIds}
+              setSelectedLabelIds={setSelectedLabelIds}
+              selectedStageIds={selectedStageIds}
+              setSelectedStageIds={setSelectedStageIds}
+              scope="project"
+            layout="panel"
+            />
+          </FiltersMenu>
+        }
       />
 
-      {optionsVisible ? (
-        <TaskOptionsBar
-          showCompleted={showCompleted}
-          setShowCompleted={setShowCompleted}
-          onlyOverdue={onlyOverdue}
-          setOnlyOverdue={setOnlyOverdue}
-          onlyScheduled={onlyScheduled}
-          setOnlyScheduled={setOnlyScheduled}
-          onlyRecurring={onlyRecurring}
-          setOnlyRecurring={setOnlyRecurring}
-          onlyDated={onlyDated}
-          setOnlyDated={setOnlyDated}
-          projects={[project]}
-          workspaces={scopedWorkspaces}
-          selectedProjectIds={[project.id]}
-          setSelectedProjectIds={() => undefined}
-          selectedPriorityLevels={selectedPriorityLevels}
-          setSelectedPriorityLevels={setSelectedPriorityLevels}
-          selectedLabelIds={selectedLabelIds}
-          setSelectedLabelIds={setSelectedLabelIds}
-          selectedStageIds={selectedStageIds}
-          setSelectedStageIds={setSelectedStageIds}
-          scope="project"
-        />
-      ) : null}
 
       {dataMode === "task" && !showReminders ? (
         <BulkActionBar
@@ -328,7 +332,7 @@ export default function ProjectTaskList({
             selectedWorkspaceIds={selectedWorkspaceIds}
             selectedStatusIds={selectedStatusIds}
             selectedPriorityLevels={selectedPriorityLevels}
-            groupField={groupFields[0] ?? "status"}
+            groupField={boardGroupField(groupFields, defaultGroups)}
           />
         ) : null}
 

@@ -437,7 +437,7 @@ function buildNestedGroups(
     )
     .map(([label, group]) => {
       const nodeKey = parentKey ? `${parentKey}::${label}` : label;
-      const children = buildNestedGroups(
+      let children = buildNestedGroups(
         group.rows,
         groupFields,
         groupSortDirection,
@@ -448,6 +448,12 @@ function buildNestedGroups(
         depth + 1,
         nodeKey
       );
+      // A single "No stage" (or other empty) sub-group under a group adds a
+      // header and an indent without splitting anything: its rows sit
+      // straight under the parent instead.
+      if (children.length === 1 && isPlaceholderGroup(children[0].label, children[0].field)) {
+        children = children[0].children;
+      }
 
       return {
         key: nodeKey,
