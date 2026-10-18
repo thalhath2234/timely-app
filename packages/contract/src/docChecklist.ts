@@ -262,3 +262,12 @@ export function checklistTask(
   if (!draft?.title.trim()) return { name: todo.name, ...checklistTaskDescription(todo.details, doc) };
   return { name: draft.title.trim(), ...checklistTaskDescription(todo.details, doc, { summary: draft.description, item: todo.text }) };
 }
+
+/** The task a "reads like a task" line becomes: the line as its name, and a
+ * description that links the doc and quotes the line (`From <doc>: “<line>”`),
+ * so the API still knows the line is a task after the line or the task is
+ * reworded (doc hints' madeSinceDoc). */
+export function workLineTask(line: string, doc: { id: string; title: string }): { name: string; description: string; descriptionRich: DocContent } {
+  const name = line.replace(/\s+/g, " ").trim();
+  return { name, ...checklistTaskDescription("", doc, { summary: "", item: name }) };
+}

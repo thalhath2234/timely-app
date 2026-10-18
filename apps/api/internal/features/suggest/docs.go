@@ -208,11 +208,7 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 					"Yes, it looks outdated or superseded.", "No, it still looks current.")
 			}
 		}
-		for _, l := range s.workLines(ctx, userID, doc) {
-			if !dismissed[docHintKey("work", l)] {
-				lines = append(lines, l)
-			}
-		}
+		lines = s.workLines(ctx, userID, doc, dismissed)
 		if len(lines) > 0 {
 			list := make([]map[string]string, len(lines))
 			for i, l := range lines {
@@ -584,10 +580,11 @@ func (s *Service) usedKeys(ctx context.Context, userID, docID string, has map[st
 }
 
 // workLines are the doc's paragraphs and list items short enough to be one
-// piece of Work, leaving out headings, code, checklist items and lines that
-// are already a task's name. An unchecked checklist item is a to-do by its
-// own say-so, so the clients offer it without asking Jev (docChecklist).
-func (s *Service) workLines(ctx context.Context, userID string, doc models.Document) []string {
+// piece of Work, leaving out headings, code, checklist items, lines that are
+// already a task and lines the person dismissed, even after a small edit
+// (sameWork). An unchecked checklist item is a to-do by its own say-so, so
+// the clients offer it without asking Jev (docChecklist).
+func (s *Service) workLines(ctx context.Context, userID string, doc models.Document, dismissed map[string]bool) []string {
 	content := doc.Content
 	var lines []string
 	seen := map[string]bool{}
@@ -640,13 +637,35 @@ func (s *Service) workLines(ctx context.Context, userID string, doc models.Docum
 	for _, e := range existing {
 		taken[e] = true
 	}
+	// A line edited after it became a task or was dismissed is still that
+	// line. Making a line a task also dismisses it (the clients), so the
+	// link holds when the task is renamed.
+	var gone []string
+	for k := range dismissed {
+		if l, ok := strings.CutPrefix(k, "work:"); ok {
+			gone = append(gone, l)
+		}
+	}
+	made := s.madeSinceDoc(ctx, userID, doc, true)
 	out := []string{}
+lines:
 	for _, l := range lines {
-		if !taken[strings.ToLower(l)] {
-			out = append(out, l)
-			if len(out) == maxWorkLines {
-				break
+		if taken[strings.ToLower(l)] || dismissed[docHintKey("work", l)] {
+			continue
+		}
+		for _, g := range gone {
+			if sameWork(l, g, true) {
+				continue lines
 			}
+		}
+		for _, m := range made {
+			if m.matches(l) {
+				continue lines
+			}
+		}
+		out = append(out, l)
+		if len(out) == maxWorkLines {
+			break
 		}
 	}
 	return out
