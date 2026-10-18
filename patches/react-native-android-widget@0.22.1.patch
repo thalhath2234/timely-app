@@ -1,5 +1,5 @@
 diff --git a/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java b/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
-index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..17a06d2ff6b4785da10a8d0bdf6c7bb906c74bc4 100644
+index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..ea132069d6fd15e380b8284d93dcd4b72b881ccf 100644
 --- a/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
 +++ b/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
 @@ -6,12 +6,15 @@ import android.content.ComponentName;
@@ -18,12 +18,7 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..17a06d2ff6b4785da10a8d0bdf6c7bb9
  import android.view.View;
  import android.view.ViewGroup;
  import android.widget.RemoteViews;
-@@ -19,10 +22,12 @@ import android.widget.RemoteViews;
- import androidx.annotation.RequiresApi;
- 
- import com.facebook.react.bridge.Arguments;
-+import com.facebook.react.bridge.JavaOnlyMap;
- import com.facebook.react.bridge.ReactApplicationContext;
+@@ -23,6 +26,7 @@ import com.facebook.react.bridge.ReactApplicationContext;
  import com.facebook.react.bridge.ReadableMap;
  import com.facebook.react.bridge.WritableArray;
  import com.facebook.react.bridge.WritableMap;
@@ -31,16 +26,7 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..17a06d2ff6b4785da10a8d0bdf6c7bb9
  import com.reactnativeandroidwidget.builder.ClickableView;
  import com.reactnativeandroidwidget.builder.CollectionView;
  import com.reactnativeandroidwidget.builder.CollectionViewItem;
-@@ -63,7 +68,7 @@ public class RNWidget {
-         ReadableMap light = config.getMap("light");
-         ReadableMap dark = config.getMap("dark");
- 
--        ReadableMap configClone = Arguments.makeNativeMap(light.toHashMap());
-+        ReadableMap configClone = nativeCopy(light);
-         RemoteViews remoteWidgetView = new RemoteViews(appContext.getPackageName(), R.layout.rn_widget);
- 
-         WidgetWithViews widgetWithViews = WidgetFactory.buildWidgetFromRoot(
-@@ -81,10 +86,11 @@ public class RNWidget {
+@@ -81,8 +85,9 @@ public class RNWidget {
              remoteWidgetView.setContentDescription(R.id.rn_widget_clickable_container, widgetWithViews.getRootAccessibilityLabel());
          }
  
@@ -49,12 +35,9 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..17a06d2ff6b4785da10a8d0bdf6c7bb9
 -            WidgetWithViews darkWidgetWithViews = WidgetFactory.buildWidgetFromRoot(
 +            darkWidgetWithViews = WidgetFactory.buildWidgetFromRoot(
                  appContext,
--                Arguments.makeNativeMap(dark.toHashMap()),
-+                nativeCopy(dark),
+                 Arguments.makeNativeMap(dark.toHashMap()),
                  RNWidgetUtil.getWidgetWidth(appContext, widgetId),
-                 RNWidgetUtil.getWidgetHeight(appContext, widgetId)
-             );
-@@ -115,6 +121,7 @@ public class RNWidget {
+@@ -115,6 +120,7 @@ public class RNWidget {
              addClickableAreas(widgetId, remoteWidgetView, widgetWithViews);
          }
          addCollectionViews(widgetId, remoteWidgetView, widgetWithViews);
@@ -62,23 +45,7 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..17a06d2ff6b4785da10a8d0bdf6c7bb9
  
          AppWidgetManager.getInstance(appContext)
              .updateAppWidget(widgetId, remoteWidgetView);
-@@ -134,6 +141,15 @@ public class RNWidget {
-         return preview;
-     }
- 
-+    /**
-+     * Timely patch: a tree from JS is copied into a native map as before; one
-+     * the phone built itself (RNWidgetLocal, a JavaOnlyMap) is used as it is,
-+     * so drawing it never needs React Native's native maps.
-+     */
-+    private static ReadableMap nativeCopy(ReadableMap tree) {
-+        return tree instanceof JavaOnlyMap ? tree : Arguments.makeNativeMap(tree.toHashMap());
-+    }
-+
-     private Bitmap drawViewToBitmap(View rootView) {
-         Bitmap bitmap = Bitmap.createBitmap(
-             rootView.getMeasuredWidth(),
-@@ -168,17 +184,10 @@ public class RNWidget {
+@@ -168,17 +174,10 @@ public class RNWidget {
          Rect offsetViewBounds = new Rect();
          clickableWidget.getDrawingRect(offsetViewBounds);
          rootWidget.offsetDescendantRectToMyCoords(clickableWidget, offsetViewBounds);
@@ -100,7 +67,7 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..17a06d2ff6b4785da10a8d0bdf6c7bb9
  
          // The clickable overlay draws its own ripple, so match it to the view's radius when supported
          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && clickableView.getBorderRadius() > 0f) {
-@@ -199,37 +208,136 @@ public class RNWidget {
+@@ -199,37 +198,136 @@ public class RNWidget {
          widgetView.addView(R.id.rn_widget_clickable_container, clickableRemoteView);
      }
  
@@ -219,7 +186,7 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..17a06d2ff6b4785da10a8d0bdf6c7bb9
 +            setUpChronometer(chronometer, R.id.rn_widget_chronometer_light, lightView.getData(), gravity);
 +            setUpChronometer(chronometer, R.id.rn_widget_chronometer_dark, darkView.getData(), gravity);
 +            remoteWidgetView.addView(R.id.rn_widget_chronometer_container, chronometer);
-         }
++        }
 +    }
 +
 +    private void setUpChronometer(RemoteViews views, int id, ReadableMap data, String gravity) {
@@ -237,7 +204,7 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..17a06d2ff6b4785da10a8d0bdf6c7bb9
 +            views.setTextColor(id, Color.parseColor(stringOr(data, "color", "#000000")));
 +        } catch (IllegalArgumentException ignored) {
 +            // Keep the default text colour.
-+        }
+         }
 +        int horizontal = "center".equals(gravity) ? Gravity.CENTER_HORIZONTAL : "end".equals(gravity) ? Gravity.END : Gravity.START;
 +        views.setInt(id, "setGravity", horizontal | Gravity.CENTER_VERTICAL);
 +    }
@@ -252,7 +219,7 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..17a06d2ff6b4785da10a8d0bdf6c7bb9
  
          ViewGroup rootView = (ViewGroup) widgetWithViews.getRootView();
          List<CollectionView> collectionViews = widgetWithViews.getCollectionViews();
-@@ -248,13 +356,9 @@ public class RNWidget {
+@@ -248,13 +346,9 @@ public class RNWidget {
  
          RemoteViews collectionRemoteView = new RemoteViews(appContext.getPackageName(), R.layout.rn_widget_list);
  
@@ -269,7 +236,7 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..17a06d2ff6b4785da10a8d0bdf6c7bb9
  
          for (int i = 0; i < listWrappers.length; i++) {
              if (i != collectionId) {
-@@ -262,7 +366,9 @@ public class RNWidget {
+@@ -262,7 +356,9 @@ public class RNWidget {
              }
          }
  
@@ -280,7 +247,7 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..17a06d2ff6b4785da10a8d0bdf6c7bb9
          Intent remoteAdapterIntent = createCollectionRemoteAdapterIntent(widgetId, collectionId, collectionView);
  
          collectionRemoteView.setPendingIntentTemplate(lists[collectionId], collectionPendingIntentTemplate);
-@@ -331,6 +437,23 @@ public class RNWidget {
+@@ -331,6 +427,23 @@ public class RNWidget {
          return intent;
      }
  
@@ -550,7 +517,7 @@ index 0000000000000000000000000000000000000000..076462796494f3584eff1d498263734f
 +    }
 +}
 diff --git a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetProvider.java b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetProvider.java
-index 647d8f43d744d1e4b6a9c66de2d6a7f6861cbe04..77d4947712b4211358476a451fcac012338f5ace 100644
+index 647d8f43d744d1e4b6a9c66de2d6a7f6861cbe04..029d515ddf79495f2faded582518d06c188ad155 100644
 --- a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetProvider.java
 +++ b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetProvider.java
 @@ -57,6 +57,10 @@ public class RNWidgetProvider extends AppWidgetProvider {
