@@ -30,14 +30,14 @@ const PLATFORMS = [
 
 /** What changed since v0.3.3, newest first; each row opens the part of an article that explains it. */
 const NEW = [
-  { title: "Card workshop", body: "Build your own Dashboard card from tasks, events, a sheet or a doc.", href: "/help/notes/dashboard" },
+  { title: "Card workshop", body: "Build your own Dashboard card from tasks, events, a sheet or a doc.", href: "/help/notes/dashboard#workshop" },
   { title: "Home-screen widgets", body: "Today, Quick add, Pomodoro, Timer and any Dashboard card on Android.", href: "/help/start/widgets" },
-  { title: "Today as a day board", body: "Your day, free slots and what is next on one dense screen.", href: "/help/plan/today" },
-  { title: "Search in plain words", body: "Type what you want to see, then save it as a view.", href: "/help/notes/search" },
-  { title: "Help me write", body: "Drafts and rewrites inside docs and task descriptions.", href: "/help/notes/docs" },
-  { title: "Doc lines become tasks", body: "A line that reads like a task is offered once, with a link back.", href: "/help/notes/docs" },
+  { title: "Today as a day board", body: "Your day, free slots and what is next on one dense screen.", href: "/help/plan/today#overview" },
+  { title: "Search in plain words", body: "Type what you want to see, then save it as a view.", href: "/help/notes/search#lists" },
+  { title: "Help me write", body: "Drafts and rewrites inside docs and task descriptions.", href: "/help/notes/docs#help-me-write" },
+  { title: "Doc lines become tasks", body: "A line that reads like a task is offered once, with a link back.", href: "/help/notes/docs#suggestions" },
   { title: "Sheets for agents", body: "Formulas, frozen panes on the phone, and MCP tools that write to a tab.", href: "/help/notes/sheets" },
-  { title: "Tidier phone screens", body: "Grouped settings, task and project sheets, and the predictive back gesture.", href: "/help/start/phone-app" },
+  { title: "Tidier phone screens", body: "Grouped settings, task and project sheets, and the predictive back gesture.", href: "/help/start/phone-app#tabs" },
 ];
 
 /** Three chapters of the film double as short tours here. */

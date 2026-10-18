@@ -51,7 +51,8 @@ export const plan: HelpSection = {
               </p>
               <Shot
                 src="inbox"
-                alt="The Inbox page with a capture box at the top and captured items waiting for review."
+                size={{ width: 1440, height: 900 }}
+                alt="The Inbox: a What's on your mind box with Capture, an Up next card for the oldest capture with Make it a task, Remind me, Later and Delete, the other captures under Also waiting, and a Waiting for a decision count on the right."
               />
               <p>
                 On the phone, open <strong>Inbox</strong> from the Home tab. The capture box sits at the bottom of the
