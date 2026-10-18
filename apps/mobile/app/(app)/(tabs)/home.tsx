@@ -1,4 +1,5 @@
 import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
+import { StrikeTitle, TaskCheck } from "../../../components/ui/motionKit";
 import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -130,19 +131,18 @@ function ListRow({
       {time ? <Text style={styles.rowTime}>{time}</Text> : null}
       <View style={[styles.rowRail, { backgroundColor: reminder ? colors.warning : (accent ?? colors.mutedForeground) }]} pointerEvents="none" />
       {onComplete ? (
-        <Pressable
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: Boolean(done) }}
-          accessibilityLabel={`Complete ${title}`}
-          onPress={onComplete}
-          hitSlop={10}
-          style={[styles.checkRing, danger && styles.checkRingDanger, active && styles.checkRingActive, done && styles.checkRingDone]}
-        >
-          {done ? <Check size={11} color={colors.background} /> : null}
-        </Pressable>
+        <TaskCheck
+          checked={Boolean(done)}
+          onToggle={onComplete}
+          label={`Complete ${title}`}
+          size={20}
+          borderColor={danger ? colors.destructive : active ? colors.primary : undefined}
+        />
       ) : null}
       <View style={{ flex: 1, minWidth: 0 }}>
-        <Text numberOfLines={2} style={[styles.title, done && styles.titleDone]}>{title}</Text>
+        <StrikeTitle done={Boolean(done)} style={styles.title}>
+          {title}
+        </StrikeTitle>
         {meta ? (
           <Text numberOfLines={1} style={[styles.meta, active && styles.metaActive, danger && styles.metaDanger, reminder && styles.metaReminder]}>
             {meta}

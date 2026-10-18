@@ -8,6 +8,7 @@ import {
   LinearTransition,
   SlideInDown,
   SlideOutDown,
+  ZoomIn,
   type WithSpringConfig,
 } from "react-native-reanimated";
 import { motion as MOTION } from "@timely/contract/designTokens";
@@ -51,6 +52,12 @@ export function listEntering(index = 0, reduceMotion = false) {
   return FadeInDown.delay(Math.min(index, MOTION.staggerCap) * MOTION.ms.stagger)
     .duration(pageDuration)
     .easing(easeOut);
+}
+
+/** A colour bar growing from its top edge over 16 frames (the phone's stand-in for a shared element). */
+export function barEntering(reduceMotion = false) {
+  if (reduceMotion) return undefined;
+  return ZoomIn.duration(MOTION.ms.reveal).easing(easeOut);
 }
 
 export function pageEntering(reduceMotion = false) {

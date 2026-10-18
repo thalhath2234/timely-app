@@ -1,4 +1,6 @@
 import { useState } from "react";
+import ListEnter from "../../components/ui/ListEnter";
+import { ChangeTint, StatNumber, useChangeKey } from "../../components/ui/motionKit";
 import { Alert, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -198,11 +200,11 @@ export default function InboxScreen() {
                     Also waiting <Text style={styles.sectionCount}>{rest.length}</Text>
                   </Text>
                   <ListGroup testID="inbox-list">
-                    {rest.map((task) => {
+                    {rest.map((task, index) => {
                       const age = inboxAge(task.createdAt, now, zone);
                       return (
+                        <ListEnter key={task.id} index={index}>
                         <ListRow
-                          key={task.id}
                           title={task.name}
                           accessibilityLabel={`Review ${task.name}`}
                           onPress={() => review(task.id)}
@@ -221,6 +223,7 @@ export default function InboxScreen() {
                             )
                           }
                         />
+                        </ListEnter>
                       );
                     })}
                   </ListGroup>
@@ -236,12 +239,7 @@ export default function InboxScreen() {
                 { key: "recent", value: ages.filter((age) => age.days > 0 && !age.stale).length, label: "this week", color: colors.primary },
                 { key: "stale", value: ages.filter((age) => age.stale).length, label: "stale", color: colors.warning },
               ].map((tile) => (
-                <View key={tile.key} style={styles.tile}>
-                  <Text style={[styles.tileValue, { color: tile.value > 0 ? tile.color : colors.mutedForeground }]}>{tile.value}</Text>
-                  <Text style={styles.tileLabel} numberOfLines={1}>
-                    {tile.label}
-                  </Text>
-                </View>
+                <StatTile key={tile.key} value={tile.value} label={tile.label} color={tile.value > 0 ? tile.color : colors.mutedForeground} />
               ))}
             </View>
           ) : null}
@@ -263,6 +261,20 @@ export default function InboxScreen() {
         }}
       />
     </Screen>
+  );
+}
+
+/** One tile: the number pops and the tile tints when the count changes (catalogue items 3 and 8). */
+function StatTile({ value, label, color }: { value: number; label: string; color: string }) {
+  const changeKey = useChangeKey(value);
+  return (
+    <View style={[styles.tile, { overflow: "hidden" }]}>
+      <ChangeTint changeKey={changeKey} />
+      <StatNumber style={[styles.tileValue, { color }]} value={value} />
+      <Text style={styles.tileLabel} numberOfLines={1}>
+        {label}
+      </Text>
+    </View>
   );
 }
 

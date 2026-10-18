@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Fill } from "../../../components/ui/motionKit";
+import ListEnter from "../../../components/ui/ListEnter";
 import { FolderKanban, Plus } from "lucide-react-native";
 import { Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -89,7 +91,7 @@ export default function ProjectsScreen() {
               </>
             ) : (
               <ListGroup testID="projects-list">
-                {visibleProjects.map((project) => {
+                {visibleProjects.map((project, index) => {
                   const stats = statsFor(project, tasks);
                   const color = resolvedColor(project.color, project.id);
                   const share = stats.total ? stats.completed / stats.total : 0;
@@ -101,16 +103,14 @@ export default function ProjectsScreen() {
                     .filter(Boolean)
                     .join(" · ");
                   return (
+                    <ListEnter key={project.id} index={index}>
                     <ListRow
-                      key={project.id}
                       title={project.title || "Untitled project"}
                       meta={meta}
                       leading={<View style={[styles.tint, { backgroundColor: color }]} />}
                       trailing={
                         <View style={styles.progress}>
-                          <View style={styles.bar}>
-                            <View style={[styles.fill, { width: `${Math.round(share * 100)}%`, backgroundColor: color }]} />
-                          </View>
+                          <Fill value={share} color={color} height={4} style={{ width: 56 }} />
                           <Text style={styles.count}>
                             {stats.completed}/{stats.total}
                           </Text>
@@ -118,6 +118,7 @@ export default function ProjectsScreen() {
                       }
                       onPress={() => router.push(`/(app)/projects/${project.id}`)}
                     />
+                    </ListEnter>
                   );
                 })}
               </ListGroup>

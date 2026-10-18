@@ -1,4 +1,6 @@
 import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
+import Animated, { useReducedMotion } from "react-native-reanimated";
+import { barEntering, pageEntering } from "../../../lib/motion";
 import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
@@ -151,6 +153,7 @@ export default function ProjectDetailScreen() {
 
   const current = project;
   const accent = resolvedColor(current.color, current.id);
+  const reduceMotion = useReducedMotion();
 
   function persist(data: Parameters<typeof save.mutate>[0]["data"]) {
     save.mutate({ id: current.id, data });
@@ -218,19 +221,25 @@ export default function ProjectDetailScreen() {
         }
       />
       <FocusGroupScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 12 }}>
-        <Field
-          bare
-          large
-          value={title}
-          onChangeText={(next) => {
-            setTitle(next);
-            scheduleSave({ title: next });
-          }}
-          onBlur={() => void flushSave()}
-          placeholder="Project title"
-          autoCapitalize="words"
-          testID="project-title"
-        />
+        {/* Catalogue item 15: the row's colour bar grows into the page and the title rises with it. */}
+        <Animated.View entering={pageEntering(reduceMotion)} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <Animated.View entering={barEntering(reduceMotion)} style={{ width: 3, height: 28, borderRadius: 2, backgroundColor: accent }} />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Field
+              bare
+              large
+              value={title}
+              onChangeText={(next) => {
+                setTitle(next);
+                scheduleSave({ title: next });
+              }}
+              onBlur={() => void flushSave()}
+              placeholder="Project title"
+              autoCapitalize="words"
+              testID="project-title"
+            />
+          </View>
+        </Animated.View>
         <ListGroup>
           <ListRow
             title="Status"

@@ -1,4 +1,5 @@
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import ListEnter from "../../components/ui/ListEnter";
 import { useRouter } from "expo-router";
 import { Bell, X } from "lucide-react-native";
 import { useState } from "react";
@@ -180,11 +181,12 @@ export default function NotificationsScreen() {
             <View key={day.label} style={styles.day}>
               <Text style={styles.dayLabel}>{day.label}</Text>
               <ListGroup>
-                {day.items.map((item) => {
+                {day.items.map((item, index) => {
                   const href = routeFor(item);
                   const steps = triageSteps(item, smart);
                   return (
-              <View key={item.id} style={[styles.row, !item.readAt && styles.unread]}>
+              <ListEnter key={item.id} index={index}>
+              <View style={[styles.row, !item.readAt && styles.unread]}>
                 <View style={styles.head}>
                   <View style={[styles.dot, item.readAt && { opacity: 0 }]} />
                   <AnimatedPressable
@@ -294,6 +296,7 @@ export default function NotificationsScreen() {
                   </View>
                 ) : null}
               </View>
+              </ListEnter>
                   );
                 })}
               </ListGroup>

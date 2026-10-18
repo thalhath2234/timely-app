@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
+import { SkeletonRows } from "../../../components/ui/motionKit";
 import { RefreshControl, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import {
@@ -235,7 +236,7 @@ export default function DashboardScreen() {
     switch (card.type) {
       case "custom": {
         if (!card.query) return null;
-        if (loading) return <Text style={styles.muted}>Loading…</Text>;
+        if (loading) return <SkeletonRows rows={3} height={28} bare />;
         if (isFileQuery(card.query)) return <FileCardView query={card.query} data={data} />;
         return <CustomCardView query={card.query} result={computeCard(card.query, data, { now, timeZone })} onOpen={openRow} />;
       }
