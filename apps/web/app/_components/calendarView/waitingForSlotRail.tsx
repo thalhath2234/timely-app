@@ -15,6 +15,7 @@ import { tidyEntries } from "@/app/_store/contextMenuStore";
 import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
 import { AnimatePresence, motion } from "motion/react";
 import { springSoft } from "@/app/_components/_ui/motion";
+import { useCanReplay } from "./scheduleReplay";
 
 /**
  * Tasks with no block yet, as a rail card: a state line says what the
@@ -36,6 +37,8 @@ export default function WaitingForSlotRail({
   const dragged = useRef(false);
   const activityStatus = useScheduleActivityStore((state) => state.status);
   const activityMessage = useScheduleActivityStore((state) => state.message);
+  const showReplay = useScheduleActivityStore((state) => state.showReplay);
+  const canReplay = useCanReplay();
 
   if (waiting.length === 0) return null;
 
@@ -64,7 +67,17 @@ export default function WaitingForSlotRail({
       className="flex min-h-0 flex-col"
       data-testid="waiting-rail"
     >
-      <p className={cn("text-xs", activityStatus === "error" ? "text-destructive" : "text-muted-foreground")}>{stateLine}</p>
+      <p className={cn("text-xs", activityStatus === "error" ? "text-destructive" : "text-muted-foreground")}>
+        {stateLine}
+        {activityStatus === "done" && canReplay ? (
+          <>
+            {" "}
+            <button type="button" onClick={showReplay} className="font-medium text-primary hover:underline">
+              Show me
+            </button>
+          </>
+        ) : null}
+      </p>
       <AnimatePresence initial={false}>
         {open ? (
           <motion.ul
