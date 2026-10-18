@@ -66,7 +66,7 @@ export const notes: HelpSection = {
                 Templates you made are marked <strong>Yours</strong> in the template list. Point at one and choose{" "}
                 <strong>Delete template</strong> to remove it. You can delete your own templates on the phone too.
               </p>
-              <Shot src="files" alt="Files page: a tree of docs and sheets on the left and cards for recent files on the right." />
+              <Shot src="files" alt="Files page: the file list on the left, every doc and sheet as a row in the middle, and a preview of the selected file with the Library counts on the right." />
             </>
           ),
         },
@@ -575,8 +575,7 @@ export const notes: HelpSection = {
               </p>
               <Shot
                 src="search-views"
-                alt="Search for urgent bugs in Work due this week: a suggested saved view, Important Procrastinations, then a card reading 1 open task · Due this week · Urgent · Work with its chips and a Save as view button, and task results below."
-                size={{ width: 1440, height: 900 }}
+                alt="Search for open tasks due this week: a Suggested card reading 10 open tasks · Due this week with chips for Due this week, Open only and Soonest deadline first, a Save as view button, and the matching tasks below."
               />
               <ul>
                 <li>Choose the card to open the list in Tasks as a <strong>Preview</strong> that is not saved.</li>
@@ -718,8 +717,7 @@ export const notes: HelpSection = {
               </p>
               <Shot
                 src="card-workshop"
-                alt="The Card workshop reading cells A1:D6 of an October budget sheet, shown as Bars with names from the Category column, a live preview of the bars on the right, and an Add to dashboard button."
-                size={{ width: 1440, height: 900 }}
+                alt="The Card workshop set to Tasks data with a Number look and a Count measure, Deadline and All time range rows, filters, a live preview reading Open tasks 19 on the right, and an Add to dashboard button."
               />
               <ul>
                 <li>

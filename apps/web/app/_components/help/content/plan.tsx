@@ -436,8 +436,7 @@ export const plan: HelpSection = {
             <>
               <Shot
                 src="today"
-                alt="The Today board: Today focus with one task focusing now on a running timer beside Reschedule and Stop, and Start focus on the others; Suggested for today with Focus buttons and a free-time row with Schedule here; the Schedule column with a line at now and the free time until noon; and Habits and goals, Reminders, Overdue with Reschedule, and End of day with Plan tomorrow and Shut down day on the right."
-                size={{ width: 1440, height: 900 }}
+                alt="The Today board: Today focus with Add a task and its free slots, the Schedule column with a line at now and the free time until 9 AM, and Habits and goals, Reminders, Overdue with Reschedule, and End of day with Plan tomorrow and Shut down day on the right."
               />
               <p>
                 The header shows the date, how many items wait in the Inbox (click it to open the Inbox) and how much
@@ -550,7 +549,7 @@ export const plan: HelpSection = {
                 account and fills in when the data arrives.
               </p>
               <PhoneShots
-                shots={[{ src: "phone-home", alt: "Phone Home tab with habit chips, two goals, the Inbox row and the Today focus card." }]}
+                shots={[{ src: "phone-home", alt: "Phone Home tab with habit chips, three goals, the Inbox row, the Today focus card and the Schedule." }]}
               />
             </>
           ),
@@ -602,7 +601,7 @@ export const plan: HelpSection = {
                 Timely has told you. Snooze a reminder for 15 minutes, an hour, or until 9:00 tomorrow; mark items read
                 or clear them all.
               </p>
-              <Shot src="notifications" alt="The Notifications page with two reminders, each with Snooze 15m, Snooze 1h and Tomorrow 9:00 buttons." />
+              <Shot src="notifications" alt="The Notifications page: yesterday's overdue and digest notifications in a list, with Waiting counts and Delivery switches in the panel on the right." />
               <p>Besides reminders, Timely can tell you when:</p>
               <ul>
                 <li>a block of Work starts in 10 minutes,</li>
