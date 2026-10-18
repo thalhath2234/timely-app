@@ -16,6 +16,8 @@ import ScheduleDialog, {
 } from "@/app/_components/calendarView/scheduleDialog";
 import AutoScheduleDialog from "@/app/_components/calendarView/autoScheduleDialog";
 import WaitingForSlotRail from "@/app/_components/calendarView/waitingForSlotRail";
+import CalendarsFilter from "@/app/_components/calendarView/calendarsFilter";
+import DayRail from "@/app/_components/calendarView/dayRail";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 
 import { CALENDAR_VIEWS, CalendarView, Task } from "@/app/_types/types";
@@ -31,15 +33,15 @@ import {
   eventLegend,
   headerLabel,
   isSameDay,
+  legendLabel,
   pastDropMessage,
   shiftDate,
   slotAt,
-  swatchColor,
   toCalendarEvents,
   viewRange,
   type CalendarEvent,
 } from "@/app/utils/calendar";
-import { useWorkingHoursZone } from "@/app/utils/hooks/workspaces";
+import { useConfig, useWorkingHoursZone } from "@/app/utils/hooks/workspaces";
 import { markDeadlinePassed, overdueAgendaTasks, taskToCalendarItem } from "@/app/utils/overdue";
 import { cn } from "@/app/utils/cn";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
@@ -79,16 +81,24 @@ function CalendarContent() {
   const applySchedule = useApplySchedule();
 
   const timeZone = useWorkingHoursZone();
+  const { data: config } = useConfig();
   const typedTasks = useMemo(() => (tasks ?? []) as Task[], [tasks]);
-  const events = useMemo(
+  const allEvents = useMemo(
     () => markDeadlinePassed(toCalendarEvents(calendar?.items ?? []), timeZone),
     [calendar, timeZone],
+  );
+  // The legend doubles as a filter: hidden projects or workspaces stay off
+  // the grid for this visit.
+  const [hiddenCalendars, setHiddenCalendars] = useState<string[]>([]);
+  const events = useMemo(
+    () => (hiddenCalendars.length ? allEvents.filter((event) => !hiddenCalendars.includes(legendLabel(event))) : allEvents),
+    [allEvents, hiddenCalendars],
   );
   const overdueEvents = useMemo(
     () => toCalendarEvents(overdueAgendaTasks(typedTasks, timeZone).map(taskToCalendarItem)),
     [typedTasks, timeZone],
   );
-  const legend = useMemo(() => eventLegend(events), [events]);
+  const legend = useMemo(() => eventLegend(allEvents), [allEvents]);
   const unscheduledCount = rankQuery.data?.length ?? 0;
 
   // Selection is held by id so a refetch shows fresh data in the dialog, and
@@ -288,6 +298,15 @@ function CalendarContent() {
             >
               Today
             </Button>
+
+            {legend.length > 0 ? (
+              <CalendarsFilter
+                legend={legend}
+                hidden={hiddenCalendars}
+                onChange={setHiddenCalendars}
+                footer={`${allEvents.length} on calendar${unscheduledCount > 0 ? ` · ${unscheduledCount} waiting` : ""}`}
+              />
+            ) : null}
           </div>
         </div>
 
@@ -328,27 +347,6 @@ function CalendarContent() {
       </div>
 
       <ScreenTip screen="calendar" />
-
-      {(legend.length > 0 || events.length === 0) && (
-        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-          {legend.map((entry) => (
-            <span key={entry.label} className="flex items-center gap-1.5">
-              <span
-                className="size-2.5 rounded-sm"
-                style={{ backgroundColor: swatchColor(entry.color) }}
-              />
-              {entry.label}
-            </span>
-          ))}
-
-          <span className="ml-auto tabular-nums">
-            {events.length} on calendar
-            {unscheduledCount > 0
-              ? ` · ${unscheduledCount} waiting`
-              : ""}
-          </span>
-        </div>
-      )}
 
       {isLoading && (
         <div className="flex flex-1 items-center justify-center rounded-xl border border-border bg-card text-sm text-muted-foreground">
@@ -436,10 +434,17 @@ function CalendarContent() {
             </motion.div>
           </AnimatePresence>
           </div>
-          <WaitingForSlotRail
-            onOpen={(taskId) => openTask(taskId)}
-            onSchedule={(taskId) => openAutoSchedule([taskId])}
-          />
+          {activeView === "day" || unscheduledCount > 0 ? (
+            <aside className="flex w-[300px] shrink-0 flex-col gap-3 overflow-y-auto" data-testid="calendar-rail">
+              {activeView === "day" ? (
+                <DayRail day={selectedDate} events={events} workingHours={config?.workingHours} onSelectEvent={setSelectedEvent} />
+              ) : null}
+              <WaitingForSlotRail
+                onOpen={(taskId) => openTask(taskId)}
+                onSchedule={(taskId) => openAutoSchedule([taskId])}
+              />
+            </aside>
+          ) : null}
         </div>
       )}
 
