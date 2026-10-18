@@ -1148,7 +1148,9 @@ const styles = createThemedStyleSheet((colors) => ({
   inlineField: { flex: 1, minWidth: 0 },
   inlineAction: { color: colors.primary, fontSize: 14, fontWeight: "600" },
   inlineActionOff: { color: colors.mutedForeground, opacity: 0.6 },
-  activity: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18, flexShrink: 1 },
+  // `flex: 1`, not `flexShrink`: on Android a shrinking Text with nested Text was
+  // measured narrow and one line tall, cutting off the wrapped words.
+  activity: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18, flex: 1, minWidth: 0 },
   activityLog: { maxHeight: 180, flexGrow: 0 },
   activityPad: { paddingHorizontal: 14, paddingVertical: 8 },
   activityRow: { minHeight: 32, flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 3 },
