@@ -346,12 +346,8 @@ export const start: HelpSection = {
                     alt: "Phone Home tab titled Today: habits and goals, Inbox, Today focus, Schedule, End of day and a Meet your assistant tip about pinching, with the icon-only tab bar at the bottom.",
                   },
                   {
-                    src: "phone-calendar",
-                    alt: "Phone Calendar tab in agenda view with today's items, from an older version with a labelled five-tab bar.",
-                  },
-                  {
-                    src: "phone-tasks",
-                    alt: "Phone Tasks tab listing work grouped by workspace and project, from an older version with a labelled five-tab bar.",
+                    src: "phone-dashboard",
+                    alt: "Phone Dashboard tab: Open tasks, Done this week, Overdue and Weekly completion cards, with the Dashboard icon selected in the tab bar.",
                   },
                 ]}
               />
