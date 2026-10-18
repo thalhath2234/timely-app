@@ -497,42 +497,42 @@ export const start: HelpSection = {
           title: "The widgets",
           body: (
             <>
-            <ul>
-              <li>
-                <strong>Today:</strong> what you are focusing on and what is next on your calendar. Tick a task to
-                complete it.
-              </li>
-              <li>
-                <strong>Quick add:</strong> a bar with four buttons: <strong>Task</strong> adds a task,{" "}
-                <strong>Capture</strong> adds to the Inbox, <strong>Ask</strong> opens the assistant in a new chat,
-                and <strong>Search</strong> opens search.
-              </li>
-              <li>
-                <strong>Pomodoro:</strong> a pomodoro of its own. Pick <strong>Focus</strong>,{" "}
-                <strong>Short</strong> or <strong>Long</strong>, set the length with <strong>−</strong> and{" "}
-                <strong>+</strong> a minute at a time, then <strong>Start</strong>.
-              </li>
-              <li>
-                <strong>Timer:</strong> a <strong>Stopwatch</strong> or a countdown <strong>Timer</strong> that runs
-                on your phone. For a countdown, set the minutes with <strong>−</strong> and <strong>+</strong>.
-              </li>
-              <li>
-                <strong>Timely card:</strong> any card from your <Link href="/help/notes/dashboard">Dashboard</Link>,
-                including cards you made in the Card workshop, such as a table or a counter from a sheet.
-              </li>
-            </ul>
-            <Shot
-              src="widgets"
-              alt="Android widgets in dark mode: Overdue count and Overdue list cards, Completion streak in two sizes, Today with 2 of 5 done and the next items, Day and week progress bars, Inbox zero with a Capture button, a Daily goal ring, and the Quick add bar with Task, Capture, Ask and Search."
-              size={{ width: 1640, height: 1666 }}
-              caption="Dashboard cards, the Today widget and Quick add on a home screen. Cards marked your card were made in the Card workshop."
-            />
-            <Shot
-              src="widgets-timers"
-              alt="The Pomodoro widget with Focus, Short and Long tabs, minus and plus buttons, 25:00, Start and Skip, next to the Timer widget with Stopwatch and Timer tabs, 10:00 and Start."
-              size={{ width: 1520, height: 520 }}
-              caption="The Pomodoro and Timer widgets before they start."
-            />
+              <ul>
+                <li>
+                  <strong>Today:</strong> what you are focusing on and what is next on your calendar. Tick a task to
+                  complete it.
+                </li>
+                <li>
+                  <strong>Quick add:</strong> a bar with four buttons: <strong>Task</strong> adds a task,{" "}
+                  <strong>Capture</strong> adds to the Inbox, <strong>Ask</strong> opens the assistant in a new chat,
+                  and <strong>Search</strong> opens search.
+                </li>
+                <li>
+                  <strong>Pomodoro:</strong> a pomodoro of its own. Pick <strong>Focus</strong>,{" "}
+                  <strong>Short</strong> or <strong>Long</strong>, set the length with <strong>−</strong> and{" "}
+                  <strong>+</strong> a minute at a time, then <strong>Start</strong>.
+                </li>
+                <li>
+                  <strong>Timer:</strong> a <strong>Stopwatch</strong> or a countdown <strong>Timer</strong> that runs
+                  on your phone. For a countdown, set the minutes with <strong>−</strong> and <strong>+</strong>.
+                </li>
+                <li>
+                  <strong>Timely card:</strong> any card from your <Link href="/help/notes/dashboard">Dashboard</Link>,
+                  including cards you made in the Card workshop, such as a table or a counter from a sheet.
+                </li>
+              </ul>
+              <Shot
+                src="widgets"
+                alt="Android widgets in dark mode: Overdue count and Overdue list cards, Completion streak in two sizes, Today with 2 of 5 done and the next items, Day and week progress bars, Inbox zero with a Capture button, a Daily goal ring, and the Quick add bar with Task, Capture, Ask and Search."
+                size={{ width: 1640, height: 1666 }}
+                caption="Some of the widgets: Dashboard cards, Today and Quick add."
+              />
+              <Shot
+                src="widgets-timers"
+                alt="The Pomodoro widget with Focus, Short and Long tabs, minus and plus buttons, 25:00, Start and Skip, next to the Timer widget with Stopwatch and Timer tabs, 10:00 and Start."
+                size={{ width: 1520, height: 520 }}
+                caption="The Pomodoro and Timer widgets before they start."
+              />
             </>
           ),
         },
