@@ -41,7 +41,7 @@ register("data:text/javascript," + encodeURIComponent(loader));
 
 const { buildWidgetTree } = await import(widgetLib + "api/build-widget-tree.js");
 const { renderCard, renderQuickAdd } = await import(new URL("lib/widgets/render.tsx", mobile).href);
-const { cardWidgetModel, clockWidgetModel, pomodoroLocalFrom, pomodoroWidgetModel, todayModel } = await import(new URL("lib/widgets/model.ts", mobile).href);
+const { cardWidgetModel, clockWidgetModel, counterWidgetModel, formatCount, pomodoroLocalFrom, pomodoroWidgetModel, sheetCounter, todayModel } = await import(new URL("lib/widgets/model.ts", mobile).href);
 const { BUILTIN_CARDS, cardTitle, defaultDashboard } = await import(new URL("packages/contract/src/dashboard.ts", root).href);
 const { buildYearlyExpenses } = await import(new URL("packages/contract/src/sheetTemplates.ts", root).href);
 
@@ -126,7 +126,8 @@ add("Timers", "Timer idle", clock({ mode: "timer", minutes: 10, startedAt: null,
 add("Timers", "Timer running", clock({ mode: "timer", minutes: 10, startedAt: t0 - 120000, elapsed: 0 }));
 add("Timers", "Timer done", clock({ mode: "timer", minutes: 10, startedAt: t0 - 700000, elapsed: 0 }));
 // The Pomodoro and Timer widgets, and the trees the phone redraws them from
-// after a tab or −/+ (tokens filled in as RNWidgetLocal does).
+// after a tab or −/+ (tokens filled in as RNWidgetLocal does; a counter's
+// DecimalFormat token takes the text the case gives for it).
 const fill = (tree, state) =>
   JSON.parse(JSON.stringify(tree).replace(/\{\{(\w+)(?::(\w+))?\}\}/g, (_, key, format) => (format === "clock" ? `${state[key]}:00` : String(state[key]))));
 const phone = (group, name, model, state, sizes = Object.keys(SIZES)) => {
@@ -167,6 +168,19 @@ for (const view of sheetViews) {
   add("Sheet cards (Budget)", `Budget ${view}`, cardWidgetModel(custom(`Budget ${view}`, { sheet: { sheetId: "s2", tabId: "tb", range: view === "value" || view === "counter" || view === "progress" ? "B6" : "A1:C5", target: view === "progress" ? "C6" : undefined, view, headers: view !== "value" && view !== "counter" && view !== "progress", step: 1 } }), base), ["2x2", "4x2"]);
 }
 add("Sheet cards (Budget)", "Counter on a number cell", cardWidgetModel(custom("Water today", { sheet: { sheetId: "s3", tabId: "tw", range: "A1", view: "counter", step: 1 } }), base), ["min", "2x2", "4x2"]);
+// A sheet counter that counts on the phone: with nothing to save, counted
+// (Save between −/+), and the phone's redraws a hundred taps on.
+const coin = [{ id: "n", name: "Spent", width: 80, type: "currency", format: { currency: "USD" } }];
+const spent = { id: "s4", title: "Budget", columns: coin, rows: [{ id: "r", cells: { n: "1250" } }], merges: [], tabs: [{ id: "tc", name: "Budget", columns: coin, rows: [{ id: "r", cells: { n: "1250" } }], merges: [] }], archivedAt: null };
+for (const [label, sheetId, tabId, step, sheets] of [["Water", "s3", "tw", 1, files.sheets], ["Spent", "s4", "tc", 5, { s4: spent }]]) {
+  const counter = sheetCounter({ sheetId, tabId, range: "A1", view: "counter", step }, { ...base, files: { sheets } }, label, "cnt");
+  const at = (count, changed) => counterWidgetModel({ ...counter.widget, local: { count, base: counter.value } }, changed);
+  add("Sheet counter widget", `${label} nothing to save`, at(counter.value, false));
+  add("Sheet counter widget", `${label} counted`, at(counter.value + 3 * step, true));
+  const far = counter.value + 100 * step;
+  phone("Sheet counter widget", `Phone redraw: ${label} 100 taps on`, at(counter.value, true), { count: formatCount(far, counter.widget.format) });
+  phone("Sheet counter widget", `Phone redraw: ${label} back to saved`, at(counter.value, false), { count: formatCount(counter.value, counter.widget.format) });
+}
 add("Sheet cards (Budget)", "Sheet deleted", cardWidgetModel(custom("Gone", { sheet: { sheetId: "zz", range: "A1", view: "value" } }), base), ["2x2"]);
 for (const view of ["checklist", "page"]) {
   add("Doc cards", `Trip ${view}`, cardWidgetModel(custom(`Trip ${view}`, { doc: { docId: "d1", view } }), base), ["2x2", "4x2", "4x4"]);

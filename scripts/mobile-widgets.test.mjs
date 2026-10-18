@@ -12,9 +12,10 @@ register(
 );
 
 const { BUILTIN_CARDS, defaultDashboard } = await import("../packages/contract/src/dashboard.ts");
-const { CLOCK_LOCAL_LIMITS, POMODORO_LOCAL_LIMITS, cardWidgetModel, clockWidgetModel, pomodoroLocalFrom, pomodoroWidgetModel, todayModel, widgetChoices } = await import("../apps/mobile/lib/widgets/model.ts");
+const { CLOCK_LOCAL_LIMITS, POMODORO_LOCAL_LIMITS, cardWidgetModel, clockWidgetModel, counterFormat, counterWidgetModel, formatCount, pomodoroLocalFrom, pomodoroWidgetModel, sheetCounter, todayModel, widgetChoices } = await import("../apps/mobile/lib/widgets/model.ts");
 const { clockChange, isLocalTap, optimisticModel, parseWidgetAction } = await import("../apps/mobile/lib/widgets/actions.ts");
 const { SHARED_MS, sharedLoads } = await import("../apps/mobile/lib/widgets/sharedLoads.ts");
+const { formatLike } = await import("../packages/contract/src/dashboardFiles.ts");
 const { clockState, initialPomodoro, pomodoroRemaining, pomodoroSettings } = await import("../packages/contract/src/dashboard.ts");
 const catalog = (await import("../apps/mobile/lib/widgets/catalog.json", { with: { type: "json" } })).default;
 
@@ -368,6 +369,49 @@ describe("widgets that work on the home screen", () => {
     assert.equal(cardWidgetModel(card("A2"), { ...input, files }).buttons, undefined);
   });
 
+  test("a sheet counter widget counts on the phone and saves with one tap", () => {
+    const base = defaultDashboard().cards.find((c) => c.id === "default_open");
+    const columns = [{ id: "n", name: "Glasses", width: 100, type: "number" }];
+    const rows = [{ id: "r1", cells: { n: "3" } }, { id: "r2", cells: { n: "=A1*2" } }];
+    const sheet = { id: "s1", title: "Water", columns, rows, merges: [], tabs: [{ id: "tab", name: "Water", columns, rows, merges: [] }], archivedAt: null };
+    const pick = (range) => ({ sheetId: "s1", tabId: "tab", range, view: "counter", step: 1 });
+    const files = { sheets: { s1: sheet } };
+    const counter = sheetCounter(pick("A1"), { ...input, files }, "Water", "cnt");
+    assert.equal(counter.value, 3);
+    assert.equal(counter.cell, "s1/tab/r1/n");
+    // A formula can't count anywhere.
+    assert.equal(sheetCounter(pick("A2"), { ...input, files }, "Water", "cnt"), null);
+    // Nothing to save: −/+ are taps the phone handles, and nothing reaches the app.
+    const clean = counterWidgetModel({ ...counter.widget, local: { count: 3, base: 3 } });
+    assert.deepEqual(clean.buttons.map((button) => [button.local, button.action]), [[{ step: "count", by: -1 }, undefined], [{ step: "count", by: 1 }, undefined]]);
+    assert.equal(clean.value, "3");
+    assert.equal(clean.valueText, "{{count:0.####;-0.####}}");
+    assert.equal(clean.caption, "Saves into Water");
+    // Counted on the phone: Save sits between them and is the one tap for the app.
+    const counted = counterWidgetModel({ ...counter.widget, local: { count: 5, base: 3 } });
+    assert.equal(counted.value, "5");
+    assert.equal(counted.caption, "Not saved yet · was 3");
+    assert.deepEqual(counted.buttons.map((button) => button.action ?? button.local), [{ step: "count", by: -1 }, { kind: "counterSave", cardId: "cnt" }, { step: "count", by: 1 }]);
+    // The phone keeps one drawing of each, whatever the count.
+    assert.equal(counterWidgetModel({ ...counter.widget, local: { count: 3, base: 3 } }, true).buttons.length, 3);
+  });
+
+  test("a counter writes its count the way its cell does, or keeps asking the app", () => {
+    const columns = [
+      { type: "number", format: { decimals: 2 } },
+      { type: "currency", format: { currency: "USD" } },
+      { type: "currency", format: { currency: "Rs", decimals: 0 } },
+    ];
+    for (const column of columns) {
+      const format = counterFormat(column);
+      assert.ok(format, column.type);
+      for (const n of [3, 1234.5, -2, 0.1 + 0.2, 0]) assert.equal(formatCount(n, format), formatLike(n, column), `${column.type} ${n}`);
+    }
+    assert.equal(formatCount(-2, counterFormat({ type: "currency", format: { currency: "USD" } })), "-$2.00");
+    // A percentage shows 0.5 as 50%: the phone can't write that from the number.
+    assert.equal(counterFormat({ type: "percent" }), null);
+  });
+
   test("a doc checklist row toggles its own checkbox", () => {
     const base = defaultDashboard().cards.find((c) => c.id === "default_open");
     const item = (text, checked) => ({ type: "taskItem", attrs: { checked }, content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
@@ -405,6 +449,7 @@ describe("widgets that work on the home screen", () => {
       { kind: "task", taskId: "t", done: false },
       { kind: "task", taskId: "t", done: true, originalStart: "2026-10-15T10:00:00Z" },
       { kind: "counter", cardId: "c", by: -2 },
+      { kind: "counterSave", cardId: "c" },
       { kind: "docCheck", cardId: "d", index: 0, checked: true },
     ];
     for (const action of actions) assert.deepEqual(parseWidgetAction({ ...action }), action);

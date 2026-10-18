@@ -336,7 +336,7 @@ new file mode 100644
 index 0000000000000000000000000000000000000000..076462796494f3584eff1d498263734fd5824673
 --- /dev/null
 +++ b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetLocal.java
-@@ -0,0 +1,179 @@
+@@ -0,0 +1,207 @@
 +package com.reactnativeandroidwidget;
 +
 +import android.content.Context;
@@ -353,9 +353,13 @@ index 0000000000000000000000000000000000000000..076462796494f3584eff1d498263734f
 +
 +import java.io.File;
 +import java.io.FileOutputStream;
++import java.math.RoundingMode;
 +import java.nio.charset.StandardCharsets;
 +import java.nio.file.Files;
++import java.text.DecimalFormat;
++import java.text.DecimalFormatSymbols;
 +import java.util.Iterator;
++import java.util.Locale;
 +import java.util.regex.Matcher;
 +import java.util.regex.Pattern;
 +
@@ -371,14 +375,17 @@ index 0000000000000000000000000000000000000000..076462796494f3584eff1d498263734f
 + * The file, timely-widget-local-ID.json in the app's files folder:
 + * { "state": {...}, "variantKey": "phase", "limits": { "focus": [1, 180] },
 + *   "variants": { "focus": { "light": tree, "dark": tree }, ... } }
-+ * Strings in a tree may hold {{key}} (a number from the state) or
-+ * {{key:clock}} (minutes in the state, drawn as 25:00 or 90:00).
++ * Strings in a tree may hold {{key}} (a number from the state),
++ * {{key:clock}} (minutes in the state, drawn as 25:00 or 90:00) or
++ * {{key:#,##0.00}} (a number in that DecimalFormat pattern, as a sheet
++ * counter's cell writes it). "differs": { "changed": ["count", "base"] } sets
++ * state.changed to "yes" or "no" after each tap, so a variant can follow it.
 + * A tap's data is { "set": key, "value": text } or { "step": key, "by": n }.
 + */
 +public final class RNWidgetLocal {
 +    public static final String CLICK = "TIMELY_LOCAL";
 +    private static final String TAG = "RNWidgetLocal";
-+    private static final Pattern TOKEN = Pattern.compile("\\{\\{(\\w+)(?::(\\w+))?\\}\\}");
++    private static final Pattern TOKEN = Pattern.compile("\\{\\{(\\w+)(?::([^{}]+))?\\}\\}");
 +
 +    private RNWidgetLocal() {}
 +
@@ -396,6 +403,7 @@ index 0000000000000000000000000000000000000000..076462796494f3584eff1d498263734f
 +            // No variants: the widget is running and JS owns every tap again.
 +            if (state == null || variants == null) return;
 +            if (!apply(state, doc.optJSONObject("limits"), data)) return;
++            differ(state, doc.optJSONObject("differs"));
 +            try (FileOutputStream out = new FileOutputStream(file)) {
 +                out.write(doc.toString().getBytes(StandardCharsets.UTF_8));
 +            }
@@ -427,7 +435,8 @@ index 0000000000000000000000000000000000000000..076462796494f3584eff1d498263734f
 +            double by = number(data.get("by"));
 +            if (key == null || by == 0) return false;
 +            double current = state.optDouble(key, 0);
-+            double next = current + by;
++            // Whole millionths, so 0.1 steps add up to 0.3, not 0.30000000000000004.
++            double next = Math.round((current + by) * 1e6) / 1e6;
 +            JSONArray limit = limits != null ? limits.optJSONArray(key) : null;
 +            if (limit != null && limit.length() == 2) next = Math.max(limit.getDouble(0), Math.min(limit.getDouble(1), next));
 +            if (next == current) return false;
@@ -435,6 +444,19 @@ index 0000000000000000000000000000000000000000..076462796494f3584eff1d498263734f
 +            return true;
 +        }
 +        return false;
++    }
++
++    /** Each "differs" key becomes "yes" when its two numbers in the state differ, else "no". */
++    private static void differ(JSONObject state, JSONObject differs) throws Exception {
++        if (differs == null) return;
++        for (Iterator<String> keys = differs.keys(); keys.hasNext(); ) {
++            String key = keys.next();
++            JSONArray pair = differs.optJSONArray(key);
++            if (pair == null || pair.length() != 2) continue;
++            double a = state.optDouble(pair.getString(0), 0);
++            double b = state.optDouble(pair.getString(1), 0);
++            state.put(key, Math.abs(a - b) < 1e-9 ? "no" : "yes");
++        }
 +    }
 +
 +    private static double number(Object value) {
@@ -483,6 +505,12 @@ index 0000000000000000000000000000000000000000..076462796494f3584eff1d498263734f
 +        double number = ((Number) value).doubleValue();
 +        // Whole minutes as a waiting clock: 25:00, 90:00.
 +        if ("clock".equals(format)) return Math.round(number) + ":00";
++        if (format != null) {
++            DecimalFormat pattern = new DecimalFormat(format, DecimalFormatSymbols.getInstance(Locale.US));
++            pattern.setRoundingMode(RoundingMode.HALF_UP);
++            // No "-0" for a count back at zero.
++            return pattern.format(number == 0 ? 0.0 : number);
++        }
 +        return number == Math.rint(number) ? String.valueOf((long) number) : String.valueOf(number);
 +    }
 +

@@ -19,6 +19,8 @@ export type LocalFile<S> = {
   /** The state key that picks the variant to draw. */
   variantKey: string;
   limits: Record<string, [number, number]>;
+  /** State keys the phone sets to "yes" or "no" after each tap: whether the two numbers named differ. */
+  differs?: Record<string, [string, string]>;
   variants: Record<string, Trees> | null;
 };
 

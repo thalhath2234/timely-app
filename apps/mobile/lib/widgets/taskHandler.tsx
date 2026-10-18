@@ -19,6 +19,7 @@ import {
   TIMER_WIDGET,
 } from "./standalone";
 import { allWidgetEntries, forgetWidget, setWidgetEntry, widgetEntry } from "./storage";
+import { isCounterCard, offlineCounter, renderCounter, saveCounter } from "./counter";
 
 /**
  * Draws Timely's home screen widgets. Android asks for a redraw when one is
@@ -56,7 +57,7 @@ export async function widgetModel(info: WidgetInfo, cardId?: string): Promise<Wi
     if (!board) {
       // Offline: a pomodoro still runs on the phone, so draw it from there.
       if (entry.card?.type === "pomodoro" && (await signedIn())) return instantCard(info, entry, entry.card);
-      return entry.model ?? signedOut("Timely");
+      return lastModel(info.widgetId) ?? signedOut("Timely");
     }
     const card = board.cards.find((c) => c.id === id);
     if (!card) {
@@ -66,8 +67,10 @@ export async function widgetModel(info: WidgetInfo, cardId?: string): Promise<Wi
         empty: id ? "This card is no longer on your Dashboard. Hold the widget to pick another." : "Hold the widget to pick a card.",
       };
     }
+    // Taps a counter made on the phone reach its cell in one save, before it redraws.
+    if (isCounterCard(card) && (await saveCounter(info.widgetId, card).catch(() => false))) forgetWidgetLoads();
     const input = await loadWidgetInput([card]);
-    if (!input) return entry.model ?? signedOut("Timely");
+    if (!input) return lastModel(info.widgetId) ?? signedOut("Timely");
     // A pomodoro card's tabs and −/+ work on the phone alone, like the Pomodoro widget's.
     model =
       card.type === "pomodoro"
@@ -77,13 +80,26 @@ export async function widgetModel(info: WidgetInfo, cardId?: string): Promise<Wi
             { cardId: card.id, title: cardTitle(card), uri: `${appScheme()}://dashboard`, settings: card.settings, now: input.now.getTime(), pomodoros: input.pomodoros },
             pomodoroLocalFrom(card.settings),
           ).model
-        : cardWidgetModel(card, input);
-    setWidgetEntry(info.widgetId, { model, card, timeZone: input.timeZone, ...(cardId ? { cardId } : {}) });
+        : isCounterCard(card)
+          ? renderCounter(info.widgetId, { width: info.width, height: info.height }, card, input)
+          : cardWidgetModel(card, input);
+    setWidgetEntry(info.widgetId, {
+      model,
+      card,
+      timeZone: input.timeZone,
+      ...(cardId ? { cardId } : {}),
+      ...(isCounterCard(card) ? {} : { counter: undefined }),
+    });
     scheduleTimerRedraw();
     return model;
   }
   setWidgetEntry(info.widgetId, { model, ...(cardId ? { cardId } : {}) });
   return model;
+}
+
+/** What a widget last drew; a sheet counter with the count made on the phone since. */
+function lastModel(widgetId: number) {
+  return offlineCounter(widgetId) ?? widgetEntry(widgetId).model;
 }
 
 /**
@@ -194,7 +210,7 @@ async function handleAction(info: WidgetInfo, data: Record<string, unknown> | un
   try {
     renderWidget(await renderWidgetFor(info));
   } catch {
-    const cached = widgetEntry(info.widgetId).model;
+    const cached = lastModel(info.widgetId);
     if (cached) renderWidget(renderCard(cached, size));
   }
   // Other widgets may show the same task, habit or sheet; they share what
@@ -223,7 +239,7 @@ export async function widgetTaskHandler({ widgetInfo, widgetAction, renderWidget
       // Redraw at the new size from what the widget last showed, straight away;
       // the fresh load below can take a few seconds on a slow connection.
       if (widgetInfo.widgetName !== "TimelyQuickAdd") {
-        const cached = widgetEntry(widgetInfo.widgetId).model;
+        const cached = lastModel(widgetInfo.widgetId);
         if (cached) renderWidget(renderCard(cached, { width: widgetInfo.width, height: widgetInfo.height }));
       }
     // falls through
@@ -232,7 +248,7 @@ export async function widgetTaskHandler({ widgetInfo, widgetAction, renderWidget
       try {
         renderWidget(await renderWidgetFor(widgetInfo));
       } catch {
-        const cached = widgetEntry(widgetInfo.widgetId).model;
+        const cached = lastModel(widgetInfo.widgetId);
         if (cached) renderWidget(renderCard(cached, { width: widgetInfo.width, height: widgetInfo.height }));
       }
       return;
