@@ -1,7 +1,7 @@
 import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
 import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   Check,
@@ -356,16 +356,26 @@ export default function ProjectDetailScreen() {
         )}
         <RelatedList kind="project" id={project.id} />
         <View style={styles.section}>
-          <GroupLabel aside={(activity.data ?? []).length ? String(Math.min(20, (activity.data ?? []).length)) : undefined}>Activity</GroupLabel>
+          <GroupLabel aside={(activity.data ?? []).length ? String((activity.data ?? []).length) : undefined}>Activity</GroupLabel>
           {(activity.data ?? []).length ? (
             <ListGroup>
-              {(activity.data ?? []).slice(0, 20).map((entry) => (
-                <ListRow
-                  key={entry.id}
-                  title={entry.message || `${entry.actorName} ${entry.action}`}
-                  meta={`${entry.taskName ? `${entry.taskName} · ` : ""}${timeAgo(entry.createdAt)}`}
-                />
-              ))}
+              {/* Long logs scroll inside the card so the page stays short. */}
+              <ScrollView
+                key="log"
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+                style={(activity.data ?? []).length > 5 ? styles.activityLog : undefined}
+              >
+                <ListGroup style={styles.activityRows}>
+                  {(activity.data ?? []).map((entry) => (
+                    <ListRow
+                      key={entry.id}
+                      title={entry.message || `${entry.actorName} ${entry.action}`}
+                      meta={`${entry.taskName ? `${entry.taskName} · ` : ""}${timeAgo(entry.createdAt)}`}
+                    />
+                  ))}
+                </ListGroup>
+              </ScrollView>
             </ListGroup>
           ) : null}
           <GroupHint>Edits to the project’s own title, dates and description are not recorded yet.</GroupHint>
@@ -648,6 +658,9 @@ const styles = createThemedStyleSheet((colors) => ({
   doneText: { color: colors.primaryForeground, fontWeight: "600", fontSize: 12 },
   sheetBody: { gap: 10, paddingBottom: 4 },
   section: { gap: 6 },
+  // About five rows, with the next one peeking so it reads as scrollable.
+  activityLog: { maxHeight: 290 },
+  activityRows: { borderWidth: 0, borderRadius: 0 },
   inlineRow: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 6 },
   inlineLabel: { color: colors.foreground, fontSize: 15, fontWeight: "500" },
   inlineField: { flex: 1, minWidth: 0 },
