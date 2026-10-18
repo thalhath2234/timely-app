@@ -222,6 +222,7 @@ function SheetPicker({ sheet, pick, onChange }: { sheet: ContractSheet; pick: Sh
       {tabs.length > 1 ? (
         <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false}>
           <SegmentedControl
+            size="sm"
             value={tabId}
             onChange={(next) => {
               setFirst(null);
@@ -320,7 +321,14 @@ function SheetPicker({ sheet, pick, onChange }: { sheet: ContractSheet; pick: Sh
             );
           })}
         </View>
-        <Text style={styles.muted}>{SHEET_VIEW_HINTS[pick.view]}</Text>
+        {result.kind === "counter" && (!result.cell || result.cell.formula) ? (
+          // A counter on a formula has no − and +, on the card or its widget.
+          <Text style={styles.warning}>
+            {result.cell ? `${result.cell.address} is a formula, so a counter can't add to it.` : "Pick a cell first."} Tap a cell with a plain number.
+          </Text>
+        ) : (
+          <Text style={styles.muted}>{SHEET_VIEW_HINTS[pick.view]}</Text>
+        )}
         {pick.view === "progress" ? (
           <Field
             label="Goal"
@@ -408,6 +416,7 @@ function SectionRow({ title, meta, active, level, onPress }: { title: string; me
 
 const styles = createThemedStyleSheet((colors) => ({
   muted: { color: colors.mutedForeground, fontSize: 13 },
+  warning: { color: colors.warning, fontSize: 13 },
   chips: { gap: 8, paddingRight: 8 },
   pickHead: { flexDirection: "row", alignItems: "center", gap: 8 },
   rangePill: { color: colors.foreground, fontSize: 13, fontVariant: ["tabular-nums"], backgroundColor: colors.muted, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, overflow: "hidden" },
