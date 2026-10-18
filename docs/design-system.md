@@ -12,7 +12,9 @@ Source of truth: `packages/contract/src/designTokens.ts`.
 - **Accent presets.** `ACCENT_PRESETS` is the same list on both apps; "default" is indigo `#4F46E5`.
 - **Radii.** Controls 10px (web `rounded-md`), cards 12px (`rounded-lg`, 16px on the phone's larger cards), dialogs and sheets 20px. Pills (`rounded-full`) only for chips, badges and avatars.
 - **Control heights.** Desktop sm 28 / md 32 / lg 36. Phone sm 36 / md 44 / lg 48.
-- **Type.** Inter on web, the system font on the phone. Weights 400 body, 500 labels, 600 titles and buttons; 700 only for the phone's large screen title.
+- **Surfaces.** Four steps, each a little lighter (dark) or darker (light) than the one below: page `background`, `card`, panel2 (`muted`/`secondary`), raised (`fill`). Hairlines `border` and `input` are black or white at 8 % and 14 %, never a grey. A card sits on the page by tone; the shell draws no frame around a page and the rail shares the page colour.
+- **Type.** Inter on web, the system font on the phone. Weights 400 body, 500 labels, 600 titles and buttons; nothing heavier, the phone's large title included. Page titles are 26px at −0.02em; eyebrows are 11 to 12px uppercase at 0.08em in `muted-foreground`.
+- **Motion.** `motion` in `designTokens.ts`: one easing `cubic-bezier(0.16, 1, 0.3, 1)` (fast out, long settle), reveal 16 frames (530 ms, 14px rise), pop 10 frames (330 ms, 0.94 to 1), highlight 30 frames (1 s tint fade), stagger 3 frames (100 ms, capped at eight siblings), settle 12 frames. The landing film (`film/anim.ts`), the web kit (`_ui/motion.tsx`: `easeOut`, `revealTransition`, `listItemVariants`, `staggerDelay`) and the phone (`lib/motion.ts`) read the same values. Reduce motion follows the OS unless the user picks Animate or Reduce in Appearance; when it is on, everything becomes a short cross-fade.
 
 ## Button
 
@@ -57,7 +59,7 @@ Switching views or modes (List/Kanban, Day/Week/Month, All/Docs/Sheets, System/L
 
 ## Page header
 
-Web `app/_components/_ui/pageHeader.tsx`: 24px semibold title, optional `PageBadge` count, one-line description, actions on the right as `md` buttons with the primary last, `px-6 pt-5 pb-4`.
+Web `app/_components/_ui/pageHeader.tsx`: 26px semibold title at −0.02em, optional `PageBadge` count, actions on the right as `md` buttons with the primary last, `px-6 pt-5 pb-4`. A description is for a line that carries data (a date, a count); a sentence that only describes the page is left out, and what the page just did goes in a state line at the bottom of the page instead.
 
 Phone `MobileHeader`: tab roots (Today, Tasks, Calendar, Search, Files) use the large 28px title; every pushed screen (`back`) uses the compact 17px title. `large` defaults to `!back`.
 

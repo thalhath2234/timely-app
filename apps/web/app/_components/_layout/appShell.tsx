@@ -63,7 +63,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         animate={{ x: autoHide && !showSidebar ? "-100%" : 0 }}
         transition={springSnappy}
         className={cn(
-          "flex h-full w-[68px] items-center justify-center border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
+          "flex h-full w-14 items-center justify-center bg-sidebar text-sidebar-foreground",
           autoHide
             ? "absolute inset-y-0 left-0 z-50 shadow-xl"
             : "shrink-0",
@@ -86,7 +86,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
       <div
         id="main-content"
-        className="m-1 min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-background text-foreground shadow-sm"
+        className="min-w-0 flex-1 overflow-hidden bg-background text-foreground"
       >
         <PageFade>{children}</PageFade>
       </div>

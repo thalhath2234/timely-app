@@ -9,12 +9,22 @@ import {
   type ReactNode,
 } from "react";
 import { motion, type Transition, type Variants } from "motion/react";
+import { motion as MOTION } from "@timely/contract/designTokens";
 import { cn } from "@/app/utils/cn";
 import { runViewTransition } from "@/app/utils/viewTransition";
 
 export { runViewTransition };
 
-export const easeOut = [0.22, 1, 0.36, 1] as const;
+/** The film's easing (designTokens.motion): fast out, long settle. */
+export const easeOut = MOTION.ease;
+/** Lengths in seconds, from the shared motion tokens. */
+export const motionSeconds = {
+  reveal: MOTION.ms.reveal / 1000,
+  pop: MOTION.ms.pop / 1000,
+  highlight: MOTION.ms.highlight / 1000,
+  stagger: MOTION.ms.stagger / 1000,
+  settle: MOTION.ms.settle / 1000,
+} as const;
 
 export const springSoft: Transition = {
   type: "spring",
@@ -31,12 +41,18 @@ export const springSnappy: Transition = {
 };
 
 export const overlayTransition: Transition = {
-  duration: 0.18,
+  duration: motionSeconds.pop,
   ease: easeOut,
 };
 
 export const fadeTransition: Transition = {
-  duration: 0.2,
+  duration: motionSeconds.pop,
+  ease: easeOut,
+};
+
+/** `rise` from the film: 14 px up while fading in, 16 frames. */
+export const revealTransition: Transition = {
+  duration: motionSeconds.reveal,
   ease: easeOut,
 };
 
@@ -67,24 +83,29 @@ export const toastVariants: Variants = {
 export const listContainerVariants: Variants = {
   hidden: {},
   visible: {
-    transition: { staggerChildren: 0.04, delayChildren: 0.02 },
+    transition: { staggerChildren: motionSeconds.stagger, delayChildren: 0.02 },
   },
 };
 
 export const listItemVariants: Variants = {
-  hidden: { opacity: 0, y: 8 },
-  visible: { opacity: 1, y: 0, transition: springSoft },
+  hidden: { opacity: 0, y: MOTION.revealDistance },
+  visible: { opacity: 1, y: 0, transition: revealTransition },
   exit: { opacity: 0, y: -4, transition: { duration: 0.12 } },
 };
 
+/** Delay for the `index`-th sibling of a staggered reveal; siblings past the cap arrive together. */
+export function staggerDelay(index: number) {
+  return Math.min(index, MOTION.staggerCap) * motionSeconds.stagger;
+}
+
 export const pageTransition: Transition = {
-  duration: 0.28,
+  duration: motionSeconds.reveal,
   ease: easeOut,
 };
 
 export const hoverLift = {
-  y: -2,
-  transition: { duration: 0.15, ease: easeOut },
+  y: -1,
+  transition: { duration: 0.2, ease: easeOut },
 };
 
 export const tapPress = { scale: 0.98 };

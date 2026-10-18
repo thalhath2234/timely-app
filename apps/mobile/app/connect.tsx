@@ -185,7 +185,7 @@ export default function ConnectScreen() {
 const styles = createThemedStyleSheet((colors) => ({
   wrap: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 16, paddingVertical: 24, gap: 14 },
   logo: { marginBottom: 4 },
-  title: { color: colors.foreground, fontSize: 28, fontWeight: "700", letterSpacing: -0.6 },
+  title: { color: colors.foreground, fontSize: 28, fontWeight: "600", letterSpacing: -0.6 },
   sub: { color: colors.mutedForeground, fontSize: 15, lineHeight: 21 },
   current: { color: colors.mutedForeground, fontSize: 13 },
   error: { color: colors.destructive, fontSize: 13, lineHeight: 18 },

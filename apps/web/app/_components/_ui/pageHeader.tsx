@@ -32,7 +32,7 @@ export default function PageHeader({
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
         <div className="min-w-0">
           <div className="flex min-h-8 items-center gap-2.5">
-            <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground">{title}</h1>
+            <h1 className="truncate text-[26px] font-semibold leading-8 tracking-[-0.02em] text-foreground">{title}</h1>
             {badge}
           </div>
           {description ? <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{description}</p> : null}

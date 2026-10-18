@@ -54,7 +54,7 @@
    whatever the account theme on <html>, so it re-declares the dark tokens. */
 :root {
   color-scheme: light;
-  --background: #f9fafb;
+  --background: #f7f7fa;
   --foreground: #171a24;
   --card: #ffffff;
   --card-foreground: #171a24;
@@ -62,9 +62,9 @@
   --popover-foreground: #171a24;
   --primary: #4f46e5;
   --primary-foreground: #f9fafe;
-  --secondary: #eff0f4;
+  --secondary: #f2f2f6;
   --secondary-foreground: #252933;
-  --muted: #eff0f4;
+  --muted: #f2f2f6;
   --muted-foreground: #656972;
   --accent: #e9ecfb;
   --accent-foreground: #373896;
@@ -73,42 +73,42 @@
   --destructive-container: #dc2627;
   --success: #179765;
   --warning: #df911a;
-  --border: #e0e2e6;
-  --input: #e0e2e6;
+  --border: rgba(0, 0, 0, 0.08);
+  --input: rgba(0, 0, 0, 0.14);
   --ring: #4f46e5;
-  --fill: #eff0f4;
+  --fill: #ebebf0;
   --chart-1: oklch(0.51 0.23 277);
   --chart-2: oklch(0.62 0.16 255);
   --chart-3: oklch(0.72 0.1 285);
   --chart-4: oklch(0.6 0.13 160);
   --chart-5: oklch(0.72 0.15 70);
   --radius: 0.75rem;
-  --sidebar: oklch(0.965 0.003 264);
-  --sidebar-foreground: oklch(0.32 0.02 270);
-  --sidebar-primary: oklch(0.51 0.23 277);
-  --sidebar-primary-foreground: oklch(0.985 0.005 277);
-  --sidebar-accent: oklch(0.925 0.008 270);
-  --sidebar-accent-foreground: oklch(0.22 0.02 270);
-  --sidebar-border: oklch(0.905 0.006 270);
-  --sidebar-ring: oklch(0.51 0.23 277);
+  --sidebar: #f7f7fa;
+  --sidebar-foreground: #373a45;
+  --sidebar-primary: #4f46e5;
+  --sidebar-primary-foreground: #f9fafe;
+  --sidebar-accent: #e9ecfb;
+  --sidebar-accent-foreground: #373896;
+  --sidebar-border: rgba(0, 0, 0, 0.08);
+  --sidebar-ring: #4f46e5;
 }
 
 .dark,
 .site {
   color-scheme: dark;
-  --background: #111319;
+  --background: #0b0b0f;
   --foreground: #e2e2eb;
-  --card: #191b22;
+  --card: #121217;
   --card-foreground: #e2e2eb;
-  --popover: #191b22;
+  --popover: #17171d;
   --popover-foreground: #e2e2eb;
   --primary: #c0c1ff;
   --primary-foreground: #1000a9;
-  --secondary: #1d1f26;
+  --secondary: #17171d;
   --secondary-foreground: #e2e2eb;
-  --muted: #191b22;
+  --muted: #17171d;
   --muted-foreground: #908fa0;
-  --accent: #282a30;
+  --accent: #1d1d25;
   --accent-foreground: #c0c1ff;
   --destructive: #ffb4ab;
   --destructive-foreground: #ffdad6;
@@ -116,19 +116,19 @@
   --success: #4edea3;
   --warning: #ffb95f;
   --border: rgba(255, 255, 255, 0.08);
-  --input: rgba(255, 255, 255, 0.12);
+  --input: rgba(255, 255, 255, 0.14);
   --ring: #c0c1ff;
-  --fill: #24262e;
+  --fill: #1d1d25;
   --chart-1: #c0c1ff;
   --chart-2: #4edea3;
   --chart-3: #8083ff;
   --chart-4: #4edea3;
   --chart-5: #ffb95f;
-  --sidebar: #0c0e14;
+  --sidebar: #0b0b0f;
   --sidebar-foreground: #e2e2eb;
   --sidebar-primary: #c0c1ff;
   --sidebar-primary-foreground: #1000a9;
-  --sidebar-accent: #191b22;
+  --sidebar-accent: #1d1d25;
   --sidebar-accent-foreground: #e2e2eb;
   --sidebar-border: rgb(255 255 255 / 8%);
   --sidebar-ring: #c0c1ff;
