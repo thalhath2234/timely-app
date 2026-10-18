@@ -3,7 +3,7 @@
 import { SkeletonRows } from "@/app/_components/_ui/skeleton";
 import Link from "next/link";
 import type { MouseEvent as ReactMouseEvent } from "react";
-import { FolderKanban, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import EmptyState from "@/app/_components/_ui/emptyState";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
@@ -173,11 +173,11 @@ export default function ProjectsPage() {
         ) : list.length === 0 ? (
           <div className="mt-2">
             <EmptyState
-              icon={FolderKanban}
+              loop="project"
               title="No projects yet"
-              description="Create a project to group tasks, stages, and deadlines."
+              description="A project groups tasks under stages, labels and a deadline, and shows them as a list, a board or a Gantt chart."
               action={
-                <Button onClick={openCreate} className="mt-2" leading={<Plus />}>
+                <Button onClick={openCreate} leading={<Plus />}>
                   New project
                 </Button>
               }

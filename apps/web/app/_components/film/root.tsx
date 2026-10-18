@@ -1,6 +1,8 @@
 import { Composition, Folder } from "remotion";
 import { CHAPTERS, FILM_FRAMES } from "./chapters";
 import { TimelyFilm } from "./film";
+import { LOOPS } from "./loops";
+import { LOOP } from "./loops/stage";
 import { SCENES } from "./scenes";
 import { FPS, HEIGHT, WIDTH } from "./theme";
 
@@ -15,6 +17,11 @@ export function RemotionRoot() {
       <Folder name="Chapters">
         {CHAPTERS.map((chapter) => (
           <Composition key={chapter.id} id={`Chapter-${chapter.n}-${chapter.id}`} component={SCENES[chapter.id]} width={WIDTH} height={HEIGHT} fps={FPS} durationInFrames={chapter.frames} />
+        ))}
+      </Folder>
+      <Folder name="Loops">
+        {Object.entries(LOOPS).map(([id, loop]) => (
+          <Composition key={id} id={`Loop-${id}`} component={loop.component} width={LOOP.width} height={LOOP.height} fps={LOOP.fps} durationInFrames={LOOP.frames} />
         ))}
       </Folder>
     </>

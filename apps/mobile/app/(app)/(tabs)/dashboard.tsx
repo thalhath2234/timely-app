@@ -21,6 +21,7 @@ import {
   Inbox,
   LineChart as LineIcon,
   List,
+  LayoutGrid,
   ListChecks,
   NotebookPen,
   Pencil,
@@ -53,6 +54,7 @@ import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHea
 import BottomSheet from "../../../components/ui/BottomSheet";
 import ConfirmSheet from "../../../components/ui/ConfirmSheet";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
+import EmptyState from "../../../components/ui/EmptyState";
 import { SectionLabel } from "../../../components/ui/primitives";
 import CustomCardView from "../../../components/report/customCardView";
 import FileCardView, { FILE_ICON, isFileQuery, useFileWatches } from "../../../components/report/fileCards";
@@ -366,14 +368,18 @@ export default function DashboardScreen() {
           ) : null}
           {isLoading && !layout ? <Text style={[styles.muted, { textAlign: "center", padding: 24 }]}>Loading your dashboard…</Text> : null}
           {layout && cards.length === 0 ? (
-            <View style={styles.empty}>
-              <Text style={styles.emptyTitle}>Your dashboard is empty</Text>
-              <Text style={styles.muted}>Add a productivity tool or a chart to get started.</Text>
-              <AnimatedPressable accessibilityRole="button" onPress={() => setAdding(true)} style={styles.primary}>
-                <Plus size={16} color={colors.primaryForeground} />
-                <Text style={styles.primaryText}>Add card</Text>
-              </AnimatedPressable>
-            </View>
+            <EmptyState
+              icon={LayoutGrid}
+              loop="cards"
+              title="Your dashboard is empty"
+              description="Add a productivity tool, a ready-made chart, or a card of your own from tasks, events, a sheet or a doc."
+              action={
+                <AnimatedPressable accessibilityRole="button" onPress={() => setAdding(true)} style={[styles.primary, { marginTop: 0 }]}>
+                  <Plus size={16} color={colors.primaryForeground} />
+                  <Text style={styles.primaryText}>Add card</Text>
+                </AnimatedPressable>
+              }
+            />
           ) : null}
 
           {editing ? (
@@ -514,8 +520,6 @@ const styles = createThemedStyleSheet((colors) => ({
   banner: { borderRadius: 12, borderWidth: 1, borderColor: colors.destructive, padding: 12, gap: 4 },
   bannerText: { color: colors.foreground, fontSize: 13 },
   link: { color: colors.primary, fontSize: 13, fontWeight: "600" },
-  empty: { alignItems: "center", gap: 8, paddingVertical: 48 },
-  emptyTitle: { color: colors.foreground, fontSize: 17, fontWeight: "600" },
   primary: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 16, backgroundColor: colors.primary },
   primaryText: { color: colors.primaryForeground, fontSize: 15, fontWeight: "600" },
   secondary: {

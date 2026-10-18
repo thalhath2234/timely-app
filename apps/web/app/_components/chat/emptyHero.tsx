@@ -19,6 +19,7 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useChatPrompts, useDecisionFeedback } from "@/app/utils/hooks/decisions";
+import dynamic from "next/dynamic";
 import { motion } from "motion/react";
 import { cn } from "@/app/utils/cn";
 import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
@@ -28,6 +29,12 @@ import {
   listContainerVariants,
   listItemVariants,
 } from "@/app/_components/_ui/motion";
+
+/** Loaded with the hero only: Remotion stays out of every other page. */
+const LoopPlayer = dynamic(() => import("@/app/_components/film/loopPlayer"), {
+  ssr: false,
+  loading: () => <div className="aspect-[8/5] w-full bg-panel" />,
+});
 
 const suggestions: { icon: LucideIcon; title: string; text: string }[] = [
   {
@@ -92,15 +99,24 @@ export default function EmptyHero({
     onPick(text);
   };
   return (
-    <div className={cn("mx-auto max-w-2xl py-8", compact && "py-3")}>
-      <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/8 px-2.5 py-0.5 text-[11px] font-medium text-primary">
-        <Sparkles className="size-3.5" />
-        Timely assistant
+    <div className={cn("mx-auto max-w-2xl py-8", compact ? "py-3" : "lg:max-w-4xl")}>
+      <div className={cn("flex flex-col gap-5", !compact && "lg:flex-row lg:items-center lg:gap-8")}>
+        <div className="min-w-0 flex-1">
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/8 px-2.5 py-0.5 text-[11px] font-medium text-primary">
+            <Sparkles className="size-3.5" />
+            Timely assistant
+          </div>
+          <h2 className={cn("text-[26px] font-semibold leading-8 tracking-[-0.02em]", compact && "text-xl leading-7")}>What would you like to make happen?</h2>
+          <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
+            Turn an idea into a project, shape a sheet, or plan your week. Small changes happen right away; bigger ones wait for your approval.
+          </p>
+        </div>
+        {!compact ? (
+          <div className="w-full shrink-0 overflow-hidden rounded-[12px] border border-border bg-panel lg:w-[360px]">
+            <LoopPlayer id="ask" />
+          </div>
+        ) : null}
       </div>
-      <h2 className={cn("text-[26px] font-semibold leading-8 tracking-[-0.02em]", compact && "text-xl leading-7")}>What would you like to make happen?</h2>
-      <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
-        Turn an idea into a project, shape a sheet, or plan your week. Small changes happen right away; bigger ones wait for your approval.
-      </p>
       {needsProvider ? (
         <div
           data-testid="chat-needs-provider"

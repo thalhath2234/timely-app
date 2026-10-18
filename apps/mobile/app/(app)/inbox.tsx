@@ -151,9 +151,9 @@ export default function InboxScreen() {
           ) : !next ? (
             <EmptyState
               icon={Inbox}
+              loop="capture"
               title="Inbox zero"
-              description="Nothing is waiting for a decision. Capture anything below and decide later."
-              compact
+              description="Nothing is waiting for a decision. Capture anything below and decide later: a thought becomes a task, a reminder or a note when you review it."
             />
           ) : (
             <>

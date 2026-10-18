@@ -3,7 +3,6 @@
 import { SkeletonRows } from "@/app/_components/_ui/skeleton";
 import { FormEvent, useCallback, useRef, useState } from "react";
 import Link from "next/link";
-import { Inbox } from "lucide-react";
 import { inboxAge, inboxQueue, skipInboxItem, type InboxAge } from "@timely/contract/inbox";
 import EmptyState from "@/app/_components/_ui/emptyState";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
@@ -137,7 +136,7 @@ export default function InboxPage() {
           ) : inbox.isError && !inbox.data ? (
             <LoadError what="inbox" error={inbox.error} onRetry={() => inbox.refetch()} retrying={inbox.isFetching} />
           ) : !next ? (
-            <EmptyState icon={Inbox} title="Inbox zero" description="Nothing is waiting for a decision. Capture anything above and decide later." />
+            <EmptyState loop="capture" title="Inbox zero" description="Nothing is waiting for a decision. Capture anything above and decide later: a thought becomes a task, a reminder or a note when you review it." />
           ) : (
             <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[340px_minmax(0,1fr)]">
               <AnimatePresence mode="wait" initial={false}>

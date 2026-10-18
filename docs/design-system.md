@@ -83,3 +83,7 @@ On the phone, `BottomSheet` in `components/ui/BottomSheet.tsx` is the phone's on
 ## Busy states
 
 The animated Timely logo (`LogoSpinner`, `LogoLoader`) wherever a spinner would be, on both apps.
+
+## Empty states
+
+`EmptyState` (`app/_components/_ui/emptyState.tsx`) with a `loop`: a card holding a four-second film loop of the thing to do (320 to 400 px, from `app/_components/film/loops/`, drawn with the film kit and played muted through `@remotion/player`) beside one line of copy and the action. Loops rest on their finished frame when motion is reduced, play only while on screen, and load only with the page that shows them. Inbox, Projects, Files, Dashboard and the assistant's hero use one; a loop without an `EmptyState` sits in its own bordered `bg-panel` box. Without a `loop`, the centred dashed card. Edit loops in Studio (`make film-studio`, folder Loops); `make film-render-loops` writes them as animated WebP for the phone.

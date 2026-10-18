@@ -80,8 +80,9 @@ export default function ProjectsScreen() {
               <>
                 <EmptyState
                   icon={FolderKanban}
+                  loop="project"
                   title="No projects yet"
-                  description={spaces.length ? "Create a project to group tasks, stages, and deadlines." : "Create a workspace first, then add a project here."}
+                  description={spaces.length ? "A project groups tasks under stages, labels and a deadline, as a list or a board." : "Create a workspace first, then add a project here."}
                 />
                 {spaces.length ? (
                   <ListGroup>

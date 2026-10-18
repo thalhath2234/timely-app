@@ -9,7 +9,6 @@ import {
   Copy,
   ExternalLink,
   Link2,
-  LayoutGrid,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -34,6 +33,7 @@ import type { CalendarItem, Doc, Project, Sheet, Task } from "@/app/_types/types
 import { mentionHref } from "@/app/_components/editor/mention";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
 import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
+import EmptyState from "@/app/_components/_ui/emptyState";
 import Button from "@/app/_components/_ui/button";
 import PageHeader from "@/app/_components/_ui/pageHeader";
 import { openContextMenu, tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
@@ -477,21 +477,21 @@ export default function ReportDashboard() {
         ) : null}
 
         {cards.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border px-6 py-20 text-center">
-            <LayoutGrid className="size-8 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium text-foreground">Your dashboard is empty</p>
-              <p className="mt-1 text-sm text-muted-foreground">Add a productivity tool, a ready-made chart, or build your own card.</p>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => update(() => defaultDashboard())}>
-                Use the default layout
-              </Button>
-              <Button leading={<Plus />} onClick={() => setAdding(true)}>
-                Add card
-              </Button>
-            </div>
-          </div>
+          <EmptyState
+            loop="cards"
+            title="Your dashboard is empty"
+            description="Add a productivity tool, a ready-made chart, or build a card of your own from tasks, events, a sheet or a doc."
+            action={
+              <>
+                <Button leading={<Plus />} onClick={() => setAdding(true)}>
+                  Add card
+                </Button>
+                <Button variant="outline" onClick={() => update(() => defaultDashboard())}>
+                  Use the default layout
+                </Button>
+              </>
+            }
+          />
         ) : (
           <DashboardGrid
             renaming={renaming}

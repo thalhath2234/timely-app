@@ -3,6 +3,7 @@
 import { motion } from "motion/react";
 import { revealProps } from "@/app/_components/_ui/motion";
 import { SkeletonRows } from "@/app/_components/_ui/skeleton";
+import EmptyState from "@/app/_components/_ui/emptyState";
 import Button, { buttonClass } from "@/app/_components/_ui/button";
 import PageHeader from "@/app/_components/_ui/pageHeader";
 import PageWithRail from "@/app/_components/_ui/pageWithRail";
@@ -390,11 +391,22 @@ export default function FilesHome() {
         )}
 
         {!isLoading && !docsQuery.isError && !sheetsQuery.isError && recent.length === 0 && templates.length === 0 && (
-          <div className="mt-6 flex flex-1 items-center justify-center rounded-xl border border-dashed border-border bg-card px-6 py-10">
-            <p className="text-sm text-muted-foreground">
-              Nothing here yet. Create a doc or a sheet, or import a Markdown or CSV file.
-            </p>
-          </div>
+          <EmptyState
+            loop="files"
+            title="Nothing here yet"
+            description="Docs turn lines into tasks; sheets turn cells into cards and widgets. Or import a Markdown or CSV file."
+            className="mt-4"
+            action={
+              <>
+                <Button onClick={() => void createNewDoc()} loading={createDoc.isPending} leading={<Plus />}>
+                  New doc
+                </Button>
+                <Button variant="outline" onClick={onNewSheetClick} loading={createSheet.isPending}>
+                  New sheet
+                </Button>
+              </>
+            }
+          />
         )}
 
         {recent.length > 0 && (

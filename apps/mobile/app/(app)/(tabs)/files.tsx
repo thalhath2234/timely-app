@@ -509,7 +509,7 @@ export default function FilesScreen() {
       );
     }
     if (docs.length === 0 && sheets.length === 0 && templates.length === 0 && !templatesQ.isError) {
-      return <EmptyState icon={FileText} title="No files yet" description="Tap + to start a page or a table, or import Markdown or CSV." />;
+      return <EmptyState icon={FileText} loop="files" title="No files yet" description="Docs turn lines into tasks; sheets turn cells into cards and widgets. Tap + to start one, or import Markdown or CSV." />;
     }
     return (
       <>

@@ -29,6 +29,7 @@ import type { Chat, ChatMessage, ChatStep } from "../../lib/chat/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import ListEnter from "../ui/ListEnter";
+import LoopImage from "../ui/LoopImage";
 import ChangeCards from "./ChangeCards";
 import ImagePreview from "./ImagePreview";
 import { dayLabel, isBusy, phaseLabel, timeOfDay } from "./chatMeta";
@@ -115,6 +116,7 @@ export function Welcome({
         Plan your day, shape a sheet, or attach a receipt. Small changes happen
         right away; bigger ones wait for your approval.
       </Text>
+      <LoopImage id="ask" style={styles.heroLoop} />
       {needsProvider ? (
         <AnimatedPressable accessibilityRole="button" accessibilityLabel="Connect an AI provider in Agent settings" onPress={onOpenSettings} style={styles.providerBar} testID="chat-needs-provider">
           <View style={styles.providerIcon}>
@@ -478,6 +480,7 @@ const styles = createThemedStyleSheet(() => ({
     paddingVertical: 5,
   },
   badgeText: { color: colors.primary, fontSize: 12, fontWeight: "600" },
+  heroLoop: { marginTop: 14 },
   hero: {
     color: colors.foreground,
     fontSize: 26,
