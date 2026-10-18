@@ -93,7 +93,8 @@ export default function OnboardingScreen() {
           if (made?.id && own.length) await applyStarterLabels(made.id, own).catch(() => undefined);
         }
       });
-      router.replace("/(app)/(tabs)/home");
+      // The first-run tour plays once, then Today.
+      router.replace("/(app)/tour");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not finish setup");
     } finally {

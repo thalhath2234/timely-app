@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 
-const LOOPS = ["capture", "ask", "cards", "project", "files"];
+const LOOPS = ["capture", "ask", "cards", "project", "files", "schedule"];
 const out = resolve("../mobile/assets/loops");
 const tmp = resolve("out/loops");
 mkdirSync(out, { recursive: true });

@@ -10,6 +10,7 @@ export const LOOPS = {
   cards: { source: require("../../assets/loops/cards.webp"), label: "A card dragged from the picker onto the dashboard grid, its number counting up" },
   project: { source: require("../../assets/loops/project.webp"), label: "A project named, its stages appearing, tasks moving to Done as the bar fills" },
   files: { source: require("../../assets/loops/files.webp"), label: "A line written in a doc turned into a task linked back to the doc" },
+  schedule: { source: require("../../assets/loops/schedule.webp"), label: "Estimated tasks dropping into free time in deadline order; a meeting lands and one block moves to Friday" },
 } as const;
 
 export type LoopId = keyof typeof LOOPS;
