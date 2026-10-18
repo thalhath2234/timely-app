@@ -5,6 +5,7 @@ import {
   defaultDashboard,
   normalizeDashboard,
   sourcesUsed,
+  weekStart,
   type DashboardCard,
   type DashboardData,
   type DashboardLayout,
@@ -119,11 +120,23 @@ export function useDashboardLayout() {
 }
 
 /** Day-aligned window so the calendar query key stays stable across renders. */
-function eventsWindow(timeZone?: string) {
+export function eventsWindow(timeZone?: string) {
   const today = todayInZone(timeZone);
   return {
     from: new Date(`${addDaysToDate(today, -180)}T00:00:00`),
     to: new Date(`${addDaysToDate(today, 181)}T00:00:00`),
+  };
+}
+
+/**
+ * Focus sessions from the day before this week's Monday (local midnight, so a
+ * session that ran over a zone edge still lands) to tomorrow. `today` keeps
+ * the query key stable for the whole day.
+ */
+export function weekFocusRange(today: string) {
+  return {
+    from: new Date(`${addDaysToDate(weekStart(today), -1)}T00:00:00`),
+    to: new Date(`${addDaysToDate(today, 1)}T00:00:00`),
   };
 }
 
