@@ -39,7 +39,7 @@ import {
   WrapText,
 } from "lucide-react-native";
 import BottomSheet, { SheetOption } from "../ui/BottomSheet";
-import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { colors, createThemedStyleSheet, hexToRgb } from "../../lib/theme";
 import { columnIndexToLetter, createSheetEvaluator, shiftFormula } from "@timely/contract/sheetFormula";
 import { closeOpenParens, formulaAcceptsAnotherRange, insertFormulaRange, type FormulaRefSpan } from "@timely/contract/sheetFormulaInput";
 import {
@@ -96,7 +96,15 @@ const PIN_HEIGHT_SHARE = 0.5;
 const FILL_SWATCHES = ["#3A3558", "#8B7CF7", "#3E63DD", "#12A594", "#E8B54A", "#EF6B5C", "#E93D82"];
 // The grid's chrome follows the app theme (light or dark) through the
 // `colors` proxy; cell fills chosen by the user keep their own hex.
+function wash(hex: string, alpha: number, fallback: string) {
+  const rgb = hexToRgb(hex);
+  return rgb ? `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})` : fallback;
+}
 const KINETIC = {
+  /** Selection and range tints, the accent at low opacity over any cell. */
+  get selection() { return wash(colors.primary, 0.14, colors.accent); },
+  get range() { return wash(colors.primary, 0.08, colors.accent); },
+  get errorFill() { return wash(colors.destructive, 0.1, colors.card); },
   get base() { return colors.background; },
   get surface() { return colors.muted; },
   get card() { return colors.card; },
@@ -1823,8 +1831,8 @@ export default function SheetGrid({
                 <View style={styles.actionStrip}>
                   <Tool icon={<Combine size={16} color={KINETIC.text} />} caption="Merge" disabled={!canMerge && !mergeActive} onPress={mergeSelection} />
                   <Tool icon={<Ungroup size={16} color={KINETIC.text} />} caption="Unmerge" disabled={!mergeActive} onPress={unmergeSelection} />
-                  <Tool icon={<Trash2 size={16} color="#EF6B5C" />} caption="Delete row" disabled={rows.length <= 1} onPress={() => deleteRow(selected.row)} />
-                  <Tool icon={<Trash2 size={16} color="#EF6B5C" />} caption="Delete col" disabled={columns.length <= 1} onPress={() => deleteColumn(selected.col)} />
+                  <Tool icon={<Trash2 size={16} color={colors.destructive} />} caption="Delete row" disabled={rows.length <= 1} onPress={() => deleteRow(selected.row)} />
+                  <Tool icon={<Trash2 size={16} color={colors.destructive} />} caption="Delete col" disabled={columns.length <= 1} onPress={() => deleteColumn(selected.col)} />
                 </View>
                 <Text style={styles.sectionLabel}>FREEZE</Text>
                 <FreezePicker
@@ -2539,7 +2547,7 @@ const styles = createThemedStyleSheet((colors) => ({
   formulaHead: { borderColor: KINETIC.accentHover },
   // Solid tints (the accent at 12% over the base) so cells scrolling under a
   // pinned one never show through it.
-  rangeCell: { backgroundColor: "#1C1B2F" },
+  rangeCell: { backgroundColor: KINETIC.range },
   formulaCell: { borderWidth: 1, borderStyle: "dashed", borderColor: KINETIC.accentHover },
   fillHandle: {
     position: "absolute",
@@ -2577,8 +2585,8 @@ const styles = createThemedStyleSheet((colors) => ({
     borderBottomWidth: 1,
     borderColor: KINETIC.border,
   },
-  selectedCell: { borderWidth: 2, borderColor: KINETIC.accentHover, backgroundColor: "#251F3E" },
-  errorCell: { backgroundColor: "#231A1E" },
+  selectedCell: { borderWidth: 2, borderColor: KINETIC.accentHover, backgroundColor: KINETIC.selection },
+  errorCell: { backgroundColor: KINETIC.errorFill },
   // A corner tick, like a spreadsheet's note marker.
   misfitMark: {
     position: "absolute",
@@ -2642,7 +2650,7 @@ const styles = createThemedStyleSheet((colors) => ({
   wideControl: { flex: 1, height: 40, borderRadius: 7, borderWidth: 1, borderColor: KINETIC.border, backgroundColor: KINETIC.card, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
   stepControl: { width: 40, height: 40, borderRadius: 7, borderWidth: 1, borderColor: KINETIC.border, backgroundColor: KINETIC.card, alignItems: "center", justifyContent: "center" },
   sizeReadout: { width: 38, height: 34, alignItems: "center", justifyContent: "center", borderTopWidth: 1, borderBottomWidth: 1, borderColor: KINETIC.border },
-  controlOn: { borderColor: KINETIC.accentHover, backgroundColor: "#2A2445" },
+  controlOn: { borderColor: KINETIC.accentHover, backgroundColor: KINETIC.selection },
   controlText: { color: KINETIC.text, fontSize: 11, fontFamily: "monospace" },
   freezeRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   freezeLabel: { width: 60, color: KINETIC.secondary, fontSize: 11 },
