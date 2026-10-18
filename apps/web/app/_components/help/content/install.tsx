@@ -14,7 +14,7 @@ export const install: HelpSection = {
       slug: "windows",
       title: "Install on Windows",
       summary: "Download the installer, get past SmartScreen, and start Timely for the first time.",
-      keywords: ["windows", "exe", "installer", "smartscreen", "setup", "uninstall"],
+      keywords: ["windows", "exe", "installer", "smartscreen", "setup", "uninstall", "tray", "update", "quit"],
       lead: (
         <>
           <p>
@@ -63,10 +63,18 @@ export const install: HelpSection = {
           id: "tray",
           title: "The tray icon",
           body: (
-            <p>
-              Closing the window hides Timely to the system tray; the server keeps running so your phone and reminders
-              keep working. To stop everything, right-click the tray icon and choose <strong>Quit Timely</strong>.
-            </p>
+            <>
+              <p>
+                Closing the window hides Timely to the system tray; the server keeps running so your phone and
+                reminders keep working. To stop everything, right-click the tray icon and choose{" "}
+                <strong>Quit Timely</strong>.
+              </p>
+              <p>
+                Timely&apos;s server and web server stop with the app, even if it crashes, so nothing is left running
+                in the background. If the web server uses too much memory, Timely restarts it on its own and the
+                window reloads the page.
+              </p>
+            </>
           ),
         },
         {
@@ -74,9 +82,10 @@ export const install: HelpSection = {
           title: "Updates",
           body: (
             <p>
-              Installed copies update themselves from GitHub Releases. To check by hand, open{" "}
-              <Path>Settings &gt; Server</Path> and choose <strong>Check for updates</strong>. Timely backs up the
-              database before the first start of a new version. See{" "}
+              Open <Path>Settings &gt; Server</Path> and choose <strong>Check for updates</strong>. Timely downloads
+              a new version from GitHub Releases while it keeps running. Choose <strong>Install and restart</strong>,
+              or keep working; the update installs the next time you quit Timely. Timely backs up the database before
+              the first start of a new version. See{" "}
               <Link href="/help/install/updates-and-data">Updates, data and backups</Link>.
             </p>
           ),
@@ -175,9 +184,10 @@ EOF`}</Code>
           title: "Updates",
           body: (
             <p>
-              The AppImage updates itself from GitHub Releases. Check by hand in <Path>Settings &gt; Server</Path>.
-              Your data lives in <code>~/.config/Timely</code>, not in the AppImage, so replacing the file never
-              touches it.
+              Choose <strong>Check for updates</strong> in <Path>Settings &gt; Server</Path>. The AppImage downloads
+              the new version from GitHub Releases while it runs; choose <strong>Install and restart</strong>, or it
+              installs the next time you quit Timely. Your data lives in <code>~/.config/Timely</code>, not in the
+              AppImage, so replacing the file never touches it.
             </p>
           ),
         },
@@ -272,9 +282,10 @@ makepkg -si`}</Code>
                 <em>Updated by your package manager</em>.
               </p>
               <p>
-                If Timely is still running in the tray during an upgrade, it notices the new files and restarts into
-                them the next time you open it. While the window is open, the tray menu offers{" "}
-                <strong>Restart to finish updating</strong>.
+                If Timely is still running in the tray during an upgrade, it notices the new files within a minute.
+                It shows a notification you can click to restart into the new version, and the tray menu offers{" "}
+                <strong>Restart to finish updating</strong>. Otherwise it restarts into the new version the next time
+                you open it.
               </p>
               <Callout kind="note">
                 Upgrading from 0.3.0 or older needs one <strong>Quit Timely</strong> from the tray, because the running
@@ -289,7 +300,19 @@ makepkg -si`}</Code>
       slug: "android",
       title: "Install on Android",
       summary: "Install the APK, pair it with your computer by QR code, and use it away from home.",
-      keywords: ["android", "apk", "phone", "mobile", "pair", "qr", "tailscale", "unknown sources"],
+      keywords: [
+        "android",
+        "apk",
+        "phone",
+        "mobile",
+        "pair",
+        "qr",
+        "tailscale",
+        "unknown sources",
+        "install blocked",
+        "files app",
+        "adb",
+      ],
       lead: (
         <>
           <p>
@@ -306,17 +329,26 @@ makepkg -si`}</Code>
           id: "install-apk",
           title: "Install the APK",
           body: (
-            <Steps>
+            <>
+              <Steps>
+                <p>
+                  On your phone, open the <a href={LATEST_RELEASE_URL}>latest release</a> and download{" "}
+                  <code>Timely-x.y.z-android-arm64.apk</code>.
+                </p>
+                <p>
+                  Open the downloaded file. Android asks you to allow installs from your browser or Files app the
+                  first time; allow it, go back, and choose <strong>Install</strong>.
+                </p>
+                <p>Open Timely and allow notifications, so reminders can reach you.</p>
+              </Steps>
               <p>
-                On your phone, open the <a href={LATEST_RELEASE_URL}>latest release</a> and download{" "}
-                <code>Timely-x.y.z-android-arm64.apk</code>.
+                You install it on the phone itself. You don&apos;t need a cable, a computer or <code>adb</code>.
               </p>
-              <p>
-                Open the downloaded file. Android asks you to allow installs from your browser or Files app the first
-                time; allow it, go back, and choose <strong>Install</strong>.
-              </p>
-              <p>Open Timely and allow notifications, so reminders can reach you.</p>
-            </Steps>
+              <Callout kind="tip">
+                If nothing happens when you open the file from your browser, or the install prompt is blocked, open
+                your phone&apos;s Files app, go to Downloads, and tap the APK there.
+              </Callout>
+            </>
           ),
         },
         {
@@ -381,7 +413,9 @@ makepkg -si`}</Code>
             <>
               <p>
                 The phone app doesn&apos;t update itself. Download the new APK from the release and install it over the
-                old one; you stay signed in.
+                old one; you stay signed in. If you use{" "}
+                <Link href="/help/start/widgets">home-screen widgets</Link>, open Timely once afterwards so they
+                redraw with the new version.
               </p>
               <Callout kind="note">
                 Current APKs are signed with a development key. If a future release switches to a release key, Android
@@ -397,7 +431,7 @@ makepkg -si`}</Code>
       slug: "updates-and-data",
       title: "Updates, data and backups",
       summary: "Where Timely keeps your data, how updates work, and the backups it makes for you.",
-      keywords: ["update", "upgrade", "data folder", "backup", "restore", "appdata", "config"],
+      keywords: ["update", "upgrade", "data folder", "backup", "restore", "appdata", "config", "install and restart"],
       lead: (
         <p>
           The desktop app keeps everything in one folder on your computer and makes a copy before every upgrade.
@@ -443,8 +477,10 @@ makepkg -si`}</Code>
           body: (
             <ul>
               <li>
-                <strong>Windows and the AppImage</strong> check GitHub Releases and update themselves. Use{" "}
-                <strong>Check for updates</strong> in <Path>Settings &gt; Server</Path> to check now.
+                <strong>Windows and the AppImage</strong> update from GitHub Releases. Choose{" "}
+                <strong>Check for updates</strong> in <Path>Settings &gt; Server</Path>; Timely downloads the new
+                version while it runs. Then choose <strong>Install and restart</strong>, or the update installs the
+                next time you quit Timely.
               </li>
               <li>
                 <strong>Arch (AUR)</strong> is updated by pacman or your AUR helper. See{" "}

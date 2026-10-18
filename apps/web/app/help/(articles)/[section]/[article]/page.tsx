@@ -30,10 +30,10 @@ export default async function HelpArticle({ params }: { params: Params }) {
   const headings = article.sections.map(({ id, title }) => ({ id, title }));
 
   return (
-    <div className="grid min-w-0 gap-10 xl:grid-cols-[minmax(0,1fr)_200px]">
-      <article className="min-w-0 lg:max-w-[760px]">
+    <div className="grid min-w-0 gap-10 xl:grid-cols-[minmax(0,1fr)_220px]">
+      <article className="min-w-0 lg:max-w-[800px]">
         <div>
-          <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1 text-sm text-white/45">
+          <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1 text-sm text-[var(--s-faint)]">
             <Link href="/help" className="hover:text-[var(--s-ink)]">
               Help
             </Link>
@@ -50,8 +50,8 @@ export default async function HelpArticle({ params }: { params: Params }) {
 
         {/* Narrow screens get "On this page" inline, above the first heading. */}
         {headings.length > 1 ? (
-          <div className="s-card mt-8 rounded-xl p-4 xl:hidden">
-            <p className="text-xs font-semibold tracking-wide text-white/40 uppercase">On this page</p>
+          <div className="s-card mt-8 p-4 xl:hidden">
+            <p className="text-xs font-semibold tracking-wide text-[var(--s-faint)] uppercase">On this page</p>
             <ul className="mt-2 grid gap-1 sm:grid-cols-2">
               {headings.map((heading) => (
                 <li key={heading.id}>
@@ -70,7 +70,7 @@ export default async function HelpArticle({ params }: { params: Params }) {
               <h2 id={part.id} className="group scroll-mt-24">
                 <a href={`#${part.id}`} className="!text-inherit !no-underline">
                   {part.title}
-                  <span aria-hidden className="ml-2 text-white/20 opacity-0 transition-opacity group-hover:opacity-100">
+                  <span aria-hidden className="ml-2 text-[var(--s-faint)] opacity-0 transition-opacity group-hover:opacity-100">
                     #
                   </span>
                 </a>
@@ -80,7 +80,7 @@ export default async function HelpArticle({ params }: { params: Params }) {
           ))}
         </div>
 
-        <div className="mt-14 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.08] pt-6 text-sm">
+        <div className="mt-14 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--s-line)] pt-6 text-sm">
           <p className="s-faint">Something wrong or missing on this page?</p>
           <a href={ISSUES_URL} className="s-link inline-flex items-center gap-1.5 font-medium">
             <Pencil className="size-3.5" />
@@ -92,7 +92,7 @@ export default async function HelpArticle({ params }: { params: Params }) {
           {previous ? (
             <Link
               href={previous.href}
-              className="group s-card rounded-2xl p-4 transition-colors hover:border-white/20"
+              className="group s-card s-card-hover p-4"
             >
               <span className="s-faint flex items-center gap-1.5 text-xs">
                 <ArrowLeft className="size-3.5 transition-transform group-hover:-translate-x-0.5" />
@@ -106,7 +106,7 @@ export default async function HelpArticle({ params }: { params: Params }) {
           {next ? (
             <Link
               href={next.href}
-              className="group s-card rounded-2xl p-4 text-right transition-colors hover:border-white/20"
+              className="group s-card s-card-hover p-4 text-right"
             >
               <span className="s-faint flex items-center justify-end gap-1.5 text-xs">
                 Next

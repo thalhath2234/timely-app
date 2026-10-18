@@ -18,7 +18,7 @@ function SectionList({ sections, pathname, onNavigate }: { sections: SidebarSect
     <div className="space-y-6">
       {sections.map((section) => (
         <div key={section.id}>
-          <p className="px-3 text-xs font-semibold tracking-wide text-white/40 uppercase">{section.title}</p>
+          <p className="px-3 text-xs font-semibold tracking-wide text-[var(--s-faint)] uppercase">{section.title}</p>
           <ul className="mt-2 space-y-px">
             {section.articles.map((article) => {
               const active = pathname === article.href;
@@ -27,7 +27,7 @@ function SectionList({ sections, pathname, onNavigate }: { sections: SidebarSect
                   {active ? (
                     <motion.span
                       layoutId="help-sidebar-active"
-                      className="absolute inset-0 rounded-lg bg-[#c0c1ff]/10"
+                      className="absolute inset-0 rounded-lg bg-[var(--s-primary)]/10"
                       transition={{ type: "spring", stiffness: 500, damping: 40 }}
                     />
                   ) : null}
@@ -66,7 +66,7 @@ export default function HelpSidebar({ sections }: { sections: SidebarSection[] }
           onClick={() => setOpen((value) => !value)}
           aria-expanded={open}
           aria-controls="help-nav"
-          className="s-card flex w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-left text-sm"
+          className="s-card flex w-full items-center justify-between gap-3 rounded-[10px] px-4 py-3 text-left text-sm"
         >
           <span className="min-w-0">
             <span className="s-faint block text-xs">All articles</span>
@@ -85,7 +85,7 @@ export default function HelpSidebar({ sections }: { sections: SidebarSection[] }
               transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
               className="overflow-hidden"
             >
-              <div className="s-card mt-2 rounded-xl p-3">
+              <div className="s-card mt-2 rounded-[10px] p-3">
                 <SectionList sections={sections} pathname={pathname} onNavigate={() => setOpen(false)} />
               </div>
             </motion.nav>

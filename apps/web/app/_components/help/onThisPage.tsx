@@ -35,7 +35,7 @@ export default function OnThisPage({ headings }: { headings: { id: string; title
 
   return (
     <nav aria-label="On this page">
-      <p className="text-xs font-semibold tracking-wide text-white/40 uppercase">On this page</p>
+      <p className="text-xs font-semibold tracking-wide text-[var(--s-faint)] uppercase">On this page</p>
       <ul className="relative mt-3 border-l border-white/[0.08]">
         {headings.map((heading) => {
           const isActive = heading.id === active;
@@ -53,7 +53,7 @@ export default function OnThisPage({ headings }: { headings: { id: string; title
                 aria-current={isActive ? "location" : undefined}
                 className={cn(
                   "block py-1.5 pl-4 text-sm leading-snug transition-colors",
-                  isActive ? "text-[var(--s-ink)]" : "text-white/45 hover:text-[var(--s-soft)]",
+                  isActive ? "text-[var(--s-ink)]" : "text-[var(--s-faint)] hover:text-[var(--s-soft)]",
                 )}
               >
                 {heading.title}

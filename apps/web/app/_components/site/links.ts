@@ -9,3 +9,4 @@ export const AUR_URL = "https://aur.archlinux.org/packages/timely-bin";
 export const TAILSCALE_URL = "https://tailscale.com/download";
 export const CLAUDE_CODE_URL = "https://docs.anthropic.com/en/docs/claude-code/overview";
 export const CODEX_URL = "https://github.com/openai/codex";
+export const TYPESAFE_URL = "https://typesafe.ai";

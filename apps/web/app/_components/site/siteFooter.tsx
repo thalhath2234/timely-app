@@ -7,10 +7,10 @@ const COLUMNS = [
   {
     title: "Product",
     links: [
-      { href: "/#ai", label: "AI and agents" },
-      { href: "/#how-it-works", label: "How it works" },
-      { href: "/#docs-and-sheets", label: "Docs and sheets" },
-      { href: "/#features", label: "Features" },
+      { href: "/#chapters", label: "Features" },
+      { href: "/#self-host", label: "Self-host" },
+      { href: "/#agents", label: "Agents over MCP" },
+      { href: "/#assistant", label: "AI assistant" },
       { href: "/#download", label: "Download" },
     ],
   },
@@ -18,10 +18,10 @@ const COLUMNS = [
     title: "Help",
     links: [
       { href: "/help", label: "Help center" },
-      { href: "/help/install/windows", label: "Install on Windows" },
-      { href: "/help/install/ubuntu", label: "Install on Ubuntu" },
-      { href: "/help/install/arch", label: "Install on Arch" },
-      { href: "/help/install/android", label: "Install on Android" },
+      { href: "/help/start/what-is-timely", label: "What is Timely?" },
+      { href: "/help/install/windows", label: "Install" },
+      { href: "/help/install/android#pair", label: "Pair your phone" },
+      { href: "/help/assistant/subscriptions", label: "Connect your AI" },
     ],
   },
   {
@@ -38,47 +38,47 @@ const COLUMNS = [
 export default function SiteFooter() {
   return (
     <footer className="border-t border-[var(--s-line)]">
-      <div className="mx-auto grid max-w-6xl gap-10 px-4 py-14 sm:px-8 md:grid-cols-[1.4fr_repeat(3,1fr)]">
+      <div className="mx-auto grid max-w-[90rem] gap-10 px-4 py-14 sm:px-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)]">
         <div>
           <div className="flex items-center gap-2.5">
             <TimelyLogo size={24} />
-            <span className="text-lg font-semibold tracking-[-0.03em]">Timely</span>
+            <span className="text-lg font-semibold">Timely</span>
           </div>
-          <p className="s-soft mt-3 max-w-xs text-sm leading-relaxed">
-            A private planner that turns loose thoughts into a planned week. Open source, and it runs on your
-            own computer.
+          <p className="s-soft mt-4 max-w-[36ch] text-sm leading-relaxed">
+            A planner with sheets, docs and an assistant, running on your own computer and reaching your phone over Tailscale. Open source.
           </p>
-          <a
-            href={REPO_URL}
-            className="s-link mt-5 inline-flex items-center gap-2 text-sm font-medium"
-          >
+          <a href={REPO_URL} className="s-link mt-5 inline-flex items-center gap-2 text-sm font-medium">
             <GitHubMark className="size-4" />
             thalhath2234/timely-app
           </a>
         </div>
-        {COLUMNS.map((column) => (
-          <div key={column.title}>
-            <h2 className="text-sm font-semibold">{column.title}</h2>
-            <ul className="mt-4 space-y-2.5 text-sm">
-              {column.links.map((link) => (
-                <li key={link.href}>
-                  {link.href.startsWith("http") ? (
-                    <a href={link.href} className="s-link">
-                      {link.label}
-                    </a>
+        <div className="grid grid-cols-2 gap-8 sm:grid-cols-3">
+          {COLUMNS.map((column) => (
+            <div key={column.title}>
+              <p className="text-sm font-semibold">{column.title}</p>
+              <ul className="mt-3 space-y-2 text-sm">
+                {column.links.map((link) =>
+                  link.href.startsWith("/") ? (
+                    <li key={link.href}>
+                      <Link href={link.href} className="s-link">
+                        {link.label}
+                      </Link>
+                    </li>
                   ) : (
-                    <Link href={link.href} className="s-link">
-                      {link.label}
-                    </Link>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
+                    <li key={link.href}>
+                      <a href={link.href} className="s-link">
+                        {link.label}
+                      </a>
+                    </li>
+                  ),
+                )}
+              </ul>
+            </div>
+          ))}
+        </div>
       </div>
-      <div className="s-faint mx-auto max-w-6xl px-4 pb-10 text-xs sm:px-8">
-        An open-source personal project. Windows, Linux and Android.
+      <div className="mx-auto max-w-[90rem] px-4 pb-8 sm:px-8">
+        <p className="s-faint text-xs">An open-source personal project. Windows, Linux and Android. No cloud, no account with anyone.</p>
       </div>
     </footer>
   );
