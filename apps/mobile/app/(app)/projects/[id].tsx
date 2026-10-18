@@ -21,9 +21,8 @@ import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import { projectDeleteCopy } from "@timely/contract/projectDelete";
 import ConfirmSheet, { type ConfirmRequest } from "../../../components/ui/ConfirmSheet";
 import DateTimeSheet from "../../../components/ui/DateTimeSheet";
-import { Button, Field, PrimaryButton, SectionLabel } from "../../../components/ui/primitives";
-import { ColorDot, GroupLabel, ListGroup, ListRow } from "../../../components/settings/SettingsList";
-import AnimatedPressable from "../../../components/ui/AnimatedPressable";
+import { Button, Field, PrimaryButton } from "../../../components/ui/primitives";
+import { ColorDot, GroupHint, GroupLabel, ListGroup, ListRow } from "../../../components/settings/SettingsList";
 import ColourSheet from "../../../components/ui/ColourSheet";
 import {
   useCreateStage,
@@ -264,91 +263,113 @@ export default function ProjectDetailScreen() {
         />
         {/* Under the brief and its fields, where web's Overview shows it. */}
         <ProjectInsightsCard project={project} />
-        <SectionLabel
-          action={
-            <Button
-              label={`Open ${projectTasks.length} in Tasks`}
-              variant="ghost"
-              size="sm"
-              onPress={() => router.push({ pathname: "/(app)/(tabs)/tasks", params: { projectId: project.id } })}
-            />
-          }
-        >
-          Tasks
-        </SectionLabel>
-        <FocusGroup style={styles.addRow}>
-          <View style={{ flex: 1 }}>
-            <Field value={taskTitle} onChangeText={setTaskTitle} placeholder="Add a task" autoCapitalize="sentences" />
-          </View>
-          <Button
-            label="Add"
-            size="lg"
-            loading={createTask.isPending}
-            disabled={!taskTitle.trim()}
-            icon={<Plus size={16} color={colors.primaryForeground} />}
-            onPress={() => {
-              const name = taskTitle.trim();
-              if (!name) return;
-              void createTask
-                .mutateAsync({
-                  name,
-                  kind: "task",
-                  duration: 30,
-                  projectId: project.id,
-                  workspaceId: project.workspaceId,
-                  statusId: workspace?.status?.find((status) => status.isDefault)?.id ?? workspace?.status?.[0]?.id,
-                })
-                .then(() => setTaskTitle(""));
-            }}
-          />
-        </FocusGroup>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() =>
-            requestQuickAdd({ kind: "task", projectId: project.id, workspaceId: project.workspaceId })
-          }
-          hitSlop={6}
-          style={styles.composer}
-        >
-          <Text style={styles.link}>Full composer</Text>
-        </Pressable>
+        <View style={styles.section}>
+          <GroupLabel
+            aside={
+              projectTasks.length ? (
+                <Pressable
+                  accessibilityRole="button"
+                  hitSlop={8}
+                  onPress={() => router.push({ pathname: "/(app)/(tabs)/tasks", params: { projectId: project.id } })}
+                >
+                  <Text style={styles.inlineAction}>{`Open ${projectTasks.length} in Tasks`}</Text>
+                </Pressable>
+              ) : undefined
+            }
+          >
+            Tasks
+          </GroupLabel>
+          <FocusGroup>
+            <ListGroup>
+              <View key="__add" style={styles.inlineRow}>
+                <Plus size={18} color={colors.primary} />
+                <View style={styles.inlineField}>
+                  <Field value={taskTitle} onChangeText={setTaskTitle} bare placeholder="Add a task" autoCapitalize="sentences" />
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={!taskTitle.trim() || createTask.isPending}
+                  hitSlop={8}
+                  onPress={() => {
+                    const name = taskTitle.trim();
+                    if (!name) return;
+                    void createTask
+                      .mutateAsync({
+                        name,
+                        kind: "task",
+                        duration: 30,
+                        projectId: project.id,
+                        workspaceId: project.workspaceId,
+                        statusId: workspace?.status?.find((status) => status.isDefault)?.id ?? workspace?.status?.[0]?.id,
+                      })
+                      .then(() => setTaskTitle(""));
+                  }}
+                >
+                  <Text style={[styles.inlineAction, (!taskTitle.trim() || createTask.isPending) && styles.inlineActionOff]}>
+                    {createTask.isPending ? "Adding…" : "Add"}
+                  </Text>
+                </Pressable>
+              </View>
+              <ListRow
+                key="__composer"
+                title="Full composer"
+                meta="Dates, labels, repeat and more"
+                onPress={() => requestQuickAdd({ kind: "task", projectId: project.id, workspaceId: project.workspaceId })}
+              />
+            </ListGroup>
+          </FocusGroup>
+        </View>
         {projectTasks.length === 0 ? (
           <EmptyState icon={ListTodo} title="No tasks" description="Add a task above or open the full composer." compact />
         ) : (
-          board
-            .filter((column) => column.id || column.tasks.length > 0)
-            .map((column) => (
-              <View key={column.id || "unstaged"} style={styles.column}>
-                <View style={styles.head}>
-                  <Text style={styles.group}>{column.name}</Text>
-                  <Text style={styles.meta}>{column.tasks.length}</Text>
+          <>
+            {board
+              .filter((column) => column.tasks.length > 0)
+              .map((column) => (
+                <View key={column.id || "unstaged"} style={styles.section}>
+                  <GroupLabel aside={String(column.tasks.length)}>{column.name}</GroupLabel>
+                  <ListGroup>
+                    {column.tasks.map((task) => (
+                      <ListRow
+                        key={task.id}
+                        title={task.name}
+                        meta={task.status?.name || undefined}
+                        leading={<ColorDot color={task.completedAt ? colors.success : task.status?.color} size={8} />}
+                        onPress={() => router.push(`/(app)/tasks/${task.id}`)}
+                        onLongPress={() => setMovingTask(task)}
+                      />
+                    ))}
+                  </ListGroup>
                 </View>
-                {column.tasks.map((task) => (
-                  <AnimatedPressable
-                    key={task.id}
-                    onPress={() => router.push(`/(app)/tasks/${task.id}`)}
-                    onLongPress={() => setMovingTask(task)}
-                    style={styles.task}
-                  >
-                    <Text style={[styles.item, task.completedAt ? styles.itemDone : null]}>{task.name}</Text>
-                    <Text style={styles.meta}>{task.status?.name || "Hold to move stage"}</Text>
-                  </AnimatedPressable>
-                ))}
-              </View>
-            ))
+              ))}
+            {stages.length > 0 ? (
+              <GroupHint>
+                {(() => {
+                  const empty = board.filter((column) => column.id && column.tasks.length === 0).map((column) => column.name);
+                  return empty.length
+                    ? `Hold a task to move it to another stage. Empty: ${empty.join(", ")}.`
+                    : "Hold a task to move it to another stage.";
+                })()}
+              </GroupHint>
+            ) : null}
+          </>
         )}
         <RelatedList kind="project" id={project.id} />
-        <SectionLabel>Activity</SectionLabel>
-        <Text style={styles.meta}>Edits to the project’s own title, dates and description are not recorded yet.</Text>
-        {(activity.data ?? []).slice(0, 20).map((entry) => (
-          <View key={entry.id} style={styles.task}>
-            <Text style={styles.item}>{entry.message || `${entry.actorName} ${entry.action}`}</Text>
-            <Text style={styles.meta}>
-              {entry.taskName ? `${entry.taskName} · ` : ""}
-              {timeAgo(entry.createdAt)}
-            </Text>
-          </View>
-        ))}
+        <View style={styles.section}>
+          <GroupLabel aside={(activity.data ?? []).length ? String(Math.min(20, (activity.data ?? []).length)) : undefined}>Activity</GroupLabel>
+          {(activity.data ?? []).length ? (
+            <ListGroup>
+              {(activity.data ?? []).slice(0, 20).map((entry) => (
+                <ListRow
+                  key={entry.id}
+                  title={entry.message || `${entry.actorName} ${entry.action}`}
+                  meta={`${entry.taskName ? `${entry.taskName} · ` : ""}${timeAgo(entry.createdAt)}`}
+                />
+              ))}
+            </ListGroup>
+          ) : null}
+          <GroupHint>Edits to the project’s own title, dates and description are not recorded yet.</GroupHint>
+        </View>
       </FocusGroupScrollView>
 
       <BottomSheet
@@ -362,11 +383,16 @@ export default function ProjectDetailScreen() {
       >
         <View style={styles.sheetBody}>
           <GroupLabel aside={stages.length || undefined}>Stages</GroupLabel>
-          {!project.doesHaveStages ? (
-            <View style={styles.stagesOff}>
-              <Text style={styles.hint}>Group this project's tasks into stages such as Design, Build and Launch.</Text>
-              <Button label="Turn on stages" variant="outline" size="sm" onPress={() => persist({ doesHaveStages: true })} />
-            </View>
+          {!project.doesHaveStages && stages.length === 0 ? (
+            <ListGroup>
+              <ListRow
+                tone="add"
+                title="Turn on stages"
+                meta="Group tasks into stages such as Design, Build and Launch"
+                testID="project-turn-on-stages"
+                onPress={() => persist({ doesHaveStages: true })}
+              />
+            </ListGroup>
           ) : null}
           {project.doesHaveStages || stages.length > 0 ? (
             <ListGroup testID="project-stages">
@@ -457,26 +483,44 @@ export default function ProjectDetailScreen() {
           footer={<PrimaryButton label={editingStageItem ? "Save stage" : "Add stage"} disabled={!stageDraftTrimmed} onPress={saveStage} />}
         >
           <View style={styles.sheetBody}>
-            <Field label="Name" value={stageDraft} onChangeText={setStageDraft} placeholder="Design" autoCapitalize="words" />
-            {editingStageItem ? (
-              <View style={styles.deleteRow}>
-                <Button
-                  label="Delete stage"
-                  variant="destructive-ghost"
-                  size="sm"
-                  icon={<Trash2 size={16} color={colors.destructive} />}
-                  onPress={() =>
-                    setConfirm({
-                      title: `Delete “${editingStageItem.name}”?`,
-                      message: "Tasks in this stage become unstaged.",
-                      onConfirm: () => {
-                        deleteStage.mutate({ projectId: project.id, stageId: editingStageItem.id });
-                        setEditingStage(null);
-                      },
-                    })
-                  }
-                />
+            <ListGroup>
+              <View key="name" style={styles.inlineRow}>
+                <Text style={styles.inlineLabel}>Name</Text>
+                <View style={styles.inlineField}>
+                  <Field
+                    bare
+                    align="right"
+                    accessibilityLabel="Stage name"
+                    value={stageDraft}
+                    onChangeText={setStageDraft}
+                    placeholder="Design"
+                    autoCapitalize="words"
+                    autoFocus={!editingStageItem}
+                  />
+                </View>
               </View>
+            </ListGroup>
+            {editingStageItem ? (
+              <>
+                <GroupHint>Tasks in this stage become unstaged if you delete it.</GroupHint>
+                <ListGroup>
+                  <ListRow
+                    tone="danger"
+                    title="Delete stage"
+                    leading={<Trash2 size={18} color={colors.destructive} />}
+                    onPress={() =>
+                      setConfirm({
+                        title: `Delete “${editingStageItem.name}”?`,
+                        message: "Tasks in this stage become unstaged.",
+                        onConfirm: () => {
+                          deleteStage.mutate({ projectId: project.id, stageId: editingStageItem.id });
+                          setEditingStage(null);
+                        },
+                      })
+                    }
+                  />
+                </ListGroup>
+              </>
             ) : null}
           </View>
         </BottomSheet>
@@ -602,26 +646,13 @@ const styles = createThemedStyleSheet((colors) => ({
     marginLeft: 4,
   },
   doneText: { color: colors.primaryForeground, fontWeight: "600", fontSize: 12 },
-  meta: { color: colors.mutedForeground, fontSize: 12 },
-  hint: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
-  item: { flex: 1, color: colors.foreground },
-  itemDone: { color: colors.mutedForeground, textDecorationLine: "line-through" },
-  link: { color: colors.mutedForeground, fontWeight: "600", fontSize: 13 },
-  composer: { alignSelf: "flex-start", paddingHorizontal: 2, marginTop: -4 },
-  addRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  column: { gap: 8 },
-  head: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 4 },
-  group: { flex: 1, color: colors.foreground, fontWeight: "600" },
-  task: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 12,
-    gap: 4,
-  },
   sheetBody: { gap: 10, paddingBottom: 4 },
-  stagesOff: { gap: 10, alignItems: "flex-start", paddingHorizontal: 4 },
+  section: { gap: 6 },
+  inlineRow: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 6 },
+  inlineLabel: { color: colors.foreground, fontSize: 15, fontWeight: "500" },
+  inlineField: { flex: 1, minWidth: 0 },
+  inlineAction: { color: colors.primary, fontSize: 14, fontWeight: "600" },
+  inlineActionOff: { color: colors.mutedForeground, opacity: 0.6 },
   stageIndex: { width: 18, color: colors.mutedForeground, fontSize: 13, fontWeight: "600", textAlign: "center" },
   stageMoves: { flexDirection: "row", alignItems: "center", marginRight: -8 },
-  deleteRow: { alignItems: "flex-start", marginLeft: -12 },
 }));
