@@ -1,12 +1,23 @@
 "use no memo";
 import { getWidgetInfo, requestWidgetUpdate, requestWidgetUpdateById, type WidgetInfo, type WidgetTaskHandlerProps } from "react-native-android-widget";
-import { clockState } from "@timely/contract/dashboard";
+import { cardTitle, clockState } from "@timely/contract/dashboard";
 import { scheduleWidgetRefresh } from "../../modules/timely-android";
 import { clockChange, optimisticModel, parseWidgetAction, WIDGET_ACTION, type WidgetAction } from "./actions";
-import { cardWidgetModel, todayModel, type WidgetInput, type WidgetModel } from "./model";
+import { cardWidgetModel, pomodoroLocalFrom, pomodoroLocalSettings, todayModel, type WidgetInput, type WidgetModel } from "./model";
 import { renderCard, renderQuickAdd, type QuickAddButton } from "./render";
 import { appScheme, forgetWidgetLoads, loadCards, loadWidgetInput, signedIn, widgetPomodoros } from "./data";
-import { isPomodoroAction, runPomodoro, runWidgetAction, steppedPomodoroSettings } from "./run";
+import { isPomodoroAction, runPomodoro, runWidgetAction, saveSettings, steppedPomodoroSettings } from "./run";
+import {
+  forgetStandalone,
+  POMODORO_WIDGET,
+  preparePomodoro,
+  renderPomodoro,
+  runStandalonePomodoro,
+  runStandaloneTimer,
+  standalonePomodoro,
+  standaloneTimer,
+  TIMER_WIDGET,
+} from "./standalone";
 import { allWidgetEntries, forgetWidget, setWidgetEntry, widgetEntry } from "./storage";
 
 /**
@@ -16,7 +27,7 @@ import { allWidgetEntries, forgetWidget, setWidgetEntry, widgetEntry } from "./s
  * every 15 minutes or so, and an alarm when a timer ends.
  */
 
-export const WIDGET_NAMES = ["TimelyCard", "TimelyToday", "TimelyQuickAdd"] as const;
+export const WIDGET_NAMES = ["TimelyCard", "TimelyToday", "TimelyQuickAdd", POMODORO_WIDGET, TIMER_WIDGET] as const;
 
 export function quickAddButtons(scheme = appScheme()): QuickAddButton[] {
   return [
@@ -44,7 +55,7 @@ export async function widgetModel(info: WidgetInfo, cardId?: string): Promise<Wi
     const board = await loadCards();
     if (!board) {
       // Offline: a pomodoro still runs on the phone, so draw it from there.
-      if (entry.card?.type === "pomodoro" && (await signedIn())) return instantCard(entry, entry.card);
+      if (entry.card?.type === "pomodoro" && (await signedIn())) return instantCard(info, entry, entry.card);
       return entry.model ?? signedOut("Timely");
     }
     const card = board.cards.find((c) => c.id === id);
@@ -57,7 +68,16 @@ export async function widgetModel(info: WidgetInfo, cardId?: string): Promise<Wi
     }
     const input = await loadWidgetInput([card]);
     if (!input) return entry.model ?? signedOut("Timely");
-    model = cardWidgetModel(card, input);
+    // A pomodoro card's tabs and −/+ work on the phone alone, like the Pomodoro widget's.
+    model =
+      card.type === "pomodoro"
+        ? renderPomodoro(
+            info.widgetId,
+            { width: info.width, height: info.height },
+            { cardId: card.id, title: cardTitle(card), uri: `${appScheme()}://dashboard`, settings: card.settings, now: input.now.getTime(), pomodoros: input.pomodoros },
+            pomodoroLocalFrom(card.settings),
+          ).model
+        : cardWidgetModel(card, input);
     setWidgetEntry(info.widgetId, { model, card, timeZone: input.timeZone, ...(cardId ? { cardId } : {}) });
     scheduleTimerRedraw();
     return model;
@@ -83,15 +103,20 @@ const NO_DATA: WidgetInput["data"] = { tasks: [], projects: [], workspaces: [], 
 type Entry = ReturnType<typeof widgetEntry>;
 
 /** A card drawn from what's on the phone only (no network). */
-function instantCard(entry: Entry, card: NonNullable<Entry["card"]>) {
+function instantCard(info: WidgetInfo, entry: Entry, card: NonNullable<Entry["card"]>) {
   const now = new Date();
-  return cardWidgetModel(card, { now, data: NO_DATA, scheme: appScheme(), timeZone: entry.timeZone, pomodoros: widgetPomodoros(now.getTime()) });
+  const pomodoros = widgetPomodoros(now.getTime());
+  if (card.type === "pomodoro") {
+    const parts = { cardId: card.id, title: cardTitle(card), uri: `${appScheme()}://dashboard`, settings: card.settings, now: now.getTime(), pomodoros };
+    return renderPomodoro(info.widgetId, { width: info.width, height: info.height }, parts, pomodoroLocalFrom(card.settings)).model;
+  }
+  return cardWidgetModel(card, { now, data: NO_DATA, scheme: appScheme(), timeZone: entry.timeZone, pomodoros });
 }
 
 /** What the widget shows the moment a button is tapped, before the save comes back. */
-function instantModel(entry: Entry, action: WidgetAction, ranLocally: boolean): WidgetModel | null {
+function instantModel(info: WidgetInfo, entry: Entry, action: WidgetAction, ranLocally: boolean): WidgetModel | null {
   const now = new Date();
-  const quick = (card: NonNullable<Entry["card"]>) => instantCard(entry, card);
+  const quick = (card: NonNullable<Entry["card"]>) => instantCard(info, entry, card);
   if (isPomodoroAction(action)) {
     if (!entry.card) return null;
     if (ranLocally) return quick(entry.card);
@@ -107,21 +132,56 @@ function instantModel(entry: Entry, action: WidgetAction, ranLocally: boolean): 
   return entry.model ? optimisticModel(entry.model, action) : null;
 }
 
+/** The Pomodoro and Timer widgets run on the phone only: no card, no server. */
+async function handleStandaloneAction(info: WidgetInfo, action: WidgetAction, renderWidget: WidgetTaskHandlerProps["renderWidget"]) {
+  if (info.widgetName === POMODORO_WIDGET && isPomodoroAction(action)) runStandalonePomodoro(info.widgetId, action);
+  else if (info.widgetName === TIMER_WIDGET && action.kind === "clock") await runStandaloneTimer(info.widgetId, action.op);
+  else return;
+  renderWidget(renderStandalone(info));
+  if (info.widgetName === POMODORO_WIDGET) {
+    const { refreshLiveActivity } = require("../live/liveActivity") as typeof import("../live/liveActivity");
+    void refreshLiveActivity();
+  }
+}
+
+function renderStandalone(info: WidgetInfo) {
+  const size = { width: info.width, height: info.height };
+  const { model, render } = info.widgetName === POMODORO_WIDGET ? standalonePomodoro(info.widgetId, size) : standaloneTimer(info.widgetId, size);
+  setWidgetEntry(info.widgetId, { model });
+  scheduleTimerRedraw();
+  return render;
+}
+
+/** A card's pomodoro takes the phase and lengths picked on its widget; a changed length saves to the card. */
+function cardPomodoro(info: WidgetInfo, entry: Entry, action: WidgetAction) {
+  const card = entry.card;
+  if (!card || card.type !== "pomodoro" || !isPomodoroAction(action)) return { card, save: null };
+  const local = preparePomodoro(info.widgetId, card.id, card.settings, entry.timeZone);
+  const settings = pomodoroLocalSettings(card.settings, local);
+  const before = pomodoroLocalFrom(card.settings);
+  const changed = before.focus !== local.focus || before.short !== local.short || before.long !== local.long;
+  return { card: { ...card, settings }, save: changed ? { focus: local.focus, shortBreak: local.short, longBreak: local.long } : null };
+}
+
 async function handleAction(info: WidgetInfo, data: Record<string, unknown> | undefined, renderWidget: WidgetTaskHandlerProps["renderWidget"]) {
   const action = parseWidgetAction(data);
   if (!action) return;
+  if (info.widgetName === POMODORO_WIDGET || info.widgetName === TIMER_WIDGET) return handleStandaloneAction(info, action, renderWidget);
   const size = { width: info.width, height: info.height };
   const entry = widgetEntry(info.widgetId);
+  const pomodoro = cardPomodoro(info, entry, action);
   // The pomodoro lives on the phone, so it changes before the redraw.
-  const ranLocally = isPomodoroAction(action) && runPomodoro(action, entry.card, entry.timeZone);
-  const instant = instantModel(entry, action, ranLocally);
+  const ranLocally = isPomodoroAction(action) && runPomodoro(action, pomodoro.card, entry.timeZone);
+  const instant = instantModel(info, { ...entry, card: pomodoro.card }, action, ranLocally);
   if (instant && instant !== entry.model) {
     renderWidget(renderCard(instant, size));
     setWidgetEntry(info.widgetId, { model: instant });
     scheduleTimerRedraw();
   }
   try {
-    if (!ranLocally) await runWidgetAction(action, { card: entry.card, timeZone: entry.timeZone });
+    if (!ranLocally) await runWidgetAction(action, { card: pomodoro.card, timeZone: entry.timeZone });
+    // Lengths picked on the widget reach the card (and the Dashboard) with the button that uses them.
+    if (pomodoro.save && pomodoro.card) await saveSettings(pomodoro.card.id, () => pomodoro.save);
   } catch {
     // Offline or refused: put back what was there, then redraw from the server.
     if (entry.model) setWidgetEntry(info.widgetId, { model: entry.model });
@@ -149,6 +209,7 @@ async function handleAction(info: WidgetInfo, data: Record<string, unknown> | un
 export async function renderWidgetFor(info: WidgetInfo, cardId?: string) {
   const size = { width: info.width, height: info.height };
   if (info.widgetName === "TimelyQuickAdd") return renderQuickAdd(quickAddButtons(), size);
+  if (info.widgetName === POMODORO_WIDGET || info.widgetName === TIMER_WIDGET) return renderStandalone(info);
   return renderCard(await widgetModel(info, cardId), size);
 }
 
@@ -156,6 +217,7 @@ export async function widgetTaskHandler({ widgetInfo, widgetAction, renderWidget
   switch (widgetAction) {
     case "WIDGET_DELETED":
       forgetWidget(widgetInfo.widgetId);
+      forgetStandalone(widgetInfo.widgetId, widgetInfo.widgetName);
       return;
     case "WIDGET_RESIZED":
       // Redraw at the new size from what the widget last showed, straight away;

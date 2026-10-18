@@ -92,7 +92,7 @@ async function boardCard(cardId: string) {
 }
 
 /** Changes one card's settings on the server, from the latest copy of the board. */
-async function saveSettings(cardId: string, change: (card: DashboardCard, timeZone: string | undefined) => Record<string, unknown> | null) {
+export async function saveSettings(cardId: string, change: (card: DashboardCard, timeZone: string | undefined) => Record<string, unknown> | null) {
   const { config, layout, card } = await boardCard(cardId);
   const patch = change(card, config.workingHours?.timezone || undefined);
   if (!patch) return null;

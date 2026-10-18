@@ -41,7 +41,7 @@ register("data:text/javascript," + encodeURIComponent(loader));
 
 const { buildWidgetTree } = await import(widgetLib + "api/build-widget-tree.js");
 const { renderCard, renderQuickAdd } = await import("../apps/mobile/lib/widgets/render.tsx");
-const { cardWidgetModel, todayModel } = await import("../apps/mobile/lib/widgets/model.ts");
+const { cardWidgetModel, clockWidgetModel, pomodoroLocalFrom, pomodoroWidgetModel, todayModel } = await import("../apps/mobile/lib/widgets/model.ts");
 const { BUILTIN_CARDS, defaultDashboard } = await import("../packages/contract/src/dashboard.ts");
 const { buildYearlyExpenses } = await import("../packages/contract/src/sheetTemplates.ts");
 
@@ -119,6 +119,28 @@ describe("widgets draw on the phone", () => {
     for (const view of ["checklist", "page"]) {
       const model = cardWidgetModel({ ...base, query: { ...base.query, doc: { docId: "d1", view } } }, input);
       for (const size of SIZES) draw(renderCard(model, size), `doc ${view}`);
+    }
+  });
+
+  test("the Pomodoro and Timer widgets, and the trees the phone redraws them from", () => {
+    const texts = (tree, out = []) => {
+      if (tree.type === "TextWidget") out.push(tree.props.text);
+      for (const child of tree.children ?? []) texts(child, out);
+      return out;
+    };
+    const local = { ...pomodoroLocalFrom(undefined), phase: "long" };
+    const pomodoro = pomodoroWidgetModel({ cardId: "widget-1", title: "Pomodoro", uri: "timelymobile://", settings: undefined, now: now.getTime(), pomodoros: [], local });
+    const timer = clockWidgetModel({ cardId: "widget-2", title: "Timer", uri: "timelymobile://", state: { mode: "stopwatch", minutes: 10, startedAt: null, elapsed: 0, laps: [], done: false }, now: now.getTime(), local: { mode: "timer", minutes: 45 } });
+    for (const [model, value, token] of [[pomodoro, "15:00", "{{long:clock}}"], [timer, "45:00", "{{minutes:clock}}"]]) {
+      for (const size of SIZES) {
+        draw(renderCard(model, size), `${model.title} ${size.width}x${size.height}`);
+        draw(renderCard(model, size, { local: true }), `${model.title} local ${size.width}x${size.height}`);
+      }
+      // The app draws the real time; the phone's copy has the token it fills in.
+      const size = SIZES[2];
+      assert.ok(texts(buildWidgetTree(renderCard(model, size).light)).includes(value));
+      const phone = texts(buildWidgetTree(renderCard(model, size, { local: true }).light));
+      assert.ok(phone.includes(token) && !phone.includes(value), model.title);
     }
   });
 

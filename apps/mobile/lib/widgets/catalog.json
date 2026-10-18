@@ -28,6 +28,32 @@
       "previewImage": "./assets/widgets/timely-today.png"
     },
     {
+      "name": "TimelyPomodoro",
+      "label": "Pomodoro",
+      "description": "A pomodoro timer of its own. Pick Focus or a break and its length right on the widget.",
+      "minWidth": "180dp",
+      "minHeight": "110dp",
+      "targetCellWidth": 3,
+      "targetCellHeight": 2,
+      "maxResizeWidth": "520dp",
+      "maxResizeHeight": "520dp",
+      "resizeMode": "horizontal|vertical",
+      "previewImage": "./assets/widgets/timely-pomodoro.png"
+    },
+    {
+      "name": "TimelyTimer",
+      "label": "Timer",
+      "description": "A stopwatch or a countdown timer that runs on your phone.",
+      "minWidth": "180dp",
+      "minHeight": "110dp",
+      "targetCellWidth": 3,
+      "targetCellHeight": 2,
+      "maxResizeWidth": "520dp",
+      "maxResizeHeight": "520dp",
+      "resizeMode": "horizontal|vertical",
+      "previewImage": "./assets/widgets/timely-timer.png"
+    },
+    {
       "name": "TimelyQuickAdd",
       "label": "Quick add",
       "description": "Add a task, capture to the Inbox, ask the assistant or search in one tap.",

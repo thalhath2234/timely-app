@@ -1,5 +1,5 @@
 diff --git a/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java b/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
-index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..ea132069d6fd15e380b8284d93dcd4b72b881ccf 100644
+index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..17a06d2ff6b4785da10a8d0bdf6c7bb906c74bc4 100644
 --- a/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
 +++ b/android/src/main/java/com/reactnativeandroidwidget/RNWidget.java
 @@ -6,12 +6,15 @@ import android.content.ComponentName;
@@ -18,7 +18,12 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..ea132069d6fd15e380b8284d93dcd4b7
  import android.view.View;
  import android.view.ViewGroup;
  import android.widget.RemoteViews;
-@@ -23,6 +26,7 @@ import com.facebook.react.bridge.ReactApplicationContext;
+@@ -19,10 +22,12 @@ import android.widget.RemoteViews;
+ import androidx.annotation.RequiresApi;
+ 
+ import com.facebook.react.bridge.Arguments;
++import com.facebook.react.bridge.JavaOnlyMap;
+ import com.facebook.react.bridge.ReactApplicationContext;
  import com.facebook.react.bridge.ReadableMap;
  import com.facebook.react.bridge.WritableArray;
  import com.facebook.react.bridge.WritableMap;
@@ -26,7 +31,16 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..ea132069d6fd15e380b8284d93dcd4b7
  import com.reactnativeandroidwidget.builder.ClickableView;
  import com.reactnativeandroidwidget.builder.CollectionView;
  import com.reactnativeandroidwidget.builder.CollectionViewItem;
-@@ -81,8 +85,9 @@ public class RNWidget {
+@@ -63,7 +68,7 @@ public class RNWidget {
+         ReadableMap light = config.getMap("light");
+         ReadableMap dark = config.getMap("dark");
+ 
+-        ReadableMap configClone = Arguments.makeNativeMap(light.toHashMap());
++        ReadableMap configClone = nativeCopy(light);
+         RemoteViews remoteWidgetView = new RemoteViews(appContext.getPackageName(), R.layout.rn_widget);
+ 
+         WidgetWithViews widgetWithViews = WidgetFactory.buildWidgetFromRoot(
+@@ -81,10 +86,11 @@ public class RNWidget {
              remoteWidgetView.setContentDescription(R.id.rn_widget_clickable_container, widgetWithViews.getRootAccessibilityLabel());
          }
  
@@ -35,9 +49,12 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..ea132069d6fd15e380b8284d93dcd4b7
 -            WidgetWithViews darkWidgetWithViews = WidgetFactory.buildWidgetFromRoot(
 +            darkWidgetWithViews = WidgetFactory.buildWidgetFromRoot(
                  appContext,
-                 Arguments.makeNativeMap(dark.toHashMap()),
+-                Arguments.makeNativeMap(dark.toHashMap()),
++                nativeCopy(dark),
                  RNWidgetUtil.getWidgetWidth(appContext, widgetId),
-@@ -115,6 +120,7 @@ public class RNWidget {
+                 RNWidgetUtil.getWidgetHeight(appContext, widgetId)
+             );
+@@ -115,6 +121,7 @@ public class RNWidget {
              addClickableAreas(widgetId, remoteWidgetView, widgetWithViews);
          }
          addCollectionViews(widgetId, remoteWidgetView, widgetWithViews);
@@ -45,7 +62,23 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..ea132069d6fd15e380b8284d93dcd4b7
  
          AppWidgetManager.getInstance(appContext)
              .updateAppWidget(widgetId, remoteWidgetView);
-@@ -168,17 +174,10 @@ public class RNWidget {
+@@ -134,6 +141,15 @@ public class RNWidget {
+         return preview;
+     }
+ 
++    /**
++     * Timely patch: a tree from JS is copied into a native map as before; one
++     * the phone built itself (RNWidgetLocal, a JavaOnlyMap) is used as it is,
++     * so drawing it never needs React Native's native maps.
++     */
++    private static ReadableMap nativeCopy(ReadableMap tree) {
++        return tree instanceof JavaOnlyMap ? tree : Arguments.makeNativeMap(tree.toHashMap());
++    }
++
+     private Bitmap drawViewToBitmap(View rootView) {
+         Bitmap bitmap = Bitmap.createBitmap(
+             rootView.getMeasuredWidth(),
+@@ -168,17 +184,10 @@ public class RNWidget {
          Rect offsetViewBounds = new Rect();
          clickableWidget.getDrawingRect(offsetViewBounds);
          rootWidget.offsetDescendantRectToMyCoords(clickableWidget, offsetViewBounds);
@@ -67,7 +100,7 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..ea132069d6fd15e380b8284d93dcd4b7
  
          // The clickable overlay draws its own ripple, so match it to the view's radius when supported
          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && clickableView.getBorderRadius() > 0f) {
-@@ -199,37 +198,136 @@ public class RNWidget {
+@@ -199,37 +208,136 @@ public class RNWidget {
          widgetView.addView(R.id.rn_widget_clickable_container, clickableRemoteView);
      }
  
@@ -186,7 +219,7 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..ea132069d6fd15e380b8284d93dcd4b7
 +            setUpChronometer(chronometer, R.id.rn_widget_chronometer_light, lightView.getData(), gravity);
 +            setUpChronometer(chronometer, R.id.rn_widget_chronometer_dark, darkView.getData(), gravity);
 +            remoteWidgetView.addView(R.id.rn_widget_chronometer_container, chronometer);
-+        }
+         }
 +    }
 +
 +    private void setUpChronometer(RemoteViews views, int id, ReadableMap data, String gravity) {
@@ -204,7 +237,7 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..ea132069d6fd15e380b8284d93dcd4b7
 +            views.setTextColor(id, Color.parseColor(stringOr(data, "color", "#000000")));
 +        } catch (IllegalArgumentException ignored) {
 +            // Keep the default text colour.
-         }
++        }
 +        int horizontal = "center".equals(gravity) ? Gravity.CENTER_HORIZONTAL : "end".equals(gravity) ? Gravity.END : Gravity.START;
 +        views.setInt(id, "setGravity", horizontal | Gravity.CENTER_VERTICAL);
 +    }
@@ -219,7 +252,7 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..ea132069d6fd15e380b8284d93dcd4b7
  
          ViewGroup rootView = (ViewGroup) widgetWithViews.getRootView();
          List<CollectionView> collectionViews = widgetWithViews.getCollectionViews();
-@@ -248,13 +346,9 @@ public class RNWidget {
+@@ -248,13 +356,9 @@ public class RNWidget {
  
          RemoteViews collectionRemoteView = new RemoteViews(appContext.getPackageName(), R.layout.rn_widget_list);
  
@@ -236,7 +269,7 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..ea132069d6fd15e380b8284d93dcd4b7
  
          for (int i = 0; i < listWrappers.length; i++) {
              if (i != collectionId) {
-@@ -262,7 +356,9 @@ public class RNWidget {
+@@ -262,7 +366,9 @@ public class RNWidget {
              }
          }
  
@@ -247,7 +280,7 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..ea132069d6fd15e380b8284d93dcd4b7
          Intent remoteAdapterIntent = createCollectionRemoteAdapterIntent(widgetId, collectionId, collectionView);
  
          collectionRemoteView.setPendingIntentTemplate(lists[collectionId], collectionPendingIntentTemplate);
-@@ -331,6 +427,23 @@ public class RNWidget {
+@@ -331,6 +437,23 @@ public class RNWidget {
          return intent;
      }
  
@@ -272,7 +305,7 @@ index 5650d1e4b9abaa30a2e1ab2a5fddefc9057d4e25..ea132069d6fd15e380b8284d93dcd4b7
          // This section makes it possible for items to have individualized
          // behavior. It does this by setting up a pending intent template.
 diff --git a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetCollectionService.java b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetCollectionService.java
-index f818d97e1985938d4af6bfc20bce9855cc2ff4a5..136af55557433f66f0fd6419cb1043bdf2a8ba95 100644
+index f818d97e1985938d4af6bfc20bce9855cc2ff4a5..ad4ff59890a8d1064c6f751634ff4a6a17fb3ca5 100644
 --- a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetCollectionService.java
 +++ b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetCollectionService.java
 @@ -151,20 +151,30 @@ class ListRemoteViewsFactory implements RemoteViewsService.RemoteViewsFactory {
@@ -331,6 +364,206 @@ index 0f963f0303eb70bb814dcab50f821036929ebed2..4c7530e73c76ff608d7ec8344c454660
          } catch (Exception e) {
              e.printStackTrace();
          } finally {
+diff --git a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetLocal.java b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetLocal.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..076462796494f3584eff1d498263734fd5824673
+--- /dev/null
++++ b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetLocal.java
+@@ -0,0 +1,179 @@
++package com.reactnativeandroidwidget;
++
++import android.content.Context;
++import android.os.Bundle;
++import android.util.Log;
++
++import com.facebook.react.bridge.BridgeReactContext;
++import com.facebook.react.bridge.JavaOnlyArray;
++import com.facebook.react.bridge.JavaOnlyMap;
++import com.facebook.react.uimanager.DisplayMetricsHolder;
++
++import org.json.JSONArray;
++import org.json.JSONObject;
++
++import java.io.File;
++import java.io.FileOutputStream;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.util.Iterator;
++import java.util.regex.Matcher;
++import java.util.regex.Pattern;
++
++/**
++ * Timely patch: widget controls that work on the phone alone, without starting
++ * the app's JavaScript. A widget's JS leaves a file with its own small state
++ * (a pomodoro's phase and lengths, say), the tree it drew for each variant of
++ * that state (light and dark) and the limits of each number. A TIMELY_LOCAL
++ * tap changes the state, saves it and redraws from those trees here, so
++ * switching a mode or changing a length is instant even when Android has
++ * closed the app. Action buttons still go to JS, which reads the same file.
++ *
++ * The file, timely-widget-local-ID.json in the app's files folder:
++ * { "state": {...}, "variantKey": "phase", "limits": { "focus": [1, 180] },
++ *   "variants": { "focus": { "light": tree, "dark": tree }, ... } }
++ * Strings in a tree may hold {{key}} (a number from the state) or
++ * {{key:clock}} (minutes in the state, drawn as 25:00 or 90:00).
++ * A tap's data is { "set": key, "value": text } or { "step": key, "by": n }.
++ */
++public final class RNWidgetLocal {
++    public static final String CLICK = "TIMELY_LOCAL";
++    private static final String TAG = "RNWidgetLocal";
++    private static final Pattern TOKEN = Pattern.compile("\\{\\{(\\w+)(?::(\\w+))?\\}\\}");
++
++    private RNWidgetLocal() {}
++
++    public static File file(Context context, int widgetId) {
++        return new File(context.getFilesDir(), "timely-widget-local-" + widgetId + ".json");
++    }
++
++    public static void handle(Context context, String widgetName, int widgetId, Bundle data) {
++        try {
++            File file = file(context, widgetId);
++            if (data == null || !file.exists()) return;
++            JSONObject doc = new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
++            JSONObject state = doc.optJSONObject("state");
++            JSONObject variants = doc.optJSONObject("variants");
++            // No variants: the widget is running and JS owns every tap again.
++            if (state == null || variants == null) return;
++            if (!apply(state, doc.optJSONObject("limits"), data)) return;
++            try (FileOutputStream out = new FileOutputStream(file)) {
++                out.write(doc.toString().getBytes(StandardCharsets.UTF_8));
++            }
++            JSONObject trees = variants.optJSONObject(state.optString(doc.optString("variantKey", ""), ""));
++            if (trees == null || trees.optJSONObject("light") == null) return;
++            JavaOnlyMap config = new JavaOnlyMap();
++            config.putMap("light", toMap((JSONObject) fill(trees.getJSONObject("light"), state)));
++            JSONObject dark = trees.optJSONObject("dark");
++            if (dark != null) config.putMap("dark", toMap((JSONObject) fill(dark, state)));
++            else config.putNull("dark");
++            DisplayMetricsHolder.initDisplayMetricsIfNotInitialized(context);
++            new RNWidget(new BridgeReactContext(context.getApplicationContext()), config, widgetName).drawWidget(widgetId);
++        } catch (Exception e) {
++            Log.w(TAG, "Could not redraw widget " + widgetId, e);
++        }
++    }
++
++    /** Changes the state for one tap; false when nothing changed (a number at its limit). */
++    private static boolean apply(JSONObject state, JSONObject limits, Bundle data) throws Exception {
++        if (data.containsKey("set")) {
++            String key = data.getString("set");
++            String value = String.valueOf(data.get("value"));
++            if (key == null || value.equals(state.optString(key, null))) return false;
++            state.put(key, value);
++            return true;
++        }
++        if (data.containsKey("step")) {
++            String key = data.getString("step");
++            double by = number(data.get("by"));
++            if (key == null || by == 0) return false;
++            double current = state.optDouble(key, 0);
++            double next = current + by;
++            JSONArray limit = limits != null ? limits.optJSONArray(key) : null;
++            if (limit != null && limit.length() == 2) next = Math.max(limit.getDouble(0), Math.min(limit.getDouble(1), next));
++            if (next == current) return false;
++            state.put(key, next);
++            return true;
++        }
++        return false;
++    }
++
++    private static double number(Object value) {
++        if (value instanceof Number) return ((Number) value).doubleValue();
++        try {
++            return Double.parseDouble(String.valueOf(value));
++        } catch (NumberFormatException e) {
++            return 0;
++        }
++    }
++
++    /** A copy of a tree with every {{token}} in its strings filled in from the state. */
++    private static Object fill(Object value, JSONObject state) throws Exception {
++        if (value instanceof JSONObject) {
++            JSONObject source = (JSONObject) value;
++            JSONObject copy = new JSONObject();
++            for (Iterator<String> keys = source.keys(); keys.hasNext(); ) {
++                String key = keys.next();
++                copy.put(key, fill(source.get(key), state));
++            }
++            return copy;
++        }
++        if (value instanceof JSONArray) {
++            JSONArray source = (JSONArray) value;
++            JSONArray copy = new JSONArray();
++            for (int i = 0; i < source.length(); i++) copy.put(fill(source.get(i), state));
++            return copy;
++        }
++        if (value instanceof String && ((String) value).contains("{{")) {
++            Matcher match = TOKEN.matcher((String) value);
++            StringBuffer out = new StringBuffer();
++            while (match.find()) {
++                String text = token(state, match.group(1), match.group(2));
++                match.appendReplacement(out, Matcher.quoteReplacement(text));
++            }
++            match.appendTail(out);
++            return out.toString();
++        }
++        return value;
++    }
++
++    private static String token(JSONObject state, String key, String format) {
++        Object value = state.opt(key);
++        if (value == null) return "";
++        if (!(value instanceof Number)) return String.valueOf(value);
++        double number = ((Number) value).doubleValue();
++        // Whole minutes as a waiting clock: 25:00, 90:00.
++        if ("clock".equals(format)) return Math.round(number) + ":00";
++        return number == Math.rint(number) ? String.valueOf((long) number) : String.valueOf(number);
++    }
++
++    /** JSON to the maps the widget builder reads (numbers as doubles, as from JS). */
++    private static JavaOnlyMap toMap(JSONObject source) throws Exception {
++        JavaOnlyMap map = new JavaOnlyMap();
++        for (Iterator<String> keys = source.keys(); keys.hasNext(); ) {
++            String key = keys.next();
++            Object value = source.get(key);
++            if (value == JSONObject.NULL) map.putNull(key);
++            else if (value instanceof JSONObject) map.putMap(key, toMap((JSONObject) value));
++            else if (value instanceof JSONArray) map.putArray(key, toArray((JSONArray) value));
++            else if (value instanceof Boolean) map.putBoolean(key, (Boolean) value);
++            else if (value instanceof Number) map.putDouble(key, ((Number) value).doubleValue());
++            else map.putString(key, value.toString());
++        }
++        return map;
++    }
++
++    private static JavaOnlyArray toArray(JSONArray source) throws Exception {
++        JavaOnlyArray array = new JavaOnlyArray();
++        for (int i = 0; i < source.length(); i++) {
++            Object value = source.get(i);
++            if (value == JSONObject.NULL) array.pushNull();
++            else if (value instanceof JSONObject) array.pushMap(toMap((JSONObject) value));
++            else if (value instanceof JSONArray) array.pushArray(toArray((JSONArray) value));
++            else if (value instanceof Boolean) array.pushBoolean((Boolean) value);
++            else if (value instanceof Number) array.pushDouble(((Number) value).doubleValue());
++            else array.pushString(value.toString());
++        }
++        return array;
++    }
++}
+diff --git a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetProvider.java b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetProvider.java
+index 647d8f43d744d1e4b6a9c66de2d6a7f6861cbe04..77d4947712b4211358476a451fcac012338f5ace 100644
+--- a/android/src/main/java/com/reactnativeandroidwidget/RNWidgetProvider.java
++++ b/android/src/main/java/com/reactnativeandroidwidget/RNWidgetProvider.java
+@@ -57,6 +57,10 @@ public class RNWidgetProvider extends AppWidgetProvider {
+             case "OPEN_URI":
+                 openUri(context, incomingIntent.getBundleExtra("clickActionData").getString("uri"));
+                 break;
++            case RNWidgetLocal.CLICK:
++                // Timely patch: drawn here from the widget's own trees, without JS.
++                RNWidgetLocal.handle(context, getClass().getSimpleName(), widgetId, incomingIntent.getBundleExtra("clickActionData"));
++                break;
+             default:
+                 handleWidgetClick(context, incomingIntent, widgetId);
+         }
 diff --git a/android/src/main/java/com/reactnativeandroidwidget/builder/ChronometerView.java b/android/src/main/java/com/reactnativeandroidwidget/builder/ChronometerView.java
 new file mode 100644
 index 0000000000000000000000000000000000000000..77b008dfc28d562e7086d05c461857bd01a10f8e
@@ -581,7 +814,7 @@ index 0000000000000000000000000000000000000000..d3dd71a014ca17c4d06dc68dfa4885ae
 +    </LinearLayout>
 +</LinearLayout>
 diff --git a/android/src/main/res/layout/rn_widget_list.xml b/android/src/main/res/layout/rn_widget_list.xml
-index 6935b8653cd7cc29b4109e7873abf4fa2869484b..cf21c3c6dd4765382736066d233c64915d31145e 100644
+index 6935b8653cd7cc29b4109e7873abf4fa2869484b..5eb064ccb33179d55a2dcfde5fc93c9bdd91c5b4 100644
 --- a/android/src/main/res/layout/rn_widget_list.xml
 +++ b/android/src/main/res/layout/rn_widget_list.xml
 @@ -1,31 +1,72 @@

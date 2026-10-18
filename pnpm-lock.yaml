@@ -13,7 +13,7 @@ overrides:
   xcode>uuid: '>=11.1.1'
 
 patchedDependencies:
-  react-native-android-widget@0.22.1: 0c7790aa687792a9d17fbdc0bda08178120f82399b647f80091d1fc036b90f36
+  react-native-android-widget@0.22.1: cb6ce6b56f360bbefc303693ac4b977df3cf432a223ff27259450579cc7f2ded
 
 importers:
 
@@ -114,7 +114,7 @@ importers:
         version: 0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1)
       react-native-android-widget:
         specifier: ^0.22.1
-        version: 0.22.1(patch_hash=0c7790aa687792a9d17fbdc0bda08178120f82399b647f80091d1fc036b90f36)(expo@57.0.26)(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)
+        version: 0.22.1(patch_hash=cb6ce6b56f360bbefc303693ac4b977df3cf432a223ff27259450579cc7f2ded)(expo@57.0.26)(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)
       react-native-gesture-handler:
         specifier: ~2.32.0
         version: 2.32.0(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)
@@ -12822,7 +12822,7 @@ snapshots:
 
   react-is@19.3.0: {}
 
-  react-native-android-widget@0.22.1(patch_hash=0c7790aa687792a9d17fbdc0bda08178120f82399b647f80091d1fc036b90f36)(expo@57.0.26)(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3):
+  react-native-android-widget@0.22.1(patch_hash=cb6ce6b56f360bbefc303693ac4b977df3cf432a223ff27259450579cc7f2ded)(expo@57.0.26)(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3):
     dependencies:
       react: 19.2.3
       react-native: 0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1)
