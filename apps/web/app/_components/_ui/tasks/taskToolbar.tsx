@@ -3,8 +3,11 @@
 import { buttonClass } from "@/app/_components/_ui/button";
 import { controlClass, popoverSurface } from "@/app/_components/_ui/field";
 import SegmentedControl from "@/app/_components/_ui/segmentedControl";
-import { useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ChevronDown, GripVertical, List, X } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ArrowDown, ArrowUp, ChevronDown, GripVertical, List, ListFilter, X } from "lucide-react";
+import { GroupLabel, ListGroup, ListRow, ListSwitch } from "@/app/_components/_ui/groupedList";
+import { PopoverView } from "@/app/_components/_ui/motion";
+import { cn } from "@/app/utils/cn";
 import Select from "@/app/_components/_ui/select";
 import type {
   CustomField,
@@ -53,6 +56,19 @@ const PROJECT_GROUP_FIELDS: TaskListGroupField[] = ["stage", "status", "priority
 
 const GLOBAL_DEFAULT_GROUPS: TaskListGroupField[] = ["workspace", "project", "stage"];
 
+/**
+ * The field a board makes its columns from. The list's default three-level
+ * grouping (and a custom field, which has no columns) reads as status
+ * columns, without changing the view's saved grouping, so List keeps its
+ * groups when the person switches back.
+ */
+export function boardGroupField(groupFields: TaskListGroupField[], defaults: TaskListGroupField[] = GLOBAL_DEFAULT_GROUPS): TaskListGroupField {
+  const first = groupFields[0];
+  if (!first || first.startsWith("cf:")) return "status";
+  if (groupFields.join(",") === defaults.join(",") && first !== "status") return "status";
+  return first;
+}
+
 type TaskToolbarProps = {
   viewMode: TaskRenderMode;
   setViewMode: (value: TaskRenderMode) => void;
@@ -87,6 +103,10 @@ type TaskToolbarProps = {
   setThenSort?: (by: TaskViewSortBy | undefined, direction: TaskListSortDirection | undefined) => void;
   limit?: number;
   setLimit?: (value: number | undefined) => void;
+  /** Drawn at the start of the right-hand group: the describe-the-view box. */
+  search?: ReactNode;
+  /** Drawn after `search`: the Filters menu button. */
+  filters?: ReactNode;
 };
 
 export function TaskToolbar({
@@ -121,6 +141,8 @@ export function TaskToolbar({
   setThenSort,
   limit,
   setLimit,
+  search,
+  filters,
 }: TaskToolbarProps) {
   const [groupPanelOpen, setGroupPanelOpen] = useState(false);
   const [groupSortPanelOpen, setGroupSortPanelOpen] = useState(false);
@@ -341,7 +363,11 @@ export function TaskToolbar({
           >
             <span className="text-muted-foreground">Group</span>
             <span className="font-medium text-foreground">
-              {currentGroups.length ? currentGroups.map(groupLabel).join(" › ") : "None"}
+              {viewMode === "kanban"
+                ? groupLabel(boardGroupField(currentGroups, resetGroupFields))
+                : currentGroups.length
+                  ? currentGroups.map(groupLabel).join(" › ")
+                  : "None"}
             </span>
             <ChevronDown className="text-muted-foreground" />
           </button>
@@ -612,7 +638,9 @@ export function TaskToolbar({
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
+        {search}
+        {filters}
         <div className="relative" ref={statusPanelRef}>
           <button
             type="button"
@@ -805,6 +833,8 @@ export function TaskOptionsBar({
   selectedStageIds,
   setSelectedStageIds,
   scope = "global",
+  layout = "bar",
+  footer,
 }: {
   showCompleted: boolean;
   setShowCompleted: (value: boolean) => void;
@@ -827,6 +857,10 @@ export function TaskOptionsBar({
   selectedStageIds: string[];
   setSelectedStageIds: (value: string[]) => void;
   scope?: TaskListScope;
+  /** "panel": grouped rows for the Filters menu instead of a bar of controls. */
+  layout?: "bar" | "panel";
+  /** Panel only: drawn under the groups (the Add filter button). */
+  footer?: ReactNode;
 }) {
   const isProjectScope = scope === "project";
   const labels = workspaces.flatMap((workspace) => workspace.lables ?? []);
@@ -837,6 +871,95 @@ export function TaskOptionsBar({
       color: stage.color ?? undefined,
     })),
   );
+
+  if (layout === "panel") {
+    const togglePriority = (level: string) =>
+      setSelectedPriorityLevels(
+        selectedPriorityLevels.includes(level)
+          ? selectedPriorityLevels.filter((item) => item !== level)
+          : [...selectedPriorityLevels, level],
+      );
+    return (
+      <div className="w-80 p-3 text-xs" data-testid="task-filters-panel">
+        <GroupLabel>Show</GroupLabel>
+        <ListGroup>
+          <ListRow label="Completed tasks">
+            <ListSwitch label="Show completed tasks" checked={showCompleted} onChange={setShowCompleted} />
+          </ListRow>
+          <ListRow label="Only overdue">
+            <ListSwitch label="Only overdue" checked={onlyOverdue} onChange={setOnlyOverdue} />
+          </ListRow>
+          <ListRow label="Only scheduled">
+            <ListSwitch label="Only scheduled" checked={onlyScheduled} onChange={setOnlyScheduled} />
+          </ListRow>
+          <ListRow label="Only repeating">
+            <ListSwitch label="Only repeating" checked={onlyRecurring} onChange={setOnlyRecurring} />
+          </ListRow>
+          <ListRow label="Only dated" meta="A deadline or reserved time">
+            <ListSwitch label="Only dated" checked={onlyDated} onChange={setOnlyDated} />
+          </ListRow>
+        </ListGroup>
+        <GroupLabel className="mt-3">Narrow to</GroupLabel>
+        <ListGroup>
+          {!isProjectScope ? (
+            <ListRow label="Project">
+              <Select
+                variant="row"
+                size="sm"
+                aria-label="Project"
+                value={selectedProjectIds[0] ?? ""}
+                placeholder="All"
+                onChange={(projectId) => setSelectedProjectIds(projectId ? [projectId] : [])}
+                options={[
+                  { value: "", label: "All projects" },
+                  ...projects.map((project) => ({ value: project.id, label: project.title, color: project.color ?? undefined })),
+                ]}
+              />
+            </ListRow>
+          ) : null}
+          <ListRow label="Priority">
+            <Select
+              variant="row"
+              size="sm"
+              aria-label="Priority"
+              values={selectedPriorityLevels}
+              value={selectedPriorityLevels[0] ?? ""}
+              placeholder="All"
+              onChange={togglePriority}
+              options={PRIORITY_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+            />
+          </ListRow>
+          {labels.length > 0 ? (
+            <ListRow label="Label">
+              <Select
+                variant="row"
+                size="sm"
+                aria-label="Label"
+                value={selectedLabelIds[0] ?? ""}
+                placeholder="All"
+                onChange={(labelId) => setSelectedLabelIds(labelId ? [labelId] : [])}
+                options={[{ value: "", label: "All labels" }, ...labels.map((label) => ({ value: label.id, label: label.name, color: label.color }))]}
+              />
+            </ListRow>
+          ) : null}
+          {stages.length > 0 ? (
+            <ListRow label="Stage">
+              <Select
+                variant="row"
+                size="sm"
+                aria-label="Stage"
+                value={selectedStageIds[0] ?? ""}
+                placeholder="All"
+                onChange={(stageId) => setSelectedStageIds(stageId ? [stageId] : [])}
+                options={[{ value: "", label: "All stages" }, ...stages.map((stage) => ({ value: stage.id, label: stage.label, color: stage.color }))]}
+              />
+            </ListRow>
+          ) : null}
+        </ListGroup>
+        {footer ? <div className="mt-3 flex items-center justify-between gap-2">{footer}</div> : null}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-6 py-2 text-xs text-muted-foreground">
@@ -947,6 +1070,89 @@ export function TaskOptionsBar({
         </div>
       ) : null}
       </div>
+    </div>
+  );
+}
+
+/** How many of the options bar's switches and picks are away from their defaults. */
+export function countActiveOptions(options: {
+  showCompleted: boolean;
+  onlyOverdue: boolean;
+  onlyScheduled: boolean;
+  onlyRecurring: boolean;
+  onlyDated: boolean;
+  selectedProjectIds?: string[];
+  selectedPriorityLevels: string[];
+  selectedLabelIds: string[];
+  selectedStageIds: string[];
+}): number {
+  return [
+    !options.showCompleted,
+    options.onlyOverdue,
+    options.onlyScheduled,
+    options.onlyRecurring,
+    options.onlyDated,
+    (options.selectedProjectIds?.length ?? 0) > 0,
+    options.selectedPriorityLevels.length > 0,
+    options.selectedLabelIds.length > 0,
+    options.selectedStageIds.length > 0,
+  ].filter(Boolean).length;
+}
+
+/**
+ * The Filters button on the toolbar line: a count of options in use, and a
+ * popover holding the options panel. It closes on an outside click, except
+ * inside a Select's portal or a rule editor, and on Escape.
+ */
+export function FiltersMenu({ count, children }: { count: number; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const inside = (event: Event) =>
+      event
+        .composedPath()
+        .some((node) => node instanceof Element && (node === rootRef.current || node.matches("[data-select-portal='true']") || node.matches("[data-rule-popover]")));
+    const onDown = (event: MouseEvent | TouchEvent) => {
+      if (!inside(event)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative" ref={rootRef} data-rule-popover>
+      <button
+        type="button"
+        className={buttonClass({ variant: count ? "secondary" : "outline", size: "sm", className: "font-normal" })}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        onClick={() => setOpen((previous) => !previous)}
+      >
+        <ListFilter className="text-muted-foreground" aria-hidden />
+        <span className={cn(count ? "font-medium text-foreground" : "text-foreground")}>Filters</span>
+        {count ? (
+          <span className="rounded-full bg-primary px-1.5 text-[10px] font-semibold tabular-nums text-primary-foreground">{count}</span>
+        ) : null}
+        <ChevronDown className="text-muted-foreground" />
+      </button>
+      {open ? (
+        <PopoverView>
+          <div role="dialog" aria-label="Filters" className={cn(popoverSurface, "absolute top-9 right-0 z-40")}>
+            {children}
+          </div>
+        </PopoverView>
+      ) : null}
     </div>
   );
 }

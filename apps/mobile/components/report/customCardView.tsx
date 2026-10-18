@@ -113,12 +113,13 @@ export default function CustomCardView({ query, result, onOpen }: { query: CardQ
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  numberRow: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
-  numberMark: { width: 4, height: 30, borderRadius: 2 },
-  number: { color: colors.foreground, fontSize: 36, fontWeight: "600", lineHeight: 38, fontVariant: ["tabular-nums"] },
+  // The film's stat: 34 px with a 3 px colour bar beside it.
+  numberRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  numberMark: { width: 3, height: 28, borderRadius: 2 },
+  number: { color: colors.foreground, fontSize: 34, fontWeight: "600", lineHeight: 38, letterSpacing: -0.7, fontVariant: ["tabular-nums"] },
   deltaRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
   progressHead: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 8 },
-  percent: { color: colors.foreground, fontSize: 28, fontWeight: "600", fontVariant: ["tabular-nums"] },
+  percent: { color: colors.foreground, fontSize: 34, fontWeight: "600", lineHeight: 38, letterSpacing: -0.7, fontVariant: ["tabular-nums"] },
   small: { color: colors.mutedForeground, fontSize: 12, fontVariant: ["tabular-nums"] },
   empty: { color: colors.mutedForeground, fontSize: 13, textAlign: "center", paddingVertical: 16 },
   row: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 9 },

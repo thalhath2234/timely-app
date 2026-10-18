@@ -12,7 +12,10 @@ Source of truth: `packages/contract/src/designTokens.ts`.
 - **Accent presets.** `ACCENT_PRESETS` is the same list on both apps; "default" is indigo `#4F46E5`.
 - **Radii.** Controls 10px (web `rounded-md`), cards 12px (`rounded-lg`, 16px on the phone's larger cards), dialogs and sheets 20px. Pills (`rounded-full`) only for chips, badges and avatars.
 - **Control heights.** Desktop sm 28 / md 32 / lg 36. Phone sm 36 / md 44 / lg 48.
-- **Type.** Inter on web, the system font on the phone. Weights 400 body, 500 labels, 600 titles and buttons; 700 only for the phone's large screen title.
+- **Surfaces.** Four steps, each a little lighter (dark) or darker (light) than the one below: page `background`, `card`, panel2 (`muted`/`secondary`), raised (`fill`). Hairlines `border` and `input` are black or white at 8 % and 14 %, never a grey. A card sits on the page by tone; the shell draws no frame around a page and the rail shares the page colour.
+- **Type.** Inter on web, the system font on the phone. Weights 400 body, 500 labels, 600 titles and buttons; nothing heavier, the phone's large title included. Page titles are 26px at −0.02em; eyebrows are 11 to 12px uppercase at 0.08em in `muted-foreground`.
+- **Motion.** `motion` in `designTokens.ts`: one easing `cubic-bezier(0.16, 1, 0.3, 1)` (fast out, long settle), reveal 16 frames (530 ms, 14px rise), pop 10 frames (330 ms, 0.94 to 1), highlight 30 frames (1 s tint fade), stagger 3 frames (100 ms, capped at eight siblings), settle 12 frames. The landing film (`film/anim.ts`), the web kit (`_ui/motion.tsx`: `easeOut`, `revealTransition`, `listItemVariants`, `staggerDelay`) and the phone (`lib/motion.ts`) read the same values. Reduce motion follows the OS unless the user picks Animate or Reduce in Appearance; when it is on, everything becomes a short cross-fade.
+  - **Catalogue (web kit, `_ui/`).** Page and rail cards rise with `Reveal` / `revealProps(index)` (`motion.tsx`; `PageWithRail` reveals the main pane and each rail card in turn); lists use `listContainerVariants` or `revealProps` per row. Overlays pop from 0.96 in 10 frames (`globals.css` view transitions, `panelVariants`). A card hovers with the `lift` class (1 px up, hairline 8 % to 14 %, no shadow). Loading shows `Skeleton`, `SkeletonRows`, `SkeletonCards` or `SkeletonLines` (`skeleton.tsx`), never a spinner or "Loading…". Data that changes goes through `dataMotion.tsx`: `StatNumber` pops and counts up (above 10), `ChangeTint` (with `useChangeKey`) tints the card for a second, `Fill` animates a bar from its previous share over 20 frames. Completing a task uses `TaskCheck` and `StrikeTitle` (`taskCheck.tsx`): fill 6 frames, strike 10 frames. Calendar blocks are `motion` elements: a block that arrives after first paint rises with a tint flash (6-frame stagger in time order), a moved block slides. Sheet cells: selection ring pops (`.sheet-sel`), a recalculated cell tints (`.sheet-changed-*`), an inserted row slides open (`.sheet-row-in`).
 
 ## Button
 
@@ -57,9 +60,15 @@ Switching views or modes (List/Kanban, Day/Week/Month, All/Docs/Sheets, System/L
 
 ## Page header
 
-Web `app/_components/_ui/pageHeader.tsx`: 24px semibold title, optional `PageBadge` count, one-line description, actions on the right as `md` buttons with the primary last, `px-6 pt-5 pb-4`.
+Web `app/_components/_ui/pageHeader.tsx`: 26px semibold title at −0.02em, optional `PageBadge` count, actions on the right as `md` buttons with the primary last, `px-6 pt-5 pb-4`. A description is for a line that carries data (a date, a count); a sentence that only describes the page is left out, and what the page just did goes in a state line at the bottom of the page instead.
 
 Phone `MobileHeader`: tab roots (Today, Tasks, Calendar, Search, Files) use the large 28px title; every pushed screen (`back`) uses the compact 17px title. `large` defaults to `!back`.
+
+## Page with rail
+
+Web `app/_components/_ui/pageWithRail.tsx`: the layout system for app pages. The page's own content on the left and a rail of supporting cards on the right (`railWidth` 300–340px, 320 by default), as one grid from xl (1280px) up; narrower windows put the rail's cards under the content, two per row. `sticky` keeps a short rail in view while a long page scrolls.
+
+The rail carries what the page does not say by itself: the numbers (a `RailStat`, the film's big figure over a small label), the next steps and the settings people change most, each as a `RailSection` card of `RailRow`s (a colour dot and label on the left, the value or a `ListSwitch` on the right, an optional second line and a thin share bar). Today puts habits, reminders, overdue and the wrap-up there and keeps focus and the day's clock side by side; Projects shows time planned per project over the next seven days, deadlines and projects by status; Notifications what is waiting and the delivery switches; Files new sheets from templates and the library's counts; Settings a live preview on Appearance and the open workspace's statuses, labels and fields on Workspaces; a wide doc the outline card (words, reading time, headings that jump) above the margin suggestions. A rail never holds filler: with nothing to say, the card says so in one `RailEmpty` line or the page has no rail.
 
 ## Sheets and create forms
 
@@ -74,3 +83,7 @@ On the phone, `BottomSheet` in `components/ui/BottomSheet.tsx` is the phone's on
 ## Busy states
 
 The animated Timely logo (`LogoSpinner`, `LogoLoader`) wherever a spinner would be, on both apps.
+
+## Empty states
+
+`EmptyState` (`app/_components/_ui/emptyState.tsx`) with a `loop`: a card holding a four-second film loop of the thing to do (320 to 400 px, from `app/_components/film/loops/`, drawn with the film kit and played muted through `@remotion/player`) beside one line of copy and the action. Loops rest on their finished frame when motion is reduced, play only while on screen, and load only with the page that shows them. Inbox, Projects, Files, Dashboard and the assistant's hero use one; a loop without an `EmptyState` sits in its own bordered `bg-panel` box. Without a `loop`, the centred dashed card. Edit loops in Studio (`make film-studio`, folder Loops); `make film-render-loops` writes them as animated WebP for the phone.

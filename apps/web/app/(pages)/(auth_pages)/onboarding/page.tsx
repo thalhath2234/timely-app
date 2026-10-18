@@ -26,6 +26,7 @@ import DayPanel from "@/app/_components/auth/dayPanel";
 import { AuthField, ChoiceChip } from "@/app/_components/auth/fields";
 import { onboardingDay } from "@/app/_components/auth/sampleDay";
 import { routeAfterOnboarding } from "@/app/utils/desktopInstance";
+import FirstRunTour from "@/app/_components/auth/firstRunTour";
 import { splitStarterLabels } from "@timely/contract/starterLabels";
 
 const workspaceSchema = z.object({
@@ -86,12 +87,15 @@ export default function Onboarding() {
 
   const typedConfig = config as Config | undefined;
   const isOnboardingDone = Boolean(typedConfig?.isOnBoardingCompleted);
+  // After the workspace is made, the first-run tour plays once; "Open
+  // Timely" (or Escape) then goes where onboarding would have gone.
+  const [tour, setTour] = useState<null | "/setup" | "/calendar">(null);
 
   useEffect(() => {
-    if (isOnboardingDone) {
+    if (isOnboardingDone && !tour) {
       router.replace("/calendar");
     }
-  }, [isOnboardingDone, router]);
+  }, [isOnboardingDone, router, tour]);
 
   const {
     register,
@@ -146,6 +150,13 @@ export default function Onboarding() {
     },
 
     onSuccess: async () => {
+      // Inside the desktop app the first-run wizard (Tailscale, agent
+      // provider, phone pairing) runs once before the calendar. The tour
+      // is decided before the config refetch, so the redirect above waits.
+      const bridge = window.timelyDesktop?.instance;
+      const instance = bridge ? await bridge.get().catch(() => null) : null;
+      setTour(routeAfterOnboarding(instance));
+
       await queryClient.invalidateQueries({
         queryKey: ["workspaces"],
       });
@@ -165,11 +176,6 @@ export default function Onboarding() {
           : old,
       );
 
-      // Inside the desktop app the first-run wizard (Tailscale, agent
-      // provider, phone pairing) runs once before the calendar.
-      const bridge = window.timelyDesktop?.instance;
-      const instance = bridge ? await bridge.get().catch(() => null) : null;
-      router.replace(routeAfterOnboarding(instance));
     },
   });
 
@@ -183,6 +189,14 @@ export default function Onboarding() {
     queryClient.clear();
     router.replace("/login");
   };
+
+  if (tour) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <FirstRunTour onDone={() => router.replace(tour)} />
+      </div>
+    );
+  }
 
   if (isConfigLoading || isOnboardingDone) {
     return (

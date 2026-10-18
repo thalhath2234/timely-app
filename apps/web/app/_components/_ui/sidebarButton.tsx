@@ -4,6 +4,7 @@ import { SidebarProps } from "../../_types/types";
 import { MessageCircle, LayoutDashboard, Bell, Calendar, Files, FolderKanban, Inbox, ListTodo, Settings, Sun } from "lucide-react";
 import { useSidebarStore } from "../../_store/sidebarStore";
 import { motion } from "motion/react";
+import { hoverLift, tapPress } from "@/app/_components/_ui/motion";
 import { usePathname } from "next/navigation";
 import { useUnreadNotificationCount } from "../../utils/hooks/notifications";
 
@@ -24,16 +25,16 @@ export default function SidebarButton({ item }: { item: SidebarProps }) {
     : item.href;
   return (
     <motion.div
-      className={`m-0 cursor-pointer rounded-lg border-none transition-colors ${isActive ? "text-primary" : "text-muted-foreground"} hover:text-primary`}
-      whileHover={{ scale: 1.05}}
-      whileTap={{ scale: 0.9 }}
+      className={`m-0 cursor-pointer rounded-lg border-none transition-colors ${isActive ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-fill"} hover:text-primary`}
+      whileHover={hoverLift}
+      whileTap={tapPress}
       onClick={() => setActiveItem(item.name)}
     >
       <Link
         href={linkHref}
         aria-label={item.name}
         aria-current={isActive ? "page" : undefined}
-        className={`relative flex h-full w-full items-center justify-center p-2 transition-colors ${isActive ? "text-primary" : "text-muted-foreground"} hover:text-primary`}
+        className={`relative flex size-9 items-center justify-center rounded-lg transition-colors ${isActive ? "text-primary" : "text-muted-foreground"} hover:text-primary`}
       >
         <SidebarButtonIcon icon={item.icon} />
         {item.name === "Chat" ? <ChatBadge /> : null}

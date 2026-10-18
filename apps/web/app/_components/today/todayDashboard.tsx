@@ -1,9 +1,11 @@
 "use client";
 
+import { StrikeTitle, TaskCheck } from "@/app/_components/_ui/taskCheck";
+import { SkeletonRows } from "@/app/_components/_ui/skeleton";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bell, CalendarClock, Check, Clock, Moon, Plus, Star, Sun } from "lucide-react";
+import { Bell, CalendarClock, Clock, Moon, Plus, Star, Sun } from "lucide-react";
 import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import EmptyState from "@/app/_components/_ui/emptyState";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
@@ -45,6 +47,7 @@ import TodaySuggestions from "@/app/_components/today/todaySuggestions";
 import HabitsGoals from "@/app/_components/today/habitsGoals";
 import DayTimeline from "@/app/_components/today/dayTimeline";
 import TodayPanel from "@/app/_components/today/todayPanel";
+import PageWithRail from "@/app/_components/_ui/pageWithRail";
 import ScreenTip from "@/app/_components/_ui/screenTip";
 import Button, { buttonClass } from "@/app/_components/_ui/button";
 import PageHeader, { PageBadge } from "@/app/_components/_ui/pageHeader";
@@ -277,22 +280,14 @@ function FocusTaskRow({
         className="w-[3px] self-stretch rounded-full"
         style={{ backgroundColor: focusing ? "var(--primary)" : taskEntityColor(task) }}
       />
-      <button
-        type="button"
+      <TaskCheck
+        shape="square"
+        checked={completed}
         disabled={busy}
-        onClick={onComplete}
-        aria-label={completed ? `Reopen ${task.name}` : `Complete ${task.name}`}
-        className={cn(
-          "flex size-[18px] shrink-0 items-center justify-center rounded-md border-2 transition-colors",
-          completed
-            ? "border-success bg-success/20 text-success"
-            : focusing
-              ? "border-primary/60 hover:border-primary"
-              : "border-muted-foreground/40 hover:border-primary",
-        )}
-      >
-        {completed ? <Check className="size-3 stroke-[3]" /> : null}
-      </button>
+        onToggle={onComplete}
+        label={completed ? `Reopen ${task.name}` : `Complete ${task.name}`}
+        className={cn(!completed && focusing && "border-primary/60")}
+      />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
           <button
@@ -301,10 +296,10 @@ function FocusTaskRow({
             data-entity-title={entityTitleKey("task", task.id)}
             className={cn(
               "min-w-0 truncate text-left text-sm font-medium",
-              completed ? "text-muted-foreground line-through" : "text-foreground hover:text-primary",
+              completed ? "text-muted-foreground" : "text-foreground hover:text-primary",
             )}
           >
-            {task.name}
+            <StrikeTitle done={completed}>{task.name}</StrikeTitle>
           </button>
           {!completed && (priority === "High" || priority === "Urgent") ? (
             <span
@@ -641,7 +636,7 @@ export default function TodayDashboard() {
           ) : null}
 
           {today.isLoading ? (
-            <p className="text-sm text-muted-foreground">Loading today…</p>
+            <SkeletonRows rows={6} height={46} />
           ) : !data ? (
             today.isError ? (
               <LoadError
@@ -654,139 +649,15 @@ export default function TodayDashboard() {
               <EmptyState icon={Sun} title="Nothing to show" description="Today has no data yet." />
             )
           ) : (
-            // The day board: what to do (focus, suggestions), when it happens
-            // (the day's clock) and the small things (habits, goals,
-            // reminders, overdue, wrap-up). Three columns from 1280px, the
-            // last two stacked from 1024px, one column below that.
-            <div
+            // The day board: what to do (focus, suggestions) and when it happens
+            // (the day's clock) side by side from 1024px; the small things
+            // (habits, goals, reminders, overdue, wrap-up) in the rail from
+            // 1280px, under the board in two columns below that.
+            <PageWithRail
               data-testid="today-board"
-              className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]"
-            >
-              <div className="flex min-w-0 flex-col gap-4">
-                <TodayPanel
-                  title="Today focus"
-                  icon={<Star className="size-3.5 fill-warning text-warning" />}
-                  data-testid="today-focus"
-                  meta={
-                    focusTotal > 0 ? (
-                      <span className="flex items-center gap-2.5">
-                        <span className="tabular-nums">
-                          {focusCompleteCount} of {focusTotal} done
-                          {remainingEstimate > 0 ? ` · ${formatDuration(remainingEstimate)} left` : ""}
-                        </span>
-                        <SlotMeter done={focusCompleteCount} open={focusTotal - focusCompleteCount} />
-                      </span>
-                    ) : (
-                      <span>Up to {MAX_TODAY_FOCUS} tasks, whatever their deadlines</span>
-                    )
-                  }
-                >
-                  {focusRows.length === 0 ? (
-                    <p className="pb-2 text-sm text-muted-foreground">
-                      Nothing starred yet. Star a task here or from its detail panel.
-                    </p>
-                  ) : (
-                    <ul>
-                      {focusRows.map((task) => (
-                        <FocusTaskRow
-                          key={task.id}
-                          task={task}
-                          day={data.date}
-                          focusing={data.focusing?.id === task.id}
-                          elapsed={data.focusing?.id === task.id ? elapsed : 0}
-                          busy={mutating}
-                          onOpen={() => openTask(task.id)}
-                          onComplete={() => {
-                            if (data.focusing?.id === task.id) stopAndComplete(task);
-                            else completeTask(task);
-                          }}
-                          onStart={() => runMutation(startFocus.mutateAsync(task.id), "Could not start focus")}
-                          onStop={() => runMutation(stopFocus.mutateAsync(task.id), "Could not stop focus")}
-                          onUnstar={() => unstar(task)}
-                          onContextMenu={(event) => openMenu(event, taskMenu(task), { title: task.name })}
-                        />
-                      ))}
-                    </ul>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={remainingSlots <= 0}
-                    onClick={() => setPickerOpen(true)}
-                    leading={<Plus />}
-                    className="mt-1"
-                  >
-                    {remainingSlots > 0
-                      ? `Add a task · ${remainingSlots} slot${remainingSlots === 1 ? "" : "s"} left`
-                      : `Today focus is full (${MAX_TODAY_FOCUS} of ${MAX_TODAY_FOCUS})`}
-                  </Button>
-                </TodayPanel>
-
-                <ScreenTip screen="today" />
-
-                <TodaySuggestions
-                  date={data.date}
-                  slotsLeft={remainingSlots}
-                  version={`${data.todayFocus.map((task) => task.id).join(",")}|${scheduled.map((item) => item.id).join(",")}`}
-                />
-              </div>
-
-              <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-                <TodayPanel
-                  title="Schedule"
-                  icon={<Clock className="size-3.5 text-primary" />}
-                  data-testid="today-schedule"
-                  meta={
-                    nextEvent ? (
-                      <span
-                        className="inline-flex min-w-0 items-center gap-1.5"
-                        title={`Next: ${nextEvent.item.title} at ${formatTime(nextEvent.start)}`}
-                      >
-                        <span className="size-1.5 shrink-0 rounded-full bg-success" />
-                        <span className="shrink-0">Next in {formatCountdown(nextEvent.start.getTime() - now)}</span>
-                        <span className="hidden truncate 2xl:inline">· {nextEvent.item.title}</span>
-                      </span>
-                    ) : null
-                  }
-                >
-                  {allDayScheduled.length > 0 ? (
-                    <ul className="mb-3 flex flex-wrap gap-1.5">
-                      {allDayScheduled.map((item) => (
-                        <li key={item.id}>
-                          <button
-                            type="button"
-                            onClick={() => openItem(item)}
-                            onContextMenu={(event) => onItemContextMenu(event, item)}
-                            className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium"
-                            style={chipStyle(itemAccent(item))}
-                          >
-                            {item.title}
-                            <span className="text-[10px] opacity-80">All day</span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                  <DayTimeline
-                    items={timedScheduled}
-                    reminders={reminders}
-                    now={now}
-                    accent={itemAccent}
-                    meetingUrl={meetingUrl}
-                    onOpen={openItem}
-                    onContextMenu={onItemContextMenu}
-                  />
-                  {scheduled.length === 0 ? (
-                    <p className="mt-3 text-xs text-muted-foreground">
-                      Nothing on the calendar today.{" "}
-                      <Link href="/calendar" className="font-medium text-primary hover:underline">
-                        Open Calendar
-                      </Link>
-                    </p>
-                  ) : null}
-                </TodayPanel>
-
-                <div className="flex min-w-0 flex-col gap-4">
+              railWidth={300}
+              rail={
+                <>
                   <HabitsGoals today={data.date} version={String(today.dataUpdatedAt)} />
 
                   <TodayPanel
@@ -903,9 +774,135 @@ export default function TodayDashboard() {
                       </Button>
                     </div>
                   </TodayPanel>
-                </div>
+                </>
+              }
+            >
+              <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+              <div className="flex min-w-0 flex-col gap-4">
+                <TodayPanel
+                  title="Today focus"
+                  icon={<Star className="size-3.5 fill-warning text-warning" />}
+                  data-testid="today-focus"
+                  meta={
+                    focusTotal > 0 ? (
+                      <span className="flex items-center gap-2.5">
+                        <span className="tabular-nums">
+                          {focusCompleteCount} of {focusTotal} done
+                          {remainingEstimate > 0 ? ` · ${formatDuration(remainingEstimate)} left` : ""}
+                        </span>
+                        <SlotMeter done={focusCompleteCount} open={focusTotal - focusCompleteCount} />
+                      </span>
+                    ) : (
+                      <span>Up to {MAX_TODAY_FOCUS} tasks, whatever their deadlines</span>
+                    )
+                  }
+                >
+                  {focusRows.length === 0 ? (
+                    <p className="pb-2 text-sm text-muted-foreground">
+                      Nothing starred yet. Star a task here or from its detail panel.
+                    </p>
+                  ) : (
+                    <ul>
+                      {focusRows.map((task) => (
+                        <FocusTaskRow
+                          key={task.id}
+                          task={task}
+                          day={data.date}
+                          focusing={data.focusing?.id === task.id}
+                          elapsed={data.focusing?.id === task.id ? elapsed : 0}
+                          busy={mutating}
+                          onOpen={() => openTask(task.id)}
+                          onComplete={() => {
+                            if (data.focusing?.id === task.id) stopAndComplete(task);
+                            else completeTask(task);
+                          }}
+                          onStart={() => runMutation(startFocus.mutateAsync(task.id), "Could not start focus")}
+                          onStop={() => runMutation(stopFocus.mutateAsync(task.id), "Could not stop focus")}
+                          onUnstar={() => unstar(task)}
+                          onContextMenu={(event) => openMenu(event, taskMenu(task), { title: task.name })}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={remainingSlots <= 0}
+                    onClick={() => setPickerOpen(true)}
+                    leading={<Plus />}
+                    className="mt-1"
+                  >
+                    {remainingSlots > 0
+                      ? `Add a task · ${remainingSlots} slot${remainingSlots === 1 ? "" : "s"} left`
+                      : `Today focus is full (${MAX_TODAY_FOCUS} of ${MAX_TODAY_FOCUS})`}
+                  </Button>
+                </TodayPanel>
+
+                <ScreenTip screen="today" />
+
+                <TodaySuggestions
+                  date={data.date}
+                  slotsLeft={remainingSlots}
+                  version={`${data.todayFocus.map((task) => task.id).join(",")}|${scheduled.map((item) => item.id).join(",")}`}
+                />
               </div>
-            </div>
+
+                <TodayPanel
+                  title="Schedule"
+                  icon={<Clock className="size-3.5 text-primary" />}
+                  data-testid="today-schedule"
+                  meta={
+                    nextEvent ? (
+                      <span
+                        className="inline-flex min-w-0 items-center gap-1.5"
+                        title={`Next: ${nextEvent.item.title} at ${formatTime(nextEvent.start)}`}
+                      >
+                        <span className="size-1.5 shrink-0 rounded-full bg-success" />
+                        <span className="shrink-0">Next in {formatCountdown(nextEvent.start.getTime() - now)}</span>
+                        <span className="hidden truncate 2xl:inline">· {nextEvent.item.title}</span>
+                      </span>
+                    ) : null
+                  }
+                >
+                  {allDayScheduled.length > 0 ? (
+                    <ul className="mb-3 flex flex-wrap gap-1.5">
+                      {allDayScheduled.map((item) => (
+                        <li key={item.id}>
+                          <button
+                            type="button"
+                            onClick={() => openItem(item)}
+                            onContextMenu={(event) => onItemContextMenu(event, item)}
+                            className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium"
+                            style={chipStyle(itemAccent(item))}
+                          >
+                            {item.title}
+                            <span className="text-[10px] opacity-80">All day</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  <DayTimeline
+                    items={timedScheduled}
+                    reminders={reminders}
+                    now={now}
+                    accent={itemAccent}
+                    meetingUrl={meetingUrl}
+                    onOpen={openItem}
+                    onContextMenu={onItemContextMenu}
+                  />
+                  {scheduled.length === 0 ? (
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      Nothing on the calendar today.{" "}
+                      <Link href="/calendar" className="font-medium text-primary hover:underline">
+                        Open Calendar
+                      </Link>
+                    </p>
+                  ) : null}
+                </TodayPanel>
+
+              </div>
+            </PageWithRail>
           )}
         </div>
       </div>

@@ -65,6 +65,7 @@ import ViewRulesBar from "../../../components/tasks/ViewRulesBar";
 import { useViewPreviewStore } from "../../../lib/viewPreviewStore";
 import type { UpdateTaskPayload } from "../../../lib/api/tasks";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
+import { useFabScrollInset } from "../../../components/ui/FloatingTabBar";
 
 function groupField(view?: TaskViewConfig): TaskListGroupField | undefined {
   // The phone board groups by status, priority, workspace, project or stage.
@@ -117,7 +118,14 @@ function taskGroups(task: Task, view: TaskViewConfig | undefined, stageNames: Re
     parts = parts.flatMap((part) =>
       values.map((value) => ({
         key: `${part.key}|${field}:${value.key}`,
-        title: part.title ? `${part.title} › ${value.title}` : value.title,
+        // "Personal › Kitchen renovation › No stage" reads as "Personal ›
+        // Kitchen renovation": an empty stage adds nothing after a project.
+        title:
+          part.title && field === "stage" && value.key === "none"
+            ? part.title
+            : part.title
+              ? `${part.title} › ${value.title}`
+              : value.title,
       })),
     );
   }
@@ -161,6 +169,7 @@ function viewHasCustomFilters(view?: TaskViewConfig) {
 }
 
 export default function TasksScreen() {
+  const fabInset = useFabScrollInset();
   const router = useRouter();
   const params = useLocalSearchParams<{ projectId?: string; view?: string }>();
   const routeProjectId = typeof params.projectId === "string" ? params.projectId : undefined;
@@ -530,10 +539,12 @@ export default function TasksScreen() {
 
   const renderSectionHeader = useCallback(
     ({ section }: { section: { title: string; color: string | null; data: readonly unknown[] } }) => (
-      <View style={styles.head}>
-        <View style={[styles.dot, { backgroundColor: section.color ?? colors.mutedForeground }]} />
-        <Text numberOfLines={2} style={styles.group}>{section.title}</Text>
-        <View style={styles.groupCount}><Text style={styles.count}>{section.data.length}</Text></View>
+      <View style={styles.headWrap}>
+        <View style={[styles.head, { backgroundColor: `${section.color ?? colors.mutedForeground}1f` }]}>
+          <View style={[styles.dot, { backgroundColor: section.color ?? colors.mutedForeground }]} />
+          <Text numberOfLines={1} style={styles.group}>{section.title}</Text>
+          <Text style={styles.count}>{section.data.length}</Text>
+        </View>
       </View>
     ),
     [],
@@ -652,7 +663,7 @@ export default function TasksScreen() {
           keyboardShouldPersistTaps="handled"
           sections={projectSections}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: projectsByWorkspace ? 0 : 8, paddingBottom: 120 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: projectsByWorkspace ? 0 : 8, paddingBottom: fabInset }}
           refreshControl={refreshControl}
           stickySectionHeadersEnabled={false}
           initialNumToRender={8}
@@ -717,7 +728,7 @@ export default function TasksScreen() {
             )
           }
           stickySectionHeadersEnabled={false}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: fabInset }}
           refreshControl={refreshControl}
           extraData={selectedIds}
           initialNumToRender={10}
@@ -839,11 +850,12 @@ export default function TasksScreen() {
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  head: { flexDirection: "row", alignItems: "center", gap: 10, paddingTop: 22, paddingBottom: 12, paddingHorizontal: 4 },
-  dot: { width: 10, height: 10, borderRadius: 5 },
-  group: { color: colors.foreground, fontSize: 17, fontWeight: "600", flex: 1, letterSpacing: -0.2 },
-  groupCount: { minWidth: 26, height: 26, paddingHorizontal: 7, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: colors.muted },
-  count: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
+  // Group headers are a tinted strip in the group's own colour, one line.
+  headWrap: { paddingTop: 14, paddingBottom: 8 },
+  head: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 7, paddingHorizontal: 10, borderRadius: 10 },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  group: { color: colors.foreground, fontSize: 14, fontWeight: "600", flex: 1, letterSpacing: -0.1 },
+  count: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", fontVariant: ["tabular-nums"] },
   bulk: {
     flexDirection: "row",
     alignItems: "center",

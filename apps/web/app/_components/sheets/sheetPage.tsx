@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -44,25 +44,6 @@ import { SHEET_ICON_CHOICES } from "@/app/_components/sheets/sheetIcons";
 import { fileHref, FILES_PATH } from "@/app/utils/fileRoutes";
 import { buttonClass } from "@/app/_components/_ui/button";
 
-const KINETIC_THEME = {
-  "--background": "#111319",
-  "--foreground": "#F1F3F9",
-  "--card": "#1F222B",
-  "--card-foreground": "#F1F3F9",
-  "--popover": "#191B22",
-  "--popover-foreground": "#F1F3F9",
-  "--primary": "#6E56CF",
-  "--primary-foreground": "#FFFFFF",
-  "--secondary": "#20242E",
-  "--secondary-foreground": "#F1F3F9",
-  "--muted": "#191B22",
-  "--muted-foreground": "#949AA8",
-  "--accent": "#2A2445",
-  "--accent-foreground": "#F1F3F9",
-  "--border": "#282C37",
-  "--input": "#282C37",
-  "--ring": "#7C66DC",
-} as CSSProperties;
 
 export default function SheetPage({ id }: { id: string }) {
   const { data: sheet, isLoading, isError, error } = useSheet(id);
@@ -240,7 +221,7 @@ function SheetView({ sheet }: { sheet: Sheet }) {
   );
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-background text-foreground" style={KINETIC_THEME}>
+    <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
       <header className="flex min-h-14 items-center gap-2 border-b border-border bg-background px-4 py-2">
         <nav className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
           <Link
@@ -305,7 +286,7 @@ function SheetView({ sheet }: { sheet: Sheet }) {
               className="block w-full min-w-0 bg-transparent text-sm font-semibold leading-5 text-foreground outline-none placeholder:text-muted-foreground/50"
             />
             <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
-              <span className="rounded bg-[#2A2445] px-1.5 py-0.5 font-semibold text-[#C4B5FD]">Workbook</span>
+              <span className="rounded bg-primary/15 px-1.5 py-0.5 font-semibold text-primary">Workbook</span>
               <span className="size-1.5 rounded-full bg-[#38BDF8]" />
               <span>Cloud sync</span>
             </div>

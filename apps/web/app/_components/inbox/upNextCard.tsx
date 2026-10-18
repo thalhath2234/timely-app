@@ -1,22 +1,26 @@
 "use client";
 
+import { motion as MOTION } from "@timely/contract/designTokens";
 import { motion } from "motion/react";
-import { ArrowUpRight, BellRing, CheckSquare, Clock, SkipForward, Sparkles, Trash2 } from "lucide-react";
-import { inboxSuggestionSummary, type InboxAge } from "@timely/contract/inbox";
+import { ArrowUpRight, BellRing, CheckSquare, SkipForward, Sparkles, Trash2 } from "lucide-react";
+import { inboxSuggestionRows, inboxSuggestionSummary, type InboxAge } from "@timely/contract/inbox";
 import Button from "@/app/_components/_ui/button";
+import { ListGroup, ListRow } from "@/app/_components/_ui/groupedList";
 import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import { useClarifySuggestions, useDecisions } from "@/app/utils/hooks/decisions";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { cn } from "@/app/utils/cn";
 import type { Task } from "@/app/_types/types";
-import { springSoft } from "@/app/_components/_ui/motion";
+import { easeOut, revealTransition } from "@/app/_components/_ui/motion";
 
 export type InboxDecision = "task" | "reminder";
 
 /**
- * The capture that has waited longest, shown big with what smart suggestions
- * would make of it and one-step decisions: task, reminder, later or delete.
+ * The capture that has waited longest, as the film's Up next panel: an
+ * eyebrow, the title, grouped rows of what it would become (filled in by
+ * smart suggestions when they are on) and one-step decisions: task,
+ * reminder, later or delete.
  */
 export default function UpNextCard({
   task,
@@ -41,66 +45,66 @@ export default function UpNextCard({
   const suggestions = useClarifySuggestions(task.id);
   const workspaces = useWorkspaces().data ?? [];
   const s = suggestions.data?.available ? suggestions.data : undefined;
-  const summary = s
-    ? inboxSuggestionSummary(s, workspaces.find((w) => w.id === s.workspaceId)?.name, task.id)
-    : undefined;
+  const workspaceName = s ? workspaces.find((w) => w.id === s.workspaceId)?.name : undefined;
+  const summary = s ? inboxSuggestionSummary(s, workspaceName, task.id) : undefined;
+  const rows = inboxSuggestionRows(s, workspaceName);
   const duplicates = summary?.duplicates ?? [];
   const remindFirst = s?.kind === "reminder";
+  const thinking = decisionsOn && suggestions.isLoading;
 
   return (
     <motion.article
       layout
-      initial={{ opacity: 0, y: 10, scale: 0.985 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: -10, scale: 0.985 }}
-      transition={springSoft}
+      initial={{ opacity: 0, y: MOTION.revealDistance }}
+      animate={{ opacity: 1, y: 0, transition: revealTransition }}
+      exit={{ opacity: 0, x: 24, transition: { duration: 12 / MOTION.fps, ease: easeOut } }}
       aria-labelledby={`up-next-${task.id}`}
       data-testid="inbox-up-next"
-      className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-5 shadow-[0_12px_32px_-20px_rgba(79,70,229,0.35)]"
+      className="flex flex-col gap-3.5 rounded-[12px] border border-border bg-card p-4 shadow-[0_12px_32px_-20px_rgba(79,70,229,0.35)]"
     >
-      <div className="flex items-center gap-2">
-        <span
-          className={cn(
-            "inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium",
-            age.stale ? "bg-warning/15 text-foreground" : "bg-muted text-muted-foreground",
-          )}
-        >
-          <Clock className={cn("size-3.5", age.stale ? "text-warning" : "")} aria-hidden />
-          {ageLabel}
-        </span>
-      </div>
       <div className="min-w-0">
-        <h2 id={`up-next-${task.id}`} className="text-xl font-semibold leading-snug tracking-tight text-foreground">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Up next · oldest capture</p>
+          <Button size="sm" icon variant="destructive-ghost" className="-mr-1.5 -mt-1" aria-label="Delete" title="Delete" onClick={onDelete}>
+            <Trash2 />
+          </Button>
+        </div>
+        <h2 id={`up-next-${task.id}`} className="mt-1.5 text-lg font-semibold leading-6 tracking-[-0.01em] text-foreground">
           {task.name}
         </h2>
+        <p className={cn("mt-1 text-xs", age.stale ? "font-medium text-warning" : "text-muted-foreground")}>{ageLabel}</p>
         {task.description ? (
-          <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-muted-foreground">{task.description}</p>
+          <p className="mt-1.5 line-clamp-2 text-[13px] leading-relaxed text-muted-foreground">{task.description}</p>
         ) : null}
       </div>
-      {(decisionsOn && suggestions.isLoading) || summary?.line || summary?.note || duplicates.length > 0 ? (
-        <div
-          className="flex items-start gap-2.5 rounded-xl border border-primary/20 bg-primary/[0.05] px-3.5 py-2.5 text-sm"
-          data-testid="inbox-up-next-suggestion"
-        >
-          {suggestions.isLoading && decisionsOn ? (
+
+      <ListGroup className="bg-background/40">
+        {rows.map((row) => (
+          <ListRow key={row.label} label={<span className="font-normal text-muted-foreground">{row.label}</span>} className="min-h-9">
+            <span className={cn("truncate text-[13px]", row.suggested ? "font-medium text-primary" : "text-foreground")}>
+              {row.value}
+              {row.suggested ? <span className="font-normal text-muted-foreground"> · suggested</span> : null}
+            </span>
+          </ListRow>
+        ))}
+      </ListGroup>
+
+      {thinking || summary?.note || duplicates.length > 0 ? (
+        <div className="flex items-start gap-2 text-xs" data-testid="inbox-up-next-suggestion">
+          {thinking ? (
             <>
-              <LogoSpinner size={14} label="Getting a suggestion" />
+              <LogoSpinner size={13} label="Getting a suggestion" />
               <span className="text-muted-foreground">Getting a suggestion…</span>
             </>
           ) : (
             <>
-              <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+              <Sparkles className="mt-px size-3.5 shrink-0 text-primary" aria-hidden />
               <div className="flex min-w-0 flex-1 flex-col gap-1">
-                {summary?.line ? (
-                  <p className="text-accent-foreground">
-                    <span className="font-medium">Suggested:</span> {summary.line}. The form opens filled in.
-                  </p>
-                ) : null}
                 {summary?.note ? <p className="text-muted-foreground">{summary.note}</p> : null}
                 {duplicates.length > 0 ? (
-                  <div className="flex flex-col gap-1.5" data-testid="inbox-up-next-duplicates">
+                  <div className="flex flex-col gap-1" data-testid="inbox-up-next-duplicates">
+                    <span className="text-muted-foreground">Might already exist. Same thing? Delete this capture.</span>
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-muted-foreground">Might already exist:</span>
                       {duplicates.map((dup) => (
                         <button
                           key={dup.id}
@@ -108,14 +112,13 @@ export default function UpNextCard({
                           onClick={() => useEntityDetailStore.getState().openTask(dup.id)}
                           aria-label={`Open “${dup.name}”`}
                           title="Open it to compare. Closing it brings you back here."
-                          className="inline-flex h-7 max-w-64 items-center gap-1 rounded-lg border border-border bg-background px-2 font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          className="inline-flex h-6 max-w-56 items-center gap-1 rounded-md border border-border bg-background px-1.5 font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
                           <span className="truncate">{dup.name}</span>
-                          <ArrowUpRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                          <ArrowUpRight className="size-3 shrink-0 text-muted-foreground" aria-hidden />
                         </button>
                       ))}
                     </div>
-                    <p className="text-xs text-muted-foreground">Same thing? Delete this capture.</p>
                   </div>
                 ) : null}
               </div>
@@ -123,34 +126,19 @@ export default function UpNextCard({
           )}
         </div>
       ) : null}
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          variant={remindFirst ? "outline" : "primary"}
-          leading={<CheckSquare />}
-          onClick={() => onDecide("task")}
-        >
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Button size="sm" variant={remindFirst ? "outline" : "primary"} leading={<CheckSquare />} onClick={() => onDecide("task")}>
           Make it a task
         </Button>
-        <Button
-          variant={remindFirst ? "primary" : "outline"}
-          leading={<BellRing />}
-          onClick={() => onDecide("reminder")}
-        >
-          Remind me
+        <Button size="sm" variant={remindFirst ? "primary" : "outline"} leading={<BellRing />} onClick={() => onDecide("reminder")}>
+          Reminder
         </Button>
         {canSkip ? (
-          <Button variant="ghost" leading={<SkipForward />} onClick={onSkip}>
+          <Button size="sm" variant="ghost" leading={<SkipForward />} onClick={onSkip}>
             Later
           </Button>
         ) : null}
-        <Button
-          variant="destructive-ghost"
-          className="ml-auto"
-          leading={<Trash2 />}
-          onClick={onDelete}
-        >
-          Delete
-        </Button>
       </div>
     </motion.article>
   );

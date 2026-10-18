@@ -1,5 +1,6 @@
 "use client";
 
+import { SkeletonRows } from "@/app/_components/_ui/skeleton";
 import Button from "@/app/_components/_ui/button";
 import PageHeader, { PageBadge } from "@/app/_components/_ui/pageHeader";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -14,14 +15,14 @@ import {
 } from "@/app/_types/types";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { useTasks } from "@/app/utils/hooks/tasks";
-import { Plus, Pencil, X, Eye, EyeOff } from "lucide-react";
+import { Plus, Pencil, X } from "lucide-react";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
 import TasksTable from "@/app/_components/_ui/tasks/tasktable";
 import EntityDetailPanel from "@/app/_components/_ui/tasks/entityDetailPanel";
 import KanbanView from "@/app/_components/_ui/tasks/kanbanView";
 import GanttView from "@/app/_components/_ui/tasks/ganttView";
 import BulkActionBar from "@/app/_components/_ui/tasks/bulkActionBar";
-import { TaskListStatusBar, TaskOptionsBar, TaskToolbar } from "@/app/_components/_ui/tasks/taskToolbar";
+import { FiltersMenu, boardGroupField, TaskListStatusBar, TaskOptionsBar, TaskToolbar, countActiveOptions } from "@/app/_components/_ui/tasks/taskToolbar";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
 import StaleWorkReview from "@/app/_components/_ui/tasks/staleWorkReview";
 import { useProjects } from "@/app/utils/hooks/projects";
@@ -31,7 +32,7 @@ import { vocabularyFrom } from "@timely/contract/viewLanguage";
 import { todayInZone } from "@timely/contract/workStatus";
 import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
 import { readyProviders } from "@/app/_components/chat/modelMenu";
-import ViewRulesBar from "@/app/_components/_ui/tasks/viewRulesBar";
+import ViewRulesBar, { DescribeViewInput } from "@/app/_components/_ui/tasks/viewRulesBar";
 import { useViewPreviewStore } from "@/app/_store/viewPreviewStore";
 import { stageColorMap, stageNameMap } from "@/app/utils/stages";
 import { MAX_TASK_VIEWS, PREVIEW_VIEW_ID, useTaskViewsState } from "@/app/utils/hooks/taskViews";
@@ -53,7 +54,7 @@ function detailHref(taskId: string | null, projectId: string | null) {
 // useSearchParams needs a Suspense boundary for the page to prerender.
 export default function TasksPage() {
   return (
-    <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">Loading...</div>}>
+    <Suspense fallback={<SkeletonRows rows={8} height={40} className="m-4" />}>
       <Tasks />
     </Suspense>
   );
@@ -112,7 +113,7 @@ function Tasks() {
   const { data: tasks } = tasksQuery;
   const { data: projects } = useProjects();
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
-  const [optionsVisible, setOptionsVisible] = useState(true);
+  const [addRequest, setAddRequest] = useState(0);
 
   const configLoaded = Boolean(typedConfig);
   const typedWorkspaces = useMemo(() => (workspaces ?? []) as Workspace[], [workspaces]);
@@ -334,7 +335,7 @@ function Tasks() {
   }, [allTasks, listFilters, typedConfig?.workingHours?.timezone]);
 
   if (isLoading) {
-    return <div className="p-4 text-sm text-muted-foreground">Loading...</div>;
+    return <SkeletonRows rows={8} height={40} className="m-4" />;
   }
 
   if (status === "error") {
@@ -352,12 +353,7 @@ function Tasks() {
 
   return (
     <div className="h-full flex flex-col">
-      <TaskHeader
-        taskCount={headerTaskCount}
-        projectCount={headerProjectCount}
-        optionsVisible={optionsVisible}
-        onToggleOptions={() => setOptionsVisible((previous) => !previous)}
-      />
+      <TaskHeader taskCount={headerTaskCount} projectCount={headerProjectCount} />
 
       <ScreenTip screen="tasks" className="mx-5 mt-3" />
 
@@ -437,32 +433,66 @@ function Tasks() {
             setThenSort={(by, direction) => patchActiveView({ thenSortBy: by, thenSortDirection: direction })}
             limit={limit}
             setLimit={(next) => patchActiveView({ limit: next })}
+            search={
+              <DescribeViewInput
+                view={activeTaskView}
+                vocab={vocab}
+                today={todayInZone(typedConfig?.workingHours?.timezone)}
+                aiReady={aiReady}
+                onPatch={patchActiveView}
+                className="w-56 focus-within:w-72"
+              />
+            }
+            filters={
+              <FiltersMenu
+                count={countActiveOptions({
+                  showCompleted,
+                  onlyOverdue,
+                  onlyScheduled,
+                  onlyRecurring,
+                  onlyDated,
+                  selectedProjectIds,
+                  selectedPriorityLevels,
+                  selectedLabelIds,
+                  selectedStageIds,
+                })}
+              >
+                <TaskOptionsBar
+                  showCompleted={showCompleted}
+                  setShowCompleted={(next) => patchActiveView({ showCompleted: next })}
+                  onlyOverdue={onlyOverdue}
+                  setOnlyOverdue={(next) => patchActiveView({ onlyOverdue: next })}
+                  onlyScheduled={onlyScheduled}
+                  setOnlyScheduled={(next) => patchActiveView({ onlyScheduled: next })}
+                  onlyRecurring={onlyRecurring}
+                  setOnlyRecurring={(next) => patchActiveView({ onlyRecurring: next })}
+                  onlyDated={onlyDated}
+                  setOnlyDated={(next) => patchActiveView({ onlyDated: next })}
+                  projects={typedProjects}
+                  workspaces={typedWorkspaces}
+                  selectedProjectIds={selectedProjectIds}
+                  setSelectedProjectIds={(next) => patchActiveView({ selectedProjectIds: next })}
+                  selectedPriorityLevels={selectedPriorityLevels}
+                  setSelectedPriorityLevels={(next) => patchActiveView({ selectedPriorityLevels: next })}
+                  selectedLabelIds={selectedLabelIds}
+                  setSelectedLabelIds={(next) => patchActiveView({ selectedLabelIds: next })}
+                  selectedStageIds={selectedStageIds}
+                  setSelectedStageIds={(next) => patchActiveView({ selectedStageIds: next })}
+                layout="panel"
+                  footer={
+                    <>
+                      <span className="text-xs text-muted-foreground">Need another field? Add a rule.</span>
+                      <Button size="sm" variant="ghost" onClick={() => setAddRequest((n) => n + 1)}>
+                        <Plus aria-hidden="true" />
+                        Add filter
+                      </Button>
+                    </>
+                  }
+                />
+              </FiltersMenu>
+            }
           />
 
-          {optionsVisible && (
-            <TaskOptionsBar
-              showCompleted={showCompleted}
-              setShowCompleted={(next) => patchActiveView({ showCompleted: next })}
-              onlyOverdue={onlyOverdue}
-              setOnlyOverdue={(next) => patchActiveView({ onlyOverdue: next })}
-              onlyScheduled={onlyScheduled}
-              setOnlyScheduled={(next) => patchActiveView({ onlyScheduled: next })}
-              onlyRecurring={onlyRecurring}
-              setOnlyRecurring={(next) => patchActiveView({ onlyRecurring: next })}
-              onlyDated={onlyDated}
-              setOnlyDated={(next) => patchActiveView({ onlyDated: next })}
-              projects={typedProjects}
-              workspaces={typedWorkspaces}
-              selectedProjectIds={selectedProjectIds}
-              setSelectedProjectIds={(next) => patchActiveView({ selectedProjectIds: next })}
-              selectedPriorityLevels={selectedPriorityLevels}
-              setSelectedPriorityLevels={(next) => patchActiveView({ selectedPriorityLevels: next })}
-              selectedLabelIds={selectedLabelIds}
-              setSelectedLabelIds={(next) => patchActiveView({ selectedLabelIds: next })}
-              selectedStageIds={selectedStageIds}
-              setSelectedStageIds={(next) => patchActiveView({ selectedStageIds: next })}
-            />
-          )}
 
           <ViewRulesBar
             view={activeTaskView}
@@ -471,6 +501,8 @@ function Tasks() {
             today={todayInZone(typedConfig?.workingHours?.timezone)}
             aiReady={aiReady}
             onPatch={patchActiveView}
+            describe={false}
+            addRequest={addRequest}
             preview={
               preview
                 ? { onSave: () => void savePreview(), onClose: closePreview, full: taskViews.length >= MAX_TASK_VIEWS }
@@ -537,7 +569,7 @@ function Tasks() {
                 selectedWorkspaceIds={selectedWorkspaceIds}
                 selectedStatusIds={selectedStatusIds}
                 selectedPriorityLevels={selectedPriorityLevels}
-                groupField={groupFields[0] ?? "status"}
+                groupField={boardGroupField(groupFields)}
               />
             )}
 
@@ -582,13 +614,9 @@ function Tasks() {
 function TaskHeader({
   taskCount = 0,
   projectCount = 0,
-  optionsVisible = true,
-  onToggleOptions,
 }: {
   taskCount?: number;
   projectCount?: number;
-  optionsVisible?: boolean;
-  onToggleOptions?: () => void;
 }) {
   const setAddNewMode = useSidebarStore((state) => state.setAddNewMode);
   const setIsAddItemModalOpen = useSidebarStore((state) => state.setIsAddItemModalOpen);
@@ -611,16 +639,6 @@ function TaskHeader({
       }
       actions={
         <>
-          {onToggleOptions ? (
-            <Button
-              variant="ghost"
-              onClick={onToggleOptions}
-              aria-pressed={!optionsVisible}
-              leading={optionsVisible ? <EyeOff /> : <Eye />}
-            >
-              {optionsVisible ? "Hide options" : "Show options"}
-            </Button>
-          ) : null}
           <Button
             onClick={openCreate}
             disabled={!canCreate}

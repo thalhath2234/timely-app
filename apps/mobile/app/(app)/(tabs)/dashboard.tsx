@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
+import { SkeletonRows } from "../../../components/ui/motionKit";
 import { RefreshControl, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import {
@@ -20,6 +21,7 @@ import {
   Inbox,
   LineChart as LineIcon,
   List,
+  LayoutGrid,
   ListChecks,
   NotebookPen,
   Pencil,
@@ -52,6 +54,7 @@ import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHea
 import BottomSheet from "../../../components/ui/BottomSheet";
 import ConfirmSheet from "../../../components/ui/ConfirmSheet";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
+import EmptyState from "../../../components/ui/EmptyState";
 import { SectionLabel } from "../../../components/ui/primitives";
 import CustomCardView from "../../../components/report/customCardView";
 import FileCardView, { FILE_ICON, isFileQuery, useFileWatches } from "../../../components/report/fileCards";
@@ -103,6 +106,26 @@ const BUILTIN_ICON: Record<BuiltinCardType, typeof Timer> = {
   journal: BookOpen,
   highlights: Sparkles,
 };
+
+/** A card that is one figure: a number, a progress meter or a countdown. */
+function isStatCard(card: DashboardCard) {
+  if (card.type === "countdown") return true;
+  if (card.type !== "custom" || !card.query) return false;
+  if (card.query.sheet) return ["value", "counter", "progress"].includes(card.query.sheet.view);
+  if (card.query.doc) return false;
+  return card.query.display === "number" || card.query.display === "progress";
+}
+
+/** The saved order, with neighbouring stat cards paired into one row. */
+function cardRows(cards: DashboardCard[]): DashboardCard[][] {
+  const rows: DashboardCard[][] = [];
+  for (const card of cards) {
+    const last = rows[rows.length - 1];
+    if (last && last.length === 1 && isStatCard(last[0]) && isStatCard(card)) last.push(card);
+    else rows.push([card]);
+  }
+  return rows;
+}
 
 /** Stops what a card keeps running outside the screen: a pomodoro, or a timer's alert. */
 function stopCard(card: DashboardCard) {
@@ -215,14 +238,23 @@ export default function DashboardScreen() {
     switch (card.type) {
       case "custom": {
         if (!card.query) return null;
-        if (loading) return <Text style={styles.muted}>Loading…</Text>;
+        if (loading) return <SkeletonRows rows={3} height={28} bare />;
         if (isFileQuery(card.query)) return <FileCardView query={card.query} data={data} />;
         return <CustomCardView query={card.query} result={computeCard(card.query, data, { now, timeZone })} onOpen={openRow} />;
       }
       case "pomodoro":
         return <PomodoroCard cardId={card.id} settings={settings} onSettings={setSettings} tasks={tasks} timeZone={timeZone} />;
       case "today":
-        return <TodayCard today={today.data} loading={today.isLoading} now={now} onOpenTask={openTask} onOpenItem={openItem} />;
+        return (
+          <TodayCard
+            today={today.data}
+            loading={today.isLoading}
+            now={now}
+            workingHours={config.data?.workingHours}
+            onOpenTask={openTask}
+            onOpenItem={openItem}
+          />
+        );
       case "quickCapture":
         return <QuickCaptureCard inboxCount={data.inbox?.length ?? 0} />;
       case "notes":
@@ -336,14 +368,18 @@ export default function DashboardScreen() {
           ) : null}
           {isLoading && !layout ? <Text style={[styles.muted, { textAlign: "center", padding: 24 }]}>Loading your dashboard…</Text> : null}
           {layout && cards.length === 0 ? (
-            <View style={styles.empty}>
-              <Text style={styles.emptyTitle}>Your dashboard is empty</Text>
-              <Text style={styles.muted}>Add a productivity tool or a chart to get started.</Text>
-              <AnimatedPressable accessibilityRole="button" onPress={() => setAdding(true)} style={styles.primary}>
-                <Plus size={16} color={colors.primaryForeground} />
-                <Text style={styles.primaryText}>Add card</Text>
-              </AnimatedPressable>
-            </View>
+            <EmptyState
+              icon={LayoutGrid}
+              loop="cards"
+              title="Your dashboard is empty"
+              description="Add a productivity tool, a ready-made chart, or a card of your own from tasks, events, a sheet or a doc."
+              action={
+                <AnimatedPressable accessibilityRole="button" onPress={() => setAdding(true)} style={[styles.primary, { marginTop: 0 }]}>
+                  <Plus size={16} color={colors.primaryForeground} />
+                  <Text style={styles.primaryText}>Add card</Text>
+                </AnimatedPressable>
+              }
+            />
           ) : null}
 
           {editing ? (
@@ -357,20 +393,26 @@ export default function DashboardScreen() {
               onDragging={setDragging}
             />
           ) : (
-            cards.map((card) => {
-              const Icon = cardIcon(card);
-              return (
-                <View key={card.id} style={styles.card}>
-                  <View style={styles.cardHead}>
-                    <Icon size={15} color={colors.mutedForeground} />
-                    <Text style={styles.cardTitle} numberOfLines={1}>
-                      {cardTitle(card)}
-                    </Text>
-                  </View>
-                  {renderBody(card)}
-                </View>
-              );
-            })
+            // Two stat cards share a row (the film's 2 x 2 grid); everything else is full width.
+            cardRows(cards).map((row) => (
+              <View key={row.map((card) => card.id).join("+")} style={row.length > 1 ? styles.cardRow : undefined}>
+                {row.map((card) => {
+                  const Icon = cardIcon(card);
+                  return (
+                    <View key={card.id} style={[styles.card, row.length > 1 && styles.halfCard]}>
+                      <View style={styles.cardHead}>
+                        {/* Half-width stat tiles drop the icon so the title has the room. */}
+                        {row.length > 1 ? null : <Icon size={15} color={colors.mutedForeground} />}
+                        <Text style={styles.cardTitle} numberOfLines={1}>
+                          {cardTitle(card)}
+                        </Text>
+                      </View>
+                      {renderBody(card)}
+                    </View>
+                  );
+                })}
+              </View>
+            ))
           )}
 
           {editing ? (
@@ -470,14 +512,14 @@ export default function DashboardScreen() {
 const styles = createThemedStyleSheet((colors) => ({
   list: { padding: 12, gap: 12, paddingBottom: 130 },
   card: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14, gap: 12 },
+  cardRow: { flexDirection: "row", gap: 12 },
+  halfCard: { flex: 1, minWidth: 0, gap: 8 },
   cardHead: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 24 },
   cardTitle: { flex: 1, color: colors.foreground, fontSize: 14, fontWeight: "600" },
   muted: { color: colors.mutedForeground, fontSize: 13 },
   banner: { borderRadius: 12, borderWidth: 1, borderColor: colors.destructive, padding: 12, gap: 4 },
   bannerText: { color: colors.foreground, fontSize: 13 },
   link: { color: colors.primary, fontSize: 13, fontWeight: "600" },
-  empty: { alignItems: "center", gap: 8, paddingVertical: 48 },
-  emptyTitle: { color: colors.foreground, fontSize: 17, fontWeight: "600" },
   primary: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 16, backgroundColor: colors.primary },
   primaryText: { color: colors.primaryForeground, fontSize: 15, fontWeight: "600" },
   secondary: {

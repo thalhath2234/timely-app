@@ -1,5 +1,8 @@
 "use client";
 
+import { motion } from "motion/react";
+import { motion as MOTION } from "@timely/contract/designTokens";
+import { easeOut } from "@/app/_components/_ui/motion";
 import { docTypePhrase } from "@timely/contract/documents";
 import { checklistTask, docWorkLines, draftChecklistTasks, openChecklistItems, workLineKey, workLineTask, type ChecklistTodo } from "@timely/contract/docChecklist";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -731,11 +734,16 @@ function MarginHints({
     }`;
     if (hint.kind === "task") {
       return (
-        <div className={`${shell} ${isOpen ? "" : "flex h-7 items-center"}`}>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.94 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 12 / MOTION.fps, ease: easeOut }}
+          className={`${shell} ${isOpen ? "" : "flex h-7 items-center"}`}
+        >
           <Button size="sm" variant="link" className="max-w-full text-xs text-muted-foreground" onClick={() => openTasksEntity({ kind: "task", id: hint.taskId })}>
             <Check /> Already a task <ArrowUpRight />
           </Button>
-        </div>
+        </motion.div>
       );
     }
     const name = hint.kind === "todo" ? hint.todo.name : hint.line;

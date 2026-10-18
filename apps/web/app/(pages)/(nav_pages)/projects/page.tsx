@@ -1,8 +1,9 @@
 "use client";
 
+import { SkeletonRows } from "@/app/_components/_ui/skeleton";
 import Link from "next/link";
 import type { MouseEvent as ReactMouseEvent } from "react";
-import { FolderKanban, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import EmptyState from "@/app/_components/_ui/emptyState";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
@@ -12,86 +13,98 @@ import { useTasks } from "@/app/utils/hooks/tasks";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { resolvedColor } from "@/app/utils/entityColor";
-import { formatShortDate, projectStats } from "@/app/utils/projectStats";
+import { formatShortDate, projectStats, tasksForProject } from "@/app/utils/projectStats";
+import { sortedStages } from "@/app/utils/stages";
+import { cn } from "@/app/utils/cn";
 import type { Project, Task } from "@/app/_types/types";
 import { motion } from "motion/react";
 import Button from "@/app/_components/_ui/button";
 import PageHeader, { PageBadge } from "@/app/_components/_ui/pageHeader";
-import { hoverLift, listContainerVariants, listItemVariants, springSoft } from "@/app/_components/_ui/motion";
+import PageWithRail from "@/app/_components/_ui/pageWithRail";
+import ProjectsRail from "@/app/_components/projects/projectsRail";
+import { listContainerVariants, listItemVariants } from "@/app/_components/_ui/motion";
+import { Fill } from "@/app/_components/_ui/dataMotion";
 
 function ProgressBar({ value, color }: { value: number; color?: string | null }) {
+  return <Fill value={value / 100} color={color} height={6} />;
+}
+
+/** One segment per stage, full when its tasks are all done, half when some are. */
+function StageStrip({ project, tasks }: { project: Project; tasks: Task[] }) {
+  const stages = sortedStages(project.stages);
+  if (!project.doesHaveStages || stages.length === 0) return <span className="text-xs text-muted-foreground">No stages</span>;
   return (
-    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-      <motion.div
-        className="h-full rounded-full"
-        initial={{ width: 0 }}
-        animate={{ width: `${Math.min(100, Math.max(0, value))}%` }}
-        transition={springSoft}
-        style={{ backgroundColor: color || "var(--primary)" }}
-      />
-    </div>
+    <span className="flex items-center gap-0.5" title={`${stages.length} stages`} aria-label={`${stages.length} stages`}>
+      {stages.map((stage, index) => {
+        const mine = tasks.filter((task) => task.stageId === stage.id && (task.duration ?? 0) > 0);
+        const done = mine.filter((task) => task.completedAt).length;
+        const share = mine.length === 0 ? 0 : done / mine.length;
+        return (
+          <span
+            key={stage.id}
+            className="h-2 w-3.5 rounded-sm"
+            style={{ backgroundColor: resolvedColor(stage.color, undefined, index), opacity: share >= 1 ? 1 : share > 0 ? 0.6 : 0.22 }}
+          />
+        );
+      })}
+    </span>
   );
 }
 
-function ProjectCard({
+function ProjectRow({
   project,
   tasks,
+  today,
   onContextMenu,
 }: {
   project: Project;
   tasks: Task[];
+  today: number;
   onContextMenu: (event: ReactMouseEvent, project: Project) => void;
 }) {
-  const stats = projectStats(project, tasks);
-  const workspaceName = project.workspace?.name;
+  const mine = tasksForProject(tasks, project.id);
+  const stats = projectStats(project, mine);
   const color = resolvedColor(project.color, project.id);
+  // The project's own deadline, as the rail and the phone show it.
+  const due = project.deadline ? new Date(project.deadline).getTime() : NaN;
+  const overdue = !Number.isNaN(due) && due < today && !project.completedAt;
 
   return (
-    <motion.div
-      variants={listItemVariants}
-      whileHover={hoverLift}
-      whileTap={{ scale: 0.99 }}
-    >
-    <Link
-      href={`/projects/${project.id}`}
-      onContextMenu={(event) => onContextMenu(event, project)}
-      className="flex flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/30 hover:bg-accent/50"
-      style={{ borderLeftColor: color, borderLeftWidth: 3 }}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="truncate font-medium text-foreground">{project.title || "Untitled project"}</h2>
-          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-            {project.workspace?.color ? (
-              <span
-                className="size-1.5 shrink-0 rounded-full"
-                style={{ backgroundColor: project.workspace.color }}
-              />
-            ) : null}
-            <span className="truncate">
-              {workspaceName || "No workspace"}
-              {project.status?.name ? ` · ${project.status.name}` : ""}
-            </span>
-          </p>
-        </div>
-        {project.priorityLevel ? (
-          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] capitalize text-muted-foreground">
-            {project.priorityLevel}
+    <motion.li variants={listItemVariants} className="border-t border-border first:border-t-0">
+      <Link
+        href={`/projects/${project.id}`}
+        onContextMenu={(event) => onContextMenu(event, project)}
+        className="grid min-h-14 grid-cols-[3px_minmax(0,1fr)_auto] items-center gap-x-4 py-2 pl-3 pr-4 transition-colors hover:bg-muted/40 lg:grid-cols-[3px_minmax(0,1fr)_84px_180px_96px_64px]"
+        data-testid="project-row"
+      >
+        <span className="h-9 w-[3px] rounded-full" style={{ backgroundColor: color }} aria-hidden />
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium text-foreground">{project.title || "Untitled project"}</span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {project.workspace?.name || "No workspace"}
+            {project.status?.name ? ` · ${project.status.name}` : ""}
+            {project.description?.trim() ? ` · ${project.description.trim()}` : ""}
           </span>
-        ) : null}
-      </div>
-      {project.description?.trim() ? (
-        <p className="line-clamp-2 text-xs text-muted-foreground">{project.description.trim()}</p>
-      ) : null}
-      <ProgressBar value={stats.progress} color={color} />
-      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums text-muted-foreground">
-        <span>{stats.completed}/{stats.total} done</span>
-        <span>{stats.open} open</span>
-        {project.startDate ? <span>Starts {formatShortDate(project.startDate)}</span> : null}
-        {project.deadline ? <span>Due {formatShortDate(project.deadline)}</span> : null}
-      </div>
-    </Link>
-    </motion.div>
+        </span>
+        <span className="hidden lg:block">
+          <StageStrip project={project} tasks={mine} />
+        </span>
+        <span className="hidden items-center gap-2.5 lg:flex">
+          <ProgressBar value={stats.progress} color={color} />
+          <span className="w-9 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+            {stats.completed}/{stats.total}
+          </span>
+        </span>
+        <span className={cn("text-right text-xs tabular-nums", overdue ? "font-medium text-destructive" : project.deadline ? "text-foreground" : "text-muted-foreground")}>
+          {project.deadline ? `${overdue ? "Overdue" : "Due"} ${formatShortDate(project.deadline)}` : "No deadline"}
+        </span>
+        <span className="hidden text-right lg:block">
+          {project.priorityLevel ? (
+            <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium capitalize text-foreground/80">{project.priorityLevel}</span>
+          ) : null}
+        </span>
+      </Link>
+    </motion.li>
   );
 }
 
@@ -118,21 +131,24 @@ export default function ProjectsPage() {
   const list = (projects ?? []) as Project[];
   const allTasks = (tasks ?? []) as Task[];
   const canCreate = ((workspaces ?? []) as { id: string }[]).length > 0;
+  const today = new Date().setHours(0, 0, 0, 0);
 
   return (
     <div className="h-full overflow-y-auto">
       <PageHeader
         title="Projects"
         badge={list.length > 0 ? <PageBadge>{list.length}</PageBadge> : null}
-        description="Create a project, break it into stages, and work the tasks without leaving this area."
         actions={
           <Button onClick={openCreate} disabled={!canCreate} leading={<Plus />}>
             New project
           </Button>
         }
       />
-      <div className="flex min-h-full flex-col px-6 pb-6">
-
+      <PageWithRail
+        className="px-6 pb-6"
+        sticky
+        rail={!isLoading && !isError && list.length > 0 ? <ProjectsRail projects={list} /> : null}
+      >
         {tasksQuery.isError && (
           <LoadErrorBanner
             what="tasks (project progress may be incomplete)"
@@ -144,7 +160,7 @@ export default function ProjectsPage() {
         )}
 
         {isLoading ? (
-          <p className="mt-2 text-sm text-muted-foreground">Loading projects…</p>
+          <SkeletonRows rows={5} height={56} className="mt-2" />
         ) : isError ? (
           <div className="mt-2 flex flex-1 flex-col">
             <LoadError
@@ -157,34 +173,30 @@ export default function ProjectsPage() {
         ) : list.length === 0 ? (
           <div className="mt-2">
             <EmptyState
-              icon={FolderKanban}
+              loop="project"
               title="No projects yet"
-              description="Create a project to group tasks, stages, and deadlines."
+              description="A project groups tasks under stages, labels and a deadline, and shows them as a list, a board or a Gantt chart."
               action={
-                <Button onClick={openCreate} className="mt-2" leading={<Plus />}>
+                <Button onClick={openCreate} leading={<Plus />}>
                   New project
                 </Button>
               }
             />
           </div>
         ) : (
-          <motion.div
-            className="mt-1 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3"
+          <motion.ul
+            className="mt-1 overflow-hidden rounded-[12px] border border-border bg-card"
             variants={listContainerVariants}
             initial="hidden"
             animate="visible"
+            data-testid="projects-list"
           >
             {list.map((project) => (
-              <ProjectCard
-                key={project.id}
-                project={project}
-                tasks={allTasks}
-                onContextMenu={onProjectContextMenu}
-              />
+              <ProjectRow key={project.id} project={project} tasks={allTasks} today={today} onContextMenu={onProjectContextMenu} />
             ))}
-          </motion.div>
+          </motion.ul>
         )}
-      </div>
+      </PageWithRail>
     </div>
   );
 }

@@ -66,7 +66,7 @@ export default function SheetColumnFilter({
         {shown.map(([value, count]) => (
           <li key={value || "__blank"}>
             <label className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-accent/60">
-              <input type="checkbox" checked={checked.has(value)} onChange={() => toggle(value)} className="accent-[#6E56CF]" />
+              <input type="checkbox" checked={checked.has(value)} onChange={() => toggle(value)} className="accent-primary" />
               <span className={`min-w-0 flex-1 truncate ${value === "" ? "italic text-muted-foreground" : ""}`}>
                 {value === "" ? "(Blank)" : value}
               </span>

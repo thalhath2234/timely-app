@@ -14,12 +14,15 @@ export default function InboxCapture({
   autoFocus,
   keepFocus,
   initialTitle = "",
+  compact,
 }: {
   onCaptured?: (task: Task | undefined) => void;
   autoFocus?: boolean;
   /** Clear and stay in the box for the next thought (the Inbox screen). */
   keepFocus?: boolean;
   initialTitle?: string;
+  /** One line, input beside the button (the Inbox screen's docked box). */
+  compact?: boolean;
 }) {
   const capture = useCaptureInbox();
   const [title, setTitle] = useState(initialTitle);
@@ -41,6 +44,35 @@ export default function InboxCapture({
       onCaptured?.(task);
     });
   };
+
+  if (compact) {
+    return (
+      <View style={styles.box}>
+        <View style={styles.compactRow}>
+          <TextInput
+            ref={inputRef}
+            value={title}
+            onChangeText={setTitle}
+            placeholder="Something to follow up…"
+            placeholderTextColor={colors.mutedForeground}
+            selectionColor={colors.primary}
+            autoCapitalize="sentences"
+            returnKeyType="done"
+            onSubmitEditing={onCapture}
+            submitBehavior="submit"
+            accessibilityLabel="Capture to inbox"
+            style={styles.compactInput}
+          />
+          <Button label="Capture" size="lg" loading={capture.isPending} disabled={!title.trim()} onPress={onCapture} />
+        </View>
+        {capture.isError ? (
+          <Text style={[styles.hint, styles.error]} numberOfLines={2}>
+            {capture.error instanceof Error ? capture.error.message : "Could not capture."}
+          </Text>
+        ) : null}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.box}>
@@ -78,6 +110,19 @@ const styles = createThemedStyleSheet((colors) => ({
   label: { color: colors.mutedForeground, fontSize: 12, fontWeight: "500" },
   input: { color: colors.foreground, fontSize: 18, fontWeight: "500", paddingVertical: 4 },
   row: { flexDirection: "row", alignItems: "center", gap: 12 },
+  compactRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  compactInput: {
+    flex: 1,
+    minWidth: 0,
+    height: 44,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+    color: colors.foreground,
+    fontSize: 16,
+  },
   hint: { flex: 1, color: colors.mutedForeground, fontSize: 12, lineHeight: 17 },
   error: { color: colors.destructive },
 }));

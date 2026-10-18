@@ -107,6 +107,85 @@ export function ViewChips({
   );
 }
 
+/**
+ * The box to describe the view in words: the plain reading applies at once,
+ * and with an AI provider ready a "Read with AI" button handles the words
+ * the plain reading left over. Lives on the toolbar line; ViewRulesBar can
+ * also draw it (`describe`) where there is no toolbar.
+ */
+export function DescribeViewInput({
+  view,
+  vocab,
+  today,
+  aiReady,
+  onPatch,
+  className,
+}: {
+  view: TaskViewConfig | undefined;
+  vocab: ViewVocabulary;
+  today: string;
+  aiReady: boolean;
+  onPatch: (patch: Partial<TaskViewConfig>) => void;
+  className?: string;
+}) {
+  const [words, setWords] = useState({ viewId: "", text: "" });
+  const [ai, setAi] = useState<{ text: string; busy?: boolean; error?: string; done?: boolean } | null>(null);
+  const [leftover, setLeftover] = useState<{ text: string; words: string[] } | null>(null);
+  if (!view) return null;
+  const text = words.viewId === view.id ? words.text : "";
+  const setText = (next: string) => setWords({ viewId: view.id, text: next });
+  const pendingWords = leftover && leftover.text === text.trim() ? leftover.words : [];
+
+  const describe = (event: React.FormEvent) => {
+    event.preventDefault();
+    const query = text.trim();
+    if (!query) return;
+    const reading = readViewQuery(query, vocab, { today });
+    if (reading.understood === 0 && reading.leftover.length === 0) return;
+    onPatch({ ...readingPatch(reading), prompt: query.slice(0, 300) });
+    setLeftover({ text: query, words: reading.leftover });
+    setAi(null);
+  };
+
+  const askAi = () => {
+    const query = text.trim();
+    setAi({ text: query, busy: true });
+    readViewWithAi({ query, today, client: "web" })
+      .then((result) => {
+        onPatch({ ...aiDraftPatch(result.view, vocab), prompt: query.slice(0, 300) });
+        setAi({ text: query, done: true });
+        setLeftover(null);
+      })
+      .catch((error: Error) => setAi({ text: query, error: error.message }));
+  };
+  const aiState = ai?.text === text.trim() ? ai : null;
+
+  return (
+    <form onSubmit={describe} className={cn("flex min-w-0 items-center gap-1.5", className)}>
+      <label
+        className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md border border-input bg-card px-2 shadow-xs transition-[border-color,box-shadow,width] focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20"
+        title={aiState?.error ?? undefined}
+      >
+        <ListFilter className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <input
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          placeholder="Describe what to show"
+          aria-label="Describe what this view shows"
+          className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+        />
+      </label>
+      {aiReady && text.trim() && (pendingWords.length > 0 || aiState) && !aiState?.done ? (
+        <Button size="sm" variant="ghost" type="button" onClick={askAi} disabled={aiState?.busy} title="Your AI provider reads the words the plain reading left as text">
+          <Sparkles aria-hidden="true" />
+          {aiState?.busy ? "Reading…" : "Read with AI"}
+        </Button>
+      ) : null}
+      {aiState?.error ? <span className="text-xs text-destructive">{aiState.error}</span> : null}
+    </form>
+  );
+}
+
 const ADD_KEY = "add";
 
 /**
@@ -125,6 +204,8 @@ export default function ViewRulesBar({
   onPatch,
   preview,
   scope,
+  describe,
+  addRequest,
 }: {
   view: TaskViewConfig | undefined;
   vocab: ViewVocabulary;
@@ -134,11 +215,17 @@ export default function ViewRulesBar({
   onPatch: (patch: Partial<TaskViewConfig>) => void;
   preview?: { onSave: () => void; onClose: () => void; full: boolean };
   scope?: "global" | "project";
+  /** Draw the describe box here (default). The Tasks page puts it on the toolbar line instead. */
+  describe?: boolean;
+  /** Bumped by an "Add filter" button elsewhere: opens the field menu, showing the bar if it was hidden. */
+  addRequest?: number;
 }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
-  const [words, setWords] = useState({ viewId: "", text: "" });
-  const [ai, setAi] = useState<{ text: string; busy?: boolean; error?: string; done?: boolean } | null>(null);
-  const [leftover, setLeftover] = useState<{ text: string; words: string[] } | null>(null);
+  const [seenRequest, setSeenRequest] = useState(addRequest ?? 0);
+  if ((addRequest ?? 0) !== seenRequest) {
+    setSeenRequest(addRequest ?? 0);
+    setOpenKey(ADD_KEY);
+  }
 
   useEffect(() => {
     if (!openKey) return;
@@ -167,9 +254,9 @@ export default function ViewRulesBar({
   const rules = normalizeRules(view.rules);
   const all = describeView(view, vocab);
   const chips = preview ? all.filter((chip) => chip.key !== "match:any") : all.filter((chip) => !shownElsewhere(chip));
-  const text = words.viewId === view.id ? words.text : "";
-  const setText = (next: string) => setWords({ viewId: view.id, text: next });
-  const pendingWords = leftover && leftover.text === text.trim() ? leftover.words : [];
+  // Without the describe box the bar only appears when it has something to
+  // say: a filter pill, a preview, or the Add filter menu just asked for.
+  if (describe === false && chips.length === 0 && !preview && openKey !== ADD_KEY) return null;
 
   const setRule = (index: number, rule: TaskViewCondition | null) => {
     onPatch({ rules: replaceRule(rules, index, rule) });
@@ -180,30 +267,6 @@ export default function ViewRulesBar({
     onPatch({ rules: [...rules, newCondition(field, customFields)] });
     setOpenKey(`rule:${rules.length}`);
   };
-
-  const describe = (event: React.FormEvent) => {
-    event.preventDefault();
-    const query = text.trim();
-    if (!query) return;
-    const reading = readViewQuery(query, vocab, { today });
-    if (reading.understood === 0 && reading.leftover.length === 0) return;
-    onPatch({ ...readingPatch(reading), prompt: query.slice(0, 300) });
-    setLeftover({ text: query, words: reading.leftover });
-    setAi(null);
-  };
-
-  const askAi = () => {
-    const query = text.trim();
-    setAi({ text: query, busy: true });
-    readViewWithAi({ query, today, client: "web" })
-      .then((result) => {
-        onPatch({ ...aiDraftPatch(result.view, vocab), prompt: query.slice(0, 300) });
-        setAi({ text: query, done: true });
-        setLeftover(null);
-      })
-      .catch((error: Error) => setAi({ text: query, error: error.message }));
-  };
-  const aiState = ai?.text === text.trim() ? ai : null;
 
   const editor = (chip: ViewChip) => {
     const index = Number(chip.key.slice(5));
@@ -245,25 +308,9 @@ export default function ViewRulesBar({
       {preview ? (
         <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">Preview</span>
       ) : null}
-      <form onSubmit={describe} className="flex w-full max-w-sm min-w-56 items-center gap-1.5 sm:w-auto sm:flex-1">
-        <label className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md border border-input bg-card px-2 shadow-xs transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
-          <ListFilter className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-          <input
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            placeholder="Describe what to show: urgent bugs due this week"
-            aria-label="Describe what this view shows"
-            className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
-          />
-        </label>
-        {aiReady && text.trim() && (pendingWords.length > 0 || aiState) && !aiState?.done ? (
-          <Button size="sm" variant="ghost" type="button" onClick={askAi} disabled={aiState?.busy} title="Your AI provider reads the words the plain reading left as text">
-            <Sparkles aria-hidden="true" />
-            {aiState?.busy ? "Reading…" : "Read with AI"}
-          </Button>
-        ) : null}
-      </form>
-      {aiState?.error ? <span className="text-xs text-destructive">{aiState.error}</span> : null}
+      {describe !== false ? (
+        <DescribeViewInput view={view} vocab={vocab} today={today} aiReady={aiReady} onPatch={onPatch} className="w-full max-w-sm min-w-56 sm:w-auto sm:flex-1" />
+      ) : null}
       <ViewChips
         chips={chips}
         onRemove={(chip) => {

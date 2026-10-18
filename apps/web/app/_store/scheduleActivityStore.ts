@@ -9,6 +9,11 @@ type ScheduleActivityState = {
   status: ScheduleActivityStatus;
   placed: number;
   message: string | null;
+  /** The last applied plan, for "Show me". */
+  plan: SchedulePlan | null;
+  replay: boolean;
+  showReplay: () => void;
+  hideReplay: () => void;
   start: () => void;
   finish: (plan: SchedulePlan) => void;
   fail: (message: string) => void;
@@ -19,11 +24,16 @@ export const useScheduleActivityStore = create<ScheduleActivityState>((set) => (
   status: "idle",
   placed: 0,
   message: null,
-  start: () => set({ status: "running", message: "Auto-scheduling your tasks…", placed: 0 }),
+  plan: null,
+  replay: false,
+  showReplay: () => set({ replay: true }),
+  hideReplay: () => set({ replay: false }),
+  start: () => set({ status: "running", message: "Auto-scheduling your tasks…", placed: 0, plan: null, replay: false }),
   finish: (plan) => {
     const placed = plan.proposals.length;
     set({
       status: "done",
+      plan,
       placed,
       message:
         placed > 0

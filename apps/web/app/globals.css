@@ -22,6 +22,7 @@
   --color-input: var(--input);
   --color-fill: var(--fill);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-destructive-container: var(--destructive-container);
@@ -54,7 +55,7 @@
    whatever the account theme on <html>, so it re-declares the dark tokens. */
 :root {
   color-scheme: light;
-  --background: #f9fafb;
+  --background: #f7f7fa;
   --foreground: #171a24;
   --card: #ffffff;
   --card-foreground: #171a24;
@@ -62,9 +63,9 @@
   --popover-foreground: #171a24;
   --primary: #4f46e5;
   --primary-foreground: #f9fafe;
-  --secondary: #eff0f4;
+  --secondary: #f2f2f6;
   --secondary-foreground: #252933;
-  --muted: #eff0f4;
+  --muted: #f2f2f6;
   --muted-foreground: #656972;
   --accent: #e9ecfb;
   --accent-foreground: #373896;
@@ -73,42 +74,43 @@
   --destructive-container: #dc2627;
   --success: #179765;
   --warning: #df911a;
-  --border: #e0e2e6;
-  --input: #e0e2e6;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.14);
+  --input: rgba(0, 0, 0, 0.14);
   --ring: #4f46e5;
-  --fill: #eff0f4;
+  --fill: #ebebf0;
   --chart-1: oklch(0.51 0.23 277);
   --chart-2: oklch(0.62 0.16 255);
   --chart-3: oklch(0.72 0.1 285);
   --chart-4: oklch(0.6 0.13 160);
   --chart-5: oklch(0.72 0.15 70);
   --radius: 0.75rem;
-  --sidebar: oklch(0.965 0.003 264);
-  --sidebar-foreground: oklch(0.32 0.02 270);
-  --sidebar-primary: oklch(0.51 0.23 277);
-  --sidebar-primary-foreground: oklch(0.985 0.005 277);
-  --sidebar-accent: oklch(0.925 0.008 270);
-  --sidebar-accent-foreground: oklch(0.22 0.02 270);
-  --sidebar-border: oklch(0.905 0.006 270);
-  --sidebar-ring: oklch(0.51 0.23 277);
+  --sidebar: #f7f7fa;
+  --sidebar-foreground: #373a45;
+  --sidebar-primary: #4f46e5;
+  --sidebar-primary-foreground: #f9fafe;
+  --sidebar-accent: #e9ecfb;
+  --sidebar-accent-foreground: #373896;
+  --sidebar-border: rgba(0, 0, 0, 0.08);
+  --sidebar-ring: #4f46e5;
 }
 
 .dark,
 .site {
   color-scheme: dark;
-  --background: #111319;
+  --background: #0b0b0f;
   --foreground: #e2e2eb;
-  --card: #191b22;
+  --card: #121217;
   --card-foreground: #e2e2eb;
-  --popover: #191b22;
+  --popover: #17171d;
   --popover-foreground: #e2e2eb;
   --primary: #c0c1ff;
   --primary-foreground: #1000a9;
-  --secondary: #1d1f26;
+  --secondary: #17171d;
   --secondary-foreground: #e2e2eb;
-  --muted: #191b22;
+  --muted: #17171d;
   --muted-foreground: #908fa0;
-  --accent: #282a30;
+  --accent: #1d1d25;
   --accent-foreground: #c0c1ff;
   --destructive: #ffb4ab;
   --destructive-foreground: #ffdad6;
@@ -116,19 +118,20 @@
   --success: #4edea3;
   --warning: #ffb95f;
   --border: rgba(255, 255, 255, 0.08);
-  --input: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --input: rgba(255, 255, 255, 0.14);
   --ring: #c0c1ff;
-  --fill: #24262e;
+  --fill: #1d1d25;
   --chart-1: #c0c1ff;
   --chart-2: #4edea3;
   --chart-3: #8083ff;
   --chart-4: #4edea3;
   --chart-5: #ffb95f;
-  --sidebar: #0c0e14;
+  --sidebar: #0b0b0f;
   --sidebar-foreground: #e2e2eb;
   --sidebar-primary: #c0c1ff;
   --sidebar-primary-foreground: #1000a9;
-  --sidebar-accent: #191b22;
+  --sidebar-accent: #1d1d25;
   --sidebar-accent-foreground: #e2e2eb;
   --sidebar-border: rgb(255 255 255 / 8%);
   --sidebar-ring: #c0c1ff;
@@ -267,6 +270,79 @@ html.reduce-motion:not([data-public-site]) *::after {
   scrollbar-width: none;
   &::-webkit-scrollbar {
     display: none;
+  }
+}
+
+/* Catalogue item 13: a card lifts 1 px on hover and its hairline brightens
+   from 8 % to 14 %, no shadow. Reduce motion keeps the hairline change only. */
+@utility lift {
+  transition:
+    transform 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  &:hover {
+    transform: translateY(-1px);
+    border-color: var(--border-strong);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    &:hover {
+      transform: none;
+    }
+  }
+}
+html.reduce-motion .lift:hover {
+  transform: none;
+}
+
+/* Sheet motion (catalogue item 9): the selection ring pops in 8 frames, a
+   recalculated cell tints and fades over 30 frames (two class names so a
+   second change restarts the fade), an inserted row slides open in 12 frames. */
+.sheet-sel {
+  box-shadow: inset 0 0 0 2px var(--primary);
+  animation: sheet-sel-pop 270ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes sheet-sel-pop {
+  from {
+    box-shadow: inset 0 0 0 4px color-mix(in oklch, var(--primary) 45%, transparent);
+  }
+  to {
+    box-shadow: inset 0 0 0 2px var(--primary);
+  }
+}
+.sheet-changed-a {
+  animation: sheet-changed 1000ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.sheet-changed-b {
+  animation: sheet-changed-b 1000ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes sheet-changed {
+  from {
+    background-color: color-mix(in oklch, var(--primary) 22%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+@keyframes sheet-changed-b {
+  from {
+    background-color: color-mix(in oklch, var(--primary) 22%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+.sheet-row-in {
+  animation: sheet-row-in 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: top;
+}
+@keyframes sheet-row-in {
+  from {
+    opacity: 0;
+    transform: scaleY(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 
@@ -821,33 +897,36 @@ html.reduce-motion:not([data-public-site]) *::after {
   mix-blend-mode: normal;
 }
 
+/* Overlays follow the motion tokens (designTokens.motion): a dialog or
+   popover pops from 0.96 over 330 ms on the film's curve with a 330 ms
+   backdrop fade, and leaves in 150 ms (catalogue item 5). */
 ::view-transition-old(.scrim-out) {
-  animation: vt-fade-out 160ms ease-out both;
+  animation: vt-fade-out 150ms ease-out both;
 }
 ::view-transition-new(.scrim-in) {
-  animation: vt-fade-in 180ms ease-out both;
+  animation: vt-fade-in 330ms ease-out both;
 }
 
 ::view-transition-old(.panel-out) {
   animation:
     vt-fade-out 150ms ease-out both,
-    vt-panel-out 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    vt-panel-out 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 ::view-transition-new(.panel-in) {
   animation:
     vt-fade-in 200ms ease-out both,
-    vt-panel-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    vt-panel-in 330ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 ::view-transition-old(.popover-out) {
   animation:
     vt-fade-out 120ms ease-out both,
-    vt-popover-out 140ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    vt-popover-out 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 ::view-transition-new(.popover-in) {
   animation:
     vt-fade-in 160ms ease-out both,
-    vt-popover-in 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    vt-popover-in 330ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 /* The quick chat prompt shrinking into the Activity island pill after Send
@@ -868,8 +947,8 @@ html.reduce-motion:not([data-public-site]) *::after {
    (app/utils/titleMorph.ts). Both snapshots scale with the group's height
    and stay left-aligned, so the text grows instead of stretching. */
 ::view-transition-group(entity-title) {
-  animation-duration: 320ms;
-  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-duration: 330ms;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
 }
 ::view-transition-old(entity-title),
 ::view-transition-new(entity-title) {
@@ -898,7 +977,7 @@ html.reduce-motion:not([data-public-site]) *::after {
 
 @keyframes vt-panel-in {
   from {
-    transform: translateY(12px) scale(0.97);
+    transform: translateY(8px) scale(0.96);
   }
   to {
     transform: translateY(0) scale(1);
@@ -1399,18 +1478,14 @@ html.reduce-motion:not([data-public-site]) .tl-bar {
   min-width: 0;
 }
 /* Wide pages (docPage.tsx): the toolbar is a rail in the left gutter and the
- * suggestions sit in the right margin, each level with its line. The middle
- * gap holds the block drag handle. */
+ * right column holds the outline card, then the suggestions, each level with
+ * its line. The middle gap holds the block drag handle. */
 .doc-page-grid[data-layout="margin"] {
   max-width: none;
-  grid-template-columns: 2.5rem 3.5rem minmax(0, 52rem);
-  grid-template-rows: auto 1fr;
-  grid-template-areas: "tools . head" "tools . body";
-  justify-content: center;
-}
-.doc-page-grid[data-layout="margin"]:has(> .doc-page-rail:not(:empty)) {
   grid-template-columns: 2.5rem 3.5rem minmax(0, 52rem) 2.5rem minmax(18rem, 22rem);
+  grid-template-rows: auto 1fr;
   grid-template-areas: "tools . head . rail" "tools . body . rail";
+  justify-content: center;
 }
 .doc-page-grid[data-layout="margin"] > .doc-page-rail {
   position: relative;

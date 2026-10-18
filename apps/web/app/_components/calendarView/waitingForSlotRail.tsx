@@ -1,7 +1,8 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Sparkles } from "lucide-react";
+import { ChevronDown, Sparkles } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
+import { RailSection } from "@/app/_components/_ui/pageWithRail";
 import { formatDuration } from "@/app/utils/calendar";
 import { taskEntityColor } from "@/app/utils/entityColor";
 import { useWaitingForSlot } from "@/app/utils/hooks/calendar";
@@ -11,9 +12,16 @@ import { cn } from "@/app/utils/cn";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
 import { tidyEntries } from "@/app/_store/contextMenuStore";
+import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
 import { AnimatePresence, motion } from "motion/react";
-import { hoverLift, springSoft } from "@/app/_components/_ui/motion";
+import { springSoft } from "@/app/_components/_ui/motion";
+import { useCanReplay } from "./scheduleReplay";
 
+/**
+ * Tasks with no block yet, as a rail card: a state line says what the
+ * scheduler is doing, then one compact row per task with a Schedule link.
+ * Rows drag onto the grid.
+ */
 export default function WaitingForSlotRail({
   onSchedule,
   onOpen,
@@ -27,38 +35,64 @@ export default function WaitingForSlotRail({
   const openMenu = useContextMenu();
   const taskMenu = useTaskContextMenu();
   const dragged = useRef(false);
+  const activityStatus = useScheduleActivityStore((state) => state.status);
+  const activityMessage = useScheduleActivityStore((state) => state.message);
+  const showReplay = useScheduleActivityStore((state) => state.showReplay);
+  const canReplay = useCanReplay();
 
   if (waiting.length === 0) return null;
 
+  const stateLine =
+    activityStatus === "running"
+      ? activityMessage || "Placing tasks in your working hours…"
+      : activityStatus === "error"
+        ? activityMessage || "The last run could not place everything."
+        : "Drag a task onto the grid, or let Auto-schedule place it.";
+
   return (
-    <aside className="flex w-72 shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-muted">
-      <button
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-        className="flex items-center gap-2 border-b border-border px-3 py-2 text-left"
-        aria-expanded={open}
-      >
-        {open ? <ChevronDown className="size-3.5 text-muted-foreground" /> : <ChevronRight className="size-3.5 text-muted-foreground" />}
-        <span className="text-sm font-medium text-foreground">Waiting for a slot</span>
-        <span className="ml-auto rounded-full bg-muted px-1.5 text-[11px] tabular-nums text-muted-foreground">
-          {waiting.length}
-        </span>
-      </button>
-      <AnimatePresence initial={false}>
-      {open ? (
-        <motion.ul
-          key="waiting-list"
-          initial={{ height: 0, opacity: 0 }}
-          animate={{ height: "auto", opacity: 1 }}
-          exit={{ height: 0, opacity: 0 }}
-          transition={springSoft}
-          className="min-h-0 flex-1 overflow-y-auto p-2"
+    <RailSection
+      title="Waiting for a slot"
+      meta={<span className="tabular-nums">{waiting.length}</span>}
+      action={
+        <button
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+          aria-expanded={open}
+          aria-label={open ? "Collapse" : "Expand"}
+          className="rounded-md p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
-          {waiting.map((task) => {
-            const deadline = taskDeadlineDate(task);
-            return (
-              <motion.li key={task.id} layout whileHover={hoverLift}>
-                <div
+          <ChevronDown className={cn("size-4 transition-transform", !open && "-rotate-90")} />
+        </button>
+      }
+      className="flex min-h-0 flex-col"
+      data-testid="waiting-rail"
+    >
+      <p className={cn("text-xs", activityStatus === "error" ? "text-destructive" : "text-muted-foreground")}>
+        {stateLine}
+        {activityStatus === "done" && canReplay ? (
+          <>
+            {" "}
+            <button type="button" onClick={showReplay} className="font-medium text-primary hover:underline">
+              Show me
+            </button>
+          </>
+        ) : null}
+      </p>
+      <AnimatePresence initial={false}>
+        {open ? (
+          <motion.ul
+            key="waiting-list"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={springSoft}
+            className="mt-2 min-h-0 flex-1 overflow-y-auto"
+          >
+            {waiting.map((task) => {
+              const deadline = taskDeadlineDate(task);
+              return (
+                <li
+                  key={task.id}
                   draggable
                   onDragStart={(event) => {
                     dragged.current = true;
@@ -79,63 +113,42 @@ export default function WaitingForSlotRail({
                       event,
                       taskMenu(task, {
                         extra: tidyEntries([
-                          {
-                            kind: "action",
-                            label: "Schedule this…",
-                            icon: Sparkles,
-                            onSelect: () => onSchedule(task.id),
-                          },
+                          { kind: "action", label: "Schedule this…", icon: Sparkles, onSelect: () => onSchedule(task.id) },
                         ]),
                       }),
                       { title: task.name },
                     )
                   }
                   className={cn(
-                    "mb-1.5 flex cursor-pointer overflow-hidden rounded-lg border border-border bg-background active:cursor-grabbing",
+                    "flex cursor-grab items-center gap-2.5 border-t border-border py-2 first:border-t-0 active:cursor-grabbing",
                     task.blockedById && "opacity-70",
                   )}
                 >
-                  <span
-                    className="w-1 shrink-0"
-                    style={{ backgroundColor: taskEntityColor(task) }}
-                    aria-hidden
-                  />
-                  <div className="min-w-0 flex-1 px-2.5 py-2">
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onOpen(task.id);
-                    }}
-                    className={cn("block w-full truncate text-left text-sm font-medium text-foreground hover:underline", task.completedAt && "text-muted-foreground line-through")}
-                  >
-                    {task.name}
-                  </button>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    {task.duration > 0 ? formatDuration(task.duration) : "No estimate"}
-                    {deadline
-                      ? ` · due ${deadline.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
-                      : ""}
-                    {task.blockedById ? " · waiting on another task" : ""}
-                  </p>
+                  <span className="h-7 w-[3px] shrink-0 rounded-full" style={{ backgroundColor: taskEntityColor(task) }} aria-hidden />
+                  <div className="min-w-0 flex-1">
+                    <div className={cn("truncate text-[13px] font-medium text-foreground", task.completedAt && "text-muted-foreground line-through")}>{task.name}</div>
+                    <div className="truncate text-[11px] text-muted-foreground">
+                      {task.duration > 0 ? formatDuration(task.duration) : "No estimate"}
+                      {deadline ? ` · due ${deadline.toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}
+                      {task.blockedById ? " · waiting on another task" : ""}
+                    </div>
+                  </div>
                   <button
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation();
                       onSchedule(task.id);
                     }}
-                    className="mt-1.5 text-[11px] font-medium text-primary hover:underline"
+                    className="shrink-0 rounded-md px-1.5 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-muted"
                   >
-                    Schedule this
+                    Schedule
                   </button>
-                  </div>
-                </div>
-              </motion.li>
-            );
-          })}
-        </motion.ul>
-      ) : null}
+                </li>
+              );
+            })}
+          </motion.ul>
+        ) : null}
       </AnimatePresence>
-    </aside>
+    </RailSection>
   );
 }

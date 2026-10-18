@@ -1,7 +1,7 @@
 import { Sparkles } from "lucide-react";
 import type { HelpSection } from "../types";
 import { CLAUDE_CODE_URL, CODEX_URL, TYPESAFE_URL } from "@/app/_components/site/links";
-import { Callout, Code, HelpLink, Path, Shot, Steps } from "../ui";
+import { Callout, Code, HelpLink, Path, Shot, Steps, Still } from "../ui";
 
 export const assistant: HelpSection = {
   id: "assistant",
@@ -209,9 +209,9 @@ export const assistant: HelpSection = {
                 they help, and turn on <strong>Web search</strong> when the answer needs it. Web search is off for a
                 chat with pictures.
               </p>
-              <Shot
-                src="chat"
-                alt="The Chat page: an empty Chats list with Search chats on the left, and a welcome screen with example prompts: Start a project, Build a budget, Make room to learn, Save a receipt."
+              <Still
+                id="assistant"
+                alt="The Chat page: the Chats list on the left, a conversation in which the assistant proposes four changes to the launch week and shows the calendar it would make, and the prompt box with Web search and the model menu."
               />
               <ul>
                 <li>
@@ -411,6 +411,10 @@ export const assistant: HelpSection = {
           title: "How they work",
           body: (
             <>
+              <Still
+                id="suggestions"
+                alt="A task made from an Inbox item, with Priority, Duration, Deadline and Project marked Suggested, each with how sure Jev was, and Accept all and Change buttons."
+              />
               <p>
                 Timely asks Jev short, typed questions, such as &ldquo;which of these projects fits this item?&rdquo; or
                 &ldquo;does this read like a task: yes or no?&rdquo;. Jev picks one of the given answers and says how
@@ -570,9 +574,9 @@ export const assistant: HelpSection = {
                   with the key as a bearer token in the <code>Authorization</code> header.
                 </p>
               </Steps>
-              <Shot
-                src="settings-integrations"
-                alt="Settings, Integrations tab: the MCP server address with a Copy button, a key name field and the list of active keys."
+              <Still
+                id="agents"
+                alt="Settings, Integrations tab: the active keys for two agents with Revoke buttons, Create key, the MCP endpoint on the tailnet, and a log of the tool calls the agents made."
               />
               <p>
                 For Hermes, choose <strong>Copy Hermes snippet</strong> after creating the key and paste it into{" "}

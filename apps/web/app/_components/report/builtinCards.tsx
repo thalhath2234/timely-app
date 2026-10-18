@@ -1,5 +1,6 @@
 "use client";
 
+import { StatNumber } from "@/app/_components/_ui/dataMotion";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, CornerDownLeft, Inbox, Target } from "lucide-react";
@@ -31,16 +32,87 @@ import { buttonClass } from "@/app/_components/_ui/button";
 /* Today                                                               */
 /* ------------------------------------------------------------------ */
 
+/** Minutes since local midnight of `day`. */
+function minutesOf(date: Date, day: Date) {
+  return (date.getTime() - day.getTime()) / 60_000;
+}
+
+/**
+ * The day as one strip: the working hours (or 8:00 to 20:00) stretched to
+ * hold every timed item, each item a tinted segment, done ones faded, a line
+ * at now. The film's Dashboard draws the Today card this way.
+ */
+export function MiniTimeline({
+  items,
+  now,
+  workingHours,
+  accent,
+}: {
+  items: CalendarItem[];
+  now: Date;
+  workingHours?: WorkingHours | null;
+  accent: (item: CalendarItem) => string;
+}) {
+  const day = new Date(now);
+  day.setHours(0, 0, 0, 0);
+  const window = workdayWindow(workingHours, now);
+  const toMinutes = (hhmm: string) => {
+    const [h, m] = hhmm.split(":").map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+  let start = window ? toMinutes(window.start) : 8 * 60;
+  let end = window ? toMinutes(window.end) : 20 * 60;
+  const timed = items
+    .filter((item) => !item.allDay && !item.reminder)
+    .map((item) => ({ item, from: minutesOf(new Date(item.start), day), to: minutesOf(new Date(item.end), day) }))
+    .filter((entry) => Number.isFinite(entry.from) && entry.to > entry.from);
+  for (const entry of timed) {
+    start = Math.min(start, Math.floor(entry.from / 60) * 60);
+    end = Math.max(end, Math.ceil(entry.to / 60) * 60);
+  }
+  const span = Math.max(60, end - start);
+  const pct = (minutes: number) => `${Math.min(100, Math.max(0, ((minutes - start) / span) * 100))}%`;
+  const nowMinutes = minutesOf(now, day);
+  const label = (minutes: number) => {
+    const at = new Date(day);
+    at.setMinutes(minutes);
+    return formatTime(at);
+  };
+  return (
+    <div data-testid="today-mini-timeline">
+      <div className="relative h-5 w-full overflow-hidden rounded-md bg-muted">
+        {timed.map(({ item, from, to }) => (
+          <span
+            key={`${item.id}-${item.blockId ?? ""}-${item.start}`}
+            title={item.title}
+            className={cn("absolute inset-y-1 rounded-sm", calendarItemDone(item) && "opacity-35")}
+            style={{ left: pct(from), width: `calc(${pct(to)} - ${pct(from)})`, minWidth: 3, background: accent(item) }}
+          />
+        ))}
+        {nowMinutes >= start && nowMinutes <= end ? (
+          <span aria-hidden className="absolute inset-y-0 w-px bg-foreground" style={{ left: pct(nowMinutes) }} />
+        ) : null}
+      </div>
+      <div className="mt-1 flex justify-between text-[10px] tabular-nums text-muted-foreground">
+        <span>{label(start)}</span>
+        <span>{label(end)}</span>
+      </div>
+    </div>
+  );
+}
+
 export function TodayCard({
   today,
   loading,
   now,
+  workingHours,
   onOpenTask,
   onOpenItem,
 }: {
   today: TodayResponse | undefined;
   loading: boolean;
   now: Date;
+  workingHours?: WorkingHours | null;
   onOpenTask: (id: string) => void;
   onOpenItem: (item: CalendarItem) => void;
 }) {
@@ -59,6 +131,7 @@ export function TodayCard({
     .filter((item) => new Date(item.end).getTime() >= now.getTime() && !calendarItemDone(item))
     .sort((a, b) => a.start.localeCompare(b.start));
   const focusing = today.focusing ?? today.pausedFocus;
+  const accent = (item: CalendarItem) => item.color ?? (item.kind.startsWith("event") ? "var(--series-2)" : "var(--primary)");
 
   return (
     <div className="flex h-full flex-col gap-3">
@@ -75,6 +148,8 @@ export function TodayCard({
         </div>
         <Meter value={share} color="var(--success)" />
       </div>
+
+      <MiniTimeline items={today.items} now={now} workingHours={workingHours} accent={accent} />
 
       {focusing ? (
         <button
@@ -106,10 +181,7 @@ export function TodayCard({
                     <span className="w-14 shrink-0 text-xs tabular-nums text-muted-foreground">
                       {item.allDay ? "All day" : formatTime(new Date(item.start))}
                     </span>
-                    <span
-                      className="h-4 w-0.5 shrink-0 rounded-full"
-                      style={{ background: item.color ?? (item.kind.startsWith("event") ? "var(--series-2)" : "var(--primary)") }}
-                    />
+                    <span className="h-4 w-0.5 shrink-0 rounded-full" style={{ background: accent(item) }} />
                     <span className="min-w-0 flex-1 truncate text-sm text-foreground">{item.title}</span>
                     {started ? <span className="shrink-0 text-[10px] uppercase tracking-wide text-primary">Now</span> : null}
                   </button>
@@ -255,7 +327,7 @@ export function StreakCard({ tasks, timeZone }: { tasks: Task[]; timeZone?: stri
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-baseline gap-4 text-xs text-muted-foreground">
         <span>
-          <span className="text-2xl font-semibold tabular-nums text-foreground">{streak.current}</span> day streak
+          <StatNumber className="text-2xl font-semibold text-foreground" value={streak.current} /> day streak
         </span>
         <span>
           Best <span className="font-medium tabular-nums text-foreground">{streak.best}</span>

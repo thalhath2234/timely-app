@@ -4,7 +4,7 @@ import { startOfWeek } from "../../../lib/format";
 import { useEffect, useMemo, useState } from "react";
 import { Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ChevronLeft, ChevronRight, Sparkles } from "lucide-react-native";
+import { ChevronLeft, ChevronRight, Hourglass, SlidersHorizontal, Sparkles } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
 import SegmentedControl from "../../../components/ui/SegmentedControl";
@@ -44,8 +44,10 @@ import { useToastStore } from "../../../lib/toast";
 import { taskDeadlineDate } from "../../../lib/taskDates";
 import type { CalendarItem, Task } from "../../../lib/types";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
+import { taskEntityColor } from "../../../lib/entityColor";
 import ScreenTip from "../../../components/ui/ScreenTip";
 import { needsNetworkCopy } from "../../../lib/queryCopy";
+import { useFabScrollInset } from "../../../components/ui/FloatingTabBar";
 
 type CalView = "day" | "week" | "agenda" | "month";
 
@@ -69,6 +71,7 @@ function calendarWindow(anchor: Date) {
 const EMPTY_ITEMS: CalendarItem[] = [];
 
 export default function CalendarScreen() {
+  const fabInset = useFabScrollInset();
   const router = useRouter();
   const [view, setView] = useState<CalView>("agenda");
   const [selected, setSelected] = useState(() => startOfDay(new Date()));
@@ -86,6 +89,7 @@ export default function CalendarScreen() {
   const [autoOpen, setAutoOpen] = useState(false);
   const [slot, setSlot] = useState<Date | null>(null);
   const [waitingOpen, setWaitingOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [scheduleTask, setScheduleTask] = useState<Task | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -248,6 +252,9 @@ export default function CalendarScreen() {
             <AnimatedPressable accessibilityLabel="Next period" onPress={() => step(1)} style={styles.navButton}>
               <ChevronRight size={20} color={colors.foreground} />
             </AnimatedPressable>
+            <HeaderIconButton label="Filters" active={Boolean(workspaceId || projectId)} onPress={() => setFiltersOpen(true)}>
+              <SlidersHorizontal size={18} color={workspaceId || projectId ? colors.primaryForeground : colors.foreground} />
+            </HeaderIconButton>
             <HeaderIconButton label="Auto-schedule" onPress={() => setAutoOpen(true)}>
               <Sparkles size={18} color={colors.primary} />
             </HeaderIconButton>
@@ -265,37 +272,6 @@ export default function CalendarScreen() {
             value={view}
             onChange={setView}
           />
-          {workspaces.length > 0 || scopedProjects.length > 0 ? (
-            <View style={styles.filters}>
-              {workspaces.length > 0 ? (
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <CalendarScopeSelect
-                    kind="spaces"
-                    value={workspaceId}
-                    options={workspaceOptions}
-                    onChange={(id) => {
-                      setWorkspaceId(id);
-                      if (projectId && !projects.some((project) => project.id === projectId && (!id || project.workspaceId === id))) {
-                        setProjectId(null);
-                      }
-                    }}
-                    onCreate={() => router.push("/(app)/settings/workspaces")}
-                  />
-                </View>
-              ) : null}
-              {scopedProjects.length > 0 ? (
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <CalendarScopeSelect
-                    kind="projects"
-                    value={projectId}
-                    onChange={setProjectId}
-                    options={projectOptions}
-                    onCreate={() => router.push("/(app)/projects")}
-                  />
-                </View>
-              ) : null}
-            </View>
-          ) : null}
         </View>
         {view !== "month" ? <DateStrip selected={selected} onSelect={setSelected} busyDays={busyDays} /> : null}
       </MobileHeader>
@@ -306,37 +282,18 @@ export default function CalendarScreen() {
           <>
             <ScreenTip screen="calendar" style={{ marginHorizontal: 16, marginTop: 8 }} />
             {waiting.length > 0 ? (
-              <View style={styles.waiting}>
-                <AnimatedPressable onPress={() => setWaitingOpen((open) => !open)} style={styles.waitingHead}>
-                  <Text style={styles.waitingTitle}>Waiting for a slot</Text>
-                  <Text style={styles.waitingCount}>{waiting.length}</Text>
-                </AnimatedPressable>
-                {waitingOpen
-                  ? waiting.map((task) => {
-                      const due = taskDeadlineDate(task);
-                      return (
-                        <View key={task.id} style={styles.waitingRow}>
-                          <AnimatedPressable onPress={() => router.push(`/(app)/tasks/${task.id}`)} style={{ flex: 1 }}>
-                            <Text style={[styles.waitingName, task.completedAt ? styles.waitingDone : null]}>{task.name}</Text>
-                            <Text style={styles.waitingMeta}>
-                              {formatDuration(task.duration) ?? "No estimate"}
-                              {due ? ` · due ${due.toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}
-                              {task.blockedById ? " · waiting on another task" : ""}
-                            </Text>
-                          </AnimatedPressable>
-                          <AnimatedPressable onPress={() => setScheduleTask(task)}>
-                            <Text style={styles.waitingAction}>Schedule</Text>
-                          </AnimatedPressable>
-                        </View>
-                      );
-                    })
-                  : null}
-              </View>
+              <AnimatedPressable accessibilityRole="button" onPress={() => setWaitingOpen(true)} style={styles.waitingBar}>
+                <Hourglass size={14} color={colors.primary} />
+                <Text style={styles.waitingBarText}>
+                  {waiting.length} waiting for a slot
+                </Text>
+                <ChevronRight size={15} color={colors.primary} />
+              </AnimatedPressable>
             ) : null}
             {view === "agenda" ? (
               <ScrollView showsVerticalScrollIndicator={false}
                 style={{ flex: 1 }}
-                contentContainerStyle={{ paddingBottom: 110 }}
+                contentContainerStyle={{ paddingBottom: fabInset }}
                 keyboardShouldPersistTaps="handled"
                 refreshControl={
                   <RefreshControl
@@ -364,6 +321,64 @@ export default function CalendarScreen() {
           </>
         )}
       </View>
+      <BottomSheet open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Filter the calendar">
+        <Text style={styles.sheetHint}>Pick a space or a project; the pick stays until you leave the tab.</Text>
+        <View style={styles.filters}>
+          {workspaces.length > 0 ? (
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <CalendarScopeSelect
+            kind="spaces"
+            value={workspaceId}
+            options={workspaceOptions}
+            onChange={(id) => {
+              setWorkspaceId(id);
+              if (projectId && !projects.some((project) => project.id === projectId && (!id || project.workspaceId === id))) {
+                setProjectId(null);
+              }
+            }}
+            onCreate={() => router.push("/(app)/settings/workspaces")}
+              />
+            </View>
+          ) : null}
+          {scopedProjects.length > 0 ? (
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <CalendarScopeSelect
+            kind="projects"
+            value={projectId}
+            onChange={setProjectId}
+            options={projectOptions}
+            onCreate={() => router.push("/(app)/projects")}
+              />
+            </View>
+          ) : null}
+        </View>
+      </BottomSheet>
+      <BottomSheet open={waitingOpen} onClose={() => setWaitingOpen(false)} title="Waiting for a slot">
+        <Text style={styles.sheetHint}>Tasks with time to find. Schedule one by hand, or let Auto-schedule place them all.</Text>
+        {waiting.map((task) => {
+          const due = taskDeadlineDate(task);
+          return (
+            <View key={task.id} style={styles.waitingRow}>
+              <View style={[styles.waitingMark, { backgroundColor: taskEntityColor(task) }]} />
+              <AnimatedPressable onPress={() => { setWaitingOpen(false); router.push(`/(app)/tasks/${task.id}`); }} style={{ flex: 1, minWidth: 0 }}>
+                <Text numberOfLines={1} style={[styles.waitingName, task.completedAt ? styles.waitingDone : null]}>{task.name}</Text>
+                <Text style={styles.waitingMeta}>
+                  {formatDuration(task.duration) ?? "No estimate"}
+                  {due ? ` · due ${due.toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}
+                  {task.blockedById ? " · waiting on another task" : ""}
+                </Text>
+              </AnimatedPressable>
+              <AnimatedPressable onPress={() => { setWaitingOpen(false); setScheduleTask(task); }}>
+                <Text style={styles.waitingAction}>Schedule</Text>
+              </AnimatedPressable>
+            </View>
+          );
+        })}
+        <AnimatedPressable accessibilityRole="button" onPress={() => { setWaitingOpen(false); setAutoOpen(true); }} style={styles.waitingAuto}>
+          <Sparkles size={15} color={colors.primary} />
+          <Text style={styles.waitingAutoText}>Auto-schedule all</Text>
+        </AnimatedPressable>
+      </BottomSheet>
       <CalendarItemSheet item={open} onClose={() => setOpen(null)} onToggleComplete={toggleComplete} onReschedule={reschedule} />
       <AutoScheduleSheet open={autoOpen} onClose={() => setAutoOpen(false)} />
       <BottomSheet open={Boolean(slot)} onClose={() => setSlot(null)} title={slot ? `New at ${formatTime(slot.toISOString())}` : "New"}>
@@ -432,22 +447,17 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   todayDisabled: { opacity: 0.5 },
   todayText: { color: colors.accentForeground, fontSize: 13, fontWeight: "600" },
-  waiting: {
-    marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 10,
-    borderRadius: 16,
-    backgroundColor: colors.muted,
-    padding: 16,
-    gap: 8,
-  },
-  waitingHead: { flexDirection: "row", alignItems: "center" },
-  waitingTitle: { flex: 1, color: colors.foreground, fontSize: 15, fontWeight: "600" },
-  waitingCount: { color: colors.primary, fontSize: 11, fontWeight: "600", borderRadius: 10, backgroundColor: colors.accent, paddingHorizontal: 7, paddingVertical: 3 },
-  waitingRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  // One slim line instead of a card; the list opens as a sheet.
+  waitingBar: { marginHorizontal: 16, marginTop: 8, marginBottom: 4, minHeight: 36, borderRadius: 12, backgroundColor: colors.accent, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12 },
+  waitingBarText: { flex: 1, color: colors.accentForeground, fontSize: 13, fontWeight: "600" },
+  sheetHint: { color: colors.mutedForeground, fontSize: 12, lineHeight: 18, marginBottom: 12 },
+  waitingRow: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 48, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  waitingMark: { width: 3, height: 26, borderRadius: 2 },
+  waitingAuto: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, minHeight: 46, borderRadius: 14, backgroundColor: colors.accent, marginTop: 12 },
+  waitingAutoText: { color: colors.accentForeground, fontSize: 13, fontWeight: "600" },
   waitingName: { color: colors.foreground, fontSize: 14, fontWeight: "500" },
   waitingDone: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   waitingMeta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
   waitingAction: { color: colors.primary, fontSize: 13, fontWeight: "600" },
-  filters: { flexDirection: "row", gap: 8 },
+  filters: { gap: 10 },
 }));

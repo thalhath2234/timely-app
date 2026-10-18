@@ -1,4 +1,5 @@
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import ListEnter from "../../components/ui/ListEnter";
 import { useRouter } from "expo-router";
 import { Bell, X } from "lucide-react-native";
 import { useState } from "react";
@@ -7,7 +8,8 @@ import MobileHeader from "../../components/ui/MobileHeader";
 import EmptyState from "../../components/ui/EmptyState";
 import AnimatedPressable from "../../components/ui/AnimatedPressable";
 import { Button } from "../../components/ui/primitives";
-import { formatDateAndTime } from "../../lib/format";
+import { formatShortDate, formatTime } from "../../lib/format";
+import { ListGroup } from "../../components/settings/SettingsList";
 import ConfirmSheet from "../../components/ui/ConfirmSheet";
 import {
   useClearNotifications,
@@ -83,6 +85,18 @@ function alertStep(item: AppNotification): AlertStep | null {
   return typeof step === "string" && step in ALERT_STEP_LABEL ? (step as AlertStep) : null;
 }
 
+/** "Today", "Yesterday" or the date, for the card a notification sits in. */
+function dayLabel(iso: string, now: Date) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "Earlier";
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const diff = Math.round((start - day) / 86_400_000);
+  if (diff <= 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  return formatShortDate(iso);
+}
+
 function tomorrowNine() {
   const next = new Date();
   next.setDate(next.getDate() + 1);
@@ -104,6 +118,14 @@ export default function NotificationsScreen() {
   const items = list.data ?? [];
   const networkCopy = needsNetworkCopy(list);
   const [confirmClear, setConfirmClear] = useState(false);
+  const now = new Date();
+  const days: { label: string; items: AppNotification[] }[] = [];
+  for (const item of items) {
+    const label = dayLabel(item.createdAt, now);
+    const last = days[days.length - 1];
+    if (last && last.label === label) last.items.push(item);
+    else days.push({ label, items: [item] });
+  }
 
   return (
     <Screen>
@@ -155,12 +177,18 @@ export default function NotificationsScreen() {
             compact
           />
         ) : (
-          items.map((item) => {
-            const href = routeFor(item);
-            const steps = triageSteps(item, smart);
-            return (
-              <View key={item.id} style={[styles.row, !item.readAt && styles.unread]}>
+          days.map((day) => (
+            <View key={day.label} style={styles.day}>
+              <Text style={styles.dayLabel}>{day.label}</Text>
+              <ListGroup>
+                {day.items.map((item, index) => {
+                  const href = routeFor(item);
+                  const steps = triageSteps(item, smart);
+                  return (
+              <ListEnter key={item.id} index={index}>
+              <View style={[styles.row, !item.readAt && styles.unread]}>
                 <View style={styles.head}>
+                  <View style={[styles.dot, item.readAt && { opacity: 0 }]} />
                   <AnimatedPressable
                     style={styles.headText}
                     onPress={() => {
@@ -168,12 +196,13 @@ export default function NotificationsScreen() {
                       router.push(href as never);
                     }}
                   >
-                    <Text style={styles.title}>{item.title}</Text>
-                    {item.body ? <Text style={styles.meta}>{item.body}</Text> : null}
-                    <Text style={styles.stamp}>
-                      {item.category.charAt(0).toUpperCase() + item.category.slice(1)} · {formatDateAndTime(item.createdAt)}
+                    <Text numberOfLines={1} style={[styles.title, !item.readAt && styles.titleUnread]}>{item.title}</Text>
+                    <Text numberOfLines={1} style={styles.meta}>
+                      {item.category.charAt(0).toUpperCase() + item.category.slice(1)}
+                      {item.body ? ` · ${item.body}` : ""}
                     </Text>
                   </AnimatedPressable>
+                  <Text style={styles.stamp}>{formatTime(item.createdAt)}</Text>
                   <AnimatedPressable
                     accessibilityRole="button"
                     accessibilityLabel="Dismiss"
@@ -267,8 +296,12 @@ export default function NotificationsScreen() {
                   </View>
                 ) : null}
               </View>
-            );
-          })
+              </ListEnter>
+                  );
+                })}
+              </ListGroup>
+            </View>
+          ))
         )}
       </ScrollView>
       <ConfirmSheet
@@ -341,23 +374,20 @@ function SmartAlert({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  body: { padding: 16, gap: 10, paddingBottom: 40 },
+  body: { padding: 16, gap: 14, paddingBottom: 40 },
   toolbar: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", gap: 8 },
-  row: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    padding: 12,
-    gap: 8,
-    backgroundColor: colors.card,
-  },
-  unread: { borderColor: colors.primary },
-  head: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  headText: { flex: 1 },
-  dismiss: { padding: 2 },
-  title: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
-  meta: { color: colors.mutedForeground, fontSize: 13, marginTop: 4 },
-  stamp: { color: colors.mutedForeground, fontSize: 12, marginTop: 6 },
+  day: { gap: 6 },
+  dayLabel: { color: colors.foreground, fontSize: 13, fontWeight: "600", paddingHorizontal: 4 },
+  row: { paddingHorizontal: 12, paddingVertical: 8, gap: 8, minHeight: 56, justifyContent: "center" },
+  unread: { backgroundColor: `${colors.primary}0a` },
+  head: { flexDirection: "row", alignItems: "center", gap: 10 },
+  headText: { flex: 1, minWidth: 0 },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary },
+  dismiss: { padding: 4 },
+  title: { color: colors.foreground, fontSize: 15, fontWeight: "500" },
+  titleUnread: { fontWeight: "600" },
+  meta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
+  stamp: { color: colors.mutedForeground, fontSize: 12, fontVariant: ["tabular-nums"] },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: {
     borderWidth: 1,

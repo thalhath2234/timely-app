@@ -1,5 +1,8 @@
 "use client";
 
+import { StrikeTitle, TaskCheck } from "@/app/_components/_ui/taskCheck";
+import { motion } from "motion/react";
+import { revealProps } from "@/app/_components/_ui/motion";
 import {
   Fragment,
   useCallback,
@@ -16,7 +19,6 @@ import { createPortal } from "react-dom";
 import {
   ArrowLeftToLine,
   ArrowRightToLine,
-  Check,
   ChevronDown,
   ChevronRight,
   CopyCheck,
@@ -437,7 +439,7 @@ function buildNestedGroups(
     )
     .map(([label, group]) => {
       const nodeKey = parentKey ? `${parentKey}::${label}` : label;
-      const children = buildNestedGroups(
+      let children = buildNestedGroups(
         group.rows,
         groupFields,
         groupSortDirection,
@@ -448,6 +450,12 @@ function buildNestedGroups(
         depth + 1,
         nodeKey
       );
+      // A single "No stage" (or other empty) sub-group under a group adds a
+      // header and an indent without splitting anything: its rows sit
+      // straight under the parent instead.
+      if (children.length === 1 && isPlaceholderGroup(children[0].label, children[0].field)) {
+        children = children[0].children;
+      }
 
       return {
         key: nodeKey,
@@ -1076,13 +1084,12 @@ export default function TasksTable({
           >
             <span className="inline-flex min-w-0 items-center gap-2">
               {dataMode === "task" ? (
-                <button
-                  type="button"
-                  role="checkbox"
-                  aria-checked={completed}
-                  aria-label={`${completed ? "Reopen" : "Complete"} ${task.name}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
+                <TaskCheck
+                  checked={completed}
+                  size={16}
+                  stopPropagation
+                  label={`${completed ? "Reopen" : "Complete"} ${task.name}`}
+                  onToggle={() => {
                     const next = completed ? "" : new Date().toISOString();
                     const previous = {
                       completedAt: task.completedAt ?? "",
@@ -1105,21 +1112,18 @@ export default function TasksTable({
                         useToastStore.getState().show("Could not update task");
                       });
                   }}
-                  className={cn("flex size-4 shrink-0 items-center justify-center rounded-full border", completed ? "border-success bg-success text-white" : "border-muted-foreground hover:border-primary")}
-                >
-                  {completed ? <Check className="size-3" aria-hidden /> : null}
-                </button>
+                />
               ) : <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: taskEntityColor(task) }} aria-hidden />}
-              <span
+              <StrikeTitle
+                done={completed}
                 data-entity-title={
                   task.id.startsWith("project-")
                     ? entityTitleKey("project", task.id.slice("project-".length))
                     : entityTitleKey("task", task.id)
                 }
-                className={cn("truncate", completed && "line-through")}
               >
                 {task.name}
-              </span>
+              </StrikeTitle>
             </span>
           </td>
         );
@@ -1375,16 +1379,17 @@ export default function TasksTable({
 
         <tbody>
           {groupFields.length === 0 &&
-            sortedTasks.map((task) => (
-              <tr
+            sortedTasks.map((task, index) => (
+              <motion.tr
                 key={task.id}
+                {...revealProps(index)}
                 onClick={() => onSelectRow(task)}
                 onContextMenu={(event) => onRowContextMenu(event, task)}
                 className="group cursor-pointer bg-background transition-colors hover:bg-muted"
               >
                 {selectCell(task)}
                 {renderTaskCells(task, 0)}
-              </tr>
+              </motion.tr>
             ))}
 
           {groupFields.length > 0 &&
@@ -1500,16 +1505,17 @@ export default function TasksTable({
                     {!isCollapsed &&
                       (node.children.length > 0
                         ? node.children.map((child) => renderNode(child))
-                        : node.rows.map((task) => (
-                            <tr
+                        : node.rows.map((task, index) => (
+                            <motion.tr
                               key={task.id}
+                              {...revealProps(index)}
                               onClick={() => onSelectRow(task)}
                               onContextMenu={(event) => onRowContextMenu(event, task)}
                               className="group cursor-pointer bg-background transition-colors hover:bg-muted"
                             >
                               {selectCell(task)}
                               {renderTaskCells(task, node.depth + 1)}
-                            </tr>
+                            </motion.tr>
                           ))) }
                   </Fragment>
                 );

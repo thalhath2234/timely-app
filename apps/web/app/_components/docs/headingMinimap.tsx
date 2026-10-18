@@ -3,7 +3,7 @@
 import { Editor } from "@tiptap/react";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
-interface HeadingEntry {
+export interface HeadingEntry {
   pos: number;
   level: number;
   text: string;
@@ -57,9 +57,9 @@ function headingElement(editor: Editor, pos: number) {
   return dom instanceof HTMLElement ? dom : null;
 }
 
-/** A strip of lines at the edge of a doc, one per H1–H3, that jumps to the
- * heading on click and shows its text on hover. */
-export default function HeadingMinimap({ editor }: { editor: Editor | null }) {
+/** The doc's H1–H3 headings, the one being read (following the scroll),
+ * and a jump to any of them. Shared by the minimap strip and the outline. */
+export function useDocHeadings(editor: Editor | null) {
   const [activePos, setActivePos] = useState<number | null>(null);
 
   // Transactions also cover remote reloads, which skip the update event. The
@@ -112,6 +112,22 @@ export default function HeadingMinimap({ editor }: { editor: Editor | null }) {
     };
   }, [editor, updateActive]);
 
+  const goTo = useCallback(
+    (pos: number) => {
+      if (!editor || editor.isDestroyed) return;
+      headingElement(editor, pos)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setActivePos(pos);
+    },
+    [editor],
+  );
+
+  return { headings, activePos, goTo };
+}
+
+/** A strip of lines at the edge of a doc, one per H1–H3, that jumps to the
+ * heading on click and shows its text on hover. */
+export default function HeadingMinimap({ editor }: { editor: Editor | null }) {
+  const { headings, activePos, goTo } = useDocHeadings(editor);
   if (!editor || headings.length === 0) return null;
 
   const widths = widthsByLevel(headings);
@@ -130,13 +146,7 @@ export default function HeadingMinimap({ editor }: { editor: Editor | null }) {
             type="button"
             aria-label={heading.text || `Heading ${heading.level}`}
             aria-current={isActive ? "location" : undefined}
-            onClick={() => {
-              headingElement(editor, heading.pos)?.scrollIntoView({
-                behavior: "smooth",
-                block: "start",
-              });
-              setActivePos(heading.pos);
-            }}
+            onClick={() => goTo(heading.pos)}
             className={`group relative flex cursor-pointer items-center justify-end pl-2 ${spacing}`}
           >
             <span

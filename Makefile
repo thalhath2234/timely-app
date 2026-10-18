@@ -31,7 +31,7 @@ GOOSE_MIGRATIONS := goose -dir $(API)/migrations postgres $(GOOSE_DBSTRING)
 GOOSE_SEEDS      := goose -dir $(API)/migrations/seeds postgres $(GOOSE_DBSTRING)
 
 .PHONY: help setup setup-env install tools install-air install-goose \
-        dev dev-api dev-web film-studio film-render dev-mobile dev-mobile-device dev-desktop launch-electron \
+        dev dev-api dev-web film-studio film-render film-render-loops film-render-stills dev-mobile dev-mobile-device dev-desktop launch-electron \
         dev-worktree dev-worktree-api dev-worktree-web \
         build build-api build-web build-desktop dist-desktop stage-desktop dev-desktop-hosted build-apk install-apk apk-status \
         emu-start emu-stop emu-status \
@@ -80,6 +80,12 @@ film-studio: ## Open the landing-page film (Remotion Studio) for editing
 
 film-render: ## Render the landing-page film to apps/web/out/timely-film.mp4
 	@pnpm --filter @timely/web film:render
+
+film-render-loops: ## Render the empty-state loops to apps/mobile/assets/loops/*.webp (needs ffmpeg with libwebp)
+	@pnpm --filter @timely/web film:render-loops
+
+film-render-stills: ## Render the help-centre stills to apps/web/public/help/film/*.webp (needs ffmpeg with libwebp)
+	@pnpm --filter @timely/web film:render-stills
 
 dev-worktree: ## Run API (:8081) and web (:4002) together in this worktree
 	@$(MAKE) -j2 --no-print-directory dev-worktree-api dev-worktree-web

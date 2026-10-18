@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Fill } from "../../../components/ui/motionKit";
+import ListEnter from "../../../components/ui/ListEnter";
 import { FolderKanban, Plus } from "lucide-react-native";
 import { Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -10,7 +12,6 @@ import DateTimeSheet from "../../../components/ui/DateTimeSheet";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import { ListGroup, ListRow } from "../../../components/settings/SettingsList";
 import { Field, PrimaryButton } from "../../../components/ui/primitives";
-import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import { useInvalidateAll, useProjectsQuery, useTasksQuery, useWorkspacesQuery } from "../../../lib/hooks";
 import { ProjectStartChoices, createProjectWithStart, useProjectStart } from "../../../components/projects/ProjectStart";
 import type { CreateProjectPayload } from "../../../lib/api/projects";
@@ -19,10 +20,6 @@ import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { formatShortDate, toDateInputValue } from "../../../lib/format";
 import type { Project, Task } from "../../../lib/types";
 import { FocusGroupScrollView } from "../../../components/ui/FocusGroup";
-
-function capitalize(value: string) {
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
 
 function statsFor(project: Project, tasks: Task[]) {
   const scoped = tasks.filter((task) => task.projectId === project.id && (task.duration ?? 0) > 0);
@@ -83,8 +80,9 @@ export default function ProjectsScreen() {
               <>
                 <EmptyState
                   icon={FolderKanban}
+                  loop="project"
                   title="No projects yet"
-                  description={spaces.length ? "Create a project to group tasks, stages, and deadlines." : "Create a workspace first, then add a project here."}
+                  description={spaces.length ? "A project groups tasks under stages, labels and a deadline, as a list or a board." : "Create a workspace first, then add a project here."}
                 />
                 {spaces.length ? (
                   <ListGroup>
@@ -93,35 +91,38 @@ export default function ProjectsScreen() {
                 ) : null}
               </>
             ) : (
-              visibleProjects.map((project) => {
-                const stats = statsFor(project, tasks);
-                return (
-                  <AnimatedPressable
-                    key={project.id}
-                    onPress={() => router.push(`/(app)/projects/${project.id}`)}
-                    style={[styles.card, { borderLeftWidth: 3, borderLeftColor: resolvedColor(project.color, project.id) }]}
-                  >
-                    <Text style={styles.title}>{project.title || "Untitled project"}</Text>
-                    {project.status?.name || project.priorityLevel ? (
-                      <Text style={styles.meta}>
-                        {[project.status?.name, project.priorityLevel ? capitalize(project.priorityLevel) : ""].filter(Boolean).join(" · ")}
-                      </Text>
-                    ) : null}
-                    <View style={styles.bar}>
-                      <View
-                        style={[
-                          styles.fill,
-                          { width: `${stats.total ? Math.round((stats.completed / stats.total) * 100) : 0}%` },
-                        ]}
-                      />
-                    </View>
-                    <Text style={styles.meta}>
-                      {stats.open} open · {stats.completed}/{stats.total} done
-                      {project.deadline ? ` · Due ${formatShortDate(`${project.deadline.slice(0, 10)}T12:00:00`)}` : ""}
-                    </Text>
-                  </AnimatedPressable>
-                );
-              })
+              <ListGroup testID="projects-list">
+                {visibleProjects.map((project, index) => {
+                  const stats = statsFor(project, tasks);
+                  const color = resolvedColor(project.color, project.id);
+                  const share = stats.total ? stats.completed / stats.total : 0;
+                  const meta = [
+                    `${stats.open} open`,
+                    project.deadline ? `Due ${formatShortDate(`${project.deadline.slice(0, 10)}T12:00:00`)}` : "",
+                    project.status?.name ?? "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ");
+                  return (
+                    <ListEnter key={project.id} index={index}>
+                    <ListRow
+                      title={project.title || "Untitled project"}
+                      meta={meta}
+                      leading={<View style={[styles.tint, { backgroundColor: color }]} />}
+                      trailing={
+                        <View style={styles.progress}>
+                          <Fill value={share} color={color} height={4} style={{ width: 56 }} />
+                          <Text style={styles.count}>
+                            {stats.completed}/{stats.total}
+                          </Text>
+                        </View>
+                      }
+                      onPress={() => router.push(`/(app)/projects/${project.id}`)}
+                    />
+                    </ListEnter>
+                  );
+                })}
+              </ListGroup>
             )}
           </>
         )}
@@ -220,19 +221,12 @@ export default function ProjectsScreen() {
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  card: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    padding: 14,
-    gap: 6,
-  },
-  title: { color: colors.foreground, fontSize: 16, fontWeight: "600" },
-  meta: { color: colors.mutedForeground, fontSize: 12 },
   error: { color: colors.destructive, fontSize: 12 },
   sheetBody: { gap: 10, paddingBottom: 4 },
   titleCard: { borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, paddingHorizontal: 14, paddingVertical: 12 },
-  bar: { height: 6, borderRadius: 999, backgroundColor: colors.muted, overflow: "hidden" },
-  fill: { height: "100%", backgroundColor: colors.primary },
+  tint: { width: 3, height: 28, borderRadius: 2 },
+  progress: { alignItems: "flex-end", gap: 4, marginRight: 2 },
+  bar: { width: 56, height: 4, borderRadius: 999, backgroundColor: colors.muted, overflow: "hidden" },
+  fill: { height: "100%", borderRadius: 999 },
+  count: { color: colors.mutedForeground, fontSize: 11, fontVariant: ["tabular-nums"] },
 }));

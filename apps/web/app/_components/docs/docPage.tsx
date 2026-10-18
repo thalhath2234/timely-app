@@ -8,6 +8,7 @@ import { ChevronRight, Archive, Download, FileDown, FileText, History, LayoutTem
 import { exportDocPdf } from "@/app/utils/printDoc";
 import RichTextEditor from "@/app/_components/editor/richTextEditor";
 import HeadingMinimap from "@/app/_components/docs/headingMinimap";
+import DocOutline from "@/app/_components/docs/docOutline";
 import RelatedItems from "@/app/_components/_ui/relatedItems";
 import Backlinks from "@/app/_components/docs/backlinks";
 import DocHistory from "@/app/_components/docs/docHistory";
@@ -37,8 +38,9 @@ import { readMarkdownFile } from "@/app/utils/importMarkdown";
 import { fileHref, FILES_PATH } from "@/app/utils/fileRoutes";
 import { buttonClass } from "@/app/_components/_ui/button";
 
-/** Page width (px) from which the doc gets the toolbar rail and margin
- * suggestions: room for the rail, the doc and an 18rem margin. */
+/** Page width (px) from which the doc gets the toolbar rail, the outline
+ * card and margin suggestions: room for the rail, the doc and an 18rem
+ * right column. */
 const MARGIN_LAYOUT_WIDTH = 1024;
 
 /** Whether an element is at least `width` px wide, following resizes. */
@@ -537,8 +539,13 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
             </div>
           </div>
 
-          {/* In the margin beside their lines on a wide page, above the text otherwise (globals.css). */}
+          {/* On a wide page the outline card, then the suggestions beside their lines; above the text otherwise (globals.css). */}
           <aside ref={setMarginHost} className="doc-page-rail" aria-label="Suggestions">
+            {wide && (
+              <div className="sticky top-4 z-10 mb-4">
+                <DocOutline editor={editor} wordCount={wordCount} updatedAt={doc.updatedAt} subpages={descendantCount} />
+              </div>
+            )}
             {/* Rechecks once an empty doc gets a title or text, then as it grows by about fifty words. */}
             <DocHints
               doc={doc}
@@ -568,7 +575,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
         </div>
       </div>
 
-      <HeadingMinimap editor={editor} />
+      {!wide && <HeadingMinimap editor={editor} />}
 
       {isHistoryOpen && (
         <DocHistory

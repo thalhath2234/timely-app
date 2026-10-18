@@ -1,4 +1,7 @@
+import { useState } from "react";
 import { ScrollView, Text, View } from "react-native";
+import Animated, { useReducedMotion } from "react-native-reanimated";
+import { listEntering, listLayout } from "../../lib/motion";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CalendarItem } from "../../lib/types";
 import { addDays, dayKey, isSameDay, startOfDay, startOfWeek } from "../../lib/format";
@@ -21,6 +24,10 @@ export default function MobileWeek({
   onEmptyDay?: (date: Date) => void;
 }) {
   const insets = useSafeAreaInsets();
+  // Items present at first render sit still; ones auto-schedule (or a drop)
+  // adds later arrive in turn while the rest make room (motion catalogue 7).
+  const [firstIds] = useState(() => new Set(items.map((item) => item.id)));
+  const reduceMotion = useReducedMotion();
   const weekStart = startOfWeek(selected);
   const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
   const byDay = new Map<string, CalendarItem[]>();
@@ -54,7 +61,11 @@ export default function MobileWeek({
             {dayItems.length === 0 ? (
               <Text style={styles.empty}>Tap and hold to add</Text>
             ) : (
-              dayItems.slice(0, 6).map((item) => <AgendaTimelineRow key={item.id} item={item} onOpen={onOpen} />)
+              dayItems.slice(0, 6).map((item, index) => (
+                <Animated.View key={item.id} entering={firstIds.has(item.id) ? undefined : listEntering(index, reduceMotion)} layout={listLayout(reduceMotion)}>
+                  <AgendaTimelineRow item={item} onOpen={onOpen} />
+                </Animated.View>
+              ))
             )}
             {dayItems.length > 6 ? <Text style={styles.more}>+{dayItems.length - 6} more</Text> : null}
           </AnimatedPressable>

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { AlertTriangle, ArrowUpRight, Info, Lightbulb } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/app/utils/cn";
+import { STILLS, type StillId } from "@/app/_components/film/stills";
 import CopyButton from "./copyButton";
 
 /** Building blocks for help articles. Screenshots live in public/help. */
@@ -26,6 +27,12 @@ export function Shot({ src, alt, caption, size = DESKTOP }: { src: string; alt: 
       {caption ? <figcaption className="s-faint mt-2.5 text-center text-sm">{caption}</figcaption> : null}
     </figure>
   );
+}
+
+/** A frame of the landing film (film/stills.ts), rendered by `make film-render-stills`; it never goes stale with a screenshot run. */
+export function Still({ id, alt, caption }: { id: StillId; alt: string; caption?: ReactNode }) {
+  const { width, height } = STILLS[id];
+  return <Shot src={`film/${id}`} alt={alt} caption={caption} size={{ width, height }} />;
 }
 
 export function PhoneShots({ shots, caption }: { shots: { src: string; alt: string }[]; caption?: ReactNode }) {

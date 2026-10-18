@@ -1,7 +1,8 @@
 import { Easing, interpolate } from "remotion";
+import { motion as MOTION } from "@timely/contract/designTokens";
 
-/** Fast out, long settle: the site's one easing. */
-export const EASE = Easing.bezier(0.16, 1, 0.3, 1);
+/** Fast out, long settle: the one easing the film shares with the app (designTokens.motion). */
+export const EASE = Easing.bezier(...MOTION.ease);
 
 const CLAMP = { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: EASE } as const;
 
@@ -18,13 +19,13 @@ export function fade(frame: number, start: number, duration = 12, end?: number) 
 }
 
 /** Style for an element that rises into place: fades in while moving up `distance` px. */
-export function rise(frame: number, start: number, duration = 16, distance = 14) {
+export function rise(frame: number, start: number, duration: number = MOTION.frames.reveal, distance: number = MOTION.revealDistance) {
   const p = progress(frame, start, duration);
   return { opacity: p, translate: `0px ${(1 - p) * distance}px` };
 }
 
 /** Style for an element that pops in from slightly smaller. */
-export function pop(frame: number, start: number, duration = 14) {
+export function pop(frame: number, start: number, duration: number = MOTION.frames.pop) {
   const p = progress(frame, start, duration);
   return { opacity: p, scale: `${0.94 + 0.06 * p}` };
 }

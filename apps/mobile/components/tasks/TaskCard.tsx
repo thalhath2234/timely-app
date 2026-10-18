@@ -1,7 +1,8 @@
 import { memo, type ReactNode } from "react";
-import { Pressable, Text, View } from "react-native";
+import { StrikeTitle, TaskCheck } from "../ui/motionKit";
+import { Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { CalendarDays, Check } from "lucide-react-native";
+import { CalendarDays } from "lucide-react-native";
 import type { Task } from "../../lib/types";
 import { formatDateAndTime, formatDueDate, formatDuration, formatRelativeStamp, PRIORITY_META } from "../../lib/format";
 import { isOverdue } from "@timely/contract/workStatus";
@@ -52,25 +53,18 @@ function TaskCard({
   return (
     <View style={[styles.card, selected && styles.selected]}>
       <View style={[styles.bar, { backgroundColor: accent }]} />
-      <Pressable
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked: done }}
-        onPress={() => onToggle(task)}
-        style={styles.check}
-      >
-        <View style={[styles.box, done && styles.boxOn]}>
-          {done ? <Check size={12} color={colors.background} /> : null}
-        </View>
-      </Pressable>
+      <TaskCheck checked={done} onToggle={() => onToggle(task)} label={`${done ? "Reopen" : "Complete"} ${task.name}`} style={styles.check} />
       <AnimatedPressable
         onPress={() => (selecting && onSelect ? onSelect(task) : router.push(`/(app)/tasks/${task.id}`))}
         onLongPress={() => onSelect?.(task)}
         style={[styles.body, trailing ? styles.bodyWithTrailing : null]}
       >
         <View style={styles.titleRow}>
-          <Text numberOfLines={2} style={[styles.name, done && styles.done]}>
-            {task.name}
-          </Text>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <StrikeTitle done={done} style={styles.name}>
+              {task.name}
+            </StrikeTitle>
+          </View>
           {durationLabel ? <Text style={styles.duration}>{durationLabel}</Text> : null}
         </View>
         <View style={styles.meta}>
