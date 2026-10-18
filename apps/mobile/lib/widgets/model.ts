@@ -27,6 +27,9 @@ import {
   journalPrompt,
   MATRIX_LABELS,
   nextUp,
+  POMODORO_MAX_MS,
+  POMODORO_PHASE_MAX,
+  POMODORO_PHASE_SETTING,
   pomodoroRemaining,
   pomodoroSettings,
   priorityMatrix,
@@ -64,6 +67,8 @@ export type WidgetRow = {
   uri?: string;
   /** Tapping the checkbox does this in place (the rest of the row still opens `uri`). */
   toggle?: WidgetAction;
+  /** A table row's other cells, one per column after the first (blank cells stay, so columns line up). */
+  cells?: string[];
 };
 
 export type WidgetGlyph = "play" | "pause" | "skip" | "reset" | "plus" | "minus" | "lap" | "inbox";
@@ -87,6 +92,10 @@ export type WidgetModel = {
   caption?: string;
   captionTone?: WidgetTone;
   rows?: WidgetRow[];
+  /** A table's column names, over its rows' title and cells. */
+  columns?: string[];
+  /** Rows that don't fit scroll inside the widget instead of being cut off. */
+  scroll?: boolean;
   bars?: { label: string; value: number; highlight?: boolean }[];
   /** Draws `bars` as a line instead (a line chart card). */
   line?: boolean;
@@ -94,6 +103,10 @@ export type WidgetModel = {
   meters?: { label: string; value: number; detail?: string }[];
   note?: string;
   buttons?: WidgetButton[];
+  /** Tabs over the figure (a pomodoro's phases); tapping one runs its action in place. */
+  tabs?: { label: string; selected: boolean; action: WidgetAction }[];
+  /** −/+ beside the tabs; a side is missing at its limit. */
+  stepper?: { minus?: WidgetAction; plus?: WidgetAction; unit: string };
   /** Makes `value` a live clock. */
   timer?: WidgetTimer;
   /** Shown when there's nothing to draw. */
@@ -224,6 +237,9 @@ export function todayModel(input: WidgetInput, title = "Today"): WidgetModel {
   };
 }
 
+/** A table widget lists at most this many rows (a widget list is drawn up front, not as it scrolls). */
+const TABLE_ROWS = 100;
+
 function sheetModel(pick: SheetPick, input: WidgetInput, title: string, cardId: string): WidgetModel {
   const uri = link(input.scheme, `sheets/${pick.sheetId}`);
   const sheet = input.files?.sheets?.[pick.sheetId];
@@ -256,16 +272,21 @@ function sheetModel(pick: SheetPick, input: WidgetInput, title: string, cardId: 
         uri,
         ring: { value: result.value, target: result.target, label: `${result.valueText} of ${result.targetText}` },
       };
-    case "table":
+    case "table": {
+      // Every row and column: rows that don't fit scroll inside the widget.
+      const rows = result.rows
+        .filter((cells) => cells.some((cell) => cell.text.trim()))
+        .slice(0, TABLE_ROWS)
+        .map((cells) => ({ title: cells[0]?.text ?? "", cells: cells.slice(1).map((cell) => cell.text) }));
       return {
         title,
         uri,
-        rows: result.rows.slice(0, 8).map((cells) => {
-          const [first, ...rest] = cells.filter((cell) => cell.text.trim());
-          return { title: first?.text ?? "", meta: rest.slice(-1)[0]?.text };
-        }),
-        empty: result.rows.length ? undefined : "No rows yet.",
+        rows,
+        columns: result.headers ?? undefined,
+        scroll: true,
+        empty: rows.length ? undefined : "No rows yet.",
       };
+    }
     case "chart": {
       const points = result.series[0]?.points ?? [];
       if (result.view === "pie") {
@@ -412,6 +433,8 @@ function customModel(card: DashboardCard, input: WidgetInput, title: string): Wi
 }
 
 const PHASE_LABEL = { focus: "Focus", short: "Short break", long: "Long break" } as const;
+/** Tab labels short enough for three across a widget. */
+const PHASE_TAB = { focus: "Focus", short: "Short", long: "Long" } as const;
 
 /** A pomodoro card: a live countdown with Start, Pause, Skip and Reset right on the widget. */
 function pomodoroModel(card: DashboardCard, input: WidgetInput, title: string): WidgetModel {
@@ -422,8 +445,20 @@ function pomodoroModel(card: DashboardCard, input: WidgetInput, title: string): 
   const phase = timer?.phase ?? "focus";
   const running = Boolean(timer && timer.endsAt !== null);
   const paused = Boolean(timer && !running && timer.active);
-  const left = running ? Math.max(0, (timer!.endsAt ?? 0) - now) : (timer?.leftMs ?? pomodoroRemaining(initialPomodoro(), pomodoroSettings(card.settings), now));
+  const settings = pomodoroSettings(card.settings);
+  // A phase that hasn't started is as long as the card says (the widget may just have changed it).
+  const left = running
+    ? Math.max(0, (timer!.endsAt ?? 0) - now)
+    : paused
+      ? (timer?.leftMs ?? 0)
+      : pomodoroRemaining({ ...initialPomodoro(), phase }, settings, now);
   const action = (op: "start" | "pause" | "skip" | "reset") => ({ kind: "pomodoro" as const, cardId, op });
+  // As on the Dashboard: before a phase starts −/+ change its length, once it runs this round only.
+  const waiting = !running && !paused;
+  const length = settings[POMODORO_PHASE_SETTING[phase]];
+  const canLower = waiting ? length > 1 : left > 60_000;
+  const canRaise = waiting ? length < POMODORO_PHASE_MAX[phase] : left < POMODORO_MAX_MS;
+  const step = (by: number) => ({ kind: "pomodoroStep" as const, cardId, by });
   const task = timer?.taskName ? ` · ${timer.taskName}` : "";
   return {
     title,
@@ -432,6 +467,12 @@ function pomodoroModel(card: DashboardCard, input: WidgetInput, title: string): 
     timer: { base: running ? (timer!.endsAt ?? now) : now + left, countDown: true, running },
     caption: running ? `${PHASE_LABEL[phase]}${task}` : paused ? `Paused · ${PHASE_LABEL[phase]}` : `${PHASE_LABEL[phase]}${task}`,
     captionTone: running ? "accent" : "muted",
+    tabs: (["focus", "short", "long"] as const).map((each) => ({
+      label: PHASE_TAB[each],
+      selected: each === phase,
+      action: { kind: "pomodoroPhase" as const, cardId, phase: each },
+    })),
+    stepper: { minus: canLower ? step(-1) : undefined, plus: canRaise ? step(1) : undefined, unit: "a minute" },
     buttons: running
       ? [
           { label: "Pause", glyph: "pause", action: action("pause") },
@@ -442,7 +483,11 @@ function pomodoroModel(card: DashboardCard, input: WidgetInput, title: string): 
             { label: "Resume", glyph: "play", action: action("start") },
             { label: "Reset", glyph: "reset", action: action("reset") },
           ]
-        : [{ label: phase === "focus" ? "Start focus" : "Start break", glyph: "play", action: action("start") }],
+        : [
+            { label: phase === "focus" ? "Start focus" : "Start break", glyph: "play", action: action("start") },
+            // As on the Dashboard: a waiting phase can be skipped, so a break isn't the only way on.
+            { label: "Skip", glyph: "skip", action: action("skip") },
+          ],
   };
 }
 

@@ -24,7 +24,9 @@ const required = [{ label: "connect route", test: (s) => s.includes("connect.tsx
 
 const forbidden = [
   { label: "ngrok URL", test: (s) => /ngrok(?:-free)?\.(?:app|io|dev)/.test(s) },
-  { label: "Android emulator loopback (10.0.2.2)", test: (s) => s.includes("10.0.2.2") },
+  // The bare host is allowed: lib/server/config.ts names it when deciding which
+  // addresses need https. Only an address the app would call is a leak.
+  { label: "Android emulator loopback (http://10.0.2.2)", test: (s) => /https?:\/\/10\.0\.2\.2/.test(s) },
   { label: "http://localhost:8080", test: (s) => s.includes("http://localhost:8080") },
   { label: "http://127.0.0.1:8080", test: (s) => s.includes("http://127.0.0.1:8080") },
 ];

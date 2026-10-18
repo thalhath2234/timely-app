@@ -7,6 +7,8 @@ const { withAndroidManifest, withDangerousMod, withMainActivity, withStringsXml,
  * - MainActivity tells the predictive back callback when React Native runs its
  *   own default Back, so that Back doesn't loop back into the callback.
  * - Long-pressing the launcher icon offers New task, Capture, Ask Timely and Search.
+ * - MainActivity keeps the newest link as its intent, so a widget tap or
+ *   shortcut that wakes the app after Android killed it still opens its screen.
  */
 
 const BACK_HOOK = "expo.modules.timelyandroid.TimelyBack";
@@ -36,6 +38,36 @@ function withDefaultBackHook(config) {
   }
 ${src.slice(end)}`;
     }
+    mod.modResults.contents = src;
+    return mod;
+  });
+}
+
+const NEW_INTENT_HOOK = "timelyKeepNewestIntent";
+
+/**
+ * After Android kills the app in the background, the next widget tap or
+ * shortcut recreates MainActivity with the intent it first started with (the
+ * launcher icon, or an older link) and hands the new link to onNewIntent before
+ * React Native is running, which drops it. JS then reads the stale intent as
+ * the initial URL and the tap opens the wrong screen. Keeping the newest intent
+ * makes Linking.getInitialURL() return the link that was actually tapped.
+ */
+function withNewIntentHook(config) {
+  return withMainActivity(config, (mod) => {
+    let src = mod.modResults.contents;
+    if (src.includes(NEW_INTENT_HOOK)) return mod;
+    if (!src.includes("import android.content.Intent")) {
+      src = src.replace(/^(package [^\n]+\n)/, "$1import android.content.Intent\n");
+    }
+    const end = src.lastIndexOf("}");
+    src = `${src.slice(0, end)}
+  override fun onNewIntent(intent: Intent) {
+    // ${NEW_INTENT_HOOK}: see plugins/withTimelyAndroid.js.
+    setIntent(intent)
+    super.onNewIntent(intent)
+  }
+${src.slice(end)}`;
     mod.modResults.contents = src;
     return mod;
   });
@@ -146,6 +178,7 @@ function withShortcutMetadata(config) {
 
 module.exports = function withTimelyAndroid(config) {
   config = withDefaultBackHook(config);
+  config = withNewIntentHook(config);
   config = withShortcutResources(config);
   config = withShortcutStrings(config);
   config = withShortcutMetadata(config);

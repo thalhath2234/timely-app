@@ -1,12 +1,12 @@
 "use no memo";
-import { requestWidgetUpdate, type WidgetInfo, type WidgetTaskHandlerProps } from "react-native-android-widget";
+import { getWidgetInfo, requestWidgetUpdate, requestWidgetUpdateById, type WidgetInfo, type WidgetTaskHandlerProps } from "react-native-android-widget";
 import { clockState } from "@timely/contract/dashboard";
 import { scheduleWidgetRefresh } from "../../modules/timely-android";
 import { clockChange, optimisticModel, parseWidgetAction, WIDGET_ACTION, type WidgetAction } from "./actions";
 import { cardWidgetModel, todayModel, type WidgetInput, type WidgetModel } from "./model";
 import { renderCard, renderQuickAdd, type QuickAddButton } from "./render";
 import { appScheme, forgetWidgetLoads, loadCards, loadWidgetInput, signedIn, widgetPomodoros } from "./data";
-import { runPomodoro, runWidgetAction } from "./run";
+import { isPomodoroAction, runPomodoro, runWidgetAction, steppedPomodoroSettings } from "./run";
 import { allWidgetEntries, forgetWidget, setWidgetEntry, widgetEntry } from "./storage";
 
 /**
@@ -89,10 +89,16 @@ function instantCard(entry: Entry, card: NonNullable<Entry["card"]>) {
 }
 
 /** What the widget shows the moment a button is tapped, before the save comes back. */
-function instantModel(entry: Entry, action: WidgetAction): WidgetModel | null {
+function instantModel(entry: Entry, action: WidgetAction, ranLocally: boolean): WidgetModel | null {
   const now = new Date();
   const quick = (card: NonNullable<Entry["card"]>) => instantCard(entry, card);
-  if (action.kind === "pomodoro") return entry.card ? quick(entry.card) : null;
+  if (isPomodoroAction(action)) {
+    if (!entry.card) return null;
+    if (ranLocally) return quick(entry.card);
+    // A waiting phase's new length shows straight away; the card setting saves after.
+    const settings = action.kind === "pomodoroStep" ? steppedPomodoroSettings(entry.card, action.by) : null;
+    return settings ? quick({ ...entry.card, settings }) : null;
+  }
   if (action.kind === "clock") {
     if (!entry.card) return null;
     const change = clockChange(clockState(entry.card.settings), action.op, now.getTime());
@@ -107,8 +113,8 @@ async function handleAction(info: WidgetInfo, data: Record<string, unknown> | un
   const size = { width: info.width, height: info.height };
   const entry = widgetEntry(info.widgetId);
   // The pomodoro lives on the phone, so it changes before the redraw.
-  const ranLocally = action.kind === "pomodoro" && runPomodoro(action, entry.card, entry.timeZone);
-  const instant = instantModel(entry, action);
+  const ranLocally = isPomodoroAction(action) && runPomodoro(action, entry.card, entry.timeZone);
+  const instant = instantModel(entry, action, ranLocally);
   if (instant && instant !== entry.model) {
     renderWidget(renderCard(instant, size));
     setWidgetEntry(info.widgetId, { model: instant });
@@ -121,7 +127,7 @@ async function handleAction(info: WidgetInfo, data: Record<string, unknown> | un
     if (entry.model) setWidgetEntry(info.widgetId, { model: entry.model });
   }
   forgetWidgetLoads();
-  if (action.kind === "pomodoro") {
+  if (isPomodoroAction(action)) {
     const { refreshLiveActivity } = require("../live/liveActivity") as typeof import("../live/liveActivity");
     void refreshLiveActivity();
   }
@@ -132,10 +138,11 @@ async function handleAction(info: WidgetInfo, data: Record<string, unknown> | un
     if (cached) renderWidget(renderCard(cached, size));
   }
   // Other widgets may show the same task, habit or sheet; they share what
-  // this redraw just loaded.
+  // this redraw just loaded. This one was just drawn: a third draw only
+  // rewrote its image while the launcher read it.
   void refreshAllWidgets(
     WIDGET_NAMES.filter((name) => name !== "TimelyQuickAdd"),
-    { fresh: false },
+    { fresh: false, skipId: info.widgetId },
   );
 }
 
@@ -150,9 +157,16 @@ export async function widgetTaskHandler({ widgetInfo, widgetAction, renderWidget
     case "WIDGET_DELETED":
       forgetWidget(widgetInfo.widgetId);
       return;
+    case "WIDGET_RESIZED":
+      // Redraw at the new size from what the widget last showed, straight away;
+      // the fresh load below can take a few seconds on a slow connection.
+      if (widgetInfo.widgetName !== "TimelyQuickAdd") {
+        const cached = widgetEntry(widgetInfo.widgetId).model;
+        if (cached) renderWidget(renderCard(cached, { width: widgetInfo.width, height: widgetInfo.height }));
+      }
+    // falls through
     case "WIDGET_ADDED":
     case "WIDGET_UPDATE":
-    case "WIDGET_RESIZED":
       try {
         renderWidget(await renderWidgetFor(widgetInfo));
       } catch {
@@ -171,14 +185,24 @@ export async function widgetTaskHandler({ widgetInfo, widgetAction, renderWidget
 
 /**
  * Redraws every Timely widget on the home screen (the app calls this after
- * changes). `fresh: false` reuses what was just loaded, when nothing on the
- * server changed since (a pomodoro, which lives on the phone).
+ * changes), except `skipId`. `fresh: false` reuses what was just loaded, when
+ * nothing on the server changed since (a pomodoro, which lives on the phone).
  */
-export async function refreshAllWidgets(names: readonly string[] = WIDGET_NAMES, { fresh = true }: { fresh?: boolean } = {}) {
+export async function refreshAllWidgets(
+  names: readonly string[] = WIDGET_NAMES,
+  { fresh = true, skipId }: { fresh?: boolean; skipId?: number } = {},
+) {
   if (fresh) forgetWidgetLoads();
   await Promise.all(
-    names.map((widgetName) =>
-      requestWidgetUpdate({ widgetName, renderWidget: (info) => renderWidgetFor({ ...info, widgetName }) }).catch(() => undefined),
-    ),
+    names.map(async (widgetName) => {
+      const renderWidget = (info: WidgetInfo) => renderWidgetFor({ ...info, widgetName });
+      try {
+        if (skipId === undefined) return await requestWidgetUpdate({ widgetName, renderWidget });
+        const others = (await getWidgetInfo(widgetName)).filter((info) => info.widgetId !== skipId);
+        await Promise.all(others.map((info) => requestWidgetUpdateById({ widgetName, widgetId: info.widgetId, renderWidget })));
+      } catch {
+        // A widget that can't redraw keeps what it last drew.
+      }
+    }),
   );
 }

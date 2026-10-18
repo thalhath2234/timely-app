@@ -1,6 +1,6 @@
 "use no memo";
 import { Fragment, cloneElement, isValidElement, type ReactElement, type ReactNode } from "react";
-import { FlexWidget, SvgWidget, TextWidget, type ColorProp } from "react-native-android-widget";
+import { FlexWidget, ListWidget, SvgWidget, TextWidget, type ColorProp } from "react-native-android-widget";
 import { darkColors, lightColors, type ColorTokens } from "@timely/contract/designTokens";
 import { WIDGET_ACTION, type WidgetAction } from "./actions";
 import type { WidgetButton, WidgetGlyph, WidgetModel, WidgetRow, WidgetTone } from "./model";
@@ -38,6 +38,18 @@ const PAD = 14;
 const GAP = 6;
 const HEADER_H = lineH(12) + GAP;
 const ROW_H = 28;
+/**
+ * The column a checkbox sits in. The whole column is the tick's tap target:
+ * a 16dp box with 10dp after it left a 26dp target, so taps just right of the
+ * box opened the item instead of ticking it.
+ */
+const CHECK_COL = 40;
+/** A table's column-name line, and the width each column after the first gets. */
+const COLUMN_HEAD_H = lineH(11) + 4;
+const CELL_W = 72;
+/** A pomodoro's phase tabs (and its −/+), with the gap under them. */
+const TAB_H = 28;
+const TAB_ROW_H = TAB_H + 4;
 const BAR_LABEL_H = lineH(10) + 3;
 const METER_H = 20;
 const NOTE_LINE_H = 20;
@@ -128,6 +140,51 @@ function Header({ model, p }: { model: WidgetModel; p: Palette }) {
   );
 }
 
+/** Phase tabs across the widget, with −/+ for the length at the end; each works in place. */
+function Tabs({ model, p }: { model: WidgetModel; p: Palette }) {
+  const stepper = model.stepper;
+  const step = (glyph: "minus" | "plus", action: WidgetAction | undefined, label: string) => (
+    <FlexWidget
+      key={glyph}
+      {...(action ? { clickAction: WIDGET_ACTION, clickActionData: actionData(action) } : {})}
+      accessibilityLabel={label}
+      style={{ width: TAB_H + 6, height: TAB_H, borderRadius: TAB_H / 2, backgroundColor: p.soft, marginLeft: 6, alignItems: "center", justifyContent: "center" }}
+    >
+      <SvgWidget svg={GLYPH(BUTTON_GLYPHS[glyph], action ? p.softFg : p.muted)} style={{ width: 14, height: 14 }} />
+    </FlexWidget>
+  );
+  return (
+    <FlexWidget style={{ flexDirection: "row", alignItems: "center", width: "match_parent", height: TAB_H, marginBottom: TAB_ROW_H - TAB_H }}>
+      <FlexWidget style={{ flexDirection: "row", flex: 1, height: TAB_H, borderRadius: TAB_H / 2, backgroundColor: p.fill }}>
+        {(model.tabs ?? []).map((tab) => (
+          <FlexWidget
+            key={tab.label}
+            clickAction={WIDGET_ACTION}
+            clickActionData={actionData(tab.action)}
+            accessibilityLabel={tab.selected ? `${tab.label}, selected` : tab.label}
+            style={{
+              flex: 1,
+              width: 0,
+              height: TAB_H,
+              borderRadius: TAB_H / 2,
+              backgroundColor: tab.selected ? p.soft : TRANSPARENT,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <TextWidget
+              text={tab.label}
+              maxLines={1}
+              style={{ fontSize: 12, fontWeight: tab.selected ? "600" : "400", color: tab.selected ? p.softFg : p.muted }}
+            />
+          </FlexWidget>
+        ))}
+      </FlexWidget>
+      {stepper ? [step("minus", stepper.minus, `Take off ${stepper.unit}`), step("plus", stepper.plus, `Add ${stepper.unit}`)] : null}
+    </FlexWidget>
+  );
+}
+
 function Stat({ model, p, figure, captionLines, live }: { model: WidgetModel; p: Palette; figure: number; captionLines: number; live?: boolean }) {
   if (!figure && !captionLines) return null;
   return (
@@ -187,7 +244,22 @@ const TICK = (color: string) =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`;
 
 /** `checks`: some rows in the list have a checkbox, so markers take the same column and titles line up. */
-function Row({ row, p, fallbackUri, checks, height = ROW_H }: { row: WidgetRow; p: Palette; fallbackUri: string; checks?: boolean; height?: number }) {
+function Row({
+  row,
+  p,
+  fallbackUri,
+  checks,
+  height = ROW_H,
+  cells = 0,
+}: {
+  row: WidgetRow;
+  p: Palette;
+  fallbackUri: string;
+  checks?: boolean;
+  height?: number;
+  /** How many of a table row's cells fit beside its title. */
+  cells?: number;
+}) {
   const bar = isHex(row.color) ? row.color : row.tone === "accent" ? p.accent : p.soft;
   // A row with nothing to open (a habit) ticks wherever it's tapped.
   const ticksAll = Boolean(row.toggle && !row.uri);
@@ -205,17 +277,19 @@ function Row({ row, p, fallbackUri, checks, height = ROW_H }: { row: WidgetRow; 
           clickAction={WIDGET_ACTION}
           clickActionData={actionData(row.toggle)}
           accessibilityLabel={`${row.done ? "Untick" : "Tick"} ${row.title}`}
-          style={{ height, paddingRight: 10, justifyContent: "center" }}
+          style={{ width: CHECK_COL, height, justifyContent: "center" }}
         >
           <Check row={row} p={p} />
         </FlexWidget>
       ) : row.done !== undefined ? (
-        <FlexWidget style={{ marginRight: 10 }}>
+        <FlexWidget style={{ width: CHECK_COL }}>
           <Check row={row} p={p} />
         </FlexWidget>
       ) : checks ? (
-        <FlexWidget style={{ width: 16, height: 16, marginRight: 10, alignItems: "center", justifyContent: "center" }}>
-          <FlexWidget style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: bar }} />
+        <FlexWidget style={{ width: CHECK_COL, height: 16, justifyContent: "center" }}>
+          <FlexWidget style={{ width: 16, height: 16, alignItems: "center", justifyContent: "center" }}>
+            <FlexWidget style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: bar }} />
+          </FlexWidget>
         </FlexWidget>
       ) : (
         <FlexWidget style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: bar, marginRight: 8 }} />
@@ -231,8 +305,36 @@ function Row({ row, p, fallbackUri, checks, height = ROW_H }: { row: WidgetRow; 
       {row.meta ? (
         <TextWidget text={row.meta} maxLines={1} style={{ fontSize: 12, color: row.tone === "accent" ? p.accent : p.muted, marginLeft: 8 }} />
       ) : null}
+      {(row.cells ?? []).slice(0, cells).map((cell, index) => (
+        <FlexWidget key={`cell-${index}`} style={{ width: CELL_W, alignItems: "flex-end" }}>
+          <TextWidget text={cell} maxLines={1} truncate="END" style={{ fontSize: 12, color: p.muted }} />
+        </FlexWidget>
+      ))}
     </FlexWidget>
   );
+}
+
+/** A table's column names, lined up over its rows' title and cells. */
+function ColumnHead({ names, p, cells }: { names: string[]; p: Palette; cells: number }) {
+  const [first = "", ...rest] = names;
+  return (
+    <FlexWidget style={{ flexDirection: "row", alignItems: "center", width: "match_parent", height: COLUMN_HEAD_H }}>
+      <FlexWidget style={{ flex: 1, paddingLeft: 11 }}>
+        <TextWidget text={first} maxLines={1} truncate="END" style={{ fontSize: 11, fontWeight: "600", color: p.muted }} />
+      </FlexWidget>
+      {rest.slice(0, cells).map((name, index) => (
+        <FlexWidget key={`head-${index}`} style={{ width: CELL_W, alignItems: "flex-end" }}>
+          <TextWidget text={name} maxLines={1} truncate="END" style={{ fontSize: 11, fontWeight: "600", color: p.muted }} />
+        </FlexWidget>
+      ))}
+    </FlexWidget>
+  );
+}
+
+/** How many table cells fit beside a row's title (which keeps about 90dp). */
+function cellsThatFit(model: WidgetModel, innerW: number) {
+  const most = Math.max(0, ...(model.rows ?? []).map((row) => row.cells?.length ?? 0));
+  return Math.max(0, Math.min(most, Math.floor((innerW - 11 - 90) / CELL_W)));
 }
 
 /** `tall`: the tallest bar, from whatever height is left under the header (and figure). */
@@ -426,6 +528,12 @@ export type CardPlan = {
   figure: number;
   captionLines: number;
   rows: number;
+  /** Height of a scrolling list holding every row (0: rows are drawn in place). */
+  list: number;
+  /** A table's column names go over its rows. */
+  columnHead: boolean;
+  /** The phase tabs (and −/+) go under the title. */
+  tabs: boolean;
   /** Rows grow (up to 40dp) when they all fit, so a short list spreads over a tall widget. */
   rowH: number;
   /** Tallest bar in dp, 0 for no bars. */
@@ -463,7 +571,10 @@ function ringAsFigure(model: WidgetModel, size: Size): WidgetModel {
 /** Works out what fits: every height here is what Android really draws. */
 export function planCard(model: WidgetModel, size: Size): CardPlan {
   const innerW = size.width - 2 * PAD - 2;
-  const innerH = size.height - 2 * PAD - 2;
+  // Three tabs need about 36dp each beside the −/+, and must leave the clock its figure and buttons.
+  const tabs = Boolean(model.tabs?.length) && innerW >= 180 && size.height - 2 * PAD - 2 - TAB_ROW_H >= 72;
+  // The tabs take the title's line (they say what the widget is), so the clock keeps its size.
+  const innerH = size.height - 2 * PAD - 2 - (tabs ? TAB_ROW_H - HEADER_H : 0);
   const buttons = model.buttons?.length ?? 0;
   const rowsWanted = model.rows?.length ?? 0;
   const short = size.height < 220;
@@ -476,10 +587,13 @@ export function planCard(model: WidgetModel, size: Size): CardPlan {
     !wideClock && size.width >= 260 && short && Boolean(model.value) && !model.ring && !model.meters && buttons <= 1 && Boolean(rowsWanted || model.bars?.length);
   const plan: CardPlan = {
     mode: wideClock ? "wideClock" : wide ? "wide" : "column",
-    header: true,
+    header: !tabs,
     figure: 0,
     captionLines: 0,
     rows: 0,
+    list: 0,
+    columnHead: false,
+    tabs,
     rowH: ROW_H,
     bars: 0,
     chartW: innerW,
@@ -539,7 +653,7 @@ export function planCard(model: WidgetModel, size: Size): CardPlan {
     plan.buttonH = innerH >= 130 ? 40 : 34;
     left -= plan.buttonH + GAP;
     // A small clock gives up its title before its figure.
-    if (model.value && left < figureH(22)) {
+    if (plan.header && model.value && left < figureH(22)) {
       plan.header = false;
       left += HEADER_H;
     }
@@ -565,7 +679,16 @@ export function planCard(model: WidgetModel, size: Size): CardPlan {
     plan.bars = Math.min(140, left - BAR_LABEL_H - 2);
     left = 0;
   }
-  if (!plan.bars) {
+  if (!plan.bars && rowsWanted && model.columns?.length && left >= COLUMN_HEAD_H + ROW_H) {
+    plan.columnHead = true;
+    left -= COLUMN_HEAD_H;
+  }
+  if (!plan.bars && model.scroll && rowsWanted * ROW_H > left && left >= ROW_H) {
+    // More rows than room: they all go in a list that scrolls inside the widget.
+    plan.list = left;
+    plan.rows = rowsWanted;
+    left = 0;
+  } else if (!plan.bars) {
     plan.rows = Math.min(rowsWanted, Math.max(0, Math.floor(left / ROW_H)));
     if (plan.rows && plan.rows === rowsWanted && !buttons) plan.rowH = Math.max(ROW_H, Math.min(40, Math.floor(left / plan.rows)));
     left -= plan.rows * plan.rowH;
@@ -585,6 +708,7 @@ function Card({ model: given, dark, size, options }: { model: WidgetModel; dark:
   const plan = planCard(model, size);
   const rows = (model.rows ?? []).slice(0, plan.rows);
   const checks = (model.rows ?? []).some((row) => row.done !== undefined);
+  const cells = cellsThatFit(model, size.width - 2 * PAD - 2);
   const stat = <Stat model={model} p={p} figure={plan.figure} captionLines={plan.captionLines} live={live} />;
   return (
     <FlexWidget
@@ -603,6 +727,7 @@ function Card({ model: given, dark, size, options }: { model: WidgetModel; dark:
       }}
     >
       {plan.header ? <Header model={model} p={p} /> : null}
+      {plan.tabs ? <Tabs model={model} p={p} /> : null}
       {plan.mode === "wideClock" ? (
         // A wide clock keeps its buttons beside the time instead of under it.
         <FlexWidget style={{ flexDirection: "row", width: "match_parent", flex: 1, alignItems: "center" }}>
@@ -640,10 +765,17 @@ function Card({ model: given, dark, size, options }: { model: WidgetModel; dark:
           !plan.ring ? <FlexWidget key="stat" style={{ width: "match_parent" }}>{stat}</FlexWidget> : null,
           plan.meters ? <Meters key="meters" model={model} p={p} count={plan.meters} /> : null,
           plan.bars ? <Bars key="bars" model={model} p={p} tall={plan.bars} width={plan.chartW} /> : null,
-          rows.length ? (
+          plan.columnHead ? <ColumnHead key="head" names={model.columns ?? []} p={p} cells={cells} /> : null,
+          rows.length && plan.list ? (
+            <ListWidget key="list" style={{ height: plan.list, width: "match_parent" }}>
+              {rows.map((row, index) => (
+                <Row key={`${row.title}-${index}`} row={row} p={p} fallbackUri={model.uri} checks={checks} cells={cells} />
+              ))}
+            </ListWidget>
+          ) : rows.length ? (
             <FlexWidget key="rows" style={{ flexDirection: "column", width: "match_parent" }}>
               {rows.map((row, index) => (
-                <Row key={`${row.title}-${index}`} row={row} p={p} fallbackUri={model.uri} checks={checks} height={plan.rowH} />
+                <Row key={`${row.title}-${index}`} row={row} p={p} fallbackUri={model.uri} checks={checks} height={plan.rowH} cells={cells} />
               ))}
             </FlexWidget>
           ) : null,

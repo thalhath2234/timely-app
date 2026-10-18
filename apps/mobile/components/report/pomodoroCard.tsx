@@ -5,6 +5,8 @@ import Svg, { Circle } from "react-native-svg";
 import { Minus, Pause, Play, Plus, RotateCcw, Settings2, SkipForward, X } from "lucide-react-native";
 import {
   POMODORO_MAX_MS,
+  POMODORO_PHASE_MAX,
+  POMODORO_PHASE_SETTING,
   formatClock,
   initialPomodoro,
   pomodoroLength,
@@ -19,8 +21,8 @@ import AnimatedPressable from "../ui/AnimatedPressable";
 import { Select } from "../ui/primitives";
 
 const PHASE_LABEL: Record<PomodoroPhase, string> = { focus: "Focus", short: "Short break", long: "Long break" };
-const PHASE_SETTING = { focus: "focus", short: "shortBreak", long: "longBreak" } as const;
-const PHASE_MAX: Record<PomodoroPhase, number> = { focus: 180, short: 60, long: 90 };
+const PHASE_SETTING = POMODORO_PHASE_SETTING;
+const PHASE_MAX = POMODORO_PHASE_MAX;
 const RING = 168;
 const STROKE = 6;
 
