@@ -19,7 +19,9 @@ import {
 } from "@/app/utils/hooks/notifications";
 import type { AppNotification } from "@/app/_types/types";
 import { motion } from "motion/react";
-import { hoverLift, listContainerVariants, listItemVariants } from "@/app/_components/_ui/motion";
+import { listContainerVariants, listItemVariants } from "@/app/_components/_ui/motion";
+import { GroupLabel } from "@/app/_components/_ui/groupedList";
+import { cn } from "@/app/utils/cn";
 import { fileHref } from "@/app/utils/fileRoutes";
 import { useDecisions, useNotificationTriage } from "@/app/utils/hooks/decisions";
 import type { AlertStep, TriageStep } from "@/app/utils/api/decisions";
@@ -106,6 +108,22 @@ function alertStep(item: AppNotification): AlertStep | null {
   return step && step in ALERT_STEP_LABEL ? (step as AlertStep) : null;
 }
 
+/** "Today", "Yesterday" or the date, for the group a notification sits in. */
+function dayLabel(iso: string, now: Date) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "Earlier";
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const diff = Math.round((start - day) / 86_400_000);
+  if (diff <= 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+function timeLabel(iso: string) {
+  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
 function tomorrowNine() {
   const next = new Date();
   next.setDate(next.getDate() + 1);
@@ -125,6 +143,15 @@ export default function NotificationsPage() {
   const snooze = useSnoozeNotification();
   const openTask = useEntityDetailStore((state) => state.openTask);
   const items = list.data ?? [];
+  // Rows read by day: today first, each day one card.
+  const now = new Date();
+  const days: { label: string; items: AppNotification[] }[] = [];
+  for (const item of items) {
+    const label = dayLabel(item.createdAt, now);
+    const last = days[days.length - 1];
+    if (last && last.label === label) last.items.push(item);
+    else days.push({ label, items: [item] });
+  }
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -169,139 +196,138 @@ export default function NotificationsPage() {
             description="Due reminders and daily digests will show up here, including when the app is closed."
           />
         ) : (
-          <motion.ul
-            className="max-w-3xl space-y-2"
-            variants={listContainerVariants}
-            initial="hidden"
-            animate="visible"
-          >
-            {items.map((item) => {
-              const target = targetFor(item);
-              const unread = !item.readAt;
-              const steps = unread ? triageSteps(item, smart) : [];
-              return (
-                <motion.li
-                  key={item.id}
-                  variants={listItemVariants}
-                  whileHover={hoverLift}
-                  className={`rounded-lg border bg-card px-3.5 py-3 ${unread ? "border-primary/30" : "border-border"}`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <button
-                      type="button"
-                      className="min-w-0 flex-1 text-left"
-                      onClick={() => {
-                        if (unread) void markRead.mutateAsync(item.id);
-                        if (target.kind === "task") openTask(target.id);
-                        else router.push(target.href);
-                      }}
-                    >
-                      <p className={`flex items-center gap-2 truncate text-sm ${unread ? "font-semibold" : "font-medium"}`}>
-                        {unread ? <span aria-label="Unread" className="size-2 shrink-0 rounded-full bg-primary" /> : null}
-                        {item.title}
-                      </p>
-                      {item.body ? (
-                        <p className="mt-0.5 text-sm text-muted-foreground">{item.body}</p>
-                      ) : null}
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        <span className="capitalize">{item.category}</span> ·{" "}
-                        {new Date(item.createdAt).toLocaleString(undefined, {
-                          month: "short",
-                          day: "numeric",
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })}
-                      </p>
-                    </button>
-                    <div className="flex shrink-0 items-center gap-2">
-                      {unread ? (
-                        <Button variant="ghost" size="sm" onClick={() => void markRead.mutateAsync(item.id)}>
-                          Mark read
-                        </Button>
-                      ) : null}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        icon
-                        aria-label="Dismiss"
-                        title="Dismiss"
-                        disabled={remove.isPending}
-                        onClick={() =>
-                          void remove.mutateAsync(item.id).catch((error) => {
-                            useToastStore.getState().show(error instanceof Error ? error.message : "Could not dismiss that");
-                          })
-                        }
-                      >
-                        <X />
-                      </Button>
-                    </div>
-                  </div>
-                  {item.category === "reminder" ? (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <Button variant="outline" size="sm" onClick={() => void snooze.mutateAsync({ id: item.id, minutes: 15 })}>
-                        Snooze 15m
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => void snooze.mutateAsync({ id: item.id, minutes: 60 })}>
-                        Snooze 1h
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => void snooze.mutateAsync({ id: item.id, until: tomorrowNine() })}>
-                        Tomorrow 9:00
-                      </Button>
-                    </div>
-                  ) : null}
-                  {item.category === "suggestion" ? (
-                    <SmartAlert
-                      item={item}
-                      unread={unread}
-                      pending={triage.isPending}
-                      onOpenTask={openTask}
-                      onRoute={(href) => router.push(href)}
-                      onStep={(step) =>
-                        triage
-                          .mutateAsync({ id: item.id, action: step })
-                          .then((res) => {
-                            if (res.message) useToastStore.getState().show(res.message);
-                          })
-                          .catch((error) => {
-                          useToastStore.getState().show(error instanceof Error ? error.message : "Could not do that");
-                        })
-                      }
-                    />
-                  ) : null}
-                  {steps.length > 0 ? (
-                    <div className="mt-2 flex flex-wrap gap-2" data-testid="triage-steps">
-                      {steps.map(({ step, label }) => {
-                        const suggested = dataString(item, "suggest") === step;
-                        return (
-                          <button
-                            key={step}
-                            type="button"
-                            disabled={triage.isPending}
-                            title={suggested ? "Suggested for this task" : undefined}
-                            className={buttonClass({ variant: suggested ? "soft" : "outline", size: "sm" })}
-                            onClick={() =>
-                              void triage
-                                .mutateAsync({ id: item.id, action: step })
-                                .then((res) => useToastStore.getState().show(res.message))
-                                .catch((error) => useToastStore.getState().show(error instanceof Error ? error.message : "Could not do that"))
-                            }
-                          >
-                            {suggested ? <Sparkles className="size-3" /> : null}
-                            {label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                  {snooze.isError ? (
-                    <p className="mt-2 text-xs text-destructive">
-                      {snooze.error instanceof Error ? snooze.error.message : "Could not snooze."}
-                    </p>
-                  ) : null}
-                </motion.li>
-              );
-            })}
-          </motion.ul>
+          <motion.div className="flex flex-col gap-4" variants={listContainerVariants} initial="hidden" animate="visible" data-testid="notifications-days">
+            {days.map((day) => (
+              <section key={day.label} aria-label={day.label}>
+                <GroupLabel aside={`${day.items.filter((item) => !item.readAt).length || "none"} unread`}>{day.label}</GroupLabel>
+                <ul className="overflow-hidden rounded-[12px] border border-border bg-card">
+                  {days.length > 0 &&
+                    day.items.map((item) => {
+                      const target = targetFor(item);
+                      const unread = !item.readAt;
+                      const steps = unread ? triageSteps(item, smart) : [];
+                      const extras =
+                        item.category === "reminder" || item.category === "suggestion" || steps.length > 0 || snooze.isError;
+                      return (
+                        <motion.li
+                          key={item.id}
+                          variants={listItemVariants}
+                          className={cn("group border-t border-border first:border-t-0", unread && "bg-primary/[0.04]")}
+                        >
+                          <div className="flex min-h-14 items-center gap-3 pl-3.5 pr-2">
+                            <span aria-label={unread ? "Unread" : undefined} className={cn("size-2 shrink-0 rounded-full", unread ? "bg-primary" : "bg-transparent")} />
+                            <button
+                              type="button"
+                              className="flex min-w-0 flex-1 flex-col py-2 text-left"
+                              onClick={() => {
+                                if (unread) void markRead.mutateAsync(item.id);
+                                if (target.kind === "task") openTask(target.id);
+                                else router.push(target.href);
+                              }}
+                            >
+                              <span className={cn("truncate text-sm", unread ? "font-semibold text-foreground" : "font-medium text-foreground")}>
+                                {item.title}
+                              </span>
+                              <span className="truncate text-xs text-muted-foreground">
+                                <span className="capitalize">{item.category}</span>
+                                {item.body ? ` · ${item.body}` : ""}
+                              </span>
+                            </button>
+                            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{timeLabel(item.createdAt)}</span>
+                            <div className="flex shrink-0 items-center gap-1">
+                              {unread ? (
+                                <Button variant="ghost" size="sm" className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100" onClick={() => void markRead.mutateAsync(item.id)}>
+                                  Mark read
+                                </Button>
+                              ) : null}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                icon
+                                aria-label="Dismiss"
+                                title="Dismiss"
+                                disabled={remove.isPending}
+                                onClick={() =>
+                                  void remove.mutateAsync(item.id).catch((error) => {
+                                    useToastStore.getState().show(error instanceof Error ? error.message : "Could not dismiss that");
+                                  })
+                                }
+                              >
+                                <X />
+                              </Button>
+                            </div>
+                          </div>
+                          {extras ? (
+                            <div className="flex flex-col gap-2 pb-2.5 pl-[2.375rem] pr-3">
+                              {item.category === "reminder" ? (
+                                <div className="flex flex-wrap gap-2">
+                                  <Button variant="outline" size="sm" onClick={() => void snooze.mutateAsync({ id: item.id, minutes: 15 })}>
+                                    Snooze 15m
+                                  </Button>
+                                  <Button variant="outline" size="sm" onClick={() => void snooze.mutateAsync({ id: item.id, minutes: 60 })}>
+                                    Snooze 1h
+                                  </Button>
+                                  <Button variant="outline" size="sm" onClick={() => void snooze.mutateAsync({ id: item.id, until: tomorrowNine() })}>
+                                    Tomorrow 9:00
+                                  </Button>
+                                </div>
+                              ) : null}
+                              {item.category === "suggestion" ? (
+                                <SmartAlert
+                                  item={item}
+                                  unread={unread}
+                                  pending={triage.isPending}
+                                  onOpenTask={openTask}
+                                  onRoute={(href) => router.push(href)}
+                                  onStep={(step) =>
+                                    triage
+                                      .mutateAsync({ id: item.id, action: step })
+                                      .then((res) => {
+                                        if (res.message) useToastStore.getState().show(res.message);
+                                      })
+                                      .catch((error) => {
+                                        useToastStore.getState().show(error instanceof Error ? error.message : "Could not do that");
+                                      })
+                                  }
+                                />
+                              ) : null}
+                              {steps.length > 0 ? (
+                                <div className="flex flex-wrap gap-2" data-testid="triage-steps">
+                                  {steps.map(({ step, label }) => {
+                                    const suggested = dataString(item, "suggest") === step;
+                                    return (
+                                      <button
+                                        key={step}
+                                        type="button"
+                                        disabled={triage.isPending}
+                                        title={suggested ? "Suggested for this task" : undefined}
+                                        className={buttonClass({ variant: suggested ? "soft" : "outline", size: "sm" })}
+                                        onClick={() =>
+                                          void triage
+                                            .mutateAsync({ id: item.id, action: step })
+                                            .then((res) => useToastStore.getState().show(res.message))
+                                            .catch((error) => useToastStore.getState().show(error instanceof Error ? error.message : "Could not do that"))
+                                        }
+                                      >
+                                        {suggested ? <Sparkles className="size-3" /> : null}
+                                        {label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              ) : null}
+                              {snooze.isError ? (
+                                <p className="text-xs text-destructive">{snooze.error instanceof Error ? snooze.error.message : "Could not snooze."}</p>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </motion.li>
+                      );
+                    })}
+                </ul>
+              </section>
+            ))}
+          </motion.div>
         )}
       </PageWithRail>
     </div>
@@ -331,7 +357,7 @@ function SmartAlert({
   const projectId = dataString(item, "projectId");
   const open = (id: string) => (inbox ? onRoute("/inbox") : onOpenTask(id));
   return (
-    <div className="mt-2 space-y-2" data-testid="smart-alert">
+    <div className="space-y-2" data-testid="smart-alert">
       {items.length > 1 ? (
         <ul className="flex flex-wrap gap-1.5">
           {items.map((entry) => (

@@ -116,38 +116,38 @@ export function Welcome({
         right away; bigger ones wait for your approval.
       </Text>
       {needsProvider ? (
-        <View testID="chat-needs-provider">
-          <StatusCard
-            tone="primary"
-            icon={KeyRound}
-            title="Connect an AI provider to chat"
-            body="The assistant runs on your own OpenRouter key or another provider. Everything else in Timely works without one."
-          >
-            <Action label="Open Agent settings" primary compact onPress={onOpenSettings} />
-          </StatusCard>
-        </View>
+        <AnimatedPressable accessibilityRole="button" accessibilityLabel="Connect an AI provider in Agent settings" onPress={onOpenSettings} style={styles.providerBar} testID="chat-needs-provider">
+          <View style={styles.providerIcon}>
+            <KeyRound size={16} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text numberOfLines={1} style={styles.providerTitle}>Connect an AI provider</Text>
+            <Text numberOfLines={1} style={common.muted}>
+              Needed only for chat.
+            </Text>
+          </View>
+          <Action label="Settings" primary compact onPress={onOpenSettings} />
+        </AnimatedPressable>
       ) : null}
-      {!needsProvider && project ? (
-        <Text style={common.muted} testID="chat-prompts-project">
-          Ideas for {project}
-        </Text>
-      ) : null}
-      <View style={{ gap: 10, marginTop: 6 }}>
-        {(needsProvider ? [] : items).map(({ icon: Icon, title, text }, i) => (
+      <Text style={styles.promptsLabel} testID={project ? "chat-prompts-project" : undefined}>
+        {project ? `Ideas for ${project}` : "Try one of these"}
+      </Text>
+      <View style={styles.prompts}>
+        {items.map(({ icon: Icon, title, text }, i) => (
           <ListEnter key={title} index={i}>
             <AnimatedPressable
               accessibilityRole="button"
               accessibilityLabel={title}
               disabled={disabled}
               onPress={() => pick(text)}
-              style={[styles.suggestion, disabled && { opacity: 0.5 }]}
+              style={[styles.suggestion, i > 0 && styles.suggestionDivider, (disabled || needsProvider) && { opacity: 0.6 }]}
             >
               <View style={styles.suggestionIcon}>
-                <Icon size={18} color={colors.primary} />
+                <Icon size={16} color={colors.primary} />
               </View>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={styles.suggestionTitle}>{title}</Text>
-                <Text numberOfLines={2} style={common.muted}>
+                <Text numberOfLines={1} style={common.muted}>
                   {text}
                 </Text>
               </View>
@@ -480,26 +480,40 @@ const styles = createThemedStyleSheet(() => ({
   badgeText: { color: colors.primary, fontSize: 12, fontWeight: "600" },
   hero: {
     color: colors.foreground,
-    fontSize: 30,
-    lineHeight: 36,
+    fontSize: 26,
+    lineHeight: 32,
     fontWeight: "600",
-    letterSpacing: -0.7,
+    letterSpacing: -0.5,
   },
-  heroText: { color: colors.mutedForeground, fontSize: 14, lineHeight: 21 },
+  heroText: { color: colors.mutedForeground, fontSize: 14, lineHeight: 20 },
+  providerBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: `${colors.primary}40`,
+    backgroundColor: `${colors.primary}0f`,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  providerIcon: { width: 30, height: 30, borderRadius: 10, backgroundColor: `${colors.primary}1f`, alignItems: "center", justifyContent: "center" },
+  providerTitle: { color: colors.foreground, fontSize: 14, fontWeight: "600" },
+  promptsLabel: { color: colors.foreground, fontSize: 13, fontWeight: "600", marginTop: 4, paddingHorizontal: 4 },
+  prompts: { borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, overflow: "hidden" },
   suggestion: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderRadius: 16,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 14,
+    minHeight: 56,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
+  suggestionDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   suggestionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     backgroundColor: colors.accent,
     alignItems: "center",
     justifyContent: "center",
