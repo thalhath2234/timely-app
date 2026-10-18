@@ -104,6 +104,26 @@ const BUILTIN_ICON: Record<BuiltinCardType, typeof Timer> = {
   highlights: Sparkles,
 };
 
+/** A card that is one figure: a number, a progress meter or a countdown. */
+function isStatCard(card: DashboardCard) {
+  if (card.type === "countdown") return true;
+  if (card.type !== "custom" || !card.query) return false;
+  if (card.query.sheet) return ["value", "counter", "progress"].includes(card.query.sheet.view);
+  if (card.query.doc) return false;
+  return card.query.display === "number" || card.query.display === "progress";
+}
+
+/** The saved order, with neighbouring stat cards paired into one row. */
+function cardRows(cards: DashboardCard[]): DashboardCard[][] {
+  const rows: DashboardCard[][] = [];
+  for (const card of cards) {
+    const last = rows[rows.length - 1];
+    if (last && last.length === 1 && isStatCard(last[0]) && isStatCard(card)) last.push(card);
+    else rows.push([card]);
+  }
+  return rows;
+}
+
 /** Stops what a card keeps running outside the screen: a pomodoro, or a timer's alert. */
 function stopCard(card: DashboardCard) {
   if (card.type === "pomodoro") forgetPomodoro(card.id);
@@ -222,7 +242,16 @@ export default function DashboardScreen() {
       case "pomodoro":
         return <PomodoroCard cardId={card.id} settings={settings} onSettings={setSettings} tasks={tasks} timeZone={timeZone} />;
       case "today":
-        return <TodayCard today={today.data} loading={today.isLoading} now={now} onOpenTask={openTask} onOpenItem={openItem} />;
+        return (
+          <TodayCard
+            today={today.data}
+            loading={today.isLoading}
+            now={now}
+            workingHours={config.data?.workingHours}
+            onOpenTask={openTask}
+            onOpenItem={openItem}
+          />
+        );
       case "quickCapture":
         return <QuickCaptureCard inboxCount={data.inbox?.length ?? 0} />;
       case "notes":
@@ -357,20 +386,26 @@ export default function DashboardScreen() {
               onDragging={setDragging}
             />
           ) : (
-            cards.map((card) => {
-              const Icon = cardIcon(card);
-              return (
-                <View key={card.id} style={styles.card}>
-                  <View style={styles.cardHead}>
-                    <Icon size={15} color={colors.mutedForeground} />
-                    <Text style={styles.cardTitle} numberOfLines={1}>
-                      {cardTitle(card)}
-                    </Text>
-                  </View>
-                  {renderBody(card)}
-                </View>
-              );
-            })
+            // Two stat cards share a row (the film's 2 x 2 grid); everything else is full width.
+            cardRows(cards).map((row) => (
+              <View key={row.map((card) => card.id).join("+")} style={row.length > 1 ? styles.cardRow : undefined}>
+                {row.map((card) => {
+                  const Icon = cardIcon(card);
+                  return (
+                    <View key={card.id} style={[styles.card, row.length > 1 && styles.halfCard]}>
+                      <View style={styles.cardHead}>
+                        {/* Half-width stat tiles drop the icon so the title has the room. */}
+                        {row.length > 1 ? null : <Icon size={15} color={colors.mutedForeground} />}
+                        <Text style={styles.cardTitle} numberOfLines={1}>
+                          {cardTitle(card)}
+                        </Text>
+                      </View>
+                      {renderBody(card)}
+                    </View>
+                  );
+                })}
+              </View>
+            ))
           )}
 
           {editing ? (
@@ -470,6 +505,8 @@ export default function DashboardScreen() {
 const styles = createThemedStyleSheet((colors) => ({
   list: { padding: 12, gap: 12, paddingBottom: 130 },
   card: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14, gap: 12 },
+  cardRow: { flexDirection: "row", gap: 12 },
+  halfCard: { flex: 1, minWidth: 0, gap: 8 },
   cardHead: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 24 },
   cardTitle: { flex: 1, color: colors.foreground, fontSize: 14, fontWeight: "600" },
   muted: { color: colors.mutedForeground, fontSize: 13 },

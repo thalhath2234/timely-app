@@ -366,7 +366,16 @@ export default function ReportDashboard() {
       case "pomodoro":
         return <PomodoroCard cardId={card.id} settings={settings} onSettings={setSettings} tasks={tasks} timeZone={timeZone} />;
       case "today":
-        return <TodayCard today={today.data} loading={today.isLoading} now={now} onOpenTask={openTask} onOpenItem={openItem} />;
+        return (
+          <TodayCard
+            today={today.data}
+            loading={today.isLoading}
+            now={now}
+            workingHours={configQuery.data?.workingHours}
+            onOpenTask={openTask}
+            onOpenItem={openItem}
+          />
+        );
       case "quickCapture":
         return <QuickCaptureCard inboxCount={data.inbox?.length ?? 0} />;
       case "notes":

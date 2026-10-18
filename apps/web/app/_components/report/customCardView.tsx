@@ -50,17 +50,20 @@ export default function CustomCardView({
       const tone = delta === null || delta === 0 ? "muted" : delta > 0 === upIsGood ? "good" : "bad";
       const DeltaIcon = delta === null || delta === 0 ? Minus : delta > 0 ? ArrowUpRight : ArrowDownRight;
       return (
-        <div className="flex h-full flex-col justify-end">
-          <div className="flex items-end gap-2">
-            <span className="h-8 w-1 shrink-0 rounded-full" style={{ background: seriesColor(color) }} aria-hidden />
-            <span className={cn("font-semibold leading-none tabular-nums text-foreground", compact ? "text-3xl" : "text-4xl")}>
+        // The film's stat: 34 px with a 3 px colour bar, anchored to the
+        // bottom of the card like the film's tiles, the change or count as a
+        // faint note beneath.
+        <div className="flex h-full flex-col justify-end" data-testid="stat-card">
+          <div className="flex items-center gap-2">
+            <span className="h-[30px] w-[3px] shrink-0 rounded-full" style={{ background: seriesColor(color) }} aria-hidden />
+            <span className={cn("font-semibold leading-none tracking-[-0.02em] tabular-nums text-foreground", compact ? "text-[28px]" : "text-[34px]")}>
               {formatMetric(result.value, result.unit)}
             </span>
           </div>
           {delta !== null ? (
             <p
               className={cn(
-                "mt-2 flex items-center gap-1 text-xs",
+                "mt-1.5 flex items-center gap-1 text-xs",
                 tone === "good" && "text-success",
                 tone === "bad" && "text-destructive",
                 tone === "muted" && "text-muted-foreground",
@@ -74,7 +77,7 @@ export default function CustomCardView({
               <span className="text-muted-foreground">{result.periodLabel}</span>
             </p>
           ) : (
-            <p className="mt-2 text-xs text-muted-foreground">
+            <p className="mt-1.5 text-xs text-muted-foreground">
               {result.unit === "hours" ? `${result.matched} ${result.matched === 1 ? "item" : "items"}` : " "}
             </p>
           )}
@@ -85,9 +88,9 @@ export default function CustomCardView({
       const share = result.target > 0 ? result.value / result.target : 0;
       const done = share >= 1;
       return (
-        <div className="flex h-full flex-col justify-end gap-2">
+        <div className="flex h-full flex-col justify-end gap-2" data-testid="progress-card">
           <div className="flex items-baseline justify-between gap-2">
-            <span className={cn("font-semibold tabular-nums text-foreground", compact ? "text-2xl" : "text-3xl")}>{Math.round(share * 100)}%</span>
+            <span className={cn("font-semibold leading-none tracking-[-0.02em] tabular-nums text-foreground", compact ? "text-[28px]" : "text-[34px]")}>{Math.round(share * 100)}%</span>
             <span className="flex items-center gap-1 text-xs tabular-nums text-muted-foreground">
               {done ? <CheckCircle2 className="size-3.5 text-success" /> : null}
               {formatMetric(result.value, result.unit)} of {formatMetric(result.target, result.unit)}

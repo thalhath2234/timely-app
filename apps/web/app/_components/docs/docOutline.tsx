@@ -1,16 +1,26 @@
 "use client";
 
+import { useState } from "react";
 import type { Editor } from "@tiptap/react";
-import { List } from "lucide-react";
+import { ChevronDown, List } from "lucide-react";
 import { useDocHeadings } from "@/app/_components/docs/headingMinimap";
 import { RailRow, RailRows, RailSection } from "@/app/_components/_ui/pageWithRail";
 import { cn } from "@/app/utils/cn";
 
-/** Words a minute, for the reading time. */
-const READING_PACE = 220;
+/** Whether the outline card was folded, remembered on this device. */
+const COLLAPSED_KEY = "timely.docOutlineCollapsed";
+
+function readCollapsed() {
+  try {
+    return typeof window !== "undefined" && window.localStorage.getItem(COLLAPSED_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
 
 /** The outline card beside a wide doc: the page in numbers and its headings,
- * the one being read marked, each a jump. Narrow pages keep the minimap strip. */
+ * the one being read marked, each a jump. Folds to one line from its
+ * chevron. Narrow pages keep the minimap strip. */
 export default function DocOutline({
   editor,
   wordCount,
@@ -23,18 +33,48 @@ export default function DocOutline({
   subpages: number;
 }) {
   const { headings, activePos, goTo } = useDocHeadings(editor);
-  const minutes = Math.max(1, Math.round(wordCount / READING_PACE));
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const toggle = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    try {
+      window.localStorage.setItem(COLLAPSED_KEY, String(next));
+    } catch {
+      // Remembering it is a nicety.
+    }
+  };
   const updated = new Date(updatedAt);
   const edited = Number.isNaN(updated.getTime())
     ? "—"
     : updated.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const top = Math.min(...headings.map((heading) => heading.level), 3);
 
+  const summary = `${wordCount.toLocaleString()} ${wordCount === 1 ? "word" : "words"}${headings.length > 0 ? ` · ${headings.length} heading${headings.length === 1 ? "" : "s"}` : ""}`;
+
   return (
-    <RailSection title="Outline" icon={<List className="size-3.5 text-muted-foreground" />} data-testid="doc-outline">
+    <RailSection
+      title="Outline"
+      icon={<List className="size-3.5 text-muted-foreground" />}
+      meta={collapsed ? <span className="tabular-nums">{summary}</span> : undefined}
+      action={
+        <button
+          type="button"
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? "Show the outline" : "Hide the outline"}
+          onClick={toggle}
+          className="-mr-1 flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <ChevronDown className={cn("size-3.5 transition-transform", collapsed && "-rotate-90")} />
+        </button>
+      }
+      className={cn(collapsed && "[&>div:first-child]:mb-0")}
+      data-testid="doc-outline"
+      data-collapsed={collapsed ? "true" : undefined}
+    >
+      {collapsed ? null : (
+        <>
       <RailRows>
         <RailRow label="Words" value={wordCount.toLocaleString()} />
-        <RailRow label="Reading time" value={wordCount === 0 ? "—" : `${minutes} min`} />
         {subpages > 0 ? <RailRow label="Subpages" value={subpages} /> : null}
         <RailRow label="Last edited" value={edited} tone="muted" />
       </RailRows>
@@ -67,6 +107,8 @@ export default function DocOutline({
             })}
           </ul>
         </nav>
+      )}
+        </>
       )}
     </RailSection>
   );
