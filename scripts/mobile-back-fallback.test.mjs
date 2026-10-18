@@ -111,21 +111,34 @@ describe("back preview", () => {
   });
 });
 
-// The screen stays put until Android's back arrow arms, using the system
-// gesture's own thresholds, and Android alone decides go back or cancel.
+// The screen stays put until the finger crosses the back threshold, comes
+// back only when the finger returns inside it, and letting go follows the
+// same line. It slides away from the edge the swipe started at.
 describe("back swipe threshold", () => {
   const native = readFileSync(
     new URL("../apps/mobile/modules/timely-android/android/src/main/java/expo/modules/timelyandroid/TimelyBack.kt", import.meta.url),
     "utf8",
   );
 
-  test("uses Android's own thresholds and never overrides its decision", () => {
+  test("arms at Android's 16dp line and only disarms back inside it", () => {
     assert.match(native, /ARM_DP = 16f/);
-    assert.match(native, /DISARM_DP = 32f/);
-    assert.match(native, /REARM_DP = 32f/);
-    assert.match(native, /MIN_ARMED_MS = 300L/);
-    assert.match(native, /REARM_DELAY_MS = 160f/);
-    assert.doesNotMatch(native, /COMMIT_AT/);
+    assert.match(native, /DISARM_DP = 12f/);
+    assert.match(native, /s\.armed = if \(s\.armed\) s\.x >= px\(DISARM_DP\) else s\.x >= px\(ARM_DP\)/);
+    // No timers or direction-change rules that can drop the page on a small wobble.
+    assert.doesNotMatch(native, /MIN_ARMED_MS|REARM_DP|sinceDisarm|outward/);
+  });
+
+  test("letting go does what the screen shows", () => {
+    assert.match(native, /if \(s\?\.armed == true\) goBack\(activity, this\)/);
+    assert.match(native, /if \(s != null && !s\.armed\) emitter/);
+  });
+
+  test("the edge comes from where the swipe started, not only what Android reports", () => {
+    assert.match(native, /event\.swipeEdge == BackEventCompat\.EDGE_RIGHT \|\| event\.touchX > screenWidth\(activity\) \/ 2f/);
+    assert.match(native, /val fromEdge = if \(s\.right\) s\.startX - event\.touchX else event\.touchX - s\.startX/);
+    assert.match(native, /"edge" to if \(swipe\?\.right == true\) "right" else "left"/);
+    const back = readFileSync(new URL("../apps/mobile/lib/predictiveBack.tsx", import.meta.url), "utf8");
+    assert.match(back, /direction\.value = event\.edge === "right" \? -1 : 1/);
   });
 
   test("the screen moves on the threshold, not with the finger", () => {
