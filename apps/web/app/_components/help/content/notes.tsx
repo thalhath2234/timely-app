@@ -209,6 +209,17 @@ export const notes: HelpSection = {
                   <strong>Discard</strong> it. Choose <strong>Insert</strong>, or <strong>Replace</strong> and{" "}
                   <strong>Insert below</strong> for selected text. Undo takes it back in one step.
                 </li>
+                <li>A long draft scrolls inside its preview, so you can read all of it before you choose.</li>
+                <li>
+                  On a wide doc page, Help me write opens in the right margin, level with the line it writes into, and
+                  that line is tinted. It stays open while you edit the doc, and the draft still goes where you were
+                  writing.
+                </li>
+                <li>
+                  Closing the panel while it holds a prompt or a draft only hides it. Open Help me write again to
+                  carry on; a draft that was still being written keeps going. A dot on the button means a draft is
+                  waiting.
+                </li>
               </ul>
             </>
           ),
@@ -562,6 +573,11 @@ export const notes: HelpSection = {
                 &ldquo;overdue tasks by project&rdquo;. Search reads them as a list of tasks and shows a card at the
                 top: what it understood as chips, how many tasks match, and the first few. This needs no AI key.
               </p>
+              <Shot
+                src="search-views"
+                alt="Search for urgent bugs in Work due this week: a suggested saved view, Important Procrastinations, then a card reading 1 open task · Due this week · Urgent · Work with its chips and a Save as view button, and task results below."
+                size={{ width: 1440, height: 900 }}
+              />
               <ul>
                 <li>Choose the card to open the list in Tasks as a <strong>Preview</strong> that is not saved.</li>
                 <li>
@@ -700,6 +716,11 @@ export const notes: HelpSection = {
                 preview on the right updates as you go. To begin from a ready-made chart, use{" "}
                 <strong>Start from a template…</strong> at the top.
               </p>
+              <Shot
+                src="card-workshop"
+                alt="The Card workshop reading cells A1:D6 of an October budget sheet, shown as Bars with names from the Category column, a live preview of the bars on the right, and an Add to dashboard button."
+                size={{ width: 1440, height: 900 }}
+              />
               <ul>
                 <li>
                   <strong>Data:</strong> Tasks, Projects, Events, Docs, Sheets, Reminders or Inbox.

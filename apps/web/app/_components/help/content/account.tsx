@@ -1,7 +1,7 @@
 import { Settings } from "lucide-react";
 import Link from "next/link";
 import type { HelpSection } from "../types";
-import { Callout, Code, Path, Shot } from "../ui";
+import { Callout, Code, Path, Shot, Steps } from "../ui";
 
 export const account: HelpSection = {
   id: "account",
@@ -12,12 +12,36 @@ export const account: HelpSection = {
     {
       slug: "settings",
       title: "Account, devices and appearance",
-      summary: "Change your name, email and password, sign out other devices, and pick a theme.",
-      keywords: ["account", "password", "email", "devices", "sessions", "logout", "theme", "dark mode", "accent", "sidebar"],
+      summary: "Change your name, email and password, sign out other devices, pick a theme, or delete your account.",
+      keywords: [
+        "account",
+        "password",
+        "email",
+        "devices",
+        "sessions",
+        "logout",
+        "theme",
+        "dark mode",
+        "accent",
+        "sidebar",
+        "delete account",
+        "remove account",
+        "settings",
+      ],
       lead: (
-        <p>
-          Everything about your account lives in <strong>Settings</strong>, the gear at the bottom of the sidebar.
-        </p>
+        <>
+          <p>
+            Everything about your account lives in <strong>Settings</strong>, the gear at the bottom of the sidebar.
+            Its tabs run down the left: <strong>Account</strong>, <strong>Appearance</strong>,{" "}
+            <strong>Schedule</strong>, <strong>Notifications</strong>, <strong>Workspaces</strong>,{" "}
+            <strong>Agent</strong>, <strong>Data &amp; privacy</strong> and <strong>Integrations</strong>. The
+            desktop app adds <strong>Server</strong>.
+          </p>
+          <p>
+            On the phone, tap the gear on Home. See{" "}
+            <Link href="/help/start/phone-app#settings">Settings on the phone</Link>.
+          </p>
+        </>
       ),
       sections: [
         {
@@ -35,6 +59,36 @@ export const account: HelpSection = {
                 safe. If you run Timely from source, an administrator can set a new one:
               </Callout>
               <Code>make reset-password EMAIL=you@example.com PASSWORD=new-password</Code>
+            </>
+          ),
+        },
+        {
+          id: "delete",
+          title: "Delete your account",
+          body: (
+            <>
+              <p>
+                In the desktop app, <Path>Settings &gt; Account</Path> ends with <strong>Delete account</strong>. It
+                removes the account and everything in it from this computer: tasks, projects, docs, sheets, calendar,
+                habits, goals, chats, API keys and the account&apos;s backups. Every device signed in to it, your phone
+                included, is signed out.
+              </p>
+              <Steps>
+                <p>
+                  Choose <strong>Export your data</strong> first if you want a copy. See{" "}
+                  <Link href="/help/account/backups">Export, backup and restore</Link>.
+                </p>
+                <p>
+                  Choose <strong>Delete account…</strong>, type <code>DELETE</code>, and enter your password.
+                </p>
+                <p>
+                  Choose <strong>Delete account</strong>. Timely signs you out.
+                </p>
+              </Steps>
+              <Callout kind="warning">
+                This can&apos;t be undone. If it was the last account on the computer, the next account to register
+                gets the desktop setup again.
+              </Callout>
             </>
           ),
         },
@@ -135,7 +189,20 @@ export const account: HelpSection = {
       slug: "server",
       title: "Server and accounts",
       summary: "The desktop app's server: status, addresses, phone pairing, new accounts and maintenance.",
-      keywords: ["server", "desktop", "tailscale", "allow new accounts", "registration", "sign up", "logs", "restart", "status"],
+      keywords: [
+        "server",
+        "desktop",
+        "tailscale",
+        "allow new accounts",
+        "registration",
+        "sign up",
+        "logs",
+        "restart",
+        "status",
+        "memory",
+        "update",
+        "install and restart",
+      ],
       lead: (
         <p>
           The desktop app runs its own Timely server and database. <Path>Settings &gt; Server</Path>, shown only in
@@ -184,12 +251,20 @@ export const account: HelpSection = {
           id: "maintenance",
           title: "Maintenance",
           body: (
-            <p>
-              <strong>Back up now</strong> copies the whole database. <strong>Open data folder</strong> and{" "}
-              <strong>Open logs</strong> show the files, and <strong>Restart server</strong> restarts it if something
-              looks stuck. <strong>Updates</strong> shows your version and checks for a new one (on Arch, your package
-              manager handles that).
-            </p>
+            <>
+              <p>
+                <strong>Back up now</strong> copies the whole database. <strong>Open data folder</strong> and{" "}
+                <strong>Open logs</strong> show the files, and <strong>Restart server</strong> restarts it if
+                something looks stuck. <strong>Updates</strong> shows your version, <strong>Check for updates</strong>{" "}
+                downloads a new one, and <strong>Install and restart</strong> installs it. On Arch, your package
+                manager handles updates.
+              </p>
+              <p>
+                The server and web server stop when Timely quits, even if it crashes, so nothing keeps running in the
+                background. If the web server uses too much memory, Timely restarts it on its own and the window
+                reloads the page.
+              </p>
+            </>
           ),
         },
       ],
