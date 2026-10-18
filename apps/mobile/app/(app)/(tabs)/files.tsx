@@ -1,7 +1,7 @@
 import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
 import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { contentFromTemplate, dailyNoteTemplate, dateKey, templateVars } from "@timely/contract/templates";
@@ -83,6 +83,35 @@ function FileGlyph({ icon, kind }: { icon?: string | null; kind: "doc" | "sheet"
       <Glyph size={20} color={colors.foreground} />
     </View>
   );
+}
+
+/** One card of rows with hairline dividers, the Files twin of the settings groups. */
+function Group({ children }: { children: ReactNode[] }) {
+  const rows = children.filter(Boolean);
+  if (rows.length === 0) return null;
+  return (
+    <View style={styles.group}>
+      {rows.map((row, index) => (
+        <View key={index}>
+          {index > 0 ? <View style={styles.divider} /> : null}
+          {row}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const DAY_MS = 86_400_000;
+
+/** "Today", "This week" or "Earlier", from when a file was last edited. */
+function recencyBucket(updatedAt: string | undefined, now: number) {
+  const at = updatedAt ? new Date(updatedAt).getTime() : NaN;
+  if (Number.isNaN(at)) return "Earlier";
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  if (at >= start.getTime()) return "Today";
+  if (at >= start.getTime() - 6 * DAY_MS) return "This week";
+  return "Earlier";
 }
 
 function byFavoriteThenRecent(a: { isFavorite?: boolean; updatedAt?: string }, b: { isFavorite?: boolean; updatedAt?: string }) {
@@ -174,6 +203,16 @@ export default function FilesScreen() {
       ].sort((a, b) => byFavoriteThenRecent(entryItem(a), entryItem(b))),
     [tree, sheets],
   );
+  // The All list reads by when files were touched: today, this week, earlier.
+  const buckets = useMemo(() => {
+    const now = Date.now();
+    const groups = new Map<string, Entry[]>();
+    for (const entry of allEntries) {
+      const label = recencyBucket(entry.updatedAt, now);
+      groups.set(label, [...(groups.get(label) ?? []), entry]);
+    }
+    return ["Today", "This week", "Earlier"].filter((label) => groups.has(label)).map((label) => [label, groups.get(label) ?? []] as const);
+  }, [allEntries]);
 
   function toggleExpanded(id: string) {
     setExpandedIds((previous) => {
@@ -284,7 +323,7 @@ export default function FilesScreen() {
           <FileGlyph icon={doc.icon} kind="doc" />
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.title}>{doc.title || "Untitled"}</Text>
-            <Text numberOfLines={2} style={styles.meta}>
+            <Text numberOfLines={1} style={styles.meta}>
               {meta}
             </Text>
           </View>
@@ -305,7 +344,7 @@ export default function FilesScreen() {
           <FileGlyph icon={sheet.icon} kind="sheet" />
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.title}>{sheet.title || "Untitled"}</Text>
-            <Text numberOfLines={2} style={styles.meta}>
+            <Text numberOfLines={1} style={styles.meta}>
               {(sheet.rows ?? []).length} rows · {(sheet.columns ?? []).length} cols
               {sheet.updatedAt ? ` · ${timeAgo(sheet.updatedAt)}` : ""}
               {wsById.get(sheet.workspaceId) ? ` · ${wsById.get(sheet.workspaceId)?.name}` : ""}
@@ -322,8 +361,8 @@ export default function FilesScreen() {
     const hasChildren = node.children.length > 0;
     const descendantCount = countDocDescendants(node);
     return (
-      <Animated.View key={node.id} layout={listLayout(reduceMotion)} style={{ gap: 8 }}>
-        <View style={[styles.card, { marginLeft: Math.min(depth, 3) * 12 }]}>
+      <Animated.View key={node.id} layout={listLayout(reduceMotion)}>
+        <View style={[styles.card, { paddingLeft: 12 + Math.min(depth, 3) * 16 }]}>
           {hasNested ? (
             <DocsExpandButton
               expanded={expanded}
@@ -339,7 +378,7 @@ export default function FilesScreen() {
             <FileGlyph icon={node.icon} kind="doc" />
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.title}>{node.title || "Untitled"}</Text>
-              <Text numberOfLines={2} style={styles.meta}>
+              <Text numberOfLines={1} style={styles.meta}>
                 {hasChildren ? `${descendantCount} nested · ` : ""}
                 {timeAgo(node.updatedAt)}
               </Text>
@@ -360,7 +399,6 @@ export default function FilesScreen() {
           <Animated.View
             entering={expandEntering(reduceMotion)}
             exiting={expandExiting(reduceMotion)}
-            style={{ gap: 8 }}
           >
             {node.children.map((child) => renderNode(child, depth + 1))}
           </Animated.View>
@@ -373,6 +411,7 @@ export default function FilesScreen() {
     return (
       <>
         {templates.length ? <Text style={styles.section}>Sheet templates</Text> : null}
+        <Group>
         {templates.map((template) => (
           <View key={template.id} style={styles.card}>
             {filter === "all" ? <View style={styles.chevron} /> : null}
@@ -391,7 +430,7 @@ export default function FilesScreen() {
               )}
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={styles.title}>{template.name}</Text>
-                <Text numberOfLines={2} style={styles.meta}>
+                <Text numberOfLines={1} style={styles.meta}>
                   {template.rows.length} rows · {template.columns.length} cols
                   {(template.tabs?.length ?? 0) > 1 ? ` · ${template.tabs?.length} tabs` : ""}
                 </Text>
@@ -408,6 +447,7 @@ export default function FilesScreen() {
             />
           </View>
         ))}
+        </Group>
       </>
     );
   }
@@ -447,9 +487,9 @@ export default function FilesScreen() {
       return (
         <>
           {favoriteDocs.length ? <Text style={styles.section}>Favorites</Text> : null}
-          {favoriteDocs.map((doc) => renderDocRow(doc, doc.plainText || timeAgo(doc.updatedAt), `fav-${doc.id}`))}
+          <Group>{favoriteDocs.map((doc) => renderDocRow(doc, doc.plainText || timeAgo(doc.updatedAt), `fav-${doc.id}`))}</Group>
           <Text style={styles.section}>Pages</Text>
-          {tree.map((node) => renderNode(node, 0))}
+          <Group>{tree.map((node) => renderNode(node, 0))}</Group>
         </>
       );
     }
@@ -461,9 +501,9 @@ export default function FilesScreen() {
         <>
           {templatesError}
           {favoriteSheets.length ? <Text style={styles.section}>Favorites</Text> : null}
-          {favoriteSheets.map((sheet) => renderSheetRow(sheet, sheet.id))}
+          <Group>{favoriteSheets.map((sheet) => renderSheetRow(sheet, sheet.id))}</Group>
           {restSheets.length ? <Text style={styles.section}>All sheets</Text> : null}
-          {restSheets.map((sheet) => renderSheetRow(sheet, `a-${sheet.id}`))}
+          <Group>{restSheets.map((sheet) => renderSheetRow(sheet, `a-${sheet.id}`))}</Group>
           {renderTemplates()}
         </>
       );
@@ -475,13 +515,19 @@ export default function FilesScreen() {
       <>
         {templatesError}
         {favoriteEntries.length ? <Text style={styles.section}>Favorites</Text> : null}
-        {favoriteEntries.map((entry) =>
-          entry.kind === "doc"
-            ? renderDocRow(entry.node, entry.node.plainText || timeAgo(entry.node.updatedAt), `fav-${entry.node.id}`)
-            : renderSheetRow(entry.sheet, `fav-${entry.sheet.id}`),
-        )}
-        {allEntries.length ? <Text style={styles.section}>All files</Text> : null}
-        {allEntries.map((entry) => (entry.kind === "doc" ? renderNode(entry.node, 0) : renderSheetRow(entry.sheet, `a-${entry.sheet.id}`, true)))}
+        <Group>
+          {favoriteEntries.map((entry) =>
+            entry.kind === "doc"
+              ? renderDocRow(entry.node, entry.node.plainText || timeAgo(entry.node.updatedAt), `fav-${entry.node.id}`)
+              : renderSheetRow(entry.sheet, `fav-${entry.sheet.id}`),
+          )}
+        </Group>
+        {buckets.map(([label, entries]) => (
+          <View key={label}>
+            <Text style={styles.section}>{label}</Text>
+            <Group>{entries.map((entry) => (entry.kind === "doc" ? renderNode(entry.node, 0) : renderSheetRow(entry.sheet, `a-${entry.sheet.id}`, true)))}</Group>
+          </View>
+        ))}
         {renderTemplates()}
       </>
     );
@@ -711,37 +757,34 @@ export default function FilesScreen() {
 
 const styles = createThemedStyleSheet((colors) => ({
   headerControls: { paddingHorizontal: 16, paddingBottom: 14, gap: 10 },
-  listContent: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 120, gap: 10 },
+  listContent: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 120, gap: 4 },
   templateError: { color: colors.destructive, fontSize: 13 },
   destructive: { color: colors.destructive, fontSize: 15, fontWeight: "600" },
-  section: { color: colors.foreground, fontSize: 19, fontWeight: "600", marginTop: 12, marginBottom: 2, letterSpacing: -0.3 },
+  section: { color: colors.foreground, fontSize: 13, fontWeight: "600", marginTop: 8, marginBottom: 6, paddingHorizontal: 4 },
+  group: { borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, overflow: "hidden" },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginLeft: 56 },
   card: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    minHeight: 76,
-    overflow: "visible",
-    borderRadius: 16,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
+    minHeight: 56,
     paddingHorizontal: 12,
   },
   cardBody: {
     flex: 1,
     minWidth: 0,
-    minHeight: 76,
+    minHeight: 56,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
   },
-  sheetBody: { flex: 1, minWidth: 0, minHeight: 76, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10 },
-  iconBox: { width: 44, height: 44, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: colors.accent },
-  chevron: { width: 32, height: 44, alignItems: "center", justifyContent: "center", overflow: "visible" },
+  sheetBody: { flex: 1, minWidth: 0, minHeight: 56, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 8 },
+  iconBox: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.accent },
+  chevron: { width: 24, height: 40, alignItems: "center", justifyContent: "center", overflow: "visible" },
   chevronGlyph: { width: 20, height: 20, alignItems: "center", justifyContent: "center" },
-  menuBtn: { width: 36, height: 44, alignItems: "center", justifyContent: "center" },
-  icon: { fontSize: 22, width: 44, height: 44, lineHeight: 44, borderRadius: 16, overflow: "hidden", textAlign: "center", textAlignVertical: "center", backgroundColor: colors.accent, color: colors.foreground },
-  title: { color: colors.foreground, fontSize: 15, lineHeight: 20, fontWeight: "600", flexShrink: 1 },
-  meta: { color: colors.mutedForeground, fontSize: 12, lineHeight: 17, marginTop: 4 },
+  menuBtn: { width: 32, height: 40, alignItems: "center", justifyContent: "center" },
+  icon: { fontSize: 18, width: 34, height: 34, lineHeight: 34, borderRadius: 10, overflow: "hidden", textAlign: "center", textAlignVertical: "center", backgroundColor: colors.accent, color: colors.foreground },
+  title: { color: colors.foreground, fontSize: 15, lineHeight: 20, fontWeight: "500", flexShrink: 1 },
+  meta: { color: colors.mutedForeground, fontSize: 12, lineHeight: 16, marginTop: 2 },
 }));
