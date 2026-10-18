@@ -4,11 +4,11 @@ import { Btn, Caption, I, PageHeader, Pill, Stage, Window } from "../kit";
 import { C, FONT } from "../theme";
 
 const LOG: { at: number; who: string; text: string; reply?: boolean }[] = [
-  { at: 12, who: "hermes", text: 'tasks.create { "title": "Fix flaky test", "project": "Release v0.4" }' },
+  { at: 12, who: "hermes", text: 'create_task { "title": "Fix flaky test", "project": "Release v0.4" }' },
   { at: 44, who: "←", text: "201 · task IN-0483 created", reply: true },
-  { at: 60, who: "openclaw", text: 'sheets.append "Launch budget" { "item": "Receipt", "cost": 48.2 }' },
+  { at: 60, who: "openclaw", text: 'add_sheet_row "Launch budget" { "item": "Receipt", "cost": 48.2 }' },
   { at: 96, who: "←", text: "200 · row 8 written", reply: true },
-  { at: 110, who: "hermes", text: 'docs.read "Website launch brief"' },
+  { at: 110, who: "hermes", text: 'get_doc "Website launch brief"' },
   { at: 128, who: "←", text: "200 · 95 words", reply: true },
 ];
 
@@ -33,31 +33,31 @@ export function AgentsScene() {
           </div>
           <div style={{ flex: 1, minWidth: 0, padding: "4px 24px 16px 10px", display: "flex", flexDirection: "column", gap: 12 }}>
             <div>
-              <div style={{ fontSize: 16, fontWeight: 600 }}>Agent keys</div>
-              <div style={{ fontSize: 12, color: C.faint, marginTop: 2 }}>Outside agents talk to Timely over MCP with a key you scope. Revoke one and it stops at once.</div>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>Active keys</div>
+              <div style={{ fontSize: 12, color: C.faint, marginTop: 2 }}>Outside agents talk to Timely over MCP with a key of their own. Revoke one and it stops at once.</div>
             </div>
             <div style={{ borderRadius: 10, border: `1px solid ${C.line}`, overflow: "hidden", fontSize: 13 }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr 1fr auto", gap: 12, padding: "8px 12px", fontSize: 11, color: C.faint, background: "#0b0c11", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                 <span>Name</span>
-                <span>Scope</span>
+                <span>Key</span>
                 <span>Last used</span>
                 <span />
               </div>
               {[
-                ["hermes", "Tasks, docs, sheets · read + write", frame >= 44 ? "just now" : "2 min ago"],
-                ["openclaw", "Sheets only · append", frame >= 96 ? "just now" : "yesterday"],
+                ["Hermes", "tk_8f2c… · created Oct 12", frame >= 44 ? "just now" : "2 min ago"],
+                ["OpenClaw", "tk_41ad… · created Oct 14", frame >= 96 ? "just now" : "yesterday"],
               ].map(([name, scope, used]) => (
                 <div key={name} style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr 1fr auto", gap: 12, padding: "10px 12px", borderTop: `1px solid ${C.line}`, alignItems: "center" }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <I name="bot" size={14} color={C.cyan} />
                     {name}
                   </span>
-                  <span style={{ color: C.soft }}>{scope}</span>
+                  <span style={{ color: C.soft, fontFamily: FONT.mono, fontSize: 12 }}>{scope}</span>
                   <span style={{ color: C.faint }}>{used}</span>
                   <Btn style={{ height: 26, fontSize: 11 }}>Revoke</Btn>
                 </div>
               ))}
-              <div style={{ padding: "10px 12px", borderTop: `1px solid ${C.line}`, color: C.accent, fontSize: 12, fontWeight: 500 }}>+ New key</div>
+              <div style={{ padding: "10px 12px", borderTop: `1px solid ${C.line}`, color: C.accent, fontSize: 12, fontWeight: 500 }}>+ Create key</div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.soft }}>
               <span style={{ color: C.faint }}>MCP endpoint</span>
@@ -111,7 +111,7 @@ export function AgentsScene() {
           </div>
         </div>
       </Window>
-      <Caption n="09" title="Agents over MCP" note="Hermes, OpenClaw or your own agent, with a key you scope and revoke" color={C.cyan} />
+      <Caption n="09" title="Agents over MCP" note="Hermes, OpenClaw or your own agent, with a key you create and revoke" color={C.cyan} />
     </Stage>
   );
 }

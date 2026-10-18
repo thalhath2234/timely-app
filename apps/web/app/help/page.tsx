@@ -18,7 +18,7 @@ const TASKS = [
   { title: "Install Timely", body: "Windows installer, Linux AppImage or AUR package, Android APK.", href: "#install", icon: MonitorDown, color: "#7cc4ff" },
   { title: "Pair your phone", body: "Scan a QR code on the desktop app, then connect over Tailscale.", href: "/help/install/android#pair", icon: Smartphone, color: "#4edea3" },
   { title: "Connect your AI", body: "Sign in with Claude Code or Codex, or paste an API key.", href: "/help/assistant/subscriptions", icon: KeyRound, color: "#b8b7ff" },
-  { title: "Connect an agent", body: "Make a scoped key and point Hermes, OpenClaw or your own agent at Timely's MCP server.", href: "/help/assistant/mcp", icon: Bot, color: "#5cc8ff" },
+  { title: "Connect an agent", body: "Create a key and point Hermes, OpenClaw or your own agent at Timely's MCP server.", href: "/help/assistant/mcp", icon: Bot, color: "#5cc8ff" },
 ];
 
 const PLATFORMS = [
