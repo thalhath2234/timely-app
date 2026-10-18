@@ -176,12 +176,32 @@ export const start: HelpSection = {
                   <strong>Also create</strong> you can add a workspace for each of your other picks, each with its own
                   labels. Choose <strong>Create workspace</strong>.
                 </p>
-                <p>
-                  On the desktop app a short setup comes next, one step at a time: <strong>Reach Timely from
-                  anywhere</strong> with Tailscale, <strong>Choose how the assistant thinks</strong>,{" "}
-                  <strong>Use Claude Code or Codex</strong>, and <strong>Pair your phone</strong>. Choose{" "}
-                  <strong>Skip</strong> on any step; you can change all of it later in Settings.
-                </p>
+                <div>
+                  <p>On the desktop app a short setup comes next, one step at a time:</p>
+                  <ul>
+                    <li>
+                      <strong>Reach Timely from anywhere:</strong> turn on Tailscale access so your phone can reach
+                      the computer away from home.
+                    </li>
+                    <li>
+                      <strong>Choose how the assistant thinks:</strong> paste an <strong>OpenRouter API key</strong>{" "}
+                      and choose <strong>Save key</strong>, right in the step. Keys from Anthropic, OpenAI, Gemini and
+                      others go under <strong>More API keys</strong>.
+                    </li>
+                    <li>
+                      <strong>Use Claude Code or Codex:</strong> use your Claude or ChatGPT subscription instead of a
+                      key. Install the CLI, sign in from a terminal, then choose <strong>Re-scan</strong>.
+                    </li>
+                    <li>
+                      <strong>Pair your phone:</strong> scan the QR code with the Android app.
+                    </li>
+                  </ul>
+                  <p>
+                    Choose <strong>Next</strong> or <strong>Skip</strong> on each step and <strong>Finish</strong> at
+                    the end. If you close Timely before <strong>Finish</strong>, the setup opens again the next time
+                    you start it. You can change all of it later in Settings.
+                  </p>
+                </div>
               </Steps>
               <Callout kind="note">
                 Only the first account can sign up on a new install. To let someone else register, turn on{" "}
@@ -323,7 +343,7 @@ export const start: HelpSection = {
                 shots={[
                   {
                     src: "phone-home",
-                    alt: "Phone Home tab titled Today: habits and goals, Inbox, Today focus, Schedule and End of day, with the icon-only tab bar at the bottom.",
+                    alt: "Phone Home tab titled Today: habits and goals, Inbox, Today focus, Schedule, End of day and a Meet your assistant tip about pinching, with the icon-only tab bar at the bottom.",
                   },
                   {
                     src: "phone-calendar",
@@ -476,15 +496,16 @@ export const start: HelpSection = {
           id: "which",
           title: "The widgets",
           body: (
+            <>
             <ul>
               <li>
                 <strong>Today:</strong> what you are focusing on and what is next on your calendar. Tick a task to
                 complete it.
               </li>
               <li>
-                <strong>Quick add:</strong> a bar with <strong>Add a task</strong>, and round buttons for{" "}
-                <strong>Capture</strong> to the Inbox, <strong>Ask</strong> the assistant in a new chat, and{" "}
-                <strong>Search</strong>. On a narrow bar, the four buttons share the space.
+                <strong>Quick add:</strong> a bar with four buttons: <strong>Task</strong> adds a task,{" "}
+                <strong>Capture</strong> adds to the Inbox, <strong>Ask</strong> opens the assistant in a new chat,
+                and <strong>Search</strong> opens search.
               </li>
               <li>
                 <strong>Pomodoro:</strong> a pomodoro of its own. Pick <strong>Focus</strong>,{" "}
@@ -493,13 +514,26 @@ export const start: HelpSection = {
               </li>
               <li>
                 <strong>Timer:</strong> a <strong>Stopwatch</strong> or a countdown <strong>Timer</strong> that runs
-                on your phone.
+                on your phone. For a countdown, set the minutes with <strong>−</strong> and <strong>+</strong>.
               </li>
               <li>
                 <strong>Timely card:</strong> any card from your <Link href="/help/notes/dashboard">Dashboard</Link>,
                 including cards you made in the Card workshop, such as a table or a counter from a sheet.
               </li>
             </ul>
+            <Shot
+              src="widgets"
+              alt="Android widgets in dark mode: Overdue count and Overdue list cards, Completion streak in two sizes, Today with 2 of 5 done and the next items, Day and week progress bars, Inbox zero with a Capture button, a Daily goal ring, and the Quick add bar with Task, Capture, Ask and Search."
+              size={{ width: 1640, height: 1666 }}
+              caption="Dashboard cards, the Today widget and Quick add on a home screen. Cards marked your card were made in the Card workshop."
+            />
+            <Shot
+              src="widgets-timers"
+              alt="The Pomodoro widget with Focus, Short and Long tabs, minus and plus buttons, 25:00, Start and Skip, next to the Timer widget with Stopwatch and Timer tabs, 10:00 and Start."
+              size={{ width: 1520, height: 520 }}
+              caption="The Pomodoro and Timer widgets before they start."
+            />
+            </>
           ),
         },
         {
