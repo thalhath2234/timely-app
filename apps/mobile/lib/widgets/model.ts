@@ -412,7 +412,7 @@ export function counterWidgetModel(widget: CounterWidget, changed = counterChang
     value,
     valueText: `{{count:${counterPattern(format)}}}`,
     valueFit: fit,
-    caption: changed ? `Not saved yet · was ${widget.baseText ?? formatCount(local.base, format)}` : widget.caption,
+    caption: changed ? "Not saved yet" : widget.caption,
     captionTone: changed ? "accent" : "muted",
     buttons: [
       { label: `Take away ${step}`, glyph: "minus", local: { step: "count", by: -step } },

@@ -114,8 +114,8 @@ public class WidgetDrawTest {
     /**
      * A sheet counter's −/+ on the phone (RNWidgetLocal): the count moves in
      * its file, "changed" follows it, and the figure is written the way the
-     * cell writes it. Drawing to the launcher may fail here; the file is
-     * written before that.
+     * cell writes it. Drawing to the launcher fails here; the file is written
+     * before that.
      */
     @Test
     public void localTapsCountOnThePhone() throws Exception {
@@ -135,7 +135,11 @@ public class WidgetDrawTest {
             android.os.Bundle data = new android.os.Bundle();
             data.putString("step", "count");
             data.putDouble("by", by);
-            com.reactnativeandroidwidget.RNWidgetLocal.handle(app, "TimelyCard", 7, data);
+            try {
+                com.reactnativeandroidwidget.RNWidgetLocal.handle(app, "TimelyCard", 7, data);
+            } catch (Throwable e) {
+                // React Native's native maps don't load under Robolectric; the file is saved before the draw.
+            }
         };
         java.util.function.Supplier<JSONObject> state = () -> {
             try {

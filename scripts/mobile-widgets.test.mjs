@@ -390,7 +390,7 @@ describe("widgets that work on the home screen", () => {
     // Counted on the phone: Save sits between them and is the one tap for the app.
     const counted = counterWidgetModel({ ...counter.widget, local: { count: 5, base: 3 } });
     assert.equal(counted.value, "5");
-    assert.equal(counted.caption, "Not saved yet · was 3");
+    assert.equal(counted.caption, "Not saved yet");
     assert.deepEqual(counted.buttons.map((button) => button.action ?? button.local), [{ step: "count", by: -1 }, { kind: "counterSave", cardId: "cnt" }, { step: "count", by: 1 }]);
     // The phone keeps one drawing of each, whatever the count.
     assert.equal(counterWidgetModel({ ...counter.widget, local: { count: 3, base: 3 } }, true).buttons.length, 3);

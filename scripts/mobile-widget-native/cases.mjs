@@ -129,7 +129,7 @@ add("Timers", "Timer done", clock({ mode: "timer", minutes: 10, startedAt: t0 - 
 // after a tab or −/+ (tokens filled in as RNWidgetLocal does; a counter's
 // DecimalFormat token takes the text the case gives for it).
 const fill = (tree, state) =>
-  JSON.parse(JSON.stringify(tree).replace(/\{\{(\w+)(?::(\w+))?\}\}/g, (_, key, format) => (format === "clock" ? `${state[key]}:00` : String(state[key]))));
+  JSON.parse(JSON.stringify(tree).replace(/\{\{(\w+)(?::([^{}]+))?\}\}/g, (_, key, format) => (format === "clock" ? `${state[key]}:00` : String(state[key]))));
 const phone = (group, name, model, state, sizes = Object.keys(SIZES)) => {
   for (const s of sizes) {
     const size = SIZES[s];
