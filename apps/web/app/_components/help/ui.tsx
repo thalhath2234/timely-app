@@ -13,13 +13,13 @@ const PHONE = { width: 780, height: 1688 };
 export function Shot({ src, alt, caption }: { src: string; alt: string; caption?: ReactNode }) {
   return (
     <figure className="not-prose my-7">
-      <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#111319] p-1 shadow-[0_24px_70px_-30px_rgba(129,131,244,0.45)]">
+      <div className="overflow-hidden rounded-[12px] border border-[var(--s-line-strong)] bg-[var(--s-panel)] p-1 shadow-[0_24px_70px_-40px_rgba(0,0,0,0.9)]">
         <Image
           src={`/help/${src}.webp`}
           alt={alt}
           {...DESKTOP}
           sizes="(min-width: 1280px) 760px, (min-width: 768px) 70vw, 100vw"
-          className="block h-auto w-full rounded-[13px]"
+          className="block h-auto w-full rounded-[8px]"
         />
       </div>
       {caption ? <figcaption className="s-faint mt-2.5 text-center text-sm">{caption}</figcaption> : null}
@@ -34,14 +34,14 @@ export function PhoneShots({ shots, caption }: { shots: { src: string; alt: stri
         {shots.map((shot) => (
           <div
             key={shot.src}
-            className="mx-auto w-full max-w-[240px] overflow-hidden rounded-[26px] border border-white/12 bg-[#111319] p-1.5"
+            className="mx-auto w-full max-w-[240px] overflow-hidden rounded-[16px] border border-[var(--s-line-strong)] bg-[var(--s-panel)] p-1.5"
           >
             <Image
               src={`/help/${shot.src}.webp`}
               alt={shot.alt}
               {...PHONE}
               sizes="240px"
-              className="block h-auto w-full rounded-[20px]"
+              className="block h-auto w-full rounded-[16px]"
             />
           </div>
         ))}
@@ -61,7 +61,7 @@ export function Callout({ kind = "note", children }: { kind?: keyof typeof CALLO
   const { icon: Icon, color, label } = CALLOUT[kind];
   return (
     <div
-      className="flex gap-3 rounded-xl border px-4 py-3.5 text-[0.9375rem] leading-relaxed"
+      className="flex gap-3 rounded-[12px] border px-4 py-3.5 text-[0.9375rem] leading-relaxed"
       style={{ borderColor: `color-mix(in oklch, ${color} 30%, transparent)`, background: `color-mix(in oklch, ${color} 7%, transparent)` }}
     >
       <Icon className="mt-1 size-4 shrink-0" style={{ color }} aria-hidden />
@@ -84,7 +84,7 @@ export function Steps({ children }: { children: ReactNode[] }) {
           ) : null}
           <span
             aria-hidden
-            className="absolute top-0.5 left-0 flex size-7 items-center justify-center rounded-full border border-[#c0c1ff]/35 bg-[#c0c1ff]/10 text-xs font-semibold text-[#c0c1ff]"
+            className="absolute top-0.5 left-0 flex size-7 items-center justify-center rounded-full border border-[color-mix(in_oklch,var(--s-primary)_35%,transparent)] bg-[color-mix(in_oklch,var(--s-primary)_10%,transparent)] text-xs font-semibold text-[var(--s-primary)]"
           >
             {index + 1}
           </span>
@@ -115,7 +115,7 @@ export function DownloadLink({ href, children }: { href: string; children: React
   return (
     <a
       href={href}
-      className="not-prose s-btn-primary !inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold !text-[var(--s-primary-ink)] !no-underline"
+      className="not-prose s-btn s-btn-primary !inline-flex !text-[var(--s-primary-ink)] !no-underline"
     >
       {children}
       <ArrowUpRight className="size-4" />

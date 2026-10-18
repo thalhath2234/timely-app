@@ -1,26 +1,31 @@
 /* ---- Public site: landing page and help center ----
    Always dark. The app's dark tokens are re-declared for `.site` in
-   globals.css so real product UI (and screenshots) sit on the same palette;
-   everything below is site-only. */
+   globals.css so real product UI sits on the same palette; everything
+   below is site-only. The film scenes (app/_components/film) use the same
+   values inline, so the page and the video match. */
 
 .site {
-  --s-bg: #0b0c10;
-  --s-raised: #111319;
-  --s-card: #15171e;
-  --s-card-hover: #1a1c24;
-  --s-line: rgb(255 255 255 / 7%);
-  --s-line-strong: rgb(255 255 255 / 13%);
-  --s-ink: #ecebf5;
-  --s-soft: #a4a3b8;
-  --s-faint: #6e6d82;
-  --s-primary: #c0c1ff;
-  --s-primary-ink: #1000a9;
-  --s-violet: #8183f4;
-  --s-pink: #f0abfc;
-  --s-green: #4edea3;
-  --s-amber: #ffb95f;
-  --s-blue: #7cc4ff;
-  --s-red: #ff8a80;
+  --s-bg: #09090c;
+  --s-panel: #111114;
+  --s-card: #141419;
+  --s-raised: #1b1b22;
+  --s-line: rgb(255 255 255 / 8%);
+  --s-line-strong: rgb(255 255 255 / 14%);
+  --s-ink: #f2f1f7;
+  --s-soft: #a9a8b8;
+  --s-faint: #83829a;
+  --s-primary: #b8b7ff;
+  --s-primary-ink: #15106b;
+  --s-green: #30a66d;
+  --s-violet: #6e56cf;
+  --s-amber: #ffb224;
+  --s-blue: #0090ff;
+  --s-pink: #e93d82;
+  --s-cyan: #00a2c7;
+  --s-orange: #f76808;
+  --s-red: #ff6b66;
+  --s-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --s-display: var(--font-site-display), "Bricolage Grotesque", system-ui, sans-serif;
 
   flex-shrink: 0;
   min-height: 100vh;
@@ -32,10 +37,10 @@
 /* The page scrolls the document, so the canvas and scrollbar are dark too,
    whatever the account theme on <html> says. */
 html:has(.site) {
-  background: #0b0c10;
+  background: #09090c;
   color-scheme: dark;
-  scrollbar-color: #34343f #0b0c10;
-  scroll-padding-top: 5.5rem;
+  scrollbar-color: #2e2e38 #09090c;
+  scroll-padding-top: 5rem;
 }
 
 html:has(.site) body {
@@ -43,11 +48,11 @@ html:has(.site) body {
 }
 
 html:has(.site)::-webkit-scrollbar-track {
-  background: #0b0c10;
+  background: #09090c;
 }
 
 html:has(.site)::-webkit-scrollbar-thumb {
-  background: #34343f;
+  background: #2e2e38;
 }
 
 .site ::selection {
@@ -72,64 +77,71 @@ html:has(.site)::-webkit-scrollbar-thumb {
   color: var(--s-faint);
 }
 
+/* Headlines: Bricolage Grotesque at its display optical size. */
 .s-display {
-  letter-spacing: -0.035em;
-  font-feature-settings: "ss01", "cv11";
+  font-family: var(--s-display);
+  font-weight: 600;
+  font-variation-settings: "opsz" 96;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  text-wrap: balance;
 }
 
-.s-gradient-text {
-  background: linear-gradient(100deg, #ffffff 0%, #d9d9ff 35%, var(--s-primary) 55%, var(--s-pink) 100%);
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
+.s-mono {
+  font-family: var(--font-geist-mono), ui-monospace, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
 }
 
 .s-eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  border: 1px solid var(--s-line-strong);
-  background: rgb(255 255 255 / 3%);
-  color: var(--s-soft);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--s-faint);
 }
 
-.s-card {
-  background: var(--s-card);
-  border: 1px solid var(--s-line);
+/* ---- Buttons ---- */
+
+.s-btn {
+  display: inline-flex;
+  height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 10px;
+  padding: 0 1rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    background-color 240ms var(--s-ease),
+    border-color 240ms var(--s-ease),
+    translate 240ms var(--s-ease);
+}
+
+.s-btn:hover {
+  translate: 0 -1px;
 }
 
 .s-btn-primary {
   background: var(--s-primary);
   color: var(--s-primary-ink);
-  box-shadow:
-    0 0 0 1px rgb(255 255 255 / 12%) inset,
-    0 8px 30px -10px color-mix(in oklch, var(--s-primary) 70%, transparent);
-  transition:
-    transform 160ms ease-out,
-    box-shadow 160ms ease-out,
-    background-color 160ms ease-out;
+  border: 1px solid transparent;
 }
 
 .s-btn-primary:hover {
-  background: #d1d2ff;
-  transform: translateY(-1px);
-  box-shadow:
-    0 0 0 1px rgb(255 255 255 / 18%) inset,
-    0 12px 40px -10px color-mix(in oklch, var(--s-primary) 85%, transparent);
+  background: #cdccff;
 }
 
 .s-btn-ghost {
   border: 1px solid var(--s-line-strong);
   background: rgb(255 255 255 / 3%);
   color: var(--s-ink);
-  transition:
-    background-color 160ms ease-out,
-    border-color 160ms ease-out;
 }
 
 .s-btn-ghost:hover {
   background: rgb(255 255 255 / 7%);
-  border-color: rgb(255 255 255 / 20%);
+  border-color: rgb(255 255 255 / 22%);
 }
 
 .s-link {
@@ -142,159 +154,122 @@ html:has(.site)::-webkit-scrollbar-thumb {
 }
 
 .s-header {
-  background: color-mix(in oklch, var(--s-bg) 72%, transparent);
+  background: color-mix(in oklch, var(--s-bg) 78%, transparent);
   backdrop-filter: blur(16px) saturate(140%);
   -webkit-backdrop-filter: blur(16px) saturate(140%);
   border-bottom: 1px solid var(--s-line);
 }
 
-/* ---- Backdrop ---- */
+/* ---- Frames ----
+   The stage holds the film; a scene frame holds one chapter's loop. Both
+   keep the film's 16:10 ratio so the Player never reflows the page. */
 
-.s-grid {
-  background-image:
-    linear-gradient(to right, rgb(255 255 255 / 4.5%) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(255 255 255 / 4.5%) 1px, transparent 1px);
-  background-size: 56px 56px;
-  mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black 20%, transparent 75%);
-  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black 20%, transparent 75%);
-}
-
-.s-orb {
-  position: absolute;
-  border-radius: 9999px;
-  filter: blur(70px);
-  opacity: 0.55;
-  animation: s-orb 18s ease-in-out infinite;
-  pointer-events: none;
-}
-
-@keyframes s-orb {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  33% {
-    transform: translate3d(6%, -8%, 0) scale(1.08);
-  }
-  66% {
-    transform: translate3d(-5%, 6%, 0) scale(0.95);
-  }
-}
-
-/* A light pulse that runs along an SVG path (pathLength="1"). */
-.s-beam {
-  stroke-dasharray: 0.14 0.86;
-  animation: s-beam 5.5s linear infinite;
-}
-
-@keyframes s-beam {
-  from {
-    stroke-dashoffset: 1;
-  }
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
-.s-marquee {
-  animation: s-marquee 40s linear infinite;
-}
-
-@keyframes s-marquee {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-50%);
-  }
-}
-
-.s-spin-slow {
-  animation: s-spin 30s linear infinite;
-}
-
-@keyframes s-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.s-blink {
-  animation: s-blink 1s steps(2, start) infinite;
-}
-
-@keyframes s-blink {
-  to {
-    visibility: hidden;
-  }
-}
-
-.s-shimmer {
-  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 9%), transparent);
-  background-size: 200% 100%;
-  animation: s-shimmer 2.4s ease-in-out infinite;
-}
-
-@keyframes s-shimmer {
-  from {
-    background-position: 200% 0;
-  }
-  to {
-    background-position: -200% 0;
-  }
-}
-
-/* A card border that lights up under the pointer (--mx/--my set by script). */
-.s-spot {
+.s-stage,
+.s-scene {
   position: relative;
-  isolation: isolate;
+  overflow: hidden;
+  aspect-ratio: 16 / 10;
+  border: 1px solid var(--s-line-strong);
+  background: var(--s-panel);
 }
 
-.s-spot::before {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  z-index: -1;
-  border-radius: inherit;
-  background: radial-gradient(
-    400px circle at var(--mx, -999px) var(--my, -999px),
-    color-mix(in oklch, var(--s-primary) 45%, transparent),
-    transparent 45%
-  );
-  opacity: 0;
-  transition: opacity 240ms ease-out;
+.s-stage {
+  border-radius: 20px;
+  box-shadow: 0 40px 120px -50px rgb(0 0 0 / 90%);
 }
 
-.s-spot:hover::before {
-  opacity: 1;
+.s-scene {
+  border-radius: 12px;
 }
 
-.s-spot > .s-spot-inner {
-  border-radius: inherit;
+.s-card {
+  border: 1px solid var(--s-line);
+  border-radius: 12px;
   background: var(--s-card);
-  height: 100%;
+}
+
+.s-card-hover {
+  transition:
+    border-color 240ms var(--s-ease),
+    translate 240ms var(--s-ease);
+}
+
+.s-card-hover:hover {
+  border-color: var(--s-line-strong);
+  translate: 0 -2px;
+}
+
+/* Chapter rail under the stage. */
+.s-rail-item {
+  position: relative;
+  display: flex;
+  min-height: 2.75rem;
+  flex-direction: column;
+  gap: 0.2rem;
+  border-top: 2px solid var(--s-line-strong);
+  padding: 0.5rem 0.4rem 0.4rem 0;
+  text-align: left;
+  color: var(--s-faint);
+  transition:
+    color 240ms var(--s-ease),
+    border-color 240ms var(--s-ease);
+}
+
+.s-rail-item:hover {
+  color: var(--s-soft);
+}
+
+.s-rail-item[aria-current="true"] {
+  color: var(--s-ink);
+  border-top-color: var(--c, var(--s-primary));
+}
+
+.s-rail-item > span:first-child {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.75rem;
+  color: var(--c, var(--s-primary));
+}
+
+.s-rail-item > span:last-child {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+/* Reveal on scroll: starts hidden, settles when `data-in` is set. */
+.s-reveal {
+  opacity: 0;
+  translate: 0 14px;
+  transition:
+    opacity 600ms var(--s-ease),
+    translate 600ms var(--s-ease);
+}
+
+.s-reveal[data-in] {
+  opacity: 1;
+  translate: 0 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .s-orb,
-  .s-beam,
-  .s-marquee,
-  .s-spin-slow,
-  .s-blink,
-  .s-shimmer {
-    animation: none;
+  .s-reveal {
+    opacity: 1;
+    translate: 0 0;
+    transition: none;
   }
 
-  .s-beam {
-    stroke-dasharray: none;
-    opacity: 0.25;
+  .s-btn,
+  .s-card-hover {
+    transition: none;
+  }
+
+  .s-btn:hover,
+  .s-card-hover:hover {
+    translate: 0 0;
   }
 }
 
-/* ---- Landing page: "a day in Timely" ----
-   Layout: the page reads like Timely's day view. An hour gutter runs down
-   the left, every section is a block that starts at its hour, and a "now"
-   marker follows the scroll. Colours are the app's own project colours. */
+/* ---- `.lp`: the sign-in, sign-up, onboarding and desktop setup pages ----
+   They keep the calendar-block motif in the app's project colours. */
 
 .lp {
   --lp-bg: #0d0e13;
@@ -339,93 +314,8 @@ html:has(.site)::-webkit-scrollbar-thumb {
   background: color-mix(in oklch, var(--c) 16%, var(--lp-bg));
 }
 
-/* "the time." in the hero, dropped onto the page like a scheduled block. */
-.lp-hero-block {
-  --c: var(--lp-now);
-  position: relative;
-  display: inline-block;
-  border-left: 0.09em solid var(--c);
-  border-radius: 0.12em;
-  background: color-mix(in oklch, var(--c) 18%, var(--lp-bg));
-  padding: max(0.16em, 20px) 0.22em 0.04em 0.18em;
-  color: #e6e6ff;
-  animation: lp-drop 900ms cubic-bezier(0.22, 1, 0.36, 1) 350ms both;
-}
-
-.lp-hero-block > small {
-  position: absolute;
-  top: 0.55em;
-  left: 0.34em;
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: max(0.105em, 10px);
-  font-stretch: 100%;
-  font-weight: 500;
-  letter-spacing: 0;
-  color: color-mix(in oklch, var(--c) 70%, white);
-}
-
-@keyframes lp-drop {
-  from {
-    opacity: 0;
-    transform: translateY(-0.35em);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.lp-btn {
-  display: inline-flex;
-  height: 2.75rem;
-  align-items: center;
-  gap: 0.5rem;
-  border-radius: 10px;
-  padding-inline: 1.15rem;
-  font-size: 0.9375rem;
-  font-weight: 600;
-  transition:
-    background-color 150ms ease-out,
-    border-color 150ms ease-out;
-}
-
-.lp-btn-primary {
-  background: var(--lp-now);
-  color: var(--lp-now-ink);
-}
-
-.lp-btn-primary:hover {
-  background: #d4d5ff;
-}
-
-.lp-btn-ghost {
-  border: 1px solid var(--lp-line);
-  background: var(--lp-surface);
-  color: var(--lp-ink);
-}
-
-.lp-btn-ghost:hover {
-  border-color: rgb(236 235 245 / 18%);
-}
-
-/* Half-hour ticks down the gutter, like the day view's grid. */
-.lp-ticks {
-  background-image: repeating-linear-gradient(
-    to bottom,
-    var(--lp-line) 0 1px,
-    transparent 1px 96px
-  );
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .lp-hero-block {
-    animation: none;
-  }
-}
-
-/* ---- Sign-in, sign-up, onboarding and desktop setup ----
-   The same day as the landing page: the form is the block happening now,
-   and a day view beside it fills in with what the person picks. */
+/* The form is the block happening now, and a day view beside it fills in
+   with what the person picks. */
 
 /* Sign-in fields are the shared kit's Input, which draws its own focus ring. */
 .site .lp-control input:focus-visible {
@@ -526,6 +416,7 @@ html:has(.site)::-webkit-scrollbar-thumb {
   background: color-mix(in oklch, var(--c) 13%, var(--lp-bg));
 }
 
+
 /* ---- Help center article text ----
    Inside the components layer so utilities on a child (margins, list style)
    still win over these defaults. */
@@ -614,7 +505,7 @@ html:has(.site)::-webkit-scrollbar-thumb {
     overflow-x: auto;
     border: 1px solid var(--s-line);
     border-radius: 12px;
-    background: #08090c;
+    background: #0b0b0f;
     padding: 1rem 1.1rem;
     font-size: 0.8125rem;
     line-height: 1.7;

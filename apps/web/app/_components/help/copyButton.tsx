@@ -18,7 +18,7 @@ export default function CopyButton({ text }: { text: string }) {
         }
       }}
       aria-label={copied ? "Copied" : "Copy"}
-      className="absolute top-2.5 right-2.5 flex size-8 items-center justify-center rounded-lg border border-white/10 bg-[#15171e] text-white/55 opacity-100 transition hover:text-white sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+      className="absolute top-2.5 right-2.5 flex size-8 items-center justify-center rounded-lg border border-[var(--s-line-strong)] bg-[var(--s-raised)] text-white/55 opacity-100 transition hover:text-white sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
     >
       {copied ? <Check className="size-4 text-[#4edea3]" /> : <Copy className="size-4" />}
     </button>
