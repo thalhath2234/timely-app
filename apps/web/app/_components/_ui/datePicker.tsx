@@ -704,12 +704,16 @@ export function DateField({
   className,
   clearable,
   size,
+  variant,
+  "aria-label": ariaLabel,
 }: {
   value?: string | null;
   onChange: (value: string) => void;
   className?: string;
   clearable?: boolean;
   size?: ControlSize;
+  variant?: DatePickerProps["variant"];
+  "aria-label"?: string;
 }) {
   return (
     <DatePicker
@@ -719,6 +723,8 @@ export function DateField({
       className={className}
       clearable={clearable}
       size={size}
+      variant={variant}
+      aria-label={ariaLabel}
     />
   );
 }
