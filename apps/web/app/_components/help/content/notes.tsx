@@ -1,7 +1,7 @@
 import { FileText } from "lucide-react";
 import Link from "next/link";
 import type { HelpSection } from "../types";
-import { Callout, HelpLink, Path, Shot } from "../ui";
+import { Callout, HelpLink, Path, Shot, Still } from "../ui";
 
 export const notes: HelpSection = {
   id: "notes",
@@ -75,9 +75,9 @@ export const notes: HelpSection = {
           title: "The doc page",
           body: (
             <>
-              <Shot
-                src="doc"
-                alt="A doc titled Website launch brief with a note callout, headings, a bullet list and a table."
+              <Still
+                id="docs"
+                alt="A doc titled Website launch brief with a note callout, a line turned into a linked task, headings, a bullet list and a table."
               />
               <ul>
                 <li>
@@ -372,9 +372,9 @@ export const notes: HelpSection = {
           title: "The grid",
           body: (
             <>
-              <Shot
-                src="sheet"
-                alt="A sheet called Launch budget with Item, Category, Cost and Paid columns, dropdown chips and a SUM total."
+              <Still
+                id="sheets"
+                alt="A sheet called Launch budget with Item, Category, Cost and Paid columns, dropdown chips, a SUM total, and the Dashboard card made from that total."
               />
               <ul>
                 <li>
@@ -660,9 +660,9 @@ export const notes: HelpSection = {
           title: "Arrange it",
           body: (
             <>
-              <Shot
-                src="dashboard"
-                alt="Dashboard with cards for open tasks, done this week, overdue, weekly completion, today, a Pomodoro timer and open by priority."
+              <Still
+                id="cards"
+                alt="Dashboard with cards for open tasks, done this week, overdue, a Pomodoro timer, today, planned hours by project, a sheet total, habits, reminders and week focus."
               />
               <p>
                 Drag a card by its title to move it, or drag an edge or corner to resize it. Double-click a title to

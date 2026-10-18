@@ -21,7 +21,8 @@
     "electron:dist": "node electron/pack.mjs",
     "film:studio": "remotion studio",
     "film:render": "remotion render TimelyFilm out/timely-film.mp4",
-    "film:render-loops": "node scripts/renderLoops.mjs"
+    "film:render-loops": "node scripts/renderLoops.mjs",
+    "film:render-stills": "node --experimental-strip-types scripts/renderStills.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",

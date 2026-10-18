@@ -1,7 +1,7 @@
 import { CalendarClock } from "lucide-react";
 import Link from "next/link";
 import type { HelpSection } from "../types";
-import { Callout, HelpLink, Path, PhoneShots, Shot, Steps } from "../ui";
+import { Callout, HelpLink, Path, PhoneShots, Shot, Steps, Still } from "../ui";
 
 export const plan: HelpSection = {
   id: "plan",
@@ -49,10 +49,9 @@ export const plan: HelpSection = {
               <p>
                 You can also capture from the Quick capture card on the Dashboard, or by asking the assistant.
               </p>
-              <Shot
-                src="inbox"
-                size={{ width: 1440, height: 900 }}
-                alt="The Inbox: a What's on your mind box with Capture, an Up next card for the oldest capture with Make it a task, Remind me, Later and Delete, the other captures under Also waiting, and a Waiting for a decision count on the right."
+              <Still
+                id="capture"
+                alt="The Inbox: a capture box with Capture, an Up next card for the oldest capture with Make it a task, Reminder and Skip, the other captures with Review buttons, and counts of what this week's captures became."
               />
               <p>
                 On the phone, open <strong>Inbox</strong> from the Home tab. The capture box sits at the bottom of the
@@ -174,9 +173,9 @@ export const plan: HelpSection = {
           title: "Reading the calendar",
           body: (
             <>
-              <Shot
-                src="calendar"
-                alt="Week view: coloured work blocks and events across Sunday to Saturday, reminder chips, and the Waiting for a slot list on the right."
+              <Still
+                id="auto-schedule"
+                alt="Week view: coloured work blocks placed around events from Sunday to Friday, one block marked moved from Wed, and the Waiting for a slot list on the right."
               />
               <ul>
                 <li>The colour legend under the title maps colours to projects and to events.</li>
@@ -303,6 +302,15 @@ export const plan: HelpSection = {
               <Shot
                 src="auto-schedule"
                 alt="The Auto-schedule dialog: date range, capacity by day, a list of changes per task, and Undo last apply and Apply schedule buttons."
+              />
+              <p>
+                Once the plan is applied, the message that confirms it and the <strong>Waiting for a slot</strong>{" "}
+                panel both offer <strong>Show me</strong>: a short replay of the week in which each placed block
+                appears in the order it was planned and each moved block slides from its old slot to the new one.
+              </p>
+              <Still
+                id="replay"
+                alt="The What auto-schedule did replay at its end: five blocks on a Monday to Friday grid, and the line 5 blocks placed inside your working hours, 1 moved out of a meeting's way."
               />
               <p>
                 Running it again later the same day moves Work it placed earlier that day instead of adding a second

@@ -1,7 +1,7 @@
 import { Compass } from "lucide-react";
 import Link from "next/link";
 import type { HelpSection } from "../types";
-import { Callout, Path, PhoneShots, Shot, Steps } from "../ui";
+import { Callout, Path, PhoneShots, Shot, Steps, Still } from "../ui";
 
 export const start: HelpSection = {
   id: "start",
@@ -47,10 +47,10 @@ export const start: HelpSection = {
                   toward the task.
                 </li>
               </ol>
-              <Shot
-                src="calendar"
+              <Still
+                id="auto-schedule"
                 alt="Week calendar with work blocks placed around events, and a list of work waiting for a slot."
-                caption="Work placed on the week by Auto-schedule, with events and reminders around it."
+                caption="Work placed on the week by Auto-schedule, with events around it."
               />
             </>
           ),
