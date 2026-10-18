@@ -14,6 +14,9 @@ import ServerSettings from "@/app/_components/settings/serverSettings";
 import { useDesktopBridge } from "@/app/utils/hooks/desktop";
 import { cn } from "@/app/utils/cn";
 import PageHeader from "@/app/_components/_ui/pageHeader";
+import PageWithRail from "@/app/_components/_ui/pageWithRail";
+import AppearancePreview from "@/app/_components/settings/appearancePreview";
+import WorkspaceUsage from "@/app/_components/settings/workspaceUsage";
 import { AnimatePresence, motion } from "motion/react";
 import { fadeTransition, springSoft } from "@/app/_components/_ui/motion";
 
@@ -102,11 +105,16 @@ function SettingsContent() {
 
 function SettingsTabs({ initialTab }: { initialTab: SettingsTab }) {
   const [requestedTab, setTab] = useState<SettingsTab>(initialTab);
+  // The workspace open under Workspaces, shared with its rail.
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const desktop = useDesktopBridge();
   const tabs = desktop ? [...TABS, SERVER_TAB] : TABS;
   // ?tab=server outside the desktop app falls back to the first tab instead of
   // rendering a panel that has no entry in the list.
   const tab: SettingsTab = requestedTab === "server" && !desktop ? "account" : requestedTab;
+  // Appearance shows itself; Workspaces shows what the open workspace's
+  // statuses, labels and fields are used by. Other tabs lay out in two columns.
+  const rail = tab === "appearance" ? <AppearancePreview /> : tab === "workspaces" ? <WorkspaceUsage workspaceId={workspaceId} /> : null;
 
   return (
     <main className="flex h-full flex-col overflow-hidden bg-background">
@@ -157,15 +165,17 @@ function SettingsTabs({ initialTab }: { initialTab: SettingsTab }) {
               exit={{ opacity: 0, y: -6 }}
               transition={fadeTransition}
             >
-              {tab === "account" && <AccountSettings />}
-              {tab === "appearance" && <AppearanceSettings />}
-              {tab === "schedule" && <WorkingHoursSettings />}
-              {tab === "notifications" && <NotificationSettings />}
-              {tab === "workspaces" && <WorkspaceSettings />}
-              {tab === "agent" && <AgentSettings />}
-              {tab === "data" && <DataSettings />}
-              {tab === "integrations" && <ApiKeysSettings />}
-              {tab === "server" && <ServerSettings />}
+              <PageWithRail rail={rail} railWidth={340}>
+                {tab === "account" && <AccountSettings />}
+                {tab === "appearance" && <AppearanceSettings />}
+                {tab === "schedule" && <WorkingHoursSettings />}
+                {tab === "notifications" && <NotificationSettings />}
+                {tab === "workspaces" && <WorkspaceSettings selectedId={workspaceId} onSelect={setWorkspaceId} />}
+                {tab === "agent" && <AgentSettings />}
+                {tab === "data" && <DataSettings />}
+                {tab === "integrations" && <ApiKeysSettings />}
+                {tab === "server" && <ServerSettings />}
+              </PageWithRail>
             </motion.div>
           </AnimatePresence>
         </div>

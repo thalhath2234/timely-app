@@ -2,6 +2,8 @@
 
 import Button, { buttonClass } from "@/app/_components/_ui/button";
 import PageHeader from "@/app/_components/_ui/pageHeader";
+import PageWithRail from "@/app/_components/_ui/pageWithRail";
+import FilesRail from "@/app/_components/files/filesRail";
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, Plus, Upload } from "lucide-react";
@@ -35,7 +37,7 @@ type Item = { kind: "doc"; doc: Doc } | { kind: "sheet"; sheet: Sheet };
 const itemId = (item: Item) => (item.kind === "doc" ? item.doc.id : item.sheet.id);
 const itemUpdatedAt = (item: Item) => (item.kind === "doc" ? item.doc.updatedAt : item.sheet.updatedAt);
 
-const grid = "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
+const grid = "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4";
 const sectionHeading = "mt-6 text-xs font-semibold uppercase tracking-wider text-muted-foreground";
 
 /** Start page of Files: recent docs and sheets together, then sheet templates. */
@@ -204,7 +206,19 @@ export default function FilesHome() {
           </>
         }
       />
-      <div className="flex min-h-full flex-col px-6 pb-6">
+      <PageWithRail
+        className="px-6 pb-6"
+        sticky
+        rail={
+          <FilesRail
+            docs={docsQuery.data ?? []}
+            sheets={sheetsQuery.data ?? []}
+            templates={templates}
+            creating={createSheet.isPending}
+            onCreateFromTemplate={(templateId) => void createNewSheet(templateId)}
+          />
+        }
+      >
         {favorites.length > 0 && (
           <>
             <h2 className={sectionHeading}>Favorites</h2>
@@ -315,7 +329,7 @@ export default function FilesHome() {
             </div>
           </>
         )}
-      </div>
+      </PageWithRail>
     </div>
   );
 }

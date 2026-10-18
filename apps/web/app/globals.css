@@ -1399,18 +1399,14 @@ html.reduce-motion:not([data-public-site]) .tl-bar {
   min-width: 0;
 }
 /* Wide pages (docPage.tsx): the toolbar is a rail in the left gutter and the
- * suggestions sit in the right margin, each level with its line. The middle
- * gap holds the block drag handle. */
+ * right column holds the outline card, then the suggestions, each level with
+ * its line. The middle gap holds the block drag handle. */
 .doc-page-grid[data-layout="margin"] {
   max-width: none;
-  grid-template-columns: 2.5rem 3.5rem minmax(0, 52rem);
-  grid-template-rows: auto 1fr;
-  grid-template-areas: "tools . head" "tools . body";
-  justify-content: center;
-}
-.doc-page-grid[data-layout="margin"]:has(> .doc-page-rail:not(:empty)) {
   grid-template-columns: 2.5rem 3.5rem minmax(0, 52rem) 2.5rem minmax(18rem, 22rem);
+  grid-template-rows: auto 1fr;
   grid-template-areas: "tools . head . rail" "tools . body . rail";
+  justify-content: center;
 }
 .doc-page-grid[data-layout="margin"] > .doc-page-rail {
   position: relative;

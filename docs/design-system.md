@@ -63,6 +63,12 @@ Web `app/_components/_ui/pageHeader.tsx`: 26px semibold title at −0.02em, opti
 
 Phone `MobileHeader`: tab roots (Today, Tasks, Calendar, Search, Files) use the large 28px title; every pushed screen (`back`) uses the compact 17px title. `large` defaults to `!back`.
 
+## Page with rail
+
+Web `app/_components/_ui/pageWithRail.tsx`: the layout system for app pages. The page's own content on the left and a rail of supporting cards on the right (`railWidth` 300–340px, 320 by default), as one grid from xl (1280px) up; narrower windows put the rail's cards under the content, two per row. `sticky` keeps a short rail in view while a long page scrolls.
+
+The rail carries what the page does not say by itself: the numbers (a `RailStat`, the film's big figure over a small label), the next steps and the settings people change most, each as a `RailSection` card of `RailRow`s (a colour dot and label on the left, the value or a `ListSwitch` on the right, an optional second line and a thin share bar). Today puts habits, reminders, overdue and the wrap-up there and keeps focus and the day's clock side by side; Projects shows time planned per project over the next seven days, deadlines and projects by status; Notifications what is waiting and the delivery switches; Files new sheets from templates and the library's counts; Settings a live preview on Appearance and the open workspace's statuses, labels and fields on Workspaces; a wide doc the outline card (words, reading time, headings that jump) above the margin suggestions. A rail never holds filler: with nothing to say, the card says so in one `RailEmpty` line or the page has no rail.
+
 ## Sheets and create forms
 
 On the phone, `BottomSheet` in `components/ui/BottomSheet.tsx` is the phone's one pop-up: a grabber (pull it or the header down to close), a header with the title (or a `leading` control such as Quick add's kind chip, plus an optional `subtitle`) and a close button, a scrolling body and an optional `footer` action bar.

@@ -17,6 +17,8 @@ import type { Project, Task } from "@/app/_types/types";
 import { motion } from "motion/react";
 import Button from "@/app/_components/_ui/button";
 import PageHeader, { PageBadge } from "@/app/_components/_ui/pageHeader";
+import PageWithRail from "@/app/_components/_ui/pageWithRail";
+import ProjectsRail from "@/app/_components/projects/projectsRail";
 import { hoverLift, listContainerVariants, listItemVariants, springSoft } from "@/app/_components/_ui/motion";
 
 function ProgressBar({ value, color }: { value: number; color?: string | null }) {
@@ -130,8 +132,11 @@ export default function ProjectsPage() {
           </Button>
         }
       />
-      <div className="flex min-h-full flex-col px-6 pb-6">
-
+      <PageWithRail
+        className="px-6 pb-6"
+        sticky
+        rail={!isLoading && !isError && list.length > 0 ? <ProjectsRail projects={list} /> : null}
+      >
         {tasksQuery.isError && (
           <LoadErrorBanner
             what="tasks (project progress may be incomplete)"
@@ -168,7 +173,7 @@ export default function ProjectsPage() {
           </div>
         ) : (
           <motion.div
-            className="mt-1 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3"
+            className="mt-1 grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3"
             variants={listContainerVariants}
             initial="hidden"
             animate="visible"
@@ -183,7 +188,7 @@ export default function ProjectsPage() {
             ))}
           </motion.div>
         )}
-      </div>
+      </PageWithRail>
     </div>
   );
 }

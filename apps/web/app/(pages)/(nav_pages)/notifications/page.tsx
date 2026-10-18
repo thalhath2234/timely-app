@@ -3,6 +3,8 @@
 import { Bell, Sparkles, X } from "lucide-react";
 import Button, { buttonClass } from "@/app/_components/_ui/button";
 import PageHeader from "@/app/_components/_ui/pageHeader";
+import PageWithRail from "@/app/_components/_ui/pageWithRail";
+import NotificationsRail from "@/app/_components/notifications/notificationsRail";
 import { useRouter } from "next/navigation";
 import EmptyState from "@/app/_components/_ui/emptyState";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
@@ -157,7 +159,7 @@ export default function NotificationsPage() {
           </>
         }
       />
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <PageWithRail className="flex-1 overflow-y-auto px-6 py-5" rail={<NotificationsRail items={items} />}>
         {list.isLoading ? (
           <p className="text-sm text-muted-foreground">Loading notifications…</p>
         ) : items.length === 0 ? (
@@ -168,7 +170,7 @@ export default function NotificationsPage() {
           />
         ) : (
           <motion.ul
-            className="space-y-2"
+            className="max-w-3xl space-y-2"
             variants={listContainerVariants}
             initial="hidden"
             animate="visible"
@@ -301,7 +303,7 @@ export default function NotificationsPage() {
             })}
           </motion.ul>
         )}
-      </div>
+      </PageWithRail>
     </div>
   );
 }
