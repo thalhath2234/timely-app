@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useDeferredValue, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { Check } from "lucide-react-native";
 import {
@@ -126,6 +126,8 @@ function Builder({
     [kind, data.sheets, data.docs],
   ) as unknown as (Sheet | Doc)[];
   const picked = query?.sheet?.sheetId ?? query?.doc?.docId ?? null;
+  // The preview redraws after the tap's own change, so a tap shows at once.
+  const previewQuery = useDeferredValue(query);
 
   const pickFile = (id: string) => {
     const file = files.find((entry) => entry.id === id);
@@ -183,7 +185,7 @@ function Builder({
               <Text style={styles.previewTitle} numberOfLines={1}>
                 {title.trim() || describeQuery(query)}
               </Text>
-              <FileCardView query={query} data={data} preview />
+              {previewQuery ? <FileCardView query={previewQuery} data={data} preview /> : null}
             </View>
           </View>
         </>
