@@ -237,6 +237,13 @@ export default function TaskDetailScreen() {
   const combinedTotal = checklist.length;
   const combinedProgress = combinedTotal ? combinedDone / combinedTotal : 0;
 
+  const activityRows = (activity.data ?? []).map((row) => (
+    <View key={row.id} style={styles.activityRow}>
+      <View style={styles.activityDot} />
+      <Text style={styles.activity}><Text style={styles.activityActor}>{row.actorName}</Text> · {row.message}</Text>
+    </View>
+  ));
+
   function persist(data: Parameters<typeof save.mutate>[0]["data"]) {
     const assigningMeta = Boolean(data.labelIds || data.customFieldValues);
     save.mutate({
@@ -745,21 +752,24 @@ export default function TaskDetailScreen() {
           <GroupLabel aside={(activity.data ?? []).length ? String((activity.data ?? []).length) : undefined}>Activity</GroupLabel>
           <ListGroup>
             {(activity.data ?? []).length > 0 ? (
-              <ScrollView
-                key="log"
-                keyboardShouldPersistTaps="handled"
-                nestedScrollEnabled
-                showsVerticalScrollIndicator={false}
-                style={(activity.data ?? []).length > 4 ? styles.activityLog : undefined}
-                contentContainerStyle={styles.activityPad}
-              >
-                {(activity.data ?? []).map((row) => (
-                  <View key={row.id} style={styles.activityRow}>
-                    <View style={styles.activityDot} />
-                    <Text style={styles.activity}><Text style={styles.activityActor}>{row.actorName}</Text> · {row.message}</Text>
-                  </View>
-                ))}
-              </ScrollView>
+              (activity.data ?? []).length > 4 ? (
+                <ScrollView
+                  key="log"
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator={false}
+                  style={styles.activityLog}
+                  contentContainerStyle={styles.activityPad}
+                >
+                  {activityRows}
+                </ScrollView>
+              ) : (
+                // A short log needs no scroller; on Android one sized to its
+                // content cut off the last wrapped line.
+                <View key="log" style={styles.activityPad}>
+                  {activityRows}
+                </View>
+              )
             ) : null}
             <FocusGroup key="__comment">
               <View style={styles.checkRow}>
@@ -1139,7 +1149,7 @@ const styles = createThemedStyleSheet((colors) => ({
   inlineAction: { color: colors.primary, fontSize: 14, fontWeight: "600" },
   inlineActionOff: { color: colors.mutedForeground, opacity: 0.6 },
   activity: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18, flexShrink: 1 },
-  activityLog: { maxHeight: 180 },
+  activityLog: { maxHeight: 180, flexGrow: 0 },
   activityPad: { paddingHorizontal: 14, paddingVertical: 8 },
   activityRow: { minHeight: 32, flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 3 },
   activityDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primary, marginTop: 6 },

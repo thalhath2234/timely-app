@@ -184,6 +184,13 @@ export default function ProjectDetailScreen() {
     setEditingStage(null);
   }
 
+  const activityRows = (activity.data ?? []).map((entry) => (
+    <ListRow
+      key={entry.id}
+      title={entry.message || `${entry.actorName} ${entry.action}`}
+      meta={`${entry.taskName ? `${entry.taskName} · ` : ""}${timeAgo(entry.createdAt)}`}
+    />
+  ));
   return (
     <Screen>
       <MobileHeader
@@ -359,23 +366,14 @@ export default function ProjectDetailScreen() {
           <GroupLabel aside={(activity.data ?? []).length ? String((activity.data ?? []).length) : undefined}>Activity</GroupLabel>
           {(activity.data ?? []).length ? (
             <ListGroup>
-              {/* Long logs scroll inside the card so the page stays short. */}
-              <ScrollView
-                key="log"
-                nestedScrollEnabled
-                keyboardShouldPersistTaps="handled"
-                style={(activity.data ?? []).length > 5 ? styles.activityLog : undefined}
-              >
-                <ListGroup style={styles.activityRows}>
-                  {(activity.data ?? []).map((entry) => (
-                    <ListRow
-                      key={entry.id}
-                      title={entry.message || `${entry.actorName} ${entry.action}`}
-                      meta={`${entry.taskName ? `${entry.taskName} · ` : ""}${timeAgo(entry.createdAt)}`}
-                    />
-                  ))}
-                </ListGroup>
-              </ScrollView>
+              {(activity.data ?? []).length > 5 ? (
+                // Long logs scroll inside the card so the page stays short.
+                <ScrollView key="log" nestedScrollEnabled keyboardShouldPersistTaps="handled" style={styles.activityLog}>
+                  <ListGroup style={styles.activityRows}>{activityRows}</ListGroup>
+                </ScrollView>
+              ) : (
+                activityRows
+              )}
             </ListGroup>
           ) : null}
           <GroupHint>Edits to the project’s own title, dates and description are not recorded yet.</GroupHint>
@@ -659,7 +657,7 @@ const styles = createThemedStyleSheet((colors) => ({
   sheetBody: { gap: 10, paddingBottom: 4 },
   section: { gap: 6 },
   // About five rows, with the next one peeking so it reads as scrollable.
-  activityLog: { maxHeight: 290 },
+  activityLog: { maxHeight: 290, flexGrow: 0 },
   activityRows: { borderWidth: 0, borderRadius: 0 },
   inlineRow: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 6 },
   inlineLabel: { color: colors.foreground, fontSize: 15, fontWeight: "500" },

@@ -180,7 +180,7 @@ export function Field({
       } : undefined}
       selectionColor={colors.primary}
       autoFocus={autoFocus}
-      style={[styles.input, multiline && styles.area, focused && styles.inputFocused, bare && styles.inputBare, bare && multiline && styles.inputBareArea, bare && focused && styles.inputBareFocused, large && styles.inputLarge, autoGrow && { height: Math.max(large ? 34 : bare ? 30 : 38, contentHeight + 2) }, align === "right" && styles.inputRight]}
+      style={[styles.input, multiline && styles.area, focused && styles.inputFocused, bare && styles.inputBare, bare && multiline && styles.inputBareArea, large && styles.inputLarge, autoGrow && { height: Math.max(large ? 34 : bare ? 30 : 38, contentHeight + 2) }, align === "right" && styles.inputRight]}
     />
   );
   if (!label && !hint) return input;
@@ -460,11 +460,12 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   inputFocused: { borderColor: colors.primary },
   sheetSearch: { marginBottom: 8 },
-  inputBare: { minHeight: 30, borderWidth: 0, backgroundColor: "transparent", paddingHorizontal: 0, outlineWidth: 0 },
+  // No focus underline: in a grouped row it ran into the card's edge, and the
+  // caret already says where you type. Android's own padding is trimmed so the
+  // field stays inside its 48px row.
+  inputBare: { minHeight: 30, borderWidth: 0, backgroundColor: "transparent", paddingHorizontal: 0, paddingVertical: 4, outlineWidth: 0 },
   inputBareArea: { minHeight: 30, paddingTop: 0 },
-  inputBareFocused: { borderBottomWidth: 2, borderColor: colors.primary },
   area: { minHeight: 112, textAlignVertical: "top", paddingTop: 12 },
-  // No focus underline: the caret and the size already say where you type.
   // Lines up with the values of the chevron rows around it (16px chevron + 10px gap).
   inputRight: { textAlign: "right", fontSize: 13, fontWeight: "500", paddingRight: 26 },
   inputLarge: { minHeight: 34, fontSize: 22, fontWeight: "600", letterSpacing: -0.3, lineHeight: 28, paddingVertical: 2, borderBottomWidth: 0 },
