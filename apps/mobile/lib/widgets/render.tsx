@@ -472,6 +472,7 @@ const BUTTON_GLYPHS: Record<WidgetGlyph, string[]> = {
   reset: ["M3 12a9 9 0 1 0 3-6.7L3 8", "M3 3v5h5"],
   plus: ["M5 12h14", "M12 5v14"],
   minus: ["M5 12h14"],
+  save: ["M20 6 9 17l-5-5"],
   lap: ["M12 13V9", "M10 2h4", "M12 22a8 8 0 1 0 0-16 8 8 0 0 0 0 16z"],
   inbox: [
     "M22 12h-6l-2 3h-4l-2-3H2",
@@ -479,8 +480,10 @@ const BUTTON_GLYPHS: Record<WidgetGlyph, string[]> = {
   ],
 };
 
-/** Counter buttons read − value +, so + is the main one; otherwise the first button is. */
+/** Counter buttons read − value +, so + (or Save between them) is the main one; otherwise the first button is. */
 function primaryIndex(buttons: WidgetButton[]) {
+  const save = buttons.findIndex((button) => button.glyph === "save");
+  if (save >= 0) return save;
   return buttons.length === 2 && buttons[0].glyph === "minus" ? 1 : 0;
 }
 
@@ -495,7 +498,7 @@ function Buttons({ model, p, width, height, stacked }: { model: WidgetModel; p: 
   const textW = (button: WidgetButton) => button.label.length * 6.6;
   const rowShows = buttons.every((button) => !button.glyph || textW(button) + 42 <= per)
     ? "both"
-    : buttons.every((button) => !button.action && textW(button) + 10 <= per)
+    : buttons.every((button) => !button.action && !button.local && textW(button) + 10 <= per)
       ? "label"
       : "icon";
   const show = (button: WidgetButton) => ({
@@ -512,9 +515,11 @@ function Buttons({ model, p, width, height, stacked }: { model: WidgetModel; p: 
         return (
           <FlexWidget
             key={button.label}
-            {...(button.action
-              ? { clickAction: WIDGET_ACTION, clickActionData: actionData(button.action) }
-              : { clickAction: "OPEN_URI", clickActionData: { uri: button.uri ?? model.uri } })}
+            {...(button.local
+              ? tapProps(button.local)
+              : button.action
+                ? { clickAction: WIDGET_ACTION, clickActionData: actionData(button.action) }
+                : { clickAction: "OPEN_URI", clickActionData: { uri: button.uri ?? model.uri } })}
             accessibilityLabel={button.label}
             style={{
               ...(stacked ? { width: "match_parent" as const, marginTop: index === 0 ? 0 : GAP } : { flex: 1, width: 0, marginLeft: index === 0 ? 0 : GAP }),
@@ -688,7 +693,7 @@ export function planCard(model: WidgetModel, size: Size): CardPlan {
   const showBars = Boolean(model.bars?.length) && size.height >= 150;
   const alone = !rowsWanted && !showBars && !model.meters && !model.note && !buttons && !model.empty;
   // A clock or counter (a figure with in-place buttons) is the point of its widget, so it grows.
-  const hero = Boolean(model.value) && Boolean(model.timer || model.buttons?.some((button) => button.action)) && !rowsWanted;
+  const hero = Boolean(model.value) && Boolean(model.timer || model.buttons?.some((button) => button.action || button.local)) && !rowsWanted;
   plan.hero = hero;
   const reserve = rowsWanted || showBars ? ROW_H : model.meters ? METER_H : model.note || model.empty ? NOTE_LINE_H : 0;
   left -= stat(left, innerW, alone || hero, alone ? 120 : hero ? 96 : 34, reserve);

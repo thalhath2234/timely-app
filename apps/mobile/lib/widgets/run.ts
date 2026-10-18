@@ -150,6 +150,9 @@ async function run(action: WidgetAction, context: ActionContext) {
       if (change) await updateSheet(pick.sheetId, change.payload as unknown as UpdateSheetPayload);
       break;
     }
+    case "counterSave":
+      // The redraw after every tap saves a counter's count (lib/widgets/counter.ts).
+      break;
     case "docCheck": {
       const pick = (context.card ?? (await boardCard(action.cardId)).card).query?.doc;
       if (!pick) break;

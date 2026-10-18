@@ -46,6 +46,7 @@ import {
 } from "@timely/contract/dashboard";
 import {
   computeSheetCard,
+  formatLike,
   pickDocBlocks,
   pickDocChecks,
   type DocPick,
@@ -53,10 +54,11 @@ import {
 } from "@timely/contract/dashboardFiles";
 import type { DocContent } from "@timely/contract/documents";
 import type { Sheet } from "@timely/contract/sheet";
+import type { SheetColumn } from "@timely/contract/sheetTypes";
 import { calendarItemDone, type TodayResponse } from "@timely/contract/calendar";
 import { addDaysToDate, dateInZone, todayInZone } from "@timely/contract/workStatus";
 import type { WorkingHours } from "@timely/contract/schedule";
-import type { WidgetAction, WidgetTap } from "./actions";
+import type { LocalTap, WidgetAction, WidgetTap } from "./actions";
 
 export type WidgetTone = "default" | "muted" | "accent" | "danger" | "success";
 
@@ -73,10 +75,10 @@ export type WidgetRow = {
   cells?: string[];
 };
 
-export type WidgetGlyph = "play" | "pause" | "skip" | "reset" | "plus" | "minus" | "lap" | "inbox";
+export type WidgetGlyph = "play" | "pause" | "skip" | "reset" | "plus" | "minus" | "lap" | "inbox" | "save";
 
-/** A button opens `uri`, or runs `action` on the home screen. */
-export type WidgetButton = { label: string; uri?: string; action?: WidgetAction; glyph?: WidgetGlyph };
+/** A button opens `uri`, runs `action` on the home screen, or makes a `local` change the phone draws by itself. */
+export type WidgetButton = { label: string; uri?: string; action?: WidgetAction; local?: LocalTap; glyph?: WidgetGlyph };
 
 /**
  * A figure the launcher ticks by itself (a system Chronometer): `base` is the
@@ -333,6 +335,126 @@ function sheetModel(pick: SheetPick, input: WidgetInput, title: string, cardId: 
       };
   }
 }
+
+/**
+ * How a counter's cell writes its number (a prefix such as $, grouping,
+ * decimals), so the phone writes a count the way the sheet does: the figure
+ * the phone redraws is `{{count:'$'#,##0.00;-'$'#,##0.00}}`, a DecimalFormat
+ * pattern (RNWidgetLocal). Null for formats that change the number itself (a
+ * percentage shows 0.5 as 50%): that counter keeps asking the app per tap.
+ */
+export type CounterFormat = { prefix: string; suffix: string; grouping: boolean; minDecimals: number; maxDecimals: number };
+
+export function counterFormat(column: SheetColumn | undefined): CounterFormat | null {
+  const parts = (n: number) => /^([^\d-]*)(\d[\d,]*)(?:\.(\d+))?([^\d]*)$/.exec(formatLike(n, column));
+  const long = parts(1234.5678);
+  const whole = parts(1234);
+  if (!long || !whole || long[1] !== whole[1] || long[4] !== whole[4] || /[{}]/.test(long[1] + long[4])) return null;
+  const shown = Number(`${long[2].replace(/,/g, "")}.${long[3] ?? "0"}`);
+  if (Math.abs(shown - 1234.5678) > 0.5 || whole[2].replace(/,/g, "") !== "1234") return null;
+  const maxDecimals = long[3]?.length ?? 0;
+  return { prefix: long[1], suffix: long[4], grouping: long[2].includes(","), minDecimals: Math.min(maxDecimals, whole[3]?.length ?? 0), maxDecimals };
+}
+
+/** The DecimalFormat pattern the phone writes a count with: -$2.00, as the sheet writes it. */
+export function counterPattern(format: CounterFormat) {
+  const decimals = format.maxDecimals ? `.${"0".repeat(format.minDecimals)}${"#".repeat(format.maxDecimals - format.minDecimals)}` : "";
+  const quote = (text: string) => (text ? `'${text.replace(/'/g, "''")}'` : "");
+  const number = `${quote(format.prefix)}${format.grouping ? "#,##0" : "0"}${decimals}${quote(format.suffix)}`;
+  return `${number};-${number}`;
+}
+
+const roundCount = (n: number) => Math.round(n * 1e6) / 1e6;
+
+/** A count as the phone writes it (the same as `counterPattern` in DecimalFormat). */
+export function formatCount(n: number, format: CounterFormat) {
+  const value = roundCount(n || 0);
+  const text = Math.abs(value).toLocaleString("en-US", {
+    useGrouping: format.grouping,
+    minimumFractionDigits: format.minDecimals,
+    maximumFractionDigits: format.maxDecimals,
+  });
+  return `${value < 0 ? "-" : ""}${format.prefix}${text}${format.suffix}`;
+}
+
+/**
+ * A sheet counter as its widget counts it: −/+ change `count` on the phone
+ * alone; Save, or Timely's next redraw of the widget, adds count − base to
+ * the cell in one save (lib/widgets/counter.ts).
+ */
+export type CounterLocal = { count: number; base: number };
+
+export type CounterWidget = {
+  cardId: string;
+  title: string;
+  uri: string;
+  /** The line under the figure while nothing waits to be saved. */
+  caption: string;
+  step: number;
+  format: CounterFormat;
+  /** The cell's own text for `base`, drawn while nothing waits to be saved. */
+  baseText?: string;
+  local: CounterLocal;
+};
+
+/** Whether a counter has taps waiting to be saved. */
+export const counterChanged = ({ count, base }: CounterLocal) => Math.abs(count - base) >= 1e-9;
+
+/** A sheet counter's widget; `changed` picks the drawing (the phone keeps one of each). */
+export function counterWidgetModel(widget: CounterWidget, changed = counterChanged(widget.local)): WidgetModel {
+  const { cardId, title, uri, step, format, local } = widget;
+  const value = !changed && widget.baseText ? widget.baseText : formatCount(local.count, format);
+  // Sized for a hundred taps either way, so a redraw on the phone isn't cut off.
+  const fit = [value, formatCount(local.count + 100 * step, format), formatCount(local.count - 100 * step, format)].reduce((a, b) => (b.length > a.length ? b : a));
+  return {
+    title,
+    uri,
+    value,
+    valueText: `{{count:${counterPattern(format)}}}`,
+    valueFit: fit,
+    caption: changed ? "Not saved yet" : widget.caption,
+    captionTone: changed ? "accent" : "muted",
+    buttons: [
+      { label: `Take away ${step}`, glyph: "minus", local: { step: "count", by: -step } },
+      ...(changed ? [{ label: "Save", glyph: "save" as const, action: { kind: "counterSave" as const, cardId } }] : []),
+      { label: `Add ${step}`, glyph: "plus", local: { step: "count", by: step } },
+    ],
+  };
+}
+
+/**
+ * A sheet card's counter, ready to count on the phone: its widget (without
+ * the count yet), the cell's number and which cell it is. Null when it can't
+ * count there (missing, a formula, or a format like a percentage).
+ */
+export function sheetCounter(
+  pick: SheetPick,
+  input: WidgetInput,
+  title: string,
+  cardId: string,
+): { widget: Omit<CounterWidget, "local">; value: number; cell: string } | null {
+  const sheet = input.files?.sheets?.[pick.sheetId];
+  const result = computeSheetCard(sheet, pick);
+  if (result.kind !== "counter" || !result.cell || result.cell.formula) return null;
+  const format = counterFormat(result.cell.column);
+  if (!format) return null;
+  return {
+    widget: {
+      cardId,
+      title,
+      uri: link(input.scheme, `sheets/${pick.sheetId}`),
+      caption: result.label ?? `Saves into ${sheet?.title || "the sheet"}`,
+      step: result.step,
+      format,
+      baseText: result.text,
+    },
+    value: result.value,
+    cell: counterCell(pick, result.cell),
+  };
+}
+
+/** Which cell a counter counts in: taps saved for one cell never land in another. */
+export const counterCell = (pick: SheetPick, cell: { rowId: string; colId: string }) => `${pick.sheetId}/${pick.tabId ?? ""}/${cell.rowId}/${cell.colId}`;
 
 function docModel(pick: DocPick, input: WidgetInput, title: string, cardId: string): WidgetModel {
   const uri = link(input.scheme, `docs/${pick.docId}`);

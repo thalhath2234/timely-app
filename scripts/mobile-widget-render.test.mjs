@@ -41,7 +41,7 @@ register("data:text/javascript," + encodeURIComponent(loader));
 
 const { buildWidgetTree } = await import(widgetLib + "api/build-widget-tree.js");
 const { renderCard, renderQuickAdd } = await import("../apps/mobile/lib/widgets/render.tsx");
-const { cardWidgetModel, clockWidgetModel, pomodoroLocalFrom, pomodoroWidgetModel, todayModel } = await import("../apps/mobile/lib/widgets/model.ts");
+const { cardWidgetModel, clockWidgetModel, counterWidgetModel, pomodoroLocalFrom, pomodoroWidgetModel, sheetCounter, todayModel } = await import("../apps/mobile/lib/widgets/model.ts");
 const { BUILTIN_CARDS, defaultDashboard } = await import("../packages/contract/src/dashboard.ts");
 const { buildYearlyExpenses } = await import("../packages/contract/src/sheetTemplates.ts");
 
@@ -141,6 +141,34 @@ describe("widgets draw on the phone", () => {
       assert.ok(texts(buildWidgetTree(renderCard(model, size).light)).includes(value));
       const phone = texts(buildWidgetTree(renderCard(model, size, { local: true }).light));
       assert.ok(phone.includes(token) && !phone.includes(value), model.title);
+    }
+  });
+
+  test("a sheet counter's two drawings: −/+ change it on the phone, Save goes to the app", () => {
+    const columns = [{ id: "n", name: "Spent", width: 100, type: "currency", format: { currency: "USD" } }];
+    const rows = [{ id: "r1", cells: { n: "1250" } }];
+    const water = { id: "s9", title: "Budget", columns, rows, merges: [], tabs: [{ id: "tb", name: "Budget", columns, rows, merges: [] }], archivedAt: null };
+    const counter = sheetCounter({ sheetId: "s9", tabId: "tb", range: "A1", view: "counter", step: 5 }, { ...input, files: { sheets: { s9: water } } }, "Spent", "cnt");
+    const clicks = (tree, out = []) => {
+      if (tree.props?.clickAction) out.push(tree.props.clickAction);
+      for (const child of tree.children ?? []) clicks(child, out);
+      return out;
+    };
+    const texts = (tree, out = []) => {
+      if (tree.type === "TextWidget") out.push(tree.props.text);
+      for (const child of tree.children ?? []) texts(child, out);
+      return out;
+    };
+    for (const changed of [false, true]) {
+      const model = counterWidgetModel({ ...counter.widget, local: { count: 1260, base: 1250 } }, changed);
+      for (const size of SIZES) {
+        draw(renderCard(model, size), `counter ${changed} ${size.width}x${size.height}`);
+        draw(renderCard(model, size, { local: true }), `counter local ${changed} ${size.width}x${size.height}`);
+      }
+      const phone = buildWidgetTree(renderCard(model, SIZES[1], { local: true }).light);
+      assert.deepEqual(clicks(phone).filter((click) => click !== "OPEN_URI"), changed ? ["TIMELY_LOCAL", "TIMELY_ACTION", "TIMELY_LOCAL"] : ["TIMELY_LOCAL", "TIMELY_LOCAL"]);
+      assert.ok(texts(phone).includes("{{count:'$'#,##0.00;-'$'#,##0.00}}"));
+      assert.ok(texts(buildWidgetTree(renderCard(model, SIZES[1]).light)).includes(changed ? "$1,260.00" : "$1,250.00"));
     }
   });
 

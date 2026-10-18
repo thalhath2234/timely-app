@@ -111,6 +111,58 @@ public class WidgetDrawTest {
         }
     }
 
+    /**
+     * A sheet counter's −/+ on the phone (RNWidgetLocal): the count moves in
+     * its file, "changed" follows it, and the figure is written the way the
+     * cell writes it. Drawing to the launcher fails here; the file is written
+     * before that.
+     */
+    @Test
+    public void localTapsCountOnThePhone() throws Exception {
+        Application app = RuntimeEnvironment.getApplication();
+        File file = com.reactnativeandroidwidget.RNWidgetLocal.file(app, 7);
+        String figure = "{{count:'$'#,##0.00;-'$'#,##0.00}}";
+        JSONObject tree = new JSONObject().put("type", "TextWidget").put("props", new JSONObject().put("text", figure));
+        JSONObject trees = new JSONObject().put("light", tree).put("dark", tree);
+        JSONObject doc = new JSONObject()
+            .put("state", new JSONObject().put("count", 1250).put("base", 1250).put("changed", "no").put("cell", "s/t/r/c"))
+            .put("variantKey", "changed")
+            .put("limits", new JSONObject())
+            .put("differs", new JSONObject().put("changed", new JSONArray().put("count").put("base")))
+            .put("variants", new JSONObject().put("no", trees).put("yes", trees));
+        Files.write(file.toPath(), doc.toString().getBytes(StandardCharsets.UTF_8));
+        java.util.function.DoubleConsumer tap = (by) -> {
+            android.os.Bundle data = new android.os.Bundle();
+            data.putString("step", "count");
+            data.putDouble("by", by);
+            try {
+                com.reactnativeandroidwidget.RNWidgetLocal.handle(app, "TimelyCard", 7, data);
+            } catch (Throwable e) {
+                // React Native's native maps don't load under Robolectric; the file is saved before the draw.
+            }
+        };
+        java.util.function.Supplier<JSONObject> state = () -> {
+            try {
+                return new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8)).getJSONObject("state");
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        };
+        tap.accept(0.1);
+        tap.accept(0.2);
+        if (state.get().getDouble("count") != 1250.3 || !"yes".equals(state.get().getString("changed"))) throw new AssertionError("after +0.1 +0.2: " + state.get());
+        tap.accept(-0.3);
+        if (state.get().getDouble("count") != 1250 || !"no".equals(state.get().getString("changed"))) throw new AssertionError("back to saved: " + state.get());
+        Method fill = com.reactnativeandroidwidget.RNWidgetLocal.class.getDeclaredMethod("fill", Object.class, JSONObject.class);
+        fill.setAccessible(true);
+        for (double[] each : new double[][] {{1255, 0}, {-2, 1}, {0, 2}}) {
+            String text = (String) fill.invoke(null, figure, new JSONObject().put("count", each[0]));
+            String want = new String[] {"$1,255.00", "-$2.00", "$0.00"}[(int) each[1]];
+            if (!want.equals(text)) throw new AssertionError(each[0] + " drew as " + text + ", not " + want);
+        }
+        System.out.println("LOCAL COUNTER TAPS: ok");
+    }
+
     @Test
     public void drawAll() throws Exception {
         String casesPath = System.getProperty("widgetCases");

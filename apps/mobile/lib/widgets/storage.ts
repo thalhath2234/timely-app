@@ -1,6 +1,6 @@
 import { documentTextFile } from "../textFile";
 import type { ClockState, DashboardCard } from "@timely/contract/dashboard";
-import type { WidgetModel } from "./model";
+import type { CounterWidget, WidgetModel } from "./model";
 
 /**
  * Which Dashboard card each home screen widget shows, and the last thing it
@@ -10,8 +10,16 @@ import type { WidgetModel } from "./model";
 /**
  * `card` and `timeZone` are what a button tap needs to redraw at once, before
  * the network answers. `clock` is the Timer widget's own stopwatch or timer.
+ * `counter` is a sheet counter's widget, to draw its count while offline.
  */
-type Entry = { cardId?: string; model?: WidgetModel; card?: DashboardCard; timeZone?: string; clock?: ClockState };
+type Entry = {
+  cardId?: string;
+  model?: WidgetModel;
+  card?: DashboardCard;
+  timeZone?: string;
+  clock?: ClockState;
+  counter?: { widget: Omit<CounterWidget, "local">; cell: string };
+};
 type Store = Record<string, Entry>;
 
 const file = documentTextFile("timely-widgets.json");

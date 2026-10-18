@@ -41,6 +41,8 @@ export type WidgetAction =
   /** `done` is the state the tap asks for; `originalStart` marks one occurrence of a repeating task. */
   | { kind: "task"; taskId: string; done: boolean; originalStart?: string }
   | { kind: "counter"; cardId: string; by: number }
+  /** Saves the count a sheet counter widget made on the phone (lib/widgets/counter.ts). */
+  | { kind: "counterSave"; cardId: string }
   | { kind: "docCheck"; cardId: string; index: number; checked: boolean };
 
 /** Reads an action back from the flat clickActionData Android hands the handler. */
@@ -77,6 +79,8 @@ export function parseWidgetAction(data: Record<string, unknown> | undefined | nu
       const by = num("by");
       return cardId && by ? { kind: "counter", cardId, by } : null;
     }
+    case "counterSave":
+      return cardId ? { kind: "counterSave", cardId } : null;
     case "docCheck": {
       const index = num("index");
       return cardId && index !== null ? { kind: "docCheck", cardId, index, checked: bool("checked") } : null;
