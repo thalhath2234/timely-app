@@ -1,5 +1,6 @@
 "use client";
 
+import { SkeletonRows } from "@/app/_components/_ui/skeleton";
 import { Bell, Sparkles, X } from "lucide-react";
 import Button, { buttonClass } from "@/app/_components/_ui/button";
 import PageHeader from "@/app/_components/_ui/pageHeader";
@@ -188,7 +189,7 @@ export default function NotificationsPage() {
       />
       <PageWithRail className="flex-1 overflow-y-auto px-6 py-5" rail={<NotificationsRail items={items} />}>
         {list.isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading notifications…</p>
+          <SkeletonRows rows={5} height={56} />
         ) : items.length === 0 ? (
           <EmptyState
             icon={Bell}

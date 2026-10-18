@@ -1,5 +1,6 @@
 "use client";
 
+import { SkeletonLines } from "@/app/_components/_ui/skeleton";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -563,10 +564,10 @@ function CustomCardSlot({
   const result = useCardResult(card.query, data, timeZone, now);
   if (!card.query) return null;
   if (isFileQuery(card.query)) {
-    if (loading) return <p className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading…</p>;
+    if (loading) return <SkeletonLines lines={3} className="p-4" />;
     return <FileCardView query={card.query} data={data} />;
   }
   if (!result) return null;
-  if (loading) return <p className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading…</p>;
+  if (loading) return <SkeletonLines lines={3} className="p-4" />;
   return <CustomCardView query={card.query} result={result} onOpen={onOpen} onRowContextMenu={onRowContextMenu} />;
 }

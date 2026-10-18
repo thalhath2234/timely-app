@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { motion } from "motion/react";
 import { GripVertical, MoreHorizontal } from "lucide-react";
 import { DASHBOARD_COLUMNS, DASHBOARD_MAX_ROWS, cardTitle, minCardSize, type DashboardCard } from "@timely/contract/dashboard";
-import { springSnappy } from "@/app/_components/_ui/motion";
+import { revealProps, springSnappy } from "@/app/_components/_ui/motion";
 import { cn } from "@/app/utils/cn";
 import { useElementSize } from "./charts";
 
@@ -285,13 +285,14 @@ export default function DashboardGrid({
           gap: GRID_GAP,
         }}
       >
-        {ordered.map((card) => {
+        {ordered.map((card, index) => {
           const size = resize?.id === card.id ? { w: resize.w, h: resize.h } : { w: card.w, h: card.h };
           const isDragged = drag?.id === card.id;
           const isResizing = resize?.id === card.id;
           return (
             <motion.section
               key={card.id}
+              {...revealProps(index)}
               layout="position"
               transition={springSnappy}
               data-card-id={card.id}

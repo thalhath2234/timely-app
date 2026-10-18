@@ -1,5 +1,6 @@
 "use client";
 
+import { Fill } from "@/app/_components/_ui/dataMotion";
 import { useLayoutEffect, useState, type ReactNode } from "react";
 import { formatMetric, type CardUnit, type SeriesPoint } from "@timely/contract/dashboard";
 import { cn } from "@/app/utils/cn";
@@ -337,8 +338,12 @@ export function DonutChart({ points, unit, total, format }: { points: SeriesPoin
 export function Meter({ value, color, className }: { value: number; color: number | string; className?: string }) {
   const fill = typeof color === "string" ? color : seriesColor(color);
   return (
-    <div className={cn("h-2 w-full overflow-hidden rounded-full", className)} style={{ background: `color-mix(in oklch, ${fill} 18%, transparent)` }}>
-      <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${Math.min(100, Math.max(0, value * 100))}%`, background: fill }} />
-    </div>
+    <Fill
+      value={value}
+      color={fill}
+      height={8}
+      trackClassName={className}
+      style={{ background: `color-mix(in oklch, ${fill} 18%, transparent)` }}
+    />
   );
 }

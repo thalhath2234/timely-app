@@ -1,5 +1,8 @@
 "use client";
 
+import { motion } from "motion/react";
+import { revealProps } from "@/app/_components/_ui/motion";
+import { SkeletonRows } from "@/app/_components/_ui/skeleton";
 import Button, { buttonClass } from "@/app/_components/_ui/button";
 import PageHeader from "@/app/_components/_ui/pageHeader";
 import PageWithRail from "@/app/_components/_ui/pageWithRail";
@@ -147,7 +150,7 @@ export default function FilesHome() {
     }
   };
 
-  const renderItem = (item: Item, group: "favorite" | "recent") => {
+  const renderItem = (item: Item, group: "favorite" | "recent", index = 0) => {
     const key = `${group}:${itemId(item)}`;
     const id = itemId(item);
     const href = fileHref(id);
@@ -198,8 +201,9 @@ export default function FilesHome() {
       );
     }
     return (
-      <div
+      <motion.div
         key={key}
+        {...revealProps(index)}
         role="row"
         tabIndex={0}
         aria-selected={isSelected}
@@ -218,7 +222,7 @@ export default function FilesHome() {
         </span>
         <span className="hidden truncate text-xs text-muted-foreground lg:block">{kindLabel}</span>
         <span className="text-right text-xs tabular-nums text-muted-foreground">{formatUpdatedAt(itemUpdatedAt(item))}</span>
-      </div>
+      </motion.div>
     );
   };
 
@@ -357,12 +361,12 @@ export default function FilesHome() {
           <section className="mt-1" aria-label="Favorites">
             <GroupLabel aside={plural(favorites.length, "file")}>Favorites</GroupLabel>
             <div className={list} role="grid">
-              {favorites.map((item) => renderItem(item, "favorite"))}
+              {favorites.map((item, index) => renderItem(item, "favorite", index))}
             </div>
           </section>
         )}
 
-        {isLoading && <p className="mt-6 text-sm text-muted-foreground">Loading files...</p>}
+        {isLoading && <SkeletonRows rows={6} height={48} className="mt-6" />}
 
         {docsQuery.isError && (
           <QueryFailure
@@ -397,7 +401,7 @@ export default function FilesHome() {
           <section className={favorites.length > 0 ? "mt-4" : "mt-1"} aria-label="Recent">
             <GroupLabel aside={plural(recent.length, "file")}>{favorites.length > 0 ? "Recent" : "All files"}</GroupLabel>
             <div className={list} role="grid">
-              {recent.map((item) => renderItem(item, "recent"))}
+              {recent.map((item, index) => renderItem(item, "recent", index))}
             </div>
           </section>
         )}

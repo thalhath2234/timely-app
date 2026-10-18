@@ -1,5 +1,6 @@
 "use client";
 
+import { SkeletonRows } from "@/app/_components/_ui/skeleton";
 import {
   docFrontmatter,
   frontmatterEntries,
@@ -790,7 +791,7 @@ export default function FileList() {
 
       <div className="flex-1 overflow-y-auto px-2 pb-3">
         {isLoading && (
-          <p className="px-2 py-1.5 text-sm text-muted-foreground">Loading...</p>
+          <SkeletonRows rows={5} height={32} bare className="px-1" />
         )}
 
         {docsQuery.isError && (

@@ -1,5 +1,6 @@
 "use client";
 
+import { StatNumber } from "@/app/_components/_ui/dataMotion";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, CornerDownLeft, Inbox, Target } from "lucide-react";
@@ -326,7 +327,7 @@ export function StreakCard({ tasks, timeZone }: { tasks: Task[]; timeZone?: stri
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-baseline gap-4 text-xs text-muted-foreground">
         <span>
-          <span className="text-2xl font-semibold tabular-nums text-foreground">{streak.current}</span> day streak
+          <StatNumber className="text-2xl font-semibold text-foreground" value={streak.current} /> day streak
         </span>
         <span>
           Best <span className="font-medium tabular-nums text-foreground">{streak.best}</span>

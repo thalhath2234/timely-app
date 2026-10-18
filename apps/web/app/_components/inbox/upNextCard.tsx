@@ -1,5 +1,6 @@
 "use client";
 
+import { motion as MOTION } from "@timely/contract/designTokens";
 import { motion } from "motion/react";
 import { ArrowUpRight, BellRing, CheckSquare, SkipForward, Sparkles, Trash2 } from "lucide-react";
 import { inboxSuggestionRows, inboxSuggestionSummary, type InboxAge } from "@timely/contract/inbox";
@@ -11,7 +12,7 @@ import { useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { cn } from "@/app/utils/cn";
 import type { Task } from "@/app/_types/types";
-import { springSoft } from "@/app/_components/_ui/motion";
+import { easeOut, revealTransition } from "@/app/_components/_ui/motion";
 
 export type InboxDecision = "task" | "reminder";
 
@@ -54,10 +55,9 @@ export default function UpNextCard({
   return (
     <motion.article
       layout
-      initial={{ opacity: 0, y: 10, scale: 0.985 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: -10, scale: 0.985 }}
-      transition={springSoft}
+      initial={{ opacity: 0, y: MOTION.revealDistance }}
+      animate={{ opacity: 1, y: 0, transition: revealTransition }}
+      exit={{ opacity: 0, x: 24, transition: { duration: 12 / MOTION.fps, ease: easeOut } }}
       aria-labelledby={`up-next-${task.id}`}
       data-testid="inbox-up-next"
       className="flex flex-col gap-3.5 rounded-[12px] border border-border bg-card p-4 shadow-[0_12px_32px_-20px_rgba(79,70,229,0.35)]"

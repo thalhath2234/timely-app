@@ -1,5 +1,8 @@
 "use client";
 
+import { motion } from "motion/react";
+import { ChangeTint, useChangeKey } from "@/app/_components/_ui/dataMotion";
+import { easeOut, motionSeconds } from "@/app/_components/_ui/motion";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Minus, Pause, Play, Plus, RotateCcw, Settings2, SkipForward, X } from "lucide-react";
@@ -95,6 +98,9 @@ export default function PomodoroCard({
   const radius = (ringSize - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const phaseColor = timer.phase === "focus" ? "var(--primary)" : "var(--success)";
+  // Catalogue item 12: Start pops the ring; a phase ending tints the card.
+  const startKey = useChangeKey(running);
+  const phaseKey = useChangeKey(timer.phase);
 
   const openTasks = useMemo(
     () =>
@@ -116,8 +122,9 @@ export default function PomodoroCard({
   }
 
   return (
-    <div className="flex h-full flex-col gap-2">
-      <div className="flex items-center gap-1" role="tablist" aria-label="Pomodoro phase">
+    <div className="relative flex h-full flex-col gap-2">
+      <ChangeTint changeKey={phaseKey} />
+      <div className="relative flex items-center gap-1" role="tablist" aria-label="Pomodoro phase">
         {(["focus", "short", "long"] as const).map((phase) => (
           <button
             key={phase}
@@ -148,7 +155,14 @@ export default function PomodoroCard({
         <StepButton label="Take off a minute" disabled={!canLower} onStep={() => step(-1)}>
           <Minus className="size-4" />
         </StepButton>
-        <div className="relative shrink-0" style={{ width: ringSize, height: ringSize }}>
+        <motion.div
+          key={startKey}
+          className="relative shrink-0"
+          style={{ width: ringSize, height: ringSize }}
+          initial={startKey > 0 && running ? { scale: 0.94 } : false}
+          animate={{ scale: 1 }}
+          transition={{ duration: motionSeconds.pop, ease: easeOut }}
+        >
           <svg width={ringSize} height={ringSize} className="-rotate-90" aria-hidden>
             <circle
               cx={ringSize / 2}
@@ -179,7 +193,7 @@ export default function PomodoroCard({
               {running ? PHASE_LABEL[timer.phase] : timer.remaining !== null ? "Paused" : "Ready"}
             </span>
           </div>
-        </div>
+        </motion.div>
         <StepButton label="Add a minute" disabled={!canRaise} onStep={() => step(1)}>
           <Plus className="size-4" />
         </StepButton>

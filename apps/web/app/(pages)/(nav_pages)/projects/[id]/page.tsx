@@ -1,5 +1,7 @@
 "use client";
 
+import { ChangeTint, Fill, StatNumber, useChangeKey } from "@/app/_components/_ui/dataMotion";
+import { SkeletonLines } from "@/app/_components/_ui/skeleton";
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -551,7 +553,7 @@ function RecentChanges({ project, onSeeAll }: { project: Project; onSeeAll: () =
   return (
     <OverviewCard title="Recent changes" action="All activity" onAction={onSeeAll}>
       {activity.isLoading ? (
-        <p className="px-4 pb-4 pt-2 text-sm text-muted-foreground">Loading…</p>
+        <SkeletonLines lines={3} className="px-4 pb-4 pt-2" />
       ) : entries.length === 0 ? (
         <p className="px-4 pb-4 pt-2 text-sm text-muted-foreground">
           No changes yet. Status, priority, schedule and completion changes on this project&apos;s tasks show up here.
@@ -586,15 +588,13 @@ function RecentChanges({ project, onSeeAll }: { project: Project; onSeeAll: () =
 
 /** The film's stat card: a big number over a small label, with a 3 px bar when it is a share. */
 function Fact({ label, value, share, color }: { label: string; value: string; share?: number; color?: string | null }) {
+  const changeKey = useChangeKey(value);
   return (
-    <div className="flex min-h-[88px] flex-col justify-end rounded-[12px] border border-border bg-card px-4 py-3">
-      <p className="text-[26px] font-semibold leading-8 tracking-[-0.02em] tabular-nums text-foreground">{value}</p>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      {share !== undefined ? (
-        <div className="mt-2 h-[3px] overflow-hidden rounded-full bg-muted" aria-hidden>
-          <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.max(0, share))}%`, backgroundColor: color || "var(--primary)" }} />
-        </div>
-      ) : null}
+    <div className="lift relative flex min-h-[88px] flex-col justify-end rounded-[12px] border border-border bg-card px-4 py-3">
+      <ChangeTint changeKey={changeKey} />
+      <StatNumber as="p" className="relative text-[26px] font-semibold leading-8 tracking-[-0.02em] text-foreground" value={value} />
+      <p className="relative text-xs text-muted-foreground">{label}</p>
+      {share !== undefined ? <Fill value={share / 100} color={color} height={3} trackClassName="relative mt-2" /> : null}
     </div>
   );
 }

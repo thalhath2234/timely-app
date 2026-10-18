@@ -1,5 +1,6 @@
 "use client";
 
+import { StatNumber } from "@/app/_components/_ui/dataMotion";
 import { useMemo } from "react";
 import { ArrowDownRight, ArrowUpRight, CalendarDays, CheckCircle2, FileText, FolderKanban, ListTodo, Minus, Sheet as SheetIcon } from "lucide-react";
 import {
@@ -56,9 +57,10 @@ export default function CustomCardView({
         <div className="flex h-full flex-col justify-end" data-testid="stat-card">
           <div className="flex items-center gap-2">
             <span className="h-[30px] w-[3px] shrink-0 rounded-full" style={{ background: seriesColor(color) }} aria-hidden />
-            <span className={cn("font-semibold leading-none tracking-[-0.02em] tabular-nums text-foreground", compact ? "text-[28px]" : "text-[34px]")}>
-              {formatMetric(result.value, result.unit)}
-            </span>
+            <StatNumber
+              className={cn("font-semibold leading-none tracking-[-0.02em] text-foreground", compact ? "text-[28px]" : "text-[34px]")}
+              value={formatMetric(result.value, result.unit)}
+            />
           </div>
           {delta !== null ? (
             <p
@@ -90,7 +92,7 @@ export default function CustomCardView({
       return (
         <div className="flex h-full flex-col justify-end gap-2" data-testid="progress-card">
           <div className="flex items-baseline justify-between gap-2">
-            <span className={cn("font-semibold leading-none tracking-[-0.02em] tabular-nums text-foreground", compact ? "text-[28px]" : "text-[34px]")}>{Math.round(share * 100)}%</span>
+            <StatNumber className={cn("font-semibold leading-none tracking-[-0.02em] text-foreground", compact ? "text-[28px]" : "text-[34px]")} value={`${Math.round(share * 100)}%`} />
             <span className="flex items-center gap-1 text-xs tabular-nums text-muted-foreground">
               {done ? <CheckCircle2 className="size-3.5 text-success" /> : null}
               {formatMetric(result.value, result.unit)} of {formatMetric(result.target, result.unit)}

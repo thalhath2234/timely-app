@@ -1,5 +1,6 @@
 "use client";
 
+import { motion as MOTION } from "@timely/contract/designTokens";
 import {
   useEffect,
   useLayoutEffect,
@@ -1475,6 +1476,51 @@ export default function SheetGrid({
     }
   }
   const renderRows = [...visibleRows.slice(0, frozenCount), ...bodyRows.slice(startPos, endPos + 1)];
+
+  // Catalogue item 9: a cell whose shown text changed while another cell was
+  // edited (a formula recalculated) tints and fades; a row added after the
+  // first render slides open. The texts of the rows on screen are compared
+  // with the previous render's (the "previous render" pattern, no refs), and
+  // the classes drop again a second later so a re-mounted cell stays quiet.
+  const [firstRowIds] = useState(() => new Set(rows.map((row) => row.id)));
+  const shownTexts = useMemo(() => {
+    const texts = new Map<string, string>();
+    for (const rowIndex of renderRows) {
+      const row = rows[rowIndex];
+      if (!row) continue;
+      columns.forEach((column, colIndex) => {
+        const result = evaluator.valueAt(colIndex, rowIndex);
+        const raw = rawAt({ col: colIndex, row: rowIndex });
+        texts.set(`${column.id}:${row.id}`, formatSheetCell(result, column, raw, formatAt(row, column.id)));
+      });
+    }
+    return texts;
+    // renderRows is a fresh array each render; its contents follow rows and the scroll window.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, columns, evaluator, startPos, endPos, frozenCount, visibleRows]);
+  const [shown, setShown] = useState<{ texts: Map<string, string>; changed: Map<string, string>; n: number }>(() => ({
+    texts: shownTexts,
+    changed: new Map(),
+    n: 0,
+  }));
+  if (shown.texts !== shownTexts) {
+    const changed = new Map<string, string>();
+    const ownKey = `${columns[selected.col]?.id}:${rows[selected.row]?.id}`;
+    const flip = shown.n + 1;
+    shownTexts.forEach((text, key) => {
+      const before = shown.texts.get(key);
+      if (before !== undefined && before !== text && key !== ownKey) {
+        changed.set(key, flip % 2 ? "sheet-changed-a" : "sheet-changed-b");
+      }
+    });
+    setShown({ texts: shownTexts, changed, n: flip });
+  }
+  const recalculated = shown.changed;
+  useEffect(() => {
+    if (recalculated.size === 0) return;
+    const id = window.setTimeout(() => setShown((current) => (current.changed === recalculated ? { ...current, changed: new Map() } : current)), MOTION.ms.highlight + 100);
+    return () => window.clearTimeout(id);
+  }, [recalculated]);
   const topSpacer = startPos * ROW_HEIGHT;
   const bottomSpacer = Math.max(0, bodyRows.length - 1 - endPos) * ROW_HEIGHT;
 
@@ -2896,7 +2942,7 @@ export default function SheetGrid({
             return (
             <div
               key={rows[rowIndex].id}
-              className={`${frozen ? "" : "relative"} grid overflow-visible`}
+              className={`${frozen ? "" : "relative"} grid overflow-visible ${firstRowIds.has(rows[rowIndex].id) ? "" : "sheet-row-in"}`}
               style={{
                 gridTemplateColumns,
                 zIndex: frozen ? 15 : rowHasVerticalMerge ? 8 : undefined,
@@ -3024,6 +3070,7 @@ export default function SheetGrid({
                 const rule = conditional.get(`${colIndex}:${rowIndex}`);
                 const format = rule ? { ...ownFormat, ...rule } : ownFormat;
                 const display = formatSheetCell(result, column, raw, ownFormat);
+                const changedClass = recalculated.get(`${column.id}:${rows[rowIndex].id}`) ?? "";
                 const chip = column.type === "text" || column.type === "formula" ? statusChip(display) : null;
                 const align = format?.align ?? defaultAlign(column.type);
                 const inFormulaRange = isInAnyRange(address, formulaRanges);
@@ -3156,7 +3203,7 @@ export default function SheetGrid({
                           : "items-center"
                     } ${
                       inRange && !format?.fillColor ? "bg-primary/10" : ""
-                    } ${isSelected ? "z-10 bg-primary/15 ring-2 ring-inset ring-primary" : ""} ${
+                    } ${isSelected ? "sheet-sel z-10 bg-primary/15" : ""} ${changedClass} ${
                       inFormulaRange ? "outline outline-dashed outline-1 outline-primary" : ""
                     } ${
                       result.type === "error" ? "text-destructive" : ""

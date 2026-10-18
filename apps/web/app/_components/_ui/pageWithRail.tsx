@@ -1,8 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import type { CSSProperties, HTMLAttributes, ReactNode } from "react";
+import { Children, Fragment, isValidElement, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "@/app/utils/cn";
+import { Reveal } from "@/app/_components/_ui/motion";
+import { Fill, StatNumber } from "@/app/_components/_ui/dataMotion";
+
+/** The rail's cards as a flat list, one fragment level unwrapped, so each can rise in turn. */
+function railCards(rail: ReactNode) {
+  return Children.toArray(rail).flatMap((node) =>
+    isValidElement<{ children?: ReactNode }>(node) && node.type === Fragment ? Children.toArray(node.props.children) : [node],
+  );
+}
 
 /**
  * The layout system for app pages (docs/design-system.md#page-with-rail):
@@ -43,7 +52,7 @@ export default function PageWithRail({
       style={{ "--rail-width": `${railWidth}px` } as CSSProperties}
       {...rest}
     >
-      <div className="min-w-0">{children}</div>
+      <Reveal className="min-w-0">{children}</Reveal>
       <aside
         className={cn(
           "grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-1",
@@ -51,7 +60,11 @@ export default function PageWithRail({
           railClassName,
         )}
       >
-        {rail}
+        {railCards(rail).map((card, index) => (
+          <Reveal key={isValidElement(card) && card.key != null ? card.key : index} index={index + 1} className="min-w-0">
+            {card}
+          </Reveal>
+        ))}
       </aside>
     </div>
   );
@@ -78,7 +91,7 @@ export function RailSection({
   titleClassName?: string;
 } & Omit<HTMLAttributes<HTMLElement>, "title">) {
   return (
-    <section className={cn("min-w-0 rounded-[12px] border border-border bg-card p-4", className)} {...rest}>
+    <section className={cn("lift min-w-0 rounded-[12px] border border-border bg-card p-4", className)} {...rest}>
       <div className="mb-3 flex min-h-7 items-center justify-between gap-3">
         <h2 className={cn("flex min-w-0 shrink items-center gap-1.5 text-sm font-semibold text-foreground", titleClassName)}>
           {icon}
@@ -155,12 +168,7 @@ export function RailRow({
     ) : (
       <>
         {line}
-        <span aria-hidden className="mt-1.5 block h-1 w-full overflow-hidden rounded-full bg-muted">
-          <span
-            className="block h-full rounded-full"
-            style={{ width: `${Math.round(Math.min(1, Math.max(0, share)) * 100)}%`, backgroundColor: color || "var(--primary)" }}
-          />
-        </span>
+        <Fill value={share} color={color} height={4} trackClassName="mt-1.5" />
       </>
     );
   const base = cn(
@@ -208,7 +216,7 @@ export function RailStat({ value, label, tone = "default" }: { value: ReactNode;
             : "text-foreground";
   return (
     <div className="min-w-0">
-      <span className={cn("block text-[26px] font-semibold leading-8 tracking-[-0.02em] tabular-nums", color)}>{value}</span>
+      <StatNumber className={cn("block text-[26px] font-semibold leading-8 tracking-[-0.02em]", color)} value={value} />
       <span className="block truncate text-xs text-muted-foreground">{label}</span>
     </div>
   );

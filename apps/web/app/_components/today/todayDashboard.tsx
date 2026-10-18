@@ -1,9 +1,11 @@
 "use client";
 
+import { StrikeTitle, TaskCheck } from "@/app/_components/_ui/taskCheck";
+import { SkeletonRows } from "@/app/_components/_ui/skeleton";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bell, CalendarClock, Check, Clock, Moon, Plus, Star, Sun } from "lucide-react";
+import { Bell, CalendarClock, Clock, Moon, Plus, Star, Sun } from "lucide-react";
 import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import EmptyState from "@/app/_components/_ui/emptyState";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
@@ -278,22 +280,14 @@ function FocusTaskRow({
         className="w-[3px] self-stretch rounded-full"
         style={{ backgroundColor: focusing ? "var(--primary)" : taskEntityColor(task) }}
       />
-      <button
-        type="button"
+      <TaskCheck
+        shape="square"
+        checked={completed}
         disabled={busy}
-        onClick={onComplete}
-        aria-label={completed ? `Reopen ${task.name}` : `Complete ${task.name}`}
-        className={cn(
-          "flex size-[18px] shrink-0 items-center justify-center rounded-md border-2 transition-colors",
-          completed
-            ? "border-success bg-success/20 text-success"
-            : focusing
-              ? "border-primary/60 hover:border-primary"
-              : "border-muted-foreground/40 hover:border-primary",
-        )}
-      >
-        {completed ? <Check className="size-3 stroke-[3]" /> : null}
-      </button>
+        onToggle={onComplete}
+        label={completed ? `Reopen ${task.name}` : `Complete ${task.name}`}
+        className={cn(!completed && focusing && "border-primary/60")}
+      />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
           <button
@@ -302,10 +296,10 @@ function FocusTaskRow({
             data-entity-title={entityTitleKey("task", task.id)}
             className={cn(
               "min-w-0 truncate text-left text-sm font-medium",
-              completed ? "text-muted-foreground line-through" : "text-foreground hover:text-primary",
+              completed ? "text-muted-foreground" : "text-foreground hover:text-primary",
             )}
           >
-            {task.name}
+            <StrikeTitle done={completed}>{task.name}</StrikeTitle>
           </button>
           {!completed && (priority === "High" || priority === "Urgent") ? (
             <span
@@ -642,7 +636,7 @@ export default function TodayDashboard() {
           ) : null}
 
           {today.isLoading ? (
-            <p className="text-sm text-muted-foreground">Loading today…</p>
+            <SkeletonRows rows={6} height={46} />
           ) : !data ? (
             today.isError ? (
               <LoadError

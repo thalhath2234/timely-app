@@ -1,5 +1,6 @@
 "use client";
 
+import { SkeletonRows } from "@/app/_components/_ui/skeleton";
 import Button from "@/app/_components/_ui/button";
 import PageHeader, { PageBadge } from "@/app/_components/_ui/pageHeader";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -53,7 +54,7 @@ function detailHref(taskId: string | null, projectId: string | null) {
 // useSearchParams needs a Suspense boundary for the page to prerender.
 export default function TasksPage() {
   return (
-    <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">Loading...</div>}>
+    <Suspense fallback={<SkeletonRows rows={8} height={40} className="m-4" />}>
       <Tasks />
     </Suspense>
   );
@@ -334,7 +335,7 @@ function Tasks() {
   }, [allTasks, listFilters, typedConfig?.workingHours?.timezone]);
 
   if (isLoading) {
-    return <div className="p-4 text-sm text-muted-foreground">Loading...</div>;
+    return <SkeletonRows rows={8} height={40} className="m-4" />;
   }
 
   if (status === "error") {

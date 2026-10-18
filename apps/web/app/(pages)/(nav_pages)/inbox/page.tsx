@@ -1,5 +1,6 @@
 "use client";
 
+import { SkeletonRows } from "@/app/_components/_ui/skeleton";
 import { FormEvent, useCallback, useRef, useState } from "react";
 import Link from "next/link";
 import { Inbox } from "lucide-react";
@@ -132,7 +133,7 @@ export default function InboxPage() {
             <LoadErrorBanner what="inbox" error={inbox.error} onRetry={() => inbox.refetch()} retrying={inbox.isFetching} />
           ) : null}
           {inbox.isLoading ? (
-            <p className="text-sm text-muted-foreground">Loading inbox…</p>
+            <SkeletonRows rows={5} height={46} />
           ) : inbox.isError && !inbox.data ? (
             <LoadError what="inbox" error={inbox.error} onRetry={() => inbox.refetch()} retrying={inbox.isFetching} />
           ) : !next ? (

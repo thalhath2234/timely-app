@@ -63,7 +63,7 @@ export const overlayVariants: Variants = {
 };
 
 export const panelVariants: Variants = {
-  hidden: { opacity: 0, y: 12, scale: 0.97 },
+  hidden: { opacity: 0, y: 8, scale: 0.96 },
   visible: { opacity: 1, y: 0, scale: 1 },
   exit: { opacity: 0, y: 8, scale: 0.98 },
 };
@@ -87,15 +87,50 @@ export const listContainerVariants: Variants = {
   },
 };
 
-export const listItemVariants: Variants = {
-  hidden: { opacity: 0, y: MOTION.revealDistance },
-  visible: { opacity: 1, y: 0, transition: revealTransition },
-  exit: { opacity: 0, y: -4, transition: { duration: 0.12 } },
-};
-
 /** Delay for the `index`-th sibling of a staggered reveal; siblings past the cap arrive together. */
 export function staggerDelay(index: number) {
   return Math.min(index, MOTION.staggerCap) * motionSeconds.stagger;
+}
+
+/**
+ * `rise` for one item: 14 px up while fading in. Inside a
+ * `listContainerVariants` parent the parent staggers; on its own, pass the
+ * sibling index as `custom` (or use `revealProps`) and it delays itself.
+ */
+export const listItemVariants: Variants = {
+  hidden: { opacity: 0, y: MOTION.revealDistance },
+  visible: (index?: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { ...revealTransition, delay: typeof index === "number" ? staggerDelay(index) : 0 },
+  }),
+  exit: { opacity: 0, y: -4, transition: { duration: 0.12 } },
+};
+
+/**
+ * Props for a `motion.*` element that rises into place on first paint, the
+ * `index`-th in its row (catalogue item 2: lists, card grids, calendar
+ * blocks). Spread them onto the element: `<motion.li {...revealProps(i)}>`.
+ */
+export function revealProps(index = 0) {
+  return { variants: listItemVariants, initial: "hidden", animate: "visible", custom: index } as const;
+}
+
+/** A block that rises into place on first paint; `index` staggers siblings. */
+export function Reveal({
+  index = 0,
+  className,
+  children,
+  ...rest
+}: { index?: number; className?: string; children: ReactNode } & Omit<
+  React.ComponentProps<typeof motion.div>,
+  "children" | "variants" | "initial" | "animate" | "custom"
+>) {
+  return (
+    <motion.div className={className} {...revealProps(index)} {...rest}>
+      {children}
+    </motion.div>
+  );
 }
 
 export const pageTransition: Transition = {
@@ -103,6 +138,7 @@ export const pageTransition: Transition = {
   ease: easeOut,
 };
 
+/** Catalogue item 13: a card lifts 1 px on hover (its hairline brightens through the `lift` class). */
 export const hoverLift = {
   y: -1,
   transition: { duration: 0.2, ease: easeOut },
@@ -199,7 +235,7 @@ export function PageFade({ children }: { children: ReactNode }) {
     <motion.div
       key={section}
       className="h-full min-h-0"
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: MOTION.revealDistance }}
       animate={{ opacity: 1, y: 0 }}
       transition={pageTransition}
     >

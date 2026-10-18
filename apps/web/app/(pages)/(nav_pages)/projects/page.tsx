@@ -1,5 +1,6 @@
 "use client";
 
+import { SkeletonRows } from "@/app/_components/_ui/skeleton";
 import Link from "next/link";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { FolderKanban, Plus } from "lucide-react";
@@ -21,20 +22,11 @@ import Button from "@/app/_components/_ui/button";
 import PageHeader, { PageBadge } from "@/app/_components/_ui/pageHeader";
 import PageWithRail from "@/app/_components/_ui/pageWithRail";
 import ProjectsRail from "@/app/_components/projects/projectsRail";
-import { listContainerVariants, listItemVariants, springSoft } from "@/app/_components/_ui/motion";
+import { listContainerVariants, listItemVariants } from "@/app/_components/_ui/motion";
+import { Fill } from "@/app/_components/_ui/dataMotion";
 
 function ProgressBar({ value, color }: { value: number; color?: string | null }) {
-  return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-      <motion.div
-        className="h-full rounded-full"
-        initial={{ width: 0 }}
-        animate={{ width: `${Math.min(100, Math.max(0, value))}%` }}
-        transition={springSoft}
-        style={{ backgroundColor: color || "var(--primary)" }}
-      />
-    </div>
-  );
+  return <Fill value={value / 100} color={color} height={6} />;
 }
 
 /** One segment per stage, full when its tasks are all done, half when some are. */
@@ -168,7 +160,7 @@ export default function ProjectsPage() {
         )}
 
         {isLoading ? (
-          <p className="mt-2 text-sm text-muted-foreground">Loading projects…</p>
+          <SkeletonRows rows={5} height={56} className="mt-2" />
         ) : isError ? (
           <div className="mt-2 flex flex-1 flex-col">
             <LoadError

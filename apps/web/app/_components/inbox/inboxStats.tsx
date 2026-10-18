@@ -1,5 +1,6 @@
 "use client";
 
+import { ChangeTint, StatNumber, useChangeKey } from "@/app/_components/_ui/dataMotion";
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { useDecisions } from "@/app/utils/hooks/decisions";
@@ -40,10 +41,7 @@ export default function InboxStats({
     <div className="flex flex-col gap-2" data-testid="inbox-stats">
       <div className="grid grid-cols-3 gap-3">
         {tiles.map((tile) => (
-          <div key={tile.key} className="flex min-w-0 items-baseline gap-2.5 rounded-[12px] border border-border bg-card px-4 py-3">
-            <span className={cn("text-2xl font-semibold tabular-nums tracking-[-0.02em]", tile.tone)}>{tile.value}</span>
-            <span className="truncate text-[13px] text-muted-foreground">{tile.label}</span>
-          </div>
+          <StatTile key={tile.key} value={tile.value} label={tile.label} tone={tile.tone} />
         ))}
       </div>
       {decisions.data && !decisions.data.available ? (
@@ -55,6 +53,18 @@ export default function InboxStats({
           </Link>
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/** One tile: the number pops and the tile tints when the count changes (catalogue items 3 and 8). */
+function StatTile({ value, label, tone }: { value: number; label: string; tone?: string }) {
+  const changeKey = useChangeKey(value);
+  return (
+    <div className="lift relative flex min-w-0 items-baseline gap-2.5 rounded-[12px] border border-border bg-card px-4 py-3">
+      <ChangeTint changeKey={changeKey} />
+      <StatNumber className={cn("relative text-2xl font-semibold tracking-[-0.02em]", tone)} value={value} />
+      <span className="relative truncate text-[13px] text-muted-foreground">{label}</span>
     </div>
   );
 }
