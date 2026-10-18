@@ -70,6 +70,11 @@ if [[ -z "$SKILL_SCRIPT" ]]; then
   exit 1
 fi
 
+# Gradle's JS bundle task only watches apps/mobile, so a change in a workspace
+# package (packages/contract) alone would ship the old bundle. Drop the last
+# bundle so every build makes a fresh one.
+rm -rf "$MOBILE_DIR/android/app/build/generated/assets/react" "$MOBILE_DIR/android/app/build/generated/res/react"
+
 export TIMELY_MOBILE_DIR="$MOBILE_DIR"
 if [[ -n "$API_URL" ]]; then
   "$SKILL_SCRIPT" "$API_URL"
