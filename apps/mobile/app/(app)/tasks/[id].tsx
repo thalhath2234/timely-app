@@ -14,7 +14,7 @@ import { Dot, Field } from "../../../components/ui/primitives";
 import { TimeField } from "../../../components/ui/DateTimeField";
 import { ColorDot, GroupHint, GroupLabel, ListGroup, ListRow, SwitchRow } from "../../../components/settings/SettingsList";
 import { CustomFieldsGroup, LabelsRow, RepeatRow } from "../../../components/tasks/TaskMetaRows";
-import { FocusGroupScrollView } from "../../../components/ui/FocusGroup";
+import { FocusGroup, FocusGroupScrollView } from "../../../components/ui/FocusGroup";
 import EmptyState from "../../../components/ui/EmptyState";
 import DescriptionCard from "../../../components/editor/DescriptionCard";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
@@ -761,22 +761,24 @@ export default function TaskDetailScreen() {
                 ))}
               </ScrollView>
             ) : null}
-            <View key="__comment" style={styles.checkRow}>
-              <View style={styles.inlineField}>
-                <Field value={commentText} onChangeText={setCommentText} bare placeholder="Add a comment" autoCapitalize="sentences" />
+            <FocusGroup key="__comment">
+              <View style={styles.checkRow}>
+                <View style={styles.inlineField}>
+                  <Field value={commentText} onChangeText={setCommentText} bare placeholder="Add a comment" autoCapitalize="sentences" />
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={!commentText.trim()}
+                  hitSlop={8}
+                  onPress={() => {
+                    comment.mutate({ id: task.id, comment: commentText.trim() });
+                    setCommentText("");
+                  }}
+                >
+                  <Text style={[styles.inlineAction, !commentText.trim() && styles.inlineActionOff]}>Send</Text>
+                </Pressable>
               </View>
-              <Pressable
-                accessibilityRole="button"
-                disabled={!commentText.trim()}
-                hitSlop={8}
-                onPress={() => {
-                  comment.mutate({ id: task.id, comment: commentText.trim() });
-                  setCommentText("");
-                }}
-              >
-                <Text style={[styles.inlineAction, !commentText.trim() && styles.inlineActionOff]}>Send</Text>
-              </Pressable>
-            </View>
+            </FocusGroup>
           </ListGroup>
         </View>
         {task.kind !== "inbox" && (
