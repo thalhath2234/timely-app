@@ -525,6 +525,61 @@ func TestIntegrationDocHintsSkipsMadeAndDismissedLines(t *testing.T) {
 	}
 }
 
+// A line polished after it became a task or was dismissed, by hand or with
+// Help me write, is still that line and is not offered again.
+func TestIntegrationDocHintsSkipsEditedLines(t *testing.T) {
+	w := newWorld(t)
+	lines := []string{
+		"Set up live notifications on the mobile app.",
+		"Book the dentist for next week",
+		"Plan the Kyoto trip in May",
+		"Call dad about the weekend",
+		"Review the onboarding copy",
+	}
+	content := []map[string]any{}
+	for _, l := range lines {
+		content = append(content, para(l))
+	}
+	doc := models.Document{ID: "doc_edited", Title: "Timely ideas", WorkspaceID: w.ws, UserID: w.user, PlainText: strings.Join(lines, "\n"),
+		CreatedAt: "2026-10-01T09:00:00Z", Content: docContent(content...)}
+	must(t, w.db.Create(&doc).Error)
+	// Made from the line before it was rewritten.
+	w.task(t, "Setup live notifications mobile", func(task *models.Task) { task.CreatedAt = "2026-10-05" })
+	// Shares a word with a line, which stays on offer.
+	w.task(t, "Call mom", func(task *models.Task) { task.CreatedAt = "2026-10-05" })
+	s := New(w.db, nil, nil)
+	must(t, s.DismissDocHint(context.Background(), w.user, doc.ID, docHintKey("work", "Book the dentist")))
+	// Made into a task (which records the line) and the task renamed since.
+	must(t, s.DismissDocHint(context.Background(), w.user, doc.ID, docHintKey("work", "Plan Kyoto trip")))
+	w.task(t, "Holiday", func(task *models.Task) { task.CreatedAt = "2026-10-06" })
+
+	jev := &jevStub{answers: map[string]any{"w1": yesNo(0.95), "w2": yesNo(0.95)}}
+	s = New(w.db, jev.service(t), nearby{})
+	out, err := s.DocHints(context.Background(), w.user, doc.ID, time.Now())
+	must(t, err)
+	if len(out.Work) != 2 || out.Work[0] != lines[3] || out.Work[1] != lines[4] {
+		t.Fatalf("work %v", out.Work)
+	}
+
+	// A checklist item edited since it became a task is still that task.
+	// Make task links the doc in the task's description; a task that does
+	// not is only matched by its exact name.
+	back := w.task(t, "Add predictive back gesture", func(task *models.Task) {
+		task.CreatedAt = "2026-10-07"
+		task.Description = "From Timely ideas"
+		task.DescriptionRich = models.JSONMap{"type": "doc", "content": []any{map[string]any{"type": "paragraph", "content": []any{
+			map[string]any{"type": "text", "text": "From "},
+			map[string]any{"type": "mention", "attrs": map[string]any{"id": doc.ID, "label": "Timely ideas", "entityType": "doc"}},
+		}}}}
+	})
+	w.task(t, "Write the onboarding tests", func(task *models.Task) { task.CreatedAt = "2026-10-07" })
+	list, err := s.DocChecklist(context.Background(), w.user, doc.ID, []string{"Add the predictive back gestures on Android", "Write onboarding tests now", "Add android widgets"}, "")
+	must(t, err)
+	if len(list.Existing) != 1 || list.Existing[0].TaskID != back.ID || list.Existing[0].Name != "Add the predictive back gestures on Android" {
+		t.Fatalf("existing %+v", list.Existing)
+	}
+}
+
 func TestIntegrationDocHintsNearEmptyAsksOnlyForATemplate(t *testing.T) {
 	w := newWorld(t)
 	must(t, w.db.Create(&models.Document{ID: "doc_tpl", Title: "Meeting notes", PlainText: "Attendees\nAgenda\nActions", WorkspaceID: w.ws, UserID: w.user, IsTemplate: true}).Error)

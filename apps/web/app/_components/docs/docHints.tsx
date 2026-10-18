@@ -1,7 +1,7 @@
 "use client";
 
 import { docTypePhrase } from "@timely/contract/documents";
-import { checklistTask, docWorkLines, draftChecklistTasks, openChecklistItems, workLineKey, type ChecklistTodo } from "@timely/contract/docChecklist";
+import { checklistTask, docWorkLines, draftChecklistTasks, openChecklistItems, workLineKey, workLineTask, type ChecklistTodo } from "@timely/contract/docChecklist";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Editor } from "@tiptap/react";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
@@ -191,11 +191,14 @@ export default function DocHints({
   const strong = "font-medium text-foreground";
   const makeWork = (line: string) => {
     createTask.mutate(
-      { name: line, kind: "task", duration: 30, workspaceId: doc.workspaceId, projectId: doc.projectId ?? undefined },
+      { ...workLineTask(line, doc), kind: "task", duration: 30, workspaceId: doc.workspaceId, projectId: doc.projectId ?? undefined },
       {
-        onSuccess: () => useToastStore.getState().show(`Task added: ${line}`),
-        // Read again, so a reopened doc does not offer the line it made.
-        onSettled: () => void queryClient.invalidateQueries({ queryKey: ["doc-hints", doc.id] }),
+        onSuccess: () => {
+          useToastStore.getState().show(`Task added: ${line}`);
+          // Kept for the doc, so the line is not offered again once it or
+          // the task is reworded; this reads the suggestions again too.
+          dismissHint.mutate({ kind: "work", value: line });
+        },
       },
     );
     accept();

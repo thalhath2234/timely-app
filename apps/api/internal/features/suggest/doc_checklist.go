@@ -60,7 +60,7 @@ func (s *Service) docChecklist(c *echo.Context) error {
 
 func (s *Service) DocChecklist(ctx context.Context, userID, docID string, names []string, projectID string) (DocChecklist, error) {
 	var doc models.Document
-	if err := s.db.WithContext(ctx).Select("id", "project_id", "created_at").
+	if err := s.db.WithContext(ctx).Select("id", "project_id", "workspace_id", "created_at").
 		Where("id = ? AND user_id = ?", docID, userID).First(&doc).Error; err != nil {
 		return DocChecklist{}, err
 	}
@@ -143,6 +143,23 @@ func (s *Service) DocChecklist(ctx context.Context, userID, docID string, names 
 			for _, r := range named {
 				if quotesItem(r.Description, l) {
 					found[l] = r.ID
+					break
+				}
+			}
+		}
+	}
+	// An item edited since it became a task (a typo fixed, a word added)
+	// is still that task. Make task links the doc in every task it makes,
+	// so only those count.
+	if len(found) < len(order) {
+		made := s.madeSinceDoc(ctx, userID, doc, false)
+		for _, l := range order {
+			if _, ok := found[l]; ok {
+				continue
+			}
+			for _, m := range made {
+				if m.matches(l) {
+					found[l] = m.id
 					break
 				}
 			}

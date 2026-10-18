@@ -8,6 +8,7 @@ import {
   draftChecklistTasks,
   openChecklistItems,
   workLineKey,
+  workLineTask,
 } from "../packages/contract/src/docChecklist.ts";
 
 const para = (...content) => ({ type: "paragraph", content: content.map((c) => (typeof c === "string" ? { type: "text", text: c } : c)) });
@@ -184,5 +185,16 @@ describe("AI titles for checklist tasks", () => {
     assert.ok(aborted, "the request is aborted at the deadline");
     assert.ok(Date.now() - started < 400);
     assert.deepEqual(await draftChecklistTasks([], doc, async () => assert.fail("no request without items")), []);
+  });
+});
+
+describe("workLineTask", () => {
+  test("names the task by the line and quotes it after the doc link", () => {
+    const out = workLineTask("  Setup live  notifications mobile ", { id: "doc_1", title: "Timely ideas" });
+    assert.equal(out.name, "Setup live notifications mobile");
+    assert.equal(out.description, "From Timely ideas: “Setup live notifications mobile”");
+    assert.equal(out.descriptionRich.content.length, 1);
+    assert.deepEqual(out.descriptionRich.content[0].content[1], { type: "mention", attrs: { id: "doc_1", label: "Timely ideas", entityType: "doc" } });
+    assert.deepEqual(out.descriptionRich.content[0].content[2], { type: "text", text: ": “Setup live notifications mobile”" });
   });
 });

@@ -1,5 +1,5 @@
 import { docTypePhrase } from "@timely/contract/documents";
-import { checklistTask, docWorkLines, draftChecklistTasks, openChecklistItems, workLineKey, type ChecklistTodo } from "@timely/contract/docChecklist";
+import { checklistTask, docWorkLines, draftChecklistTasks, openChecklistItems, workLineKey, workLineTask, type ChecklistTodo } from "@timely/contract/docChecklist";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
@@ -295,11 +295,14 @@ export default function DocHintsCard({
       label: "Create task",
       run: () =>
         void createTask
-          .mutateAsync({ name: line, kind: "task", duration: 30, workspaceId: doc.workspaceId, projectId: doc.projectId ?? undefined })
-          .then(() => useToastStore.getState().show(`Task added: ${line}`))
-          .catch(() => useToastStore.getState().show("Could not add the task"))
-          // Read again, so a reopened doc does not offer the line it made.
-          .finally(() => void queryClient.invalidateQueries({ queryKey: ["doc-hints", doc.id] })),
+          .mutateAsync({ ...workLineTask(line, doc), kind: "task", duration: 30, workspaceId: doc.workspaceId, projectId: doc.projectId ?? undefined })
+          .then(() => {
+            useToastStore.getState().show(`Task added: ${line}`);
+            // Kept for the doc, so the line is not offered again once it or
+            // the task is reworded; this reads the suggestions again too.
+            dismissHint.mutate({ kind: "work", value: line });
+          })
+          .catch(() => useToastStore.getState().show("Could not add the task")),
     });
   }
   if (hints?.outdated) {
