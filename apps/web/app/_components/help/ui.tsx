@@ -10,14 +10,15 @@ import CopyButton from "./copyButton";
 const DESKTOP = { width: 1920, height: 1200 };
 const PHONE = { width: 780, height: 1688 };
 
-export function Shot({ src, alt, caption }: { src: string; alt: string; caption?: ReactNode }) {
+/** A desktop screenshot; pass `size` when the image is not 16:10 (widget galleries, crops). */
+export function Shot({ src, alt, caption, size = DESKTOP }: { src: string; alt: string; caption?: ReactNode; size?: { width: number; height: number } }) {
   return (
     <figure className="not-prose my-7">
       <div className="overflow-hidden rounded-[12px] border border-[var(--s-line-strong)] bg-[var(--s-panel)] p-1 shadow-[0_24px_70px_-40px_rgba(0,0,0,0.9)]">
         <Image
           src={`/help/${src}.webp`}
           alt={alt}
-          {...DESKTOP}
+          {...size}
           sizes="(min-width: 1280px) 760px, (min-width: 768px) 70vw, 100vw"
           className="block h-auto w-full rounded-[8px]"
         />

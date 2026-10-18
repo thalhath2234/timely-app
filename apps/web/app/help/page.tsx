@@ -28,8 +28,20 @@ const PLATFORMS = [
   { name: "Android", detail: "APK that pairs by QR code", mark: AndroidMark, href: "/help/install/android", color: "#4edea3" },
 ];
 
+/** What changed since v0.3.3, newest first; each row opens the part of an article that explains it. */
+const NEW = [
+  { title: "Card workshop", body: "Build your own Dashboard card from tasks, events, a sheet or a doc.", href: "/help/notes/dashboard" },
+  { title: "Home-screen widgets", body: "Today, Quick add, Pomodoro, Timer and any Dashboard card on Android.", href: "/help/start/widgets" },
+  { title: "Today as a day board", body: "Your day, free slots and what is next on one dense screen.", href: "/help/plan/today" },
+  { title: "Search in plain words", body: "Type what you want to see, then save it as a view.", href: "/help/notes/search" },
+  { title: "Help me write", body: "Drafts and rewrites inside docs and task descriptions.", href: "/help/notes/docs" },
+  { title: "Doc lines become tasks", body: "A line that reads like a task is offered once, with a link back.", href: "/help/notes/docs" },
+  { title: "Sheets for agents", body: "Formulas, frozen panes on the phone, and MCP tools that write to a tab.", href: "/help/notes/sheets" },
+  { title: "Tidier phone screens", body: "Grouped settings, task and project sheets, and the predictive back gesture.", href: "/help/start/phone-app" },
+];
+
 /** Three chapters of the film double as short tours here. */
-const TOURS = ["auto-schedule", "assistant", "agents"].map((id) => CHAPTERS.find((chapter) => chapter.id === id)!);
+const TOURS = ["cards", "widgets", "assistant"].map((id) => CHAPTERS.find((chapter) => chapter.id === id)!);
 
 export default function HelpHome() {
   return (
@@ -64,6 +76,31 @@ export default function HelpHome() {
             ))}
           </ul>
         </div>
+      </section>
+
+      {/* What's new: one grouped card of rows, two columns on wide screens. */}
+      <section aria-labelledby="new-heading" className="border-t border-[var(--s-line)] py-12">
+        <Reveal className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 id="new-heading" className="s-display text-[1.75rem] sm:text-[2.2rem]">
+              New since v0.3.3
+            </h2>
+            <p className="s-soft mt-2">What changed, and where the help explains it.</p>
+          </div>
+        </Reveal>
+        <ul className="s-card mt-6 grid overflow-hidden p-0 lg:grid-cols-2">
+          {NEW.map((item, i) => (
+            <li key={item.title} className={`border-[var(--s-line)] ${i > 0 ? "border-t" : ""} ${i === 1 ? "lg:border-t-0" : ""} ${i % 2 === 1 ? "lg:border-l" : ""}`}>
+              <Link href={item.href} className="group flex h-full items-center gap-4 px-5 py-4 hover:bg-white/[0.03]">
+                <span className="min-w-0 flex-1">
+                  <span className="block font-semibold">{item.title}</span>
+                  <span className="s-soft block text-sm leading-relaxed">{item.body}</span>
+                </span>
+                <ArrowRight className="size-4 shrink-0 text-[var(--s-faint)] transition-[color,translate] group-hover:translate-x-0.5 group-hover:text-[var(--s-primary)]" />
+              </Link>
+            </li>
+          ))}
+        </ul>
       </section>
 
       {/* Install */}
