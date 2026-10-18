@@ -157,9 +157,16 @@ export async function widgetTaskHandler({ widgetInfo, widgetAction, renderWidget
     case "WIDGET_DELETED":
       forgetWidget(widgetInfo.widgetId);
       return;
+    case "WIDGET_RESIZED":
+      // Redraw at the new size from what the widget last showed, straight away;
+      // the fresh load below can take a few seconds on a slow connection.
+      if (widgetInfo.widgetName !== "TimelyQuickAdd") {
+        const cached = widgetEntry(widgetInfo.widgetId).model;
+        if (cached) renderWidget(renderCard(cached, { width: widgetInfo.width, height: widgetInfo.height }));
+      }
+    // falls through
     case "WIDGET_ADDED":
     case "WIDGET_UPDATE":
-    case "WIDGET_RESIZED":
       try {
         renderWidget(await renderWidgetFor(widgetInfo));
       } catch {
