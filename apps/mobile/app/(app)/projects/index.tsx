@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { FolderKanban, Plus } from "lucide-react-native";
-import { StyleSheet, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation } from "@tanstack/react-query";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
-import { DateField } from "../../../components/ui/DateTimeField";
-import { Button, Field, SectionLabel, Select } from "../../../components/ui/primitives";
+import DateTimeSheet from "../../../components/ui/DateTimeSheet";
+import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
+import { ListGroup, ListRow } from "../../../components/settings/SettingsList";
+import { Field, PrimaryButton } from "../../../components/ui/primitives";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import { useInvalidateAll, useProjectsQuery, useTasksQuery, useWorkspacesQuery } from "../../../lib/hooks";
 import { ProjectStartChoices, createProjectWithStart, useProjectStart } from "../../../components/projects/ProjectStart";
@@ -16,7 +18,7 @@ import { resolvedColor } from "../../../lib/entityColor";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { formatShortDate, toDateInputValue } from "../../../lib/format";
 import type { Project, Task } from "../../../lib/types";
-import { FocusGroup, FocusGroupScrollView } from "../../../components/ui/FocusGroup";
+import { FocusGroupScrollView } from "../../../components/ui/FocusGroup";
 
 function capitalize(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
@@ -44,6 +46,7 @@ export default function ProjectsScreen() {
   const [deadline, setDeadline] = useState("");
   // The form stays folded behind the header's + until it is needed.
   const [creating, setCreating] = useState(Boolean(params.title));
+  const [picking, setPicking] = useState<"workspace" | "start" | "deadline" | null>(null);
   const chosenWorkspace = workspaceId || spaces[0]?.id || "";
   const start = useProjectStart(title, chosenWorkspace);
   const invalidate = useInvalidateAll();
@@ -58,7 +61,6 @@ export default function ProjectsScreen() {
     }
   }, [params.title]);
   const visibleProjects = projects;
-  const showForm = creating || (projectsQ.isSuccess && projects.length === 0);
 
   return (
     <Screen>
@@ -67,7 +69,7 @@ export default function ProjectsScreen() {
         back
         subtitle={`${projects.length} total`}
         actions={
-          <HeaderIconButton label={creating ? "Close new project" : "New project"} active={creating} onPress={() => setCreating((open) => !open)}>
+          <HeaderIconButton label="New project" active={creating} onPress={() => setCreating(true)}>
             <Plus size={20} color={colors.foreground} />
           </HeaderIconButton>
         }
@@ -77,78 +79,19 @@ export default function ProjectsScreen() {
           <EmptyState icon={FolderKanban} title="Couldn't load projects" description="Check your connection and try again." />
         ) : (
           <>
-            {showForm ? (
-              <FocusGroup style={[styles.card, styles.form]}>
-                <SectionLabel compact>New project</SectionLabel>
-                {spaces.length === 0 ? (
-                  <Text style={styles.meta}>Create a workspace first, then add a project here.</Text>
-                ) : (
-                  <>
-                    <Field label="Title" value={title} onChangeText={setTitle} placeholder="Project title" autoCapitalize="words" />
-                    {spaces.length > 1 ? (
-                      <Select
-                        label="Workspace"
-                        value={chosenWorkspace}
-                        onChange={setWorkspaceId}
-                        options={spaces.map((space) => ({ value: space.id, label: space.name }))}
-                      />
-                    ) : null}
-                    <View style={styles.dates}>
-                      <View style={{ flex: 1 }}>
-                        <DateField
-                          label="Start"
-                          value={startDate ? new Date(`${startDate}T12:00:00`) : null}
-                          onChange={(next) => setStartDate(next ? toDateInputValue(next) : "")}
-                        />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <DateField
-                          label="Deadline"
-                          value={deadline ? new Date(`${deadline}T12:00:00`) : null}
-                          onChange={(next) => setDeadline(next ? toDateInputValue(next) : "")}
-                        />
-                      </View>
-                    </View>
-                    <ProjectStartChoices suggestion={start.suggestion} choices={start.choices} onChange={start.setChoices} />
-                    <Button
-                      label="Create project"
-                      size="lg"
-                      stretch
-                      loading={create.isPending}
-                      disabled={!title.trim() || !chosenWorkspace}
-                      onPress={() => {
-                        create.mutate(
-                          {
-                            title: title.trim(),
-                            workspaceId: chosenWorkspace,
-                            ...(startDate ? { startDate } : {}),
-                            ...(deadline ? { deadline } : {}),
-                          },
-                          {
-                            onSuccess: (project) => {
-                              setTitle("");
-                              setStartDate("");
-                              setDeadline("");
-                              setCreating(false);
-                              router.push(`/(app)/projects/${project.id}`);
-                            },
-                          },
-                        );
-                      }}
-                    />
-                    {create.error ? (
-                      <Text style={styles.error}>{create.error instanceof Error ? create.error.message : "Could not create the project."}</Text>
-                    ) : null}
-                  </>
-                )}
-              </FocusGroup>
-            ) : null}
             {visibleProjects.length === 0 ? (
-              <EmptyState
-                icon={FolderKanban}
-                title="No projects yet"
-                description="Create a project to group tasks, stages, and deadlines."
-              />
+              <>
+                <EmptyState
+                  icon={FolderKanban}
+                  title="No projects yet"
+                  description={spaces.length ? "Create a project to group tasks, stages, and deadlines." : "Create a workspace first, then add a project here."}
+                />
+                {spaces.length ? (
+                  <ListGroup>
+                    <ListRow tone="add" title="New project" testID="projects-new" onPress={() => setCreating(true)} />
+                  </ListGroup>
+                ) : null}
+              </>
             ) : (
               visibleProjects.map((project) => {
                 const stats = statsFor(project, tasks);
@@ -183,6 +126,95 @@ export default function ProjectsScreen() {
           </>
         )}
       </FocusGroupScrollView>
+      <BottomSheet
+        open={creating}
+        onClose={() => setCreating(false)}
+        title="New project"
+        subtitle={spaces.find((space) => space.id === chosenWorkspace)?.name}
+        footer={
+          <PrimaryButton
+            label={create.isPending ? "Creating…" : "Create project"}
+            loading={create.isPending}
+            disabled={!title.trim() || !chosenWorkspace}
+            testID="project-create"
+            onPress={() => {
+              create.mutate(
+                {
+                  title: title.trim(),
+                  workspaceId: chosenWorkspace,
+                  ...(startDate ? { startDate } : {}),
+                  ...(deadline ? { deadline } : {}),
+                },
+                {
+                  onSuccess: (project) => {
+                    setTitle("");
+                    setStartDate("");
+                    setDeadline("");
+                    setCreating(false);
+                    router.push(`/(app)/projects/${project.id}`);
+                  },
+                },
+              );
+            }}
+          />
+        }
+      >
+        <View style={styles.sheetBody}>
+          <View style={styles.titleCard}>
+            <Field bare large value={title} onChangeText={setTitle} placeholder="Project title" autoCapitalize="words" autoFocus={!title} />
+          </View>
+          <ListGroup>
+            <ListRow
+              title="Workspace"
+              trailing={spaces.find((space) => space.id === chosenWorkspace)?.name ?? "None"}
+              onPress={spaces.length > 1 ? () => setPicking("workspace") : undefined}
+            />
+            <ListRow
+              title="Start date"
+              trailing={startDate ? formatShortDate(`${startDate}T12:00:00`) : "None"}
+              onPress={() => setPicking("start")}
+            />
+            <ListRow
+              title="Deadline"
+              trailing={deadline ? formatShortDate(`${deadline}T12:00:00`) : "None"}
+              onPress={() => setPicking("deadline")}
+            />
+          </ListGroup>
+          <ProjectStartChoices suggestion={start.suggestion} choices={start.choices} onChange={start.setChoices} />
+          {create.error ? (
+            <Text style={styles.error}>{create.error instanceof Error ? create.error.message : "Could not create the project."}</Text>
+          ) : null}
+        </View>
+        <BottomSheet open={picking === "workspace"} onClose={() => setPicking(null)} title="Workspace">
+          {spaces.map((space) => (
+            <SheetOption
+              key={space.id}
+              selected={space.id === chosenWorkspace}
+              onSelect={() => {
+                setWorkspaceId(space.id);
+                setPicking(null);
+              }}
+            >
+              {space.name}
+            </SheetOption>
+          ))}
+        </BottomSheet>
+        <DateTimeSheet
+          open={picking === "start" || picking === "deadline"}
+          mode="date"
+          title={picking === "deadline" ? "Deadline" : "Start date"}
+          value={(() => {
+            const day = picking === "deadline" ? deadline : startDate;
+            return day ? new Date(`${day}T12:00:00`) : null;
+          })()}
+          onClose={() => setPicking(null)}
+          onChange={(next) => {
+            const day = next ? toDateInputValue(next) : "";
+            if (picking === "deadline") setDeadline(day);
+            else setStartDate(day);
+          }}
+        />
+      </BottomSheet>
     </Screen>
   );
 }
@@ -199,8 +231,8 @@ const styles = createThemedStyleSheet((colors) => ({
   title: { color: colors.foreground, fontSize: 16, fontWeight: "600" },
   meta: { color: colors.mutedForeground, fontSize: 12 },
   error: { color: colors.destructive, fontSize: 12 },
-  form: { gap: 12, padding: 16 },
-  dates: { flexDirection: "row", gap: 10 },
+  sheetBody: { gap: 10, paddingBottom: 4 },
+  titleCard: { borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, paddingHorizontal: 14, paddingVertical: 12 },
   bar: { height: 6, borderRadius: 999, backgroundColor: colors.muted, overflow: "hidden" },
   fill: { height: "100%", backgroundColor: colors.primary },
 }));

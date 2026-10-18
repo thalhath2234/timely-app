@@ -38,7 +38,7 @@ export default function SegmentedControl<T extends string>({
               onPress={() => onChange(opt.value)}
               onLayout={(event) => onItemLayout(opt.value, event)}
               android_ripple={{ color: "transparent", borderless: false }}
-              style={[styles.item, sm && styles.itemSm, itemWidth ? { width: itemWidth, paddingHorizontal: 0 } : null]}
+              style={[styles.item, sm ? styles.itemSm : styles.itemFill, itemWidth ? { width: itemWidth, paddingHorizontal: 0 } : null]}
             >
               <Text style={[styles.text, sm && styles.textSm, on && styles.onText]}>{opt.label}</Text>
             </AnimatedPressable>
@@ -77,9 +77,12 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   // Centred, so it sits in the middle of a 48px settings row next to its label.
   wrapSm: { padding: 2, alignSelf: "center" },
-  itemSm: { flexGrow: 0, flexShrink: 0, flexBasis: "auto", height: 28, paddingHorizontal: 11 },
+  // No `flex` on "sm": on Android a positive `flex` makes the basis 0, so the
+  // segments (and the whole control) collapse to nothing beside a row's label.
+  itemSm: { flexShrink: 0, height: 28, paddingHorizontal: 11 },
+  itemFill: { flex: 1 },
   textSm: { fontSize: 12.5 },
-  item: { flex: 1, height: 32, borderRadius: controlRadius - 3, alignItems: "center", justifyContent: "center" },
+  item: { height: 32, borderRadius: controlRadius - 3, alignItems: "center", justifyContent: "center" },
   text: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
   onText: { color: colors.foreground, fontWeight: "600" },
 }));

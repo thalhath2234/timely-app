@@ -14,7 +14,7 @@ import { Dot, Field } from "../../../components/ui/primitives";
 import { TimeField } from "../../../components/ui/DateTimeField";
 import { ColorDot, GroupHint, GroupLabel, ListGroup, ListRow, SwitchRow } from "../../../components/settings/SettingsList";
 import { CustomFieldsGroup, LabelsRow, RepeatRow } from "../../../components/tasks/TaskMetaRows";
-import { FocusGroupScrollView } from "../../../components/ui/FocusGroup";
+import { FocusGroup, FocusGroupScrollView } from "../../../components/ui/FocusGroup";
 import EmptyState from "../../../components/ui/EmptyState";
 import DescriptionCard from "../../../components/editor/DescriptionCard";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
@@ -236,6 +236,13 @@ export default function TaskDetailScreen() {
   const combinedDone = checklistDone;
   const combinedTotal = checklist.length;
   const combinedProgress = combinedTotal ? combinedDone / combinedTotal : 0;
+
+  const activityRows = (activity.data ?? []).map((row) => (
+    <View key={row.id} style={styles.activityRow}>
+      <View style={styles.activityDot} />
+      <Text style={styles.activity}><Text style={styles.activityActor}>{row.actorName}</Text> · {row.message}</Text>
+    </View>
+  ));
 
   function persist(data: Parameters<typeof save.mutate>[0]["data"]) {
     const assigningMeta = Boolean(data.labelIds || data.customFieldValues);
@@ -745,38 +752,43 @@ export default function TaskDetailScreen() {
           <GroupLabel aside={(activity.data ?? []).length ? String((activity.data ?? []).length) : undefined}>Activity</GroupLabel>
           <ListGroup>
             {(activity.data ?? []).length > 0 ? (
-              <ScrollView
-                key="log"
-                keyboardShouldPersistTaps="handled"
-                nestedScrollEnabled
-                showsVerticalScrollIndicator={false}
-                style={(activity.data ?? []).length > 4 ? styles.activityLog : undefined}
-                contentContainerStyle={styles.activityPad}
-              >
-                {(activity.data ?? []).map((row) => (
-                  <View key={row.id} style={styles.activityRow}>
-                    <View style={styles.activityDot} />
-                    <Text style={styles.activity}><Text style={styles.activityActor}>{row.actorName}</Text> · {row.message}</Text>
-                  </View>
-                ))}
-              </ScrollView>
+              (activity.data ?? []).length > 4 ? (
+                <ScrollView
+                  key="log"
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator={false}
+                  style={styles.activityLog}
+                  contentContainerStyle={styles.activityPad}
+                >
+                  {activityRows}
+                </ScrollView>
+              ) : (
+                // A short log needs no scroller; on Android one sized to its
+                // content cut off the last wrapped line.
+                <View key="log" style={styles.activityPad}>
+                  {activityRows}
+                </View>
+              )
             ) : null}
-            <View key="__comment" style={styles.checkRow}>
-              <View style={styles.inlineField}>
-                <Field value={commentText} onChangeText={setCommentText} bare placeholder="Add a comment" autoCapitalize="sentences" />
+            <FocusGroup key="__comment">
+              <View style={styles.checkRow}>
+                <View style={styles.inlineField}>
+                  <Field value={commentText} onChangeText={setCommentText} bare placeholder="Add a comment" autoCapitalize="sentences" />
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={!commentText.trim()}
+                  hitSlop={8}
+                  onPress={() => {
+                    comment.mutate({ id: task.id, comment: commentText.trim() });
+                    setCommentText("");
+                  }}
+                >
+                  <Text style={[styles.inlineAction, !commentText.trim() && styles.inlineActionOff]}>Send</Text>
+                </Pressable>
               </View>
-              <Pressable
-                accessibilityRole="button"
-                disabled={!commentText.trim()}
-                hitSlop={8}
-                onPress={() => {
-                  comment.mutate({ id: task.id, comment: commentText.trim() });
-                  setCommentText("");
-                }}
-              >
-                <Text style={[styles.inlineAction, !commentText.trim() && styles.inlineActionOff]}>Send</Text>
-              </Pressable>
-            </View>
+            </FocusGroup>
           </ListGroup>
         </View>
         {task.kind !== "inbox" && (
@@ -1136,8 +1148,10 @@ const styles = createThemedStyleSheet((colors) => ({
   inlineField: { flex: 1, minWidth: 0 },
   inlineAction: { color: colors.primary, fontSize: 14, fontWeight: "600" },
   inlineActionOff: { color: colors.mutedForeground, opacity: 0.6 },
-  activity: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18, flexShrink: 1 },
-  activityLog: { maxHeight: 180 },
+  // `flex: 1`, not `flexShrink`: on Android a shrinking Text with nested Text was
+  // measured narrow and one line tall, cutting off the wrapped words.
+  activity: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18, flex: 1, minWidth: 0 },
+  activityLog: { maxHeight: 180, flexGrow: 0 },
   activityPad: { paddingHorizontal: 14, paddingVertical: 8 },
   activityRow: { minHeight: 32, flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 3 },
   activityDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primary, marginTop: 6 },

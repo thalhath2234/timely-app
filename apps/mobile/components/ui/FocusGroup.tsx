@@ -89,6 +89,14 @@ export function FocusGroupScrollView({
   const claimed = useRef<{ id: string; node: View | null } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [active, setActive] = useState(false);
+  // Room under the content for the part of the scroller the keyboard covers,
+  // so a form at the very bottom (a comment box) can still scroll above it.
+  const [pad, setPad] = useState(0);
+  const padRef = useRef(0);
+  const setRoom = useCallback((next: number) => {
+    padRef.current = next;
+    setPad(next);
+  }, []);
 
   useEffect(() => {
     onGroupChange?.(active);
@@ -107,6 +115,13 @@ export function FocusGroupScrollView({
         // react-native-web has no Keyboard.metrics.
         const keyboard = Keyboard.metrics?.();
         const visible = keyboard ? Math.min(viewport, keyboard.screenY - scrollY) : viewport;
+        const covered = Math.max(0, Math.round(viewport - visible));
+        if (Math.abs(covered - padRef.current) > 1) {
+          // Measure again once the room is laid out.
+          setRoom(covered);
+          timer.current = setTimeout(reveal, 60);
+          return;
+        }
         const top = y - scrollY - MARGIN;
         const bottom = y - scrollY + height + MARGIN;
         let delta = 0;
@@ -117,7 +132,7 @@ export function FocusGroupScrollView({
         scroll.scrollTo({ y: Math.max(0, offset.current + delta), animated: true });
       });
     });
-  }, []);
+  }, [setRoom]);
 
   // Wait for the keyboard, the sheet's resize and Android's own scroll to
   // the focused field to settle before measuring.
@@ -137,20 +152,23 @@ export function FocusGroupScrollView({
         if (claimed.current?.id !== id) return;
         claimed.current = null;
         setActive(false);
+        setRoom(0);
       },
     }),
-    [revealSoon],
+    [revealSoon, setRoom],
   );
 
   useEffect(() => {
     const show = Keyboard.addListener("keyboardDidShow", () => {
       if (claimed.current) revealSoon();
     });
+    const hide = Keyboard.addListener("keyboardDidHide", () => setRoom(0));
     return () => {
       show.remove();
+      hide.remove();
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [revealSoon]);
+  }, [revealSoon, setRoom]);
 
   return (
     <HostContext.Provider value={host}>
@@ -170,6 +188,7 @@ export function FocusGroupScrollView({
         {...props}
       >
         {children}
+        {pad ? <View style={{ height: pad }} /> : null}
       </ScrollView>
     </HostContext.Provider>
   );

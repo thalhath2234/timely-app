@@ -29,6 +29,7 @@ export function ListRow({
   leading,
   trailing,
   onPress,
+  onLongPress,
   tone = "default",
   chevron,
   disabled,
@@ -42,6 +43,8 @@ export function ListRow({
   /** Shown before the chevron (a value, a count, row buttons). */
   trailing?: ReactNode;
   onPress?: () => void;
+  /** A second action on hold (move a task to another stage). */
+  onLongPress?: () => void;
   /** "add" draws a "+ New …" row in the accent; "danger" a destructive one. */
   tone?: "default" | "add" | "danger";
   /** Defaults to on for tappable default rows. */
@@ -59,7 +62,8 @@ export function ListRow({
       accessibilityLabel={accessibilityLabel ?? (meta ? `${title}, ${meta}` : title)}
       accessibilityState={disabled ? { disabled: true } : undefined}
       onPress={onPress}
-      disabled={disabled || !onPress}
+      onLongPress={onLongPress}
+      disabled={disabled || (!onPress && !onLongPress)}
       android_ripple={onPress ? { color: `${colors.primary}1f` } : undefined}
       style={[styles.row, meta ? styles.rowTall : null, disabled && styles.disabled]}
     >
