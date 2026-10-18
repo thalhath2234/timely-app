@@ -338,17 +338,42 @@ export function buildEditorHtml(
       if (text != null) el.textContent = text;
       return el;
     }
-    function hintButton(cls, label, key, action) {
+    // Taps act without moving the caret or raising the keyboard. A touch is
+    // taken whole on touchend: a cancelled pointerdown only stops the
+    // mousedown, and Android WebView then still places the caret and shows
+    // the keyboard from the tap before the click arrives. "leaves" buttons
+    // open another screen, so they also drop the editor's focus.
+    function hintButton(cls, label, key, action, leaves) {
       const button = hintEl("button", cls);
       button.type = "button";
       button.setAttribute("aria-label", label);
-      // Taps act without moving the caret or raising the keyboard.
-      button.addEventListener("pointerdown", (event) => { event.preventDefault(); event.stopPropagation(); });
-      button.addEventListener("mousedown", (event) => event.preventDefault());
+      const fire = () => {
+        if (leaves && editor.view.hasFocus()) editor.view.dom.blur();
+        send({ type: "lineHint", key, action });
+      };
+      let touch = null;
+      button.addEventListener("touchstart", (event) => {
+        event.stopPropagation();
+        const t = event.touches[0];
+        touch = t ? { x: t.clientX, y: t.clientY } : null;
+      }, { passive: true });
+      button.addEventListener("touchmove", (event) => {
+        const t = event.touches[0];
+        if (touch && t && Math.hypot(t.clientX - touch.x, t.clientY - touch.y) > 10) touch = null;
+      }, { passive: true });
+      button.addEventListener("touchend", (event) => {
+        event.stopPropagation();
+        // Not cancelable once the page has started scrolling: that was a swipe.
+        if (!event.cancelable) return;
+        event.preventDefault();
+        if (touch && !button.disabled) fire();
+        touch = null;
+      });
+      button.addEventListener("mousedown", (event) => { event.preventDefault(); event.stopPropagation(); });
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        send({ type: "lineHint", key, action });
+        fire();
       });
       return button;
     }
@@ -374,7 +399,7 @@ export function buildEditorHtml(
             lineEnd,
             () => {
               const label = hint.kind === "task" ? "Already a task. Open it" : open ? "Hide suggestion" : "Show suggestion";
-              const mark = hintButton("hint-mark" + (open ? " is-open" : ""), label, hint.key, "toggle");
+              const mark = hintButton("hint-mark" + (open ? " is-open" : ""), label, hint.key, "toggle", hint.kind === "task");
               mark.contentEditable = "false";
               mark.innerHTML = hint.kind === "task" ? HINT_CHECK : HINT_SPARK;
               return mark;
