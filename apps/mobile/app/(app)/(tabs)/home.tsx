@@ -45,6 +45,7 @@ import { Button, SectionLabel } from "../../../components/ui/primitives";
 import TodaySuggestionsCard from "../../../components/tasks/TodaySuggestionsCard";
 import HabitsGoalsCard from "../../../components/tasks/HabitsGoalsCard";
 import ScreenTip from "../../../components/ui/ScreenTip";
+import { useFabScrollInset } from "../../../components/ui/FloatingTabBar";
 
 const MAX_TODAY_FOCUS = 7;
 
@@ -224,6 +225,7 @@ function overdueLabel(deadline?: string | null) {
 const formatClock = formatTime;
 
 export default function HomeScreen() {
+  const fabInset = useFabScrollInset();
   const router = useRouter();
   const today = useTodayQuery();
   const queryClient = useQueryClient();
@@ -404,7 +406,7 @@ export default function HomeScreen() {
       <MobileHeader title="Today" subtitle={dateLabel} statusDot accountActions />
       <ScrollView showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.body}
+        contentContainerStyle={[styles.body, { paddingBottom: fabInset }]}
         refreshControl={
           <RefreshControl
             refreshing={today.isRefetching && !today.isPending}

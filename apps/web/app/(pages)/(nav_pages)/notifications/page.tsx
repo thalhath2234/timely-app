@@ -129,7 +129,6 @@ export default function NotificationsPage() {
       <PageHeader
         title="Notifications"
         bordered
-        description="Reminders, morning planning, and evening recap. Snooze updates the reminder itself."
         actions={
           <>
             <Button

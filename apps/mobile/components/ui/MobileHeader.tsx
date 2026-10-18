@@ -144,7 +144,7 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   rowCompact: { minHeight: 56 },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 7 },
-  title: { color: colors.foreground, fontSize: 28, fontWeight: "700", letterSpacing: -0.5 },
+  title: { color: colors.foreground, fontSize: 28, fontWeight: "600", letterSpacing: -0.6 },
   titleCompact: { fontSize: 17, fontWeight: "600", letterSpacing: -0.2 },
   sub: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
   statusDot: {

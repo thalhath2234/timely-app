@@ -65,6 +65,7 @@ import ViewRulesBar from "../../../components/tasks/ViewRulesBar";
 import { useViewPreviewStore } from "../../../lib/viewPreviewStore";
 import type { UpdateTaskPayload } from "../../../lib/api/tasks";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
+import { useFabScrollInset } from "../../../components/ui/FloatingTabBar";
 
 function groupField(view?: TaskViewConfig): TaskListGroupField | undefined {
   // The phone board groups by status, priority, workspace, project or stage.
@@ -161,6 +162,7 @@ function viewHasCustomFilters(view?: TaskViewConfig) {
 }
 
 export default function TasksScreen() {
+  const fabInset = useFabScrollInset();
   const router = useRouter();
   const params = useLocalSearchParams<{ projectId?: string; view?: string }>();
   const routeProjectId = typeof params.projectId === "string" ? params.projectId : undefined;
@@ -652,7 +654,7 @@ export default function TasksScreen() {
           keyboardShouldPersistTaps="handled"
           sections={projectSections}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: projectsByWorkspace ? 0 : 8, paddingBottom: 120 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: projectsByWorkspace ? 0 : 8, paddingBottom: fabInset }}
           refreshControl={refreshControl}
           stickySectionHeadersEnabled={false}
           initialNumToRender={8}
@@ -717,7 +719,7 @@ export default function TasksScreen() {
             )
           }
           stickySectionHeadersEnabled={false}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: fabInset }}
           refreshControl={refreshControl}
           extraData={selectedIds}
           initialNumToRender={10}

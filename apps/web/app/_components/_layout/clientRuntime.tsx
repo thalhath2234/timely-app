@@ -12,6 +12,7 @@ import {
   isThemePreference,
   readStoredAccent,
   readStoredReducedMotion,
+  readStoredReducedMotionPreference,
   readStoredSidebarAutoHide,
   readStoredTheme,
   subscribeStoredAppearance,
@@ -20,10 +21,11 @@ import {
   writeStoredSidebarAutoHide,
   writeStoredTheme,
   type AccentPreference,
+  type ReducedMotionPreference,
   type ThemePreference,
 } from "@/app/utils/theme";
 
-export type { AccentPreference, ThemePreference };
+export type { AccentPreference, ReducedMotionPreference, ThemePreference };
 
 type Preferences = {
   theme: ThemePreference;
@@ -32,8 +34,10 @@ type Preferences = {
   setAccent: (accent: AccentPreference) => void;
   sidebarAutoHide: boolean;
   setSidebarAutoHide: (hide: boolean) => void;
+  /** Resolved: the OS setting unless `reducedMotionPreference` overrides it. */
   reducedMotion: boolean;
-  setReducedMotion: (reduce: boolean) => void;
+  reducedMotionPreference: ReducedMotionPreference;
+  setReducedMotion: (preference: ReducedMotionPreference) => void;
 };
 
 const PreferencesContext = createContext<Preferences>({
@@ -43,7 +47,8 @@ const PreferencesContext = createContext<Preferences>({
   setAccent: () => undefined,
   sidebarAutoHide: false,
   setSidebarAutoHide: () => undefined,
-  reducedMotion: true,
+  reducedMotion: false,
+  reducedMotionPreference: "system",
   setReducedMotion: () => undefined,
 });
 
@@ -64,7 +69,8 @@ function appearanceFromConfig(value: { theme?: string; accent?: string } | undef
 const serverTheme = (): ThemePreference => "system";
 const serverAccent = (): AccentPreference => "default";
 const serverSidebarAutoHide = () => false;
-const serverReducedMotion = () => true;
+const serverReducedMotion = () => false;
+const serverReducedMotionPreference = (): ReducedMotionPreference => "system";
 
 export default function ClientRuntime({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
@@ -83,6 +89,11 @@ export default function ClientRuntime({ children }: { children: ReactNode }) {
     subscribeStoredAppearance,
     readStoredReducedMotion,
     serverReducedMotion,
+  );
+  const reducedMotionPreference = useSyncExternalStore(
+    subscribeStoredAppearance,
+    readStoredReducedMotionPreference,
+    serverReducedMotionPreference,
   );
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipPersist = useRef(true);
@@ -172,8 +183,9 @@ export default function ClientRuntime({ children }: { children: ReactNode }) {
     sidebarAutoHide,
     setSidebarAutoHide: writeStoredSidebarAutoHide,
     reducedMotion,
+    reducedMotionPreference,
     setReducedMotion: writeStoredReducedMotion,
-  }), [theme, accent, sidebarAutoHide, reducedMotion]);
+  }), [theme, accent, sidebarAutoHide, reducedMotion, reducedMotionPreference]);
 
   return (
     <PreferencesContext.Provider value={value}>

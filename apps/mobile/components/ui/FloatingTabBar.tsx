@@ -22,6 +22,20 @@ export function floatingTabBarInset(bottomInset: number) {
   return Math.max(bottomInset, 8) + FLOATING_TAB_MARGIN + FLOATING_TAB_HEIGHT;
 }
 
+/** The + button sits 12 px above the tab bar and is 56 px tall. */
+export const FAB_SIZE = 56;
+export const FAB_GAP = 12;
+
+/** Bottom padding for a scrolling tab screen so its last row clears the + button. */
+export function fabScrollInset(bottomInset: number) {
+  return floatingTabBarInset(bottomInset) + FAB_GAP + FAB_SIZE + 16;
+}
+
+export function useFabScrollInset() {
+  const insets = useSafeAreaInsets();
+  return fabScrollInset(insets.bottom);
+}
+
 function primaryWash(alpha: number) {
   const rgb = hexToRgb(colors.primary);
   if (!rgb) return `rgba(129,140,248,${alpha})`;

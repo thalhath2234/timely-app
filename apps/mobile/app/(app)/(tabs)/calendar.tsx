@@ -46,6 +46,7 @@ import type { CalendarItem, Task } from "../../../lib/types";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import ScreenTip from "../../../components/ui/ScreenTip";
 import { needsNetworkCopy } from "../../../lib/queryCopy";
+import { useFabScrollInset } from "../../../components/ui/FloatingTabBar";
 
 type CalView = "day" | "week" | "agenda" | "month";
 
@@ -69,6 +70,7 @@ function calendarWindow(anchor: Date) {
 const EMPTY_ITEMS: CalendarItem[] = [];
 
 export default function CalendarScreen() {
+  const fabInset = useFabScrollInset();
   const router = useRouter();
   const [view, setView] = useState<CalView>("agenda");
   const [selected, setSelected] = useState(() => startOfDay(new Date()));
@@ -336,7 +338,7 @@ export default function CalendarScreen() {
             {view === "agenda" ? (
               <ScrollView showsVerticalScrollIndicator={false}
                 style={{ flex: 1 }}
-                contentContainerStyle={{ paddingBottom: 110 }}
+                contentContainerStyle={{ paddingBottom: fabInset }}
                 keyboardShouldPersistTaps="handled"
                 refreshControl={
                   <RefreshControl

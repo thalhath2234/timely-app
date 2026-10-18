@@ -1,6 +1,8 @@
 import { ACCENT_PRESETS as SHARED_ACCENT_PRESETS } from "@timely/contract/designTokens";
 
 export type ThemePreference = "light" | "dark" | "system";
+/** "system" follows the OS reduced-motion setting; "on" and "off" override it on this device. */
+export type ReducedMotionPreference = "system" | "on" | "off";
 export type AccentPreference = "default" | `#${string}`;
 
 export const THEME_STORAGE_KEY = "timely.theme";
@@ -51,10 +53,23 @@ export function readStoredSidebarAutoHide(): boolean {
   return localStorage.getItem(SIDEBAR_AUTO_HIDE_STORAGE_KEY) === "true";
 }
 
-/** On unless the user has turned it off on this device. */
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+
+/** The stored override; older installs stored "true" / "false" from the checkbox. */
+export function readStoredReducedMotionPreference(): ReducedMotionPreference {
+  if (typeof window === "undefined") return "system";
+  const saved = localStorage.getItem(REDUCED_MOTION_STORAGE_KEY);
+  if (saved === "on" || saved === "true") return "on";
+  if (saved === "off" || saved === "false") return "off";
+  return "system";
+}
+
+/** Follows the OS setting unless the user chose On or Off on this device. */
 export function readStoredReducedMotion(): boolean {
-  if (typeof window === "undefined") return true;
-  return localStorage.getItem(REDUCED_MOTION_STORAGE_KEY) !== "false";
+  if (typeof window === "undefined") return false;
+  const preference = readStoredReducedMotionPreference();
+  if (preference !== "system") return preference === "on";
+  return typeof window.matchMedia === "function" && window.matchMedia(REDUCED_MOTION_QUERY).matches;
 }
 
 // The stored preferences are an external store for React: components read
@@ -70,9 +85,13 @@ function notifyStoredAppearance() {
 export function subscribeStoredAppearance(listener: () => void) {
   appearanceListeners.add(listener);
   window.addEventListener("storage", listener);
+  // Reduce motion follows the OS while no override is stored.
+  const media = typeof window.matchMedia === "function" ? window.matchMedia(REDUCED_MOTION_QUERY) : null;
+  media?.addEventListener("change", listener);
   return () => {
     appearanceListeners.delete(listener);
     window.removeEventListener("storage", listener);
+    media?.removeEventListener("change", listener);
   };
 }
 
@@ -91,8 +110,9 @@ export function writeStoredSidebarAutoHide(hide: boolean) {
   notifyStoredAppearance();
 }
 
-export function writeStoredReducedMotion(reduce: boolean) {
-  localStorage.setItem(REDUCED_MOTION_STORAGE_KEY, reduce ? "true" : "false");
+export function writeStoredReducedMotion(preference: ReducedMotionPreference) {
+  if (preference === "system") localStorage.removeItem(REDUCED_MOTION_STORAGE_KEY);
+  else localStorage.setItem(REDUCED_MOTION_STORAGE_KEY, preference);
   notifyStoredAppearance();
 }
 

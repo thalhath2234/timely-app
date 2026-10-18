@@ -124,7 +124,6 @@ export default function ProjectsPage() {
       <PageHeader
         title="Projects"
         badge={list.length > 0 ? <PageBadge>{list.length}</PageBadge> : null}
-        description="Create a project, break it into stages, and work the tasks without leaving this area."
         actions={
           <Button onClick={openCreate} disabled={!canCreate} leading={<Plus />}>
             New project
