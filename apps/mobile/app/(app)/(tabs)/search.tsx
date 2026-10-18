@@ -164,7 +164,7 @@ export default function SearchTab() {
 
   return (
     <Screen>
-      <MobileHeader title="Search" subtitle="Your workspace, one command away" />
+      <MobileHeader title="Search" />
       <View style={styles.searchWrap}>
         <View style={styles.searchBox}>
           <SearchIcon size={22} color={colors.primary} />

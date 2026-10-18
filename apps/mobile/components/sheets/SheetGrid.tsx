@@ -94,17 +94,19 @@ const GHOST_COL_W = 104;
 const PIN_WIDTH_SHARE = 0.6;
 const PIN_HEIGHT_SHARE = 0.5;
 const FILL_SWATCHES = ["#3A3558", "#8B7CF7", "#3E63DD", "#12A594", "#E8B54A", "#EF6B5C", "#E93D82"];
+// The grid's chrome follows the app theme (light or dark) through the
+// `colors` proxy; cell fills chosen by the user keep their own hex.
 const KINETIC = {
-  base: "#111319",
-  surface: "#191B22",
-  card: "#1F222B",
-  border: "#282C37",
-  divider: "#2B2F3D",
-  accent: "#6E56CF",
-  accentHover: "#7C66DC",
-  text: "#F1F3F9",
-  secondary: "#949AA8",
-  muted: "#5E6573",
+  get base() { return colors.background; },
+  get surface() { return colors.muted; },
+  get card() { return colors.card; },
+  get border() { return colors.border; },
+  get divider() { return colors.border; },
+  get accent() { return colors.primary; },
+  get accentHover() { return colors.primary; },
+  get text() { return colors.foreground; },
+  get secondary() { return colors.mutedForeground; },
+  get muted() { return colors.mutedForeground; },
 };
 
 type DrawerTab = "format" | "numbers" | "insert" | "functions";

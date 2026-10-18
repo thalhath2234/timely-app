@@ -66,10 +66,9 @@ export function AssistantProvider({ children }: { children: ReactNode }) {
   // to sign-in, sign-up or onboarding.
   const segments: string[] = useSegments();
   const inApp = segments[0] === "(app)" && isOnboarded(user);
-  // The first-run hint only shows on the five tab roots, where it sits above
-  // the + button and the floating tab bar; pushed screens keep their bottom
-  // edge (the Inbox composer, a task's rows) uncovered.
-  const onTabRoot = inApp && segments[1] === "(tabs)";
+  // The first-run hint shows once, on Home only, where it sits above the +
+  // button and the floating tab bar; every other screen stays uncovered.
+  const onTabRoot = inApp && segments[1] === "(tabs)" && segments[2] === "home";
   const insets = useSafeAreaInsets();
   const hintBottom = floatingTabBarInset(insets.bottom) + 12 + 56 + 12;
   const navigationState = useRootNavigationState();

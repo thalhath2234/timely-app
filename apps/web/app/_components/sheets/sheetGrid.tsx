@@ -1899,7 +1899,7 @@ export default function SheetGrid({
 
   return (
     <div data-chat-sheet-range={selectedAddress} data-chat-sheet-tab={activeTabId} className="flex h-full flex-col overflow-hidden bg-background">
-      <div className="flex shrink-0 flex-wrap items-center gap-0.5 border-b border-border bg-[#191B22] px-2 py-1">
+      <div className="flex shrink-0 flex-wrap items-center gap-0.5 border-b border-border bg-muted px-2 py-1">
         <button type="button" title="Undo" disabled={history.past.length === 0} onClick={undo} className={toolClass()}>
           <Undo2 className="size-4" />
         </button>
@@ -2551,8 +2551,8 @@ export default function SheetGrid({
         </button>
       </div>
 
-      <div className="flex items-center gap-2 border-b border-border bg-[#191B22] px-3 py-1.5" data-formula-bar>
-        <span className="w-16 shrink-0 rounded-md border border-[#7C66DC] bg-[#6E56CF] px-2 py-1 text-center font-mono text-xs font-semibold text-white shadow-[0_0_12px_rgba(110,86,207,0.2)]">
+      <div className="flex items-center gap-2 border-b border-border bg-muted px-3 py-1.5" data-formula-bar>
+        <span className="w-16 shrink-0 rounded-md border border-primary bg-primary px-2 py-1 text-center font-mono text-xs font-semibold text-primary-foreground">
           {selectedAddress}
         </span>
         <div className="flex min-w-0 flex-1 items-center rounded-md border border-input bg-card shadow-xs px-2 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
@@ -2612,7 +2612,7 @@ export default function SheetGrid({
         </div>
       </div>
       {hint && (hint.suggestions.length > 0 || currentHelp) ? (
-        <div className="flex min-h-7 shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-[#15171D] px-3 py-1 text-[11px]" data-formula-bar>
+        <div className="flex min-h-7 shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-background px-3 py-1 text-[11px]" data-formula-bar>
           {hint.suggestions.length > 0 ? (
             <>
               {hint.suggestions.map((name, index) => (
@@ -2624,7 +2624,7 @@ export default function SheetGrid({
                     acceptSuggestion(name);
                   }}
                   title={SHEET_FUNCTION_HELP[name]?.summary}
-                  className={`shrink-0 rounded px-1.5 py-0.5 font-mono ${index === 0 ? "bg-[#2A2445] text-[#C4B5FD]" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
+                  className={`shrink-0 rounded px-1.5 py-0.5 font-mono ${index === 0 ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
                 >
                   {name}
                 </button>
@@ -2632,7 +2632,7 @@ export default function SheetGrid({
             </>
           ) : currentHelp ? (
             <>
-              <span className="shrink-0 font-mono text-[#C4B5FD]">{currentHelp.signature}</span>
+              <span className="shrink-0 font-mono text-primary">{currentHelp.signature}</span>
               <span className="min-w-0 truncate text-muted-foreground">{currentHelp.summary}</span>
             </>
           ) : null}
@@ -2690,7 +2690,7 @@ export default function SheetGrid({
                   formulaRanges.some((picked) => rangeTouchesCol(picked, index))
                     ? "outline outline-dashed outline-primary/70"
                     : ""
-                } ${index === lastFrozenCol ? "border-r-2 border-r-[#7C66DC]/60" : ""}`}
+                } ${index === lastFrozenCol ? "border-r-2 border-r-primary/60" : ""}`}
                 style={frozenLeft !== undefined ? { position: "sticky", left: frozenLeft, zIndex: 25 } : undefined}
               >
                 {hiddenBefore.length > 0 ? (
@@ -2699,7 +2699,7 @@ export default function SheetGrid({
                     title={`Show ${plural(hiddenBefore.length, "hidden column")}`}
                     aria-label={`Show ${plural(hiddenBefore.length, "hidden column")}`}
                     onClick={() => setColumnsHidden(hiddenBefore, false)}
-                    className="absolute -left-2 top-1/2 z-10 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-full border border-[#7C66DC] bg-[#2A2445] text-[#C4B5FD] hover:bg-[#6E56CF] hover:text-white"
+                    className="absolute -left-2 top-1/2 z-10 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-full border border-primary bg-primary/15 text-primary hover:bg-primary hover:text-primary-foreground"
                   >
                     <Eye className="size-2.5" />
                   </button>
@@ -2746,7 +2746,7 @@ export default function SheetGrid({
                     title="Filtered · change filter"
                     aria-label="Change filter"
                     onClick={() => setFilterMenuIndex(index)}
-                    className="flex size-5 shrink-0 items-center justify-center rounded text-[#C4B5FD] hover:bg-accent"
+                    className="flex size-5 shrink-0 items-center justify-center rounded text-primary hover:bg-accent"
                   >
                     <ListFilter className="size-3" />
                   </button>
@@ -2906,13 +2906,13 @@ export default function SheetGrid({
               <div
                 className={`sticky left-0 z-10 border-b border-r border-border px-2 text-center font-mono text-[11px] text-muted-foreground ${
                   rowIndex >= bounds.minRow && rowIndex <= bounds.maxRow
-                    ? "bg-[#2A2445] text-primary"
+                    ? "bg-primary/15 text-primary"
                     : "bg-muted"
                 } ${
                   formulaRanges.some((picked) => rangeTouchesRow(picked, rowIndex))
                     ? "outline outline-dashed outline-primary/70"
                     : ""
-                } ${rowIndex === frozenRows - 1 ? "border-b-2 border-b-[#7C66DC]/60" : ""}`}
+                } ${rowIndex === frozenRows - 1 ? "border-b-2 border-b-primary/60" : ""}`}
                 style={{ height: ROW_HEIGHT, lineHeight: `${ROW_HEIGHT}px` }}
                 onMouseDown={(event) => {
                   event.preventDefault();
@@ -3155,8 +3155,8 @@ export default function SheetGrid({
                           ? "items-end"
                           : "items-center"
                     } ${
-                      inRange && !format?.fillColor ? "bg-[#6E56CF]/10" : ""
-                    } ${isSelected ? "z-10 bg-[#251F3E] ring-2 ring-inset ring-[#7C66DC]" : ""} ${
+                      inRange && !format?.fillColor ? "bg-primary/10" : ""
+                    } ${isSelected ? "z-10 bg-primary/15 ring-2 ring-inset ring-primary" : ""} ${
                       inFormulaRange ? "outline outline-dashed outline-1 outline-primary" : ""
                     } ${
                       result.type === "error" ? "text-destructive" : ""
@@ -3170,8 +3170,8 @@ export default function SheetGrid({
                       format?.border === "outer" ? "outline outline-1 outline-foreground/40" : ""
                     } ${format?.clip && !isVerticalOrigin ? "overflow-hidden" : ""} ${
                       (merge && isMergeOrigin(merge, address)) || frozen || frozenLeft !== undefined ? (isSelected ? "" : "bg-background") : ""
-                    } ${colIndex === lastFrozenCol ? "border-r-2 border-r-[#7C66DC]/60" : ""} ${
-                      rowIndex === frozenRows - 1 ? "border-b-2 border-b-[#7C66DC]/60" : ""
+                    } ${colIndex === lastFrozenCol ? "border-r-2 border-r-primary/60" : ""} ${
+                      rowIndex === frozenRows - 1 ? "border-b-2 border-b-primary/60" : ""
                     }`}
                     style={{
                       height:
@@ -3294,7 +3294,7 @@ export default function SheetGrid({
                             gridRef.current?.focus();
                           }}
                           aria-label="Pick a date"
-                          className="size-6 bg-[#251F3E]"
+                          className="size-6 bg-primary/15"
                         />
                       </span>
                     ) : null}
@@ -3384,7 +3384,7 @@ export default function SheetGrid({
         </div>
       )}
 
-      <footer className="flex h-9 shrink-0 items-center justify-between gap-3 border-t border-border bg-[#191B22] px-3 text-[11px]">
+      <footer className="flex h-9 shrink-0 items-center justify-between gap-3 border-t border-border bg-muted px-3 text-[11px]">
         <div className="flex min-w-0 items-end gap-1">
           {(tabs?.length ?? 0) > 1 ? (
             <button
@@ -3474,7 +3474,7 @@ export default function SheetGrid({
                   onContextMenu={openTabMenu}
                   className={`relative flex shrink-0 items-center gap-1 rounded-t border border-b-0 px-2 py-1 ${
                     active
-                      ? "border-[#7C66DC] bg-[#1F222B] text-foreground"
+                      ? "border-primary bg-card text-foreground"
                       : "border-transparent text-muted-foreground hover:bg-accent/60"
                   }`}
                 >

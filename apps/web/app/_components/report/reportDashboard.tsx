@@ -445,7 +445,6 @@ export default function ReportDashboard() {
       <PageHeader
         className="mx-auto max-w-[1600px]"
         title="Dashboard"
-        description="Drag a card by its title to move it, drag its edge or corner to resize."
         actions={
           <>
             <SaveStatusBadge status={saveState} />

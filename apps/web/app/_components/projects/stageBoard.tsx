@@ -167,7 +167,6 @@ export default function StageBoard({
             <span className="text-success">●</span> {plural(columns.length, "lane")} active
           </p>
         </div>
-        <p className="text-xs text-muted-foreground">Scroll horizontally to view future sprints</p>
       </div>
       <div className="overflow-auto">
         <div className="flex min-w-max gap-3 p-1">

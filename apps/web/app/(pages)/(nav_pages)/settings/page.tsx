@@ -113,7 +113,6 @@ function SettingsTabs({ initialTab }: { initialTab: SettingsTab }) {
       <PageHeader
         bordered
         title="Settings"
-        description="Manage your account and per-workspace configuration."
       />
 
       <div className="flex min-h-0 flex-1">

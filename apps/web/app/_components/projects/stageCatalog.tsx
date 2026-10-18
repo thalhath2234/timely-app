@@ -85,15 +85,7 @@ export default function StageCatalog({
     <section className="rounded-xl border border-border bg-card p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-foreground">
-            Stages &amp; Milestones
-            <span className="ml-2 font-normal text-muted-foreground">
-              — Release phases and ordered task execution
-            </span>
-          </h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Define linear deliverables, track milestone velocity, and assign incoming backlog.
-          </p>
+          <h2 className="text-sm font-semibold text-foreground">Stages</h2>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {!enabled ? (

@@ -170,15 +170,6 @@ export default function FilesHome() {
     <div className="h-full overflow-y-auto">
       <PageHeader
         title="Files"
-        description={
-          <>
-            Docs for notes, specs and meeting minutes; sheets for numbers in a grid. Type{" "}
-            <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 text-xs">/</kbd>{" "}
-            inside a doc for blocks, or a formula like{" "}
-            <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-primary">=SUM(A1:A10)</code>{" "}
-            in a sheet cell.
-          </>
-        }
         actions={
           <>
             <label

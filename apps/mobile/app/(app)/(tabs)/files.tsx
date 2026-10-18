@@ -33,6 +33,7 @@ import { openDailyDoc } from "../../../lib/api/docs";
 import { DeleteTemplateConfirm, NewFileSheet, type FileKind } from "../../../components/files/NewFileTemplates";
 import { Button } from "../../../components/ui/primitives";
 import type { Doc, Sheet } from "../../../lib/types";
+import { useFabScrollInset } from "../../../components/ui/FloatingTabBar";
 
 function DocsExpandButton({
   expanded,
@@ -95,6 +96,7 @@ function entryItem(entry: Entry) {
 }
 
 export default function FilesScreen() {
+  const fabInset = useFabScrollInset();
   const router = useRouter();
   const reduceMotion = Boolean(useReducedMotion());
   const [filter, setFilter] = useState<Filter>("all");
@@ -525,7 +527,7 @@ export default function FilesScreen() {
       </MobileHeader>
       <ScrollView showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingBottom: fabInset }]}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
