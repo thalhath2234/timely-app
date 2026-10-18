@@ -2,7 +2,7 @@
 import { Fragment, cloneElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import { FlexWidget, ListWidget, SvgWidget, TextWidget, type ColorProp } from "react-native-android-widget";
 import { darkColors, lightColors, type ColorTokens } from "@timely/contract/designTokens";
-import { WIDGET_ACTION, type WidgetAction } from "./actions";
+import { isLocalTap, WIDGET_ACTION, WIDGET_LOCAL, type WidgetAction, type WidgetTap } from "./actions";
 import type { WidgetButton, WidgetGlyph, WidgetModel, WidgetRow, WidgetTone } from "./model";
 
 /**
@@ -14,14 +14,22 @@ import type { WidgetButton, WidgetGlyph, WidgetModel, WidgetRow, WidgetTone } fr
 
 type Hex = `#${string}`;
 type Size = { width: number; height: number };
-/** `preview`: the card picker's still preview, where a live clock is drawn as plain text. */
-type Options = { preview?: boolean };
+/**
+ * `preview`: the card picker's still preview, where a live clock is drawn as plain text.
+ * `local`: a tree the phone fills in itself (lib/widgets/local.ts), so the figure is its `valueText` token.
+ */
+type Options = { preview?: boolean; local?: boolean };
 
 const TRANSPARENT = "#00000000" as Hex;
 
 /** clickActionData for a button that works on the home screen (Android passes it as a flat bundle). */
 function actionData(action: WidgetAction): Record<string, unknown> {
   return { ...action };
+}
+
+/** A tab or −/+: the app runs an action; a local tap the phone handles by itself. */
+function tapProps(tap: WidgetTap) {
+  return isLocalTap(tap) ? { clickAction: WIDGET_LOCAL, clickActionData: { ...tap } } : { clickAction: WIDGET_ACTION, clickActionData: actionData(tap) };
 }
 
 const DISPLAY_FONT = "Archivo-CondensedExtraBold";
@@ -143,10 +151,10 @@ function Header({ model, p }: { model: WidgetModel; p: Palette }) {
 /** Phase tabs across the widget, with −/+ for the length at the end; each works in place. */
 function Tabs({ model, p }: { model: WidgetModel; p: Palette }) {
   const stepper = model.stepper;
-  const step = (glyph: "minus" | "plus", action: WidgetAction | undefined, label: string) => (
+  const step = (glyph: "minus" | "plus", action: WidgetTap | undefined, label: string) => (
     <FlexWidget
       key={glyph}
-      {...(action ? { clickAction: WIDGET_ACTION, clickActionData: actionData(action) } : {})}
+      {...(action ? tapProps(action) : {})}
       accessibilityLabel={label}
       style={{ width: TAB_H + 6, height: TAB_H, borderRadius: TAB_H / 2, backgroundColor: p.soft, marginLeft: 6, alignItems: "center", justifyContent: "center" }}
     >
@@ -159,8 +167,7 @@ function Tabs({ model, p }: { model: WidgetModel; p: Palette }) {
         {(model.tabs ?? []).map((tab) => (
           <FlexWidget
             key={tab.label}
-            clickAction={WIDGET_ACTION}
-            clickActionData={actionData(tab.action)}
+            {...tapProps(tab.action)}
             accessibilityLabel={tab.selected ? `${tab.label}, selected` : tab.label}
             style={{
               flex: 1,
@@ -185,7 +192,21 @@ function Tabs({ model, p }: { model: WidgetModel; p: Palette }) {
   );
 }
 
-function Stat({ model, p, figure, captionLines, live }: { model: WidgetModel; p: Palette; figure: number; captionLines: number; live?: boolean }) {
+function Stat({
+  model,
+  p,
+  figure,
+  captionLines,
+  live,
+  local,
+}: {
+  model: WidgetModel;
+  p: Palette;
+  figure: number;
+  captionLines: number;
+  live?: boolean;
+  local?: boolean;
+}) {
   if (!figure && !captionLines) return null;
   return (
     <FlexWidget style={{ flexDirection: "column", width: "match_parent", marginBottom: GAP }}>
@@ -203,7 +224,7 @@ function Stat({ model, p, figure, captionLines, live }: { model: WidgetModel; p:
         />
       ) : figure && model.value ? (
         <TextWidget
-          text={model.value}
+          text={(local && model.valueText) || model.value}
           maxLines={1}
           truncate="END"
           style={{ fontSize: figure, fontFamily: DISPLAY_FONT, color: p.fg, letterSpacing: -0.3 }}
@@ -621,7 +642,7 @@ export function planCard(model: WidgetModel, size: Size): CardPlan {
     // Holding room for one row is pointless when the row can't fit anyway.
     if (room - figureH(24) - GAP < reserve) reserve = 0;
     while (lines && room - captionH(lines) - GAP - reserve < (grow ? figureH(24) : smallest)) lines--;
-    const byWidth = figureFor(model.value, width);
+    const byWidth = figureFor(model.valueFit ?? model.value, width);
     const byHeight = Math.floor((room - captionH(lines) - GAP - (grow ? 0 : reserve)) / 1.52);
     plan.figure = Math.max(18, Math.min(max, byWidth, grow ? byHeight : Math.max(byHeight >= 34 ? 34 : 24, Math.min(34, byHeight))));
     if (!grow && plan.figure > byHeight) plan.figure = Math.max(18, byHeight);
@@ -709,12 +730,12 @@ function Card({ model: given, dark, size, options }: { model: WidgetModel; dark:
   const rows = (model.rows ?? []).slice(0, plan.rows);
   const checks = (model.rows ?? []).some((row) => row.done !== undefined);
   const cells = cellsThatFit(model, size.width - 2 * PAD - 2);
-  const stat = <Stat model={model} p={p} figure={plan.figure} captionLines={plan.captionLines} live={live} />;
+  const stat = <Stat model={model} p={p} figure={plan.figure} captionLines={plan.captionLines} live={live} local={options.local} />;
   return (
     <FlexWidget
       clickAction="OPEN_URI"
       clickActionData={{ uri: model.uri }}
-      accessibilityLabel={`${model.title}${model.value ? `, ${model.value}` : ""}${model.caption ? `, ${model.caption}` : ""}`}
+      accessibilityLabel={`${model.title}${model.value ? `, ${(options.local && model.valueText) || model.value}` : ""}${model.caption ? `, ${model.caption}` : ""}`}
       style={{
         height: "match_parent",
         width: "match_parent",

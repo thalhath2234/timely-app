@@ -1,5 +1,5 @@
 import { documentTextFile } from "../textFile";
-import type { DashboardCard } from "@timely/contract/dashboard";
+import type { ClockState, DashboardCard } from "@timely/contract/dashboard";
 import type { WidgetModel } from "./model";
 
 /**
@@ -7,8 +7,11 @@ import type { WidgetModel } from "./model";
  * drew, so a widget redrawn while offline (or signed out) keeps its content.
  */
 
-/** `card` and `timeZone` are what a button tap needs to redraw at once, before the network answers. */
-type Entry = { cardId?: string; model?: WidgetModel; card?: DashboardCard; timeZone?: string };
+/**
+ * `card` and `timeZone` are what a button tap needs to redraw at once, before
+ * the network answers. `clock` is the Timer widget's own stopwatch or timer.
+ */
+type Entry = { cardId?: string; model?: WidgetModel; card?: DashboardCard; timeZone?: string; clock?: ClockState };
 type Store = Record<string, Entry>;
 
 const file = documentTextFile("timely-widgets.json");

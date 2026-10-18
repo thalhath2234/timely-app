@@ -1,6 +1,6 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Keyboard, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
-import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
+import { Keyboard, Modal, PanResponder, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, {
   cancelAnimation,
   FadeIn,
@@ -213,22 +213,30 @@ function SheetFrame({ open, onClose, title, subtitle, leading, children, footer,
   }, [back, onClose]);
 
   // Pull the grabber or header down to close; a short pull springs back.
+  // A JS responder on the header, not a gesture-handler Pan: a Pan left
+  // half-begun (Android lost its touch end) cancelled every later tap in the
+  // sheet that moved at all, so nothing in the sheet could be pressed.
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   const pull = useMemo(
     () =>
-      Gesture.Pan()
-        .activeOffsetY(8)
-        .failOffsetX([-24, 24])
-        .onUpdate((event) => {
-          drag.value = Math.max(0, event.translationY);
-        })
-        .onEnd((event) => {
-          if (event.translationY > 96 || event.velocityY > 900) {
-            runOnJS(onClose)();
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_event, gesture) => gesture.dy > 8 && Math.abs(gesture.dx) < 24,
+        onPanResponderMove: (_event, gesture) => {
+          drag.value = Math.max(0, gesture.dy);
+        },
+        onPanResponderRelease: (_event, gesture) => {
+          if (gesture.dy > 96 || gesture.vy > 0.9) {
+            closeRef.current();
             return;
           }
           drag.value = withTiming(0, { duration: overlayDuration, easing: easeOut });
-        }),
-    [drag, onClose],
+        },
+        onPanResponderTerminate: () => {
+          drag.value = withTiming(0, { duration: overlayDuration, easing: easeOut });
+        },
+      }),
+    [drag],
   );
 
   const typing = keyboardCover > 0;
@@ -265,20 +273,18 @@ function SheetFrame({ open, onClose, title, subtitle, leading, children, footer,
               sheetStyle,
             ]}
           >
-            <GestureDetector gesture={pull}>
-              <View collapsable={false}>
-                <View style={styles.grabberRow}>
-                  <View style={styles.grabber} />
-                </View>
-                <SheetHeader
-                  title={page ? page.title : presented.title}
-                  subtitle={page ? page.subtitle ?? presented.title : presented.subtitle}
-                  leading={page ? page.leading : presented.leading}
-                  onBack={page?.onClose}
-                  onClose={onClose}
-                />
+            <View collapsable={false} {...pull.panHandlers}>
+              <View style={styles.grabberRow}>
+                <View style={styles.grabber} />
               </View>
-            </GestureDetector>
+              <SheetHeader
+                title={page ? page.title : presented.title}
+                subtitle={page ? page.subtitle ?? presented.title : presented.subtitle}
+                leading={page ? page.leading : presented.leading}
+                onBack={page?.onClose}
+                onClose={onClose}
+              />
+            </View>
             <SheetStackContext.Provider value={stack}>
               <FocusGroupScrollView
                 onGroupChange={setGroupActive}

@@ -12,8 +12,8 @@ register(
 );
 
 const { BUILTIN_CARDS, defaultDashboard } = await import("../packages/contract/src/dashboard.ts");
-const { cardWidgetModel, todayModel, widgetChoices } = await import("../apps/mobile/lib/widgets/model.ts");
-const { clockChange, optimisticModel, parseWidgetAction } = await import("../apps/mobile/lib/widgets/actions.ts");
+const { CLOCK_LOCAL_LIMITS, POMODORO_LOCAL_LIMITS, cardWidgetModel, clockWidgetModel, pomodoroLocalFrom, pomodoroWidgetModel, todayModel, widgetChoices } = await import("../apps/mobile/lib/widgets/model.ts");
+const { clockChange, isLocalTap, optimisticModel, parseWidgetAction } = await import("../apps/mobile/lib/widgets/actions.ts");
 const { SHARED_MS, sharedLoads } = await import("../apps/mobile/lib/widgets/sharedLoads.ts");
 const { clockState, initialPomodoro, pomodoroRemaining, pomodoroSettings } = await import("../packages/contract/src/dashboard.ts");
 const catalog = (await import("../apps/mobile/lib/widgets/catalog.json", { with: { type: "json" } })).default;
@@ -155,7 +155,9 @@ describe("home screen widgets", () => {
 
   test("the widget catalog: a picker for cards, sizes that fit a launcher grid", () => {
     const names = catalog.WIDGETS.map((w) => w.name);
-    assert.deepEqual(names, ["TimelyCard", "TimelyToday", "TimelyQuickAdd"]);
+    assert.deepEqual(names, ["TimelyCard", "TimelyToday", "TimelyPomodoro", "TimelyTimer", "TimelyQuickAdd"]);
+    // Pomodoro and Timer belong to no card: nothing to pick when they are added.
+    for (const widget of catalog.WIDGETS.slice(1)) assert.equal(widget.widgetFeatures, undefined, widget.name);
     assert.equal(catalog.WIDGETS[0].widgetFeatures, "reconfigurable");
     for (const widget of catalog.WIDGETS) assert.match(widget.previewImage, /^\.\/assets\/widgets\/.+\.png$/);
   });
@@ -252,6 +254,49 @@ describe("widgets that work on the home screen", () => {
     assert.equal(model.timer.running, false);
     assert.equal(model.value, "1:30");
     assert.deepEqual(ops(model), ["start", "reset"]);
+  });
+
+  test("a waiting pomodoro with its own lengths changes phase and length on the phone alone", () => {
+    const local = { ...pomodoroLocalFrom({ focus: 30 }), phase: "short" };
+    const model = pomodoroWidgetModel({ cardId: "widget-7", title: "Pomodoro", uri: "timelymobile://", settings: undefined, now: t0, pomodoros: [], local });
+    // Tabs and −/+ are local taps; the figure is a token the phone fills in.
+    assert.deepEqual(model.tabs.map((tab) => [tab.selected, tab.action]), [[false, { set: "phase", value: "focus" }], [true, { set: "phase", value: "short" }], [false, { set: "phase", value: "long" }]]);
+    assert.deepEqual([model.stepper.minus, model.stepper.plus], [{ step: "short", by: -1 }, { step: "short", by: 1 }]);
+    assert.ok(model.tabs.every((tab) => isLocalTap(tab.action)));
+    assert.equal(model.value, "5:00");
+    assert.equal(model.valueText, "{{short:clock}}");
+    assert.equal(model.timer, undefined);
+    // Start is the one tap that reaches the app.
+    assert.deepEqual(model.buttons[0].action, { kind: "pomodoro", cardId: "widget-7", op: "start" });
+    assert.deepEqual(POMODORO_LOCAL_LIMITS.short, [1, 60]);
+  });
+
+  test("a running pomodoro's tabs and −/+ go back to the app", () => {
+    const local = pomodoroLocalFrom(undefined);
+    const pomodoros = [{ cardId: "widget-7", phase: "focus", endsAt: t0 + 60_000, leftMs: 60_000, active: true }];
+    const model = pomodoroWidgetModel({ cardId: "widget-7", title: "Pomodoro", uri: "timelymobile://", settings: undefined, now: t0, pomodoros, local });
+    assert.ok(model.tabs.every((tab) => !isLocalTap(tab.action)));
+    assert.equal(model.stepper.plus.kind, "pomodoroStep");
+    assert.equal(model.valueText, undefined);
+    assert.equal(model.timer.running, true);
+  });
+
+  test("an idle Timer widget picks stopwatch or timer, and the timer's length, on the phone", () => {
+    const idle = clockState(undefined);
+    const timer = clockWidgetModel({ cardId: "widget-8", title: "Timer", uri: "timelymobile://", state: idle, now: t0, local: { mode: "timer", minutes: 12 } });
+    assert.deepEqual(timer.tabs.map((tab) => [tab.label, tab.selected, tab.action]), [["Stopwatch", false, { set: "mode", value: "stopwatch" }], ["Timer", true, { set: "mode", value: "timer" }]]);
+    assert.deepEqual(timer.stepper.plus, { step: "minutes", by: 1 });
+    assert.equal(timer.value, "12:00");
+    assert.equal(timer.valueText, "{{minutes:clock}}");
+    assert.deepEqual(CLOCK_LOCAL_LIMITS.minutes, [1, 600]);
+    const stopwatch = clockWidgetModel({ cardId: "widget-8", title: "Timer", uri: "timelymobile://", state: idle, now: t0, local: { mode: "stopwatch", minutes: 12 } });
+    assert.equal(stopwatch.stepper, undefined);
+    assert.deepEqual(ops(stopwatch), ["start"]);
+    // Running, it names what it runs and the tabs make way.
+    const running = clockWidgetModel({ cardId: "widget-8", title: "Timer", uri: "timelymobile://", state: { ...idle, mode: "timer", minutes: 12, startedAt: t0 - 60_000 }, now: t0, local: { mode: "stopwatch", minutes: 3 } });
+    assert.equal(running.title, "Timer");
+    assert.equal(running.tabs, undefined);
+    assert.equal(running.value, "11:00");
   });
 
   test("a stopwatch counts up from when it would read 0:00", () => {

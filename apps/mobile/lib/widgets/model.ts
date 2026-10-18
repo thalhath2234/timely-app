@@ -38,9 +38,11 @@ import {
   weeklyReview,
   workdayWindow,
   type DashboardCard,
+  type ClockState,
   type DashboardData,
   type FocusSessionLike,
   type MatrixQuadrant,
+  type PomodoroPhase,
 } from "@timely/contract/dashboard";
 import {
   computeSheetCard,
@@ -54,7 +56,7 @@ import type { Sheet } from "@timely/contract/sheet";
 import { calendarItemDone, type TodayResponse } from "@timely/contract/calendar";
 import { addDaysToDate, dateInZone, todayInZone } from "@timely/contract/workStatus";
 import type { WorkingHours } from "@timely/contract/schedule";
-import type { WidgetAction } from "./actions";
+import type { WidgetAction, WidgetTap } from "./actions";
 
 export type WidgetTone = "default" | "muted" | "accent" | "danger" | "success";
 
@@ -88,6 +90,13 @@ export type WidgetModel = {
   uri: string;
   /** Large figure for stat-like cards. */
   value?: string;
+  /**
+   * Drawn in place of `value` (which still sizes the figure): a {{key:clock}}
+   * the phone fills in itself when a tap changes a length (lib/widgets/local.ts).
+   */
+  valueText?: string;
+  /** The widest text the phone may put in place of `value`: the figure is sized to fit it. */
+  valueFit?: string;
   /** Line under (or beside) the figure. */
   caption?: string;
   captionTone?: WidgetTone;
@@ -104,9 +113,9 @@ export type WidgetModel = {
   note?: string;
   buttons?: WidgetButton[];
   /** Tabs over the figure (a pomodoro's phases); tapping one runs its action in place. */
-  tabs?: { label: string; selected: boolean; action: WidgetAction }[];
+  tabs?: { label: string; selected: boolean; action: WidgetTap }[];
   /** −/+ beside the tabs; a side is missing at its limit. */
-  stepper?: { minus?: WidgetAction; plus?: WidgetAction; unit: string };
+  stepper?: { minus?: WidgetTap; plus?: WidgetTap; unit: string };
   /** Makes `value` a live clock. */
   timer?: WidgetTimer;
   /** Shown when there's nothing to draw. */
@@ -167,6 +176,11 @@ function clockText(ms: number) {
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
   return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/** A length as the phone draws it while it waits: 25:00, 90:00 (RNWidgetLocal's {{key:clock}}). */
+function minutesText(minutes: number) {
+  return `${minutes}:00`;
 }
 
 function percent(share: number) {
@@ -436,16 +450,51 @@ const PHASE_LABEL = { focus: "Focus", short: "Short break", long: "Long break" }
 /** Tab labels short enough for three across a widget. */
 const PHASE_TAB = { focus: "Focus", short: "Short", long: "Long" } as const;
 
-/** A pomodoro card: a live countdown with Start, Pause, Skip and Reset right on the widget. */
-function pomodoroModel(card: DashboardCard, input: WidgetInput, title: string): WidgetModel {
-  const now = input.now.getTime();
-  const cardId = card.id;
-  const uri = link(input.scheme, "dashboard");
-  const timer = (input.pomodoros ?? []).find((t) => t.cardId === cardId);
-  const phase = timer?.phase ?? "focus";
+/**
+ * A pomodoro's phase and lengths as its widget keeps them. While the phase
+ * waits to start, the tabs and −/+ change these on the phone alone (no app,
+ * no server); Start hands them to the app (lib/widgets/local.ts).
+ */
+export type PomodoroLocal = { phase: PomodoroPhase; focus: number; short: number; long: number };
+
+/** −/+ limits for each length, by phase (the same as a card's settings). */
+export const POMODORO_LOCAL_LIMITS: Record<PomodoroPhase, [number, number]> = {
+  focus: [1, POMODORO_PHASE_MAX.focus],
+  short: [1, POMODORO_PHASE_MAX.short],
+  long: [1, POMODORO_PHASE_MAX.long],
+};
+
+export function pomodoroLocalFrom(settings: Record<string, unknown> | undefined, phase: PomodoroPhase = "focus"): PomodoroLocal {
+  const lengths = pomodoroSettings(settings);
+  return { phase, focus: lengths.focus, short: lengths.shortBreak, long: lengths.longBreak };
+}
+
+/** Settings with the widget's own lengths in place of the card's. */
+export function pomodoroLocalSettings(settings: Record<string, unknown> | undefined, local: PomodoroLocal): Record<string, unknown> {
+  return { ...settings, focus: local.focus, shortBreak: local.short, longBreak: local.long };
+}
+
+export type PomodoroWidget = {
+  /** The pomodoro store's key: a card id, or widget-ID for the Pomodoro widget. */
+  cardId: string;
+  title: string;
+  uri: string;
+  settings: Record<string, unknown> | undefined;
+  now: number;
+  pomodoros?: WidgetPomodoro[];
+  /** The widget's own phase and lengths; without it −/+ change the card's settings. */
+  local?: PomodoroLocal;
+};
+
+/** A pomodoro: a live countdown with Start, Pause, Skip and Reset right on the widget. */
+export function pomodoroWidgetModel({ cardId, title, uri, settings: given, now, pomodoros, local }: PomodoroWidget): WidgetModel {
+  const timer = (pomodoros ?? []).find((t) => t.cardId === cardId);
   const running = Boolean(timer && timer.endsAt !== null);
   const paused = Boolean(timer && !running && timer.active);
-  const settings = pomodoroSettings(card.settings);
+  const waiting = !running && !paused;
+  // A waiting phase is the widget's to pick; once it runs, the timer's.
+  const phase = waiting && local ? local.phase : (timer?.phase ?? "focus");
+  const settings = pomodoroSettings(local ? pomodoroLocalSettings(given, local) : given);
   // A phase that hasn't started is as long as the card says (the widget may just have changed it).
   const left = running
     ? Math.max(0, (timer!.endsAt ?? 0) - now)
@@ -454,25 +503,32 @@ function pomodoroModel(card: DashboardCard, input: WidgetInput, title: string): 
       : pomodoroRemaining({ ...initialPomodoro(), phase }, settings, now);
   const action = (op: "start" | "pause" | "skip" | "reset") => ({ kind: "pomodoro" as const, cardId, op });
   // As on the Dashboard: before a phase starts −/+ change its length, once it runs this round only.
-  const waiting = !running && !paused;
   const length = settings[POMODORO_PHASE_SETTING[phase]];
   const canLower = waiting ? length > 1 : left > 60_000;
   const canRaise = waiting ? length < POMODORO_PHASE_MAX[phase] : left < POMODORO_MAX_MS;
-  const step = (by: number) => ({ kind: "pomodoroStep" as const, cardId, by });
+  const phoneOnly = waiting && Boolean(local);
+  const step = (by: number) => (phoneOnly ? { step: phase, by } : { kind: "pomodoroStep" as const, cardId, by });
   const task = timer?.taskName ? ` · ${timer.taskName}` : "";
   return {
     title,
     uri,
-    value: clockText(left),
-    timer: { base: running ? (timer!.endsAt ?? now) : now + left, countDown: true, running },
+    // The phone redraws a waiting length as whole minutes (90:00), sized for the longest it allows.
+    ...(phoneOnly
+      ? { value: minutesText(length), valueText: `{{${phase}:clock}}`, valueFit: minutesText(POMODORO_PHASE_MAX[phase]) }
+      : { value: clockText(left) }),
+    // A waiting phase is plain text: the phone redraws it when −/+ change it.
+    ...(phoneOnly ? {} : { timer: { base: running ? (timer!.endsAt ?? now) : now + left, countDown: true, running } }),
     caption: running ? `${PHASE_LABEL[phase]}${task}` : paused ? `Paused · ${PHASE_LABEL[phase]}` : `${PHASE_LABEL[phase]}${task}`,
     captionTone: running ? "accent" : "muted",
     tabs: (["focus", "short", "long"] as const).map((each) => ({
       label: PHASE_TAB[each],
       selected: each === phase,
-      action: { kind: "pomodoroPhase" as const, cardId, phase: each },
+      action: phoneOnly ? { set: "phase", value: each } : { kind: "pomodoroPhase" as const, cardId, phase: each },
     })),
-    stepper: { minus: canLower ? step(-1) : undefined, plus: canRaise ? step(1) : undefined, unit: "a minute" },
+    // The phone keeps a length within its limits itself, so both sides stay.
+    stepper: phoneOnly
+      ? { minus: step(-1), plus: step(1), unit: "a minute" }
+      : { minus: canLower ? step(-1) : undefined, plus: canRaise ? step(1) : undefined, unit: "a minute" },
     buttons: running
       ? [
           { label: "Pause", glyph: "pause", action: action("pause") },
@@ -484,21 +540,74 @@ function pomodoroModel(card: DashboardCard, input: WidgetInput, title: string): 
             { label: "Reset", glyph: "reset", action: action("reset") },
           ]
         : [
-            { label: phase === "focus" ? "Start focus" : "Start break", glyph: "play", action: action("start") },
+            // The tabs already say which phase; a short label stays on the button at 3x2.
+            { label: phoneOnly ? "Start" : phase === "focus" ? "Start focus" : "Start break", glyph: "play", action: action("start") },
             // As on the Dashboard: a waiting phase can be skipped, so a break isn't the only way on.
             { label: "Skip", glyph: "skip", action: action("skip") },
           ],
   };
 }
 
-/** A stopwatch or timer card, running on the widget. */
-function clockModel(card: DashboardCard, input: WidgetInput, title: string): WidgetModel {
-  const now = input.now.getTime();
-  const cardId = card.id;
-  const uri = link(input.scheme, "dashboard");
-  const state = clockState(card.settings);
+function pomodoroModel(card: DashboardCard, input: WidgetInput, title: string): WidgetModel {
+  return pomodoroWidgetModel({
+    cardId: card.id,
+    title,
+    uri: link(input.scheme, "dashboard"),
+    settings: card.settings,
+    now: input.now.getTime(),
+    pomodoros: input.pomodoros,
+  });
+}
+
+/** A Timer widget's mode and length while it's idle, changed on the phone alone. */
+export type ClockLocal = { mode: ClockState["mode"]; minutes: number };
+
+export const CLOCK_LOCAL_LIMITS = { minutes: [1, 600] as [number, number] };
+
+const CLOCK_TAB = { stopwatch: "Stopwatch", timer: "Timer" } as const;
+
+export type ClockWidget = {
+  cardId: string;
+  title: string;
+  uri: string;
+  state: ClockState;
+  now: number;
+  /** The widget's own mode and length: idle, tabs and −/+ change them on the phone. */
+  local?: ClockLocal;
+};
+
+function clockIdle(state: ClockState) {
+  return state.startedAt === null && state.elapsed === 0 && !state.done;
+}
+
+/** A stopwatch or timer, running on the widget. */
+export function clockWidgetModel({ cardId, title: given, uri, state: saved, now, local }: ClockWidget): WidgetModel {
+  const phoneOnly = Boolean(local) && clockIdle(saved);
+  const state = phoneOnly ? { ...saved, ...local! } : saved;
+  // The Timer widget names what it runs once the tabs make way for its buttons.
+  const title = local && !phoneOnly ? CLOCK_TAB[state.mode] : given;
   const running = state.startedAt !== null;
   const action = (op: "start" | "pause" | "reset" | "lap") => ({ kind: "clock" as const, cardId, op });
+  const tabs = phoneOnly
+    ? (["stopwatch", "timer"] as const).map((mode) => ({ label: CLOCK_TAB[mode], selected: mode === state.mode, action: { set: "mode", value: mode } }))
+    : undefined;
+  if (phoneOnly && state.mode === "timer") {
+    return {
+      title,
+      uri,
+      value: minutesText(state.minutes),
+      valueText: "{{minutes:clock}}",
+      valueFit: minutesText(CLOCK_LOCAL_LIMITS.minutes[1]),
+      caption: "Timer",
+      captionTone: "muted",
+      tabs,
+      stepper: { minus: { step: "minutes", by: -1 }, plus: { step: "minutes", by: 1 }, unit: "a minute" },
+      buttons: [{ label: "Start", glyph: "play", action: action("start") }],
+    };
+  }
+  if (phoneOnly) {
+    return { title, uri, value: clockText(0), caption: "Stopwatch", captionTone: "muted", tabs, buttons: [{ label: "Start", glyph: "play", action: action("start") }] };
+  }
   if (state.mode === "timer") {
     const remaining = clockRemaining(state, now);
     const done = state.done || (running && remaining <= 0);
@@ -557,6 +666,11 @@ function clockModel(card: DashboardCard, input: WidgetInput, title: string): Wid
           ]
         : [{ label: "Start", glyph: "play", action: action("start") }],
   };
+}
+
+/** A stopwatch or timer card, running on the widget. */
+function clockModel(card: DashboardCard, input: WidgetInput, title: string): WidgetModel {
+  return clockWidgetModel({ cardId: card.id, title, uri: link(input.scheme, "dashboard"), state: clockState(card.settings), now: input.now.getTime() });
 }
 
 /** One Dashboard card as a widget. */

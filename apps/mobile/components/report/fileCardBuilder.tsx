@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { memo, useCallback, useDeferredValue, useMemo, useRef, useState } from "react";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { Check } from "lucide-react-native";
 import {
   defaultCardSize,
@@ -126,6 +126,8 @@ function Builder({
     [kind, data.sheets, data.docs],
   ) as unknown as (Sheet | Doc)[];
   const picked = query?.sheet?.sheetId ?? query?.doc?.docId ?? null;
+  // The preview redraws after the tap's own change, so a tap shows at once.
+  const previewQuery = useDeferredValue(query);
 
   const pickFile = (id: string) => {
     const file = files.find((entry) => entry.id === id);
@@ -183,7 +185,7 @@ function Builder({
               <Text style={styles.previewTitle} numberOfLines={1}>
                 {title.trim() || describeQuery(query)}
               </Text>
-              <FileCardView query={query} data={data} preview />
+              {previewQuery ? <FileCardView query={previewQuery} data={data} preview /> : null}
             </View>
           </View>
         </>
@@ -207,7 +209,11 @@ function SheetPicker({ sheet, pick, onChange }: { sheet: ContractSheet; pick: Sh
   const inBox = (r: number, c: number) => box !== null && picked.has(c) && r >= box.r0 && (box.r1 === null || r <= box.r1);
   const bodyRows = box && box.r1 !== null ? box.r1 - box.r0 + 1 : Infinity;
 
-  const tap = (r: number, c: number) => {
+  // One stable handler for every cell, so a pick only redraws the cells it changes.
+  const latest = useRef({ first, sheet, pick, onChange });
+  latest.current = { first, sheet, pick, onChange };
+  const tap = useCallback((r: number, c: number) => {
+    const { first, sheet, pick, onChange } = latest.current;
     if (!first) {
       setFirst({ r, c });
       onChange(repick(sheet, pick, { r0: r, r1: r, c0: c, c1: c }));
@@ -215,13 +221,14 @@ function SheetPicker({ sheet, pick, onChange }: { sheet: ContractSheet; pick: Sh
     }
     setFirst(null);
     onChange(repick(sheet, pick, { r0: Math.min(first.r, r), r1: Math.max(first.r, r), c0: Math.min(first.c, c), c1: Math.max(first.c, c) }));
-  };
+  }, []);
 
   return (
     <>
       {tabs.length > 1 ? (
         <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false}>
           <SegmentedControl
+            size="sm"
             value={tabId}
             onChange={(next) => {
               setFirst(null);
@@ -278,18 +285,18 @@ function SheetPicker({ sheet, pick, onChange }: { sheet: ContractSheet; pick: Sh
                       const on = inBox(r, c);
                       const start = first && first.r === r && first.c === c;
                       return (
-                        <AnimatedPressable
+                        <GridCell
                           key={letter}
-                          accessibilityRole="button"
-                          accessibilityLabel={`${letter}${r + 1}${cell?.text ? `: ${cell.text}` : ""}`}
-                          accessibilityState={{ selected: on }}
-                          onPress={() => tap(r, c)}
-                          style={[styles.cell, on && styles.cellOn, start && styles.cellStart]}
-                        >
-                          <Text style={[styles.cellText, cell?.number !== null && cell?.number !== undefined && styles.right, on && pick.headers && box && r === box.r0 && styles.bold]} numberOfLines={1}>
-                            {cell?.text || " "}
-                          </Text>
-                        </AnimatedPressable>
+                          r={r}
+                          c={c}
+                          label={`${letter}${r + 1}${cell?.text ? `: ${cell.text}` : ""}`}
+                          text={cell?.text || " "}
+                          numeric={cell?.number !== null && cell?.number !== undefined}
+                          on={on}
+                          start={Boolean(start)}
+                          bold={Boolean(on && pick.headers && box && r === box.r0)}
+                          onTap={tap}
+                        />
                       );
                     })}
                   </View>
@@ -320,7 +327,14 @@ function SheetPicker({ sheet, pick, onChange }: { sheet: ContractSheet; pick: Sh
             );
           })}
         </View>
-        <Text style={styles.muted}>{SHEET_VIEW_HINTS[pick.view]}</Text>
+        {result.kind === "counter" && (!result.cell || result.cell.formula) ? (
+          // A counter on a formula has no − and +, on the card or its widget.
+          <Text style={styles.warning}>
+            {result.cell ? `${result.cell.address} is a formula, so a counter can't add to it.` : "Pick a cell first."} Tap a cell with a plain number.
+          </Text>
+        ) : (
+          <Text style={styles.muted}>{SHEET_VIEW_HINTS[pick.view]}</Text>
+        )}
         {pick.view === "progress" ? (
           <Field
             label="Goal"
@@ -354,6 +368,47 @@ function SheetPicker({ sheet, pick, onChange }: { sheet: ContractSheet; pick: Sh
     </>
   );
 }
+
+/**
+ * One cell of the pick grid. A plain Pressable, memoised: the grid holds up to
+ * 240 of them, and redrawing them all (each with its own press animation) on
+ * every tap made the builder lag on slower phones.
+ */
+const GridCell = memo(function GridCell({
+  r,
+  c,
+  label,
+  text,
+  numeric,
+  on,
+  start,
+  bold,
+  onTap,
+}: {
+  r: number;
+  c: number;
+  label: string;
+  text: string;
+  numeric: boolean;
+  on: boolean;
+  start: boolean;
+  bold: boolean;
+  onTap: (r: number, c: number) => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected: on }}
+      onPress={() => onTap(r, c)}
+      style={({ pressed }) => [styles.cell, on && styles.cellOn, pressed && styles.cellPressed, start && styles.cellStart]}
+    >
+      <Text style={[styles.cellText, numeric && styles.right, bold && styles.bold]} numberOfLines={1}>
+        {text}
+      </Text>
+    </Pressable>
+  );
+});
 
 function DocPicker({ doc, pick, onChange }: { doc: Doc; pick: DocPick; onChange: (pick: DocPick) => void }) {
   const content = doc.content as never;
@@ -408,6 +463,7 @@ function SectionRow({ title, meta, active, level, onPress }: { title: string; me
 
 const styles = createThemedStyleSheet((colors) => ({
   muted: { color: colors.mutedForeground, fontSize: 13 },
+  warning: { color: colors.warning, fontSize: 13 },
   chips: { gap: 8, paddingRight: 8 },
   pickHead: { flexDirection: "row", alignItems: "center", gap: 8 },
   rangePill: { color: colors.foreground, fontSize: 13, fontVariant: ["tabular-nums"], backgroundColor: colors.muted, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, overflow: "hidden" },
@@ -423,6 +479,7 @@ const styles = createThemedStyleSheet((colors) => ({
   colNameOn: { color: colors.foreground },
   cell: { width: 96, minHeight: 40, paddingHorizontal: 8, justifyContent: "center" },
   cellOn: { backgroundColor: `${colors.primary}1f` },
+  cellPressed: { backgroundColor: `${colors.primary}33` },
   cellStart: { borderWidth: 2, borderColor: colors.primary, borderRadius: 4 },
   cellText: { color: colors.foreground, fontSize: 13, fontVariant: ["tabular-nums"] },
   right: { textAlign: "right" },

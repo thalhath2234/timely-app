@@ -41,7 +41,7 @@ register("data:text/javascript," + encodeURIComponent(loader));
 
 const { buildWidgetTree } = await import(widgetLib + "api/build-widget-tree.js");
 const { renderCard, renderQuickAdd } = await import(new URL("lib/widgets/render.tsx", mobile).href);
-const { cardWidgetModel, todayModel } = await import(new URL("lib/widgets/model.ts", mobile).href);
+const { cardWidgetModel, clockWidgetModel, pomodoroLocalFrom, pomodoroWidgetModel, todayModel } = await import(new URL("lib/widgets/model.ts", mobile).href);
 const { BUILTIN_CARDS, cardTitle, defaultDashboard } = await import(new URL("packages/contract/src/dashboard.ts", root).href);
 const { buildYearlyExpenses } = await import(new URL("packages/contract/src/sheetTemplates.ts", root).href);
 
@@ -125,6 +125,30 @@ add("Timers", "Stopwatch paused", clock({ mode: "stopwatch", startedAt: null, el
 add("Timers", "Timer idle", clock({ mode: "timer", minutes: 10, startedAt: null, elapsed: 0 }));
 add("Timers", "Timer running", clock({ mode: "timer", minutes: 10, startedAt: t0 - 120000, elapsed: 0 }));
 add("Timers", "Timer done", clock({ mode: "timer", minutes: 10, startedAt: t0 - 700000, elapsed: 0 }));
+// The Pomodoro and Timer widgets, and the trees the phone redraws them from
+// after a tab or −/+ (tokens filled in as RNWidgetLocal does).
+const fill = (tree, state) =>
+  JSON.parse(JSON.stringify(tree).replace(/\{\{(\w+)(?::(\w+))?\}\}/g, (_, key, format) => (format === "clock" ? `${state[key]}:00` : String(state[key]))));
+const phone = (group, name, model, state, sizes = Object.keys(SIZES)) => {
+  for (const s of sizes) {
+    const size = SIZES[s];
+    const r = renderCard(model, size, { local: true });
+    cases.push({ group, name: `${name} · ${s}`, width: size.width, height: size.height, light: fill(buildWidgetTree(r.light), state), dark: fill(buildWidgetTree(r.dark), state) });
+  }
+};
+const standalonePomo = (local, timer) =>
+  pomodoroWidgetModel({ cardId: "widget-1", title: "Pomodoro", uri: "timelymobile://", settings: undefined, now: t0, pomodoros: timer ? [{ cardId: "widget-1", ...timer }] : [], local });
+const pomoLocal = pomodoroLocalFrom(undefined);
+add("Pomodoro widget", "Ready", standalonePomo(pomoLocal));
+add("Pomodoro widget", "Running", standalonePomo(pomoLocal, { phase: "focus", endsAt: t0 + 18 * 60000, leftMs: 0, active: true }), ["3x2", "4x2"]);
+phone("Pomodoro widget", "Phone redraw: long break 90 min", standalonePomo({ ...pomoLocal, phase: "long", long: 90 }), { ...pomoLocal, phase: "long", long: 90 });
+phone("Pomodoro widget", "Phone redraw: focus 180 min", standalonePomo({ ...pomoLocal, focus: 180 }), { ...pomoLocal, focus: 180 });
+const idleClock = { mode: "stopwatch", minutes: 10, startedAt: null, elapsed: 0, laps: [], done: false };
+const standaloneTimer = (local, state = idleClock) => clockWidgetModel({ cardId: "widget-2", title: "Timer", uri: "timelymobile://", state, now: t0, local });
+add("Timer widget", "Stopwatch ready", standaloneTimer({ mode: "stopwatch", minutes: 10 }));
+add("Timer widget", "Timer ready", standaloneTimer({ mode: "timer", minutes: 10 }));
+add("Timer widget", "Timer running", standaloneTimer({ mode: "timer", minutes: 10 }, { ...idleClock, mode: "timer", startedAt: t0 - 120000 }), ["3x2", "4x2"]);
+phone("Timer widget", "Phone redraw: 600 min timer", standaloneTimer({ mode: "timer", minutes: 600 }), { mode: "timer", minutes: 600 });
 add("Lists", "Habits", cardWidgetModel(builtin("habits", { habits: [{ id: "a", name: "Walk 30 min" }, { id: "b", name: "Read 20 pages" }, { id: "c", name: "No phone after 10" }], log: { "2026-10-15": ["a"], "2026-10-14": ["a", "b"] } }), base));
 add("Lists", "Top 3", cardWidgetModel(builtin("topThree", { taskIds: ["a", "b", "d"] }), base));
 add("Lists", "Countdown", cardWidgetModel(builtin("countdown", { label: "Launch", date: "2026-11-01" }), base));

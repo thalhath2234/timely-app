@@ -10,6 +10,23 @@ import type { WidgetModel, WidgetRow } from "./model";
 
 export const WIDGET_ACTION = "TIMELY_ACTION";
 
+/**
+ * A tap the phone handles without the app: it changes the widget's own small
+ * state (a mode, a length) and redraws from trees the app left for it
+ * (patches/react-native-android-widget, RNWidgetLocal; lib/widgets/local.ts).
+ */
+export const WIDGET_LOCAL = "TIMELY_LOCAL";
+
+/** Sets `set` to `value`, or moves the number `step` by `by` (within the widget's limits). */
+export type LocalTap = { set: string; value: string } | { step: string; by: number };
+
+/** What a tab or −/+ does: an action for the app, or a change the phone makes by itself. */
+export type WidgetTap = WidgetAction | LocalTap;
+
+export function isLocalTap(tap: WidgetTap): tap is LocalTap {
+  return !("kind" in tap);
+}
+
 export type PomodoroOp = "start" | "pause" | "skip" | "reset";
 export type ClockOp = "start" | "pause" | "reset" | "lap";
 

@@ -477,12 +477,25 @@ function numberOf(result: CellResult, column: SheetColumn): number | null {
   return null;
 }
 
+// One formula engine per sheet version: it caches every cell it works out,
+// so picking cells again (each tap in a card builder) doesn't redo the whole
+// workbook. A changed sheet is a new object and gets a fresh engine.
+const workbookEvaluators = new WeakMap<Sheet, ReturnType<typeof createWorkbookEvaluators>>();
+
+function evaluatorsFor(sheet: Sheet) {
+  let evaluators = workbookEvaluators.get(sheet);
+  if (!evaluators) {
+    evaluators = createWorkbookEvaluators({ tabs: sheetTabs(sheet) });
+    workbookEvaluators.set(sheet, evaluators);
+  }
+  return evaluators;
+}
+
 /** Reads the picked cells, worked out with the sheet's own formula engine (every tab, so cross-tab formulas work). */
 export function readPick(sheet: Sheet, pick: SheetPick): { bounds: PickBounds; columns: SheetColumn[]; indexes: number[]; grid: PickCell[][] } | null {
   const bounds = pickBounds(sheet, pick);
   if (!bounds) return null;
-  const tabs = sheetTabs(sheet);
-  const evaluator = createWorkbookEvaluators({ tabs })(bounds.tab.id);
+  const evaluator = evaluatorsFor(sheet)(bounds.tab.id);
   if (!evaluator) return null;
   const columnIndexes = columnsOf(bounds, pick).filter((col) => !bounds.tab.columns[col]?.hidden);
   const grid: PickCell[][] = [];
