@@ -37,7 +37,7 @@ var expectedAuthority = []struct {
 	reopen_project reopen_task reorder_stages schedule_task set_active_task_view set_task_custom_field set_task_dependency
 	set_task_labels set_today_focus snooze_reminder start_focus stop_focus toggle_checklist_item
 	update_checklist_item update_custom_field update_label update_project update_sheet_template update_stage
-	update_status create_task_view update_task_view open_daily_note triage_notification delete_notification`},
+	update_status create_task_view update_task_view open_daily_note triage_notification`},
 	// Always need an Agent proposal: removing a component of an entity (not the entity), recurring series, bulk edits, calendar-wide changes.
 	{Write, Reviewed, `
 	add_sheet_rows auto_schedule_apply bulk_update_tasks clear_task_blocks clear_task_recurrence delete_block
@@ -58,7 +58,7 @@ var expectedAuthority = []struct {
 	// External MCP only, and would be reviewed if chat ever gained them: whole-object deletion and settings (ADR 0007).
 	{MCPOnly, Reviewed, `
 	delete_backup delete_custom_field delete_doc delete_event delete_label delete_project delete_sheet
-	delete_sheet_template delete_stage delete_status delete_task delete_task_view delete_workspace
+	delete_notification delete_sheet_template delete_stage delete_status delete_task delete_task_view delete_workspace
 	update_notification_settings update_working_hours`},
 	// Habits and goals on Today (tools_focus.go): reading and checking off apply directly; removing a goal is reviewed.
 	{Read, Applies, `list_goals list_habits get_goal_progress list_focus_sessions`},
@@ -155,7 +155,7 @@ func TestToolAnnotations(t *testing.T) {
 		readOnly[name] = true
 	}
 	destructive := map[string]bool{}
-	for _, name := range strings.Fields(`clear_notifications clear_task_blocks clear_task_recurrence restore_account replace_checklist undo_schedule`) {
+	for _, name := range strings.Fields(`clear_notifications clear_task_blocks clear_task_recurrence restore_account replace_checklist undo_schedule update_sheet`) {
 		destructive[name] = true
 	}
 	for _, tool := range listed.Tools {
@@ -180,6 +180,11 @@ func TestToolAnnotations(t *testing.T) {
 		}
 		if (strings.HasPrefix(tool.Name, "delete_") || destructive[tool.Name]) && !destroys {
 			t.Errorf("%s deletes or overwrites data but is not destructive", tool.Name)
+		}
+		// ADR 0007: chat never deletes a whole object, and removes a part of
+		// one only through a reviewed Agent proposal.
+		if strings.HasPrefix(tool.Name, "delete_") && authority.Access == Write && authority.Approval != Reviewed {
+			t.Errorf("%s lets chat delete without review", tool.Name)
 		}
 		if strings.HasPrefix(tool.Name, "archive_") && destroys {
 			t.Errorf("%s can be undone, so it is not destructive", tool.Name)
