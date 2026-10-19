@@ -1,6 +1,6 @@
 # Fingerprints of the code AgentRunApply describes (comments and formatting ignored).
 # Regenerate only with `run.sh --resync`, after confirming the model matches the code.
-sync 12cb41f8c7865e21b65b37d27366cc06dd6862b5
+sync 8fe15d88aa502ef0a74fc1ee793d19bcacf3da77
 apps/api/internal/features/chat/runner.go (*Service).work e0d5e9fe2b4f3ebc
 apps/api/internal/features/chat/runner.go (*Service).keepLease 8e59b63d663a411a
 apps/api/internal/features/chat/runner.go (*Service).apply c24fb6c0dc1234de
@@ -16,4 +16,4 @@ apps/api/internal/features/chat/service.go (*Service).retry ed7fd769438756db
 apps/api/internal/features/chat/service.go (*Service).checkpoint 6dc8aed3fe91fcf2
 apps/api/internal/features/chat/service.go busy 7234056d226574cb
 apps/api/internal/features/chat/receipts.go (*Service).discardReview 1647195039ce0234
-apps/api/cmd/agent_deps.go chatCatalog 108cb9d36850162e
+apps/api/cmd/agent_deps.go chatCatalog ed27fedc9d2a89f2
