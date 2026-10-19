@@ -886,25 +886,26 @@ html.reduce-motion .lift:hover {
   text-underline-offset: 2px;
 }
 
-/* Named overlay transitions. Root is silenced so opening a dialog does not
-   crossfade the whole app. */
-::view-transition-group(root) {
-  animation: none;
-}
-::view-transition-old(root),
-::view-transition-new(root) {
-  animation: none;
-  mix-blend-mode: normal;
+/* Named overlay transitions. The root opts out of being captured: only the
+   named overlay (a popover, a dialog's panel) is snapshotted, and the rest of
+   the page keeps rendering live. Capturing the root snapshotted the whole
+   page for every popover, which made a dialog's blurred scrim flicker each
+   time a select or date picker opened inside it. */
+:root {
+  view-transition-name: none;
 }
 
 /* Overlays follow the motion tokens (designTokens.motion): a dialog or
    popover pops from 0.96 over 330 ms on the film's curve with a 330 ms
-   backdrop fade, and leaves in 150 ms (catalogue item 5). */
+   backdrop fade, and leaves in 150 ms (catalogue item 5). The scrim fades in
+   live rather than through a snapshot: a snapshot of an element is taken on
+   its own, so a captured scrim has no backdrop to blur and the blur popped
+   in only once the transition ended. */
+.scrim-enter {
+  animation: vt-fade-in 330ms ease-out both;
+}
 ::view-transition-old(.scrim-out) {
   animation: vt-fade-out 150ms ease-out both;
-}
-::view-transition-new(.scrim-in) {
-  animation: vt-fade-in 330ms ease-out both;
 }
 
 ::view-transition-old(.panel-out) {

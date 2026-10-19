@@ -181,6 +181,11 @@ export function useViewOpen(initial = false) {
  *   </OverlayFrame>
  *
  * The frame ignores the pointer, so clicks beside the panel reach the scrim.
+ *
+ * The scrim fades in with a CSS animation and stays live: a view-transition
+ * snapshot of it would have no backdrop to blur (globals.css, .scrim-enter).
+ * Only its exit goes through a snapshot, where the blur dropping a frame
+ * early is hidden by the panel leaving at the same time.
  */
 export function OverlayScrim({
   className,
@@ -192,9 +197,9 @@ export function OverlayScrim({
   onClick?: React.MouseEventHandler<HTMLDivElement>;
 }) {
   return (
-    <ViewTransition enter="scrim-in" exit="scrim-out" default="none">
+    <ViewTransition exit="scrim-out" default="none">
       <div
-        className={cn("fixed inset-0 bg-black/70", className)}
+        className={cn("scrim-enter fixed inset-0 bg-black/70", className)}
         onPointerDown={onPointerDown}
         onClick={onClick}
       />
