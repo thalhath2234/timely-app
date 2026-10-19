@@ -510,6 +510,7 @@ export default function ReportDashboard() {
               })
             }
             onResize={(id, size) => updateCard(id, size)}
+            onEdit={(card) => setWorkshop({ cardId: card.id })}
             onMenu={cardMenu}
             onRename={(card, title) => updateCard(card.id, { title: title || undefined })}
           />

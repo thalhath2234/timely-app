@@ -4,8 +4,9 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Reanimated, { useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { GripVertical, Trash2, type LucideIcon } from "lucide-react-native";
+import { GripVertical, SlidersHorizontal, Trash2, type LucideIcon } from "lucide-react-native";
 import type { DashboardCard } from "@timely/contract/dashboard";
+import AnimatedPressable from "../ui/AnimatedPressable";
 import { HeaderIconButton } from "../ui/MobileHeader";
 import { floatingTabBarInset } from "../ui/FloatingTabBar";
 import { dropIndex, slotTop, type RowBox } from "../../lib/dashboardReorder";
@@ -115,20 +116,64 @@ function offsetFor(drag: Drag | null, index: number) {
   return 0;
 }
 
-function RowBody({ card, icon: Icon, title, onRemove }: { card: DashboardCard; icon: LucideIcon; title: string; onRemove?: (card: DashboardCard) => void }) {
-  return (
+/**
+ * A row's icon, title and buttons. `onEdit` is set for cards you made: the
+ * sliders button (or a tap on the title) opens the card's setup. The lifted
+ * copy passes neither handler and draws the same buttons inert.
+ */
+function RowBody({
+  card,
+  icon: Icon,
+  title,
+  editable,
+  onEdit,
+  onRemove,
+}: {
+  card: DashboardCard;
+  icon: LucideIcon;
+  title: string;
+  editable: boolean;
+  onEdit?: (card: DashboardCard) => void;
+  onRemove?: (card: DashboardCard) => void;
+}) {
+  const name = (
     <>
       <Icon size={15} color={colors.mutedForeground} />
       <Text style={styles.title} numberOfLines={1}>
         {title}
       </Text>
-      <View style={styles.remove}>
+    </>
+  );
+  return (
+    <>
+      {editable && onEdit ? (
+        // The sliders button is the labelled control; the title is a larger target for the same tap.
+        <AnimatedPressable accessible={false} onPress={() => onEdit(card)} style={styles.name}>
+          {name}
+        </AnimatedPressable>
+      ) : (
+        <View style={styles.name}>{name}</View>
+      )}
+      {editable ? (
+        <View style={styles.action}>
+          {onEdit ? (
+            <HeaderIconButton label={`Edit ${title}`} onPress={() => onEdit(card)}>
+              <SlidersHorizontal size={17} color={colors.foreground} />
+            </HeaderIconButton>
+          ) : (
+            <View style={styles.actionIcon}>
+              <SlidersHorizontal size={17} color={colors.foreground} />
+            </View>
+          )}
+        </View>
+      ) : null}
+      <View style={styles.action}>
         {onRemove ? (
           <HeaderIconButton label={`Remove ${title}`} onPress={() => onRemove(card)}>
             <Trash2 size={17} color={colors.destructive} />
           </HeaderIconButton>
         ) : (
-          <View style={styles.removeIcon}>
+          <View style={styles.actionIcon}>
             <Trash2 size={17} color={colors.destructive} />
           </View>
         )}
@@ -150,6 +195,8 @@ export default function DashboardEditList({
   scroll,
   onReorder,
   onRemove,
+  canEdit,
+  onEdit,
   onDragging,
 }: {
   cards: DashboardCard[];
@@ -158,6 +205,9 @@ export default function DashboardEditList({
   scroll: EditListScroll;
   onReorder: (from: number, to: number) => void;
   onRemove: (card: DashboardCard) => void;
+  /** Cards whose setup can be changed here (the ones you made). */
+  canEdit: (card: DashboardCard) => boolean;
+  onEdit: (card: DashboardCard) => void;
   /** True while a card is lifted, so the screen can pause pull-to-refresh. */
   onDragging?: (dragging: boolean) => void;
 }) {
@@ -339,7 +389,7 @@ export default function DashboardEditList({
                   if (to >= 0 && to < cards.length) onReorder(index, to);
                 }}
               />
-              <RowBody card={card} icon={iconFor(card)} title={title} onRemove={onRemove} />
+              <RowBody card={card} icon={iconFor(card)} title={title} editable={canEdit(card)} onEdit={onEdit} onRemove={onRemove} />
             </View>
           </EditRow>
         );
@@ -350,7 +400,7 @@ export default function DashboardEditList({
             <View style={styles.grip}>
               <GripVertical size={18} color={colors.foreground} />
             </View>
-            <RowBody card={lifted} icon={iconFor(lifted)} title={titleFor(lifted)} />
+            <RowBody card={lifted} icon={iconFor(lifted)} title={titleFor(lifted)} editable={canEdit(lifted)} />
           </View>
         </Reanimated.View>
       ) : null}
@@ -366,9 +416,10 @@ const styles = createThemedStyleSheet((colors) => ({
   gap: { borderStyle: "dashed", borderWidth: 1.5, borderColor: colors.primary, backgroundColor: "transparent" },
   hidden: { opacity: 0 },
   grip: { width: 40, alignSelf: "stretch", alignItems: "center", justifyContent: "center", marginRight: -4 },
+  name: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "stretch" },
   title: { flex: 1, color: colors.foreground, fontSize: 14, fontWeight: "600" },
-  remove: { paddingVertical: 6 },
-  removeIcon: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  action: { paddingVertical: 6 },
+  actionIcon: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   floating: {
     position: "absolute",
     left: 0,

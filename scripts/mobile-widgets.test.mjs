@@ -58,6 +58,19 @@ describe("home screen widgets", () => {
     for (const card of defaultDashboard().cards) assertDrawable(cardWidgetModel(card, input), card.id);
   });
 
+  test("a card edited on the Dashboard draws its new name and setup on the same widget", () => {
+    // The widget keeps only the card's id and reads the card from the board on every draw.
+    const base = { measure: "count", groupBy: "none", dateField: "createdAt", range: { preset: "all" } };
+    const before = { id: "mine", type: "custom", title: "Open", w: 3, h: 2, query: { ...base, source: "tasks", display: "number", filters: { state: "open" } } };
+    const after = { ...before, title: "Overdue", query: { ...before.query, filters: { state: "open", overdue: true } } };
+    const was = cardWidgetModel(before, input);
+    const is = cardWidgetModel(after, input);
+    assert.equal(was.title, "Open");
+    assert.equal(was.value, "2");
+    assert.equal(is.title, "Overdue");
+    assert.equal(is.value, "1");
+  });
+
   test("a custom number card shows the same count as the Dashboard", () => {
     const card = defaultDashboard().cards.find((c) => c.id === "default_overdue_count");
     const model = cardWidgetModel(card, input);
