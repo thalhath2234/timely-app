@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sync"
 	"time"
+	"timely-api/internal/buildinfo"
 	"timely-api/internal/features/auth"
 	"timely-api/internal/features/calendar"
 	"timely-api/internal/features/doc"
@@ -18,6 +19,7 @@ import (
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/search"
 	"timely-api/internal/features/sheet"
+	"timely-api/internal/features/suggest"
 	"timely-api/internal/features/task"
 	"timely-api/internal/features/workspace"
 	"timely-api/internal/jobs"
@@ -62,6 +64,9 @@ type Deps struct {
 	// Focus holds the person's habits and goals (tools_focus.go); nil makes
 	// those tools answer that they are not available.
 	Focus *focus.Store
+	// Suggest answers Today's suggestions and stale Work (tools_suggest.go);
+	// nil makes those tools answer that they are not available.
+	Suggest *suggest.Service
 }
 
 type Server struct {
@@ -114,7 +119,10 @@ func forRequest(plain *mcp.Server, r *http.Request) *mcp.Server {
 
 func newServer(deps Deps, extra string) *mcp.Server {
 	s := &Server{Deps: deps}
-	server := mcp.NewServer(&mcp.Implementation{Name: "timely", Version: "1.0.0"}, &mcp.ServerOptions{
+	server := mcp.NewServer(&mcp.Implementation{Name: "timely", Title: "Timely", Version: buildinfo.Version}, &mcp.ServerOptions{
+		// forRequest answers each account with its own server, so a list
+		// result must not be shared between users.
+		SetCacheable: func(_ context.Context, _ mcp.Request, c *mcp.Cacheable) { c.CacheScope = "private" },
 		Instructions: `Timely personal productivity MCP. Call get_context first.
 
 IDs: usr_, ws_, pr_, tsk_, evt_, doc_, sht_, tst_ (status), lbl_, stg_, cf_, blk_, rr_, view_, ntf_, job_.
@@ -136,6 +144,7 @@ Saved views can filter by project, priority, labels, stage, completed, overdue, 
 Destructive deletes of a workspace, project, or document require confirm=true. Deleting a doc does not cascade to subpages; the tool reports descendantCount.`,
 	})
 	s.register(server)
+	s.registerPrompts(server)
 	return server
 }
 
@@ -161,28 +170,28 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "get_workspace", Description: "Get one workspace."}, reads, s.getWorkspace)
 	registerTool(s, server, &mcp.Tool{Name: "create_workspace", Description: "Create a workspace with default statuses."}, writes, s.createWorkspace)
 	registerTool(s, server, &mcp.Tool{Name: "rename_workspace", Description: "Rename or recolor a workspace."}, writes, s.renameWorkspace)
-	registerTool(s, server, &mcp.Tool{Name: "delete_workspace", Description: "Delete a workspace. Fails if it is the last one. Requires confirm=true."}, mcpOnly.reviewed(), s.deleteWorkspace)
+	registerTool(s, server, &mcp.Tool{Name: "delete_workspace", Description: "Delete a workspace. Fails if it is the last one. Requires confirm=true."}, mcpOnly.reviewed().destroys(), s.deleteWorkspace)
 	registerTool(s, server, &mcp.Tool{Name: "create_status", Description: "Add a status to a workspace."}, writes, s.createStatus)
 	registerTool(s, server, &mcp.Tool{Name: "update_status", Description: "Rename or recolor a status."}, writes, s.updateStatus)
-	registerTool(s, server, &mcp.Tool{Name: "delete_status", Description: "Delete a workspace status."}, mcpOnly.reviewed(), s.deleteStatus)
+	registerTool(s, server, &mcp.Tool{Name: "delete_status", Description: "Delete a workspace status."}, mcpOnly.reviewed().destroys(), s.deleteStatus)
 	registerTool(s, server, &mcp.Tool{Name: "create_label", Description: "Add a label to a workspace."}, writes, s.createLabel)
 	registerTool(s, server, &mcp.Tool{Name: "update_label", Description: "Rename or recolor a label."}, writes, s.updateLabel)
-	registerTool(s, server, &mcp.Tool{Name: "delete_label", Description: "Delete a workspace label."}, mcpOnly.reviewed(), s.deleteLabel)
+	registerTool(s, server, &mcp.Tool{Name: "delete_label", Description: "Delete a workspace label."}, mcpOnly.reviewed().destroys(), s.deleteLabel)
 	registerTool(s, server, &mcp.Tool{Name: "create_custom_field", Description: "Add a custom field (text, select, multi_select, number, url, date, boolean)."}, writes, s.createCustomField)
 	registerTool(s, server, &mcp.Tool{Name: "update_custom_field", Description: "Update a custom field definition."}, writes, s.updateCustomField)
-	registerTool(s, server, &mcp.Tool{Name: "delete_custom_field", Description: "Delete a custom field."}, mcpOnly.reviewed(), s.deleteCustomField)
+	registerTool(s, server, &mcp.Tool{Name: "delete_custom_field", Description: "Delete a custom field."}, mcpOnly.reviewed().destroys(), s.deleteCustomField)
 
 	registerTool(s, server, &mcp.Tool{Name: "list_projects", Description: "List projects with open/done/progress summaries. Optional filters: workspaceId, statusId, completed."}, reads, s.listProjects)
 	registerTool(s, server, &mcp.Tool{Name: "get_project", Description: "Get a project with stages, progress, and a stage board (Unstaged + stg_ columns)."}, reads, s.getProject)
-	registerTool(s, server, &mcp.Tool{Name: "list_project_activity", Description: "Activity feed for tasks in a project (newest first)."}, mcpOnly, s.listProjectActivity)
+	registerTool(s, server, &mcp.Tool{Name: "list_project_activity", Description: "Activity feed for tasks in a project (newest first)."}, mcpOnlyReads, s.listProjectActivity)
 	registerTool(s, server, &mcp.Tool{Name: "create_project", Description: "Create a project."}, writes, s.createProject)
 	registerTool(s, server, &mcp.Tool{Name: "update_project", Description: "Partial-update a project."}, writes, s.updateProject)
 	registerTool(s, server, &mcp.Tool{Name: "complete_project", Description: "Mark a project complete."}, writes, s.completeProject)
 	registerTool(s, server, &mcp.Tool{Name: "reopen_project", Description: "Clear completedAt on a project."}, writes, s.reopenProject)
-	registerTool(s, server, &mcp.Tool{Name: "delete_project", Description: "Delete a project and its tasks. Requires confirm=true."}, mcpOnly.reviewed(), s.deleteProject)
+	registerTool(s, server, &mcp.Tool{Name: "delete_project", Description: "Delete a project and its tasks. Requires confirm=true."}, mcpOnly.reviewed().destroys(), s.deleteProject)
 	registerTool(s, server, &mcp.Tool{Name: "create_stage", Description: "Add a stage to a project."}, writes, s.createStage)
 	registerTool(s, server, &mcp.Tool{Name: "update_stage", Description: "Rename or recolor a project stage."}, writes, s.updateStage)
-	registerTool(s, server, &mcp.Tool{Name: "delete_stage", Description: "Delete a stage."}, mcpOnly.reviewed(), s.deleteStage)
+	registerTool(s, server, &mcp.Tool{Name: "delete_stage", Description: "Delete a stage."}, mcpOnly.reviewed().destroys(), s.deleteStage)
 	registerTool(s, server, &mcp.Tool{Name: "reorder_stages", Description: "Set stage order by id list."}, writes, s.reorderStages)
 
 	registerTool(s, server, &mcp.Tool{Name: "list_tasks", Description: "List work tasks. Reminders and inbox items are hidden unless reminders=true, kind=inbox, or inbox=true. Filters: workspace, project, status, labels, priority, stage, completed, overdue, scheduled, recurring, text."}, reads, s.listTasks)
@@ -195,14 +204,14 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "reopen_task", Description: "Clear completedAt on a one-off task."}, writes, s.reopenTask)
 	registerTool(s, server, &mcp.Tool{Name: "move_task_to_status", Description: "Move a task to a workspace status (kanban column). Empty statusId clears status."}, writes, s.moveTaskToStatus)
 	registerTool(s, server, &mcp.Tool{Name: "move_task_to_stage", Description: "Move a task to a project stage. Empty stageId sends it to Unstaged."}, writes, s.moveTaskToStage)
-	registerTool(s, server, &mcp.Tool{Name: "delete_task", Description: "Delete a task."}, mcpOnly.reviewed(), s.deleteTask)
+	registerTool(s, server, &mcp.Tool{Name: "delete_task", Description: "Delete a task."}, mcpOnly.reviewed().destroys(), s.deleteTask)
 	registerTool(s, server, &mcp.Tool{Name: "set_task_labels", Description: "Replace a task's labels."}, writes, s.setTaskLabels)
 	registerTool(s, server, &mcp.Tool{Name: "set_task_custom_field", Description: "Set or clear one custom field value on a task."}, writes, s.setTaskCustomField)
 	registerTool(s, server, &mcp.Tool{Name: "set_task_dependency", Description: "Set or clear blockedBy (this task waits on another)."}, writes, s.setTaskDependency)
 	registerTool(s, server, &mcp.Tool{Name: "add_task_comment", Description: "Comment on a task."}, writes, s.addTaskComment)
-	registerTool(s, server, &mcp.Tool{Name: "list_task_activity", Description: "Activity and comments for a task."}, mcpOnly, s.listTaskActivity)
+	registerTool(s, server, &mcp.Tool{Name: "list_task_activity", Description: "Activity and comments for a task."}, mcpOnlyReads, s.listTaskActivity)
 	registerTool(s, server, &mcp.Tool{Name: "set_task_recurrence", Description: "Turn a task into a repeating series."}, writes.reviewed(), s.setTaskRecurrence)
-	registerTool(s, server, &mcp.Tool{Name: "clear_task_recurrence", Description: "Turn a series back into a one-off task."}, writes.reviewed(), s.clearTaskRecurrence)
+	registerTool(s, server, &mcp.Tool{Name: "clear_task_recurrence", Description: "Turn a series back into a one-off task."}, writes.reviewed().destroys(), s.clearTaskRecurrence)
 	registerTool(s, server, &mcp.Tool{Name: "edit_task_occurrence", Description: "complete, uncomplete, skip, restore, or move one occurrence."}, writes.reviewed(), s.editTaskOccurrence)
 	registerTool(s, server, &mcp.Tool{Name: "split_task_series", Description: "This-and-future split of a recurring task."}, writes.reviewed(), s.splitTaskSeries)
 	registerTool(s, server, &mcp.Tool{Name: "capture_inbox_item", Description: "Capture a thought with only a title. It stays in Inbox and is not auto-scheduled until clarified."}, writes, s.captureInboxItem)
@@ -211,8 +220,8 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "add_checklist_item", Description: "Add a lightweight checklist item on a task. Checklist items are not scheduled."}, writes, s.addChecklistItem)
 	registerTool(s, server, &mcp.Tool{Name: "update_checklist_item", Description: "Rename and/or complete a checklist item."}, writes, s.updateChecklistItem)
 	registerTool(s, server, &mcp.Tool{Name: "toggle_checklist_item", Description: "Complete or reopen a checklist item."}, writes, s.toggleChecklistItem)
-	registerTool(s, server, &mcp.Tool{Name: "replace_checklist", Description: "Replace a task's checklist. Items without an id are created; empty titles are skipped."}, mcpOnly, s.replaceChecklist)
-	registerTool(s, server, &mcp.Tool{Name: "delete_checklist_item", Description: "Remove a checklist item."}, writes.reviewed(), s.deleteChecklistItem)
+	registerTool(s, server, &mcp.Tool{Name: "replace_checklist", Description: "Replace a task's checklist. Items without an id are created; empty titles are skipped."}, mcpOnly.destroys(), s.replaceChecklist)
+	registerTool(s, server, &mcp.Tool{Name: "delete_checklist_item", Description: "Remove a checklist item."}, writes.reviewed().destroys(), s.deleteChecklistItem)
 	registerTool(s, server, &mcp.Tool{Name: "start_focus", Description: "Start a focus session on a task. Stops any other active focus and records elapsed minutes on stop."}, writes, s.startFocus)
 	registerTool(s, server, &mcp.Tool{Name: "pause_focus", Description: "Pause the active focus session. Elapsed minutes are added to actualMinutes; start_focus resumes it."}, writes, s.pauseFocus)
 	registerTool(s, server, &mcp.Tool{Name: "stop_focus", Description: "Stop the focus session and add elapsed minutes to actualMinutes."}, writes, s.stopFocus)
@@ -225,7 +234,7 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "get_event", Description: "Get one event."}, reads, s.getEvent)
 	registerTool(s, server, &mcp.Tool{Name: "create_event", Description: "Create an event, optionally recurring."}, writes, s.createEvent)
 	registerTool(s, server, &mcp.Tool{Name: "update_event", Description: "Partial-update an event."}, writes.reviewedWhen(hasAny("recurrence", "clearRecurrence")), s.updateEvent)
-	registerTool(s, server, &mcp.Tool{Name: "delete_event", Description: "Delete an event (whole series)."}, mcpOnly.reviewed(), s.deleteEvent)
+	registerTool(s, server, &mcp.Tool{Name: "delete_event", Description: "Delete an event (whole series)."}, mcpOnly.reviewed().destroys(), s.deleteEvent)
 	registerTool(s, server, &mcp.Tool{Name: "edit_event_occurrence", Description: "skip, restore, or move one event occurrence."}, writes.reviewed(), s.editEventOccurrence)
 	registerTool(s, server, &mcp.Tool{Name: "split_event_series", Description: "This-and-future split of a recurring event. To move future occurrences to a new time, pass start (and end) for the first changed occurrence."}, writes.reviewed(), s.splitEventSeries)
 
@@ -237,14 +246,14 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "get_capacity", Description: "Per-day available vs scheduled vs planned minutes. overCapacity and atRisk are flags, not certainty."}, reads, s.getCapacity)
 	registerTool(s, server, &mcp.Tool{Name: "auto_schedule_preview", Description: "Preview engine v2 placement without writing. Recurring work occurrences in the horizon are placed as blocks (not new task rows). Returns proposals (with why), skipped (reason+message), changes (add/move/remove/pin), capacity, and risks. Scores are ordering hints, not certainty."}, reads, s.autoSchedulePreview)
 	registerTool(s, server, &mcp.Tool{Name: "auto_schedule_apply", Description: "Apply engine placement. Idempotent per user (advisory lock). Frozen/locked/manual pins stay. Stores a revision for undo_schedule. POST /schedule/reschedule is an alias."}, writes.reviewed().showingFor("auto_schedule_preview"), s.autoScheduleApply)
-	registerTool(s, server, &mcp.Tool{Name: "undo_schedule", Description: "Undo the last auto-schedule apply by restoring the previous engine blocks."}, writes.reviewed().showing("undo_schedule_preview"), s.undoSchedule)
+	registerTool(s, server, &mcp.Tool{Name: "undo_schedule", Description: "Undo the last auto-schedule apply by restoring the previous engine blocks."}, writes.reviewed().showing("undo_schedule_preview").destroys(), s.undoSchedule)
 	registerTool(s, server, &mcp.Tool{Name: "undo_schedule_preview", Description: "Show what undo_schedule would change: the engine blocks it removes and the earlier blocks it restores. canUndo=false when there is nothing to undo."}, reads, s.undoSchedulePreview)
 	registerTool(s, server, &mcp.Tool{Name: "pin_task", Description: "Lock or unlock a task so the engine will not move its blocks (scheduleLocked)."}, writes, s.pinTask)
 	registerTool(s, server, &mcp.Tool{Name: "pin_block", Description: "Lock or unlock one calendar block. Locking turns it into a manual pin."}, writes, s.pinBlock)
 	registerTool(s, server, &mcp.Tool{Name: "schedule_task", Description: "Pin a manual time block on a one-off work task. On a reminder (duration 0) this only sets the ping time."}, writes, s.scheduleTask)
 	registerTool(s, server, &mcp.Tool{Name: "move_block", Description: "Move a scheduled block."}, writes, s.moveBlock)
-	registerTool(s, server, &mcp.Tool{Name: "delete_block", Description: "Delete one scheduled block."}, writes.reviewed(), s.deleteBlock)
-	registerTool(s, server, &mcp.Tool{Name: "clear_task_blocks", Description: "Remove all blocks from a task."}, writes.reviewed(), s.clearTaskBlocks)
+	registerTool(s, server, &mcp.Tool{Name: "delete_block", Description: "Delete one scheduled block."}, writes.reviewed().destroys(), s.deleteBlock)
+	registerTool(s, server, &mcp.Tool{Name: "clear_task_blocks", Description: "Remove all blocks from a task."}, writes.reviewed().destroys(), s.clearTaskBlocks)
 
 	registerTool(s, server, &mcp.Tool{Name: "list_docs", Description: "List active documents by default. archived=true lists the archive; archived=false is the default."}, reads, s.listDocs)
 	registerTool(s, server, &mcp.Tool{Name: "get_doc", Description: "Get a document as markdown (GFM plus math, callouts, footnotes, frontmatter, [[wiki links]] and mermaid/geojson/stl blocks). Big stl/geojson/topojson blocks and very long code show as a [kept ...] placeholder line with a short summary; keep that line to keep the block. Pass focus (what you are looking for, in a few words from the request) to read a long doc: only its sections about that come back in full, the others as one [section kept out ...] line each. Writing such a line back keeps that section unchanged; call again with full=true to read the whole doc, and do that before rewriting or reorganizing all of it."}, reads, s.getDoc)
@@ -252,8 +261,12 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "update_doc", Description: "Update a document (replace markdown, title, parent, archived, …)."}, writes.reviewedWhen(hasAny("markdown")), s.updateDoc)
 	registerTool(s, server, &mcp.Tool{Name: "append_to_doc", Description: "Append markdown to a document (same syntax as create_doc)."}, writes, s.appendToDoc)
 	registerTool(s, server, &mcp.Tool{Name: "add_3d_model", Description: "Add a 3D model to a document, built from parts (sphere, box, cylinder, cone, capsule) with a center, size, optional rotation and a #rrggbb color each. Use this instead of writing STL triangles by hand: it writes a colored stl block the doc draws. Overlap parts so they join, z is up; e.g. a figure is a sphere head on a capsule body with capsule arms and legs. replace=true swaps the doc's first stl block, so you can refine a model."}, writes.reviewedWhen(isTrue("replace")), s.add3DModel)
+	registerTool(s, server, &mcp.Tool{Name: "open_daily_note", Description: "Open the daily note for a day (YYYY-MM-DD, default today in the account's timezone), creating it empty under the Daily notes page when it does not exist yet. created says which. Add to it with append_to_doc."}, writes, s.openDailyNote)
+	registerTool(s, server, &mcp.Tool{Name: "list_doc_versions", Description: "Saved versions of a document, newest first: id, title, words, reason and when it was edited. current marks the version matching the doc now."}, reads, s.listDocVersions)
+	registerTool(s, server, &mcp.Tool{Name: "restore_doc_version", Description: "Put a saved version of a document back (versionId from list_doc_versions). The doc as it was stays in the history, so a restore can be undone the same way."}, writes.reviewed(), s.restoreDocVersion)
+	registerTool(s, server, &mcp.Tool{Name: "get_doc_backlinks", Description: "Documents that link to this one ([[wiki links]] or mentions), with a snippet around each link."}, reads, s.getDocBacklinks)
 	registerTool(s, server, &mcp.Tool{Name: "archive_doc", Description: "Archive a document (archived=false unarchives). Prefer this over delete."}, mcpOnly, s.archiveDoc)
-	registerTool(s, server, &mcp.Tool{Name: "delete_doc", Description: "Delete a document. Requires confirm=true. Subpages are not deleted; descendantCount is returned."}, mcpOnly.reviewed(), s.deleteDoc)
+	registerTool(s, server, &mcp.Tool{Name: "delete_doc", Description: "Delete a document. Requires confirm=true. Subpages are not deleted; descendantCount is returned."}, mcpOnly.reviewed().destroys(), s.deleteDoc)
 
 	registerTool(s, server, &mcp.Tool{Name: "list_sheets", Description: "List active sheets by default (title, id and each tab's name, id and size, no cell data). archived=true lists the archive."}, reads, s.listSheets)
 	registerTool(s, server, &mcp.Tool{Name: "get_sheet", Description: "Get a sheet: every tab as a markdown table (tab name and tabId, A1 column letters, row numbers; blank rows left out) with each tab's columns. With tabId (a tab id or name such as \"October\"), or for a one-tab sheet, also that tab's raw grid: row ids, formats, frozen panes and colour rules. " + SheetFormulaHelp}, reads, s.getSheet)
@@ -263,33 +276,33 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "archive_sheet", Description: "Archive a sheet (archived=false unarchives). Prefer this over delete."}, mcpOnly, s.archiveSheet)
 	registerTool(s, server, &mcp.Tool{Name: "add_sheet_column", Description: "Add a column at the end of a tab. Type is text, number, date, boolean, currency, percent, formula, or select (default text). Pass options for a select column. tabId is a tab id or name, needed when the sheet has several tabs."}, writes, s.addSheetColumn)
 	registerTool(s, server, &mcp.Tool{Name: "update_sheet_column", Description: "Rename, retype, resize, re-option, format or hide a column (text, number, date, boolean, currency, percent, formula, select). Retyping may clear incompatible values; options replaces a select column's choices; format sets the currency, date style and decimal places it shows; hidden hides it. columnId takes the column's id, name or A1 letter; tabId (a tab id or name) is found from a column id when left out."}, writes.reviewedWhen(hasAny("type", "options")), s.updateSheetColumn)
-	registerTool(s, server, &mcp.Tool{Name: "delete_sheet_column", Description: "Delete a column by id, name or A1 letter. tabId is a tab id or name, found from a column id when left out. Formulas on every tab are rewritten as in the apps; ones that read the column become #REF!."}, writes.reviewed(), s.deleteSheetColumn)
+	registerTool(s, server, &mcp.Tool{Name: "delete_sheet_column", Description: "Delete a column by id, name or A1 letter. tabId is a tab id or name, found from a column id when left out. Formulas on every tab are rewritten as in the apps; ones that read the column become #REF!."}, writes.reviewed().destroys(), s.deleteSheetColumn)
 	registerTool(s, server, &mcp.Tool{Name: "add_sheet_rows", Description: "Append empty rows to the end of a tab and return their row numbers. tabId is a tab id or name, needed when the sheet has several tabs. To add an entry with values, use add_sheet_row."}, writes.reviewed(), s.addSheetRows)
 	registerTool(s, server, &mcp.Tool{Name: "update_sheet_cells", Description: "Set cells in one row of a tab: the row by rowId or by row number as get_sheet shows it, cells by column name, A1 letter or id. Literal values are coerced to the column type (number, date YYYY-MM-DD, boolean TRUE/FALSE). tabId is a tab id or name, needed with a row number on a sheet with several tabs (a rowId finds its own tab). Returns the row's worked-out values. " + SheetFormulaHelp}, writes.reviewedWhen(otherThanOneCell), s.updateSheetCells)
 	registerTool(s, server, &mcp.Tool{Name: "add_sheet_row", Description: "Add one entry (a purchase, a task, a line) to a tab, keyed by column name or id. It goes in the next free row: blank rows and a template's prepared rows (that only hold their own row's formulas, like Total = Qty × Unit price) are reused, an entry never lands below a closing totals row, and columns you leave out keep their formulas. Returns the row number and its worked-out values (such as Total). tabId is a tab id or the tab's name; on a sheet with several tabs pass it, e.g. tabId \"October\" for an October receipt in Yearly expenses (one row per item)."}, writes, s.addSheetRow)
-	registerTool(s, server, &mcp.Tool{Name: "delete_sheet_rows", Description: "Delete rows by id, or by row number as get_sheet shows it. tabId is a tab id or name, needed with row numbers on a sheet with several tabs. Rows below move up and formulas on every tab are rewritten as in the apps (a Total keeps reading its own row)."}, writes.reviewed(), s.deleteSheetRows)
+	registerTool(s, server, &mcp.Tool{Name: "delete_sheet_rows", Description: "Delete rows by id, or by row number as get_sheet shows it. tabId is a tab id or name, needed with row numbers on a sheet with several tabs. Rows below move up and formulas on every tab are rewritten as in the apps (a Total keeps reading its own row)."}, writes.reviewed().destroys(), s.deleteSheetRows)
 	registerTool(s, server, &mcp.Tool{Name: "add_sheet_tab", Description: "Append a blank tab (A-D, 20 rows) to a sheet's workbook. Fill it with update_sheet tabs."}, writes, s.addSheetTab)
 	registerTool(s, server, &mcp.Tool{Name: "rename_sheet_tab", Description: "Rename a tab (tabId is its id or current name). Empty tabId renames the first (primary) tab, which otherwise shows the sheet title. Formulas on other tabs that read it (=January!H2) are rewritten to the new name; a name another tab has is refused."}, writes, s.renameSheetTab)
 	registerTool(s, server, &mcp.Tool{Name: "update_sheet_tab", Description: "Change a tab's colour, frozen rows and columns, or colour rules (conditional formats, which replace the tab's list; [] removes them). E.g. highlight purchases over 5000: conditionalFormats [{columnId, operator gt, value 5000, fillColor #5C3A12, textColor #FCD9A8}]. Get the current rules from get_sheet and send them back with yours to keep them. tabId is a tab id or name, needed when the sheet has several tabs."}, writes.reviewedWhen(hasAny("conditionalFormats")), s.updateSheetTab)
-	registerTool(s, server, &mcp.Tool{Name: "delete_sheet_tab", Description: "Delete a tab by id or name. The next tab becomes the primary grid; a workbook keeps at least one tab."}, writes.reviewed(), s.deleteSheetTab)
+	registerTool(s, server, &mcp.Tool{Name: "delete_sheet_tab", Description: "Delete a tab by id or name. The next tab becomes the primary grid; a workbook keeps at least one tab."}, writes.reviewed().destroys(), s.deleteSheetTab)
 	registerTool(s, server, &mcp.Tool{Name: "duplicate_sheet", Description: "Duplicate a sheet, including columns, rows, merges, and tabs."}, mcpOnly, s.duplicateSheet)
-	registerTool(s, server, &mcp.Tool{Name: "delete_sheet", Description: "Delete a sheet."}, mcpOnly.reviewed(), s.deleteSheet)
+	registerTool(s, server, &mcp.Tool{Name: "delete_sheet", Description: "Delete a sheet."}, mcpOnly.reviewed().destroys(), s.deleteSheet)
 	registerTool(s, server, &mcp.Tool{Name: "list_sheet_templates", Description: "List the person's saved sheet templates and the built-in ones (builtins, such as builtin:yearly-expenses). Pass an id to create_sheet."}, reads, s.listSheetTemplates)
 	registerTool(s, server, &mcp.Tool{Name: "get_sheet_template", Description: "Get one sheet template, saved or built in (such as builtin:yearly-expenses)."}, reads, s.getSheetTemplate)
 	registerTool(s, server, &mcp.Tool{Name: "create_sheet_template", Description: "Save a sheet (or one tab) as a template. Pass templateId to create_sheet to apply it."}, writes, s.createSheetTemplate)
 	registerTool(s, server, &mcp.Tool{Name: "update_sheet_template", Description: "Rename a sheet template."}, writes, s.updateSheetTemplate)
-	registerTool(s, server, &mcp.Tool{Name: "delete_sheet_template", Description: "Delete a sheet template."}, mcpOnly.reviewed(), s.deleteSheetTemplate)
+	registerTool(s, server, &mcp.Tool{Name: "delete_sheet_template", Description: "Delete a sheet template."}, mcpOnly.reviewed().destroys(), s.deleteSheetTemplate)
 	registerTool(s, server, &mcp.Tool{Name: "materialize_sheet_template_tab", Description: "Clone a template tab (or the whole template when tabId is empty) with new ids. Does not create a sheet."}, mcpOnly, s.materializeSheetTemplateTab)
 
 	registerTool(s, server, &mcp.Tool{Name: "list_task_views", Description: "Saved task views (list, kanban board or gantt timeline) with their filters and which one is active. In chat from the phone app these are the phone's own views (list and board only); otherwise the web and desktop views. viewsOn in the result says which."}, reads, s.listTaskViews)
 	registerTool(s, server, &mcp.Tool{Name: "create_task_view", Description: viewToolHelp}, writes, s.createTaskView)
 	registerTool(s, server, &mcp.Tool{Name: "update_task_view", Description: "Change a saved view: viewId is its id or name; omitted fields stay as they are. Filters take names or ids, as in create_task_view (\"show only High and Urgent\" sets selectedPriorityLevels; \"stop hiding finished work\" sets showCompleted=true). Acts on the phone's views in chat from the phone app, else the web and desktop views."}, writes, s.updateTaskView)
-	registerTool(s, server, &mcp.Tool{Name: "delete_task_view", Description: "Delete a saved view by id or name."}, mcpOnly.reviewed(), s.deleteTaskView)
+	registerTool(s, server, &mcp.Tool{Name: "delete_task_view", Description: "Delete a saved view by id or name."}, mcpOnly.reviewed().destroys(), s.deleteTaskView)
 	registerTool(s, server, &mcp.Tool{Name: "set_active_task_view", Description: "Make a saved view (id or name) the one the Tasks screen shows. Acts on the phone's views in chat from the phone app, else the web and desktop views."}, writes, s.setActiveTaskView)
 	registerTool(s, server, &mcp.Tool{Name: "set_project_task_view", Description: "Save or clear the task view stored for one project (config.projectTaskViews). clear=true removes it."}, mcpOnly, s.setProjectTaskView)
 
-	registerTool(s, server, &mcp.Tool{Name: "get_profile", Description: "Current user profile."}, mcpOnly, s.getProfile)
-	registerTool(s, server, &mcp.Tool{Name: "get_config", Description: "Account config: onboarding, task views, project task views, appearance, working hours, and schedule settings."}, mcpOnly, s.getConfig)
+	registerTool(s, server, &mcp.Tool{Name: "get_profile", Description: "Current user profile."}, mcpOnlyReads, s.getProfile)
+	registerTool(s, server, &mcp.Tool{Name: "get_config", Description: "Account config: onboarding, task views, project task views, appearance, working hours, and schedule settings."}, mcpOnlyReads, s.getConfig)
 	registerTool(s, server, &mcp.Tool{Name: "update_account_config", Description: "Update onboarding completion and appearance (theme: system, light, dark; accent: default or #RRGGBB)."}, mcpOnly, s.updateAccountConfig)
 	registerTool(s, server, &mcp.Tool{Name: "update_profile", Description: "Update the user's display name."}, mcpOnly, s.updateProfile)
 
@@ -297,26 +310,29 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "unread_notification_count", Description: "Count of unread in-app notifications."}, reads, s.unreadNotificationCount)
 	registerTool(s, server, &mcp.Tool{Name: "reschedule_urgent", Description: "Mark an overdue work task urgent and apply the schedule so it takes the earliest free slot. Same as POST /tasks/:id/reschedule-urgent."}, mcpOnly, s.rescheduleUrgent)
 	registerTool(s, server, &mcp.Tool{Name: "mark_notification_read", Description: "Mark one notification read. Empty id marks all unread as read."}, writes.reviewedWhen(allNotifications), s.markNotificationRead)
-	registerTool(s, server, &mcp.Tool{Name: "clear_notifications", Description: "Delete all in-app notifications for this account."}, mcpOnly, s.clearNotifications)
+	registerTool(s, server, &mcp.Tool{Name: "clear_notifications", Description: "Delete all in-app notifications for this account."}, mcpOnly.destroys(), s.clearNotifications)
+	registerTool(s, server, &mcp.Tool{Name: "triage_notification", Description: "Run the next step an overdue, missed or smart-alert notification offers, and mark it read. Overdue or missed: reschedule, move (to the next free time), extend (deadline a week out), addtime (more time and a new slot) or lower (priority). Smart alerts: focus (add to today's Focus) or reschedule. Returns a line saying what changed."}, writes, s.triageNotification)
+	registerTool(s, server, &mcp.Tool{Name: "delete_notification", Description: "Delete one in-app notification; a smart alert is dismissed."}, writes.destroys(), s.deleteNotification)
 	registerTool(s, server, &mcp.Tool{Name: "snooze_reminder", Description: "Snooze a reminder notification. Updates the underlying reminder time and enqueues the next ping. minutes or until (RFC3339)."}, writes, s.snoozeReminder)
 	registerTool(s, server, &mcp.Tool{Name: "get_notification_settings", Description: "Reminder, digest, planning, and quiet-hours preferences."}, reads, s.getNotificationSettings)
 	registerTool(s, server, &mcp.Tool{Name: "update_notification_settings", Description: "Update reminder/digest/planning toggles, quiet hours, and digest times."}, mcpOnly.reviewed(), s.updateNotificationSettings)
-	registerTool(s, server, &mcp.Tool{Name: "list_jobs", Description: "Background jobs for this account. Optional status: pending, running, succeeded, failed, cancelled."}, mcpOnly, s.listJobs)
+	registerTool(s, server, &mcp.Tool{Name: "list_jobs", Description: "Background jobs for this account. Optional status: pending, running, succeeded, failed, cancelled."}, mcpOnlyReads, s.listJobs)
 	registerTool(s, server, &mcp.Tool{Name: "retry_job", Description: "Re-queue a failed or cancelled job."}, mcpOnly, s.retryJob)
-	registerTool(s, server, &mcp.Tool{Name: "get_job_health", Description: "Counts of pending, running, failed, and recently succeeded jobs."}, mcpOnly, s.getJobHealth)
+	registerTool(s, server, &mcp.Tool{Name: "get_job_health", Description: "Counts of pending, running, failed, and recently succeeded jobs."}, mcpOnlyReads, s.getJobHealth)
 
-	registerTool(s, server, &mcp.Tool{Name: "export_account", Description: "Full versioned JSON export of this account (same as GET /export/full)."}, mcpOnly, s.exportAccount)
-	registerTool(s, server, &mcp.Tool{Name: "export_tasks_csv", Description: "Export tasks as CSV text."}, mcpOnly, s.exportTasksCSV)
-	registerTool(s, server, &mcp.Tool{Name: "export_calendar", Description: "Export events and scheduled blocks as iCalendar text."}, mcpOnly, s.exportCalendar)
-	registerTool(s, server, &mcp.Tool{Name: "export_doc", Description: "Export one document as markdown, or pdf (base64)."}, mcpOnly, s.exportDoc)
-	registerTool(s, server, &mcp.Tool{Name: "get_backup_settings", Description: "Encrypted backup schedule: enabled, intervalDays, retentionCount."}, mcpOnly, s.getBackupSettings)
+	registerTool(s, server, &mcp.Tool{Name: "export_account", Description: "Full versioned JSON export of this account (same as GET /export/full)."}, mcpOnlyReads, s.exportAccount)
+	registerTool(s, server, &mcp.Tool{Name: "export_tasks_csv", Description: "Export tasks as CSV text."}, mcpOnlyReads, s.exportTasksCSV)
+	registerTool(s, server, &mcp.Tool{Name: "export_calendar", Description: "Export events and scheduled blocks as iCalendar text."}, mcpOnlyReads, s.exportCalendar)
+	registerTool(s, server, &mcp.Tool{Name: "export_doc", Description: "Export one document as markdown, or pdf (base64)."}, mcpOnlyReads, s.exportDoc)
+	registerTool(s, server, &mcp.Tool{Name: "get_backup_settings", Description: "Encrypted backup schedule: enabled, intervalDays, retentionCount."}, mcpOnlyReads, s.getBackupSettings)
 	registerTool(s, server, &mcp.Tool{Name: "update_backup_settings", Description: "Update the encrypted backup schedule. intervalDays and retentionCount are 1–30."}, mcpOnly, s.updateBackupSettings)
 	registerTool(s, server, &mcp.Tool{Name: "create_backup", Description: "Write an encrypted server backup of this account."}, mcpOnly, s.createBackup)
-	registerTool(s, server, &mcp.Tool{Name: "list_backups", Description: "List encrypted server backups."}, mcpOnly, s.listBackups)
-	registerTool(s, server, &mcp.Tool{Name: "download_backup", Description: "Decrypt and return one server backup."}, mcpOnly, s.downloadBackup)
-	registerTool(s, server, &mcp.Tool{Name: "delete_backup", Description: "Delete one encrypted server backup. Requires confirm=true."}, mcpOnly.reviewed(), s.deleteBackup)
-	registerTool(s, server, &mcp.Tool{Name: "restore_account", Description: "Replace this account's data with a timely-backup JSON object. Requires confirm=true. Same guard as POST /restore."}, mcpOnly, s.restoreAccount)
+	registerTool(s, server, &mcp.Tool{Name: "list_backups", Description: "List encrypted server backups."}, mcpOnlyReads, s.listBackups)
+	registerTool(s, server, &mcp.Tool{Name: "download_backup", Description: "Decrypt and return one server backup."}, mcpOnlyReads, s.downloadBackup)
+	registerTool(s, server, &mcp.Tool{Name: "delete_backup", Description: "Delete one encrypted server backup. Requires confirm=true."}, mcpOnly.reviewed().destroys(), s.deleteBackup)
+	registerTool(s, server, &mcp.Tool{Name: "restore_account", Description: "Replace this account's data with a timely-backup JSON object. Requires confirm=true. Same guard as POST /restore."}, mcpOnly.destroys(), s.restoreAccount)
 	s.registerFocus(server)
+	s.registerSuggest(server)
 }
 
 func userID(req *mcp.CallToolRequest) (string, error) {

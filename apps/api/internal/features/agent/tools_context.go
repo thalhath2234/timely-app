@@ -203,6 +203,23 @@ func (s *Server) parseRange(ctx context.Context, in rangeIn, days int) (time.Tim
 	return from, to, loc, nil
 }
 
+// today is the account's date and day-boundary zone: saved Working hours,
+// then the client's zone, then the server's.
+func (s *Server) today(ctx context.Context, uid, timezone string) (task.Today, error) {
+	clientZone := zone(ctx, timezone)
+	var lookup task.HoursLookup
+	if s.Schedule != nil {
+		lookup = func(id string) (models.WorkingHours, error) {
+			hours, err := s.Schedule.GetWorkingHours(id, clientZone)
+			if err != nil {
+				return models.WorkingHours{}, err
+			}
+			return hours.WorkingHours, nil
+		}
+	}
+	return task.TodayForUser(lookup, uid, clientZone, time.Now())
+}
+
 func (s *Server) getAgenda(ctx context.Context, req *mcp.CallToolRequest, in rangeIn) (*mcp.CallToolResult, any, error) {
 	uid, err := userID(req)
 	if err != nil {
@@ -222,14 +239,7 @@ func (s *Server) getAgenda(ctx context.Context, req *mcp.CallToolRequest, in ran
 	}
 	// Overdue and Unscheduled are judged on today in the Working hours
 	// timezone, like /today and what_next; the range zone only frames items.
-	clientZone := zone(ctx, in.Timezone)
-	today, err := task.TodayForUser(func(id string) (models.WorkingHours, error) {
-		hours, err := s.Schedule.GetWorkingHours(id, clientZone)
-		if err != nil {
-			return models.WorkingHours{}, err
-		}
-		return hours.WorkingHours, nil
-	}, uid, clientZone, time.Now())
+	today, err := s.today(ctx, uid, in.Timezone)
 	if err != nil {
 		return fail(err)
 	}

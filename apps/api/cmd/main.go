@@ -170,6 +170,7 @@ func main() {
 	searchRerank = smartSearch.Rerank
 	taskPick = smartSearch.Pick
 	docDecisions = decisions
+	todaySuggestions = suggestions
 	mcpServer := agent.New(agent.Deps{
 		Auth:       authService,
 		Tasks:      taskService,
@@ -189,6 +190,7 @@ func main() {
 		Pick:       smartSearch.Pick,
 		Decisions:  decisions,
 		Focus:      focus.NewStore(db),
+		Suggest:    suggestions,
 		DecisionsOn: func(ctx context.Context, userID string) bool {
 			on, _ := decisions.Status(ctx, userID)
 			return on
