@@ -61,13 +61,23 @@ func readBuiltin(file string) (BuiltinTemplate, error) {
 	return template, err
 }
 
+// Builtin returns one built-in template with its tabs as it ships, the same
+// on every read.
+func Builtin(id string) (BuiltinTemplate, error) {
+	template, err := readBuiltin(strings.TrimPrefix(id, "builtin:") + ".json")
+	if err != nil || template.ID != id {
+		return BuiltinTemplate{}, errors.New("unknown built-in template: " + id)
+	}
+	return template, nil
+}
+
 // BuildBuiltin returns a new sheet from a built-in template for year, with
 // currency (an ISO code such as LKR, or a symbol) on its money columns and
 // fresh ids throughout. The caller sets the owner and saves it.
 func BuildBuiltin(id string, year int, currency string) (*models.Sheet, error) {
-	template, err := readBuiltin(strings.TrimPrefix(id, "builtin:") + ".json")
-	if err != nil || template.ID != id {
-		return nil, errors.New("unknown built-in template: " + id)
+	template, err := Builtin(id)
+	if err != nil {
+		return nil, err
 	}
 	currency = strings.TrimSpace(currency)
 	tabs := make(models.SheetTabs, len(template.Tabs))
