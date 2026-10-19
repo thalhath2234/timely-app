@@ -53,7 +53,11 @@ export type WeekReview = {
   sheets: string[];
   /** Work still open at the end of the week. */
   open: number;
+  /** Open tasks to show as "Up next" when few were finished: the ones scheduled soonest first. */
+  next: ReviewNext[];
 };
+
+export type ReviewNext = { title: string; color: string };
 
 const PALETTE = ["#30a66d", "#ffb224", "#0090ff", "#e93d82", "#6e56cf", "#00a2c7", "#f76808", "#b8b7ff"];
 const DAY = 24 * 60 * 60 * 1000;
@@ -144,7 +148,12 @@ export function reviewFromData({
     .sort((a, b) => (a.completedAt ?? "").localeCompare(b.completedAt ?? ""))
     .map((task) => ({ title: task.name, day: dayIndex(task.completedAt as string, start), color: task.project?.color ?? hashColor(task.name) }));
   const doneBefore = tasks.filter((task) => task.kind === "task" && inRange(task.completedAt, before, start)).length;
-  const open = tasks.filter((task) => task.kind === "task" && !task.completedAt).length;
+  const openTasks = tasks.filter((task) => task.kind === "task" && !task.completedAt);
+  const open = openTasks.length;
+  const next: ReviewNext[] = [...openTasks]
+    .sort((a, b) => (a.scheduledOn ?? "~").localeCompare(b.scheduledOn ?? "~") || a.name.localeCompare(b.name))
+    .slice(0, MAX_LISTED)
+    .map((task) => ({ title: task.name, color: task.project?.color ?? hashColor(task.name) }));
 
   const week = sessions.filter((session) => inRange(session.endedAt, start, end));
   const focusMinutes = week.reduce((sum, session) => sum + Math.max(0, session.minutes), 0);
@@ -172,14 +181,15 @@ export function reviewFromData({
     docs: touched(docs.filter((doc) => !doc.isTemplate)),
     sheets: touched(sheets),
     open,
+    next,
   };
 }
 
-/** "timely-week-2026-10-12.mp4" for the week that holds `now`. */
+/** "timely-week-2026-10-12" for the week that holds `now`; the player adds the extension of the format it can encode. */
 export function reviewFileName(now: Date) {
   const { start } = reviewWeek(now);
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `timely-week-${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}.mp4`;
+  return `timely-week-${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`;
 }
 
 /** "3h 20m" or "45m". */
@@ -226,4 +236,9 @@ export const SAMPLE_REVIEW: WeekReview = {
   docs: ["Website launch brief", "Weekly review: 12 Oct", "Reading list"],
   sheets: ["Launch budget", "Expenses: October"],
   open: 14,
+  next: [
+    { title: "Pick a CMS", color: "#ffb224" },
+    { title: "Record the demo", color: "#0090ff" },
+    { title: "Set up redirects", color: "#30a66d" },
+  ],
 };

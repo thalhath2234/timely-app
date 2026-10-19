@@ -17,7 +17,7 @@ const ReviewPlayer = dynamic(() => import("@/app/_components/film/reviewPlayer")
 
 /**
  * "Week in review": this week's tasks, focus time, calendar, docs and sheets
- * as a fifteen-second film, played here and saved as an MP4 from the
+ * as a fifteen-second film, played here and saved as a video from the
  * browser. Opens from Today's End of day card; mount it only while open so
  * each opening reads the week afresh.
  */

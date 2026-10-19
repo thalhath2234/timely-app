@@ -11,18 +11,28 @@ import { REVIEW, WeekInReview, reviewFrames } from "./review/review";
 
 type Save = { phase: "idle" } | { phase: "rendering"; progress: number } | { phase: "saving" };
 
+type Format = { container: "mp4" | "webm"; codec: "h264" | "vp9" | "vp8"; ext: "mp4" | "webm"; mime: "video/mp4" | "video/webm"; label: string };
+
+/** Tried in order; the first the browser can encode is the one offered. */
+const FORMATS: Format[] = [
+  { container: "mp4", codec: "h264", ext: "mp4", mime: "video/mp4", label: "MP4" },
+  { container: "webm", codec: "vp9", ext: "webm", mime: "video/webm", label: "WebM" },
+  { container: "webm", codec: "vp8", ext: "webm", mime: "video/webm", label: "WebM" },
+];
+
 /**
  * The week in review played in the page, with "Save as video": the same
- * composition rendered to an MP4 in the browser by @remotion/web-renderer
- * (WebCodecs, no server). The button only shows where the browser can
- * encode; Firefox keeps the Player alone. Loaded only with the dialog.
+ * composition rendered to a video file in the browser by
+ * @remotion/web-renderer (WebCodecs, no server). MP4 where the browser has
+ * an H.264 encoder, else WebM; the button only shows where one of them
+ * works, so Firefox keeps the Player alone. Loaded only with the dialog.
  */
 export default function ReviewPlayer({ plan, fileName }: { plan: WeekReview; fileName: string }) {
   const ref = useRef<PlayerRef>(null);
   const reduced = useReducedMotion();
   const frames = reviewFrames();
   const [ended, setEnded] = useState(false);
-  const [canSave, setCanSave] = useState(false);
+  const [format, setFormat] = useState<Format | null>(null);
   const [save, setSave] = useState<Save>({ phase: "idle" });
   const abort = useRef<AbortController | null>(null);
 
@@ -43,12 +53,18 @@ export default function ReviewPlayer({ plan, fileName }: { plan: WeekReview; fil
   useEffect(() => {
     let cancelled = false;
     import("@remotion/web-renderer")
-      .then(({ canRenderMediaOnWeb }) => canRenderMediaOnWeb({ width: REVIEW.width, height: REVIEW.height, container: "mp4", muted: true }))
-      .then((result) => {
-        if (!cancelled) setCanSave(result.canRender);
+      .then(async ({ canRenderMediaOnWeb }) => {
+        for (const candidate of FORMATS) {
+          const result = await canRenderMediaOnWeb({ width: REVIEW.width, height: REVIEW.height, container: candidate.container, videoCodec: candidate.codec, muted: true });
+          if (result.canRender) return candidate;
+        }
+        return null;
+      })
+      .then((found) => {
+        if (!cancelled) setFormat(found);
       })
       .catch(() => {
-        if (!cancelled) setCanSave(false);
+        if (!cancelled) setFormat(null);
       });
     return () => {
       cancelled = true;
@@ -65,6 +81,8 @@ export default function ReviewPlayer({ plan, fileName }: { plan: WeekReview; fil
   };
 
   const saveVideo = async () => {
+    if (!format) return;
+    const name = `${fileName}.${format.ext}`;
     const controller = new AbortController();
     abort.current = controller;
     setSave({ phase: "rendering", progress: 0 });
@@ -73,7 +91,8 @@ export default function ReviewPlayer({ plan, fileName }: { plan: WeekReview; fil
       const { getBlob } = await renderMediaOnWeb({
         composition: { id: "WeekInReview", component: WeekInReview, width: REVIEW.width, height: REVIEW.height, fps: REVIEW.fps, durationInFrames: frames, defaultProps: { plan } },
         inputProps: { plan },
-        container: "mp4",
+        container: format.container,
+        videoCodec: format.codec,
         muted: true,
         videoBitrate: "high",
         // Timely is free software by one person, which Remotion's licence covers (package.md).
@@ -85,8 +104,8 @@ export default function ReviewPlayer({ plan, fileName }: { plan: WeekReview; fil
       });
       const blob = await getBlob();
       setSave({ phase: "saving" });
-      const outcome = await saveBlob(blob, fileName);
-      if (outcome === "saved") useToastStore.getState().show(`Saved ${fileName}`);
+      const outcome = await saveBlob(blob, name, format);
+      if (outcome === "saved") useToastStore.getState().show(`Saved ${name}`);
     } catch (error) {
       if (!(error instanceof DOMException && error.name === "AbortError")) {
         useToastStore.getState().show(`Could not save the video: ${error instanceof Error ? error.message : String(error)}`);
@@ -123,7 +142,7 @@ export default function ReviewPlayer({ plan, fileName }: { plan: WeekReview; fil
           </button>
         ) : null}
       </div>
-      {canSave ? (
+      {format ? (
         <div className="mt-3 flex min-h-8 items-center gap-3" data-testid="review-save">
           {save.phase === "idle" ? (
             <Button variant="primary" size="sm" leading={<Download />} onClick={saveVideo}>
@@ -144,7 +163,7 @@ export default function ReviewPlayer({ plan, fileName }: { plan: WeekReview; fil
               ) : null}
             </>
           )}
-          <span className="ml-auto text-xs text-muted-foreground">MP4, 1280×720, 15 s</span>
+          <span className="ml-auto text-xs text-muted-foreground">{format.label}, 1280×720, 15 s</span>
         </div>
       ) : null}
     </div>
@@ -156,11 +175,11 @@ type SavePicker = (options: { suggestedName: string; types: { description: strin
 }>;
 
 /** The native save dialog where the browser has one (Chrome, the desktop app), else a download. */
-async function saveBlob(blob: Blob, fileName: string): Promise<"saved" | "cancelled"> {
+async function saveBlob(blob: Blob, fileName: string, format: Format): Promise<"saved" | "cancelled"> {
   const picker = (window as Window & { showSaveFilePicker?: SavePicker }).showSaveFilePicker;
   if (typeof picker === "function") {
     try {
-      const handle = await picker({ suggestedName: fileName, types: [{ description: "MP4 video", accept: { "video/mp4": [".mp4"] } }] });
+      const handle = await picker({ suggestedName: fileName, types: [{ description: `${format.label} video`, accept: { [format.mime]: [`.${format.ext}`] } }] });
       const writable = await handle.createWritable();
       await writable.write(blob);
       await writable.close();

@@ -198,7 +198,7 @@ function Grid({ plan, frame }: { plan: WeekReview; frame: number }) {
       {Array.from({ length: hours + 1 }, (_, h) => (
         <div key={h} style={{ position: "absolute", left: PAD + 1, right: PAD + 1, top: gridTop + h * rowH, borderTop: `1px solid ${C.line}`, opacity: progress(frame, GRID.start + 8, 8) }}>
           {h < hours && (hours <= 10 || h % 2 === 0) ? (
-            <span style={{ position: "absolute", left: 8, top: -7, fontSize: 11, color: C.faint, fontVariantNumeric: "tabular-nums" }}>{plan.from + h}:00</span>
+            <span style={{ position: "absolute", left: 8, top: -7, fontSize: 11, color: C.faint }}>{`${plan.from + h}:00`}</span>
           ) : null}
         </div>
       ))}
@@ -264,6 +264,8 @@ function List({ plan, frame }: { plan: WeekReview; frame: number }) {
   const rows = plan.done.slice(-MAX_ROWS);
   const more = plan.done.length - rows.length;
   const touched = [...plan.docs.map((title) => ({ title, icon: "files" as const })), ...plan.sheets.map((title) => ({ title, icon: "chart" as const }))].slice(0, MAX_ROWS);
+  const next = plan.next.slice(0, Math.max(0, MAX_ROWS - rows.length - 1));
+  const nextAt = LIST.start + 14 + Math.max(rows.length, 1) * MOTION.frames.stagger * 2;
   const closeAt = LIST.start + 70;
   return (
     <div style={{ position: "absolute", inset: 0, opacity }}>
@@ -287,6 +289,21 @@ function List({ plan, frame }: { plan: WeekReview; frame: number }) {
         })}
         {more > 0 ? <div style={{ marginTop: 10, fontSize: 14, color: C.faint, ...rise(frame, LIST.start + 14 + rows.length * MOTION.frames.stagger * 2, 14, 10) }}>and {more} more</div> : null}
         {plan.done.length === 0 ? <div style={{ fontSize: 16, color: C.faint, ...rise(frame, LIST.start + 14, 14, 10) }}>Star a few tasks for the day and tick them off as you go.</div> : null}
+        {next.length ? (
+          <div style={{ marginTop: plan.done.length === 0 ? 28 : 22 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint, ...rise(frame, nextAt, 14, 10) }}>Up next</div>
+            {next.map((row, i) => {
+              const at = nextAt + 6 + i * MOTION.frames.stagger * 2;
+              return (
+                <div key={row.title + i} style={{ display: "flex", alignItems: "center", gap: 12, height: 46, borderBottom: `1px solid ${C.line}`, fontSize: 16, color: C.soft, ...rise(frame, at, 14, 10) }}>
+                  <span style={{ width: 20, height: 20, borderRadius: 10, border: `1.5px solid ${C.line2}`, flexShrink: 0 }} />
+                  <span style={{ width: 8, height: 8, borderRadius: 4, background: row.color, opacity: 0.7, flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{row.title}</span>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
       </div>
       <div style={{ position: "absolute", left: 760, top: 136, right: PAD }}>
         <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint, ...rise(frame, LIST.start + 20, 14, 10) }}>Also touched</div>
