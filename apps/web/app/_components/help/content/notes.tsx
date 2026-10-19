@@ -249,6 +249,10 @@ export const notes: HelpSection = {
                   you reword the item.
                 </li>
                 <li>
+                  Only items that read like something to do are offered. A lone word such as a name or a label is
+                  left alone, unless it is an action or a chore like <em>Call</em> or <em>Laundry</em>.
+                </li>
+                <li>
                   With smart suggestions on, a checklist meant to stay in the doc, such as groceries or packing, offers
                   no tasks.
                 </li>

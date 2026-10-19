@@ -66,6 +66,36 @@ export function checklistTaskName(text: string): { name: string; details: string
   return { name, details };
 }
 
+/** One-word items that read as a to-do on their own: an action ("Call",
+ * "Deploy") or a chore that names its action ("Laundry", "Dentist"). */
+const ONE_WORD_TASKS = new Set(
+  (
+    "add apply archive ask backup bake book build buy call cancel change check clean cleanup commit compile confirm contact cook " +
+    "debug decide delete deploy design document download draft email exercise export file finish fix follow-up followup " +
+    "implement import install invite iron mail meditate meet merge migrate mop move order organise organize pack paint pay " +
+    "phone plan post practice practise prepare print publish push read rebase record refactor register release remind renew " +
+    "repair reply report research reschedule return review revise run schedule send sign ship shop shower sort study submit " +
+    "sweep sync test text tidy train translate unpack update upgrade upload vacuum verify visit vote walk wash water work " +
+    "workout write " +
+    "appointment bills chores dentist dishes doctor errands groceries gym haircut homework invoice laundry meeting rent " +
+    "shopping standup taxes"
+  ).split(" ").filter(Boolean),
+);
+
+/** Whether an item's name reads as something to do, so it is worth offering
+ * as a task. A name of two words or more does; a lone word only when it is an
+ * action or a chore, so a stray word ("Adwad"), a label ("Login") or a bare
+ * number, date or link is not offered. */
+export function readsLikeTask(name: string): boolean {
+  const words = name
+    .replace(/\b(?:https?:\/\/|www\.)\S+/giu, " ")
+    .split(/\s+/)
+    .map((word) => word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""))
+    .filter((word) => /\p{L}/u.test(word));
+  if (words.length >= 2) return true;
+  return words.length === 1 && ONE_WORD_TASKS.has(words[0].toLowerCase());
+}
+
 /** A checklist item's own words: its paragraphs, not its nested items. */
 function itemText(node: Node): string {
   return (node.content ?? [])
@@ -79,7 +109,9 @@ function itemText(node: Node): string {
 
 /** Unchecked checklist items in a doc, in order, one per distinct task name.
  * Checked items, empty ones, ones that already mention a task and ones inside
- * code or properties are left out. A nested item is its own entry.
+ * code or properties are left out. A nested item is its own entry. Items that
+ * do not read like a task are still listed, so one made a task anyway is
+ * shown as one; the clients offer only those that do (readsLikeTask).
  *
  * `keptLists` are the words of items (lower case) on checklists that are kept
  * in the doc rather than worked as tasks, such as groceries or packing (the
