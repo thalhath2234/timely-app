@@ -957,6 +957,28 @@ func (s *Server) getSheetTemplate(ctx context.Context, req *mcp.CallToolRequest,
 	if err != nil {
 		return fail(err)
 	}
+	if sheet.IsBuiltinTemplate(in.TemplateID) {
+		// Built-in templates ship with Timely and are not stored, so a review
+		// of create_sheet from one reads it here rather than failing.
+		template, err := sheet.Builtin(in.TemplateID)
+		if err != nil {
+			return fail(err)
+		}
+		sh := &models.Sheet{ID: template.ID, Title: template.Name, Icon: &template.Icon, Tabs: template.Tabs}
+		if len(sh.Tabs) > 0 {
+			sh.Columns, sh.Rows, sh.Merges = sh.Tabs[0].Columns, sh.Tabs[0].Rows, sh.Tabs[0].Merges
+		}
+		payload := map[string]any{
+			"id":          template.ID,
+			"name":        template.Name,
+			"description": template.Description,
+			"icon":        template.Icon,
+			"builtin":     true,
+			"tabs":        sheetBrief(sh, false)["tabs"],
+			"markdown":    workbookMarkdown(sh),
+		}
+		return reply(template.Name, payload)
+	}
 	template, err := s.Sheets.GetTemplate(uid, in.TemplateID)
 	if err != nil {
 		return fail(err)

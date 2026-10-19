@@ -275,7 +275,7 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "duplicate_sheet", Description: "Duplicate a sheet, including columns, rows, merges, and tabs."}, mcpOnly, s.duplicateSheet)
 	registerTool(s, server, &mcp.Tool{Name: "delete_sheet", Description: "Delete a sheet."}, mcpOnly.reviewed(), s.deleteSheet)
 	registerTool(s, server, &mcp.Tool{Name: "list_sheet_templates", Description: "List the person's saved sheet templates and the built-in ones (builtins, such as builtin:yearly-expenses). Pass an id to create_sheet."}, reads, s.listSheetTemplates)
-	registerTool(s, server, &mcp.Tool{Name: "get_sheet_template", Description: "Get one sheet template."}, reads, s.getSheetTemplate)
+	registerTool(s, server, &mcp.Tool{Name: "get_sheet_template", Description: "Get one sheet template, saved or built in (such as builtin:yearly-expenses)."}, reads, s.getSheetTemplate)
 	registerTool(s, server, &mcp.Tool{Name: "create_sheet_template", Description: "Save a sheet (or one tab) as a template. Pass templateId to create_sheet to apply it."}, writes, s.createSheetTemplate)
 	registerTool(s, server, &mcp.Tool{Name: "update_sheet_template", Description: "Rename a sheet template."}, writes, s.updateSheetTemplate)
 	registerTool(s, server, &mcp.Tool{Name: "delete_sheet_template", Description: "Delete a sheet template."}, mcpOnly.reviewed(), s.deleteSheetTemplate)
