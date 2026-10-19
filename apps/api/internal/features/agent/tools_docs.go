@@ -1057,6 +1057,26 @@ type sheetValuesIn struct {
 	Formula string `json:"formula,omitempty" jsonschema:"work out one formula without saving it, e.g. =SUMIF(C2:C,\"Groceries\",H2:H) or =SUM(January!H2:H); references without a tab read tabId's tab"`
 }
 
+// sheetValuesFor works out the whole workbook, or only tabID and the tabs it
+// reads when one tab is asked for, indexed like WorkbookTabs.
+func sheetValuesFor(sh *models.Sheet, tabID string) ([][][]sheet.CellValue, error) {
+	if tabID == "" {
+		return sheet.SheetValues(sh)
+	}
+	one, err := sheet.TabValues(sh, tabID)
+	if err != nil {
+		return nil, err
+	}
+	tabs := sheet.WorkbookTabs(sh)
+	values := make([][][]sheet.CellValue, len(tabs))
+	for t, tab := range tabs {
+		if tab.ID == tabID {
+			values[t] = one
+		}
+	}
+	return values, nil
+}
+
 // getSheetValues answers questions about a sheet's data with the values the
 // apps show. It only reads; get_sheet still returns the raw grid.
 func (s *Server) getSheetValues(ctx context.Context, req *mcp.CallToolRequest, in sheetValuesIn) (*mcp.CallToolResult, any, error) {
@@ -1080,7 +1100,7 @@ func (s *Server) getSheetValues(ctx context.Context, req *mcp.CallToolRequest, i
 		}
 		return reply(in.Formula+" = "+sheetValueText(value), map[string]any{"formula": in.Formula, "value": value})
 	}
-	values, err := sheet.SheetValues(sh)
+	values, err := sheetValuesFor(sh, in.TabID)
 	if err != nil {
 		return fail(err)
 	}

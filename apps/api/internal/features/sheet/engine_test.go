@@ -153,3 +153,57 @@ func TestDeleteFromTabKeepsFormulasOnTheirCells(t *testing.T) {
 		t.Fatal("Unit column kept")
 	}
 }
+
+// One tab worked out alone, with the tabs its formulas reach, shows the same
+// values as the whole workbook.
+func TestTabValuesMatchTheWholeWorkbook(t *testing.T) {
+	yearly, err := BuildBuiltin("builtin:yearly-expenses", 2027, "LKR")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oct := &yearly.Tabs[11]
+	col := map[string]string{}
+	for _, column := range oct.Columns {
+		col[column.Name] = column.ID
+	}
+	AppendRow(oct, models.SheetRow{ID: "r", Cells: map[string]string{
+		col["Date"]: "2027-10-03", col["Item"]: "Rice 5kg", col["Category"]: "Groceries", col["Qty"]: "2", col["Unit price"]: "1250"}})
+
+	cell := func(id, value string) models.SheetRow {
+		return models.SheetRow{ID: id, Cells: map[string]string{"a": value}}
+	}
+	columns := models.SheetColumns{{ID: "a", Name: "A", Type: "text"}}
+	tab := func(id, name string, rows ...models.SheetRow) models.SheetTab {
+		return models.SheetTab{ID: id, Name: name, Columns: columns, Rows: rows}
+	}
+	refs := &models.Sheet{Tabs: models.SheetTabs{
+		tab("main", "Main", cell("1", "='Sam''s Rates'!A1*2"), cell("2", "=totals!A1"), cell("3", "=A1+A2")),
+		tab("rates", "Sam's Rates", cell("1", "21")),
+		tab("totals", "Totals", cell("1", "=Base!A1+1")),
+		tab("base", "Base", cell("1", "100")),
+		tab("unused", "Unused", cell("1", "=Main!A3")),
+	}}
+
+	for _, sh := range []*models.Sheet{yearly, refs} {
+		whole, err := SheetValues(sh)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, tab := range WorkbookTabs(sh) {
+			one, err := TabValues(sh, tab.ID)
+			if err != nil {
+				t.Fatalf("%s: %v", tab.Name, err)
+			}
+			if got, want := fmt.Sprint(one), fmt.Sprint(whole[i]); got != want {
+				t.Errorf("%s alone = %s, in the workbook %s", tab.Name, got, want)
+			}
+		}
+	}
+	main, _ := TabValues(refs, "main")
+	if main[2][0] != 143.0 {
+		t.Fatalf("Main!A3 = %v, want 42+101", main[2][0])
+	}
+	if _, err := TabValues(refs, "missing"); err == nil {
+		t.Fatal("an unknown tab must fail")
+	}
+}

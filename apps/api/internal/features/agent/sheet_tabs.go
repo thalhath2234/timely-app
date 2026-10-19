@@ -327,29 +327,23 @@ func sheetResult(sh *models.Sheet, tabID string) map[string]any {
 // rowValues works out one row the way the apps show it, keyed by column
 // name, so an agent can check a Total without another read.
 func rowValues(sh *models.Sheet, tabID string, index int) map[string]any {
-	values, err := sheet.SheetValues(sh)
-	if err != nil {
+	values, err := sheet.TabValues(sh, tabID)
+	if err != nil || index < 0 || index >= len(values) {
 		return nil
 	}
-	tabs := sheet.WorkbookTabs(sh)
-	for t, tab := range tabs {
-		if tabID == "" && t != 0 || tabID != "" && tab.ID != tabID {
-			continue
-		}
-		if t >= len(values) || index < 0 || index >= len(values[t]) {
-			return nil
-		}
-		out := map[string]any{}
-		for c, column := range tab.Columns {
-			if c < len(values[t][index]) {
-				if value := values[t][index][c]; value != nil && value != "" {
-					out[column.Name] = value
-				}
+	tab, ok := tabByID(sh, tabID)
+	if !ok {
+		return nil
+	}
+	out := map[string]any{}
+	for c, column := range tab.Columns {
+		if c < len(values[index]) {
+			if value := values[index][c]; value != nil && value != "" {
+				out[column.Name] = value
 			}
 		}
-		return out
 	}
-	return nil
+	return out
 }
 
 // templateSheet reads a template's grid like a sheet's.
