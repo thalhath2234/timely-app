@@ -21,13 +21,14 @@ import java.lang.ref.WeakReference
 object TimelyBack {
   private const val TAG = "TimelyBack"
 
-  // The page leaves once the finger is 16dp from where it touched down (the
-  // same line as Android's back arrow) and comes back only when the finger
-  // returns inside it. The page coming back in starts a little inside the line,
-  // so a finger resting on it doesn't flicker the page. Whether letting go goes
-  // back follows the same line, so what the screen shows is what happens.
-  private const val ARM_DP = 16f
-  private const val DISARM_DP = 12f
+  // The page leaves once the finger is 32dp from where it touched down (twice
+  // Android's 16dp, which went off on the smallest swipe) and comes back only
+  // when the finger returns inside it. The page coming back in starts a little
+  // inside the line, so a finger resting on it doesn't flicker the page.
+  // Whether letting go goes back follows the same line, so what the screen
+  // shows is what happens, even where Android's own back arrow has armed sooner.
+  private const val ARM_DP = 32f
+  private const val DISARM_DP = 24f
 
   private val main = Handler(Looper.getMainLooper())
   private var activityRef: WeakReference<ComponentActivity>? = null
