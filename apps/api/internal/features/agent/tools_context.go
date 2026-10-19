@@ -181,14 +181,19 @@ type rangeIn struct {
 	Timezone string `json:"timezone,omitempty"`
 }
 
-func (s *Server) parseRange(ctx context.Context, in rangeIn, days int) (time.Time, time.Time, *time.Location, error) {
-	loc := location(ctx, in.Timezone)
-	now := time.Now().In(loc)
-	from := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+// parseRange reads a range in the account's day zone (task.DayLocation), so a
+// bare date is the same day get_today and Overdue mean.
+func (s *Server) parseRange(ctx context.Context, uid string, in rangeIn, days int) (time.Time, time.Time, task.Today, error) {
+	today, err := s.today(ctx, uid, in.Timezone)
+	if err != nil {
+		return time.Time{}, time.Time{}, today, err
+	}
+	loc := today.Location()
+	from := today.Start()
 	if in.From != "" {
 		parsed, err := recurrence.ParseTimeIn(in.From, loc)
 		if err != nil {
-			return time.Time{}, time.Time{}, loc, fmt.Errorf("invalid from")
+			return time.Time{}, time.Time{}, today, fmt.Errorf("invalid from")
 		}
 		from = parsed
 	}
@@ -196,11 +201,11 @@ func (s *Server) parseRange(ctx context.Context, in rangeIn, days int) (time.Tim
 	if in.To != "" {
 		parsed, err := recurrence.ParseTimeIn(in.To, loc)
 		if err != nil {
-			return time.Time{}, time.Time{}, loc, fmt.Errorf("invalid to")
+			return time.Time{}, time.Time{}, today, fmt.Errorf("invalid to")
 		}
 		to = parsed
 	}
-	return from, to, loc, nil
+	return from, to, today, nil
 }
 
 // today is the account's date and day-boundary zone: saved Working hours,
@@ -225,21 +230,16 @@ func (s *Server) getAgenda(ctx context.Context, req *mcp.CallToolRequest, in ran
 	if err != nil {
 		return fail(err)
 	}
-	from, to, loc, err := s.parseRange(ctx, in, 1)
+	from, to, today, err := s.parseRange(ctx, uid, in, 1)
 	if err != nil {
 		return fail(err)
 	}
+	loc := today.Location()
 	cal, err := s.Calendar.Range(uid, from, to)
 	if err != nil {
 		return fail(err)
 	}
 	tasks, err := s.Tasks.List(uid, task.TaskFilter{Limit: 500})
-	if err != nil {
-		return fail(err)
-	}
-	// Overdue and Unscheduled are judged on today in the Working hours
-	// timezone, like /today and what_next; the range zone only frames items.
-	today, err := s.today(ctx, uid, in.Timezone)
 	if err != nil {
 		return fail(err)
 	}
@@ -298,10 +298,11 @@ func (s *Server) getFreeTime(ctx context.Context, req *mcp.CallToolRequest, in r
 	if err != nil {
 		return fail(err)
 	}
-	from, to, loc, err := s.parseRange(ctx, in, 1)
+	from, to, today, err := s.parseRange(ctx, uid, in, 1)
 	if err != nil {
 		return fail(err)
 	}
+	loc := today.Location()
 	free, err := s.Schedule.FreeTime(uid, from, to, models.ZoneName(loc))
 	if err != nil {
 		return fail(err)
@@ -363,10 +364,11 @@ func (s *Server) getCalendar(ctx context.Context, req *mcp.CallToolRequest, in r
 	if err != nil {
 		return fail(err)
 	}
-	from, to, loc, err := s.parseRange(ctx, in, 7)
+	from, to, today, err := s.parseRange(ctx, uid, in, 7)
 	if err != nil {
 		return fail(err)
 	}
+	loc := today.Location()
 	cal, err := s.Calendar.Range(uid, from, to)
 	if err != nil {
 		return fail(err)

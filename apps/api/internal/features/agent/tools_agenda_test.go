@@ -195,3 +195,44 @@ func TestAgentToolsNeverNameTheServerZoneLocal(t *testing.T) {
 		t.Fatalf("agenda text = %q", text)
 	}
 }
+
+type rangeCalendar struct {
+	calendar.Service
+	from *[]time.Time
+}
+
+func (f rangeCalendar) Range(_ string, from, _ time.Time) (*calendar.Response, error) {
+	*f.from = append(*f.from, from)
+	return &calendar.Response{}, nil
+}
+
+// A bare date names a day in the person's saved Working hours zone, the same
+// day get_today and Overdue use, not a day in the server's zone.
+func TestDateRangesFollowSavedWorkingHoursZone(t *testing.T) {
+	prev := time.Local
+	t.Cleanup(func() { time.Local = prev })
+	time.Local = time.FixedZone("Server", 9*60*60)
+
+	var starts []time.Time
+	srv := &Server{Deps: Deps{
+		Tasks:    agendaTasks{},
+		Calendar: rangeCalendar{from: &starts},
+		Schedule: agendaSchedule{hours: models.DefaultWorkingHours("UTC")},
+	}}
+	req := &mcp.CallToolRequest{Extra: &mcp.RequestExtra{TokenInfo: &mcpauth.TokenInfo{UserID: "usr_1"}}}
+	if _, _, err := srv.getAgenda(context.Background(), req, rangeIn{From: "2026-10-19"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := srv.getCalendar(context.Background(), req, rangeIn{From: "2026-10-19"}); err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC)
+	for i, got := range starts {
+		if !got.Equal(want) {
+			t.Errorf("range %d starts %s, want %s", i, got.Format(time.RFC3339), want.Format(time.RFC3339))
+		}
+	}
+	if len(starts) != 2 {
+		t.Fatalf("calendar asked %d times, want 2", len(starts))
+	}
+}
