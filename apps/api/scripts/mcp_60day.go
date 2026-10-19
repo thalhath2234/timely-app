@@ -67,8 +67,9 @@ type ledger struct {
 	planDoc     string
 	linkedNotes []string
 
-	focus []focusRec
-	named []named
+	focus    []focusRec
+	reminder string
+	named    []named
 }
 
 type projectRec struct {
@@ -311,6 +312,15 @@ func routine() []activity {
 		{"complete tasks", everyDay().livedDays(), (*sim).completeTasks},
 		{"tick the weekly reminder", weeklyOn(time.Sunday).livedDays(), (*sim).tickPlants},
 		{"agenda matches the ledger", everyDay(), (*sim).assertAgenda},
+		{"review the week", weeklyOn(time.Monday), (*sim).reviewWeek},
+		{"push out overdue chores", weeklyOn(time.Monday).livedDays(), (*sim).pushChores},
+		{"move relaunch tasks along", weeklyOn(time.Monday).livedDays(), (*sim).advanceStages},
+		{"revise the weekly plan", weeklyOn(time.Monday).livedDays(), (*sim).revisePlan},
+		{"start the day", today(), (*sim).startDay},
+		{"set a reminder", today(), (*sim).setReminder},
+		{"auto-schedule the rest", today(), (*sim).autoSchedule},
+		{"stop focusing", endOfRun(), (*sim).stopFocus},
+		{"handle notifications", endOfRun(), (*sim).handleNotifications},
 		{"habit streaks match the ledger", endOfRun(), (*sim).assertStreaks},
 		{"task counts match the ledger", endOfRun(), (*sim).assertTaskCounts},
 		{"inbox matches the ledger", endOfRun(), (*sim).assertInbox},
@@ -369,13 +379,14 @@ type toolStat struct {
 }
 
 type sim struct {
-	ctx     context.Context
-	session *mcp.ClientSession
-	seed    uint64
-	tz      *time.Location
-	start   time.Time
-	days    []day
-	l       *ledger
+	ctx        context.Context
+	session    *mcp.ClientSession
+	seed       uint64
+	tz         *time.Location
+	start      time.Time
+	registered time.Time
+	days       []day
+	l          *ledger
 
 	listed     map[string]bool
 	prompts    map[string]bool
@@ -1029,6 +1040,494 @@ func (s *sim) assertMonth(t time.Time) error {
 	return nil
 }
 
+// ---- Weekly rows ----
+
+func (s *sim) reviewWeek(d day) error {
+	if err := s.agendaMatches(d.date, d.date.AddDate(0, 0, 7), fmt.Sprintf("get_agenda for the week of %s lists exactly the ledger's events and blocks", d.ymd())); err != nil {
+		return err
+	}
+	if err := s.plantsMatch(d.date.AddDate(0, 0, -7), d.date); err != nil {
+		return err
+	}
+	if _, err := s.prompt("weekly_review", map[string]string{"weekStart": d.ymd()}); err != nil && !errors.Is(err, errMissing) {
+		return err
+	}
+	if err := s.focusSessionsMatch(d.date.AddDate(0, 0, -7), d.date); err != nil && !errors.Is(err, errMissing) {
+		return err
+	}
+	if progress, err := s.call("get_goal_progress", nil); err == nil {
+		s.expect(progress.at("goals") != nil, "get_goal_progress reports per-goal progress", "goals", progress)
+	} else if !errors.Is(err, errMissing) {
+		return err
+	}
+	if _, err := s.call("list_stale_work", map[string]any{"workspaceId": s.l.workspaces["Work"]}); err != nil && !errors.Is(err, errMissing) {
+		return err
+	}
+	return nil
+}
+
+// plantsMatch checks the weekly reminder on get_calendar: one occurrence on
+// each Sunday of [from, to) unless skipped, completed where the ledger says.
+func (s *sim) plantsMatch(from, to time.Time) error {
+	p := s.l.plants
+	if p == nil {
+		return nil
+	}
+	out, err := s.call("get_calendar", map[string]any{"from": from.Format(time.RFC3339), "to": to.Format(time.RFC3339), "timezone": s.tz.String()})
+	if err != nil {
+		return err
+	}
+	want, got := map[string]int{}, map[string]int{}
+	for t := from; t.Before(to); t = t.AddDate(0, 0, 1) {
+		ymd := t.Format(time.DateOnly)
+		if t.Weekday() == p.weekday && ymd >= p.from && !p.skipped[ymd] {
+			want[fmt.Sprintf("%s done=%v", at(t, p.hour, 0).UTC().Format(time.RFC3339), p.completed[ymd])]++
+		}
+	}
+	for _, item := range out.objs("items") {
+		if item.str("taskId") != p.id {
+			continue
+		}
+		start, _ := time.Parse(time.RFC3339, item.str("start"))
+		got[fmt.Sprintf("%s done=%v", start.UTC().Format(time.RFC3339), item.str("completedAt") != "")]++
+	}
+	if diff := diffCounts(want, got); diff != "" {
+		s.fail(fmt.Sprintf("get_calendar %s..%s shows the weekly reminder on its Sundays with the ledger's completions: %s", from.Format(time.DateOnly), to.Format(time.DateOnly), diff), sortedKeys(want), sortedKeys(got))
+	}
+	return nil
+}
+
+func (s *sim) focusSessionsMatch(from, to time.Time) error {
+	out, err := s.call("list_focus_sessions", map[string]any{"from": from.Format(time.DateOnly), "to": to.Format(time.DateOnly)})
+	if err != nil {
+		return err
+	}
+	var want, got []string
+	for _, f := range s.l.focus {
+		if !f.started.Before(from) && f.started.Before(to) {
+			want = append(want, f.taskID)
+		}
+	}
+	for _, item := range out.firstList() {
+		got = append(got, item.str("taskId"))
+	}
+	if diff := diffSets(want, got); diff != "" {
+		s.fail(fmt.Sprintf("list_focus_sessions %s..%s equals the ledger's sessions: %s", from.Format(time.DateOnly), to.Format(time.DateOnly), diff), want, out)
+	}
+	return nil
+}
+
+// pushChores moves every overdue Home chore's deadline to next Monday in one
+// bulk edit, the way a person clears the week's guilt pile.
+func (s *sim) pushChores(d day) error {
+	var picked []string
+	for _, t := range s.l.openTasks() {
+		if t.workspace == "Home" && t.deadline != "" && t.deadline < d.ymd() {
+			picked = append(picked, t.id)
+		}
+	}
+	if _, err := s.call("pick_tasks", map[string]any{"description": "overdue home chores"}); err != nil {
+		return err
+	}
+	if len(picked) == 0 {
+		return nil
+	}
+	deadline := d.date.AddDate(0, 0, 7).Format(time.DateOnly)
+	if _, err := s.call("bulk_update_tasks", map[string]any{"ids": picked, "update": map[string]any{"deadline": deadline}}); err != nil {
+		return err
+	}
+	for _, id := range picked {
+		s.l.tasks[id].deadline = deadline
+	}
+	check, err := s.call("get_task", map[string]any{"taskId": picked[0]})
+	if err != nil {
+		return err
+	}
+	s.expect(check.str("task", "deadline") == deadline, "bulk_update_tasks moved the chore's deadline", deadline, check.str("task", "deadline"))
+	return nil
+}
+
+var stageFlow = []string{"Backlog", "Building", "Review"}
+
+func (s *sim) advanceStages(d day) error {
+	for _, t := range s.l.openTasks() {
+		if t.projectID == "" || t.stageID == "" {
+			continue
+		}
+		k := slices.IndexFunc(stageFlow, func(name string) bool { return s.l.project.stages[name] == t.stageID })
+		if k < 0 || k == len(stageFlow)-1 {
+			continue
+		}
+		next := s.l.project.stages[stageFlow[k+1]]
+		if _, err := s.call("move_task_to_stage", map[string]any{"taskId": t.id, "stageId": next}); err != nil {
+			return err
+		}
+		t.stageID = next
+	}
+	for _, name := range stageFlow {
+		stage := s.l.project.stages[name]
+		var want []string
+		for _, t := range s.l.openTasks() {
+			if t.stageID == stage {
+				want = append(want, t.id)
+			}
+		}
+		out, err := s.call("list_tasks", map[string]any{"projectId": s.l.project.id, "stageId": stage, "completed": false, "limit": 500})
+		if err != nil {
+			return err
+		}
+		var got []string
+		for _, t := range out.objs("tasks") {
+			got = append(got, t.str("id"))
+		}
+		if diff := diffSets(want, got); diff != "" {
+			s.fail(fmt.Sprintf("list_tasks in stage %s equals the ledger's: %s", name, diff), want, got)
+		}
+	}
+	return nil
+}
+
+// revisePlan rewrites the weekly plan doc, then reads its history, restores
+// the oldest version, and checks the daily notes that link to it.
+func (s *sim) revisePlan(d day) error {
+	body := fmt.Sprintf("# Weekly plan\n\nWeek of %s: ship one relaunch stage, three workouts, inbox zero.", d.label())
+	if _, err := s.call("update_doc", map[string]any{"docId": s.l.planDoc, "markdown": body}); err != nil {
+		return err
+	}
+	versions, err := s.call("list_doc_versions", map[string]any{"docId": s.l.planDoc})
+	if err != nil {
+		return err
+	}
+	list := versions.firstList()
+	if !s.expect(len(list) > 0, "list_doc_versions has the edited doc's history", "at least one version", versions) {
+		return nil
+	}
+	current := slices.ContainsFunc(list, func(v obj) bool { return v.bool("current") })
+	s.expect(current, "list_doc_versions marks the version that holds the doc as it is now", "a version with current=true", list)
+	oldest := list[len(list)-1]
+	if _, err := s.call("restore_doc_version", map[string]any{"docId": s.l.planDoc, "versionId": oldest.str("id")}); err != nil {
+		return err
+	}
+	doc, err := s.call("get_doc", map[string]any{"docId": s.l.planDoc})
+	if err != nil {
+		return err
+	}
+	title := doc.str("title")
+	if title == "" {
+		title = doc.str("doc", "title")
+	}
+	s.expect(title == oldest.str("title"), "restore_doc_version puts the version's title back", oldest.str("title"), title)
+	links, err := s.call("get_doc_backlinks", map[string]any{"docId": s.l.planDoc})
+	if err != nil {
+		return err
+	}
+	var got []string
+	for _, b := range links.firstList() {
+		got = append(got, b.str("id"))
+	}
+	if diff := diffSets(s.l.linkedNotes, got); diff != "" {
+		s.fail("get_doc_backlinks lists exactly the daily notes that link [[Weekly plan]]: "+diff, s.l.linkedNotes, got)
+	}
+	return nil
+}
+
+// ---- Today rows ----
+
+func (s *sim) overdueIDs(today string) []string {
+	var ids []string
+	for _, t := range s.l.openTasks() {
+		if t.deadline != "" && t.deadline < today {
+			ids = append(ids, t.id)
+		}
+	}
+	return ids
+}
+
+func (s *sim) startDay(d day) error {
+	if _, err := s.prompt("plan_my_day", map[string]string{"date": d.ymd()}); err != nil && !errors.Is(err, errMissing) {
+		return err
+	}
+	view, err := s.call("get_today", map[string]any{"date": d.ymd(), "timezone": s.tz.String()})
+	if err != nil {
+		return err
+	}
+	var overdue []string
+	for _, t := range view.objs("overdue") {
+		overdue = append(overdue, t.str("id"))
+	}
+	if diff := diffSets(s.overdueIDs(d.ymd()), overdue); diff != "" {
+		s.fail("get_today overdue equals the ledger's overdue work: "+diff, len(s.overdueIDs(d.ymd())), len(overdue))
+	}
+	s.expect(int(view.num("inboxCount")) == len(s.l.inbox), "get_today inboxCount equals the ledger's inbox", len(s.l.inbox), view.num("inboxCount"))
+
+	next, err := s.call("what_next", map[string]any{"timezone": s.tz.String()})
+	if err != nil {
+		return err
+	}
+	var focus []string
+	for _, t := range next.objs("tasks") {
+		id := t.str("ID")
+		rec := s.l.tasks[id]
+		if !s.expect(rec != nil && rec.open(), "what_next only ranks the ledger's open work", "an open ledger task", t) {
+			continue
+		}
+		if len(focus) < 3 {
+			focus = append(focus, id)
+		}
+	}
+	if !s.expect(len(focus) > 0, "what_next ranks something with this much open work", "> 0 tasks", next) {
+		return nil
+	}
+	for _, id := range focus {
+		if _, err := s.call("set_today_focus", map[string]any{"taskId": id, "date": d.ymd()}); err != nil {
+			return err
+		}
+	}
+	if _, err := s.call("start_focus", map[string]any{"taskId": focus[0]}); err != nil {
+		return err
+	}
+	s.l.focus = append(s.l.focus, focusRec{taskID: focus[0], started: time.Now()})
+	view, err = s.call("get_today", map[string]any{"date": d.ymd(), "timezone": s.tz.String()})
+	if err != nil {
+		return err
+	}
+	var gotFocus []string
+	for _, t := range view.objs("todayFocus") {
+		gotFocus = append(gotFocus, t.str("id"))
+	}
+	if diff := diffSets(focus, gotFocus); diff != "" {
+		s.fail("get_today todayFocus equals the tasks set_today_focus added: "+diff, focus, gotFocus)
+	}
+	s.expect(view.str("focusing", "id") == focus[0], "get_today shows the task start_focus started", focus[0], view.str("focusing", "id"))
+
+	free, err := s.call("get_free_time", map[string]any{"from": d.date.Format(time.RFC3339), "to": d.next().Format(time.RFC3339), "timezone": s.tz.String()})
+	if err != nil {
+		return err
+	}
+	busy := s.l.agendaKeys(d.date, d.next())
+	for _, slot := range free.objs("slots") {
+		from, _ := time.Parse(time.RFC3339, slot.str("start"))
+		to, _ := time.Parse(time.RFC3339, slot.str("end"))
+		if overlap := s.l.agendaKeys(from, to); len(overlap) > 0 {
+			s.fail("get_free_time returns a slot that overlaps the ledger's busy time", sortedKeys(busy), slot)
+		}
+	}
+	if _, err := s.call("get_capacity", map[string]any{"from": d.date.Format(time.RFC3339), "to": d.date.AddDate(0, 0, 7).Format(time.RFC3339), "timezone": s.tz.String()}); err != nil {
+		return err
+	}
+	if _, err := s.call("get_today_suggestions", nil); err != nil && !errors.Is(err, errMissing) {
+		return err
+	}
+	return nil
+}
+
+func (s *sim) setReminder(d day) error {
+	ping := time.Now().In(s.tz).Add(20 * time.Second).Truncate(time.Second)
+	out, err := s.call("create_task", map[string]any{"name": "Stretch and drink water", "kind": "reminder", "scheduleAt": ping.Format(time.RFC3339)})
+	if err != nil {
+		return err
+	}
+	s.l.reminder = out.str("task", "id")
+	s.expect(out.str("task", "kind") == "reminder", "create_task kind=reminder makes a reminder", "reminder", out.str("task", "kind"))
+	return nil
+}
+
+// autoSchedule previews, applies and undoes the engine. Apply must place what
+// the preview proposed, the agenda must then show those blocks next to the
+// manual ones, and undo must leave the agenda as it was.
+func (s *sim) autoSchedule(d day) error {
+	horizon := d.date.AddDate(0, 0, futureDays+1)
+	args := map[string]any{"timezone": s.tz.String()}
+	preview, err := s.call("auto_schedule_preview", args)
+	if err != nil {
+		return err
+	}
+	applied, err := s.call("auto_schedule_apply", args)
+	if err != nil {
+		return err
+	}
+	if diff := diffSets(proposedTasks(preview), proposedTasks(applied)); diff != "" {
+		s.fail("auto_schedule_apply places the tasks auto_schedule_preview proposed: "+diff, proposedTasks(preview), proposedTasks(applied))
+	}
+	s.l.engine = nil
+	for _, p := range applied.objs("proposals") {
+		for _, b := range p.objs("blocks") {
+			start, _ := time.Parse(time.RFC3339, b.str("start"))
+			end, _ := time.Parse(time.RFC3339, b.str("end"))
+			s.l.engine = append(s.l.engine, blockRec{taskID: p.str("taskId"), start: start, end: end})
+		}
+	}
+	s.expect(len(s.l.engine) > 0, "auto_schedule_apply places some of the open work", "> 0 blocks", applied.raw("skipped"))
+	if err := s.agendaMatches(d.date, horizon, "after auto_schedule_apply, get_agenda shows the manual blocks plus the applied plan"); err != nil {
+		return err
+	}
+	undo, err := s.call("undo_schedule_preview", nil)
+	if err != nil {
+		return err
+	}
+	s.expect(undo.bool("canUndo"), "undo_schedule_preview can undo the apply", true, undo.raw("canUndo"))
+	s.expect(len(undo.list("remove")) == len(s.l.engine), "undo_schedule_preview removes every applied block", len(s.l.engine), len(undo.list("remove")))
+	if _, err := s.call("undo_schedule", nil); err != nil {
+		return err
+	}
+	s.l.engine = nil
+	return s.agendaMatches(d.date, horizon, "after undo_schedule, get_agenda shows only the manual blocks again")
+}
+
+func proposedTasks(plan obj) []string {
+	var ids []string
+	for _, p := range plan.objs("proposals") {
+		ids = append(ids, p.str("taskId"))
+	}
+	return ids
+}
+
+// ---- End-of-run rows ----
+
+func (s *sim) stopFocus(d day) error {
+	if len(s.l.focus) == 0 {
+		return nil
+	}
+	f := s.l.focus[len(s.l.focus)-1]
+	if wait := 20*time.Second - time.Since(f.started); wait > 0 {
+		time.Sleep(wait)
+	}
+	out, err := s.call("stop_focus", map[string]any{"taskId": f.taskID})
+	if err != nil {
+		return err
+	}
+	s.expect(out.num("task", "actualMinutes") >= 1, "stop_focus adds the elapsed minutes to actualMinutes", ">= 1", out.num("task", "actualMinutes"))
+	return s.focusSessionsMatch(d.date, d.next())
+}
+
+// handleNotifications waits for today's reminder to fire, snoozes it, then
+// works the overdue notifications: one triaged, one deleted, the rest cleared.
+func (s *sim) handleNotifications(d day) error {
+	var ping obj
+	deadline := time.Now().Add(60 * time.Second)
+	for ping == nil && time.Now().Before(deadline) {
+		out, err := s.call("list_notifications", map[string]any{"limit": 100})
+		if err != nil {
+			return err
+		}
+		for _, n := range out.objs("items") {
+			if n.str("category") == "reminder" && n.str("entityId") == s.l.reminder {
+				ping = n
+			}
+		}
+		if ping == nil {
+			time.Sleep(3 * time.Second)
+		}
+	}
+	if !s.expect(ping != nil, "today's reminder fires as a notification within a minute", s.l.reminder, nil) {
+		return nil
+	}
+	before := time.Now()
+	if _, err := s.call("snooze_reminder", map[string]any{"id": ping.str("id"), "minutes": 15}); err != nil {
+		return err
+	}
+	task, err := s.call("get_task", map[string]any{"taskId": s.l.reminder})
+	if err != nil {
+		return err
+	}
+	moved, _ := time.Parse(time.RFC3339, task.str("task", "scheduledOn"))
+	s.expect(moved.After(before.Add(14*time.Minute)) && moved.Before(time.Now().Add(16*time.Minute)),
+		"snooze_reminder moves the reminder 15 minutes out", before.Add(15*time.Minute).Format(time.RFC3339), task.str("task", "scheduledOn"))
+	if _, err := s.call("mark_notification_read", map[string]any{"id": ping.str("id")}); err != nil {
+		return err
+	}
+
+	if s.listed["triage_notification"] || s.listed["delete_notification"] {
+		if err := s.workOverdue(d); err != nil {
+			return err
+		}
+	} else {
+		s.missing["triage_notification"], s.missing["delete_notification"] = true, true
+	}
+	unread, err := s.call("list_notifications", map[string]any{"unread": true, "limit": 100})
+	if err != nil {
+		return err
+	}
+	count, err := s.call("unread_notification_count", nil)
+	if err != nil {
+		return err
+	}
+	s.expect(int(count.num("count")) == len(unread.list("items")), "unread_notification_count equals the unread list", len(unread.list("items")), count.num("count"))
+	if _, err := s.call("clear_notifications", nil); err != nil {
+		return err
+	}
+	count, err = s.call("unread_notification_count", nil)
+	if err != nil {
+		return err
+	}
+	s.expect(count.num("count") == 0, "clear_notifications leaves nothing unread", 0, count.num("count"))
+	return nil
+}
+
+// workOverdue triages one overdue notification and deletes another. The
+// server sweeps a user's overdue work at most every 5 minutes and first
+// sweeps right after registration, so the notifications land about 5 minutes
+// after the account was made.
+func (s *sim) workOverdue(d day) error {
+	overdue := s.overdueIDs(d.ymd())
+	var found []obj
+	for until := s.registered.Add(5*time.Minute + 40*time.Second); len(found) < 2 && time.Now().Before(until); {
+		out, err := s.call("list_notifications", map[string]any{"unread": true, "limit": 100})
+		if err != nil {
+			return err
+		}
+		found = nil
+		for _, n := range out.objs("items") {
+			if n.str("category") == "overdue" && slices.Contains(overdue, n.str("entityId")) {
+				found = append(found, n)
+			}
+		}
+		if len(found) < 2 {
+			time.Sleep(5 * time.Second)
+		}
+	}
+	if !s.expect(len(found) >= 2, "overdue work raises overdue notifications within the 5-minute sweep", ">= 2", len(found)) {
+		return nil
+	}
+	if err := s.triageOverdue(found[0]); err != nil && !errors.Is(err, errMissing) {
+		return err
+	}
+	if err := s.deleteNotification(found[1]); err != nil && !errors.Is(err, errMissing) {
+		return err
+	}
+	return nil
+}
+
+func (s *sim) triageOverdue(n obj) error {
+	taskID := n.str("entityId")
+	before, err := s.call("get_task", map[string]any{"taskId": taskID})
+	if err != nil {
+		return err
+	}
+	if _, err := s.call("triage_notification", map[string]any{"notificationId": n.str("id"), "action": "lower"}); err != nil {
+		return err
+	}
+	after, err := s.call("get_task", map[string]any{"taskId": taskID})
+	if err != nil {
+		return err
+	}
+	s.expect(after.str("task", "priorityLevel") != before.str("task", "priorityLevel"), "triage_notification lower changes the task's priority",
+		"lower than "+before.str("task", "priorityLevel"), after.str("task", "priorityLevel"))
+	return nil
+}
+
+func (s *sim) deleteNotification(n obj) error {
+	if _, err := s.call("delete_notification", map[string]any{"notificationId": n.str("id")}); err != nil {
+		return err
+	}
+	out, err := s.call("list_notifications", map[string]any{"limit": 200})
+	if err != nil {
+		return err
+	}
+	s.expect(!slices.Contains(out.idsAnywhere(), n.str("id")), "delete_notification removes it from list_notifications", "absent", n.str("id"))
+	return nil
+}
+
 // ---- Assertions ----
 
 func (s *sim) assertAgenda(d day) error {
@@ -1191,7 +1690,7 @@ func main() {
 	for i := 0; i < windowDays; i++ {
 		s.days = append(s.days, day{i: i, date: midnight.AddDate(0, 0, i-pastDays)})
 	}
-	s.start = s.days[0].date
+	s.start, s.registered = s.days[0].date, began
 	s.discover()
 	fmt.Printf("account %s, %d tools, %d prompts, window %s .. %s (today %s, %s)\n", email, len(s.listed), len(s.prompts),
 		s.days[0].ymd(), s.days[windowDays-1].ymd(), s.days[todayIndex].ymd(), tz)
@@ -1461,6 +1960,22 @@ func (o obj) objs(path ...string) []obj {
 		}
 	}
 	return out
+}
+
+// firstList is the reply's list of objects whatever its key is (items,
+// versions, sessions), for tools whose reply key is not fixed yet.
+func (o obj) firstList() []obj {
+	keys := make([]string, 0, len(o))
+	for k := range o {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if items := o.objs(k); len(items) > 0 {
+			return items
+		}
+	}
+	return nil
 }
 
 // idsAnywhere collects every "id" in the reply, for list replies whose key
