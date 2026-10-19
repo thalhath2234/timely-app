@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"timely-api/internal/buildinfo"
 
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -111,6 +112,12 @@ func TestMCPServerServesTheCatalog(t *testing.T) {
 	listed, err := client.ListTools(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if listed.CacheScope != "private" {
+		t.Errorf("tools/list cache scope is %q; each account gets its own list", listed.CacheScope)
+	}
+	if info := client.InitializeResult().ServerInfo; info.Title != "Timely" || info.Version != buildinfo.Version {
+		t.Errorf("server info %+v, want title Timely at the build version", info)
 	}
 	catalog := NewCatalog(Deps{})
 	if len(listed.Tools) != len(catalog) {

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sync"
 	"time"
+	"timely-api/internal/buildinfo"
 	"timely-api/internal/features/auth"
 	"timely-api/internal/features/calendar"
 	"timely-api/internal/features/doc"
@@ -114,7 +115,10 @@ func forRequest(plain *mcp.Server, r *http.Request) *mcp.Server {
 
 func newServer(deps Deps, extra string) *mcp.Server {
 	s := &Server{Deps: deps}
-	server := mcp.NewServer(&mcp.Implementation{Name: "timely", Version: "1.0.0"}, &mcp.ServerOptions{
+	server := mcp.NewServer(&mcp.Implementation{Name: "timely", Title: "Timely", Version: buildinfo.Version}, &mcp.ServerOptions{
+		// forRequest answers each account with its own server, so a list
+		// result must not be shared between users.
+		SetCacheable: func(_ context.Context, _ mcp.Request, c *mcp.Cacheable) { c.CacheScope = "private" },
 		Instructions: `Timely personal productivity MCP. Call get_context first.
 
 IDs: usr_, ws_, pr_, tsk_, evt_, doc_, sht_, tst_ (status), lbl_, stg_, cf_, blk_, rr_, view_, ntf_, job_.
