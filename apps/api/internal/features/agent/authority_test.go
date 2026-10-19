@@ -123,6 +123,63 @@ func TestMCPServerServesTheCatalog(t *testing.T) {
 	}
 }
 
+// MCP clients decide from a tool's annotations whether to run it unasked or
+// confirm it first, so the hints must match what the tool does.
+func TestToolAnnotations(t *testing.T) {
+	ctx := context.Background()
+	server, clientSide := mcp.NewInMemoryTransports()
+	session, err := New(Deps{}).Connect(ctx, server, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	client, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, clientSide, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	listed, err := client.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readOnly := map[string]bool{}
+	for _, name := range strings.Fields(`get_profile get_config list_jobs get_job_health list_project_activity
+	list_task_activity export_account export_calendar export_doc export_tasks_csv get_backup_settings list_backups download_backup`) {
+		readOnly[name] = true
+	}
+	destructive := map[string]bool{}
+	for _, name := range strings.Fields(`clear_notifications clear_task_blocks clear_task_recurrence restore_account replace_checklist undo_schedule`) {
+		destructive[name] = true
+	}
+	for _, tool := range listed.Tools {
+		a := tool.Annotations
+		if a == nil {
+			t.Errorf("%s has no annotations", tool.Name)
+			continue
+		}
+		if a.OpenWorldHint == nil || *a.OpenWorldHint {
+			t.Errorf("%s must declare a closed world", tool.Name)
+		}
+		destroys := a.DestructiveHint != nil && *a.DestructiveHint
+		authority, _ := AuthorityOf(tool.Name)
+		if (authority.Access == Read || readOnly[tool.Name]) && !a.ReadOnlyHint {
+			t.Errorf("%s only reads but is not read-only", tool.Name)
+		}
+		if a.ReadOnlyHint && a.DestructiveHint != nil {
+			t.Errorf("%s is read-only but declares a destructive hint", tool.Name)
+		}
+		if !a.ReadOnlyHint && a.DestructiveHint == nil {
+			t.Errorf("%s changes data but does not say whether it destroys any", tool.Name)
+		}
+		if (strings.HasPrefix(tool.Name, "delete_") || destructive[tool.Name]) && !destroys {
+			t.Errorf("%s deletes or overwrites data but is not destructive", tool.Name)
+		}
+		if strings.HasPrefix(tool.Name, "archive_") && destroys {
+			t.Errorf("%s can be undone, so it is not destructive", tool.Name)
+		}
+	}
+}
+
 func TestRegistrationRequiresAuthority(t *testing.T) {
 	handler := func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, any, error) {
 		return nil, nil, nil
@@ -135,6 +192,9 @@ func TestRegistrationRequiresAuthority(t *testing.T) {
 	}
 	if !register(Authority{}) {
 		t.Error("a tool without a declared authority registered")
+	}
+	if !register(Authority{Access: Read}) {
+		t.Error("a chat read registered without a read-only effect")
 	}
 	if !register(reads.reviewed()) {
 		t.Error("a read-only tool registered as needing review")
