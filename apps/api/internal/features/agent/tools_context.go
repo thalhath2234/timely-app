@@ -178,7 +178,7 @@ func (s *Server) getContext(ctx context.Context, req *mcp.CallToolRequest, _ emp
 type rangeIn struct {
 	From     string `json:"from,omitempty" jsonschema:"RFC3339 start, defaults to start of today"`
 	To       string `json:"to,omitempty" jsonschema:"RFC3339 end, defaults to from+1 day"`
-	Timezone string `json:"timezone,omitempty"`
+	Timezone string `json:"timezone,omitempty" jsonschema:"IANA zone for dates without an offset; a timezone saved in Working hours wins"`
 }
 
 // parseRange reads a range in the account's day zone (task.DayLocation), so a
