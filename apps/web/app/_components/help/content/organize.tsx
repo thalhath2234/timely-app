@@ -62,7 +62,6 @@ export const organize: HelpSection = {
               </p>
               <Shot
                 src="task-create"
-                size={{ width: 1440, height: 900 }}
                 alt="The create form set to Task: a title and notes, then grouped rows for Workspace, Project, Status, Priority and Duration beside Deadline, Schedule, Repeat and Start date, More options, and a Create task button."
               />
               <p>
@@ -80,7 +79,6 @@ export const organize: HelpSection = {
             <>
               <Shot
                 src="task-detail"
-                size={{ width: 1440, height: 900 }}
                 alt="A task open in its panel: title, description, Focus Now, Today Focus and Duplicate, checklist and activity on the left; on the right grouped rows for Type, Workspace, Status, Priority, Project, Stage, Blocked by, Duration and Labels, then Dates, Schedule and Auto-schedule."
               />
               <p>
@@ -350,7 +348,7 @@ export const organize: HelpSection = {
             <>
               <Shot
                 src="projects"
-                alt="Projects page with four project cards showing workspace, priority, description, open and done counts, and dates."
+                alt="Projects page: one row per project with workspace, description, stage strip, progress, open and done counts, deadline and priority, and a panel of planned hours and deadlines on the right."
               />
               <p>
                 To start one, choose <strong>Project</strong> in the <strong>+</strong> dialog. Its rows cover{" "}
