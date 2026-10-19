@@ -121,6 +121,10 @@ Switching the APK from the debug key to a release keystore (or changing
 keystores) means users must uninstall the old app once, since Android refuses
 an update signed with a different key.
 
+## Third-party licences
+
+The landing film, the help stills and the week-in-review video use Remotion (`remotion`, `@remotion/player`, `@remotion/web-renderer`). Remotion is source-available under its own licence, free for individuals and for companies of up to three people (https://remotion.dev/license); Timely passes `"free-license"` on that basis and the browser renders the user's own week on their own machine, nothing is sent to a server. A packager redistributing Timely does not need a Remotion licence of their own, but a company adopting the code base at a larger scale should read that page.
+
 ## Troubleshooting
 
 - **`tag vX.Y.Z does not match apps/web/package.json version`**: the tag was

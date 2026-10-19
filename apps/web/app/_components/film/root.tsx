@@ -2,6 +2,8 @@ import { Composition, Folder } from "remotion";
 import { CHAPTERS, FILM_FRAMES } from "./chapters";
 import { TimelyFilm } from "./film";
 import { SAMPLE_REPLAY } from "./replay/plan";
+import { SAMPLE_REVIEW } from "./review/plan";
+import { REVIEW, WeekInReview, reviewFrames } from "./review/review";
 import { REPLAY, ScheduleReplay, replayFrames } from "./replay/replay";
 import { TOUR_FRAMES, TourFilm } from "./tour";
 import { LOOPS } from "./loops";
@@ -19,6 +21,7 @@ export function RemotionRoot() {
       <Composition id="TimelyFilm" component={TimelyFilm} width={WIDTH} height={HEIGHT} fps={FPS} durationInFrames={FILM_FRAMES} />
       <Composition id="FirstRunTour" component={TourFilm} width={WIDTH} height={HEIGHT} fps={FPS} durationInFrames={TOUR_FRAMES} />
       <Composition id="ScheduleReplay" component={ScheduleReplay} width={REPLAY.width} height={REPLAY.height} fps={REPLAY.fps} durationInFrames={replayFrames(SAMPLE_REPLAY)} defaultProps={{ plan: SAMPLE_REPLAY }} />
+      <Composition id="WeekInReview" component={WeekInReview} width={REVIEW.width} height={REVIEW.height} fps={REVIEW.fps} durationInFrames={reviewFrames()} defaultProps={{ plan: SAMPLE_REVIEW }} />
       <Folder name="Chapters">
         {CHAPTERS.map((chapter) => (
           <Composition key={chapter.id} id={`Chapter-${chapter.n}-${chapter.id}`} component={SCENES[chapter.id]} width={WIDTH} height={HEIGHT} fps={FPS} durationInFrames={chapter.frames} />

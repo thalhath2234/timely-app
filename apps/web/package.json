@@ -28,6 +28,7 @@
     "@hookform/resolvers": "^5.4.0",
     "@remotion/google-fonts": "4.0.536",
     "@remotion/player": "4.0.536",
+    "@remotion/web-renderer": "4.0.536",
     "@tanstack/react-query": "^5.100.13",
     "@timely/contract": "workspace:*",
     "@tiptap/core": "^3.31.4",
