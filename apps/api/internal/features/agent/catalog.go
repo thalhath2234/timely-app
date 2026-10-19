@@ -32,6 +32,7 @@ func NewCatalog(deps Deps) Catalog {
 // both MCP and the in-app catalog, and its authority for the chat agent.
 func registerTool[I, O any](s *Server, server *mcp.Server, tool *mcp.Tool, authority Authority, handler func(context.Context, *mcp.CallToolRequest, I) (*mcp.CallToolResult, O, error)) {
 	authority.validate(tool.Name)
+	tool.Annotations = authority.annotations()
 	if server != nil {
 		mcp.AddTool(server, tool, handler)
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -77,6 +78,93 @@ func SheetValues(sh *models.Sheet) ([][][]CellValue, error) {
 	}
 	err := runEngine(engineRequest{Tabs: WorkbookTabs(sh)}, &out)
 	return out.Tabs, err
+}
+
+// TabValues works out one tab (an empty id is the first tab), indexed
+// [row][column]. Only that tab and the tabs its formulas reach are handed to
+// the engine, so an entry on one month of a yearly workbook does not pay for
+// the summaries that read every month.
+func TabValues(sh *models.Sheet, tabID string) ([][]CellValue, error) {
+	tabs := WorkbookTabs(sh)
+	target, err := findTab(tabs, tabID)
+	if err != nil {
+		return nil, err
+	}
+	needed := reachableTabs(tabs, target)
+	subset := make(models.SheetTabs, 0, len(needed))
+	at := 0
+	for i, tab := range tabs {
+		if needed[i] {
+			if i == target {
+				at = len(subset)
+			}
+			subset = append(subset, tab)
+		}
+	}
+	var out struct {
+		Tabs [][][]CellValue `json:"tabs"`
+	}
+	if err := runEngine(engineRequest{Tabs: subset}, &out); err != nil {
+		return nil, err
+	}
+	if at >= len(out.Tabs) {
+		return nil, errors.New("the sheet engine returned no values for the tab")
+	}
+	return out.Tabs[at], nil
+}
+
+// reachableTabs marks start and every tab its formulas reference, directly or
+// through another tab. A tab counts as referenced when its name appears
+// anywhere in a formula, ignoring case as the engine does; a false match only
+// costs time, a missed one would show #REF!.
+func reachableTabs(tabs models.SheetTabs, start int) map[int]bool {
+	names := make([][]string, len(tabs))
+	for i, tab := range tabs {
+		name := matchKey(strings.TrimSpace(tab.Name))
+		if name != "" {
+			names[i] = []string{name, strings.ReplaceAll(name, "'", "''")}
+		}
+	}
+	needed := map[int]bool{start: true}
+	for queue := []int{start}; len(queue) > 0; queue = queue[1:] {
+		formulas := tabFormulas(tabs[queue[0]])
+		for i := range tabs {
+			if needed[i] || names[i] == nil {
+				continue
+			}
+			for _, name := range names[i] {
+				if strings.Contains(formulas, name) {
+					needed[i] = true
+					queue = append(queue, i)
+					break
+				}
+			}
+		}
+	}
+	return needed
+}
+
+// matchKey lowers s for reachableTabs. It drops $, which the engine skips
+// inside a bare tab name (Q$1!A1 reads Q1), and evens out where the engine's
+// full Unicode lowering differs from strings.ToLower: the engine lowers ΟΔΌΣ
+// to οδός, not οδόσ, and İzmir to i̇zmir (i and a combining dot), not izmir.
+func matchKey(s string) string {
+	return matchFold.Replace(strings.ToLower(s))
+}
+
+var matchFold = strings.NewReplacer("$", "", "ς", "σ", "\u0307", "")
+
+func tabFormulas(tab models.SheetTab) string {
+	var b strings.Builder
+	for _, row := range tab.Rows {
+		for _, value := range row.Cells {
+			if strings.HasPrefix(strings.TrimSpace(value), "=") {
+				b.WriteString(matchKey(value))
+				b.WriteByte('\n')
+			}
+		}
+	}
+	return b.String()
 }
 
 // EvaluateFormula works out formula on one tab (an empty id is the first tab)

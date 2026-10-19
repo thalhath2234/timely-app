@@ -178,17 +178,22 @@ func (s *Server) getContext(ctx context.Context, req *mcp.CallToolRequest, _ emp
 type rangeIn struct {
 	From     string `json:"from,omitempty" jsonschema:"RFC3339 start, defaults to start of today"`
 	To       string `json:"to,omitempty" jsonschema:"RFC3339 end, defaults to from+1 day"`
-	Timezone string `json:"timezone,omitempty"`
+	Timezone string `json:"timezone,omitempty" jsonschema:"IANA zone for dates without an offset; a timezone saved in Working hours wins"`
 }
 
-func (s *Server) parseRange(ctx context.Context, in rangeIn, days int) (time.Time, time.Time, *time.Location, error) {
-	loc := location(ctx, in.Timezone)
-	now := time.Now().In(loc)
-	from := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+// parseRange reads a range in the account's day zone (task.DayLocation), so a
+// bare date is the same day get_today and Overdue mean.
+func (s *Server) parseRange(ctx context.Context, uid string, in rangeIn, days int) (time.Time, time.Time, task.Today, error) {
+	today, err := s.today(ctx, uid, in.Timezone)
+	if err != nil {
+		return time.Time{}, time.Time{}, today, err
+	}
+	loc := today.Location()
+	from := today.Start()
 	if in.From != "" {
 		parsed, err := recurrence.ParseTimeIn(in.From, loc)
 		if err != nil {
-			return time.Time{}, time.Time{}, loc, fmt.Errorf("invalid from")
+			return time.Time{}, time.Time{}, today, fmt.Errorf("invalid from")
 		}
 		from = parsed
 	}
@@ -196,11 +201,28 @@ func (s *Server) parseRange(ctx context.Context, in rangeIn, days int) (time.Tim
 	if in.To != "" {
 		parsed, err := recurrence.ParseTimeIn(in.To, loc)
 		if err != nil {
-			return time.Time{}, time.Time{}, loc, fmt.Errorf("invalid to")
+			return time.Time{}, time.Time{}, today, fmt.Errorf("invalid to")
 		}
 		to = parsed
 	}
-	return from, to, loc, nil
+	return from, to, today, nil
+}
+
+// today is the account's date and day-boundary zone: saved Working hours,
+// then the client's zone, then the server's.
+func (s *Server) today(ctx context.Context, uid, timezone string) (task.Today, error) {
+	clientZone := zone(ctx, timezone)
+	var lookup task.HoursLookup
+	if s.Schedule != nil {
+		lookup = func(id string) (models.WorkingHours, error) {
+			hours, err := s.Schedule.GetWorkingHours(id, clientZone)
+			if err != nil {
+				return models.WorkingHours{}, err
+			}
+			return hours.WorkingHours, nil
+		}
+	}
+	return task.TodayForUser(lookup, uid, clientZone, time.Now())
 }
 
 func (s *Server) getAgenda(ctx context.Context, req *mcp.CallToolRequest, in rangeIn) (*mcp.CallToolResult, any, error) {
@@ -208,28 +230,16 @@ func (s *Server) getAgenda(ctx context.Context, req *mcp.CallToolRequest, in ran
 	if err != nil {
 		return fail(err)
 	}
-	from, to, loc, err := s.parseRange(ctx, in, 1)
+	from, to, today, err := s.parseRange(ctx, uid, in, 1)
 	if err != nil {
 		return fail(err)
 	}
+	loc := today.Location()
 	cal, err := s.Calendar.Range(uid, from, to)
 	if err != nil {
 		return fail(err)
 	}
 	tasks, err := s.Tasks.List(uid, task.TaskFilter{Limit: 500})
-	if err != nil {
-		return fail(err)
-	}
-	// Overdue and Unscheduled are judged on today in the Working hours
-	// timezone, like /today and what_next; the range zone only frames items.
-	clientZone := zone(ctx, in.Timezone)
-	today, err := task.TodayForUser(func(id string) (models.WorkingHours, error) {
-		hours, err := s.Schedule.GetWorkingHours(id, clientZone)
-		if err != nil {
-			return models.WorkingHours{}, err
-		}
-		return hours.WorkingHours, nil
-	}, uid, clientZone, time.Now())
 	if err != nil {
 		return fail(err)
 	}
@@ -288,10 +298,11 @@ func (s *Server) getFreeTime(ctx context.Context, req *mcp.CallToolRequest, in r
 	if err != nil {
 		return fail(err)
 	}
-	from, to, loc, err := s.parseRange(ctx, in, 1)
+	from, to, today, err := s.parseRange(ctx, uid, in, 1)
 	if err != nil {
 		return fail(err)
 	}
+	loc := today.Location()
 	free, err := s.Schedule.FreeTime(uid, from, to, models.ZoneName(loc))
 	if err != nil {
 		return fail(err)
@@ -353,10 +364,11 @@ func (s *Server) getCalendar(ctx context.Context, req *mcp.CallToolRequest, in r
 	if err != nil {
 		return fail(err)
 	}
-	from, to, loc, err := s.parseRange(ctx, in, 7)
+	from, to, today, err := s.parseRange(ctx, uid, in, 7)
 	if err != nil {
 		return fail(err)
 	}
+	loc := today.Location()
 	cal, err := s.Calendar.Range(uid, from, to)
 	if err != nil {
 		return fail(err)

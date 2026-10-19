@@ -18,10 +18,10 @@ import (
 // are. mark_notification_read and update_sheet_cells are argument-dependent but
 // need one for empty arguments, so they are listed in argumentCases instead.
 var alwaysReviewed = toolSet(`add_sheet_rows auto_schedule_apply bulk_update_tasks clear_task_blocks clear_task_recurrence
-	delete_backup delete_block delete_checklist_item delete_custom_field delete_doc delete_event delete_label delete_project
+	delete_backup delete_block delete_checklist_item delete_custom_field delete_doc delete_event delete_label delete_notification delete_project
 	delete_sheet delete_sheet_column delete_sheet_rows delete_sheet_tab delete_sheet_template delete_stage delete_status
 	delete_task delete_task_view delete_workspace edit_event_occurrence edit_task_occurrence set_task_recurrence
-	split_event_series split_task_series undo_schedule update_notification_settings update_working_hours`)
+	split_event_series split_task_series undo_schedule update_notification_settings update_working_hours restore_doc_version`)
 
 // Tools whose outcome depends on the arguments. Every tool not listed here
 // returns the same outcome for every argument set.

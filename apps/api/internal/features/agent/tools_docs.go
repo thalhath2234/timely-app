@@ -1057,6 +1057,26 @@ type sheetValuesIn struct {
 	Formula string `json:"formula,omitempty" jsonschema:"work out one formula without saving it, e.g. =SUMIF(C2:C,\"Groceries\",H2:H) or =SUM(January!H2:H); references without a tab read tabId's tab"`
 }
 
+// sheetValuesFor works out the whole workbook, or only tabID and the tabs it
+// reads when one tab is asked for, indexed like WorkbookTabs.
+func sheetValuesFor(sh *models.Sheet, tabID string) ([][][]sheet.CellValue, error) {
+	if tabID == "" {
+		return sheet.SheetValues(sh)
+	}
+	one, err := sheet.TabValues(sh, tabID)
+	if err != nil {
+		return nil, err
+	}
+	tabs := sheet.WorkbookTabs(sh)
+	values := make([][][]sheet.CellValue, len(tabs))
+	for t, tab := range tabs {
+		if tab.ID == tabID {
+			values[t] = one
+		}
+	}
+	return values, nil
+}
+
 // getSheetValues answers questions about a sheet's data with the values the
 // apps show. It only reads; get_sheet still returns the raw grid.
 func (s *Server) getSheetValues(ctx context.Context, req *mcp.CallToolRequest, in sheetValuesIn) (*mcp.CallToolResult, any, error) {
@@ -1080,7 +1100,7 @@ func (s *Server) getSheetValues(ctx context.Context, req *mcp.CallToolRequest, i
 		}
 		return reply(in.Formula+" = "+sheetValueText(value), map[string]any{"formula": in.Formula, "value": value})
 	}
-	values, err := sheet.SheetValues(sh)
+	values, err := sheetValuesFor(sh, in.TabID)
 	if err != nil {
 		return fail(err)
 	}
@@ -1161,4 +1181,80 @@ func sheetValueText(value sheet.CellValue) string {
 		}
 	}
 	return fmt.Sprint(value)
+}
+
+type docIDIn struct {
+	DocID string `json:"docId"`
+}
+
+type dailyNoteIn struct {
+	Date     string `json:"date,omitempty" jsonschema:"YYYY-MM-DD; defaults to today in the account's timezone"`
+	Timezone string `json:"timezone,omitempty"`
+}
+
+func (s *Server) openDailyNote(ctx context.Context, req *mcp.CallToolRequest, in dailyNoteIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	date := strings.TrimSpace(in.Date)
+	if date == "" {
+		today, err := s.today(ctx, uid, in.Timezone)
+		if err != nil {
+			return fail(err)
+		}
+		date = today.Date()
+	}
+	d, created, err := s.Docs.Daily(uid, doc.DailyRequest{Date: date})
+	if err != nil {
+		return fail(err)
+	}
+	payload := docPayload(d)
+	payload["created"] = created
+	verb := "opened"
+	if created {
+		verb = "created"
+	}
+	return reply(fmt.Sprintf("%s daily note %s", verb, d.Title), payload)
+}
+
+func (s *Server) listDocVersions(ctx context.Context, req *mcp.CallToolRequest, in docIDIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	versions, err := s.Docs.Versions(uid, in.DocID)
+	if err != nil {
+		return fail(err)
+	}
+	return reply(fmt.Sprintf("%d versions", len(versions)), map[string]any{"versions": versions})
+}
+
+type restoreDocVersionIn struct {
+	DocID     string `json:"docId"`
+	VersionID string `json:"versionId"`
+}
+
+func (s *Server) restoreDocVersion(ctx context.Context, req *mcp.CallToolRequest, in restoreDocVersionIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	d, err := s.Docs.RestoreVersion(uid, in.DocID, in.VersionID)
+	if err != nil {
+		return fail(err)
+	}
+	return reply("restored a version of "+d.Title, docPayload(d))
+}
+
+func (s *Server) getDocBacklinks(ctx context.Context, req *mcp.CallToolRequest, in docIDIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	links, err := s.Docs.Backlinks(uid, in.DocID)
+	if err != nil {
+		return fail(err)
+	}
+	return reply(fmt.Sprintf("%d docs link here", len(links)), map[string]any{"backlinks": links})
 }

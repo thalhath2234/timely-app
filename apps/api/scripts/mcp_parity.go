@@ -5,15 +5,22 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -38,11 +45,26 @@ type runner struct {
 	called  map[string]bool
 	fails   []string
 	notes   []string
+	check   *readOnlyCheck
 }
 
 func main() {
+	readOnly := flag.Bool("read-only", false, "also check that every tool annotated readOnlyHint leaves the DB_SCHEMA tables unchanged")
+	flag.Parse()
+
 	ctx := context.Background()
 	base := getenv("TIMELY_API", "http://localhost:8081")
+	if err := refuseUserAPI(base); err != nil {
+		fatal(err)
+	}
+	var check *readOnlyCheck
+	if *readOnly {
+		var err error
+		if check, err = openReadOnlyCheck(ctx); err != nil {
+			fatal(err)
+		}
+		defer check.db.Close()
+	}
 	email := fmt.Sprintf("mcp-parity-%d@example.com", time.Now().Unix())
 	password := "parity-pass-1"
 	name := "MCP Parity"
@@ -95,7 +117,12 @@ func main() {
 	}
 	defer session.Close()
 
-	r := &runner{ctx: ctx, session: session, called: map[string]bool{}}
+	if check != nil {
+		if err := check.prepare(session, email); err != nil {
+			fatal(err)
+		}
+	}
+	r := &runner{ctx: ctx, session: session, called: map[string]bool{}, check: check}
 	r.exercise(email)
 	r.report(session)
 }
@@ -190,16 +217,17 @@ func (r *runner) exercise(email string) {
 		"name": "Clear this block", "workspaceId": wsID, "duration": 15, "projectId": projectID,
 	})
 	sideID := str(side, "task", "id")
-	r.call("capture_inbox_item", map[string]any{"name": "Call the printer", "workspaceId": wsID})
+	r.call("capture_inbox_item", map[string]any{"name": "Call the printer"})
 	inbox := r.call("list_inbox", nil)
 	inboxID := firstID(inbox, "tasks")
 	r.call("clarify_inbox_item", map[string]any{"taskId": inboxID, "kind": "task", "workspaceId": wsID, "duration": 20, "projectId": projectID})
 	r.call("create_task", map[string]any{
-		"name": "Standup ping", "kind": "reminder", "duration": 0, "scheduleAt": now.Add(30 * time.Second).Format(time.RFC3339),
+		"name": "Standup ping", "kind": "reminder", "duration": 0, "scheduleAt": time.Now().UTC().Add(30 * time.Second).Format(time.RFC3339),
 	})
 	r.call("list_tasks", map[string]any{"workspaceId": wsID, "text": "parity"})
 	r.call("get_task", map[string]any{"taskId": workID})
 	r.call("update_task", map[string]any{"taskId": workID, "name": "Write the parity notes"})
+	r.call("pick_tasks", map[string]any{"description": "the parity notes"})
 	r.call("bulk_update_tasks", map[string]any{"ids": []string{workID, reviewID}, "update": map[string]any{"priorityLevel": "High"}})
 	r.call("move_task_to_status", map[string]any{"taskId": workID, "statusId": doingID})
 	r.call("move_task_to_stage", map[string]any{"taskId": reviewID, "stageId": str(stageB, "id")})
@@ -225,6 +253,7 @@ func (r *runner) exercise(email string) {
 	r.call("start_focus", map[string]any{"taskId": workID})
 	r.call("pause_focus", map[string]any{"taskId": workID})
 	r.call("stop_focus", map[string]any{"taskId": workID})
+	r.call("list_focus_sessions", map[string]any{"from": yesterday, "to": today, "timezone": "UTC"})
 	r.call("set_today_focus", map[string]any{"taskId": workID, "date": today})
 	r.call("get_today", map[string]any{"date": today, "timezone": "UTC"})
 	dupTask := r.call("duplicate_task", map[string]any{"taskId": workID})
@@ -278,6 +307,7 @@ func (r *runner) exercise(email string) {
 	r.call("pin_task", map[string]any{"taskId": workID, "locked": true})
 	r.call("auto_schedule_preview", map[string]any{"timezone": "UTC"})
 	r.call("auto_schedule_apply", map[string]any{"timezone": "UTC"})
+	r.call("undo_schedule_preview", nil)
 	r.call("undo_schedule", nil)
 	r.call("reschedule_urgent", map[string]any{"taskId": overdueID})
 
@@ -311,6 +341,8 @@ func (r *runner) exercise(email string) {
 	r.call("get_agenda", map[string]any{"from": now.Format(time.RFC3339), "to": weekOut, "timezone": "UTC"})
 	r.call("get_free_time", map[string]any{"from": now.Format(time.RFC3339), "to": weekOut, "timezone": "UTC"})
 	r.call("what_next", nil)
+	r.call("get_today_suggestions", map[string]any{"timezone": "UTC"})
+	r.call("list_stale_work", nil)
 	r.call("search", map[string]any{"query": "parity", "limit": 10})
 	if msg := r.callAllow("semantic_search", map[string]any{"query": "notes about the parity test", "limit": 5}, "not configured"); msg != "" {
 		r.notes = append(r.notes, "semantic_search: "+msg)
@@ -326,6 +358,17 @@ func (r *runner) exercise(email string) {
 	r.call("get_doc", map[string]any{"docId": docID})
 	r.call("update_doc", map[string]any{"docId": docID, "title": "Parity notes", "isFavorite": true})
 	r.call("append_to_doc", map[string]any{"docId": docID, "markdown": "\n\nAppended by the harness."})
+	r.call("add_3d_model", map[string]any{"docId": docID, "name": "crate", "parts": []map[string]any{
+		{"shape": "box", "center": []float64{0, 0, 0.5}, "size": []float64{1, 1, 1}, "color": "#8B5A2B"},
+	}})
+	if older := olderVersion(r.call("list_doc_versions", map[string]any{"docId": docID})); older != "" {
+		r.call("restore_doc_version", map[string]any{"docId": docID, "versionId": older})
+	} else {
+		r.fail("restore_doc_version", "list_doc_versions had no earlier version")
+	}
+	r.call("open_daily_note", map[string]any{"date": today})
+	r.call("create_doc", map[string]any{"title": "Linking page", "workspaceId": wsID, "markdown": "See [[Parity notes]]."})
+	r.call("get_doc_backlinks", map[string]any{"docId": docID})
 	r.call("archive_doc", map[string]any{"docId": str(child, "id"), "archived": true})
 	r.call("archive_doc", map[string]any{"docId": str(child, "id"), "archived": false})
 	r.call("export_doc", map[string]any{"docId": docID, "format": "markdown"})
@@ -387,12 +430,12 @@ func (r *runner) exercise(email string) {
 	r.call("update_notification_settings", map[string]any{"reminders": true, "timezone": "UTC", "quietHoursStart": "22:00", "quietHoursEnd": "07:00"})
 	r.call("list_notifications", map[string]any{"limit": 20})
 	r.call("unread_notification_count", nil)
-	notes := r.call("list_notifications", map[string]any{"unread": true, "limit": 20})
-	ntfID := firstID(notes, "items")
-	if ntfID == "" {
-		time.Sleep(12 * time.Second)
-		notes = r.call("list_notifications", map[string]any{"unread": true, "limit": 20})
-		ntfID = firstID(notes, "items")
+	reminder := func() string {
+		return notificationOf(r.call("list_notifications", map[string]any{"unread": true, "limit": 20}), "reminder")
+	}
+	ntfID := reminder()
+	for deadline := time.Now().Add(90 * time.Second); ntfID == "" && time.Now().Before(deadline); ntfID = reminder() {
+		time.Sleep(3 * time.Second)
 	}
 	if ntfID != "" {
 		r.call("snooze_reminder", map[string]any{"id": ntfID, "minutes": 15})
@@ -400,6 +443,19 @@ func (r *runner) exercise(email string) {
 	} else {
 		r.fail("snooze_reminder", "no notification was produced")
 		r.call("mark_notification_read", map[string]any{})
+	}
+	if overdueNtf := notificationOf(r.call("list_notifications", map[string]any{"limit": 50}), "overdue"); overdueNtf != "" {
+		r.call("triage_notification", map[string]any{"notificationId": overdueNtf, "action": "extend"})
+	} else if ntfID != "" {
+		r.callAllow("triage_notification", map[string]any{"notificationId": ntfID, "action": "extend"}, "no next step")
+		r.notes = append(r.notes, "triage_notification: no overdue notification yet, so a reminder's refusal was checked")
+	} else {
+		r.fail("triage_notification", "no notification to triage")
+	}
+	if ntfID != "" {
+		r.call("delete_notification", map[string]any{"notificationId": ntfID})
+	} else {
+		r.fail("delete_notification", "no notification to delete")
 	}
 	r.call("list_jobs", map[string]any{"limit": 20})
 	r.call("get_job_health", nil)
@@ -412,6 +468,16 @@ func (r *runner) exercise(email string) {
 		r.callAllow("retry_job", map[string]any{"id": jobID}, "only failed or cancelled")
 	}
 	r.call("clear_notifications", nil)
+
+	r.call("add_habit", map[string]any{"name": "Stretch"})
+	r.call("check_habit", map[string]any{"habit": "Stretch", "day": today})
+	r.call("list_habits", map[string]any{"today": today})
+	r.call("update_habit", map[string]any{"habit": "Stretch", "action": "rename", "title": "Stretch daily"})
+	r.call("set_goal", map[string]any{"action": "add", "title": "Ship the parity run"})
+	r.call("list_goals", nil)
+	r.call("get_goal_progress", nil)
+	r.call("set_goal", map[string]any{"action": "remove", "goal": "Ship the parity run"})
+	r.call("update_habit", map[string]any{"habit": "Stretch daily", "action": "remove"})
 
 	r.call("get_backup_settings", nil)
 	r.call("update_backup_settings", map[string]any{"enabled": true, "intervalDays": 7, "retentionCount": 3})
@@ -470,6 +536,16 @@ func (r *runner) invoke(name string, args map[string]any) (map[string]any, strin
 	if args == nil {
 		args = map[string]any{}
 	}
+	if r.check != nil && r.check.readOnly[name] {
+		var out map[string]any
+		var errText string
+		r.check.measure(name, func() { out, errText = r.callTool(name, args) })
+		return out, errText
+	}
+	return r.callTool(name, args)
+}
+
+func (r *runner) callTool(name string, args map[string]any) (map[string]any, string) {
 	res, err := r.session.CallTool(r.ctx, &mcp.CallToolParams{Name: name, Arguments: args})
 	if err != nil {
 		return nil, err.Error()
@@ -493,6 +569,18 @@ func (r *runner) invoke(name string, args map[string]any) (map[string]any, strin
 }
 
 func (r *runner) report(session *mcp.ClientSession) {
+	prompts, err := session.ListPrompts(r.ctx, nil)
+	if err != nil {
+		r.fails = append(r.fails, "list prompts: "+err.Error())
+	} else {
+		for _, p := range prompts.Prompts {
+			if got, err := session.GetPrompt(r.ctx, &mcp.GetPromptParams{Name: p.Name}); err != nil || len(got.Messages) == 0 {
+				r.fails = append(r.fails, fmt.Sprintf("prompt %s: %v", p.Name, err))
+				continue
+			}
+			fmt.Println("ok prompt", p.Name)
+		}
+	}
 	listed, err := session.ListTools(r.ctx, nil)
 	if err != nil {
 		r.fails = append(r.fails, "list tools: "+err.Error())
@@ -510,6 +598,11 @@ func (r *runner) report(session *mcp.ClientSession) {
 	}
 	for _, note := range r.notes {
 		fmt.Println("note", note)
+	}
+	if r.check != nil {
+		if bad := r.check.report(); bad != "" {
+			r.fails = append(r.fails, bad)
+		}
 	}
 	if len(r.fails) > 0 {
 		fmt.Fprintf(os.Stderr, "\n%d failures:\n", len(r.fails))
@@ -571,6 +664,27 @@ func sliceAt(m map[string]any, path ...string) []any {
 	return items
 }
 
+// olderVersion is a doc version other than the one matching the doc now.
+func olderVersion(versions map[string]any) string {
+	for _, v := range sliceAt(versions, "versions") {
+		obj, _ := v.(map[string]any)
+		if current, _ := obj["current"].(bool); !current {
+			return str(obj, "id")
+		}
+	}
+	return ""
+}
+
+func notificationOf(list map[string]any, category string) string {
+	for _, item := range sliceAt(list, "items") {
+		obj, _ := item.(map[string]any)
+		if str(obj, "category") == category {
+			return str(obj, "id")
+		}
+	}
+	return ""
+}
+
 func eventOccurrence(cal map[string]any, eventID string) string {
 	for _, item := range sliceAt(cal, "items") {
 		obj, _ := item.(map[string]any)
@@ -594,7 +708,349 @@ func getenv(key, fallback string) string {
 	return fallback
 }
 
+// refuseUserAPI rejects a TIMELY_API that is not http(s)://host[:port] or
+// whose port, however it is spelled, is 8080: the person's own API.
+func refuseUserAPI(base string) error {
+	u, err := url.Parse(base)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return fmt.Errorf("refusing TIMELY_API %q: want http(s)://host[:port]", base)
+	}
+	port := u.Port()
+	if port == "" {
+		port = map[string]string{"http": "80", "https": "443"}[u.Scheme]
+	}
+	if n, err := strconv.Atoi(port); err != nil || n == 8080 {
+		return fmt.Errorf("refusing TIMELY_API %q: the parity harness never runs against :8080", base)
+	}
+	return nil
+}
+
 func fatal(err error) {
 	fmt.Fprintln(os.Stderr, err)
 	os.Exit(1)
+}
+
+const (
+	controlWindow    = time.Second
+	readOnlyAttempts = 4
+)
+
+// verdict is ordered by severity: a tool called several times keeps its worst.
+type verdict int
+
+const (
+	clean verdict = iota
+	allowed
+	inconclusive
+	writes
+)
+
+func (v verdict) String() string {
+	return [...]string{"CLEAN", "ALLOWED", "INCONCLUSIVE", "WRITES"}[v]
+}
+
+type allowance struct {
+	tables []string
+	reason string
+}
+
+var readOnlyAllowed = map[string]allowance{
+	"list_notifications":        {[]string{"notifications"}, "settles overdue and missed alerts of tasks finished since (notify.Service.List)"},
+	"unread_notification_count": {[]string{"notifications"}, "settles overdue and missed alerts of tasks finished since (notify.Service.UnreadCount)"},
+}
+
+// workerTables are the tables the job worker and its sweep (cmd/main.go
+// jobWorker) write on their own clock, each with its writer. A change there
+// counts against a tool only when the control windows on both sides of the
+// call stayed still, and a write that a re-measure does not repeat was the
+// worker's. Parity starts no Agent run, so the chat runner stays idle and
+// every other table has no background writer: any change from the call to
+// the end of the after window is the call's, including a write it leaves to
+// a goroutine.
+var workerTables = map[string]string{
+	"jobs":                    "the worker claims, finishes and recovers jobs; the notify and backup sweeps enqueue them",
+	"notifications":           "notify job handlers, sweepDismissed, and the triage and briefing goroutines",
+	"embeddings":              "index and reindex jobs",
+	"backup_files":            "scheduled backup jobs",
+	"backup_settings":         "scheduled backup jobs move next_run_at",
+	"decision_log":            "decide.Ask from triage, briefing and smart alerts; decide.Prune in the sweep",
+	"push_devices":            "push jobs drop tokens Expo rejects",
+	"agent_provider_settings": "reindex jobs record their progress; a background decide call marks a rejected key",
+}
+
+type tableSum struct{ rows, hash int64 }
+
+type fingerprint map[string]tableSum
+
+type outcome struct {
+	verdict verdict
+	tables  []string
+}
+
+type readOnlyCheck struct {
+	ctx      context.Context
+	db       *sql.DB
+	schema   string
+	query    string
+	readOnly map[string]bool
+	results  map[string]outcome
+}
+
+func openReadOnlyCheck(ctx context.Context) (*readOnlyCheck, error) {
+	schema := strings.TrimSpace(os.Getenv("DB_SCHEMA"))
+	if schema == "" || schema == "public" {
+		return nil, fmt.Errorf("refusing DB_SCHEMA %q: the read-only check needs the API's own schema, never public", schema)
+	}
+	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+		os.Getenv("DB_HOST"), os.Getenv("DB_PORT"), os.Getenv("DB_USER"),
+		os.Getenv("DB_PASSWORD"), os.Getenv("DB_NAME"), os.Getenv("DB_SSLMODE"))
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	rows, err := db.QueryContext(ctx, `SELECT table_name FROM information_schema.tables
+		WHERE table_schema = $1 AND table_type = 'BASE TABLE' AND table_name <> 'goose_db_version'
+		ORDER BY table_name`, schema)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	defer rows.Close()
+	var parts []string
+	for rows.Next() {
+		var table string
+		if err := rows.Scan(&table); err != nil {
+			db.Close()
+			return nil, err
+		}
+		parts = append(parts, fmt.Sprintf(
+			"SELECT %s, count(*), coalesce(sum(hashtext((to_jsonb(t) - 'last_used_at')::text)), 0) FROM %s t",
+			quoteLiteral(table), pgx.Identifier{schema, table}.Sanitize()))
+	}
+	if err := rows.Err(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if len(parts) == 0 {
+		db.Close()
+		return nil, fmt.Errorf("schema %s has no tables", schema)
+	}
+	return &readOnlyCheck{
+		ctx: ctx, db: db, schema: schema,
+		query:   strings.Join(parts, "\nUNION ALL\n"),
+		results: map[string]outcome{},
+	}, nil
+}
+
+// prepare reads the read-only set from the server's annotations and confirms
+// the API under test writes to this schema, so a wrong DB_SCHEMA cannot pass
+// every tool as CLEAN.
+func (c *readOnlyCheck) prepare(session *mcp.ClientSession, email string) error {
+	var seen int
+	err := c.db.QueryRowContext(c.ctx,
+		fmt.Sprintf("SELECT count(*) FROM %s WHERE email = $1", pgx.Identifier{c.schema, "users"}.Sanitize()), email).Scan(&seen)
+	if err != nil {
+		return err
+	}
+	if seen != 1 {
+		return fmt.Errorf("the account just registered is not in schema %s: is the API on TIMELY_API using DB_SCHEMA=%s?", c.schema, c.schema)
+	}
+	c.readOnly = map[string]bool{}
+	for tool, err := range session.Tools(c.ctx, nil) {
+		if err != nil {
+			return err
+		}
+		if tool.Annotations != nil && tool.Annotations.ReadOnlyHint {
+			c.readOnly[tool.Name] = true
+		}
+	}
+	if len(c.readOnly) == 0 {
+		return fmt.Errorf("tools/list annotated no tool readOnlyHint")
+	}
+	return nil
+}
+
+func (c *readOnlyCheck) snapshot() fingerprint {
+	rows, err := c.db.QueryContext(c.ctx, c.query)
+	if err != nil {
+		fatal(err)
+	}
+	defer rows.Close()
+	out := fingerprint{}
+	for rows.Next() {
+		var table string
+		var sum tableSum
+		if err := rows.Scan(&table, &sum.rows, &sum.hash); err != nil {
+			fatal(err)
+		}
+		out[table] = sum
+	}
+	if err := rows.Err(); err != nil {
+		fatal(err)
+	}
+	return out
+}
+
+func changed(from, to fingerprint) map[string]bool {
+	out := map[string]bool{}
+	for table, sum := range to {
+		if from[table] != sum {
+			out[table] = true
+		}
+	}
+	return out
+}
+
+func (c *readOnlyCheck) measure(tool string, call func()) {
+	var got map[string]verdict
+	workerWrote := map[string]bool{}
+	for range readOnlyAttempts {
+		f0 := c.snapshot()
+		time.Sleep(controlWindow)
+		f1 := c.snapshot()
+		call()
+		f2 := c.snapshot()
+		time.Sleep(controlWindow)
+		f3 := c.snapshot()
+		next := classify(tool, changed(f0, f1), changed(f1, f2), changed(f2, f3))
+		for table, v := range next {
+			if _, worker := workerTables[table]; worker && v == writes {
+				workerWrote[table] = true
+			}
+		}
+		got = merge(got, next)
+		if settled(got) {
+			break
+		}
+	}
+	var retried []string
+	for table := range workerWrote {
+		if got[table] < inconclusive {
+			retried = append(retried, fmt.Sprintf("%s (%s)", table, workerTables[table]))
+		}
+	}
+	if len(retried) > 0 {
+		slices.Sort(retried)
+		fmt.Printf("read-only retried %s: changed during one call but not on a re-measure: %s\n", tool, strings.Join(retried, ", "))
+	}
+	o := worst(got)
+	if prev, ok := c.results[tool]; !ok || o.verdict > prev.verdict {
+		c.results[tool] = o
+	}
+}
+
+// classify judges one measurement: the verdict of every table that was not
+// CLEAN, given the tables that changed in the control window before the call,
+// across the call, and in the control window after it.
+func classify(tool string, before, during, after map[string]bool) map[string]verdict {
+	judge := func(table string) verdict {
+		_, worker := workerTables[table]
+		switch {
+		case during[table] && slices.Contains(readOnlyAllowed[tool].tables, table):
+			return allowed
+		case worker && !during[table]:
+			return clean
+		case worker && (before[table] || after[table]), !worker && before[table]:
+			return inconclusive
+		default:
+			return writes
+		}
+	}
+	out := map[string]verdict{}
+	for _, set := range []map[string]bool{during, after} {
+		for table := range set {
+			if v := judge(table); v != clean {
+				out[table] = v
+			}
+		}
+	}
+	return out
+}
+
+// merge folds a re-measure of the same call into the verdicts so far. A worker
+// table keeps its best verdict, since one quiet measurement shows the change
+// was the worker's. Any other table keeps a write once seen, and otherwise
+// its best verdict, so it stays INCONCLUSIVE only when every attempt was.
+func merge(got, next map[string]verdict) map[string]verdict {
+	if got == nil {
+		return next
+	}
+	out := map[string]verdict{}
+	for _, set := range []map[string]verdict{got, next} {
+		for table := range set {
+			a, b := got[table], next[table]
+			v := min(a, b)
+			if _, worker := workerTables[table]; !worker && max(a, b) == writes {
+				v = writes
+			}
+			if v != clean {
+				out[table] = v
+			}
+		}
+	}
+	return out
+}
+
+// settled is true when no verdict calls for a re-measure: a table that is not
+// a worker table WRITES, which is final, or no table is INCONCLUSIVE and no
+// worker table WRITES.
+func settled(got map[string]verdict) bool {
+	again := false
+	for table, v := range got {
+		_, worker := workerTables[table]
+		if !worker && v == writes {
+			return true
+		}
+		if v == inconclusive || worker && v == writes {
+			again = true
+		}
+	}
+	return !again
+}
+
+func worst(got map[string]verdict) outcome {
+	var o outcome
+	for _, v := range got {
+		o.verdict = max(o.verdict, v)
+	}
+	for table, v := range got {
+		if v == o.verdict {
+			o.tables = append(o.tables, table)
+		}
+	}
+	slices.Sort(o.tables)
+	return o
+}
+
+// report prints every tool that was not CLEAN and returns a failure when any
+// wrote or stayed unresolved.
+func (c *readOnlyCheck) report() string {
+	tools := make([]string, 0, len(c.results))
+	for tool := range c.results {
+		tools = append(tools, tool)
+	}
+	slices.Sort(tools)
+	counts := map[verdict]int{}
+	for _, tool := range tools {
+		o := c.results[tool]
+		counts[o.verdict]++
+		switch o.verdict {
+		case clean:
+		case allowed:
+			fmt.Printf("read-only %s %s: %s (%s)\n", o.verdict, tool, strings.Join(o.tables, ", "), readOnlyAllowed[tool].reason)
+		default:
+			fmt.Printf("read-only %s %s: %s\n", o.verdict, tool, strings.Join(o.tables, ", "))
+		}
+	}
+	fmt.Printf("read-only check: tools checked %d, clean %d, allowed %d, writes %d, inconclusive %d\n",
+		len(tools), counts[clean], counts[allowed], counts[writes], counts[inconclusive])
+	if counts[writes]+counts[inconclusive] > 0 {
+		return fmt.Sprintf("read-only check: %d writes, %d inconclusive", counts[writes], counts[inconclusive])
+	}
+	return ""
+}
+
+func quoteLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
