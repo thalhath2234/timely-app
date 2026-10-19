@@ -1,5 +1,11 @@
 {
+  "extraKnownMarketplaces": {
+    "cursor-plugins": {
+      "source": { "source": "github", "repo": "cursor/plugins" }
+    }
+  },
   "enabledPlugins": {
-    "expo@claude-plugins-official": true
+    "expo@claude-plugins-official": true,
+    "pstack@cursor-plugins": true
   }
 }
