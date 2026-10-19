@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -67,6 +68,8 @@ type ledger struct {
 	planDoc     string
 	linkedNotes []string
 
+	backups  []string
+	focusing *focusRec
 	focus    []focusRec
 	reminder string
 	named    []named
@@ -104,7 +107,7 @@ type seriesRec struct {
 }
 
 type blockRec struct {
-	taskID     string
+	id, taskID string
 	start, end time.Time
 }
 
@@ -300,6 +303,7 @@ func (d day) past() bool      { return d.i < todayIndex }
 func routine() []activity {
 	return []activity{
 		{"set up the account", onceOn(0), (*sim).setup},
+		{"tidy the setup", onceOn(0), (*sim).tidySetup},
 		{"open the month's expenses", monthStart().livedDays(), (*sim).openMonth},
 		{"capture inbox items", everyDay().livedDays(), (*sim).captureInbox},
 		{"clarify inbox items", everyDay().livedDays(), (*sim).clarifyInbox},
@@ -311,7 +315,13 @@ func routine() []activity {
 		{"log expenses", everyDay().livedDays(), (*sim).logExpenses},
 		{"complete tasks", everyDay().livedDays(), (*sim).completeTasks},
 		{"tick the weekly reminder", weeklyOn(time.Sunday).livedDays(), (*sim).tickPlants},
+		{"rework a day's events", onceOn(30), (*sim).reworkEvents},
+		{"move the standup", onceOn(todayIndex + 1), (*sim).moveStandup},
 		{"agenda matches the ledger", everyDay(), (*sim).assertAgenda},
+		{"work on the relaunch", weeklyOn(time.Wednesday).livedDays(), (*sim).relaunchWork},
+		{"make a packing list", onceOn(20), (*sim).packingList},
+		{"sketch the desk setup", onceOn(10), (*sim).deskDoc},
+		{"try a stretch routine", onceOn(25), (*sim).stretchSeries},
 		{"review the week", weeklyOn(time.Monday), (*sim).reviewWeek},
 		{"push out overdue chores", weeklyOn(time.Monday).livedDays(), (*sim).pushChores},
 		{"move relaunch tasks along", weeklyOn(time.Monday).livedDays(), (*sim).advanceStages},
@@ -319,8 +329,15 @@ func routine() []activity {
 		{"start the day", today(), (*sim).startDay},
 		{"set a reminder", today(), (*sim).setReminder},
 		{"auto-schedule the rest", today(), (*sim).autoSchedule},
+		{"adjust the planned blocks", onceOn(todayIndex + 4), (*sim).adjustBlocks},
+		{"check deadline risk", onceOn(todayIndex + 2), (*sim).deadlineRisk},
+		{"back up the account", monthStart().livedDays(), (*sim).backUp},
 		{"stop focusing", endOfRun(), (*sim).stopFocus},
+		{"housekeeping", endOfRun(), (*sim).housekeeping},
+		{"reschedule an overdue task as urgent", endOfRun(), (*sim).urgent},
+		{"agenda of every window day still matches", endOfRun(), (*sim).assertWindow},
 		{"handle notifications", endOfRun(), (*sim).handleNotifications},
+		{"restore the account from its export", endOfRun(), (*sim).restoreRoundTrip},
 		{"habit streaks match the ledger", endOfRun(), (*sim).assertStreaks},
 		{"task counts match the ledger", endOfRun(), (*sim).assertTaskCounts},
 		{"inbox matches the ledger", endOfRun(), (*sim).assertInbox},
@@ -554,6 +571,9 @@ func (s *sim) note(msg string) {
 // ---- Setup ----
 
 func (s *sim) setup(d day) error {
+	if _, err := s.call("get_context", nil); err != nil {
+		return err
+	}
 	if _, err := s.call("update_profile", map[string]any{"name": "Nimal Perera"}); err != nil {
 		return err
 	}
@@ -708,6 +728,515 @@ func (s *sim) setup(d day) error {
 	return nil
 }
 
+// tidySetup is the persona second-guessing the setup: a side workspace,
+// a status, a label and a field made and removed, stages reordered.
+func (s *sim) tidySetup(d day) error {
+	work := s.l.workspaces["Work"]
+	ctx, err := s.call("get_context", nil)
+	if err != nil {
+		return err
+	}
+	s.expect(ctx.hasIDs(work, s.l.workspaces["Home"]), "get_context lists the workspaces", []string{work, s.l.workspaces["Home"]}, ctx.idsAnywhere())
+	side, err := s.call("create_workspace", map[string]any{"name": "Side project"})
+	if err != nil {
+		return err
+	}
+	if _, err := s.call("rename_workspace", map[string]any{"workspaceId": side.str("id"), "name": "Side gig", "color": "#30A46C"}); err != nil {
+		return err
+	}
+	got, err := s.call("get_workspace", map[string]any{"workspaceId": side.str("id")})
+	if err != nil {
+		return err
+	}
+	s.expect(got.str("name") == "Side gig" || got.str("workspace", "name") == "Side gig", "rename_workspace renames it", "Side gig", got)
+	if _, err := s.call("delete_workspace", map[string]any{"workspaceId": side.str("id"), "confirm": true}); err != nil {
+		return err
+	}
+	list, err := s.call("list_workspaces", nil)
+	if err != nil {
+		return err
+	}
+	s.expect(!slices.Contains(list.idsAnywhere(), side.str("id")), "delete_workspace removes it from list_workspaces", "absent", side.str("id"))
+
+	blocked, err := s.call("create_status", map[string]any{"workspaceId": work, "name": "Blocked"})
+	if err != nil {
+		return err
+	}
+	if _, err := s.call("update_status", map[string]any{"workspaceId": work, "id": blocked.str("id"), "name": "On hold", "color": "#F5A623"}); err != nil {
+		return err
+	}
+	if _, err := s.call("delete_status", map[string]any{"workspaceId": work, "id": blocked.str("id")}); err != nil {
+		return err
+	}
+	if _, err := s.call("update_label", map[string]any{"workspaceId": work, "id": s.l.labels["Errand"], "name": "Errand", "color": "#E5484D"}); err != nil {
+		return err
+	}
+	temp, err := s.call("create_label", map[string]any{"workspaceId": work, "name": "Maybe"})
+	if err != nil {
+		return err
+	}
+	if _, err := s.call("delete_label", map[string]any{"workspaceId": work, "id": temp.str("id")}); err != nil {
+		return err
+	}
+	if _, err := s.call("update_custom_field", map[string]any{"workspaceId": work, "id": s.l.fieldID, "name": "Client", "type": "text"}); err != nil {
+		return err
+	}
+	tempField, err := s.call("create_custom_field", map[string]any{"workspaceId": work, "name": "Budget", "type": "number"})
+	if err != nil {
+		return err
+	}
+	if _, err := s.call("delete_custom_field", map[string]any{"workspaceId": work, "id": tempField.str("id")}); err != nil {
+		return err
+	}
+
+	pid := s.l.project.id
+	someday, err := s.call("create_stage", map[string]any{"projectId": pid, "name": "Someday"})
+	if err != nil {
+		return err
+	}
+	if _, err := s.call("delete_stage", map[string]any{"projectId": pid, "stageId": someday.str("id")}); err != nil {
+		return err
+	}
+	order := []string{s.l.project.stages["Backlog"], s.l.project.stages["Building"], s.l.project.stages["Review"]}
+	if _, err := s.call("reorder_stages", map[string]any{"projectId": pid, "ids": order}); err != nil {
+		return err
+	}
+	if _, err := s.call("update_stage", map[string]any{"projectId": pid, "stageId": s.l.project.stages["Review"], "color": "#8E4EC6"}); err != nil {
+		return err
+	}
+	if _, err := s.call("update_project", map[string]any{"projectId": pid, "description": "Ship the new marketing site before the conference."}); err != nil {
+		return err
+	}
+	project, err := s.call("get_project", map[string]any{"projectId": pid})
+	if err != nil {
+		return err
+	}
+	s.expect(project.hasIDs(order...), "get_project lists the three stages", order, project.idsAnywhere())
+	if _, err := s.call("set_project_task_view", map[string]any{"projectId": pid, "name": "Relaunch board", "renderMode": "kanban"}); err != nil {
+		return err
+	}
+	projects, err := s.call("list_projects", map[string]any{"workspaceId": work})
+	if err != nil {
+		return err
+	}
+	s.expect(projects.hasIDs(pid), "list_projects lists the relaunch", pid, projects.idsAnywhere())
+
+	view, err := s.call("create_task_view", map[string]any{"name": "Overdue", "onlyOverdue": true})
+	if err != nil {
+		return err
+	}
+	if _, err := s.call("update_task_view", map[string]any{"viewId": view.str("view", "id"), "name": "Overdue work"}); err != nil {
+		return err
+	}
+	if _, err := s.call("delete_task_view", map[string]any{"viewId": view.str("view", "id")}); err != nil {
+		return err
+	}
+	if _, err := s.call("update_backup_settings", map[string]any{"enabled": true, "intervalDays": 7, "retentionCount": 4}); err != nil {
+		return err
+	}
+	settings, err := s.call("get_backup_settings", nil)
+	if err != nil {
+		return err
+	}
+	s.expect(settings.num("retentionCount") == 4 || settings.num("settings", "retentionCount") == 4, "get_backup_settings keeps retentionCount", 4, settings)
+	return nil
+}
+
+// relaunchWork is a Wednesday on the relaunch: a checklist worked through,
+// a comment, a label, the client field, a status and a dependency.
+func (s *sim) relaunchWork(d day) error {
+	var work []*taskRec
+	for _, t := range s.l.openTasks() {
+		if t.projectID != "" {
+			work = append(work, t)
+		}
+	}
+	if len(work) == 0 {
+		return nil
+	}
+	t := work[0]
+	first, err := s.call("add_checklist_item", map[string]any{"taskId": t.id, "title": "Outline"})
+	if err != nil {
+		return err
+	}
+	items := first.objs("task", "checklist")
+	if !s.expect(len(items) > 0, "add_checklist_item returns the checklist", "> 0 items", first.raw("task", "checklist")) {
+		return nil
+	}
+	itemID := items[len(items)-1].str("id")
+	if _, err := s.call("update_checklist_item", map[string]any{"taskId": t.id, "itemId": itemID, "title": "Outline the copy"}); err != nil {
+		return err
+	}
+	if _, err := s.call("toggle_checklist_item", map[string]any{"taskId": t.id, "itemId": itemID, "completed": true}); err != nil {
+		return err
+	}
+	replaced, err := s.call("replace_checklist", map[string]any{"taskId": t.id, "items": []map[string]any{
+		{"id": itemID, "title": "Outline the copy", "completed": true}, {"title": "Draft"}, {"title": "Proofread"},
+	}})
+	if err != nil {
+		return err
+	}
+	all := replaced.objs("task", "checklist")
+	if len(all) == 3 {
+		if _, err := s.call("delete_checklist_item", map[string]any{"taskId": t.id, "itemId": all[2].str("id")}); err != nil {
+			return err
+		}
+	}
+	got, err := s.call("get_task", map[string]any{"taskId": t.id})
+	if err != nil {
+		return err
+	}
+	var titles []string
+	for _, item := range got.objs("task", "checklist") {
+		titles = append(titles, fmt.Sprintf("%s done=%v", item.str("title"), item.str("completedAt") != ""))
+	}
+	want := []string{"Outline the copy done=true", "Draft done=false"}
+	s.expect(compact(titles) == compact(want), "the checklist ends as the persona left it", want, titles)
+
+	if _, err := s.call("add_task_comment", map[string]any{"taskId": t.id, "comment": "Copy is with Maya for review."}); err != nil {
+		return err
+	}
+	if _, err := s.call("set_task_labels", map[string]any{"taskId": t.id, "labelIds": []string{s.l.labels["Deep work"]}}); err != nil {
+		return err
+	}
+	if _, err := s.call("set_task_custom_field", map[string]any{"taskId": t.id, "customFieldId": s.l.fieldID, "stringValue": "Acme"}); err != nil {
+		return err
+	}
+	if _, err := s.call("move_task_to_status", map[string]any{"taskId": t.id, "statusId": s.l.statuses["Doing"]}); err != nil {
+		return err
+	}
+	if len(work) > 1 {
+		if _, err := s.call("set_task_dependency", map[string]any{"taskId": work[1].id, "blockedById": t.id}); err != nil {
+			return err
+		}
+	}
+	activity, err := s.call("list_task_activity", map[string]any{"taskId": t.id})
+	if err != nil {
+		return err
+	}
+	s.expect(len(activity.firstList()) > 0, "list_task_activity records the day's edits", "> 0 entries", activity)
+	if _, err := s.call("list_project_activity", map[string]any{"projectId": s.l.project.id}); err != nil {
+		return err
+	}
+	return nil
+}
+
+// packingList builds a trip packing sheet and works most sheet tools on it;
+// the Qty total is checked against what was entered.
+func (s *sim) packingList(d day) error {
+	sheet, err := s.call("create_sheet", map[string]any{"title": "Trip packing", "workspaceId": s.l.workspaces["Home"]})
+	if err != nil {
+		return err
+	}
+	id := sheet.str("sheet", "id")
+	s.l.named = append(s.l.named, named{"sheet", id, "Trip packing"})
+	withItem, err := s.call("add_sheet_column", map[string]any{"sheetId": id, "name": "Item", "type": "text"})
+	if err != nil {
+		return err
+	}
+	itemCol := withItem.objs("tab", "columns")
+	withQty, err := s.call("add_sheet_column", map[string]any{"sheetId": id, "name": "Count", "type": "number"})
+	if err != nil {
+		return err
+	}
+	cols := withQty.objs("tab", "columns")
+	if !s.expect(len(cols) > 0 && len(itemCol) > 0, "add_sheet_column returns the tab's columns", "columns", withQty.raw("tab")) {
+		return nil
+	}
+	qty := cols[len(cols)-1].str("id")
+	if _, err := s.call("update_sheet_column", map[string]any{"sheetId": id, "columnId": qty, "name": "Qty", "type": "number"}); err != nil {
+		return err
+	}
+	packed := map[string]int{"Shirts": 4, "Socks": 5, "Chargers": 2}
+	total := 0
+	for _, item := range []string{"Shirts", "Socks", "Chargers"} {
+		if _, err := s.call("add_sheet_row", map[string]any{"sheetId": id, "cells": map[string]string{"Item": item, "Qty": fmt.Sprint(packed[item])}}); err != nil {
+			return err
+		}
+		total += packed[item]
+	}
+	grid, err := s.call("get_sheet", map[string]any{"sheetId": id})
+	if err != nil {
+		return err
+	}
+	rows := grid.objs("tab", "rows")
+	if s.expect(len(rows) > 0, "get_sheet returns rows", "> 0", len(rows)) {
+		if _, err := s.call("update_sheet_cells", map[string]any{"sheetId": id, "rowId": rows[0].str("id"), "cells": map[string]string{qty: "6"}}); err != nil {
+			return err
+		}
+		total += 6 - packed["Shirts"]
+	}
+	if _, err := s.call("add_sheet_rows", map[string]any{"sheetId": id, "count": 2}); err != nil {
+		return err
+	}
+	letter := string(rune('A' + len(cols) - 1))
+	values, err := s.call("get_sheet_values", map[string]any{"sheetId": id, "formula": fmt.Sprintf("=SUM(%s:%s)", letter, letter)})
+	if err != nil {
+		return err
+	}
+	s.expect(int(values.num("value")) == total, "the packing list's Qty sums to what was entered", total, values.raw("value"))
+	if _, err := s.call("update_sheet_tab", map[string]any{"sheetId": id, "frozenRows": 1, "color": "#4F8BFF"}); err != nil {
+		return err
+	}
+	tab, err := s.call("add_sheet_tab", map[string]any{"sheetId": id, "name": "Day 2"})
+	if err != nil {
+		return err
+	}
+	if _, err := s.call("rename_sheet_tab", map[string]any{"sheetId": id, "tabId": tab.str("tab", "id"), "name": "Day two"}); err != nil {
+		return err
+	}
+	if _, err := s.call("delete_sheet_tab", map[string]any{"sheetId": id, "tabId": tab.str("tab", "id")}); err != nil {
+		return err
+	}
+	grown, err := s.call("get_sheet", map[string]any{"sheetId": id})
+	if err != nil {
+		return err
+	}
+	all := grown.objs("tab", "rows")
+	if _, err := s.call("delete_sheet_rows", map[string]any{"sheetId": id, "rowIds": []string{all[len(all)-1].str("id")}}); err != nil {
+		return err
+	}
+	drop, err := s.call("add_sheet_column", map[string]any{"sheetId": id, "name": "Drop", "type": "text"})
+	if err != nil {
+		return err
+	}
+	dropCols := drop.objs("tab", "columns")
+	if _, err := s.call("delete_sheet_column", map[string]any{"sheetId": id, "columnId": dropCols[len(dropCols)-1].str("id")}); err != nil {
+		return err
+	}
+	if _, err := s.call("update_sheet", map[string]any{"sheetId": id, "title": "Trip packing", "isFavorite": true}); err != nil {
+		return err
+	}
+	copied, err := s.call("duplicate_sheet", map[string]any{"sheetId": id})
+	if err != nil {
+		return err
+	}
+	if _, err := s.call("delete_sheet", map[string]any{"sheetId": copied.str("sheet", "id")}); err != nil {
+		return err
+	}
+	tmpl, err := s.call("create_sheet_template", map[string]any{"sheetId": id, "name": "Packing list"})
+	if err != nil {
+		return err
+	}
+	tmplID := tmpl.str("id")
+	if _, err := s.call("list_sheet_templates", nil); err != nil {
+		return err
+	}
+	if _, err := s.call("get_sheet_template", map[string]any{"templateId": tmplID}); err != nil {
+		return err
+	}
+	if _, err := s.call("update_sheet_template", map[string]any{"templateId": tmplID, "name": "Weekend packing"}); err != nil {
+		return err
+	}
+	if _, err := s.call("materialize_sheet_template_tab", map[string]any{"templateId": tmplID}); err != nil {
+		return err
+	}
+	next, err := s.call("create_sheet", map[string]any{"title": "Next trip", "workspaceId": s.l.workspaces["Home"], "templateId": tmplID})
+	if err != nil {
+		return err
+	}
+	nextID := next.str("sheet", "id")
+	if _, err := s.call("archive_sheet", map[string]any{"sheetId": nextID, "archived": true}); err != nil {
+		return err
+	}
+	archived, err := s.call("list_sheets", map[string]any{"archived": true})
+	if err != nil {
+		return err
+	}
+	s.expect(archived.hasIDs(nextID), "list_sheets archived=true lists the archived sheet", nextID, archived.idsAnywhere())
+	if _, err := s.call("archive_sheet", map[string]any{"sheetId": nextID, "archived": false}); err != nil {
+		return err
+	}
+	if _, err := s.call("delete_sheet", map[string]any{"sheetId": nextID}); err != nil {
+		return err
+	}
+	if _, err := s.call("delete_sheet_template", map[string]any{"templateId": tmplID}); err != nil {
+		return err
+	}
+	sheets, err := s.call("list_sheets", map[string]any{"workspaceId": s.l.workspaces["Home"]})
+	if err != nil {
+		return err
+	}
+	s.expect(sheets.hasIDs(id) && !slices.Contains(sheets.idsAnywhere(), nextID), "list_sheets keeps the packing list and drops the deleted copy", id, sheets.idsAnywhere())
+	return nil
+}
+
+func (s *sim) deskDoc(d day) error {
+	doc, err := s.call("create_doc", map[string]any{"title": "Desk setup", "workspaceId": s.l.workspaces["Home"], "markdown": "# Desk setup\n\nStanding desk by the window."})
+	if err != nil {
+		return err
+	}
+	id := doc.str("id")
+	s.l.named = append(s.l.named, named{"doc", id, "Desk setup"})
+	if _, err := s.call("add_3d_model", map[string]any{"docId": id, "name": "desk", "parts": []map[string]any{
+		{"name": "top", "shape": "box", "center": []float64{0, 0, 72}, "size": []float64{140, 70, 3}, "color": "#8B5A2B"},
+		{"name": "leg", "shape": "cylinder", "center": []float64{0, 0, 36}, "size": []float64{4, 4, 72}, "color": "#333333"},
+	}}); err != nil {
+		return err
+	}
+	got, err := s.call("get_doc", map[string]any{"docId": id, "full": true})
+	if err != nil {
+		return err
+	}
+	s.expect(strings.Contains(compact(got), "stl"), "add_3d_model writes an stl block into the doc", "an stl fence", clip(compact(got), 300))
+	if _, err := s.call("update_doc", map[string]any{"docId": id, "isFavorite": true}); err != nil {
+		return err
+	}
+	md, err := s.call("export_doc", map[string]any{"docId": id, "format": "markdown"})
+	if err != nil {
+		return err
+	}
+	s.expect(strings.Contains(compact(md), "Standing desk by the window"), "export_doc markdown carries the body", "Standing desk by the window", clip(compact(md), 300))
+	if _, err := s.call("export_doc", map[string]any{"docId": id, "format": "pdf"}); err != nil {
+		return err
+	}
+	if _, err := s.call("archive_doc", map[string]any{"docId": id, "archived": true}); err != nil {
+		return err
+	}
+	archived, err := s.call("list_docs", map[string]any{"archived": true})
+	if err != nil {
+		return err
+	}
+	s.expect(archived.hasIDs(id), "list_docs archived=true lists the archived doc", id, archived.idsAnywhere())
+	if _, err := s.call("archive_doc", map[string]any{"docId": id, "archived": false}); err != nil {
+		return err
+	}
+	draft, err := s.call("create_doc", map[string]any{"title": "Desk shopping draft", "workspaceId": s.l.workspaces["Home"], "markdown": "monitor arm?"})
+	if err != nil {
+		return err
+	}
+	if _, err := s.call("delete_doc", map[string]any{"docId": draft.str("id"), "confirm": true}); err != nil {
+		return err
+	}
+	docs, err := s.call("list_docs", map[string]any{"workspaceId": s.l.workspaces["Home"]})
+	if err != nil {
+		return err
+	}
+	s.expect(docs.hasIDs(id) && !slices.Contains(docs.idsAnywhere(), draft.str("id")), "list_docs keeps the desk doc and drops the deleted draft", id, docs.idsAnywhere())
+	return nil
+}
+
+// reworkEvents moves the day's first event an hour later and cancels the
+// second; the day's agenda check then sees the result.
+func (s *sim) reworkEvents(d day) error {
+	var today []*eventRec
+	for _, e := range s.l.events {
+		if !e.start.Before(d.date) && e.start.Before(d.next()) {
+			today = append(today, e)
+		}
+	}
+	for len(today) < 2 {
+		start := d.at(17, len(today)*30)
+		out, err := s.call("create_event", map[string]any{"title": fmt.Sprintf("Errand run %d (%s)", len(today)+1, d.label()),
+			"start": start.Format(time.RFC3339), "end": start.Add(30 * time.Minute).Format(time.RFC3339), "workspaceId": s.l.workspaces["Home"]})
+		if err != nil {
+			return err
+		}
+		e := &eventRec{id: out.str("id"), title: out.str("title"), start: start, end: start.Add(30 * time.Minute)}
+		s.l.events = append(s.l.events, e)
+		today = append(today, e)
+	}
+	moved := today[0]
+	start, end := moved.start.Add(time.Hour), moved.end.Add(time.Hour)
+	if _, err := s.call("update_event", map[string]any{"eventId": moved.id, "start": start.Format(time.RFC3339), "end": end.Format(time.RFC3339)}); err != nil {
+		return err
+	}
+	moved.start, moved.end = start, end
+	got, err := s.call("get_event", map[string]any{"eventId": moved.id})
+	if err != nil {
+		return err
+	}
+	gotStart, _ := time.Parse(time.RFC3339, got.str("start"))
+	s.expect(gotStart.Equal(start), "update_event moves the event", start.Format(time.RFC3339), got.str("start"))
+	if _, err := s.call("delete_event", map[string]any{"eventId": today[1].id}); err != nil {
+		return err
+	}
+	s.l.events = slices.DeleteFunc(s.l.events, func(e *eventRec) bool { return e.id == today[1].id })
+	list, err := s.call("list_events", nil)
+	if err != nil {
+		return err
+	}
+	s.expect(!slices.Contains(list.idsAnywhere(), today[1].id), "delete_event removes it from list_events", "absent", today[1].id)
+	return nil
+}
+
+// moveStandup skips one future standup, skips and restores another, and
+// moves the series to 10:00 from the last Monday of the window.
+func (s *sim) moveStandup(d day) error {
+	if len(s.l.series) == 0 {
+		return nil
+	}
+	st := s.l.series[0]
+	mondays := []time.Time{}
+	for t := firstOnOrAfter(d.date, time.Monday); t.Before(s.days[windowDays-1].next()); t = t.AddDate(0, 0, 7) {
+		mondays = append(mondays, t)
+	}
+	if len(mondays) < 2 {
+		return nil
+	}
+	first := at(mondays[0], st.hour, st.minute).Format(time.RFC3339)
+	if _, err := s.call("edit_event_occurrence", map[string]any{"eventId": st.id, "originalStart": first, "action": "skip"}); err != nil {
+		return err
+	}
+	if _, err := s.call("edit_event_occurrence", map[string]any{"eventId": st.id, "originalStart": first, "action": "restore"}); err != nil {
+		return err
+	}
+	if _, err := s.call("edit_event_occurrence", map[string]any{"eventId": st.id, "originalStart": first, "action": "skip"}); err != nil {
+		return err
+	}
+	st.skipped[mondays[0].Format(time.DateOnly)] = true
+	last := mondays[len(mondays)-1]
+	newStart := at(last, 10, 0)
+	out, err := s.call("split_event_series", map[string]any{"eventId": st.id, "fromStart": at(last, st.hour, st.minute).Format(time.RFC3339),
+		"rrule": "FREQ=WEEKLY;BYDAY=MO", "timezone": s.tz.String(), "start": newStart.Format(time.RFC3339), "end": newStart.Add(15 * time.Minute).Format(time.RFC3339)})
+	if err != nil {
+		return err
+	}
+	newID := out.str("id")
+	if newID == "" {
+		newID = out.str("event", "id")
+	}
+	if !s.expect(newID != "" && newID != st.id, "split_event_series returns the new series", "a new event id", out) {
+		return nil
+	}
+	st.until = last.Format(time.DateOnly)
+	s.l.series = append(s.l.series, &seriesRec{id: newID, title: st.title, weekday: time.Monday, hour: 10, minutes: 15, from: last.Format(time.DateOnly), skipped: map[string]bool{}})
+	return nil
+}
+
+// stretchSeries tries a daily stretch reminder, changes its rule, splits it,
+// then gives up on it and deletes both halves.
+func (s *sim) stretchSeries(d day) error {
+	first := s.days[todayIndex+1].at(16, 0)
+	out, err := s.call("create_task", map[string]any{"name": "Stretch break", "kind": "reminder", "scheduleAt": first.Format(time.RFC3339),
+		"recurrence": map[string]any{"rrule": "FREQ=DAILY;COUNT=5", "dtstart": first.Format(time.RFC3339), "timezone": s.tz.String()}})
+	if err != nil {
+		return err
+	}
+	id := out.str("task", "id")
+	if _, err := s.call("set_task_recurrence", map[string]any{"taskId": id, "rrule": "FREQ=DAILY;COUNT=4", "dtstart": first.Format(time.RFC3339), "timezone": s.tz.String()}); err != nil {
+		return err
+	}
+	from := first.AddDate(0, 0, 2)
+	split, err := s.call("split_task_series", map[string]any{"taskId": id, "fromStart": from.Format(time.RFC3339), "rrule": "FREQ=DAILY;COUNT=2",
+		"dtstart": from.Add(time.Hour).Format(time.RFC3339), "timezone": s.tz.String(), "name": "Stretch break (later)"})
+	if err != nil {
+		return err
+	}
+	if _, err := s.call("clear_task_recurrence", map[string]any{"taskId": id}); err != nil {
+		return err
+	}
+	for _, t := range []string{id, split.str("task", "id")} {
+		if t == "" {
+			continue
+		}
+		if _, err := s.call("delete_task", map[string]any{"taskId": t}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ---- Daily rows ----
 
 func (s *sim) captureInbox(d day) error {
@@ -845,9 +1374,11 @@ func (s *sim) scheduleBlock(d day) error {
 		return err
 	}
 	blocks := out.list("blocks")
-	s.expect(len(blocks) == 1, "schedule_task places exactly one block", 1, len(blocks))
+	if !s.expect(len(blocks) == 1, "schedule_task places exactly one block", 1, len(blocks)) {
+		return nil
+	}
 	end := start.Add(time.Duration(pick.duration) * time.Minute)
-	s.l.blocks = append(s.l.blocks, blockRec{taskID: pick.id, start: start, end: end})
+	s.l.blocks = append(s.l.blocks, blockRec{id: out.objs("blocks")[0].str("id"), taskID: pick.id, start: start, end: end})
 	return nil
 }
 
@@ -1049,7 +1580,9 @@ func (s *sim) reviewWeek(d day) error {
 	if err := s.plantsMatch(d.date.AddDate(0, 0, -7), d.date); err != nil {
 		return err
 	}
-	if _, err := s.prompt("weekly_review", map[string]string{"weekStart": d.ymd()}); err != nil && !errors.Is(err, errMissing) {
+	if res, err := s.prompt("weekly_review", map[string]string{"weekStart": d.ymd()}); err == nil {
+		s.promptNamesListedTools("weekly_review", res, d.ymd())
+	} else if !errors.Is(err, errMissing) {
 		return err
 	}
 	if err := s.focusSessionsMatch(d.date.AddDate(0, 0, -7), d.date); err != nil && !errors.Is(err, errMissing) {
@@ -1060,7 +1593,7 @@ func (s *sim) reviewWeek(d day) error {
 	} else if !errors.Is(err, errMissing) {
 		return err
 	}
-	if _, err := s.call("list_stale_work", map[string]any{"workspaceId": s.l.workspaces["Work"]}); err != nil && !errors.Is(err, errMissing) {
+	if _, err := s.call("list_stale_work", nil); err != nil && !errors.Is(err, errMissing) {
 		return err
 	}
 	return nil
@@ -1098,7 +1631,7 @@ func (s *sim) plantsMatch(from, to time.Time) error {
 }
 
 func (s *sim) focusSessionsMatch(from, to time.Time) error {
-	out, err := s.call("list_focus_sessions", map[string]any{"from": from.Format(time.DateOnly), "to": to.Format(time.DateOnly)})
+	out, err := s.call("list_focus_sessions", map[string]any{"from": from.Format(time.DateOnly), "to": to.AddDate(0, 0, -1).Format(time.DateOnly)})
 	if err != nil {
 		return err
 	}
@@ -1108,7 +1641,7 @@ func (s *sim) focusSessionsMatch(from, to time.Time) error {
 			want = append(want, f.taskID)
 		}
 	}
-	for _, item := range out.firstList() {
+	for _, item := range out.objs("sessions") {
 		got = append(got, item.str("taskId"))
 	}
 	if diff := diffSets(want, got); diff != "" {
@@ -1198,7 +1731,7 @@ func (s *sim) revisePlan(d day) error {
 	if err != nil {
 		return err
 	}
-	list := versions.firstList()
+	list := versions.objs("versions")
 	if !s.expect(len(list) > 0, "list_doc_versions has the edited doc's history", "at least one version", versions) {
 		return nil
 	}
@@ -1222,7 +1755,7 @@ func (s *sim) revisePlan(d day) error {
 		return err
 	}
 	var got []string
-	for _, b := range links.firstList() {
+	for _, b := range links.objs("backlinks") {
 		got = append(got, b.str("id"))
 	}
 	if diff := diffSets(s.l.linkedNotes, got); diff != "" {
@@ -1244,8 +1777,24 @@ func (s *sim) overdueIDs(today string) []string {
 }
 
 func (s *sim) startDay(d day) error {
-	if _, err := s.prompt("plan_my_day", map[string]string{"date": d.ymd()}); err != nil && !errors.Is(err, errMissing) {
+	if res, err := s.prompt("plan_my_day", map[string]string{"date": d.ymd()}); err == nil {
+		s.promptNamesListedTools("plan_my_day", res, d.ymd())
+	} else if !errors.Is(err, errMissing) {
 		return err
+	}
+	bare, err := s.call("get_agenda", map[string]any{"from": d.ymd()})
+	if err != nil {
+		return err
+	}
+	s.expect(bare.str("from") != "" && sameInstant(bare.str("from"), d.date), "get_agenda from=YYYY-MM-DD (as plan_my_day passes it) starts at midnight in the account's timezone",
+		d.date.Format(time.RFC3339), bare.str("from"))
+	freeBare, err := s.call("get_free_time", map[string]any{"from": d.ymd()})
+	if err != nil {
+		return err
+	}
+	for _, slot := range freeBare.objs("slots") {
+		start, _ := time.Parse(time.RFC3339, slot.str("start"))
+		s.expect(!start.Before(d.date) && start.Before(d.next()), "get_free_time from=YYYY-MM-DD returns slots on that day in the account's timezone", d.ymd(), slot.str("start"))
 	}
 	view, err := s.call("get_today", map[string]any{"date": d.ymd(), "timezone": s.tz.String()})
 	if err != nil {
@@ -1286,7 +1835,7 @@ func (s *sim) startDay(d day) error {
 	if _, err := s.call("start_focus", map[string]any{"taskId": focus[0]}); err != nil {
 		return err
 	}
-	s.l.focus = append(s.l.focus, focusRec{taskID: focus[0], started: time.Now()})
+	s.l.focusing = &focusRec{taskID: focus[0], started: time.Now()}
 	view, err = s.call("get_today", map[string]any{"date": d.ymd(), "timezone": s.tz.String()})
 	if err != nil {
 		return err
@@ -1374,6 +1923,28 @@ func (s *sim) autoSchedule(d day) error {
 	return s.agendaMatches(d.date, horizon, "after undo_schedule, get_agenda shows only the manual blocks again")
 }
 
+var toolWord = regexp.MustCompile(`\b[a-z]+(?:_[a-z]+)+\b`)
+
+// promptNamesListedTools checks a prompt's text names the day it was asked
+// for and only tools the server lists.
+func (s *sim) promptNamesListedTools(name string, res *mcp.GetPromptResult, date string) {
+	var text string
+	for _, m := range res.Messages {
+		if t, ok := m.Content.(*mcp.TextContent); ok {
+			text += t.Text
+		}
+	}
+	s.expect(strings.Contains(text, date), "prompts/get "+name+" names the asked date", date, clip(text, 300))
+	for _, word := range toolWord.FindAllString(text, -1) {
+		s.expect(s.listed[word], "prompts/get "+name+" names only listed tools", "a listed tool", word)
+	}
+}
+
+func sameInstant(raw string, want time.Time) bool {
+	got, err := time.Parse(time.RFC3339, raw)
+	return err == nil && got.Equal(want)
+}
+
 func proposedTasks(plan obj) []string {
 	var ids []string
 	for _, p := range plan.objs("proposals") {
@@ -1382,22 +1953,315 @@ func proposedTasks(plan obj) []string {
 	return ids
 }
 
-// ---- End-of-run rows ----
-
-func (s *sim) stopFocus(d day) error {
-	if len(s.l.focus) == 0 {
+// adjustBlocks reworks the planned blocks: one moved an hour and locked,
+// one deleted, one task's blocks cleared, one task pinned.
+func (s *sim) adjustBlocks(d day) error {
+	var ahead []int
+	for k, b := range s.l.blocks {
+		if b.start.After(time.Now().Add(2 * time.Hour)) {
+			ahead = append(ahead, k)
+		}
+	}
+	if !s.expect(len(ahead) >= 3, "the plan has blocks ahead to adjust", ">= 3", len(ahead)) {
 		return nil
 	}
-	f := s.l.focus[len(s.l.focus)-1]
-	if wait := 20*time.Second - time.Since(f.started); wait > 0 {
-		time.Sleep(wait)
+	moved := &s.l.blocks[ahead[0]]
+	start, end := moved.start.Add(time.Hour), moved.end.Add(time.Hour)
+	if _, err := s.call("move_block", map[string]any{"blockId": moved.id, "start": start.Format(time.RFC3339), "end": end.Format(time.RFC3339)}); err != nil {
+		return err
 	}
-	out, err := s.call("stop_focus", map[string]any{"taskId": f.taskID})
+	moved.start, moved.end = start, end
+	if _, err := s.call("pin_block", map[string]any{"blockId": moved.id, "locked": true}); err != nil {
+		return err
+	}
+	if _, err := s.call("pin_task", map[string]any{"taskId": s.l.blocks[ahead[1]].taskID, "locked": true}); err != nil {
+		return err
+	}
+	dropped := s.l.blocks[ahead[1]].id
+	if _, err := s.call("delete_block", map[string]any{"id": dropped}); err != nil {
+		return err
+	}
+	cleared := s.l.blocks[ahead[2]].taskID
+	if _, err := s.call("clear_task_blocks", map[string]any{"taskId": cleared}); err != nil {
+		return err
+	}
+	s.l.blocks = slices.DeleteFunc(s.l.blocks, func(b blockRec) bool { return b.id == dropped || b.taskID == cleared })
+	return s.agendaMatches(s.days[todayIndex].date, s.days[windowDays-1].next(), "after move_block, delete_block and clear_task_blocks, get_agenda shows the adjusted plan")
+}
+
+// deadlineRisk adds a report that cannot fit before its deadline; the
+// preview must flag it rather than quietly place it.
+func (s *sim) deadlineRisk(d day) error {
+	name := fmt.Sprintf("Write the launch report (%s)", d.label())
+	deadline := d.date.AddDate(0, 0, 1).Format(time.DateOnly)
+	out, err := s.call("create_task", map[string]any{"name": name, "workspaceId": s.l.workspaces["Work"], "duration": 1500, "deadline": deadline, "priorityLevel": "High"})
 	if err != nil {
 		return err
 	}
-	s.expect(out.num("task", "actualMinutes") >= 1, "stop_focus adds the elapsed minutes to actualMinutes", ">= 1", out.num("task", "actualMinutes"))
-	return s.focusSessionsMatch(d.date, d.next())
+	id := out.str("task", "id")
+	s.l.addTask(&taskRec{id: id, name: name, workspace: "Work", deadline: deadline, duration: 1500})
+	preview, err := s.call("auto_schedule_preview", map[string]any{"timezone": s.tz.String()})
+	if err != nil {
+		return err
+	}
+	flagged := false
+	for _, r := range preview.objs("risks") {
+		flagged = flagged || strings.Contains(compact(r), id)
+	}
+	for _, sk := range preview.objs("skipped") {
+		flagged = flagged || sk.str("taskId") == id
+	}
+	for _, p := range preview.objs("proposals") {
+		if p.str("taskId") == id && (p.bool("pastDeadline") || p.bool("partial") || p.num("shortfallMinutes") > 0) {
+			flagged = true
+		}
+	}
+	s.expect(flagged, "auto_schedule_preview flags a 25-hour task due tomorrow as a deadline risk", id, map[string]any{"risks": preview.raw("risks"), "skipped": preview.raw("skipped")})
+	return nil
+}
+
+func (s *sim) backUp(d day) error {
+	export, err := s.call("export_account", nil)
+	if err != nil {
+		return err
+	}
+	s.expect(export.at("backup") != nil, "export_account returns the backup object", "backup", clip(compact(export), 200))
+	backup, err := s.call("create_backup", nil)
+	if err != nil {
+		return err
+	}
+	s.l.backups = append(s.l.backups, backup.str("id"))
+	list, err := s.call("list_backups", nil)
+	if err != nil {
+		return err
+	}
+	s.expect(list.hasIDs(s.l.backups...), "list_backups lists every backup made", s.l.backups, list.idsAnywhere())
+	return nil
+}
+
+// ---- End-of-run rows ----
+
+// housekeeping is the end-of-window tidy: exports, jobs, a duplicate task
+// and project tried and thrown away, a task reopened, one abandoned, the
+// habit list trimmed, and the oldest backup removed.
+func (s *sim) housekeeping(d day) error {
+	if res, err := s.prompt("triage_inbox", nil); err == nil {
+		s.promptNamesListedTools("triage_inbox", res, "")
+	} else if !errors.Is(err, errMissing) {
+		return err
+	}
+	open := s.l.openTasks()
+	csv, err := s.call("export_tasks_csv", nil)
+	if err != nil {
+		return err
+	}
+	s.expect(strings.Contains(compact(csv), open[0].name), "export_tasks_csv includes open work", open[0].name, clip(compact(csv), 200))
+	cal, err := s.call("export_calendar", nil)
+	if err != nil {
+		return err
+	}
+	s.expect(strings.Contains(compact(cal), "Team standup"), "export_calendar includes the standup series", "Team standup", clip(compact(cal), 200))
+	if _, err := s.call("get_context", nil); err != nil {
+		return err
+	}
+	if _, err := s.call("get_job_health", nil); err != nil {
+		return err
+	}
+	jobs, err := s.call("list_jobs", map[string]any{"status": "succeeded", "limit": 5})
+	if err != nil {
+		return err
+	}
+	if items := jobs.objs("items"); s.expect(len(items) > 0, "list_jobs shows the account's finished jobs", "> 0", len(items)) {
+		if err := s.reject("retry_job", map[string]any{"id": items[0].str("id")}, "only failed or cancelled"); err != nil {
+			return err
+		}
+	}
+	if _, err := s.allow("semantic_search", map[string]any{"query": "website relaunch copy", "limit": 5}, "not configured"); err != nil {
+		return err
+	}
+	if _, err := s.allow("reindex_search", nil, "not configured"); err != nil {
+		return err
+	}
+
+	dup, err := s.call("duplicate_task", map[string]any{"taskId": open[0].id})
+	if err != nil {
+		return err
+	}
+	copyID := dup.str("task", "id")
+	if _, err := s.call("complete_task", map[string]any{"taskId": copyID}); err != nil {
+		return err
+	}
+	reopened, err := s.call("reopen_task", map[string]any{"taskId": copyID})
+	if err != nil {
+		return err
+	}
+	s.expect(reopened.str("task", "completedAt") == "", "reopen_task clears completedAt", "", reopened.str("task", "completedAt"))
+	if _, err := s.call("delete_task", map[string]any{"taskId": copyID}); err != nil {
+		return err
+	}
+	for _, id := range s.l.order {
+		if t := s.l.tasks[id]; t != nil && !t.open() && t.completedOn < d.ymd() {
+			if _, err := s.call("reopen_task", map[string]any{"taskId": id}); err != nil {
+				return err
+			}
+			t.completedOn = ""
+			break
+		}
+	}
+	abandoned := open[len(open)-1]
+	if _, err := s.call("delete_task", map[string]any{"taskId": abandoned.id}); err != nil {
+		return err
+	}
+	delete(s.l.tasks, abandoned.id)
+	s.l.blocks = slices.DeleteFunc(s.l.blocks, func(b blockRec) bool { return b.taskID == abandoned.id })
+
+	copied, err := s.call("duplicate_project", map[string]any{"projectId": s.l.project.id})
+	if err != nil {
+		return err
+	}
+	projectCopy := copied.str("project", "id")
+	if _, err := s.call("complete_project", map[string]any{"projectId": projectCopy}); err != nil {
+		return err
+	}
+	if _, err := s.call("reopen_project", map[string]any{"projectId": projectCopy}); err != nil {
+		return err
+	}
+	if _, err := s.call("delete_project", map[string]any{"projectId": projectCopy, "confirm": true}); err != nil {
+		return err
+	}
+	projects, err := s.call("list_projects", nil)
+	if err != nil {
+		return err
+	}
+	s.expect(projects.hasIDs(s.l.project.id) && !slices.Contains(projects.idsAnywhere(), projectCopy), "list_projects keeps the relaunch and drops the deleted copy", s.l.project.id, projects.idsAnywhere())
+
+	if len(s.l.habits) == 3 {
+		walk, sugar := s.l.habits[1], s.l.habits[2]
+		if _, err := s.call("update_habit", map[string]any{"habit": walk.name, "action": "rename", "title": "Walk 10k steps"}); err == nil {
+			walk.name = "Walk 10k steps"
+		} else if !errors.Is(err, errMissing) {
+			return err
+		}
+		if _, err := s.call("update_habit", map[string]any{"habit": sugar.id, "action": "remove"}); err == nil {
+			s.l.habits = s.l.habits[:2]
+		} else if !errors.Is(err, errMissing) {
+			return err
+		}
+	}
+
+	if len(s.l.backups) > 0 {
+		oldest := s.l.backups[0]
+		if _, err := s.call("download_backup", map[string]any{"backupId": oldest}); err != nil {
+			return err
+		}
+		if _, err := s.call("delete_backup", map[string]any{"backupId": oldest, "confirm": true}); err != nil {
+			return err
+		}
+		s.l.backups = s.l.backups[1:]
+		list, err := s.call("list_backups", nil)
+		if err != nil {
+			return err
+		}
+		s.expect(!slices.Contains(list.idsAnywhere(), oldest), "delete_backup removes it from list_backups", "absent", oldest)
+	}
+	return nil
+}
+
+// urgent makes one overdue task urgent; the server applies the schedule, so
+// the plan it returns becomes the ledger's engine blocks.
+func (s *sim) urgent(d day) error {
+	overdue := s.overdueIDs(d.ymd())
+	if !s.expect(len(overdue) > 0, "the persona has overdue work to rescue", "> 0", 0) {
+		return nil
+	}
+	plan, err := s.call("reschedule_urgent", map[string]any{"taskId": overdue[0]})
+	if err != nil {
+		return err
+	}
+	placed := false
+	s.l.engine = nil
+	for _, p := range plan.objs("proposals") {
+		placed = placed || p.str("taskId") == overdue[0]
+		for _, b := range p.objs("blocks") {
+			start, _ := time.Parse(time.RFC3339, b.str("start"))
+			end, _ := time.Parse(time.RFC3339, b.str("end"))
+			s.l.engine = append(s.l.engine, blockRec{taskID: p.str("taskId"), start: start, end: end})
+		}
+	}
+	s.expect(placed, "reschedule_urgent places the urgent task", overdue[0], proposedTasks(plan))
+	got, err := s.call("get_task", map[string]any{"taskId": overdue[0]})
+	if err != nil {
+		return err
+	}
+	s.expect(got.str("task", "priorityLevel") == "Urgent", "reschedule_urgent marks the task Urgent", "Urgent", got.str("task", "priorityLevel"))
+	return nil
+}
+
+func (s *sim) assertWindow(d day) error {
+	for _, w := range s.days {
+		if err := s.agendaMatches(w.date, w.next(), fmt.Sprintf("at the end of the run, get_agenda %s still lists exactly the ledger's events and blocks", w.ymd())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// restoreRoundTrip restores the account from its own export; every count
+// and streak must read the same afterwards.
+func (s *sim) restoreRoundTrip(d day) error {
+	export, err := s.call("export_account", nil)
+	if err != nil {
+		return err
+	}
+	if _, err := s.call("restore_account", map[string]any{"confirm": true, "backup": export.at("backup")}); err != nil {
+		return err
+	}
+	failures := len(s.failures)
+	for _, check := range []func(day) error{s.assertTaskCounts, s.assertStreaks, s.assertInbox} {
+		if err := check(d); err != nil {
+			return err
+		}
+	}
+	s.expect(len(s.failures) == failures, "restore_account from the account's own export changes nothing the ledger can see", "no new failures", len(s.failures)-failures)
+	return nil
+}
+
+func (s *sim) stopFocus(d day) error {
+	f := s.l.focusing
+	if f == nil {
+		return nil
+	}
+	if wait := 20*time.Second - time.Since(f.started); wait > 0 {
+		time.Sleep(wait)
+	}
+	paused, err := s.call("pause_focus", map[string]any{"taskId": f.taskID})
+	if err != nil {
+		return err
+	}
+	s.expect(paused.num("task", "actualMinutes") >= 1, "pause_focus adds the elapsed minutes to actualMinutes", ">= 1", paused.num("task", "actualMinutes"))
+	s.l.focus, s.l.focusing = append(s.l.focus, *f), nil
+	if _, err := s.call("stop_focus", map[string]any{"taskId": f.taskID}); err != nil {
+		return err
+	}
+	if err := s.focusSessionsMatch(d.date, d.next()); err != nil && !errors.Is(err, errMissing) {
+		return err
+	}
+	done, err := s.call("complete_task", map[string]any{"taskId": f.taskID})
+	if err != nil {
+		return err
+	}
+	s.l.tasks[f.taskID].completedOn = d.ymd()
+	s.expect(done.str("task", "completedAt") != "", "complete_task sets completedAt", "non-empty", done.str("task", "completedAt"))
+	view, err := s.call("get_today", map[string]any{"date": d.ymd(), "timezone": s.tz.String()})
+	if err != nil {
+		return err
+	}
+	var finished []string
+	for _, t := range view.objs("completedToday") {
+		finished = append(finished, t.str("id"))
+	}
+	s.expect(slices.Contains(finished, f.taskID), "get_today completedToday lists the task just completed", f.taskID, finished)
+	return nil
 }
 
 // handleNotifications waits for today's reminder to fire, snoozes it, then
@@ -1466,12 +2330,12 @@ func (s *sim) handleNotifications(d day) error {
 
 // workOverdue triages one overdue notification and deletes another. The
 // server sweeps a user's overdue work at most every 5 minutes and first
-// sweeps right after registration, so the notifications land about 5 minutes
-// after the account was made.
+// sweeps right after registration, so the notifications land a little over
+// 5 minutes after the account was made (the sweep, then the next 10s tick).
 func (s *sim) workOverdue(d day) error {
 	overdue := s.overdueIDs(d.ymd())
 	var found []obj
-	for until := s.registered.Add(5*time.Minute + 40*time.Second); len(found) < 2 && time.Now().Before(until); {
+	for until := s.registered.Add(7 * time.Minute); len(found) < 2 && time.Now().Before(until); {
 		out, err := s.call("list_notifications", map[string]any{"unread": true, "limit": 100})
 		if err != nil {
 			return err
