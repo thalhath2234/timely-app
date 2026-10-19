@@ -1,5 +1,5 @@
 import { docTypePhrase } from "@timely/contract/documents";
-import { checklistTask, docWorkLines, draftChecklistTasks, openChecklistItems, workLineKey, workLineTask, type ChecklistTodo } from "@timely/contract/docChecklist";
+import { checklistTask, docWorkLines, draftChecklistTasks, openChecklistItems, readsLikeTask, workLineKey, workLineTask, type ChecklistTodo } from "@timely/contract/docChecklist";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
@@ -109,9 +109,10 @@ export default function DocHintsCard({
   const target = checklist.data?.project;
   const taken = new Set((checklist.data?.existing ?? []).map((task) => task.name.toLowerCase()));
   const checked = new Set((checklist.data?.names ?? []).map((name) => name.toLowerCase()));
+  // An item that does not read like a task (a stray word, a label) is not offered.
   const open = todos.filter((todo) => {
     const key = todo.name.toLowerCase();
-    return checked.has(key) && !taken.has(key) && !hidden.has(`todo:${key}`);
+    return readsLikeTask(todo.name) && checked.has(key) && !taken.has(key) && !hidden.has(`todo:${key}`);
   });
   // Items that are tasks already are named under the open ones, so it is
   // clear why they are not offered; alone they are not worth a card.
