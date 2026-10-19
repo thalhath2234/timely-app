@@ -37,7 +37,7 @@ var expectedAuthority = []struct {
 	reopen_project reopen_task reorder_stages schedule_task set_active_task_view set_task_custom_field set_task_dependency
 	set_task_labels set_today_focus snooze_reminder start_focus stop_focus toggle_checklist_item
 	update_checklist_item update_custom_field update_label update_project update_sheet_template update_stage
-	update_status create_task_view update_task_view open_daily_note`},
+	update_status create_task_view update_task_view open_daily_note triage_notification delete_notification`},
 	// Always need an Agent proposal: removing a component of an entity (not the entity), recurring series, bulk edits, calendar-wide changes.
 	{Write, Reviewed, `
 	add_sheet_rows auto_schedule_apply bulk_update_tasks clear_task_blocks clear_task_recurrence delete_block

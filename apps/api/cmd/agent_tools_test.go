@@ -143,3 +143,42 @@ func TestIntegrationSuggestionTools(t *testing.T) {
 		t.Fatalf("stale task with its idle days and verdict: %v", got)
 	}
 }
+
+func TestIntegrationTriageAndDeleteNotifications(t *testing.T) {
+	db, uid := agentToolsDB(t)
+	call := agentToolCaller(t, db, uid)
+	ws := call("create_workspace", map[string]any{"name": "Personal"})
+	due := time.Now().AddDate(0, 0, -3).Format("2006-01-02")
+	taskID := call("create_task", map[string]any{"name": "File taxes", "workspaceId": ws["id"], "deadline": due, "priorityLevel": "High"})["task"].(map[string]any)["id"].(string)
+	entity := "task"
+	for _, id := range []string{"ntf_overdue", "ntf_other"} {
+		n := models.Notification{ID: id, UserID: uid, Category: models.NotifyOverdue, Title: "File taxes is overdue", EntityType: &entity, EntityID: &taskID, Data: models.JobPayload{"taskId": taskID}, CreatedAt: time.Now()}
+		if err := db.Create(&n).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if out := call("triage_notification", map[string]any{"notificationId": "ntf_overdue", "action": "lower"}); !strings.Contains(out["message"].(string), "Medium") {
+		t.Fatalf("lower takes High to Medium: %v", out)
+	}
+	if got := call("get_task", map[string]any{"taskId": taskID})["task"].(map[string]any)["priorityLevel"]; got != "Medium" {
+		t.Fatalf("the task's priority after triage: %v", got)
+	}
+	for _, n := range call("list_notifications", map[string]any{"unread": true})["items"].([]any) {
+		if n.(map[string]any)["id"] == "ntf_overdue" {
+			t.Fatal("a triaged notification is read")
+		}
+	}
+	if _, err := chatCatalog(db, nil, nil)["triage_notification"].Call(context.Background(), uid, json.RawMessage(`{"notificationId":"ntf_overdue","action":"shrug"}`)); err == nil {
+		t.Fatal("an unknown step was accepted")
+	}
+
+	call("delete_notification", map[string]any{"notificationId": "ntf_overdue"})
+	left := call("list_notifications", map[string]any{})["items"].([]any)
+	if len(left) != 1 || left[0].(map[string]any)["id"] != "ntf_other" {
+		t.Fatalf("only the other notification is left: %v", left)
+	}
+	if _, err := chatCatalog(db, nil, nil)["delete_notification"].Call(context.Background(), uid, json.RawMessage(`{"notificationId":"ntf_overdue"}`)); err == nil {
+		t.Fatal("deleting it twice succeeded")
+	}
+}
