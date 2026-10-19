@@ -271,6 +271,12 @@ test-chat-integration: ## Test agent transactions and approvals in an isolated t
 mcp-60day: ## Play 60 days of one person through MCP against a running API and check reads against a ledger (TIMELY_API, default :8081; ARGS=-seed N -out DIR)
 	@cd $(API) && TIMELY_API=$${TIMELY_API:-http://localhost:8081} go run scripts/mcp_60day.go $(ARGS)
 
+.PHONY: mcp-read-only-check
+mcp-read-only-check: ## Run MCP parity and fail when a tool annotated read-only changes a table (DB_SCHEMA=<the API's schema>, required; TIMELY_API, default :8081)
+	@cd $(API) && TIMELY_API=$${TIMELY_API:-http://localhost:8081} \
+		DB_HOST='$(DB_HOST)' DB_PORT='$(DB_PORT)' DB_USER='$(DB_USER)' DB_PASSWORD='$(DB_PASSWORD)' DB_NAME='$(DB_NAME)' DB_SSLMODE='$(DB_SSLMODE)' \
+		go run scripts/mcp_parity.go -read-only
+
 .PHONY: verify-agent-runs
 verify-agent-runs: ## Model-check Agent run claiming, leases, Stop and Retry with TLA+ (ARGS=--mutants or --resync; see .agents/skills/verify-agent-runs)
 	@.agents/skills/verify-agent-runs/run.sh $(ARGS)

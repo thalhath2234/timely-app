@@ -5,15 +5,22 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"os"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -38,11 +45,26 @@ type runner struct {
 	called  map[string]bool
 	fails   []string
 	notes   []string
+	check   *readOnlyCheck
 }
 
 func main() {
+	readOnly := flag.Bool("read-only", false, "also check that every tool annotated readOnlyHint leaves the DB_SCHEMA tables unchanged")
+	flag.Parse()
+
 	ctx := context.Background()
 	base := getenv("TIMELY_API", "http://localhost:8081")
+	if u, err := url.Parse(base); err != nil || u.Port() == "8080" {
+		fatal(fmt.Errorf("refusing %s: the parity harness never runs against :8080", base))
+	}
+	var check *readOnlyCheck
+	if *readOnly {
+		var err error
+		if check, err = openReadOnlyCheck(ctx); err != nil {
+			fatal(err)
+		}
+		defer check.db.Close()
+	}
 	email := fmt.Sprintf("mcp-parity-%d@example.com", time.Now().Unix())
 	password := "parity-pass-1"
 	name := "MCP Parity"
@@ -95,7 +117,12 @@ func main() {
 	}
 	defer session.Close()
 
-	r := &runner{ctx: ctx, session: session, called: map[string]bool{}}
+	if check != nil {
+		if err := check.prepare(session, email); err != nil {
+			fatal(err)
+		}
+	}
+	r := &runner{ctx: ctx, session: session, called: map[string]bool{}, check: check}
 	r.exercise(email)
 	r.report(session)
 }
@@ -509,6 +536,16 @@ func (r *runner) invoke(name string, args map[string]any) (map[string]any, strin
 	if args == nil {
 		args = map[string]any{}
 	}
+	if r.check != nil && r.check.readOnly[name] {
+		var out map[string]any
+		var errText string
+		r.check.measure(name, func() { out, errText = r.callTool(name, args) })
+		return out, errText
+	}
+	return r.callTool(name, args)
+}
+
+func (r *runner) callTool(name string, args map[string]any) (map[string]any, string) {
 	res, err := r.session.CallTool(r.ctx, &mcp.CallToolParams{Name: name, Arguments: args})
 	if err != nil {
 		return nil, err.Error()
@@ -561,6 +598,11 @@ func (r *runner) report(session *mcp.ClientSession) {
 	}
 	for _, note := range r.notes {
 		fmt.Println("note", note)
+	}
+	if r.check != nil {
+		if bad := r.check.report(); bad != "" {
+			r.fails = append(r.fails, bad)
+		}
 	}
 	if len(r.fails) > 0 {
 		fmt.Fprintf(os.Stderr, "\n%d failures:\n", len(r.fails))
@@ -669,4 +711,233 @@ func getenv(key, fallback string) string {
 func fatal(err error) {
 	fmt.Fprintln(os.Stderr, err)
 	os.Exit(1)
+}
+
+// The job worker writes on its own clock, so a table that moves while the tool
+// runs only counts when it stayed still for a control window on either side.
+const (
+	controlWindow    = time.Second
+	readOnlyAttempts = 4
+)
+
+// verdict is ordered by severity: a tool called several times keeps its worst.
+type verdict int
+
+const (
+	clean verdict = iota
+	allowed
+	inconclusive
+	writes
+)
+
+func (v verdict) String() string {
+	return [...]string{"CLEAN", "ALLOWED", "INCONCLUSIVE", "WRITES"}[v]
+}
+
+type allowance struct {
+	tables []string
+	reason string
+}
+
+var readOnlyAllowed = map[string]allowance{
+	"list_notifications":        {[]string{"notifications"}, "settles overdue and missed alerts of tasks finished since (notify.Service.List)"},
+	"unread_notification_count": {[]string{"notifications"}, "settles overdue and missed alerts of tasks finished since (notify.Service.UnreadCount)"},
+}
+
+type tableSum struct{ rows, hash int64 }
+
+type fingerprint map[string]tableSum
+
+type outcome struct {
+	verdict verdict
+	tables  []string
+}
+
+type readOnlyCheck struct {
+	ctx      context.Context
+	db       *sql.DB
+	schema   string
+	query    string
+	readOnly map[string]bool
+	results  map[string]outcome
+}
+
+func openReadOnlyCheck(ctx context.Context) (*readOnlyCheck, error) {
+	schema := strings.TrimSpace(os.Getenv("DB_SCHEMA"))
+	if schema == "" || schema == "public" {
+		return nil, fmt.Errorf("refusing DB_SCHEMA %q: the read-only check needs the API's own schema, never public", schema)
+	}
+	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+		os.Getenv("DB_HOST"), os.Getenv("DB_PORT"), os.Getenv("DB_USER"),
+		os.Getenv("DB_PASSWORD"), os.Getenv("DB_NAME"), os.Getenv("DB_SSLMODE"))
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	rows, err := db.QueryContext(ctx, `SELECT table_name FROM information_schema.tables
+		WHERE table_schema = $1 AND table_type = 'BASE TABLE' AND table_name <> 'goose_db_version'
+		ORDER BY table_name`, schema)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	defer rows.Close()
+	var parts []string
+	for rows.Next() {
+		var table string
+		if err := rows.Scan(&table); err != nil {
+			db.Close()
+			return nil, err
+		}
+		parts = append(parts, fmt.Sprintf(
+			"SELECT %s, count(*), coalesce(sum(hashtext((to_jsonb(t) - 'last_used_at')::text)), 0) FROM %s t",
+			quoteLiteral(table), pgx.Identifier{schema, table}.Sanitize()))
+	}
+	if err := rows.Err(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if len(parts) == 0 {
+		db.Close()
+		return nil, fmt.Errorf("schema %s has no tables", schema)
+	}
+	return &readOnlyCheck{
+		ctx: ctx, db: db, schema: schema,
+		query:   strings.Join(parts, "\nUNION ALL\n"),
+		results: map[string]outcome{},
+	}, nil
+}
+
+// prepare reads the read-only set from the server's annotations and confirms
+// the API under test writes to this schema, so a wrong DB_SCHEMA cannot pass
+// every tool as CLEAN.
+func (c *readOnlyCheck) prepare(session *mcp.ClientSession, email string) error {
+	var seen int
+	err := c.db.QueryRowContext(c.ctx,
+		fmt.Sprintf("SELECT count(*) FROM %s WHERE email = $1", pgx.Identifier{c.schema, "users"}.Sanitize()), email).Scan(&seen)
+	if err != nil {
+		return err
+	}
+	if seen != 1 {
+		return fmt.Errorf("the account just registered is not in schema %s: is the API on TIMELY_API using DB_SCHEMA=%s?", c.schema, c.schema)
+	}
+	c.readOnly = map[string]bool{}
+	for tool, err := range session.Tools(c.ctx, nil) {
+		if err != nil {
+			return err
+		}
+		if tool.Annotations != nil && tool.Annotations.ReadOnlyHint {
+			c.readOnly[tool.Name] = true
+		}
+	}
+	if len(c.readOnly) == 0 {
+		return fmt.Errorf("tools/list annotated no tool readOnlyHint")
+	}
+	return nil
+}
+
+func (c *readOnlyCheck) snapshot() fingerprint {
+	rows, err := c.db.QueryContext(c.ctx, c.query)
+	if err != nil {
+		fatal(err)
+	}
+	defer rows.Close()
+	out := fingerprint{}
+	for rows.Next() {
+		var table string
+		var sum tableSum
+		if err := rows.Scan(&table, &sum.rows, &sum.hash); err != nil {
+			fatal(err)
+		}
+		out[table] = sum
+	}
+	if err := rows.Err(); err != nil {
+		fatal(err)
+	}
+	return out
+}
+
+func changed(from, to fingerprint) map[string]bool {
+	out := map[string]bool{}
+	for table, sum := range to {
+		if from[table] != sum {
+			out[table] = true
+		}
+	}
+	return out
+}
+
+func (c *readOnlyCheck) measure(tool string, call func()) {
+	var got outcome
+	for range readOnlyAttempts {
+		f0 := c.snapshot()
+		time.Sleep(controlWindow)
+		f1 := c.snapshot()
+		call()
+		f2 := c.snapshot()
+		time.Sleep(controlWindow)
+		f3 := c.snapshot()
+		got = classify(tool, changed(f0, f1), changed(f1, f2), changed(f2, f3))
+		if got.verdict != inconclusive {
+			break
+		}
+	}
+	if prev, ok := c.results[tool]; !ok || got.verdict > prev.verdict {
+		c.results[tool] = got
+	}
+}
+
+func classify(tool string, before, during, after map[string]bool) outcome {
+	allow := readOnlyAllowed[tool]
+	var wrote, noisy, settled []string
+	for table := range during {
+		switch {
+		case slices.Contains(allow.tables, table):
+			settled = append(settled, table)
+		case before[table] || after[table]:
+			noisy = append(noisy, table)
+		default:
+			wrote = append(wrote, table)
+		}
+	}
+	for _, o := range []outcome{{writes, wrote}, {inconclusive, noisy}, {allowed, settled}} {
+		if len(o.tables) > 0 {
+			sort.Strings(o.tables)
+			return o
+		}
+	}
+	return outcome{verdict: clean}
+}
+
+// report prints every tool that was not CLEAN and returns a failure when any
+// wrote or stayed unresolved.
+func (c *readOnlyCheck) report() string {
+	tools := make([]string, 0, len(c.results))
+	for tool := range c.results {
+		tools = append(tools, tool)
+	}
+	sort.Strings(tools)
+	counts := map[verdict]int{}
+	for _, tool := range tools {
+		o := c.results[tool]
+		counts[o.verdict]++
+		switch o.verdict {
+		case clean:
+		case allowed:
+			fmt.Printf("read-only %s %s: %s (%s)\n", o.verdict, tool, strings.Join(o.tables, ", "), readOnlyAllowed[tool].reason)
+		default:
+			fmt.Printf("read-only %s %s: %s\n", o.verdict, tool, strings.Join(o.tables, ", "))
+		}
+	}
+	fmt.Printf("read-only check: tools checked %d, clean %d, allowed %d, writes %d, inconclusive %d\n",
+		len(tools), counts[clean], counts[allowed], counts[writes], counts[inconclusive])
+	if counts[writes]+counts[inconclusive] > 0 {
+		return fmt.Sprintf("read-only check: %d writes, %d inconclusive", counts[writes], counts[inconclusive])
+	}
+	return ""
+}
+
+func quoteLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
