@@ -190,7 +190,7 @@ func (r *runner) exercise(email string) {
 		"name": "Clear this block", "workspaceId": wsID, "duration": 15, "projectId": projectID,
 	})
 	sideID := str(side, "task", "id")
-	r.call("capture_inbox_item", map[string]any{"name": "Call the printer", "workspaceId": wsID})
+	r.call("capture_inbox_item", map[string]any{"name": "Call the printer"})
 	inbox := r.call("list_inbox", nil)
 	inboxID := firstID(inbox, "tasks")
 	r.call("clarify_inbox_item", map[string]any{"taskId": inboxID, "kind": "task", "workspaceId": wsID, "duration": 20, "projectId": projectID})
@@ -200,6 +200,7 @@ func (r *runner) exercise(email string) {
 	r.call("list_tasks", map[string]any{"workspaceId": wsID, "text": "parity"})
 	r.call("get_task", map[string]any{"taskId": workID})
 	r.call("update_task", map[string]any{"taskId": workID, "name": "Write the parity notes"})
+	r.call("pick_tasks", map[string]any{"description": "the parity notes"})
 	r.call("bulk_update_tasks", map[string]any{"ids": []string{workID, reviewID}, "update": map[string]any{"priorityLevel": "High"}})
 	r.call("move_task_to_status", map[string]any{"taskId": workID, "statusId": doingID})
 	r.call("move_task_to_stage", map[string]any{"taskId": reviewID, "stageId": str(stageB, "id")})
@@ -225,6 +226,7 @@ func (r *runner) exercise(email string) {
 	r.call("start_focus", map[string]any{"taskId": workID})
 	r.call("pause_focus", map[string]any{"taskId": workID})
 	r.call("stop_focus", map[string]any{"taskId": workID})
+	r.call("list_focus_sessions", map[string]any{"from": yesterday, "to": today, "timezone": "UTC"})
 	r.call("set_today_focus", map[string]any{"taskId": workID, "date": today})
 	r.call("get_today", map[string]any{"date": today, "timezone": "UTC"})
 	dupTask := r.call("duplicate_task", map[string]any{"taskId": workID})
@@ -278,6 +280,7 @@ func (r *runner) exercise(email string) {
 	r.call("pin_task", map[string]any{"taskId": workID, "locked": true})
 	r.call("auto_schedule_preview", map[string]any{"timezone": "UTC"})
 	r.call("auto_schedule_apply", map[string]any{"timezone": "UTC"})
+	r.call("undo_schedule_preview", nil)
 	r.call("undo_schedule", nil)
 	r.call("reschedule_urgent", map[string]any{"taskId": overdueID})
 
@@ -311,6 +314,8 @@ func (r *runner) exercise(email string) {
 	r.call("get_agenda", map[string]any{"from": now.Format(time.RFC3339), "to": weekOut, "timezone": "UTC"})
 	r.call("get_free_time", map[string]any{"from": now.Format(time.RFC3339), "to": weekOut, "timezone": "UTC"})
 	r.call("what_next", nil)
+	r.call("get_today_suggestions", map[string]any{"timezone": "UTC"})
+	r.call("list_stale_work", nil)
 	r.call("search", map[string]any{"query": "parity", "limit": 10})
 	if msg := r.callAllow("semantic_search", map[string]any{"query": "notes about the parity test", "limit": 5}, "not configured"); msg != "" {
 		r.notes = append(r.notes, "semantic_search: "+msg)
@@ -326,6 +331,17 @@ func (r *runner) exercise(email string) {
 	r.call("get_doc", map[string]any{"docId": docID})
 	r.call("update_doc", map[string]any{"docId": docID, "title": "Parity notes", "isFavorite": true})
 	r.call("append_to_doc", map[string]any{"docId": docID, "markdown": "\n\nAppended by the harness."})
+	r.call("add_3d_model", map[string]any{"docId": docID, "name": "crate", "parts": []map[string]any{
+		{"shape": "box", "center": []float64{0, 0, 0.5}, "size": []float64{1, 1, 1}, "color": "#8B5A2B"},
+	}})
+	if older := olderVersion(r.call("list_doc_versions", map[string]any{"docId": docID})); older != "" {
+		r.call("restore_doc_version", map[string]any{"docId": docID, "versionId": older})
+	} else {
+		r.fail("restore_doc_version", "list_doc_versions had no earlier version")
+	}
+	r.call("open_daily_note", map[string]any{"date": today})
+	r.call("create_doc", map[string]any{"title": "Linking page", "workspaceId": wsID, "markdown": "See [[Parity notes]]."})
+	r.call("get_doc_backlinks", map[string]any{"docId": docID})
 	r.call("archive_doc", map[string]any{"docId": str(child, "id"), "archived": true})
 	r.call("archive_doc", map[string]any{"docId": str(child, "id"), "archived": false})
 	r.call("export_doc", map[string]any{"docId": docID, "format": "markdown"})
@@ -401,6 +417,19 @@ func (r *runner) exercise(email string) {
 		r.fail("snooze_reminder", "no notification was produced")
 		r.call("mark_notification_read", map[string]any{})
 	}
+	if overdueNtf := notificationOf(r.call("list_notifications", map[string]any{"limit": 50}), "overdue"); overdueNtf != "" {
+		r.call("triage_notification", map[string]any{"notificationId": overdueNtf, "action": "extend"})
+	} else if ntfID != "" {
+		r.callAllow("triage_notification", map[string]any{"notificationId": ntfID, "action": "extend"}, "no next step")
+		r.notes = append(r.notes, "triage_notification: no overdue notification yet, so a reminder's refusal was checked")
+	} else {
+		r.fail("triage_notification", "no notification to triage")
+	}
+	if ntfID != "" {
+		r.call("delete_notification", map[string]any{"notificationId": ntfID})
+	} else {
+		r.fail("delete_notification", "no notification to delete")
+	}
 	r.call("list_jobs", map[string]any{"limit": 20})
 	r.call("get_job_health", nil)
 	jobs := r.call("list_jobs", map[string]any{"limit": 20})
@@ -412,6 +441,16 @@ func (r *runner) exercise(email string) {
 		r.callAllow("retry_job", map[string]any{"id": jobID}, "only failed or cancelled")
 	}
 	r.call("clear_notifications", nil)
+
+	r.call("add_habit", map[string]any{"name": "Stretch"})
+	r.call("check_habit", map[string]any{"habit": "Stretch", "day": today})
+	r.call("list_habits", map[string]any{"today": today})
+	r.call("update_habit", map[string]any{"habit": "Stretch", "action": "rename", "title": "Stretch daily"})
+	r.call("set_goal", map[string]any{"action": "add", "title": "Ship the parity run"})
+	r.call("list_goals", nil)
+	r.call("get_goal_progress", nil)
+	r.call("set_goal", map[string]any{"action": "remove", "goal": "Ship the parity run"})
+	r.call("update_habit", map[string]any{"habit": "Stretch daily", "action": "remove"})
 
 	r.call("get_backup_settings", nil)
 	r.call("update_backup_settings", map[string]any{"enabled": true, "intervalDays": 7, "retentionCount": 3})
@@ -493,6 +532,18 @@ func (r *runner) invoke(name string, args map[string]any) (map[string]any, strin
 }
 
 func (r *runner) report(session *mcp.ClientSession) {
+	prompts, err := session.ListPrompts(r.ctx, nil)
+	if err != nil {
+		r.fails = append(r.fails, "list prompts: "+err.Error())
+	} else {
+		for _, p := range prompts.Prompts {
+			if got, err := session.GetPrompt(r.ctx, &mcp.GetPromptParams{Name: p.Name}); err != nil || len(got.Messages) == 0 {
+				r.fails = append(r.fails, fmt.Sprintf("prompt %s: %v", p.Name, err))
+				continue
+			}
+			fmt.Println("ok prompt", p.Name)
+		}
+	}
 	listed, err := session.ListTools(r.ctx, nil)
 	if err != nil {
 		r.fails = append(r.fails, "list tools: "+err.Error())
@@ -569,6 +620,27 @@ func sliceAt(m map[string]any, path ...string) []any {
 	}
 	items, _ := cur.([]any)
 	return items
+}
+
+// olderVersion is a doc version other than the one matching the doc now.
+func olderVersion(versions map[string]any) string {
+	for _, v := range sliceAt(versions, "versions") {
+		obj, _ := v.(map[string]any)
+		if current, _ := obj["current"].(bool); !current {
+			return str(obj, "id")
+		}
+	}
+	return ""
+}
+
+func notificationOf(list map[string]any, category string) string {
+	for _, item := range sliceAt(list, "items") {
+		obj, _ := item.(map[string]any)
+		if str(obj, "category") == category {
+			return str(obj, "id")
+		}
+	}
+	return ""
 }
 
 func eventOccurrence(cal map[string]any, eventID string) string {
