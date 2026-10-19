@@ -267,6 +267,10 @@ test-providers-live: ## Call real agent provider APIs (tool round trip + image) 
 test-chat-integration: ## Test agent transactions and approvals in an isolated temporary PostgreSQL schema
 	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" go test ./internal/features/chat ./internal/features/sheet ./internal/features/provider ./internal/features/search ./internal/features/workspace ./internal/features/placement ./internal/features/task ./internal/features/notify ./internal/features/schedule ./internal/features/suggest ./cmd -run TestIntegration -count=1
 
+.PHONY: verify-agent-runs
+verify-agent-runs: ## Model-check Agent run claiming, leases, Stop and Retry with TLA+ (ARGS=--mutants or --resync; see .agents/skills/verify-agent-runs)
+	@.agents/skills/verify-agent-runs/run.sh $(ARGS)
+
 lint-chat: ## Lint the chat UI and Electron integration
 	@pnpm --filter @timely/web exec eslint app/_components/chat app/_store/chatStore.ts app/utils/api/chat.ts app/utils/hooks/chat.ts "app/(pages)/(nav_pages)/chat" electron/main.ts electron/preload.ts
 
