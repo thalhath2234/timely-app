@@ -5,7 +5,7 @@ import { SkeletonRows } from "@/app/_components/_ui/skeleton";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bell, CalendarClock, Clock, Moon, Plus, Star, Sun } from "lucide-react";
+import { Bell, CalendarClock, Clock, Film, Moon, Plus, Star, Sun } from "lucide-react";
 import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import EmptyState from "@/app/_components/_ui/emptyState";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
@@ -47,6 +47,7 @@ import TodaySuggestions from "@/app/_components/today/todaySuggestions";
 import HabitsGoals from "@/app/_components/today/habitsGoals";
 import DayTimeline from "@/app/_components/today/dayTimeline";
 import TodayPanel from "@/app/_components/today/todayPanel";
+import WeekReviewDialog from "@/app/_components/today/weekReview";
 import PageWithRail from "@/app/_components/_ui/pageWithRail";
 import ScreenTip from "@/app/_components/_ui/screenTip";
 import Button, { buttonClass } from "@/app/_components/_ui/button";
@@ -403,6 +404,7 @@ export default function TodayDashboard() {
   const setCreateTaskDraft = useSidebarStore((state) => state.setCreateTaskDraft);
   const [openEventId, setOpenEventId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const openMenu = useContextMenu();
   const taskMenu = useTaskContextMenu();
   const { eventMenu } = useCalendarContextMenu({
@@ -772,6 +774,16 @@ export default function TodayDashboard() {
                       >
                         Shut down day
                       </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        leading={<Film />}
+                        onClick={() => setReviewOpen(true)}
+                        title="This week as a short video you can save"
+                        data-testid="today-week-review"
+                      >
+                        Week in review
+                      </Button>
                     </div>
                   </TodayPanel>
                 </>
@@ -907,6 +919,7 @@ export default function TodayDashboard() {
         </div>
       </div>
 
+      {reviewOpen ? <WeekReviewDialog onClose={() => setReviewOpen(false)} /> : null}
       {pickerOpen ? (
         <div
           className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 pt-[18vh] backdrop-blur-[2px]"
