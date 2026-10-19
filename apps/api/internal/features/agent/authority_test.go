@@ -61,9 +61,9 @@ var expectedAuthority = []struct {
 	delete_sheet_template delete_stage delete_status delete_task delete_task_view delete_workspace
 	update_notification_settings update_working_hours`},
 	// Habits and goals on Today (tools_focus.go): reading and checking off apply directly; removing a goal is reviewed.
-	{Read, Applies, `list_goals list_habits`},
+	{Read, Applies, `list_goals list_habits get_goal_progress list_focus_sessions`},
 	{Write, Applies, `add_habit check_habit`},
-	{Write, ReviewedWhen, `set_goal`},
+	{Write, ReviewedWhen, `set_goal update_habit`},
 }
 
 func TestEveryToolDeclaresAuthority(t *testing.T) {
@@ -250,6 +250,8 @@ func TestArgumentRules(t *testing.T) {
 		{"set_goal", map[string]any{"action": "add", "title": "Get fit"}, false},
 		{"set_goal", map[string]any{"action": "rename", "goal": "Get fit", "title": "Run a 10k"}, false},
 		{"set_goal", map[string]any{"action": "remove", "goal": "Get fit"}, true},
+		{"update_habit", map[string]any{"action": "rename", "habit": "Walk", "title": "Run"}, false},
+		{"update_habit", map[string]any{"action": "remove", "habit": "Walk"}, true},
 	}
 	for _, tt := range tests {
 		authority, ok := AuthorityOf(tt.tool)
