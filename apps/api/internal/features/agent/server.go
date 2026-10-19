@@ -144,6 +144,7 @@ Saved views can filter by project, priority, labels, stage, completed, overdue, 
 Destructive deletes of a workspace, project, or document require confirm=true. Deleting a doc does not cascade to subpages; the tool reports descendantCount.`,
 	})
 	s.register(server)
+	s.registerPrompts(server)
 	return server
 }
 
