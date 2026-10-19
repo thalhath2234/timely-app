@@ -25,6 +25,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -2569,8 +2570,8 @@ func main() {
 	flag.Parse()
 
 	base := getenv("TIMELY_API", "http://localhost:8081")
-	if u, err := url.Parse(base); err != nil || u.Port() == "8080" {
-		fatal(fmt.Errorf("refusing %s: the 60-day harness never runs against :8080", base))
+	if err := refuseUserAPI(base); err != nil {
+		fatal(err)
 	}
 	tz, err := time.LoadLocation(*tzName)
 	if err != nil {
@@ -2996,6 +2997,23 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// refuseUserAPI rejects a TIMELY_API that is not http(s)://host[:port] or
+// whose port, however it is spelled, is 8080: the person's own API.
+func refuseUserAPI(base string) error {
+	u, err := url.Parse(base)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return fmt.Errorf("refusing TIMELY_API %q: want http(s)://host[:port]", base)
+	}
+	port := u.Port()
+	if port == "" {
+		port = map[string]string{"http": "80", "https": "443"}[u.Scheme]
+	}
+	if n, err := strconv.Atoi(port); err != nil || n == 8080 {
+		return fmt.Errorf("refusing TIMELY_API %q: the 60-day harness never runs against :8080", base)
+	}
+	return nil
 }
 
 func fatal(err error) {

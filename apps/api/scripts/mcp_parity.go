@@ -15,7 +15,7 @@ import (
 	"net/url"
 	"os"
 	"slices"
-	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,8 +54,8 @@ func main() {
 
 	ctx := context.Background()
 	base := getenv("TIMELY_API", "http://localhost:8081")
-	if u, err := url.Parse(base); err != nil || u.Port() == "8080" {
-		fatal(fmt.Errorf("refusing %s: the parity harness never runs against :8080", base))
+	if err := refuseUserAPI(base); err != nil {
+		fatal(err)
 	}
 	var check *readOnlyCheck
 	if *readOnly {
@@ -222,7 +222,7 @@ func (r *runner) exercise(email string) {
 	inboxID := firstID(inbox, "tasks")
 	r.call("clarify_inbox_item", map[string]any{"taskId": inboxID, "kind": "task", "workspaceId": wsID, "duration": 20, "projectId": projectID})
 	r.call("create_task", map[string]any{
-		"name": "Standup ping", "kind": "reminder", "duration": 0, "scheduleAt": now.Add(30 * time.Second).Format(time.RFC3339),
+		"name": "Standup ping", "kind": "reminder", "duration": 0, "scheduleAt": time.Now().UTC().Add(30 * time.Second).Format(time.RFC3339),
 	})
 	r.call("list_tasks", map[string]any{"workspaceId": wsID, "text": "parity"})
 	r.call("get_task", map[string]any{"taskId": workID})
@@ -430,12 +430,12 @@ func (r *runner) exercise(email string) {
 	r.call("update_notification_settings", map[string]any{"reminders": true, "timezone": "UTC", "quietHoursStart": "22:00", "quietHoursEnd": "07:00"})
 	r.call("list_notifications", map[string]any{"limit": 20})
 	r.call("unread_notification_count", nil)
-	notes := r.call("list_notifications", map[string]any{"unread": true, "limit": 20})
-	ntfID := firstID(notes, "items")
-	if ntfID == "" {
-		time.Sleep(12 * time.Second)
-		notes = r.call("list_notifications", map[string]any{"unread": true, "limit": 20})
-		ntfID = firstID(notes, "items")
+	reminder := func() string {
+		return notificationOf(r.call("list_notifications", map[string]any{"unread": true, "limit": 20}), "reminder")
+	}
+	ntfID := reminder()
+	for deadline := time.Now().Add(90 * time.Second); ntfID == "" && time.Now().Before(deadline); ntfID = reminder() {
+		time.Sleep(3 * time.Second)
 	}
 	if ntfID != "" {
 		r.call("snooze_reminder", map[string]any{"id": ntfID, "minutes": 15})
@@ -708,13 +708,28 @@ func getenv(key, fallback string) string {
 	return fallback
 }
 
+// refuseUserAPI rejects a TIMELY_API that is not http(s)://host[:port] or
+// whose port, however it is spelled, is 8080: the person's own API.
+func refuseUserAPI(base string) error {
+	u, err := url.Parse(base)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return fmt.Errorf("refusing TIMELY_API %q: want http(s)://host[:port]", base)
+	}
+	port := u.Port()
+	if port == "" {
+		port = map[string]string{"http": "80", "https": "443"}[u.Scheme]
+	}
+	if n, err := strconv.Atoi(port); err != nil || n == 8080 {
+		return fmt.Errorf("refusing TIMELY_API %q: the parity harness never runs against :8080", base)
+	}
+	return nil
+}
+
 func fatal(err error) {
 	fmt.Fprintln(os.Stderr, err)
 	os.Exit(1)
 }
 
-// The job worker writes on its own clock, so a table that moves while the tool
-// runs only counts when it stayed still for a control window on either side.
 const (
 	controlWindow    = time.Second
 	readOnlyAttempts = 4
@@ -742,6 +757,25 @@ type allowance struct {
 var readOnlyAllowed = map[string]allowance{
 	"list_notifications":        {[]string{"notifications"}, "settles overdue and missed alerts of tasks finished since (notify.Service.List)"},
 	"unread_notification_count": {[]string{"notifications"}, "settles overdue and missed alerts of tasks finished since (notify.Service.UnreadCount)"},
+}
+
+// workerTables are the tables the job worker and its sweep (cmd/main.go
+// jobWorker) write on their own clock, each with its writer. A change there
+// counts against a tool only when the control windows on both sides of the
+// call stayed still, and a write that a re-measure does not repeat was the
+// worker's. Parity starts no Agent run, so the chat runner stays idle and
+// every other table has no background writer: any change from the call to
+// the end of the after window is the call's, including a write it leaves to
+// a goroutine.
+var workerTables = map[string]string{
+	"jobs":                    "the worker claims, finishes and recovers jobs; the notify and backup sweeps enqueue them",
+	"notifications":           "notify job handlers, sweepDismissed, and the triage and briefing goroutines",
+	"embeddings":              "index and reindex jobs",
+	"backup_files":            "scheduled backup jobs",
+	"backup_settings":         "scheduled backup jobs move next_run_at",
+	"decision_log":            "decide.Ask from triage, briefing and smart alerts; decide.Prune in the sweep",
+	"push_devices":            "push jobs drop tokens Expo rejects",
+	"agent_provider_settings": "reindex jobs record their progress; a background decide call marks a rejected key",
 }
 
 type tableSum struct{ rows, hash int64 }
@@ -869,7 +903,8 @@ func changed(from, to fingerprint) map[string]bool {
 }
 
 func (c *readOnlyCheck) measure(tool string, call func()) {
-	var got outcome
+	var got map[string]verdict
+	workerWrote := map[string]bool{}
 	for range readOnlyAttempts {
 		f0 := c.snapshot()
 		time.Sleep(controlWindow)
@@ -878,36 +913,114 @@ func (c *readOnlyCheck) measure(tool string, call func()) {
 		f2 := c.snapshot()
 		time.Sleep(controlWindow)
 		f3 := c.snapshot()
-		got = classify(tool, changed(f0, f1), changed(f1, f2), changed(f2, f3))
-		if got.verdict != inconclusive {
+		next := classify(tool, changed(f0, f1), changed(f1, f2), changed(f2, f3))
+		for table, v := range next {
+			if _, worker := workerTables[table]; worker && v == writes {
+				workerWrote[table] = true
+			}
+		}
+		got = merge(got, next)
+		if settled(got) {
 			break
 		}
 	}
-	if prev, ok := c.results[tool]; !ok || got.verdict > prev.verdict {
-		c.results[tool] = got
+	var retried []string
+	for table := range workerWrote {
+		if got[table] < inconclusive {
+			retried = append(retried, fmt.Sprintf("%s (%s)", table, workerTables[table]))
+		}
+	}
+	if len(retried) > 0 {
+		slices.Sort(retried)
+		fmt.Printf("read-only retried %s: changed during one call but not on a re-measure: %s\n", tool, strings.Join(retried, ", "))
+	}
+	o := worst(got)
+	if prev, ok := c.results[tool]; !ok || o.verdict > prev.verdict {
+		c.results[tool] = o
 	}
 }
 
-func classify(tool string, before, during, after map[string]bool) outcome {
-	allow := readOnlyAllowed[tool]
-	var wrote, noisy, settled []string
-	for table := range during {
+// classify judges one measurement: the verdict of every table that was not
+// CLEAN, given the tables that changed in the control window before the call,
+// across the call, and in the control window after it.
+func classify(tool string, before, during, after map[string]bool) map[string]verdict {
+	judge := func(table string) verdict {
+		_, worker := workerTables[table]
 		switch {
-		case slices.Contains(allow.tables, table):
-			settled = append(settled, table)
-		case before[table] || after[table]:
-			noisy = append(noisy, table)
+		case during[table] && slices.Contains(readOnlyAllowed[tool].tables, table):
+			return allowed
+		case worker && !during[table]:
+			return clean
+		case worker && (before[table] || after[table]), !worker && before[table]:
+			return inconclusive
 		default:
-			wrote = append(wrote, table)
+			return writes
 		}
 	}
-	for _, o := range []outcome{{writes, wrote}, {inconclusive, noisy}, {allowed, settled}} {
-		if len(o.tables) > 0 {
-			sort.Strings(o.tables)
-			return o
+	out := map[string]verdict{}
+	for _, set := range []map[string]bool{during, after} {
+		for table := range set {
+			if v := judge(table); v != clean {
+				out[table] = v
+			}
 		}
 	}
-	return outcome{verdict: clean}
+	return out
+}
+
+// merge folds a re-measure of the same call into the verdicts so far. A worker
+// table keeps its best verdict, since one quiet measurement shows the change
+// was the worker's. Any other table keeps a write once seen, and otherwise
+// its best verdict, so it stays INCONCLUSIVE only when every attempt was.
+func merge(got, next map[string]verdict) map[string]verdict {
+	if got == nil {
+		return next
+	}
+	out := map[string]verdict{}
+	for _, set := range []map[string]verdict{got, next} {
+		for table := range set {
+			a, b := got[table], next[table]
+			v := min(a, b)
+			if _, worker := workerTables[table]; !worker && max(a, b) == writes {
+				v = writes
+			}
+			if v != clean {
+				out[table] = v
+			}
+		}
+	}
+	return out
+}
+
+// settled is true when no verdict calls for a re-measure: a table that is not
+// a worker table WRITES, which is final, or no table is INCONCLUSIVE and no
+// worker table WRITES.
+func settled(got map[string]verdict) bool {
+	again := false
+	for table, v := range got {
+		_, worker := workerTables[table]
+		if !worker && v == writes {
+			return true
+		}
+		if v == inconclusive || worker && v == writes {
+			again = true
+		}
+	}
+	return !again
+}
+
+func worst(got map[string]verdict) outcome {
+	var o outcome
+	for _, v := range got {
+		o.verdict = max(o.verdict, v)
+	}
+	for table, v := range got {
+		if v == o.verdict {
+			o.tables = append(o.tables, table)
+		}
+	}
+	slices.Sort(o.tables)
+	return o
 }
 
 // report prints every tool that was not CLEAN and returns a failure when any
@@ -917,7 +1030,7 @@ func (c *readOnlyCheck) report() string {
 	for tool := range c.results {
 		tools = append(tools, tool)
 	}
-	sort.Strings(tools)
+	slices.Sort(tools)
 	counts := map[verdict]int{}
 	for _, tool := range tools {
 		o := c.results[tool]
