@@ -83,9 +83,12 @@ type projectRec struct {
 type taskRec struct {
 	id, name, workspace string
 	projectID, stageID  string
-	deadline            string
+	deadline, priority  string
 	completedOn         string
 	duration            int
+	// decided is set once the persona chose, on the day the task came due,
+	// whether to finish it or let it slide into overdue.
+	decided bool
 }
 
 func (t *taskRec) open() bool { return t.completedOn == "" }
@@ -1268,7 +1271,8 @@ func (s *sim) clarifyInbox(d day) error {
 			continue
 		}
 		duration := []int{15, 30, 45, 60, 90}[r.IntN(5)]
-		args := map[string]any{"taskId": id, "kind": "task", "workspaceId": s.l.workspaces[item.workspace], "duration": duration}
+		priority := []string{"Low", "Medium", "High"}[r.IntN(3)]
+		args := map[string]any{"taskId": id, "kind": "task", "workspaceId": s.l.workspaces[item.workspace], "duration": duration, "priorityLevel": priority}
 		stage := ""
 		if item.workspace == "Work" && r.IntN(3) == 0 {
 			stage = []string{"Backlog", "Building", "Review"}[r.IntN(3)]
@@ -1280,7 +1284,7 @@ func (s *sim) clarifyInbox(d day) error {
 			continue
 		}
 		delete(s.l.tasks, id)
-		t := &taskRec{id: out.str("task", "id"), name: item.name, workspace: item.workspace, duration: duration}
+		t := &taskRec{id: out.str("task", "id"), name: item.name, workspace: item.workspace, duration: duration, priority: priority}
 		s.expect(out.str("task", "kind") == "task" && int(out.num("task", "duration")) == duration,
 			"clarify_inbox_item returns a work task with the asked duration", map[string]any{"kind": "task", "duration": duration}, map[string]any{"kind": out.str("task", "kind"), "duration": out.num("task", "duration")})
 		if args["projectId"] != nil {
@@ -1462,14 +1466,18 @@ func (s *sim) logExpenses(d day) error {
 	return nil
 }
 
-// completeTasks finishes some open work due by tomorrow and leaves the rest,
-// so lived days build up real overdue work. Past days are backdated with
-// completedAt; today uses complete_task.
+// completeTasks decides once for each task that comes due by tomorrow:
+// finish it that day, or let it slide, so lived days build up real overdue
+// work. Past days are backdated with completedAt; today uses complete_task.
 func (s *sim) completeTasks(d day) error {
 	r := s.rng(d, "complete")
 	horizon := d.date.AddDate(0, 0, 1).Format(time.DateOnly)
 	for _, t := range s.l.openTasks() {
-		if t.deadline == "" || t.deadline > horizon || r.Float64() > 0.5 {
+		if t.decided || t.deadline == "" || t.deadline > horizon {
+			continue
+		}
+		t.decided = true
+		if r.Float64() > 0.6 {
 			continue
 		}
 		if d.isToday() {
@@ -2194,6 +2202,7 @@ func (s *sim) urgent(d day) error {
 		return err
 	}
 	s.expect(got.str("task", "priorityLevel") == "Urgent", "reschedule_urgent marks the task Urgent", "Urgent", got.str("task", "priorityLevel"))
+	s.l.tasks[overdue[0]].priority = "Urgent"
 	return nil
 }
 
@@ -2329,9 +2338,9 @@ func (s *sim) handleNotifications(d day) error {
 }
 
 // workOverdue triages one overdue notification and deletes another. The
-// server sweeps a user's overdue work at most every 5 minutes and first
-// sweeps right after registration, so the notifications land a little over
-// 5 minutes after the account was made (the sweep, then the next 10s tick).
+// server sweeps a user's overdue work at most every 5 minutes, so an
+// overdue task can wait up to that long (plus a 10s job tick) for its
+// notification; the harness polls until 7 minutes after registration.
 func (s *sim) workOverdue(d day) error {
 	overdue := s.overdueIDs(d.ymd())
 	var found []obj
@@ -2350,9 +2359,28 @@ func (s *sim) workOverdue(d day) error {
 			time.Sleep(5 * time.Second)
 		}
 	}
-	if !s.expect(len(found) >= 2, "overdue work raises overdue notifications within the 5-minute sweep", ">= 2", len(found)) {
+	if len(found) < 2 {
+		out, err := s.call("list_notifications", map[string]any{"limit": 200})
+		if err != nil {
+			return err
+		}
+		seen := map[string]int{}
+		for _, n := range out.objs("items") {
+			key := n.str("category")
+			if n.str("readAt") != "" {
+				key += " read"
+			}
+			if key == "overdue" && !slices.Contains(overdue, n.str("entityId")) {
+				key += " (not overdue in the ledger)"
+			}
+			seen[key]++
+		}
+		s.fail(fmt.Sprintf("overdue work raises overdue notifications within the 5-minute sweep (%d overdue in the ledger)", len(overdue)), ">= 2 unread overdue", seen)
 		return nil
 	}
+	slices.SortStableFunc(found, func(a, b obj) int {
+		return priorityRank(s.l.tasks[b.str("entityId")].priority) - priorityRank(s.l.tasks[a.str("entityId")].priority)
+	})
 	if err := s.triageOverdue(found[0]); err != nil && !errors.Is(err, errMissing) {
 		return err
 	}
@@ -2375,10 +2403,17 @@ func (s *sim) triageOverdue(n obj) error {
 	if err != nil {
 		return err
 	}
-	s.expect(after.str("task", "priorityLevel") != before.str("task", "priorityLevel"), "triage_notification lower changes the task's priority",
-		"lower than "+before.str("task", "priorityLevel"), after.str("task", "priorityLevel"))
+	want := lowered[before.str("task", "priorityLevel")]
+	if want == "" {
+		want = "Low"
+	}
+	s.expect(after.str("task", "priorityLevel") == want, "triage_notification lower moves the task's priority down one step", want, after.str("task", "priorityLevel"))
 	return nil
 }
+
+var lowered = map[string]string{"Urgent": "High", "High": "Medium", "Medium": "Low"}
+
+func priorityRank(p string) int { return slices.Index([]string{"Low", "Medium", "High", "Urgent"}, p) }
 
 func (s *sim) deleteNotification(n obj) error {
 	if _, err := s.call("delete_notification", map[string]any{"notificationId": n.str("id")}); err != nil {
