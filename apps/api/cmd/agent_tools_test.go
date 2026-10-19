@@ -1,10 +1,16 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"timely-api/internal/features/decide"
+	"timely-api/internal/features/suggest"
 	"timely-api/internal/models"
 )
 
@@ -75,5 +81,65 @@ func TestIntegrationDocHistoryDailyNotesAndBacklinks(t *testing.T) {
 	}
 	if none := call("get_doc_backlinks", map[string]any{"docId": notes["id"]})["backlinks"].([]any); len(none) != 0 {
 		t.Fatalf("nothing links to Notes: %v", none)
+	}
+}
+
+// staleJev calls every stale task blocked.
+func staleJev(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Questions map[string]json.RawMessage `json:"questions"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		answers := map[string]any{}
+		for id := range req.Questions {
+			answers[id] = map[string]any{"type": "choice", "choice": "blocked", "confidence": 0.95}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"model": "jev-1.13.0", "answers": answers, "usage": map[string]int{"input_tokens": 10, "output_tokens": 0}})
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestIntegrationSuggestionTools(t *testing.T) {
+	db, uid := agentToolsDB(t)
+	defer func(old *suggest.Service) { todaySuggestions = old }(todaySuggestions)
+	ws := agentToolCaller(t, db, uid)("create_workspace", map[string]any{"name": "Personal"})["id"].(string)
+	old := time.Now().AddDate(0, 0, -40).Format("2006-01-02")
+	stale := "tsk_renew_passport"
+	if err := db.Create(&models.Task{ID: stale, Name: "Renew passport", UserID: &uid, WorkspaceID: &ws, Kind: models.KindTask}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&models.Task{}).Where("id = ?", stale).UpdateColumns(map[string]any{"created_at": old, "updated_at": old}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	todaySuggestions = nil
+	for _, name := range []string{"list_stale_work", "get_today_suggestions"} {
+		if _, err := chatCatalog(db, nil, nil)[name].Call(context.Background(), uid, json.RawMessage(`{}`)); err == nil || !strings.Contains(err.Error(), "not available") {
+			t.Fatalf("%s without the service: %v", name, err)
+		}
+	}
+
+	client := decide.NewClient(nil)
+	client.TypeSafeURL = staleJev(t).URL
+	keys := decide.Keys{TypeSafe: "ts-test-key-123"}
+	todaySuggestions = suggest.New(db, decide.New(db, func(context.Context, string) (decide.Keys, error) { return keys, nil }, client), nil)
+	call := agentToolCaller(t, db, uid)
+	for _, name := range []string{"list_stale_work", "get_today_suggestions"} {
+		if out := call(name, map[string]any{}); out["available"] == true {
+			t.Fatalf("%s with smart suggestions off: %v", name, out)
+		}
+	}
+
+	keys.Enabled = true
+	work := call("list_stale_work", map[string]any{})
+	tasks := work["tasks"].([]any)
+	if work["available"] != true || len(tasks) != 1 {
+		t.Fatalf("one stale task: %v", work)
+	}
+	if got := tasks[0].(map[string]any); got["id"] != stale || got["verdict"] != "blocked" || got["idleDays"].(float64) < 39 {
+		t.Fatalf("stale task with its idle days and verdict: %v", got)
 	}
 }

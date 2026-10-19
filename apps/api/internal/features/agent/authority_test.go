@@ -27,7 +27,7 @@ var expectedAuthority = []struct {
 	get_notification_settings get_project get_schedule_settings get_sheet get_sheet_template get_sheet_values get_task get_today
 	get_working_hours get_workspace list_docs list_events list_inbox list_notifications list_projects pick_tasks
 	list_sheet_templates list_sheets list_task_views list_tasks list_workspaces search semantic_search undo_schedule_preview
-	unread_notification_count what_next list_doc_versions get_doc_backlinks`},
+	unread_notification_count what_next list_doc_versions get_doc_backlinks get_today_suggestions list_stale_work`},
 	// Applied directly when the plan is one clear step.
 	{Write, Applies, `
 	add_checklist_item add_sheet_column add_sheet_row add_sheet_tab add_task_comment append_to_doc capture_inbox_item

@@ -19,6 +19,7 @@ import (
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/search"
 	"timely-api/internal/features/sheet"
+	"timely-api/internal/features/suggest"
 	"timely-api/internal/features/task"
 	"timely-api/internal/features/workspace"
 	"timely-api/internal/jobs"
@@ -63,6 +64,9 @@ type Deps struct {
 	// Focus holds the person's habits and goals (tools_focus.go); nil makes
 	// those tools answer that they are not available.
 	Focus *focus.Store
+	// Suggest answers Today's suggestions and stale Work (tools_suggest.go);
+	// nil makes those tools answer that they are not available.
+	Suggest *suggest.Service
 }
 
 type Server struct {
@@ -325,6 +329,7 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "delete_backup", Description: "Delete one encrypted server backup. Requires confirm=true."}, mcpOnly.reviewed().destroys(), s.deleteBackup)
 	registerTool(s, server, &mcp.Tool{Name: "restore_account", Description: "Replace this account's data with a timely-backup JSON object. Requires confirm=true. Same guard as POST /restore."}, mcpOnly.destroys(), s.restoreAccount)
 	s.registerFocus(server)
+	s.registerSuggest(server)
 }
 
 func userID(req *mcp.CallToolRequest) (string, error) {

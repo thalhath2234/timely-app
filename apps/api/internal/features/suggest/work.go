@@ -460,9 +460,7 @@ type StaleWork struct {
 }
 
 func (s *Service) staleWork(c *echo.Context) error {
-	ctx, cancel := context.WithTimeout(c.Request().Context(), workBudget)
-	defer cancel()
-	out, err := s.StaleWork(ctx, user(c), time.Now())
+	out, err := s.StaleWork(c.Request().Context(), user(c), time.Now())
 	if err != nil {
 		return err
 	}
@@ -473,6 +471,8 @@ func (s *Service) staleWork(c *echo.Context) error {
 // three weeks, oldest first, and asks Jev what each one needs. The idle
 // days are counted in code.
 func (s *Service) StaleWork(ctx context.Context, userID string, now time.Time) (StaleWork, error) {
+	ctx, cancel := context.WithTimeout(ctx, workBudget)
+	defer cancel()
 	on, _ := s.decide.Status(ctx, userID)
 	out := StaleWork{Available: on, Tasks: []StaleTask{}}
 	if !on {

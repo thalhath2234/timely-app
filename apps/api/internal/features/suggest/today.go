@@ -375,9 +375,7 @@ type TodaySuggestions struct {
 }
 
 func (s *Service) today(c *echo.Context) error {
-	ctx, cancel := context.WithTimeout(c.Request().Context(), todayBudget)
-	defer cancel()
-	out, err := s.Today(ctx, user(c), c.QueryParam("timezone"), time.Now())
+	out, err := s.Today(c.Request().Context(), user(c), c.QueryParam("timezone"), time.Now())
 	if err != nil {
 		return err
 	}
@@ -386,6 +384,8 @@ func (s *Service) today(c *echo.Context) error {
 
 // Today suggests focus picks and the best Work for the next free gap.
 func (s *Service) Today(ctx context.Context, userID, timezone string, now time.Time) (TodaySuggestions, error) {
+	ctx, cancel := context.WithTimeout(ctx, todayBudget)
+	defer cancel()
 	if ok, _ := s.decide.Status(ctx, userID); !ok || s.schedule == nil {
 		return TodaySuggestions{}, nil
 	}
