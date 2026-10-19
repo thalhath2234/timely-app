@@ -120,7 +120,7 @@ func TabValues(sh *models.Sheet, tabID string) ([][]CellValue, error) {
 func reachableTabs(tabs models.SheetTabs, start int) map[int]bool {
 	names := make([][]string, len(tabs))
 	for i, tab := range tabs {
-		name := strings.ToLower(strings.TrimSpace(tab.Name))
+		name := matchKey(strings.TrimSpace(tab.Name))
 		if name != "" {
 			names[i] = []string{name, strings.ReplaceAll(name, "'", "''")}
 		}
@@ -144,12 +144,22 @@ func reachableTabs(tabs models.SheetTabs, start int) map[int]bool {
 	return needed
 }
 
+// matchKey lowers s for reachableTabs. It drops $, which the engine skips
+// inside a bare tab name (Q$1!A1 reads Q1), and evens out where the engine's
+// full Unicode lowering differs from strings.ToLower: the engine lowers ΟΔΌΣ
+// to οδός, not οδόσ, and İzmir to i̇zmir (i and a combining dot), not izmir.
+func matchKey(s string) string {
+	return matchFold.Replace(strings.ToLower(s))
+}
+
+var matchFold = strings.NewReplacer("$", "", "ς", "σ", "\u0307", "")
+
 func tabFormulas(tab models.SheetTab) string {
 	var b strings.Builder
 	for _, row := range tab.Rows {
 		for _, value := range row.Cells {
 			if strings.HasPrefix(strings.TrimSpace(value), "=") {
-				b.WriteString(strings.ToLower(value))
+				b.WriteString(matchKey(value))
 				b.WriteByte('\n')
 			}
 		}

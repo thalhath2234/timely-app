@@ -2,7 +2,12 @@ package sheet
 
 import (
 	"fmt"
+	"math/rand"
+	"strings"
 	"testing"
+
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 
 	"timely-api/internal/models"
 )
@@ -206,4 +211,157 @@ func TestTabValuesMatchTheWholeWorkbook(t *testing.T) {
 	if _, err := TabValues(refs, "missing"); err == nil {
 		t.Fatal("an unknown tab must fail")
 	}
+}
+
+// The same, on random workbooks whose formulas reach other tabs by every
+// reference form the engine reads.
+func TestTabValuesMatchTheWholeWorkbookOnRandomWorkbooks(t *testing.T) {
+	rng := rand.New(rand.NewSource(60))
+	for w := range 150 {
+		sh := randomWorkbook(rng)
+		whole, err := SheetValues(sh)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, tab := range sh.Tabs {
+			for _, row := range whole[i] {
+				for _, value := range row {
+					if m, ok := value.(map[string]any); ok && m["error"] != "#VALUE!" {
+						t.Fatalf("workbook %d: %s on %s; the generator must only write formulas that work out in the whole workbook\n%s", w, m["error"], tab.Name, workbookCells(sh))
+					}
+				}
+			}
+			one, err := TabValues(sh, tab.ID)
+			if err != nil {
+				t.Fatalf("workbook %d, %s: %v", w, tab.Name, err)
+			}
+			if got, want := fmt.Sprint(one), fmt.Sprint(whole[i]); got != want {
+				t.Errorf("workbook %d: %s alone = %s, in the workbook %s\n%s", w, tab.Name, got, want, workbookCells(sh))
+			}
+		}
+	}
+}
+
+// randomWorkbook fills 3 to 6 small tabs, named so that some names hold
+// others (Q1, Q10, Q1.v2), with numbers and formulas. Cells are ranked by a
+// shuffle and a formula only reads cells ranked after its own, and ranges
+// only tabs whose cells all are, so there are no reference cycles.
+func randomWorkbook(rng *rand.Rand) *models.Sheet {
+	names := []string{"Sam's Rates", "jan 2026", "Q1.v2", "net_pay", "Q1", "Q10", "İzmir", "Café", "Οδός", "Main"}
+	rng.Shuffle(len(names), func(i, j int) { names[i], names[j] = names[j], names[i] })
+	type cell struct{ tab, row, col int }
+	var cells []cell
+	sh := &models.Sheet{}
+	for i, name := range names[:3+rng.Intn(4)] {
+		tab := models.SheetTab{ID: fmt.Sprint("tab", i), Name: name}
+		for col := range 1 + rng.Intn(3) {
+			tab.Columns = append(tab.Columns, models.SheetColumn{ID: fmt.Sprint("c", col), Name: columnLetter(col), Type: "text"})
+		}
+		for row := range 1 + rng.Intn(4) {
+			tab.Rows = append(tab.Rows, models.SheetRow{ID: fmt.Sprint("r", row), Cells: map[string]string{}})
+			for col := range tab.Columns {
+				cells = append(cells, cell{i, row, col})
+			}
+		}
+		sh.Tabs = append(sh.Tabs, tab)
+	}
+	rng.Shuffle(len(cells), func(i, j int) { cells[i], cells[j] = cells[j], cells[i] })
+	firstRank := make([]int, len(sh.Tabs))
+	for i := range firstRank {
+		firstRank[i] = len(cells)
+	}
+	for rank, c := range cells {
+		firstRank[c.tab] = min(firstRank[c.tab], rank)
+	}
+
+	pick := func(options ...string) string { return options[rng.Intn(len(options))] }
+	// The engine's own case mapping: lowered İzmir is i̇zmir, which only
+	// fits in quotes.
+	upper, lower := cases.Upper(language.Und), cases.Lower(language.Und)
+	cellRef := func(row, col int) string {
+		return pick("", "$") + columnLetter(col) + pick("", "$") + fmt.Sprint(row+1)
+	}
+	prefix := func(tab int) string {
+		name := sh.Tabs[tab].Name
+		name = pick(name, upper.String(name), lower.String(name))
+		if !bareTabName.MatchString(name) || rng.Intn(3) == 0 {
+			return "'" + strings.ReplaceAll(name, "'", "''") + "'!"
+		}
+		if rng.Intn(2) == 0 {
+			runes := []rune(name)
+			at := 1 + rng.Intn(len(runes)-1)
+			name = string(runes[:at]) + "$" + string(runes[at:])
+		}
+		return name + "!"
+	}
+	rangeRef := func(tab int) string {
+		rows, cols := len(sh.Tabs[tab].Rows), len(sh.Tabs[tab].Columns)
+		row, col := rng.Intn(rows+1), rng.Intn(cols+1)
+		row2, col2 := rng.Intn(rows+1), rng.Intn(cols+1)
+		switch rng.Intn(6) {
+		case 0:
+			return prefix(tab) + cellRef(row, col) + ":" + prefix(tab) + cellRef(row2, col2)
+		case 1:
+			return prefix(tab) + pick("", "$") + columnLetter(col) + ":" + pick("", "$") + columnLetter(col2)
+		case 2:
+			return prefix(tab) + pick("", "$") + fmt.Sprint(row+1) + ":" + pick("", "$") + fmt.Sprint(row2+1)
+		case 3:
+			return prefix(tab) + cellRef(row, col) + ":" + pick("", "$") + columnLetter(col2)
+		case 4:
+			return prefix(tab) + cellRef(row, col) + ":" + pick("", "$") + fmt.Sprint(row2+1)
+		default:
+			return prefix(tab) + cellRef(row, col) + ":" + cellRef(row2, col2)
+		}
+	}
+	var term func(rank int, wrap bool) string
+	term = func(rank int, wrap bool) string {
+		var whole []int
+		for tab, first := range firstRank {
+			if first > rank {
+				whole = append(whole, tab)
+			}
+		}
+		switch n := rng.Intn(6); {
+		case n == 0 && wrap:
+			return "IFERROR(" + term(rank, false) + ",-1)"
+		case n <= 2 && len(whole) > 0:
+			return pick("SUM", "COUNTA", "ROWS", "COLUMNS") + "(" + rangeRef(whole[rng.Intn(len(whole))]) + ")"
+		}
+		target := cells[rank+1+rng.Intn(len(cells)-rank-1)]
+		if target.tab == cells[rank].tab && rng.Intn(2) == 0 {
+			return cellRef(target.row, target.col)
+		}
+		return prefix(target.tab) + cellRef(target.row, target.col)
+	}
+	for rank, c := range cells {
+		value := fmt.Sprint(rng.Intn(100))
+		switch {
+		case rank+1 < len(cells) && rng.Intn(10) < 7:
+			terms := make([]string, 1+rng.Intn(3))
+			for i := range terms {
+				terms[i] = term(rank, true)
+			}
+			value = "=" + strings.Join(terms, "+")
+		case rng.Intn(8) == 0:
+			value = pick("", "note")
+		}
+		sh.Tabs[c.tab].Rows[c.row].Cells[fmt.Sprint("c", c.col)] = value
+	}
+	return sh
+}
+
+func columnLetter(col int) string {
+	return string(rune('A' + col))
+}
+
+func workbookCells(sh *models.Sheet) string {
+	var b strings.Builder
+	for _, tab := range sh.Tabs {
+		for row, cells := range tab.Rows {
+			for col := range tab.Columns {
+				fmt.Fprintf(&b, "%s!%s%d %s\n", tab.Name, columnLetter(col), row+1, cells.Cells[fmt.Sprint("c", col)])
+			}
+		}
+	}
+	return b.String()
 }
