@@ -27,7 +27,7 @@ var expectedAuthority = []struct {
 	get_notification_settings get_project get_schedule_settings get_sheet get_sheet_template get_sheet_values get_task get_today
 	get_working_hours get_workspace list_docs list_events list_inbox list_notifications list_projects pick_tasks
 	list_sheet_templates list_sheets list_task_views list_tasks list_workspaces search semantic_search undo_schedule_preview
-	unread_notification_count what_next`},
+	unread_notification_count what_next list_doc_versions get_doc_backlinks`},
 	// Applied directly when the plan is one clear step.
 	{Write, Applies, `
 	add_checklist_item add_sheet_column add_sheet_row add_sheet_tab add_task_comment append_to_doc capture_inbox_item
@@ -37,12 +37,12 @@ var expectedAuthority = []struct {
 	reopen_project reopen_task reorder_stages schedule_task set_active_task_view set_task_custom_field set_task_dependency
 	set_task_labels set_today_focus snooze_reminder start_focus stop_focus toggle_checklist_item
 	update_checklist_item update_custom_field update_label update_project update_sheet_template update_stage
-	update_status create_task_view update_task_view`},
+	update_status create_task_view update_task_view open_daily_note`},
 	// Always need an Agent proposal: removing a component of an entity (not the entity), recurring series, bulk edits, calendar-wide changes.
 	{Write, Reviewed, `
 	add_sheet_rows auto_schedule_apply bulk_update_tasks clear_task_blocks clear_task_recurrence delete_block
 	delete_checklist_item delete_sheet_column delete_sheet_rows delete_sheet_tab edit_event_occurrence
-	edit_task_occurrence set_task_recurrence split_event_series split_task_series undo_schedule`},
+	edit_task_occurrence set_task_recurrence split_event_series split_task_series undo_schedule restore_doc_version`},
 	// Need an Agent proposal depending on their arguments (TestArgumentRules).
 	{Write, ReviewedWhen, `
 	add_3d_model create_sheet mark_notification_read update_doc update_event update_sheet update_sheet_cells

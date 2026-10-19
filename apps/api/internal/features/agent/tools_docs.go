@@ -1162,3 +1162,79 @@ func sheetValueText(value sheet.CellValue) string {
 	}
 	return fmt.Sprint(value)
 }
+
+type docIDIn struct {
+	DocID string `json:"docId"`
+}
+
+type dailyNoteIn struct {
+	Date     string `json:"date,omitempty" jsonschema:"YYYY-MM-DD; defaults to today in the account's timezone"`
+	Timezone string `json:"timezone,omitempty"`
+}
+
+func (s *Server) openDailyNote(ctx context.Context, req *mcp.CallToolRequest, in dailyNoteIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	date := strings.TrimSpace(in.Date)
+	if date == "" {
+		today, err := s.today(ctx, uid, in.Timezone)
+		if err != nil {
+			return fail(err)
+		}
+		date = today.Date()
+	}
+	d, created, err := s.Docs.Daily(uid, doc.DailyRequest{Date: date})
+	if err != nil {
+		return fail(err)
+	}
+	payload := docPayload(d)
+	payload["created"] = created
+	verb := "opened"
+	if created {
+		verb = "created"
+	}
+	return reply(fmt.Sprintf("%s daily note %s", verb, d.Title), payload)
+}
+
+func (s *Server) listDocVersions(ctx context.Context, req *mcp.CallToolRequest, in docIDIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	versions, err := s.Docs.Versions(uid, in.DocID)
+	if err != nil {
+		return fail(err)
+	}
+	return reply(fmt.Sprintf("%d versions", len(versions)), map[string]any{"versions": versions})
+}
+
+type restoreDocVersionIn struct {
+	DocID     string `json:"docId"`
+	VersionID string `json:"versionId"`
+}
+
+func (s *Server) restoreDocVersion(ctx context.Context, req *mcp.CallToolRequest, in restoreDocVersionIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	d, err := s.Docs.RestoreVersion(uid, in.DocID, in.VersionID)
+	if err != nil {
+		return fail(err)
+	}
+	return reply("restored a version of "+d.Title, docPayload(d))
+}
+
+func (s *Server) getDocBacklinks(ctx context.Context, req *mcp.CallToolRequest, in docIDIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	links, err := s.Docs.Backlinks(uid, in.DocID)
+	if err != nil {
+		return fail(err)
+	}
+	return reply(fmt.Sprintf("%d docs link here", len(links)), map[string]any{"backlinks": links})
+}
