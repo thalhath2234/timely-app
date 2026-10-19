@@ -3,10 +3,8 @@ package doc
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
-	"time"
 	"timely-api/internal/models"
 	"timely-api/internal/realtime"
 
@@ -275,62 +273,10 @@ func (h *Handler) Watch(c *echo.Context) error {
 		return documentError(err)
 	}
 
-	w := c.Response()
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
-
 	events, cancel := h.live.Subscribe(userID, documentID)
 	defer cancel()
-
-	if err := writeSSE(w, realtime.Event{Type: "hello", Kind: "doc", ID: documentID}); err != nil {
-		return nil
-	}
-
-	ticker := time.NewTicker(25 * time.Second)
-	defer ticker.Stop()
-
-	ctx := c.Request().Context()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case ev, ok := <-events:
-			if !ok {
-				return nil
-			}
-			if err := writeSSE(w, ev); err != nil {
-				return nil
-			}
-		case <-ticker.C:
-			if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
-				return nil
-			}
-			flushWriter(w)
-		}
-	}
-}
-
-func writeSSE(w http.ResponseWriter, event realtime.Event) error {
-	payload, err := json.Marshal(event)
-	if err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, payload); err != nil {
-		return err
-	}
-	flushWriter(w)
+	realtime.Stream(c.Request().Context(), c.Response(), realtime.Event{Type: "hello", Kind: "doc", ID: documentID}, events)
 	return nil
-}
-
-func flushWriter(w http.ResponseWriter) {
-	if flusher, ok := w.(http.Flusher); ok {
-		flusher.Flush()
-		return
-	}
-	_ = http.NewResponseController(w).Flush()
 }
 
 func decodeJSON(c *echo.Context, dest any) error {

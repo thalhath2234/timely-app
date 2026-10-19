@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Tabs, usePathname } from "expo-router";
 import { useReducedMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Calendar, FileText, Home, ListTodo, Plus, Search } from "lucide-react-native";
+import { Calendar, FileText, Home, LayoutDashboard, ListTodo, Plus, Search } from "lucide-react-native";
 import QuickAddSheet from "../../../components/ui/QuickAddSheet";
 import AutoScheduleBanner from "../../../components/ui/AutoScheduleBanner";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
@@ -17,7 +17,8 @@ export default function TabLayout() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
-  const hideFab = pathname.endsWith("/more") || pathname.endsWith("/search");
+  // Dashboard's header has its own Add card +; a second + would compete.
+  const hideFab = pathname.endsWith("/more") || pathname.endsWith("/search") || pathname.endsWith("/dashboard");
   const tabOffset = floatingTabBarInset(insets.bottom);
 
   useEffect(() => {
@@ -49,23 +50,27 @@ export default function TabLayout() {
       >
         <Tabs.Screen
           name="home"
-          options={{ title: "Home", tabBarIcon: ({ color }) => <Home size={20} color={color} /> }}
+          options={{ title: "Home", tabBarIcon: ({ color, size }) => <Home size={size} color={color} /> }}
+        />
+        <Tabs.Screen
+          name="dashboard"
+          options={{ title: "Dashboard", tabBarIcon: ({ color, size }) => <LayoutDashboard size={size} color={color} /> }}
         />
         <Tabs.Screen
           name="calendar"
-          options={{ title: "Calendar", tabBarIcon: ({ color }) => <Calendar size={20} color={color} /> }}
+          options={{ title: "Calendar", tabBarIcon: ({ color, size }) => <Calendar size={size} color={color} /> }}
         />
         <Tabs.Screen
           name="tasks"
-          options={{ title: "Tasks", tabBarIcon: ({ color }) => <ListTodo size={20} color={color} /> }}
+          options={{ title: "Tasks", tabBarIcon: ({ color, size }) => <ListTodo size={size} color={color} /> }}
         />
         <Tabs.Screen
           name="search"
-          options={{ title: "Search", tabBarIcon: ({ color }) => <Search size={20} color={color} /> }}
+          options={{ title: "Search", tabBarIcon: ({ color, size }) => <Search size={size} color={color} /> }}
         />
         <Tabs.Screen
           name="files"
-          options={{ title: "Files", tabBarIcon: ({ color }) => <FileText size={20} color={color} /> }}
+          options={{ title: "Files", tabBarIcon: ({ color, size }) => <FileText size={size} color={color} /> }}
         />
         <Tabs.Screen name="more" options={{ href: null, title: "Settings" }} />
       </Tabs>

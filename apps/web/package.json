@@ -1,6 +1,6 @@
 {
   "name": "@timely/web",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "private": true,
   "description": "Private personal planning, scheduling, and notes.",
   "author": "Timely",
@@ -18,10 +18,17 @@
     "electron:stage": "node electron/stage-api.mjs && node electron/stage-postgres.mjs",
     "electron:hosted": "node electron/hosted.mjs",
     "electron:pack": "node electron/pack.mjs --dir",
-    "electron:dist": "node electron/pack.mjs"
+    "electron:dist": "node electron/pack.mjs",
+    "film:studio": "remotion studio",
+    "film:render": "remotion render TimelyFilm out/timely-film.mp4",
+    "film:render-loops": "node scripts/renderLoops.mjs",
+    "film:render-stills": "node --experimental-strip-types scripts/renderStills.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
+    "@remotion/google-fonts": "4.0.536",
+    "@remotion/player": "4.0.536",
+    "@remotion/web-renderer": "4.0.536",
     "@tanstack/react-query": "^5.100.13",
     "@timely/contract": "workspace:*",
     "@tiptap/core": "^3.31.4",
@@ -49,12 +56,14 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-hook-form": "^7.78.0",
+    "remotion": "4.0.536",
     "three": "^0.186.1",
     "topojson-client": "^3.1.0",
     "zod": "^4.4.3",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@remotion/cli": "4.0.536",
     "@tailwindcss/postcss": "^4",
     "@types/katex": "^0.16.8",
     "@types/node": "^20",

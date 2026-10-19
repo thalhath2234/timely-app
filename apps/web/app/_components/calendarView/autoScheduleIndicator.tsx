@@ -7,6 +7,7 @@ import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import { useScheduleActivityStore } from "@/app/_store/scheduleActivityStore";
 import { cn } from "@/app/utils/cn";
 import { springSoft, toastVariants } from "@/app/_components/_ui/motion";
+import ScheduleReplayDialog, { useCanReplay } from "./scheduleReplay";
 
 /** Floating status shown while an explicit Auto-schedule apply runs and after
  * it lands, so the outcome is visible even once the dialog is closed. */
@@ -15,7 +16,8 @@ export default function AutoScheduleIndicator({
 }: {
   className?: string;
 }) {
-  const { status, message, dismiss } = useScheduleActivityStore();
+  const { status, message, dismiss, showReplay } = useScheduleActivityStore();
+  const canReplay = useCanReplay();
 
   useEffect(() => {
     if (status !== "done" && status !== "error") return;
@@ -26,46 +28,62 @@ export default function AutoScheduleIndicator({
   const visible = status !== "idle";
 
   return (
-    <AnimatePresence>
-      {visible && (
-        <motion.div
-          role="status"
-          aria-live="polite"
-          variants={toastVariants}
-          initial="hidden"
-          animate="visible"
-          exit="exit"
-          transition={springSoft}
-          className={cn(
-            "pointer-events-auto z-50 flex max-w-sm items-center gap-2.5 rounded-xl border px-3 py-2.5 text-sm shadow-xl",
-            className ?? "fixed bottom-4 right-4",
-            status === "error"
-              ? "border-destructive/30 bg-popover text-destructive"
-              : "border-border bg-popover text-popover-foreground",
-          )}
-        >
-          {status === "running" ? (
-            <Sparkles className="size-4 shrink-0 animate-pulse text-primary" />
-          ) : status === "error" ? (
-            <AlertTriangle className="size-4 shrink-0" />
-          ) : (
-            <Check className="size-4 shrink-0 text-primary" />
-          )}
-          <p className="min-w-0 flex-1 leading-snug">{message}</p>
-          {status === "running" ? (
-            <LogoSpinner size={14} label="Auto-scheduling" />
-          ) : (
-            <button
-              type="button"
-              aria-label="Dismiss"
-              onClick={dismiss}
-              className="rounded-md p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            >
-              <X className="size-3.5" />
-            </button>
-          )}
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <>
+      <ScheduleReplayDialog />
+      <AnimatePresence>
+        {visible && (
+          <motion.div
+            role="status"
+            aria-live="polite"
+            variants={toastVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            transition={springSoft}
+            className={cn(
+              "pointer-events-auto z-50 flex max-w-sm items-center gap-2.5 rounded-xl border px-3 py-2.5 text-sm shadow-xl",
+              className ?? "fixed bottom-4 right-4",
+              status === "error"
+                ? "border-destructive/30 bg-popover text-destructive"
+                : "border-border bg-popover text-popover-foreground",
+            )}
+          >
+            {status === "running" ? (
+              <Sparkles className="size-4 shrink-0 animate-pulse text-primary" />
+            ) : status === "error" ? (
+              <AlertTriangle className="size-4 shrink-0" />
+            ) : (
+              <Check className="size-4 shrink-0 text-primary" />
+            )}
+            <p className="min-w-0 flex-1 leading-snug">{message}</p>
+            {status === "done" && canReplay ? (
+              <button
+                type="button"
+                onClick={() => {
+                  showReplay();
+                  dismiss();
+                }}
+                className="shrink-0 rounded-md px-1.5 py-0.5 text-[13px] font-medium text-primary transition-colors hover:bg-muted"
+                data-testid="schedule-show-me"
+              >
+                Show me
+              </button>
+            ) : null}
+            {status === "running" ? (
+              <LogoSpinner size={14} label="Auto-scheduling" />
+            ) : (
+              <button
+                type="button"
+                aria-label="Dismiss"
+                onClick={dismiss}
+                className="rounded-md p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 }

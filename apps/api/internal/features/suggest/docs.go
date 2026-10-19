@@ -27,6 +27,8 @@ const (
 	maxDocParents   = 8
 	maxWorkLines    = 20
 	maxWorkHints    = 8
+	maxChecklists   = 8
+	maxListItems    = 12
 	maxPropertyKeys = 5
 	maxKeyValues    = 15
 	maxDocTemplates = 20
@@ -52,6 +54,7 @@ var docTypes = []decide.Option{
 func (s *Service) docRoutes(g *echo.Group) {
 	g.GET("/suggestions/doc/:id", s.docHints)
 	g.POST("/suggestions/doc/:id/checklist", s.docChecklist)
+	g.POST("/suggestions/doc/:id/dismiss", s.docDismiss)
 	g.POST("/suggestions/mention", s.mention)
 	g.POST("/suggestions/import-format", s.importFormat)
 	g.GET("/suggestions/doc-template", s.docTemplate)
@@ -82,6 +85,10 @@ type DocHints struct {
 	Properties []PropertyHint `json:"properties,omitempty"` // [52]
 	Template   *DocRef        `json:"template,omitempty"`   // [52] for a near-empty doc
 	Outdated   bool           `json:"outdated,omitempty"`   // [57]
+	// KeptLists are the items (lower case) of checklists kept in the doc to
+	// tick off there, like groceries or packing, not worked as tasks; the
+	// clients offer none of a list's items as tasks (docChecklist).
+	KeptLists []string `json:"keptLists,omitempty"`
 }
 
 func (s *Service) docHints(c *echo.Context) error {
@@ -114,6 +121,7 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 		has[strings.ToLower(p.Key)] = true
 	}
 	daily := doc.DailyDate != nil && *doc.DailyDate != ""
+	dismissed := s.docDismissed(ctx, userID, doc.ID)
 
 	state := map[string]any{"title": clip(doc.Title, 200)}
 	questions := map[string]decide.Question{}
@@ -200,7 +208,7 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 					"Yes, it looks outdated or superseded.", "No, it still looks current.")
 			}
 		}
-		lines = s.workLines(ctx, userID, doc.Content)
+		lines = s.workLines(ctx, userID, doc, dismissed)
 		if len(lines) > 0 {
 			list := make([]map[string]string, len(lines))
 			for i, l := range lines {
@@ -211,6 +219,28 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 			}
 			state["lines"] = list
 		}
+	}
+	// An unchecked item says it is a to-do, but not every list is work: a
+	// grocery or packing list is ticked off in the doc. Jev judges each list
+	// whole, by its heading and items, even in a short doc.
+	lists := checklists(doc.Content)
+	if len(lists) > 0 {
+		described := make([]map[string]any, len(lists))
+		for i, l := range lists {
+			key := fmt.Sprintf("c%d", i+1)
+			items := l.items
+			if len(items) > maxListItems {
+				items = items[:maxListItems]
+			}
+			shown := make([]string, len(items))
+			for j, it := range items {
+				shown[j] = clip(it, 120)
+			}
+			described[i] = map[string]any{"list": key, "heading": clip(l.heading, 120), "items": shown}
+			questions[key] = decide.YesNo(fmt.Sprintf("Is checklist %s a list of things the person has to get done, each worth tracking as its own task (work, errands, calls, follow-ups), rather than a list kept in the doc to tick off there, such as groceries, a shopping or packing list, ingredients, or things to read or watch?", key),
+				"Yes, its items are tasks to get done.", "No, it is a list kept in the doc.")
+		}
+		state["checklists"] = described
 	}
 	if len(questions) == 0 {
 		return out, nil
@@ -231,25 +261,26 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 		}
 		return i - 1
 	}
+	// A suggestion the person dismissed on this doc is not offered again.
 	// Moving a doc is unprompted, so it waits for a confident answer.
-	if i := pick("project", "p", len(projects), decide.Route); i >= 0 {
+	if i := pick("project", "p", len(projects), decide.Route); i >= 0 && !dismissed[docHintKey("project", projects[i].ID)] {
 		out.Project = &DocRef{ID: projects[i].ID, Title: projects[i].Title}
 	}
-	if i := pick("parent", "d", len(parents), decide.Route); i >= 0 {
+	if i := pick("parent", "d", len(parents), decide.Route); i >= 0 && !dismissed[docHintKey("parent", parents[i].ID)] {
 		out.Parent = &DocRef{ID: parents[i].ID, Title: parents[i].Title}
 	}
-	if i := pick("template", "t", len(templates), decide.Prefill); i >= 0 {
+	if i := pick("template", "t", len(templates), decide.Prefill); i >= 0 && !dismissed[docHintKey("template", templates[i].ID)] {
 		out.Template = &DocRef{ID: templates[i].ID, Title: templates[i].Title}
 	}
-	if v, ok := a.Choice("type", decide.Prefill); ok && v != "other" {
+	if v, ok := a.Choice("type", decide.Prefill); ok && v != "other" && !dismissed[docHintKey("type", v)] {
 		out.DocType = v
 	}
 	for i, k := range keys {
-		if j := pick(fmt.Sprintf("prop%d", i+1), "v", len(k.values), decide.Prefill); j >= 0 {
+		if j := pick(fmt.Sprintf("prop%d", i+1), "v", len(k.values), decide.Prefill); j >= 0 && !dismissed[docHintKey("prop", k.key+"="+k.values[j])] {
 			out.Properties = append(out.Properties, PropertyHint{Key: k.key, Value: k.values[j]})
 		}
 	}
-	if yes, ok := a.Yes("outdated", decide.Route); ok && yes {
+	if yes, ok := a.Yes("outdated", decide.Route); ok && yes && !dismissed[docHintKey("outdated", "")] {
 		out.Outdated = true
 	}
 	for i, l := range lines {
@@ -260,7 +291,106 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 			}
 		}
 	}
+	// Hiding suggestions is unprompted, so it waits for a confident "no".
+	for i, l := range lists {
+		if yes, ok := a.Yes(fmt.Sprintf("c%d", i+1), decide.Route); ok && !yes {
+			for _, it := range l.items {
+				out.KeptLists = append(out.KeptLists, strings.ToLower(it))
+			}
+		}
+	}
 	return out, nil
+}
+
+// checklist is one checklist in a doc: the heading above it and the words of
+// its items, nested ones included.
+type checklist struct {
+	heading string
+	items   []string
+}
+
+// checklists are the doc's checklists in order, outermost lists only, with
+// their items read the way the clients read them (docChecklist, itemText):
+// the item's own paragraphs, a mention as its label, spaces collapsed.
+func checklists(content map[string]any) []checklist {
+	var out []checklist
+	heading := ""
+	var items func(node map[string]any, into *[]string)
+	items = func(node map[string]any, into *[]string) {
+		children, _ := node["content"].([]any)
+		if node["type"] == "taskItem" {
+			var parts []string
+			for _, c := range children {
+				if m, ok := c.(map[string]any); ok && m["type"] == "paragraph" {
+					parts = append(parts, inlineText(m))
+				}
+			}
+			if t := strings.Join(strings.Fields(strings.Join(parts, " ")), " "); t != "" {
+				*into = append(*into, t)
+			}
+		}
+		for _, c := range children {
+			if m, ok := c.(map[string]any); ok {
+				items(m, into)
+			}
+		}
+	}
+	var walk func(node map[string]any)
+	walk = func(node map[string]any) {
+		if len(out) >= maxChecklists {
+			return
+		}
+		switch node["type"] {
+		case "frontmatter", "codeBlock", "mermaid":
+			return
+		case "heading":
+			heading = strings.Join(strings.Fields(inlineText(node)), " ")
+			return
+		case "taskList":
+			var list []string
+			items(node, &list)
+			if len(list) > 0 {
+				out = append(out, checklist{heading: heading, items: list})
+			}
+			return
+		}
+		children, _ := node["content"].([]any)
+		for _, c := range children {
+			if m, ok := c.(map[string]any); ok {
+				walk(m)
+			}
+		}
+	}
+	walk(content)
+	return out
+}
+
+// inlineText is a block's text with a mention read as its label and a line
+// break as a space, as the clients read it.
+func inlineText(node map[string]any) string {
+	var b strings.Builder
+	children, _ := node["content"].([]any)
+	for _, c := range children {
+		m, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		switch m["type"] {
+		case "text":
+			t, _ := m["text"].(string)
+			b.WriteString(t)
+		case "mention":
+			attrs, _ := m["attrs"].(map[string]any)
+			if l, ok := attrs["label"]; ok && l != nil {
+				b.WriteString(fmt.Sprint(l))
+			}
+		case "hardBreak":
+			b.WriteString(" ")
+		default:
+			b.WriteString(inlineText(m))
+		}
+	}
+	return b.String()
 }
 
 // idleLabel says how long ago something happened in words, so Jev never
@@ -450,11 +580,12 @@ func (s *Service) usedKeys(ctx context.Context, userID, docID string, has map[st
 }
 
 // workLines are the doc's paragraphs and list items short enough to be one
-// piece of Work, leaving out headings, code, checklist items and lines that
-// are already the name of open Work. An unchecked checklist item is a to-do
-// by its own say-so, so the clients offer it without asking Jev
-// (docChecklist).
-func (s *Service) workLines(ctx context.Context, userID string, content map[string]any) []string {
+// piece of Work, leaving out headings, code, checklist items, lines that are
+// already a task and lines the person dismissed, even after a small edit
+// (sameWork). An unchecked checklist item is a to-do by its own say-so, so
+// the clients offer it without asking Jev (docChecklist).
+func (s *Service) workLines(ctx context.Context, userID string, doc models.Document, dismissed map[string]bool) []string {
+	content := doc.Content
 	var lines []string
 	seen := map[string]bool{}
 	var walk func(node map[string]any)
@@ -491,20 +622,50 @@ func (s *Service) workLines(ctx context.Context, userID string, content map[stri
 	for i, l := range lines {
 		lower[i] = strings.ToLower(l)
 	}
+	// As for checklist items: an open task with the name counts, and a done
+	// one made since the doc, which may have come from this very line, so a
+	// line turned into a task and ticked off is not offered again.
+	since := doc.CreatedAt
+	if len(since) > 10 {
+		since = since[:10]
+	}
 	var existing []string
 	s.db.WithContext(ctx).Model(&models.Task{}).
-		Where("user_id = ? AND completed_at IS NULL AND lower(name) IN ?", userID, lower).Pluck("lower(name)", &existing)
+		Where("user_id = ? AND lower(name) IN ?", userID, lower).
+		Where("completed_at IS NULL OR created_at >= ?", since).Pluck("lower(name)", &existing)
 	taken := map[string]bool{}
 	for _, e := range existing {
 		taken[e] = true
 	}
+	// A line edited after it became a task or was dismissed is still that
+	// line. Making a line a task also dismisses it (the clients), so the
+	// link holds when the task is renamed.
+	var gone []string
+	for k := range dismissed {
+		if l, ok := strings.CutPrefix(k, "work:"); ok {
+			gone = append(gone, l)
+		}
+	}
+	made := s.madeSinceDoc(ctx, userID, doc, true)
 	out := []string{}
+lines:
 	for _, l := range lines {
-		if !taken[strings.ToLower(l)] {
-			out = append(out, l)
-			if len(out) == maxWorkLines {
-				break
+		if taken[strings.ToLower(l)] || dismissed[docHintKey("work", l)] {
+			continue
+		}
+		for _, g := range gone {
+			if sameWork(l, g, true) {
+				continue lines
 			}
+		}
+		for _, m := range made {
+			if m.matches(l) {
+				continue lines
+			}
+		}
+		out = append(out, l)
+		if len(out) == maxWorkLines {
+			break
 		}
 	}
 	return out

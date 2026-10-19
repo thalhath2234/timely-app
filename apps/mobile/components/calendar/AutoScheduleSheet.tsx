@@ -98,7 +98,7 @@ export default function AutoScheduleSheet({ open, onClose }: { open: boolean; on
               <AlertTriangle size={15} color={colors.destructive} />
               <View style={{ flex: 1, gap: 4 }}>
                 {(plan.risks ?? []).map((risk, index) => (
-                  <Text key={`${risk.kind}-${risk.taskId ?? index}`} style={styles.riskText}>
+                  <Text key={`${risk.kind}-${risk.taskId ?? ""}-${index}`} style={styles.riskText}>
                     {risk.taskName ? `${risk.taskName}: ` : ""}{risk.message}
                   </Text>
                 ))}

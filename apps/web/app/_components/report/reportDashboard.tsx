@@ -1,5 +1,6 @@
 "use client";
 
+import { SkeletonLines } from "@/app/_components/_ui/skeleton";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -8,7 +9,6 @@ import {
   Copy,
   ExternalLink,
   Link2,
-  LayoutGrid,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -33,6 +33,7 @@ import type { CalendarItem, Doc, Project, Sheet, Task } from "@/app/_types/types
 import { mentionHref } from "@/app/_components/editor/mention";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
 import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
+import EmptyState from "@/app/_components/_ui/emptyState";
 import Button from "@/app/_components/_ui/button";
 import PageHeader from "@/app/_components/_ui/pageHeader";
 import { openContextMenu, tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
@@ -51,6 +52,7 @@ import { useConfig } from "@/app/utils/hooks/workspaces";
 import AddCardDialog from "./addCardDialog";
 import CardWorkshop, { DISPLAY_ICON, type WorkshopResult } from "./cardWorkshop";
 import CustomCardView, { useCardResult } from "./customCardView";
+import FileCardView, { FILE_ICON, isFileQuery, useFileWatches } from "./fileCards";
 import DashboardGrid from "./dashboardGrid";
 import PomodoroCard from "./pomodoroCard";
 import HighlightsCard from "./highlightsCard";
@@ -88,7 +90,7 @@ function useNow(intervalMs: number) {
   return now;
 }
 
-type WorkshopTarget = { cardId?: string } | null;
+type WorkshopTarget = { cardId?: string; source?: "sheets" | "docs" } | null;
 
 export default function ReportDashboard() {
   const router = useRouter();
@@ -96,6 +98,7 @@ export default function ReportDashboard() {
   const { layout, isLoading, error, retry, update, updateCard, saveState } = useDashboardLayout();
   const cards = useMemo(() => layout?.cards ?? [], [layout]);
   const { data, today, failures, loading, timeZone } = useDashboardData(cards);
+  useFileWatches(cards);
   const configQuery = useConfig();
   const now = useNow(30_000);
   const [adding, setAdding] = useState(false);
@@ -339,7 +342,7 @@ export default function ReportDashboard() {
 
   const renderIcon = (card: DashboardCard) => {
     if (card.type === "custom") {
-      const Icon = DISPLAY_ICON[card.query?.display ?? "number"];
+      const Icon = card.query?.sheet ? FILE_ICON[card.query.sheet.view] : card.query?.doc ? FILE_ICON[card.query.doc.view] : DISPLAY_ICON[card.query?.display ?? "number"];
       return <Icon className="size-3.5" />;
     }
     return <BuiltinIcon type={card.type} className="size-3.5" />;
@@ -364,7 +367,16 @@ export default function ReportDashboard() {
       case "pomodoro":
         return <PomodoroCard cardId={card.id} settings={settings} onSettings={setSettings} tasks={tasks} timeZone={timeZone} />;
       case "today":
-        return <TodayCard today={today.data} loading={today.isLoading} now={now} onOpenTask={openTask} onOpenItem={openItem} />;
+        return (
+          <TodayCard
+            today={today.data}
+            loading={today.isLoading}
+            now={now}
+            workingHours={configQuery.data?.workingHours}
+            onOpenTask={openTask}
+            onOpenItem={openItem}
+          />
+        );
       case "quickCapture":
         return <QuickCaptureCard inboxCount={data.inbox?.length ?? 0} />;
       case "notes":
@@ -443,7 +455,6 @@ export default function ReportDashboard() {
       <PageHeader
         className="mx-auto max-w-[1600px]"
         title="Dashboard"
-        description="Drag a card by its title to move it, drag its edge or corner to resize."
         actions={
           <>
             <SaveStatusBadge status={saveState} />
@@ -466,21 +477,21 @@ export default function ReportDashboard() {
         ) : null}
 
         {cards.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border px-6 py-20 text-center">
-            <LayoutGrid className="size-8 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium text-foreground">Your dashboard is empty</p>
-              <p className="mt-1 text-sm text-muted-foreground">Add a productivity tool, a ready-made chart, or build your own card.</p>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => update(() => defaultDashboard())}>
-                Use the default layout
-              </Button>
-              <Button leading={<Plus />} onClick={() => setAdding(true)}>
-                Add card
-              </Button>
-            </div>
-          </div>
+          <EmptyState
+            loop="cards"
+            title="Your dashboard is empty"
+            description="Add a productivity tool, a ready-made chart, or build a card of your own from tasks, events, a sheet or a doc."
+            action={
+              <>
+                <Button leading={<Plus />} onClick={() => setAdding(true)}>
+                  Add card
+                </Button>
+                <Button variant="outline" onClick={() => update(() => defaultDashboard())}>
+                  Use the default layout
+                </Button>
+              </>
+            }
+          />
         ) : (
           <DashboardGrid
             renaming={renaming}
@@ -511,16 +522,17 @@ export default function ReportDashboard() {
           onClose={() => setAdding(false)}
           onAddBuiltin={addBuiltin}
           onAddTemplate={addTemplate}
-          onOpenWorkshop={() => {
+          onOpenWorkshop={(source) => {
             setAdding(false);
-            setWorkshop({});
+            setWorkshop({ source });
           }}
         />
       ) : null}
 
       {workshop ? (
         <CardWorkshop
-          key={workshop.cardId ?? "new"}
+          key={workshop.cardId ?? `new-${workshop.source ?? ""}`}
+          startSource={workshop.source}
           initial={editing?.query ? { title: editing.title ?? "", query: editing.query, w: editing.w, h: editing.h } : undefined}
           data={data}
           timeZone={timeZone}
@@ -550,7 +562,12 @@ function CustomCardSlot({
   onRowContextMenu: (event: ReactMouseEvent, row: CardRow) => void;
 }) {
   const result = useCardResult(card.query, data, timeZone, now);
-  if (!card.query || !result) return null;
-  if (loading) return <p className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading…</p>;
+  if (!card.query) return null;
+  if (isFileQuery(card.query)) {
+    if (loading) return <SkeletonLines lines={3} className="p-4" />;
+    return <FileCardView query={card.query} data={data} />;
+  }
+  if (!result) return null;
+  if (loading) return <SkeletonLines lines={3} className="p-4" />;
   return <CustomCardView query={card.query} result={result} onOpen={onOpen} onRowContextMenu={onRowContextMenu} />;
 }

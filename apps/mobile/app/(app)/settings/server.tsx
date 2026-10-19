@@ -5,8 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { RefreshCw } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
-import AnimatedPressable from "../../../components/ui/AnimatedPressable";
-import { PropertyGroup, PropertyRow, SectionLabel } from "../../../components/ui/primitives";
+import { GroupHint, GroupLabel, ListGroup, ListRow } from "../../../components/settings/SettingsList";
 import ConfirmSheet from "../../../components/ui/ConfirmSheet";
 import { useServer, type ServerStatus } from "../../../lib/server/ServerProvider";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
@@ -40,75 +39,69 @@ export default function ServerSettings() {
   return (
     <Screen>
       <MobileHeader title="Server" back large={false} />
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, paddingBottom: 24 + insets.bottom, gap: 12 }}>
-        <Text style={styles.help}>
-          This phone talks to the Timely desktop below over Tailscale. Every launch re-checks the known
-          addresses and keeps using the first one that answers.
-        </Text>
-
-        <SectionLabel>Current server</SectionLabel>
-        <PropertyGroup tone="card">
-          <PropertyRow label="Name" value={server.name || "Timely desktop"} />
-          <PropertyRow label="Address" value={server.activeUrl || "—"} />
-          <PropertyRow
-            label="Status"
-            value={statusLabel(server.status, server.health)}
-            tone={statusTone(server.status, server.health)}
-          />
-          {server.health?.db && server.health.status !== "ok" ? (
-            <PropertyRow label="Database" value={server.health.db} tone={colors.warning} />
-          ) : null}
-          <PropertyRow label="Version" value={server.health?.version ?? "—"} />
-          {server.health?.migrations ? (
-            <PropertyRow
-              label="Schema"
-              value={
-                server.health.migrations.pending > 0
-                  ? `${server.health.migrations.version} · ${server.health.migrations.pending} pending`
-                  : String(server.health.migrations.version)
-              }
+      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, paddingBottom: 24 + insets.bottom, gap: 18 }}>
+        <View style={styles.section}>
+          <GroupLabel>Current server</GroupLabel>
+          <ListGroup>
+            <ListRow title="Name" trailing={server.name || "Timely desktop"} />
+            <ListRow title="Address" meta={server.activeUrl || "—"} />
+            <ListRow
+              title="Status"
+              trailing={<Text numberOfLines={1} style={[styles.value, { color: statusTone(server.status, server.health) }]}>{statusLabel(server.status, server.health)}</Text>}
             />
-          ) : null}
-          <PropertyRow label="Checked" value={formatChecked(server.lastCheckedAt)} />
-        </PropertyGroup>
-        <AnimatedPressable
-          accessibilityRole="button"
-          accessibilityLabel="Check again"
-          disabled={checking}
-          onPress={() => void server.check()}
-          style={[styles.secondary, checking && { opacity: 0.4 }]}
-        >
-          <RefreshCw size={16} color={colors.foreground} />
-          <Text style={styles.secondaryText}>{checking ? "Checking…" : "Check again"}</Text>
-        </AnimatedPressable>
+            {server.health?.db && server.health.status !== "ok" ? (
+              <ListRow title="Database" trailing={<Text numberOfLines={1} style={[styles.value, { color: colors.warning }]}>{server.health.db}</Text>} />
+            ) : null}
+            <ListRow title="Version" trailing={server.health?.version ?? "—"} />
+            {server.health?.migrations ? (
+              <ListRow
+                title="Schema"
+                trailing={
+                  server.health.migrations.pending > 0
+                    ? `${server.health.migrations.version} · ${server.health.migrations.pending} pending`
+                    : String(server.health.migrations.version)
+                }
+              />
+            ) : null}
+            <ListRow title="Checked" trailing={formatChecked(server.lastCheckedAt)} />
+            <ListRow
+              tone="add"
+              leading={<RefreshCw size={16} color={colors.primary} />}
+              title={checking ? "Checking…" : "Check again"}
+              disabled={checking}
+              onPress={() => void server.check()}
+            />
+          </ListGroup>
+          <GroupHint>
+            This phone talks to the Timely desktop over Tailscale. Every launch re-checks the known addresses and keeps
+            using the first one that answers.
+          </GroupHint>
+        </View>
 
-        <SectionLabel>Other known addresses</SectionLabel>
-        {others.length === 0 ? (
-          <Text style={styles.help}>None. The desktop's QR code lists its Tailscale address and loopback address.</Text>
-        ) : (
-          <View style={styles.list}>
-            {others.map((url) => (
-              <Text key={url} style={styles.listItem} selectable>
-                {url}
-              </Text>
-            ))}
-            <Text style={styles.help}>Tried in order when the current address stops answering.</Text>
-          </View>
-        )}
+        <View style={styles.section}>
+          <GroupLabel aside={others.length ? String(others.length) : undefined}>Other known addresses</GroupLabel>
+          {others.length === 0 ? (
+            <GroupHint>None. The desktop's QR code lists its Tailscale address and loopback address.</GroupHint>
+          ) : (
+            <>
+              <ListGroup>
+                {others.map((url) => (
+                  <ListRow key={url} title={url} />
+                ))}
+              </ListGroup>
+              <GroupHint>Tried in order when the current address stops answering.</GroupHint>
+            </>
+          )}
+        </View>
 
-        <SectionLabel>Change server</SectionLabel>
-        <Text style={styles.help}>
-          Sign-in tokens belong to one server, so pairing with a different computer signs you out of this
-          one first.
-        </Text>
-        <AnimatedPressable
-          accessibilityRole="button"
-          accessibilityLabel="Change server"
-          onPress={() => setConfirmChange(true)}
-          style={styles.danger}
-        >
-          <Text style={styles.dangerText}>Change server…</Text>
-        </AnimatedPressable>
+        <View style={styles.section}>
+          <ListGroup>
+            <ListRow tone="danger" title="Change server…" onPress={() => setConfirmChange(true)} />
+          </ListGroup>
+          <GroupHint>
+            Sign-in tokens belong to one server, so pairing with a different computer signs you out of this one first.
+          </GroupHint>
+        </View>
       </ScrollView>
       <ConfirmSheet
         open={confirmChange}
@@ -123,30 +116,6 @@ export default function ServerSettings() {
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  help: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
-  secondary: {
-    height: 48,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  secondaryText: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
-  list: { gap: 8 },
-  listItem: {
-    color: colors.foreground,
-    fontSize: 14,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  danger: { alignItems: "center", paddingVertical: 14 },
-  dangerText: { color: colors.destructive, fontWeight: "600", fontSize: 15 },
+  section: { gap: 6 },
+  value: { maxWidth: 190, color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
 }));

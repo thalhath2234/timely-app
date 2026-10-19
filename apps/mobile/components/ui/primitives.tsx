@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import { Text, TextInput, View } from "react-native";
 import { Check, ChevronDown, ChevronRight } from "lucide-react-native";
 import { colors, controlRadius, createThemedStyleSheet, radius } from "../../lib/theme";
 import { LogoSpinner } from "./TimelyLogo";
@@ -123,11 +123,19 @@ export function Field({
   onFocus,
   onBlur,
   bare,
+  large,
+  autoFocus,
   label,
   hint,
+  align,
+  accessibilityLabel,
 }: {
   /** Caption above the field. Required unless the screen already names it. */
   label?: string;
+  /** "right" for a bare value on the right of a grouped row. */
+  align?: "left" | "right";
+  /** Screen-reader name when there is no visible `label` (a grouped row's title). */
+  accessibilityLabel?: string;
   hint?: string;
   value: string;
   onChangeText: (v: string) => void;
@@ -141,6 +149,9 @@ export function Field({
   onFocus?: () => void;
   onBlur?: () => void;
   bare?: boolean;
+  /** A bare field typed as a heading: the name of a new task, event or doc. */
+  large?: boolean;
+  autoFocus?: boolean;
 }) {
   const [focused, setFocused] = useState(false);
   const [contentHeight, setContentHeight] = useState(0);
@@ -148,7 +159,7 @@ export function Field({
   const input = (
     <TextInput
       testID={testID}
-      accessibilityLabel={label ?? placeholder}
+      accessibilityLabel={label ?? accessibilityLabel ?? placeholder}
       value={value}
       onChangeText={onChangeText}
       onFocus={() => { setFocused(true); group?.onFocus(); onFocus?.(); }}
@@ -168,7 +179,8 @@ export function Field({
         setContentHeight((prev) => (Math.abs(next - prev) <= 2 ? prev : next));
       } : undefined}
       selectionColor={colors.primary}
-      style={[styles.input, multiline && styles.area, focused && styles.inputFocused, bare && styles.inputBare, bare && multiline && styles.inputBareArea, bare && focused && styles.inputBareFocused, autoGrow && { height: Math.max(bare ? 30 : 38, contentHeight + 2) }]}
+      autoFocus={autoFocus}
+      style={[styles.input, multiline && styles.area, focused && styles.inputFocused, bare && styles.inputBare, bare && multiline && styles.inputBareArea, large && styles.inputLarge, autoGrow && { height: Math.max(large ? 34 : bare ? 30 : 38, contentHeight + 2) }, align === "right" && styles.inputRight]}
     />
   );
   if (!label && !hint) return input;
@@ -229,6 +241,73 @@ export function Chip({
   );
 }
 
+/**
+ * A property of a new item shown as a compact chip in a create sheet
+ * (Workspace, Status, Priority, Due). Tapping it opens its picker in the
+ * same sheet. `empty` draws a not-yet-set property: muted, dashed edge.
+ */
+export function PropertyChip({
+  label,
+  icon,
+  dot,
+  tint,
+  empty,
+  active,
+  onPress,
+  accessibilityLabel,
+  testID,
+}: {
+  label: string;
+  /** A lucide icon element, sized 15. */
+  icon?: ReactNode;
+  /** A colour dot before the label (status, project). */
+  dot?: string | null;
+  /** Fill colour for a value that carries meaning (High priority); the text keeps its contrast. */
+  tint?: string | null;
+  empty?: boolean;
+  /** Toggled on (All day, More options open). */
+  active?: boolean;
+  onPress: () => void;
+  accessibilityLabel?: string;
+  testID?: string;
+}) {
+  return (
+    <AnimatedPressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={active !== undefined ? { selected: active } : undefined}
+      onPress={onPress}
+      hitSlop={{ top: 5, bottom: 5 }}
+      android_ripple={{ color: `${colors.primary}22` }}
+      style={[
+        styles.propertyChip,
+        empty && styles.propertyChipEmpty,
+        active && styles.propertyChipActive,
+        tint && !empty ? { backgroundColor: `${tint}1f` } : null,
+      ]}
+    >
+      {dot ? <View style={[styles.propertyChipDot, { backgroundColor: dot }]} /> : null}
+      {icon}
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.propertyChipText,
+          empty && { color: colors.mutedForeground, fontWeight: "500" },
+          active && { color: colors.accentForeground },
+        ]}
+      >
+        {label}
+      </Text>
+    </AnimatedPressable>
+  );
+}
+
+/** Wrapping row of PropertyChips. */
+export function PropertyChips({ children }: { children: ReactNode }) {
+  return <View style={styles.propertyChips}>{children}</View>;
+}
+
 export type SelectOption = { value: string; label: string; color?: string };
 
 export function Select({
@@ -238,6 +317,7 @@ export function Select({
   placeholder = "Select…",
   label,
   searchable = false,
+  trigger = "field",
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -247,6 +327,8 @@ export function Select({
   label?: string;
   /** Adds a filter box at the top of the sheet, for long lists (timezones). */
   searchable?: boolean;
+  /** "row": a `ListRow`-style row for a `ListGroup`, label left and the picked value right. */
+  trigger?: "field" | "row";
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -258,21 +340,26 @@ export function Select({
   // Long lists render the first rows only; typing narrows them down.
   const shown = searchable ? matches.slice(0, 60) : matches;
   if (searchable && !needle && selected && !shown.includes(selected)) shown.unshift(selected);
+  const row = trigger === "row";
   return (
-    <View style={label ? styles.fieldWrap : undefined}>
-      {label ? <FieldLabel>{label}</FieldLabel> : null}
+    <View style={label && !row ? styles.fieldWrap : undefined}>
+      {label && !row ? <FieldLabel>{label}</FieldLabel> : null}
       <AnimatedPressable
         accessibilityRole="button"
-        accessibilityLabel={selected?.label ?? placeholder}
+        accessibilityLabel={row && label ? `${label}, ${selected?.label ?? placeholder}` : selected?.label ?? placeholder}
         accessibilityState={{ expanded: open }}
         onPress={() => setOpen(true)}
-        style={styles.selectTrigger}
+        style={row ? styles.selectRow : styles.selectTrigger}
       >
+        {row && label ? <Text style={styles.selectRowLabel}>{label}</Text> : null}
         {selected?.color ? <Dot color={selected.color} /> : null}
-        <Text style={[styles.selectValue, !selected && { color: colors.mutedForeground }]} numberOfLines={1}>
+        <Text
+          style={[row ? styles.selectRowValue : styles.selectValue, !selected && { color: colors.mutedForeground }]}
+          numberOfLines={1}
+        >
           {selected?.label ?? placeholder}
         </Text>
-        <ChevronDown size={16} color={colors.mutedForeground} />
+        {row ? <ChevronRight size={16} color={colors.mutedForeground} /> : <ChevronDown size={16} color={colors.mutedForeground} />}
       </AnimatedPressable>
       <BottomSheet
         open={open}
@@ -338,48 +425,6 @@ export function Card({ children, onPress }: { children: ReactNode; onPress?: () 
   return <View style={styles.card}>{children}</View>;
 }
 
-/** Grouped property list used on task detail and the new-item form. */
-export function PropertyGroup({ children, tone = "muted" }: { children: ReactNode; tone?: "muted" | "card" }) {
-  return <View style={[styles.propertyGroup, tone === "card" && styles.propertyGroupCard]}>{children}</View>;
-}
-
-export function PropertyRow({
-  icon,
-  label,
-  value,
-  onPress,
-  tone,
-  swatch,
-  action,
-}: {
-  icon?: ReactNode;
-  label: string;
-  value: string;
-  onPress?: () => void;
-  tone?: string;
-  swatch?: string | null;
-  action?: ReactNode;
-}) {
-  return (
-    <AnimatedPressable
-      accessibilityRole={onPress ? "button" : "none"}
-      accessibilityLabel={`${label}, ${value}`}
-      onPress={onPress}
-      disabled={!onPress}
-      style={styles.propertyRow}
-    >
-      {icon}
-      <Text style={styles.propertyLabel}>{label}</Text>
-      {swatch ? <Dot color={swatch} /> : null}
-      <Text style={[styles.propertyValue, tone ? { color: tone } : null]} numberOfLines={2} ellipsizeMode="tail">
-        {value}
-      </Text>
-      {action}
-      {onPress && !action ? <ChevronRight size={16} color={colors.mutedForeground} /> : null}
-    </AnimatedPressable>
-  );
-}
-
 export function Dot({ color }: { color?: string | null }) {
   return <View style={[styles.dot, { backgroundColor: color || colors.mutedForeground }]} />;
 }
@@ -415,10 +460,15 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   inputFocused: { borderColor: colors.primary },
   sheetSearch: { marginBottom: 8 },
-  inputBare: { minHeight: 30, borderWidth: 0, backgroundColor: "transparent", paddingHorizontal: 0 },
+  // No focus underline: in a grouped row it ran into the card's edge, and the
+  // caret already says where you type. Android's own padding is trimmed so the
+  // field stays inside its 48px row.
+  inputBare: { minHeight: 30, borderWidth: 0, backgroundColor: "transparent", paddingHorizontal: 0, paddingVertical: 4, outlineWidth: 0 },
   inputBareArea: { minHeight: 30, paddingTop: 0 },
-  inputBareFocused: { borderBottomWidth: 2, borderColor: colors.primary },
   area: { minHeight: 112, textAlignVertical: "top", paddingTop: 12 },
+  // Lines up with the values of the chevron rows around it (16px chevron + 10px gap).
+  inputRight: { textAlign: "right", fontSize: 13, fontWeight: "500", paddingRight: 26 },
+  inputLarge: { minHeight: 34, fontSize: 22, fontWeight: "600", letterSpacing: -0.3, lineHeight: 28, paddingVertical: 2, borderBottomWidth: 0 },
   chip: {
     minHeight: 36,
     borderRadius: 18,
@@ -436,6 +486,10 @@ const styles = createThemedStyleSheet((colors) => ({
   chipFill: { alignSelf: "stretch", justifyContent: "center" },
   chipText: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
   chipDot: { width: 8, height: 8, borderRadius: 4 },
+  // Matches ListRow in components/settings/SettingsList.tsx.
+  selectRow: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14 },
+  selectRowLabel: { flexShrink: 0, color: colors.foreground, fontSize: 15, fontWeight: "500" },
+  selectRowValue: { flex: 1, minWidth: 0, color: colors.mutedForeground, fontSize: 13, fontWeight: "500", textAlign: "right" },
   selectTrigger: {
     minHeight: 48,
     borderRadius: controlRadius + 2,
@@ -477,22 +531,22 @@ const styles = createThemedStyleSheet((colors) => ({
     backgroundColor: colors.card,
     padding: 18,
   },
-  propertyGroup: {
-    borderRadius: radius + 4,
+  dot: { width: 10, height: 10, borderRadius: 5 },
+  propertyChips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  propertyChip: {
+    minHeight: 34,
+    maxWidth: "100%",
+    borderRadius: controlRadius,
+    borderWidth: 1,
+    borderColor: "transparent",
     backgroundColor: colors.muted,
-    overflow: "hidden",
-  },
-  propertyGroupCard: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
-  propertyRow: {
-    minHeight: 48,
+    paddingHorizontal: 11,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    gap: 6,
   },
-  propertyLabel: { width: 76, color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
-  propertyValue: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 14, fontWeight: "500", textAlign: "right" },
-  dot: { width: 10, height: 10, borderRadius: 5 },
+  propertyChipEmpty: { backgroundColor: "transparent", borderColor: colors.border, borderStyle: "dashed" },
+  propertyChipActive: { backgroundColor: colors.accent },
+  propertyChipDot: { width: 8, height: 8, borderRadius: 4 },
+  propertyChipText: { flexShrink: 1, color: colors.foreground, fontSize: 14, fontWeight: "600" },
 }));

@@ -1,4 +1,4 @@
-import { CreateLabelInline, LabelPicker, ModalSidebar, SidebarSectionTitle } from "@timely/ui";
+import { CreateLabelInline, ListGroup, ListRow, Select } from "@timely/ui";
 import { useEffect, useRef, useState } from "react";
 
 const t = "2024-05-01T09:00:00Z";
@@ -10,25 +10,33 @@ const LABELS = [
   label("lbl_quick_win", "Quick win", "#30A66D"),
 ];
 
-/** The Labels block of the task modal sidebar, where the inline creator sits under the picker. */
+/** The Labels card of the create dialog: the picker row, then "New label" as the card's last row. */
 function TaskLabels({ workspaceId }: { workspaceId?: string }) {
   const [labels, setLabels] = useState(workspaceId ? LABELS : []);
   const [ids, setIds] = useState(workspaceId ? ["lbl_ui"] : []);
   return (
-    <div className="flex overflow-hidden rounded-2xl border border-border bg-background" style={{ width: 320 }}>
-      <ModalSidebar>
-        <div className="pt-3">
-          <SidebarSectionTitle>Labels</SidebarSectionTitle>
-          <LabelPicker labels={labels} selectedIds={ids} emptyLabel="" onChange={setIds} />
-          <CreateLabelInline
-            workspaceId={workspaceId}
-            onCreated={(created) => {
-              setLabels((list) => [...list, created]);
-              setIds((list) => [...list, created.id]);
-            }}
+    <div style={{ width: 320 }}>
+      <ListGroup>
+        <ListRow label="Labels">
+          <Select
+            variant="row"
+            aria-label="Labels"
+            value=""
+            values={ids}
+            placeholder={labels.length ? "None" : "No labels yet"}
+            onChange={(id) => setIds((list) => (list.includes(id) ? list.filter((item) => item !== id) : [...list, id]))}
+            options={labels.map((item) => ({ value: item.id, label: item.name, color: item.color }))}
           />
-        </div>
-      </ModalSidebar>
+        </ListRow>
+        <CreateLabelInline
+          variant="row"
+          workspaceId={workspaceId}
+          onCreated={(created) => {
+            setLabels((list) => [...list, created]);
+            setIds((list) => [...list, created.id]);
+          }}
+        />
+      </ListGroup>
     </div>
   );
 }
@@ -41,10 +49,15 @@ export const NoWorkspaceSelected = () => <div className="p-4"><TaskLabels /></di
 function TypeName({ name, children }: { name: string; children: React.ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const input = ref.current?.querySelector<HTMLInputElement>('input[placeholder="New label"]');
-    if (!input) return;
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, name);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const open = [...(ref.current?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((button) => button.textContent?.includes("New label"));
+    open?.click();
+    const timer = window.setTimeout(() => {
+      const input = ref.current?.querySelector<HTMLInputElement>('input[placeholder="Label name"]');
+      if (!input) return;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, name);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }, 50);
+    return () => window.clearTimeout(timer);
   }, [name]);
   return <div ref={ref}>{children}</div>;
 }

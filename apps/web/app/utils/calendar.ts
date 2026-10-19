@@ -553,14 +553,21 @@ export function formatDuration(minutes: number): string {
 }
 
 /** Distinct projects/workspaces (and a single "Events" swatch) for the legend. */
+/** The legend entry an event belongs to: its project or workspace, or "Events". */
+export function legendLabel(event: CalendarEvent): string {
+  return event.colorLabel ?? (isTaskKind(event.kind) ? "No project" : "Events");
+}
+
 export function eventLegend(
   events: CalendarEvent[],
-): { label: string; color: string | null }[] {
-  const seen = new Map<string, { label: string; color: string | null }>();
+): { label: string; color: string | null; count: number }[] {
+  const seen = new Map<string, { label: string; color: string | null; count: number }>();
 
   for (const event of events) {
-    const label = event.colorLabel ?? (isTaskKind(event.kind) ? "No project" : "Events");
-    if (!seen.has(label)) seen.set(label, { label, color: event.color });
+    const label = legendLabel(event);
+    const entry = seen.get(label);
+    if (entry) entry.count += 1;
+    else seen.set(label, { label, color: event.color, count: 1 });
   }
 
   return Array.from(seen.values());

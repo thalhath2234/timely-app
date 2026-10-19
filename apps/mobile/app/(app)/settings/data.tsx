@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
-import { CalendarDays, Database, Download, FileSpreadsheet, RefreshCw, Trash2, Upload } from "lucide-react-native";
+import { CalendarDays, Database, Download, FileSpreadsheet, Share2, Trash2, Upload } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
-import { Card, Chip, PrimaryButton, SectionLabel } from "../../../components/ui/primitives";
+import SegmentedControl from "../../../components/ui/SegmentedControl";
+import { GroupHint, GroupLabel, ListGroup, ListRow, SwitchRow } from "../../../components/settings/SettingsList";
 import ConfirmSheet, { type ConfirmRequest } from "../../../components/ui/ConfirmSheet";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { createBackup, deleteBackup, getBackupSettings, listBackups, restoreBackupJSON, shareExport, updateBackupSettings, type BackupSettings } from "../../../lib/api/portability";
@@ -50,36 +51,77 @@ export default function DataSettingsScreen() {
   return (
     <Screen>
       <MobileHeader title="Data & backups" back large={false} />
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
-        <SectionLabel>Portable exports</SectionLabel>
-        <ExportRow Icon={Database} label="Full JSON backup" busy={busy === "json"} onPress={() => run("json", () => shareExport("/export/full", "timely-backup.json", "application/json"))} />
-        <ExportRow Icon={FileSpreadsheet} label="Tasks CSV" busy={busy === "csv"} onPress={() => run("csv", () => shareExport("/export/tasks.csv", "timely-tasks.csv", "text/csv"))} />
-        <ExportRow Icon={CalendarDays} label="Calendar ICS" busy={busy === "ics"} onPress={() => run("ics", () => shareExport("/export/calendar.ics", "timely-calendar.ics", "text/calendar"))} />
+      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+        <GroupLabel>Export</GroupLabel>
+        <ListGroup>
+          <ExportRow Icon={Database} label="Full JSON backup" busy={busy === "json"} onPress={() => run("json", () => shareExport("/export/full", "timely-backup.json", "application/json"))} />
+          <ExportRow Icon={FileSpreadsheet} label="Tasks CSV" busy={busy === "csv"} onPress={() => run("csv", () => shareExport("/export/tasks.csv", "timely-tasks.csv", "text/csv"))} />
+          <ExportRow Icon={CalendarDays} label="Calendar ICS" busy={busy === "ics"} onPress={() => run("ics", () => shareExport("/export/calendar.ics", "timely-calendar.ics", "text/calendar"))} />
+        </ListGroup>
+        <GroupHint>Each export opens the share sheet so you can save or send the file.</GroupHint>
 
-        <SectionLabel>Encrypted server backups</SectionLabel>
-        <Card>
-          <View style={styles.row}>
-            <View style={styles.grow}><Text style={styles.title}>Scheduled backups</Text><Text style={styles.meta}>Encrypted at rest with automatic retention.</Text></View>
-            <Switch accessibilityLabel="Scheduled backups" value={current.enabled} onValueChange={(enabled) => save.mutate({ ...current, enabled })} trackColor={{ true: colors.primary }} />
-          </View>
-          <Text style={styles.fieldLabel}>Frequency</Text>
-          <View style={styles.chips}>{[1, 3, 7, 14, 30].map((days) => <Chip key={days} label={`${days}d`} active={current.intervalDays === days} onPress={() => save.mutate({ ...current, intervalDays: days })} />)}</View>
-          <Text style={styles.fieldLabel}>Retention</Text>
-          <View style={styles.chips}>{[3, 7, 14, 30].map((count) => <Chip key={count} label={`${count}`} active={current.retentionCount === count} onPress={() => save.mutate({ ...current, retentionCount: count })} />)}</View>
-          {current.nextRunAt ? <Text style={styles.meta}>Next run {new Date(current.nextRunAt).toLocaleString()}</Text> : null}
-          <View style={{ marginTop: 14 }}><PrimaryButton label={create.isPending ? "Creating…" : "Create backup now"} disabled={create.isPending} onPress={() => create.mutate()} /></View>
-        </Card>
+        <GroupLabel>Encrypted server backups</GroupLabel>
+        <ListGroup>
+          <SwitchRow
+            title="Scheduled backups"
+            meta={current.enabled && current.nextRunAt ? `Next ${new Date(current.nextRunAt).toLocaleString()}` : "Encrypted at rest, old copies removed"}
+            value={current.enabled}
+            onChange={(enabled) => save.mutate({ ...current, enabled })}
+          />
+          <ListRow
+            title="Every"
+            trailing={
+              <View>
+                <SegmentedControl
+                  size="sm"
+                  accessibilityLabel="Backup frequency"
+                  value={String(current.intervalDays)}
+                  onChange={(days) => save.mutate({ ...current, intervalDays: Number(days) })}
+                  options={[1, 3, 7, 14, 30].map((days) => ({ value: String(days), label: `${days}d` }))}
+                />
+              </View>
+            }
+          />
+          <ListRow
+            title="Keep"
+            trailing={
+              <View>
+                <SegmentedControl
+                  size="sm"
+                  accessibilityLabel="Backups to keep"
+                  value={String(current.retentionCount)}
+                  onChange={(count) => save.mutate({ ...current, retentionCount: Number(count) })}
+                  options={[3, 7, 14, 30].map((count) => ({ value: String(count), label: String(count) }))}
+                />
+              </View>
+            }
+          />
+        </ListGroup>
 
-        {(backupsQ.data ?? []).map((backup) => (
-          <View key={backup.id} style={styles.backup}>
-            <View style={styles.grow}><Text style={styles.title}>{new Date(backup.createdAt).toLocaleString()}</Text><Text style={styles.meta}>{Math.max(1, Math.round(backup.byteSize / 1024))} KB</Text></View>
-            <Pressable accessibilityRole="button" accessibilityLabel="Download backup" onPress={() => run(backup.id, () => shareExport(`/backups/${backup.id}`, "timely-backup.json", "application/json"))} style={styles.icon}><Download size={18} color={colors.foreground} /></Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel="Delete backup" onPress={() => setConfirm({ title: "Delete backup?", message: "This encrypted copy will be permanently removed.", onConfirm: () => remove.mutate(backup.id) })} style={styles.icon}><Trash2 size={18} color={colors.destructive} /></Pressable>
-          </View>
-        ))}
+        <GroupLabel>{`Saved backups${backupsQ.data?.length ? ` · ${backupsQ.data.length}` : ""}`}</GroupLabel>
+        <ListGroup>
+          <ListRow title={create.isPending ? "Backing up…" : "Back up now"} tone="add" disabled={create.isPending} onPress={() => create.mutate()} />
+          {(backupsQ.data ?? []).map((backup) => (
+            <View key={backup.id} style={styles.backup}>
+              <View style={styles.grow}>
+                <Text style={styles.title}>{new Date(backup.createdAt).toLocaleString()}</Text>
+                <Text style={styles.meta}>{Math.max(1, Math.round(backup.byteSize / 1024))} KB</Text>
+              </View>
+              <Pressable accessibilityRole="button" accessibilityLabel="Download backup" onPress={() => run(backup.id, () => shareExport(`/backups/${backup.id}`, "timely-backup.json", "application/json"))} style={styles.icon}><Download size={18} color={colors.foreground} /></Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="Delete backup" onPress={() => setConfirm({ title: "Delete backup?", message: "This encrypted copy will be permanently removed.", onConfirm: () => remove.mutate(backup.id) })} style={styles.icon}><Trash2 size={18} color={colors.destructive} /></Pressable>
+            </View>
+          ))}
+        </ListGroup>
 
-        <SectionLabel>Restore</SectionLabel>
-        <Pressable accessibilityRole="button" onPress={() => void restore()} style={styles.restore}><Upload size={18} color={colors.foreground} /><View><Text style={styles.title}>Choose JSON backup</Text><Text style={styles.meta}>Replaces this account&apos;s current data.</Text></View></Pressable>
+        <GroupLabel>Restore</GroupLabel>
+        <ListGroup>
+          <ListRow
+            title="Choose JSON backup"
+            meta="Replaces this account's current data"
+            leading={<Upload size={18} color={colors.foreground} />}
+            onPress={() => void restore()}
+          />
+        </ListGroup>
         {message ? <Text accessibilityLiveRegion="polite" style={styles.success}>{message}</Text> : null}
       </ScrollView>
       <ConfirmSheet
@@ -95,20 +137,25 @@ export default function DataSettingsScreen() {
 }
 
 function ExportRow({ Icon, label, onPress, busy }: { Icon: typeof Database; label: string; onPress: () => void; busy: boolean }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} disabled={busy} onPress={onPress} style={styles.export}><Icon size={18} color={colors.primary} /><Text style={styles.title}>{busy ? "Preparing…" : label}</Text><RefreshCw size={15} color={colors.mutedForeground} /></Pressable>;
+  return (
+    <ListRow
+      title={busy ? "Preparing…" : label}
+      accessibilityLabel={`Export ${label}`}
+      leading={<Icon size={18} color={colors.primary} />}
+      trailing={<Share2 size={16} color={colors.mutedForeground} />}
+      chevron={false}
+      disabled={busy}
+      onPress={onPress}
+    />
+  );
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  content: { padding: 14, paddingBottom: 40, gap: 9 },
-  export: { minHeight: 52, borderWidth: 1, borderColor: colors.border, borderRadius: 12, backgroundColor: colors.card, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 10 },
-  row: { flexDirection: "row", alignItems: "center", gap: 10 },
+  content: { padding: 16, paddingBottom: 40, gap: 12 },
   grow: { flex: 1 },
-  title: { color: colors.foreground, fontSize: 14, fontWeight: "600" },
-  meta: { color: colors.mutedForeground, fontSize: 12, marginTop: 3 },
-  fieldLabel: { color: colors.mutedForeground, fontSize: 12, marginTop: 14, marginBottom: 7 },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
-  backup: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 5, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  title: { color: colors.foreground, fontSize: 15, fontWeight: "500" },
+  meta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
+  backup: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 4, paddingLeft: 14, paddingRight: 4 },
   icon: { width: 42, height: 42, alignItems: "center", justifyContent: "center" },
-  restore: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 14, backgroundColor: colors.card },
   success: { color: colors.success, fontSize: 13, textAlign: "center", marginTop: 8 },
 }));

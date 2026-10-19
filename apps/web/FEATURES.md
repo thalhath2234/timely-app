@@ -573,7 +573,7 @@ Mint an API key → point Hermes at `/mcp`. The server instructions tell the age
 
 Destructive actions — `delete_workspace`, `delete_project`, `delete_doc`, `delete_backup`, `restore_account` — require `confirm=true`. Prefer `archive_doc` / `archive_sheet` over delete. Deleting a document does not cascade to subpages.
 
-### Complete MCP tool list (148)
+### Complete MCP tool list (172)
 
 **Context / intelligence (7):** `get_context`, `search`, `semantic_search`, `reindex_search`, `get_agenda`, `get_free_time`, `what_next`
 
@@ -581,23 +581,29 @@ Destructive actions — `delete_workspace`, `delete_project`, `delete_doc`, `del
 
 **Projects (13):** `list_projects`, `get_project`, `list_project_activity`, `create_project`, `update_project`, `complete_project`, `reopen_project`, `delete_project`, `create_stage`, `update_stage`, `delete_stage`, `reorder_stages`, `duplicate_project`
 
-**Tasks (34):** `list_tasks`, `get_task`, `create_task`, `update_task`, `pick_tasks`, `bulk_update_tasks`, `complete_task`, `reopen_task`, `move_task_to_status`, `move_task_to_stage`, `delete_task`, `set_task_labels`, `set_task_custom_field`, `set_task_dependency`, `add_task_comment`, `list_task_activity`, `set_task_recurrence`, `clear_task_recurrence`, `edit_task_occurrence`, `split_task_series`, `capture_inbox_item`, `list_inbox`, `clarify_inbox_item`, `add_checklist_item`, `update_checklist_item`, `toggle_checklist_item`, `replace_checklist`, `delete_checklist_item`, `start_focus`, `pause_focus`, `stop_focus`, `get_today`, `set_today_focus`, `duplicate_task`
+**Tasks (35):** `list_tasks`, `get_task`, `create_task`, `update_task`, `pick_tasks`, `bulk_update_tasks`, `complete_task`, `reopen_task`, `move_task_to_status`, `move_task_to_stage`, `delete_task`, `set_task_labels`, `set_task_custom_field`, `set_task_dependency`, `add_task_comment`, `list_task_activity`, `set_task_recurrence`, `clear_task_recurrence`, `edit_task_occurrence`, `split_task_series`, `capture_inbox_item`, `list_inbox`, `clarify_inbox_item`, `add_checklist_item`, `update_checklist_item`, `toggle_checklist_item`, `replace_checklist`, `delete_checklist_item`, `start_focus`, `pause_focus`, `stop_focus`, `list_focus_sessions`, `get_today`, `set_today_focus`, `duplicate_task`
 
 **Events (7):** `list_events`, `get_event`, `create_event`, `update_event`, `delete_event`, `edit_event_occurrence`, `split_event_series`
 
-**Calendar / schedule (15):** `get_calendar`, `get_working_hours`, `update_working_hours`, `get_schedule_settings`, `update_schedule_settings`, `get_capacity`, `auto_schedule_preview`, `auto_schedule_apply`, `undo_schedule`, `pin_task`, `pin_block`, `schedule_task`, `move_block`, `delete_block`, `clear_task_blocks`
+**Calendar / schedule (16):** `get_calendar`, `get_working_hours`, `update_working_hours`, `get_schedule_settings`, `update_schedule_settings`, `get_capacity`, `auto_schedule_preview`, `auto_schedule_apply`, `undo_schedule`, `undo_schedule_preview`, `pin_task`, `pin_block`, `schedule_task`, `move_block`, `delete_block`, `clear_task_blocks`
 
-**Docs (7):** `list_docs`, `get_doc`, `create_doc`, `update_doc`, `append_to_doc`, `archive_doc`, `delete_doc`
+**Docs (12):** `list_docs`, `get_doc`, `create_doc`, `update_doc`, `append_to_doc`, `add_3d_model`, `open_daily_note`, `list_doc_versions`, `restore_doc_version`, `get_doc_backlinks`, `archive_doc`, `delete_doc`
 
-**Sheets (25):** `list_sheets`, `get_sheet` (every tab as markdown with tab ids, column letters and row numbers), `get_sheet_values` (read-only: worked-out values from the apps' own formula engine, or one formula worked out without saving it), `create_sheet` (optional `templateId`; `builtin:yearly-expenses` with `year` and `currency` makes the Yearly expenses workbook), `update_sheet` (optional `tabOrder` for partial tab saves), `archive_sheet`, `add_sheet_column`, `update_sheet_column` (also `format` and `hidden`), `delete_sheet_column`, `add_sheet_rows`, `add_sheet_row` (one entry by column name into the next free row), `update_sheet_cells`, `delete_sheet_rows`, `add_sheet_tab`, `rename_sheet_tab` (rewrites formulas that read the tab), `update_sheet_tab` (colour, frozen rows/columns, colour rules), `delete_sheet_tab`, `duplicate_sheet`, `delete_sheet`, `list_sheet_templates` (includes built-ins), `get_sheet_template`, `create_sheet_template`, `update_sheet_template`, `delete_sheet_template`, `materialize_sheet_template_tab`. Cell, row and column tools take an optional `tabId` (empty = first tab).
+**Sheets (25):** `list_sheets`, `get_sheet` (a workbook's tabs as markdown with tab ids, column letters and row numbers; pass `tabId` for one tab's raw grid), `get_sheet_values` (read-only: worked-out values from the apps' own formula engine, or one formula worked out without saving it), `create_sheet` (optional `templateId`; `builtin:yearly-expenses` with `year` and `currency` makes the Yearly expenses workbook), `update_sheet` (optional `tabOrder` for partial tab saves), `archive_sheet`, `add_sheet_column`, `update_sheet_column` (also `format` and `hidden`), `delete_sheet_column`, `add_sheet_rows`, `add_sheet_row` (one entry by column name into the next free row), `update_sheet_cells`, `delete_sheet_rows`, `add_sheet_tab`, `rename_sheet_tab` (rewrites formulas that read the tab), `update_sheet_tab` (colour, frozen rows/columns, colour rules), `delete_sheet_tab`, `duplicate_sheet`, `delete_sheet`, `list_sheet_templates` (includes built-ins), `get_sheet_template`, `create_sheet_template`, `update_sheet_template`, `delete_sheet_template`, `materialize_sheet_template_tab`. Cell, row and column tools take `tabId` as a tab name or id; on a sheet with several tabs it is required (no silent first-tab fallback), rows can be given by number and cells by column name or letter, and edits return only the changed tab. `delete_sheet_rows` and `delete_sheet_column` rewrite formulas on every tab.
 
 **Saved views / profile / config (10):** `list_task_views`, `create_task_view`, `update_task_view`, `delete_task_view`, `set_active_task_view`, `set_project_task_view`, `get_profile`, `update_profile`, `get_config`, `update_account_config` (onboarding flag, theme, accent)
 
-**Notifications / jobs (11):** `list_notifications`, `unread_notification_count`, `mark_notification_read`, `clear_notifications`, `snooze_reminder`, `reschedule_urgent`, `get_notification_settings`, `update_notification_settings`, `list_jobs`, `retry_job`, `get_job_health`
+**Notifications / jobs (13):** `list_notifications`, `unread_notification_count`, `mark_notification_read`, `triage_notification`, `delete_notification`, `clear_notifications`, `snooze_reminder`, `reschedule_urgent`, `get_notification_settings`, `update_notification_settings`, `list_jobs`, `retry_job`, `get_job_health`
 
 **Portability (11):** `export_account`, `export_tasks_csv`, `export_calendar`, `export_doc` (markdown, or PDF as base64), `get_backup_settings`, `update_backup_settings` (interval and retention 1–30), `create_backup`, `list_backups`, `download_backup`, `delete_backup`, `restore_account`
 
-`apps/api/scripts/mcp_parity.go` exercises MCP/API parity end to end.
+**Habits / goals / suggestions (9):** `list_habits`, `add_habit`, `check_habit`, `update_habit`, `list_goals`, `set_goal`, `get_goal_progress`, `get_today_suggestions`, `list_stale_work`
+
+Every tool carries MCP annotations: reads are `readOnlyHint`, and deletes and overwrites are `destructiveHint`, so clients can run reads without asking and confirm the rest.
+
+**Prompts (3):** `plan_my_day` (optional `date`), `weekly_review` (optional `weekStart`, default this Monday), `triage_inbox`. MCP clients only; chat does not get them.
+
+`apps/api/scripts/mcp_parity.go` registers a fresh account against `TIMELY_API` (default `http://localhost:8081`), calls every tool and prompt, and fails on any error or uncalled tool.
 
 ---
 
@@ -754,7 +760,7 @@ Export uses the native share sheet; network state, stale data, and queued safe m
 
 **Workspaces:** CRUD, labels, statuses, custom fields, `GET/PUT /config`
 
-**Docs / sheets:** CRUD; archive flag; `GET /docs/:id/watch` (SSE); doc export `?format=markdown` (PDF still accepted by the exporter, unused in UI); sheet template list/get/create/update/delete and materialize-tab endpoints
+**Docs / sheets:** CRUD; archive flag; `GET /docs/:id/watch` (SSE); doc export `?format=markdown` (add `&images=zip` for a .zip of the .md plus an `images/` folder when the doc has uploaded images; PDF still accepted by the exporter, unused in UI); sheet template list/get/create/update/delete and materialize-tab endpoints
 
 **API keys / search / notifications:** list/create/revoke keys; `GET /search`; `POST /search/reindex`; notifications list/read/clear/snooze and overdue-task urgent reschedule; `PUT/DELETE /devices/push`; `GET/PUT /notifications/settings`; jobs list/health/retry
 

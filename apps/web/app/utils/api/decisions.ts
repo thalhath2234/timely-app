@@ -239,9 +239,19 @@ export type DocHints = {
   properties?: { key: string; value: string }[];
   template?: { id: string; title: string };
   outdated?: boolean;
+  /** Items (lower case) of checklists kept in the doc, not worked as tasks. */
+  keptLists?: string[];
 };
 
 export const getDocHints = (docId: string) => request<DocHints>(`/suggestions/doc/${encodeURIComponent(docId)}`);
+
+/** One kind of doc suggestion and what it offers: an id for a template,
+ * project or page, the type, "key=value" for a property, the line for work. */
+export type DocHintKind = "template" | "project" | "parent" | "type" | "prop" | "work" | "outdated";
+
+/** Remembers a dismissed suggestion for the doc, on every device. */
+export const dismissDocHint = (docId: string, kind: DocHintKind, value = "") =>
+  request<void>(`/suggestions/doc/${encodeURIComponent(docId)}/dismiss`, "POST", { kind, value });
 
 /** Which of a doc's checklist task names are already tasks, and the project
  * new ones go to. Plain code on the server: it answers with no keys. */
@@ -305,7 +315,7 @@ export const runNotificationTriage = (notificationId: string, action: TriageStep
 
 // Personalisation (Phase 9).
 export type StarterUse = { key: string; label: string; workspace?: string };
-export type StarterLabel = { name: string; color: string };
+export type StarterLabel = { name: string; color: string; uses?: string[] };
 export type PersonalPrefs = { useCase: string; dismissedTips: string[] };
 
 export const getPersonalPrefs = () => request<{ prefs: PersonalPrefs; uses: StarterUse[] }>("/suggestions/prefs");

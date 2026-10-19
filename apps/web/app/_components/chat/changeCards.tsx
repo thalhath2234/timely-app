@@ -1,4 +1,7 @@
 "use client";
+import { motion } from "motion/react";
+import { motion as MOTION } from "@timely/contract/designTokens";
+import { easeOut, revealProps } from "@/app/_components/_ui/motion";
 import Link from "next/link";
 import { ArrowUpRight, ChevronRight } from "lucide-react";
 import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
@@ -143,8 +146,9 @@ export default function ChangeCards({
         const link = stepTarget(step);
         const removal = isRemoval(step.tool);
         return (
-          <li
+          <motion.li
             key={index}
+            {...revealProps(index)}
             className={cn(
               "overflow-hidden rounded-xl border bg-card transition-colors",
               step.status === "failed" || (removal && step.status === "pending")
@@ -165,9 +169,13 @@ export default function ChangeCards({
                 >
                   <Icon className="size-4" />
                 </div>
-                <span
+                <motion.span
+                  key={step.status}
                   aria-label={status.label}
                   title={status.label}
+                  initial={step.status === "done" ? { scale: 0.4 } : false}
+                  animate={{ scale: 1 }}
+                  transition={{ duration: 6 / MOTION.fps, ease: easeOut }}
                   className={cn(
                     "absolute -bottom-1 -right-1 flex size-4.5 items-center justify-center rounded-full border-2 border-card",
                     status.className,
@@ -178,7 +186,7 @@ export default function ChangeCards({
                   ) : (
                     <StatusIcon className="size-2.5" strokeWidth={3} />
                   )}
-                </span>
+                </motion.span>
               </div>
               <div className="min-w-0 flex-1">
                 <p className="flex items-baseline gap-2 text-sm font-medium leading-5">
@@ -255,7 +263,7 @@ export default function ChangeCards({
                 )}
               </div>
             </details>
-          </li>
+          </motion.li>
         );
       })}
     </ol>

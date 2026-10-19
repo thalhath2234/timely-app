@@ -1,39 +1,30 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  Ban,
-  CalendarDays,
   Check,
-  Circle,
-  Clock,
   Copy,
   Flag,
   FolderKanban,
-  Layers,
   Link2,
   ListTodo,
-  Palette,
   Trash2,
 } from "lucide-react";
 import CustomFieldControl, {
-  customFieldIcon,
   findCustomFieldDraft,
   toCustomFieldDrafts,
   withCustomFieldDraft,
 } from "@/app/_components/_ui/customFieldControl";
 import DatePicker from "@/app/_components/_ui/datePicker";
-import LabelPicker from "@/app/_components/_ui/labelPicker";
-import TaskScheduleSection from "@/app/_components/_ui/tasks/taskScheduleSection";
+import TaskScheduleSection, { TaskRepeatRow } from "@/app/_components/_ui/tasks/taskScheduleSection";
+import { GroupHint, GroupLabel, ListGroup, ListRow } from "@/app/_components/_ui/groupedList";
 import TaskTypeToggle from "@/app/_components/_ui/tasks/taskTypeToggle";
 import {
   EntityModalShell,
   ModalMain,
   ModalSidebar,
-  PropertyRow,
-  SidebarSectionTitle,
 } from "@/app/_components/_ui/modal/entityModal";
 import Select from "@/app/_components/_ui/select";
 import ColorPicker from "@/app/_components/_ui/colorPicker";
@@ -68,11 +59,14 @@ import {
   useTasks,
   useUpdateTask,
 } from "@/app/utils/hooks/tasks";
-import { useWorkspaces } from "@/app/utils/hooks/workspaces";
+import { useWorkingHoursZone, useWorkspaces } from "@/app/utils/hooks/workspaces";
+import { formatActivityTime } from "@/app/utils/activityTime";
 import { useMe } from "@/app/utils/hooks/user";
 import {
   applyClockToDate,
   dateFromDateInput,
+  formatDuration,
+  localDateStamp,
   nextRoundHour,
   toDateInputValue,
   toTimeInputValue,
@@ -95,16 +89,25 @@ import {
   entityTitleKey,
 } from "@/app/utils/titleMorph";
 import { buttonClass } from "@/app/_components/_ui/button";
-import { PRIORITY_OPTIONS, normalizePriority } from "@/app/utils/priority";
+import { PRIORITY_OPTIONS, normalizePriority, priorityColor } from "@/app/utils/priority";
+import { isOverdue } from "@timely/contract/workStatus";
 
-const DURATION_PRESETS = [
-  { minutes: 15, label: "15m" },
-  { minutes: 30, label: "30m" },
-  { minutes: 45, label: "45m" },
-  { minutes: 60, label: "1h" },
-  { minutes: 90, label: "90m" },
-  { minutes: 120, label: "2h" },
-];
+const DURATION_STEPS = [15, 30, 45, 60, 90, 120, 180, 240, 480];
+
+function durationOptions(current: number) {
+  const steps = current > 0 && !DURATION_STEPS.includes(current) ? [...DURATION_STEPS, current].sort((a, b) => a - b) : DURATION_STEPS;
+  return steps.map((minutes) => ({ value: String(minutes), label: formatDuration(minutes) }));
+}
+
+const PRIORITY_ROW_OPTIONS = PRIORITY_OPTIONS.map((option) => ({
+  ...option,
+  icon: <Flag style={{ color: priorityColor(option.value) ?? undefined }} />,
+}));
+
+/** Only High and Urgent tint their value, so the card stays calm. */
+function priorityTint(priority: string) {
+  return priority === "High" || priority === "Urgent" ? priorityColor(priority) ?? undefined : undefined;
+}
 
 function isCompletedStatus(status: Status) {
   const name = status.name.trim().toLowerCase();
@@ -182,24 +185,6 @@ interface DetailView {
   createdAt: string;
   updatedAt: string;
   facts: { label: string; value: string }[];
-}
-
-function formatActivityTime(value?: string | null) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-
-  const diffMs = Date.now() - date.getTime();
-  const minutes = Math.round(diffMs / 60000);
-  if (Math.abs(minutes) < 1) return "just now";
-  if (Math.abs(minutes) < 60) return `${Math.abs(minutes)} min ago`;
-
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }
 
 export interface EntityDetailPanelProps {
@@ -440,9 +425,7 @@ function ProjectDetail({
     <DetailBody view={view} save={save} onClose={onClose}>
       {projectTasks.length > 0 && (
         <section className="mt-8">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Tasks in this project
-          </h3>
+          <GroupLabel aside={String(projectTasks.length)}>Tasks in this project</GroupLabel>
           <ul className="flex flex-col gap-1">
             {projectTasks.map((task) => (
               <li key={task.id}>
@@ -500,6 +483,7 @@ function DetailBody({
   children?: React.ReactNode;
 }) {
   const { data: workspaces } = useWorkspaces();
+  const timeZone = useWorkingHoursZone();
   const { data: me } = useMe();
   const { data: tasks } = useTasks();
   const [title, setTitle] = useState(view.title);
@@ -663,6 +647,33 @@ function DetailBody({
     return work;
   };
 
+  // Closing the panel or switching to another item keeps unsaved description
+  // text: it saves on the way out, unless the item is being deleted.
+  const descriptionDirtyRef = useRef(false);
+  const saveDescriptionRef = useRef(saveDescription);
+  const deletingRef = useRef(false);
+  useEffect(() => {
+    descriptionDirtyRef.current = descriptionDirty;
+    saveDescriptionRef.current = saveDescription;
+  });
+  useEffect(
+    () => () => {
+      if (descriptionDirtyRef.current && !deletingRef.current) void saveDescriptionRef.current();
+    },
+    [],
+  );
+  const deleteItem = onDelete
+    ? async () => {
+        deletingRef.current = true;
+        try {
+          await onDelete();
+        } catch (err) {
+          deletingRef.current = false;
+          throw err;
+        }
+      }
+    : undefined;
+
   const isInbox = view.taskKind === "inbox" || view.facts.some((fact) => fact.label === "Inbox");
   const isReminder =
     view.kind === "task" &&
@@ -752,6 +763,10 @@ function DetailBody({
     return () => detachMorphTarget(input);
   }, []);
   const closeWithMorph = () => {
+    if (descriptionDirtyRef.current) {
+      descriptionDirtyRef.current = false;
+      void saveDescription();
+    }
     beginCloseMorph(titleRef.current, morphKey);
     onClose();
   };
@@ -768,7 +783,7 @@ function DetailBody({
       }}
       onToggleComplete={toggleComplete}
       onClose={closeWithMorph}
-      onDelete={onDelete}
+      onDelete={deleteItem}
       onDuplicate={onDuplicate}
       onCopyLink={onCopyLink}
       deleteTitle={`Delete “${title.trim() || "Untitled"}”?`}
@@ -872,22 +887,18 @@ function DetailBody({
           {children}
         </div>
 
-        <section className="mt-6 border-t border-border pt-5">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Activity &amp; Comments
-            </h3>
-          </div>
+        <section className="mt-6">
+          <GroupLabel>Activity</GroupLabel>
           {view.kind === "task" ? (
             <TaskActivityFeed taskId={view.id} />
           ) : (
             <p className="text-xs text-muted-foreground">
-              Created {formatActivityTime(view.createdAt)}
+              Created {formatActivityTime(view.createdAt, timeZone)}
               {view.updatedAt && view.updatedAt !== view.createdAt
-                ? ` · Updated ${formatActivityTime(view.updatedAt)}`
+                ? ` · Updated ${formatActivityTime(view.updatedAt, timeZone)}`
                 : ""}
               {view.completedAt
-                ? ` · Completed ${formatActivityTime(view.completedAt)}`
+                ? ` · Completed ${formatActivityTime(view.completedAt, timeZone)}`
                 : ""}
             </p>
           )}
@@ -895,314 +906,159 @@ function DetailBody({
       </ModalMain>
 
       <ModalSidebar>
-        <div className="flex flex-col gap-1">
-          {view.kind === "task" ? (
-            <div className="px-1 py-1.5">
-              <TaskTypeToggle
-                value={isInbox ? null : isReminder ? "reminder" : "task"}
-                onChange={(next) => {
-                  if (next === "reminder") {
-                    commit({
-                      kind: "reminder",
-                      duration: 0,
-                      scheduledOn: view.scheduledOn || nextRoundHour().toISOString(),
-                    });
-                    if (isInbox) showUndoToast(`“${view.title}” is now a reminder`);
-                    return;
-                  }
-                  if (isInbox) {
-                    const converted = convertInboxToTask(
-                      view.projectId ? { projectId: view.projectId } : {},
-                    );
-                    if (!converted) return;
-                    commit(converted);
-                    showUndoToast(`“${view.title}” is now a task`);
-                    return;
-                  }
-                  commit({
-                    kind: "task",
-                    duration: Math.max(30, view.duration ?? 0) || 30,
-                  });
-                }}
-              />
-              <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
-                {isInbox
-                  ? "Assign a workspace to put this on the board, or choose Reminder for a ping."
-                  : isReminder
-                    ? "Pings at a chosen time. Does not reserve a work block."
-                    : `Estimated focus capacity: ${view.duration ?? 30} minutes`}
-              </p>
-            </div>
-          ) : null}
-
-          {!isReminder ? (
-          <>
-          {view.kind === "task" ? (
-            <>
-              <PropertyRow icon={FolderKanban} label="Workspace">
-                <Select
-                  size="sm"
-                  value={view.workspaceId ?? ""}
-                  onChange={onWorkspaceChange}
-                  placeholder="Select workspace"
-                  variant="bare"
-                  options={typedWorkspaces.map((space) => ({
-                    value: space.id,
-                    label: space.name,
-                    color: space.color ?? undefined,
-                  }))}
-                />
-              </PropertyRow>
-              <PropertyRow icon={ListTodo} label="Project">
-                <Select
-                  size="sm"
-                  value={view.projectId ?? ""}
-                  onChange={onProjectChange}
-                  placeholder="No project"
-                  variant="bare"
-                  options={[
-                    { value: "", label: "No project" },
-                    ...projectsInWorkspace.map((project) => ({
-                      value: project.id,
-                      label: project.title,
-                      color: project.color ?? undefined,
-                    })),
-                  ]}
-                />
-              </PropertyRow>
-            </>
-          ) : (
-            <>
-              <PropertyRow icon={FolderKanban} label="Workspace">
-                <span className="truncate text-foreground">{workspaceName}</span>
-              </PropertyRow>
-              <PropertyRow icon={ListTodo} label="Project">
-                <span className="truncate text-foreground">{projectName}</span>
-              </PropertyRow>
-              <PropertyRow icon={Palette} label="Color">
-                <ColorPicker
-                  value={view.color || "#30A66D"}
-                  onChange={(color) => schedule({ color })}
-                  aria-label="Project color"
-                />
-              </PropertyRow>
-            </>
-          )}
-          <PropertyRow icon={Circle} label="Status">
-            <Select
-              size="sm"
-              value={view.statusId ?? ""}
-              onChange={(statusId) => {
-                const next = statusOptions.find((option) => option.id === statusId);
-                const completing = next ? isCompletedStatus(next) : false;
-                schedule({
-                  statusId,
-                  ...(completing && !view.completedAt
-                    ? { completedAt: new Date().toISOString() }
-                    : !completing && view.completedAt
-                      ? { completedAt: "" }
-                      : {}),
-                });
-              }}
-              placeholder="No status"
-              variant="bare"
-              options={[
-                { value: "", label: "No status" },
-                ...statusOptions.map((option) => ({
-                  value: option.id,
-                  label: option.name,
-                  color: option.color,
-                })),
-              ]}
-            />
-          </PropertyRow>
-          {view.kind === "task" && stageOptions.length > 0 ? (
-          <PropertyRow icon={Layers} label="Stage">
-            <Select
-              size="sm"
-              value={view.stageId ?? ""}
-              onChange={(stageId) => schedule({ stageId })}
-              placeholder="No stage"
-              variant="bare"
-              options={[
-                { value: "", label: "No stage" },
-                ...stageOptions.map((stage) => ({
-                  value: stage.id,
-                  label: stage.name,
-                  color: stage.color ?? undefined,
-                })),
-              ]}
-            />
-          </PropertyRow>
-          ) : null}
-          </>
-          ) : null}
-
-          <PropertyRow icon={Flag} label="Priority">
-            <Select
-              size="sm"
-              value={normalizePriority(view.priorityLevel)}
-              onChange={(priorityLevel) => schedule({ priorityLevel })}
-              placeholder="No priority"
-              variant="bare"
-              options={[{ value: "", label: "No priority" }, ...PRIORITY_OPTIONS]}
-            />
-          </PropertyRow>
-
-          {view.kind === "task" && !isInbox && !isReminder ? (
-            <>
-            <PropertyRow icon={Clock} label="Duration">
-              <input
-                type="number"
-                min={15}
-                step={15}
-                key={`duration-${view.id}-${view.duration ?? 0}`}
-                defaultValue={view.duration ?? 30}
-                onChange={(event) =>
-                  schedule({
-                    duration: Math.max(15, Number(event.target.value) || 30),
-                  })
-                }
-                className="w-16 bg-transparent text-right text-sm text-foreground outline-none"
-              />
-              <span className="shrink-0 text-xs text-muted-foreground">min</span>
-            </PropertyRow>
-            <div className="flex flex-wrap gap-1 px-1.5 pb-1">
-              {DURATION_PRESETS.map((preset) => (
-                <button
-                  key={preset.minutes}
-                  type="button"
-                  onClick={() => schedule({ duration: preset.minutes })}
-                  className={`rounded-md border px-1.5 py-0.5 tabular-nums text-[10px] transition-colors ${
-                    (view.duration ?? 30) === preset.minutes
-                      ? "border-primary/40 bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground hover:border-border hover:text-foreground"
-                  }`}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-            </>
-          ) : null}
-
-          <PropertyRow icon={CalendarDays} label="Start date">
-            <DatePicker
-              mode="date"
-              size="sm"
-              value={toDateInputValue(view.startDate)}
-              onChange={(startDate) => {
-                const timeOnly =
-                  view.kind === "task" &&
-                  (view.duration ?? 0) <= 0 &&
-                  !view.recurrence;
-                if (timeOnly && view.scheduledOn && startDate) {
-                  schedule({
-                    startDate,
-                    scheduledOn: applyClockToDate(
-                      dateFromDateInput(startDate),
-                      toTimeInputValue(view.scheduledOn),
-                    ).toISOString(),
-                  });
-                  return;
-                }
-                schedule({ startDate });
-              }}
-            />
-          </PropertyRow>
-
-          <PropertyRow icon={CalendarDays} label="Deadline">
-            <DatePicker
-              mode="date"
-              size="sm"
-              className={
-                view.deadline
-                  ? "border-destructive/30 bg-destructive/5 text-destructive"
-                  : undefined
-              }
-              value={toDateInputValue(view.deadline)}
-              onChange={(deadline) => schedule({ deadline })}
-            />
-          </PropertyRow>
-
-          {view.kind === "task" && (
-            <>
-              {!isInbox ? (
-              <TaskScheduleSection
-                taskId={view.id}
-                duration={view.duration ?? 0}
-                deadline={view.deadline}
-                startDate={view.startDate}
-                completed={Boolean(view.completedAt)}
-                scheduledOn={view.scheduledOn}
-                recurrence={view.recurrence}
-                blocks={view.blocks}
-                scheduleLocked={view.scheduleLocked}
-                contiguous={view.contiguous}
-                minChunkMinutes={view.minChunkMinutes}
-                preferredChunkMinutes={view.preferredChunkMinutes}
-                earliestStartAt={view.earliestStartAt}
-                preferredWindows={view.preferredWindows}
-                onRecurrenceChange={(recurrence) => {
-                  schedule({ recurrence });
-                  void flush();
-                }}
-                onScheduledOnChange={(scheduledOn) => {
-                  schedule({ scheduledOn });
-                  void flush();
-                }}
-              />
+        <div className="flex flex-col gap-4">
+          <div>
+            <ListGroup>
+              {view.kind === "task" ? (
+                <ListRow label="Type">
+                  <TaskTypeToggle
+                    className="w-48"
+                    value={isInbox ? null : isReminder ? "reminder" : "task"}
+                    onChange={(next) => {
+                      if (next === "reminder") {
+                        commit({
+                          kind: "reminder",
+                          duration: 0,
+                          scheduledOn: view.scheduledOn || nextRoundHour().toISOString(),
+                        });
+                        if (isInbox) showUndoToast(`“${view.title}” is now a reminder`);
+                        return;
+                      }
+                      if (isInbox) {
+                        const converted = convertInboxToTask(
+                          view.projectId ? { projectId: view.projectId } : {},
+                        );
+                        if (!converted) return;
+                        commit(converted);
+                        showUndoToast(`“${view.title}” is now a task`);
+                        return;
+                      }
+                      commit({
+                        kind: "task",
+                        duration: Math.max(30, view.duration ?? 0) || 30,
+                      });
+                    }}
+                  />
+                </ListRow>
               ) : null}
-
-              {!isReminder ? (
-              <div className="pt-2">
-                <p className="mb-1.5 px-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Labels
-                </p>
-                <LabelPicker
-                  labels={labelOptions}
-                  selectedIds={labelIds}
-                  emptyLabel="None"
-                  onChange={(ids) => {
-                    setLabelIds(ids);
-                    onLabelsChange?.(ids);
-                    schedule({
-                      labelIds: ids.map((id) => ({ id })),
-                    });
-                  }}
-                />
-              </div>
-              ) : null}
-
-              {!isReminder && customFields.length > 0 && (
-                <div className="mt-4 border-t border-border pt-3">
-                  <SidebarSectionTitle>Custom fields</SidebarSectionTitle>
-                  {customFields.map((field) => (
-                    <PropertyRow
-                      key={field.id}
-                      icon={customFieldIcon(field.type)}
-                      label={field.name}
-                    >
-                      <CustomFieldControl
-                        field={field}
-                        value={findCustomFieldDraft(customFieldValues, field.id)}
-                        onChange={(next) => changeCustomField(field, next)}
-                      />
-                    </PropertyRow>
-                  ))}
-                </div>
-              )}
-
-              {!isReminder ? (
-              <div className="mt-4 border-t border-border pt-3">
-                <SidebarSectionTitle>Dependencies</SidebarSectionTitle>
-                <PropertyRow icon={Ban} label="Blocked by">
+              {!isReminder && view.kind === "task" ? (
+                <ListRow label="Workspace">
                   <Select
-                    size="sm"
+                    variant="row"
+                    aria-label="Workspace"
+                    value={view.workspaceId ?? ""}
+                    onChange={onWorkspaceChange}
+                    placeholder="Select"
+                    options={typedWorkspaces.map((space) => ({
+                      value: space.id,
+                      label: space.name,
+                      color: space.color ?? undefined,
+                    }))}
+                  />
+                </ListRow>
+              ) : null}
+              {view.kind === "project" ? (
+                <ListRow label="Workspace">
+                  <span className="truncate text-[13px] font-medium text-muted-foreground">{workspaceName}</span>
+                </ListRow>
+              ) : null}
+              {view.kind === "project" ? (
+                <ListRow label="Colour">
+                  <ColorPicker
+                    variant="row"
+                    value={view.color || "#30A66D"}
+                    onChange={(color) => schedule({ color })}
+                    aria-label="Project colour"
+                  />
+                </ListRow>
+              ) : null}
+              {!isReminder ? (
+                <ListRow label="Status">
+                  <Select
+                    variant="row"
+                    aria-label="Status"
+                    value={view.statusId ?? ""}
+                    onChange={(statusId) => {
+                      const next = statusOptions.find((option) => option.id === statusId);
+                      const completing = next ? isCompletedStatus(next) : false;
+                      schedule({
+                        statusId,
+                        ...(completing && !view.completedAt
+                          ? { completedAt: new Date().toISOString() }
+                          : !completing && view.completedAt
+                            ? { completedAt: "" }
+                            : {}),
+                      });
+                    }}
+                    placeholder="None"
+                    options={[
+                      { value: "", label: "None" },
+                      ...statusOptions.map((option) => ({
+                        value: option.id,
+                        label: option.name,
+                        color: option.color,
+                      })),
+                    ]}
+                  />
+                </ListRow>
+              ) : null}
+              <ListRow label="Priority">
+                <Select
+                  variant="row"
+                  aria-label="Priority"
+                  value={normalizePriority(view.priorityLevel)}
+                  tint={priorityTint(normalizePriority(view.priorityLevel))}
+                  onChange={(priorityLevel) => schedule({ priorityLevel })}
+                  placeholder="None"
+                  options={[{ value: "", label: "None" }, ...PRIORITY_ROW_OPTIONS]}
+                />
+              </ListRow>
+              {!isReminder && view.kind === "task" ? (
+                <ListRow label="Project">
+                  <Select
+                    variant="row"
+                    aria-label="Project"
+                    value={view.projectId ?? ""}
+                    onChange={onProjectChange}
+                    placeholder="None"
+                    options={[
+                      { value: "", label: "None" },
+                      ...projectsInWorkspace.map((project) => ({
+                        value: project.id,
+                        label: project.title,
+                        color: project.color ?? undefined,
+                      })),
+                    ]}
+                  />
+                </ListRow>
+              ) : null}
+              {!isReminder && view.kind === "task" && stageOptions.length > 0 ? (
+                <ListRow label="Stage">
+                  <Select
+                    variant="row"
+                    aria-label="Stage"
+                    value={view.stageId ?? ""}
+                    onChange={(stageId) => schedule({ stageId })}
+                    placeholder="None"
+                    options={[
+                      { value: "", label: "None" },
+                      ...stageOptions.map((stage) => ({
+                        value: stage.id,
+                        label: stage.name,
+                        color: stage.color ?? undefined,
+                      })),
+                    ]}
+                  />
+                </ListRow>
+              ) : null}
+              {!isReminder && view.kind === "task" ? (
+                <ListRow label="Blocked by">
+                  <Select
+                    variant="row"
+                    aria-label="Blocked by"
                     value={view.blockedById ?? ""}
                     onChange={(blockedById) => schedule({ blockedById })}
                     placeholder="None"
-                    variant="bare"
                     options={[
                       { value: "", label: "None" },
                       ...otherTasks.map((task) => ({
@@ -1211,18 +1067,172 @@ function DetailBody({
                       })),
                     ]}
                   />
-                </PropertyRow>
-                <PropertyRow icon={Ban} label="Blocking">
-                  <span className="truncate text-sm text-foreground">
-                    {blockingTasks.length > 0
-                      ? blockingTasks.map((task) => task.name).join(", ")
-                      : "None"}
-                  </span>
-                </PropertyRow>
-              </div>
+                </ListRow>
               ) : null}
-            </>
-          )}
+              {view.kind === "task" && !isInbox && !isReminder ? (
+                <ListRow label="Duration">
+                  <Select
+                    variant="row"
+                    aria-label="Duration"
+                    value={String(view.duration ?? 30)}
+                    onChange={(value) => schedule({ duration: Math.max(15, Number(value) || 30) })}
+                    options={durationOptions(view.duration ?? 30)}
+                  />
+                </ListRow>
+              ) : null}
+              {!isReminder && view.kind === "task" ? (
+                <ListRow label="Labels">
+                  <Select
+                    variant="row"
+                    aria-label="Labels"
+                    value=""
+                    values={labelIds}
+                    placeholder={labelOptions.length ? "None" : "No labels yet"}
+                    onChange={(labelId) => {
+                      const ids = labelIds.includes(labelId)
+                        ? labelIds.filter((id) => id !== labelId)
+                        : [...labelIds, labelId];
+                      setLabelIds(ids);
+                      onLabelsChange?.(ids);
+                      schedule({ labelIds: ids.map((id) => ({ id })) });
+                    }}
+                    options={labelOptions.map((label) => ({ value: label.id, label: label.name, color: label.color }))}
+                  />
+                </ListRow>
+              ) : null}
+            </ListGroup>
+            {view.kind === "task" ? (
+              <GroupHint>
+                {isInbox
+                  ? "Assign a workspace to put this on the board, or choose Reminder for a ping."
+                  : isReminder
+                    ? "Pings at a chosen time. Does not reserve a work block."
+                    : "Work is estimated minutes the scheduler can place."}
+                {!isReminder && blockingTasks.length > 0
+                  ? ` Waiting on this: ${blockingTasks.map((task) => task.name).join(", ")}.`
+                  : ""}
+              </GroupHint>
+            ) : null}
+          </div>
+
+          <div>
+            <GroupLabel>Dates</GroupLabel>
+            <ListGroup>
+              <ListRow label="Start date">
+                <DatePicker
+                  variant="row"
+                  mode="date"
+                  aria-label="Start date"
+                  value={toDateInputValue(view.startDate)}
+                  onChange={(startDate) => {
+                    const deadline = toDateInputValue(view.deadline);
+                    if (startDate && deadline && startDate > deadline) {
+                      useToastStore
+                        .getState()
+                        .show(`Start date can’t be after the deadline (${shortDay(deadline)}).`);
+                      return;
+                    }
+                    const timeOnly =
+                      view.kind === "task" &&
+                      (view.duration ?? 0) <= 0 &&
+                      !view.recurrence;
+                    if (timeOnly && view.scheduledOn && startDate) {
+                      schedule({
+                        startDate,
+                        scheduledOn: applyClockToDate(
+                          dateFromDateInput(startDate),
+                          toTimeInputValue(view.scheduledOn),
+                        ).toISOString(),
+                      });
+                      return;
+                    }
+                    schedule({ startDate });
+                  }}
+                />
+              </ListRow>
+              <ListRow label="Deadline">
+                <DatePicker
+                  variant="row"
+                  mode="date"
+                  aria-label="Deadline"
+                  className={
+                    isOverdue(
+                      { deadline: view.deadline, completedAt: view.completedAt, kind: view.taskKind },
+                      localDateStamp(),
+                    )
+                      ? "text-destructive hover:text-destructive"
+                      : undefined
+                  }
+                  value={toDateInputValue(view.deadline)}
+                  onChange={(deadline) => {
+                    const startDate = toDateInputValue(view.startDate);
+                    if (deadline && startDate && deadline < startDate) {
+                      useToastStore
+                        .getState()
+                        .show(`Deadline can’t be before the start date (${shortDay(startDate)}).`);
+                      return;
+                    }
+                    schedule({ deadline });
+                  }}
+                />
+              </ListRow>
+              {view.kind === "task" && !isInbox ? (
+                <TaskRepeatRow
+                  recurrence={view.recurrence}
+                  scheduledOn={view.scheduledOn}
+                  onRecurrenceChange={(recurrence) => {
+                    schedule({ recurrence });
+                    void flush();
+                  }}
+                />
+              ) : null}
+            </ListGroup>
+          </div>
+
+          {view.kind === "task" && !isInbox ? (
+            <TaskScheduleSection
+              taskId={view.id}
+              duration={view.duration ?? 0}
+              deadline={view.deadline}
+              startDate={view.startDate}
+              completed={Boolean(view.completedAt)}
+              scheduledOn={view.scheduledOn}
+              recurrence={view.recurrence}
+              blocks={view.blocks}
+              scheduleLocked={view.scheduleLocked}
+              contiguous={view.contiguous}
+              minChunkMinutes={view.minChunkMinutes}
+              preferredChunkMinutes={view.preferredChunkMinutes}
+              earliestStartAt={view.earliestStartAt}
+              preferredWindows={view.preferredWindows}
+              onRecurrenceChange={(recurrence) => {
+                schedule({ recurrence });
+                void flush();
+              }}
+              onScheduledOnChange={(scheduledOn) => {
+                schedule({ scheduledOn });
+                void flush();
+              }}
+            />
+          ) : null}
+
+          {view.kind === "task" && !isReminder && customFields.length > 0 ? (
+            <div>
+              <GroupLabel aside={String(customFields.length)}>Custom fields</GroupLabel>
+              <ListGroup>
+                {customFields.map((field) => (
+                  <ListRow key={field.id} label={field.name}>
+                    <CustomFieldControl
+                      variant="row"
+                      field={field}
+                      value={findCustomFieldDraft(customFieldValues, field.id)}
+                      onChange={(next) => changeCustomField(field, next)}
+                    />
+                  </ListRow>
+                ))}
+              </ListGroup>
+            </div>
+          ) : null}
         </div>
       </ModalSidebar>
     </PanelShell>
@@ -1297,6 +1307,7 @@ function TaskActivityFeed({ taskId }: { taskId: string }) {
 
 function TaskActivityItem({ entry }: { entry: TaskActivity }) {
   const isComment = entry.action === "commented";
+  const timeZone = useWorkingHoursZone();
 
   return (
     <li className="flex gap-2.5">
@@ -1324,7 +1335,7 @@ function TaskActivityItem({ entry }: { entry: TaskActivity }) {
           </p>
         )}
         <p className="mt-0.5 text-[11px] text-muted-foreground">
-          {formatActivityTime(entry.createdAt)}
+          {formatActivityTime(entry.createdAt, timeZone)}
         </p>
       </div>
     </li>
@@ -1460,4 +1471,13 @@ function PanelShell({
       ) : null}
     </>
   );
+}
+
+/** "Fri 16 Oct" for a YYYY-MM-DD date, in the person's own calendar day. */
+function shortDay(value: string) {
+  return dateFromDateInput(value).toLocaleDateString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
 }

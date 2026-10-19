@@ -1,15 +1,16 @@
 "use client";
 
+import { SkeletonRows } from "@/app/_components/_ui/skeleton";
 import {
   docFrontmatter,
   frontmatterEntries,
   matchesPropertyFilters,
   splitPropertyQuery,
 } from "@timely/contract/properties";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { availableTemplates, contentFromTemplate, dailyNoteTemplate, dateKey, templateVars, type DocTemplate } from "@timely/contract/templates";
+import { availableTemplates, contentFromTemplate, dailyNoteTemplate, dateKey, isOwnTemplate, templateVars, type DocTemplate } from "@timely/contract/templates";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
@@ -17,7 +18,6 @@ import {
   ChevronRight,
   FileText,
   LayoutTemplate,
-  PanelLeftClose,
   Plus,
   Search,
   Sheet as SheetIcon,
@@ -44,10 +44,11 @@ import { useCollapsedPanel } from "@/app/utils/hooks/useCollapsedPanel";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useDocContextMenu } from "@/app/utils/hooks/useDocContextMenu";
 import { useSheetContextMenu } from "@/app/utils/hooks/useSheetContextMenu";
+import { useTemplateDelete } from "@/app/utils/hooks/useTemplateDelete";
 import { newSheetMenuItems, sheetCreatePayload } from "@/app/_components/sheets/sheetTemplateMenu";
 import { BUILTIN_SHEET_TEMPLATES } from "@timely/contract/sheetTemplates";
 import { tidyEntries } from "@/app/_store/contextMenuStore";
-import { buttonClass } from "@/app/_components/_ui/button";
+import Button, { buttonClass } from "@/app/_components/_ui/button";
 import SegmentedControl from "@/app/_components/_ui/segmentedControl";
 
 interface DocNode extends Doc {
@@ -116,6 +117,56 @@ function countDescendants(node: DocNode): number {
   );
 }
 
+/** A row of the Template menu. The person's own templates say "Yours" and,
+ * on hover or keyboard focus, show a Delete button in its place. */
+function TemplateMenuRow({
+  icon,
+  label,
+  title,
+  onPick,
+  onDelete,
+}: {
+  icon: ReactNode;
+  label: string;
+  title?: string;
+  onPick: () => void;
+  onDelete?: () => void;
+}) {
+  return (
+    <div className="group flex items-center rounded-md transition-colors focus-within:bg-accent hover:bg-accent">
+      <button
+        type="button"
+        role="menuitem"
+        title={title}
+        onClick={onPick}
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-2 py-1.5 text-left text-sm"
+      >
+        <span className="flex w-5 justify-center">{icon}</span>
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        {onDelete && (
+          <span className="text-[10px] uppercase text-muted-foreground group-focus-within:hidden group-hover:hidden">
+            Yours
+          </span>
+        )}
+      </button>
+      {onDelete && (
+        <span className="mr-0.5 hidden group-focus-within:flex group-hover:flex">
+          <Button
+            variant="destructive-ghost"
+            size="sm"
+            icon
+            title="Delete template"
+            aria-label={`Delete template ${label}`}
+            onClick={onDelete}
+          >
+            <Trash2 />
+          </Button>
+        </span>
+      )}
+    </div>
+  );
+}
+
 const quickButton =
   "flex cursor-pointer items-center justify-center gap-1 rounded-lg border border-dashed border-border px-1.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground";
 
@@ -145,10 +196,12 @@ export default function FileList() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [kindFilter, setKindFilter] = useState<KindFilter>("all");
-  const { collapsed, toggle } = useCollapsedPanel("timely.filesListCollapsed");
+  // The toggle lives at the left end of the tab strip (tabbedPane.tsx).
+  const { collapsed } = useCollapsedPanel("timely.filesListCollapsed");
   const openMenu = useContextMenu();
   const docMenu = useDocContextMenu();
   const sheetMenu = useSheetContextMenu();
+  const { confirmDocTemplate, confirmSheetTemplate } = useTemplateDelete();
 
   const allDocs = useMemo(
     () =>
@@ -253,6 +306,7 @@ export default function FileList() {
           templates: sheetTemplates,
           onBlank: () => void handleCreateSheet(),
           onTemplate: (templateId) => void handleCreateSheet(templateId),
+          onDeleteTemplate: confirmSheetTemplate,
         }),
       ]),
       { title: "New" },
@@ -608,14 +662,6 @@ export default function FileList() {
         <div className="flex items-center gap-1">
           <button
             type="button"
-            title="Collapse files list"
-            onClick={toggle}
-            className="flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
-          >
-            <PanelLeftClose className="size-4" />
-          </button>
-          <button
-            type="button"
             title="New doc or sheet"
             onClick={onNewClick}
             disabled={createDoc.isPending || createSheet.isPending}
@@ -648,17 +694,20 @@ export default function FileList() {
                 <div className="fixed inset-0 z-40" onMouseDown={() => setIsTemplateMenuOpen(false)} />
                 <div role="menu" aria-label="Templates" className="absolute left-0 top-9 z-50 max-h-[70vh] w-56 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-xl">
                   {templates.map((template) => (
-                    <button
+                    <TemplateMenuRow
                       key={template.id}
-                      type="button"
-                      role="menuitem"
-                      onClick={() => void createFromTemplate(template)}
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
-                    >
-                      <span className="w-5 text-center">{template.icon}</span>
-                      <span className="min-w-0 flex-1 truncate">{template.title}</span>
-                      {!template.id.startsWith("builtin:") && <span className="text-[10px] uppercase text-muted-foreground">Yours</span>}
-                    </button>
+                      icon={template.icon}
+                      label={template.title}
+                      onPick={() => void createFromTemplate(template)}
+                      onDelete={
+                        isOwnTemplate(template.id)
+                          ? () => {
+                              setIsTemplateMenuOpen(false);
+                              confirmDocTemplate(template);
+                            }
+                          : undefined
+                      }
+                    />
                   ))}
                   <p className="px-2 pb-1 pt-1.5 text-[11px] leading-snug text-muted-foreground">
                     Turn any doc into a template from its header. Text like {"{{date}}"} is filled in.
@@ -667,42 +716,32 @@ export default function FileList() {
                     Sheets
                   </p>
                   {BUILTIN_SHEET_TEMPLATES.map((template) => (
-                    <button
+                    <TemplateMenuRow
                       key={template.id}
-                      type="button"
-                      role="menuitem"
+                      icon={template.icon}
+                      label={template.name}
                       title={template.description}
-                      onClick={() => {
+                      onPick={() => {
                         setIsTemplateMenuOpen(false);
                         void handleCreateSheet(template.id);
                       }}
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
-                    >
-                      <span className="w-5 text-center">{template.icon}</span>
-                      <span className="min-w-0 flex-1 truncate">{template.name}</span>
-                    </button>
+                    />
                   ))}
-                  {sheetTemplates.length > 0 && (
-                    <>
-                      {sheetTemplates.map((template) => (
-                        <button
-                          key={template.id}
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            setIsTemplateMenuOpen(false);
-                            void handleCreateSheet(template.id);
-                          }}
-                          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
-                        >
-                          <span className="flex w-5 justify-center">
-                            {template.icon ?? <SheetIcon className="size-3.5 text-primary" />}
-                          </span>
-                          <span className="min-w-0 flex-1 truncate">{template.name || "Untitled"}</span>
-                        </button>
-                      ))}
-                    </>
-                  )}
+                  {sheetTemplates.map((template) => (
+                    <TemplateMenuRow
+                      key={template.id}
+                      icon={template.icon ?? <SheetIcon className="size-3.5 text-primary" />}
+                      label={template.name || "Untitled"}
+                      onPick={() => {
+                        setIsTemplateMenuOpen(false);
+                        void handleCreateSheet(template.id);
+                      }}
+                      onDelete={() => {
+                        setIsTemplateMenuOpen(false);
+                        confirmSheetTemplate(template);
+                      }}
+                    />
+                  ))}
                 </div>
               </>
             )}
@@ -752,7 +791,7 @@ export default function FileList() {
 
       <div className="flex-1 overflow-y-auto px-2 pb-3">
         {isLoading && (
-          <p className="px-2 py-1.5 text-sm text-muted-foreground">Loading...</p>
+          <SkeletonRows rows={5} height={32} bare className="px-1" />
         )}
 
         {docsQuery.isError && (

@@ -11,7 +11,7 @@ import TaskCard from "../../../components/tasks/TaskCard";
 import TaskFilterBar from "../../../components/tasks/TaskFilterBar";
 import StaleWorkCard from "../../../components/tasks/StaleWorkCard";
 import ScreenTip from "../../../components/ui/ScreenTip";
-import MobileKanban, { kanbanColumns } from "../../../components/tasks/MobileKanban";
+import MobileKanban, { type KanbanColumn, kanbanColumns } from "../../../components/tasks/MobileKanban";
 import TaskFiltersSheet from "../../../components/tasks/TaskFiltersSheet";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ConfirmSheet from "../../../components/ui/ConfirmSheet";
@@ -27,8 +27,9 @@ import {
   useWorkspacesQuery,
 } from "../../../lib/hooks";
 import { addDays, formatShortDate, PRIORITY_META, startOfDay, toDateInputValue } from "../../../lib/format";
-import { normalizePriority, PRIORITIES, priorityRank } from "../../../lib/priority";
+import { normalizePriority, PRIORITIES } from "../../../lib/priority";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
+import { bulkUndoSnapshot, labelIdsWithNamed, mergeLabelsByName, type BulkUndoField, type NamedLabelGroup } from "@timely/contract/bulkEdit";
 import { resolvedColor } from "../../../lib/entityColor";
 import {
   mergeStatusesByName,
@@ -49,11 +50,29 @@ import {
   useNativeTaskViews,
 } from "../../../lib/nativeTaskViews";
 import type { Task, TaskListGroupField, TaskViewConfig } from "../../../lib/types";
+import {
+  BUCKET_GROUP_FIELDS,
+  bucketGroupLabels,
+  bucketGroupRank,
+  queryContext,
+  sortTasks,
+  viewLimit,
+  viewSort,
+  type QueryContext,
+} from "@timely/contract/taskQuery";
+import { vocabularyFrom } from "@timely/contract/viewLanguage";
+import ViewRulesBar from "../../../components/tasks/ViewRulesBar";
+import { useViewPreviewStore } from "../../../lib/viewPreviewStore";
 import type { UpdateTaskPayload } from "../../../lib/api/tasks";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
+import { useFabScrollInset } from "../../../components/ui/FloatingTabBar";
 
 function groupField(view?: TaskViewConfig): TaskListGroupField | undefined {
-  if (view?.renderMode === "kanban") return view.groupFields?.[0] ?? "status";
+  // The phone board groups by status, priority, workspace, project or stage.
+  if (view?.renderMode === "kanban") {
+    const first = view.groupFields?.[0];
+    return first && !BUCKET_GROUP_FIELDS.has(first) ? first : "status";
+  }
   return view?.groupFields?.[0];
 }
 
@@ -81,16 +100,36 @@ function groupValueTitle(task: Task, field: TaskListGroupField, stageNames: Reco
 }
 
 function groupFields(view?: TaskViewConfig): TaskListGroupField[] {
-  if (view?.renderMode === "kanban") return [view.groupFields?.[0] ?? "status"];
+  if (view?.renderMode === "kanban") return [groupField(view) ?? "status"];
   return view?.groupFields?.length ? view.groupFields.slice(0, 3) : ["project"];
 }
 
-function groupKey(task: Task, view: TaskViewConfig | undefined, stageNames: Record<string, string>) {
-  return groupFields(view).map((field) => `${field}:${groupValue(task, field, stageNames)}`).join("|");
-}
-
-function groupTitle(task: Task, view: TaskViewConfig | undefined, stageNames: Record<string, string>) {
-  return groupFields(view).map((field) => groupValueTitle(task, field, stageNames)).join(" › ");
+/**
+ * Every group a task sits in, as key and title: one, or several when it
+ * carries several labels. Dates, labels, effort, done and repeating are
+ * bucketed by the shared engine so the phone and web show the same groups.
+ */
+function taskGroups(task: Task, view: TaskViewConfig | undefined, stageNames: Record<string, string>, ctx: QueryContext) {
+  let parts: { key: string; title: string }[] = [{ key: "", title: "" }];
+  for (const field of groupFields(view)) {
+    const values = bucketGroupLabels(task, field, ctx)?.map((label) => ({ key: label, title: label })) ?? [
+      { key: groupValue(task, field, stageNames), title: groupValueTitle(task, field, stageNames) },
+    ];
+    parts = parts.flatMap((part) =>
+      values.map((value) => ({
+        key: `${part.key}|${field}:${value.key}`,
+        // "Personal › Kitchen renovation › No stage" reads as "Personal ›
+        // Kitchen renovation": an empty stage adds nothing after a project.
+        title:
+          part.title && field === "stage" && value.key === "none"
+            ? part.title
+            : part.title
+              ? `${part.title} › ${value.title}`
+              : value.title,
+      })),
+    );
+  }
+  return parts;
 }
 
 /** The group's own colour, as the desktop list and board show it; groups
@@ -114,7 +153,8 @@ function groupColor(task: Task, view: TaskViewConfig | undefined, stageColors: R
 function viewHasCustomFilters(view?: TaskViewConfig) {
   if (!view) return false;
   return Boolean(
-    view.selectedWorkspaceIds?.length ||
+    view.rules?.length ||
+      view.selectedWorkspaceIds?.length ||
       view.selectedStatusIds?.length ||
       view.selectedProjectIds?.length ||
       view.selectedPriorityLevels?.length ||
@@ -128,40 +168,8 @@ function viewHasCustomFilters(view?: TaskViewConfig) {
   );
 }
 
-function sortTasks(a: Task, b: Task, view?: TaskViewConfig) {
-  const dir = view?.sortDirection === "desc" ? -1 : 1;
-  const by = view?.sortBy ?? "deadline";
-  const cmp = (left: number | string, right: number | string) => {
-    if (left < right) return -1 * dir;
-    if (left > right) return 1 * dir;
-    return 0;
-  };
-  switch (by) {
-    case "name":
-      return cmp(a.name.toLowerCase(), b.name.toLowerCase());
-    case "createdAt":
-      return cmp(a.createdAt, b.createdAt);
-    case "startDate":
-      return cmp(a.startDate ?? "zzz", b.startDate ?? "zzz");
-    case "scheduledOn":
-      return cmp(a.scheduledOn ?? a.blocks?.[0]?.start ?? "zzz", b.scheduledOn ?? b.blocks?.[0]?.start ?? "zzz");
-    case "priority":
-      return (priorityRank(a.priorityLevel) - priorityRank(b.priorityLevel)) * dir;
-    case "status":
-      return cmp((a.status?.name ?? "").toLowerCase(), (b.status?.name ?? "").toLowerCase());
-    case "project":
-      return cmp((a.project?.title ?? "").toLowerCase(), (b.project?.title ?? "").toLowerCase());
-    case "deadline":
-    default: {
-      if (a.deadline && b.deadline && a.deadline !== b.deadline) return cmp(a.deadline, b.deadline);
-      if (a.deadline && !b.deadline) return -1;
-      if (!a.deadline && b.deadline) return 1;
-      return priorityRank(a.priorityLevel) - priorityRank(b.priorityLevel);
-    }
-  }
-}
-
 export default function TasksScreen() {
+  const fabInset = useFabScrollInset();
   const router = useRouter();
   const params = useLocalSearchParams<{ projectId?: string; view?: string }>();
   const routeProjectId = typeof params.projectId === "string" ? params.projectId : undefined;
@@ -178,8 +186,22 @@ export default function TasksScreen() {
   const workspaces = spacesQ.data ?? [];
   const networkCopy = needsNetworkCopy(tasksQ);
   const views = nativeViews.views;
-  const activeView = nativeViews.activeView;
-  const activeViewId = nativeViews.activeViewId;
+  // A view read from words in Search shows as an unsaved Preview tab.
+  const preview = useViewPreviewStore((state) => state.preview);
+  const setPreview = useViewPreviewStore((state) => state.setPreview);
+  const patchPreview = useViewPreviewStore((state) => state.patchPreview);
+  const activeView = preview ?? nativeViews.activeView;
+  const activeViewId = preview ? preview.id : nativeViews.activeViewId;
+  const patchView = preview ? patchPreview : nativeViews.patchActiveView;
+  const pendingSave = useViewPreviewStore((state) => state.pendingSave);
+  const setPendingSave = useViewPreviewStore((state) => state.setPendingSave);
+  const { saveViewAsNew } = nativeViews;
+  useEffect(() => {
+    if (!pendingSave || !nativeViews.ready) return;
+    setPendingSave(null);
+    if (saveViewAsNew(pendingSave)) setPreview(null);
+    else setPreview(pendingSave);
+  }, [pendingSave, nativeViews.ready, setPendingSave, saveViewAsNew, setPreview]);
   // Search and the assistant open a saved view by id (?view=…). A view the
   // assistant just made may not be here yet, so the views are fetched once
   // more before the param is dropped.
@@ -234,28 +256,42 @@ export default function TasksScreen() {
     return out;
   }, [projects]);
 
+  const queryCtx = useMemo(
+    () => queryContext(tasks, workingHoursZone, new Date(), stageNames),
+    [tasks, workingHoursZone, stageNames],
+  );
   const visible = useMemo(() => {
     if (!activeView || activeView.dataMode === "project") return [];
-    return filterTasks(tasks, filtersFromView(activeView), workingHoursZone)
-      .filter((task) => (projectId ? task.projectId === projectId : true))
-      .sort((a, b) => sortTasks(a, b, activeView));
-  }, [tasks, projectId, activeView, workingHoursZone]);
+    const rows = sortTasks(
+      filterTasks(tasks, filtersFromView(activeView), workingHoursZone).filter((task) =>
+        projectId ? task.projectId === projectId : true,
+      ),
+      viewSort(activeView),
+      queryCtx,
+    );
+    const limit = viewLimit(activeView);
+    return limit ? rows.slice(0, limit) : rows;
+  }, [tasks, projectId, activeView, workingHoursZone, queryCtx]);
 
   const groups = useMemo(() => {
-    const map = new Map<string, { title: string; color: string | null; tasks: Task[] }>();
+    const map = new Map<string, { title: string; rank?: number; color: string | null; tasks: Task[] }>();
+    const first = groupField(activeView) ?? "project";
     for (const task of visible) {
-      const key = groupKey(task, activeView, stageNames);
-      if (!map.has(key)) {
-        map.set(key, {
-          title: groupTitle(task, activeView, stageNames),
-          color: groupColor(task, activeView, stageColors),
-          tasks: [],
-        });
+      for (const group of taskGroups(task, activeView, stageNames, queryCtx)) {
+        if (!map.has(group.key)) {
+          const firstTitle = group.title.split(" › ")[0];
+          map.set(group.key, {
+            title: group.title,
+            rank: bucketGroupRank(first, firstTitle),
+            color: BUCKET_GROUP_FIELDS.has(first) ? null : groupColor(task, activeView, stageColors),
+            tasks: [],
+          });
+        }
+        map.get(group.key)!.tasks.push(task);
       }
-      map.get(key)!.tasks.push(task);
     }
     const rows = [...map.values()];
-    const ordered = activeView?.groupValueOrders?.[groupField(activeView) ?? ""];
+    const ordered = activeView?.groupValueOrders?.[first];
     rows.sort((a, b) => {
       if (ordered?.length) {
         const left = ordered.indexOf(a.title);
@@ -264,11 +300,15 @@ export default function TasksScreen() {
           return (left === -1 ? ordered.length : left) - (right === -1 ? ordered.length : right);
         }
       }
-      const cmp = a.title.localeCompare(b.title);
+      const cmp = a.rank !== undefined && b.rank !== undefined && a.rank !== b.rank ? a.rank - b.rank : a.title.localeCompare(b.title);
       return activeView?.groupSortDirection === "desc" ? -cmp : cmp;
     });
     return rows;
-  }, [visible, activeView, stageNames, stageColors]);
+  }, [visible, activeView, stageNames, stageColors, queryCtx]);
+  const vocab = useMemo(
+    () => vocabularyFrom({ workspaces, projects, customFields }),
+    [workspaces, projects, customFields],
+  );
 
   const sections = useMemo(
     () => groups.map((group) => ({ title: group.title, color: group.color, data: group.tasks })),
@@ -343,6 +383,7 @@ export default function TasksScreen() {
         .flatMap((space) => space.lables ?? []),
     [workspaces, workspaceFilter],
   );
+  const labelGroups = useMemo(() => mergeLabelsByName(labels), [labels]);
   const stages = useMemo(
     () =>
       projects
@@ -359,23 +400,69 @@ export default function TasksScreen() {
     );
   }, []);
 
-  function applyBulk(update: UpdateTaskPayload, undo: UpdateTaskPayload, message: string) {
+  // Undo puts back each task's own previous value rather than blanking the
+  // selection.
+  function applyBulk(update: UpdateTaskPayload, fields: BulkUndoField[], message: string) {
     const ids = selectedIds;
+    const before = bulkUndoSnapshot(tasks.filter((task) => ids.includes(task.id)), fields);
     bulk.mutate({ ids, update });
-    showUndoToast(message, () => bulk.mutate({ ids, update: undo }));
+    showUndoToast(message, () => {
+      before.forEach((previous, id) => save.mutate({ id, data: previous }));
+    });
     setSelectedIds([]);
     setBulkPicker(null);
   }
 
-  function applyStatus(task: Task, nameKey: string) {
-    const group = statusGroups.find((item) => item.key === nameKey);
-    if (!group) return;
-    const status = statusForWorkspace(group, task.workspaceId);
-    if (!status) return;
-    const patch = statusPatch(status, task.completedAt);
-    const previous = { statusId: task.statusId ?? null, completedAt: task.completedAt ?? null };
-    save.mutate({ id: task.id, data: patch });
-    showUndoToast("Status updated", () => save.mutate({ id: task.id, data: previous }));
+  // Adds the label to each task's own labels, using the label of that name in
+  // the task's workspace; tasks whose workspace has none are skipped.
+  function applyLabel(group: NamedLabelGroup) {
+    const selected = tasks.filter((task) => selectedIds.includes(task.id));
+    const before = bulkUndoSnapshot(selected, ["labelIds"]);
+    let skipped = 0;
+    selected.forEach((task) => {
+      const labelIds = labelIdsWithNamed(task, group);
+      if (!labelIds) {
+        skipped += 1;
+        before.delete(task.id);
+        return;
+      }
+      save.mutate({ id: task.id, data: { labelIds } });
+    });
+    showUndoToast(
+      skipped ? `Labeled ${group.name} · skipped ${skipped} without that label` : `Labeled ${group.name}`,
+      () => before.forEach((previous, id) => save.mutate({ id, data: previous })),
+    );
+    setSelectedIds([]);
+    setBulkPicker(null);
+  }
+
+  // A board drop. Same rules and copy as the desktop board: no-op when nothing
+  // changes, "Moved to X" with Undo otherwise, and never a status from
+  // another workspace.
+  function moveOnBoard(task: Task, column: KanbanColumn) {
+    const field = groupField(activeView) ?? "status";
+    if (field === "status") {
+      const group = statusGroups.find((item) => item.key === column.key);
+      if (!group) return;
+      const status = task.workspaceId ? group.statuses.find((item) => item.workspaceId === task.workspaceId) : group.statuses[0];
+      if (!status) {
+        showUndoToast(`${task.workspace?.name ?? "This workspace"} has no "${group.name}" status`);
+        return;
+      }
+      if ((task.statusId ?? task.status?.id) === status.id) return;
+      const patch = statusPatch(status, task.completedAt);
+      const previous = { statusId: task.statusId ?? task.status?.id ?? "", completedAt: task.completedAt ?? "" };
+      save.mutate({ id: task.id, data: patch, optimistic: { status } });
+      showUndoToast(`Moved to ${status.name}`, () => save.mutate({ id: task.id, data: previous, optimistic: { status: task.status } }));
+      return;
+    }
+    const key = field === "priority" ? "priorityLevel" : field === "workspace" ? "workspaceId" : field === "project" ? "projectId" : field === "stage" ? "stageId" : null;
+    if (!key) return;
+    const next = column.key === "none" ? "" : column.key;
+    const previous = String(task[key] ?? "");
+    if (next === previous) return;
+    save.mutate({ id: task.id, data: { [key]: next } });
+    showUndoToast(`Moved to ${column.title}`, () => save.mutate({ id: task.id, data: { [key]: previous } }));
   }
 
   function applyNamedStatus(nameKey: string) {
@@ -404,6 +491,8 @@ export default function TasksScreen() {
 
   function selectView(id: string) {
     setSelectedIds((current) => (current.length > 0 ? [] : current));
+    if (preview && id === preview.id) return;
+    setPreview(null);
     nativeViews.setActiveId(id);
   }
 
@@ -450,10 +539,12 @@ export default function TasksScreen() {
 
   const renderSectionHeader = useCallback(
     ({ section }: { section: { title: string; color: string | null; data: readonly unknown[] } }) => (
-      <View style={styles.head}>
-        <View style={[styles.dot, { backgroundColor: section.color ?? colors.mutedForeground }]} />
-        <Text numberOfLines={2} style={styles.group}>{section.title}</Text>
-        <View style={styles.groupCount}><Text style={styles.count}>{section.data.length}</Text></View>
+      <View style={styles.headWrap}>
+        <View style={[styles.head, { backgroundColor: `${section.color ?? colors.mutedForeground}1f` }]}>
+          <View style={[styles.dot, { backgroundColor: section.color ?? colors.mutedForeground }]} />
+          <Text numberOfLines={1} style={styles.group}>{section.title}</Text>
+          <Text style={styles.count}>{section.data.length}</Text>
+        </View>
       </View>
     ),
     [],
@@ -492,39 +583,40 @@ export default function TasksScreen() {
           </AnimatedPressable>
         ) : null}
         <TaskFilterBar
-          views={views}
+          views={preview ? [...views, { ...preview, name: `Preview: ${preview.name}` }] : views}
           activeViewId={activeViewId}
           onView={selectView}
           onAdd={nativeViews.addView}
         />
       </MobileHeader>
+      <ViewRulesBar
+        view={activeView}
+        vocab={vocab}
+        onPatch={patchView}
+        preview={
+          preview
+            ? {
+                onSave: () => {
+                  if (nativeViews.saveViewAsNew(preview)) setPreview(null);
+                },
+                onClose: () => setPreview(null),
+              }
+            : undefined
+        }
+      />
       {selecting ? (
         <View style={styles.bulk}>
           <Text style={styles.bulkCount}>{selectedIds.length} selected</Text>
           <ScrollView keyboardShouldPersistTaps="handled" horizontal style={styles.bulkScroll} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bulkActions}>
           <AnimatedPressable
             style={styles.bulkButton}
-            onPress={() => {
-              const ids = selectedIds;
-              bulk.mutate({ ids, update: { completedAt: new Date().toISOString() } });
-              showUndoToast("Completed", () => bulk.mutate({ ids, update: { completedAt: "" } }));
-              setSelectedIds([]);
-              setBulkPicker(null);
-            }}
+            onPress={() => applyBulk({ completedAt: new Date().toISOString() }, ["completedAt", "statusId"], "Completed")}
           >
             <Text style={styles.bulkAction}>Complete</Text>
           </AnimatedPressable>
           <AnimatedPressable
             style={styles.bulkButton}
-            onPress={() => {
-              const ids = selectedIds;
-              bulk.mutate({ ids, update: { completedAt: "" } });
-              showUndoToast("Reopened", () =>
-                bulk.mutate({ ids, update: { completedAt: new Date().toISOString() } }),
-              );
-              setSelectedIds([]);
-              setBulkPicker(null);
-            }}
+            onPress={() => applyBulk({ completedAt: "" }, ["completedAt", "statusId"], "Reopened")}
           >
             <Text style={styles.bulkAction}>Reopen</Text>
           </AnimatedPressable>
@@ -559,25 +651,19 @@ export default function TasksScreen() {
           selectedIds={selectedIds}
           selecting={selecting}
           onSelect={toggleSelect}
-          onMove={(task, column) => {
-            if (groupField(activeView) === "status") applyStatus(task, column.key);
-            else {
-              const field = groupField(activeView);
-              const key = field === "priority" ? "priorityLevel" : field === "workspace" ? "workspaceId" : field === "project" ? "projectId" : field === "stage" ? "stageId" : null;
-              if (key) save.mutate({ id: task.id, data: { [key]: column.key === "none" ? "" : column.key } });
-            }
-          }}
+          onMove={moveOnBoard}
+          hideStatus={(groupField(activeView) ?? "status") === "status"}
           onToggle={toggleComplete}
           refreshControl={refreshControl}
         />
       ) : networkCopy ? (
         <EmptyState icon={ListTodo} title="Couldn't load tasks" description={networkCopy} />
       ) : activeView?.dataMode === "project" ? (
-        <SectionList
+        <SectionList showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           sections={projectSections}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: projectsByWorkspace ? 0 : 8, paddingBottom: 120 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: projectsByWorkspace ? 0 : 8, paddingBottom: fabInset }}
           refreshControl={refreshControl}
           stickySectionHeadersEnabled={false}
           initialNumToRender={8}
@@ -627,7 +713,7 @@ export default function TasksScreen() {
           description="Tap the + button to capture something new, then drag cards between board columns."
         />
       ) : (
-        <SectionList
+        <SectionList showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           sections={sections}
           keyExtractor={(item) => item.id}
@@ -642,7 +728,7 @@ export default function TasksScreen() {
             )
           }
           stickySectionHeadersEnabled={false}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: fabInset }}
           refreshControl={refreshControl}
           extraData={selectedIds}
           initialNumToRender={10}
@@ -662,9 +748,9 @@ export default function TasksScreen() {
         open={filtersOpen}
         onClose={() => setFiltersOpen(false)}
         view={activeView ?? views[0] ?? defaultNativeTaskViews()[0]}
-        onPatch={nativeViews.patchActiveView}
+        onPatch={patchView}
         onAdd={nativeViews.addView}
-        onDelete={() => setConfirmDeleteView(true)}
+        onDelete={() => (preview ? setPreview(null) : setConfirmDeleteView(true))}
         canDelete={views.length > 1}
         customFields={customFields}
         statusGroups={statusGroups}
@@ -691,39 +777,36 @@ export default function TasksScreen() {
         {PRIORITIES.map((priority) => (
           <SheetOption
             key={priority}
-            onSelect={() => applyBulk({ priorityLevel: priority }, { priorityLevel: null }, "Priority updated")}
+            onSelect={() => applyBulk({ priorityLevel: priority }, ["priorityLevel"], "Priority updated")}
           >
             {priority}
           </SheetOption>
         ))}
       </BottomSheet>
       <BottomSheet open={bulkPicker === "project"} onClose={() => setBulkPicker(null)} title="Project">
-        <SheetOption onSelect={() => applyBulk({ projectId: null }, { projectId: null }, "Project cleared")}>
+        <SheetOption onSelect={() => applyBulk({ projectId: null }, ["projectId"], "Project cleared")}>
           No project
         </SheetOption>
         {projects.map((item) => (
           <SheetOption
             key={item.id}
-            onSelect={() => applyBulk({ projectId: item.id }, { projectId: null }, "Project updated")}
+            onSelect={() => applyBulk({ projectId: item.id }, ["projectId"], "Project updated")}
           >
             {item.title}
           </SheetOption>
         ))}
       </BottomSheet>
       <BottomSheet open={bulkPicker === "label"} onClose={() => setBulkPicker(null)} title="Set label">
-        {labels.map((label) => (
-          <SheetOption
-            key={label.id}
-            onSelect={() => applyBulk({ labelIds: [{ id: label.id }] }, { labelIds: [] }, `Labeled ${label.name}`)}
-          >
-            {label.name}
+        {labelGroups.map((group) => (
+          <SheetOption key={group.key} onSelect={() => applyLabel(group)}>
+            {group.name}
           </SheetOption>
         ))}
       </BottomSheet>
       <BottomSheet open={bulkPicker === "deadline"} onClose={() => setBulkPicker(null)} title="Deadline">
         <SheetOption
           onSelect={() =>
-            applyBulk({ deadline: toDateInputValue(new Date()) }, { deadline: null }, "Deadline set")
+            applyBulk({ deadline: toDateInputValue(new Date()) }, ["deadline"], "Deadline set")
           }
         >
           Today
@@ -732,14 +815,14 @@ export default function TasksScreen() {
           onSelect={() =>
             applyBulk(
               { deadline: toDateInputValue(addDays(startOfDay(new Date()), 1)) },
-              { deadline: null },
+              ["deadline"],
               "Deadline set",
             )
           }
         >
           Tomorrow
         </SheetOption>
-        <SheetOption onSelect={() => applyBulk({ deadline: null }, { deadline: null }, "Deadline cleared")}>
+        <SheetOption onSelect={() => applyBulk({ deadline: null }, ["deadline"], "Deadline cleared")}>
           Clear deadline
         </SheetOption>
       </BottomSheet>
@@ -767,11 +850,12 @@ export default function TasksScreen() {
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  head: { flexDirection: "row", alignItems: "center", gap: 10, paddingTop: 22, paddingBottom: 12, paddingHorizontal: 4 },
-  dot: { width: 10, height: 10, borderRadius: 5 },
-  group: { color: colors.foreground, fontSize: 17, fontWeight: "600", flex: 1, letterSpacing: -0.2 },
-  groupCount: { minWidth: 26, height: 26, paddingHorizontal: 7, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: colors.muted },
-  count: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
+  // Group headers are a tinted strip in the group's own colour, one line.
+  headWrap: { paddingTop: 14, paddingBottom: 8 },
+  head: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 7, paddingHorizontal: 10, borderRadius: 10 },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  group: { color: colors.foreground, fontSize: 14, fontWeight: "600", flex: 1, letterSpacing: -0.1 },
+  count: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", fontVariant: ["tabular-nums"] },
   bulk: {
     flexDirection: "row",
     alignItems: "center",

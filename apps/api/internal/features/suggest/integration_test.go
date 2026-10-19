@@ -63,6 +63,9 @@ func integrationDB(t *testing.T) *gorm.DB {
 	if err = db.Exec(`CREATE TABLE scheduled_blocks (id text PRIMARY KEY, task_id text, user_id text, start_at timestamptz, end_at timestamptz)`).Error; err != nil {
 		t.Fatal(err)
 	}
+	if err = db.Exec(`CREATE TABLE doc_hint_dismissals (doc_id text NOT NULL REFERENCES documents(id) ON DELETE CASCADE, hint text NOT NULL, user_id text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (doc_id, hint))`).Error; err != nil {
+		t.Fatal(err)
+	}
 	return db
 }
 
@@ -461,6 +464,119 @@ func TestIntegrationDocHints(t *testing.T) {
 	}
 	if _, err := s.DocHints(context.Background(), "usr_other", doc.ID, now); err == nil {
 		t.Fatal("read another account's doc")
+	}
+}
+
+// A line made into a task, even one since ticked off, and a dismissed
+// suggestion are not offered again when the doc opens.
+func TestIntegrationDocHintsSkipsMadeAndDismissedLines(t *testing.T) {
+	w := newWorld(t)
+	now := time.Now()
+	lines := []string{"Setup live notifications mobile for the activity island in desktop", "Redesign the project settings page", "Add predictive back gesture", "Book the dentist"}
+	content := []map[string]any{}
+	for _, l := range lines {
+		content = append(content, para(l))
+	}
+	doc := models.Document{ID: "doc_ideas", Title: "Timely ideas", WorkspaceID: w.ws, UserID: w.user, PlainText: strings.Join(lines, "\n"),
+		CreatedAt: "2026-10-01T09:00:00Z", Content: docContent(content...)}
+	must(t, w.db.Create(&doc).Error)
+	// Made from the doc and ticked off since.
+	w.task(t, "Redesign the project settings page", func(task *models.Task) {
+		task.CreatedAt = "2026-10-05"
+		task.CompletedAt = ptr("2026-10-06T00:00:00Z")
+	})
+	// Done long before the doc: the line is a fresh to-do.
+	w.task(t, "Book the dentist", func(task *models.Task) {
+		task.CreatedAt = "2026-01-05"
+		task.CompletedAt = ptr("2026-01-06T00:00:00Z")
+	})
+	s := New(w.db, nil, nil)
+	must(t, s.DismissDocHint(context.Background(), w.user, doc.ID, docHintKey("work", "add predictive  BACK gesture")))
+	must(t, s.DismissDocHint(context.Background(), w.user, doc.ID, docHintKey("work", "add predictive back gesture")))
+	if err := s.DismissDocHint(context.Background(), "usr_other", doc.ID, docHintKey("work", lines[0])); err == nil {
+		t.Fatal("dismissed on another account's doc")
+	}
+
+	jev := &jevStub{answers: map[string]any{"w1": yesNo(0.95), "w2": yesNo(0.95), "w3": yesNo(0.95)}}
+	s = New(w.db, jev.service(t), nearby{})
+	out, err := s.DocHints(context.Background(), w.user, doc.ID, now)
+	must(t, err)
+	if len(out.Work) != 2 || out.Work[0] != lines[0] || out.Work[1] != lines[3] {
+		t.Fatalf("work %v", out.Work)
+	}
+	if _, ok := jev.asked(0)["w3"]; ok {
+		t.Fatalf("asked about a made or dismissed line: %v", jev.asked(0))
+	}
+
+	// Dismissing the project suggestion keeps it away too.
+	trip := models.Project{ID: "pr_app", Title: "Timely", WorkspaceID: &w.ws}
+	must(t, w.db.Create(&trip).Error)
+	jev.answers["project"] = choice("p1")
+	must(t, w.db.Exec("UPDATE documents SET plain_text = plain_text || ' ' WHERE id = ?", doc.ID).Error)
+	if out, _ = s.DocHints(context.Background(), w.user, doc.ID, now); out.Project == nil {
+		t.Fatalf("project not offered: %+v", out)
+	}
+	must(t, s.DismissDocHint(context.Background(), w.user, doc.ID, docHintKey("project", trip.ID)))
+	if out, _ = s.DocHints(context.Background(), w.user, doc.ID, now); out.Project != nil {
+		t.Fatalf("dismissed project offered: %+v", out.Project)
+	}
+	if docHintKey("work", " ") != "" || docHintKey("nope", "x") != "" || docHintKey("outdated", "") != "outdated" {
+		t.Fatal("docHintKey")
+	}
+}
+
+// A line polished after it became a task or was dismissed, by hand or with
+// Help me write, is still that line and is not offered again.
+func TestIntegrationDocHintsSkipsEditedLines(t *testing.T) {
+	w := newWorld(t)
+	lines := []string{
+		"Set up live notifications on the mobile app.",
+		"Book the dentist for next week",
+		"Plan the Kyoto trip in May",
+		"Call dad about the weekend",
+		"Review the onboarding copy",
+	}
+	content := []map[string]any{}
+	for _, l := range lines {
+		content = append(content, para(l))
+	}
+	doc := models.Document{ID: "doc_edited", Title: "Timely ideas", WorkspaceID: w.ws, UserID: w.user, PlainText: strings.Join(lines, "\n"),
+		CreatedAt: "2026-10-01T09:00:00Z", Content: docContent(content...)}
+	must(t, w.db.Create(&doc).Error)
+	// Made from the line before it was rewritten.
+	w.task(t, "Setup live notifications mobile", func(task *models.Task) { task.CreatedAt = "2026-10-05" })
+	// Shares a word with a line, which stays on offer.
+	w.task(t, "Call mom", func(task *models.Task) { task.CreatedAt = "2026-10-05" })
+	s := New(w.db, nil, nil)
+	must(t, s.DismissDocHint(context.Background(), w.user, doc.ID, docHintKey("work", "Book the dentist")))
+	// Made into a task (which records the line) and the task renamed since.
+	must(t, s.DismissDocHint(context.Background(), w.user, doc.ID, docHintKey("work", "Plan Kyoto trip")))
+	w.task(t, "Holiday", func(task *models.Task) { task.CreatedAt = "2026-10-06" })
+
+	jev := &jevStub{answers: map[string]any{"w1": yesNo(0.95), "w2": yesNo(0.95)}}
+	s = New(w.db, jev.service(t), nearby{})
+	out, err := s.DocHints(context.Background(), w.user, doc.ID, time.Now())
+	must(t, err)
+	if len(out.Work) != 2 || out.Work[0] != lines[3] || out.Work[1] != lines[4] {
+		t.Fatalf("work %v", out.Work)
+	}
+
+	// A checklist item edited since it became a task is still that task.
+	// Make task links the doc in the task's description; a task that does
+	// not is only matched by its exact name.
+	back := w.task(t, "Add predictive back gesture", func(task *models.Task) {
+		task.CreatedAt = "2026-10-07"
+		task.Description = "From Timely ideas"
+		task.DescriptionRich = models.JSONMap{"type": "doc", "content": []any{map[string]any{"type": "paragraph", "content": []any{
+			map[string]any{"type": "text", "text": "From "},
+			map[string]any{"type": "mention", "attrs": map[string]any{"id": doc.ID, "label": "Timely ideas", "entityType": "doc"}},
+		}}}}
+	})
+	w.task(t, "Write the onboarding tests", func(task *models.Task) { task.CreatedAt = "2026-10-07" })
+	list, err := s.DocChecklist(context.Background(), w.user, doc.ID, []string{"Add the predictive back gestures on Android", "Write onboarding tests now", "Add android widgets"}, "")
+	must(t, err)
+	if len(list.Existing) != 1 || list.Existing[0].TaskID != back.ID || list.Existing[0].Name != "Add the predictive back gestures on Android" {
+		t.Fatalf("existing %+v", list.Existing)
 	}
 }
 

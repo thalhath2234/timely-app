@@ -21,7 +21,8 @@ import (
 func TestFocusToolsWithoutStore(t *testing.T) {
 	catalog := NewCatalog(Deps{})
 	for name, args := range map[string]string{"list_habits": `{}`, "check_habit": `{"habit":"Walk"}`, "add_habit": `{"name":"Walk"}`,
-		"list_goals": `{}`, "set_goal": `{"action":"add","title":"Get fit"}`} {
+		"list_goals": `{}`, "set_goal": `{"action":"add","title":"Get fit"}`, "update_habit": `{"habit":"Walk","action":"remove"}`,
+		"get_goal_progress": `{}`} {
 		if _, err := catalog[name].Call(context.Background(), "usr_1", json.RawMessage(args)); err == nil || !strings.Contains(err.Error(), "not available") {
 			t.Errorf("%s: %v", name, err)
 		}
@@ -100,6 +101,22 @@ func TestIntegrationFocusTools(t *testing.T) {
 	}
 	if _, err := catalog["check_habit"].Call(ctx, uid, json.RawMessage(`{"habit":"Swim"}`)); err == nil || !strings.Contains(err.Error(), "list_habits") {
 		t.Fatalf("unknown habit: %v", err)
+	}
+
+	call("update_habit", `{"habit":"walk outside","action":"rename","title":"Walk the dog"}`)
+	if habits := call("list_habits", `{}`)["habits"].([]any); habits[0].(map[string]any)["name"] != "Walk the dog" || habits[0].(map[string]any)["streak"] != float64(1) {
+		t.Fatalf("after rename %v", habits)
+	}
+	if _, err := catalog["update_habit"].Call(ctx, uid, json.RawMessage(`{"habit":"Walk the dog","action":"archive"}`)); err == nil {
+		t.Fatal("unknown habit action accepted")
+	}
+	call("update_habit", `{"habit":"Walk the dog","action":"remove"}`)
+	if habits := call("list_habits", `{}`)["habits"].([]any); len(habits) != 0 {
+		t.Fatalf("after remove %v", habits)
+	}
+
+	if progress := call("get_goal_progress", `{}`); progress["available"] != false {
+		t.Fatalf("goal progress without smart suggestions %v", progress)
 	}
 
 	call("set_goal", `{"action":"add","title":"Get fit"}`)

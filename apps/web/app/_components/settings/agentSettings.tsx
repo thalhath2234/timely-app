@@ -510,7 +510,7 @@ const CUSTOM_ENDPOINT = "custom";
 /** The direct API providers (Anthropic, OpenAI, Gemini, DeepSeek, …) folded
  * into one dropdown, so OpenRouter and Smart suggestions stay the two keys
  * people see first. */
-function MoreApiKeys({ data }: { data: AgentProviders }) {
+export function MoreApiKeys({ data }: { data: AgentProviders }) {
   const [open, setOpen] = useState(false);
   const providers = data.apiProviders;
   const connected = providers.filter((view) => view.connected);

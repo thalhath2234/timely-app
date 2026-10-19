@@ -19,6 +19,7 @@ const {
   computeCard,
   defaultDashboard,
   defaultQuery,
+  describeQuery,
   fitQuery,
   highlightFacts,
   initialPomodoro,
@@ -229,8 +230,31 @@ describe("computeCard", () => {
 describe("fitQuery", () => {
   test("line charts group by time and drop measures a source lacks", () => {
     const fitted = fitQuery({ ...defaultQuery("docs"), display: "line", measure: "estimate", groupBy: "status" });
-    assert.equal(fitted.groupBy, "day");
+    // All time is too long for a point a day.
+    assert.equal(fitted.groupBy, "week");
     assert.equal(fitted.measure, "count");
+    assert.equal(fitQuery({ ...fitted, range: { preset: "last30" } }).groupBy, "week");
+    assert.equal(fitQuery({ ...fitted, range: { preset: "last30" }, groupBy: "day" }).groupBy, "day");
+  });
+
+  test("combinations that can't mean anything are closed", () => {
+    // A donut needs a category: the Inbox only has dates.
+    assert.equal(fitQuery({ ...defaultQuery("inbox"), display: "pie" }).display, "bar");
+    // Created and completed dates are never ahead.
+    assert.equal(fitQuery({ ...defaultQuery("tasks"), dateField: "completedAt", range: { preset: "next14" } }).range.preset, "last14");
+    assert.equal(fitQuery({ ...defaultQuery("tasks"), dateField: "deadline", range: { preset: "next14" } }).range.preset, "next14");
+    // Done work is never overdue, and due buckets read open work.
+    assert.equal(fitQuery({ ...defaultQuery("tasks"), filters: { state: "done", overdue: true } }).filters.state, "open");
+    assert.equal(fitQuery({ ...defaultQuery("tasks"), display: "bar", groupBy: "due", filters: { state: "done" } }).filters.state, "open");
+    // A number or progress card has no group, so its name doesn't claim one.
+    const progress = fitQuery({ ...defaultQuery("docs"), display: "progress", groupBy: "workspace" });
+    assert.equal(progress.groupBy, "none");
+    assert.equal(describeQuery(progress), "Docs");
+    // "Done out of all" counts open and done itself; a state filter would pin it.
+    assert.equal(fitQuery({ ...defaultQuery("tasks"), display: "progress", filters: { state: "open" } }).filters.state, undefined);
+    assert.equal(fitQuery({ ...defaultQuery("tasks"), display: "progress", progress: "goal", filters: { state: "done" } }).filters.state, "done");
+    // Comparing needs a period.
+    assert.equal(fitQuery({ ...defaultQuery("tasks"), compare: true }).compare, undefined);
   });
 
   test("every template is already a fitted query", () => {

@@ -174,7 +174,7 @@ export default function MobileMonth({
       </ScrollView>
       </View>
 
-      <ScrollView keyboardShouldPersistTaps="handled" style={styles.dayList} contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 24 }}>
+      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={styles.dayList} contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 24 }}>
         <View style={styles.dayHead}>
           <Text style={styles.dayTitle}>
             {selected.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}

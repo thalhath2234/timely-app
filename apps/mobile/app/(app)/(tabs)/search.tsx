@@ -1,9 +1,9 @@
 import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
 import { contextChip } from "../../../lib/chat/context";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Keyboard, ScrollView, Text, TextInput, View } from "react-native";
 import { useRouter, type Href } from "expo-router";
-import { ArrowUpRight, LayoutGrid, ListFilter, Plus, Search as SearchIcon, Sparkles, X } from "lucide-react-native";
+import { ArrowUpRight, Clock, LayoutGrid, ListFilter, Plus, Search as SearchIcon, Sparkles, X } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
@@ -18,6 +18,11 @@ import { defaultNativeTaskViews, normalizeViews } from "../../../lib/nativeTaskV
 import { matchViewByName } from "@timely/contract/viewSearch";
 import { SEARCH_KIND_ICONS, searchKindIcon } from "../../../components/search/kindIcon";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
+import ListingCard from "../../../components/search/ListingCard";
+import { useViewPreviewStore } from "../../../lib/viewPreviewStore";
+import { useRecentSearches } from "../../../lib/recentSearches";
+import { ListGroup, ListRow } from "../../../components/settings/SettingsList";
+import type { TaskViewConfig } from "../../../lib/types";
 
 const categories = [
   { id: "all", label: "All", icon: LayoutGrid },
@@ -82,9 +87,30 @@ export default function SearchTab() {
     router.push(href);
   }
 
+  // What was opened from here last, offered back on the empty screen.
+  const recents = useRecentSearches();
+  useEffect(() => {
+    void recents.load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  function openHit(hit: { kind: SearchHit["kind"]; id: string; title: string }) {
+    recents.remember({ kind: hit.kind, id: hit.id, title: hit.title || "Untitled" });
+    navigate(hrefFor(hit.kind, hit.id));
+  }
+
   function openView(view: { id: string; name: string }) {
     if (smartData?.logId && smartData.view?.id === view.id) void sendDecisionFeedback(smartData.logId, true).catch(() => {});
     navigate({ pathname: "/(app)/(tabs)/tasks", params: { view: view.id } });
+  }
+
+  // Words read as a list of tasks open on the Tasks tab as a Preview, or are
+  // saved there as a new view.
+  const setPreview = useViewPreviewStore((state) => state.setPreview);
+  const setPendingSave = useViewPreviewStore((state) => state.setPendingSave);
+  function openListing(view: TaskViewConfig, save: boolean) {
+    if (save) setPendingSave(view);
+    else setPreview(view);
+    navigate("/(app)/(tabs)/tasks");
   }
 
   function create(kind: SmartCategory, title?: string) {
@@ -118,7 +144,7 @@ export default function SearchTab() {
     const Icon = searchKindIcon(hit.kind);
     return (
       <AnimatedPressable key={`${hit.kind}:${hit.id}`} accessibilityRole="button" accessibilityLabel={`Open ${hit.kind}: ${hit.title || "Untitled"}`}
-        onPress={() => navigate(hrefFor(hit.kind, hit.id))} style={styles.row}>
+        onPress={() => openHit(hit)} style={styles.row}>
         <View style={styles.resultIcon}><Icon size={20} color={colors.primary} /></View>
         <View style={styles.resultContent}>
           <Text style={styles.kind}>{hit.kind}</Text>
@@ -129,6 +155,8 @@ export default function SearchTab() {
       </AnimatedPressable>
     );
   }
+
+  const listing = trimmed && (category === "all" || category === "task") ? <ListingCard query={trimmed} onOpen={openListing} /> : null;
 
   const weak = `${hidden.length} weak ${hidden.length === 1 ? "match" : "matches"}`;
   // Stays while the weak matches show, so they read as set apart and can be
@@ -149,7 +177,7 @@ export default function SearchTab() {
 
   return (
     <Screen>
-      <MobileHeader title="Search" subtitle="Your workspace, one command away" />
+      <MobileHeader title="Search" />
       <View style={styles.searchWrap}>
         <View style={styles.searchBox}>
           <SearchIcon size={22} color={colors.primary} />
@@ -189,7 +217,7 @@ export default function SearchTab() {
           })}
         </ScrollView>
       </View>
-      <ScrollView ref={scroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={styles.results}>
+      <ScrollView showsVerticalScrollIndicator={false} ref={scroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={styles.results}>
         {!pending && !failed && smartCategory ? (
           <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Looking for ${smartCategory.label}? Show only ${smartCategory.label.toLowerCase()}`}
             onPress={() => { setCategory(smartCategory.id); scroll.current?.scrollTo({ y: 0, animated: false }); }}
@@ -198,6 +226,10 @@ export default function SearchTab() {
             <Text style={styles.suggestText}>Looking for {smartCategory.label}?</Text>
           </AnimatedPressable>
         ) : null}
+        {/* A saved view named outright comes first; Smart suggestions' looser
+            pick follows the listing the words themselves describe. */}
+        {viewPick && viewPick !== namedView ? listing : null}
+        {!viewPick ? listing : null}
         {viewPick ? (
           <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Open your saved view ${viewPick.name}`}
             onPress={() => openView(viewPick)} style={styles.viewRow}>
@@ -209,6 +241,7 @@ export default function SearchTab() {
             <ArrowUpRight size={16} color={colors.mutedForeground} />
           </AnimatedPressable>
         ) : null}
+        {viewPick && viewPick === namedView ? listing : null}
         {createPick ? (
           <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Create ${nounFor(createPick.kind)} ${createPick.title}`}
             onPress={() => create(createPick.kind, createPick.title)} style={styles.viewRow}>
@@ -240,17 +273,44 @@ export default function SearchTab() {
         {hits.map(renderHit)}
         {hits.length > 0 ? hiddenToggle : null}
         {hiddenShown ? hidden.map(renderHit) : null}
-        {commands.length > 0 && <Text style={styles.sectionHeading}>Quick actions</Text>}
-        {commands.map((command) => (
-          <AnimatedPressable key={command.id} accessibilityRole="button" accessibilityLabel={command.title} onPress={command.run} style={styles.row}>
-            <View style={styles.commandIcon}><command.icon size={20} color={colors.primary} /></View>
-            <View style={styles.resultContent}>
-              <Text style={styles.title}>{command.title}</Text>
-              <Text style={styles.snippet}>{command.description}</Text>
+        {!trimmed && recents.items.length > 0 ? (
+          <>
+            <View style={styles.sectionRow}>
+              <Text style={styles.sectionHeading}>Recent</Text>
+              <AnimatedPressable accessibilityRole="button" accessibilityLabel="Clear recent" onPress={() => recents.clear()} hitSlop={8}>
+                <Text style={styles.sectionAction}>Clear</Text>
+              </AnimatedPressable>
             </View>
-            <ArrowUpRight size={16} color={colors.mutedForeground} />
-          </AnimatedPressable>
-        ))}
+            <ListGroup testID="search-recents">
+              {recents.items.filter((hit) => category === "all" || hit.kind === category).map((hit) => {
+                const Icon = searchKindIcon(hit.kind);
+                return (
+                  <ListRow
+                    key={`${hit.kind}:${hit.id}`}
+                    title={hit.title}
+                    meta={hit.kind}
+                    leading={<Icon size={18} color={colors.mutedForeground} />}
+                    trailing={<Clock size={14} color={colors.mutedForeground} />}
+                    onPress={() => openHit(hit)}
+                    onLongPress={() => recents.forget(hit)}
+                    chevron={false}
+                  />
+                );
+              })}
+            </ListGroup>
+          </>
+        ) : null}
+        {commands.length > 0 && <Text style={styles.sectionHeading}>Quick actions</Text>}
+        {commands.length > 0 ? (
+          <View style={styles.grid} testID="search-quick-actions">
+            {commands.map((command) => (
+              <AnimatedPressable key={command.id} accessibilityRole="button" accessibilityLabel={command.title} onPress={command.run} wrapStyle={styles.tileWrap} style={styles.tile}>
+                <View style={styles.commandIcon}><command.icon size={18} color={colors.primary} /></View>
+                <Text numberOfLines={2} style={[styles.tileTitle, { flex: 1 }]}>{command.title}</Text>
+              </AnimatedPressable>
+            ))}
+          </View>
+        ) : null}
         {!trimmed && <Text style={styles.hint}>Search by name or meaning. Try “create” or “go to” for quick actions.</Text>}
       </ScrollView>
     </Screen>
@@ -272,7 +332,13 @@ const styles = createThemedStyleSheet((colors) => ({
   sectionHeading: { color: colors.mutedForeground, fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 1.2, paddingTop: 12, paddingBottom: 4 },
   row: { borderRadius: 16, backgroundColor: colors.card, padding: 14, flexDirection: "row", alignItems: "center", gap: 12 },
   resultIcon: { width: 42, height: 42, borderRadius: 12, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center" },
-  commandIcon: { width: 42, height: 42, borderRadius: 12, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  commandIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: `${colors.primary}1f`, alignItems: "center", justifyContent: "center" },
+  sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingRight: 4 },
+  sectionAction: { color: colors.primary, fontSize: 12, fontWeight: "600", paddingTop: 8 },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  tileWrap: { flexBasis: "47%", flexGrow: 1 },
+  tile: { minHeight: 52, borderRadius: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 10 },
+  tileTitle: { color: colors.foreground, fontSize: 14, fontWeight: "600" },
   resultContent: { flex: 1, minWidth: 0 },
   kind: { color: colors.primary, fontSize: 10, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 3 },
   title: { color: colors.foreground, fontSize: 15, fontWeight: "600" },

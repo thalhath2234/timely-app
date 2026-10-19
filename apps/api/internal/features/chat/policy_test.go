@@ -126,6 +126,33 @@ func TestBulkProposalSnapshotsEveryTask(t *testing.T) {
 	}
 }
 
+// A built-in template is not a stored record; reviewing create_sheet from one
+// used to fail with "record not found" before the person saw the proposal.
+func TestBuiltinTemplateProposalSnapshots(t *testing.T) {
+	catalog := agent.NewCatalog(agent.Deps{})
+	s := &Service{}
+	hashes := []string{}
+	for range 2 {
+		steps := []Step{{Tool: "create_sheet", Arguments: raw(map[string]any{"templateId": "builtin:yearly-expenses", "year": 2026, "currency": "LKR"})}}
+		snapshots, err := s.snapshots(context.Background(), nil, catalog, "owner", steps)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(snapshots) != 1 || snapshots[0].Tool != "get_sheet_template" || !strings.Contains(string(steps[0].Before), "Yearly expenses") {
+			t.Fatalf("template not shown for review: %v %s", snapshots, steps[0].Before)
+		}
+		hashes = append(hashes, snapshots[0].Hash)
+	}
+	// Approval compares versions, so reading a built-in twice must match.
+	if hashes[0] != hashes[1] {
+		t.Fatal("built-in template reads differ")
+	}
+	steps := []Step{{Tool: "create_sheet", Arguments: raw(map[string]any{"templateId": "builtin:missing"})}}
+	if _, err := s.snapshots(context.Background(), nil, catalog, "owner", steps); err == nil || !strings.Contains(err.Error(), "unknown built-in template") {
+		t.Fatalf("unknown built-in accepted: %v", err)
+	}
+}
+
 func TestProposalRejectsAccidentalSequentialGridReplacement(t *testing.T) {
 	catalog := agent.NewCatalog(agent.Deps{})
 	s := &Service{}

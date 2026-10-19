@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { Bell } from "lucide-react-native";
+import { Linking, ScrollView, Text, View } from "react-native";
+import { Bell, BellRing, RotateCcw } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
-import { Chip, PrimaryButton } from "../../../components/ui/primitives";
+import { PrimaryButton } from "../../../components/ui/primitives";
+import { GroupHint, GroupLabel, ListGroup, ListRow, SwitchRow } from "../../../components/settings/SettingsList";
 import { TimeField } from "../../../components/ui/DateTimeField";
 import {
   getNotificationPermission,
@@ -69,77 +70,77 @@ export default function NotificationSettingsScreen() {
   return (
     <Screen>
       <MobileHeader title="Notifications" back large={false} />
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, gap: 16 }}>
-        <View style={styles.card}>
-          <View style={styles.icon}>
-            <Bell size={18} color={colors.mutedForeground} />
+      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, gap: 12 }}>
+        <ListGroup>
+          <View style={styles.status}>
+            <View style={styles.icon}>
+              <Bell size={18} color={granted ? colors.primary : colors.mutedForeground} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>Device alerts {granted ? "on" : "off"}</Text>
+              <Text style={styles.meta}>
+                {!notificationsSupported()
+                  ? "Notifications are available on the iOS and Android apps."
+                  : granted
+                    ? pushOk
+                      ? "Reminders arrive from the server even if this app is closed."
+                      : "Local reminder fallback is used until a push token can be registered."
+                    : "Enable to get a ping when a reminder is due."}
+              </Text>
+            </View>
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title}>Device alerts</Text>
-            <Text style={styles.meta}>
-              {!notificationsSupported()
-                ? "Notifications are available on the iOS and Android apps."
-                : granted
-                  ? pushOk
-                    ? "On. Reminders arrive from the server even if this app is closed."
-                    : "On. Local reminder fallback is used until a push token can be registered."
-                  : "Off. Enable to get a ping when a reminder is due."}
-            </Text>
-          </View>
-        </View>
-        {notificationsSupported() && !granted ? (
-          <PrimaryButton label={canAskAgain ? "Enable notifications" : "Open system settings"} onPress={() => void enable()} />
-        ) : null}
-        {granted ? (
-          <Pressable onPress={() => void Linking.openSettings()} style={styles.link}>
-            <Text style={styles.linkText}>System notification settings</Text>
-          </Pressable>
-        ) : null}
+          {notificationsSupported() && !granted ? (
+            <ListRow
+              title={canAskAgain ? "Enable notifications" : "Open system settings"}
+              tone="add"
+              leading={<BellRing size={18} color={colors.primary} />}
+              onPress={() => void enable()}
+            />
+          ) : null}
+          {granted ? <ListRow title="System notification settings" onPress={() => void Linking.openSettings()} /> : null}
+        </ListGroup>
 
         {draft ? (
-          <View style={{ gap: 10 }}>
-            <Text style={styles.section}>Preferences</Text>
-            <View style={styles.row}>
-              <Chip label="Reminders" active={draft.reminders} onPress={() => setDraft({ ...draft, reminders: !draft.reminders })} />
-              <Chip
-                label="Morning digest"
-                active={draft.digestMorning}
-                onPress={() => setDraft({ ...draft, digestMorning: !draft.digestMorning, planning: !draft.digestMorning })}
-              />
-              <Chip
-                label="Evening recap"
-                active={draft.digestEvening}
-                onPress={() => setDraft({ ...draft, digestEvening: !draft.digestEvening })}
-              />
+          <>
+            <GroupLabel>Send me</GroupLabel>
+            <ListGroup>
+              <SwitchRow title="Reminders" meta="When a task or event reminder is due" value={draft.reminders} onChange={(reminders) => setDraft({ ...draft, reminders })} />
+              <SwitchRow
+                title="Morning digest"
+                value={draft.digestMorning}
+                onChange={(digestMorning) => setDraft({ ...draft, digestMorning, planning: digestMorning })}
+              >
+                <TimeField compact label="Morning digest" value={draft.morningDigestAt} onChange={(morningDigestAt) => setDraft({ ...draft, morningDigestAt })} />
+              </SwitchRow>
+              <SwitchRow
+                title="Evening recap"
+                value={draft.digestEvening}
+                onChange={(digestEvening) => setDraft({ ...draft, digestEvening })}
+              >
+                <TimeField compact label="Evening recap" value={draft.eveningDigestAt} onChange={(eveningDigestAt) => setDraft({ ...draft, eveningDigestAt })} />
+              </SwitchRow>
               {smart ? (
-                <Chip
-                  label="Smart alerts"
-                  active={draft.smartAlerts !== false}
-                  onPress={() => setDraft({ ...draft, smartAlerts: draft.smartAlerts === false })}
+                <SwitchRow
+                  title="Smart alerts"
+                  meta="Up to three a day, from the morning digest time, for work worth acting on now"
+                  value={draft.smartAlerts !== false}
+                  onChange={(on) => setDraft({ ...draft, smartAlerts: on })}
                 />
               ) : null}
-            </View>
-            {smart && draft.smartAlerts !== false ? (
-              <Text style={styles.meta}>
-                Smart alerts: up to three a day, from the morning digest time, for work worth acting on now.
-              </Text>
-            ) : null}
-            <View style={styles.pair}>
-              <View style={styles.pairItem}>
-                <TimeField label="Morning digest" value={draft.morningDigestAt} onChange={(morningDigestAt) => setDraft({ ...draft, morningDigestAt })} />
-              </View>
-              <View style={styles.pairItem}>
-                <TimeField label="Evening recap" value={draft.eveningDigestAt} onChange={(eveningDigestAt) => setDraft({ ...draft, eveningDigestAt })} />
-              </View>
-            </View>
-            <View style={styles.pair}>
-              <View style={styles.pairItem}>
-                <TimeField label="Quiet hours start" value={draft.quietHoursStart} onChange={(quietHoursStart) => setDraft({ ...draft, quietHoursStart })} clearable />
-              </View>
-              <View style={styles.pairItem}>
-                <TimeField label="Quiet hours end" value={draft.quietHoursEnd} onChange={(quietHoursEnd) => setDraft({ ...draft, quietHoursEnd })} clearable />
-              </View>
-            </View>
+            </ListGroup>
+            <ListGroup>
+              <ListRow
+                title="Quiet hours"
+                meta={draft.quietHoursStart && draft.quietHoursEnd ? "No pings in between" : "Off"}
+                trailing={
+                  <View style={styles.pills}>
+                    <TimeField compact clearable label="Quiet hours start" placeholder="From" value={draft.quietHoursStart} onChange={(quietHoursStart) => setDraft({ ...draft, quietHoursStart })} />
+                    <Text style={styles.dash}>–</Text>
+                    <TimeField compact clearable label="Quiet hours end" placeholder="To" value={draft.quietHoursEnd} onChange={(quietHoursEnd) => setDraft({ ...draft, quietHoursEnd })} />
+                  </View>
+                }
+              />
+            </ListGroup>
             <PrimaryButton
               label={save.isPending ? "Saving…" : "Save preferences"}
               disabled={save.isPending}
@@ -152,63 +153,54 @@ export default function NotificationSettingsScreen() {
             {save.isError ? (
               <Text style={styles.error}>{save.error instanceof Error ? save.error.message : "Could not save."}</Text>
             ) : null}
-          </View>
+          </>
         ) : null}
 
-        <View style={{ gap: 8 }}>
-          <Text style={styles.section}>Background jobs</Text>
-          <Text style={styles.hint}>
-            Pending {health.data?.pending ?? 0}, failed {health.data?.failed ?? 0}. Retry a failed reminder or digest here.
-          </Text>
+        <GroupLabel>Background jobs</GroupLabel>
+        <ListGroup>
+          <ListRow title="Waiting" trailing={<Text style={styles.count}>{health.data?.pending ?? 0}</Text>} />
+          <ListRow
+            title="Failed"
+            trailing={<Text style={[styles.count, (health.data?.failed ?? 0) > 0 && { color: colors.destructive }]}>{health.data?.failed ?? 0}</Text>}
+          />
           {(jobs.data ?? []).map((job) => (
-            <Pressable key={job.id} onPress={() => void retry.mutateAsync(job.id)} style={styles.job}>
-              <Text style={styles.title}>
-                {job.kind} · {job.attempts}/{job.maxAttempts}
-              </Text>
-              {job.lastError ? <Text style={styles.error}>{job.lastError}</Text> : null}
-              <Text style={styles.linkText}>Retry</Text>
-            </Pressable>
+            <ListRow
+              key={job.id}
+              title={`${job.kind} · ${job.attempts}/${job.maxAttempts}`}
+              meta={job.lastError || undefined}
+              accessibilityLabel={`Retry ${job.kind}`}
+              onPress={() => void retry.mutateAsync(job.id)}
+              trailing={<RotateCcw size={16} color={colors.primary} />}
+              chevron={false}
+            />
           ))}
-        </View>
+        </ListGroup>
+        <GroupHint>Tap a failed reminder or digest to retry it.</GroupHint>
       </ScrollView>
     </Screen>
   );
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  pair: { flexDirection: "row", gap: 12 },
-  pairItem: { flex: 1, minWidth: 0 },
-  card: {
+  status: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
     padding: 14,
   },
   icon: {
     width: 36,
     height: 36,
-    borderRadius: 8,
+    borderRadius: 10,
     backgroundColor: colors.muted,
     alignItems: "center",
     justifyContent: "center",
   },
   title: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
-  meta: { color: colors.mutedForeground, fontSize: 13, marginTop: 4 },
+  meta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
   hint: { color: colors.mutedForeground, fontSize: 12, lineHeight: 18 },
   error: { color: colors.destructive, fontSize: 12, marginTop: 4 },
-  link: { alignItems: "center", paddingVertical: 8 },
-  linkText: { color: colors.primary, fontSize: 14, fontWeight: "600" },
-  section: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", textTransform: "uppercase" },
-  row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  job: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    padding: 12,
-    backgroundColor: colors.card,
-  },
+  pills: { flexDirection: "row", alignItems: "center", gap: 6 },
+  dash: { color: colors.mutedForeground, fontSize: 14 },
+  count: { color: colors.foreground, fontSize: 14, fontWeight: "500", fontVariant: ["tabular-nums"] },
 }));

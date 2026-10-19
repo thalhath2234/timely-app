@@ -20,6 +20,13 @@ type AutoScheduleApply struct {
 	// replace. Only unlocked ones that end after From go: past blocks are
 	// history and locked ones stay.
 	ReplaceManualIDs []string
+	// MovedIDs are one-off tasks the plan places again. Their unlocked Engine
+	// blocks that already ended between MissedSince (the start of the plan's
+	// first day) and From go too, so a task the engine moves leaves the time
+	// it missed earlier that day instead of showing twice. Earlier days stay
+	// as history (Missed), and Manual blocks are never touched here.
+	MovedIDs    []string
+	MissedSince time.Time
 	// Next are the new Engine blocks.
 	Next []models.ScheduledBlock
 	// Revision builds the Undo record from the blocks being replaced (Engine
@@ -69,6 +76,14 @@ func (s *Service) ApplyAutoSchedule(userID string, in AutoScheduleApply) error {
 			return err
 		}
 		replaced = append(replaced, manual...)
+		missed, err := store.missedEngineBlocks(userID, in.MovedIDs, in.MissedSince, in.From)
+		if err != nil {
+			return err
+		}
+		if err := store.deleteBlocks(tx, missed); err != nil {
+			return err
+		}
+		replaced = append(replaced, missed...)
 		if err := store.InsertMany(tx, in.Next); err != nil {
 			return err
 		}
@@ -124,6 +139,20 @@ func (s *blockStore) engineBlocksInRange(userID string, taskIDs []string, from, 
 	if out == nil {
 		out = []models.ScheduledBlock{}
 	}
+	return out, err
+}
+
+// missedEngineBlocks are the tasks' unlocked one-off Engine blocks that ended
+// inside [since, before): planned time earlier today that has already gone by.
+func (s *blockStore) missedEngineBlocks(userID string, taskIDs []string, since, before time.Time) ([]models.ScheduledBlock, error) {
+	if len(taskIDs) == 0 || since.IsZero() || !before.After(since) {
+		return nil, nil
+	}
+	var out []models.ScheduledBlock
+	err := s.db.Where("user_id = ? AND task_id IN ? AND source = ? AND locked = ? AND occurrence_start IS NULL AND end_at > ? AND end_at <= ?",
+		userID, taskIDs, models.BlockSourceEngine, false, since, before).
+		Order("start_at ASC").
+		Find(&out).Error
 	return out, err
 }
 

@@ -12,6 +12,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import DatePicker from "@/app/_components/_ui/datePicker";
 import Select from "@/app/_components/_ui/select";
+import { ListSwitch } from "@/app/_components/_ui/groupedList";
 import {
   CustomField,
   CustomFieldType,
@@ -103,6 +104,8 @@ export function withCustomFieldDraft(
 }
 
 type CustomFieldControlProps = {
+  /** "row": the value on the right of a grouped row (`ListRow`). */
+  variant?: "default" | "row";
   field: CustomField;
   value?: CustomFieldValueInput;
   onChange: (next: Pick<CustomFieldValueInput, "stringValue" | "optionsValue">) => void;
@@ -112,10 +115,71 @@ export default function CustomFieldControl({
   field,
   value,
   onChange,
+  variant = "default",
 }: CustomFieldControlProps) {
   const stringValue = value?.stringValue ?? "";
   const selectedIds = (value?.optionsValue ?? []).map((option) => option.id);
   const options = field.options?.options ?? [];
+
+  if (variant === "row") {
+    const choices = options.map((option) => ({ value: option.id, label: option.value, color: option.color }));
+    if (field.type === "select") {
+      return (
+        <Select
+          variant="row"
+          value={selectedIds[0] ?? ""}
+          placeholder="None"
+          aria-label={field.name}
+          onChange={(optionId) => onChange({ optionsValue: optionId ? [{ id: optionId }] : [] })}
+          options={[{ value: "", label: "None" }, ...choices]}
+        />
+      );
+    }
+    if (field.type === "multi_select") {
+      return (
+        <Select
+          variant="row"
+          value=""
+          values={selectedIds}
+          placeholder={options.length ? "None" : "No options"}
+          aria-label={field.name}
+          onChange={(optionId) =>
+            onChange({
+              optionsValue: (selectedIds.includes(optionId)
+                ? selectedIds.filter((id) => id !== optionId)
+                : [...selectedIds, optionId]
+              ).map((id) => ({ id })),
+            })
+          }
+          options={choices}
+        />
+      );
+    }
+    if (field.type === "date") {
+      return (
+        <DatePicker variant="row" mode="date" clearable value={stringValue} onChange={(next) => onChange({ stringValue: next })} aria-label={field.name} />
+      );
+    }
+    if (field.type === "boolean") {
+      return (
+        <ListSwitch
+          label={field.name}
+          checked={stringValue === "true"}
+          onChange={(checked) => onChange({ stringValue: checked ? "true" : "false" })}
+        />
+      );
+    }
+    return (
+      <input
+        type={field.type === "number" ? "number" : field.type === "url" ? "url" : "text"}
+        value={stringValue}
+        aria-label={field.name}
+        placeholder={field.type === "url" ? "https://" : "None"}
+        onChange={(event) => onChange({ stringValue: event.target.value })}
+        className="-mr-1.5 h-8 w-full min-w-0 rounded-md bg-transparent px-2 text-right text-[13px] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none font-medium text-foreground outline-none transition-colors placeholder:text-muted-foreground hover:bg-muted focus:bg-muted/60"
+      />
+    );
+  }
 
   if (field.type === "select") {
     return (

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { SkeletonRows, StatNumber } from "../ui/motionKit";
 import { Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -211,7 +212,7 @@ export function FocusTimeCard({
     <View style={{ gap: 12 }}>
       <View style={[styles.spread, { alignItems: "flex-end" }]}>
         <View>
-          <Text style={styles.huge}>{formatMinutes(summary.today)}</Text>
+          <StatNumber style={styles.huge} value={formatMinutes(summary.today)} />
           <Text style={styles.small}>today{pomodoros > 0 ? ` · ${pomodoros} ${pomodoros === 1 ? "pomodoro" : "pomodoros"}` : ""}</Text>
         </View>
         <View style={{ alignItems: "flex-end" }}>
@@ -275,7 +276,7 @@ export function FocusTimeCard({
           ))}
         </View>
       ) : isLoading ? (
-        <Text style={styles.small}>Loading…</Text>
+        <SkeletonRows rows={3} height={30} bare />
       ) : (
         <Text style={styles.muted}>No focus tracked this week. Start focus on a task, or link a task to a pomodoro.</Text>
       )}
@@ -600,7 +601,7 @@ export function WeeklyReviewCard({
               wrapStyle={{ flex: 1 }}
               style={[styles.tile, selected && styles.tileOn]}
             >
-              <Text style={[styles.big, entry.key === "slipped" && count > 0 && { color: colors.destructive }]}>{count}</Text>
+              <StatNumber style={[styles.big, entry.key === "slipped" && count > 0 && { color: colors.destructive }]} value={count} />
               <Text style={[styles.small, selected && { color: colors.accentForeground, fontWeight: "600" }]} numberOfLines={1}>
                 {entry.label}
               </Text>
@@ -715,7 +716,7 @@ export function InboxZeroCard({ inbox, today, onOpenTask }: { inbox: Task[]; tod
   return (
     <View style={{ gap: 12 }}>
       <Text style={styles.muted}>
-        <Text style={styles.huge}>{items.length}</Text> in Inbox
+        <StatNumber style={styles.huge} value={items.length} /> in Inbox
       </Text>
       <View style={styles.oldest}>
         <Text style={styles.label}>{current.id === items[0]?.id ? "Oldest" : "Next"}</Text>

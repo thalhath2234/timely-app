@@ -3,21 +3,21 @@ import { contextChip } from "../../../lib/chat/context";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Ban, CalendarDays, Check, CircleDot, Clock, Copy, Flag, FolderKanban, History, ListChecks, ListTodo, Pin, Play, Plus, Sparkles, Trash2 } from "lucide-react-native";
+import { Check, CircleDot, Copy, Flag, Pin, Play, Plus, Sparkles, Star, Trash2, X } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ConfirmSheet, { type ConfirmRequest } from "../../../components/ui/ConfirmSheet";
 import DateTimeSheet from "../../../components/ui/DateTimeSheet";
-import TaskMetaEditor from "../../../components/ui/TaskMetaEditor";
-import RecurrenceEditor from "../../../components/ui/RecurrenceEditor";
 import SegmentedControl from "../../../components/ui/SegmentedControl";
-import { Chip, Dot, Field, PrimaryButton, PropertyGroup, PropertyRow } from "../../../components/ui/primitives";
-import { FocusGroupScrollView } from "../../../components/ui/FocusGroup";
+import { Dot, Field } from "../../../components/ui/primitives";
+import { TimeField } from "../../../components/ui/DateTimeField";
+import { ColorDot, GroupHint, GroupLabel, ListGroup, ListRow, SwitchRow } from "../../../components/settings/SettingsList";
+import { CustomFieldsGroup, LabelsRow, RepeatRow } from "../../../components/tasks/TaskMetaRows";
+import { FocusGroup, FocusGroupScrollView } from "../../../components/ui/FocusGroup";
 import EmptyState from "../../../components/ui/EmptyState";
 import DescriptionCard from "../../../components/editor/DescriptionCard";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
-import TaskSectionHeader from "../../../components/tasks/TaskSectionHeader";
 import InboxSuggestionsCard from "../../../components/tasks/InboxSuggestionsCard";
 import TaskHintsCard from "../../../components/tasks/TaskHintsCard";
 import RelatedList from "../../../components/search/RelatedList";
@@ -50,12 +50,13 @@ import {
   useInboxSuggestionsQuery,
 } from "../../../lib/hooks";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
-import { dateOnly, formatDuration, formatRelativeDay, formatShortDate, formatTime, formatTimeRange, localDateStamp, PRIORITY_META, PRIORITY_ORDER, toDateInputValue } from "../../../lib/format";
+import { dateOnly, formatDuration, formatRelativeDay, formatShortDate, formatShortDay, formatTime, formatTimeRange, localDateStamp, PRIORITY_META, PRIORITY_ORDER, toDateInputValue } from "../../../lib/format";
 import { normalizePriority } from "../../../lib/priority";
 import { buildRecurrenceInput, rruleToDraft } from "../../../lib/recurrence";
 import { richToPlain, toRichContent, isRichContentEmpty } from "../../../lib/richText";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { useDraftText } from "../../../lib/draftText";
+import { useToastStore } from "../../../lib/toast";
 import { useAutosave } from "../../../lib/autosave";
 import type { UpdateTaskPayload } from "../../../lib/api/tasks";
 
@@ -198,7 +199,7 @@ export default function TaskDetailScreen() {
   useAssistantScreen(task ? [
     contextChip("object", name || "Task", `tasks/${task.id}`),
     ...(assistantSelection ? [contextChip("selection", "Selected text", assistantSelection)] : []),
-    contextChip("workspace", "Workspace", task.workspaceId),
+    ...(task.workspaceId ? [contextChip("workspace", "Workspace", task.workspaceId)] : []),
     ...(task.projectId ? [contextChip("project", "Project", task.projectId)] : []),
     ...(name !== task.name || note !== (task.description || "") ? [contextChip("draft", "Unsaved task text", { name, description: note })] : []),
   ] : []);
@@ -236,6 +237,13 @@ export default function TaskDetailScreen() {
   const combinedTotal = checklist.length;
   const combinedProgress = combinedTotal ? combinedDone / combinedTotal : 0;
 
+  const activityRows = (activity.data ?? []).map((row) => (
+    <View key={row.id} style={styles.activityRow}>
+      <View style={styles.activityDot} />
+      <Text style={styles.activity}><Text style={styles.activityActor}>{row.actorName}</Text> · {row.message}</Text>
+    </View>
+  ));
+
   function persist(data: Parameters<typeof save.mutate>[0]["data"]) {
     const assigningMeta = Boolean(data.labelIds || data.customFieldValues);
     save.mutate({
@@ -266,10 +274,10 @@ export default function TaskDetailScreen() {
         }
       />
       <FocusGroupScrollView contentContainerStyle={styles.content}>
-        <View style={styles.objectiveCard}>
-          <Text style={styles.eyebrow}>{isReminder ? "TITLE" : "TASK OBJECTIVE"}</Text>
+        <View style={styles.titleCard}>
           <Field
             bare
+            large
             multiline
             autoGrow
             value={name}
@@ -327,452 +335,484 @@ export default function TaskDetailScreen() {
               scheduleSave({ description: plainText, descriptionRich: content });
             }}
         />
-        <View style={{ gap: 8 }}>
-          <SegmentedControl
-            options={[
-              { label: "Work", value: "task" },
-              { label: "Reminder", value: "reminder" },
-            ]}
-            value={isInbox ? null : isReminder ? "reminder" : "task"}
-            onChange={(next) => {
-              if (next === "reminder") {
-                let readAt = "";
-                if (words?.available && words.date && (words.dateRole === "reminder" || words.time)) {
-                  const [y, m, d] = words.date.split("-").map(Number);
-                  const [h, min] = (words.time || "09:00").split(":").map(Number);
-                  const at = new Date(y, m - 1, d, h, min);
-                  if (at > new Date()) readAt = at.toISOString();
-                }
-                persist({
-                  kind: "reminder",
-                  duration: 0,
-                  scheduledOn: readAt || task.scheduledOn || new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-                });
-                return;
+
+        <View style={styles.section}>
+          <ListGroup>
+            <ListRow
+              title="Type"
+              trailing={
+                <SegmentedControl
+                  size="sm"
+                  itemWidth={84}
+                  accessibilityLabel="Type"
+                  options={[
+                    { label: "Work", value: "task" },
+                    { label: "Reminder", value: "reminder" },
+                  ]}
+                  value={isInbox ? null : isReminder ? "reminder" : "task"}
+                  onChange={(next) => {
+                    if (next === "reminder") {
+                      let readAt = "";
+                      if (words?.available && words.date && (words.dateRole === "reminder" || words.time)) {
+                        const [y, m, d] = words.date.split("-").map(Number);
+                        const [h, min] = (words.time || "09:00").split(":").map(Number);
+                        const at = new Date(y, m - 1, d, h, min);
+                        if (at > new Date()) readAt = at.toISOString();
+                      }
+                      persist({
+                        kind: "reminder",
+                        duration: 0,
+                        scheduledOn: readAt || task.scheduledOn || new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+                      });
+                      return;
+                    }
+                    persist({
+                      kind: "task",
+                      duration: Math.max(30, task.duration || 0) || 30,
+                      workspaceId: task.workspaceId || metaWorkspaceId || spaces[0]?.id,
+                    });
+                  }}
+                />
               }
-              persist({
-                kind: "task",
-                duration: Math.max(30, task.duration || 0) || 30,
-                workspaceId: task.workspaceId || metaWorkspaceId || spaces[0]?.id,
-              });
-            }}
-          />
-          <Text style={styles.activity}>
-            {isInbox
-              ? "Assign a workspace to put this on the board, or choose Reminder for a ping."
-              : isReminder
-                ? "Pings at a chosen time. Does not reserve a work block."
-                : "Estimated minutes of work the scheduler can place."}
-          </Text>
-        </View>
-        <PropertyGroup tone="card">
-          {!isReminder ? (
-          <PropertyRow
-            icon={<FolderKanban size={16} color={colors.mutedForeground} />}
-            label="Workspace"
-            value={workspace?.name ?? "Select workspace"}
-            onPress={() => setPicker("workspace")}
-          />
-          ) : null}
-          {!isReminder ? (
-          <PropertyRow
-            icon={<CircleDot size={16} color={task.status?.color || colors.mutedForeground} />}
-            label="Status"
-            value={task.status?.name ?? "None"}
-            swatch={task.status?.color}
-            onPress={() => setPicker("status")}
-          />
-          ) : null}
-          <PropertyRow icon={<Flag size={16} color={colors.mutedForeground} />} label="Priority" value={task.priorityLevel ? PRIORITY_META[task.priorityLevel]?.label ?? task.priorityLevel : "None"} onPress={() => setPicker("priority")} />
-          {!isReminder ? (
-            <>
-              <PropertyRow icon={<ListTodo size={16} color={colors.mutedForeground} />} label="Project" value={task.project?.title ?? "None"} onPress={() => setPicker("project")} />
-              <PropertyRow
-                icon={<Ban size={16} color={colors.mutedForeground} />}
-                label="Blocked by"
-                value={
+            />
+            {!isReminder || spaces.length > 0 ? (
+              <ListRow title="Workspace" trailing={workspace?.name ?? (isReminder ? "None" : "Select")} onPress={() => setPicker("workspace")} />
+            ) : null}
+            {!isReminder ? (
+              <ListRow title="Status" trailing={<RowValue text={task.status?.name ?? "None"} dot={task.status?.color ?? colors.mutedForeground} />} onPress={() => setPicker("status")} />
+            ) : null}
+            <PriorityRow level={task.priorityLevel} onPress={() => setPicker("priority")} />
+            {!isReminder ? (
+              <ListRow title="Project" trailing={<RowValue text={task.project?.title ?? "None"} dot={selectedProject?.color} />} onPress={() => setPicker("project")} />
+            ) : null}
+            {!isReminder && stages.length > 0 ? (
+              <ListRow title="Stage" trailing={stages.find((stage) => stage.id === task.stageId)?.name ?? "None"} onPress={() => setPicker("stage")} />
+            ) : null}
+            {!isReminder ? (
+              <ListRow
+                title="Blocked by"
+                trailing={
                   task.blockedById
                     ? (tasks.find((item) => item.id === task.blockedById)?.name ?? task.blockedBy?.name ?? "None")
                     : "None"
                 }
                 onPress={() => setPicker("blocked")}
               />
-              {tasks.some((item) => item.blockedById === task.id) ? (
-                <Text style={styles.activity}>
-                  Waiting on this: {tasks.filter((item) => item.blockedById === task.id).map((item) => item.name).join(", ")}
-                </Text>
-              ) : null}
-              {stages.length > 0 ? (
-                <PropertyRow
-                  icon={<ListTodo size={16} color={colors.mutedForeground} />}
-                  label="Stage"
-                  value={stages.find((stage) => stage.id === task.stageId)?.name ?? "None"}
-                  onPress={() => setPicker("stage")}
-                />
-              ) : null}
-            </>
-          ) : null}
-          {isReminder && spaces.length > 0 ? (
-          <PropertyRow
-            icon={<FolderKanban size={16} color={colors.mutedForeground} />}
-            label="Workspace"
-            value={workspace?.name ?? "None"}
-            onPress={() => setPicker("workspace")}
-          />
-          ) : null}
-          {!isReminder && !isInbox ? (
-          <PropertyRow
-            icon={<Clock size={16} color={colors.mutedForeground} />}
-            label="Duration"
-            value={formatDuration(task.duration) ?? `${task.duration}m`}
-            onPress={() => setPicker("duration")}
-          />
-          ) : null}
-          <PropertyRow
-            icon={<CalendarDays size={16} color={colors.mutedForeground} />}
-            label="Start date"
-            value={task.startDate ? formatShortDate(task.startDate) : "None"}
-            onPress={() => setPicker("start")}
-          />
-          <PropertyRow
-            icon={<CalendarDays size={16} color={overdue ? colors.destructive : colors.mutedForeground} />}
-            label="Deadline"
-            value={task.deadline ? formatShortDate(task.deadline) : "None"}
-            tone={overdue ? colors.destructive : undefined}
-            onPress={() => setPicker("due")}
-          />
-        </PropertyGroup>
-        <RecurrenceEditor
-          value={task.recurrence ? rruleToDraft(task.recurrence.rrule, recAnchor) : null}
-          anchor={recAnchor}
-          onChange={(draft) => {
-            const recurrence = buildRecurrenceInput(draft, recAnchor);
-            persist({
-              recurrence,
-              ...(recurrence && isReminder ? { scheduledOn: recurrence.dtstart } : {}),
-            });
-          }}
-        />
-        {task.recurrence ? (
-          <Pressable onPress={() => setPicker("scope")} style={styles.block}>
-            <Text style={styles.blockText}>
-              Edits apply to {scope === "this" ? "this occurrence" : scope === "future" ? "this and following" : "the entire series"}
-            </Text>
-          </Pressable>
-        ) : null}
-        <View style={styles.sectionCard}>
-        <TaskSectionHeader icon={<Sparkles size={18} color={colors.primary} />} title={isReminder ? "Reminder Schedule" : "Smart Schedule"} subtitle={isReminder ? "Choose when to get notified" : "Place and manage work blocks"} badge={task.scheduleLocked ? "Locked" : undefined} badgeTone="success" />
-        {isReminder || task.recurrence ? (
-          <>
-            <Pressable onPress={() => setPicker("schedule")} style={styles.block}>
-              <Text style={styles.blockText}>
-                {task.scheduledOn || task.recurrence?.dtstart
-                  ? isReminder && !task.recurrence
-                    ? `Notify · ${formatRelativeDay(new Date(task.scheduledOn!), workingHoursZone)} · ${formatTime(task.scheduledOn!)}`
-                    : `Time · ${formatTime(task.scheduledOn ?? task.recurrence!.dtstart)}`
-                  : "Pick a time"}
-              </Text>
-            </Pressable>
-            <Text style={styles.activity}>
-              {task.recurrence
-                ? isReminder
-                  ? "Each repeat pings at this time and does not reserve a work block."
-                  : "Each occurrence starts at this time; auto-schedule will not give the block to other tasks."
-                : task.scheduledOn
-                  ? `Pings at ${formatRelativeDay(new Date(task.scheduledOn), workingHoursZone)} · ${formatTime(task.scheduledOn)}. Does not reserve a work block.`
-                  : "Pick a date and time to ping. This does not reserve a work block."}
-            </Text>
-          </>
-        ) : (
-          <>
-            {(task.blocks ?? []).map((block) => (
-              <View key={block.id} style={styles.block}>
-                <View style={styles.blockIcon}><Pin size={17} color={colors.primary} /></View>
-                <View style={styles.blockCopy}>
-                  <Text style={styles.blockDate}>{formatRelativeDay(new Date(block.start), workingHoursZone)}{block.locked || block.source === "manual" ? "  ·  PINNED" : ""}</Text>
-                  <Text style={styles.blockText}>{formatTimeRange(block.start, block.end)}</Text>
-                </View>
-                {!isInactive ? <View style={{ flexDirection: "row", gap: 12 }}>
-                  {block.source === "engine" && !block.locked ? (
-                    <Pressable onPress={() => pinBlock.mutate({ blockId: block.id, locked: true })} hitSlop={8}>
-                      <Text style={styles.rowAction}>Pin</Text>
-                    </Pressable>
-                  ) : null}
-                  <Pressable
-                    onPress={() =>
-                      setConfirm({
-                        title: "Delete this time?",
-                        message: "This reserved block will be removed.",
-                        onConfirm: () => removeBlock.mutate(block.id),
-                      })
-                    }
-                    hitSlop={8}
-                  >
-                    <Text style={[styles.rowAction, { color: colors.destructive }]}>Delete</Text>
-                  </Pressable>
-                </View> : null}
-              </View>
-            ))}
-            {!isInactive ? <View style={styles.scheduleActions}>
-              <Pressable onPress={() => setPicker("schedule")} style={styles.scheduleSecondary}>
-                <Plus size={17} color={colors.primary} /><Text style={styles.scheduleActionText}>Add Time Slot</Text>
-              </Pressable>
-              {!isInbox ? <Pressable disabled={applySchedule.isPending} onPress={async () => {
-                setScheduleError(null);
-                try {
-                  const plan = await applySchedule.mutateAsync({ taskIds: [task.id] });
-                  const skipped = plan.skipped?.find((item) => item.taskId === task.id);
-                  if (skipped) setScheduleError(skipped.message || "Could not auto-schedule this task.");
-                  else if (!plan.proposals?.some((item) => item.taskId === task.id)) setScheduleError("The engine did not place this task.");
-                } catch (err) { setScheduleError(err instanceof Error ? err.message : "Could not auto-schedule this task."); }
-              }} style={styles.schedulePrimary}>
-                <Sparkles size={16} color={colors.primaryForeground} /><Text style={styles.schedulePrimaryText}>{applySchedule.isPending ? "Scheduling…" : "Auto-Schedule"}</Text>
-              </Pressable> : null}
-            </View> : null}
-            {!isInactive && (task.blocks ?? []).length > 0 ? (
-              <Pressable
-                onPress={() =>
-                  setConfirm({
-                    title: "Clear all reserved time?",
-                    message: "Every work block on this task will be removed.",
-                    confirmLabel: "Clear",
-                    onConfirm: () => clearBlocks.mutate(task.id),
-                  })
-                }
-              >
-                <Text style={[styles.rowAction, { color: colors.destructive }]}>Clear all time</Text>
-              </Pressable>
             ) : null}
-            {!isInbox && !isInactive ? (
-              <>
-                {scheduleError ? (
-                  <Text style={[styles.activity, { color: colors.destructive }]}>{scheduleError}</Text>
-                ) : null}
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                  <Chip
-                    label={task.scheduleLocked ? "Pinned" : "Pin task"}
-                    active={Boolean(task.scheduleLocked)}
-                    onPress={() => pinTask.mutate({ taskId: task.id, locked: !task.scheduleLocked })}
-                  />
-                  <Chip
-                    label="One sitting"
-                    active={Boolean(task.contiguous)}
-                    onPress={() => persist({ contiguous: !task.contiguous })}
-                  />
-                </View>
-                <Text style={styles.constraintLabel}>Minimum Chunk Duration <Text style={styles.constraintValue}>{task.minChunkMinutes ?? 15}m</Text></Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                  {[15, 30, 45, 60].map((minutes) => (
-                    <Chip
-                      key={minutes}
-                      label={`${minutes}m`}
-                      active={(task.minChunkMinutes ?? 15) === minutes}
-                      onPress={() => persist({ minChunkMinutes: minutes })}
-                    />
-                  ))}
-                </View>
-                <Text style={styles.activity}>Preferred chunk</Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                  <Chip
-                    label="Any"
-                    active={task.preferredChunkMinutes == null}
-                    onPress={() => persist({ preferredChunkMinutes: null })}
-                  />
-                  {[30, 60, 90].map((minutes) => (
-                    <Chip
-                      key={minutes}
-                      label={`${minutes}m`}
-                      active={task.preferredChunkMinutes === minutes}
-                      onPress={() => persist({ preferredChunkMinutes: minutes })}
-                    />
-                  ))}
-                </View>
-                <Pressable onPress={() => setPicker("earliest")} style={styles.block}>
-                  <Text style={styles.blockText}>
-                    {task.earliestStartAt
-                      ? `Earliest · ${formatRelativeDay(new Date(task.earliestStartAt), workingHoursZone)} ${formatTime(task.earliestStartAt)}`
-                      : "Earliest start · any time"}
-                  </Text>
-                </Pressable>
-                <View style={styles.preferRow}>
-                  <Pressable onPress={() => setPicker("preferStart")} style={styles.preferBtn}>
-                    <Text style={styles.preferLabel}>Prefer from</Text>
-                    <Text style={styles.preferValue}>{clockLabel(preferStart)}</Text>
-                  </Pressable>
-                  <Pressable onPress={() => setPicker("preferEnd")} style={styles.preferBtn}>
-                    <Text style={styles.preferLabel}>Prefer to</Text>
-                    <Text style={styles.preferValue}>{clockLabel(preferEnd)}</Text>
-                  </Pressable>
-                </View>
-              </>
+            {!isReminder && !isInbox ? (
+              <ListRow title="Duration" trailing={formatDuration(task.duration) ?? `${task.duration}m`} onPress={() => setPicker("duration")} />
             ) : null}
-          </>
-        )}
-        </View>
-        {!isReminder ? (
-          <>
-            <View style={styles.editorCard}>
-              <TaskMetaEditor
+            {!isReminder ? (
+              <LabelsRow
                 workspace={workspace}
                 workspaceId={task.workspaceId || metaWorkspaceId}
                 labelIds={labelIds}
                 onLabelIds={(next) => {
                   setLabelIds(next);
-                  persist({ labelIds: next.map((id) => ({ id })) });
+                  persist({ labelIds: next.map((labelId) => ({ id: labelId })) });
                 }}
-                values={customFieldValues}
-                onValues={(next) => {
-                  setCustomFieldValues(next);
-                  scheduleSave({ customFieldValues: next });
-                }}
-                showCustomFields={false}
               />
-            </View>
-            <View style={styles.editorCard}>
-              <TaskMetaEditor
-                workspace={workspace}
-                workspaceId={task.workspaceId || metaWorkspaceId}
-                labelIds={labelIds}
-                onLabelIds={setLabelIds}
-                values={customFieldValues}
-                onValues={(next) => {
-                  setCustomFieldValues(next);
-                  scheduleSave({ customFieldValues: next });
-                }}
-                showLabels={false}
-              />
-            </View>
-          </>
-        ) : null}
-        {!isReminder ? <>
-        <Text style={styles.section}>{isInactive ? "Actions" : "Focus orchestration"}</Text>
-        <View style={styles.actionGrid}>
-          {!isInactive ? (
-          <>
-          <ActionTile
-            icon={<Play size={17} color={colors.foreground} fill={task.focusStartedAt ? colors.foreground : "transparent"} />}
-            label={task.focusStartedAt ? "Stop focus" : task.focusPausedAt ? "Resume focus" : "Start focus"}
-            active={Boolean(task.focusStartedAt || task.focusPausedAt)}
-            onPress={() =>
-              task.focusStartedAt
-                ? void stopFocus.mutateAsync(task.id)
-                : void startFocus.mutateAsync(task.id)
-            }
-          />
-          <ActionTile
-            icon={<CalendarDays size={17} color={colors.foreground} />}
-            label={onToday ? "Remove today" : "Add to Today"}
-            active={onToday}
-            onPress={() =>
-              void setTodayFocus.mutateAsync({
-                id: task.id,
-                date: onToday ? null : localDateStamp(),
-              })
-            }
-          />
-          </>
-          ) : null}
-          <ActionTile
-            icon={<Copy size={17} color={colors.foreground} />}
-            label="Duplicate"
-            onPress={() =>
-              void duplicate.mutateAsync(task.id).then((copy) => router.push(`/(app)/tasks/${copy.id}`))
-            }
-          />
+            ) : null}
+          </ListGroup>
+          <GroupHint>
+            {isInbox
+              ? "Assign a workspace to put this on the board, or choose Reminder for a ping."
+              : isReminder
+                ? "Pings at a chosen time. Does not reserve a work block."
+                : "Work is estimated minutes the scheduler can place."}
+            {!isReminder && tasks.some((item) => item.blockedById === task.id)
+              ? ` Waiting on this: ${tasks.filter((item) => item.blockedById === task.id).map((item) => item.name).join(", ")}.`
+              : ""}
+          </GroupHint>
         </View>
-        {(task.actualMinutes ?? 0) > 0 ? (
-          <Text style={styles.activity}>{task.actualMinutes}m actually focused</Text>
-        ) : null}
-        <View style={styles.sectionCard}>
-        <TaskSectionHeader icon={<ListChecks size={18} color={colors.success} />} title="Checklist" subtitle="Breakdown items" badge={`${combinedDone} of ${combinedTotal} done`} badgeTone="success" />
-        <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${Math.round(combinedProgress * 100)}%` }]} /></View>
-        {checklist.map((item) => (
-          <Pressable
-            key={item.id}
-            onPress={() =>
-              void toggleCheck.mutateAsync({
-                id: task.id,
-                itemId: item.id,
-                completed: !item.completedAt,
-              })
-            }
-            onLongPress={() => void removeCheck.mutateAsync({ id: task.id, itemId: item.id })}
-            style={styles.checkRow}
-          >
-            <View style={[styles.checkbox, item.completedAt && styles.checkboxDone]}>
-              {item.completedAt ? <Check size={11} color="#07130d" strokeWidth={3} /> : null}
-            </View>
-            <Text style={[styles.checkText, item.completedAt && styles.checkTextDone]}>
-              {item.title}
-            </Text>
-          </Pressable>
-        ))}
-        <Field
-          value={childTitle}
-          onChangeText={setChildTitle}
-          placeholder="Add checklist item"
-          autoCapitalize="sentences"
-        />
-        <View style={styles.addActions}>
-          <Pressable
-            onPress={() => {
-              const title = childTitle.trim();
-              if (!title) return;
-              void addCheck.mutateAsync({ id: task.id, title }).then(() => setChildTitle(""));
+
+        <View style={styles.section}>
+          <GroupLabel>Dates</GroupLabel>
+          <ListGroup>
+            <ListRow title="Start date" trailing={task.startDate ? formatShortDate(task.startDate) : "None"} onPress={() => setPicker("start")} />
+            <ListRow
+              title="Deadline"
+              trailing={
+                overdue && task.deadline ? (
+                  <Text style={styles.overdue}>{formatShortDate(task.deadline)}</Text>
+                ) : task.deadline ? formatShortDate(task.deadline) : "None"
+              }
+              onPress={() => setPicker("due")}
+            />
+            <RepeatRow
+              value={task.recurrence ? rruleToDraft(task.recurrence.rrule, recAnchor) : null}
+              anchor={recAnchor}
+              subtitle={name || undefined}
+              onChange={(draft) => {
+                const recurrence = buildRecurrenceInput(draft, recAnchor);
+                persist({
+                  recurrence,
+                  ...(recurrence && isReminder ? { scheduledOn: recurrence.dtstart } : {}),
+                });
+              }}
+            />
+            {task.recurrence ? (
+              <ListRow
+                title="Edits apply to"
+                trailing={scope === "this" ? "This one" : scope === "future" ? "This and later" : "Whole series"}
+                onPress={() => setPicker("scope")}
+              />
+            ) : null}
+          </ListGroup>
+        </View>
+
+        {isReminder || task.recurrence ? (
+          <View style={styles.section}>
+            <GroupLabel>{isReminder ? "Reminder" : "Schedule"}</GroupLabel>
+            <ListGroup>
+              <ListRow
+                title={isReminder && !task.recurrence ? "Notify at" : "Time"}
+                trailing={
+                  task.scheduledOn || task.recurrence?.dtstart
+                    ? isReminder && !task.recurrence
+                      ? `${formatRelativeDay(new Date(task.scheduledOn!), workingHoursZone)} ${formatTime(task.scheduledOn!)}`
+                      : formatTime(task.scheduledOn ?? task.recurrence!.dtstart)
+                    : "Pick a time"
+                }
+                onPress={() => setPicker("schedule")}
+              />
+            </ListGroup>
+            <GroupHint>
+              {task.recurrence
+                ? isReminder
+                  ? "Each repeat pings at this time and does not reserve a work block."
+                  : "Each occurrence starts at this time; auto-schedule will not give the block to other tasks."
+                : "Does not reserve a work block."}
+            </GroupHint>
+          </View>
+        ) : (
+          <View style={styles.section}>
+            <GroupLabel aside={task.scheduleLocked ? "Pinned" : (task.blocks ?? []).length ? `${(task.blocks ?? []).length} reserved` : undefined}>Schedule</GroupLabel>
+            {isInactive && !(task.blocks ?? []).length ? (
+              <GroupHint>{task.blockedById ? "Not scheduled while it waits on its blocker." : "Not scheduled while it is done or blocked."}</GroupHint>
+            ) : null}
+            {!isInactive || (task.blocks ?? []).length ? (
+            <ListGroup>
+              {(task.blocks ?? []).map((block) => (
+                <ListRow
+                  key={block.id}
+                  leading={<Pin size={16} color={block.locked || block.source === "manual" ? colors.primary : colors.mutedForeground} />}
+                  title={formatTimeRange(block.start, block.end)}
+                  meta={`${formatRelativeDay(new Date(block.start), workingHoursZone)}${block.locked || block.source === "manual" ? " · Pinned" : ""}`}
+                  trailing={
+                    !isInactive ? (
+                      <View style={styles.rowActions}>
+                        {block.source === "engine" && !block.locked ? (
+                          <Pressable accessibilityRole="button" onPress={() => pinBlock.mutate({ blockId: block.id, locked: true })} hitSlop={8}>
+                            <Text style={styles.rowAction}>Pin</Text>
+                          </Pressable>
+                        ) : null}
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Remove this time"
+                          onPress={() =>
+                            setConfirm({
+                              title: "Delete this time?",
+                              message: "This reserved block will be removed.",
+                              onConfirm: () => removeBlock.mutate(block.id),
+                            })
+                          }
+                          hitSlop={8}
+                        >
+                          <X size={16} color={colors.mutedForeground} />
+                        </Pressable>
+                      </View>
+                    ) : undefined
+                  }
+                />
+              ))}
+              {!isInactive ? <ListRow key="__add" tone="add" title="Add time" onPress={() => setPicker("schedule")} /> : null}
+              {!isInactive && !isInbox ? (
+                <ListRow
+                  key="__auto"
+                  tone="add"
+                  leading={<Sparkles size={17} color={colors.primary} />}
+                  title={applySchedule.isPending ? "Scheduling…" : "Auto-schedule"}
+                  disabled={applySchedule.isPending}
+                  onPress={async () => {
+                    setScheduleError(null);
+                    try {
+                      const plan = await applySchedule.mutateAsync({ taskIds: [task.id] });
+                      const skipped = plan.skipped?.find((item) => item.taskId === task.id);
+                      if (skipped) setScheduleError(skipped.message || "Could not auto-schedule this task.");
+                      else if (!plan.proposals?.some((item) => item.taskId === task.id)) setScheduleError("The engine did not place this task.");
+                    } catch (err) { setScheduleError(err instanceof Error ? err.message : "Could not auto-schedule this task."); }
+                  }}
+                />
+              ) : null}
+              {!isInactive && (task.blocks ?? []).length > 0 ? (
+                <ListRow
+                  key="__clear"
+                  tone="danger"
+                  title="Clear all time"
+                  onPress={() =>
+                    setConfirm({
+                      title: "Clear all reserved time?",
+                      message: "Every work block on this task will be removed.",
+                      confirmLabel: "Clear",
+                      onConfirm: () => clearBlocks.mutate(task.id),
+                    })
+                  }
+                />
+              ) : null}
+            </ListGroup>
+            ) : null}
+            {scheduleError ? <Text style={styles.error}>{scheduleError}</Text> : null}
+            {!isInbox && !isInactive ? (
+              <>
+                <GroupLabel>Auto-schedule</GroupLabel>
+                <ListGroup>
+                  <SwitchRow
+                    title="Pin task"
+                    meta="Auto-schedule will not move it"
+                    value={Boolean(task.scheduleLocked)}
+                    onChange={(locked) => pinTask.mutate({ taskId: task.id, locked })}
+                  />
+                  <SwitchRow title="One sitting" meta="Place it as one block" value={Boolean(task.contiguous)} onChange={(contiguous) => persist({ contiguous })} />
+                  <ListRow
+                    title="Minimum chunk"
+                    trailing={
+                      <SegmentedControl
+                        size="sm"
+                        accessibilityLabel="Minimum chunk"
+                        options={[15, 30, 45, 60].map((minutes) => ({ label: `${minutes}m`, value: String(minutes) }))}
+                        value={String(task.minChunkMinutes ?? 15)}
+                        onChange={(next) => persist({ minChunkMinutes: Number(next) })}
+                      />
+                    }
+                  />
+                  <ListRow
+                    title="Preferred chunk"
+                    trailing={
+                      <SegmentedControl
+                        size="sm"
+                        accessibilityLabel="Preferred chunk"
+                        options={[{ label: "Any", value: "any" }, ...[30, 60, 90].map((minutes) => ({ label: `${minutes}m`, value: String(minutes) }))]}
+                        value={task.preferredChunkMinutes == null ? "any" : String(task.preferredChunkMinutes)}
+                        onChange={(next) => persist({ preferredChunkMinutes: next === "any" ? null : Number(next) })}
+                      />
+                    }
+                  />
+                  <ListRow
+                    title="Earliest start"
+                    trailing={
+                      task.earliestStartAt
+                        ? `${formatRelativeDay(new Date(task.earliestStartAt), workingHoursZone)} ${formatTime(task.earliestStartAt)}`
+                        : "Any time"
+                    }
+                    onPress={() => setPicker("earliest")}
+                  />
+                  <ListRow
+                    title="Work hours"
+                    trailing={
+                      <View style={styles.pills}>
+                        <TimeField
+                          compact
+                          clearable
+                          label="Work from"
+                          placeholder="Any"
+                          value={preferStart}
+                          onChange={(start) => {
+                            setPreferStart(start);
+                            persist({ preferredWindows: preferredWindowsPayload(start, preferEnd) });
+                          }}
+                        />
+                        <Text style={styles.pillDash}>–</Text>
+                        <TimeField
+                          compact
+                          clearable
+                          label="Work until"
+                          placeholder="Any"
+                          value={preferEnd}
+                          onChange={(end) => {
+                            setPreferEnd(end);
+                            persist({ preferredWindows: preferredWindowsPayload(preferStart, end) });
+                          }}
+                        />
+                      </View>
+                    }
+                  />
+                </ListGroup>
+              </>
+            ) : null}
+          </View>
+        )}
+
+        {!isReminder ? (
+          <CustomFieldsGroup
+            workspace={workspace}
+            workspaceId={task.workspaceId || metaWorkspaceId}
+            values={customFieldValues}
+            onValues={(next) => {
+              setCustomFieldValues(next);
+              scheduleSave({ customFieldValues: next });
             }}
-            style={[styles.addBtn, !childTitle.trim() && styles.addBtnDisabled]}
-          >
-            <Text style={styles.addBtnText}>Add item</Text>
-          </Pressable>
-        </View>
-        </View>
-        </> : null}
-        <View style={styles.sectionCard}>
-        <TaskSectionHeader icon={<History size={18} color={colors.primary} />} title="Activity & Comments" subtitle="Latest system events" badge={`${(activity.data ?? []).length} event${(activity.data ?? []).length === 1 ? "" : "s"}`} badgeTone="muted" />
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          nestedScrollEnabled
-          showsVerticalScrollIndicator={(activity.data ?? []).length > 4}
-          style={(activity.data ?? []).length > 4 ? styles.activityLog : undefined}
-        >
-          {(activity.data ?? []).map((row) => (
-            <View key={row.id} style={styles.activityRow}>
-              <View style={styles.activityDot} />
-              <Text style={styles.activity}><Text style={styles.activityActor}>{row.actorName}</Text> · {row.message}</Text>
-            </View>
-          ))}
-        </ScrollView>
-        <Field value={commentText} onChangeText={setCommentText} placeholder="Add a comment" autoCapitalize="sentences" />
-        <PrimaryButton
-          label="Comment"
-          disabled={!commentText.trim()}
-          onPress={() => {
-            comment.mutate({ id: task.id, comment: commentText.trim() });
-            setCommentText("");
-          }}
-        />
+          />
+        ) : null}
+
+        {!isReminder ? (
+          <View style={styles.section}>
+            <GroupLabel aside={(task.actualMinutes ?? 0) > 0 ? `${task.actualMinutes}m focused` : undefined}>Actions</GroupLabel>
+            <ListGroup>
+              {!isInactive ? (
+                <ListRow
+                  key="focus"
+                  leading={<Play size={16} color={colors.foreground} fill={task.focusStartedAt ? colors.foreground : "transparent"} />}
+                  title={task.focusStartedAt ? "Stop focus" : task.focusPausedAt ? "Resume focus" : "Start focus"}
+                  chevron={false}
+                  onPress={() =>
+                    task.focusStartedAt
+                      ? void stopFocus.mutateAsync(task.id)
+                      : void startFocus.mutateAsync(task.id)
+                  }
+                />
+              ) : null}
+              {!isInactive ? (
+                <ListRow
+                  key="today"
+                  leading={<Star size={16} color={onToday ? colors.warning : colors.foreground} fill={onToday ? colors.warning : "transparent"} />}
+                  title={onToday ? "On Today" : "Add to Today"}
+                  trailing={onToday ? "Remove" : undefined}
+                  chevron={false}
+                  onPress={() =>
+                    void setTodayFocus.mutateAsync({
+                      id: task.id,
+                      date: onToday ? null : localDateStamp(),
+                    })
+                  }
+                />
+              ) : null}
+              <ListRow
+                key="duplicate"
+                leading={<Copy size={16} color={colors.foreground} />}
+                title="Duplicate"
+                chevron={false}
+                onPress={() =>
+                  void duplicate.mutateAsync(task.id).then((copy) => router.push(`/(app)/tasks/${copy.id}`))
+                }
+              />
+            </ListGroup>
+          </View>
+        ) : null}
+
+        {!isReminder ? (
+          <View style={styles.section}>
+            <GroupLabel aside={combinedTotal ? `${combinedDone} of ${combinedTotal} done` : undefined}>Checklist</GroupLabel>
+            <ListGroup>
+              {checklist.map((item) => (
+                <AnimatedPressable
+                  key={item.id}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: Boolean(item.completedAt) }}
+                  onPress={() =>
+                    void toggleCheck.mutateAsync({
+                      id: task.id,
+                      itemId: item.id,
+                      completed: !item.completedAt,
+                    })
+                  }
+                  onLongPress={() => void removeCheck.mutateAsync({ id: task.id, itemId: item.id })}
+                  style={styles.checkRow}
+                >
+                  <View style={[styles.checkbox, item.completedAt && styles.checkboxDone]}>
+                    {item.completedAt ? <Check size={11} color={colors.primaryForeground} strokeWidth={3} /> : null}
+                  </View>
+                  <Text style={[styles.checkText, item.completedAt && styles.checkTextDone]}>{item.title}</Text>
+                </AnimatedPressable>
+              ))}
+              <View key="__add" style={styles.checkRow}>
+                <Plus size={18} color={colors.primary} />
+                <View style={styles.inlineField}>
+                  <Field value={childTitle} onChangeText={setChildTitle} bare placeholder="Add checklist item" autoCapitalize="sentences" />
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={!childTitle.trim()}
+                  hitSlop={8}
+                  onPress={() => {
+                    const title = childTitle.trim();
+                    if (!title) return;
+                    void addCheck.mutateAsync({ id: task.id, title }).then(() => setChildTitle(""));
+                  }}
+                >
+                  <Text style={[styles.inlineAction, !childTitle.trim() && styles.inlineActionOff]}>Add</Text>
+                </Pressable>
+              </View>
+            </ListGroup>
+            {combinedTotal ? <GroupHint>Tap to tick, hold to remove.</GroupHint> : null}
+          </View>
+        ) : null}
+
+        <View style={styles.section}>
+          <GroupLabel aside={(activity.data ?? []).length ? String((activity.data ?? []).length) : undefined}>Activity</GroupLabel>
+          <ListGroup>
+            {(activity.data ?? []).length > 0 ? (
+              (activity.data ?? []).length > 4 ? (
+                <ScrollView
+                  key="log"
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator={false}
+                  style={styles.activityLog}
+                  contentContainerStyle={styles.activityPad}
+                >
+                  {activityRows}
+                </ScrollView>
+              ) : (
+                // A short log needs no scroller; on Android one sized to its
+                // content cut off the last wrapped line.
+                <View key="log" style={styles.activityPad}>
+                  {activityRows}
+                </View>
+              )
+            ) : null}
+            <FocusGroup key="__comment">
+              <View style={styles.checkRow}>
+                <View style={styles.inlineField}>
+                  <Field value={commentText} onChangeText={setCommentText} bare placeholder="Add a comment" autoCapitalize="sentences" />
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={!commentText.trim()}
+                  hitSlop={8}
+                  onPress={() => {
+                    comment.mutate({ id: task.id, comment: commentText.trim() });
+                    setCommentText("");
+                  }}
+                >
+                  <Text style={[styles.inlineAction, !commentText.trim() && styles.inlineActionOff]}>Send</Text>
+                </Pressable>
+              </View>
+            </FocusGroup>
+          </ListGroup>
         </View>
         {task.kind !== "inbox" && (
           <RelatedList
             kind="task"
             id={task.id}
-            style={styles.sectionCard}
-            heading={<TaskSectionHeader icon={<Sparkles size={18} color={colors.primary} />} title="Related" subtitle="Similar work, docs and projects" />}
+            style={styles.relatedCard}
+            heading={<Text style={styles.relatedHeading}>Related</Text>}
           />
         )}
-        <Pressable
-          onPress={() =>
-            setConfirm({
-              title: "Delete task",
-              message: "This cannot be undone.",
-              onConfirm: () => remove.mutate(task.id, { onSuccess: () => router.replace("/(app)/(tabs)/tasks") }),
-            })
-          }
-          style={styles.delete}
-        >
-          <Trash2 size={16} color={colors.destructive} />
-          <Text style={styles.deleteText}>Delete task</Text>
-        </Pressable>
+        <ListGroup>
+          <ListRow
+            tone="danger"
+            leading={<Trash2 size={16} color={colors.destructive} />}
+            title="Delete task"
+            onPress={() =>
+              setConfirm({
+                title: "Delete task",
+                message: "This cannot be undone.",
+                onConfirm: () => remove.mutate(task.id, { onSuccess: () => router.replace("/(app)/(tabs)/tasks") }),
+              })
+            }
+          />
+        </ListGroup>
       </FocusGroupScrollView>
 
       <BottomSheet open={picker === "status"} onClose={() => setPicker(null)} title="Status">
@@ -983,15 +1023,29 @@ export default function TaskDetailScreen() {
         }
         onClose={() => setPicker(null)}
         onChange={(next) => {
-          if (picker === "due") persist({ deadline: next ? toDateInputValue(next) : null });
+          // The server refuses a start after the deadline; say so up front
+          // instead of letting the save fail and the value snap back.
+          if (picker === "due") {
+            const deadline = next ? toDateInputValue(next) : null;
+            const start = dateOnly(task.startDate);
+            if (deadline && start && deadline < start) {
+              useToastStore.getState().show(`Deadline can’t be before the start date (${formatShortDay(start)}).`);
+              return;
+            }
+            persist({ deadline });
+          }
           if (picker === "start") {
             if (!next) {
               persist({ startDate: null });
               return;
             }
-            persist({
-              startDate: toDateInputValue(next),
-            });
+            const start = toDateInputValue(next);
+            const deadline = dateOnly(task.deadline);
+            if (deadline && start > deadline) {
+              useToastStore.getState().show(`Start date can’t be after the deadline (${formatShortDay(deadline)}).`);
+              return;
+            }
+            persist({ startDate: start });
           }
           if (picker === "earliest") persist({ earliestStartAt: next ? next.toISOString() : null });
           if (picker === "preferStart") {
@@ -1035,12 +1089,32 @@ export default function TaskDetailScreen() {
   );
 }
 
-function ActionTile({ icon, label, active, onPress }: { icon: ReactNode; label: string; active?: boolean; onPress: () => void }) {
+/** A row's value with an optional colour dot (a project, a status). */
+function RowValue({ text, dot }: { text: string; dot?: string | null }) {
   return (
-    <AnimatedPressable onPress={onPress} style={[styles.actionTile, active && styles.actionTileActive]}>
-      <View style={styles.actionIcon}>{icon}</View>
-      <Text style={styles.actionTileText}>{label}</Text>
-    </AnimatedPressable>
+    <View style={styles.value}>
+      {dot ? <ColorDot color={dot} size={8} /> : null}
+      <Text numberOfLines={1} style={styles.valueText}>{text}</Text>
+    </View>
+  );
+}
+
+function PriorityRow({ level, onPress }: { level?: string | null; onPress: () => void }) {
+  const meta = level ? PRIORITY_META[level] : undefined;
+  // Only a raised priority earns a colour.
+  const tint = level === "High" || level === "Urgent" ? meta?.color : undefined;
+  return (
+    <ListRow
+      title="Priority"
+      trailing={
+        <View style={styles.value}>
+          {tint ? <Flag size={14} color={tint} /> : null}
+          <Text numberOfLines={1} style={[styles.valueText, tint ? { color: tint } : null]}>{meta?.label ?? level ?? "None"}</Text>
+        </View>
+      }
+      onPress={onPress}
+      accessibilityLabel={`Priority, ${meta?.label ?? level ?? "None"}`}
+    />
   );
 }
 
@@ -1056,64 +1130,32 @@ const styles = createThemedStyleSheet((colors) => ({
     height: 32,
   },
   completeText: { color: colors.primaryForeground, fontSize: 13, fontWeight: "600" },
-  objectiveCard: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 16, gap: 7 },
-  eyebrow: { color: colors.mutedForeground, fontSize: 11, fontWeight: "600", letterSpacing: 0.9, fontVariant: ["tabular-nums"] },
-  rowAction: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600" },
-  reminderChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    borderRadius: 8,
-    backgroundColor: colors.accent,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  reminderChipText: { color: colors.accentForeground, fontSize: 12, fontWeight: "600" },
-  section: { color: colors.mutedForeground, fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.9, marginTop: 4, fontVariant: ["tabular-nums"] },
-  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 2 },
-  progressText: { color: colors.success, fontSize: 11, fontWeight: "600", fontVariant: ["tabular-nums"] },
-  progressTrack: { height: 6, borderRadius: 999, backgroundColor: colors.muted, overflow: "hidden", width: "100%" },
-  progressFill: { height: "100%", borderRadius: 999, backgroundColor: colors.success },
-  sectionCard: { gap: 13, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 16 },
-  editorCard: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 16 },
-  actionGrid: { flexDirection: "row", gap: 8 },
-  actionTile: { flex: 1, minWidth: 0, minHeight: 88, alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, paddingHorizontal: 5, paddingVertical: 9 },
-  actionTileActive: { borderColor: colors.primary, backgroundColor: colors.accent },
-  actionIcon: { width: 34, height: 34, borderRadius: 12, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center" },
-  actionTileText: { color: colors.foreground, fontSize: 11, lineHeight: 15, fontWeight: "600", textAlign: "center", flexShrink: 1 },
-  checkRow: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.background },
+  titleCard: { borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, paddingHorizontal: 14, paddingVertical: 12 },
+  section: { gap: 6 },
+  value: { flexShrink: 1, maxWidth: 190, flexDirection: "row", alignItems: "center", gap: 6 },
+  valueText: { flexShrink: 1, color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
+  overdue: { color: colors.destructive, fontSize: 13, fontWeight: "600" },
+  rowActions: { flexDirection: "row", alignItems: "center", gap: 14 },
+  rowAction: { color: colors.primary, fontSize: 13, fontWeight: "600" },
+  error: { color: colors.destructive, fontSize: 12, lineHeight: 17, marginTop: 6, marginHorizontal: 4 },
+  pills: { flexDirection: "row", alignItems: "center", gap: 6 },
+  pillDash: { color: colors.mutedForeground, fontSize: 13 },
+  checkRow: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 6 },
   checkbox: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, borderColor: colors.mutedForeground, alignItems: "center", justifyContent: "center" },
   checkboxDone: { borderColor: colors.success, backgroundColor: colors.success },
-  checkText: { flex: 1, color: colors.foreground, fontSize: 12 },
+  checkText: { flex: 1, color: colors.foreground, fontSize: 15 },
   checkTextDone: { color: colors.mutedForeground, textDecorationLine: "line-through" },
-  addActions: { flexDirection: "row", gap: 8 },
-  addBtn: { flex: 1, minHeight: 44, borderRadius: 12, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
-  addBtnSecondary: { backgroundColor: colors.secondary },
-  addBtnDisabled: { opacity: 0.4 },
-  addBtnText: { color: colors.primaryForeground, fontSize: 13, fontWeight: "600" },
-  addBtnSecondaryText: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
-  preferRow: { flexDirection: "row", gap: 8 },
-  preferBtn: { flex: 1, minWidth: 0, minHeight: 62, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.background, paddingHorizontal: 12, paddingVertical: 8, justifyContent: "center", gap: 2 },
-  preferLabel: { color: colors.mutedForeground, fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.6, fontVariant: ["tabular-nums"] },
-  preferValue: { color: colors.foreground, fontSize: 13, fontWeight: "600", flexShrink: 1 },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  block: { flexDirection: "row", alignItems: "center", gap: 9, borderRadius: 16, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, padding: 12 },
-  blockIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center" },
-  blockCopy: { flex: 1, minWidth: 0, gap: 2 },
-  blockDate: { color: colors.foreground, fontSize: 12, fontWeight: "600", lineHeight: 17 },
-  blockText: { color: colors.accentForeground, fontSize: 12, lineHeight: 17, flexShrink: 1 },
-  scheduleActions: { flexDirection: "row", gap: 8 },
-  scheduleSecondary: { flex: 1, minWidth: 0, minHeight: 48, borderRadius: 16, backgroundColor: colors.muted, borderWidth: 1, borderColor: colors.border, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 6 },
-  schedulePrimary: { flex: 1, minWidth: 0, minHeight: 48, borderRadius: 16, backgroundColor: colors.primary, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 6 },
-  scheduleActionText: { color: colors.foreground, fontSize: 11, fontWeight: "600", textAlign: "center", flexShrink: 1 },
-  schedulePrimaryText: { color: colors.primaryForeground, fontSize: 11, fontWeight: "600", textAlign: "center", flexShrink: 1 },
-  constraintLabel: { color: colors.mutedForeground, fontSize: 12, fontWeight: "600", lineHeight: 18 },
-  constraintValue: { color: colors.primary, fontWeight: "600" },
-  activity: { color: colors.mutedForeground, fontSize: 12, lineHeight: 17, flexShrink: 1 },
-  activityLog: { maxHeight: 156 },
-  activityRow: { minHeight: 39, flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 3 },
+  inlineField: { flex: 1, minWidth: 0 },
+  inlineAction: { color: colors.primary, fontSize: 14, fontWeight: "600" },
+  inlineActionOff: { color: colors.mutedForeground, opacity: 0.6 },
+  // `flex: 1`, not `flexShrink`: on Android a shrinking Text with nested Text was
+  // measured narrow and one line tall, cutting off the wrapped words.
+  activity: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18, flex: 1, minWidth: 0 },
+  activityLog: { maxHeight: 180, flexGrow: 0 },
+  activityPad: { paddingHorizontal: 14, paddingVertical: 8 },
+  activityRow: { minHeight: 32, flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 3 },
   activityDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primary, marginTop: 6 },
   activityActor: { color: colors.foreground, fontWeight: "600" },
-  delete: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, paddingVertical: 16 },
-  deleteText: { color: colors.destructive, fontWeight: "600" },
+  relatedCard: { gap: 8, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 14 },
+  relatedHeading: { color: colors.foreground, fontSize: 14, fontWeight: "600" },
 }));

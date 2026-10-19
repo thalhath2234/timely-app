@@ -1,5 +1,8 @@
 "use client";
 
+import { StrikeTitle, TaskCheck } from "@/app/_components/_ui/taskCheck";
+import { motion } from "motion/react";
+import { revealProps } from "@/app/_components/_ui/motion";
 import {
   Fragment,
   useCallback,
@@ -16,7 +19,6 @@ import { createPortal } from "react-dom";
 import {
   ArrowLeftToLine,
   ArrowRightToLine,
-  Check,
   ChevronDown,
   ChevronRight,
   CopyCheck,
@@ -40,13 +42,15 @@ import { cn } from "@/app/utils/cn";
 import { resolvedColor, taskEntityColor } from "@/app/utils/entityColor";
 import { normalizePriority, priorityColor } from "@/app/utils/priority";
 import { filterTasks, type TaskListFilters } from "@/app/utils/taskFilters";
+import { bucketGroupLabels, bucketGroupRank, queryContext, sortTasks, type QueryContext } from "@timely/contract/taskQuery";
 import ColorChip from "@/app/_components/_ui/colorChip";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useTaskContextMenu } from "@/app/utils/hooks/useTaskContextMenu";
 import { useProjectContextMenu } from "@/app/utils/hooks/useProjectContextMenu";
 import { tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
-import { useToastStore } from "@/app/_store/toastStore";
+import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import { entityTitleKey } from "@/app/utils/titleMorph";
+import { plural } from "@/app/utils/plural";
 
 type TasksTableProps = {
   config: Config;
@@ -57,6 +61,12 @@ type TasksTableProps = {
   selectedWorkspaceIds: string[];
   sortBy: TaskViewSortBy;
   sortDirection: TaskListSortDirection;
+  thenSortBy?: TaskViewSortBy;
+  thenSortDirection?: TaskListSortDirection;
+  /** Show only the first rows after sorting. */
+  limit?: number;
+  /** Shown instead of "No tasks yet." when the list is empty. */
+  emptyText?: string;
   columnOrder: string[];
   onColumnOrderChange: (order: string[]) => void;
   onSelectRow: (row: Task) => void;
@@ -252,22 +262,6 @@ function scheduledStamp(task: Task): string | null | undefined {
   return task.scheduledOn || task.blocks?.[0]?.start;
 }
 
-function getPriorityWeight(priority?: string | null): number {
-  switch ((priority ?? "").trim().toLowerCase()) {
-    case "critical":
-    case "urgent":
-      return 4;
-    case "high":
-      return 3;
-    case "medium":
-      return 2;
-    case "low":
-      return 1;
-    default:
-      return 0;
-  }
-}
-
 function getCustomFieldDisplayValue(task: Task, fieldId: string): string {
   const value = task.customFieldValues?.find((entry) => entry.customFieldId === fieldId);
   if (!value) return "-";
@@ -333,6 +327,25 @@ function getGroupMeta(
   groupBy: TaskListGroupField,
   stageNames: Record<string, string> = {},
   stageColors: Record<string, string> = {},
+  ctx?: QueryContext,
+): { label: string; color: string | null }[] {
+  // Dates, labels, effort and done/repeating are bucketed by the shared
+  // engine so web and phone agree; a task with two labels sits in both.
+  const buckets = ctx ? bucketGroupLabels(task, groupBy, ctx) : undefined;
+  if (buckets) {
+    return buckets.map((label) => ({
+      label,
+      color: groupBy === "label" ? task.labels?.find((item) => item.name === label)?.color ?? null : null,
+    }));
+  }
+  return [singleGroupMeta(task, groupBy, stageNames, stageColors)];
+}
+
+function singleGroupMeta(
+  task: Task,
+  groupBy: TaskListGroupField,
+  stageNames: Record<string, string>,
+  stageColors: Record<string, string>,
 ): { label: string; color: string | null } {
   if (groupBy === "workspace") {
     return {
@@ -368,7 +381,8 @@ function compareGroupLabel(
   a: string,
   b: string,
   direction: TaskListGroupSortDirection,
-  customOrder?: string[]
+  customOrder?: string[],
+  field?: TaskListGroupField,
 ): number {
   if (customOrder && customOrder.length > 0) {
     const aIndex = customOrder.indexOf(a);
@@ -382,7 +396,12 @@ function compareGroupLabel(
     if (bIndex >= 0) return 1;
   }
 
-  const compared = a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
+  const aRank = field ? bucketGroupRank(field, a) : undefined;
+  const bRank = field ? bucketGroupRank(field, b) : undefined;
+  const compared =
+    aRank !== undefined && bRank !== undefined
+      ? aRank - bRank
+      : a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
   return direction === "asc" ? compared : compared * -1;
 }
 
@@ -393,6 +412,7 @@ function buildNestedGroups(
   groupValueOrders: Record<string, string[]>,
   stageNames: Record<string, string> = {},
   stageColors: Record<string, string> = {},
+  ctx?: QueryContext,
   depth = 0,
   parentKey = ""
 ): GroupNode[] {
@@ -402,32 +422,40 @@ function buildNestedGroups(
   const grouped = new Map<string, { color: string | null; rows: Task[] }>();
 
   rows.forEach((task) => {
-    const meta = getGroupMeta(task, field, stageNames, stageColors);
-    const existing = grouped.get(meta.label);
-    if (existing) {
-      existing.rows.push(task);
-      if (!existing.color && meta.color) existing.color = meta.color;
-    } else {
-      grouped.set(meta.label, { color: meta.color, rows: [task] });
+    for (const meta of getGroupMeta(task, field, stageNames, stageColors, ctx)) {
+      const existing = grouped.get(meta.label);
+      if (existing) {
+        existing.rows.push(task);
+        if (!existing.color && meta.color) existing.color = meta.color;
+      } else {
+        grouped.set(meta.label, { color: meta.color, rows: [task] });
+      }
     }
   });
 
   return Array.from(grouped.entries())
     .sort(([aLabel], [bLabel]) =>
-      compareGroupLabel(aLabel, bLabel, groupSortDirection, groupValueOrders[field])
+      compareGroupLabel(aLabel, bLabel, groupSortDirection, groupValueOrders[field], field)
     )
     .map(([label, group]) => {
       const nodeKey = parentKey ? `${parentKey}::${label}` : label;
-      const children = buildNestedGroups(
+      let children = buildNestedGroups(
         group.rows,
         groupFields,
         groupSortDirection,
         groupValueOrders,
         stageNames,
         stageColors,
+        ctx,
         depth + 1,
         nodeKey
       );
+      // A single "No stage" (or other empty) sub-group under a group adds a
+      // header and an indent without splitting anything: its rows sit
+      // straight under the parent instead.
+      if (children.length === 1 && isPlaceholderGroup(children[0].label, children[0].field)) {
+        children = children[0].children;
+      }
 
       return {
         key: nodeKey,
@@ -440,31 +468,6 @@ function buildNestedGroups(
         rows: group.rows,
       };
     });
-}
-
-function compareTasks(a: Task, b: Task, sortBy: TaskViewSortBy): number {
-  switch (sortBy) {
-    case "name":
-      return (a.name || "").localeCompare(b.name || "");
-    case "deadline":
-      return (new Date(a.deadline || "").getTime() || 0) - (new Date(b.deadline || "").getTime() || 0);
-    case "scheduledOn":
-      return (new Date(a.scheduledOn || a.blocks?.[0]?.start || "").getTime() || 0) - (new Date(b.scheduledOn || b.blocks?.[0]?.start || "").getTime() || 0);
-    case "startDate":
-      return (new Date(a.startDate || "").getTime() || 0) - (new Date(b.startDate || "").getTime() || 0);
-    case "createdAt":
-      return (new Date(a.createdAt || "").getTime() || 0) - (new Date(b.createdAt || "").getTime() || 0);
-    case "priority":
-      return getPriorityWeight(a.priorityLevel) - getPriorityWeight(b.priorityLevel);
-    case "status":
-      return (a.status?.name || "").localeCompare(b.status?.name || "");
-    case "project":
-      return (a.project?.title || "").localeCompare(
-        b.project?.title || ""
-      );
-    default:
-      return 0;
-  }
 }
 
 function getBlockedByDisplayValue(task: Task): string {
@@ -529,6 +532,10 @@ export default function TasksTable({
   selectedWorkspaceIds,
   sortBy,
   sortDirection,
+  thenSortBy,
+  thenSortDirection,
+  limit,
+  emptyText,
   columnOrder,
   onColumnOrderChange,
   onSelectRow,
@@ -567,18 +574,17 @@ export default function TasksTable({
     });
   }, [dataRows, selectedWorkspaceIds, filters]);
 
-  const sortedTasks = useMemo(() => {
-    const sorted = [...filteredRows].sort((a, b) => {
-      const compared = compareTasks(a, b, sortBy);
-      return sortDirection === "asc" ? compared : compared * -1;
-    });
+  const timeZone = config.workingHours?.timezone;
+  const queryCtx = useMemo(() => queryContext(typedTasks, timeZone, new Date(), stageNames), [typedTasks, timeZone, stageNames]);
 
-    return sorted;
-  }, [filteredRows, sortBy, sortDirection]);
+  const sortedTasks = useMemo(() => {
+    const sorted = sortTasks(filteredRows, { sortBy, sortDirection, thenSortBy, thenSortDirection }, queryCtx);
+    return limit && limit > 0 ? sorted.slice(0, limit) : sorted;
+  }, [filteredRows, sortBy, sortDirection, thenSortBy, thenSortDirection, limit, queryCtx]);
 
   const nestedGroups = useMemo(
-    () => buildNestedGroups(sortedTasks, groupFields, groupSortDirection, groupValueOrders, stageNames, stageColors),
-    [sortedTasks, groupFields, groupSortDirection, groupValueOrders, stageNames, stageColors]
+    () => buildNestedGroups(sortedTasks, groupFields, groupSortDirection, groupValueOrders, stageNames, stageColors, queryCtx),
+    [sortedTasks, groupFields, groupSortDirection, groupValueOrders, stageNames, stageColors, queryCtx]
   );
 
   const toggleGroup = (key: string) => {
@@ -758,7 +764,7 @@ export default function TasksTable({
           onSelect: () => {
             void navigator.clipboard
               .writeText(node.rows.map((task) => task.name).join("\n"))
-              .then(() => useToastStore.getState().show(`Copied ${groupIds.length} names`))
+              .then(() => useToastStore.getState().show(`Copied ${plural(groupIds.length, "name")}`))
               .catch(() => useToastStore.getState().show("Could not copy to clipboard"));
           },
         },
@@ -1008,7 +1014,7 @@ export default function TasksTable({
   }
 
   if (!sortedTasks.length) {
-    return <div className="p-4 text-sm text-muted-foreground">No tasks yet.</div>;
+    return <div className="p-4 text-sm text-muted-foreground">{emptyText ?? "No tasks yet."}</div>;
   }
 
   const headerCellClass =
@@ -1078,35 +1084,46 @@ export default function TasksTable({
           >
             <span className="inline-flex min-w-0 items-center gap-2">
               {dataMode === "task" ? (
-                <button
-                  type="button"
-                  role="checkbox"
-                  aria-checked={completed}
-                  aria-label={`${completed ? "Reopen" : "Complete"} ${task.name}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
+                <TaskCheck
+                  checked={completed}
+                  size={16}
+                  stopPropagation
+                  label={`${completed ? "Reopen" : "Complete"} ${task.name}`}
+                  onToggle={() => {
                     const next = completed ? "" : new Date().toISOString();
+                    const previous = {
+                      completedAt: task.completedAt ?? "",
+                      statusId: task.status?.id ?? task.statusId ?? "",
+                    };
                     patchTaskInCache(queryClient, task.id, { completedAt: next || null });
-                    void updateTask.mutateAsync({ id: task.id, completedAt: next }).catch(() => {
-                      patchTaskInCache(queryClient, task.id, { completedAt: task.completedAt });
-                      useToastStore.getState().show("Could not update task");
-                    });
+                    void updateTask
+                      .mutateAsync({ id: task.id, completedAt: next })
+                      .then(() => {
+                        // Same toast as the context menu, detail panel and Today.
+                        showUndoToast(completed ? "Reopened" : "Marked complete", () => {
+                          patchTaskInCache(queryClient, task.id, { completedAt: previous.completedAt || null });
+                          void updateTask.mutateAsync({ id: task.id, ...previous }).catch(() => {
+                            useToastStore.getState().show("Could not undo");
+                          });
+                        });
+                      })
+                      .catch(() => {
+                        patchTaskInCache(queryClient, task.id, { completedAt: task.completedAt });
+                        useToastStore.getState().show("Could not update task");
+                      });
                   }}
-                  className={cn("flex size-4 shrink-0 items-center justify-center rounded-full border", completed ? "border-success bg-success text-white" : "border-muted-foreground hover:border-primary")}
-                >
-                  {completed ? <Check className="size-3" aria-hidden /> : null}
-                </button>
+                />
               ) : <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: taskEntityColor(task) }} aria-hidden />}
-              <span
+              <StrikeTitle
+                done={completed}
                 data-entity-title={
                   task.id.startsWith("project-")
                     ? entityTitleKey("project", task.id.slice("project-".length))
                     : entityTitleKey("task", task.id)
                 }
-                className={cn("truncate", completed && "line-through")}
               >
                 {task.name}
-              </span>
+              </StrikeTitle>
             </span>
           </td>
         );
@@ -1362,16 +1379,17 @@ export default function TasksTable({
 
         <tbody>
           {groupFields.length === 0 &&
-            sortedTasks.map((task) => (
-              <tr
+            sortedTasks.map((task, index) => (
+              <motion.tr
                 key={task.id}
+                {...revealProps(index)}
                 onClick={() => onSelectRow(task)}
                 onContextMenu={(event) => onRowContextMenu(event, task)}
                 className="group cursor-pointer bg-background transition-colors hover:bg-muted"
               >
                 {selectCell(task)}
                 {renderTaskCells(task, 0)}
-              </tr>
+              </motion.tr>
             ))}
 
           {groupFields.length > 0 &&
@@ -1487,16 +1505,17 @@ export default function TasksTable({
                     {!isCollapsed &&
                       (node.children.length > 0
                         ? node.children.map((child) => renderNode(child))
-                        : node.rows.map((task) => (
-                            <tr
+                        : node.rows.map((task, index) => (
+                            <motion.tr
                               key={task.id}
+                              {...revealProps(index)}
                               onClick={() => onSelectRow(task)}
                               onContextMenu={(event) => onRowContextMenu(event, task)}
                               className="group cursor-pointer bg-background transition-colors hover:bg-muted"
                             >
                               {selectCell(task)}
                               {renderTaskCells(task, node.depth + 1)}
-                            </tr>
+                            </motion.tr>
                           ))) }
                   </Fragment>
                 );

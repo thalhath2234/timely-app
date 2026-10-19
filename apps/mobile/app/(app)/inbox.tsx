@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from "react";
-import { Alert, Keyboard, KeyboardAvoidingView, Platform, RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
+import { useState } from "react";
+import ListEnter from "../../components/ui/ListEnter";
+import { ChangeTint, StatNumber, useChangeKey } from "../../components/ui/motionKit";
+import { Alert, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ChevronRight, Clock, Inbox, Sparkles, Trash2 } from "lucide-react-native";
-import { inboxAge, inboxQueue, inboxSuggestionSummary, skipInboxItem, type InboxAge } from "@timely/contract/inbox";
+import { ChevronRight, Inbox, Sparkles, Trash2 } from "lucide-react-native";
+import { inboxAge, inboxQueue, inboxSuggestionRows, inboxSuggestionSummary, skipInboxItem, type InboxAge } from "@timely/contract/inbox";
 import Screen from "../../components/ui/Screen";
 import MobileHeader from "../../components/ui/MobileHeader";
 import EmptyState from "../../components/ui/EmptyState";
@@ -11,8 +13,10 @@ import { Button } from "../../components/ui/primitives";
 import AnimatedPressable from "../../components/ui/AnimatedPressable";
 import ConfirmSheet from "../../components/ui/ConfirmSheet";
 import { LogoSpinner } from "../../components/ui/TimelyLogo";
+import InboxCapture from "../../components/inbox/InboxCapture";
+import { ListGroup, ListRow } from "../../components/settings/SettingsList";
+import { useKeyboardCover } from "../../components/ui/useKeyboardCover";
 import {
-  useCaptureInbox,
   useDecisionsStatusQuery,
   useDeleteTask,
   useInboxQuery,
@@ -40,29 +44,37 @@ function Suggestion({ task, onOpenTask }: { task: Task; onOpenTask: (id: string)
   // Asked with suggestions off too: plain code still reads "Remind me…" and dates.
   const suggestions = useInboxSuggestionsQuery(task.id);
   const spaces = useWorkspacesQuery().data ?? [];
-  if (suggestions.isLoading) {
-    if (!on) return null;
-    return (
-      <View style={styles.suggestion}>
-        <LogoSpinner size={14} />
-        <Text style={styles.suggestionMuted}>Getting a suggestion…</Text>
-      </View>
-    );
-  }
   const s = suggestions.data?.available ? suggestions.data : undefined;
-  if (!s) return null;
-  const summary = inboxSuggestionSummary(s, spaces.find((space) => space.id === s.workspaceId)?.name, task.id);
-  if (!summary.line && !summary.note && summary.duplicates.length === 0) return null;
+  const workspaceName = s ? spaces.find((space) => space.id === s.workspaceId)?.name : undefined;
+  const rows = inboxSuggestionRows(s, workspaceName);
+  const summary = s ? inboxSuggestionSummary(s, workspaceName, task.id) : undefined;
+  const thinking = on && suggestions.isLoading;
   return (
+    <View style={{ gap: 10 }}>
+      <ListGroup style={styles.rows}>
+        {rows.map((row) => (
+          <ListRow
+            key={row.label}
+            title={row.label}
+            trailing={
+              <Text numberOfLines={1} style={[styles.rowValue, row.suggested && styles.rowSuggested]}>
+                {row.value}
+                {row.suggested ? <Text style={styles.rowValue}> · suggested</Text> : null}
+              </Text>
+            }
+            chevron={false}
+          />
+        ))}
+      </ListGroup>
+      {thinking ? (
+        <View style={styles.suggestion}>
+          <LogoSpinner size={14} />
+          <Text style={styles.suggestionMuted}>Getting a suggestion…</Text>
+        </View>
+      ) : summary && (summary.note || summary.duplicates.length > 0) ? (
     <View style={styles.suggestion}>
-      <Sparkles size={16} color={colors.primary} />
+      <Sparkles size={14} color={colors.primary} />
       <View style={{ flex: 1, gap: 2 }}>
-        {summary.line ? (
-          <Text style={styles.suggestionText}>
-            <Text style={{ fontWeight: "600" }}>Suggested: </Text>
-            {summary.line}. Review to apply it.
-          </Text>
-        ) : null}
         {summary.note ? <Text style={styles.suggestionMuted}>{summary.note}</Text> : null}
         {summary.duplicates.length > 0 ? (
           <View style={{ gap: 6, marginTop: 2 }} testID="inbox-up-next-duplicates">
@@ -86,6 +98,8 @@ function Suggestion({ task, onOpenTask }: { task: Task; onOpenTask: (id: string)
         ) : null}
       </View>
     </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -93,40 +107,21 @@ export default function InboxScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const inbox = useInboxQuery();
-  const capture = useCaptureInbox();
   const remove = useDeleteTask();
   const zone = useWorkingHoursZone();
-  const [title, setTitle] = useState("");
   // Android draws edge to edge, so the window no longer shrinks for the
-  // keyboard: the composer has to lift itself, and drops the gesture-bar
-  // gap while the keyboard is up.
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
-  useEffect(() => {
-    const show = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", () => setKeyboardOpen(true));
-    const hide = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", () => setKeyboardOpen(false));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
+  // keyboard: the screen lifts the composer itself, and drops the
+  // gesture-bar gap while the keyboard is up.
+  const keyboard = useKeyboardCover();
   const [skipped, setSkipped] = useState<string[]>([]);
   const [deleteItem, setDeleteItem] = useState<{ id: string; name: string } | null>(null);
-  const inputRef = useRef<TextInput>(null);
   const items = inbox.data ?? [];
   const networkCopy = needsNetworkCopy(inbox);
   const { next, rest } = inboxQueue(items, skipped);
   const now = new Date();
   const oldest = items.length > 0 ? inboxAge(inboxQueue(items).next!.createdAt, now, zone) : null;
+  const ages = items.map((item) => inboxAge(item.createdAt, now, zone));
   const review = (id: string) => router.push(`/(app)/tasks/${id}`);
-
-  const onCapture = () => {
-    const name = title.trim();
-    if (!name) return;
-    void capture.mutateAsync(name).then(() => {
-      setTitle("");
-      inputRef.current?.focus();
-    });
-  };
 
   const subtitle =
     items.length === 0
@@ -138,8 +133,8 @@ export default function InboxScreen() {
   return (
     <Screen>
       <MobileHeader title="Inbox" back subtitle={subtitle} />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-        <ScrollView
+      <View style={{ flex: 1, paddingBottom: keyboard }}>
+        <ScrollView showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.body}
           keyboardShouldPersistTaps="handled"
           refreshControl={
@@ -156,25 +151,20 @@ export default function InboxScreen() {
           ) : !next ? (
             <EmptyState
               icon={Inbox}
+              loop="capture"
               title="Inbox zero"
-              description="Nothing is waiting for a decision. Capture anything below and decide later."
-              compact
+              description="Nothing is waiting for a decision. Capture anything below and decide later: a thought becomes a task, a reminder or a note when you review it."
             />
           ) : (
             <>
-              <Text style={styles.section}>Up next</Text>
               {(() => {
                 const age = inboxAge(next.createdAt, now, zone);
                 return (
                   <View style={styles.focus} testID="inbox-up-next">
-                    <View style={[styles.chip, age.stale && styles.chipStale]}>
-                      <Clock size={13} color={age.stale ? colors.warning : colors.mutedForeground} />
-                      <Text style={[styles.chipText, age.stale && { color: colors.foreground }]}>
-                        {upNextAge(age)}
-                      </Text>
-                    </View>
-                    <View style={{ gap: 6 }}>
+                    <View style={{ gap: 4 }}>
+                      <Text style={styles.eyebrow}>Up next · oldest capture</Text>
                       <Text style={styles.focusTitle}>{next.name}</Text>
+                      <Text style={[styles.focusAge, age.stale && { color: colors.warning, fontWeight: "500" }]}>{upNextAge(age)}</Text>
                       {next.description ? (
                         <Text style={styles.focusNote} numberOfLines={2}>
                           {next.description}
@@ -184,22 +174,20 @@ export default function InboxScreen() {
                     <Suggestion key={next.id} task={next} onOpenTask={review} />
                     <View style={styles.focusActions}>
                       <View style={{ flex: 1 }}>
-                        <Button label="Review" size="lg" stretch onPress={() => review(next.id)} />
+                        <Button label="Review" stretch onPress={() => review(next.id)} />
                       </View>
                       {rest.length > 0 ? (
                         <Button
                           label="Later"
                           variant="outline"
-                          size="lg"
                           onPress={() => setSkipped((current) => skipInboxItem(items, current, next.id))}
                         />
                       ) : null}
                       <Button
                         label={`Delete ${next.name}`}
                         variant="destructive-ghost"
-                        size="lg"
                         iconOnly
-                        icon={<Trash2 size={18} color={colors.destructive} />}
+                        icon={<Trash2 size={16} color={colors.destructive} />}
                         onPress={() => setDeleteItem({ id: next.id, name: next.name })}
                       />
                     </View>
@@ -211,71 +199,55 @@ export default function InboxScreen() {
                   <Text style={styles.section}>
                     Also waiting <Text style={styles.sectionCount}>{rest.length}</Text>
                   </Text>
-                  <View style={styles.grid}>
-                    {rest.map((task) => {
+                  <ListGroup testID="inbox-list">
+                    {rest.map((task, index) => {
                       const age = inboxAge(task.createdAt, now, zone);
                       return (
-                        <AnimatedPressable
-                          key={task.id}
-                          accessibilityRole="button"
+                        <ListEnter key={task.id} index={index}>
+                        <ListRow
+                          title={task.name}
                           accessibilityLabel={`Review ${task.name}`}
                           onPress={() => review(task.id)}
                           onLongPress={() => setDeleteItem({ id: task.id, name: task.name })}
-                          wrapStyle={styles.cellWrap}
-                          style={[styles.cell, age.stale && styles.cellStale]}
-                        >
-                          <View style={styles.cellAge}>
-                            {age.stale ? <View style={styles.staleDot} /> : null}
-                            <Text
-                              style={[
-                                styles.cellAgeText,
-                                age.days === 0 && { color: colors.success },
-                                age.stale && { color: colors.foreground },
-                              ]}
-                            >
-                              {age.days === 0 ? "New today" : age.stale ? `${age.days} days` : age.label}
-                            </Text>
-                          </View>
-                          <Text style={styles.cellTitle} numberOfLines={3}>
-                            {task.name}
-                          </Text>
-                        </AnimatedPressable>
+                          trailing={
+                            age.days === 0 ? (
+                              <View style={[styles.pill, { backgroundColor: `${colors.success}26` }]}>
+                                <Text style={[styles.pillText, { color: colors.success }]}>NEW</Text>
+                              </View>
+                            ) : age.stale ? (
+                              <View style={[styles.pill, { backgroundColor: `${colors.warning}26` }]}>
+                                <Text style={[styles.pillText, { color: colors.warning }]}>{age.days} DAYS</Text>
+                              </View>
+                            ) : (
+                              <Text style={styles.rowValue}>{age.label}</Text>
+                            )
+                          }
+                        />
+                        </ListEnter>
                       );
                     })}
-                  </View>
-                  <Text style={styles.hint}>Tap a card to review it. Press and hold to delete.</Text>
+                  </ListGroup>
+                  <Text style={styles.hint}>Tap to review. Press and hold to delete.</Text>
                 </>
               ) : null}
             </>
           )}
+          {items.length > 0 ? (
+            <View style={styles.tiles} testID="inbox-stats">
+              {[
+                { key: "fresh", value: ages.filter((age) => age.days === 0).length, label: "today", color: colors.success },
+                { key: "recent", value: ages.filter((age) => age.days > 0 && !age.stale).length, label: "this week", color: colors.primary },
+                { key: "stale", value: ages.filter((age) => age.stale).length, label: "stale", color: colors.warning },
+              ].map((tile) => (
+                <StatTile key={tile.key} value={tile.value} label={tile.label} color={tile.value > 0 ? tile.color : colors.mutedForeground} />
+              ))}
+            </View>
+          ) : null}
         </ScrollView>
-        <View style={[styles.composer, { paddingBottom: (keyboardOpen ? 12 : Math.max(insets.bottom, 12)) + 4 }]}>
-          <Text style={styles.composerLabel}>What&apos;s on your mind?</Text>
-          <TextInput
-            ref={inputRef}
-            value={title}
-            onChangeText={setTitle}
-            placeholder="Capture a thought…"
-            placeholderTextColor={colors.mutedForeground}
-            autoCapitalize="sentences"
-            returnKeyType="done"
-            onSubmitEditing={onCapture}
-            submitBehavior="submit"
-            accessibilityLabel="Capture to inbox"
-            style={styles.composerInput}
-          />
-          <View style={styles.composerRow}>
-            <Text style={[styles.hint, { flex: 1, textAlign: "left" }]} numberOfLines={2}>
-              {capture.isError
-                ? capture.error instanceof Error
-                  ? capture.error.message
-                  : "Could not capture."
-                : "Nothing is scheduled until you decide."}
-            </Text>
-            <Button label="Capture" size="lg" loading={capture.isPending} disabled={!title.trim()} onPress={onCapture} />
-          </View>
+        <View style={[styles.composer, { paddingBottom: (keyboard > 0 ? 12 : Math.max(insets.bottom, 12)) + 4 }]}>
+          <InboxCapture keepFocus compact />
         </View>
-      </KeyboardAvoidingView>
+      </View>
       <ConfirmSheet
         open={deleteItem !== null}
         onClose={() => setDeleteItem(null)}
@@ -292,8 +264,22 @@ export default function InboxScreen() {
   );
 }
 
+/** One tile: the number pops and the tile tints when the count changes (catalogue items 3 and 8). */
+function StatTile({ value, label, color }: { value: number; label: string; color: string }) {
+  const changeKey = useChangeKey(value);
+  return (
+    <View style={[styles.tile, { overflow: "hidden" }]}>
+      <ChangeTint changeKey={changeKey} />
+      <StatNumber style={[styles.tileValue, { color }]} value={value} />
+      <Text style={styles.tileLabel} numberOfLines={1}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
 const styles = createThemedStyleSheet((colors) => ({
-  body: { padding: 16, gap: 10, paddingBottom: 24 },
+  body: { padding: 16, gap: 10, paddingBottom: 20 },
   section: { color: colors.foreground, fontSize: 13, fontWeight: "600", marginTop: 4 },
   sectionCount: { color: colors.mutedForeground, fontWeight: "400" },
   hint: { color: colors.mutedForeground, fontSize: 12, lineHeight: 17, textAlign: "center" },
@@ -301,70 +287,54 @@ const styles = createThemedStyleSheet((colors) => ({
     backgroundColor: colors.card,
     borderColor: colors.border,
     borderWidth: 1,
-    borderRadius: 16,
-    padding: 16,
-    gap: 14,
+    borderRadius: 12,
+    padding: 14,
+    gap: 12,
     shadowColor: colors.primary,
     shadowOpacity: 0.12,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
     elevation: 2,
   },
-  chip: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    height: 26,
-    paddingHorizontal: 10,
-    borderRadius: 999,
-    backgroundColor: colors.muted,
-  },
-  chipStale: { backgroundColor: `${colors.warning}26` },
-  chipText: { color: colors.mutedForeground, fontSize: 12, fontWeight: "500" },
-  focusTitle: { color: colors.foreground, fontSize: 19, fontWeight: "600", lineHeight: 25, letterSpacing: -0.2 },
-  focusNote: { color: colors.mutedForeground, fontSize: 14, lineHeight: 20 },
+  eyebrow: { color: colors.mutedForeground, fontSize: 11, fontWeight: "500", letterSpacing: 0.8, textTransform: "uppercase" },
+  focusTitle: { color: colors.foreground, fontSize: 17, fontWeight: "600", lineHeight: 23, letterSpacing: -0.2 },
+  focusAge: { color: colors.mutedForeground, fontSize: 12 },
+  focusNote: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
   focusActions: { flexDirection: "row", alignItems: "center", gap: 8 },
-  suggestion: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: `${colors.primary}33`,
-    backgroundColor: `${colors.primary}0D`,
-  },
-  suggestionText: { color: colors.accentForeground, fontSize: 13, lineHeight: 19 },
-  suggestionMuted: { color: colors.mutedForeground, fontSize: 13, lineHeight: 19 },
+  rows: { backgroundColor: colors.background },
+  rowValue: { color: colors.mutedForeground, fontSize: 13, maxWidth: 200 },
+  rowSuggested: { color: colors.primary, fontWeight: "500" },
+  suggestion: { flexDirection: "row", alignItems: "flex-start", gap: 8, paddingHorizontal: 2 },
+  suggestionMuted: { color: colors.mutedForeground, fontSize: 12, lineHeight: 17 },
   duplicate: {
-    minHeight: 44,
+    minHeight: 40,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.background,
   },
-  duplicateName: { flex: 1, color: colors.foreground, fontSize: 14, fontWeight: "500" },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  cellWrap: { flexBasis: "45%", flexGrow: 1 },
-  cell: {
-    minHeight: 100,
-    padding: 12,
+  duplicateName: { flex: 1, color: colors.foreground, fontSize: 13, fontWeight: "500" },
+  pill: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  pillText: { fontSize: 10, fontWeight: "700", letterSpacing: 0.6 },
+  tiles: { flexDirection: "row", gap: 8, marginTop: 4 },
+  tile: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "baseline",
     gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card,
   },
-  cellStale: { borderColor: `${colors.warning}66`, backgroundColor: `${colors.warning}0A` },
-  cellAge: { flexDirection: "row", alignItems: "center", gap: 6 },
-  staleDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.warning },
-  cellAgeText: { color: colors.mutedForeground, fontSize: 12, fontWeight: "500" },
-  cellTitle: { color: colors.foreground, fontSize: 14, fontWeight: "600", lineHeight: 19 },
+  tileValue: { fontSize: 20, fontWeight: "600", letterSpacing: -0.4, fontVariant: ["tabular-nums"] },
+  tileLabel: { flex: 1, color: colors.mutedForeground, fontSize: 12 },
   composer: {
     backgroundColor: colors.card,
     borderTopWidth: 1,
@@ -372,7 +342,7 @@ const styles = createThemedStyleSheet((colors) => ({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 16,
-    paddingTop: 14,
+    paddingTop: 10,
     gap: 8,
     shadowColor: "#101828",
     shadowOpacity: 0.12,
@@ -380,7 +350,4 @@ const styles = createThemedStyleSheet((colors) => ({
     shadowOffset: { width: 0, height: -6 },
     elevation: 8,
   },
-  composerLabel: { color: colors.mutedForeground, fontSize: 12, fontWeight: "500" },
-  composerInput: { color: colors.foreground, fontSize: 18, fontWeight: "500", paddingVertical: 4 },
-  composerRow: { flexDirection: "row", alignItems: "center", gap: 12 },
 }));

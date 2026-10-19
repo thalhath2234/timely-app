@@ -1,14 +1,12 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { Pressable, Text, View } from "react-native";
-import { CheckSquare, Copy, FileText, Sparkles, Square, Table2 } from "lucide-react-native";
+import { useEffect, useState } from "react";
+import { View } from "react-native";
 import { contentFromTemplate, templateVars } from "@timely/contract/templates";
-import { SectionLabel } from "../ui/primitives";
+import { GroupLabel, ListGroup, SwitchRow } from "../settings/SettingsList";
 import { useDecisionsStatusQuery } from "../../lib/hooks";
 import { getProjectStart, sendDecisionFeedback, type ProjectStart } from "../../lib/api/decisions";
 import { createProject, duplicateProject, type CreateProjectPayload } from "../../lib/api/projects";
 import { createDoc, getDoc } from "../../lib/api/docs";
 import { createSheet } from "../../lib/api/sheets";
-import { colors, createThemedStyleSheet } from "../../lib/theme";
 import type { Project } from "../../lib/types";
 
 export type StartChoices = { copy: boolean; doc: boolean; sheet: boolean };
@@ -57,37 +55,17 @@ export function ProjectStartChoices({
   onChange: (next: StartChoices) => void;
 }) {
   if (!suggestion || !(suggestion.copyProjectId || suggestion.docTemplateId || suggestion.sheetTemplateId)) return null;
-  const row = (key: keyof StartChoices, icon: ReactNode, text: string) => {
-    const Box = choices[key] ? CheckSquare : Square;
-    return (
-      <Pressable
-        key={key}
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked: choices[key] }}
-        onPress={() => onChange({ ...choices, [key]: !choices[key] })}
-        style={styles.row}
-      >
-        <Box size={18} color={choices[key] ? colors.primary : colors.mutedForeground} />
-        {icon}
-        <Text style={styles.text}>{text}</Text>
-      </Pressable>
-    );
-  };
+  const row = (key: keyof StartChoices, title: string, meta: string) => (
+    <SwitchRow key={key} title={title} meta={meta} value={choices[key]} onChange={(next) => onChange({ ...choices, [key]: next })} />
+  );
   return (
-    <View style={styles.card} testID="project-start">
-      <View style={styles.header}>
-        <Sparkles size={14} color={colors.primary} />
-        <SectionLabel compact>Start from</SectionLabel>
-      </View>
-      {suggestion.copyProjectId
-        ? row("copy", <Copy size={14} color={colors.mutedForeground} />, `Copy the stages and tasks of “${suggestion.copyTitle ?? ""}”`)
-        : null}
-      {suggestion.docTemplateId
-        ? row("doc", <FileText size={14} color={colors.mutedForeground} />, `Add a doc from the “${suggestion.docTitle ?? ""}” template`)
-        : null}
-      {suggestion.sheetTemplateId
-        ? row("sheet", <Table2 size={14} color={colors.mutedForeground} />, `Add a sheet from the “${suggestion.sheetTitle ?? ""}” template`)
-        : null}
+    <View testID="project-start">
+      <GroupLabel aside="Suggested">Start from</GroupLabel>
+      <ListGroup>
+        {suggestion.copyProjectId ? row("copy", "Copy stages and tasks", `From “${suggestion.copyTitle ?? ""}”`) : null}
+        {suggestion.docTemplateId ? row("doc", "Add a doc", `From the “${suggestion.docTitle ?? ""}” template`) : null}
+        {suggestion.sheetTemplateId ? row("sheet", "Add a sheet", `From the “${suggestion.sheetTitle ?? ""}” template`) : null}
+      </ListGroup>
     </View>
   );
 }
@@ -120,10 +98,3 @@ export async function createProjectWithStart(
   }
   return project;
 }
-
-const styles = createThemedStyleSheet((colors) => ({
-  card: { gap: 6, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12 },
-  header: { flexDirection: "row", alignItems: "center", gap: 6 },
-  row: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 36 },
-  text: { flex: 1, color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
-}));

@@ -18,6 +18,7 @@ import {
   FolderKanban,
   History,
   Info,
+  KeyRound,
   ReceiptText,
   RefreshCw,
   Sparkles,
@@ -28,12 +29,20 @@ import type { Chat, ChatMessage, ChatStep } from "../../lib/chat/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import ListEnter from "../ui/ListEnter";
+import LoopImage from "../ui/LoopImage";
 import ChangeCards from "./ChangeCards";
 import ImagePreview from "./ImagePreview";
 import { dayLabel, isBusy, phaseLabel, timeOfDay } from "./chatMeta";
 import { Action, ChatText, styles as common } from "./shared";
 import { LogoSpinner } from "../ui/TimelyLogo";
-import { useChatPromptsQuery, useDecisionFeedback } from "../../lib/hooks";
+import { useAgentProvidersQuery, useChatPromptsQuery, useDecisionFeedback } from "../../lib/hooks";
+import { readyProviders } from "./ModelSheet";
+
+/** Chat needs a connected provider; the rest of Timely works without one. */
+function useNeedsProvider() {
+  const { data } = useAgentProvidersQuery();
+  return Boolean(data) && readyProviders(data).length === 0;
+}
 
 const suggestions: { icon: LucideIcon; title: string; text: string }[] = [
   { icon: CalendarDays, title: "Plan my day", text: "Help me plan today." },
@@ -72,12 +81,16 @@ export function Welcome({
   disabled,
   projectId,
   onPick,
+  onOpenSettings,
 }: {
   disabled: boolean;
   /** The project on the screen the assistant was opened from, if any. */
   projectId?: string;
   onPick: (text: string) => void;
+  /** Opens Settings > Agent, shown when no provider is connected. */
+  onOpenSettings: () => void;
 }) {
+  const needsProvider = useNeedsProvider();
   // With smart suggestions on, the examples fit the project on screen, or
   // else the one the person worked on most recently; otherwise the fixed
   // ones show.
@@ -103,12 +116,25 @@ export function Welcome({
         Plan your day, shape a sheet, or attach a receipt. Small changes happen
         right away; bigger ones wait for your approval.
       </Text>
-      {project ? (
-        <Text style={common.muted} testID="chat-prompts-project">
-          Ideas for {project}
-        </Text>
+      <LoopImage id="ask" style={styles.heroLoop} />
+      {needsProvider ? (
+        <AnimatedPressable accessibilityRole="button" accessibilityLabel="Connect an AI provider in Agent settings" onPress={onOpenSettings} style={styles.providerBar} testID="chat-needs-provider">
+          <View style={styles.providerIcon}>
+            <KeyRound size={16} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text numberOfLines={1} style={styles.providerTitle}>Connect an AI provider</Text>
+            <Text numberOfLines={1} style={common.muted}>
+              Needed only for chat.
+            </Text>
+          </View>
+          <Action label="Settings" primary compact onPress={onOpenSettings} />
+        </AnimatedPressable>
       ) : null}
-      <View style={{ gap: 10, marginTop: 6 }}>
+      <Text style={styles.promptsLabel} testID={project ? "chat-prompts-project" : undefined}>
+        {project ? `Ideas for ${project}` : "Try one of these"}
+      </Text>
+      <View style={styles.prompts}>
         {items.map(({ icon: Icon, title, text }, i) => (
           <ListEnter key={title} index={i}>
             <AnimatedPressable
@@ -116,14 +142,14 @@ export function Welcome({
               accessibilityLabel={title}
               disabled={disabled}
               onPress={() => pick(text)}
-              style={[styles.suggestion, disabled && { opacity: 0.5 }]}
+              style={[styles.suggestion, i > 0 && styles.suggestionDivider, (disabled || needsProvider) && { opacity: 0.6 }]}
             >
               <View style={styles.suggestionIcon}>
-                <Icon size={18} color={colors.primary} />
+                <Icon size={16} color={colors.primary} />
               </View>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={styles.suggestionTitle}>{title}</Text>
-                <Text numberOfLines={2} style={common.muted}>
+                <Text numberOfLines={1} style={common.muted}>
                   {text}
                 </Text>
               </View>
@@ -410,20 +436,25 @@ export function FailureCard({
   chat,
   locked,
   onRetry,
+  onOpenSettings,
 }: {
   chat: Chat;
   locked: boolean;
   onRetry: () => void;
+  onOpenSettings: () => void;
 }) {
+  const needsProvider = useNeedsProvider();
   if (!chat.error || chat.plan.length) return null;
   return (
     <StatusCard
       tone="destructive"
       icon={AlertTriangle}
-      title="Something went wrong"
+      title={needsProvider ? "Connect an AI provider to chat" : "Something went wrong"}
       body={chat.error}
     >
-      {["failed", "stopped"].includes(chat.status) ? (
+      {needsProvider ? (
+        <Action label="Open Agent settings" compact onPress={onOpenSettings} />
+      ) : ["failed", "stopped"].includes(chat.status) ? (
         <Action
           label="Try again"
           icon={RefreshCw}
@@ -449,28 +480,43 @@ const styles = createThemedStyleSheet(() => ({
     paddingVertical: 5,
   },
   badgeText: { color: colors.primary, fontSize: 12, fontWeight: "600" },
+  heroLoop: { marginTop: 14 },
   hero: {
     color: colors.foreground,
-    fontSize: 30,
-    lineHeight: 36,
+    fontSize: 26,
+    lineHeight: 32,
     fontWeight: "600",
-    letterSpacing: -0.7,
+    letterSpacing: -0.5,
   },
-  heroText: { color: colors.mutedForeground, fontSize: 14, lineHeight: 21 },
+  heroText: { color: colors.mutedForeground, fontSize: 14, lineHeight: 20 },
+  providerBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: `${colors.primary}40`,
+    backgroundColor: `${colors.primary}0f`,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  providerIcon: { width: 30, height: 30, borderRadius: 10, backgroundColor: `${colors.primary}1f`, alignItems: "center", justifyContent: "center" },
+  providerTitle: { color: colors.foreground, fontSize: 14, fontWeight: "600" },
+  promptsLabel: { color: colors.foreground, fontSize: 13, fontWeight: "600", marginTop: 4, paddingHorizontal: 4 },
+  prompts: { borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, overflow: "hidden" },
   suggestion: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderRadius: 16,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 14,
+    minHeight: 56,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
+  suggestionDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   suggestionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     backgroundColor: colors.accent,
     alignItems: "center",
     justifyContent: "center",

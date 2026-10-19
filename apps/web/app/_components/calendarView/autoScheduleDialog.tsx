@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ListGroup, ListRow, ListSwitch } from "@/app/_components/_ui/groupedList";
 import { AlertTriangle, Sparkles, X } from "lucide-react";
 import { formatDateTime, formatDuration, formatTime, isSameDay, toDateInputValue } from "@/app/utils/calendar";
 import { useApplySchedule, usePreviewSchedule, useUndoSchedule } from "@/app/utils/hooks/calendar";
@@ -243,15 +244,11 @@ function AutoSchedulePanel({
             </p>
           </div>
 
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={includeManual}
-              onChange={(event) => toggleIncludeManual(event.target.checked)}
-              className="size-3.5 accent-primary"
-            />
-            Also move blocks I placed by hand
-          </label>
+          <ListGroup>
+            <ListRow label="Move my own blocks too" meta="Also moves blocks you placed by hand">
+              <ListSwitch label="Move my own blocks too" checked={includeManual} onChange={toggleIncludeManual} />
+            </ListRow>
+          </ListGroup>
           {previewDiverged ? (
             <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
               This preview is different from what was last applied. Apply again to save it, or undo the previous run.
@@ -297,7 +294,7 @@ function AutoSchedulePanel({
               {risks.length > 0 && (
                 <ul className="flex flex-col gap-1 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
                   {risks.map((risk, index) => (
-                    <li key={`${risk.kind}-${risk.taskId ?? index}`} className="flex items-start gap-1">
+                    <li key={`${risk.kind}-${risk.taskId ?? ""}-${index}`} className="flex items-start gap-1">
                       <AlertTriangle className="mt-0.5 size-3 shrink-0" />
                       <span>
                         {risk.taskName ? `${risk.taskName}: ` : ""}

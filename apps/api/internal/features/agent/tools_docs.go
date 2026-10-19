@@ -295,14 +295,27 @@ func (s *Server) listSheets(ctx context.Context, req *mcp.CallToolRequest, in li
 	if err != nil {
 		return fail(err)
 	}
-	return reply(fmt.Sprintf("%d sheets", len(sheets)), map[string]any{"sheets": sheets})
+	briefs := make([]map[string]any, len(sheets))
+	for i := range sheets {
+		briefs[i] = sheetBrief(&sheets[i], false)
+	}
+	return reply(fmt.Sprintf("%d sheets", len(sheets)), map[string]any{"sheets": briefs})
 }
 
 type sheetIDIn struct {
 	SheetID string `json:"sheetId"`
 }
 
-func (s *Server) getSheet(ctx context.Context, req *mcp.CallToolRequest, in sheetIDIn) (*mcp.CallToolResult, any, error) {
+type getSheetIn struct {
+	SheetID string `json:"sheetId"`
+	TabID   string `json:"tabId,omitempty" jsonschema:"one tab's grid with row ids: a tab id or the tab's name such as \"October\"; empty shows every tab as markdown with each tab's columns"`
+}
+
+// getSheet shows a workbook as markdown with each tab's columns, and one tab
+// (the only tab, or tabId) with its raw grid: row ids, formats, colour rules.
+// A workbook's rows are not all sent at once; twelve month tabs of prepared
+// rows would not fit an agent's context.
+func (s *Server) getSheet(ctx context.Context, req *mcp.CallToolRequest, in getSheetIn) (*mcp.CallToolResult, any, error) {
 	uid, err := userID(req)
 	if err != nil {
 		return fail(err)
@@ -311,7 +324,26 @@ func (s *Server) getSheet(ctx context.Context, req *mcp.CallToolRequest, in shee
 	if err != nil {
 		return fail(err)
 	}
-	return reply(sh.Title, sheetPayload(sh))
+	payload := map[string]any{"sheet": sheetBrief(sh, true)}
+	if strings.TrimSpace(in.TabID) == "" && len(sh.Tabs) > 1 {
+		payload["markdown"] = workbookMarkdown(sh)
+		payload["note"] = "Rows are shown as markdown; row numbers there are what update_sheet_cells row and delete_sheet_rows rows take. get_sheet with tabId returns that tab's raw grid with row ids. update_sheet replaces whole arrays, so read a tab before rewriting it."
+		return reply(sh.Title, payload)
+	}
+	tabID, err := pickTab(sh, in.TabID)
+	if err != nil {
+		return fail(err)
+	}
+	tab, _ := tabByID(sh, tabID)
+	payload["sheet"] = sheetBrief(sh, false)
+	if len(sh.Tabs) == 0 {
+		tab.ID = ""
+		payload["markdown"] = sheetMarkdown(sh)
+	} else {
+		payload["markdown"] = tabMarkdown(tab)
+	}
+	payload["tab"] = leanTab(tab)
+	return reply(sh.Title+" · "+tab.Name, payload)
 }
 
 type createSheetIn struct {
@@ -350,14 +382,14 @@ func (s *Server) createSheet(ctx context.Context, req *mcp.CallToolRequest, in c
 		if err != nil {
 			return fail(err)
 		}
-		return reply("created "+created.Title, sheetPayload(created))
+		return reply("created "+created.Title, sheetResult(created, ""))
 	}
 	if in.TemplateID != "" {
 		created, err := s.Sheets.CreateFromTemplate(uid, in.TemplateID, in.Title, in.WorkspaceID, strPtr(in.ProjectID))
 		if err != nil {
 			return fail(err)
 		}
-		return reply("created "+created.Title, sheetPayload(created))
+		return reply("created "+created.Title, sheetResult(created, ""))
 	}
 	sh := &models.Sheet{
 		Title:       in.Title,
@@ -370,7 +402,7 @@ func (s *Server) createSheet(ctx context.Context, req *mcp.CallToolRequest, in c
 	if err != nil {
 		return fail(err)
 	}
-	return reply("created "+created.Title, sheetPayload(created))
+	return reply("created "+created.Title, sheetResult(created, ""))
 }
 
 type updateSheetIn struct {
@@ -412,7 +444,7 @@ func (s *Server) updateSheet(ctx context.Context, req *mcp.CallToolRequest, in u
 	if err != nil {
 		return fail(err)
 	}
-	return reply("updated "+sh.Title, sheetPayload(sh))
+	return reply("updated "+sh.Title, sheetResult(sh, ""))
 }
 
 type addTabIn struct {
@@ -429,14 +461,12 @@ func (s *Server) addSheetTab(ctx context.Context, req *mcp.CallToolRequest, in a
 	if err != nil {
 		return fail(err)
 	}
-	payload := sheetPayload(sh)
-	payload["tab"] = tab
-	return reply("added tab "+tab.Name, payload)
+	return reply("added tab "+tab.Name, sheetResult(sh, tab.ID))
 }
 
 type renameTabIn struct {
 	SheetID string `json:"sheetId"`
-	TabID   string `json:"tabId,omitempty" jsonschema:"tab id from get_sheet; empty renames the first (primary) tab"`
+	TabID   string `json:"tabId,omitempty" jsonschema:"tab id from get_sheet or the tab's current name; empty renames the first (primary) tab"`
 	Name    string `json:"name"`
 }
 
@@ -445,16 +475,22 @@ func (s *Server) renameSheetTab(ctx context.Context, req *mcp.CallToolRequest, i
 	if err != nil {
 		return fail(err)
 	}
-	sh, err := s.Sheets.RenameTab(uid, in.SheetID, in.TabID, in.Name)
+	tabID := ""
+	if strings.TrimSpace(in.TabID) != "" {
+		if _, tabID, err = s.sheetTab(uid, in.SheetID, in.TabID); err != nil {
+			return fail(err)
+		}
+	}
+	sh, err := s.Sheets.RenameTab(uid, in.SheetID, tabID, in.Name)
 	if err != nil {
 		return fail(err)
 	}
-	return reply("renamed tab to "+strings.TrimSpace(in.Name), sheetPayload(sh))
+	return reply("renamed tab to "+strings.TrimSpace(in.Name), sheetResult(sh, tabID))
 }
 
 type deleteTabIn struct {
 	SheetID string `json:"sheetId"`
-	TabID   string `json:"tabId"`
+	TabID   string `json:"tabId" jsonschema:"tab id from get_sheet or the tab's name"`
 }
 
 func (s *Server) deleteSheetTab(ctx context.Context, req *mcp.CallToolRequest, in deleteTabIn) (*mcp.CallToolResult, any, error) {
@@ -462,11 +498,28 @@ func (s *Server) deleteSheetTab(ctx context.Context, req *mcp.CallToolRequest, i
 	if err != nil {
 		return fail(err)
 	}
-	sh, err := s.Sheets.DeleteTab(uid, in.SheetID, in.TabID)
+	if strings.TrimSpace(in.TabID) == "" {
+		return fail(fmt.Errorf("tabId is required"))
+	}
+	_, tabID, err := s.sheetTab(uid, in.SheetID, in.TabID)
 	if err != nil {
 		return fail(err)
 	}
-	return reply("deleted tab", sheetPayload(sh))
+	sh, err := s.Sheets.DeleteTab(uid, in.SheetID, tabID)
+	if err != nil {
+		return fail(err)
+	}
+	return reply("deleted tab", sheetResult(sh, ""))
+}
+
+// sheetTab loads a sheet and resolves which tab an edit is for (see pickTab).
+func (s *Server) sheetTab(uid, sheetID, ref string, owned ...string) (*models.Sheet, string, error) {
+	sh, err := s.Sheets.GetByID(uid, sheetID)
+	if err != nil {
+		return nil, "", err
+	}
+	tabID, err := pickTab(sh, ref, owned...)
+	return sh, tabID, err
 }
 
 type archiveSheetIn struct {
@@ -491,12 +544,12 @@ func (s *Server) archiveSheet(ctx context.Context, req *mcp.CallToolRequest, in 
 	if !archived {
 		verb = "unarchived"
 	}
-	return reply(verb+" "+sh.Title, sheetPayload(sh))
+	return reply(verb+" "+sh.Title, sheetResult(sh, ""))
 }
 
 type addColIn struct {
 	SheetID string   `json:"sheetId"`
-	TabID   string   `json:"tabId,omitempty" jsonschema:"tab id from get_sheet; empty means the first tab"`
+	TabID   string   `json:"tabId,omitempty" jsonschema:"tab id from get_sheet, or the tab's name such as \"October\"; required when the sheet has several tabs"`
 	Name    string   `json:"name"`
 	Type    string   `json:"type,omitempty" jsonschema:"text, number, date, boolean, currency, percent, formula, or select"`
 	Options []string `json:"options,omitempty" jsonschema:"dropdown choices for a select column"`
@@ -507,17 +560,21 @@ func (s *Server) addSheetColumn(ctx context.Context, req *mcp.CallToolRequest, i
 	if err != nil {
 		return fail(err)
 	}
-	sh, err := s.Sheets.AddColumn(uid, in.SheetID, in.TabID, in.Name, in.Type, in.Options)
+	_, tabID, err := s.sheetTab(uid, in.SheetID, in.TabID)
 	if err != nil {
 		return fail(err)
 	}
-	return reply("added column "+in.Name, sheetPayload(sh))
+	sh, err := s.Sheets.AddColumn(uid, in.SheetID, tabID, in.Name, in.Type, in.Options)
+	if err != nil {
+		return fail(err)
+	}
+	return reply("added column "+in.Name, sheetResult(sh, tabID))
 }
 
 type updateColIn struct {
 	SheetID  string                    `json:"sheetId"`
-	TabID    string                    `json:"tabId,omitempty" jsonschema:"tab id from get_sheet; empty means the first tab"`
-	ColumnID string                    `json:"columnId"`
+	TabID    string                    `json:"tabId,omitempty" jsonschema:"tab id from get_sheet, or the tab's name; found from columnId when left out"`
+	ColumnID string                    `json:"columnId" jsonschema:"column id, or the column's name or A1 letter on the tab"`
 	Name     string                    `json:"name,omitempty"`
 	Type     string                    `json:"type,omitempty" jsonschema:"text, number, date, boolean, currency, percent, formula, or select"`
 	Width    *int                      `json:"width,omitempty"`
@@ -531,7 +588,15 @@ func (s *Server) updateSheetColumn(ctx context.Context, req *mcp.CallToolRequest
 	if err != nil {
 		return fail(err)
 	}
-	sh, err := s.Sheets.UpdateColumn(uid, in.SheetID, in.TabID, in.ColumnID, sheet.ColumnPatch{
+	current, tabID, err := s.sheetTab(uid, in.SheetID, in.TabID, in.ColumnID)
+	if err != nil {
+		return fail(err)
+	}
+	columnID, err := columnOn(current, tabID, in.ColumnID)
+	if err != nil {
+		return fail(err)
+	}
+	sh, err := s.Sheets.UpdateColumn(uid, in.SheetID, tabID, columnID, sheet.ColumnPatch{
 		Name:    in.Name,
 		Type:    in.Type,
 		Width:   in.Width,
@@ -542,13 +607,13 @@ func (s *Server) updateSheetColumn(ctx context.Context, req *mcp.CallToolRequest
 	if err != nil {
 		return fail(err)
 	}
-	return reply("updated column", sheetPayload(sh))
+	return reply("updated column", sheetResult(sh, tabID))
 }
 
 type deleteColIn struct {
 	SheetID  string `json:"sheetId"`
-	TabID    string `json:"tabId,omitempty" jsonschema:"tab id from get_sheet; empty means the first tab"`
-	ColumnID string `json:"columnId"`
+	TabID    string `json:"tabId,omitempty" jsonschema:"tab id from get_sheet, or the tab's name; found from columnId when left out"`
+	ColumnID string `json:"columnId" jsonschema:"column id, or the column's name or A1 letter on the tab"`
 }
 
 func (s *Server) deleteSheetColumn(ctx context.Context, req *mcp.CallToolRequest, in deleteColIn) (*mcp.CallToolResult, any, error) {
@@ -556,16 +621,40 @@ func (s *Server) deleteSheetColumn(ctx context.Context, req *mcp.CallToolRequest
 	if err != nil {
 		return fail(err)
 	}
-	sh, err := s.Sheets.DeleteColumn(uid, in.SheetID, in.TabID, in.ColumnID)
+	current, tabID, err := s.sheetTab(uid, in.SheetID, in.TabID, in.ColumnID)
 	if err != nil {
 		return fail(err)
 	}
-	return reply("column deleted", sheetPayload(sh))
+	columnID, err := columnOn(current, tabID, in.ColumnID)
+	if err != nil {
+		return fail(err)
+	}
+	sh, err := s.Sheets.DeleteColumn(uid, in.SheetID, tabID, columnID)
+	if err != nil {
+		return fail(err)
+	}
+	return reply("column deleted", sheetResult(sh, tabID))
+}
+
+// columnOn resolves a column id, name or A1 letter on one tab to its id.
+func columnOn(sh *models.Sheet, tabID, ref string) (string, error) {
+	tab, ok := tabByID(sh, tabID)
+	if !ok {
+		return "", fmt.Errorf("tab not found: %s", tabID)
+	}
+	keys, err := columnKeys(tab.Columns, map[string]string{ref: ""})
+	if err != nil {
+		return "", err
+	}
+	for id := range keys {
+		return id, nil
+	}
+	return "", fmt.Errorf("unknown column: %s", ref)
 }
 
 type addRowsIn struct {
 	SheetID string `json:"sheetId"`
-	TabID   string `json:"tabId,omitempty" jsonschema:"tab id from get_sheet; empty means the first tab"`
+	TabID   string `json:"tabId,omitempty" jsonschema:"tab id from get_sheet, or the tab's name such as \"October\"; required when the sheet has several tabs"`
 	Count   int    `json:"count,omitempty"`
 }
 
@@ -578,18 +667,29 @@ func (s *Server) addSheetRows(ctx context.Context, req *mcp.CallToolRequest, in 
 	if count <= 0 {
 		count = 1
 	}
-	sh, err := s.Sheets.AddRows(uid, in.SheetID, in.TabID, count)
+	_, tabID, err := s.sheetTab(uid, in.SheetID, in.TabID)
 	if err != nil {
 		return fail(err)
 	}
-	return reply(fmt.Sprintf("added %d rows", count), sheetPayload(sh))
+	sh, err := s.Sheets.AddRows(uid, in.SheetID, tabID, count)
+	if err != nil {
+		return fail(err)
+	}
+	payload := sheetResult(sh, tabID)
+	if tab, ok := tabByID(sh, tabID); ok {
+		first := len(tab.Rows) - count + 1
+		payload["rows"] = map[string]int{"first": first, "last": len(tab.Rows)}
+		return reply(fmt.Sprintf("added %d rows (%d to %d) to %s", count, first, len(tab.Rows), tab.Name), payload)
+	}
+	return reply(fmt.Sprintf("added %d rows", count), payload)
 }
 
 type updateCellsIn struct {
 	SheetID string            `json:"sheetId"`
-	TabID   string            `json:"tabId,omitempty" jsonschema:"tab id from get_sheet; empty means the first tab"`
-	RowID   string            `json:"rowId"`
-	Cells   map[string]string `json:"cells" jsonschema:"Map column IDs to literal values or formulas, e.g. =B5+SUM(N2:N). Supports N:N whole columns, 2:2 whole rows, and N2:N or B2:2 open ranges. Get row and column IDs with get_sheet; do not use A1 addresses as map keys."`
+	TabID   string            `json:"tabId,omitempty" jsonschema:"tab id from get_sheet, or the tab's name such as \"October\"; found from rowId when left out"`
+	RowID   string            `json:"rowId,omitempty" jsonschema:"row id from get_sheet; or pass row instead"`
+	Row     int               `json:"row,omitempty" jsonschema:"row number as get_sheet and get_sheet_values show it (1 is the first row under the headers); instead of rowId"`
+	Cells   map[string]string `json:"cells" jsonschema:"column id, column name or A1 column letter to a literal value or a formula, e.g. {\"Unit price\": \"450\"} or {\"H\": \"=E3*G3\"}. Supports N:N whole columns, 2:2 whole rows, and N2:N or B2:2 open ranges in formulas."`
 }
 
 func (s *Server) updateSheetCells(ctx context.Context, req *mcp.CallToolRequest, in updateCellsIn) (*mcp.CallToolResult, any, error) {
@@ -597,17 +697,53 @@ func (s *Server) updateSheetCells(ctx context.Context, req *mcp.CallToolRequest,
 	if err != nil {
 		return fail(err)
 	}
-	sh, err := s.Sheets.UpdateCells(uid, in.SheetID, in.TabID, in.RowID, in.Cells)
+	if in.RowID == "" && in.Row == 0 {
+		return fail(fmt.Errorf("pass rowId or row"))
+	}
+	current, err := s.Sheets.GetByID(uid, in.SheetID)
 	if err != nil {
 		return fail(err)
 	}
-	return reply("cells updated", sheetPayload(sh))
+	if number, ok := rowNumberRef(current, in.RowID); ok && in.Row == 0 {
+		in.Row, in.RowID = number, ""
+	}
+	tabID, err := pickTab(current, in.TabID, in.RowID)
+	if err != nil {
+		return fail(err)
+	}
+	tab, _ := tabByID(current, tabID)
+	rowID := in.RowID
+	if rowID == "" {
+		if rowID, err = rowIDAt(tab, in.Row); err != nil {
+			return fail(err)
+		}
+	}
+	cells, err := columnKeys(tab.Columns, in.Cells)
+	if err != nil {
+		return fail(err)
+	}
+	sh, err := s.Sheets.UpdateCells(uid, in.SheetID, tabID, rowID, cells)
+	if err != nil {
+		return fail(err)
+	}
+	payload := sheetResult(sh, tabID)
+	if tab, ok := tabByID(sh, tabID); ok {
+		for i, row := range tab.Rows {
+			if row.ID == rowID {
+				payload["row"] = i + 1
+				payload["values"] = rowValues(sh, tabID, i)
+				return reply(fmt.Sprintf("updated row %d of %s", i+1, tab.Name), payload)
+			}
+		}
+	}
+	return reply("cells updated", payload)
 }
 
 type deleteRowsIn struct {
 	SheetID string   `json:"sheetId"`
-	TabID   string   `json:"tabId,omitempty" jsonschema:"tab id from get_sheet; empty means the first tab"`
-	RowIDs  []string `json:"rowIds"`
+	TabID   string   `json:"tabId,omitempty" jsonschema:"tab id from get_sheet, or the tab's name; found from rowIds when left out"`
+	RowIDs  []string `json:"rowIds,omitempty" jsonschema:"row ids from get_sheet; or pass rows instead"`
+	Rows    []int    `json:"rows,omitempty" jsonschema:"row numbers as get_sheet shows them (1 is the first row under the headers); instead of rowIds"`
 }
 
 func (s *Server) deleteSheetRows(ctx context.Context, req *mcp.CallToolRequest, in deleteRowsIn) (*mcp.CallToolResult, any, error) {
@@ -615,17 +751,48 @@ func (s *Server) deleteSheetRows(ctx context.Context, req *mcp.CallToolRequest, 
 	if err != nil {
 		return fail(err)
 	}
-	sh, err := s.Sheets.DeleteRows(uid, in.SheetID, in.TabID, in.RowIDs)
+	if len(in.RowIDs) == 0 && len(in.Rows) == 0 {
+		return fail(fmt.Errorf("pass rowIds or rows"))
+	}
+	current, err := s.Sheets.GetByID(uid, in.SheetID)
 	if err != nil {
 		return fail(err)
 	}
-	return reply("rows deleted", sheetPayload(sh))
+	var ids []string
+	for _, id := range in.RowIDs {
+		if number, ok := rowNumberRef(current, id); ok {
+			in.Rows = append(in.Rows, number)
+		} else {
+			ids = append(ids, id)
+		}
+	}
+	tabID, err := pickTab(current, in.TabID, ids...)
+	if err != nil {
+		return fail(err)
+	}
+	tab, _ := tabByID(current, tabID)
+	for _, number := range in.Rows {
+		id, err := rowIDAt(tab, number)
+		if err != nil {
+			return fail(err)
+		}
+		ids = append(ids, id)
+	}
+	sh, err := s.Sheets.DeleteRows(uid, in.SheetID, tabID, ids)
+	if err != nil {
+		return fail(err)
+	}
+	unique := map[string]bool{}
+	for _, id := range ids {
+		unique[id] = true
+	}
+	return reply(fmt.Sprintf("deleted %d rows from %s", len(unique), tab.Name), sheetResult(sh, tabID))
 }
 
 type addRowIn struct {
 	SheetID string            `json:"sheetId"`
-	TabID   string            `json:"tabId,omitempty" jsonschema:"tab id from get_sheet; empty means the first tab"`
-	Cells   map[string]string `json:"cells" jsonschema:"one entry: column ID or column name to value, e.g. {\"Item\": \"Rice 5kg\", \"Qty\": \"2\"}. Columns left out keep the row's own formulas or stay blank."`
+	TabID   string            `json:"tabId,omitempty" jsonschema:"tab id from get_sheet, or the tab's name such as \"October\"; required when the sheet has several tabs"`
+	Cells   map[string]string `json:"cells" jsonschema:"one entry: column name, A1 letter or id to value, e.g. {\"Item\": \"Rice 5kg\", \"Qty\": \"2\"}. Columns left out keep the row's own formulas or stay blank."`
 }
 
 // addSheetRow appends one entry the way a person would: into the next free
@@ -638,62 +805,61 @@ func (s *Server) addSheetRow(ctx context.Context, req *mcp.CallToolRequest, in a
 	if len(in.Cells) == 0 {
 		return fail(fmt.Errorf("cells is required"))
 	}
-	current, err := s.Sheets.GetByID(uid, in.SheetID)
+	keys := make([]string, 0, len(in.Cells))
+	for key := range in.Cells {
+		keys = append(keys, key)
+	}
+	current, tabID, err := s.sheetTab(uid, in.SheetID, in.TabID, keys...)
 	if err != nil {
 		return fail(err)
 	}
-	cells, err := cellsByColumnID(current, in.TabID, in.Cells)
+	tab, _ := tabByID(current, tabID)
+	cells, err := columnKeys(tab.Columns, in.Cells)
 	if err != nil {
 		return fail(err)
 	}
-	sh, index, err := s.Sheets.AddRow(uid, in.SheetID, in.TabID, cells)
+	sh, index, err := s.Sheets.AddRow(uid, in.SheetID, tabID, cells)
 	if err != nil {
 		return fail(err)
 	}
-	payload := sheetPayload(sh)
+	payload := sheetResult(sh, tabID)
 	payload["row"] = index + 1
-	return reply(fmt.Sprintf("added an entry in row %d", index+1), payload)
+	payload["values"] = rowValues(sh, tabID, index)
+	summary := fmt.Sprintf("added an entry to %s, row %d", tab.Name, index+1)
+	if warning := monthMismatch(tab, cells); warning != "" {
+		payload["warning"] = warning
+		summary += ". " + warning
+	}
+	return reply(summary, payload)
 }
 
-// cellsByColumnID lets an agent key cells by column name as well as by id.
-func cellsByColumnID(sh *models.Sheet, tabID string, cells map[string]string) (map[string]string, error) {
-	columns := sh.Columns
-	if len(sh.Tabs) > 0 {
-		columns = sh.Tabs[0].Columns
-		found := tabID == ""
-		for _, tab := range sh.Tabs {
-			if tab.ID == tabID {
-				columns, found = tab.Columns, true
-			}
-		}
-		if !found {
-			return nil, fmt.Errorf("tab not found: %s", tabID)
+// monthMismatch notices an entry dated in another month than the month tab
+// it went to, such as a September receipt added to October.
+func monthMismatch(tab models.SheetTab, cells map[string]string) string {
+	month := -1
+	for i := time.January; i <= time.December; i++ {
+		if strings.EqualFold(strings.TrimSpace(tab.Name), i.String()) {
+			month = int(i)
 		}
 	}
-	byName := make(map[string]string, len(columns))
-	ids := make(map[string]bool, len(columns))
-	for _, column := range columns {
-		ids[column.ID] = true
-		byName[strings.ToLower(strings.TrimSpace(column.Name))] = column.ID
+	if month < 0 {
+		return ""
 	}
-	out := make(map[string]string, len(cells))
-	for key, value := range cells {
-		if ids[key] {
-			out[key] = value
+	for _, column := range tab.Columns {
+		if column.Type != models.SheetColumnTypeDate {
 			continue
 		}
-		id, ok := byName[strings.ToLower(strings.TrimSpace(key))]
-		if !ok {
-			return nil, fmt.Errorf("unknown column: %s", key)
+		date, err := time.Parse("2006-01-02", models.NormalizeTypedCell(column.Type, cells[column.ID]))
+		if err == nil && int(date.Month()) != month {
+			return fmt.Sprintf("The %s %s is in %s, not %s; check the tab", column.Name, date.Format("2006-01-02"), date.Month(), tab.Name)
 		}
-		out[id] = value
 	}
-	return out, nil
+	return ""
 }
 
 type updateTabIn struct {
 	SheetID            string         `json:"sheetId"`
-	TabID              string         `json:"tabId,omitempty" jsonschema:"tab id from get_sheet; empty means the first tab"`
+	TabID              string         `json:"tabId,omitempty" jsonschema:"tab id from get_sheet, or the tab's name such as \"October\"; required when the sheet has several tabs"`
 	Color              *string        `json:"color,omitempty" jsonschema:"tab colour as #RRGGBB; empty string clears it"`
 	FrozenRows         *int           `json:"frozenRows,omitempty" jsonschema:"rows kept at the top while scrolling; 0 unfreezes"`
 	FrozenCols         *int           `json:"frozenCols,omitempty" jsonschema:"columns kept at the left while scrolling; 0 unfreezes"`
@@ -726,11 +892,21 @@ func (s *Server) updateSheetTab(ctx context.Context, req *mcp.CallToolRequest, i
 		}
 		patch.ConditionalFormats = &rules
 	}
-	sh, err := s.Sheets.UpdateTab(uid, in.SheetID, in.TabID, patch)
+	var owned []string
+	if in.ConditionalFormats != nil {
+		for _, rule := range *in.ConditionalFormats {
+			owned = append(owned, rule.ColumnID)
+		}
+	}
+	_, tabID, err := s.sheetTab(uid, in.SheetID, in.TabID, owned...)
 	if err != nil {
 		return fail(err)
 	}
-	return reply("tab updated", sheetPayload(sh))
+	sh, err := s.Sheets.UpdateTab(uid, in.SheetID, tabID, patch)
+	if err != nil {
+		return fail(err)
+	}
+	return reply("tab updated", sheetResult(sh, tabID))
 }
 
 func (s *Server) deleteSheet(ctx context.Context, req *mcp.CallToolRequest, in sheetIDIn) (*mcp.CallToolResult, any, error) {
@@ -753,7 +929,7 @@ func (s *Server) duplicateSheet(ctx context.Context, req *mcp.CallToolRequest, i
 	if err != nil {
 		return fail(err)
 	}
-	return reply("duplicated "+sh.Title, sheetPayload(sh))
+	return reply("duplicated "+sh.Title, sheetResult(sh, ""))
 }
 
 func (s *Server) listSheetTemplates(ctx context.Context, req *mcp.CallToolRequest, _ emptyIn) (*mcp.CallToolResult, any, error) {
@@ -781,11 +957,35 @@ func (s *Server) getSheetTemplate(ctx context.Context, req *mcp.CallToolRequest,
 	if err != nil {
 		return fail(err)
 	}
+	if sheet.IsBuiltinTemplate(in.TemplateID) {
+		// Built-in templates ship with Timely and are not stored, so a review
+		// of create_sheet from one reads it here rather than failing.
+		template, err := sheet.Builtin(in.TemplateID)
+		if err != nil {
+			return fail(err)
+		}
+		sh := &models.Sheet{ID: template.ID, Title: template.Name, Icon: &template.Icon, Tabs: template.Tabs}
+		if len(sh.Tabs) > 0 {
+			sh.Columns, sh.Rows, sh.Merges = sh.Tabs[0].Columns, sh.Tabs[0].Rows, sh.Tabs[0].Merges
+		}
+		payload := map[string]any{
+			"id":          template.ID,
+			"name":        template.Name,
+			"description": template.Description,
+			"icon":        template.Icon,
+			"builtin":     true,
+			"tabs":        sheetBrief(sh, false)["tabs"],
+			"markdown":    workbookMarkdown(sh),
+		}
+		return reply(template.Name, payload)
+	}
 	template, err := s.Sheets.GetTemplate(uid, in.TemplateID)
 	if err != nil {
 		return fail(err)
 	}
-	return reply(template.Name, template)
+	payload := templateBrief(template)
+	payload["markdown"] = workbookMarkdown(templateSheet(template))
+	return reply(template.Name, payload)
 }
 
 type createTemplateIn struct {
@@ -803,7 +1003,7 @@ func (s *Server) createSheetTemplate(ctx context.Context, req *mcp.CallToolReque
 	if err != nil {
 		return fail(err)
 	}
-	return reply("saved template "+template.Name, template)
+	return reply("saved template "+template.Name, templateBrief(template))
 }
 
 type updateTemplateIn struct {
@@ -820,7 +1020,7 @@ func (s *Server) updateSheetTemplate(ctx context.Context, req *mcp.CallToolReque
 	if err != nil {
 		return fail(err)
 	}
-	return reply("renamed template "+template.Name, template)
+	return reply("renamed template "+template.Name, templateBrief(template))
 }
 
 func (s *Server) deleteSheetTemplate(ctx context.Context, req *mcp.CallToolRequest, in templateIDIn) (*mcp.CallToolResult, any, error) {
@@ -848,13 +1048,33 @@ func (s *Server) materializeSheetTemplateTab(ctx context.Context, req *mcp.CallT
 	if err != nil {
 		return fail(err)
 	}
-	return reply("materialized tab "+tab.Name, map[string]any{"tab": tab})
+	return reply("materialized tab "+tab.Name, map[string]any{"tab": leanTab(tab)})
 }
 
 type sheetValuesIn struct {
 	SheetID string `json:"sheetId"`
-	TabID   string `json:"tabId,omitempty" jsonschema:"tab id from get_sheet; empty shows every tab, or works the formula out on the first tab"`
+	TabID   string `json:"tabId,omitempty" jsonschema:"tab id from get_sheet, or the tab's name such as \"October\"; empty shows every tab, or works the formula out on the first tab"`
 	Formula string `json:"formula,omitempty" jsonschema:"work out one formula without saving it, e.g. =SUMIF(C2:C,\"Groceries\",H2:H) or =SUM(January!H2:H); references without a tab read tabId's tab"`
+}
+
+// sheetValuesFor works out the whole workbook, or only tabID and the tabs it
+// reads when one tab is asked for, indexed like WorkbookTabs.
+func sheetValuesFor(sh *models.Sheet, tabID string) ([][][]sheet.CellValue, error) {
+	if tabID == "" {
+		return sheet.SheetValues(sh)
+	}
+	one, err := sheet.TabValues(sh, tabID)
+	if err != nil {
+		return nil, err
+	}
+	tabs := sheet.WorkbookTabs(sh)
+	values := make([][][]sheet.CellValue, len(tabs))
+	for t, tab := range tabs {
+		if tab.ID == tabID {
+			values[t] = one
+		}
+	}
+	return values, nil
 }
 
 // getSheetValues answers questions about a sheet's data with the values the
@@ -868,6 +1088,11 @@ func (s *Server) getSheetValues(ctx context.Context, req *mcp.CallToolRequest, i
 	if err != nil {
 		return fail(err)
 	}
+	if strings.TrimSpace(in.TabID) != "" {
+		if in.TabID, err = pickTab(sh, in.TabID); err != nil {
+			return fail(err)
+		}
+	}
 	if strings.TrimSpace(in.Formula) != "" {
 		value, err := sheet.EvaluateFormula(sh, in.TabID, in.Formula)
 		if err != nil {
@@ -875,7 +1100,7 @@ func (s *Server) getSheetValues(ctx context.Context, req *mcp.CallToolRequest, i
 		}
 		return reply(in.Formula+" = "+sheetValueText(value), map[string]any{"formula": in.Formula, "value": value})
 	}
-	values, err := sheet.SheetValues(sh)
+	values, err := sheetValuesFor(sh, in.TabID)
 	if err != nil {
 		return fail(err)
 	}
@@ -956,4 +1181,80 @@ func sheetValueText(value sheet.CellValue) string {
 		}
 	}
 	return fmt.Sprint(value)
+}
+
+type docIDIn struct {
+	DocID string `json:"docId"`
+}
+
+type dailyNoteIn struct {
+	Date     string `json:"date,omitempty" jsonschema:"YYYY-MM-DD; defaults to today in the account's timezone"`
+	Timezone string `json:"timezone,omitempty"`
+}
+
+func (s *Server) openDailyNote(ctx context.Context, req *mcp.CallToolRequest, in dailyNoteIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	date := strings.TrimSpace(in.Date)
+	if date == "" {
+		today, err := s.today(ctx, uid, in.Timezone)
+		if err != nil {
+			return fail(err)
+		}
+		date = today.Date()
+	}
+	d, created, err := s.Docs.Daily(uid, doc.DailyRequest{Date: date})
+	if err != nil {
+		return fail(err)
+	}
+	payload := docPayload(d)
+	payload["created"] = created
+	verb := "opened"
+	if created {
+		verb = "created"
+	}
+	return reply(fmt.Sprintf("%s daily note %s", verb, d.Title), payload)
+}
+
+func (s *Server) listDocVersions(ctx context.Context, req *mcp.CallToolRequest, in docIDIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	versions, err := s.Docs.Versions(uid, in.DocID)
+	if err != nil {
+		return fail(err)
+	}
+	return reply(fmt.Sprintf("%d versions", len(versions)), map[string]any{"versions": versions})
+}
+
+type restoreDocVersionIn struct {
+	DocID     string `json:"docId"`
+	VersionID string `json:"versionId"`
+}
+
+func (s *Server) restoreDocVersion(ctx context.Context, req *mcp.CallToolRequest, in restoreDocVersionIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	d, err := s.Docs.RestoreVersion(uid, in.DocID, in.VersionID)
+	if err != nil {
+		return fail(err)
+	}
+	return reply("restored a version of "+d.Title, docPayload(d))
+}
+
+func (s *Server) getDocBacklinks(ctx context.Context, req *mcp.CallToolRequest, in docIDIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	links, err := s.Docs.Backlinks(uid, in.DocID)
+	if err != nil {
+		return fail(err)
+	}
+	return reply(fmt.Sprintf("%d docs link here", len(links)), map[string]any{"backlinks": links})
 }

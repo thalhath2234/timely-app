@@ -4,7 +4,7 @@ import { useMemo, useState, type DragEvent, type MouseEvent as ReactMouseEvent }
 import { CalendarOff, CalendarRange } from "lucide-react";
 import type { Task, TaskListDataMode } from "@/app/_types/types";
 import { localDateStamp, toDateInputValue } from "@/app/utils/calendar";
-import { resolvedColor, taskEntityColor } from "@/app/utils/entityColor";
+import { taskEntityColor } from "@/app/utils/entityColor";
 import { useUpdateTask } from "@/app/utils/hooks/tasks";
 import { dragHasTask, readTaskDragId, setTaskDragData } from "@/app/utils/taskDrag";
 import { taskTimelineSpan } from "@/app/utils/taskDates";
@@ -28,6 +28,12 @@ function formatDateLabel(value?: string | null) {
     month: "short",
     day: "numeric",
   });
+}
+
+/** "5 d" for a bar label; a same-day bar is "1 d". */
+function spanLabel(start: Date, end: Date) {
+  const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)));
+  return `${days} d`;
 }
 
 function parseDateValue(value?: string | null) {
@@ -186,19 +192,38 @@ export default function GanttView({ rows, dataMode, onSelectRow }: GanttViewProp
     return <div className="p-4 text-sm text-muted-foreground">No items found for Gantt view.</div>;
   }
 
+  const now = new Date();
+  const todayLeft =
+    now.getTime() >= timelineRows.min.getTime() && now.getTime() <= timelineRows.max.getTime()
+      ? ((now.getTime() - timelineRows.min.getTime()) / totalDurationMs) * 100
+      : null;
+
   return (
     <div className="h-full overflow-auto p-4">
-      <div className="min-w-245 rounded-lg border border-border bg-card">
-        <div className="grid grid-cols-[320px_1fr] border-b border-border bg-muted/40">
-          <div className="px-3 py-2 text-xs text-muted-foreground uppercase tracking-wide">{dataMode}</div>
+      <div className="min-w-180 rounded-lg border border-border bg-card" data-testid="gantt">
+        <div className="grid grid-cols-[280px_1fr] border-b border-border bg-muted/40">
+          <div className="flex items-baseline justify-between gap-2 px-3 py-2 text-xs text-muted-foreground">
+            <span className="uppercase tracking-wide">{dataMode}</span>
+            {timelineRows.entries.length > 0 ? (
+              <span className="tabular-nums">
+                {formatDateLabel(timelineRows.min.toISOString())} - {formatDateLabel(timelineRows.max.toISOString())}
+              </span>
+            ) : null}
+          </div>
           <div
-            className="px-3 py-2 text-xs text-muted-foreground uppercase tracking-wide"
+            className="px-3 py-2 text-xs text-muted-foreground"
             onDragOver={onTimelineDragOver}
             onDrop={onTimelineDrop}
           >
-            {timelineRows.entries.length > 0
-              ? `${formatDateLabel(timelineRows.min.toISOString())} - ${formatDateLabel(timelineRows.max.toISOString())}`
-              : "Drop a task here to set dates"}
+            {/* Same padding as the rows, so "Today" lines up with the marker below. */}
+            <div className="relative h-4">
+              {timelineRows.entries.length === 0 ? "Drop a task here to set dates" : null}
+              {todayLeft !== null ? (
+                <span className="absolute top-0 -translate-x-1/2 rounded-sm bg-primary px-1 text-[10px] font-semibold text-primary-foreground" style={{ left: `${todayLeft}%` }}>
+                  Today
+                </span>
+              ) : null}
+            </div>
           </div>
         </div>
 
@@ -206,8 +231,11 @@ export default function GanttView({ rows, dataMode, onSelectRow }: GanttViewProp
           const startOffset = start.getTime() - timelineRows.min.getTime();
           const endOffset = end.getTime() - timelineRows.min.getTime();
           const left = (startOffset / totalDurationMs) * 100;
-          const width = Math.max(2, ((endOffset - startOffset) / totalDurationMs) * 100);
+          const width = Math.max(1.5, ((endOffset - startOffset) / totalDurationMs) * 100);
           const barColor = taskEntityColor(row);
+          const label = `${formatDateLabel(start.toISOString())} - ${formatDateLabel(end.toISOString())} · ${spanLabel(start, end)}`;
+          // The label sits inside a wide bar and trails a narrow one.
+          const inside = width >= 22;
 
           return (
             <div
@@ -222,48 +250,39 @@ export default function GanttView({ rows, dataMode, onSelectRow }: GanttViewProp
                   onSelectRow(row);
                 }
               }}
-              className="grid cursor-pointer grid-cols-[320px_1fr] border-b border-border transition-colors last:border-b-0 hover:bg-muted/40"
+              className="grid cursor-pointer grid-cols-[280px_1fr] items-center border-b border-border transition-colors last:border-b-0 hover:bg-muted/40"
             >
-              <div className="px-3 py-3">
-                <div className="flex items-center gap-2">
-                  <span
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: barColor }}
-                  />
-                  <div className={row.completedAt ? "truncate text-sm text-muted-foreground line-through" : "truncate text-sm text-foreground"}>{row.name}</div>
-                </div>
-                <div className="mt-1 flex items-center gap-1.5 truncate text-xs text-muted-foreground">
-                  {row.workspace ? (
-                    <span
-                      className="size-1.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: resolvedColor(row.workspace.color, row.workspace.id) }}
-                    />
-                  ) : null}
-                  {row.workspace?.name || "No workspace"}
-                </div>
+              {/* One line per row: name, then where it lives, small and muted. */}
+              <div className="flex min-w-0 items-center gap-2 px-3 py-1.5">
+                <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: barColor }} />
+                <span className={row.completedAt ? "min-w-0 truncate text-[13px] text-muted-foreground line-through" : "min-w-0 truncate text-[13px] text-foreground"}>{row.name}</span>
+                {row.workspace?.name ? <span className="ml-auto shrink-0 truncate text-[11px] text-muted-foreground">{row.workspace.name}</span> : null}
               </div>
 
               <div
-                className="px-3 py-3"
+                className="px-3 py-1.5"
                 onDragOver={onTimelineDragOver}
                 onDrop={(event) => {
                   event.stopPropagation();
                   onTimelineDrop(event);
                 }}
               >
-                <div className="relative h-8 rounded-md border border-border bg-muted">
+                <div className="relative h-6">
+                  {todayLeft !== null ? (
+                    <span aria-hidden className="absolute inset-y-0 w-px bg-primary/60" style={{ left: `${todayLeft}%` }} />
+                  ) : null}
                   <div
-                    className="absolute top-1/2 h-4 -translate-y-1/2 rounded-md"
-                    style={{
-                      left: `${left}%`,
-                      width: `${width}%`,
-                      backgroundColor: barColor,
-                    }}
-                  />
-                </div>
-
-                <div className="mt-1 text-[11px] text-muted-foreground">
-                  {formatDateLabel(start.toISOString())} - {formatDateLabel(end.toISOString())}
+                    className="absolute inset-y-0.5 flex items-center overflow-hidden rounded-md px-2 text-[11px] font-medium whitespace-nowrap text-white"
+                    style={{ left: `${left}%`, width: `${width}%`, backgroundColor: barColor, opacity: row.completedAt ? 0.5 : 1 }}
+                    title={label}
+                  >
+                    {inside ? label : null}
+                  </div>
+                  {!inside ? (
+                    <span className="absolute inset-y-0 flex items-center pl-1.5 text-[11px] whitespace-nowrap text-muted-foreground" style={{ left: `${Math.min(left + width, 100)}%` }}>
+                      {label}
+                    </span>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -289,10 +308,10 @@ export default function GanttView({ rows, dataMode, onSelectRow }: GanttViewProp
                     onDragEnd={() => setDraggingId(null)}
                     onClick={() => onSelectRow(row)}
                     onContextMenu={(event) => onRowContextMenu(event, row)}
-                    className="flex w-full cursor-grab items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-muted/40 active:cursor-grabbing"
+                    className="flex w-full cursor-grab items-center justify-between gap-3 px-3 py-1.5 text-left text-[13px] hover:bg-muted/40 active:cursor-grabbing"
                   >
                     <span className={row.completedAt ? "truncate text-muted-foreground line-through" : "truncate text-foreground"}>{row.name}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">
+                    <span className="shrink-0 text-[11px] text-muted-foreground">
                       {row.workspace?.name || "No workspace"}
                     </span>
                   </button>

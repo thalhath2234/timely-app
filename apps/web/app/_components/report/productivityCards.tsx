@@ -1,5 +1,9 @@
 "use client";
 
+import { motion } from "motion/react";
+import { ChangeTint, StatNumber, useChangeKey } from "@/app/_components/_ui/dataMotion";
+import { TaskCheck } from "@/app/_components/_ui/taskCheck";
+import { easeOut, motionSeconds } from "@/app/_components/_ui/motion";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -139,21 +143,7 @@ function useCompleteTask() {
 }
 
 function RoundCheck({ checked, onToggle, label }: { checked: boolean; onToggle: () => void; label: string }) {
-  return (
-    <button
-      type="button"
-      role="checkbox"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={onToggle}
-      className={cn(
-        "flex size-[18px] shrink-0 items-center justify-center rounded-full border transition-colors",
-        checked ? "border-success bg-success text-background" : "border-muted-foreground/50 hover:border-foreground",
-      )}
-    >
-      {checked ? <Check className="size-3" strokeWidth={3} /> : null}
-    </button>
-  );
+  return <TaskCheck checked={checked} onToggle={onToggle} label={label} />;
 }
 
 function Muted({ text }: { text: string }) {
@@ -348,13 +338,13 @@ export function FocusTimeCard({ tasks, now, timeZone }: { tasks: Task[]; now: Da
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-end gap-5">
         <div>
-          <p className="text-3xl font-semibold leading-none tabular-nums text-foreground">{formatMinutes(summary.today)}</p>
+          <StatNumber as="p" className="text-3xl font-semibold leading-none text-foreground" value={formatMinutes(summary.today)} />
           <p className="mt-1 text-xs text-muted-foreground">
             today{pomodoros > 0 ? ` · ${pomodoros} ${pomodoros === 1 ? "pomodoro" : "pomodoros"}` : ""}
           </p>
         </div>
         <div>
-          <p className="text-lg font-semibold leading-none tabular-nums text-foreground">{formatMinutes(summary.week)}</p>
+          <StatNumber as="p" className="text-lg font-semibold leading-none text-foreground" value={formatMinutes(summary.week)} />
           <p className="mt-1 text-xs text-muted-foreground">this week</p>
         </div>
       </div>
@@ -812,7 +802,7 @@ export function WeeklyReviewCard({
               tab === entry.key ? "border-ring bg-accent/50" : "border-border hover:bg-accent/30",
             )}
           >
-            <span className={cn("block text-xl font-semibold leading-tight tabular-nums", entry.tone)}>{review[entry.key].length}</span>
+            <StatNumber className={cn("block text-xl font-semibold leading-tight", entry.tone)} value={review[entry.key].length} />
             <span className="block truncate text-[11px] text-muted-foreground">{entry.label}</span>
           </button>
         ))}
@@ -902,7 +892,7 @@ export function InboxZeroCard({ inbox, loading, now, timeZone }: { inbox: Task[]
   return (
     <div className="flex h-full flex-col gap-2">
       <Link href="/inbox" className="flex items-baseline gap-1.5 hover:underline">
-        <span className="text-3xl font-semibold leading-none tabular-nums text-foreground">{open.length}</span>
+        <StatNumber className="text-3xl font-semibold leading-none text-foreground" value={open.length} />
         <span className="text-sm text-muted-foreground">in Inbox</span>
       </Link>
       <div className="min-w-0 rounded-lg border border-border bg-background/40 px-2.5 py-2">
@@ -982,9 +972,12 @@ export function ClockCard({ title, settings, onSettings }: { title: string; sett
   const setMode = (mode: ClockState["mode"]) => mode !== state.mode && write({ mode, startedAt: null, elapsed: 0, laps: [], done: false });
   const setMinutes = (minutes: number) => write({ minutes: Math.min(600, Math.max(1, minutes)), elapsed: 0, done: false });
   const idle = !running && elapsed === 0;
+  const startKey = useChangeKey(running);
+  const doneKey = useChangeKey(state.done);
 
   return (
-    <div className="flex h-full flex-col items-center gap-2">
+    <div className="relative flex h-full flex-col items-center gap-2">
+      <ChangeTint changeKey={state.done ? doneKey : 0} className="bg-success" />
       <div className="flex rounded-lg border border-border p-0.5 text-xs" role="radiogroup" aria-label="Mode">
         {(["stopwatch", "timer"] as const).map((mode) => (
           <button
@@ -1003,16 +996,20 @@ export function ClockCard({ title, settings, onSettings }: { title: string; sett
         {state.mode === "timer" && !running ? (
           <StepButton label="Take off a minute" onClick={() => setMinutes(Math.round(remaining / 60_000) - 1)} icon={Minus} />
         ) : null}
-        <span
+        <motion.span
+          key={startKey}
           className={cn(
-            "font-semibold tabular-nums text-foreground",
+            "relative font-semibold tabular-nums text-foreground",
             state.mode === "stopwatch" ? "text-3xl" : "text-4xl",
             state.done && "text-success",
           )}
+          initial={startKey > 0 && running ? { scale: 0.94 } : false}
+          animate={{ scale: 1 }}
+          transition={{ duration: motionSeconds.pop, ease: easeOut }}
           aria-live="off"
         >
           {state.mode === "stopwatch" ? formatStopwatch(elapsed, true) : state.done ? "Time's up" : formatStopwatch(remaining)}
-        </span>
+        </motion.span>
         {state.mode === "timer" && !running ? (
           <StepButton label="Add a minute" onClick={() => setMinutes(Math.round(remaining / 60_000) + 1)} icon={Plus} />
         ) : null}

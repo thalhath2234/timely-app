@@ -8,8 +8,10 @@ import {
   LinearTransition,
   SlideInDown,
   SlideOutDown,
+  ZoomIn,
   type WithSpringConfig,
 } from "react-native-reanimated";
+import { motion as MOTION } from "@timely/contract/designTokens";
 
 /** Matches web `springSoft` in `apps/web/app/_components/_ui/motion.tsx`. */
 export const springSoft: WithSpringConfig = {
@@ -25,11 +27,12 @@ export const springSnappy: WithSpringConfig = {
   mass: 0.7,
 };
 
-export const overlayDuration = 280;
+export const overlayDuration = MOTION.ms.pop;
 export const pageDuration = 400;
 export const sheetExitDuration = 280;
 
-export const easeOut = Easing.bezier(0.22, 1, 0.36, 1);
+/** The film's easing (designTokens.motion), the same curve as the web kit. */
+export const easeOut = Easing.bezier(...MOTION.ease);
 
 export function stackPushAnimation(reduceMotion: boolean) {
   if (reduceMotion) return "none" as const;
@@ -46,9 +49,15 @@ export function tabAnimation(reduceMotion: boolean) {
 
 export function listEntering(index = 0, reduceMotion = false) {
   if (reduceMotion) return undefined;
-  return FadeInDown.delay(Math.min(index, 8) * 35)
+  return FadeInDown.delay(Math.min(index, MOTION.staggerCap) * MOTION.ms.stagger)
     .duration(pageDuration)
     .easing(easeOut);
+}
+
+/** A colour bar growing from its top edge over 16 frames (the phone's stand-in for a shared element). */
+export function barEntering(reduceMotion = false) {
+  if (reduceMotion) return undefined;
+  return ZoomIn.duration(MOTION.ms.reveal).easing(easeOut);
 }
 
 export function pageEntering(reduceMotion = false) {

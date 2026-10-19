@@ -28,8 +28,10 @@ const (
 	passageBudget     = 3 * time.Second
 )
 
-// Decider asks Jev; *decide.Service implements it.
+// Decider asks Jev and says whether an account has it on; *decide.Service
+// implements it.
 type Decider interface {
+	Status(ctx context.Context, userID string) (bool, string)
 	Ask(ctx context.Context, userID string, req decide.Request) (decide.Answers, error)
 }
 

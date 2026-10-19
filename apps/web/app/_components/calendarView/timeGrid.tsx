@@ -9,6 +9,9 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Bell } from "lucide-react";
+import { motion } from "motion/react";
+import { motion as MOTION } from "@timely/contract/designTokens";
+import { easeOut, motionSeconds, revealTransition } from "@/app/_components/_ui/motion";
 import { formatHour, HOURS } from "@/app/_types/types";
 import {
   dateOnDayAtMinutes,
@@ -157,6 +160,37 @@ export default function TimeGrid({
   }, [visibleEvents]);
   const scrolledAnchor = useRef("");
   const scrolledWithEvents = useRef(false);
+
+  // Catalogue item 7: a block that was not on the grid when it first drew
+  // rises in with a tint flash, in time order (6 frames apart); a block that
+  // moved slides to its new slot. The first draw's ids are kept for the life
+  // of the grid, so only later arrivals (auto-schedule, a drop, a new event)
+  // get the entrance.
+  const [firstIds] = useState(() => new Set(visibleEvents.flat().map((item) => item.event.id)));
+  const arrivals = useMemo(() => {
+    const fresh = visibleEvents
+      .flatMap((day, dayIndex) => day.map((item) => ({ id: item.event.id, at: dayIndex * 24 + item.event.startHour })))
+      .filter((item) => !firstIds.has(item.id))
+      .sort((a, b) => a.at - b.at);
+    return new Map(fresh.map((item, index) => [item.id, Math.min(index, MOTION.staggerCap) * (6 / MOTION.fps)]));
+  }, [visibleEvents, firstIds]);
+  const entrance = (id: string) => {
+    const delay = arrivals.get(id);
+    if (delay === undefined) return { initial: false as const, animate: undefined, tint: null };
+    return {
+      initial: { opacity: 0, scale: 0.96 },
+      animate: { opacity: 1, scale: 1, transition: { ...revealTransition, delay } },
+      tint: (
+        <motion.span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-primary"
+          initial={{ opacity: 0.35 }}
+          animate={{ opacity: 0 }}
+          transition={{ duration: motionSeconds.highlight, ease: easeOut, delay }}
+        />
+      ),
+    };
+  };
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -420,7 +454,8 @@ export default function TimeGrid({
                   <button
                     key={hour}
                     type="button"
-                    aria-label={`Schedule at ${formatHour(hour)} on ${day.toLocaleDateString()}`}
+                    // The gutter leaves midnight blank; the slot's name still needs it.
+                    aria-label={`Schedule at ${hour === 0 ? "12 AM" : formatHour(hour)} on ${day.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}`}
                     onClick={() => {
                       if (preview) return;
                       onSelectSlot?.(day, hour);
@@ -482,9 +517,14 @@ export default function TimeGrid({
                   ({ event, lane, lanes, reminderOverTask, reminderLiftHours }) => {
                     if (event.reminder) {
                       const liftPx = (reminderLiftHours ?? 0) * HOUR_HEIGHT;
+                      const arrival = entrance(event.id);
                       return (
-                        <button
+                        <motion.button
                           key={event.id}
+                          layout="position"
+                          initial={arrival.initial}
+                          animate={arrival.animate}
+                          transition={revealTransition}
                           type="button"
                           title={event.title}
                           onClick={() => onSelectEvent(event)}
@@ -510,7 +550,8 @@ export default function TimeGrid({
                           <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
                             {formatTime(event.start)}
                           </span>
-                        </button>
+                          {arrival.tint}
+                        </motion.button>
                       );
                     }
 
@@ -521,10 +562,15 @@ export default function TimeGrid({
                     const isSource = preview?.event.id === event.id;
                     const left = `calc(${(lane * 100) / lanes}% + 2px)`;
                     const width = `calc(${100 / lanes}% - 4px)`;
+                    const arrival = entrance(event.id);
 
                     return (
-                      <button
+                      <motion.button
                         key={event.id}
+                        layout="position"
+                        initial={arrival.initial}
+                        animate={arrival.animate}
+                        transition={revealTransition}
                         type="button"
                         onClick={() => {
                           if (suppressClickRef.current) {
@@ -584,7 +630,8 @@ export default function TimeGrid({
                             />
                           </>
                         ) : null}
-                      </button>
+                        {arrival.tint}
+                      </motion.button>
                     );
                   },
                 )}

@@ -23,6 +23,8 @@ func (s *Service) Routes(g *echo.Group) {
 	g.POST("/agent/providers/:id/key", s.setAPIKey)
 	g.DELETE("/agent/providers/:id/key", s.removeAPIKey)
 	g.POST("/agent/write", s.write)
+	g.POST("/agent/checklist-tasks", s.checklistTasks)
+	g.POST("/agent/view-query", s.viewQuery)
 	g.GET("/agent/decisions", s.decisionsOverview)
 	g.PATCH("/agent/decisions", s.configureDecisions)
 	g.POST("/agent/decisions/key", s.setTypeSafeKey)

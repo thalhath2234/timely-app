@@ -7,6 +7,7 @@ import ContextMenuHost from "@/app/_components/_ui/contextMenu";
 import ConfirmHost from "@/app/_components/_ui/confirmHost";
 import EntityDetailHost from "@/app/_components/_ui/tasks/entityDetailHost";
 import PageTabLinks from "@/app/_components/pageTabs/pageTabLinks";
+import SetupResume from "@/app/_components/_layout/setupResume";
 
 export default async function DashboardLayout({
   children,
@@ -19,6 +20,7 @@ export default async function DashboardLayout({
       <AddItemModal />
       <EntityDetailHost />
       <PageTabLinks />
+      <SetupResume />
       <AutoScheduleIndicator />
       <ToastHost />
       <ContextMenuHost />

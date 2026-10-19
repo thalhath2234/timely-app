@@ -29,8 +29,11 @@
     "EntityModalShell": "../../apps/web/app/_components/_ui/modal/entityModal.tsx",
     "ModalMain": "../../apps/web/app/_components/_ui/modal/entityModal.tsx",
     "ModalSidebar": "../../apps/web/app/_components/_ui/modal/entityModal.tsx",
-    "PropertyRow": "../../apps/web/app/_components/_ui/modal/entityModal.tsx",
-    "SidebarSectionTitle": "../../apps/web/app/_components/_ui/modal/entityModal.tsx",
+    "ListGroup": "../../apps/web/app/_components/_ui/groupedList.tsx",
+    "ListRow": "../../apps/web/app/_components/_ui/groupedList.tsx",
+    "GroupLabel": "../../apps/web/app/_components/_ui/groupedList.tsx",
+    "GroupHint": "../../apps/web/app/_components/_ui/groupedList.tsx",
+    "ListSwitch": "../../apps/web/app/_components/_ui/groupedList.tsx",
     "SearchModal": "../../apps/web/app/_components/_ui/modal/search.tsx",
     "OverlayScrim": "../../apps/web/app/_components/_ui/motion.tsx",
     "OverlayPanel": "../../apps/web/app/_components/_ui/motion.tsx",
@@ -203,7 +206,7 @@
     "ModalMain": {
       "cardMode": "column"
     },
-    "PropertyRow": {
+    "ListGroup": {
       "cardMode": "column"
     },
     "ColorPicker": {

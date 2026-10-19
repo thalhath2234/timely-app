@@ -18,6 +18,8 @@ type CustomField struct {
 	UpdatedAt   string          `json:"updatedTime"`
 	Type        CustomFieldType `gorm:"type:text;not null" json:"type"`
 	Options     Options         `gorm:"type:jsonb" json:"options"`
+	// Position orders the workspace's custom fields; see WorkspaceItemOrder.
+	Position int64 `gorm:"not null;default:0" json:"-"`
 
 	Workspace *Workspace `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"workspace,omitempty"`
 }
@@ -31,6 +33,13 @@ func (c *CustomField) BeforeCreate(tx *gorm.DB) error {
 
 	if !c.Type.IsValid() {
 		return errors.New("invalid custom field type")
+	}
+	if c.Position == 0 {
+		p, err := nextPosition(tx, "custom_fields", c.WorkspaceID)
+		if err != nil {
+			return err
+		}
+		c.Position = p
 	}
 	return nil
 }

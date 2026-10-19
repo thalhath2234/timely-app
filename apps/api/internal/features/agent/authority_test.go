@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"timely-api/internal/buildinfo"
 
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -26,7 +27,7 @@ var expectedAuthority = []struct {
 	get_notification_settings get_project get_schedule_settings get_sheet get_sheet_template get_sheet_values get_task get_today
 	get_working_hours get_workspace list_docs list_events list_inbox list_notifications list_projects pick_tasks
 	list_sheet_templates list_sheets list_task_views list_tasks list_workspaces search semantic_search undo_schedule_preview
-	unread_notification_count what_next`},
+	unread_notification_count what_next list_doc_versions get_doc_backlinks get_today_suggestions list_stale_work`},
 	// Applied directly when the plan is one clear step.
 	{Write, Applies, `
 	add_checklist_item add_sheet_column add_sheet_row add_sheet_tab add_task_comment append_to_doc capture_inbox_item
@@ -36,12 +37,12 @@ var expectedAuthority = []struct {
 	reopen_project reopen_task reorder_stages schedule_task set_active_task_view set_task_custom_field set_task_dependency
 	set_task_labels set_today_focus snooze_reminder start_focus stop_focus toggle_checklist_item
 	update_checklist_item update_custom_field update_label update_project update_sheet_template update_stage
-	update_status create_task_view update_task_view`},
+	update_status create_task_view update_task_view open_daily_note triage_notification`},
 	// Always need an Agent proposal: removing a component of an entity (not the entity), recurring series, bulk edits, calendar-wide changes.
 	{Write, Reviewed, `
 	add_sheet_rows auto_schedule_apply bulk_update_tasks clear_task_blocks clear_task_recurrence delete_block
 	delete_checklist_item delete_sheet_column delete_sheet_rows delete_sheet_tab edit_event_occurrence
-	edit_task_occurrence set_task_recurrence split_event_series split_task_series undo_schedule`},
+	edit_task_occurrence set_task_recurrence split_event_series split_task_series undo_schedule restore_doc_version`},
 	// Need an Agent proposal depending on their arguments (TestArgumentRules).
 	{Write, ReviewedWhen, `
 	add_3d_model create_sheet mark_notification_read update_doc update_event update_sheet update_sheet_cells
@@ -57,12 +58,12 @@ var expectedAuthority = []struct {
 	// External MCP only, and would be reviewed if chat ever gained them: whole-object deletion and settings (ADR 0007).
 	{MCPOnly, Reviewed, `
 	delete_backup delete_custom_field delete_doc delete_event delete_label delete_project delete_sheet
-	delete_sheet_template delete_stage delete_status delete_task delete_task_view delete_workspace
+	delete_notification delete_sheet_template delete_stage delete_status delete_task delete_task_view delete_workspace
 	update_notification_settings update_working_hours`},
 	// Habits and goals on Today (tools_focus.go): reading and checking off apply directly; removing a goal is reviewed.
-	{Read, Applies, `list_goals list_habits`},
+	{Read, Applies, `list_goals list_habits get_goal_progress list_focus_sessions`},
 	{Write, Applies, `add_habit check_habit`},
-	{Write, ReviewedWhen, `set_goal`},
+	{Write, ReviewedWhen, `set_goal update_habit`},
 }
 
 func TestEveryToolDeclaresAuthority(t *testing.T) {
@@ -112,6 +113,12 @@ func TestMCPServerServesTheCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if listed.CacheScope != "private" {
+		t.Errorf("tools/list cache scope is %q; each account gets its own list", listed.CacheScope)
+	}
+	if info := client.InitializeResult().ServerInfo; info.Title != "Timely" || info.Version != buildinfo.Version {
+		t.Errorf("server info %+v, want title Timely at the build version", info)
+	}
 	catalog := NewCatalog(Deps{})
 	if len(listed.Tools) != len(catalog) {
 		t.Errorf("MCP serves %d tools, catalog has %d", len(listed.Tools), len(catalog))
@@ -119,6 +126,68 @@ func TestMCPServerServesTheCatalog(t *testing.T) {
 	for _, tool := range listed.Tools {
 		if _, ok := catalog[tool.Name]; !ok {
 			t.Errorf("MCP serves %s, which the catalog lacks", tool.Name)
+		}
+	}
+}
+
+// MCP clients decide from a tool's annotations whether to run it unasked or
+// confirm it first, so the hints must match what the tool does.
+func TestToolAnnotations(t *testing.T) {
+	ctx := context.Background()
+	server, clientSide := mcp.NewInMemoryTransports()
+	session, err := New(Deps{}).Connect(ctx, server, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	client, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, clientSide, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	listed, err := client.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readOnly := map[string]bool{}
+	for _, name := range strings.Fields(`get_profile get_config list_jobs get_job_health list_project_activity
+	list_task_activity export_account export_calendar export_doc export_tasks_csv get_backup_settings list_backups download_backup`) {
+		readOnly[name] = true
+	}
+	destructive := map[string]bool{}
+	for _, name := range strings.Fields(`clear_notifications clear_task_blocks clear_task_recurrence restore_account replace_checklist undo_schedule update_sheet`) {
+		destructive[name] = true
+	}
+	for _, tool := range listed.Tools {
+		a := tool.Annotations
+		if a == nil {
+			t.Errorf("%s has no annotations", tool.Name)
+			continue
+		}
+		if a.OpenWorldHint == nil || *a.OpenWorldHint {
+			t.Errorf("%s must declare a closed world", tool.Name)
+		}
+		destroys := a.DestructiveHint != nil && *a.DestructiveHint
+		authority, _ := AuthorityOf(tool.Name)
+		if (authority.Access == Read || readOnly[tool.Name]) && !a.ReadOnlyHint {
+			t.Errorf("%s only reads but is not read-only", tool.Name)
+		}
+		if a.ReadOnlyHint && a.DestructiveHint != nil {
+			t.Errorf("%s is read-only but declares a destructive hint", tool.Name)
+		}
+		if !a.ReadOnlyHint && a.DestructiveHint == nil {
+			t.Errorf("%s changes data but does not say whether it destroys any", tool.Name)
+		}
+		if (strings.HasPrefix(tool.Name, "delete_") || destructive[tool.Name]) && !destroys {
+			t.Errorf("%s deletes or overwrites data but is not destructive", tool.Name)
+		}
+		// ADR 0007: chat never deletes a whole object, and removes a part of
+		// one only through a reviewed Agent proposal.
+		if strings.HasPrefix(tool.Name, "delete_") && authority.Access == Write && authority.Approval != Reviewed {
+			t.Errorf("%s lets chat delete without review", tool.Name)
+		}
+		if strings.HasPrefix(tool.Name, "archive_") && destroys {
+			t.Errorf("%s can be undone, so it is not destructive", tool.Name)
 		}
 	}
 }
@@ -135,6 +204,9 @@ func TestRegistrationRequiresAuthority(t *testing.T) {
 	}
 	if !register(Authority{}) {
 		t.Error("a tool without a declared authority registered")
+	}
+	if !register(Authority{Access: Read}) {
+		t.Error("a chat read registered without a read-only effect")
 	}
 	if !register(reads.reviewed()) {
 		t.Error("a read-only tool registered as needing review")
@@ -183,6 +255,8 @@ func TestArgumentRules(t *testing.T) {
 		{"set_goal", map[string]any{"action": "add", "title": "Get fit"}, false},
 		{"set_goal", map[string]any{"action": "rename", "goal": "Get fit", "title": "Run a 10k"}, false},
 		{"set_goal", map[string]any{"action": "remove", "goal": "Get fit"}, true},
+		{"update_habit", map[string]any{"action": "rename", "habit": "Walk", "title": "Run"}, false},
+		{"update_habit", map[string]any{"action": "remove", "habit": "Walk"}, true},
 	}
 	for _, tt := range tests {
 		authority, ok := AuthorityOf(tt.tool)

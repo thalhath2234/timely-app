@@ -13,6 +13,8 @@ type Status struct {
 	Color       string `json:"color"`
 	WorkspaceID string `gorm:"type:uuid;not null" json:"workspaceId"`
 	IsDefault   bool   `gorm:"default:false" json:"isDefault"`
+	// Position orders the workspace's statuses; see WorkspaceItemOrder.
+	Position int64 `gorm:"not null;default:0" json:"-"`
 
 	CreatedAt string `json:"createdAt"`
 	UpdatedAt string `json:"updatedAt"`
@@ -26,6 +28,13 @@ func (s *Status) BeforeCreate(tx *gorm.DB) error {
 		s.CreatedAt = now
 	}
 	s.UpdatedAt = now
+	if s.Position == 0 {
+		p, err := nextPosition(tx, "statuses", s.WorkspaceID)
+		if err != nil {
+			return err
+		}
+		s.Position = p
+	}
 	return nil
 }
 

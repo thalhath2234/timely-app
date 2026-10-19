@@ -1,5 +1,6 @@
 "use client";
 
+import { motion as MOTION } from "@timely/contract/designTokens";
 import {
   useEffect,
   useLayoutEffect,
@@ -166,6 +167,7 @@ import SheetColumnSettings from "@/app/_components/sheets/sheetColumnSettings";
 import SheetConditionalPanel from "@/app/_components/sheets/sheetConditionalPanel";
 import SheetColumnFilter from "@/app/_components/sheets/sheetColumnFilter";
 import { sheetPrintHtml } from "@/app/_components/sheets/sheetPrint";
+import { plural } from "@/app/utils/plural";
 
 const MIN_COLUMN_WIDTH = 72;
 const MAX_COLUMN_WIDTH = 640;
@@ -342,7 +344,6 @@ export default function SheetGrid({
   const [typeMenuIndex, setTypeMenuIndex] = useState<number | null>(null);
   const [optionsEditorIndex, setOptionsEditorIndex] = useState<number | null>(null);
   const [filterMenuIndex, setFilterMenuIndex] = useState<number | null>(null);
-  const columnPopoverAnchorRef = useRef<HTMLDivElement>(null);
   const [filterQuery, setFilterQuery] = useState("");
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
@@ -1126,6 +1127,10 @@ export default function SheetGrid({
 
   const handleGridKeyDown = (event: React.KeyboardEvent) => {
     if (editing) return;
+    // Keys typed into the column rename box or a column popover (which
+    // bubble here through the portal) belong to that field, not the grid.
+    const target = event.target as HTMLElement;
+    if (target !== event.currentTarget && target.closest("input, textarea, select, [contenteditable='true']")) return;
     const extend = event.shiftKey;
     const mod = event.metaKey || event.ctrlKey;
     const nav = normalizedRange(range);
@@ -1471,6 +1476,51 @@ export default function SheetGrid({
     }
   }
   const renderRows = [...visibleRows.slice(0, frozenCount), ...bodyRows.slice(startPos, endPos + 1)];
+
+  // Catalogue item 9: a cell whose shown text changed while another cell was
+  // edited (a formula recalculated) tints and fades; a row added after the
+  // first render slides open. The texts of the rows on screen are compared
+  // with the previous render's (the "previous render" pattern, no refs), and
+  // the classes drop again a second later so a re-mounted cell stays quiet.
+  const [firstRowIds] = useState(() => new Set(rows.map((row) => row.id)));
+  const shownTexts = useMemo(() => {
+    const texts = new Map<string, string>();
+    for (const rowIndex of renderRows) {
+      const row = rows[rowIndex];
+      if (!row) continue;
+      columns.forEach((column, colIndex) => {
+        const result = evaluator.valueAt(colIndex, rowIndex);
+        const raw = rawAt({ col: colIndex, row: rowIndex });
+        texts.set(`${column.id}:${row.id}`, formatSheetCell(result, column, raw, formatAt(row, column.id)));
+      });
+    }
+    return texts;
+    // renderRows is a fresh array each render; its contents follow rows and the scroll window.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, columns, evaluator, startPos, endPos, frozenCount, visibleRows]);
+  const [shown, setShown] = useState<{ texts: Map<string, string>; changed: Map<string, string>; n: number }>(() => ({
+    texts: shownTexts,
+    changed: new Map(),
+    n: 0,
+  }));
+  if (shown.texts !== shownTexts) {
+    const changed = new Map<string, string>();
+    const ownKey = `${columns[selected.col]?.id}:${rows[selected.row]?.id}`;
+    const flip = shown.n + 1;
+    shownTexts.forEach((text, key) => {
+      const before = shown.texts.get(key);
+      if (before !== undefined && before !== text && key !== ownKey) {
+        changed.set(key, flip % 2 ? "sheet-changed-a" : "sheet-changed-b");
+      }
+    });
+    setShown({ texts: shownTexts, changed, n: flip });
+  }
+  const recalculated = shown.changed;
+  useEffect(() => {
+    if (recalculated.size === 0) return;
+    const id = window.setTimeout(() => setShown((current) => (current.changed === recalculated ? { ...current, changed: new Map() } : current)), MOTION.ms.highlight + 100);
+    return () => window.clearTimeout(id);
+  }, [recalculated]);
   const topSpacer = startPos * ROW_HEIGHT;
   const bottomSpacer = Math.max(0, bodyRows.length - 1 - endPos) * ROW_HEIGHT;
 
@@ -1614,8 +1664,6 @@ export default function SheetGrid({
     const last = axis === "row" ? bounds.maxRow : bounds.maxCol;
     return index >= first && index <= last ? { at: first, count: last - first + 1 } : { at: index, count: 1 };
   };
-
-  const plural = (count: number, word: string) => (count === 1 ? `1 ${word}` : `${count} ${word}s`);
 
   const rowEntries = (index: number): ContextMenuEntry[] => {
     const span = spanFor("row", index);
@@ -1897,7 +1945,7 @@ export default function SheetGrid({
 
   return (
     <div data-chat-sheet-range={selectedAddress} data-chat-sheet-tab={activeTabId} className="flex h-full flex-col overflow-hidden bg-background">
-      <div className="flex shrink-0 flex-wrap items-center gap-0.5 border-b border-border bg-[#191B22] px-2 py-1">
+      <div className="flex shrink-0 flex-wrap items-center gap-0.5 border-b border-border bg-muted px-2 py-1">
         <button type="button" title="Undo" disabled={history.past.length === 0} onClick={undo} className={toolClass()}>
           <Undo2 className="size-4" />
         </button>
@@ -2400,7 +2448,7 @@ export default function SheetGrid({
               />
               <p className="mt-1.5 px-0.5 text-[11px] text-muted-foreground">
                 {filtering
-                  ? `Showing ${visibleRows.length} of ${rows.length} rows`
+                  ? `Showing ${visibleRows.length} of ${plural(rows.length, "row")}`
                   : `Sorts by column ${columnIndexToLetter(selected.col)}. Right-click a column to filter by its values.`}
               </p>
               {activeFilters.length > 0 || filterQuery ? (
@@ -2549,8 +2597,8 @@ export default function SheetGrid({
         </button>
       </div>
 
-      <div className="flex items-center gap-2 border-b border-border bg-[#191B22] px-3 py-1.5" data-formula-bar>
-        <span className="w-16 shrink-0 rounded-md border border-[#7C66DC] bg-[#6E56CF] px-2 py-1 text-center font-mono text-xs font-semibold text-white shadow-[0_0_12px_rgba(110,86,207,0.2)]">
+      <div className="flex items-center gap-2 border-b border-border bg-muted px-3 py-1.5" data-formula-bar>
+        <span className="w-16 shrink-0 rounded-md border border-primary bg-primary px-2 py-1 text-center font-mono text-xs font-semibold text-primary-foreground">
           {selectedAddress}
         </span>
         <div className="flex min-w-0 flex-1 items-center rounded-md border border-input bg-card shadow-xs px-2 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
@@ -2610,7 +2658,7 @@ export default function SheetGrid({
         </div>
       </div>
       {hint && (hint.suggestions.length > 0 || currentHelp) ? (
-        <div className="flex min-h-7 shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-[#15171D] px-3 py-1 text-[11px]" data-formula-bar>
+        <div className="flex min-h-7 shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-background px-3 py-1 text-[11px]" data-formula-bar>
           {hint.suggestions.length > 0 ? (
             <>
               {hint.suggestions.map((name, index) => (
@@ -2622,7 +2670,7 @@ export default function SheetGrid({
                     acceptSuggestion(name);
                   }}
                   title={SHEET_FUNCTION_HELP[name]?.summary}
-                  className={`shrink-0 rounded px-1.5 py-0.5 font-mono ${index === 0 ? "bg-[#2A2445] text-[#C4B5FD]" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
+                  className={`shrink-0 rounded px-1.5 py-0.5 font-mono ${index === 0 ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
                 >
                   {name}
                 </button>
@@ -2630,7 +2678,7 @@ export default function SheetGrid({
             </>
           ) : currentHelp ? (
             <>
-              <span className="shrink-0 font-mono text-[#C4B5FD]">{currentHelp.signature}</span>
+              <span className="shrink-0 font-mono text-primary">{currentHelp.signature}</span>
               <span className="min-w-0 truncate text-muted-foreground">{currentHelp.summary}</span>
             </>
           ) : null}
@@ -2676,6 +2724,7 @@ export default function SheetGrid({
                   if (!isEditingFormula) return;
                   beginFormulaPick({ col: index, row: 0 }, "formula-col");
                 }}
+                data-column-header
                 onMouseEnter={() => {
                   if (dragRef.current === "formula-col") {
                     extendFormulaPick({ col: index, row: 0 });
@@ -2687,7 +2736,7 @@ export default function SheetGrid({
                   formulaRanges.some((picked) => rangeTouchesCol(picked, index))
                     ? "outline outline-dashed outline-primary/70"
                     : ""
-                } ${index === lastFrozenCol ? "border-r-2 border-r-[#7C66DC]/60" : ""}`}
+                } ${index === lastFrozenCol ? "border-r-2 border-r-primary/60" : ""}`}
                 style={frozenLeft !== undefined ? { position: "sticky", left: frozenLeft, zIndex: 25 } : undefined}
               >
                 {hiddenBefore.length > 0 ? (
@@ -2696,7 +2745,7 @@ export default function SheetGrid({
                     title={`Show ${plural(hiddenBefore.length, "hidden column")}`}
                     aria-label={`Show ${plural(hiddenBefore.length, "hidden column")}`}
                     onClick={() => setColumnsHidden(hiddenBefore, false)}
-                    className="absolute -left-2 top-1/2 z-10 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-full border border-[#7C66DC] bg-[#2A2445] text-[#C4B5FD] hover:bg-[#6E56CF] hover:text-white"
+                    className="absolute -left-2 top-1/2 z-10 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-full border border-primary bg-primary/15 text-primary hover:bg-primary hover:text-primary-foreground"
                   >
                     <Eye className="size-2.5" />
                   </button>
@@ -2743,21 +2792,13 @@ export default function SheetGrid({
                     title="Filtered · change filter"
                     aria-label="Change filter"
                     onClick={() => setFilterMenuIndex(index)}
-                    className="flex size-5 shrink-0 items-center justify-center rounded text-[#C4B5FD] hover:bg-accent"
+                    className="flex size-5 shrink-0 items-center justify-center rounded text-primary hover:bg-accent"
                   >
                     <ListFilter className="size-3" />
                   </button>
                 ) : null}
 
-                <div
-                  ref={
-                    typeMenuIndex === index || optionsEditorIndex === index || filterMenuIndex === index
-                      ? columnPopoverAnchorRef
-                      : undefined
-                  }
-                  className="relative shrink-0"
-                  data-sheet-popover
-                >
+                <div className="relative shrink-0" data-sheet-popover>
                   <button
                     type="button"
                     title="Column type and format"
@@ -2770,7 +2811,6 @@ export default function SheetGrid({
                   </button>
                   {typeMenuIndex === index ? (
                     <AnchoredPopover
-                      anchorRef={columnPopoverAnchorRef}
                       boundsRef={gridRef}
                       className="rounded-lg border border-border bg-popover p-1.5 shadow-xl"
                     >
@@ -2787,7 +2827,6 @@ export default function SheetGrid({
                   ) : null}
                   {filterMenuIndex === index ? (
                     <AnchoredPopover
-                      anchorRef={columnPopoverAnchorRef}
                       boundsRef={gridRef}
                       className="rounded-lg border border-border bg-popover p-1.5 shadow-xl"
                     >
@@ -2807,7 +2846,6 @@ export default function SheetGrid({
                   ) : null}
                   {optionsEditorIndex === index ? (
                     <AnchoredPopover
-                      anchorRef={columnPopoverAnchorRef}
                       boundsRef={gridRef}
                       className="w-64 rounded-md border border-border bg-popover p-2 shadow-lg"
                     >
@@ -2904,7 +2942,7 @@ export default function SheetGrid({
             return (
             <div
               key={rows[rowIndex].id}
-              className={`${frozen ? "" : "relative"} grid overflow-visible`}
+              className={`${frozen ? "" : "relative"} grid overflow-visible ${firstRowIds.has(rows[rowIndex].id) ? "" : "sheet-row-in"}`}
               style={{
                 gridTemplateColumns,
                 zIndex: frozen ? 15 : rowHasVerticalMerge ? 8 : undefined,
@@ -2914,13 +2952,13 @@ export default function SheetGrid({
               <div
                 className={`sticky left-0 z-10 border-b border-r border-border px-2 text-center font-mono text-[11px] text-muted-foreground ${
                   rowIndex >= bounds.minRow && rowIndex <= bounds.maxRow
-                    ? "bg-[#2A2445] text-primary"
+                    ? "bg-primary/15 text-primary"
                     : "bg-muted"
                 } ${
                   formulaRanges.some((picked) => rangeTouchesRow(picked, rowIndex))
                     ? "outline outline-dashed outline-primary/70"
                     : ""
-                } ${rowIndex === frozenRows - 1 ? "border-b-2 border-b-[#7C66DC]/60" : ""}`}
+                } ${rowIndex === frozenRows - 1 ? "border-b-2 border-b-primary/60" : ""}`}
                 style={{ height: ROW_HEIGHT, lineHeight: `${ROW_HEIGHT}px` }}
                 onMouseDown={(event) => {
                   event.preventDefault();
@@ -3032,6 +3070,7 @@ export default function SheetGrid({
                 const rule = conditional.get(`${colIndex}:${rowIndex}`);
                 const format = rule ? { ...ownFormat, ...rule } : ownFormat;
                 const display = formatSheetCell(result, column, raw, ownFormat);
+                const changedClass = recalculated.get(`${column.id}:${rows[rowIndex].id}`) ?? "";
                 const chip = column.type === "text" || column.type === "formula" ? statusChip(display) : null;
                 const align = format?.align ?? defaultAlign(column.type);
                 const inFormulaRange = isInAnyRange(address, formulaRanges);
@@ -3163,8 +3202,8 @@ export default function SheetGrid({
                           ? "items-end"
                           : "items-center"
                     } ${
-                      inRange && !format?.fillColor ? "bg-[#6E56CF]/10" : ""
-                    } ${isSelected ? "z-10 bg-[#251F3E] ring-2 ring-inset ring-[#7C66DC]" : ""} ${
+                      inRange && !format?.fillColor ? "bg-primary/10" : ""
+                    } ${isSelected ? "sheet-sel z-10 bg-primary/15" : ""} ${changedClass} ${
                       inFormulaRange ? "outline outline-dashed outline-1 outline-primary" : ""
                     } ${
                       result.type === "error" ? "text-destructive" : ""
@@ -3178,8 +3217,8 @@ export default function SheetGrid({
                       format?.border === "outer" ? "outline outline-1 outline-foreground/40" : ""
                     } ${format?.clip && !isVerticalOrigin ? "overflow-hidden" : ""} ${
                       (merge && isMergeOrigin(merge, address)) || frozen || frozenLeft !== undefined ? (isSelected ? "" : "bg-background") : ""
-                    } ${colIndex === lastFrozenCol ? "border-r-2 border-r-[#7C66DC]/60" : ""} ${
-                      rowIndex === frozenRows - 1 ? "border-b-2 border-b-[#7C66DC]/60" : ""
+                    } ${colIndex === lastFrozenCol ? "border-r-2 border-r-primary/60" : ""} ${
+                      rowIndex === frozenRows - 1 ? "border-b-2 border-b-primary/60" : ""
                     }`}
                     style={{
                       height:
@@ -3302,7 +3341,7 @@ export default function SheetGrid({
                             gridRef.current?.focus();
                           }}
                           aria-label="Pick a date"
-                          className="size-6 bg-[#251F3E]"
+                          className="size-6 bg-primary/15"
                         />
                       </span>
                     ) : null}
@@ -3392,7 +3431,7 @@ export default function SheetGrid({
         </div>
       )}
 
-      <footer className="flex h-9 shrink-0 items-center justify-between gap-3 border-t border-border bg-[#191B22] px-3 text-[11px]">
+      <footer className="flex h-9 shrink-0 items-center justify-between gap-3 border-t border-border bg-muted px-3 text-[11px]">
         <div className="flex min-w-0 items-end gap-1">
           {(tabs?.length ?? 0) > 1 ? (
             <button
@@ -3482,7 +3521,7 @@ export default function SheetGrid({
                   onContextMenu={openTabMenu}
                   className={`relative flex shrink-0 items-center gap-1 rounded-t border border-b-0 px-2 py-1 ${
                     active
-                      ? "border-[#7C66DC] bg-[#1F222B] text-foreground"
+                      ? "border-primary bg-card text-foreground"
                       : "border-transparent text-muted-foreground hover:bg-accent/60"
                   }`}
                 >
@@ -3574,25 +3613,29 @@ const VIEWPORT_MARGIN = 8;
 
 /**
  * Column-header menus render into `document.body` so the grid's scroll
- * container cannot clip them. The panel hangs below the anchor, right-aligned
- * to it, and is clamped to stay inside `boundsRef` and the viewport.
+ * container cannot clip them. The panel hangs below its column header,
+ * lined up with the column's left edge, and is clamped to stay inside
+ * `boundsRef` and the viewport.
+ *
+ * The header is found from a marker rendered in place. A ref on the header
+ * would be attached only after this effect runs on the first open, which in
+ * a production build left the panel at the window's top-left corner.
  */
 function AnchoredPopover({
-  anchorRef,
   boundsRef,
   className,
   children,
 }: {
-  anchorRef: RefObject<HTMLElement | null>;
   boundsRef: RefObject<HTMLElement | null>;
   className?: string;
   children: ReactNode;
 }) {
+  const markerRef = useRef<HTMLSpanElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
     const place = () => {
-      const anchor = anchorRef.current;
+      const anchor = markerRef.current?.closest<HTMLElement>("[data-column-header]");
       const panel = panelRef.current;
       if (!anchor || !panel) return;
       const anchorRect = anchor.getBoundingClientRect();
@@ -3600,8 +3643,11 @@ function AnchoredPopover({
       const width = panel.offsetWidth;
       const height = panel.offsetHeight;
       const minLeft = Math.max(VIEWPORT_MARGIN, bounds ? bounds.left + POPOVER_GAP : 0);
-      const maxLeft = window.innerWidth - width - VIEWPORT_MARGIN;
-      const left = Math.max(minLeft, Math.min(anchorRect.right - width, maxLeft));
+      const maxLeft = Math.min(
+        window.innerWidth - VIEWPORT_MARGIN,
+        bounds ? bounds.right - POPOVER_GAP : Infinity,
+      ) - width;
+      const left = Math.max(minLeft, Math.min(anchorRect.left, maxLeft));
       const below = anchorRect.bottom + POPOVER_GAP;
       const top =
         below + height > window.innerHeight - VIEWPORT_MARGIN
@@ -3609,6 +3655,7 @@ function AnchoredPopover({
           : below;
       panel.style.left = `${left}px`;
       panel.style.top = `${top}px`;
+      panel.style.visibility = "visible";
     };
     place();
     window.addEventListener("resize", place);
@@ -3617,18 +3664,23 @@ function AnchoredPopover({
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [anchorRef, boundsRef]);
+  }, [boundsRef]);
 
-  return createPortal(
-    <div
-      ref={panelRef}
-      data-sheet-popover
-      className={`fixed left-0 top-0 z-[100] ${className ?? ""}`}
-      onMouseDown={(event) => event.stopPropagation()}
-    >
-      {children}
-    </div>,
-    document.body,
+  return (
+    <>
+      <span ref={markerRef} hidden />
+      {createPortal(
+        <div
+          ref={panelRef}
+          data-sheet-popover
+          className={`invisible fixed left-0 top-0 z-[100] ${className ?? ""}`}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          {children}
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 

@@ -245,3 +245,41 @@ func (s *Server) getJobHealth(ctx context.Context, req *mcp.CallToolRequest, _ e
 	}
 	return reply("job health", health)
 }
+
+type triageNotificationIn struct {
+	NotificationID string `json:"notificationId"`
+	Action         string `json:"action" jsonschema:"reschedule, move, extend, addtime or lower (overdue or missed); focus or reschedule (smart alerts)"`
+}
+
+func (s *Server) triageNotification(ctx context.Context, req *mcp.CallToolRequest, in triageNotificationIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	if s.Notify == nil {
+		return fail(errors.New("notifications are not available"))
+	}
+	message, err := s.Notify.ApplyTriage(uid, in.NotificationID, in.Action)
+	if err != nil {
+		return fail(err)
+	}
+	return reply(message, map[string]any{"message": message})
+}
+
+type notificationIDIn struct {
+	NotificationID string `json:"notificationId"`
+}
+
+func (s *Server) deleteNotification(ctx context.Context, req *mcp.CallToolRequest, in notificationIDIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	if s.Notify == nil {
+		return fail(errors.New("notifications are not available"))
+	}
+	if err := s.Notify.Delete(uid, in.NotificationID); err != nil {
+		return fail(err)
+	}
+	return reply("notification deleted", map[string]any{"deleted": in.NotificationID})
+}

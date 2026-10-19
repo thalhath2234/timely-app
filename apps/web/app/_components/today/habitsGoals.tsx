@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, Flame, GripVertical, Pencil, Plus, Target, Trash2 } from "lucide-react";
 import { cn } from "@/app/utils/cn";
 import { MAX_FOCUS_NAME, MAX_GOALS, MAX_HABITS, type Goal, type Habit } from "@/app/utils/api/focus";
@@ -23,6 +23,8 @@ import { useSidebarStore } from "@/app/_store/sidebarStore";
 import { requestConfirm } from "@/app/_store/confirmStore";
 import { useToastStore } from "@/app/_store/toastStore";
 import { controlClass } from "@/app/_components/_ui/field";
+import Button from "@/app/_components/_ui/button";
+import TodayPanel from "@/app/_components/today/todayPanel";
 
 const failed = (fallback: string) => (error: unknown) => {
   useToastStore.getState().show(error instanceof Error ? error.message : fallback);
@@ -39,7 +41,6 @@ function shortDate(date: string) {
   return new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-const heading = "flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground";
 const label = "text-xs font-medium text-muted-foreground";
 const linkButton = "font-medium text-primary hover:underline disabled:opacity-50";
 const input =
@@ -47,7 +48,7 @@ const input =
 const iconButton =
   "shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
 
-/** Habits and goals at the top of Today: tick a habit for today and see its
+/** Habits and goals in the side column of Today: tick a habit for today and see its
  * streak, and see each goal with the open Work that moves it forward (only
  * with smart suggestions on). Edit mode adds, renames, reorders and deletes. */
 export default function HabitsGoals({ today, version }: { today: string; version: string }) {
@@ -67,40 +68,43 @@ export default function HabitsGoals({ today, version }: { today: string; version
 
   if (!editing && habitList.length === 0 && goalList.length === 0) {
     return (
-      <section
+      <TodayPanel
+        title="Habits and goals"
+        icon={<Flame className="size-3.5 text-warning" />}
         aria-label="Habits and goals"
         data-testid="today-habits-goals"
-        className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
       >
-        <Flame className="size-3.5 text-warning" />
-        <span>Track a daily habit or name what you are working toward.</span>
-        <button type="button" onClick={() => startEditing("habit")} className={linkButton}>
-          Add a habit
-        </button>
-        <button type="button" onClick={() => startEditing("goal")} className={linkButton}>
-          Add a goal
-        </button>
-      </section>
+        <p className="text-xs text-muted-foreground">Track a daily habit or name what you are working toward.</p>
+        <div className="mt-2 flex flex-wrap gap-3 text-xs">
+          <button type="button" onClick={() => startEditing("habit")} className={linkButton}>
+            Add a habit
+          </button>
+          <button type="button" onClick={() => startEditing("goal")} className={linkButton}>
+            Add a goal
+          </button>
+        </div>
+      </TodayPanel>
     );
   }
 
   return (
-    <section className="space-y-3" data-testid="today-habits-goals" aria-label="Habits and goals">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className={heading}>
-          <Flame className="size-3.5 text-warning" />
-          Habits and goals
-        </h2>
-        <button
-          type="button"
+    <TodayPanel
+      title="Habits and goals"
+      icon={<Flame className="size-3.5 text-warning" />}
+      aria-label="Habits and goals"
+      data-testid="today-habits-goals"
+      action={
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => (editing ? setEditing(false) : startEditing(null))}
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          leading={editing ? <Check /> : <Pencil />}
         >
-          {editing ? <Check className="size-3.5" /> : <Pencil className="size-3.5" />}
           {editing ? "Done" : "Edit"}
-        </button>
-      </div>
-      <div className="space-y-3 rounded-2xl border border-border bg-muted/20 p-4 text-sm">
+        </Button>
+      }
+    >
+      <div className="space-y-3 text-sm">
         {editing ? (
           <>
             <HabitEditor today={today} habits={habitList} autoFocus={focusAdd === "habit"} />
@@ -113,7 +117,7 @@ export default function HabitsGoals({ today, version }: { today: string; version
           </>
         )}
       </div>
-    </section>
+    </TodayPanel>
   );
 }
 
@@ -161,7 +165,7 @@ function HabitChips({ today, habits, onAdd }: { today: string; habits: Habit[]; 
               >
                 {habit.doneToday ? <Check className="size-3 stroke-[3]" /> : null}
               </span>
-              <span className="max-w-[14rem] truncate">{habit.name}</span>
+              <span className="max-w-[12rem] truncate">{habit.name}</span>
               <span
                 className={cn(
                   "inline-flex items-center gap-0.5 tabular-nums",
@@ -276,7 +280,9 @@ function GoalRows({ goals, version, onAdd }: { goals: Goal[]; version: string; o
   );
 }
 
-/** One row of an edit list: drag handle, an inline name field and delete. */
+/** One row of an edit list: drag handle, an inline name field and delete.
+ * While the row has focus a tick saves the name (Enter and blur save too,
+ * Escape puts the old name back). */
 function EditRow({
   name,
   dragging,
@@ -296,12 +302,18 @@ function EditRow({
   what: string;
   children?: ReactNode;
 }) {
+  const field = useRef<HTMLInputElement>(null);
+  const [focused, setFocused] = useState(false);
   return (
     <li
       draggable
       onDragStart={onDragStart}
       onDragOver={(event) => event.preventDefault()}
       onDrop={onDrop}
+      onFocus={() => setFocused(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false);
+      }}
       className={cn(
         "flex items-center gap-2 rounded-lg border border-border bg-background px-2 py-1.5",
         dragging && "opacity-50",
@@ -310,6 +322,7 @@ function EditRow({
       <GripVertical className="size-4 shrink-0 cursor-grab text-muted-foreground" aria-hidden />
       {children}
       <input
+        ref={field}
         key={name}
         defaultValue={name}
         maxLength={MAX_FOCUS_NAME}
@@ -328,6 +341,22 @@ function EditRow({
         }}
         className={input}
       />
+      {focused ? (
+        <Button
+          icon
+          size="sm"
+          aria-label={`Save ${what} name`}
+          title="Save"
+          // Keep the field focused until the click, so it saves exactly once.
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={(event) => {
+            field.current?.blur();
+            event.currentTarget.blur();
+          }}
+        >
+          <Check />
+        </Button>
+      ) : null}
       <button type="button" aria-label={`Delete ${what} ${name}`} title="Delete" onClick={onDelete} className={iconButton}>
         <Trash2 className="size-3.5" />
       </button>

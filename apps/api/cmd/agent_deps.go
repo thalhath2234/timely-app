@@ -17,6 +17,7 @@ import (
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/search"
 	"timely-api/internal/features/sheet"
+	"timely-api/internal/features/suggest"
 	"timely-api/internal/features/task"
 	"timely-api/internal/features/workspace"
 	"timely-api/internal/jobs"
@@ -39,6 +40,10 @@ var taskPick func(ctx context.Context, userID, description string, hits []search
 // docDecisions lets a focused get_doc show only the relevant sections of a
 // long doc; nil returns docs whole. Set in main once Jev is wired.
 var docDecisions agent.Decider
+
+// todaySuggestions answers the agent's Today suggestions and stale Work; nil
+// makes those tools say they are not available. Set in main.
+var todaySuggestions *suggest.Service
 
 // Bind all writes (including indexing jobs) to the same transaction as the
 // agent's execution checkpoint. Existing REST and Hermes behavior stays intact.
@@ -69,12 +74,13 @@ func chatCatalog(db *gorm.DB, live *realtime.Hub, creds embed.Credentials) agent
 		Schedule: scheduleService,
 		// Notifications, snooze and mark-read run in the same transaction too.
 		Notify: notify.NewService(db, jobs.NewQueue(db), calendarService, taskService, scheduleService, indexer),
-		Docs:   doc.NewDocumentService(doc.NewDocumentRepository(db), indexer, live), Sheets: sheet.NewSheetService(sheet.NewSheetRepository(db), indexer),
+		Docs:   doc.NewDocumentService(doc.NewDocumentRepository(db), indexer, live), Sheets: sheet.NewSheetService(sheet.NewSheetRepository(db), indexer, live),
 		Search:    search.NewService(db, indexer),
 		Estimate:  workEstimate,
 		Rerank:    searchRerank,
 		Pick:      taskPick,
 		Decisions: docDecisions,
 		Focus:     focus.NewStore(db),
+		Suggest:   todaySuggestions,
 	})
 }

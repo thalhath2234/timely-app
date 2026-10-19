@@ -15,6 +15,7 @@ import type { Doc, DocContent } from "./documents";
 import type { Project, Task, Workspace } from "./entities";
 import type { WeekdayKey, WorkingHours } from "./schedule";
 import type { Sheet } from "./sheet";
+import { DOC_VIEW_LABELS, SHEET_VIEW_LABELS, fitDocPick, fitSheetPick, type DocPick, type SheetPick, type SheetView } from "./dashboardFiles";
 import { addDaysToDate, dateInZone, daysBetween, isOverdue, todayInZone } from "./workStatus";
 
 export const DASHBOARD_VERSION = 1;
@@ -158,6 +159,14 @@ export interface CardQuery {
   compare?: boolean;
   /** Categorical palette slot (0-7) for single-colour marks. */
   color?: number;
+  /**
+   * Sheets source only: read cells of this one sheet instead of the list of
+   * sheets. `display` then holds the nearest plain display for clients that
+   * predate file cards (they keep the pick when they save the layout).
+   */
+  sheet?: SheetPick;
+  /** Docs source only: show this one doc's page or checklist. */
+  doc?: DocPick;
 }
 
 // ---- Catalogue ----
@@ -366,9 +375,51 @@ export const CUSTOM_MIN_SIZE = { w: 2, h: 2 };
 export function minCardSize(card: Pick<DashboardCard, "type" | "query">): { w: number; h: number } {
   const info = builtinInfo(card.type);
   if (info) return { w: info.minW, h: info.minH };
+  const view = card.query?.sheet?.view;
+  if (view) return view === "value" || view === "counter" || view === "progress" ? { w: 2, h: 2 } : { w: 3, h: 3 };
+  if (card.query?.doc) return { w: 3, h: 3 };
   const display = card.query?.display;
   if (display === "line" || display === "bar" || display === "pie" || display === "list") return { w: 3, h: 3 };
   return CUSTOM_MIN_SIZE;
+}
+
+/** The plain display a sheet view falls back to on clients without file cards. */
+export const SHEET_VIEW_DISPLAY: Record<SheetView, CardDisplay> = {
+  value: "number",
+  counter: "number",
+  progress: "progress",
+  table: "list",
+  addRow: "list",
+  bar: "bar",
+  line: "line",
+  pie: "pie",
+};
+
+/** A sensible size for a new card of each kind, in grid columns and rows. */
+export function defaultCardSize(query: Pick<CardQuery, "display" | "sheet" | "doc">): { w: number; h: number } {
+  if (query.sheet) {
+    const sizes: Record<SheetView, { w: number; h: number }> = {
+      value: { w: 3, h: 2 },
+      counter: { w: 3, h: 2 },
+      progress: { w: 3, h: 2 },
+      table: { w: 6, h: 4 },
+      addRow: { w: 4, h: 3 },
+      bar: { w: 5, h: 4 },
+      line: { w: 6, h: 3 },
+      pie: { w: 4, h: 4 },
+    };
+    return sizes[query.sheet.view] ?? { w: 4, h: 3 };
+  }
+  if (query.doc) return query.doc.view === "checklist" ? { w: 4, h: 4 } : { w: 4, h: 5 };
+  const sizes: Record<CardDisplay, { w: number; h: number }> = {
+    number: { w: 3, h: 2 },
+    progress: { w: 3, h: 2 },
+    list: { w: 4, h: 4 },
+    bar: { w: 4, h: 3 },
+    line: { w: 6, h: 3 },
+    pie: { w: 4, h: 4 },
+  };
+  return sizes[query.display];
 }
 
 export const SOURCE_LABELS: Record<CardSource, string> = {
@@ -550,62 +601,155 @@ export function defaultQuery(source: CardSource = "tasks"): CardQuery {
   };
 }
 
+const PAST_ONLY_DATES = new Set<CardDateField>(["createdAt", "updatedAt", "completedAt"]);
+const FUTURE_RANGES: Partial<Record<CardRangePreset, CardRangePreset>> = { next7: "last7", next14: "last14", next30: "last30" };
+/** Longest span, in days, that each time group draws before it gets too dense to read. */
+const GROUP_SPAN_LIMIT: Partial<Record<CardGroupBy, number>> = { day: 120, week: 840 };
+
+/** Ranges that can hold anything for a date: created, edited and completed dates are never ahead. */
+export function rangesFor(dateField: CardDateField): CardRangePreset[] {
+  const all = Object.keys(RANGE_LABELS) as CardRangePreset[];
+  return PAST_ONLY_DATES.has(dateField) ? all.filter((preset) => !(preset in FUTURE_RANGES)) : all;
+}
+
+function rangeDays(range: CardRange): number | null {
+  const lengths: Partial<Record<CardRangePreset, number>> = {
+    today: 1,
+    yesterday: 1,
+    thisWeek: 7,
+    lastWeek: 7,
+    thisMonth: 31,
+    lastMonth: 31,
+    last7: 7,
+    last14: 14,
+    last30: 30,
+    last90: 90,
+    next7: 7,
+    next14: 14,
+    next30: 30,
+  };
+  if (range.preset === "custom") return range.from && range.to ? daysBetween(range.from, range.to) + 1 : null;
+  return lengths[range.preset] ?? null;
+}
+
+/** Time groups that read well over a range: no daily points across all time, no single point for one day. */
+export function timeGroupsFor(range: CardRange): CardGroupBy[] {
+  const days = rangeDays(range);
+  return (["day", "week", "month"] as CardGroupBy[]).filter((group) => {
+    if (days === null) return group !== "day";
+    const limit = GROUP_SPAN_LIMIT[group];
+    if (limit && days > limit) return false;
+    if (group === "week" && days < 14) return false;
+    if (group === "month" && days < 60) return false;
+    return true;
+  });
+}
+
+function categoryGroups(source: CardSource): CardGroupBy[] {
+  return SOURCE_CAPABILITIES[source].groups.filter((group) => group !== "none" && !TIME_GROUPS.includes(group));
+}
+
+/** The displays that make sense for a source: a donut needs something other than dates to split by. */
+export function displaysFor(source: CardSource): CardDisplay[] {
+  const all = Object.keys(DISPLAY_LABELS) as CardDisplay[];
+  return categoryGroups(source).length > 0 ? all : all.filter((display) => display !== "pie");
+}
+
+/** The groups the workshop offers for a query's source, display and range. */
+export function groupsFor(query: Pick<CardQuery, "source" | "display" | "range">): CardGroupBy[] {
+  const caps = SOURCE_CAPABILITIES[query.source];
+  const time = timeGroupsFor(query.range);
+  if (query.display === "line") return time.filter((group) => caps.groups.includes(group));
+  const categories = categoryGroups(query.source);
+  if (query.display === "pie") return categories;
+  return [...categories, ...time.filter((group) => caps.groups.includes(group)), ...(caps.groups.includes("weekday") ? (["weekday"] as CardGroupBy[]) : [])];
+}
+
 /**
- * Brings a query in line with its source and display: a measure, group,
- * date field or sort the source cannot offer falls back to the first one it
- * can, a line chart groups by time, and a pie never groups by time.
+ * Brings a query in line with its source and display, so no combination
+ * draws a card that can't mean anything: a measure, group, date field or
+ * sort the source cannot offer falls back to the first one it can; a line
+ * chart groups by a time that suits the range; a donut needs a category;
+ * dates that are never ahead never get a "next N days" range; overdue and
+ * due-date buckets only read open work. A query with a picked sheet or doc
+ * keeps its pick and the matching plain display.
  */
 export function fitQuery(query: CardQuery): CardQuery {
   const source: CardSource = query.source in SOURCE_CAPABILITIES ? query.source : "tasks";
   const caps = SOURCE_CAPABILITIES[source];
-  const display: CardDisplay = query.display in DISPLAY_LABELS ? query.display : "number";
-  let groupBy: CardGroupBy = caps.groups.includes(query.groupBy) ? query.groupBy : "none";
-  if (display === "line" && !TIME_GROUPS.includes(groupBy)) groupBy = "day";
-  if (display === "line" && groupBy === "weekday") groupBy = "day";
-  if ((display === "bar" || display === "pie") && groupBy === "none") {
-    groupBy = caps.groups.find((group) => group !== "none" && !TIME_GROUPS.includes(group)) ?? "day";
+  if (source === "sheets" && query.sheet && typeof query.sheet === "object") {
+    const sheet = fitSheetPick(query.sheet);
+    const { doc: _doc, ...rest } = query;
+    return { ...rest, source, display: SHEET_VIEW_DISPLAY[sheet.view], sheet, color: clampInt(query.color ?? 0, 0, 7) };
   }
-  if (display === "pie" && TIME_GROUPS.includes(groupBy)) {
-    groupBy = caps.groups.find((group) => group !== "none" && !TIME_GROUPS.includes(group)) ?? groupBy;
+  if (source === "docs" && query.doc && typeof query.doc === "object") {
+    const doc = fitDocPick(query.doc);
+    const { sheet: _sheet, ...rest } = query;
+    return { ...rest, source, display: "list", doc, color: clampInt(query.color ?? 0, 0, 7) };
+  }
+  const { sheet: _sheet, doc: _doc, ...plain } = query;
+  let display: CardDisplay = query.display in DISPLAY_LABELS ? query.display : "number";
+  if (!displaysFor(source).includes(display)) display = "bar";
+  const dateField = caps.dateFields.includes(query.dateField) ? query.dateField : caps.dateFields[0];
+  const range: CardRange = query.range && query.range.preset in RANGE_LABELS ? { ...query.range } : { preset: "all" };
+  if (range.preset !== "custom") {
+    delete range.from;
+    delete range.to;
+  }
+  if (PAST_ONLY_DATES.has(dateField) && FUTURE_RANGES[range.preset]) range.preset = FUTURE_RANGES[range.preset]!;
+  let groupBy: CardGroupBy = caps.groups.includes(query.groupBy) ? query.groupBy : "none";
+  if (DISPLAY_NEEDS_GROUP[display]) {
+    const allowed = groupsFor({ source, display, range });
+    if (!allowed.includes(groupBy)) {
+      groupBy = display === "line" ? (allowed[0] ?? "month") : (allowed.find((group) => !TIME_GROUPS.includes(group)) ?? allowed[0] ?? "month");
+    }
+  } else {
+    groupBy = "none";
   }
   const filters: CardFilters = {};
   for (const key of caps.filters) {
     const value = query.filters?.[key];
     if (value !== undefined) (filters as Record<string, unknown>)[key] = value;
   }
-  const range: CardRange = query.range && query.range.preset in RANGE_LABELS ? { ...query.range } : { preset: "all" };
-  if (range.preset !== "custom") {
-    delete range.from;
-    delete range.to;
-  }
+  // Completed work is never overdue, and due buckets sort what is still to do.
+  if ((filters.overdue || groupBy === "due") && filters.state === "done") filters.state = "open";
+  const progress = query.progress === "goal" || !caps.completable ? "goal" : "completion";
+  // "Done out of all" counts both sides itself: an open or done filter would pin it at 0% or 100%.
+  if (display === "progress" && progress === "completion") delete filters.state;
   const sortField = query.sort && (caps.sorts.includes(query.sort.field) || query.sort.field === "value") ? query.sort.field : caps.sorts[0];
   return {
-    ...query,
+    ...plain,
     source,
     display,
     measure: caps.measures.includes(query.measure) ? query.measure : "count",
     aggregate: query.aggregate === "avg" ? "avg" : "sum",
     groupBy,
-    dateField: caps.dateFields.includes(query.dateField) ? query.dateField : caps.dateFields[0],
+    dateField,
     range,
     filters,
     sort: { field: sortField, dir: query.sort?.dir === "desc" ? "desc" : "asc" },
     limit: clampInt(query.limit ?? 8, 1, 50),
-    progress: query.progress === "goal" || !caps.completable ? "goal" : "completion",
+    progress,
     goal: query.goal && query.goal > 0 ? query.goal : undefined,
+    compare: display === "number" && range.preset !== "all" ? Boolean(query.compare) : undefined,
     color: clampInt(query.color ?? 0, 0, 7),
   };
 }
 
 /** A readable default name for a custom card. */
 export function describeQuery(query: CardQuery): string {
+  if (query.sheet) return `${SHEET_VIEW_LABELS[query.sheet.view] ?? "Cells"} · ${query.sheet.fileTitle?.trim() || "Sheet"}`;
+  if (query.doc) {
+    const name = query.doc.section || query.doc.fileTitle?.trim() || "Doc";
+    return query.doc.view === "checklist" ? `Checklist · ${name}` : query.doc.section ? `${query.doc.fileTitle?.trim() || "Doc"} · ${query.doc.section}` : query.doc.fileTitle?.trim() || DOC_VIEW_LABELS.page;
+  }
   const state = query.filters.state;
   const measure = query.measure === "count" ? "" : `${MEASURE_LABELS[query.measure]} · `;
   let subject: string = SOURCE_LABELS[query.source];
   if (state === "open") subject = `Open ${subject.toLowerCase()}`;
   if (state === "done") subject = `Completed ${subject.toLowerCase()}`;
   if (query.filters.overdue) subject = `Overdue ${subject.toLowerCase().replace(/^open /, "")}`;
-  const group = query.groupBy !== "none" ? ` by ${GROUP_LABELS[query.groupBy].toLowerCase()}` : "";
+  const group = DISPLAY_NEEDS_GROUP[query.display] && query.groupBy !== "none" ? ` by ${GROUP_LABELS[query.groupBy].toLowerCase()}` : "";
   const range = query.range.preset !== "all" ? ` · ${RANGE_LABELS[query.range.preset].toLowerCase()}` : "";
   return `${measure}${subject}${group}${range}`;
 }
@@ -739,6 +883,40 @@ export const CARD_TEMPLATES: CardTemplate[] = [
     }),
   },
   {
+    id: "planned-by-project",
+    title: "Planned hours by project",
+    description: "Hours on this week's calendar, per project.",
+    w: 4,
+    h: 3,
+    query: q({
+      source: "events",
+      display: "bar",
+      measure: "duration",
+      dateField: "start",
+      range: { preset: "thisWeek" },
+      groupBy: "project",
+      sort: { field: "value", dir: "desc" },
+      limit: 6,
+    }),
+  },
+  {
+    id: "week-focus",
+    title: "Week focus",
+    description: "Hours of this week's planned work already done.",
+    w: 3,
+    h: 2,
+    query: q({
+      source: "tasks",
+      display: "progress",
+      measure: "estimate",
+      filters: { state: "all" },
+      dateField: "scheduled",
+      range: { preset: "thisWeek" },
+      progress: "completion",
+      color: 2,
+    }),
+  },
+  {
     id: "estimate-by-workspace",
     title: "Planned hours by workspace",
     description: "Estimated hours of open work in each workspace.",
@@ -818,6 +996,8 @@ export function defaultDashboard(): DashboardLayout {
       templateCard("weekly-completion", "default_week_progress", { w: 3, h: 2 }),
       builtinCard("today", "default_today", { w: 4, h: 5 }),
       builtinCard("pomodoro", "default_pomodoro", { w: 4, h: 5 }),
+      templateCard("planned-by-project", "default_planned", { w: 4, h: 3 }),
+      templateCard("week-focus", "default_week_focus", { w: 4, h: 2 }),
       templateCard("by-priority", "default_priority", { w: 4, h: 5 }),
       templateCard("overdue", "default_overdue", { w: 6, h: 4 }),
       templateCard("due-soon", "default_due_soon", { w: 6, h: 4 }),
@@ -1787,12 +1967,16 @@ export interface PomodoroSettings {
   sound: boolean;
 }
 
+/** The setting that holds each phase's length in minutes, and the most it can be. */
+export const POMODORO_PHASE_SETTING = { focus: "focus", short: "shortBreak", long: "longBreak" } as const;
+export const POMODORO_PHASE_MAX: Record<PomodoroPhase, number> = { focus: 180, short: 60, long: 90 };
+
 export function pomodoroSettings(settings?: Record<string, unknown>): PomodoroSettings {
   const read = (key: string, fallback: number, max: number) => clampInt(settings?.[key] ?? fallback, 1, max);
   return {
-    focus: read("focus", 25, 180),
-    shortBreak: read("shortBreak", 5, 60),
-    longBreak: read("longBreak", 15, 90),
+    focus: read("focus", 25, POMODORO_PHASE_MAX.focus),
+    shortBreak: read("shortBreak", 5, POMODORO_PHASE_MAX.short),
+    longBreak: read("longBreak", 15, POMODORO_PHASE_MAX.long),
     rounds: read("rounds", 4, 12),
     autoStart: settings?.autoStart === true,
     sound: settings?.sound !== false,

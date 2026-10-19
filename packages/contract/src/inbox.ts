@@ -146,3 +146,36 @@ export function inboxSuggestionSummary(
     .slice(0, INBOX_DUPLICATES_SHOWN);
   return { line: parts.join(", "), note, duplicates };
 }
+
+/** One row of the Up next panel: what the capture would become, as label and value. */
+export interface InboxSuggestionRow {
+  label: string;
+  value: string;
+  /** True when the value came from smart suggestions rather than a placeholder. */
+  suggested: boolean;
+}
+
+/**
+ * The Up next panel's grouped rows (Workspace, When, Length) read from a
+ * smart-suggestions answer, with placeholders when it had nothing to say or
+ * suggestions are off, so the panel keeps its shape either way.
+ */
+export function inboxSuggestionRows(s: InboxSuggestionFields | undefined, workspaceName?: string): InboxSuggestionRow[] {
+  const when =
+    s?.date && s.dateRole === "reminder"
+      ? `Remind ${shortDate(s.date)}${s.time ? ` ${clockLabel(s.time)}` : ""}`
+      : s?.date && s.dateRole === "deadline"
+        ? `Due ${shortDate(s.date)}`
+        : s?.date && s.dateRole === "start"
+          ? `Starts ${shortDate(s.date)}`
+          : "";
+  return [
+    { label: "Workspace", value: workspaceName ?? "Pick on review", suggested: Boolean(workspaceName) },
+    { label: "When", value: when || "No date yet", suggested: Boolean(when) },
+    {
+      label: "Length",
+      value: s?.duration && s.duration > 0 ? lengthLabel(s.duration) : s?.kind === "reminder" ? "A reminder" : "Not set",
+      suggested: Boolean((s?.duration && s.duration > 0) || s?.kind === "reminder"),
+    },
+  ];
+}

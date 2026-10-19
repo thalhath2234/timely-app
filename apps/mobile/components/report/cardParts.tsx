@@ -1,24 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TextInput, type StyleProp, type TextStyle } from "react-native";
-import { focusSummary, weekStart, type FocusSummary } from "@timely/contract/dashboard";
-import { addDaysToDate, daysBetween } from "@timely/contract/workStatus";
+import { focusSummary, type FocusSummary } from "@timely/contract/dashboard";
+import { daysBetween } from "@timely/contract/workStatus";
 import type { Task } from "../../lib/types";
+import { weekFocusRange } from "../../lib/dashboard";
 import { useFocusSessions } from "../../lib/hooks";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 
-/**
- * Focus sessions from the day before this week's Monday (local midnight, so a
- * session that ran over a zone edge still lands) to tomorrow, summed for the
- * cards. `today` keeps the query key stable for the whole day.
- */
+/** This week's focus sessions (see weekFocusRange), summed for the cards. */
 export function useWeekFocus(tasks: Task[], today: string, now: Date, timeZone: string | undefined, enabled = true) {
-  const range = useMemo(
-    () => ({
-      from: new Date(`${addDaysToDate(weekStart(today), -1)}T00:00:00`),
-      to: new Date(`${addDaysToDate(today, 1)}T00:00:00`),
-    }),
-    [today],
-  );
+  const range = useMemo(() => weekFocusRange(today), [today]);
   const query = useFocusSessions(range.from, range.to, enabled);
   const sessions = query.data;
   const summary: FocusSummary = useMemo(() => focusSummary(sessions ?? [], tasks, now, timeZone), [sessions, tasks, now, timeZone]);

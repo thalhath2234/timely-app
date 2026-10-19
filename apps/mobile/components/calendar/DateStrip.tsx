@@ -103,18 +103,18 @@ export default function DateStrip({
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  strip: { height: 82, flexGrow: 0 },
+  strip: { height: 66, flexGrow: 0 },
   week: {
     flexDirection: "row",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingBottom: 8,
   },
-  day: { width: 44, alignItems: "center", justifyContent: "center", gap: 4 },
-  numWrap: { width: 40, height: 40, borderRadius: 20, overflow: "hidden", alignItems: "center", justifyContent: "center" },
+  day: { width: 44, alignItems: "center", justifyContent: "center", gap: 2 },
+  numWrap: { width: 34, height: 34, borderRadius: 17, overflow: "hidden", alignItems: "center", justifyContent: "center" },
   on: { backgroundColor: colors.primary },
-  wd: { color: colors.mutedForeground, fontSize: 11, fontWeight: "600" },
-  num: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
+  wd: { color: colors.mutedForeground, fontSize: 10, fontWeight: "600" },
+  num: { color: colors.foreground, fontSize: 14, fontWeight: "600" },
   onText: { color: colors.primary },
   numOnText: { color: colors.primaryForeground },
   dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.mutedForeground },

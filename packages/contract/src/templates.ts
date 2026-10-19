@@ -194,3 +194,39 @@ export function dailyNoteTemplate(docs: Doc[]): DocTemplate {
   if (own) return { id: own.id, title: own.title, icon: own.icon || "📅", content: own.content };
   return BUILTIN_TEMPLATES[0];
 }
+
+/** Whether a template can be deleted: the person's own, never a built-in. */
+export function isOwnTemplate(id: string) {
+  return !id.startsWith("builtin:");
+}
+
+/** The pages below `id` (children, their children, and so on), which the
+ * server deletes along with it. */
+export function subpageIds(docs: { id: string; parentId?: string | null }[], id: string): string[] {
+  const below = new Set([id]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const doc of docs) {
+      if (doc.parentId && below.has(doc.parentId) && !below.has(doc.id)) {
+        below.add(doc.id);
+        grew = true;
+      }
+    }
+  }
+  below.delete(id);
+  return [...below];
+}
+
+/** The confirmation shown before a template is deleted, the same on web and
+ * the phone. A doc template is an ordinary doc, so deleting it deletes the
+ * doc and its subpages; the message says so and names the way to keep it.
+ * A sheet template is only the template. */
+export function templateDeleteCopy(kind: "doc" | "sheet", name: string, subpages = 0) {
+  const title = `Delete template “${name.trim() || "Untitled"}”?`;
+  if (kind === "sheet") return { title, message: "Sheets already made from it are kept." };
+  const what = subpages > 0 ? `the doc and its ${subpages} subpage${subpages === 1 ? "" : "s"}` : "the doc";
+  return {
+    title,
+    message: `This deletes ${what} for good. Docs already made from it are kept. To keep the doc, stop using it as a template instead.`,
+  };
+}

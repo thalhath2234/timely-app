@@ -16,6 +16,11 @@ import { isCompletedStatus } from "@/app/utils/status";
 import { normalizePriority, priorityColor } from "@/app/utils/priority";
 import { sortedStages, stageCode } from "@/app/utils/stages";
 import { entityTitleKey } from "@/app/utils/titleMorph";
+import { plural } from "@/app/utils/plural";
+import { cn } from "@/app/utils/cn";
+import { cardDateMeta } from "@/app/_components/_ui/tasks/kanbanView";
+import { useWorkingHoursZone } from "@/app/utils/hooks/workspaces";
+import { todayInZone } from "@timely/contract/workStatus";
 
 export default function StageBoard({
   projectId,
@@ -37,6 +42,7 @@ export default function StageBoard({
   const openMenu = useContextMenu();
   const taskMenu = useTaskContextMenu();
   const ordered = sortedStages(stages);
+  const today = todayInZone(useWorkingHoursZone());
 
   const columns = useMemo(() => {
     const byStage = new Map<string, Task[]>();
@@ -141,7 +147,7 @@ export default function StageBoard({
           onSelect: () => {
             void navigator.clipboard
               .writeText(column.items.map((item) => item.name).join("\n"))
-              .then(() => useToastStore.getState().show(`Copied ${column.items.length} names`))
+              .then(() => useToastStore.getState().show(`Copied ${plural(column.items.length, "name")}`))
               .catch(() => useToastStore.getState().show("Could not copy to clipboard"));
           },
         },
@@ -149,6 +155,12 @@ export default function StageBoard({
       { title: `${column.name} · ${column.items.length}` },
     );
   };
+
+  // Up to six lanes share the width, empty ones folded to a strip; more scroll.
+  const fits = columns.length <= 6;
+  const template = columns
+    .map((column) => (column.items.length === 0 && columns.length > 1 ? "2.75rem" : "minmax(200px, 1fr)"))
+    .join(" ");
 
   return (
     <section className="space-y-3">
@@ -158,15 +170,48 @@ export default function StageBoard({
             Board by stages
           </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            <span className="text-success">●</span> {columns.length} lanes active
+            <span className="text-success">●</span> {plural(columns.length, "lane")} active
           </p>
         </div>
-        <p className="text-xs text-muted-foreground">Scroll horizontally to view future sprints</p>
       </div>
       <div className="overflow-auto">
-        <div className="flex min-w-max gap-3 p-1">
+        <div
+          className={cn("grid gap-3 p-1", !fits && "min-w-max grid-flow-col auto-cols-[18rem]")}
+          style={fits ? { gridTemplateColumns: template } : undefined}
+          data-testid="stage-board"
+        >
           {columns.map((column) => {
             const active = column.id !== "" && column.id === activeStageId;
+            const folded = fits && column.items.length === 0 && columns.length > 1;
+            if (folded) {
+              return (
+                <section
+                  key={column.id || "unstaged"}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => {
+                    const task = tasks.find((item) => item.id === draggingId);
+                    if (task) void moveTask(task, column.id);
+                    setDraggingId(null);
+                  }}
+                  onContextMenu={(event) => onLaneContextMenu(event, column)}
+                  className="flex min-h-40 flex-col items-center gap-2 rounded-xl border border-dashed py-3"
+                  style={laneStyle(column.color)}
+                  data-folded
+                  title={`${column.name}: empty. Drop a task here.`}
+                >
+                  <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: column.color }} />
+                  <span className="truncate text-xs font-medium text-muted-foreground [writing-mode:vertical-rl]">{column.name}</span>
+                  <button
+                    type="button"
+                    title={`Add task to ${column.name}`}
+                    onClick={() => addTask(column.id || undefined)}
+                    className="mt-auto rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <Plus className="size-3.5" />
+                  </button>
+                </section>
+              );
+            }
             return (
               <section
                 key={column.id || "unstaged"}
@@ -176,7 +221,7 @@ export default function StageBoard({
                   if (task) void moveTask(task, column.id);
                   setDraggingId(null);
                 }}
-                className="w-72 shrink-0 rounded-xl border bg-muted/30"
+                className={cn("min-w-0 rounded-xl border bg-muted/30", !fits && "w-72 shrink-0")}
                 style={laneStyle(column.color)}
               >
                 <header
@@ -219,6 +264,8 @@ export default function StageBoard({
                 <div className="min-h-24 space-y-2 p-2 pt-0">
                   {column.items.map((task) => {
                     const done = Boolean(task.completedAt) || isCompletedStatus(task.status);
+                    // Same date line as a Kanban card (deadline, else next block).
+                    const dateMeta = cardDateMeta(task, "task", today);
                     return (
                       <article
                         key={task.id}
@@ -235,8 +282,13 @@ export default function StageBoard({
                             ) : (
                               <Circle className="size-3.5 shrink-0 text-muted-foreground" />
                             )}
-                            <span className="truncate tabular-nums text-[11px] text-muted-foreground">
-                              {task.id.slice(0, 8)}
+                            <span
+                              className={cn(
+                                "truncate tabular-nums text-[11px]",
+                                dateMeta.overdue ? "text-destructive" : "text-muted-foreground",
+                              )}
+                            >
+                              {dateMeta.text}
                             </span>
                           </div>
                           {task.status?.name ? (

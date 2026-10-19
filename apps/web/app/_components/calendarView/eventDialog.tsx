@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Check, Clock, Pin, Repeat, Sparkles, X } from "lucide-react";
 import DatePicker, { TimeField } from "@/app/_components/_ui/datePicker";
 import RecurrenceEditor from "@/app/_components/_ui/recurrenceEditor";
+import Select from "@/app/_components/_ui/select";
+import { GroupHint, GroupLabel, ListGroup, ListRow, ListSwitch } from "@/app/_components/_ui/groupedList";
 import {
   applyClockToDate,
   formatDateTime,
@@ -39,7 +41,6 @@ import {
 } from "@/app/utils/hooks/tasks";
 import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 import { cn } from "@/app/utils/cn";
-import { controlClass } from "@/app/_components/_ui/field";
 import { buttonClass } from "@/app/_components/_ui/button";
 
 type EventDialogProps = {
@@ -64,8 +65,6 @@ const SCOPE_OPTIONS: { value: Scope; label: string; hint: string }[] = [
 const primaryButton = buttonClass();
 const secondaryButton = buttonClass({ variant: "secondary" });
 const dangerButton = buttonClass({ variant: "destructive-ghost" });
-const fieldClass =
-  controlClass("md", "w-full");
 
 export default function EventDialog({ event, onClose, onOpenTask }: EventDialogProps) {
   useEffect(() => {
@@ -215,17 +214,13 @@ function TaskDetails({ event }: { event: CalendarEvent }) {
       )}
 
       {details.length > 0 && (
-        <>
-          <div className="h-px bg-border" />
-          <dl className="flex flex-col gap-2">
-            {details.map((detail) => (
-              <div key={detail.label} className="flex items-baseline justify-between gap-4">
-                <dt className="text-xs text-muted-foreground">{detail.label}</dt>
-                <dd className="truncate text-sm">{detail.value}</dd>
-              </div>
-            ))}
-          </dl>
-        </>
+        <ListGroup>
+          {details.map((detail) => (
+            <ListRow key={detail.label} label={detail.label}>
+              <span className="truncate text-[13px] font-medium text-muted-foreground">{detail.value}</span>
+            </ListRow>
+          ))}
+        </ListGroup>
       )}
 
       {task.labels && task.labels.length > 0 && (
@@ -259,26 +254,27 @@ function ScopePicker({
   allowFuture?: boolean;
 }) {
   return (
-    <fieldset className="flex flex-col gap-1 rounded-lg border border-border bg-muted/20 p-2">
-      <legend className="px-1 text-xs text-muted-foreground">Apply to</legend>
-      {SCOPE_OPTIONS.filter((option) => allowFuture || option.value !== "future").map(
-        (option) => (
-          <label key={option.value} className="flex cursor-pointer items-start gap-2 text-xs">
-            <input
-              type="radio"
-              name="scope"
-              checked={value === option.value}
-              onChange={() => onChange(option.value)}
-              className="mt-0.5 accent-primary"
-            />
-            <span>
-              <span className="font-medium text-foreground">{option.label}</span>
-              <span className="block text-muted-foreground">{option.hint}</span>
+    <div role="radiogroup" aria-label="Apply to">
+      <GroupLabel>Apply to</GroupLabel>
+      <ListGroup>
+        {SCOPE_OPTIONS.filter((option) => allowFuture || option.value !== "future").map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={value === option.value}
+            onClick={() => onChange(option.value)}
+            className="flex min-h-12 w-full cursor-pointer items-center gap-2.5 px-3.5 py-1.5 text-left transition-colors hover:bg-muted/50"
+          >
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="text-[13px] font-medium text-foreground">{option.label}</span>
+              <span className="text-xs text-muted-foreground">{option.hint}</span>
             </span>
-          </label>
-        ),
-      )}
-    </fieldset>
+            {value === option.value ? <Check className="size-4 shrink-0 text-primary" /> : null}
+          </button>
+        ))}
+      </ListGroup>
+    </div>
   );
 }
 
@@ -290,6 +286,7 @@ function TimeFields({
   label = "Scheduled",
   reminder = false,
   timeOnly = false,
+  rows = [],
 }: {
   when: string;
   duration: number;
@@ -298,47 +295,51 @@ function TimeFields({
   label?: string;
   reminder?: boolean;
   timeOnly?: boolean;
+  /** More rows for the same card (All day, Repeat). */
+  rows?: ReactNode[];
 }) {
   return (
-    <div className="grid grid-cols-1 gap-3">
-      <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted-foreground">{label}</span>
-        {timeOnly ? (
-          <TimeField
-            value={toTimeInputValue(when)}
-            clearable={false}
-            aria-label={label}
-            onChange={(hhmm) => {
-              const day = when ? new Date(fromDatetimeLocalValue(when)) : new Date();
-              onWhen(toDatetimeLocalValue(applyClockToDate(day, hhmm)));
-            }}
-          />
-        ) : (
-          <DatePicker mode="datetime" value={when} onChange={onWhen} clearable={false} />
-        )}
-      </label>
-
-      {reminder ? (
-        <p className="text-xs text-muted-foreground">
-          Reminder — pings at this time, no work block.
-        </p>
-      ) : (
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">
-            Duration in minutes{duration >= 60 ? ` (${formatDuration(duration)})` : ""}
-          </span>
-          <input
-            type="number"
-            min={15}
-            step={15}
-            value={duration}
-            onChange={(input) => onDuration(Number(input.target.value) || 30)}
-            className={fieldClass}
-          />
-        </label>
-      )}
+    <div>
+      <ListGroup>
+        <ListRow label={label}>
+          {timeOnly ? (
+            <TimeField
+              variant="row"
+              value={toTimeInputValue(when)}
+              clearable={false}
+              aria-label={label}
+              onChange={(hhmm) => {
+                const day = when ? new Date(fromDatetimeLocalValue(when)) : new Date();
+                onWhen(toDatetimeLocalValue(applyClockToDate(day, hhmm)));
+              }}
+            />
+          ) : (
+            <DatePicker variant="row" mode="datetime" aria-label={label} value={when} onChange={onWhen} clearable={false} />
+          )}
+        </ListRow>
+        {!reminder ? (
+          <ListRow label="Duration">
+            <Select
+              variant="row"
+              aria-label="Duration"
+              value={String(duration)}
+              onChange={(value) => onDuration(Number(value) || 30)}
+              options={durationOptions(duration)}
+            />
+          </ListRow>
+        ) : null}
+        {rows}
+      </ListGroup>
+      {reminder ? <GroupHint>Pings at this time. It does not reserve a work block.</GroupHint> : null}
     </div>
   );
+}
+
+const DURATION_STEPS = [15, 30, 45, 60, 90, 120, 180, 240, 480];
+
+function durationOptions(current: number) {
+  const steps = current > 0 && !DURATION_STEPS.includes(current) ? [...DURATION_STEPS, current].sort((a, b) => a - b) : DURATION_STEPS;
+  return steps.map((minutes) => ({ value: String(minutes), label: formatDuration(minutes) }));
 }
 
 /* ------------------------------------------------------------------------ */
@@ -448,9 +449,7 @@ function TaskBlockPanel({
         }}
       />
       {event.source === "engine" && dirty && (
-        <p className="text-[11px] text-muted-foreground">
-          Moving this block pins it; the auto-scheduler will not move it again.
-        </p>
+        <GroupHint className="-mt-2">Moving this block pins it, so auto-schedule will not move it again.</GroupHint>
       )}
 
       <TaskDetails event={event} />
@@ -876,17 +875,18 @@ function EventPanel({ event, onClose }: { event: CalendarEvent; onClose: () => v
 
   return (
     <>
-      <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted-foreground">Title</span>
+      <ListGroup>
         <input
           value={title}
+          aria-label="Title"
+          placeholder="Event title"
           onChange={(input) => {
             setTitle(input.target.value);
             setDirty(true);
           }}
-          className={fieldClass}
+          className="h-10 w-full bg-transparent px-3.5 text-[13px] font-medium text-foreground outline-none placeholder:text-muted-foreground"
         />
-      </label>
+      </ListGroup>
 
       <TimeFields
         when={when}
@@ -907,43 +907,35 @@ function EventPanel({ event, onClose }: { event: CalendarEvent; onClose: () => v
               ? "Time"
               : "Starts"
         }
+        rows={[
+          <ListRow key="allDay" label="All day">
+            <ListSwitch
+              label="All day"
+              checked={allDay}
+              onChange={(next) => {
+                setAllDay(next);
+                setDirty(true);
+              }}
+            />
+          </ListRow>,
+          <RecurrenceEditor
+            key="repeat"
+            label="Repeat"
+            value={draft}
+            anchor={seriesAnchor}
+            onChange={(next) => {
+              setDraft(next);
+              setDirty(true);
+            }}
+          />,
+        ]}
       />
-
-      <label className="flex items-center gap-2 text-xs text-muted-foreground">
-        <input
-          type="checkbox"
-          checked={allDay}
-          onChange={(input) => {
-            setAllDay(input.target.checked);
-            setDirty(true);
-          }}
-          className="size-3.5 accent-primary"
-        />
-        All day
-      </label>
-
-      <div className="flex flex-col gap-1">
-        <span className="flex items-center gap-1 text-xs text-muted-foreground">
-          <Repeat className="size-3" />
-          Repeat
-        </span>
-        <RecurrenceEditor
-          value={draft}
-          anchor={seriesAnchor}
-          onChange={(next) => {
-            setDraft(next);
-            setDirty(true);
-          }}
-        />
-      </div>
 
       {isOccurrence && dirty && !seriesOnlyChange && (
         <ScopePicker value={scope} onChange={setScope} allowFuture={!isFirst} />
       )}
       {isOccurrence && dirty && seriesOnlyChange && (
-        <p className="text-[11px] text-muted-foreground">
-          Title and repeat changes apply to every occurrence.
-        </p>
+        <GroupHint className="-mt-2">Title and repeat changes apply to every occurrence.</GroupHint>
       )}
 
       {entity.description && (

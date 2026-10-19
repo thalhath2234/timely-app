@@ -3,6 +3,8 @@ package agent
 import (
 	"fmt"
 	"sync"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Access is what the in-app chat agent may do with a tool. Every registerTool
@@ -37,12 +39,27 @@ const (
 	ReviewedWhen
 )
 
-// Authority is one tool's policy: its Access, its Approval, and what the
-// review shows as the "before" of a change. Build it from reads, writes or
-// mcpOnly with the methods below, next to the tool's registration.
+// Effect is what a tool does to the person's data. MCP clients see it as the
+// tool's annotations, so they can run reads freely and confirm deletes.
+type Effect int
+
+const (
+	// Changes is the zero value, so a tool that forgets to declare its effect
+	// is presented as a write rather than as safe to run unasked.
+	Changes Effect = iota
+	ReadOnly
+	// Destroys deletes or overwrites data the person cannot get back.
+	Destroys
+)
+
+// Authority is one tool's policy: its Access, its Approval, its Effect, and
+// what the review shows as the "before" of a change. Build it from reads,
+// writes, mcpOnly or mcpOnlyReads with the methods below, next to the tool's
+// registration.
 type Authority struct {
 	Access   Access
 	Approval Approval
+	Effect   Effect
 	// reviewWhen decides ReviewedWhen from the call's arguments.
 	reviewWhen func(args map[string]any) bool
 	// Showing names a read tool whose result is the "before" of this tool's
@@ -53,10 +70,27 @@ type Authority struct {
 }
 
 var (
-	reads   = Authority{Access: Read}
-	writes  = Authority{Access: Write}
-	mcpOnly = Authority{Access: MCPOnly}
+	reads        = Authority{Access: Read, Effect: ReadOnly}
+	writes       = Authority{Access: Write}
+	mcpOnly      = Authority{Access: MCPOnly}
+	mcpOnlyReads = Authority{Access: MCPOnly, Effect: ReadOnly}
 )
+
+// destroys marks a tool that deletes or overwrites data.
+func (a Authority) destroys() Authority {
+	a.Effect = Destroys
+	return a
+}
+
+func (a Authority) annotations() *mcp.ToolAnnotations {
+	closed := false
+	annotations := &mcp.ToolAnnotations{ReadOnlyHint: a.Effect == ReadOnly, OpenWorldHint: &closed}
+	if a.Effect != ReadOnly {
+		destroys := a.Effect == Destroys
+		annotations.DestructiveHint = &destroys
+	}
+	return annotations
+}
 
 // reviewed always needs an Agent proposal.
 func (a Authority) reviewed() Authority {
@@ -123,7 +157,11 @@ func (a Authority) validate(name string) {
 		panic(fmt.Sprintf("agent tool %s declares no authority", name))
 	case a.Approval < Applies || a.Approval > ReviewedWhen:
 		panic(fmt.Sprintf("agent tool %s declares an unknown approval", name))
-	case a.Access == Read && (a.Approval != Applies || a.Showing != ""):
+	case a.Effect < Changes || a.Effect > Destroys:
+		panic(fmt.Sprintf("agent tool %s declares an unknown effect", name))
+	case (a.Access == Read && a.Effect != ReadOnly) || (a.Access == Write && a.Effect == ReadOnly):
+		panic(fmt.Sprintf("agent tool %s has chat access %d but effect %d", name, a.Access, a.Effect))
+	case a.Effect == ReadOnly && (a.Approval != Applies || a.Showing != ""):
 		panic(fmt.Sprintf("agent tool %s is read-only, so it cannot need review", name))
 	case a.Approval == ReviewedWhen && a.reviewWhen == nil:
 		panic(fmt.Sprintf("agent tool %s needs review by arguments but declares no rule", name))

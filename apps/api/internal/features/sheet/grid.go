@@ -102,6 +102,27 @@ func emptyRow(row models.SheetRow) bool {
 // above it: references to its own row move down, and ranges ending on the row
 // above now end on the inserted row.
 func shiftTotalsFormula(value string, number int) string {
+	return rewriteRows(value, func(row int, rangeEnd bool) int {
+		if row == number || row == number-1 && rangeEnd {
+			return row + 1
+		}
+		return row
+	})
+}
+
+// moveOwnRowFormula copies a formula that reads only its own row (from) to
+// another row, the way filling a column down does: =E2*G2 becomes =E9*G9.
+func moveOwnRowFormula(value string, from, to int) string {
+	return rewriteRows(value, func(row int, _ bool) int {
+		if row == from {
+			return to
+		}
+		return row
+	})
+}
+
+// rewriteRows changes the row numbers of a formula's cell references.
+func rewriteRows(value string, change func(row int, rangeEnd bool) int) string {
 	if !strings.HasPrefix(value, "=") {
 		return value
 	}
@@ -121,21 +142,37 @@ func shiftTotalsFormula(value string, number int) string {
 		if err != nil {
 			continue
 		}
-		rangeEnd := m[3] > m[2]
-		switch {
-		case row == number:
-			row++
-		case row == number-1 && rangeEnd:
-			row++
-		default:
+		next := change(row, m[3] > m[2])
+		if next == row {
 			continue
 		}
 		b.WriteString(value[last:m[6]])
-		b.WriteString(strconv.Itoa(row))
+		b.WriteString(strconv.Itoa(next))
 		last = m[7]
 	}
 	b.WriteString(value[last:])
 	return b.String()
+}
+
+// fillOwnRowFormulas gives the row at index the formulas of the row above
+// that only read their own row (a Total = Qty × Unit price), in the columns
+// the row leaves blank. An entry added past a template's prepared rows then
+// still gets its Total, and the month total still counts it.
+func fillOwnRowFormulas(tab *models.SheetTab, index int) {
+	if index < 1 || index >= len(tab.Rows) {
+		return
+	}
+	above := tab.Rows[index-1]
+	row := &tab.Rows[index]
+	for column, value := range above.Cells {
+		if value == "" || row.Cells[column] != "" || !ownRowFormula(value, index) {
+			continue
+		}
+		if row.Cells == nil {
+			row.Cells = map[string]string{}
+		}
+		row.Cells[column] = moveOwnRowFormula(value, index, index+1)
+	}
 }
 
 // AppendRow places added in tab and returns its row index. It reuses trailing
@@ -143,7 +180,9 @@ func shiftTotalsFormula(value string, number int) string {
 // gaps, notes, links and merged ranges belong to the existing layout.
 // The one exception is a closing totals row (=SUM(D1:D5) right below its data):
 // added goes above it and the total's range grows by one row, otherwise
-// added would sit below the total and never be counted.
+// added would sit below the total and never be counted. Formulas the row
+// above keeps for its own row (Total = Qty × Unit price) are filled into the
+// columns added leaves blank.
 func AppendRow(tab *models.SheetTab, added models.SheetRow) int {
 	last := -1
 	for i, row := range tab.Rows {
@@ -178,6 +217,7 @@ func AppendRow(tab *models.SheetTab, added models.SheetRow) int {
 			rest = rest[1:]
 		}
 		tab.Rows = append(tab.Rows[:last:last], append(models.SheetRows{added, total}, rest...)...)
+		fillOwnRowFormulas(tab, last)
 		return last
 	}
 	next := last + 1
@@ -189,8 +229,10 @@ func AppendRow(tab *models.SheetTab, added models.SheetRow) int {
 		for column, value := range added.Cells {
 			row.Cells[column] = value
 		}
+		fillOwnRowFormulas(tab, next)
 		return next
 	}
 	tab.Rows = append(tab.Rows, added)
+	fillOwnRowFormulas(tab, len(tab.Rows)-1)
 	return len(tab.Rows) - 1
 }

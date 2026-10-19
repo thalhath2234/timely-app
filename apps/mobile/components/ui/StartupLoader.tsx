@@ -12,7 +12,7 @@ export default function StartupLoader() {
       accessibilityLiveRegion="polite"
       accessibilityLabel="Preparing Timely"
     >
-      <TimelyLogo size={64} animated />
+      <TimelyLogo size={64} animated startDrawn />
       <Text style={styles.label}>Preparing Timely</Text>
     </View>
   );

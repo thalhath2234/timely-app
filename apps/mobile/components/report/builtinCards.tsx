@@ -24,19 +24,91 @@ import { colors, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import DateTimeSheet from "../ui/DateTimeSheet";
 import { Meter } from "./charts";
+import { calendarItemDone } from "@timely/contract/calendar";
 
 /* Today */
+
+/** Minutes since local midnight of `day`. */
+function minutesOf(date: Date, day: Date) {
+  return (date.getTime() - day.getTime()) / 60_000;
+}
+
+/**
+ * The day as one strip: the working hours (or 8:00 to 20:00) stretched to
+ * hold every timed item, each item a tinted segment, done ones faded, a line
+ * at now. The same picture as the web Today card.
+ */
+export function MiniTimeline({
+  items,
+  now,
+  workingHours,
+  accent,
+}: {
+  items: CalendarItem[];
+  now: Date;
+  workingHours?: WorkingHours | null;
+  accent: (item: CalendarItem) => string;
+}) {
+  const day = new Date(now);
+  day.setHours(0, 0, 0, 0);
+  const window = workdayWindow(workingHours, now);
+  const toMinutes = (hhmm: string) => {
+    const [h, m] = hhmm.split(":").map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+  let start = window ? toMinutes(window.start) : 8 * 60;
+  let end = window ? toMinutes(window.end) : 20 * 60;
+  const timed = items
+    .filter((item) => !item.allDay && !item.reminder)
+    .map((item) => ({ item, from: minutesOf(new Date(item.start), day), to: minutesOf(new Date(item.end), day) }))
+    .filter((entry) => Number.isFinite(entry.from) && entry.to > entry.from);
+  for (const entry of timed) {
+    start = Math.min(start, Math.floor(entry.from / 60) * 60);
+    end = Math.max(end, Math.ceil(entry.to / 60) * 60);
+  }
+  const span = Math.max(60, end - start);
+  const pct = (minutes: number) => Math.min(100, Math.max(0, ((minutes - start) / span) * 100));
+  const nowMinutes = minutesOf(now, day);
+  const label = (minutes: number) => {
+    const at = new Date(day);
+    at.setMinutes(minutes);
+    return formatTime(at.toISOString());
+  };
+  return (
+    <View testID="today-mini-timeline">
+      <View style={styles.strip}>
+        {timed.map(({ item, from, to }) => (
+          <View
+            key={`${item.id}-${item.blockId ?? ""}-${item.start}`}
+            style={[
+              styles.segment,
+              { left: `${pct(from)}%`, width: `${Math.max(1, pct(to) - pct(from))}%`, backgroundColor: accent(item) },
+              calendarItemDone(item) && { opacity: 0.35 },
+            ]}
+          />
+        ))}
+        {nowMinutes >= start && nowMinutes <= end ? <View style={[styles.nowLine, { left: `${pct(nowMinutes)}%` }]} /> : null}
+      </View>
+      <View style={[styles.spread, { marginTop: 4, marginBottom: 0 }]}>
+        <Text style={styles.tiny}>{label(start)}</Text>
+        <Text style={styles.tiny}>{label(end)}</Text>
+      </View>
+    </View>
+  );
+}
 
 export function TodayCard({
   today,
   loading,
   now,
+  workingHours,
   onOpenTask,
   onOpenItem,
 }: {
   today: TodayResponse | undefined;
   loading: boolean;
   now: Date;
+  workingHours?: WorkingHours | null;
   onOpenTask: (id: string) => void;
   onOpenItem: (item: CalendarItem) => void;
 }) {
@@ -51,10 +123,11 @@ export function TodayCard({
   }
   for (const task of today.todayFocus) planned.add(task.id);
   const upNext = today.items
-    .filter((item) => new Date(item.end).getTime() >= now.getTime() && !item.completedAt)
+    .filter((item) => new Date(item.end).getTime() >= now.getTime() && !calendarItemDone(item))
     .sort((a, b) => a.start.localeCompare(b.start))
-    .slice(0, 6);
+    .slice(0, 4);
   const focusing = today.focusing ?? today.pausedFocus;
+  const accent = (item: CalendarItem) => item.color ?? (item.kind.startsWith("event") ? seriesColor(1) : colors.primary);
 
   return (
     <View style={{ gap: 12 }}>
@@ -71,6 +144,8 @@ export function TodayCard({
         </View>
         <Meter value={planned.size ? doneIds.size / planned.size : 0} color={colors.success} />
       </View>
+
+      <MiniTimeline items={today.items} now={now} workingHours={workingHours} accent={accent} />
 
       {focusing ? (
         <AnimatedPressable accessibilityRole="button" onPress={() => onOpenTask(focusing.id)} style={styles.focusRow}>
@@ -95,7 +170,7 @@ export function TodayCard({
               style={styles.agendaRow}
             >
               <Text style={[styles.small, { width: 58 }]}>{item.allDay ? "All day" : formatTime(item.start)}</Text>
-              <View style={[styles.agendaBar, { backgroundColor: item.color ?? (item.kind.startsWith("event") ? seriesColor(1) : colors.primary) }]} />
+              <View style={[styles.agendaBar, { backgroundColor: accent(item) }]} />
               <Text style={styles.rowTitle} numberOfLines={1}>
                 {item.title}
               </Text>
@@ -469,6 +544,9 @@ const styles = createThemedStyleSheet((colors) => ({
     borderColor: colors.border,
     backgroundColor: colors.muted,
   },
+  strip: { position: "relative", height: 20, borderRadius: 6, backgroundColor: colors.muted, overflow: "hidden" },
+  segment: { position: "absolute", top: 4, bottom: 4, borderRadius: 3 },
+  nowLine: { position: "absolute", top: 0, bottom: 0, width: 1, backgroundColor: colors.foreground },
   agendaRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 7 },
   agendaBar: { width: 2, height: 16, borderRadius: 1 },
   captureBox: {

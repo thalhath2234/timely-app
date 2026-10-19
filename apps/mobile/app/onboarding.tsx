@@ -18,6 +18,7 @@ import { DAY_COLORS, onboardingDay } from "../lib/authDay";
 import { isOnboarded, useAuth } from "../lib/auth/AuthProvider";
 import { createWorkspace } from "../lib/api/workspaces";
 import { applyStarterLabels, getPersonalPrefs, getStarterPresets, savePersonalUseCase } from "../lib/api/decisions";
+import { splitStarterLabels } from "@timely/contract/starterLabels";
 
 export default function OnboardingScreen() {
   const { token, user, finishOnboarding, logout } = useAuth();
@@ -54,6 +55,8 @@ export default function OnboardingScreen() {
   ];
   const others = starterWorkspaces.filter((n) => n.toLowerCase() !== name.trim().toLowerCase());
   const extra = others.filter((n) => alsoCreate.has(n));
+  const split = splitStarterLabels(chosen, uses, useOptions, extra);
+  const extrasHaveLabels = Object.values(split.extras).some((l) => l.length > 0);
   const toggleAlso = (n: string) =>
     setAlsoCreate((prev) => {
       const next = new Set(prev);
@@ -83,10 +86,15 @@ export default function OnboardingScreen() {
       // finishing setup.
       await finishOnboarding(name.trim(), async (workspaceId) => {
         if (useCase) await savePersonalUseCase(useCase).catch(() => undefined);
-        if (chosen.length) await applyStarterLabels(workspaceId, chosen).catch(() => undefined);
-        for (const extraName of extra) await createWorkspace({ name: extraName }).catch(() => undefined);
+        if (split.first.length) await applyStarterLabels(workspaceId, split.first).catch(() => undefined);
+        for (const extraName of extra) {
+          const made = await createWorkspace({ name: extraName }).catch(() => null);
+          const own = split.extras[extraName] ?? [];
+          if (made?.id && own.length) await applyStarterLabels(made.id, own).catch(() => undefined);
+        }
       });
-      router.replace("/(app)/(tabs)/home");
+      // The first-run tour plays once, then Today.
+      router.replace("/(app)/tour");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not finish setup");
     } finally {
@@ -219,7 +227,7 @@ export default function OnboardingScreen() {
           <Text style={[styles.hint, { textAlign: "center" }]}>
             {[
               chosen.length ? `Adds ${chosen.length} starter label${chosen.length === 1 ? "" : "s"}` : "",
-              extra.length ? `${chosen.length ? "and" : "Adds"} ${extra.length} more workspace${extra.length === 1 ? "" : "s"}` : "",
+              extra.length ? `${chosen.length ? "and" : "Adds"} ${extra.length} more workspace${extra.length === 1 ? "" : "s"}${extrasHaveLabels ? ", each with its own labels" : ""}` : "",
             ]
               .filter(Boolean)
               .join(" ")}

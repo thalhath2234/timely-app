@@ -1,5 +1,6 @@
 "use client";
 
+import { Fill } from "@/app/_components/_ui/dataMotion";
 import { useLayoutEffect, useState, type ReactNode } from "react";
 import { formatMetric, type CardUnit, type SeriesPoint } from "@timely/contract/dashboard";
 import { cn } from "@/app/utils/cn";
@@ -59,7 +60,11 @@ function Tooltip({ x, y, width, children }: { x: number; y: number; width: numbe
   );
 }
 
-function valueText(value: number, unit: CardUnit) {
+/** Formats a value; sheet cards pass the column's own format (currency, percent). */
+export type ValueFormat = (value: number) => string;
+
+function valueText(value: number, unit: CardUnit, format?: ValueFormat) {
+  if (format) return format(value);
   return formatMetric(value, unit);
 }
 
@@ -67,16 +72,16 @@ function valueText(value: number, unit: CardUnit) {
  * Horizontal bars for categories: label above, value at the tip, so long
  * names never get cut. Hover shows the share of the total.
  */
-export function CategoryBars({ points, unit, color }: { points: SeriesPoint[]; unit: CardUnit; color: number }) {
+export function CategoryBars({ points, unit, color, format }: { points: SeriesPoint[]; unit: CardUnit; color: number; format?: ValueFormat }) {
   const max = Math.max(...points.map((point) => point.value), 0) || 1;
   const total = points.reduce((sum, point) => sum + point.value, 0);
   return (
     <ul className="flex h-full flex-col justify-start gap-2.5 overflow-y-auto pr-1">
       {points.map((point) => (
-        <li key={point.key} title={`${point.label}: ${valueText(point.value, unit)}${total ? ` (${Math.round((point.value / total) * 100)}%)` : ""}`}>
+        <li key={point.key} title={`${point.label}: ${valueText(point.value, unit, format)}${total ? ` (${Math.round((point.value / total) * 100)}%)` : ""}`}>
           <div className="mb-1 flex items-baseline justify-between gap-3 text-xs">
             <span className="truncate text-foreground">{point.label}</span>
-            <span className="shrink-0 tabular-nums text-muted-foreground">{valueText(point.value, unit)}</span>
+            <span className="shrink-0 tabular-nums text-muted-foreground">{valueText(point.value, unit, format)}</span>
           </div>
           <div className="h-2 rounded-r-[4px]" style={{ width: `${Math.max((point.value / max) * 100, point.value > 0 ? 2 : 0)}%`, background: seriesColor(point.other ? 8 : color, point.other), minWidth: point.value > 0 ? 4 : 0 }} />
         </li>
@@ -96,7 +101,7 @@ function xLabelStride(count: number, width: number) {
 }
 
 /** Columns over time (or any short ordered series): one baseline, 4px rounded tops. */
-export function ColumnChart({ points, unit, color }: { points: SeriesPoint[]; unit: CardUnit; color: number }) {
+export function ColumnChart({ points, unit, color, format }: { points: SeriesPoint[]; unit: CardUnit; color: number; format?: ValueFormat }) {
   const [ref, size] = useElementSize<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const width = size.width;
@@ -119,7 +124,7 @@ export function ColumnChart({ points, unit, color }: { points: SeriesPoint[]; un
               <g key={tick}>
                 <line x1={AXIS_LEFT} x2={AXIS_LEFT + plotW} y1={y} y2={y} stroke="var(--chart-grid)" strokeWidth={1} />
                 <text x={AXIS_LEFT - 6} y={y} dy="0.32em" textAnchor="end" className="fill-muted-foreground text-[10px] tabular-nums">
-                  {valueText(max * tick, unit)}
+                  {valueText(max * tick, unit, format)}
                 </text>
               </g>
             );
@@ -158,7 +163,7 @@ export function ColumnChart({ points, unit, color }: { points: SeriesPoint[]; un
       {hover !== null && points[hover] ? (
         <Tooltip x={AXIS_LEFT + hover * band + band / 2} y={PAD_TOP + plotH - (points[hover].value / max) * plotH} width={width}>
           <span className="text-muted-foreground">{points[hover].detail ?? points[hover].label}</span>{" "}
-          <span className="font-medium tabular-nums">{valueText(points[hover].value, unit)}</span>
+          <span className="font-medium tabular-nums">{valueText(points[hover].value, unit, format)}</span>
         </Tooltip>
       ) : null}
     </div>
@@ -166,7 +171,7 @@ export function ColumnChart({ points, unit, color }: { points: SeriesPoint[]; un
 }
 
 /** A 2px line with a light wash, an end dot and a crosshair tooltip. */
-export function LineChart({ points, unit, color }: { points: SeriesPoint[]; unit: CardUnit; color: number }) {
+export function LineChart({ points, unit, color, format }: { points: SeriesPoint[]; unit: CardUnit; color: number; format?: ValueFormat }) {
   const [ref, size] = useElementSize<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const width = size.width;
@@ -209,7 +214,7 @@ export function LineChart({ points, unit, color }: { points: SeriesPoint[]; unit
               <g key={tick}>
                 <line x1={AXIS_LEFT} x2={AXIS_LEFT + plotW} y1={y} y2={y} stroke="var(--chart-grid)" strokeWidth={1} />
                 <text x={AXIS_LEFT - 6} y={y} dy="0.32em" textAnchor="end" className="fill-muted-foreground text-[10px] tabular-nums">
-                  {valueText(max * tick, unit)}
+                  {valueText(max * tick, unit, format)}
                 </text>
               </g>
             );
@@ -227,7 +232,7 @@ export function LineChart({ points, unit, color }: { points: SeriesPoint[]; unit
             <>
               <circle cx={xAt(last)} cy={yAt(points[last].value)} r={4} fill={stroke} stroke="var(--card)" strokeWidth={2} />
               <text x={xAt(last) + 8} y={yAt(points[last].value)} dy="0.32em" className="fill-foreground text-[11px] font-medium tabular-nums">
-                {valueText(points[last].value, unit)}
+                {valueText(points[last].value, unit, format)}
               </text>
             </>
           ) : null}
@@ -242,7 +247,7 @@ export function LineChart({ points, unit, color }: { points: SeriesPoint[]; unit
       {hover !== null && points[hover] ? (
         <Tooltip x={xAt(hover)} y={yAt(points[hover].value)} width={width}>
           <span className="text-muted-foreground">{points[hover].detail ?? points[hover].label}</span>{" "}
-          <span className="font-medium tabular-nums">{valueText(points[hover].value, unit)}</span>
+          <span className="font-medium tabular-nums">{valueText(points[hover].value, unit, format)}</span>
         </Tooltip>
       ) : null}
     </div>
@@ -271,7 +276,7 @@ function donutArcs(points: SeriesPoint[], radius: number, inner: number) {
 }
 
 /** Donut with a 2px surface gap between segments and a legend that names every slice. */
-export function DonutChart({ points, unit, total }: { points: SeriesPoint[]; unit: CardUnit; total: number }) {
+export function DonutChart({ points, unit, total, format }: { points: SeriesPoint[]; unit: CardUnit; total: number; format?: ValueFormat }) {
   const [ref, size] = useElementSize<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const sum = points.reduce((acc, point) => acc + point.value, 0);
@@ -304,7 +309,7 @@ export function DonutChart({ points, unit, total }: { points: SeriesPoint[]; uni
             ))}
           </svg>
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-            <span className="text-lg font-semibold tabular-nums text-foreground">{valueText(focus ? focus.value : total, unit)}</span>
+            <span className="text-lg font-semibold tabular-nums text-foreground">{valueText(focus ? focus.value : total, unit, format)}</span>
             <span className="max-w-[80%] truncate text-[10px] text-muted-foreground">{focus ? focus.label : "Total"}</span>
           </div>
         </div>
@@ -319,7 +324,7 @@ export function DonutChart({ points, unit, total }: { points: SeriesPoint[]; uni
             <span className="size-2.5 shrink-0 rounded-sm" style={{ background: seriesColor(index, point.other) }} />
             <span className="min-w-0 flex-1 truncate text-foreground">{point.label}</span>
             <span className="shrink-0 tabular-nums text-muted-foreground">
-              {valueText(point.value, unit)}
+              {valueText(point.value, unit, format)}
               {sum ? ` · ${Math.round((point.value / sum) * 100)}%` : ""}
             </span>
           </li>
@@ -333,8 +338,12 @@ export function DonutChart({ points, unit, total }: { points: SeriesPoint[]; uni
 export function Meter({ value, color, className }: { value: number; color: number | string; className?: string }) {
   const fill = typeof color === "string" ? color : seriesColor(color);
   return (
-    <div className={cn("h-2 w-full overflow-hidden rounded-full", className)} style={{ background: `color-mix(in oklch, ${fill} 18%, transparent)` }}>
-      <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${Math.min(100, Math.max(0, value * 100))}%`, background: fill }} />
-    </div>
+    <Fill
+      value={value}
+      color={fill}
+      height={8}
+      trackClassName={className}
+      style={{ background: `color-mix(in oklch, ${fill} 18%, transparent)` }}
+    />
   );
 }

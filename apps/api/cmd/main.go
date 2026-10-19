@@ -125,7 +125,7 @@ func main() {
 	workspaceService := workspace.NewWorkspaceService(workspaceRepo)
 	live := realtime.NewHub()
 	documentService := doc.NewDocumentService(documentRepo, indexer, live)
-	sheetService := sheet.NewSheetService(sheetRepo, indexer)
+	sheetService := sheet.NewSheetService(sheetRepo, indexer, live)
 	eventService := event.NewEventService(eventRepo, recurrenceStore, place, indexer)
 	calendarService := calendar.NewService(taskRepo, eventRepo, scheduleRepo.GetWorkingHours)
 	scheduleService := schedule.NewService(scheduleRepo, taskRepo, eventRepo, place)
@@ -170,6 +170,7 @@ func main() {
 	searchRerank = smartSearch.Rerank
 	taskPick = smartSearch.Pick
 	docDecisions = decisions
+	todaySuggestions = suggestions
 	mcpServer := agent.New(agent.Deps{
 		Auth:       authService,
 		Tasks:      taskService,
@@ -189,6 +190,7 @@ func main() {
 		Pick:       smartSearch.Pick,
 		Decisions:  decisions,
 		Focus:      focus.NewStore(db),
+		Suggest:    suggestions,
 		DecisionsOn: func(ctx context.Context, userID string) bool {
 			on, _ := decisions.Status(ctx, userID)
 			return on
@@ -233,7 +235,7 @@ func main() {
 		Document:  doc.NewHandler(documentService, live),
 		DocFiles:  docfile.New(db),
 		Links:     linkpreview.New(),
-		Sheet:     sheet.NewHandler(sheetService),
+		Sheet:     sheet.NewHandler(sheetService, live),
 		Event:     event.NewHandler(eventService),
 		Calendar:  calendar.NewHandler(calendarService),
 		Schedule:  schedule.NewHandler(scheduleService),
@@ -278,6 +280,9 @@ func main() {
 			"X-Timely-Restore",
 			"ngrok-skip-browser-warning",
 		},
+		// Downloads name their file from it when the web app calls the API
+		// on another origin.
+		ExposeHeaders: []string{echo.HeaderContentDisposition},
 	}))
 
 	// Setup all routes

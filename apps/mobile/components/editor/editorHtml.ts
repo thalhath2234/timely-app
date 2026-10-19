@@ -25,8 +25,10 @@ export function buildEditorHtml(
   },
   /** The server address; uploaded images are stored as "/files/<id>". */
   apiBase = "",
-  /** Compact: a short description box inside a card, not a full page. */
-  options: { compact?: boolean } = {},
+  /** Compact: a short description box inside a card, not a full page.
+   * openMentions: a tap on a mention chip opens what it links to (the app
+   * gets an openMention message) instead of placing the caret. */
+  options: { compact?: boolean; openMentions?: boolean } = {},
 ) {
   const initial = content && typeof content.type === "string" ? content : BLANK;
   const t = theme ?? {
@@ -46,10 +48,14 @@ export function buildEditorHtml(
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, editable=true" />
   <style>
+    /* The phone app shows no scrollbars anywhere. */
+    * { scrollbar-width: none; }
+    *::-webkit-scrollbar { display: none; width: 0; height: 0; }
     :root { color-scheme: ${t.mode}; }
     html, body { margin: 0; padding: 0; background: ${t.background}; }
     body { min-height: 100%; }
-    #editor { min-height: 70vh; padding: 4px 2px 120px; box-sizing: border-box; }
+    /* 20px sides, as the doc title, word count and Related row above it. */
+    #editor { min-height: 70vh; padding: 4px 20px 120px; box-sizing: border-box; }
     ${options.compact ? "#editor { min-height: 100%; padding: 2px 0 16px; } .tiptap > :last-child { margin-bottom: 0; }" : ""}
     .tiptap { outline: none; color: ${t.foreground}; font-size: 16px; line-height: 1.55; font-family: ui-sans-serif, system-ui, sans-serif; }
     .tiptap p { margin: 0 0 0.75em; }
@@ -67,7 +73,7 @@ export function buildEditorHtml(
     .mermaid-out { padding: 10px 12px; background: ${t.background}; border-top: 1px solid ${t.border}; overflow-x: auto; font-size: 13px; color: ${t.mutedForeground}; }
     .mermaid-out svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
     .mermaid-out.mermaid-error { color: #e5484d; font-family: ui-monospace, monospace; white-space: pre-wrap; }
-    .tiptap img { display: inline-block; max-width: 100%; border-radius: 8px; vertical-align: bottom; }
+    .tiptap img { display: inline-block; max-width: 100%; max-height: 440px; width: auto; height: auto; border-radius: 8px; vertical-align: bottom; }
     .tiptap ul, .tiptap ol { padding-left: 1.3em; margin: 0 0 0.75em; }
     .tiptap blockquote { border-left: 3px solid ${t.primary}; margin: 0 0 0.75em; padding: 0 0 0 12px; color: ${t.accentForeground}; }
     .tiptap pre { position: relative; background: ${t.muted}; border: 1px solid ${t.border}; border-radius: 10px; padding: 36px 12px 12px; overflow-x: auto; color: ${t.foreground}; }
@@ -88,13 +94,31 @@ export function buildEditorHtml(
     .tiptap th { background: ${t.muted}; font-weight: 600; }
     .tiptap ul[data-type="taskList"] { list-style: none; padding-left: 0; }
     .tiptap ul[data-type="taskList"] li { display: flex; gap: 8px; align-items: flex-start; }
-    .tiptap ul[data-type="taskList"] input { margin-top: 4px; }
+    .tiptap ul[data-type="taskList"] input { margin: 4px 0 0; }
     .mention { color: ${t.primary}; font-weight: 600; background: ${t.accent}; border-radius: 6px; padding: 0 4px; }
     .math-inline { border-radius: 4px; padding: 0 2px; }
     .math-inline.ProseMirror-selectednode, .wiki-link.ProseMirror-selectednode, .footnote-ref.ProseMirror-selectednode { background: ${t.accent}; }
     .math-empty { color: ${t.mutedForeground}; font-style: italic; font-size: 13px; }
     .math-block, .frontmatter { border: 1px solid ${t.border}; border-radius: 10px; margin: 0 0 0.75em; overflow: hidden; }
     .frontmatter { border-style: dashed; }
+    /* Suggestions for checklist rows: a marker at the row's end, and under
+       the open one a card with its actions (lineHints below). */
+    .tiptap ul[data-type="taskList"] li.has-hint { position: relative; padding-right: 30px; }
+    .tiptap li.hint-open { background: color-mix(in oklab, ${t.primary} 10%, transparent); border-radius: 8px; box-shadow: 0 0 0 4px color-mix(in oklab, ${t.primary} 10%, transparent); }
+    .hint-mark { position: absolute; top: -10px; right: -10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; background: none; color: ${t.mutedForeground}; opacity: 0.75; -webkit-tap-highlight-color: transparent; }
+    .hint-mark svg { width: 15px; height: 15px; }
+    .hint-mark.is-open { color: ${t.primary}; opacity: 1; }
+    .hint-mark.is-open svg { fill: currentColor; }
+    .hint-card { margin: 8px -22px 4px 0; padding: 12px; border: 1px solid color-mix(in oklab, ${t.primary} 35%, transparent); border-radius: 12px; background: ${t.background}; font-size: 14px; line-height: 1.4; user-select: none; -webkit-user-select: none; }
+    .hint-label { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: ${t.primary}; }
+    .hint-title { margin-top: 4px; font-weight: 600; color: ${t.foreground}; }
+    .hint-details { margin-top: 2px; font-size: 13px; color: ${t.mutedForeground}; }
+    .hint-row { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+    .hint-target { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: ${t.mutedForeground}; padding: 6px 10px; border-radius: 8px; background: ${t.muted}; }
+    .hint-gap { flex: 1; }
+    .hint-btn { min-height: 44px; padding: 0 14px; border: 0; border-radius: 10px; background: none; color: ${t.mutedForeground}; font: inherit; font-size: 14px; font-weight: 500; -webkit-tap-highlight-color: transparent; }
+    .hint-btn.hint-primary { background: ${t.primary}; color: ${t.background}; font-weight: 600; }
+    .hint-btn:disabled { opacity: 0.6; }
     .ProseMirror .block-picked { background: rgba(59, 130, 246, 0.16); border-radius: 6px; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16); }
     .props-list { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; padding: 8px 12px 10px; font-size: 13px; }
     .props-key { color: ${t.mutedForeground}; }
@@ -151,6 +175,10 @@ export function buildEditorHtml(
     .wiki-link::before { content: "[["; opacity: 0.5; }
     .wiki-link::after { content: "]]"; opacity: 0.5; }
     .wiki-link[data-embed="true"]::before { content: "![["; }
+    /* A long press selects a mention chip for editing; with openMentions a tap opens it. */
+    .mention { -webkit-tap-highlight-color: transparent; }
+    .mention.ProseMirror-selectednode { box-shadow: 0 0 0 2px ${t.primary}; }
+    ${options.openMentions ? ".mention { cursor: pointer; } .mention.is-pressed { opacity: 0.6; }" : ""}
     .mermaid-out svg.map-svg { width: 100%; height: auto; max-height: 420px; }
     .map-polygon { fill: color-mix(in oklab, ${t.primary} 25%, transparent); stroke: ${t.primary}; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
     .map-line { fill: none; stroke: ${t.primary}; stroke-width: 2; vector-effect: non-scaling-stroke; }
@@ -172,7 +200,7 @@ export function buildEditorHtml(
     import Image from "https://esm.sh/@tiptap/extension-image@3.31.4";
     import CodeBlock from "https://esm.sh/@tiptap/extension-code-block@3.31.4";
     import { Placeholder } from "https://esm.sh/@tiptap/extensions@3.31.4";
-    import { TextSelection, Plugin, PluginKey } from "https://esm.sh/@tiptap/pm@3.31.4/state";
+    import { TextSelection, NodeSelection, Plugin, PluginKey } from "https://esm.sh/@tiptap/pm@3.31.4/state";
     import { Decoration, DecorationSet } from "https://esm.sh/@tiptap/pm@3.31.4/view";
 
     const placeholder = ${embed(placeholder)};
@@ -192,6 +220,37 @@ export function buildEditorHtml(
             renderHTML: (attrs) => ({ src: attrs.src && attrs.src.startsWith("/files/") ? apiBase + attrs.src : attrs.src }),
           },
         };
+      },
+      // A pasted picture (the keyboard's clipboard, or Paste on an image) goes
+      // to the app, which uploads it and puts it at the caret. Images copied
+      // from a Timely doc paste as they are, with no second upload.
+      addProseMirrorPlugins() {
+        return [
+          ...(this.parent?.() || []),
+          new Plugin({
+            key: new PluginKey("docImagePaste"),
+            props: {
+              handlePaste(_view, event) {
+                const data = event.clipboardData;
+                if (!data) return false;
+                if (/<img[^>]+src="[^"]*\\/files\\/fil_[0-9a-f]{32}"/.test(data.getData("text/html") || "")) return false;
+                const files = Array.from(data.files || []).filter((file) => /^image\\/(png|jpeg|gif|webp)$/.test(file.type));
+                if (files.length === 0) return false;
+                event.preventDefault();
+                Promise.all(files.map((file) => new Promise((resolve) => {
+                  const reader = new FileReader();
+                  reader.onload = () => resolve({ data: String(reader.result || ""), mime: file.type, name: file.name || "Pasted image" });
+                  reader.onerror = () => resolve(null);
+                  reader.readAsDataURL(file);
+                }))).then((images) => {
+                  const ready = images.filter(Boolean);
+                  if (ready.length) send({ type: "pasteImages", images: ready });
+                });
+                return true;
+              },
+            },
+          }),
+        ];
       },
     });
     // Find and replace, as on web (apps/web/app/_components/editor/findReplace.ts).
@@ -246,6 +305,155 @@ export function buildEditorHtml(
                 const picked = blockPickKey.getState(state);
                 return picked ? DecorationSet.create(state.doc, [Decoration.node(picked.from, picked.to, { class: "block-picked" })]) : null;
               },
+            },
+          }),
+        ];
+      },
+    });
+
+    // Suggestions for checklist rows, sent by the app (setLineHints): a
+    // marker at the end of each row they are about and, under the open one, a
+    // card with its actions. Taps go back to the app as lineHint messages.
+    const lineHintKey = new PluginKey("lineHints");
+    // A row's words as the app reads them from the saved content: the text of
+    // its own paragraphs, spaces collapsed.
+    function hintLineText(node) {
+      const parts = [];
+      node.forEach((child) => {
+        if (child.type.name !== "paragraph") return;
+        let text = "";
+        child.descendants((inner) => {
+          if (inner.isText) text += inner.text;
+          return true;
+        });
+        parts.push(text);
+      });
+      return parts.join(" ").replace(/\\s+/g, " ").trim();
+    }
+    const HINT_SPARK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg>';
+    const HINT_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+    function hintEl(tag, cls, text) {
+      const el = document.createElement(tag);
+      if (cls) el.className = cls;
+      if (text != null) el.textContent = text;
+      return el;
+    }
+    // Taps act without moving the caret or raising the keyboard. A touch is
+    // taken whole on touchend: a cancelled pointerdown only stops the
+    // mousedown, and Android WebView then still places the caret and shows
+    // the keyboard from the tap before the click arrives. "leaves" buttons
+    // open another screen, so they also drop the editor's focus.
+    function hintButton(cls, label, key, action, leaves) {
+      const button = hintEl("button", cls);
+      button.type = "button";
+      button.setAttribute("aria-label", label);
+      const fire = () => {
+        if (leaves && editor.view.hasFocus()) editor.view.dom.blur();
+        send({ type: "lineHint", key, action });
+      };
+      let touch = null;
+      button.addEventListener("touchstart", (event) => {
+        event.stopPropagation();
+        const t = event.touches[0];
+        touch = t ? { x: t.clientX, y: t.clientY } : null;
+      }, { passive: true });
+      button.addEventListener("touchmove", (event) => {
+        const t = event.touches[0];
+        if (touch && t && Math.hypot(t.clientX - touch.x, t.clientY - touch.y) > 10) touch = null;
+      }, { passive: true });
+      button.addEventListener("touchend", (event) => {
+        event.stopPropagation();
+        // Not cancelable once the page has started scrolling: that was a swipe.
+        if (!event.cancelable) return;
+        event.preventDefault();
+        if (touch && !button.disabled) fire();
+        touch = null;
+      });
+      button.addEventListener("mousedown", (event) => { event.preventDefault(); event.stopPropagation(); });
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        fire();
+      });
+      return button;
+    }
+    function hintDecorations(doc, config) {
+      if (!config || !config.hints || !config.hints.length) return DecorationSet.empty;
+      const byText = new Map();
+      for (const hint of config.hints) if (hint.text && !byText.has(hint.text)) byText.set(hint.text, hint);
+      const used = new Set();
+      const decorations = [];
+      doc.descendants((node, pos) => {
+        if (node.type.name !== "taskItem") return true;
+        const hint = byText.get(hintLineText(node));
+        if (!hint || used.has(hint.key)) return true;
+        used.add(hint.key);
+        const open = config.open === hint.key && hint.kind === "todo";
+        const busy = config.busy === hint.key;
+        decorations.push(Decoration.node(pos, pos + node.nodeSize, { class: open ? "has-hint hint-open" : "has-hint" }));
+        const first = node.firstChild;
+        // The end of the row's first line, inside its paragraph.
+        const lineEnd = pos + 1 + (first ? Math.max(0, first.nodeSize - 1) : 0);
+        decorations.push(
+          Decoration.widget(
+            lineEnd,
+            () => {
+              const label = hint.kind === "task" ? "Already a task. Open it" : open ? "Hide suggestion" : "Show suggestion";
+              const mark = hintButton("hint-mark" + (open ? " is-open" : ""), label, hint.key, "toggle", hint.kind === "task");
+              mark.contentEditable = "false";
+              mark.innerHTML = hint.kind === "task" ? HINT_CHECK : HINT_SPARK;
+              return mark;
+            },
+            { key: "mark:" + hint.key + (open ? ":open" : ""), side: 1, ignoreSelection: true, stopEvent: () => true },
+          ),
+        );
+        if (open) {
+          decorations.push(
+            Decoration.widget(
+              pos + node.nodeSize - 1,
+              () => {
+                const card = hintEl("div", "hint-card");
+                card.contentEditable = "false";
+                card.appendChild(hintEl("div", "hint-label", "Checklist item"));
+                card.appendChild(hintEl("div", "hint-title", hint.name));
+                if (hint.details) card.appendChild(hintEl("div", "hint-details", hint.details));
+                const row = hintEl("div", "hint-row");
+                if (config.target) row.appendChild(hintEl("span", "hint-target", config.target));
+                row.appendChild(hintEl("span", "hint-gap"));
+                const dismiss = hintButton("hint-btn", "Dismiss", hint.key, "dismiss");
+                dismiss.textContent = "Dismiss";
+                const make = hintButton("hint-btn hint-primary", "Make task", hint.key, "make");
+                make.textContent = busy ? (config.writing ? "Writing…" : "Adding…") : "Make task";
+                make.disabled = Boolean(config.busy);
+                row.appendChild(dismiss);
+                row.appendChild(make);
+                card.appendChild(row);
+                return card;
+              },
+              { key: "card:" + hint.key + ":" + (config.busy || "") + ":" + (config.target || ""), side: 1, ignoreSelection: true, stopEvent: () => true },
+            ),
+          );
+        }
+        return true;
+      });
+      return DecorationSet.create(doc, decorations);
+    }
+    const LineHints = Extension.create({
+      name: "lineHints",
+      addProseMirrorPlugins() {
+        return [
+          new Plugin({
+            key: lineHintKey,
+            state: {
+              init: () => ({ config: null, set: DecorationSet.empty }),
+              apply(tr, value, _old, state) {
+                const config = tr.getMeta(lineHintKey);
+                if (config !== undefined) return { config, set: hintDecorations(state.doc, config) };
+                return tr.docChanged ? { config: value.config, set: hintDecorations(state.doc, value.config) } : value;
+              },
+            },
+            props: {
+              decorations: (state) => lineHintKey.getState(state).set,
             },
           }),
         ];
@@ -456,6 +664,55 @@ export function buildEditorHtml(
         };
       },
     });
+    // A tap on a mention chip opens what it links to. The press is taken
+    // before ProseMirror sees it, so the caret stays put and the keyboard
+    // does not come up. A long press selects the chip for editing instead:
+    // Backspace removes it, typing replaces it.
+    function mentionAt(view, event) {
+      const el = event.target && event.target.closest ? event.target.closest(".mention") : null;
+      if (!el || !view.dom.contains(el)) return null;
+      const pos = view.posAtDOM(el, 0);
+      for (const at of [pos, pos - 1]) {
+        const node = at >= 0 ? view.state.doc.nodeAt(at) : null;
+        if (node && node.type.name === "mention") return { el, pos: at, node };
+      }
+      return null;
+    }
+    let pressedMention = null;
+    function releaseMention() {
+      if (pressedMention) pressedMention.classList.remove("is-pressed");
+      pressedMention = null;
+    }
+    const MENTION_TAPS = {
+      mousedown(view, event) {
+        if (event.button !== 0) return false;
+        const hit = mentionAt(view, event);
+        if (!hit || !hit.node.attrs.id) return false;
+        event.preventDefault();
+        releaseMention();
+        pressedMention = hit.el;
+        hit.el.classList.add("is-pressed");
+        return true;
+      },
+      mouseup() { setTimeout(releaseMention, 120); return false; },
+      click(view, event) {
+        const hit = mentionAt(view, event);
+        if (!hit || !hit.node.attrs.id) return false;
+        event.preventDefault();
+        if (view.hasFocus()) view.dom.blur();
+        send({ type: "openMention", id: hit.node.attrs.id, entityType: hit.node.attrs.entityType || "doc" });
+        return true;
+      },
+      contextmenu(view, event) {
+        const hit = mentionAt(view, event);
+        if (!hit) return false;
+        event.preventDefault();
+        releaseMention();
+        view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, hit.pos)));
+        view.focus();
+        return true;
+      },
+    };
     const Mention = Node.create({
       name: "mention",
       group: "inline",
@@ -1602,11 +1859,13 @@ export function buildEditorHtml(
       return editor.isActive("table") || editor.isActive("tableCell") || editor.isActive("tableHeader");
     }
 
+    // Height of an open "/" or "@" menu over the bottom of the page.
+    let caretReserve = 0;
     function scrollCaret() {
       try {
         const { from } = editor.state.selection;
         const coords = editor.view.coordsAtPos(from);
-        const limit = (window.visualViewport ? window.visualViewport.height : window.innerHeight) - 28;
+        const limit = (window.visualViewport ? window.visualViewport.height : window.innerHeight) - 28 - caretReserve;
         if (coords.bottom > limit) {
           const delta = coords.bottom - limit + 16;
           window.scrollBy(0, delta);
@@ -1701,6 +1960,7 @@ export function buildEditorHtml(
         ColumnNode,
         FindReplace,
         BlockPick,
+        LineHints,
         FootnoteRef,
         Footnote,
         Frontmatter,
@@ -1711,6 +1971,7 @@ export function buildEditorHtml(
       editorProps: {
         attributes: { class: "tiptap", autocapitalize: "sentences", spellcheck: "true" },
         handleTextInput(view, from, to, text) { return capitalizeTyped(view, from, to, text); },
+        handleDOMEvents: ${options.openMentions ? "MENTION_TAPS" : "{}"},
       },
       onCreate({ editor }) {
         send({ type: "ready" });
@@ -1969,10 +2230,32 @@ export function buildEditorHtml(
     }
 
     window.__timely = {
-      set(content) { editor.commands.setContent(content, { emitUpdate: false }); },
+      // A newer copy from the server replaces only the range that differs, so
+      // unchanged blocks keep their DOM (images do not reload) and the caret
+      // stays put; an equal copy changes nothing.
+      set(content) {
+        try {
+          const next = editor.schema.nodeFromJSON(content);
+          const current = editor.state.doc;
+          const start = current.content.findDiffStart(next.content);
+          if (start == null) return;
+          const end = current.content.findDiffEnd(next.content);
+          let endA = end ? end.a : current.content.size;
+          let endB = end ? end.b : next.content.size;
+          const overlap = start - Math.min(endA, endB);
+          if (overlap > 0) { endA += overlap; endB += overlap; }
+          const tr = editor.state.tr.replace(start, endA, next.slice(start, endB));
+          tr.setMeta("addToHistory", false);
+          tr.setMeta("preventUpdate", true);
+          editor.view.dispatch(tr);
+        } catch (_) {
+          editor.commands.setContent(content, { emitUpdate: false });
+        }
+      },
       cmd(name, payload) {
         if (name === "setChrome") {
           const pad = Number(payload && payload.bottomPad) || 120;
+          caretReserve = Math.max(0, Number(payload && payload.reserve) || 0);
           const root = document.getElementById("editor");
           if (root) root.style.paddingBottom = pad + "px";
           requestAnimationFrame(scrollCaret);
@@ -2079,6 +2362,19 @@ export function buildEditorHtml(
             .run();
           send({ type: "linkDone" });
           requestAnimationFrame(scrollCaret);
+          return;
+        }
+        // From the app's suggestions; no focus, so the keyboard stays as it is.
+        if (name === "setLineHints") {
+          const before = lineHintKey.getState(editor.state).config;
+          editor.view.dispatch(editor.state.tr.setMeta(lineHintKey, payload || null).setMeta("addToHistory", false));
+          // A card that just opened below the fold scrolls up into view.
+          if (payload && payload.open && (!before || before.open !== payload.open)) {
+            requestAnimationFrame(() => {
+              const card = document.querySelector(".hint-card");
+              if (card) card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+            });
+          }
           return;
         }
         // Picked in the app's callout sheet; no focus, so the keyboard

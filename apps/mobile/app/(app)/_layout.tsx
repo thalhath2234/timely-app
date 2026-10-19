@@ -2,12 +2,15 @@ import { useEffect, useState } from "react";
 import { AccessibilityInfo } from "react-native";
 import { Redirect, Stack } from "expo-router";
 import ReminderNotifications from "../../components/ReminderNotifications";
+import AndroidBridges from "../../components/AndroidBridges";
 import AccountAppearanceSync from "../../components/AccountAppearanceSync";
 import StartupLoader from "../../components/ui/StartupLoader";
 import ToastHost from "../../components/ui/ToastHost";
 import { isOnboarded, useAuth } from "../../lib/auth/AuthProvider";
 import { stackFadeAnimation, stackPushAnimation } from "../../lib/motion";
 import { colors } from "../../lib/theme";
+import { PredictiveBackScreen, predictiveBackScreenOptions } from "../../lib/predictiveBack";
+import { hasTimelyAndroid } from "../../modules/timely-android";
 
 export default function AppLayout() {
   const { ready, token, user } = useAuth();
@@ -28,15 +31,21 @@ export default function AppLayout() {
     <>
       <ReminderNotifications />
       <AccountAppearanceSync />
+      <AndroidBridges />
       <Stack
+        screenLayout={
+          hasTimelyAndroid()
+            ? ({ children, navigation }) => <PredictiveBackScreen navigation={navigation}>{children}</PredictiveBackScreen>
+            : undefined
+        }
         screenOptions={({ route }: { route: { name: string } }) => {
           const fade =
             route.name === "(tabs)" ||
             route.name === "search" ||
             route.name === "today" ||
             route.name === "inbox" ||
-            route.name === "dashboard" ||
-            route.name === "notifications";
+            route.name === "notifications" ||
+            route.name === "shortcut/[action]";
           return {
             headerShown: false,
             contentStyle: { backgroundColor: colors.background },
@@ -44,6 +53,8 @@ export default function AppLayout() {
             animationDuration: fade ? 220 : 320,
             gestureEnabled: !reduceMotion && !fade,
             fullScreenGestureEnabled: !reduceMotion && !fade,
+            // Android: the screen underneath stays drawn for the back preview.
+            ...predictiveBackScreenOptions(route.name === "(tabs)"),
           };
         }}
       />

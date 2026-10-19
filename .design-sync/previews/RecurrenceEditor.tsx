@@ -1,5 +1,4 @@
-import { PropertyRow, RecurrenceEditor } from "@timely/ui";
-import { Clock, Repeat } from "lucide-react";
+import { ListGroup, ListRow, RecurrenceEditor } from "@timely/ui";
 import { useState } from "react";
 
 // Thursday 16 May 2024, 09:00 local: the first occurrence.
@@ -15,56 +14,24 @@ const Sidebar = ({ children }: { children: React.ReactNode }) => (
   </div>
 );
 
-export const PropertyRowWeekly = () => {
-  const [value, setValue] = useState<any>(weekly);
+const Card = ({ initial, disabled }: { initial: any; disabled?: boolean }) => {
+  const [value, setValue] = useState<any>(initial);
   return (
     <div className="p-4">
       <Sidebar>
-        <PropertyRow icon={Clock} label="Schedule">
-          <span className="text-xs text-foreground">Thu, May 16 · 9:00 AM</span>
-        </PropertyRow>
-        <RecurrenceEditor label="Repeat" icon={Repeat} value={value} anchor={anchor} onChange={setValue} />
+        <ListGroup>
+          <ListRow label="Schedule">
+            <span className="text-[13px] font-medium text-muted-foreground">Thu, May 16, 9:00 AM</span>
+          </ListRow>
+          <RecurrenceEditor label="Repeat" value={value} anchor={anchor} onChange={setValue} disabled={disabled} />
+        </ListGroup>
       </Sidebar>
     </div>
   );
 };
 
-export const CustomWeekly = () => {
-  const [value, setValue] = useState<any>(everyOtherMWF);
-  return (
-    <div className="p-4">
-      <Sidebar>
-        <RecurrenceEditor label="Repeat" icon={Repeat} value={value} anchor={anchor} onChange={setValue} />
-      </Sidebar>
-    </div>
-  );
-};
-
-export const CustomMonthly = () => {
-  const [value, setValue] = useState<any>(monthly);
-  return (
-    <div className="p-4">
-      <Sidebar>
-        <RecurrenceEditor label="Repeat" icon={Repeat} value={value} anchor={anchor} onChange={setValue} />
-      </Sidebar>
-    </div>
-  );
-};
-
-export const InlineDoesNotRepeat = () => {
-  const [value, setValue] = useState<any>(null);
-  return (
-    <div className="flex w-[320px] flex-col gap-1.5 p-4">
-      <span className="text-xs font-medium text-muted-foreground">Repeat</span>
-      <RecurrenceEditor value={value} anchor={anchor} onChange={setValue} />
-    </div>
-  );
-};
-
-export const Disabled = () => (
-  <div className="p-4">
-    <Sidebar>
-      <RecurrenceEditor label="Repeat" icon={Repeat} value={everyOtherMWF as any} anchor={anchor} onChange={() => undefined} disabled />
-    </Sidebar>
-  </div>
-);
+export const RowWeekly = () => <Card initial={weekly} />;
+export const CustomWeekly = () => <Card initial={everyOtherMWF} />;
+export const CustomMonthly = () => <Card initial={monthly} />;
+export const DoesNotRepeat = () => <Card initial={null} />;
+export const Disabled = () => <Card initial={everyOtherMWF} disabled />;

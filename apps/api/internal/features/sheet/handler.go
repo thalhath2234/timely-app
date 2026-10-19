@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"timely-api/internal/models"
+	"timely-api/internal/realtime"
 
 	"github.com/labstack/echo/v5"
 	"gorm.io/gorm"
@@ -11,10 +12,11 @@ import (
 
 type Handler struct {
 	sheetService SheetService
+	live         *realtime.Hub
 }
 
-func NewHandler(sheetService SheetService) *Handler {
-	return &Handler{sheetService: sheetService}
+func NewHandler(sheetService SheetService, live *realtime.Hub) *Handler {
+	return &Handler{sheetService: sheetService, live: live}
 }
 
 type createSheetRequest struct {
@@ -122,6 +124,27 @@ func (h *Handler) GetSheetById(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, foundSheet)
+}
+
+// Watch is a server-sent event stream that says when one sheet changes, with
+// the saved sheet in each "updated" event. Dashboard cards built from the
+// sheet redraw from it, whichever device or agent made the change.
+func (h *Handler) Watch(c *echo.Context) error {
+	userID, ok := c.Get("userID").(string)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "user not authenticated")
+	}
+	if h.live == nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "realtime unavailable")
+	}
+	sheetID := c.Param("id")
+	if _, err := h.sheetService.GetByID(userID, sheetID); err != nil {
+		return sheetError(err)
+	}
+	events, cancel := h.live.Subscribe(userID, sheetID)
+	defer cancel()
+	realtime.Stream(c.Request().Context(), c.Response(), realtime.Event{Type: "hello", Kind: "sheet", ID: sheetID}, events)
+	return nil
 }
 
 func (h *Handler) Duplicate(c *echo.Context) error {

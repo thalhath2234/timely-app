@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ScrollView, Text, TextInput, View } from "react-native";
 import { Check, ChevronDown, ChevronUp, Flame, Pencil, Plus, Target, Trash2 } from "lucide-react-native";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import BottomSheet from "../ui/BottomSheet";
-import { SectionLabel } from "../ui/primitives";
+import { Button, SectionLabel } from "../ui/primitives";
 import { MAX_FOCUS_NAME, MAX_GOALS, MAX_HABITS, type Goal, type Habit } from "../../lib/api/focus";
 import {
   useAddGoal,
@@ -26,6 +26,16 @@ import { colors, createThemedStyleSheet } from "../../lib/theme";
 const failed = (fallback: string) => (error: unknown) => {
   useToastStore.getState().show(error instanceof Error ? error.message : fallback);
 };
+
+/** Runs a save and resolves whether it worked, toasting the failure. */
+const saving = (save: Promise<unknown>, fallback: string) =>
+  save.then(
+    () => true,
+    (error: unknown) => {
+      failed(fallback)(error);
+      return false;
+    },
+  );
 
 function swap(ids: string[], index: number, by: number) {
   const next = [...ids];
@@ -256,7 +266,7 @@ function EditSheet({
           first={index === 0}
           last={index === habits.length - 1}
           onMove={(by) => reorderHabits.mutate(swap(habitIds, index, by), { onError: failed("Could not reorder habits") })}
-          onRename={(name) => renameHabit.mutate({ id: habit.id, name }, { onError: failed("Could not rename the habit") })}
+          onRename={(name) => saving(renameHabit.mutateAsync({ id: habit.id, name }), "Could not rename the habit")}
           onDelete={() => deleteHabit.mutate(habit.id, { onError: failed("Could not delete the habit") })}
           deleteNote="Its streak and check-ins are deleted too."
         />
@@ -281,7 +291,7 @@ function EditSheet({
           first={index === 0}
           last={index === goals.length - 1}
           onMove={(by) => reorderGoals.mutate(swap(goalIds, index, by), { onError: failed("Could not reorder goals") })}
-          onRename={(title) => renameGoal.mutate({ id: goal.id, title }, { onError: failed("Could not rename the goal") })}
+          onRename={(title) => saving(renameGoal.mutateAsync({ id: goal.id, title }), "Could not rename the goal")}
           onDelete={() => deleteGoal.mutate(goal.id, { onError: failed("Could not remove the goal") })}
         />
       ))}
@@ -300,7 +310,9 @@ function EditSheet({
 }
 
 /** One editable row: move up or down, rename in place, delete after a
- * second tap that confirms it. */
+ * second tap that confirms it. While the name has focus the trash turns into
+ * a tick that saves it; blur, the keyboard's done key and closing the sheet
+ * save too, so an edit is never dropped. */
 function EditRow({
   name,
   what,
@@ -316,12 +328,27 @@ function EditRow({
   first: boolean;
   last: boolean;
   onMove: (by: number) => void;
-  onRename: (name: string) => void;
+  onRename: (name: string) => Promise<boolean>;
   onDelete: () => void;
   deleteNote?: string;
 }) {
   const [draft, setDraft] = useState(name);
   const [confirming, setConfirming] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const inputRef = useRef<TextInput>(null);
+  // The name last sent to the server, so blur + tick + unmount save once.
+  const saved = useRef(name);
+  const latest = useRef({ draft, onRename });
+  latest.current = { draft, onRename };
+  // Closing the sheet with the keyboard up can unmount the field before it
+  // blurs: save what was typed on the way out.
+  useEffect(
+    () => () => {
+      const next = latest.current.draft.trim();
+      if (next && next !== saved.current) void latest.current.onRename(next);
+    },
+    [],
+  );
   if (confirming) {
     return (
       <View style={[styles.editRow, styles.confirmRow]}>
@@ -347,11 +374,18 @@ function EditRow({
   }
   const save = () => {
     const next = draft.trim();
-    if (!next) setDraft(name);
-    else if (next !== name) onRename(next);
+    if (!next) {
+      setDraft(name);
+      return;
+    }
+    if (next === saved.current) return;
+    saved.current = next;
+    void onRename(next).then((ok) => {
+      if (!ok) saved.current = name;
+    });
   };
   return (
-    <View style={styles.editRow}>
+    <View style={[styles.editRow, focused && styles.editRowFocused]}>
       <View style={styles.moveButtons}>
         <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Move ${name} up`} disabled={first} onPress={() => onMove(-1)} hitSlop={4} style={first && styles.disabled}>
           <ChevronUp size={16} color={colors.mutedForeground} />
@@ -361,9 +395,14 @@ function EditRow({
         </AnimatedPressable>
       </View>
       <TextInput
+        ref={inputRef}
         value={draft}
         onChangeText={(next) => setDraft(next.slice(0, MAX_FOCUS_NAME))}
-        onBlur={save}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          setFocused(false);
+          save();
+        }}
         onSubmitEditing={save}
         returnKeyType="done"
         accessibilityLabel={`Rename ${what} ${name}`}
@@ -371,9 +410,23 @@ function EditRow({
         selectionColor={colors.primary}
         style={styles.input}
       />
-      <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Delete ${what} ${name}`} onPress={() => setConfirming(true)} hitSlop={6} style={styles.iconButton}>
-        <Trash2 size={16} color={colors.mutedForeground} />
-      </AnimatedPressable>
+      {focused ? (
+        <Button
+          label={`Save ${what} name`}
+          iconOnly
+          size="sm"
+          icon={<Check size={16} color={colors.primaryForeground} strokeWidth={2.5} />}
+          onPress={() => {
+            save();
+            inputRef.current?.blur();
+          }}
+          testID={`save-${what}-name`}
+        />
+      ) : (
+        <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Delete ${what} ${name}`} onPress={() => setConfirming(true)} hitSlop={6} style={styles.iconButton}>
+          <Trash2 size={16} color={colors.mutedForeground} />
+        </AnimatedPressable>
+      )}
     </View>
   );
 }
@@ -472,6 +525,7 @@ const styles = createThemedStyleSheet((colors) => ({
     borderColor: colors.border,
     backgroundColor: colors.card,
   },
+  editRowFocused: { borderColor: colors.primary },
   confirmRow: { borderColor: colors.destructive },
   moveButtons: { gap: 0 },
   input: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 14, paddingVertical: 6 },

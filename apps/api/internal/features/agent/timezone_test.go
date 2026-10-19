@@ -18,9 +18,9 @@ func TestToolsDefaultToTheChatTimezone(t *testing.T) {
 	if location(context.Background(), "") != time.Local {
 		t.Fatal("Hermes default changed")
 	}
-	from, _, loc, err := (&Server{}).parseRange(ctx, rangeIn{}, 1)
-	if err != nil || loc.String() != "Asia/Tokyo" || from.Hour() != 0 || from.Location().String() != "Asia/Tokyo" {
-		t.Fatalf("range starts at %v in %v (%v)", from, loc, err)
+	from, _, today, err := (&Server{}).parseRange(ctx, "usr_1", rangeIn{}, 1)
+	if loc := today.Location(); err != nil || loc.String() != "Asia/Tokyo" || from.Hour() != 0 || from.Location().String() != "Asia/Tokyo" {
+		t.Fatalf("range starts at %v in %v (%v)", from, today.Location(), err)
 	}
 }
 

@@ -28,6 +28,21 @@ const drawIn: CSSAnimationKeyframes = {
 };
 
 /**
+ * The same loop started near the end of its hold: the mark is whole on the
+ * first frame, clears after half a second and draws in again. For screens
+ * that may only be up for a moment, where `drawIn` would show little more
+ * than slivers.
+ */
+const drawnFirst: CSSAnimationKeyframes = {
+  "0%": { transform: [{ scaleX: 1 }] },
+  "12%": { transform: [{ scaleX: 1 }] },
+  "26%": { transform: [{ scaleX: 0 }] },
+  "30%": { transform: [{ scaleX: 0 }] },
+  "48%": { transform: [{ scaleX: 1 }] },
+  "100%": { transform: [{ scaleX: 1 }] },
+};
+
+/**
  * "brand" colours the middle block with the theme primary. "mono" draws it in
  * the ink colour at reduced opacity, for primary buttons and tinted pills
  * where the primary would vanish.
@@ -44,6 +59,8 @@ type TimelyLogoProps = {
   animated?: boolean;
   /** Seconds per loop when animated. */
   duration?: number;
+  /** Start the loop with the mark already drawn instead of empty. */
+  startDrawn?: boolean;
   ink?: string;
   accent?: string;
   tone?: LogoTone;
@@ -54,6 +71,7 @@ export default function TimelyLogo({
   size = 28,
   animated = false,
   duration = LOGO_LOOP_SECONDS,
+  startDrawn = false,
   ink,
   accent,
   tone = "brand",
@@ -91,7 +109,7 @@ export default function TimelyLogo({
               base,
               {
                 transformOrigin: "left center",
-                animationName: drawIn,
+                animationName: startDrawn ? drawnFirst : drawIn,
                 animationDuration: duration * 1000,
                 animationDelay: bar.delay * duration * 1000,
                 animationTimingFunction: cubicBezier(0.65, 0, 0.35, 1),

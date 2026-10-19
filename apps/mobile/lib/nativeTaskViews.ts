@@ -20,6 +20,7 @@ import {
   type Snapshot,
 } from "./nativeTaskViewsMerge";
 import { useToastStore } from "./toast";
+import { GROUP_FIELD_LABELS } from "@timely/contract/taskQuery";
 import type {
   CustomField,
   Task,
@@ -108,7 +109,7 @@ export function groupFieldLabel(field: TaskListGroupField, customFields: CustomF
   if (field.startsWith("cf:")) {
     return customFields.find((item) => item.id === field.slice(3))?.name ?? "Custom field";
   }
-  return field[0].toUpperCase() + field.slice(1);
+  return GROUP_FIELD_LABELS[field] ?? field[0].toUpperCase() + field.slice(1);
 }
 
 export function customFieldGroupLabel(task: Task, fieldId: string) {
@@ -128,9 +129,18 @@ export const NATIVE_SORT_OPTIONS: { value: TaskViewSortBy; label: string }[] = [
   { value: "scheduledOn", label: "Scheduled date" },
   { value: "startDate", label: "Start date" },
   { value: "createdAt", label: "Created" },
+  { value: "updatedAt", label: "Last updated" },
+  { value: "completedAt", label: "Completed" },
   { value: "priority", label: "Priority" },
+  { value: "urgency", label: "Urgency" },
   { value: "status", label: "Status" },
+  { value: "stage", label: "Stage" },
   { value: "project", label: "Project" },
+  { value: "workspace", label: "Workspace" },
+  { value: "duration", label: "Duration" },
+  { value: "tracked", label: "Time tracked" },
+  { value: "progress", label: "Checklist progress" },
+  { value: "effort", label: "Effort" },
 ];
 
 export const NATIVE_RENDER_OPTIONS: { value: TaskRenderMode; label: string }[] = [
@@ -373,6 +383,20 @@ export function useNativeTaskViews() {
     });
   }, [update]);
 
+  /** Saves a view (one read from words in Search) as a new tab and opens it. */
+  const saveViewAsNew = useCallback(
+    (view: TaskViewConfig): boolean => {
+      if (currentRef.current.views.length >= MAX_VIEWS) {
+        useToastStore.getState().show(`You can keep up to ${MAX_VIEWS} views; delete one to save this`);
+        return false;
+      }
+      const id = `native_view_${Date.now()}`;
+      update((state) => ({ views: [...state.views, { ...view, id, name: view.name.trim().slice(0, 100) || "New view" }], activeId: id }));
+      return true;
+    },
+    [update],
+  );
+
   const deleteActiveView = useCallback(() => {
     update((state) => {
       if (state.views.length <= 1) return state;
@@ -408,6 +432,7 @@ export function useNativeTaskViews() {
     setActiveId,
     patchActiveView,
     addView,
+    saveViewAsNew,
     deleteActiveView,
     renameView,
     /** True while the server copy is being fetched. */

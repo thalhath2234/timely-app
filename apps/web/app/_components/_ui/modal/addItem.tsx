@@ -9,18 +9,16 @@ import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
+  Bell,
+  Boxes,
   CalendarDays,
-  Circle,
-  Clock,
+  Check,
+  ChevronDown,
+  ChevronUp,
   FileText,
   Flag,
   FolderKanban,
-  GitBranch,
-  LayoutTemplate,
   ListTodo,
-  Palette,
-  Plus,
-  Repeat,
   Sheet as SheetIcon,
   Sparkles,
 } from "lucide-react";
@@ -45,16 +43,13 @@ import {
 import ClarifyHints, { clarifyKept } from "@/app/_components/_ui/modal/clarifyHints";
 import { useCreateEvent } from "@/app/utils/hooks/calendar";
 import RecurrenceEditor from "@/app/_components/_ui/recurrenceEditor";
-import TaskTypeToggle from "@/app/_components/_ui/tasks/taskTypeToggle";
 import CustomFieldControl, {
-  customFieldIcon,
   emptyCustomFieldDrafts,
   findCustomFieldDraft,
   withCustomFieldDraft,
 } from "@/app/_components/_ui/customFieldControl";
 import DatePicker, { TimeField } from "@/app/_components/_ui/datePicker";
 import ColorPicker from "@/app/_components/_ui/colorPicker";
-import LabelPicker from "@/app/_components/_ui/labelPicker";
 import Select from "@/app/_components/_ui/select";
 import {
   CreateCustomFieldInline,
@@ -62,13 +57,12 @@ import {
 } from "@/app/_components/_ui/workspaceQuickCreate";
 import RichTextEditor from "@/app/_components/editor/richTextEditor";
 import {
-  EntityModalShell,
-  ModalMain,
-  ModalSidebar,
-  PropertyRow,
-  SidebarSectionTitle,
-  modalTitleClass,
+  CreateDialogFooter,
+  CreateDialogShell,
+  createTitleClass,
 } from "@/app/_components/_ui/modal/entityModal";
+import Button from "@/app/_components/_ui/button";
+import { GroupHint, GroupLabel, ListGroup, ListRow, ListSwitch } from "@/app/_components/_ui/groupedList";
 import {
   CustomField,
   CustomFieldValueInput,
@@ -89,7 +83,7 @@ import {
 } from "@/app/utils/calendar";
 import { buildRecurrenceInput, type RecurrenceDraft } from "@/app/utils/recurrence";
 import { isRichContentEmpty } from "@/app/utils/richText";
-import { PRIORITY_OPTIONS } from "@/app/utils/priority";
+import { PRIORITY_OPTIONS, priorityColor } from "@/app/utils/priority";
 import { stagesForProject } from "@/app/utils/stages";
 import { fileHref } from "@/app/utils/fileRoutes";
 
@@ -214,6 +208,7 @@ const MODE_META: Record<string, { icon: LucideIcon; label: string; action: strin
     workspace: { icon: FolderKanban, label: "New workspace", action: "Create workspace" },
     project: { icon: FolderKanban, label: "New project", action: "Create project" },
     task: { icon: ListTodo, label: "New task", action: "Create task" },
+    reminder: { icon: Bell, label: "New reminder", action: "Create reminder" },
     event: { icon: CalendarDays, label: "New event", action: "Create event" },
     doc: { icon: FileText, label: "New doc", action: "Create doc" },
     sheet: { icon: SheetIcon, label: "New sheet", action: "Create sheet" },
@@ -1067,909 +1062,875 @@ function AddItemModalInner() {
     });
   };
 
+  const workspaceName = useWatch({ control: workspaceControl, name: "name" }) ?? "";
+  const projectHasStages = useWatch({ control: projectControl, name: "doesHaveStages" }) ?? false;
+  const [more, setMore] = useState(false);
+
+  const kindValue = addNewMode === "task" ? (taskIsReminder ? "reminder" : "task") : addNewMode;
   const meta = {
-    ...(MODE_META[addNewMode] ?? MODE_META.task),
+    ...(MODE_META[kindValue] ?? MODE_META.task),
     ...(isClarify ? { label: "Clarify", action: "Clarify" } : {}),
   };
 
+  const currentTitle = () => {
+    switch (addNewMode) {
+      case "workspace":
+        return workspaceName;
+      case "project":
+        return projectTitle;
+      case "task":
+        return taskName;
+      case "event":
+        return eventTitle;
+      default:
+        return pageTitle ?? "";
+    }
+  };
+
+  // The kind chip in the header switches the form in place; a typed title
+  // comes along when the new kind's title is still empty.
+  const switchKind = (next: string) => {
+    if (next === kindValue) return;
+    setMore(false);
+    if (next === "task" || next === "reminder") {
+      setKindTouched(true);
+      if (next === "reminder" && !taskIsReminder) makeTaskReminder();
+      if (next === "task" && taskIsReminder) makeTaskWork();
+    }
+    const title = currentTitle().trim();
+    const mode = next === "reminder" ? "task" : (next as typeof addNewMode);
+    if (title && mode !== addNewMode) {
+      const opts = { shouldValidate: true, shouldDirty: true };
+      if (mode === "workspace" && !workspaceName) setWorkspaceValue("name", title, opts);
+      if (mode === "project" && !projectTitle) setValue("title", title, opts);
+      if (mode === "task" && !taskName) setValueTask("name", title, opts);
+      if (mode === "event" && !eventTitle) setEventTitle(title);
+      if ((mode === "doc" || mode === "sheet") && !pageTitle) setValuePage("title", title, opts);
+    }
+    if (mode !== addNewMode) useSidebarStore.getState().setAddNewMode(mode);
+  };
+
+  const kindChip = (
+    <>
+      {isClarify ? <span className="text-sm font-medium text-muted-foreground">Clarify as</span> : null}
+      <Select
+        variant="chip"
+        active
+        aria-label="Kind"
+        value={kindValue}
+        onChange={switchKind}
+        options={(isClarify ? KIND_OPTIONS.filter((option) => option.value === "task" || option.value === "reminder") : KIND_OPTIONS)}
+      />
+    </>
+  );
+
+  const workspaceOptions = typedWorkspaces.map((workspace) => ({
+    value: workspace.id,
+    label: workspace.name,
+    color: workspace.color ?? undefined,
+  }));
+  const workspaceLabel = (id?: string) => typedWorkspaces.find((workspace) => workspace.id === id)?.name;
+
   if (addNewMode === "workspace") {
     return (
-      <EntityModalShell
-        icon={meta.icon}
+      <CreateDialogShell
         label={meta.label}
+        size="sm"
         onClose={closeModal}
-        headerRight={
-          <CreateAction
-            formId="create-workspace"
-            label={meta.action}
-            pending={createWorkspaceMutation.isPending}
-            disabled={!isValid}
-            failed={createWorkspaceMutation.isError}
-          />
+        header={kindChip}
+        footer={
+          <CreateDialogFooter
+            summary="Add projects, statuses and labels in Settings next"
+            error={createWorkspaceMutation.isError ? "Could not save" : null}
+            onCancel={closeModal}
+          >
+            <CreateAction formId="create-workspace" label={meta.action} pending={createWorkspaceMutation.isPending} disabled={!isValid} />
+          </CreateDialogFooter>
         }
       >
-        <form
-          id="create-workspace"
-          onSubmit={handleSubmit(onSubmit)}
-          className="contents"
-        >
-          <ModalMain>
-            <input
-              autoFocus
-              {...register("name")}
-              placeholder="Workspace name"
-              className={modalTitleClass}
-            />
-
-            {errors.name && (
-              <p className="mt-2 text-xs text-destructive">
-                {errors.name.message}
-              </p>
-            )}
-
-            <div className="mt-4 flex items-center gap-2">
+        <form id="create-workspace" onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
+          <div>
+            <input autoFocus {...register("name")} placeholder="Workspace name" className={createTitleClass} />
+            {errors.name && <p className="mt-2 text-xs text-destructive">{errors.name.message}</p>}
+          </div>
+          <ListGroup>
+            <ListRow label="Colour">
               <ColorPicker
+                variant="row"
                 value={workspaceColor}
-                onChange={(color) =>
-                  setWorkspaceValue("color", color, {
-                    shouldValidate: true,
-                    shouldDirty: true,
-                  })
-                }
-                aria-label="Workspace color"
+                onChange={(color) => setWorkspaceValue("color", color, { shouldValidate: true, shouldDirty: true })}
+                aria-label="Workspace colour"
               />
-              <span className="text-sm text-muted-foreground">Workspace color</span>
-            </div>
-
-            <p className="mt-4 max-w-md text-sm text-muted-foreground">
-              A workspace holds its own projects, tasks, statuses, labels and
-              custom fields. You can add those from settings once it exists.
-            </p>
-          </ModalMain>
+            </ListRow>
+          </ListGroup>
         </form>
-      </EntityModalShell>
+      </CreateDialogShell>
     );
   }
 
   if (addNewMode === "project") {
+    const projectCustomFields = selectedWorkspace?.customFields ?? [];
+    const filledProjectFields = projectCustomFields.filter((field) => {
+      const draft = findCustomFieldDraft(projectCustomFieldValues, field.id);
+      return Boolean(draft?.stringValue || draft?.optionsValue?.length);
+    }).length;
     return (
-      <EntityModalShell
-        icon={meta.icon}
+      <CreateDialogShell
         label={meta.label}
         onClose={closeModal}
-        headerRight={
-          <CreateAction
-            formId="create-project"
-            label={meta.action}
-            pending={createProjectMutation.isPending}
-            disabled={!isProjectValid}
-            failed={createProjectMutation.isError}
-          />
+        header={kindChip}
+        footer={
+          <CreateDialogFooter
+            summary={joinSummary([
+              `In ${workspaceLabel(selectedWorkspaceId) ?? "no workspace yet"}`,
+              projectDeadline ? `due ${shortDay(projectDeadline)}` : "",
+            ])}
+            error={createProjectMutation.isError ? "Could not save" : null}
+            onCancel={closeModal}
+          >
+            <CreateAction formId="create-project" label={meta.action} pending={createProjectMutation.isPending} disabled={!isProjectValid} />
+          </CreateDialogFooter>
         }
       >
-        <form
-          id="create-project"
-          onSubmit={handleProjectSubmit(onProjectSubmit)}
-          className="contents"
-        >
-          <ModalMain>
-            <input
-              autoFocus
-              {...registerProject("title")}
-              placeholder="Project name"
-              className={modalTitleClass}
+        <form id="create-project" onSubmit={handleProjectSubmit(onProjectSubmit)} className="flex flex-col gap-4">
+          <div>
+            <input autoFocus {...registerProject("title")} placeholder="Project name" className={createTitleClass} />
+            {projectErrors.title && <p className="mt-2 text-xs text-destructive">{projectErrors.title.message}</p>}
+          </div>
+
+          <DescriptionBox>
+            <RichTextEditor
+              variant="compact"
+              toolbar="focus"
+              content={projectDescription.content}
+              placeholder="Add a description. Type / for blocks, @ to mention docs, sheets, tasks"
+              writeContext={{ kind: "project", title: projectTitle }}
+              onChange={({ content, plainText }) => setProjectDescription({ content, plainText })}
             />
+          </DescriptionBox>
 
-            {projectErrors.title && (
-              <p className="mt-2 text-xs text-destructive">
-                {projectErrors.title.message}
-              </p>
-            )}
-
-            <div className="mt-4 flex h-80 shrink-0 flex-col overflow-hidden rounded-lg border border-border">
-              <div className="flex min-h-0 flex-1 flex-col px-3 pt-2">
-                <RichTextEditor
-                  variant="compact"
-                  toolbar="fixed"
-                  content={projectDescription.content}
-                  placeholder="Description. Type '/' for blocks, '@' to mention docs, sheets, tasks..."
-                  writeContext={{ kind: "project", title: projectTitle }}
-                  onChange={({ content, plainText }) =>
-                    setProjectDescription({ content, plainText })
-                  }
-                />
-              </div>
-            </div>
-
-            <ProjectStartChoices
-              suggestion={projectStart.suggestion}
-              choices={projectStart.choices}
-              onChange={projectStart.setChoices}
-            />
-          </ModalMain>
-
-          <ModalSidebar>
-            <div className="flex flex-col gap-1">
-              <PropertyRow icon={FolderKanban} label="Workspace">
+          <div className="grid items-start gap-3 sm:grid-cols-2">
+            <ListGroup>
+              <ListRow label="Workspace">
                 <Select
-                  size="sm"
+                  variant="row"
+                  aria-label="Workspace"
                   value={selectedWorkspaceId ?? ""}
-                  onChange={(workspaceId) =>
-                    setValue("workspaceId", workspaceId, {
-                      shouldValidate: true,
-                      shouldDirty: true,
-                    })
-                  }
-                  placeholder="Select workspace"
-                  variant="bare"
-                  options={typedWorkspaces.map((workspace) => ({
-                    value: workspace.id,
-                    label: workspace.name,
-                    color: workspace.color ?? undefined,
+                  placeholder="Pick one"
+                  onChange={(workspaceId) => setValue("workspaceId", workspaceId, { shouldValidate: true, shouldDirty: true })}
+                  options={workspaceOptions}
+                />
+              </ListRow>
+              <ListRow label="Status">
+                <Select
+                  variant="row"
+                  aria-label="Status"
+                  value={projectStatusId}
+                  placeholder="None"
+                  onChange={(statusId) => setValue("statusId", statusId, { shouldValidate: true, shouldDirty: true })}
+                  options={(selectedWorkspace?.status ?? []).map((status: Status) => ({
+                    value: status.id,
+                    label: status.name,
+                    color: status.color,
                   }))}
                 />
-              </PropertyRow>
-
-              <PropertyRow icon={Circle} label="Status">
+              </ListRow>
+              <ListRow label="Priority">
                 <Select
-                  size="sm"
-                  value={projectStatusId}
-                  onChange={(statusId) =>
-                    setValue("statusId", statusId, {
-                      shouldValidate: true,
-                      shouldDirty: true,
-                    })
-                  }
-                  placeholder="Select status"
-                  variant="bare"
-                  options={(selectedWorkspace?.status ?? []).map(
-                    (status: Status) => ({
-                      value: status.id,
-                      label: status.name,
-                      color: status.color,
-                    }),
-                  )}
-                />
-              </PropertyRow>
-
-              <PropertyRow icon={Flag} label="Priority">
-                <Select
-                  size="sm"
+                  variant="row"
+                  aria-label="Priority"
                   value={projectPriorityLevel}
-                  onChange={(priorityLevel) =>
-                    setValue("priorityLevel", priorityLevel, {
-                      shouldValidate: true,
-                      shouldDirty: true,
-                    })
-                  }
-                  variant="bare"
-                  options={PRIORITY_OPTIONS}
+                  tint={priorityTint(projectPriorityLevel)}
+                  onChange={(priorityLevel) => setValue("priorityLevel", priorityLevel, { shouldValidate: true, shouldDirty: true })}
+                  options={PRIORITY_CHIP_OPTIONS}
                 />
-              </PropertyRow>
-
-              <PropertyRow icon={CalendarDays} label="Start date">
-                <DatePicker
-                  mode="date"
-                  value={projectStartDate}
-                  onChange={(startDate) =>
-                    setValue("startDate", startDate, {
-                      shouldValidate: true,
-                      shouldDirty: true,
-                    })
-                  }
-                />
-              </PropertyRow>
-
-              <PropertyRow icon={CalendarDays} label="Deadline">
-                <DatePicker
-                  mode="date"
-                  value={projectDeadline}
-                  onChange={(deadline) =>
-                    setValue("deadline", deadline, {
-                      shouldValidate: true,
-                      shouldDirty: true,
-                    })
-                  }
-                />
-              </PropertyRow>
-
-              <PropertyRow icon={Palette} label="Color">
+              </ListRow>
+              <ListRow label="Colour">
                 <ColorPicker
+                  variant="row"
                   value={projectColor}
-                  onChange={(color) =>
-                    setValue("color", color, {
-                      shouldValidate: true,
-                      shouldDirty: true,
-                    })
-                  }
+                  onChange={(color) => setValue("color", color, { shouldValidate: true, shouldDirty: true })}
+                  aria-label="Project colour"
                 />
-              </PropertyRow>
-
-              <PropertyRow icon={GitBranch} label="Stages">
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
-                  <input
-                    type="checkbox"
-                    {...registerProject("doesHaveStages")}
-                    className="size-4 cursor-pointer rounded border-border accent-primary"
+              </ListRow>
+            </ListGroup>
+            <div>
+              <ListGroup>
+                <ListRow label="Start date">
+                  <DatePicker
+                    variant="row"
+                    mode="date"
+                    aria-label="Start date"
+                    value={projectStartDate}
+                    onChange={(startDate) => setValue("startDate", startDate, { shouldValidate: true, shouldDirty: true })}
                   />
-                  Enabled
-                </label>
-              </PropertyRow>
-            </div>
-
-            {projectErrors.workspaceId && (
-              <p className="mt-2 px-1 text-xs text-destructive">
-                {projectErrors.workspaceId.message}
-              </p>
-            )}
-
-            <div className="mt-4 border-t border-border pt-3">
-              <SidebarSectionTitle>Custom fields</SidebarSectionTitle>
-              {(selectedWorkspace?.customFields ?? []).map((field) => (
-                <PropertyRow
-                  key={field.id}
-                  icon={customFieldIcon(field.type)}
-                  label={field.name}
-                >
-                  <CustomFieldControl
-                    field={field}
-                    value={findCustomFieldDraft(
-                      projectCustomFieldValues,
-                      field.id,
-                    )}
-                    onChange={(next) => changeProjectCustomField(field, next)}
+                </ListRow>
+                <ListRow label="Deadline">
+                  <DatePicker
+                    variant="row"
+                    mode="date"
+                    aria-label="Deadline"
+                    value={projectDeadline}
+                    onChange={(deadline) => setValue("deadline", deadline, { shouldValidate: true, shouldDirty: true })}
                   />
-                </PropertyRow>
-              ))}
-              <CreateCustomFieldInline
-                workspaceId={selectedWorkspaceId}
-                onCreated={addProjectCustomField}
-              />
+                </ListRow>
+                <ListRow label="Stages" meta="Split the project into phases">
+                  <ListSwitch
+                    label="Stages"
+                    checked={projectHasStages}
+                    onChange={(next) => setValue("doesHaveStages", next, { shouldValidate: true, shouldDirty: true })}
+                  />
+                </ListRow>
+              </ListGroup>
             </div>
-          </ModalSidebar>
+          </div>
+
+          {projectErrors.workspaceId && <p className="text-xs text-destructive">{projectErrors.workspaceId.message}</p>}
+
+          <MoreRow open={more} onToggle={() => setMore((open) => !open)} meta="Custom fields" count={filledProjectFields} />
+
+          {more ? (
+            <div>
+              <GroupLabel aside={projectCustomFields.length ? String(projectCustomFields.length) : undefined}>Custom fields</GroupLabel>
+              <ListGroup>
+                {projectCustomFields.map((field) => (
+                  <ListRow key={field.id} label={field.name}>
+                    <CustomFieldControl
+                      variant="row"
+                      field={field}
+                      value={findCustomFieldDraft(projectCustomFieldValues, field.id)}
+                      onChange={(next) => changeProjectCustomField(field, next)}
+                    />
+                  </ListRow>
+                ))}
+                <CreateCustomFieldInline variant="row" workspaceId={selectedWorkspaceId} onCreated={addProjectCustomField} />
+              </ListGroup>
+            </div>
+          ) : null}
+
+          <ProjectStartChoices
+            suggestion={projectStart.suggestion}
+            choices={projectStart.choices}
+            onChange={projectStart.setChoices}
+          />
         </form>
-      </EntityModalShell>
+      </CreateDialogShell>
     );
   }
 
   if (addNewMode === "task") {
+    const taskProject = availableTaskProjects.find((project) => project.id === taskProjectId);
+    const taskCustomFields = selectedTaskWorkspace?.customFields ?? [];
+    const filledTaskFields = taskCustomFields.filter((field) => {
+      const draft = findCustomFieldDraft(taskCustomFieldValues, field.id);
+      return Boolean(draft?.stringValue || draft?.optionsValue?.length);
+    }).length;
+    const moreCount = taskLabelIds.length + filledTaskFields;
+    const minutes = Number(taskDuration) || 0;
+    const summary = taskIsReminder
+      ? taskScheduledOn
+        ? `Reminds you ${taskTimeOnly ? `at ${shortTime(taskScheduledOn)}` : shortDayTime(taskScheduledOn)}${taskRecurrence ? ", repeating" : ""}`
+        : "Pick when to remind you"
+      : joinSummary([
+          `In ${taskProject?.title ?? workspaceLabel(selectedTaskWorkspaceId) ?? "no workspace yet"}`,
+          taskScheduledOn
+            ? `scheduled ${taskTimeOnly ? `at ${shortTime(taskScheduledOn)}` : shortDayTime(taskScheduledOn)}`
+            : taskDeadline
+              ? `Auto-schedule finds ${formatDuration(minutes)} before ${shortDay(taskDeadline)}`
+              : "Auto-schedule can place it",
+        ]);
+    const reminderAt = taskTimeOnly ? (
+      <TimeField
+        variant="row"
+        placeholder="None"
+        value={toTimeInputValue(taskScheduledOn)}
+        clearable={!taskIsReminder}
+        aria-label={taskIsReminder ? "Notify at" : "Time"}
+        onChange={setTaskClock}
+      />
+    ) : (
+      <DatePicker
+        variant="row"
+        mode="datetime"
+        placeholder={taskIsReminder ? "Pick a time" : "None"}
+        aria-label={taskIsReminder ? "Notify at" : "Schedule"}
+        value={taskScheduledOn}
+        clearable={!taskIsReminder}
+        onChange={(scheduledOn) => setValueTask("scheduledOn", scheduledOn, { shouldValidate: true, shouldDirty: true })}
+      />
+    );
+    const priorityRow = (
+      <Select
+        variant="row"
+        aria-label="Priority"
+        value={taskPriorityLevel}
+        tint={priorityTint(taskPriorityLevel)}
+        onChange={(priorityLevel) => setValueTask("priorityLevel", priorityLevel, { shouldValidate: true, shouldDirty: true })}
+        options={PRIORITY_CHIP_OPTIONS}
+      />
+    );
+    const repeatEditor = (
+      <RecurrenceEditor
+        label="Repeat"
+        value={taskRecurrence}
+        anchor={taskRecurrenceAnchor}
+        onChange={(next) => {
+          setTaskRecurrence(next);
+          if (next && !toTimeInputValue(taskScheduledOn)) {
+            setTaskClock(toTimeInputValue(nextRoundHour()));
+          }
+        }}
+      />
+    );
+
     return (
-      <EntityModalShell
-        icon={meta.icon}
+      <CreateDialogShell
         label={meta.label}
         onClose={closeModal}
-        headerRight={
-          <CreateAction
-            formId="create-task"
-            label={meta.action}
-            pending={createTaskMutation.isPending || clarifyInboxMutation.isPending}
-            disabled={!isTaskValid}
-            failed={createTaskMutation.isError || clarifyInboxMutation.isError}
-          />
+        header={kindChip}
+        footer={
+          <CreateDialogFooter
+            summary={summary}
+            error={createTaskMutation.isError || clarifyInboxMutation.isError ? "Could not save" : null}
+            onCancel={closeModal}
+          >
+            <CreateAction
+              formId="create-task"
+              label={meta.action}
+              pending={createTaskMutation.isPending || clarifyInboxMutation.isPending}
+              disabled={!isTaskValid}
+            />
+          </CreateDialogFooter>
         }
       >
-        <form
-          id="create-task"
-          onSubmit={handleTaskSubmit(onTaskSubmit)}
-          className="contents"
-        >
-          <ModalMain>
+        <form id="create-task" onSubmit={handleTaskSubmit(onTaskSubmit)} className="flex flex-col gap-4">
+          <div>
             <input
               autoFocus
               {...registerTask("name")}
-              placeholder="Task name"
-              className={modalTitleClass}
+              placeholder={taskIsReminder ? "Remind me to…" : "What needs to be done?"}
+              className={createTitleClass}
             />
+            {taskErrors.name && <p className="mt-2 text-xs text-destructive">{taskErrors.name.message}</p>}
+          </div>
 
-            {taskErrors.name && (
-              <p className="mt-2 text-xs text-destructive">
-                {taskErrors.name.message}
-              </p>
-            )}
-
-            {isClarify && (
-              <ClarifyHints
-                loading={decisionsOn && suggestionsQuery.isFetching && !suggestionsQuery.data}
-                suggestions={suggestions}
-                filled={Boolean(suggestions?.logId) && filledFor === suggestions?.logId}
-                dateFilled={
-                  Boolean(suggestions?.date) &&
-                  filledFor === suggestions?.logId &&
-                  (suggestions?.dateRole === "deadline"
-                    ? taskDeadline === suggestions.date
-                    : suggestions?.dateRole === "start"
-                      ? taskStartDate === suggestions.date
-                      : taskScheduledOn.startsWith(suggestions?.date ?? "-"))
+          {isClarify && (
+            <ClarifyHints
+              loading={decisionsOn && suggestionsQuery.isFetching && !suggestionsQuery.data}
+              suggestions={suggestions}
+              filled={Boolean(suggestions?.logId) && filledFor === suggestions?.logId}
+              dateFilled={
+                Boolean(suggestions?.date) &&
+                filledFor === suggestions?.logId &&
+                (suggestions?.dateRole === "deadline"
+                  ? taskDeadline === suggestions.date
+                  : suggestions?.dateRole === "start"
+                    ? taskStartDate === suggestions.date
+                    : taskScheduledOn.startsWith(suggestions?.date ?? "-"))
+              }
+              error={suggestionsQuery.data?.error}
+              onOpenDuplicate={(id) => {
+                closeModal();
+                // Open the task over the current page, like a task chip;
+                // the Tasks list has its own detail view keyed by the URL.
+                if (isTasksListPath(window.location.pathname)) {
+                  router.push(`/tasks?taskId=${encodeURIComponent(id)}`);
+                } else {
+                  useEntityDetailStore.getState().openTask(id);
                 }
-                error={suggestionsQuery.data?.error}
-                onOpenDuplicate={(id) => {
-                  closeModal();
-                  // Open the task over the current page, like a task chip;
-                  // the Tasks list has its own detail view keyed by the URL.
-                  if (isTasksListPath(window.location.pathname)) {
-                    router.push(`/tasks?taskId=${encodeURIComponent(id)}`);
-                  } else {
-                    useEntityDetailStore.getState().openTask(id);
-                  }
-                }}
-              />
-            )}
+              }}
+            />
+          )}
 
-            <div className="mt-4 flex h-80 shrink-0 flex-col overflow-hidden rounded-lg border border-border">
-              <div className="flex min-h-0 flex-1 flex-col px-3 pt-2">
-                <RichTextEditor
-                  variant="compact"
-                  toolbar="fixed"
-                  content={taskDescription.content}
-                  placeholder="Description. Type '/' for blocks, '@' to mention docs, sheets, projects..."
-                  writeContext={{ kind: "task", title: taskName }}
-                  onChange={({ content, plainText }) =>
-                    setTaskDescription({ content, plainText })
-                  }
-                />
-              </div>
+          <DescriptionBox>
+            <RichTextEditor
+              variant="compact"
+              toolbar="focus"
+              content={taskDescription.content}
+              placeholder="Add notes. Type / for blocks, @ to mention docs, sheets, projects"
+              writeContext={{ kind: "task", title: taskName }}
+              onChange={({ content, plainText }) => setTaskDescription({ content, plainText })}
+            />
+          </DescriptionBox>
+
+          {taskIsReminder ? (
+            <div>
+              <ListGroup>
+                <ListRow label="Notify at">{reminderAt}</ListRow>
+                {repeatEditor}
+                <ListRow label="Priority">{priorityRow}</ListRow>
+              </ListGroup>
+              <GroupHint>
+                {taskRecurrence
+                  ? "Each repeat pings at this time. No work block is reserved."
+                  : "Pings at one date and time. No work block is reserved."}
+              </GroupHint>
             </div>
-          </ModalMain>
-
-          <ModalSidebar>
-            <div className="flex flex-col gap-1">
-              <div className="px-1 py-1.5">
-                <TaskTypeToggle
-                  value={taskIsReminder ? "reminder" : "task"}
-                  onChange={(next) => {
-                    setKindTouched(true);
-                    if (next === "reminder") {
-                      makeTaskReminder();
-                      return;
-                    }
-                    makeTaskWork();
-                  }}
-                />
-                <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
-                  {taskIsReminder
-                    ? "Pings at a chosen time. Does not reserve a work block."
-                    : "Estimated minutes of work the scheduler can place."}
-                </p>
-              </div>
-              {!taskIsReminder ? (
-                <>
-              <PropertyRow icon={FolderKanban} label="Workspace">
-                <Select
-                  size="sm"
-                  value={selectedTaskWorkspaceId ?? ""}
-                  onChange={(workspaceId) =>
-                    setValueTask("workspaceId", workspaceId, {
-                      shouldValidate: true,
-                      shouldDirty: true,
-                    })
-                  }
-                  placeholder="Select workspace"
-                  variant="bare"
-                  options={typedWorkspaces.map((workspace) => ({
-                    value: workspace.id,
-                    label: workspace.name,
-                    color: workspace.color ?? undefined,
-                  }))}
-                />
-              </PropertyRow>
-
-              <PropertyRow icon={ListTodo} label="Project">
-                <Select
-                  size="sm"
-                  value={taskProjectId}
-                  onChange={(projectId) => {
-                    setValueTask("projectId", projectId, {
-                      shouldValidate: true,
-                      shouldDirty: true,
-                    });
-                    setValueTask("stageId", "", { shouldDirty: true });
-                  }}
-                  placeholder="No project"
-                  variant="bare"
-                  options={[
-                    { value: "", label: "No project" },
-                    ...availableTaskProjects.map((project) => ({
-                      value: project.id,
-                      label: project.title,
-                      color: project.color ?? undefined,
-                    })),
-                  ]}
-                />
-              </PropertyRow>
-
-              {availableTaskStages.length > 0 ? (
-              <PropertyRow icon={GitBranch} label="Stage">
-                <Select
-                  size="sm"
-                  value={taskStageId}
-                  onChange={(stageId) =>
-                    setValueTask("stageId", stageId, {
-                      shouldValidate: true,
-                      shouldDirty: true,
-                    })
-                  }
-                  placeholder="No stage"
-                  variant="bare"
-                  options={[
-                    { value: "", label: "No stage" },
-                    ...availableTaskStages.map((stage) => ({
-                      value: stage.id,
-                      label: stage.name,
-                      color: stage.color || undefined,
-                    })),
-                  ]}
-                />
-              </PropertyRow>
-              ) : null}
-
-              <PropertyRow icon={Circle} label="Status">
-                <Select
-                  size="sm"
-                  value={taskStatusId}
-                  onChange={(statusId) =>
-                    setValueTask("statusId", statusId, {
-                      shouldValidate: true,
-                      shouldDirty: true,
-                    })
-                  }
-                  placeholder="Select status"
-                  variant="bare"
-                  options={(selectedTaskWorkspace?.status ?? []).map(
-                    (status: Status) => ({
-                      value: status.id,
-                      label: status.name,
-                      color: status.color,
-                    }),
-                  )}
-                />
-              </PropertyRow>
-                </>
-              ) : null}
-
-              <PropertyRow icon={Flag} label="Priority">
-                <Select
-                  size="sm"
-                  value={taskPriorityLevel}
-                  onChange={(priorityLevel) =>
-                    setValueTask("priorityLevel", priorityLevel, {
-                      shouldValidate: true,
-                      shouldDirty: true,
-                    })
-                  }
-                  variant="bare"
-                  options={PRIORITY_OPTIONS}
-                />
-              </PropertyRow>
-
-              {!taskIsReminder ? (
-              <PropertyRow icon={Clock} label="Duration">
-                    <input
-                      type="number"
-                      min={15}
-                      step={15}
-                      {...registerTask("duration")}
-                      className="w-full bg-transparent text-sm text-foreground outline-none"
+          ) : (
+            <>
+              <div className="grid items-start gap-3 sm:grid-cols-2">
+                <ListGroup>
+                  <ListRow label="Workspace">
+                    <Select
+                      variant="row"
+                      aria-label="Workspace"
+                      value={selectedTaskWorkspaceId ?? ""}
+                      placeholder="Select"
+                      onChange={(workspaceId) => setValueTask("workspaceId", workspaceId, { shouldValidate: true, shouldDirty: true })}
+                      options={workspaceOptions}
                     />
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      min
-                    </span>
-                    {suggestedDuration &&
-                    suggestedDuration !== Number(taskDuration) ? (
+                  </ListRow>
+                  <ListRow label="Project">
+                    <Select
+                      variant="row"
+                      aria-label="Project"
+                      value={taskProjectId}
+                      placeholder="None"
+                      onChange={(projectId) => {
+                        setValueTask("projectId", projectId, { shouldValidate: true, shouldDirty: true });
+                        setValueTask("stageId", "", { shouldDirty: true });
+                      }}
+                      options={[
+                        { value: "", label: "None" },
+                        ...availableTaskProjects.map((project) => ({
+                          value: project.id,
+                          label: project.title,
+                          color: project.color ?? undefined,
+                        })),
+                      ]}
+                    />
+                  </ListRow>
+                  {availableTaskStages.length > 0 ? (
+                    <ListRow label="Stage">
+                      <Select
+                        variant="row"
+                        aria-label="Stage"
+                        value={taskStageId}
+                        placeholder="None"
+                        onChange={(stageId) => setValueTask("stageId", stageId, { shouldValidate: true, shouldDirty: true })}
+                        options={[
+                          { value: "", label: "None" },
+                          ...availableTaskStages.map((stage) => ({
+                            value: stage.id,
+                            label: stage.name,
+                            color: stage.color || undefined,
+                          })),
+                        ]}
+                      />
+                    </ListRow>
+                  ) : null}
+                  <ListRow label="Status">
+                    <Select
+                      variant="row"
+                      aria-label="Status"
+                      value={taskStatusId}
+                      placeholder="None"
+                      onChange={(statusId) => setValueTask("statusId", statusId, { shouldValidate: true, shouldDirty: true })}
+                      options={(selectedTaskWorkspace?.status ?? []).map((status: Status) => ({
+                        value: status.id,
+                        label: status.name,
+                        color: status.color,
+                      }))}
+                    />
+                  </ListRow>
+                  <ListRow label="Priority">{priorityRow}</ListRow>
+                  <ListRow label="Duration">
+                    {suggestedDuration && suggestedDuration !== minutes ? (
                       <button
                         type="button"
-                        onClick={() =>
-                          setValueTask("duration", suggestedDuration, {
-                            shouldValidate: true,
-                            shouldDirty: true,
-                          })
-                        }
-                        className="ml-2 flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground transition hover:border-primary/50 hover:text-foreground"
                         title="Use the suggested length"
+                        onClick={() => setValueTask("duration", suggestedDuration, { shouldValidate: true, shouldDirty: true })}
+                        className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md bg-accent px-1.5 text-xs font-medium text-accent-foreground transition-colors hover:bg-primary/15 [&_svg]:size-3"
                       >
-                        <Sparkles className="size-3" />
-                        Suggested {formatDuration(suggestedDuration)}
+                        <Sparkles />
+                        {formatDuration(suggestedDuration)}
                       </button>
                     ) : null}
-              </PropertyRow>
+                    <Select
+                      variant="row"
+                      aria-label="Duration"
+                      value={String(minutes)}
+                      onChange={(value) => setValueTask("duration", Number(value), { shouldValidate: true, shouldDirty: true })}
+                      options={durationOptions(minutes)}
+                    />
+                  </ListRow>
+                </ListGroup>
+                <div>
+                  <ListGroup>
+                    <ListRow label="Deadline">
+                      <DatePicker
+                        variant="row"
+                        mode="date"
+                        clearable
+                        aria-label="Deadline"
+                        value={taskDeadline}
+                        onChange={(deadline) => setValueTask("deadline", deadline, { shouldValidate: true, shouldDirty: true })}
+                      />
+                    </ListRow>
+                    <ListRow label={taskTimeOnly ? "Time" : "Schedule"}>{reminderAt}</ListRow>
+                    {repeatEditor}
+                    <ListRow label="Start date">
+                      <DatePicker
+                        variant="row"
+                        mode="date"
+                        clearable
+                        aria-label="Start date"
+                        value={taskStartDate}
+                        onChange={(startDate) => {
+                          setValueTask("startDate", startDate, { shouldValidate: true, shouldDirty: true });
+                          if (taskTimeOnly && taskScheduledOn) {
+                            const clock = toTimeInputValue(taskScheduledOn);
+                            if (clock) {
+                              setValueTask(
+                                "scheduledOn",
+                                toDatetimeLocalValue(applyClockToDate(dateFromDateInput(startDate), clock)),
+                                { shouldValidate: true, shouldDirty: true },
+                              );
+                            }
+                          }
+                        }}
+                      />
+                    </ListRow>
+                  </ListGroup>
+                  <GroupHint>
+                    {taskRecurrence
+                      ? "Each occurrence starts at this time. Auto-schedule keeps that block for this task."
+                      : "Auto-schedule won't start it before the start date."}
+                  </GroupHint>
+                </div>
+              </div>
+
+              {taskErrors.workspaceId && (
+                <p className="text-xs text-destructive">{taskErrors.workspaceId.message}</p>
+              )}
+
+              <MoreRow open={more} onToggle={() => setMore((open) => !open)} meta="Labels and custom fields" count={moreCount} />
+
+              {more ? (
+                <div className="grid items-start gap-3 sm:grid-cols-2">
+                  <div>
+                    <GroupLabel aside={taskLabelIds.length ? String(taskLabelIds.length) : undefined}>Labels</GroupLabel>
+                    <ListGroup>
+                      <ListRow label="Labels">
+                        <Select
+                          variant="row"
+                          aria-label="Labels"
+                          value=""
+                          values={taskLabelIds}
+                          placeholder={(selectedTaskWorkspace?.lables ?? []).length ? "None" : "No labels yet"}
+                          onChange={(labelId) =>
+                            setValueTask(
+                              "labelIds",
+                              taskLabelIds.includes(labelId) ? taskLabelIds.filter((id) => id !== labelId) : [...taskLabelIds, labelId],
+                              { shouldValidate: true, shouldDirty: true },
+                            )
+                          }
+                          options={(selectedTaskWorkspace?.lables ?? []).map((label: Label) => ({ value: label.id, label: label.name, color: label.color }))}
+                        />
+                      </ListRow>
+                      <CreateLabelInline variant="row" workspaceId={selectedTaskWorkspaceId} onCreated={addTaskLabel} />
+                    </ListGroup>
+                  </div>
+                  <div>
+                    <GroupLabel aside={taskCustomFields.length ? String(taskCustomFields.length) : undefined}>Custom fields</GroupLabel>
+                    <ListGroup>
+                      {taskCustomFields.map((field) => (
+                        <ListRow key={field.id} label={field.name}>
+                          <CustomFieldControl
+                            variant="row"
+                            field={field}
+                            value={findCustomFieldDraft(taskCustomFieldValues, field.id)}
+                            onChange={(next) => changeTaskCustomField(field, next)}
+                          />
+                        </ListRow>
+                      ))}
+                      <CreateCustomFieldInline variant="row" workspaceId={selectedTaskWorkspaceId} onCreated={addTaskCustomField} />
+                    </ListGroup>
+                  </div>
+                </div>
               ) : null}
-
-              {!taskIsReminder ? (
-              <PropertyRow icon={CalendarDays} label="Start date">
-                <DatePicker
-                  mode="date"
-                  value={taskStartDate}
-                  onChange={(startDate) => {
-                    setValueTask("startDate", startDate, {
-                      shouldValidate: true,
-                      shouldDirty: true,
-                    });
-                    if (taskTimeOnly && taskScheduledOn) {
-                      const clock = toTimeInputValue(taskScheduledOn);
-                      if (clock) {
-                        setValueTask(
-                          "scheduledOn",
-                          toDatetimeLocalValue(
-                            applyClockToDate(dateFromDateInput(startDate), clock),
-                          ),
-                          { shouldValidate: true, shouldDirty: true },
-                        );
-                      }
-                    }
-                  }}
-                />
-              </PropertyRow>
-              ) : null}
-
-              {!taskIsReminder ? (
-              <PropertyRow icon={CalendarDays} label="Deadline">
-                <DatePicker
-                  mode="date"
-                  value={taskDeadline}
-                  onChange={(deadline) =>
-                    setValueTask("deadline", deadline, {
-                      shouldValidate: true,
-                      shouldDirty: true,
-                    })
-                  }
-                />
-              </PropertyRow>
-              ) : null}
-
-              <PropertyRow
-                icon={Clock}
-                label={taskIsReminder ? (taskTimeOnly ? "Time" : "Notify at") : taskTimeOnly ? "Time" : "Schedule"}
-              >
-                {taskTimeOnly ? (
-                  <TimeField
-                    className="min-w-0 flex-1"
-                    value={toTimeInputValue(taskScheduledOn)}
-                    clearable={!taskIsReminder}
-                    aria-label={taskIsReminder ? "Notify at" : "Time"}
-                    onChange={setTaskClock}
-                  />
-                ) : (
-                  <DatePicker
-                    mode="datetime"
-                    value={taskScheduledOn}
-                    placeholder={taskIsReminder ? "Pick when to ping" : undefined}
-                    onChange={(scheduledOn) =>
-                      setValueTask("scheduledOn", scheduledOn, {
-                        shouldValidate: true,
-                        shouldDirty: true,
-                      })
-                    }
-                  />
-                )}
-              </PropertyRow>
-
-              <RecurrenceEditor
-                label="Repeat"
-                icon={Repeat}
-                value={taskRecurrence}
-                anchor={taskRecurrenceAnchor}
-                onChange={(next) => {
-                  setTaskRecurrence(next);
-                  if (next && !toTimeInputValue(taskScheduledOn)) {
-                    setTaskClock(toTimeInputValue(nextRoundHour()));
-                  }
-                }}
-              />
-            </div>
-
-            <p className="mt-1 px-1 text-[11px] text-muted-foreground">
-              {taskIsReminder
-                ? taskRecurrence
-                  ? "Each repeat pings at this time. No work block is reserved."
-                  : "Pings at this date and time. Does not reserve a work block."
-                : taskRecurrence
-                  ? "Each occurrence starts at this time. Auto-schedule keeps that block for this task."
-                  : "Tasks appear on the calendar once scheduled, by hand or with Auto-schedule."}
-            </p>
-
-            {!taskIsReminder && taskErrors.workspaceId && (
-              <p className="mt-2 px-1 text-xs text-destructive">
-                {taskErrors.workspaceId.message}
-              </p>
-            )}
-
-            {!taskIsReminder ? (
-            <>
-            <div className="pt-3">
-              <SidebarSectionTitle>Labels</SidebarSectionTitle>
-              <LabelPicker
-                labels={selectedTaskWorkspace?.lables ?? []}
-                selectedIds={taskLabelIds}
-                emptyLabel=""
-                onChange={(labelIds) =>
-                  setValueTask("labelIds", labelIds, {
-                    shouldValidate: true,
-                    shouldDirty: true,
-                  })
-                }
-              />
-              <CreateLabelInline
-                workspaceId={selectedTaskWorkspaceId}
-                onCreated={addTaskLabel}
-              />
-            </div>
-
-            <div className="mt-4 border-t border-border pt-3">
-              <SidebarSectionTitle>Custom fields</SidebarSectionTitle>
-              {(selectedTaskWorkspace?.customFields ?? []).map((field) => (
-                <PropertyRow
-                  key={field.id}
-                  icon={customFieldIcon(field.type)}
-                  label={field.name}
-                >
-                  <CustomFieldControl
-                    field={field}
-                    value={findCustomFieldDraft(
-                      taskCustomFieldValues,
-                      field.id,
-                    )}
-                    onChange={(next) => changeTaskCustomField(field, next)}
-                  />
-                </PropertyRow>
-              ))}
-              <CreateCustomFieldInline
-                workspaceId={selectedTaskWorkspaceId}
-                onCreated={addTaskCustomField}
-              />
-            </div>
             </>
-            ) : null}
-          </ModalSidebar>
+          )}
         </form>
-      </EntityModalShell>
+      </CreateDialogShell>
     );
   }
 
   if (addNewMode === "event") {
+    const minutes = Math.max(15, eventDuration || 60);
+    const end = new Date(new Date(eventStart).getTime() + minutes * 60_000);
+    const summary = !eventStart
+      ? "Pick when it starts"
+      : joinSummary([
+          eventTimeOnly
+            ? `Every repeat at ${shortTime(eventStart)} to ${shortTime(toDatetimeLocalValue(end))}`
+            : eventAllDay
+              ? `${shortDay(eventStart)}, all day`
+              : `${shortDayTime(eventStart)} to ${shortTime(toDatetimeLocalValue(end))}`,
+          eventWorkspaceId ? `in ${workspaceLabel(eventWorkspaceId)}` : "",
+        ]);
+
     return (
-      <EntityModalShell
-        icon={meta.icon}
+      <CreateDialogShell
         label={meta.label}
         onClose={closeModal}
-        headerRight={
-          <CreateAction
-            formId="create-event"
-            label={meta.action}
-            pending={createEventMutation.isPending}
-            disabled={!isEventValid}
-            failed={createEventMutation.isError}
-          />
+        header={kindChip}
+        footer={
+          <CreateDialogFooter
+            summary={summary}
+            error={
+              createEventMutation.isError
+                ? createEventMutation.error instanceof Error
+                  ? createEventMutation.error.message
+                  : "Could not create event."
+                : null
+            }
+            onCancel={closeModal}
+          >
+            <CreateAction formId="create-event" label={meta.action} pending={createEventMutation.isPending} disabled={!isEventValid} />
+          </CreateDialogFooter>
         }
       >
-        <form id="create-event" onSubmit={onEventSubmit} className="contents">
-          <ModalMain>
+        <form id="create-event" onSubmit={onEventSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
             <input
               autoFocus
               value={eventTitle}
               onChange={(input) => setEventTitle(input.target.value)}
-              placeholder="Event title"
-              className={modalTitleClass}
+              placeholder="Event name"
+              className={createTitleClass}
             />
-
             <textarea
               value={eventDescription}
               onChange={(input) => setEventDescription(input.target.value)}
-              placeholder="Notes, location, links..."
-              rows={6}
-              className="mt-4 w-full resize-none rounded-lg border border-border bg-transparent px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
+              placeholder="Notes, place, links"
+              rows={2}
+              className="field-sizing-content min-h-12 w-full resize-none bg-transparent text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
             />
+          </div>
 
-            <p className="mt-4 max-w-md text-sm text-muted-foreground">
-              Events block time on the calendar; Auto-schedule plans tasks around
-              them. Add a repeat rule for anything that happens on a cadence.
-            </p>
-
-            {createEventMutation.isError && (
-              <p className="mt-2 text-xs text-destructive">
-                {createEventMutation.error instanceof Error
-                  ? createEventMutation.error.message
-                  : "Could not create event."}
-              </p>
-            )}
-          </ModalMain>
-
-          <ModalSidebar>
-            <div className="flex flex-col gap-1">
-              <PropertyRow icon={eventTimeOnly ? Clock : CalendarDays} label={eventTimeOnly ? "Time" : "Starts"}>
-                {eventTimeOnly ? (
-                  <TimeField
-                    className="min-w-0 flex-1"
-                    value={toTimeInputValue(eventStart)}
-                    clearable={false}
-                    aria-label="Time"
-                    onChange={(hhmm) =>
-                      setEventStart(
-                        toDatetimeLocalValue(applyClockToDate(eventStartDate, hhmm)),
-                      )
-                    }
-                  />
-                ) : (
-                  <DatePicker
-                    mode={eventAllDay ? "date" : "datetime"}
-                    value={eventStart}
-                    onChange={setEventStart}
-                    clearable={false}
-                  />
-                )}
-              </PropertyRow>
-
-              <PropertyRow icon={Clock} label="Duration">
-                <input
-                  type="number"
-                  min={15}
-                  step={15}
-                  value={eventDuration}
-                  onChange={(input) =>
-                    setEventDuration(Number(input.target.value) || 60)
-                  }
-                  className="w-full bg-transparent text-sm text-foreground outline-none"
-                />
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {formatDuration(Math.max(15, eventDuration || 60))}
-                </span>
-              </PropertyRow>
-
-              <PropertyRow icon={Clock} label="All day">
-                <input
-                  type="checkbox"
-                  checked={eventAllDay}
-                  onChange={(input) => setEventAllDay(input.target.checked)}
-                  className="size-3.5 accent-primary"
-                />
-              </PropertyRow>
-
-              <RecurrenceEditor
-                label="Repeat"
-                icon={Repeat}
-                value={eventRecurrence}
-                anchor={eventStartDate}
-                onChange={setEventRecurrence}
-              />
-              {eventTimeOnly ? (
-                <p className="mt-1 px-1 text-[11px] text-muted-foreground">
-                  Each occurrence starts at this time. Dates come from the repeat rule.
-                </p>
-              ) : null}
-
-              <PropertyRow icon={FolderKanban} label="Workspace">
-                <Select
-                  size="sm"
-                  value={eventWorkspaceId}
-                  onChange={setEventWorkspaceId}
-                  placeholder="None"
-                  variant="bare"
-                  options={[
-                    { value: "", label: "None" },
-                    ...typedWorkspaces.map((workspace) => ({
-                      value: workspace.id,
-                      label: workspace.name,
-                      color: workspace.color ?? undefined,
-                    })),
-                  ]}
-                />
-              </PropertyRow>
+          <div className="grid items-start gap-3 sm:grid-cols-2">
+            <div>
+              <ListGroup>
+                <ListRow label={eventTimeOnly ? "Time" : "Starts"}>
+                  {eventTimeOnly ? (
+                    <TimeField
+                      variant="row"
+                      value={toTimeInputValue(eventStart)}
+                      clearable={false}
+                      aria-label="Time"
+                      onChange={(hhmm) => setEventStart(toDatetimeLocalValue(applyClockToDate(eventStartDate, hhmm)))}
+                    />
+                  ) : (
+                    <DatePicker
+                      variant="row"
+                      mode={eventAllDay ? "date" : "datetime"}
+                      aria-label="Starts"
+                      placeholder="Pick a time"
+                      value={eventStart}
+                      onChange={setEventStart}
+                      clearable={false}
+                    />
+                  )}
+                </ListRow>
+                {!eventAllDay ? (
+                  <ListRow label="Duration">
+                    <Select
+                      variant="row"
+                      aria-label="Duration"
+                      value={String(minutes)}
+                      onChange={(value) => setEventDuration(Number(value) || 60)}
+                      options={durationOptions(minutes)}
+                    />
+                  </ListRow>
+                ) : null}
+                <ListRow label="All day">
+                  <ListSwitch label="All day" checked={eventAllDay} onChange={setEventAllDay} />
+                </ListRow>
+                <RecurrenceEditor label="Repeat" value={eventRecurrence} anchor={eventStartDate} onChange={setEventRecurrence} />
+              </ListGroup>
+              <GroupHint>
+                {eventTimeOnly
+                  ? "Each occurrence starts at this time. Dates come from the repeat rule."
+                  : "Events block time on the calendar. Auto-schedule plans tasks around them."}
+              </GroupHint>
             </div>
-          </ModalSidebar>
+            <ListGroup>
+              <ListRow label="Workspace">
+                <Select
+                  variant="row"
+                  aria-label="Workspace"
+                  value={eventWorkspaceId}
+                  placeholder="None"
+                  onChange={setEventWorkspaceId}
+                  options={[{ value: "", label: "None" }, ...workspaceOptions]}
+                />
+              </ListRow>
+            </ListGroup>
+          </div>
         </form>
-      </EntityModalShell>
+      </CreateDialogShell>
     );
   }
 
   if (addNewMode === "doc" || addNewMode === "sheet") {
-    const pending =
-      createDocMutation.isPending || createSheetMutation.isPending;
+    const pending = createDocMutation.isPending || createSheetMutation.isPending;
+    const template = (templatesQuery.data ?? []).find((entry) => entry.id === sheetTemplateId);
+    const kindWord = addNewMode === "doc" ? "doc" : "sheet";
 
     return (
-      <EntityModalShell
-        icon={meta.icon}
+      <CreateDialogShell
         label={meta.label}
+        size="sm"
         onClose={closeModal}
-        headerRight={
-          <CreateAction
-            formId="create-page"
-            label={meta.action}
-            pending={pending}
-            disabled={!isPageValid}
-            failed={createDocMutation.isError || createSheetMutation.isError}
-          />
+        header={kindChip}
+        footer={
+          <CreateDialogFooter
+            summary={joinSummary([
+              `In ${workspaceLabel(selectedPageWorkspaceId) ?? "no workspace yet"}`,
+              addNewMode === "sheet" && template ? `from ${template.name || "Untitled"}` : `blank ${kindWord}`,
+            ])}
+            error={createDocMutation.isError || createSheetMutation.isError ? "Could not save" : null}
+            onCancel={closeModal}
+          >
+            <CreateAction formId="create-page" label={meta.action} pending={pending} disabled={!isPageValid} />
+          </CreateDialogFooter>
         }
       >
         <form
           id="create-page"
-          onSubmit={handlePageSubmit(
-            addNewMode === "doc" ? onDocSubmit : onSheetSubmit,
-          )}
-          className="contents"
+          onSubmit={handlePageSubmit(addNewMode === "doc" ? onDocSubmit : onSheetSubmit)}
+          className="flex flex-col gap-4"
         >
-          <ModalMain>
+          <div>
             <input
               autoFocus
               {...registerPage("title")}
               placeholder={addNewMode === "doc" ? "Doc title" : "Sheet title"}
-              className={modalTitleClass}
+              className={createTitleClass}
             />
+            {pageErrors.title && <p className="mt-2 text-xs text-destructive">{pageErrors.title.message}</p>}
+          </div>
 
-            {pageErrors.title && (
-              <p className="mt-2 text-xs text-destructive">
-                {pageErrors.title.message}
-              </p>
-            )}
-
-            <p className="mt-4 max-w-md text-sm text-muted-foreground">
-              {addNewMode === "doc"
-                ? "The editor opens as soon as the doc is created."
-                : "The grid opens as soon as the sheet is created."}
-            </p>
-          </ModalMain>
-
-          <ModalSidebar>
-            <PropertyRow icon={FolderKanban} label="Workspace">
-              <Select
-                size="sm"
-                value={selectedPageWorkspaceId ?? ""}
-                onChange={(workspaceId) =>
-                  setValuePage("workspaceId", workspaceId, {
-                    shouldValidate: true,
-                    shouldDirty: true,
-                  })
-                }
-                placeholder="Select workspace"
-                variant="bare"
-                options={typedWorkspaces.map((workspace) => ({
-                  value: workspace.id,
-                  label: workspace.name,
-                  color: workspace.color ?? undefined,
-                }))}
-              />
-            </PropertyRow>
-
-            {addNewMode === "sheet" && (templatesQuery.data?.length ?? 0) > 0 && (
-              <PropertyRow icon={LayoutTemplate} label="Template">
+          <div>
+            <ListGroup>
+              <ListRow label="Workspace">
                 <Select
-                  size="sm"
-                  value={sheetTemplateId}
-                  onChange={(id) => {
-                    setTemplateTouched(true);
-                    setSheetTemplateId(id);
-                  }}
-                  placeholder="Blank sheet"
-                  variant="bare"
-                  options={[
-                    { value: "", label: "Blank sheet" },
-                    ...(templatesQuery.data ?? []).map((template) => ({
-                      value: template.id,
-                      label: template.name || "Untitled",
-                    })),
-                  ]}
+                  variant="row"
+                  aria-label="Workspace"
+                  value={selectedPageWorkspaceId ?? ""}
+                  placeholder="Pick one"
+                  onChange={(workspaceId) => setValuePage("workspaceId", workspaceId, { shouldValidate: true, shouldDirty: true })}
+                  options={workspaceOptions}
                 />
-              </PropertyRow>
-            )}
-            {addNewMode === "sheet" && !!suggestedTemplateId && sheetTemplateId === suggestedTemplateId && (
-              <p
-                className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground"
-                data-testid="sheet-template-suggested"
-              >
-                <Sparkles className="size-3 shrink-0" />
-                Suggested for this title
-              </p>
-            )}
+              </ListRow>
+              {addNewMode === "sheet" && (templatesQuery.data?.length ?? 0) > 0 ? (
+                <ListRow label="Template">
+                  <Select
+                    variant="row"
+                    aria-label="Template"
+                    value={sheetTemplateId}
+                    placeholder="Blank sheet"
+                    onChange={(id) => {
+                      setTemplateTouched(true);
+                      setSheetTemplateId(id);
+                    }}
+                    options={[
+                      { value: "", label: "Blank sheet" },
+                      ...(templatesQuery.data ?? []).map((entry) => ({
+                        value: entry.id,
+                        label: entry.name || "Untitled",
+                      })),
+                    ]}
+                  />
+                </ListRow>
+              ) : null}
+            </ListGroup>
+            {addNewMode === "sheet" && !!suggestedTemplateId && sheetTemplateId === suggestedTemplateId ? (
+              <GroupHint className="flex items-center gap-1.5">
+                <span className="flex items-center gap-1.5" data-testid="sheet-template-suggested">
+                  <Sparkles className="size-3 shrink-0" />
+                  Suggested for this title
+                </span>
+              </GroupHint>
+            ) : null}
+          </div>
 
-            {pageErrors.workspaceId && (
-              <p className="mt-2 px-1 text-xs text-destructive">
-                {pageErrors.workspaceId.message}
-              </p>
-            )}
-          </ModalSidebar>
+          {pageErrors.workspaceId && <p className="text-xs text-destructive">{pageErrors.workspaceId.message}</p>}
         </form>
-      </EntityModalShell>
+      </CreateDialogShell>
     );
   }
 
   return null;
+}
+
+const KIND_OPTIONS = [
+  { value: "task", label: "Task", icon: <ListTodo /> },
+  { value: "reminder", label: "Reminder", icon: <Bell /> },
+  { value: "event", label: "Event", icon: <CalendarDays /> },
+  { value: "doc", label: "Doc", icon: <FileText /> },
+  { value: "sheet", label: "Sheet", icon: <SheetIcon /> },
+  { value: "project", label: "Project", icon: <FolderKanban /> },
+  { value: "workspace", label: "Workspace", icon: <Boxes /> },
+];
+
+const PRIORITY_CHIP_OPTIONS = PRIORITY_OPTIONS.map((option) => ({
+  ...option,
+  icon: <Flag style={{ color: priorityColor(option.value) ?? undefined }} />,
+}));
+
+/** Only High and Urgent tint their chip, so the row stays calm. */
+function priorityTint(priority: string) {
+  return priority === "High" || priority === "Urgent" ? priorityColor(priority) ?? undefined : undefined;
+}
+
+const DURATION_STEPS = [15, 30, 45, 60, 90, 120, 180, 240, 480];
+
+function durationOptions(current: number) {
+  const steps = current > 0 && !DURATION_STEPS.includes(current) ? [...DURATION_STEPS, current].sort((a, b) => a - b) : DURATION_STEPS;
+  return steps.map((minutes) => ({ value: String(minutes), label: formatDuration(minutes) }));
+}
+
+function joinSummary(parts: string[]) {
+  const text = parts.filter(Boolean).join(" · ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function shortDay(value: string) {
+  const date = value.includes("T") ? new Date(value) : dateFromDateInput(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+function shortTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function shortDayTime(value: string) {
+  return `${shortDay(value)}, ${shortTime(value)}`;
+}
+
+function DescriptionBox({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex max-h-72 min-h-28 shrink-0 flex-col overflow-hidden rounded-[12px] border border-border px-3 pt-2 transition-colors focus-within:border-ring/60">
+      <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+    </div>
+  );
+}
+
+/** The last row of a create form: shows or hides the less used groups. */
+function MoreRow({ open, onToggle, meta, count }: { open: boolean; onToggle: () => void; meta: string; count: number }) {
+  return (
+    <ListGroup>
+      <ListRow label={open ? "Fewer options" : "More options"} meta={meta} onClick={onToggle} aria-label={open ? "Fewer options" : "More options"}>
+        {count > 0 && !open ? <span className="text-[13px] font-medium text-muted-foreground">{count}</span> : null}
+        {open ? <ChevronUp className="size-3.5 text-muted-foreground" /> : <ChevronDown className="size-3.5 text-muted-foreground" />}
+      </ListRow>
+    </ListGroup>
+  );
 }
 
 function nextRoundHour(): Date {
@@ -1984,28 +1945,15 @@ function CreateAction({
   label,
   pending,
   disabled,
-  failed,
 }: {
   formId: string;
   label: string;
   pending: boolean;
   disabled: boolean;
-  failed?: boolean;
 }) {
   return (
-    <>
-      {failed && (
-        <span className="text-xs text-destructive">Could not save</span>
-      )}
-      <button
-        type="submit"
-        form={formId}
-        disabled={disabled || pending}
-        className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        <Plus className="size-4" />
-        {pending ? "Creating..." : label}
-      </button>
-    </>
+    <Button type="submit" form={formId} disabled={disabled || pending} loading={pending} leading={<Check />}>
+      {pending ? "Creating…" : label}
+    </Button>
   );
 }

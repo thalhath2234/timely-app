@@ -1,5 +1,7 @@
 "use client";
 
+import { ChangeTint, Fill, StatNumber, useChangeKey } from "@/app/_components/_ui/dataMotion";
+import { SkeletonLines } from "@/app/_components/_ui/skeleton";
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -9,6 +11,7 @@ import { DateField } from "@/app/_components/_ui/datePicker";
 import ColorPicker from "@/app/_components/_ui/colorPicker";
 import ColorChip from "@/app/_components/_ui/colorChip";
 import Select from "@/app/_components/_ui/select";
+import { GroupLabel, ListGroup, ListRow } from "@/app/_components/_ui/groupedList";
 import Button, { buttonClass } from "@/app/_components/_ui/button";
 import { requestConfirm } from "@/app/_store/confirmStore";
 import StageBoard from "@/app/_components/projects/stageBoard";
@@ -30,8 +33,9 @@ import {
 import LoadError from "@/app/_components/_ui/loadError";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useProjectContextMenu } from "@/app/utils/hooks/useProjectContextMenu";
+import { projectDeleteCopy } from "@timely/contract/projectDelete";
 import { useTasks } from "@/app/utils/hooks/tasks";
-import { useWorkspaces } from "@/app/utils/hooks/workspaces";
+import { useWorkingHoursZone, useWorkspaces } from "@/app/utils/hooks/workspaces";
 import { saveStatusLabel, useAutosave } from "@/app/utils/hooks/useAutosave";
 import type { Project, Status, Task, Workspace } from "@/app/_types/types";
 
@@ -74,7 +78,9 @@ function ProjectHub({ project }: { project: Project }) {
   const { data: workspaces } = useWorkspaces();
   const openMenu = useContextMenu();
   const projectMenu = useProjectContextMenu();
-  const [tab, setTab] = useState<Tab>(project.doesHaveStages ? "stages" : "overview");
+  // Overview is the landing tab: the brief, the numbers and what is next,
+  // with the stage board one click away.
+  const [tab, setTab] = useState<Tab>("overview");
   const [title, setTitle] = useState(project.title);
 
   const { schedule, flush, status } = useAutosave<{
@@ -168,9 +174,7 @@ function ProjectHub({ project }: { project: Project }) {
           className="hover:text-destructive"
           onClick={() =>
             requestConfirm({
-              title: "Delete this project?",
-              description: "Its stages are deleted too.",
-              confirmLabel: "Delete project",
+              ...projectDeleteCopy(title, projectTasks.length, project.stages?.length ?? 0),
               onConfirm: async () => {
                 await deleteProject.mutateAsync(project.id);
                 router.push("/projects");
@@ -224,20 +228,20 @@ function ProjectHub({ project }: { project: Project }) {
 
       <div className={`flex-1 ${tab === "tasks" ? "min-h-0 overflow-hidden" : "overflow-y-auto px-6 py-5"}`}>
         {tab === "overview" ? (
-          <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
             <div className="space-y-4">
               <textarea
                 defaultValue={project.description ?? ""}
                 onChange={(event) => schedule({ description: event.target.value })}
                 onBlur={() => void flush()}
                 placeholder="What is this project for?"
-                className="min-h-32 w-full rounded-xl border border-border bg-card p-3 text-sm outline-none focus:border-ring"
+                className="min-h-28 w-full rounded-[12px] border border-border bg-card p-3 text-sm outline-none focus:border-ring"
               />
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <Fact label="Open tasks" value={String(stats.open)} />
-                <Fact label="Progress" value={`${stats.progress}%`} />
-                <Fact label="Scheduled" value={String(stats.scheduled)} />
-                <Fact label="Next deadline" value={formatShortDate(stats.nextDeadline)} />
+                <Fact label="open tasks" value={String(stats.open)} />
+                <Fact label="done" value={`${stats.progress}%`} share={stats.progress} color={project.color} />
+                <Fact label="scheduled" value={String(stats.scheduled)} />
+                <Fact label="next deadline" value={formatShortDate(stats.nextDeadline)} />
               </div>
               <ProjectInsights project={project} />
               <div className="grid gap-4 xl:grid-cols-2">
@@ -249,54 +253,47 @@ function ProjectHub({ project }: { project: Project }) {
                 <RecentChanges project={project} onSeeAll={() => setTab("activity")} />
               </div>
             </div>
-            <aside className="space-y-3 rounded-2xl border border-border bg-card p-4">
-              <label className="block text-xs text-muted-foreground">Status</label>
-              <Select
-                size="sm"
-                value={project.statusId ?? ""}
-                onChange={(statusId) => schedule({ statusId })}
-                options={[
-                  { value: "", label: "No status" },
-                  ...statuses.map((status) => ({
-                    value: status.id,
-                    label: status.name,
-                    color: status.color,
-                  })),
-                ]}
-              />
-              <label className="block text-xs text-muted-foreground">Priority</label>
-              <Select
-                size="sm"
-                value={normalizePriority(project.priorityLevel)}
-                onChange={(priorityLevel) => schedule({ priorityLevel })}
-                options={[{ value: "", label: "No priority" }, ...PRIORITY_OPTIONS]}
-              />
-              <label className="block text-xs text-muted-foreground">Start</label>
-              <DateField
-                size="sm"
-                value={project.startDate}
-                onChange={(startDate) => schedule({ startDate })}
-              />
-              <label className="block text-xs text-muted-foreground">Deadline</label>
-              <DateField
-                size="sm"
-                value={project.deadline}
-                onChange={(deadline) => schedule({ deadline })}
-              />
-              <label className="block text-xs text-muted-foreground">Color</label>
-              <ColorPicker
-                value={project.color || "#30A66D"}
-                onChange={(color) => schedule({ color })}
-                aria-label="Project color"
-              />
-              <p className="flex items-center gap-2 text-xs text-muted-foreground">
-                Workspace:{" "}
-                {workspace ? (
-                  <ColorChip color={workspace.color}>{workspace.name}</ColorChip>
-                ) : (
-                  "—"
-                )}
-              </p>
+            <aside className="flex flex-col gap-1.5" aria-label="Project details">
+              <GroupLabel>Details</GroupLabel>
+              <ListGroup>
+                <ListRow label="Status">
+                  <Select
+                    variant="row"
+                    placeholder="No status"
+                    value={project.statusId ?? ""}
+                    onChange={(statusId) => schedule({ statusId })}
+                    options={[
+                      { value: "", label: "No status" },
+                      ...statuses.map((status) => ({
+                        value: status.id,
+                        label: status.name,
+                        color: status.color,
+                      })),
+                    ]}
+                  />
+                </ListRow>
+                <ListRow label="Priority">
+                  <Select
+                    variant="row"
+                    placeholder="No priority"
+                    value={normalizePriority(project.priorityLevel)}
+                    onChange={(priorityLevel) => schedule({ priorityLevel })}
+                    options={[{ value: "", label: "No priority" }, ...PRIORITY_OPTIONS]}
+                  />
+                </ListRow>
+                <ListRow label="Start">
+                  <DateField variant="row" aria-label="Start date" clearable value={project.startDate} onChange={(startDate) => schedule({ startDate })} />
+                </ListRow>
+                <ListRow label="Deadline">
+                  <DateField variant="row" aria-label="Deadline" clearable value={project.deadline} onChange={(deadline) => schedule({ deadline })} />
+                </ListRow>
+                <ListRow label="Colour">
+                  <ColorPicker variant="row" value={project.color || "#30A66D"} onChange={(color) => schedule({ color })} aria-label="Project color" />
+                </ListRow>
+                <ListRow label="Workspace">
+                  {workspace ? <ColorChip color={workspace.color}>{workspace.name}</ColorChip> : <span className="text-[13px] text-muted-foreground">None</span>}
+                </ListRow>
+              </ListGroup>
               <p className="sr-only">{saveStatusLabel(status)}</p>
             </aside>
           </div>
@@ -334,7 +331,8 @@ function ProjectHub({ project }: { project: Project }) {
   );
 }
 
-function formatActivityStamp(value: string) {
+/** When a change happened, in the person's Working hours zone. */
+function formatActivityStamp(value: string, timeZone?: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString(undefined, {
@@ -342,6 +340,7 @@ function formatActivityStamp(value: string) {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone,
   });
 }
 
@@ -353,6 +352,7 @@ function formatActivityStamp(value: string) {
  */
 function ProjectActivityFeed({ project, recent }: { project: Project; recent: Task[] }) {
   const activity = useProjectActivity(project.id);
+  const timeZone = useWorkingHoursZone();
   const entries = activity.data ?? [];
 
   return (
@@ -404,7 +404,7 @@ function ProjectActivityFeed({ project, recent }: { project: Project; recent: Ta
                     </span>
                   </span>
                   <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                    {formatActivityStamp(entry.createdAt)}
+                    {formatActivityStamp(entry.createdAt, timeZone)}
                   </span>
                 </>
               );
@@ -498,7 +498,7 @@ function UpNext({
   today.setHours(0, 0, 0, 0);
 
   return (
-    <OverviewCard title="Up next" action={`All ${tasks.length} tasks`} onAction={onSeeAll}>
+    <OverviewCard title="Up next" action={tasks.length === 1 ? "Open in Tasks" : `All ${tasks.length} tasks`} onAction={onSeeAll}>
       {open.length === 0 ? (
         <p className="px-4 pb-4 pt-2 text-sm text-muted-foreground">Nothing open. Add work from the Tasks tab.</p>
       ) : (
@@ -547,12 +547,13 @@ function UpNext({
 function RecentChanges({ project, onSeeAll }: { project: Project; onSeeAll: () => void }) {
   const activity = useProjectActivity(project.id);
   const openTask = useEntityDetailStore((state) => state.openTask);
+  const timeZone = useWorkingHoursZone();
   const entries = (activity.data ?? []).slice(0, 6);
 
   return (
     <OverviewCard title="Recent changes" action="All activity" onAction={onSeeAll}>
       {activity.isLoading ? (
-        <p className="px-4 pb-4 pt-2 text-sm text-muted-foreground">Loading…</p>
+        <SkeletonLines lines={3} className="px-4 pb-4 pt-2" />
       ) : entries.length === 0 ? (
         <p className="px-4 pb-4 pt-2 text-sm text-muted-foreground">
           No changes yet. Status, priority, schedule and completion changes on this project&apos;s tasks show up here.
@@ -574,7 +575,7 @@ function RecentChanges({ project, onSeeAll }: { project: Project; onSeeAll: () =
                   </span>
                 </span>
                 <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                  {formatActivityStamp(entry.createdAt)}
+                  {formatActivityStamp(entry.createdAt, timeZone)}
                 </span>
               </button>
             </li>
@@ -585,11 +586,15 @@ function RecentChanges({ project, onSeeAll }: { project: Project; onSeeAll: () =
   );
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
+/** The film's stat card: a big number over a small label, with a 3 px bar when it is a share. */
+function Fact({ label, value, share, color }: { label: string; value: string; share?: number; color?: string | null }) {
+  const changeKey = useChangeKey(value);
   return (
-    <div className="rounded-xl border border-border bg-card px-3 py-3">
-      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{value}</p>
+    <div className="lift relative flex min-h-[88px] flex-col justify-end rounded-[12px] border border-border bg-card px-4 py-3">
+      <ChangeTint changeKey={changeKey} />
+      <StatNumber as="p" className="relative text-[26px] font-semibold leading-8 tracking-[-0.02em] text-foreground" value={value} />
+      <p className="relative text-xs text-muted-foreground">{label}</p>
+      {share !== undefined ? <Fill value={share / 100} color={color} height={3} trackClassName="relative mt-2" /> : null}
     </div>
   );
 }

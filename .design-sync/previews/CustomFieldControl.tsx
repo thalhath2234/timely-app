@@ -1,4 +1,4 @@
-import { CustomFieldControl, PropertyRow, SidebarSectionTitle } from "@timely/ui";
+import { CustomFieldControl, GroupLabel, ListGroup, ListRow } from "@timely/ui";
 import { Calendar, CheckSquare, ChevronDownCircle, Hash, Link2, Tags, Type } from "lucide-react";
 import { useState } from "react";
 
@@ -31,16 +31,19 @@ function Panel({ initial }: { initial: Record<string, Draft> }) {
   const [values, setValues] = useState(initial);
   return (
     <div className="flex flex-col gap-1 border border-border bg-muted/10 px-5 py-5" style={{ width: 360 }}>
-      <SidebarSectionTitle>Custom fields</SidebarSectionTitle>
-      {FIELDS.map(({ icon, f }) => (
-        <PropertyRow key={f.id} icon={icon} label={f.name}>
-          <CustomFieldControl
-            field={f as any}
-            value={values[f.id]}
-            onChange={(next) => setValues({ ...values, [f.id]: { id: f.id, type: f.type, ...next } })}
-          />
-        </PropertyRow>
-      ))}
+      <GroupLabel aside={String(FIELDS.length)}>Custom fields</GroupLabel>
+      <ListGroup>
+        {FIELDS.map(({ f }) => (
+          <ListRow key={f.id} label={f.name}>
+            <CustomFieldControl
+              variant="row"
+              field={f as any}
+              value={values[f.id]}
+              onChange={(next) => setValues({ ...values, [f.id]: { id: f.id, type: f.type, ...next } })}
+            />
+          </ListRow>
+        ))}
+      </ListGroup>
     </div>
   );
 }

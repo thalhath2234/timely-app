@@ -34,14 +34,26 @@ const WORKSPACE_TABS: { id: WorkspaceTab; label: string }[] = [
   { id: "customFields", label: "Custom fields" },
 ];
 
-export default function WorkspaceSettings() {
+export default function WorkspaceSettings({
+  selectedId: controlledId,
+  onSelect,
+}: {
+  /** The open workspace, when the page keeps it (for its rail). */
+  selectedId?: string | null;
+  onSelect?: (id: string) => void;
+} = {}) {
   const { data: workspaces, isLoading } = useWorkspaces();
   const typedWorkspaces = useMemo(
     () => (workspaces ?? []) as Workspace[],
     [workspaces],
   );
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [ownId, setOwnId] = useState<string | null>(null);
+  const selectedId = controlledId !== undefined ? controlledId : ownId;
+  const setSelectedId = (id: string) => {
+    setOwnId(id);
+    onSelect?.(id);
+  };
 
   const workspaceId =
     selectedId && typedWorkspaces.some((item) => item.id === selectedId)

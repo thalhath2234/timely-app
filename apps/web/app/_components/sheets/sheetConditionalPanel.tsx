@@ -174,7 +174,7 @@ export default function SheetConditionalPanel({
                 type="checkbox"
                 checked={Boolean(draft.bold)}
                 onChange={(event) => setDraft({ ...draft, bold: event.target.checked || undefined })}
-                className="accent-[#6E56CF]"
+                className="accent-primary"
               />
               Bold
             </label>
@@ -183,7 +183,7 @@ export default function SheetConditionalPanel({
                 type="checkbox"
                 checked={Boolean(draft.wholeRow)}
                 onChange={(event) => setDraft({ ...draft, wholeRow: event.target.checked || undefined })}
-                className="accent-[#6E56CF]"
+                className="accent-primary"
               />
               Colour the whole row
             </label>
