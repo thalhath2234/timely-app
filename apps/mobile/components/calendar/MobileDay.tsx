@@ -6,7 +6,7 @@ import { listEntering, listLayout } from "../../lib/motion";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CalendarItem } from "../../lib/types";
 import { HOURS, formatHour } from "../../lib/types";
-import { formatTime, isSameDay, startOfDay } from "../../lib/format";
+import { dayKey, formatTime, isSameDay, startOfDay } from "../../lib/format";
 import { isItemDone, isReminderItem, itemColor } from "./CalendarItemRow";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "../ui/AnimatedPressable";
@@ -72,14 +72,20 @@ export default function MobileDay({
   onOpen: (item: CalendarItem) => void;
   onEmptySlot?: (start: Date) => void;
 }) {
-  // Blocks present at first render sit still; ones auto-schedule adds later
-  // arrive at their slot in turn (motion catalogue 7).
-  const [firstIds] = useState(() => new Set(items.map((item) => item.id)));
   const reduceMotion = useReducedMotion();
   const insets = useSafeAreaInsets();
   const dayStart = startOfDay(date).getTime();
   const isToday = isSameDay(date, new Date());
   const nowY = ((Date.now() - dayStart) / 3_600_000) * HOUR_PX;
+  // Fixed for each day the view shows. Blocks already there sit still; ones
+  // auto-schedule adds later arrive at their slot in turn (motion catalogue 7).
+  // The scroll position opens at now (today) or 7 AM, and must not change on a
+  // re-render: the native scroller scrolls whenever `contentOffset` changes.
+  const day = dayKey(date);
+  const shownDay = () => ({ day, ids: new Set(items.map((item) => item.id)), openAt: { x: 0, y: isToday ? Math.max(0, nowY - 160) : 7 * HOUR_PX } });
+  const [shown, setShown] = useState(shownDay);
+  if (shown.day !== day) setShown(shownDay());
+  const firstIds = shown.ids;
   const allDay = items.filter((i) => i.allDay);
   const blocks = items.filter((i) => !i.allDay && !isReminderItem(i));
   const timed = layout(blocks);
@@ -88,7 +94,7 @@ export default function MobileDay({
   return (
     <ScrollView showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
-      contentOffset={{ x: 0, y: isToday ? Math.max(0, nowY - 160) : 7 * HOUR_PX }}
+      contentOffset={shown.openAt}
       contentContainerStyle={{ paddingBottom: floatingTabBarInset(insets.bottom) }}
     >
       {allDay.length ? (
