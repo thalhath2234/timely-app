@@ -204,7 +204,11 @@ export function TaskCheck({
   );
 }
 
-/** A title whose strike-through grows across the first line when `done` turns on. */
+/**
+ * A title whose strike-through grows across the first line when `done` turns on.
+ * `style` is for the text only: a flexing title here stretches past
+ * `numberOfLines` on Android, so put flex on a View around it.
+ */
 export function StrikeTitle({
   done,
   style,
