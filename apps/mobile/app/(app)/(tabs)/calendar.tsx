@@ -2,7 +2,7 @@ import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
 import { contextChip } from "../../../lib/chat/context";
 import { startOfWeek } from "../../../lib/format";
 import { useEffect, useMemo, useState } from "react";
-import { Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ChevronLeft, ChevronRight, Hourglass, SlidersHorizontal, Sparkles } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
@@ -35,7 +35,8 @@ import {
   useWorkingHoursZone,
   useWorkspacesQuery,
 } from "../../../lib/hooks";
-import { isItemDone, isReminderItem, matchesCalendarScope } from "../../../components/calendar/CalendarItemRow";
+import { isReminderItem, matchesCalendarScope } from "../../../components/calendar/CalendarItemRow";
+import { useTickCalendarItem } from "../../../lib/calendarTick";
 import { overdueAgendaTasks, taskToCalendarItem } from "../../../lib/overdue";
 import { findNextFreeSlot } from "../../../lib/nextFreeSlot";
 import { requestQuickAdd } from "../../../lib/quickAddIntent";
@@ -167,6 +168,7 @@ export default function CalendarScreen() {
   const moveEvt = useMoveEventTimes();
   const editOccurrence = useEditTaskOccurrence();
   const addBlock = useAddBlock();
+  const tick = useTickCalendarItem();
 
   const busyDays = useMemo(() => {
     const set = new Set<string>();
@@ -212,22 +214,6 @@ export default function CalendarScreen() {
     }
   }
 
-  function toggleComplete(item: CalendarItem) {
-    if (!item.taskId) return;
-    if (item.kind === "taskOccurrence" && item.originalStart) {
-      void editOccurrence.mutateAsync({
-        id: item.taskId,
-        originalStart: item.originalStart,
-        action: item.completedAt ? "uncomplete" : "complete",
-      });
-    } else {
-      save.mutate({
-        id: item.taskId,
-        data: { completedAt: isItemDone(item) ? "" : new Date().toISOString() },
-      });
-    }
-    setOpen(null);
-  }
 
   function step(dir: -1 | 1) {
     if (view === "month") setSelected(new Date(selected.getFullYear(), selected.getMonth() + dir, 1));
@@ -291,10 +277,13 @@ export default function CalendarScreen() {
               </AnimatedPressable>
             ) : null}
             {view === "agenda" ? (
-              <ScrollView showsVerticalScrollIndicator={false}
-                style={{ flex: 1 }}
-                contentContainerStyle={{ paddingBottom: fabInset }}
-                keyboardShouldPersistTaps="handled"
+              <MobileAgenda
+                items={items}
+                from={selected}
+                overdue={overdue}
+                onOpen={setOpen}
+                onToggle={tick}
+                bottomInset={fabInset}
                 refreshControl={
                   <RefreshControl
                     refreshing={query.isRefetching && !query.isPending}
@@ -302,9 +291,7 @@ export default function CalendarScreen() {
                     tintColor={colors.primary}
                   />
                 }
-              >
-                <MobileAgenda items={items} from={selected} overdue={overdue} onOpen={setOpen} />
-              </ScrollView>
+              />
             ) : view === "day" ? (
               <MobileDay date={selected} items={dayItems} onOpen={setOpen} onEmptySlot={setSlot} />
             ) : view === "week" ? (
@@ -313,10 +300,11 @@ export default function CalendarScreen() {
                 items={items}
                 onSelect={setSelected}
                 onOpen={setOpen}
+                onToggle={tick}
                 onEmptyDay={(day) => setSlot(nextQuarterOn(day))}
               />
             ) : (
-              <MobileMonth month={selected} selected={selected} onSelect={setSelected} items={items} onOpen={setOpen} />
+              <MobileMonth selected={selected} onSelect={setSelected} items={items} onOpen={setOpen} onToggle={tick} />
             )}
           </>
         )}
@@ -379,7 +367,15 @@ export default function CalendarScreen() {
           <Text style={styles.waitingAutoText}>Auto-schedule all</Text>
         </AnimatedPressable>
       </BottomSheet>
-      <CalendarItemSheet item={open} onClose={() => setOpen(null)} onToggleComplete={toggleComplete} onReschedule={reschedule} />
+      <CalendarItemSheet
+        item={open}
+        onClose={() => setOpen(null)}
+        onToggleComplete={(item) => {
+          setOpen(null);
+          tick(item);
+        }}
+        onReschedule={reschedule}
+      />
       <AutoScheduleSheet open={autoOpen} onClose={() => setAutoOpen(false)} />
       <BottomSheet open={Boolean(slot)} onClose={() => setSlot(null)} title={slot ? `New at ${formatTime(slot.toISOString())}` : "New"}>
         <SheetOption

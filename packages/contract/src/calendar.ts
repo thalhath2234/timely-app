@@ -63,6 +63,23 @@ export function withOccurrenceDone<T extends Pick<CalendarItem, "taskId" | "orig
   );
 }
 
+/**
+ * The items with a one-off task ticked on or off: its blocks read done from
+ * `item.task`, so that copy changes. A repeating task's days keep their own
+ * state (see `withOccurrenceDone`).
+ */
+export function withTaskDone<T extends Pick<CalendarItem, "kind" | "taskId" | "task">>(
+  items: T[],
+  taskId: string,
+  completedAt: string | null,
+): T[] {
+  return items.map((item) =>
+    item.kind === "task" && item.taskId === taskId && item.task
+      ? { ...item, task: { ...item.task, completedAt } }
+      : item,
+  );
+}
+
 export interface CalendarRange {
   from: string;
   to: string;

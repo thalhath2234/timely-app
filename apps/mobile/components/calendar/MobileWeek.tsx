@@ -15,18 +15,23 @@ export default function MobileWeek({
   items,
   onSelect,
   onOpen,
+  onToggle,
   onEmptyDay,
 }: {
   selected: Date;
   items: CalendarItem[];
   onSelect: (date: Date) => void;
   onOpen: (item: CalendarItem) => void;
+  onToggle: (item: CalendarItem) => void;
   onEmptyDay?: (date: Date) => void;
 }) {
   const insets = useSafeAreaInsets();
-  // Items present at first render sit still; ones auto-schedule (or a drop)
-  // adds later arrive in turn while the rest make room (motion catalogue 7).
-  const [firstIds] = useState(() => new Set(items.map((item) => item.id)));
+  // Items already there when a week shows sit still; ones auto-schedule (or a
+  // drop) adds later arrive in turn while the rest make room (motion catalogue 7).
+  const week = dayKey(startOfWeek(selected));
+  const [shown, setShown] = useState(() => ({ week, ids: new Set(items.map((item) => item.id)) }));
+  if (shown.week !== week) setShown({ week, ids: new Set(items.map((item) => item.id)) });
+  const firstIds = shown.ids;
   const reduceMotion = useReducedMotion();
   const weekStart = startOfWeek(selected);
   const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
@@ -63,7 +68,7 @@ export default function MobileWeek({
             ) : (
               dayItems.slice(0, 6).map((item, index) => (
                 <Animated.View key={item.id} entering={firstIds.has(item.id) ? undefined : listEntering(index, reduceMotion)} layout={listLayout(reduceMotion)}>
-                  <AgendaTimelineRow item={item} onOpen={onOpen} />
+                  <AgendaTimelineRow item={item} onOpen={onOpen} onToggle={onToggle} />
                 </Animated.View>
               ))
             )}

@@ -1,60 +1,53 @@
-import { useEffect, useRef, useState } from "react";
-import {
-  Dimensions,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { memo, useCallback, useMemo, useState } from "react";
+import { Dimensions, ScrollView, StyleSheet, Text, View } from "react-native";
 import { CalendarDays } from "lucide-react-native";
 import type { CalendarItem } from "../../lib/types";
 import { addDays, addMonths, dayKey, isSameDay, startOfDay } from "../../lib/format";
 import { itemColor } from "./CalendarItemRow";
 import { AgendaTimelineRow } from "./MobileAgenda";
+import PeriodPager from "./PeriodPager";
 import EmptyState from "../ui/EmptyState";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "../ui/AnimatedPressable";
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
+/** Months either side of the first one shown that a swipe can reach. */
+const SPAN = 240;
 
+/** Always six weeks, so every month is as tall as the next and the day list never jumps. */
 function monthDays(month: Date) {
   const first = new Date(month.getFullYear(), month.getMonth(), 1);
-  const last = new Date(month.getFullYear(), month.getMonth() + 1, 0);
   const gridStart = addDays(first, -first.getDay());
-  const count = first.getDay() + last.getDate() + (6 - last.getDay());
-  return Array.from({ length: count }, (_, i) => addDays(gridStart, i));
+  return Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
 }
 
-function MonthGrid({
-  month,
+function monthsBetween(from: Date, to: Date) {
+  return (to.getFullYear() - from.getFullYear()) * 12 + to.getMonth() - from.getMonth();
+}
+
+const MonthGrid = memo(function MonthGrid({
+  monthStart,
   selected,
   onSelect,
   byDay,
 }: {
-  month: Date;
-  selected: Date;
+  /** The 1st of the month as a timestamp: a number keeps the memo when the page re-renders. */
+  monthStart: number;
+  /** The selected day when it falls in this grid, so the other months skip the re-render. */
+  selected: Date | null;
   onSelect: (d: Date) => void;
   byDay: Map<string, CalendarItem[]>;
 }) {
+  const month = new Date(monthStart);
   const days = monthDays(month);
-  const weeks = Math.ceil(days.length / 7);
   const today = new Date();
   return (
     <View>
-      <View style={styles.week}>
-        {WEEKDAYS.map((d, i) => (
-          <Text key={`${d}-${i}`} style={styles.wd}>
-            {d}
-          </Text>
-        ))}
-      </View>
-      {Array.from({ length: weeks }, (_, week) => (
+      {Array.from({ length: 6 }, (_, week) => (
         <View key={week} style={styles.week}>
           {days.slice(week * 7, week * 7 + 7).map((d) => {
             const inMonth = d.getMonth() === month.getMonth();
-            const on = isSameDay(d, selected);
+            const on = selected !== null && isSameDay(d, selected);
             const isToday = isSameDay(d, today);
             const dayItems = byDay.get(dayKey(d)) ?? [];
             return (
@@ -86,92 +79,80 @@ function MonthGrid({
       ))}
     </View>
   );
-}
+});
 
 export default function MobileMonth({
-  month,
   selected,
   onSelect,
   items,
   onOpen,
+  onToggle,
 }: {
-  month: Date;
   selected: Date;
   onSelect: (d: Date) => void;
   items: CalendarItem[];
   onOpen: (item: CalendarItem) => void;
+  onToggle: (item: CalendarItem) => void;
 }) {
-  const scrollRef = useRef<ScrollView>(null);
-  const ignoreScroll = useRef(true);
   const [pageWidth, setPageWidth] = useState(Dimensions.get("window").width);
-  const [pagerHeight, setPagerHeight] = useState(0);
-  const monthKey = `${month.getFullYear()}-${month.getMonth()}`;
-  const byDay = new Map<string, CalendarItem[]>();
-  for (const item of items) {
-    const key = dayKey(startOfDay(new Date(item.start)));
-    const list = byDay.get(key) ?? [];
-    list.push(item);
-    byDay.set(key, list);
+  const [anchor, setAnchor] = useState(() => new Date(selected.getFullYear(), selected.getMonth(), 1));
+  let index = monthsBetween(anchor, selected) + SPAN;
+  if (index < 0 || index > SPAN * 2) {
+    setAnchor(new Date(selected.getFullYear(), selected.getMonth(), 1));
+    index = SPAN;
   }
-  const selectedItems = (byDay.get(dayKey(selected)) ?? []).sort((a, b) => a.start.localeCompare(b.start));
+  const byDay = useMemo(() => {
+    const map = new Map<string, CalendarItem[]>();
+    for (const item of items) {
+      const key = dayKey(startOfDay(new Date(item.start)));
+      const list = map.get(key) ?? [];
+      list.push(item);
+      map.set(key, list);
+    }
+    return map;
+  }, [items]);
+  const selectedItems = useMemo(
+    () => [...(byDay.get(dayKey(selected)) ?? [])].sort((a, b) => a.start.localeCompare(b.start)),
+    [byDay, selected],
+  );
 
-  useEffect(() => {
-    ignoreScroll.current = true;
-    scrollRef.current?.scrollTo({ x: pageWidth, animated: false });
-    const id = requestAnimationFrame(() => {
-      ignoreScroll.current = false;
-    });
-    return () => cancelAnimationFrame(id);
-  }, [monthKey, pageWidth]);
-
-  function onPage(event: NativeSyntheticEvent<NativeScrollEvent>) {
-    if (ignoreScroll.current || pageWidth <= 0) return;
-    const page = Math.round(event.nativeEvent.contentOffset.x / pageWidth);
-    if (page === 1) return;
-    onSelect(addMonths(selected, page - 1));
-  }
+  const renderPage = useCallback(
+    (page: number) => {
+      const month = addMonths(anchor, page - SPAN);
+      const inMonth = selected.getFullYear() === month.getFullYear() && selected.getMonth() === month.getMonth();
+      return (
+        <View style={{ width: pageWidth, paddingHorizontal: 8 }}>
+          <MonthGrid monthStart={month.getTime()} selected={inMonth ? selected : null} onSelect={onSelect} byDay={byDay} />
+        </View>
+      );
+    },
+    [anchor, selected, onSelect, byDay, pageWidth],
+  );
 
   return (
     <View style={styles.root}>
       <View
-        style={[styles.pagerWrap, pagerHeight > 0 ? { height: pagerHeight } : null]}
         onLayout={(event) => {
           const width = event.nativeEvent.layout.width;
           if (width > 0 && width !== pageWidth) setPageWidth(width);
         }}
       >
-      <ScrollView
-        keyboardShouldPersistTaps="handled"
-        ref={scrollRef}
-        horizontal
-        pagingEnabled
-        decelerationRate="fast"
-        showsHorizontalScrollIndicator={false}
-        style={styles.pager}
-        contentContainerStyle={styles.pagerContent}
-        onMomentumScrollEnd={onPage}
-        onScrollEndDrag={(event) => {
-          const velocity = event.nativeEvent.velocity?.x ?? 0;
-          if (Math.abs(velocity) < 0.05) onPage(event);
-        }}
-      >
-        {[-1, 0, 1].map((offset) => {
-          const pageMonth = addMonths(month, offset);
-          return (
-            <View
-              key={`${pageMonth.getFullYear()}-${pageMonth.getMonth()}`}
-              style={{ width: pageWidth, paddingHorizontal: 8 }}
-              onLayout={(event) => {
-                if (offset !== 0) return;
-                const height = Math.round(event.nativeEvent.layout.height);
-                if (height > 0 && height !== pagerHeight) setPagerHeight(height);
-              }}
-            >
-              <MonthGrid month={pageMonth} selected={selected} onSelect={onSelect} byDay={byDay} />
-            </View>
-          );
-        })}
-      </ScrollView>
+        <View style={[styles.week, { paddingHorizontal: 8 }]}>
+          {WEEKDAYS.map((d, i) => (
+            <Text key={`${d}-${i}`} style={styles.wd}>
+              {d}
+            </Text>
+          ))}
+        </View>
+        <PeriodPager
+          key={anchor.getTime()}
+          index={index}
+          count={SPAN * 2 + 1}
+          width={pageWidth}
+          extraData={renderPage}
+          renderPage={renderPage}
+          onIndexChange={(page) => onSelect(addMonths(selected, page - index))}
+        />
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={styles.dayList} contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 24 }}>
@@ -188,7 +169,7 @@ export default function MobileMonth({
         ) : (
           <View>
             {selectedItems.map((item) => (
-              <AgendaTimelineRow key={item.id} item={item} onOpen={onOpen} />
+              <AgendaTimelineRow key={item.id} item={item} onOpen={onOpen} onToggle={onToggle} />
             ))}
           </View>
         )}
@@ -199,9 +180,6 @@ export default function MobileMonth({
 
 const styles = createThemedStyleSheet((colors) => ({
   root: { flex: 1 },
-  pagerWrap: { overflow: "hidden" },
-  pager: { flexGrow: 0, flexShrink: 0 },
-  pagerContent: { flexGrow: 0, alignItems: "flex-start" },
   week: { flexDirection: "row" },
   wd: { flex: 1, textAlign: "center", color: colors.mutedForeground, fontSize: 11, paddingVertical: 8 },
   cell: { flex: 1, minHeight: 52, alignItems: "center", paddingVertical: 4 },
