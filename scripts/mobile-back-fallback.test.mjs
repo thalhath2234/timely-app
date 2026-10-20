@@ -120,9 +120,9 @@ describe("back swipe threshold", () => {
     "utf8",
   );
 
-  test("arms at Android's 16dp line and only disarms back inside it", () => {
-    assert.match(native, /ARM_DP = 16f/);
-    assert.match(native, /DISARM_DP = 12f/);
+  test("arms at 32dp and only disarms back inside it", () => {
+    assert.match(native, /ARM_DP = 32f/);
+    assert.match(native, /DISARM_DP = 24f/);
     assert.match(native, /s\.armed = if \(s\.armed\) s\.x >= px\(DISARM_DP\) else s\.x >= px\(ARM_DP\)/);
     // No timers or direction-change rules that can drop the page on a small wobble.
     assert.doesNotMatch(native, /MIN_ARMED_MS|REARM_DP|sinceDisarm|outward/);
