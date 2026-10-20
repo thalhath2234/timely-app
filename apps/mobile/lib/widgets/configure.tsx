@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Platform, ScrollView, Text, View } from "react-native";
+import { Linking, Platform, ScrollView, Text, View } from "react-native";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Check } from "lucide-react-native";
+import { Check, ChevronRight, SlidersHorizontal } from "lucide-react-native";
 import { WidgetPreview, type WidgetConfigurationScreenProps } from "react-native-android-widget";
 import type { DashboardCard } from "@timely/contract/dashboard";
 import AnimatedPressable from "../../components/ui/AnimatedPressable";
@@ -10,14 +10,17 @@ import { LogoSpinner } from "../../components/ui/TimelyLogo";
 import { colors, createThemedStyleSheet, initializeTheme, radius, ThemeRoot } from "../theme";
 import { cardWidgetModel, widgetChoices, type WidgetModel } from "./model";
 import { renderCard } from "./render";
-import { loadCards, loadWidgetInput } from "./data";
+import { appScheme, loadCards, loadWidgetInput } from "./data";
 import { renderWidgetFor } from "./taskHandler";
 import { setWidgetEntry, widgetEntry } from "./storage";
 
 /**
  * Opens when a "Timely card" widget is added (or held and reconfigured):
  * pick which Dashboard card it shows, with a live preview, then Add.
- * Custom cards are listed first because they exist nowhere else.
+ * Custom cards are listed first because they exist nowhere else, and one of
+ * them can be changed from here: "Edit this card" keeps the pick and opens
+ * the Dashboard on that card's setup. The widget looks its card up by id on
+ * every draw, so it shows the saved change.
  */
 
 type Load = { state: "loading" } | { state: "signedOut" } | { state: "ready"; cards: DashboardCard[] };
@@ -80,7 +83,7 @@ export function CardPicker({ widgetInfo, renderWidget, setResult }: WidgetConfig
   const model = card ? models[card.id] : undefined;
   const previewWidth = Math.min(widgetInfo.width || 170, 320);
 
-  const save = async () => {
+  const save = async ({ edit = false } = {}) => {
     if (!card) return;
     setSaving(true);
     setWidgetEntry(widgetInfo.widgetId, { cardId: card.id, ...(model ? { model } : {}) });
@@ -89,6 +92,8 @@ export function CardPicker({ widgetInfo, renderWidget, setResult }: WidgetConfig
     } catch {
       if (model) renderWidget(renderCard(model, { width: widgetInfo.width, height: widgetInfo.height }));
     }
+    // Opened before this screen closes, so the link still has a JS context to leave from.
+    if (edit) await Linking.openURL(`${appScheme()}://dashboard?edit=${encodeURIComponent(card.id)}`).catch(() => undefined);
     setResult("ok");
   };
 
@@ -147,6 +152,24 @@ export function CardPicker({ widgetInfo, renderWidget, setResult }: WidgetConfig
               </View>
             )}
           </View>
+          {card?.type === "custom" ? (
+            <AnimatedPressable
+              accessibilityRole="button"
+              accessibilityLabel={`Edit ${choices.find((choice) => choice.id === card.id)?.title ?? "this card"} in Timely`}
+              disabled={saving}
+              onPress={() => void save({ edit: true })}
+              style={styles.edit}
+            >
+              <SlidersHorizontal size={17} color={colors.primary} />
+              <View style={styles.rowText}>
+                <Text style={styles.editTitle}>Edit this card</Text>
+                <Text style={styles.rowKind} numberOfLines={1}>
+                  Change what it shows in Timely. The widget follows.
+                </Text>
+              </View>
+              <ChevronRight size={16} color={colors.mutedForeground} />
+            </AnimatedPressable>
+          ) : null}
           <ScrollView
             style={styles.list}
             contentContainerStyle={styles.listContent}
@@ -194,6 +217,21 @@ const styles = createThemedStyleSheet((c) => ({
     justifyContent: "center",
   },
   previewPlaceholder: { height: PREVIEW_HEIGHT, borderRadius: 20, backgroundColor: c.card, alignItems: "center", justifyContent: "center" },
+  edit: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 56,
+    marginHorizontal: 20,
+    marginTop: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: radius,
+    backgroundColor: c.card,
+    borderWidth: 1,
+    borderColor: c.border,
+  },
+  editTitle: { fontSize: 15, fontWeight: "600", color: c.primary },
   list: { flex: 1 },
   listContent: { paddingHorizontal: 20, paddingBottom: 16 },
   group: { borderRadius: radius, backgroundColor: c.card, borderWidth: 1, borderColor: c.border, overflow: "hidden" },

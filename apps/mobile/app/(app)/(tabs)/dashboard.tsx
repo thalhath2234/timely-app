@@ -1,10 +1,9 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SkeletonRows } from "../../../components/ui/motionKit";
-import { RefreshControl, ScrollView, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   AlarmClock,
-  BarChart3,
   BookOpen,
   CalendarCheck,
   FileText,
@@ -13,19 +12,14 @@ import {
   ClipboardList,
   Clock3,
   Flame,
-  Gauge,
   Grid2x2,
-  Hash,
   Goal,
   Hourglass,
   Inbox,
-  LineChart as LineIcon,
-  List,
   LayoutGrid,
   ListChecks,
   NotebookPen,
   Pencil,
-  PieChart,
   Plus,
   Repeat,
   RotateCcw,
@@ -42,9 +36,10 @@ import {
   catalogCards,
   computeCard,
   defaultDashboard,
+  fitQuery,
   newCardId,
   type BuiltinCardType,
-  type CardDisplay,
+  type CardQuery,
   type CardRow,
   type DashboardCard,
 } from "@timely/contract/dashboard";
@@ -56,7 +51,8 @@ import ConfirmSheet from "../../../components/ui/ConfirmSheet";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import EmptyState from "../../../components/ui/EmptyState";
 import { SectionLabel } from "../../../components/ui/primitives";
-import CustomCardView from "../../../components/report/customCardView";
+import CustomCardView, { DISPLAY_ICON } from "../../../components/report/customCardView";
+import CardEditor from "../../../components/report/CardEditor";
 import FileCardView, { FILE_ICON, isFileQuery, useFileWatches } from "../../../components/report/fileCards";
 import FileCardBuilder from "../../../components/report/fileCardBuilder";
 import DashboardEditList, { type EditListScroll } from "../../../components/report/DashboardEditList";
@@ -133,14 +129,10 @@ function stopCard(card: DashboardCard) {
   if (card.type === "clock") void cancelPomodoroNotification(`clock-${card.id}`);
 }
 
-const DISPLAY_ICON: Record<CardDisplay, typeof Hash> = {
-  number: Hash,
-  list: List,
-  bar: BarChart3,
-  line: LineIcon,
-  pie: PieChart,
-  progress: Gauge,
-};
+/** A card you made (from the workshop, a template, a sheet or a doc), whose setup can be changed. */
+function isEditable(card: DashboardCard) {
+  return card.type === "custom" && Boolean(card.query);
+}
 
 function cardIcon(card: DashboardCard) {
   if (card.type === "custom" && card.query?.sheet) return FILE_ICON[card.query.sheet.view];
@@ -152,8 +144,10 @@ function cardIcon(card: DashboardCard) {
 /**
  * The Dashboard on a phone: the same saved cards as web and desktop,
  * stacked in one column. Edit mode drags cards into a new order and removes
- * them. Cards built from a sheet or a doc can be made here too; sizes and the
- * full card workshop stay on the bigger screens.
+ * them. Cards built from a sheet or a doc can be made here too, and every card
+ * you made can be changed (the edit button in edit mode, a long press on its
+ * title, or `?edit=<card id>` from a home screen widget); sizes and building
+ * cards from tasks or events stay on the bigger screens.
  */
 export default function DashboardScreen() {
   const router = useRouter();
@@ -177,6 +171,22 @@ export default function DashboardScreen() {
   const editScroll = useMemo<EditListScroll>(() => ({ ref: scrollerRef, frame: frameRef, state: scrollState }), []);
   const tasks = useMemo(() => data.tasks ?? [], [data.tasks]);
   const day = dateInZone(now, timeZone);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editingCard = editingId ? cards.find((card) => card.id === editingId && isEditable(card)) : undefined;
+  const editingKind = editingCard?.query && isFileQuery(editingCard.query) ? (editingCard.query.sheet ? "sheets" : "docs") : null;
+
+  // A widget's "Edit this card" opens the Dashboard on that card's setup.
+  const params = useLocalSearchParams<{ edit?: string }>();
+  useEffect(() => {
+    if (!params.edit || !layout) return;
+    if (layout.cards.some((card) => card.id === params.edit && isEditable(card))) setEditingId(params.edit);
+    router.setParams({ edit: undefined });
+  }, [layout, params.edit, router]);
+
+  const saveEdit = (change: { title?: string; query: CardQuery }) => {
+    if (editingId) updateCard(editingId, { title: change.title, query: change.query });
+    setEditingId(null);
+  };
 
   const openTask = useCallback((id: string) => router.push(`/(app)/tasks/${id}`), [router]);
 
@@ -390,6 +400,8 @@ export default function DashboardScreen() {
               scroll={editScroll}
               onReorder={reorder}
               onRemove={remove}
+              canEdit={isEditable}
+              onEdit={(card) => setEditingId(card.id)}
               onDragging={setDragging}
             />
           ) : (
@@ -400,13 +412,19 @@ export default function DashboardScreen() {
                   const Icon = cardIcon(card);
                   return (
                     <View key={card.id} style={[styles.card, row.length > 1 && styles.halfCard]}>
-                      <View style={styles.cardHead}>
+                      {/* Holding the title of a card you made opens its setup. */}
+                      <Pressable
+                        accessible={false}
+                        disabled={!isEditable(card)}
+                        onLongPress={() => setEditingId(card.id)}
+                        style={styles.cardHead}
+                      >
                         {/* Half-width stat tiles drop the icon so the title has the room. */}
                         {row.length > 1 ? null : <Icon size={15} color={colors.mutedForeground} />}
                         <Text style={styles.cardTitle} numberOfLines={1}>
                           {cardTitle(card)}
                         </Text>
-                      </View>
+                      </Pressable>
                       {renderBody(card)}
                     </View>
                   );
@@ -417,7 +435,7 @@ export default function DashboardScreen() {
 
           {editing ? (
             <View style={{ gap: 10 }}>
-              <Text style={[styles.muted, { textAlign: "center" }]}>Drag a card by its grip to move it. Card sizes and the full card workshop are on web and desktop.</Text>
+              <Text style={[styles.muted, { textAlign: "center" }]}>Drag a card by its grip to move it. Change a card you made with its sliders button. Card sizes are on web and desktop.</Text>
               <AnimatedPressable accessibilityRole="button" onPress={() => setConfirmReset(true)} style={styles.secondary}>
                 <RotateCcw size={15} color={colors.foreground} />
                 <Text style={styles.secondaryText}>Reset to the default dashboard</Text>
@@ -490,7 +508,18 @@ export default function DashboardScreen() {
         <Text style={[styles.muted, { marginTop: 12 }]}>Cards from tasks, events and other data are built in the card workshop on web or desktop. They show up here too.</Text>
       </BottomSheet>
 
-      <FileCardBuilder kind={building} data={data} onClose={() => setBuilding(null)} onAdd={addCard} />
+      <FileCardBuilder
+        kind={building ?? editingKind}
+        initial={!building && editingKind && editingCard?.query ? { id: editingCard.id, title: editingCard.title ?? "", query: fitQuery(editingCard.query) } : undefined}
+        data={data}
+        onClose={() => {
+          setBuilding(null);
+          setEditingId(null);
+        }}
+        onAdd={addCard}
+        onSave={saveEdit}
+      />
+      <CardEditor card={!building && !editingKind && editingCard ? editingCard : null} onClose={() => setEditingId(null)} onSave={saveEdit} />
 
       <ConfirmSheet
         open={confirmReset}
