@@ -80,9 +80,16 @@ func (s *service) Today(userID, date, timezone string) (*TodayResponse, error) {
 		return nil, err
 	}
 	scheduledIDs := map[string]bool{}
+	doneToday := map[string]bool{}
 	for _, item := range rangeRes.Items {
 		if item.TaskID != "" && !item.Reminder {
 			scheduledIDs[item.TaskID] = true
+		}
+		// A repeating task is finished one day at a time, so today's ticked
+		// occurrence counts as done today while the series stays open.
+		if item.Kind == KindTaskOccurrence && item.CompletedAt != nil && item.Task != nil && !doneToday[item.TaskID] {
+			doneToday[item.TaskID] = true
+			out.CompletedToday = append(out.CompletedToday, *item.Task)
 		}
 	}
 
@@ -107,7 +114,9 @@ func (s *service) Today(userID, date, timezone string) (*TodayResponse, error) {
 			out.TomorrowFocus = append(out.TomorrowFocus, t)
 		}
 		if t.IsCompleted() && completedOnDay(t, dayStamp, loc) {
-			out.CompletedToday = append(out.CompletedToday, t)
+			if !doneToday[t.ID] {
+				out.CompletedToday = append(out.CompletedToday, t)
+			}
 			continue
 		}
 		if t.IsCompleted() || t.IsInbox() || t.IsReminder() {

@@ -45,6 +45,24 @@ export function calendarItemDone(item: Pick<CalendarItem, "kind" | "completedAt"
   return Boolean(item.completedAt || (item.kind === "task" && item.task?.completedAt));
 }
 
+/**
+ * The items with one occurrence of a repeating task ticked on or off, as the
+ * API will return them once the edit lands.
+ */
+export function withOccurrenceDone<T extends Pick<CalendarItem, "taskId" | "originalStart" | "completedAt">>(
+  items: T[],
+  taskId: string,
+  originalStart: string,
+  completedAt: string | null,
+): T[] {
+  const at = Date.parse(originalStart);
+  return items.map((item) =>
+    item.taskId === taskId && item.originalStart && Date.parse(item.originalStart) === at
+      ? { ...item, completedAt }
+      : item,
+  );
+}
+
 export interface CalendarRange {
   from: string;
   to: string;

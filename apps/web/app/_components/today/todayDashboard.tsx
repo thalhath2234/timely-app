@@ -449,7 +449,9 @@ export default function TodayDashboard() {
   };
 
   const onItemContextMenu = (event: React.MouseEvent, item: CalendarItem) => {
-    if (item.task) {
+    // A day of a repeating task gets the calendar's occurrence menu: the task
+    // menu's Mark complete would finish the whole series.
+    if (item.task && item.kind !== "taskOccurrence") {
       openMenu(event, taskMenu(item.task), { title: item.task.name });
       return;
     }
@@ -690,7 +692,7 @@ export default function TodayDashboard() {
                               <span
                                 className={cn(
                                   "min-w-0 flex-1 truncate text-sm",
-                                  (item.completedAt || item.task?.completedAt) && "text-muted-foreground line-through",
+                                  calendarItemDone(item) && "text-muted-foreground line-through",
                                 )}
                               >
                                 {item.title}

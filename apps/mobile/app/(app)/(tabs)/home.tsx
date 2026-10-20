@@ -25,6 +25,7 @@ import EmptyState from "../../../components/ui/EmptyState";
 import BottomSheet from "../../../components/ui/BottomSheet";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import {
+  useEditTaskOccurrence,
   useSaveTask,
   useSetTodayFocus,
   useStartFocus,
@@ -37,6 +38,7 @@ import { needsNetworkCopy } from "../../../lib/queryCopy";
 import { showUndoToast } from "../../../lib/toast";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import type { CalendarItem, Task } from "../../../lib/types";
+import { calendarItemDone } from "@timely/contract/calendar";
 import { taskEntityColor } from "../../../lib/entityColor";
 import { normalizePriority } from "../../../lib/priority";
 import { eventHref } from "../../../lib/eventOccurrence";
@@ -234,6 +236,7 @@ export default function HomeScreen() {
   const pauseFocus = usePauseFocus();
   const setFocus = useSetTodayFocus();
   const save = useSaveTask();
+  const editOccurrence = useEditTaskOccurrence();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerSelected, setPickerSelected] = useState<string[]>([]);
   const [now, setNow] = useState(() => Date.now());
@@ -372,6 +375,21 @@ export default function HomeScreen() {
     void save.mutateAsync({ id: task.id, data: { completedAt: next } }).then(() => {
       showUndoToast(next ? `Completed “${task.name}”` : `Reopened “${task.name}”`, () => {
         void save.mutateAsync({ id: task.id, data: { completedAt: previous } });
+      });
+    });
+  }
+
+  // One day of a repeating task: ticking the task itself would end the series.
+  function completeItem(item: CalendarItem) {
+    if (item.kind !== "taskOccurrence" || !item.taskId || !item.originalStart) {
+      if (item.task) completeTask(item.task);
+      return;
+    }
+    const occurrence = { id: item.taskId, originalStart: item.originalStart };
+    const done = calendarItemDone(item);
+    void editOccurrence.mutateAsync({ ...occurrence, action: done ? "uncomplete" : "complete" }).then(() => {
+      showUndoToast(done ? `Reopened “${item.title}”` : `Completed “${item.title}”`, () => {
+        void editOccurrence.mutateAsync({ ...occurrence, action: done ? "complete" : "uncomplete" });
       });
     });
   }
@@ -593,8 +611,8 @@ export default function HomeScreen() {
                       accent={item.task ? taskEntityColor(item.task) : (item.color ?? colors.mutedForeground)}
                       active={isFocusing}
                       reminder={item.reminder}
-                      done={Boolean(item.completedAt || item.task?.completedAt)}
-                      onComplete={item.task ? () => completeTask(item.task!) : undefined}
+                      done={calendarItemDone(item)}
+                      onComplete={item.task ? () => completeItem(item) : undefined}
                     >
                       {meet ? (
                         <AnimatedPressable
