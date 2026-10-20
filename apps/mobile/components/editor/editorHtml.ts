@@ -94,7 +94,13 @@ export function buildEditorHtml(
     .tiptap th { background: ${t.muted}; font-weight: 600; }
     .tiptap ul[data-type="taskList"] { list-style: none; padding-left: 0; }
     .tiptap ul[data-type="taskList"] li { display: flex; gap: 8px; align-items: flex-start; }
-    .tiptap ul[data-type="taskList"] input { margin: 4px 0 0; }
+    /* A checklist row's box is its label (DocTaskItem): the native checkbox
+       and Tiptap's hidden label text inside it stay out of layout. */
+    .tiptap ul[data-type="taskList"] li > label { position: relative; flex: none; box-sizing: border-box; width: 16px; height: 16px; margin-top: 4px; border: 1.5px solid ${t.mutedForeground}; border-radius: 4px; }
+    .tiptap ul[data-type="taskList"] li > label > * { display: none; }
+    .tiptap ul[data-type="taskList"] li > label::before { content: ""; position: absolute; inset: -12px -8px -12px -14px; }
+    .tiptap ul[data-type="taskList"] li[data-checked="true"] > label { background: ${t.primary}; border-color: ${t.primary}; }
+    .tiptap ul[data-type="taskList"] li[data-checked="true"] > label::after { content: ""; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
     .mention { color: ${t.primary}; font-weight: 600; background: ${t.accent}; border-radius: 6px; padding: 0 4px; }
     .math-inline { border-radius: 4px; padding: 0 2px; }
     .math-inline.ProseMirror-selectednode, .wiki-link.ProseMirror-selectednode, .footnote-ref.ProseMirror-selectednode { background: ${t.accent}; }
@@ -251,6 +257,37 @@ export function buildEditorHtml(
             },
           }),
         ];
+      },
+    });
+    // A checklist row's box is drawn by its label (CSS above), with Tiptap's
+    // checkbox and its hidden "Task item checkbox for …" text out of layout.
+    // Android keyboards read the page as plain text, and both counted as text
+    // inside the row's locked label: Backspace after Select all then started
+    // its delete in that label, where the WebView refuses to edit, so nothing
+    // went. The label stands in for the checkbox for screen readers.
+    const DocTaskItem = TaskItem.extend({
+      addNodeView() {
+        const render = this.parent?.();
+        return (props) => {
+          const view = render(props);
+          const label = view.dom.querySelector("label");
+          const input = label.querySelector("input");
+          const mirror = () => {
+            label.setAttribute("aria-checked", input.checked ? "true" : "false");
+            label.setAttribute("aria-label", input.getAttribute("aria-label") || "");
+          };
+          label.setAttribute("role", "checkbox");
+          mirror();
+          input.addEventListener("change", mirror);
+          return {
+            ...view,
+            update(node) {
+              const kept = view.update(node);
+              if (kept) mirror();
+              return kept;
+            },
+          };
+        };
       },
     });
     // Find and replace, as on web (apps/web/app/_components/editor/findReplace.ts).
@@ -1943,7 +1980,7 @@ export function buildEditorHtml(
           },
         }),
         TaskList,
-        TaskItem.configure({ nested: true }),
+        DocTaskItem.configure({ nested: true }),
         Highlight,
         DocImage.configure({ inline: true }),
         DiagramCodeBlock,
