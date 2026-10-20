@@ -16,3 +16,8 @@ linux:
   desktop:
     entry:
       StartupWMClass: Timely Dev
+
+# Its own package name, so installing a local pacman build never replaces the
+# released "timely" package.
+pacman:
+  packageName: timely-dev
