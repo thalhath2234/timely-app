@@ -20,7 +20,12 @@ import {
   ReceiptText,
   WifiOff,
 } from "lucide-react-native";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useMutationState,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as DocumentPicker from "expo-document-picker";
@@ -34,6 +39,11 @@ import {
 } from "../../lib/api/chat";
 import { isOffline, subscribeOffline } from "../../lib/networkState";
 import { contextProjectId, mergeContext } from "../../lib/chat/context";
+import {
+  changed,
+  settingsOf,
+  type ChatSettings,
+} from "../../lib/chat/settings";
 import { removeLocalImage, retainImage } from "../../lib/chat/storage";
 import type { Chat, ChatStep, PendingImage } from "../../lib/chat/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
@@ -77,6 +87,7 @@ export default function Assistant() {
   const scroll = useRef<ScrollView>(null);
   const runningAction = useRef(false);
   const detailKey = ["chat", uid, id];
+  const settingsKey = ["chat-settings", uid, id];
   const listKey = ["chats", uid];
   useEffect(() => subscribeOffline(setOfflineState), []);
   const query = useQuery({
@@ -120,11 +131,21 @@ export default function Assistant() {
         chat?.imageReview?.receipt,
         chat?.imageReview?.destination,
       ]);
-  const context = chat?.context ?? draft.context;
-  const search = chat?.webSearch ?? draft.webSearch;
-  const model: ModelChoice = chat
-    ? { provider: chat.chosenProvider ?? "", model: chat.chosenModel ?? "" }
-    : { provider: draft.provider ?? "", model: draft.model ?? "" };
+  const unsavedSettings = useMutationState({
+    filters: { mutationKey: settingsKey, status: "pending" },
+    select: (m) => m.state.variables as Partial<ChatSettings>,
+  });
+  const {
+    context,
+    webSearch: search,
+    model,
+  }: ChatSettings = chat
+    ? Object.assign(settingsOf(chat), ...unsavedSettings)
+    : {
+        context: draft.context,
+        webSearch: draft.webSearch,
+        model: { provider: draft.provider ?? "", model: draft.model ?? "" },
+      };
   const lastRevision = useRef<number | undefined>(undefined);
   const openedReceipt = useRef("");
   const unreadCount = (list.data ?? []).filter(
@@ -205,7 +226,9 @@ export default function Assistant() {
     if (page === "chat") scroll.current?.scrollToEnd({ animated: true });
   }, [chat?.messages?.length, chat?.status]);
 
+  const scope = { id: `chat:${id}` };
   const mutation = useMutation({
+    scope,
     mutationFn: ({
       action,
       body,
@@ -217,7 +240,7 @@ export default function Assistant() {
     }) =>
       chatRequest<Chat>(
         target ? `/${encodeURIComponent(target)}${action}` : "",
-        target ? (action === "" ? "PATCH" : "POST") : "POST",
+        "POST",
         body,
       ),
     onSuccess: (next, variables) => {
@@ -280,6 +303,33 @@ export default function Assistant() {
       void query.refetch();
     },
   });
+  const settingsMutation = useMutation({
+    mutationKey: settingsKey,
+    scope,
+    mutationFn: ({ model, ...fields }: Partial<ChatSettings>) =>
+      chatRequest<Chat>(`/${encodeURIComponent(id ?? "")}`, "PATCH", {
+        ...fields,
+        ...model,
+      }),
+    onSuccess: async (next) => {
+      await queryClient.cancelQueries({ queryKey: detailKey, exact: true });
+      queryClient.setQueryData<Chat>(
+        detailKey,
+        (cached) =>
+          cached && {
+            ...cached,
+            context: next.context,
+            webSearch: next.webSearch,
+            chosenProvider: next.chosenProvider,
+            chosenModel: next.chosenModel,
+          },
+      );
+    },
+    onError: (reason) => {
+      setError(reason.message);
+      void queryClient.invalidateQueries({ queryKey: detailKey, exact: true });
+    },
+  });
   const pending = mutation.isPending || uploading;
   function act(action: string, body?: unknown) {
     if (!pending && !offline) mutation.mutate({ action, body });
@@ -318,6 +368,10 @@ export default function Assistant() {
       requestId: undefined,
     }));
   }
+  function saveSettings(next: Partial<ChatSettings>) {
+    const fields = chat && changed(next, { context, webSearch: search, model });
+    if (fields) settingsMutation.mutate(fields);
+  }
   const canConfigure = !busy && !pending && !(offline && !!id);
   function configure(nextContext = context, webSearch = search) {
     if (!canConfigure) {
@@ -325,7 +379,7 @@ export default function Assistant() {
         setError("Reconnect to change this conversation's context.");
       return;
     }
-    if (id) act("", { context: nextContext, webSearch });
+    if (id) saveSettings({ context: nextContext, webSearch });
     else
       assistant.setDraft((value) => ({
         ...value,
@@ -338,7 +392,7 @@ export default function Assistant() {
   const canPickModel = !pending && !(offline && !!id);
   function chooseModel(next: ModelChoice) {
     if (!canPickModel) return;
-    if (id) act("", next);
+    if (id) saveSettings({ model: next });
     else
       assistant.setDraft((value) => ({
         ...value,
@@ -364,7 +418,7 @@ export default function Assistant() {
     )
       return;
     runningAction.current = true;
-    setUploading(true);
+    if (draft.images.length) setUploading(true);
     setError("");
     const requestId =
       draft.requestId ||

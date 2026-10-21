@@ -85,7 +85,12 @@ export const uploadChatImage=async()=>({id:"photo",expiresAt:"2099-01-01"});
 export const renameChat=(id,title)=>chatRequest("/"+id,"PATCH",{title});
 export const deleteChat=(id)=>chatRequest("/"+id,"DELETE");
 export async function chatRequest(path,method="GET",body){
- window.auditActions.push({path,method,body});
+ window.auditActions.push({path,method,body,overlaps:method!=="GET"&&window.auditWrites>0});
+ if(method==="GET")return answer(path,method,body);
+ window.auditWrites=(window.auditWrites||0)+1;
+ try{return await answer(path,method,body);}finally{window.auditWrites--;}
+}
+async function answer(path,method,body){
  const match=path.match(/^\\/([^/]+)(.*)$/);
  const chat=match?chats[match[1]]:undefined;
  const action=match?match[2]:"";
@@ -94,6 +99,7 @@ export async function chatRequest(path,method="GET",body){
  if(!chat)throw new Error("Conversation not found");
  if(method==="DELETE"){delete chats[chat.id];return;}
  if(method!=="GET")await new Promise(r=>setTimeout(r,window.auditLatency||0));
+ if(method==="PATCH"&&window.auditFailPatch)throw new Error("Wait or stop before changing context");
  if(method==="PATCH"){const {provider,model,...rest}=body;Object.assign(chat,rest);if(provider!==undefined){chat.chosenProvider=provider;chat.chosenModel=model||"";}return structuredClone(chat);}
  if(action==="/read"){chat.unread=false;return;}
  if(action==="/reject"){chat.messages.push({id:"a"+Date.now(),role:"assistant",kind:"archive",content:"Discarded changes",createdAt:iso(0),steps:chat.plan.map(s=>({...s,status:"discarded"}))},{id:"n"+Date.now(),role:"assistant",kind:"notice",content:"Proposal discarded. Nothing was changed.",createdAt:iso(0)});chat.plan=[];chat.status="idle";chat.revision++;return structuredClone(chat);}
@@ -124,7 +130,7 @@ const modules = {
 const rnStub = `export * from ${JSON.stringify(requireMobile.resolve("react-native-web"))};`;
 const entry = `import React,{useState} from "react";import {createRoot} from "react-dom/client";import {QueryClient,QueryClientProvider} from "@tanstack/react-query";import Assistant from "./components/chat/Assistant";import {Context,emptyDraft} from "./lib/chat/runtime";
 window.auditActions=[];
-function App(){const initial=new URLSearchParams(location.search).get("chat");const [chatId,select]=useState(initial);const [cache,updateCache]=useState({receiptEdits:{},draft:emptyDraft(),chats:[],conversations:{}});const state={visible:true,foreground:true,hydrated:true,chatId,cache,updateCache,setDraft:update=>updateCache(value=>({...value,draft:update(value.draft||emptyDraft())})),acceptSend:(_old,id)=>select(id),select,currentContext:()=>[{kind:"location",label:"Current screen",value:"/tasks"},{kind:"tasks",label:"3 selected tasks",value:"[]"}],setBackHandler:()=>{},openResult:href=>{window.auditResult=href},close:()=>{window.auditClosed=true},screenshot:async()=>"/receipt.jpg"};return <QueryClientProvider client={client}><Context.Provider value={state}><Assistant/></Context.Provider></QueryClientProvider>};const client=new QueryClient({defaultOptions:{queries:{retry:false}}});createRoot(document.getElementById("root")).render(<App/>);`;
+function App(){const [open,setOpen]=useState(true);window.auditOpen=setOpen;const initial=new URLSearchParams(location.search).get("chat");const [chatId,select]=useState(initial);const [cache,updateCache]=useState({receiptEdits:{},draft:emptyDraft(),chats:[],conversations:{}});const state={visible:true,foreground:true,hydrated:true,chatId,cache,updateCache,setDraft:update=>updateCache(value=>({...value,draft:update(value.draft||emptyDraft())})),acceptSend:(_old,id)=>select(id),select,currentContext:()=>[{kind:"location",label:"Current screen",value:"/tasks"},{kind:"tasks",label:"3 selected tasks",value:"[]"}],setBackHandler:()=>{},openResult:href=>{window.auditResult=href},close:()=>{window.auditClosed=true},screenshot:async()=>"/receipt.jpg"};return <QueryClientProvider client={client}><Context.Provider value={state}>{open?<Assistant/>:null}</Context.Provider></QueryClientProvider>};const client=new QueryClient({defaultOptions:{queries:{retry:false}}});createRoot(document.getElementById("root")).render(<App/>);`;
 const output = await build({
   stdin: { contents: entry, resolveDir: mobile, loader: "tsx" },
   bundle: true,
@@ -351,17 +357,43 @@ else {
       !(await page.evaluate(() => window.auditChats.settings.webSearch))
     )
       problems.push("off then on within one save did not end on");
+    if ((await patches()).length !== 3)
+      problems.push(`off then on saved ${(await patches()).length - 1} times`);
     const before = (await patches()).length;
     await page.getByLabel("Add current screen as context").click();
     await page.waitForTimeout(600);
     if ((await patches()).length !== before)
       problems.push("adding a screen that is already attached saved anyway");
+    await search.click();
+    await page.evaluate(() => window.auditOpen(false));
+    await page.evaluate(() => window.auditOpen(true));
+    await page.waitForTimeout(100);
+    if ((await tint()) !== offTint)
+      problems.push("closing and reopening mid-save showed the old setting");
+    await page.waitForTimeout(600);
+    await page.evaluate(() => (window.auditFailPatch = true));
+    await search.click();
+    await page.waitForTimeout(600);
+    await page.evaluate(() => (window.auditFailPatch = false));
+    if (
+      (await tint()) !== offTint ||
+      !(await page.getByText("Wait or stop before changing context").count())
+    )
+      problems.push("a failed save did not go back and say why");
     await frames();
+    await search.click();
     await page.getByLabel("Message the assistant").fill("Plan my day");
     await page.getByLabel("Send message").click();
     await page.waitForTimeout(300);
     if ((await frames()).some((f) => f.uploading))
       problems.push('a text-only message said "Uploading image…"');
+    await page.waitForTimeout(800);
+    if (
+      (await actions()).some(
+        (a) => a.path.startsWith("/settings") && a.overlaps,
+      )
+    )
+      problems.push("a send went out while a settings save was still running");
     assert.deepEqual(problems, [], "composer settings");
     if (errors.length) throw new Error(errors.join("\n"));
     console.log(
