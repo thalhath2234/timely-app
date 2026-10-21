@@ -22,7 +22,7 @@ stub(
 );
 stub(
   "lib/hooks",
-  `export const useSheetsQuery=()=>({data:[]}); export const useSheetQuery=()=>({data:undefined}); export const useWorkspacesQuery=()=>({data:[]});`,
+  `export const useSheetsQuery=()=>({data:[]}); export const useSheetQuery=()=>({data:undefined}); export const useWorkspacesQuery=()=>({data:[]}); export const useAgentProvidersQuery=()=>({data:undefined}); export const useProviderModelsQuery=()=>({data:[]}); export const useChatPromptsQuery=()=>({data:undefined}); export const useDecisionFeedback=()=>({mutate(){}});`,
 );
 stub(
   "lib/chat/storage",
@@ -42,6 +42,10 @@ stub(
 stub(
   "components/ui/ListEnter",
   'import React from "react"; import {View} from "react-native"; export default ({children})=><View>{children}</View>;',
+);
+stub(
+  "components/ui/LoopImage",
+  'import React from "react"; import {View} from "react-native"; export default ({style})=><View style={style}/>;',
 );
 stub(
   "components/ui/EmptyState",
@@ -110,7 +114,7 @@ const modules = {
   "expo-secure-store":
     "export const getItemAsync=async()=>null;export const setItemAsync=async()=>{};",
   "expo-router":
-    'export const useFocusEffect=()=>{};export const usePathname=()=>"/assistant";',
+    'export const useFocusEffect=()=>{};export const usePathname=()=>"/assistant";export const useNavigation=()=>({isFocused:()=>true});',
   "react-native-safe-area-context":
     'export {View as SafeAreaView} from "react-native";',
 };
@@ -123,6 +127,8 @@ const output = await build({
   bundle: true,
   write: false,
   format: "iife",
+  // Some native-first packages read Node globals when they load.
+  banner: { js: "var process = { env: {} }, global = globalThis;" },
   jsx: "automatic",
   define: { "process.env.NODE_ENV": '"development"', __DEV__: "true" },
   mainFields: ["browser", "module", "main"],
