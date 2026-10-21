@@ -22,7 +22,7 @@ stub(
 );
 stub(
   "lib/hooks",
-  `export const useSheetsQuery=()=>({data:[]}); export const useSheetQuery=()=>({data:undefined}); export const useWorkspacesQuery=()=>({data:[]});`,
+  `export const useSheetsQuery=()=>({data:[]}); export const useSheetQuery=()=>({data:undefined}); export const useWorkspacesQuery=()=>({data:[]}); export const useAgentProvidersQuery=()=>({data:undefined}); export const useProviderModelsQuery=()=>({data:[]}); export const useChatPromptsQuery=()=>({data:undefined}); export const useDecisionFeedback=()=>({mutate(){}});`,
 );
 stub(
   "lib/chat/storage",
@@ -42,6 +42,10 @@ stub(
 stub(
   "components/ui/ListEnter",
   'import React from "react"; import {View} from "react-native"; export default ({children})=><View>{children}</View>;',
+);
+stub(
+  "components/ui/LoopImage",
+  'import React from "react"; import {View} from "react-native"; export default ({style})=><View style={style}/>;',
 );
 stub(
   "components/ui/EmptyState",
@@ -72,14 +76,21 @@ const chats={
  ]},
  japanese:{id:"japanese",title:"Learn Japanese workspace",status:"failed",phase:"apply",webSearch:true,context:[],revision:5,unread:false,error:"Workspace name already exists",createdAt:iso(60*30),updatedAt:iso(60*26),plan:[{tool:"create_workspace",summary:"Create the “Japanese” workspace.",status:"failed",error:"Workspace name already exists",arguments:{name:"Japanese"}},{tool:"create_task",summary:"Add three 30-minute study sessions.",status:"pending",arguments:{}}],messages:[{id:"j1",role:"user",content:"Create a workspace for learning Japanese and add three study sessions.",createdAt:iso(60*30)},{id:"j2",role:"assistant",content:"Here is the plan.",createdAt:iso(60*29)}]},
  standup:{id:"standup",title:"Move standup to Monday and Tuesday",status:"idle",phase:"plan",webSearch:false,context:[],revision:9,unread:false,error:"",createdAt:iso(60*24*3),updatedAt:iso(60*24*3),plan:[],messages:[{id:"s1",role:"user",content:"Change the days to monday and tuesday for the recurring standup meeting.",createdAt:iso(60*24*3)},{id:"s2",role:"assistant",content:"Done — the standup now repeats on Monday and Tuesday from next week.",createdAt:iso(60*24*3)}]},
+ settings:{id:"settings",title:"Yo",status:"idle",phase:"plan",webSearch:false,context:[{kind:"location",label:"Current screen",value:"/tasks"},{kind:"tasks",label:"3 selected tasks",value:"[]"}],revision:3,unread:false,error:"",createdAt:iso(2),updatedAt:iso(2),plan:[],messages:[{id:"y1",role:"user",content:"Yo",createdAt:iso(2)},{id:"y2",role:"assistant",content:"Hey! What would you like to do?",createdAt:iso(2)}]},
  running:{id:"running",title:"Plan my week",status:"running",phase:"plan",webSearch:false,context:[],revision:1,unread:false,error:"",createdAt:iso(1),updatedAt:iso(1),plan:[],messages:[{id:"r1",role:"user",content:"Help me plan this week.",createdAt:iso(1)}]},
 };
+window.auditChats=chats;
 const summary=(c)=>({id:c.id,title:c.title,status:c.status,phase:c.phase,webSearch:c.webSearch,revision:c.revision,unread:c.unread,error:c.error,createdAt:c.createdAt,updatedAt:c.updatedAt});
 export const uploadChatImage=async()=>({id:"photo",expiresAt:"2099-01-01"});
 export const renameChat=(id,title)=>chatRequest("/"+id,"PATCH",{title});
 export const deleteChat=(id)=>chatRequest("/"+id,"DELETE");
 export async function chatRequest(path,method="GET",body){
- window.auditActions.push({path,method,body});
+ window.auditActions.push({path,method,body,overlaps:method!=="GET"&&window.auditWrites>0});
+ if(method==="GET")return answer(path,method,body);
+ window.auditWrites=(window.auditWrites||0)+1;
+ try{return await answer(path,method,body);}finally{window.auditWrites--;}
+}
+async function answer(path,method,body){
  const match=path.match(/^\\/([^/]+)(.*)$/);
  const chat=match?chats[match[1]]:undefined;
  const action=match?match[2]:"";
@@ -87,7 +98,9 @@ export async function chatRequest(path,method="GET",body){
  if(!path)return Object.values(chats).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)).map(summary);
  if(!chat)throw new Error("Conversation not found");
  if(method==="DELETE"){delete chats[chat.id];return;}
- if(method==="PATCH"){Object.assign(chat,body);chat.revision++;return structuredClone(chat);}
+ if(method!=="GET")await new Promise(r=>setTimeout(r,window.auditLatency||0));
+ if(method==="PATCH"&&window.auditFailPatch)throw new Error("Wait or stop before changing context");
+ if(method==="PATCH"){const {provider,model,...rest}=body;Object.assign(chat,rest);if(provider!==undefined){chat.chosenProvider=provider;chat.chosenModel=model||"";}return structuredClone(chat);}
  if(action==="/read"){chat.unread=false;return;}
  if(action==="/reject"){chat.messages.push({id:"a"+Date.now(),role:"assistant",kind:"archive",content:"Discarded changes",createdAt:iso(0),steps:chat.plan.map(s=>({...s,status:"discarded"}))},{id:"n"+Date.now(),role:"assistant",kind:"notice",content:"Proposal discarded. Nothing was changed.",createdAt:iso(0)});chat.plan=[];chat.status="idle";chat.revision++;return structuredClone(chat);}
  if(action==="/approve"){chat.status="running";chat.revision++;return structuredClone(chat);}
@@ -110,19 +123,21 @@ const modules = {
   "expo-secure-store":
     "export const getItemAsync=async()=>null;export const setItemAsync=async()=>{};",
   "expo-router":
-    'export const useFocusEffect=()=>{};export const usePathname=()=>"/assistant";',
+    'export const useFocusEffect=()=>{};export const usePathname=()=>"/assistant";export const useNavigation=()=>({isFocused:()=>true});',
   "react-native-safe-area-context":
     'export {View as SafeAreaView} from "react-native";',
 };
 const rnStub = `export * from ${JSON.stringify(requireMobile.resolve("react-native-web"))};`;
 const entry = `import React,{useState} from "react";import {createRoot} from "react-dom/client";import {QueryClient,QueryClientProvider} from "@tanstack/react-query";import Assistant from "./components/chat/Assistant";import {Context,emptyDraft} from "./lib/chat/runtime";
 window.auditActions=[];
-function App(){const initial=new URLSearchParams(location.search).get("chat");const [chatId,select]=useState(initial);const [cache,updateCache]=useState({receiptEdits:{},draft:emptyDraft(),chats:[],conversations:{}});const state={visible:true,foreground:true,hydrated:true,chatId,cache,updateCache,setDraft:update=>updateCache(value=>({...value,draft:update(value.draft||emptyDraft())})),acceptSend:(_old,id)=>select(id),select,currentContext:()=>[{kind:"location",label:"Current screen",value:"/tasks"},{kind:"tasks",label:"3 selected tasks",value:"[]"}],setBackHandler:()=>{},openResult:href=>{window.auditResult=href},close:()=>{window.auditClosed=true},screenshot:async()=>"/receipt.jpg"};return <QueryClientProvider client={client}><Context.Provider value={state}><Assistant/></Context.Provider></QueryClientProvider>};const client=new QueryClient({defaultOptions:{queries:{retry:false}}});createRoot(document.getElementById("root")).render(<App/>);`;
+function App(){const [open,setOpen]=useState(true);window.auditOpen=setOpen;const initial=new URLSearchParams(location.search).get("chat");const [chatId,select]=useState(initial);const [cache,updateCache]=useState({receiptEdits:{},draft:emptyDraft(),chats:[],conversations:{}});const state={visible:true,foreground:true,hydrated:true,chatId,cache,updateCache,setDraft:update=>updateCache(value=>({...value,draft:update(value.draft||emptyDraft())})),acceptSend:(_old,id)=>select(id),select,currentContext:()=>[{kind:"location",label:"Current screen",value:"/tasks"},{kind:"tasks",label:"3 selected tasks",value:"[]"}],setBackHandler:()=>{},openResult:href=>{window.auditResult=href},close:()=>{window.auditClosed=true},screenshot:async()=>"/receipt.jpg"};return <QueryClientProvider client={client}><Context.Provider value={state}>{open?<Assistant/>:null}</Context.Provider></QueryClientProvider>};const client=new QueryClient({defaultOptions:{queries:{retry:false}}});createRoot(document.getElementById("root")).render(<App/>);`;
 const output = await build({
   stdin: { contents: entry, resolveDir: mobile, loader: "tsx" },
   bundle: true,
   write: false,
   format: "iife",
+  // Some native-first packages read Node globals when they load.
+  banner: { js: "var process = { env: {} }, global = globalThis;" },
   jsx: "automatic",
   define: { "process.env.NODE_ENV": '"development"', __DEV__: "true" },
   mainFields: ["browser", "module", "main"],
@@ -279,6 +294,107 @@ else {
     await page.getByText("Thinking it through…").first().waitFor();
     await page.getByLabel("Stop run").click();
     await page.getByText("Stopped. Completed changes are kept.").waitFor();
+    // Settings in a saved chat change at once, without dimming the composer
+    await page.goto("http://localhost:4002/?chat=settings");
+    await page.getByText("Hey! What would you like to do?").waitFor();
+    const search = page.getByLabel("Web search");
+    // React Native Web ignores accessibilityState, so read the icon's tint.
+    const tint = () =>
+      search.evaluate((el) => el.querySelector("svg").getAttribute("stroke"));
+    const offTint = await tint();
+    const patches = async () =>
+      (await actions()).filter(
+        (a) => a.method === "PATCH" && a.path === "/settings",
+      );
+    const problems = [];
+    await page.evaluate(() => {
+      window.auditLatency = 400;
+      window.auditFrames = [];
+      const opacity = (selector) => {
+        const el = document.querySelector(selector);
+        return el ? Number(getComputedStyle(el).opacity) : 1;
+      };
+      const read = () => {
+        const input = document.querySelector(
+          '[aria-label="Message the assistant"]',
+        );
+        window.auditFrames.push({
+          dimmed: Math.min(
+            opacity('[aria-label="Attach image"]'),
+            opacity('[aria-label="Add current screen as context"]'),
+            opacity('[aria-label^="Model:"]'),
+          ),
+          readOnly: !!input?.readOnly,
+          uploading: document.body.innerText.includes("Uploading image"),
+        });
+        requestAnimationFrame(read);
+      };
+      requestAnimationFrame(read);
+    });
+    const frames = () => page.evaluate(() => window.auditFrames.splice(0));
+    await search.click();
+    await page.waitForTimeout(100);
+    if ((await tint()) === offTint)
+      problems.push("Web search did not turn on until the save finished");
+    await page.waitForTimeout(500);
+    const toggle = await frames();
+    if (toggle.some((f) => f.dimmed < 1))
+      problems.push(
+        `the other composer buttons dimmed while saving (${toggle.filter((f) => f.dimmed < 1).length} frames)`,
+      );
+    if (toggle.some((f) => f.readOnly))
+      problems.push(
+        `the message box went read-only while saving (${toggle.filter((f) => f.readOnly).length} frames)`,
+      );
+    // force: without it the second tap waited for a locked composer to unlock,
+    // so this passed on the build that blinked.
+    await search.click({ force: true });
+    await page.waitForTimeout(50);
+    await search.click({ force: true });
+    await page.waitForTimeout(1200);
+    if (
+      (await tint()) === offTint ||
+      !(await page.evaluate(() => window.auditChats.settings.webSearch))
+    )
+      problems.push("off then on within one save did not end on");
+    if ((await patches()).length !== 3)
+      problems.push(`off then on saved ${(await patches()).length - 1} times`);
+    const before = (await patches()).length;
+    await page.getByLabel("Add current screen as context").click();
+    await page.waitForTimeout(600);
+    if ((await patches()).length !== before)
+      problems.push("adding a screen that is already attached saved anyway");
+    await search.click();
+    await page.evaluate(() => window.auditOpen(false));
+    await page.evaluate(() => window.auditOpen(true));
+    await page.waitForTimeout(100);
+    if ((await tint()) !== offTint)
+      problems.push("closing and reopening mid-save showed the old setting");
+    await page.waitForTimeout(600);
+    await page.evaluate(() => (window.auditFailPatch = true));
+    await search.click();
+    await page.waitForTimeout(600);
+    await page.evaluate(() => (window.auditFailPatch = false));
+    if (
+      (await tint()) !== offTint ||
+      !(await page.getByText("Wait or stop before changing context").count())
+    )
+      problems.push("a failed save did not go back and say why");
+    await frames();
+    await search.click();
+    await page.getByLabel("Message the assistant").fill("Plan my day");
+    await page.getByLabel("Send message").click();
+    await page.waitForTimeout(300);
+    if ((await frames()).some((f) => f.uploading))
+      problems.push('a text-only message said "Uploading image…"');
+    await page.waitForTimeout(800);
+    if (
+      (await actions()).some(
+        (a) => a.path.startsWith("/settings") && a.overlaps,
+      )
+    )
+      problems.push("a send went out while a settings save was still running");
+    assert.deepEqual(problems, [], "composer settings");
     if (errors.length) throw new Error(errors.join("\n"));
     console.log(
       JSON.stringify({
