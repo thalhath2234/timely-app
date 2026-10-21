@@ -76,8 +76,10 @@ const chats={
  ]},
  japanese:{id:"japanese",title:"Learn Japanese workspace",status:"failed",phase:"apply",webSearch:true,context:[],revision:5,unread:false,error:"Workspace name already exists",createdAt:iso(60*30),updatedAt:iso(60*26),plan:[{tool:"create_workspace",summary:"Create the “Japanese” workspace.",status:"failed",error:"Workspace name already exists",arguments:{name:"Japanese"}},{tool:"create_task",summary:"Add three 30-minute study sessions.",status:"pending",arguments:{}}],messages:[{id:"j1",role:"user",content:"Create a workspace for learning Japanese and add three study sessions.",createdAt:iso(60*30)},{id:"j2",role:"assistant",content:"Here is the plan.",createdAt:iso(60*29)}]},
  standup:{id:"standup",title:"Move standup to Monday and Tuesday",status:"idle",phase:"plan",webSearch:false,context:[],revision:9,unread:false,error:"",createdAt:iso(60*24*3),updatedAt:iso(60*24*3),plan:[],messages:[{id:"s1",role:"user",content:"Change the days to monday and tuesday for the recurring standup meeting.",createdAt:iso(60*24*3)},{id:"s2",role:"assistant",content:"Done — the standup now repeats on Monday and Tuesday from next week.",createdAt:iso(60*24*3)}]},
+ settings:{id:"settings",title:"Yo",status:"idle",phase:"plan",webSearch:false,context:[{kind:"location",label:"Current screen",value:"/tasks"},{kind:"tasks",label:"3 selected tasks",value:"[]"}],revision:3,unread:false,error:"",createdAt:iso(2),updatedAt:iso(2),plan:[],messages:[{id:"y1",role:"user",content:"Yo",createdAt:iso(2)},{id:"y2",role:"assistant",content:"Hey! What would you like to do?",createdAt:iso(2)}]},
  running:{id:"running",title:"Plan my week",status:"running",phase:"plan",webSearch:false,context:[],revision:1,unread:false,error:"",createdAt:iso(1),updatedAt:iso(1),plan:[],messages:[{id:"r1",role:"user",content:"Help me plan this week.",createdAt:iso(1)}]},
 };
+window.auditChats=chats;
 const summary=(c)=>({id:c.id,title:c.title,status:c.status,phase:c.phase,webSearch:c.webSearch,revision:c.revision,unread:c.unread,error:c.error,createdAt:c.createdAt,updatedAt:c.updatedAt});
 export const uploadChatImage=async()=>({id:"photo",expiresAt:"2099-01-01"});
 export const renameChat=(id,title)=>chatRequest("/"+id,"PATCH",{title});
@@ -91,6 +93,7 @@ export async function chatRequest(path,method="GET",body){
  if(!path)return Object.values(chats).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)).map(summary);
  if(!chat)throw new Error("Conversation not found");
  if(method==="DELETE"){delete chats[chat.id];return;}
+ if(method!=="GET")await new Promise(r=>setTimeout(r,window.auditLatency||0));
  if(method==="PATCH"){Object.assign(chat,body);chat.revision++;return structuredClone(chat);}
  if(action==="/read"){chat.unread=false;return;}
  if(action==="/reject"){chat.messages.push({id:"a"+Date.now(),role:"assistant",kind:"archive",content:"Discarded changes",createdAt:iso(0),steps:chat.plan.map(s=>({...s,status:"discarded"}))},{id:"n"+Date.now(),role:"assistant",kind:"notice",content:"Proposal discarded. Nothing was changed.",createdAt:iso(0)});chat.plan=[];chat.status="idle";chat.revision++;return structuredClone(chat);}
@@ -285,6 +288,81 @@ else {
     await page.getByText("Thinking it through…").first().waitFor();
     await page.getByLabel("Stop run").click();
     await page.getByText("Stopped. Completed changes are kept.").waitFor();
+    // Settings in a saved chat change at once, without dimming the composer
+    await page.goto("http://localhost:4002/?chat=settings");
+    await page.getByText("Hey! What would you like to do?").waitFor();
+    const search = page.getByLabel("Web search");
+    // React Native Web ignores accessibilityState, so read the icon's tint.
+    const tint = () =>
+      search.evaluate((el) => el.querySelector("svg").getAttribute("stroke"));
+    const offTint = await tint();
+    const patches = async () =>
+      (await actions()).filter(
+        (a) => a.method === "PATCH" && a.path === "/settings",
+      );
+    const problems = [];
+    await page.evaluate(() => {
+      window.auditLatency = 400;
+      window.auditFrames = [];
+      const opacity = (selector) => {
+        const el = document.querySelector(selector);
+        return el ? Number(getComputedStyle(el).opacity) : 1;
+      };
+      const read = () => {
+        const input = document.querySelector(
+          '[aria-label="Message the assistant"]',
+        );
+        window.auditFrames.push({
+          dimmed: Math.min(
+            opacity('[aria-label="Attach image"]'),
+            opacity('[aria-label="Add current screen as context"]'),
+            opacity('[aria-label^="Model:"]'),
+          ),
+          readOnly: !!input?.readOnly,
+          uploading: document.body.innerText.includes("Uploading image"),
+        });
+        requestAnimationFrame(read);
+      };
+      requestAnimationFrame(read);
+    });
+    const frames = () => page.evaluate(() => window.auditFrames.splice(0));
+    await search.click();
+    await page.waitForTimeout(100);
+    if ((await tint()) === offTint)
+      problems.push("Web search did not turn on until the save finished");
+    await page.waitForTimeout(500);
+    const toggle = await frames();
+    if (toggle.some((f) => f.dimmed < 1))
+      problems.push(
+        `the other composer buttons dimmed while saving (${toggle.filter((f) => f.dimmed < 1).length} frames)`,
+      );
+    if (toggle.some((f) => f.readOnly))
+      problems.push(
+        `the message box went read-only while saving (${toggle.filter((f) => f.readOnly).length} frames)`,
+      );
+    // force: without it the second tap waited for a locked composer to unlock,
+    // so this passed on the build that blinked.
+    await search.click({ force: true });
+    await page.waitForTimeout(50);
+    await search.click({ force: true });
+    await page.waitForTimeout(1200);
+    if (
+      (await tint()) === offTint ||
+      !(await page.evaluate(() => window.auditChats.settings.webSearch))
+    )
+      problems.push("off then on within one save did not end on");
+    const before = (await patches()).length;
+    await page.getByLabel("Add current screen as context").click();
+    await page.waitForTimeout(600);
+    if ((await patches()).length !== before)
+      problems.push("adding a screen that is already attached saved anyway");
+    await frames();
+    await page.getByLabel("Message the assistant").fill("Plan my day");
+    await page.getByLabel("Send message").click();
+    await page.waitForTimeout(300);
+    if ((await frames()).some((f) => f.uploading))
+      problems.push('a text-only message said "Uploading image…"');
+    assert.deepEqual(problems, [], "composer settings");
     if (errors.length) throw new Error(errors.join("\n"));
     console.log(
       JSON.stringify({
