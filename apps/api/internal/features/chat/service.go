@@ -207,6 +207,16 @@ func (s *Service) create(c *echo.Context) error {
 var errAlreadySent = errors.New("message already accepted")
 
 func (s *Service) change(c *echo.Context, fn func(*gorm.DB, *Conversation) error) error {
+	return s.save(c, func(tx *gorm.DB, row *Conversation) error {
+		if err := fn(tx, row); err != nil {
+			return err
+		}
+		row.Revision++
+		return nil
+	})
+}
+
+func (s *Service) save(c *echo.Context, fn func(*gorm.DB, *Conversation) error) error {
 	var row Conversation
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), user(c), c.Param("id"), &row); err != nil {
@@ -218,7 +228,6 @@ func (s *Service) change(c *echo.Context, fn func(*gorm.DB, *Conversation) error
 			}
 			return err
 		}
-		row.Revision++
 		return tx.Save(&row).Error
 	})
 	if err != nil {
@@ -480,7 +489,7 @@ func (s *Service) configure(c *echo.Context) error {
 			return echo.NewHTTPError(400, "Title must be between 1 and 120 characters")
 		}
 	}
-	return s.change(c, func(tx *gorm.DB, row *Conversation) error {
+	return s.save(c, func(tx *gorm.DB, row *Conversation) error {
 		if (in.Context != nil || in.WebSearch != nil) && busy(row) {
 			return echo.NewHTTPError(409, "Wait or stop before changing context")
 		}

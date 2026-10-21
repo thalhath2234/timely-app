@@ -349,7 +349,9 @@ Backend additions:
   agent notifications in one transaction, for the owning account only.
 - `PATCH /chats/:id` accepts `title` (1–120 characters) and now leaves omitted
   fields unchanged. Renaming works during a run; context and web search still
-  wait for it.
+  wait for it. Settings changes (title, web search, context, provider and model)
+  keep the conversation's `revision`, so a proposal or image review read before
+  them can still be applied.
 - A failed apply names the step that stopped the run (`status: "failed"` plus
   `error`); retry resets it to pending. Message `kind` distinguishes normal turns
   from `notice` run events (stopped, done, data changed, discarded) and `archive`

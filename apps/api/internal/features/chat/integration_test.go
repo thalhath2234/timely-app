@@ -488,3 +488,45 @@ func TestIntegrationChosenModelOverridesDefault(t *testing.T) {
 		t.Fatal("retry not claimed")
 	}
 }
+
+func TestIntegrationSettingsKeepRevision(t *testing.T) {
+	db := integrationDB(t)
+	s := New(db, nil, nil)
+	e := echo.New()
+	g := e.Group("")
+	g.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error { c.Set("userID", "user-a"); return next(c) }
+	})
+	s.Routes(g)
+	call := func(method, path, body string) (int, Conversation) {
+		t.Helper()
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		e.ServeHTTP(w, r)
+		var row Conversation
+		_ = json.Unmarshal(w.Body.Bytes(), &row)
+		return w.Code, row
+	}
+
+	c := runFixture(t, db, []Step{})
+	c.Status, c.Phase, c.Lease, c.Revision = "approval", "apply", "", 4
+	db.Save(&c)
+	for _, body := range []string{
+		`{"webSearch":true}`,
+		`{"context":[{"kind":"object","label":"Task","value":"tasks/a"}]}`,
+		`{"provider":"anthropic","model":"claude-opus-5-5"}`,
+		`{"title":"Renamed"}`,
+	} {
+		if code, row := call("PATCH", "/chats/"+c.ID, body); code != 200 || row.Revision != 4 {
+			t.Fatalf("PATCH %s: %d revision %d", body, code, row.Revision)
+		}
+	}
+	db.First(&c, "id = ?", c.ID)
+	if c.Revision != 4 || !c.WebSearch || len(c.Context) != 1 || c.ChosenModel != "claude-opus-5-5" || c.Title != "Renamed" {
+		t.Fatalf("settings not saved or revision moved: %+v", c)
+	}
+	if code, row := call("POST", "/chats/"+c.ID+"/approve", `{"revision":4}`); code != 200 || row.Status != "queued" || row.Revision != 5 {
+		t.Fatalf("approve after settings change: %d %s %d", code, row.Status, row.Revision)
+	}
+}

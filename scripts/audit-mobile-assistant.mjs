@@ -94,7 +94,7 @@ export async function chatRequest(path,method="GET",body){
  if(!chat)throw new Error("Conversation not found");
  if(method==="DELETE"){delete chats[chat.id];return;}
  if(method!=="GET")await new Promise(r=>setTimeout(r,window.auditLatency||0));
- if(method==="PATCH"){Object.assign(chat,body);chat.revision++;return structuredClone(chat);}
+ if(method==="PATCH"){const {provider,model,...rest}=body;Object.assign(chat,rest);if(provider!==undefined){chat.chosenProvider=provider;chat.chosenModel=model||"";}return structuredClone(chat);}
  if(action==="/read"){chat.unread=false;return;}
  if(action==="/reject"){chat.messages.push({id:"a"+Date.now(),role:"assistant",kind:"archive",content:"Discarded changes",createdAt:iso(0),steps:chat.plan.map(s=>({...s,status:"discarded"}))},{id:"n"+Date.now(),role:"assistant",kind:"notice",content:"Proposal discarded. Nothing was changed.",createdAt:iso(0)});chat.plan=[];chat.status="idle";chat.revision++;return structuredClone(chat);}
  if(action==="/approve"){chat.status="running";chat.revision++;return structuredClone(chat);}
