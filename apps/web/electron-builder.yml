@@ -35,6 +35,10 @@ extraResources:
 extraMetadata:
   name: timely-desktop
   main: dist-electron/main.js
+  # The pacman package's URL and licence; electron-builder refuses to build it
+  # without a homepage.
+  homepage: https://github.com/thalhath2234/timely-app
+  license: MIT
 
 asar: true
 npmRebuild: false
@@ -53,6 +57,7 @@ linux:
   target:
     - dir
     - AppImage
+    - pacman
   category: Office
   # A directory holding only icon.png makes electron-builder generate 16-512 px
   # PNGs. Given the file itself it ships just 1024x1024, a size the hicolor
@@ -62,6 +67,33 @@ linux:
     entry:
       StartupWMClass: Timely
   artifactName: "${productName}-${version}-${os}-${arch}.${ext}"
+
+# Arch Linux package: `sudo pacman -U Timely-X.Y.Z-linux-x64.pacman`. It marks
+# itself with resources/package-type, so electron-updater updates it in place
+# (pacman -U through pkexec) instead of treating it as package-managed.
+# Named "timely" because the AUR timely-bin declares conflicts=('timely'):
+# pacman offers to swap one for the other rather than installing both.
+# electron-builder's default pacman depends name packages Arch no longer has
+# (http-parser, libappindicator-gtk3), so list the ones timely-bin uses.
+pacman:
+  packageName: timely
+  maintainer: Thalhath <thalhathva2@gmail.com>
+  # electron-builder starts the description with a newline (Debian style),
+  # which leaves pacman's Description empty; fpm keeps the last --description.
+  # electron-builder has no upgrade hook, so add one (path from apps/web).
+  fpm:
+    - --description
+    - Private personal planning, scheduling, and notes.
+    - --after-upgrade
+    - electron/pacman/after-upgrade.sh
+  depends:
+    - gtk3
+    - nss
+    - alsa-lib
+    - libxss
+    - libxtst
+    - libnotify
+    - xdg-utils
 
 mac:
   target:
