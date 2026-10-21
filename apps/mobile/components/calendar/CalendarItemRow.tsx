@@ -1,11 +1,13 @@
+import { memo } from "react";
 import { Text, View } from "react-native";
-import { CalendarClock, Check, ListTodo, Repeat } from "lucide-react-native";
+import { CalendarClock, ListTodo, Repeat } from "lucide-react-native";
 import type { CalendarItem } from "../../lib/types";
 import { calendarItemDone } from "@timely/contract/calendar";
 import { formatRelativeDay, formatTime, formatTimeRange } from "../../lib/format";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { taskEntityColor } from "../../lib/entityColor";
 import AnimatedPressable from "../ui/AnimatedPressable";
+import { TaskCheck } from "../ui/motionKit";
 
 export function itemColor(item: CalendarItem) {
   if (item.task) return taskEntityColor(item.task);
@@ -44,14 +46,17 @@ export function matchesCalendarScope(
   return true;
 }
 
-export default function CalendarItemRow({
+export default memo(function CalendarItemRow({
   item,
   onOpen,
+  onToggle,
   overdue,
   timeline,
 }: {
   item: CalendarItem;
   onOpen: (item: CalendarItem) => void;
+  /** Ticks a task on or off from its circle; the rest of the row opens it. */
+  onToggle: (item: CalendarItem) => void;
   overdue?: boolean;
   timeline?: boolean;
 }) {
@@ -71,7 +76,16 @@ export default function CalendarItemRow({
   return (
     <AnimatedPressable onPress={() => onOpen(item)} style={[styles.row, timeline && styles.timelineRow]}>
       <View style={[styles.bar, { backgroundColor: itemColor(item) }]} />
-      {isTaskItem(item) ? <View style={[styles.check, overdue && styles.checkOverdue, done && styles.checkDone]}>{done ? <Check size={12} color={colors.background} /> : null}</View> : null}
+      {isTaskItem(item) ? (
+        <TaskCheck
+          checked={done}
+          onToggle={() => onToggle(item)}
+          label={`${done ? "Reopen" : "Complete"} ${item.title}`}
+          size={19}
+          borderColor={overdue ? "rgba(244,63,94,0.65)" : undefined}
+          style={styles.check}
+        />
+      ) : null}
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text numberOfLines={2} style={[styles.title, done && styles.done]}>
           {item.title}
@@ -82,10 +96,9 @@ export default function CalendarItemRow({
           {recurring ? <Repeat size={12} color={colors.mutedForeground} /> : null}
         </View>
       </View>
-      {done ? <Check size={16} color={colors.primary} /> : null}
     </AnimatedPressable>
   );
-}
+});
 
 const styles = createThemedStyleSheet((colors) => ({
   row: {
@@ -101,9 +114,8 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   timelineRow: { flex: 1, minWidth: 0, minHeight: 62, borderWidth: 1, borderColor: colors.border },
   bar: { position: "absolute", left: 0, top: 0, bottom: 0, width: 4 },
-  check: { width: 19, height: 19, borderRadius: 10, borderWidth: 1.5, borderColor: colors.mutedForeground },
-  checkDone: { backgroundColor: colors.success, borderColor: colors.success, alignItems: "center", justifyContent: "center" },
-  checkOverdue: { borderColor: "rgba(244,63,94,0.65)" },
+  // Padding the press target out to ~50dp without moving the circle.
+  check: { padding: 6, margin: -6 },
   title: { color: colors.cardForeground, fontSize: 15, fontWeight: "600" },
   done: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   meta: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 3 },

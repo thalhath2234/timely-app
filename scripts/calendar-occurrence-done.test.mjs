@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
-import { calendarItemDone, withOccurrenceDone } from "../packages/contract/src/calendar.ts";
+import { calendarItemDone, withOccurrenceDone, withTaskDone } from "../packages/contract/src/calendar.ts";
 
 // A daily reminder: one item per day, keyed by the occurrence's original start.
 const day = (originalStart, completedAt = null) => ({
@@ -48,5 +48,25 @@ describe("withOccurrenceDone", () => {
   test("unticks a day", () => {
     const ticked = withOccurrenceDone(items, "tsk_trash", "2026-10-19T21:00:00Z", "2026-10-19T22:10:00Z");
     assert.equal(withOccurrenceDone(ticked, "tsk_trash", "2026-10-19T21:00:00Z", null)[0].completedAt, null);
+  });
+});
+
+describe("withTaskDone", () => {
+  const block = (taskId, blockId) => ({ kind: "task", taskId, blockId, completedAt: undefined, task: { id: taskId, completedAt: null } });
+  const items = [block("tsk_a", "blk_1"), block("tsk_a", "blk_2"), block("tsk_b", "blk_3"), day("2026-10-19T21:00:00Z")];
+
+  test("ticks every block of the task and nothing else", () => {
+    const next = withTaskDone(items, "tsk_a", "2026-10-20T09:00:00Z");
+    assert.deepEqual(next.map(calendarItemDone), [true, true, false, false]);
+  });
+
+  test("leaves a repeating task's days alone", () => {
+    const next = withTaskDone(items, "tsk_trash", "2026-10-20T09:00:00Z");
+    assert.equal(next[3], items[3]);
+  });
+
+  test("unticks a task", () => {
+    const ticked = withTaskDone(items, "tsk_a", "2026-10-20T09:00:00Z");
+    assert.deepEqual(withTaskDone(ticked, "tsk_a", null).map(calendarItemDone), [false, false, false, false]);
   });
 });

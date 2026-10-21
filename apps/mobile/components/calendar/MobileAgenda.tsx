@@ -1,4 +1,5 @@
-import { Text, View } from "react-native";
+import { memo, useMemo, type ReactElement } from "react";
+import { SectionList, Text, View, type RefreshControlProps } from "react-native";
 import { CalendarDays } from "lucide-react-native";
 import type { CalendarItem } from "../../lib/types";
 import { dayKey, formatRelativeDay, formatTime, isSameDay, startOfDay } from "../../lib/format";
@@ -6,87 +7,99 @@ import CalendarItemRow, { isReminderItem, itemColor } from "./CalendarItemRow";
 import EmptyState from "../ui/EmptyState";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 
-export function AgendaTimelineRow({ item, onOpen, overdue = false }: { item: CalendarItem; onOpen: (item: CalendarItem) => void; overdue?: boolean }) {
+type RowHandlers = { onOpen: (item: CalendarItem) => void; onToggle: (item: CalendarItem) => void };
+
+export const AgendaTimelineRow = memo(function AgendaTimelineRow({ item, onOpen, onToggle, overdue = false }: RowHandlers & { item: CalendarItem; overdue?: boolean }) {
   return <View style={styles.timelineRow}>
     <View style={styles.timeRail}>
       <Text style={styles.timeText}>{item.allDay ? "ALL" : formatTime(item.start)}</Text>
       {!item.allDay && !isReminderItem(item) ? <Text style={styles.endText}>{formatTime(item.end)}</Text> : null}
       <View style={[styles.railDot, { backgroundColor: itemColor(item) }]} />
     </View>
-    <CalendarItemRow item={item} onOpen={onOpen} overdue={overdue} timeline />
+    <CalendarItemRow item={item} onOpen={onOpen} onToggle={onToggle} overdue={overdue} timeline />
   </View>;
-}
+});
+
+type Section = { key: string; date: Date | null; data: CalendarItem[] };
 
 export default function MobileAgenda({
   items,
   from,
   overdue = [],
   onOpen,
-}: {
+  onToggle,
+  refreshControl,
+  bottomInset,
+}: RowHandlers & {
   items: CalendarItem[];
   from: Date;
   overdue?: CalendarItem[];
-  onOpen: (item: CalendarItem) => void;
+  refreshControl?: ReactElement<RefreshControlProps>;
+  bottomInset: number;
 }) {
-  const today = startOfDay(new Date());
   // Reminders are listed too, as in Week and Month.
-  const sorted = [...items].sort((a, b) => a.start.localeCompare(b.start));
-  const overdueIds = new Set(overdue.map((item) => item.taskId ?? item.id));
-  const groups = new Map<string, { date: Date; items: CalendarItem[] }>();
-  for (const item of sorted) {
-    const d = startOfDay(new Date(item.start));
-    if (d < startOfDay(from)) continue;
-    if (d < today && overdueIds.has(item.taskId ?? item.id)) continue;
-    const key = dayKey(d);
-    if (!groups.has(key)) groups.set(key, { date: d, items: [] });
-    groups.get(key)!.items.push(item);
-  }
-
-  if (groups.size === 0 && overdue.length === 0) {
-    return (
-      <EmptyState
-        icon={CalendarDays}
-        title="Nothing scheduled"
-        description="Events, task blocks and reminders for the coming days will show here."
-      />
-    );
-  }
+  const sections = useMemo(() => {
+    const today = startOfDay(new Date());
+    const first = startOfDay(from);
+    const overdueIds = new Set(overdue.map((item) => item.taskId ?? item.id));
+    const days = new Map<string, Section>();
+    for (const item of [...items].sort((a, b) => a.start.localeCompare(b.start))) {
+      const d = startOfDay(new Date(item.start));
+      if (d < first) continue;
+      if (d < today && overdueIds.has(item.taskId ?? item.id)) continue;
+      const key = dayKey(d);
+      if (!days.has(key)) days.set(key, { key, date: d, data: [] });
+      days.get(key)!.data.push(item);
+    }
+    return [...(overdue.length > 0 ? [{ key: "overdue", date: null, data: overdue }] : []), ...days.values()];
+  }, [items, from, overdue]);
 
   return (
-    <View style={{ paddingHorizontal: 16 }}>
-      {overdue.length > 0 ? (
-        <View>
-          <View style={styles.head}>
-            <View style={styles.dangerDot} />
-            <Text style={[styles.day, { color: colors.destructive }]}>Overdue</Text>
-            <View style={styles.countPill}>
-              <Text style={styles.countText}>{overdue.length}</Text>
-            </View>
-          </View>
-          <View>
-            {overdue.map((item) => (
-              <AgendaTimelineRow key={item.id} item={item} onOpen={onOpen} overdue />
-            ))}
-          </View>
+    <SectionList
+      sections={sections}
+      keyExtractor={(item) => item.id}
+      renderItem={({ item, section }) => <AgendaTimelineRow item={item} onOpen={onOpen} onToggle={onToggle} overdue={section.date === null} />}
+      renderSectionHeader={({ section }) => <AgendaHeader date={section.date} count={section.data.length} />}
+      stickySectionHeadersEnabled={false}
+      initialNumToRender={12}
+      maxToRenderPerBatch={8}
+      windowSize={7}
+      ListEmptyComponent={
+        <EmptyState
+          icon={CalendarDays}
+          title="Nothing scheduled"
+          description="Events, task blocks and reminders for the coming days will show here."
+        />
+      }
+      refreshControl={refreshControl}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+      style={{ flex: 1 }}
+      contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: bottomInset }}
+    />
+  );
+}
+
+function AgendaHeader({ date, count }: { date: Date | null; count: number }) {
+  if (!date) {
+    return (
+      <View style={styles.head}>
+        <View style={styles.dangerDot} />
+        <Text style={[styles.day, { color: colors.destructive }]}>Overdue</Text>
+        <View style={styles.countPill}>
+          <Text style={styles.countText}>{count}</Text>
         </View>
-      ) : null}
-      {[...groups.values()].map((group) => (
-        <View key={group.date.toISOString()}>
-          <View style={styles.head}>
-            <Text style={[styles.day, isSameDay(group.date, today) && { color: colors.primary }]}>
-              {formatRelativeDay(group.date, undefined)}
-            </Text>
-            <Text style={styles.meta}>
-              {group.date.toLocaleDateString(undefined, { month: "short", day: "numeric" })} · {group.items.length}
-            </Text>
-          </View>
-          <View>
-            {group.items.map((item) => (
-              <AgendaTimelineRow key={item.id} item={item} onOpen={onOpen} />
-            ))}
-          </View>
-        </View>
-      ))}
+      </View>
+    );
+  }
+  return (
+    <View style={styles.head}>
+      <Text style={[styles.day, isSameDay(date, new Date()) && { color: colors.primary }]}>
+        {formatRelativeDay(date, undefined)}
+      </Text>
+      <Text style={styles.meta}>
+        {date.toLocaleDateString(undefined, { month: "short", day: "numeric" })} · {count}
+      </Text>
     </View>
   );
 }
