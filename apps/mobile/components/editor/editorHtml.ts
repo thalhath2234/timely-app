@@ -290,6 +290,62 @@ export function buildEditorHtml(
         };
       },
     });
+    // Deletes the phone keyboard makes across lines. Android keyboards delete
+    // through the WebView, which edits the page itself and leaves ProseMirror
+    // to read the result back. When that delete moves blocks around (the
+    // rest of the last line joining the first), ProseMirror reads it as Enter
+    // and splits the line instead, so the delete is made here from the range
+    // the WebView announced. A delete that empties the doc leaves a blank
+    // page, as Backspace does with Select all on a computer: the WebView's own
+    // keeps the first block's shell (a ticked checklist row) and an empty line.
+    let wideDelete = null;
+    const KeyboardDelete = Extension.create({
+      name: "keyboardDelete",
+      // Ahead of the Enter key handlers.
+      priority: 1000,
+      addProseMirrorPlugins() {
+        return [
+          new Plugin({
+            props: {
+              handleDOMEvents: {
+                beforeinput(view, event) {
+                  const range = event.inputType.startsWith("delete") && event.getTargetRanges()[0];
+                  if (!range) return false;
+                  try {
+                    const { doc } = view.state;
+                    const $from = doc.resolve(view.posAtDOM(range.startContainer, range.startOffset));
+                    const $to = doc.resolve(view.posAtDOM(range.endContainer, range.endOffset));
+                    if (!$from.sameParent($to)) wideDelete = { from: $from.pos, to: $to.pos, doc, at: Date.now() };
+                  } catch (_) {}
+                  return false;
+                },
+              },
+              // ProseMirror's stand-in Enter for a DOM change it took for one.
+              handleKeyDown(view, event) {
+                if (event.isTrusted || event.keyCode !== 13 || !wideDelete) return false;
+                const { from, to, doc, at } = wideDelete;
+                if (Date.now() - at > 300 || view.state.doc !== doc) return false;
+                view.dispatch(view.state.tr.setSelection(TextSelection.between(doc.resolve(from), doc.resolve(to))).deleteSelection().scrollIntoView());
+                return true;
+              },
+            },
+            appendTransaction(transactions, _old, state) {
+              if (!wideDelete || Date.now() - wideDelete.at > 300 || !transactions.some((tr) => tr.docChanged)) return null;
+              const { doc, schema } = state;
+              let bare = !doc.textContent;
+              doc.descendants((node) => {
+                if (node.isLeaf && !node.isText) bare = false;
+                return bare;
+              });
+              if (!bare || (doc.childCount === 1 && doc.firstChild.type === schema.nodes.paragraph)) return null;
+              wideDelete = null;
+              const tr = state.tr.replaceWith(0, doc.content.size, schema.nodes.paragraph.create());
+              return tr.setSelection(TextSelection.create(tr.doc, 1));
+            },
+          }),
+        ];
+      },
+    });
     // Find and replace, as on web (apps/web/app/_components/editor/findReplace.ts).
     // The app's find bar drives it with the find* commands and reads back
     // { type: "find", current, count }.
@@ -1998,6 +2054,7 @@ export function buildEditorHtml(
         FindReplace,
         BlockPick,
         LineHints,
+        KeyboardDelete,
         FootnoteRef,
         Footnote,
         Frontmatter,
