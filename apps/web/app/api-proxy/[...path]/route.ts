@@ -1,15 +1,16 @@
 import type { NextRequest } from "next/server";
 
 /**
- * Runtime API proxy for the packaged desktop app.
+ * Runtime API proxy for every build: `next dev`, `next start`, Docker and the
+ * packaged desktop app.
  *
- * `next.config.ts` rewrites `/api-proxy/*` to `API_ORIGIN` for `next dev`,
- * Docker and plain `next start`, but a rewrite is baked into the standalone
- * output at build time. The desktop app only learns its API port when the
- * supervisor allocates it (docs/desktop/README.md), so Electron builds leave
- * the rewrite out and this handler forwards each request using the
- * `API_ORIGIN` the supervisor passes to the Next sidecar. Streams (document
- * watch, agent runs) pass through untouched; cookies are forwarded both ways.
+ * Each request is forwarded to `API_ORIGIN` as it is set when the server runs:
+ * the root `.env` (loaded by `next.config.ts`), the container's environment,
+ * or the port the desktop supervisor allocates and passes to the Next sidecar
+ * (docs/desktop/README.md). A `next.config.ts` rewrite would be baked in at
+ * `next build` instead, so one image could only ever reach one address.
+ * Streams (document watch, agent runs) pass through untouched; cookies are
+ * forwarded both ways.
  */
 
 export const dynamic = "force-dynamic";
@@ -27,7 +28,10 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
 
   const headers = new Headers(request.headers);
   for (const name of HOP_BY_HOP) headers.delete(name);
-  // The API sees the app's loopback origin, never the renderer's.
+  // The API sees the app's loopback origin, never the renderer's. It marks
+  // session cookies Secure for an https page, so keep that one fact for a
+  // TLS proxy in front that does not set X-Forwarded-Proto itself.
+  if (request.headers.get("origin")?.startsWith("https://")) headers.set("x-forwarded-proto", "https");
   headers.delete("origin");
 
   const init: RequestInit & { duplex?: "half" } = {
