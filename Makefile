@@ -292,6 +292,10 @@ verify-agent-runs: ## Model-check Agent run claiming, leases, Stop and Retry wit
 pstack-sync: ## Re-copy Cursor's pstack skills into .agents/pstack for cloud sessions (PSTACK_REF=<branch or tag>, default main)
 	@scripts/sync-pstack.sh
 
+.PHONY: anatomy-sync
+anatomy-sync: ## Re-copy the anatomy skill (isometric SVG figures) into .agents/skills/anatomy (ANATOMY_REF=<branch or tag>, default main)
+	@scripts/sync-anatomy.sh
+
 lint-chat: ## Lint the chat UI and Electron integration
 	@pnpm --filter @timely/web exec eslint app/_components/chat app/_store/chatStore.ts app/utils/api/chat.ts app/utils/hooks/chat.ts "app/(pages)/(nav_pages)/chat" electron/main.ts electron/preload.ts
 
