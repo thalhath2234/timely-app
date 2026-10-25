@@ -11,12 +11,14 @@ import {
   Renderer,
   type ComponentRenderProps,
   type ComponentRenderer,
-  type ElementNode,
 } from "@openuidev/react-lang";
 import {
   GENUI_ROOT,
   genuiColorHex,
+  genuiNodes,
+  isBoardBlock,
   splitReply,
+  spokenTime,
   withRenderers,
   type GenuiName,
   type GenuiProps,
@@ -56,22 +58,7 @@ const Place = createContext<"reply" | "card" | "column">("reply");
 /** The card has timed rows, so every row keeps the time column for alignment. */
 const Timed = createContext(false);
 
-// Components with missing required props arrive as null.
-function nodes(value: unknown): ElementNode[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is ElementNode => Boolean(item) && (item as ElementNode).type === "element")
-    : [];
-}
-
-const BOARDS = new Set(["Columns", "Stats", "DayStrip"]);
-const BOARD_ROWS = new Set(["Stats", "BarChart", "DayStrip"]);
 const TIMED = new Set(["TaskRow", "EventRow", "FreeRow"]);
-
-/** A block that reads better wide: a board, or a card holding one. */
-function isBoard(node: ElementNode) {
-  if (BOARDS.has(node.typeName)) return true;
-  return node.typeName === "Card" && nodes(node.props.rows).some((row) => BOARD_ROWS.has(row.typeName));
-}
 
 // 40px is the avatar and gap before the reply column; the board stays centred
 // on the 768px column and grows to 1000px as the conversation allows.
@@ -91,18 +78,6 @@ function clock(value: string | undefined) {
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** The picked time as the person's answer, e.g. "Thu 30 Oct, 17:00". */
-function spokenTime(local: string) {
-  const date = new Date(local);
-  if (Number.isNaN(date.getTime())) return local;
-  const day = date.toLocaleDateString(undefined, {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: date.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
-  });
-  return `${day}, ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
 
 function Row({
   time,
@@ -146,8 +121,8 @@ function Row({
 }
 
 function Reply({ props, renderNode }: Props<"Reply">) {
-  const blocks = nodes(props.blocks);
-  const wide = blocks.some(isBoard);
+  const blocks = genuiNodes(props.blocks);
+  const wide = blocks.some(isBoardBlock);
   return (
     <div className="mt-3 flex flex-col gap-3">
       {blocks.map((block, index) =>
@@ -165,7 +140,7 @@ function Reply({ props, renderNode }: Props<"Reply">) {
 
 function Card({ props, renderNode }: Props<"Card">) {
   const place = useContext(Place);
-  const rows = nodes(props.rows);
+  const rows = genuiNodes(props.rows);
   const timed = rows.some((row) => TIMED.has(row.typeName) && row.props.time);
   return (
     <section className={CARD} aria-label={props.title}>
@@ -199,7 +174,7 @@ function Card({ props, renderNode }: Props<"Card">) {
 }
 
 function Columns({ props, renderNode }: Props<"Columns">) {
-  const cards = nodes(props.cards);
+  const cards = genuiNodes(props.cards);
   return (
     <Place.Provider value="column">
       <div
@@ -219,7 +194,7 @@ function Columns({ props, renderNode }: Props<"Columns">) {
 
 function Stats({ props, renderNode }: Props<"Stats">) {
   const place = useContext(Place);
-  const items = nodes(props.items);
+  const items = genuiNodes(props.items);
   if (!items.length) return null;
   // Rows stay full: two by two for four on a narrow card, otherwise one row.
   const narrow = items.length === 4 ? 2 : Math.min(items.length, 3);
@@ -418,7 +393,7 @@ function DayStrip({ props }: Props<"DayStrip">) {
   if (!(to > from)) return null;
   const span = to - from;
   const at = (minutes: number) => ((minutes - from) / span) * 100;
-  const slots = nodes(props.slots).map((node) => node.props as GenuiProps<"Slot">);
+  const slots = genuiNodes(props.slots).map((node) => node.props as GenuiProps<"Slot">);
   const ticks: number[] = [];
   for (let tick = Math.ceil(from / 120) * 120; tick <= to; tick += 120) ticks.push(tick);
   const summary = slots
@@ -519,7 +494,7 @@ function Choices({ props }: Props<"Choices">) {
         />
       ) : null}
       {time && answer ? (
-        <Button size="sm" onClick={() => send(spokenTime(time))}>
+        <Button size="sm" onClick={() => send(spokenTime(new Date(time)))}>
           Send
         </Button>
       ) : null}

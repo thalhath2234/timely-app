@@ -29,6 +29,18 @@ export function genuiColorHex(name: string | undefined): string | undefined {
   return ACCENT_PRESETS.find((preset) => preset.label.toLowerCase() === name)?.hex;
 }
 
+/** A picked date and time as the person's answer, e.g. "Thu, 30 Oct, 17:00" (24-hour, like the agent's times). */
+export function spokenTime(date: Date, now = new Date()): string {
+  const day = date.toLocaleDateString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  });
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${day}, ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 /** Where an Open link goes; task, project, doc and sheet need an id. */
 export const GENUI_TARGETS = ["today", "calendar", "tasks", "inbox", "dashboard", "task", "project", "doc", "sheet"] as const;
 export type GenuiTarget = (typeof GENUI_TARGETS)[number];
@@ -307,6 +319,25 @@ export function genuiPrompt(): string {
 /** A parser for one fence's program, for checks outside a renderer. */
 export function genuiParser() {
   return createParser(promptLibrary().toJSONSchema(), GENUI_ROOT);
+}
+
+/** A parsed component as renderers receive it in their props. */
+export type GenuiNode = { type: "element"; typeName: string; props: Record<string, unknown> };
+
+/** The components in a list prop; ones with missing required props arrive as null. */
+export function genuiNodes(value: unknown): GenuiNode[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is GenuiNode => Boolean(item) && (item as GenuiNode).type === "element")
+    : [];
+}
+
+const BOARDS = new Set<string>(["Columns", "Stats", "DayStrip"]);
+const BOARD_ROWS = new Set<string>(["Stats", "BarChart", "DayStrip"]);
+
+/** A Reply block that reads better wide: a board, or a card holding one. */
+export function isBoardBlock(node: GenuiNode): boolean {
+  if (BOARDS.has(node.typeName)) return true;
+  return node.typeName === "Card" && genuiNodes(node.props.rows).some((row) => BOARD_ROWS.has(row.typeName));
 }
 
 export type ReplyPart = { kind: "text"; text: string } | { kind: "ui"; code: string; closed: boolean };
