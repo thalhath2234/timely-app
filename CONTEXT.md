@@ -91,6 +91,10 @@ _Avoid_: backend, engine (Auto-schedule is the engine), LLM (in copy)
 Verifying a CLI Agent provider on the API host: the binary is found, its sign-in is valid, and one test call succeeds. Connect never takes a path from the person and never signs in for them.
 _Avoid_: install, log in (those happen in a terminal on the host)
 
+**Reply card**:
+A card the agent adds under its chat text to show the person's own tasks, events, days or numbers, or to offer answers: task rows with working ticks, a day strip, stats, a bar chart, answer chips with a time picker. Cards show only data the agent read with its tools and change nothing by themselves; a tick in one is the person's own action, and the agent's own changes still follow Agent proposal rules. Apps that can't draw them get the text alone (ADR 0013).
+_Avoid_: widget (the phone's home-screen widgets), generative UI, OpenUI (in copy)
+
 **Smart suggestions**:
 Pre-filled fields and hints from Jev, TypeSafe's decision model, such as the Clarify form's type, effort, priority, project, labels and possible duplicates, or the Agent's default length for new Work. They use the account's TypeSafe key first and its OpenRouter key otherwise, and change nothing until the person saves. With neither key, or turned off in Settings → Agent, Timely behaves as it does without them.
 _Avoid_: AI autofill, auto-classify, Jev (in copy, except where the key is set up)
