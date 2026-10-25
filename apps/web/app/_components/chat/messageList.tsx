@@ -14,6 +14,7 @@ import {
 import type { Chat, ChatMessage } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
 import ChatText from "./chatText";
+import ReplyBody from "./replyCards";
 import ChangeCards from "./changeCards";
 import { ImagePreview } from "./imageAttachments";
 import { ReceiptSummary } from "./receiptReview";
@@ -160,13 +161,20 @@ export default function MessageList({
   chat,
   pending = false,
   onSimilar,
+  onAsk,
 }: {
   chat: Chat;
   pending?: boolean;
   onSimilar?: (action: "move" | "stay") => void;
+  /** Sends a reply card's text as a message; unset while the chat can't take one. */
+  onAsk?: (text: string) => void;
 }) {
   let lastDay = "";
   const last = chat.messages?.[chat.messages.length - 1];
+  // Only the newest reply, with nothing the person said after it, keeps live answer chips.
+  const newest = chat.messages?.findLast(
+    (m) => (m.role === "user" && !m.kind) || (m.role === "assistant" && !m.kind),
+  );
   return (
     <div
       className="space-y-5"
@@ -233,7 +241,11 @@ export default function MessageList({
                     </span>
                   </div>
                   <div className="mt-1">
-                    <ChatText text={m.content} />
+                    <ReplyBody
+                      content={m.content}
+                      ask={onAsk}
+                      newest={m === newest}
+                    />
                   </div>
                   {!!m.imageIds?.length && (
                     <div className="mt-3 flex flex-wrap gap-2">
