@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
+    "@openuidev/react-lang": "1.0.1",
     "@remotion/google-fonts": "4.0.536",
     "@remotion/player": "4.0.536",
     "@remotion/web-renderer": "4.0.536",

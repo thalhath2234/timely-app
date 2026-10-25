@@ -15,6 +15,7 @@
     "./docChecklist": "./src/docChecklist.ts",
     "./documents": "./src/documents.ts",
     "./embeds": "./src/embeds.ts",
+    "./genui": "./src/genui.ts",
     "./entities": "./src/entities.ts",
     "./helpMeWrite": "./src/helpMeWrite.ts",
     "./importFormat": "./src/importFormat.ts",
@@ -46,6 +47,8 @@
     "./workStatus": "./src/workStatus.ts"
   },
   "dependencies": {
-    "marked": "^18.1.0"
+    "@openuidev/lang-core": "1.0.1",
+    "marked": "^18.1.0",
+    "zod": "^4.4.3"
   }
 }

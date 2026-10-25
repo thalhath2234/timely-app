@@ -1,3 +1,4 @@
+import { GENUI_CAPABILITY } from "@timely/contract/genui";
 import { apiFetch } from "./client";
 import { browserTimezone } from "./schedule";
 
@@ -84,13 +85,14 @@ export type Chat = {
 /**
  * New messages carry the browser zone; the agent uses it when no timezone is
  * saved in Working hours. client=web (web, desktop and the quick prompt) makes
- * its saved-view tools act on the web and desktop views.
+ * its saved-view tools act on the web and desktop views, and `ui` says this
+ * app draws reply cards.
  */
 function withTimezone(path: string, method: string, body: unknown) {
   const sendsMessage =
     method === "POST" && (path === "" || path.endsWith("/messages"));
   return sendsMessage && body && typeof body === "object"
-    ? { ...body, timezone: browserTimezone(), client: "web" }
+    ? { ...body, timezone: browserTimezone(), client: "web", ui: GENUI_CAPABILITY }
     : body;
 }
 

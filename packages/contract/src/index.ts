@@ -22,6 +22,7 @@
  *   viewSearch     search finding a saved task view by its name
  *   projectDelete  the confirm before deleting a project and its tasks
  *   bulkEdit       bulk task edits: per-task Undo, adding a label by name
+ *   genui          reply cards: the OpenUI components the agent may use in a reply
  */
 
 /**
