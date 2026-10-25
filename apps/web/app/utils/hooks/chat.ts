@@ -6,14 +6,23 @@ import {
   type Chat,
   type ChatSummary,
 } from "../api/chat";
+import { isBusy } from "@/app/_components/chat/chatMeta";
 export const chatsKey = ["chats"] as const;
 export const chatKey = (id: string) => ["chat", id] as const;
+// Chats only change on their own while an Agent run works, so polling is fast
+// only then. The slow check catches runs started on another device; sending,
+// approving and reading here refetch straight away.
+const IDLE_POLL = 60_000;
 export function useChats() {
   return useQuery({
     queryKey: chatsKey,
     queryFn: () => chatRequest<ChatSummary[]>(""),
-    refetchInterval: 5000,
+    // Keeps going in a hidden window so a finished run still notifies.
+    refetchInterval: (q) =>
+      q.state.data?.some((c) => isBusy(c.status)) ? 5000 : IDLE_POLL,
     refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
+    staleTime: 5000,
   });
 }
 export function useChat(id?: string | null) {
@@ -21,8 +30,9 @@ export function useChat(id?: string | null) {
     queryKey: chatKey(id || ""),
     queryFn: () => chatRequest<Chat>(`/${encodeURIComponent(id || "")}`),
     enabled: !!id,
-    refetchInterval: (q) =>
-      ["queued", "running"].includes(q.state.data?.status || "") ? 1500 : 5000,
+    refetchInterval: (q) => (isBusy(q.state.data?.status) ? 1500 : IDLE_POLL),
+    refetchOnWindowFocus: true,
+    staleTime: 5000,
   });
 }
 export function useRenameChat() {
