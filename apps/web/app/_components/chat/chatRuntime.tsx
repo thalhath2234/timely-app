@@ -7,7 +7,7 @@ import Conversation from "./conversation";
 import { useChatStore } from "@/app/_store/chatStore";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { useCalendarStore } from "@/app/_store/calendarStore";
-import { useChats } from "@/app/utils/hooks/chat";
+import { useChats, useChatStream } from "@/app/utils/hooks/chat";
 import type { ChatContext } from "@/app/utils/api/chat";
 import { fileIdFromPath, fileKind } from "@/app/utils/fileRoutes";
 import { cn } from "@/app/utils/cn";
@@ -31,6 +31,7 @@ export default function ChatRuntime() {
   const pathname = usePathname();
   const router = useRouter();
   const { data: chats } = useChats();
+  useChatStream();
   const seen = useRef<Map<string, string> | null>(null);
   useEffect(() => {
     function open(event: KeyboardEvent) {

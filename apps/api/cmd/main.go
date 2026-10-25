@@ -201,6 +201,7 @@ func main() {
 	// Proposals are rehearsed in a rolled-back transaction; no live doc broadcasts.
 	chatService.SetRehearsal(func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, nil, providerService.EmbedCredentials) })
 	chatService.SetCompleters(providerService)
+	chatService.SetLive(live)
 	chatService.SetDecisions(decisions)
 	chatService.SetEstimates(suggestions.EstimateMany)
 
@@ -313,6 +314,10 @@ func main() {
 		log.Fatalf("could not bind the API on any of %v port %d", bind, port)
 	}
 	instanceHandler.SetListening(listening)
+	// Watch streams never end on their own, so Shutdown would wait them out.
+	for _, srv := range servers {
+		srv.RegisterOnShutdown(live.Close)
+	}
 
 	<-ctx.Done()
 	log.Println("Shutting down")

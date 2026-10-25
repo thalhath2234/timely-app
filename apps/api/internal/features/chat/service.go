@@ -11,6 +11,7 @@ import (
 	"timely-api/internal/features/sheet"
 	"timely-api/internal/jobs"
 	"timely-api/internal/models"
+	"timely-api/internal/realtime"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -28,6 +29,7 @@ type Service struct {
 	completers Completers
 	decisions  Decider
 	estimates  func(ctx context.Context, userID string, names, descriptions []string) []int
+	live       *realtime.Hub
 	wg         sync.WaitGroup
 }
 
@@ -60,6 +62,7 @@ func (s *Service) Routes(g *echo.Group) {
 	g.POST("/chats/:id/images/discard", s.discardReview)
 	g.POST("/chats/:id/images/confirm", s.confirmImageReview)
 	g.GET("/chats", s.list)
+	g.GET("/chats/watch", s.watch)
 	g.POST("/chats", s.create)
 	g.GET("/chats/:id", s.get)
 	g.POST("/chats/:id/messages", s.send)
