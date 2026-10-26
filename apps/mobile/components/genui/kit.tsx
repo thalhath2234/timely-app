@@ -2,7 +2,7 @@ import { createContext, Fragment, useContext, useState, type ReactNode } from "r
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { ChevronRight, Sparkles } from "lucide-react-native";
 import type { ComponentRenderProps, ComponentRenderer } from "@openuidev/react-lang";
-import { genuiColorHex, genuiNodes, type GenuiName, type GenuiProps } from "@timely/contract/genui";
+import { chartNumber, genuiColorHex, genuiNodes, type GenuiName, type GenuiProps } from "@timely/contract/genui";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { useSaveTask, useTaskQuery, useTasksQuery } from "../../lib/hooks";
@@ -342,6 +342,7 @@ function BarChart({ props }: KitProps<"BarChart">) {
   const labels = Array.isArray(props.labels) ? props.labels : [];
   const max = Math.max(...values, 0) || 1;
   const unit = props.unit ? ` ${props.unit}` : "";
+  if (!values.length) return null;
   return (
     <Framed>
       <View style={styles.chart}>
@@ -352,7 +353,7 @@ function BarChart({ props }: KitProps<"BarChart">) {
             const high = props.highlight ? label === props.highlight : value === max;
             return (
               <View key={index} accessible accessibilityLabel={`${label}: ${value}${unit}`} style={styles.barColumn}>
-                <Text style={styles.barText}>{value}</Text>
+                <Text style={styles.barText}>{chartNumber(value)}</Text>
                 <View
                   style={[
                     styles.bar,

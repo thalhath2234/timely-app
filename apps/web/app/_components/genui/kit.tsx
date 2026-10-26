@@ -5,7 +5,7 @@ import Link from "next/link";
 import { motion } from "motion/react";
 import { ChevronRight, Sparkles } from "lucide-react";
 import type { ComponentRenderProps, ComponentRenderer } from "@openuidev/react-lang";
-import { genuiColorHex, genuiNodes, type GenuiName, type GenuiProps } from "@timely/contract/genui";
+import { chartNumber, genuiColorHex, genuiNodes, type GenuiName, type GenuiProps } from "@timely/contract/genui";
 import { motion as MOTION } from "@timely/contract/designTokens";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
 import { useTask, useTasks, useUpdateTask } from "@/app/utils/hooks/tasks";
@@ -336,6 +336,7 @@ function BarChart({ props }: KitProps<"BarChart">) {
   const labels = Array.isArray(props.labels) ? props.labels : [];
   const max = Math.max(...values, 0) || 1;
   const unit = props.unit ? ` ${props.unit}` : "";
+  if (!values.length) return null;
   return (
     <Framed>
       {/* On a board card the chart takes the height the card has left. */}
@@ -353,7 +354,7 @@ function BarChart({ props }: KitProps<"BarChart">) {
                 className="flex min-w-0 flex-1 flex-col items-center gap-1.5"
               >
                 <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-end gap-1.5">
-                  <span className="text-[11px] tabular-nums text-muted-foreground">{value}</span>
+                  <span className="text-[11px] tabular-nums text-muted-foreground">{chartNumber(value)}</span>
                   <motion.span
                     className={cn("block w-full max-w-[34px] origin-bottom rounded-t-[5px] rounded-b-[2px]", high ? "bg-primary" : "bg-fill")}
                     style={{ height: `max(2px, calc((100% - 22px) * ${value / max}))` }}

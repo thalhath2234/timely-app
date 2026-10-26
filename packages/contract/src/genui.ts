@@ -42,6 +42,21 @@ export function spokenTime(date: Date, now = new Date()): string {
 }
 
 /** Where an Open link goes; task, project, doc and sheet need an id. */
+/**
+ * A bar's number in the little space over it: 1.2k, 25k, 3.4M; under a
+ * thousand, at most one decimal. Sheet columns can hold money, which would
+ * not fit as 25000.
+ */
+export function chartNumber(value: number): string {
+  if (!Number.isFinite(value)) return "";
+  const abs = Math.abs(value);
+  const short = (n: number) => String(Math.round(n * 10) / 10);
+  if (abs >= 1e9) return `${short(value / 1e9)}B`;
+  if (abs >= 1e6) return `${short(value / 1e6)}M`;
+  if (abs >= 1e3) return `${short(value / 1e3)}k`;
+  return short(value);
+}
+
 export const GENUI_TARGETS = ["today", "calendar", "tasks", "inbox", "dashboard", "task", "project", "doc", "sheet"] as const;
 export type GenuiTarget = (typeof GENUI_TARGETS)[number];
 
@@ -325,13 +340,17 @@ export function genuiNodes(value: unknown): GenuiNode[] {
 }
 
 /**
- * The Reply blocks worth drawing: a Card with no rows and no Open link (a
- * cut-off program, or rows the parser had to drop) would be an empty frame.
+ * The blocks of a Reply or a board Panel worth drawing: a Card with no rows
+ * and no Open link (a cut-off program, or rows the parser had to drop) would
+ * be an empty frame, and so would a BarChart with no numbers, such as one of
+ * a sheet column that isn't there.
  */
 export function replyBlocks(blocks: unknown): GenuiNode[] {
-  return genuiNodes(blocks).filter(
-    (block) => block.typeName !== "Card" || genuiNodes(block.props.rows).length > 0 || Boolean(block.props.open),
-  );
+  return genuiNodes(blocks).filter((block) => {
+    if (block.typeName === "Card") return genuiNodes(block.props.rows).length > 0 || Boolean(block.props.open);
+    if (block.typeName === "BarChart") return Array.isArray(block.props.values) && block.props.values.length > 0;
+    return true;
+  });
 }
 
 export type ReplyPart = { kind: "text"; text: string } | { kind: "ui"; code: string; closed: boolean };

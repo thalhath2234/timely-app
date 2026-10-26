@@ -229,6 +229,9 @@ export function editorThemeVars() {
     accent: palette.accent,
     accentForeground: palette.accentForeground,
     border: palette.border,
+    card: palette.card,
+    success: palette.success,
+    warning: palette.warning,
   };
 }
 

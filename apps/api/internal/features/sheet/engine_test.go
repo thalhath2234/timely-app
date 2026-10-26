@@ -420,3 +420,64 @@ func workbookCells(sh *models.Sheet) string {
 	}
 	return b.String()
 }
+
+func TestCellsBriefsNameColumnsAsTheAppsFindThem(t *testing.T) {
+	expenses, err := BuildBuiltin("builtin:yearly-expenses", 2027, "LKR")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jan := &expenses.Tabs[2]
+	col := map[string]string{}
+	for _, column := range jan.Columns {
+		col[column.Name] = column.ID
+	}
+	AppendRow(jan, models.SheetRow{ID: "r", Cells: map[string]string{col["Date"]: "2027-01-03", col["Item"]: "Rice 5kg", col["Category"]: "Groceries", col["Qty"]: "2", col["Unit price"]: "1250"}})
+
+	// Letters over the columns and the names typed in row 1, a hidden column and a totals row.
+	typed := models.Sheet{ID: "s2", Title: "Runs", Tabs: models.SheetTabs{{
+		ID:   "t1",
+		Name: "Week",
+		Columns: models.SheetColumns{
+			{ID: "a", Name: "A", Type: "text"},
+			{ID: "b", Name: "B", Type: "text"},
+			{ID: "c", Name: "C", Type: "text", Hidden: true},
+		},
+		Rows: models.SheetRows{
+			{ID: "1", Cells: map[string]string{"a": "Day", "b": "Km", "c": "Note"}},
+			{ID: "2", Cells: map[string]string{"a": "Mon", "b": "5", "c": "easy"}},
+			{ID: "3", Cells: map[string]string{"a": "Tue", "b": "7.5"}},
+			{ID: "4", Cells: map[string]string{"a": "", "b": "=SUM(B2:B3)"}},
+		},
+	}}}
+
+	briefs, err := CellsBriefs([]models.Sheet{*expenses, typed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(briefs) != 2 {
+		t.Fatalf("%d sheets", len(briefs))
+	}
+	columns := func(tab CellsTab) string {
+		names := make([]string, len(tab.Columns))
+		for i, column := range tab.Columns {
+			names[i] = column.Name
+			if column.Numbers {
+				names[i] += "#"
+			}
+		}
+		return strings.Join(names, ", ")
+	}
+	var january *CellsTab
+	for i := range briefs[0] {
+		if briefs[0][i].Name == "January" {
+			january = &briefs[0][i]
+		}
+	}
+	if january == nil || january.Rows != 1 || columns(*january) != "Date, Item, Category, Store / from, Qty#, Unit, Unit price#, Total#" {
+		t.Fatalf("January = %+v (want one entry: the month total row on top is left out)", january)
+	}
+	week := briefs[1][0]
+	if week.Name != "Week" || week.Rows != 2 || columns(week) != "Day, Km#" {
+		t.Fatalf("Week = %d rows, %s (want the names in row 1, no hidden column, no totals row)", week.Rows, columns(week))
+	}
+}
