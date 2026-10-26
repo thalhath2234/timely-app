@@ -237,6 +237,8 @@ export default function Assistant() {
       action: string;
       body?: unknown;
       target?: string | null;
+      /** Text sent from a reply card leaves the draft and its images alone. */
+      fromCard?: boolean;
     }) =>
       chatRequest<Chat>(
         target ? `/${encodeURIComponent(target)}${action}` : "",
@@ -256,7 +258,8 @@ export default function Assistant() {
               : cache.draft,
           conversations: { ...cache.conversations, [next.id]: next },
         }));
-        draft.images.forEach((image) => void removeLocalImage(image.uri));
+        if (!variables.fromCard)
+          draft.images.forEach((image) => void removeLocalImage(image.uri));
         assistant.acceptSend(variables.target ?? id, next.id);
       }
       if (
@@ -333,6 +336,18 @@ export default function Assistant() {
   const pending = mutation.isPending || uploading;
   function act(action: string, body?: unknown) {
     if (!pending && !offline) mutation.mutate({ action, body });
+  }
+  function ask(content: string) {
+    if (runningAction.current || pending || busy || offline || !id) return;
+    mutation.mutate({
+      action: "/messages",
+      body: {
+        content,
+        imageIds: [],
+        requestId: `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`,
+      },
+      fromCard: true,
+    });
   }
   function chooseSimilar(action: "move" | "stay") {
     if (action === "stay") return act("/similar", { action });
@@ -692,7 +707,7 @@ export default function Assistant() {
       if (task) assistant.openResult(`/(app)/tasks/${task[1]}`);
       else if (legacyFile) assistant.openResult(legacyFile);
       else if (
-        /^\/(tasks|projects|files|events|calendar|today|settings)(\/|\?|$)/.test(
+        /^\/(tasks|projects|files|events|calendar|today|inbox|dashboard|settings)(\/|\?|$)/.test(
           href,
         )
       )
@@ -938,6 +953,7 @@ export default function Assistant() {
                       }}
                       pending={pending}
                       onSimilar={chooseSimilar}
+                      onAsk={pending || busy || offline ? undefined : ask}
                     />
                   ) : null}
                   {savedReceipt && review?.receipt ? (

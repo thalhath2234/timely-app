@@ -541,6 +541,7 @@ func (s *Service) similar(c *echo.Context) error {
 		// Its view tools act on the app that sent it (phone or web views).
 		if row.Client != "" {
 			target.Client = row.Client
+			target.RichUI = row.RichUI
 		}
 		if row.ChosenProvider != "" {
 			target.ChosenProvider, target.ChosenModel = row.ChosenProvider, row.ChosenModel

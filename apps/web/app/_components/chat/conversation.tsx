@@ -145,6 +145,8 @@ export default function Conversation({
     }: {
       action: string;
       body?: unknown;
+      /** Text sent from a reply card leaves the composer as it was. */
+      keepDraft?: boolean;
     }) => {
       if (!id)
         return chatRequest<Chat>("", "POST", {
@@ -165,7 +167,7 @@ export default function Conversation({
       cache.setQueryData(chatKey(next.id), next);
       void cache.invalidateQueries({ queryKey: chatsKey });
       if (!id) onCreated(next.id);
-      if (!id || vars.action === "/messages") {
+      if (!id || (vars.action === "/messages" && !vars.keepDraft)) {
         setDraft("");
         uploads.sent();
       }
@@ -230,6 +232,14 @@ export default function Conversation({
         content: draft.trim(),
         imageIds: uploads.images.map((i) => i.id),
       },
+    });
+  }
+  function ask(content: string) {
+    if (!id || mutation.isPending || busy) return;
+    mutation.mutate({
+      action: "/messages",
+      body: { content, imageIds: [] },
+      keepDraft: true,
     });
   }
   function configure(nextContext: ChatContext[], nextSearch: boolean) {
@@ -382,7 +392,7 @@ export default function Conversation({
         </header>
       )}
       {!bar && (
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 md:px-8">
+        <div className="@container/chat min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 md:px-8">
           <div
             className={cn("mx-auto w-full max-w-3xl py-6", compact && "py-4")}
           >
@@ -432,6 +442,7 @@ export default function Conversation({
                 chat={chat}
                 pending={mutation.isPending}
                 onSimilar={chooseSimilar}
+                onAsk={busy || mutation.isPending ? undefined : ask}
               />
             )}
             <div ref={receiptAnchor} />
