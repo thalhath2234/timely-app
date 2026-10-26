@@ -66,7 +66,7 @@ describe("parser", () => {
 });
 
 describe("described cards", async () => {
-  const { boardExamples, boardParser, boardPrompt, describedCard, runData } = await import("../packages/contract/src/genuiBoard.ts");
+  const { boardExamples, boardParser, boardPrompt, describedCard, drawBoard, runData } = await import("../packages/contract/src/genuiBoard.ts");
   const { normalizeDashboard } = await import("../packages/contract/src/dashboard.ts");
   const board = boardPrompt();
   const now = new Date("2026-10-28T12:00:00Z"); // a Wednesday
@@ -154,5 +154,23 @@ describe("described cards", async () => {
     const broken = normalizeDashboard({ version: 1, cards: [{ ...card, query: { ...card.query, described: { program: 42 } } }] });
     assert.equal(broken.cards[0].query.described, undefined);
     assert.equal(describedCard("c2", "x", 'root = Reply([])'), null);
+  });
+
+  test("drawBoard works out every prop the phone draws", () => {
+    const leaves = (node, out = []) => {
+      if (Array.isArray(node)) node.forEach((item) => leaves(item, out));
+      else if (node?.type === "element") Object.values(node.props).forEach((value) => leaves(value, out));
+      else if (node && typeof node === "object") out.push(node);
+      return out;
+    };
+    for (const { program } of boardExamples()) {
+      const root = drawBoard(program, data, ctx);
+      assert.equal(root?.typeName, "Panel", program);
+      assert.deepEqual(leaves(root), [], `unevaluated props in ${program}`);
+    }
+    const [stats, list] = drawBoard(boardExamples()[0].program, data, ctx).props.blocks;
+    assert.deepEqual(stats.props.items.map((stat) => stat.props.value), ["1", "0/2"]);
+    assert.deepEqual(list.props.rows.map((row) => [row.typeName, row.props.title]), [["TaskRow", "Send invoice"]]);
+    assert.equal(drawBoard('root = Reply([])', data, ctx), null);
   });
 });

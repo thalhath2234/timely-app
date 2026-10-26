@@ -84,7 +84,7 @@ function Row({
   const metaColor = tone === "warning" ? colors.warning : tone === "success" ? colors.success : colors.mutedForeground;
   return (
     <View style={[styles.row, tone === "warning" && { backgroundColor: `${colors.warning}17` }, style]}>
-      {timed || time ? <Text style={styles.time}>{time ?? ""}</Text> : null}
+      {timed || time ? <Text numberOfLines={1} style={styles.time}>{time ?? ""}</Text> : null}
       {lead !== undefined ? <View style={styles.lead}>{lead}</View> : null}
       <View style={styles.body}>
         {children}
@@ -551,7 +551,8 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingVertical: 6,
   },
   time: {
-    width: 42,
+    // Fits "10:00" and the board's "26 Oct" on one line.
+    width: 48,
     color: colors.mutedForeground,
     fontSize: 13,
     fontWeight: "500",

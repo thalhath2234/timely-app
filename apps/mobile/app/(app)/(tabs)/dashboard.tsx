@@ -43,6 +43,7 @@ import {
   type CardRow,
   type DashboardCard,
 } from "@timely/contract/dashboard";
+import { describedCard, readBoardProgram } from "@timely/contract/genuiBoard";
 import { dateInZone } from "@timely/contract/workStatus";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
@@ -56,6 +57,7 @@ import CardEditor from "../../../components/report/CardEditor";
 import FileCardView, { FILE_ICON, isFileQuery, useFileWatches } from "../../../components/report/fileCards";
 import FileCardBuilder from "../../../components/report/fileCardBuilder";
 import DescribedCardView from "../../../components/report/describedCard";
+import DescribeCardSheet, { type DescribedDraft } from "../../../components/report/DescribeCardSheet";
 import DashboardEditList, { type EditListScroll } from "../../../components/report/DashboardEditList";
 import PomodoroCard from "../../../components/report/pomodoroCard";
 import HighlightsCard from "../../../components/report/highlightsCard";
@@ -163,6 +165,7 @@ export default function DashboardScreen() {
   const now = useNow(30_000);
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [describing, setDescribing] = useState(false);
   const smart = useDecisionsStatusQuery().data?.available === true;
   const [confirmReset, setConfirmReset] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -176,6 +179,14 @@ export default function DashboardScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const editingCard = editingId ? cards.find((card) => card.id === editingId && isEditable(card)) : undefined;
   const editingKind = editingCard?.query && isFileQuery(editingCard.query) ? (editingCard.query.sheet ? "sheets" : "docs") : null;
+  const editingDescribed = editingCard?.query?.described ? editingCard : undefined;
+  const describeInitial = useMemo<DescribedDraft | undefined>(
+    () =>
+      editingDescribed?.query?.described
+        ? { title: editingDescribed.title ?? "", prompt: editingDescribed.query.described.prompt, program: editingDescribed.query.described.program }
+        : undefined,
+    [editingDescribed],
+  );
 
   // A widget's "Edit this card" opens the Dashboard on that card's setup.
   const params = useLocalSearchParams<{ edit?: string }>();
@@ -230,6 +241,22 @@ export default function DashboardScreen() {
     update((current) => ({ ...current, cards: [{ ...card, id }, ...current.cards] }));
     setAdding(false);
     setBuilding(null);
+  };
+
+  // A new card takes the size its program names; a changed one keeps its own unless the words resized it.
+  const saveDescribed = (draft: DescribedDraft) => {
+    const card = describedCard(editingDescribed?.id ?? "new", draft.prompt, draft.program, data);
+    if (!card) return;
+    if (editingDescribed) {
+      const before = readBoardProgram(editingDescribed.query?.described?.program ?? "")?.size;
+      const resized = !before || before.w !== card.w || before.h !== card.h;
+      updateCard(editingDescribed.id, { title: draft.title || card.title, query: card.query, ...(resized ? { w: card.w, h: card.h } : {}) });
+      setEditingId(null);
+      return;
+    }
+    const { id: _id, ...fresh } = card;
+    addCard({ ...fresh, title: draft.title || card.title });
+    setDescribing(false);
   };
 
   const reorder = (from: number, to: number) =>
@@ -460,6 +487,20 @@ export default function DashboardScreen() {
       </View>
 
       <BottomSheet open={adding} onClose={() => setAdding(false)} title="Add a card">
+        <AnimatedPressable
+          accessibilityRole="button"
+          onPress={() => {
+            setAdding(false);
+            setDescribing(true);
+          }}
+          style={styles.option}
+        >
+          <Sparkles size={18} color={colors.primary} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.optionTitle}>Describe a card</Text>
+            <Text style={styles.muted}>Say what it should show. The AI builds a live card from your tasks, events and files.</Text>
+          </View>
+        </AnimatedPressable>
         <SectionLabel>From your files</SectionLabel>
         {(
           [
@@ -519,7 +560,7 @@ export default function DashboardScreen() {
             </AnimatedPressable>
           );
         })}
-        <Text style={[styles.muted, { marginTop: 12 }]}>Cards from tasks, events and other data are built in the card workshop on web or desktop. They show up here too.</Text>
+        <Text style={[styles.muted, { marginTop: 12 }]}>Cards built by hand in the card workshop on web or desktop show up here too.</Text>
       </BottomSheet>
 
       <FileCardBuilder
@@ -533,7 +574,16 @@ export default function DashboardScreen() {
         onAdd={addCard}
         onSave={saveEdit}
       />
-      <CardEditor card={!building && !editingKind && editingCard ? editingCard : null} onClose={() => setEditingId(null)} onSave={saveEdit} />
+      <CardEditor card={!building && !editingKind && !editingDescribed && editingCard ? editingCard : null} onClose={() => setEditingId(null)} onSave={saveEdit} />
+      <DescribeCardSheet
+        open={describing || Boolean(!building && editingDescribed)}
+        initial={describing ? undefined : describeInitial}
+        onClose={() => {
+          setDescribing(false);
+          setEditingId(null);
+        }}
+        onSave={saveDescribed}
+      />
 
       <ConfirmSheet
         open={confirmReset}

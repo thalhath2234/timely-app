@@ -1,4 +1,4 @@
-import { createLibrary, createParser, defineComponent, defineFunction } from "@openuidev/lang-core";
+import { createLibrary, createParser, defineComponent, defineFunction, evaluateRoot } from "@openuidev/lang-core";
 import { z } from "zod/v4";
 import {
   RANGE_LABELS,
@@ -408,6 +408,29 @@ export function boardPrompt(): string {
 export function boardParser() {
   return createParser(promptLibrary().toJSONSchema(), BOARD_ROOT);
 }
+
+/**
+ * The program as a renderer draws it: every @Data call answered from this
+ * data and every reference, sum and @Each worked out. Null when it has no
+ * Panel root. The web's Renderer does this itself; the phone draws the root
+ * on its own (the package's Renderer draws DOM elements), so it reads it here.
+ */
+export function drawBoard(program: string, data: DashboardData, ctx: EngineContext): GenuiNode | null {
+  const library = promptLibrary();
+  const schema = library.toJSONSchema();
+  const result = createParser(schema, BOARD_ROOT).parse(program);
+  if (!result.root) return null;
+  const [data$] = boardFunctions(data, ctx);
+  const functions = { Data: { ...schema.functions!.Data, fn: data$.fn } };
+  const root = evaluateRoot(result, { ctx: { getState: () => undefined, resolveRef: () => undefined, functions }, library, store: null });
+  return root?.typeName === BOARD_ROOT ? (root as GenuiNode) : null;
+}
+
+/** Words to start a card from, offered under the describe box. */
+export const DESCRIBE_EXAMPLES = EXAMPLES.map((example) => example.split("\n")[0].replace(/^Words:\s*/, ""));
+
+/** Changes to try once a card is built. */
+export const DESCRIBE_CHANGES = ["Show more rows", "Add a chart by day", "Only the overdue ones", "Make it smaller"];
 
 /** The example programs in the prompt, without their "Words:" line. */
 export function boardExamples(): { words: string; program: string }[] {

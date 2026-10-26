@@ -103,7 +103,7 @@ function Row({
       style={style}
     >
       {timed || time ? (
-        <span className="w-11 shrink-0 text-[13px] font-medium tabular-nums text-muted-foreground">{time}</span>
+        <span className="w-12 shrink-0 whitespace-nowrap text-[13px] font-medium tabular-nums text-muted-foreground">{time}</span>
       ) : null}
       {lead !== undefined ? <span className="flex w-[18px] shrink-0 items-center justify-center self-stretch">{lead}</span> : null}
       <span className="min-w-0 flex-auto">

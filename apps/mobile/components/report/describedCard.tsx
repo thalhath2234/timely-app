@@ -1,6 +1,6 @@
 // Before @openuidev/react-lang, which reads its devtools flag as it loads.
 import "../genui/setup";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import {
   createLibrary,
@@ -11,7 +11,7 @@ import {
 } from "@openuidev/react-lang";
 import type { DashboardData } from "@timely/contract/dashboard";
 import { genuiNodes, type GenuiNode } from "@timely/contract/genui";
-import { BOARD_ROOT, boardFunctions, withBoardRenderers, type BoardName, type BoardProps } from "@timely/contract/genuiBoard";
+import { BOARD_ROOT, drawBoard, withBoardRenderers, type BoardName, type BoardProps } from "@timely/contract/genuiBoard";
 import { createThemedStyleSheet } from "../../lib/theme";
 import { kit, Link, RowGroup, Surface } from "../genui/kit";
 
@@ -61,6 +61,10 @@ function Root({ node }: { node: GenuiNode }) {
   return <>{renderNode(node)}</>;
 }
 
+// Renderer.Root gives the drawn nodes their renderers and error boundaries;
+// the root itself comes from drawBoard, already worked out.
+const library = createLibrary({ components, root: BOARD_ROOT });
+
 export default function DescribedCardView({
   program,
   data,
@@ -74,29 +78,18 @@ export default function DescribedCardView({
   now: Date;
   onLink: (href: string) => void;
 }) {
-  // New data gives new functions, so the program is read again with it.
-  const library = useMemo(
-    () => createLibrary({ components, functions: boardFunctions(data, { now, timeZone }), root: BOARD_ROOT }),
-    [data, now, timeZone],
-  );
-  const [root, setRoot] = useState<GenuiNode | null | undefined>(undefined);
-  // The package's default Renderer draws DOM elements, so the phone renders
-  // the parsed root itself inside Renderer.Root (which keeps the error boundaries).
+  // New data answers the @Data calls again, so a tick redraws the card at once.
+  const root = useMemo(() => drawBoard(program, data, { now, timeZone }), [program, data, now, timeZone]);
   return (
     <Link.Provider value={onLink}>
       <View style={styles.bleed}>
-        <Renderer.Root
-          response={program}
-          library={library}
-          publishObservability={false}
-          onParseResult={(result) => setRoot((result?.root as GenuiNode | null | undefined) ?? null)}
-        >
-          {root ? (
+        {root ? (
+          <Renderer.Root response="" library={library} publishObservability={false}>
             <Root node={root} />
-          ) : root === null ? (
-            <Text style={styles.empty}>This card could not be drawn. Change it to build it again.</Text>
-          ) : null}
-        </Renderer.Root>
+          </Renderer.Root>
+        ) : (
+          <Text style={styles.empty}>This card could not be drawn. Change it to build it again.</Text>
+        )}
       </View>
     </Link.Provider>
   );

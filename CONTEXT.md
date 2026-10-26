@@ -95,6 +95,10 @@ _Avoid_: install, log in (those happen in a terminal on the host)
 A card the agent adds under its chat text to show the person's own tasks, events, days or numbers, or to offer answers: task rows with working ticks, a day strip, stats, a bar chart, answer chips with a time picker. Cards show only data the agent read with its tools and change nothing by themselves; a tick in one is the person's own action, and the agent's own changes still follow Agent proposal rules. Apps that can't draw them get the text alone (ADR 0013).
 _Avoid_: widget (the phone's home-screen widgets), generative UI, OpenUI (in copy)
 
+**Described card**:
+A Dashboard card the AI builds from the person's words in "Describe a card", on desktop or phone. The AI writes the card's layout once from the Reply card kit; the card reads the person's tasks, events and files each time the dashboard shows, so it stays current without asking the AI again. More words change it. Apps that can't draw it show the nearest custom card instead (ADR 0014).
+_Avoid_: AI card, smart card, generated card
+
 **Smart suggestions**:
 Pre-filled fields and hints from Jev, TypeSafe's decision model, such as the Clarify form's type, effort, priority, project, labels and possible duplicates, or the Agent's default length for new Work. They use the account's TypeSafe key first and its OpenRouter key otherwise, and change nothing until the person saves. With neither key, or turned off in Settings → Agent, Timely behaves as it does without them.
 _Avoid_: AI autofill, auto-classify, Jev (in copy, except where the key is set up)
