@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
-import { boardExamples, drawBoard } from "../packages/contract/src/genuiBoard.ts";
+import { boardExamples, cellsProblems, drawBoard } from "../packages/contract/src/genuiBoard.ts";
 import { escapeHtml, liveBlockHtml } from "../apps/mobile/components/editor/liveBlockHtml.ts";
 
 // The phone draws a doc's live blocks as HTML for its editor page; these
@@ -46,6 +46,44 @@ list = List(@Each(@Data({source: "tasks", project: "Client work", state: "all", 
     assert.match(html, /class="lv-check is-done" role="checkbox" aria-checked="true"/);
     assert.match(html, /<span class="lv-title is-done">Ship release<\/span>/);
     assert.match(html, /<span class="lv-meta">Done<\/span>/);
+  });
+
+  test("a sheet's cells draw as a chart and rows, money short over the bars, cell text escaped", () => {
+    const column = (id, name, type = "text") => ({ id, name, type, width: 120 });
+    const tab = {
+      id: "t",
+      name: "October",
+      columns: [column("c", "Category"), column("a", "Amount", "number")],
+      rows: [{ id: "1", cells: { c: "Rent", a: "25000" } }, { id: "2", cells: { c: "Food <i>", a: "1250" } }, { id: "3", cells: { c: "Bus", a: "300" } }],
+    };
+    const sheets = [{ id: "sh1", title: "Budget", tabs: [tab], columns: tab.columns, rows: tab.rows, merges: [], workspaceId: "ws1", updatedAt: "2026-10-20" }];
+    const html = liveBlockHtml(
+      drawBoard(
+        `root = Panel("Spending", [chart, list])
+spend = @Cells({sheet: "Budget", label: "Category", value: "Amount", sort: "value"})
+chart = BarChart("Per category", spend.labels, spend.values)
+list = List(@Each(spend.rows, "r", ShareRow(r.label, r.text, r.share)), "No spending", Open("Open Budget", "sheet", spend.sheetId))`,
+        { ...data, sheets },
+        ctx,
+      ),
+      lookup,
+    );
+    assert.deepEqual([...html.matchAll(/<span class="lv-bar-text">([^<]*)<\/span>/g)].map((match) => match[1]), ["25k", "1.3k", "300"]);
+    assert.match(html, /aria-label="Rent: 25000"/);
+    assert.match(html, /Food &lt;i&gt;/);
+    assert.ok(!html.includes("<i>"));
+    assert.match(html, /data-live-open="timely:\/\/sheet\/sh1"/);
+
+    // A column renamed after the block was built: a note says which, and the empty chart is left out.
+    const renamed = `root = Panel("Spending", [chart, list])
+spend = @Cells({sheet: "Budget", label: "Category", value: "Price"})
+chart = BarChart("Per category", spend.labels, spend.values)
+list = List(@Each(spend.rows, "r", ShareRow(r.label, r.text, r.share)), "No spending")`;
+    const lost = liveBlockHtml(drawBoard(renamed, { ...data, sheets }, ctx), lookup, cellsProblems(renamed, { ...data, sheets })[0]);
+    assert.match(lost, /^<p class="lv-problem" role="status"><svg[^>]*>.*<\/svg><span>“Budget” has no column called “Price”\.<\/span><\/p>/);
+    assert.ok(!lost.includes("lv-chart"), "no empty chart frame");
+    assert.equal([...lost.matchAll(/class="lv-sec"/g)].length, 1, "only the list's section");
+    assert.match(lost, /No spending/);
   });
 
   test("text from the data or the program is escaped", () => {

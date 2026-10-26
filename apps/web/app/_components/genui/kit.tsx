@@ -5,7 +5,7 @@ import Link from "next/link";
 import { motion } from "motion/react";
 import { ChevronRight, Sparkles } from "lucide-react";
 import type { ComponentRenderProps, ComponentRenderer } from "@openuidev/react-lang";
-import { genuiColorHex, genuiNodes, type GenuiName, type GenuiProps } from "@timely/contract/genui";
+import { chartNumber, genuiColorHex, genuiNodes, type GenuiName, type GenuiProps } from "@timely/contract/genui";
 import { motion as MOTION } from "@timely/contract/designTokens";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
 import { useTask, useTasks, useUpdateTask } from "@/app/utils/hooks/tasks";
@@ -63,10 +63,13 @@ function Framed({ children }: { children: ReactNode }) {
 export function RowGroup({ rows, renderNode }: { rows: unknown; renderNode: (node: unknown) => ReactNode }) {
   const nodes = genuiNodes(rows);
   const timed = nodes.some((row) => TIMED.has(row.typeName) && row.props.time);
+  // Share bars line up when the value column fits the longest value, such as an amount of money.
+  const longest = Math.max(0, ...nodes.filter((row) => row.typeName === "ShareRow").map((row) => String(row.props.value ?? "").length));
+  const shares = longest ? ({ "--share-value": `max(84px, ${longest + 1}ch)` } as CSSProperties) : undefined;
   return (
     <Place.Provider value="card">
       <Timed.Provider value={timed}>
-        <div className="divide-y divide-border">
+        <div className="divide-y divide-border" style={shares}>
           {nodes.map((row, index) => (
             <Fragment key={index}>{renderNode(row)}</Fragment>
           ))}
@@ -314,7 +317,7 @@ function ShareRow({ props }: KitProps<"ShareRow">) {
   const hex = genuiColorHex(props.color);
   // One line in a roomy card; in a narrow one the bar drops under the label.
   return (
-    <div className="grid min-h-11 grid-cols-[8px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-2.5 text-sm @sm/card:grid-cols-[8px_minmax(0,1fr)_7rem_84px] @sm/card:py-1.5">
+    <div className="grid min-h-11 grid-cols-[8px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-2.5 text-sm @sm/card:grid-cols-[8px_minmax(0,1fr)_7rem_var(--share-value,84px)] @sm/card:py-1.5">
       <span aria-hidden className="size-2 rounded-full" style={{ backgroundColor: hex ?? "var(--primary)" }} />
       <span className="truncate">{props.label}</span>
       <span className="truncate text-right text-[13px] font-medium tabular-nums text-muted-foreground @sm/card:col-start-4 @sm/card:row-start-1">
@@ -333,6 +336,7 @@ function BarChart({ props }: KitProps<"BarChart">) {
   const labels = Array.isArray(props.labels) ? props.labels : [];
   const max = Math.max(...values, 0) || 1;
   const unit = props.unit ? ` ${props.unit}` : "";
+  if (!values.length) return null;
   return (
     <Framed>
       {/* On a board card the chart takes the height the card has left. */}
@@ -350,10 +354,10 @@ function BarChart({ props }: KitProps<"BarChart">) {
                 className="flex min-w-0 flex-1 flex-col items-center gap-1.5"
               >
                 <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-end gap-1.5">
-                  <span className="text-[11px] tabular-nums text-muted-foreground">{value}</span>
+                  <span className="text-[11px] tabular-nums text-muted-foreground">{chartNumber(value)}</span>
                   <motion.span
                     className={cn("block w-full max-w-[34px] origin-bottom rounded-t-[5px] rounded-b-[2px]", high ? "bg-primary" : "bg-fill")}
-                    style={{ height: `max(2px, calc(${(value / max) * 100}% - 22px))` }}
+                    style={{ height: `max(2px, calc((100% - 22px) * ${value / max}))` }}
                     initial={{ scaleY: 0 }}
                     animate={{ scaleY: 1 }}
                     transition={{ duration: GROW_SECONDS, ease: easeOut }}

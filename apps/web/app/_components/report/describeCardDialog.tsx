@@ -13,7 +13,7 @@ import {
   minCardSize,
   type DashboardCard,
 } from "@timely/contract/dashboard";
-import { DESCRIBE_CHANGES, DESCRIBE_EXAMPLES, readBoardProgram } from "@timely/contract/genuiBoard";
+import { describeChanges, describeExamples, readBoardProgram } from "@timely/contract/genuiBoard";
 import { todayInZone } from "@timely/contract/workStatus";
 import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 import Button, { buttonClass } from "@/app/_components/_ui/button";
@@ -86,12 +86,19 @@ export default function DescribeCardDialog({
   const sources = program ? describedSources(program) : [];
   const previewLoading = sources.some((source) => loading[source as keyof typeof loading]);
 
+  // The parent passes a new onClose on each render, such as a doc saving while
+  // the AI works; only closing the dialog may drop the request.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   useEffect(() => {
     box.current?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -99,7 +106,7 @@ export default function DescribeCardDialog({
       window.removeEventListener("keydown", onKey);
       request.current?.abort();
     };
-  }, [onClose]);
+  }, []);
 
   const build = async (text: string) => {
     const prompt = text.trim();
@@ -141,7 +148,7 @@ export default function DescribeCardDialog({
   // The card at its board height, and the width it would get on a 12-column board up to the panel width.
   const previewHeight = h * ROW_HEIGHT + (h - 1) * GRID_GAP;
   const previewWidth = `${Math.min(100, (w / 12) * 100 * 1.6)}%`;
-  const tries = program ? DESCRIBE_CHANGES : DESCRIBE_EXAMPLES;
+  const tries = program ? describeChanges(program) : describeExamples(data.sheets);
 
   if (typeof document === "undefined") return null;
 

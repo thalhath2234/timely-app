@@ -22,7 +22,10 @@ import {
   type DashboardData,
   type EngineContext,
 } from "./dashboard";
+import { formatLike } from "./dashboardFiles";
 import { GENUI_COMPONENTS, type GenuiNode } from "./genui";
+import type { Sheet } from "./sheet";
+import { cellsTable, columnByName, nameKey, tabByName, type CellsTable } from "./sheetCells";
 import { daysBetween, todayInZone } from "./workStatus";
 
 /**
@@ -334,12 +337,176 @@ export function runData(query: DataQuery, data: DashboardData, ctx: EngineContex
   return result;
 }
 
+// ---- @Cells ----
+
+const CellsQuery = z.object({
+  sheet: z.string(),
+  tab: z.string().optional(),
+  label: z.string().optional(),
+  value: z.string().optional(),
+  where: z.string().optional(),
+  is: z.string().optional(),
+  group: z.boolean().optional(),
+  sort: z.enum(["value", "label"]).optional(),
+  desc: z.boolean().optional(),
+  last: z.boolean().optional(),
+  limit: z.number().optional(),
+});
+export type CellsQuery = z.infer<typeof CellsQuery>;
+
+const CellsRow = z.object({ label: z.string(), value: z.number(), text: z.string(), share: z.number() });
+const CellsResult = z.object({
+  sheetId: z.string(),
+  value: z.number(),
+  text: z.string(),
+  average: z.string(),
+  last: z.string(),
+  count: z.number(),
+  rows: z.array(CellsRow),
+  more: z.number(),
+  labels: z.array(z.string()),
+  values: z.array(z.number()),
+});
+export type CellsResult = z.infer<typeof CellsResult>;
+
+const Cells = defineFunction({
+  name: "Cells",
+  description:
+    "Reads a sheet's cells, worked out as the sheet shows them. sheet and tab (left out: the first tab) are names from the person's sheets; label is the column that names each row, value the column of numbers (left out: the first one). where/is keep the rows whose cell in that column holds that text (no is: any text). group: rows with the same label add up into one. sort: value (largest first) or label; desc flips it. last: the last rows, the latest entries, instead of the first. limit: rows to keep (12). value/text: the value column's total over the matching rows; average; last: the bottom row's value; count: how many rows match. A value column of text counts rows instead (with group: how many rows have each label). rows, labels, values: the kept rows. sheetId opens the sheet.",
+  params: z.object({ query: CellsQuery }),
+  returns: CellsResult,
+  // Apps bind it to their data with boardFunctions.
+  fn: () => emptyCells(),
+});
+
+/** A Stat with nothing to show, rather than a label under a blank. */
+const NONE = "–";
+
+function emptyCells(): CellsResult {
+  return { sheetId: "", value: 0, text: "0", average: NONE, last: NONE, count: 0, rows: [], more: 0, labels: [], values: [] };
+}
+
+const round = (value: number) => Math.round(value * 1e9) / 1e9;
+
+/** The sheet a name means: the latest edited of those with the name, archived ones left out. */
+function sheetByName(sheets: Sheet[] | undefined, name: string): Sheet | undefined {
+  const wanted = nameKey(name);
+  return (sheets ?? [])
+    .filter((sheet) => !sheet.archivedAt && nameKey(sheet.title ?? "") === wanted)
+    .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))[0];
+}
+
+type FoundCells = { sheet?: Sheet; table?: CellsTable; labelCol: number; valueCol: number; whereCol: number; missing: string };
+
+/**
+ * What a `@Cells` call names: the sheet, its tab and the columns. missing
+ * says, in the person's words, which name matches nothing; a tab with
+ * nothing in it is not missing, only empty.
+ */
+function findCells(query: CellsQuery, data: DashboardData): FoundCells {
+  const found: FoundCells = { labelCol: -1, valueCol: -1, whereCol: -1, missing: "" };
+  const name = query.sheet?.trim() ?? "";
+  const sheet = sheetByName(data.sheets, name);
+  if (!sheet) return { ...found, missing: `No sheet is called “${name}”.` };
+  found.sheet = sheet;
+  const title = sheet.title?.trim() || name;
+  const tab = tabByName(sheet, query.tab);
+  if (!tab) return query.tab?.trim() ? { ...found, missing: `“${title}” has no tab called “${query.tab.trim()}”.` } : found;
+  const table = cellsTable(sheet, tab);
+  if (!table) return found;
+  found.table = table;
+  const named = (wanted: string | undefined, fallback: number) => (wanted?.trim() ? columnByName(table, wanted) : fallback);
+  found.labelCol = named(query.label, table.labelCol);
+  found.valueCol = named(
+    query.value,
+    table.columns.findIndex((column, index) => column.numbers && index !== found.labelCol),
+  );
+  found.whereCol = named(query.where, -1);
+  const lost = [query.label, query.value, query.where].find((wanted) => wanted?.trim() && columnByName(table, wanted) < 0);
+  if (lost) found.missing = `“${title}” has no column called “${lost.trim()}”.`;
+  else if (found.valueCol < 0) found.missing = `“${title}” has no column of numbers.`;
+  return found;
+}
+
+/**
+ * Answers one `@Cells` call from the sheets the app loaded. A sheet, tab or
+ * column name that matches nothing answers with nothing, as `@Data` does for
+ * a name that fits no project, so a wrong name shows an empty block, never
+ * another column's numbers; cellsProblems says what is missing.
+ */
+export function runCells(query: CellsQuery, data: DashboardData): CellsResult {
+  const result = emptyCells();
+  const { sheet, table, labelCol, valueCol, whereCol, missing } = findCells(query, data);
+  result.sheetId = sheet?.id ?? "";
+  if (!table || missing) return result;
+  const { column, numbers } = table.columns[valueCol];
+  // A column of text counts its rows instead: grouped, how many have each label.
+  const counting = !numbers;
+  const shown = (value: number) => (counting ? String(value) : formatLike(value, column));
+
+  const wanted = query.is === undefined ? null : nameKey(query.is);
+  const matching = table.rows.filter((row) => {
+    if (whereCol < 0) return true;
+    const text = nameKey(row[whereCol]?.text ?? "");
+    return wanted === null ? text !== "" : text === wanted;
+  });
+  type Entry = { label: string; value: number; text: string; number: boolean };
+  let entries: Entry[] = matching
+    .map((row) => {
+      const cell = row[valueCol];
+      const label = labelCol >= 0 ? (row[labelCol]?.text.trim() ?? "") : (cell?.address.replace(/^[A-Z]+/, "") ?? "");
+      const number = cell?.number ?? null;
+      return { label, value: counting ? 1 : (number ?? 0), text: cell?.text.trim() ?? "", number: counting || number !== null };
+    })
+    .filter((entry) => entry.text !== "");
+
+  const counted = entries.filter((entry) => entry.number);
+  const total = round(counted.reduce((sum, entry) => sum + entry.value, 0));
+  result.count = entries.length;
+  result.value = total;
+  result.text = shown(total);
+  // Two places at most: a column without a number format would show every digit.
+  result.average = !counting && counted.length ? formatLike(Math.round((total / counted.length) * 100) / 100, column) : NONE;
+  result.last = entries[entries.length - 1]?.text ?? NONE;
+
+  if (query.group) {
+    const groups = new Map<string, Entry>();
+    for (const entry of entries) {
+      const key = nameKey(entry.label);
+      const group = groups.get(key);
+      if (group) group.value = round(group.value + entry.value);
+      else groups.set(key, { ...entry });
+    }
+    entries = [...groups.values()].map((entry) => ({ ...entry, text: shown(entry.value) }));
+  }
+  const limit = Math.max(1, Math.min(50, Math.round(query.limit ?? 12)));
+  if (query.last) entries = entries.slice(-limit);
+  if (query.sort) {
+    const byValue = query.sort === "value";
+    const dir = (query.desc ?? byValue) ? -1 : 1;
+    entries = [...entries].sort((a, b) => dir * (byValue ? a.value - b.value : a.label.localeCompare(b.label, undefined, { numeric: true })));
+  }
+  result.more = Math.max(0, entries.length - limit);
+  entries = entries.slice(0, limit);
+  const max = Math.max(0, ...entries.map((entry) => entry.value)) || 1;
+  result.rows = entries.map((entry) => ({
+    label: entry.label,
+    value: entry.value,
+    text: entry.text,
+    share: Math.max(0, Math.min(100, Math.round((entry.value / max) * 100))),
+  }));
+  result.labels = result.rows.map((row) => row.label);
+  result.values = result.rows.map((row) => row.value);
+  return result;
+}
+
 /**
  * The board's functions over one copy of the data. Programs repeat the same
  * call in several props, so answers are kept for as long as this data is.
  */
 export function boardFunctions(data: DashboardData, ctx: EngineContext) {
   const answers = new Map<string, DataResult>();
+  const cells = new Map<string, CellsResult>();
   return [
     {
       ...Data,
@@ -353,15 +520,28 @@ export function boardFunctions(data: DashboardData, ctx: EngineContext) {
         return answer;
       },
     },
+    {
+      ...Cells,
+      fn: ({ query }: { query: CellsQuery }) => {
+        const key = JSON.stringify(query);
+        let answer = cells.get(key);
+        if (!answer) {
+          answer = runCells(query, data);
+          cells.set(key, answer);
+        }
+        return answer;
+      },
+    },
   ];
 }
 
 // ---- The model's instructions ----
 
-const PREAMBLE = `You build one card for the person's Timely dashboard from their words. Answer with ONE OpenUI Lang program and nothing else: no text before or after it and no code fence. Timely draws it with its own components and fills every @Data call from the person's live data each time the dashboard shows, so the card stays current without you.`;
+const PREAMBLE = `You build one card for the person's Timely dashboard from their words. Answer with ONE OpenUI Lang program and nothing else: no text before or after it and no code fence. Timely draws it with its own components and fills every @Data and @Cells call from the person's live data each time the dashboard shows, so the card stays current without you.`;
 
 const RULES = [
-  "Every number, row, bar and share comes from @Data. Never write the person's tasks, events, names or numbers yourself; labels and empty texts are the only words you write.",
+  "Every number, row, bar and share comes from @Data or @Cells. Never write the person's tasks, events, names or numbers yourself; labels and empty texts are the only words you write.",
+  "A sheet's cells come from @Cells, never @Data: sheet, tab and column names exactly as in the person's sheets below. Chart them with BarChart(title, c.labels, c.values); list them with @Each(c.rows, \"r\", InfoRow(r.label, r.text)) or ShareRow(r.label, r.text, r.share).",
   "Pick the blocks that answer the words: counts as Stats, items as a List of TaskRow or EventRow rows made with @Each, a split as a BarChart or a List of ShareRow rows, two views side by side as Columns of Cards.",
   "TaskRow(t.id, t.title, t.day, t.note) for tasks, reminders and inbox; EventRow(e.time, e.title, e.day + \" · \" + e.length) for events; InfoRow(p.title, p.day) for projects, docs and sheets.",
   "With a range, set date: completedAt for finished work, deadline for due work, scheduled for planned work, start for events. Hours need measure: estimate (planned) or tracked (worked) for tasks, duration for events.",
@@ -397,11 +577,18 @@ list = List(@Each(next.rows, "e", EventRow(e.time, e.title, e.day + " · " + e.l
 open = Open("Open Calendar", "calendar")`,
 ];
 
-const promptLibrary = () => createLibrary({ components: Object.values(BOARD_COMPONENTS), functions: [Data], root: BOARD_ROOT });
+// Only in the model's instructions: a sheet the person may not have is no example to offer them.
+const SHEET_EXAMPLE = `Words: spending per category from my Budget sheet
+root = Panel("Spending by category", [nums, chart], "wide")
+spend = @Cells({sheet: "Budget", tab: "October", label: "Category", value: "Amount", group: true, sort: "value"})
+nums = Stats([Stat("Spent", spend.text), Stat("Per entry", spend.average)])
+chart = BarChart("Per category", spend.labels, spend.values)`;
+
+const promptLibrary = () => createLibrary({ components: Object.values(BOARD_COMPONENTS), functions: [Data, Cells], root: BOARD_ROOT });
 
 /** The model's instructions for described cards (the API embeds this text). */
 export function boardPrompt(): string {
-  return promptLibrary().prompt({ preamble: PREAMBLE, additionalRules: RULES, examples: EXAMPLES, builtinFunctions: true });
+  return promptLibrary().prompt({ preamble: PREAMBLE, additionalRules: RULES, examples: [...EXAMPLES, SHEET_EXAMPLE], builtinFunctions: true });
 }
 
 /** A parser for described-card programs, for checks outside a renderer. */
@@ -420,8 +607,8 @@ export function drawBoard(program: string, data: DashboardData, ctx: EngineConte
   const schema = library.toJSONSchema();
   const result = createParser(schema, BOARD_ROOT).parse(program);
   if (!result.root) return null;
-  const [data$] = boardFunctions(data, ctx);
-  const functions = { Data: { ...schema.functions!.Data, fn: data$.fn } };
+  const [data$, cells$] = boardFunctions(data, ctx);
+  const functions = { Data: { ...schema.functions!.Data, fn: data$.fn }, Cells: { ...schema.functions!.Cells, fn: cells$.fn } };
   const root = evaluateRoot(result, { ctx: { getState: () => undefined, resolveRef: () => undefined, functions }, library, store: null });
   return root?.typeName === BOARD_ROOT ? (root as GenuiNode) : null;
 }
@@ -429,12 +616,25 @@ export function drawBoard(program: string, data: DashboardData, ctx: EngineConte
 /** Words to start a card from, offered under the describe box. */
 export const DESCRIBE_EXAMPLES = EXAMPLES.map((example) => example.split("\n")[0].replace(/^Words:\s*/, ""));
 
+/** The describe box's examples, the last one a chart of the person's latest edited sheet when they have one. */
+export function describeExamples(sheets: Sheet[] | undefined): string[] {
+  const latest = (sheets ?? []).filter((sheet) => !sheet.archivedAt && sheet.title?.trim()).sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))[0];
+  if (!latest) return DESCRIBE_EXAMPLES;
+  return [...DESCRIBE_EXAMPLES.slice(0, -1), `A chart of my ${latest.title.trim()} sheet`];
+}
+
 /** Changes to try once a card is built. */
 export const DESCRIBE_CHANGES = ["Show more rows", "Add a chart by day", "Only the overdue ones", "Make it smaller"];
+const SHEET_CHANGES = ["Show more rows", "Only the latest entries", "Sort by name", "Make it smaller"];
+
+/** Changes to offer once a card is built: a card of a sheet's cells gets its own. */
+export function describeChanges(program: string): string[] {
+  return /@Cells\s*\(/.test(program) && !/@Data\s*\(/.test(program) ? SHEET_CHANGES : DESCRIBE_CHANGES;
+}
 
 /** The example programs in the prompt, without their "Words:" line. */
 export function boardExamples(): { words: string; program: string }[] {
-  return EXAMPLES.map((example) => {
+  return [...EXAMPLES, SHEET_EXAMPLE].map((example) => {
     const [first, ...rest] = example.split("\n");
     return { words: first.replace(/^Words:\s*/, ""), program: rest.join("\n") };
   });
@@ -463,19 +663,23 @@ function literal(node: Ast | undefined): unknown {
   }
 }
 
-/** The `@Data` queries in a parsed tree, in the order they appear. */
+/** The `@Data` (or `@Cells`) queries in a parsed tree, in the order they appear. */
 function dataCalls(value: unknown, out: DataQuery[] = []): DataQuery[] {
+  return calls(value, "Data", DataQuery, out);
+}
+
+function calls<T>(value: unknown, name: string, schema: z.ZodType<T>, out: T[] = []): T[] {
   if (!value || typeof value !== "object") return out;
   if (Array.isArray(value)) {
-    for (const item of value) dataCalls(item, out);
+    for (const item of value) calls(item, name, schema, out);
     return out;
   }
   const node = value as Ast;
-  if (node.k === "Comp" && node.name === "Data") {
-    const query = DataQuery.safeParse(literal((node.args as Ast[] | undefined)?.[0]));
+  if (node.k === "Comp" && node.name === name) {
+    const query = schema.safeParse(literal((node.args as Ast[] | undefined)?.[0]));
     if (query.success) out.push(query.data);
   }
-  for (const child of Object.values(node)) dataCalls(child, out);
+  for (const child of Object.values(node)) calls(child, name, schema, out);
   return out;
 }
 
@@ -496,13 +700,28 @@ export function readBoardProgram(program: string, data: DashboardData = {}): Des
   const first = dataCalls(result.root)[0];
   const usesRows = /\b(List|TaskRow|EventRow|InfoRow)\(/.test(program);
   const usesChart = /\bBarChart\(/.test(program);
-  const plain = first ? dataCardQuery(first, data) : fitQuery(defaultQuery("tasks"));
+  // A program that reads only cells falls back to the list of sheets: a picked
+  // sheet's card would drop the program when the layout is saved (fitQuery).
+  const cellsOnly = !first && calls(result.root, "Cells", CellsQuery).length > 0;
+  const plain = first ? dataCardQuery(first, data) : fitQuery(defaultQuery(cellsOnly ? "sheets" : "tasks"));
   const fallback = fitQuery({
     ...plain,
     display: usesChart && first?.by ? "bar" : usesRows ? "list" : "number",
     groupBy: first?.by ?? plain.groupBy,
   });
   return { title, size: named ? { ...named } : defaultCardSize(fallback), fallback };
+}
+
+/**
+ * What a program's `@Cells` calls name that the person's sheets don't have,
+ * such as a column renamed after the card was built, one sentence each.
+ * Empty until the sheets are loaded.
+ */
+export function cellsProblems(program: string, data: DashboardData): string[] {
+  if (!data.sheets || !/@Cells\s*\(/.test(program)) return [];
+  const root = boardParser().parse(program).root;
+  const missing = calls(root, "Cells", CellsQuery).map((query) => findCells(query, data).missing);
+  return [...new Set(missing.filter(Boolean))];
 }
 
 // ---- Live blocks ----

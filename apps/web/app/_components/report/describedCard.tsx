@@ -3,10 +3,11 @@
 // Before @openuidev/react-lang, which reads its devtools flag as it loads.
 import "../genui/setup";
 import { Fragment, useMemo, useState } from "react";
+import { TriangleAlert } from "lucide-react";
 import { createLibrary, Renderer, type ComponentRenderProps, type ComponentRenderer } from "@openuidev/react-lang";
 import type { DashboardData } from "@timely/contract/dashboard";
-import { genuiNodes } from "@timely/contract/genui";
-import { BOARD_ROOT, boardFunctions, withBoardRenderers, type BoardName, type BoardProps } from "@timely/contract/genuiBoard";
+import { genuiNodes, replyBlocks } from "@timely/contract/genui";
+import { BOARD_ROOT, boardFunctions, cellsProblems, withBoardRenderers, type BoardName, type BoardProps } from "@timely/contract/genuiBoard";
 import { kit, RowGroup, Surface } from "../genui/kit";
 
 type Props<N extends BoardName> = ComponentRenderProps<BoardProps<N>>;
@@ -23,7 +24,7 @@ function Panel({ props, renderNode }: Props<"Panel">) {
     <Surface.Provider value="board">
       <div className="@container/board h-full">
         <div className="@container/card flex min-h-full flex-col divide-y divide-border">
-          {genuiNodes(props.blocks).map((block, index) => (
+          {replyBlocks(props.blocks).map((block, index) => (
             <Fragment key={index}>{renderNode(block)}</Fragment>
           ))}
         </div>
@@ -68,6 +69,8 @@ export default function DescribedCardView({
     () => createLibrary({ components, functions: boardFunctions(data, { now, timeZone }), root: BOARD_ROOT }),
     [data, now, timeZone],
   );
+  // A sheet, tab or column renamed after the program was written draws empty; this says why.
+  const problem = useMemo(() => cellsProblems(program, data)[0], [program, data]);
   const [failed, setFailed] = useState(false);
   if (failed)
     return (
@@ -77,6 +80,12 @@ export default function DescribedCardView({
     );
   return (
     <div className={layout === "doc" ? undefined : "-mx-3 -mb-3 h-[calc(100%+0.75rem)] overflow-y-auto"} data-testid="described-card">
+      {problem ? (
+        <p role="status" className="flex items-start gap-2 border-b border-border px-4 py-2.5 text-[13px] text-muted-foreground">
+          <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
+          <span>{problem}</span>
+        </p>
+      ) : null}
       <Renderer
         response={program}
         library={library}

@@ -11,6 +11,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 	"timely-api/internal/features/chat"
+	"timely-api/internal/features/sheet"
+	"timely-api/internal/models"
 )
 
 // Described dashboard cards: "overdue client work and what's due this week"
@@ -27,6 +29,9 @@ const (
 	dashboardCardMaxText    = 500
 	dashboardCardMaxProgram = 8000
 	dashboardCardBudget     = 90 * time.Second
+	// dashboardCardSheets is how many sheets, latest edited first, the model
+	// is told the tabs and columns of.
+	dashboardCardSheets = 12
 )
 
 type dashboardCardRequest struct {
@@ -109,9 +114,13 @@ func (s *Service) describeCard(ctx context.Context, userID string, req dashboard
 	if err != nil {
 		return dashboardCardResponse{}, err
 	}
+	sheets, err := s.sheetBriefs(ctx, userID)
+	if err != nil {
+		return dashboardCardResponse{}, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, dashboardCardBudget)
 	defer cancel()
-	reply, err := completer.Complete(ctx, dashboardCardMessages(req, vocab), nil, false)
+	reply, err := completer.Complete(ctx, dashboardCardMessages(req, vocab, sheets), nil, false)
 	if err != nil {
 		return dashboardCardResponse{}, echo.NewHTTPError(502, err.Error())
 	}
@@ -123,7 +132,68 @@ func (s *Service) describeCard(ctx context.Context, userID string, req dashboard
 	return dashboardCardResponse{Program: program, Provider: provider, Model: model}, nil
 }
 
-func dashboardCardMessages(req dashboardCardRequest, v viewVocab) []chat.WireMessage {
+// sheetBrief is one sheet as the model sees it for @Cells.
+type sheetBrief struct {
+	Title string
+	Tabs  []sheet.CellsTab
+}
+
+// sheetBriefs reads the person's latest edited sheets and works out, with the
+// apps' own engine, the column names their @Cells calls find.
+func (s *Service) sheetBriefs(ctx context.Context, userID string) ([]sheetBrief, error) {
+	var sheets []models.Sheet
+	err := s.db.WithContext(ctx).Where("user_id = ? AND archived_at IS NULL", userID).Order("updated_at DESC").Limit(dashboardCardSheets).Find(&sheets).Error
+	if err != nil || len(sheets) == 0 {
+		return nil, err
+	}
+	tabs, err := sheet.CellsBriefs(sheets)
+	if err != nil {
+		// A workbook the engine can't read costs the model its sheets, not the card.
+		return nil, nil
+	}
+	briefs := make([]sheetBrief, 0, len(sheets))
+	for i, each := range sheets {
+		if i < len(tabs) {
+			briefs = append(briefs, sheetBrief{Title: each.Title, Tabs: tabs[i]})
+		}
+	}
+	return briefs, nil
+}
+
+// writeSheets lists sheets for @Cells: each tab with its columns, numbers marked.
+func writeSheets(b *strings.Builder, sheets []sheetBrief) {
+	wrote := false
+	for _, sh := range sheets {
+		title := strings.TrimSpace(sh.Title)
+		if title == "" {
+			continue
+		}
+		var tabs []string
+		for _, tab := range sh.Tabs {
+			if tab.Rows == 0 || len(tab.Columns) == 0 {
+				continue
+			}
+			columns := make([]string, len(tab.Columns))
+			for i, column := range tab.Columns {
+				columns[i] = column.Name
+				if column.Numbers {
+					columns[i] += " #"
+				}
+			}
+			tabs = append(tabs, fmt.Sprintf("  - tab %q, %d rows: %s", tab.Name, tab.Rows, strings.Join(columns, ", ")))
+		}
+		if len(tabs) == 0 {
+			continue
+		}
+		if !wrote {
+			b.WriteString("\nThe person's sheets, for @Cells (each tab with its columns; # marks columns of numbers):\n")
+			wrote = true
+		}
+		fmt.Fprintf(b, "- %q\n%s\n", title, strings.Join(tabs, "\n"))
+	}
+}
+
+func dashboardCardMessages(req dashboardCardRequest, v viewVocab, sheets []sheetBrief) []chat.WireMessage {
 	var b strings.Builder
 	weekday := ""
 	if day, err := time.Parse("2006-01-02", req.Today); err == nil {
@@ -139,6 +209,7 @@ func dashboardCardMessages(req dashboardCardRequest, v viewVocab) []chat.WireMes
 	list("Projects", v.projects)
 	list("Statuses", v.statuses)
 	list("Labels", v.labels)
+	writeSheets(&b, sheets)
 	if req.Place == "doc" {
 		b.WriteString("\nThis card is a live block in a doc: it takes the doc's width and as much height as it needs, so leave the size out. Up to ten rows fit.\n")
 	}

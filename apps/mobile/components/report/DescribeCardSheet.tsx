@@ -3,7 +3,7 @@ import { Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Check, Sparkles } from "lucide-react-native";
 import { DESCRIBED_MAX_PROMPT, defaultQuery, fitQuery, type DashboardCard } from "@timely/contract/dashboard";
-import { DESCRIBE_CHANGES, DESCRIBE_EXAMPLES, readBoardProgram } from "@timely/contract/genuiBoard";
+import { describeChanges, describeExamples, readBoardProgram } from "@timely/contract/genuiBoard";
 import { todayInZone } from "@timely/contract/workStatus";
 import BottomSheet from "../ui/BottomSheet";
 import { Button, Field, PrimaryButton } from "../ui/primitives";
@@ -116,7 +116,7 @@ export default function DescribeCardSheet({
   };
 
   const name = title.trim() || built?.title || "";
-  const tries = program ? DESCRIBE_CHANGES : DESCRIBE_EXAMPLES;
+  const tries = program ? describeChanges(program) : describeExamples(data.sheets);
 
   const save = () => onSave({ title: name, prompt: asked.join("\n").slice(-DESCRIBED_MAX_PROMPT), program });
 

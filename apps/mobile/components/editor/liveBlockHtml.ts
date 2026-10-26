@@ -1,4 +1,4 @@
-import { genuiColorHex, genuiNodes, type GenuiNode } from "@timely/contract/genui";
+import { chartNumber, genuiColorHex, genuiNodes, replyBlocks, type GenuiNode } from "@timely/contract/genui";
 
 /*
  * A live block drawn for the phone's doc editor. The editor is a web page
@@ -27,6 +27,7 @@ const SCREENS: Record<string, string> = {
 };
 
 const CHECK = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+const WARNING = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>';
 const CHEVRON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
 
 export function escapeHtml(value: unknown): string {
@@ -73,7 +74,7 @@ function node(item: GenuiNode, tasks: Lookup, place: Place = "top", timed = fals
   const props = item.props;
   switch (item.typeName) {
     case "Panel":
-      return `<div class="lv-panel">${genuiNodes(props.blocks)
+      return `<div class="lv-panel">${replyBlocks(props.blocks)
         .map((block) => `<div class="lv-sec">${node(block, tasks)}</div>`)
         .join("")}</div>`;
     case "List": {
@@ -171,6 +172,7 @@ function node(item: GenuiNode, tasks: Lookup, place: Place = "top", timed = fals
       const max = Math.max(...values, 0) || 1;
       const unit = text(props.unit) ? ` ${text(props.unit)}` : "";
       const highlight = text(props.highlight);
+      if (!values.length) return "";
       const bars = values
         .map((value, index) => {
           const label = labels[index] ?? "";
@@ -178,7 +180,7 @@ function node(item: GenuiNode, tasks: Lookup, place: Place = "top", timed = fals
           const height = Math.max(2, Math.round((value / max) * 64));
           return (
             `<div class="lv-bar-col" role="img" aria-label="${escapeHtml(`${label}: ${value}${unit}`)}">` +
-            `<span class="lv-bar-text">${escapeHtml(value)}</span>` +
+            `<span class="lv-bar-text">${escapeHtml(chartNumber(value))}</span>` +
             `<span class="lv-bar${high ? " is-high" : ""}" style="height:${height}px"></span>` +
             `<span class="lv-bar-text lv-bar-label">${escapeHtml(label)}</span></div>`
           );
@@ -227,7 +229,13 @@ function node(item: GenuiNode, tasks: Lookup, place: Place = "top", timed = fals
   }
 }
 
-/** The block's HTML for the editor page; empty when the program could not be drawn. */
-export function liveBlockHtml(root: GenuiNode | null, tasks: Lookup): string {
-  return root ? node(root, tasks) : "";
+/**
+ * The block's HTML for the editor page; empty when the program could not be
+ * drawn. problem says what the program names that the sheets don't have
+ * (cellsProblems), over the drawing.
+ */
+export function liveBlockHtml(root: GenuiNode | null, tasks: Lookup, problem = ""): string {
+  if (!root) return "";
+  const note = problem ? `<p class="lv-problem" role="status">${WARNING}<span>${escapeHtml(problem)}</span></p>` : "";
+  return note + node(root, tasks);
 }

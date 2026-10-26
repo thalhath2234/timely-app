@@ -27,6 +27,13 @@ plus a note that the block takes the doc's width, so every block it adds is
 one the apps can draw. Changing a block with `block=N` needs the person's
 review, like other agent edits to existing content.
 
-Live blocks read the dashboard's sources only. A sheet's cells are not one
-of them, so "a chart of this sheet's columns" is not something a live block
-can show yet.
+A program reads a sheet's cells with `@Cells({sheet, tab, label, value})`,
+which can also filter, group, sort and keep the latest rows. The apps work
+the cells out with the sheet's own formula engine and find a column by the
+name the person sees: its own name, a name typed in the first row, or its
+letter. Rows of totals are left out, so nothing counts twice
+(`sheetCells.ts`). The API lists the person's latest sheets, their tabs and
+columns to the model with the same code, run in its JavaScript VM like the
+formula engine, so a program only names columns the apps find. A sheet,
+tab or column name that matches nothing draws an empty block, never another
+column's numbers. Dashboard described cards get `@Cells` too.

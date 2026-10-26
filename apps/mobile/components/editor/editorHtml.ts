@@ -168,6 +168,8 @@ export function buildEditorHtml(
     .lv-ticks span.is-end { transform: translateX(-100%); }
     .lv-text { margin: 0; padding: 10px 14px; color: var(--lv-muted-fg); font-size: 14px; line-height: 20px; }
     .lv-empty { margin: 0; padding: 12px 14px; color: var(--lv-muted-fg); font-size: 14px; }
+    .lv-problem { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--lv-border); color: var(--lv-muted-fg); font-size: 13px; line-height: 18px; }
+    .lv-problem svg { flex: none; margin-top: 2px; color: var(--lv-warning); }
     .lv-open { display: inline-flex; align-items: center; gap: 2px; padding: 0; background: none; border: 0; color: var(--lv-primary); font: inherit; font-size: 14px; font-weight: 600; -webkit-tap-highlight-color: transparent; }
     .tok-keyword { color: #569cd6; }
     .tok-string { color: #ce9178; }

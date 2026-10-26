@@ -182,6 +182,38 @@ func EvaluateFormula(sh *models.Sheet, tabID, formula string) (CellValue, error)
 	return out.Value, err
 }
 
+// CellsTab is one tab as a described card's @Cells call reads it: its name,
+// how many rows hold anything, and the columns by the names the person sees.
+type CellsTab struct {
+	Name    string `json:"name"`
+	Rows    int    `json:"rows"`
+	Columns []struct {
+		Name    string `json:"name"`
+		Numbers bool   `json:"numbers"`
+	} `json:"columns"`
+}
+
+// CellsBriefs lists each sheet's tabs and columns with the names the apps'
+// @Cells calls find (packages/contract/src/sheetCells.ts), in the order given.
+func CellsBriefs(sheets []models.Sheet) ([][]CellsTab, error) {
+	type brief struct {
+		ID    string           `json:"id"`
+		Title string           `json:"title"`
+		Tabs  models.SheetTabs `json:"tabs"`
+	}
+	request := struct {
+		Sheets []brief `json:"sheets"`
+	}{Sheets: make([]brief, len(sheets))}
+	for i := range sheets {
+		request.Sheets[i] = brief{ID: sheets[i].ID, Title: sheets[i].Title, Tabs: WorkbookTabs(&sheets[i])}
+	}
+	var out struct {
+		Sheets [][]CellsTab `json:"sheets"`
+	}
+	err := callEngine("cellsBriefs", request, &out)
+	return out.Sheets, err
+}
+
 // WorkbookTabs returns the sheet's tabs, wrapping a sheet that only stores its
 // primary grid as one tab.
 func WorkbookTabs(sh *models.Sheet) models.SheetTabs {
