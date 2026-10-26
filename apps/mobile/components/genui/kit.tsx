@@ -84,7 +84,11 @@ function Row({
   const metaColor = tone === "warning" ? colors.warning : tone === "success" ? colors.success : colors.mutedForeground;
   return (
     <View style={[styles.row, tone === "warning" && { backgroundColor: `${colors.warning}17` }, style]}>
-      {timed || time ? <Text numberOfLines={1} style={styles.time}>{time ?? ""}</Text> : null}
+      {timed || time ? (
+        <Text numberOfLines={1} style={styles.time}>
+          {time ?? ""}
+        </Text>
+      ) : null}
       {lead !== undefined ? <View style={styles.lead}>{lead}</View> : null}
       <View style={styles.body}>
         {children}
@@ -303,6 +307,20 @@ function InfoRow({ props }: KitProps<"InfoRow">) {
 
 function ShareRow({ props }: KitProps<"ShareRow">) {
   const hex = genuiColorHex(props.color) ?? colors.primary;
+  // One line in a reply; on a board card the bar runs under the label.
+  if (useContext(Surface) === "chat")
+    return (
+      <View style={[styles.share, styles.infoLine]}>
+        <View style={[styles.dot, { backgroundColor: hex }]} />
+        <Text numberOfLines={1} style={[styles.rowTitle, styles.infoLabel]}>
+          {props.label}
+        </Text>
+        <Fill value={props.share / 100} color={hex} height={6} style={styles.shareInline} />
+        <Text numberOfLines={1} style={styles.infoValue}>
+          {props.value}
+        </Text>
+      </View>
+    );
   return (
     <View style={styles.share}>
       <View style={styles.infoLine}>
@@ -595,6 +613,7 @@ const styles = createThemedStyleSheet((colors) => ({
   dot: { width: 8, height: 8, borderRadius: 4 },
   share: { paddingHorizontal: 14, paddingVertical: 11, gap: 8 },
   shareBar: { marginLeft: 18 },
+  shareInline: { width: 64 },
   statGrid: { flexDirection: "row", flexWrap: "wrap" },
   statLeft: {
     borderLeftWidth: StyleSheet.hairlineWidth,

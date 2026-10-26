@@ -92,7 +92,7 @@ Verifying a CLI Agent provider on the API host: the binary is found, its sign-in
 _Avoid_: install, log in (those happen in a terminal on the host)
 
 **Reply card**:
-A card the agent adds under its chat text to show the person's own tasks, events, days or numbers, or to offer answers: task rows with working ticks, a day strip, stats, a bar chart, answer chips with a time picker. Cards show only data the agent read with its tools and change nothing by themselves; a tick in one is the person's own action, and the agent's own changes still follow Agent proposal rules. Apps that can't draw them get the text alone (ADR 0013).
+A card the agent adds under its chat text to show the person's own tasks, events, days or numbers, or to offer answers: a card of grouped rows per answer (task rows with working ticks, events and free time in time order, stats, a bar chart, project shares) and answer chips with a time picker. Cards show only data the agent read with its tools and change nothing by themselves; a tick in one is the person's own action, and the agent's own changes still follow Agent proposal rules. Apps that can't draw them get the text alone (ADR 0013).
 _Avoid_: widget (the phone's home-screen widgets), generative UI, OpenUI (in copy)
 
 **Described card**:

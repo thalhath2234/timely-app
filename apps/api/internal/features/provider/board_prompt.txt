@@ -17,7 +17,7 @@ Arguments marked with ? are optional. Sub-components can be inline or referenced
 
 Panel(title: string, blocks: (Stats | List | Card | Columns | BarChart | DayStrip | Text)[], size?: "small" | "medium" | "tall" | "wide" | "large") — The root: the card's name, its blocks from top to bottom, and its size on the board.
 List(rows: (TaskRow | EventRow | InfoRow | ShareRow)[], empty?: string, open?: Open) — Rows straight on the card, without a heading; shows the empty text when there are none.
-Card(title: string, rows: (TaskRow | EventRow | FreeRow | InfoRow | ShareRow | Stats | BarChart | DayStrip | Text)[], meta?: string, open?: Open) — A card of grouped rows with a title.
+Card(title: string, rows: (TaskRow | EventRow | FreeRow | InfoRow | ShareRow | Stats | BarChart | Text)[], meta?: string, open?: Open) — A card of grouped rows with a title.
 Columns(cards: Card[]) — Two or three cards side by side on wide screens, stacked on the phone.
 Stats(items: Stat[]) — Two to four Stat tiles side by side.
 Stat(label: string, value: string, hint?: string) — One number with a label.

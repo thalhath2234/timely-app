@@ -8,14 +8,12 @@ import { createLibrary, Renderer, type ComponentRenderer } from "@openuidev/reac
 import {
   GENUI_ROOT,
   genuiNodes,
-  isBoardBlock,
   splitReply,
   spokenTime,
   withRenderers,
   type GenuiName,
   type GenuiProps,
 } from "@timely/contract/genui";
-import { cn } from "@/app/utils/cn";
 import { propertyChipClass } from "@/app/_components/_ui/propertyChip";
 import DatePicker from "@/app/_components/_ui/datePicker";
 import Button from "@/app/_components/_ui/button";
@@ -25,33 +23,19 @@ import ChatText from "./chatText";
 /*
  * Reply cards on web and desktop: the agent's ```openui-lang programs
  * (packages/contract/src/genui.ts) drawn with the shared kit (../genui/kit).
- * An answer chip sends the person's reply. In a wide conversation the cards
- * run past the text column, centred on it (the scroller is `@container/chat`),
- * and Columns sit side by side; a narrow one stacks them.
+ * Cards are grouped rows in the reply's own column; an answer chip sends the
+ * person's reply.
  */
 
 /** This is the newest reply, so its Choices still answer it. */
 const Newest = createContext(false);
 
-// 40px is the avatar and gap before the reply column; the board stays centred
-// on the 768px column and grows to 1000px as the conversation allows.
-const WIDE =
-  "@3xl/chat:w-[min(1000px,100cqw)] @3xl/chat:ml-[calc((48rem_-_min(1000px,100cqw))/2_-_40px)]";
-
 function Reply({ props, renderNode }: KitProps<"Reply">) {
-  const blocks = genuiNodes(props.blocks);
-  const wide = blocks.some(isBoardBlock);
   return (
     <div className="mt-3 flex flex-col gap-3">
-      {blocks.map((block, index) =>
-        block.typeName === "Choices" ? (
-          <Fragment key={index}>{renderNode(block)}</Fragment>
-        ) : (
-          <div key={index} className={cn("@container/board", wide && WIDE)}>
-            {renderNode(block)}
-          </div>
-        ),
-      )}
+      {genuiNodes(props.blocks).map((block, index) => (
+        <Fragment key={index}>{renderNode(block)}</Fragment>
+      ))}
     </div>
   );
 }
@@ -69,35 +53,38 @@ function Choices({ props }: KitProps<"Choices">) {
   };
   const options = (Array.isArray(props.options) ? props.options : []).slice(0, 4);
   return (
-    <div role="group" aria-label="Suggested answers" className="flex flex-wrap items-center gap-2">
-      {options.map((option) => (
-        <button
-          key={option}
-          type="button"
-          disabled={!answer}
-          onClick={() => send(option)}
-          className={propertyChipClass({ active: picked === option })}
-        >
-          {option}
-        </button>
-      ))}
-      {props.pickTime ? (
-        <DatePicker
-          mode="datetime"
-          variant="chip"
-          chipLabel="Pick a time…"
-          value={time}
-          disabled={!answer}
-          icon={<CalendarDays />}
-          aria-label="Pick a time"
-          onChange={setTime}
-        />
-      ) : null}
-      {time && answer ? (
-        <Button size="sm" onClick={() => send(spokenTime(new Date(time)))}>
-          Send
-        </Button>
-      ) : null}
+    <div>
+      <div role="group" aria-label="Suggested answers" className="flex flex-wrap items-center gap-2">
+        {options.map((option) => (
+          <button
+            key={option}
+            type="button"
+            disabled={!answer}
+            onClick={() => send(option)}
+            className={propertyChipClass({ active: picked === option })}
+          >
+            {option}
+          </button>
+        ))}
+        {props.pickTime ? (
+          <DatePicker
+            mode="datetime"
+            variant="chip"
+            chipLabel="Pick a time…"
+            value={time}
+            disabled={!answer}
+            icon={<CalendarDays />}
+            aria-label="Pick a time"
+            onChange={setTime}
+          />
+        ) : null}
+        {time && answer ? (
+          <Button size="sm" onClick={() => send(spokenTime(new Date(time)))}>
+            Send
+          </Button>
+        ) : null}
+      </div>
+      {answer ? <p className="mt-2 text-xs text-muted-foreground">Tapping one sends it as your answer.</p> : null}
     </div>
   );
 }

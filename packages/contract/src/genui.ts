@@ -185,7 +185,7 @@ const Card = defineComponent({
   props: z.object({
     title: z.string().describe("e.g. Today · Sun 25 Oct, or Tasks"),
     rows: z.array(
-      z.union([TaskRow.ref, EventRow.ref, FreeRow.ref, InfoRow.ref, ShareRow.ref, Stats.ref, BarChart.ref, DayStrip.ref, Text.ref]),
+      z.union([TaskRow.ref, EventRow.ref, FreeRow.ref, InfoRow.ref, ShareRow.ref, Stats.ref, BarChart.ref, Text.ref]),
     ),
     meta: z.string().optional().describe("Short summary on the right, e.g. 2 events · 3 tasks"),
     open: z.optional(Open.ref),
@@ -214,7 +214,7 @@ const Choices = defineComponent({
 const Reply = defineComponent({
   name: "Reply",
   description: "The root: the cards under your text.",
-  props: z.object({ blocks: z.array(z.union([Card.ref, Columns.ref, Stats.ref, DayStrip.ref, Choices.ref])) }),
+  props: z.object({ blocks: z.array(z.union([Card.ref, Choices.ref])) }),
   component: null,
 });
 
@@ -237,6 +237,9 @@ export const GENUI_COMPONENTS = {
   Open,
 };
 export type GenuiName = keyof typeof GENUI_COMPONENTS;
+
+/** The kit minus the dashboard-only layouts (Columns, a day strip): replies are grouped cards. */
+const REPLY_COMPONENTS = Object.values(GENUI_COMPONENTS).filter((component) => !["Columns", "DayStrip", "Slot"].includes(component.name));
 export type GenuiProps<N extends GenuiName> = z.infer<(typeof GENUI_COMPONENTS)[N]["props"]>;
 
 /**
@@ -260,46 +263,36 @@ const RULES = [
   "taskId, eventId and Open ids must be real ids from tool results; the ids in the examples are placeholders. Use TaskRow for Work and Reminders, EventRow for events and blocks.",
   "Cards never change anything by themselves: ticking a TaskRow is the person's own action. Every write you make still goes through propose_changes, never through a card.",
   "When you ask a question with a few likely answers, end the reply with Choices (up to four short options in the person's language). Set pickTime when the answer is a date or time.",
-  "Lay out a day as a Card with a DayStrip, then Columns of a schedule card and a tasks card; numbers as Stats, then Columns of a chart and a list. A short single list is one Card. Wide screens put Columns side by side; the phone stacks them.",
-  "At most three cards and twelve rows per card; for more, end the card with an Open link to the full list.",
+  "Lay out each answer as one Card of grouped rows. A day is one Card: events, free time and timed tasks in time order, then untimed and done tasks, overdue ones last. Numbers go first in their card as Stats, then the ShareRow or BarChart rows that explain them. Add a second Card only for a different subject.",
+  "At most two cards and twelve rows per card; for more, end the card with an Open link to the full list.",
   "Write times in the person's local time as 24-hour HH:MM, and every label in the person's language.",
   "Put the fence at the very end of the reply and close it. Never put the fence inside a proposal summary.",
 ];
 
 const EXAMPLES = [
-  `Here's today: two events and two tasks, one of them overdue. You're free from 15:00 to 18:00.
+  `Five things today, and one overdue. You're free from 15:00 to 18:00.
 
 \`\`\`${GENUI_FENCE}
-root = Reply([day, cols])
-day = Card("Today · Sun 25 Oct", [strip], "2 events · 2 tasks")
-strip = DayStrip("08:00", "20:00", [s1, s2, s3])
-s1 = Slot("10:00", "11:00", "event", "Gym", "teal")
-s2 = Slot("13:00", "14:30", "event", "Lunch with Sara", "pink")
-s3 = Slot("15:00", "18:00", "free")
-cols = Columns([schedule, tasks])
-schedule = Card("Schedule", [gym, lunch, gap], "2 events")
+root = Reply([day])
+day = Card("Today · Sun 25 Oct", [gym, lunch, gap, invoice, plan, passport], "2 events · 3 tasks", open)
 gym = EventRow("10:00", "Gym", "1 h", "teal")
 lunch = EventRow("13:00", "Lunch with Sara", "1 h 30 min", "pink")
 gap = FreeRow("15:00", "18:00")
-tasks = Card("Tasks", [invoice, passport], "1 overdue", open)
 invoice = TaskRow("tsk_8f2", "Send the Acme invoice", "17:00", "Client work")
+plan = TaskRow("tsk_4a7", "Plan next week")
 passport = TaskRow("tsk_1c9", "Renew passport", "Fri", "Overdue 2 days")
 open = Open("Open Today", "today")
 \`\`\``,
-  `A good week: 18 of 22 tasks done, most of them on time.
+  `A good week: most tasks landed on time, and Wednesday carried the most focus.
 
 \`\`\`${GENUI_FENCE}
-root = Reply([nums, cols])
-nums = Stats([done, onTime, focus])
-done = Stat("Tasks done", "18/22")
-onTime = Stat("On time", "82%")
-focus = Stat("Focus", "9h 40m")
-cols = Columns([days, projects])
-days = Card("Focus by day", [chart])
-chart = BarChart("Hours", ["Mon", "Tue", "Wed", "Thu", "Fri"], [1.5, 2.2, 3.3, 1.4, 0.8], "h", "Wed")
-projects = Card("By project", [p1, p2])
+root = Reply([week])
+week = Card("This week · 19–25 Oct", [nums, p1, p2, p3], "3 projects", open)
+nums = Stats([Stat("Tasks done", "18/22"), Stat("On time", "82%"), Stat("Focus", "9h 40m")])
 p1 = ShareRow("Client work", "5 h 10 min", 100, "indigo")
 p2 = ShareRow("Timely", "2 h 50 min", 55, "teal")
+p3 = ShareRow("Personal", "1 h 40 min", 32, "orange")
+open = Open("Open Dashboard", "dashboard")
 \`\`\``,
   `When should I remind you to call the bank?
 
@@ -309,7 +302,7 @@ ask = Choices(["Today 17:00", "Today 20:00", "Tomorrow 09:00"], true)
 \`\`\``,
 ];
 
-const promptLibrary = () => createLibrary({ components: Object.values(GENUI_COMPONENTS), root: GENUI_ROOT });
+const promptLibrary = () => createLibrary({ components: REPLY_COMPONENTS, root: GENUI_ROOT });
 
 /** The model's instructions for reply cards (the API embeds this text). */
 export function genuiPrompt(): string {
@@ -329,15 +322,6 @@ export function genuiNodes(value: unknown): GenuiNode[] {
   return Array.isArray(value)
     ? value.filter((item): item is GenuiNode => Boolean(item) && (item as GenuiNode).type === "element")
     : [];
-}
-
-const BOARDS = new Set<string>(["Columns", "Stats", "DayStrip"]);
-const BOARD_ROWS = new Set<string>(["Stats", "BarChart", "DayStrip"]);
-
-/** A Reply block that reads better wide: a board, or a card holding one. */
-export function isBoardBlock(node: GenuiNode): boolean {
-  if (BOARDS.has(node.typeName)) return true;
-  return node.typeName === "Card" && genuiNodes(node.props.rows).some((row) => BOARD_ROWS.has(row.typeName));
 }
 
 export type ReplyPart = { kind: "text"; text: string } | { kind: "ui"; code: string; closed: boolean };

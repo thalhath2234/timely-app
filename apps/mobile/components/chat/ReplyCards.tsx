@@ -7,7 +7,6 @@ import { createLibrary, Renderer, useRenderNode, type ComponentRenderer } from "
 import {
   GENUI_ROOT,
   genuiNodes,
-  isBoardBlock,
   splitReply,
   spokenTime,
   withRenderers,
@@ -24,26 +23,19 @@ import { ChatText } from "./shared";
 /*
  * Reply cards on the phone: the agent's ```openui-lang programs
  * (packages/contract/src/genui.ts) drawn with the phone kit (../genui/kit),
- * the twin of the web's app/_components/chat/replyCards.tsx. A reply with a
- * board (a day strip, stats, a chart) runs under the avatar to use the full
- * width. Answer chips and "Pick a time…" send the person's reply.
+ * the twin of the web's app/_components/chat/replyCards.tsx: grouped cards in
+ * the reply's own column. Answer chips and "Pick a time…" send the person's
+ * reply.
  */
 
 /** This is the newest reply, so its Choices still answer it. */
 const Newest = createContext(false);
 
-// The avatar and gap before the reply column in Thread.
-const AVATAR = 38;
-
 function Reply({ props, renderNode }: KitProps<"Reply">) {
-  const blocks = genuiNodes(props.blocks);
-  const wide = blocks.some(isBoardBlock);
   return (
     <View style={styles.reply}>
-      {blocks.map((block, index) => (
-        <View key={index} style={wide && block.typeName !== "Choices" ? styles.wide : undefined}>
-          {renderNode(block)}
-        </View>
+      {genuiNodes(props.blocks).map((block, index) => (
+        <View key={index}>{renderNode(block)}</View>
       ))}
     </View>
   );
@@ -61,28 +53,31 @@ function Choices({ props }: KitProps<"Choices">) {
   };
   const options = (Array.isArray(props.options) ? props.options : []).slice(0, 4);
   return (
-    <View accessibilityLabel="Suggested answers" style={[styles.choices, !answer && styles.choicesOff]}>
-      {options.map((option) => (
-        <PropertyChip key={option} label={option} active={picked === option} onPress={() => send(option)} />
-      ))}
-      {props.pickTime ? (
-        <>
-          <PropertyChip
-            empty
-            label="Pick a time…"
-            icon={<CalendarDays size={15} color={colors.mutedForeground} />}
-            onPress={() => setPicking(true)}
-          />
-          <DateTimeSheet
-            open={picking}
-            value={null}
-            mode="datetime"
-            clearable={false}
-            onClose={() => setPicking(false)}
-            onChange={(date) => date && send(spokenTime(date))}
-          />
-        </>
-      ) : null}
+    <View>
+      <View accessibilityLabel="Suggested answers" style={[styles.choices, !answer && styles.choicesOff]}>
+        {options.map((option) => (
+          <PropertyChip key={option} label={option} active={picked === option} onPress={() => send(option)} />
+        ))}
+        {props.pickTime ? (
+          <>
+            <PropertyChip
+              empty
+              label="Pick a time…"
+              icon={<CalendarDays size={15} color={colors.mutedForeground} />}
+              onPress={() => setPicking(true)}
+            />
+            <DateTimeSheet
+              open={picking}
+              value={null}
+              mode="datetime"
+              clearable={false}
+              onClose={() => setPicking(false)}
+              onChange={(date) => date && send(spokenTime(date))}
+            />
+          </>
+        ) : null}
+      </View>
+      {answer ? <Text style={styles.hint}>Tapping one sends it as your answer.</Text> : null}
     </View>
   );
 }
@@ -160,8 +155,8 @@ export default function ReplyBody({
 
 const styles = createThemedStyleSheet((colors) => ({
   reply: { gap: 10, marginTop: 2 },
-  wide: { marginLeft: -AVATAR },
   choices: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 2 },
   choicesOff: { opacity: 0.5, pointerEvents: "none" },
+  hint: { color: colors.mutedForeground, fontSize: 12, marginTop: 8 },
   failed: { color: colors.mutedForeground, fontSize: 12 },
 }));

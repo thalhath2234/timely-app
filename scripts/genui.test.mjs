@@ -11,8 +11,10 @@ describe("reply card prompt", () => {
     assert.equal(readFileSync(file, "utf8"), `${prompt}\n`);
   });
 
-  test("lists every component and stays small", () => {
-    for (const name of ["Reply(", "Card(", "TaskRow(", "Choices(", "DayStrip(", "Open("]) assert.ok(prompt.includes(name), name);
+  test("lists the reply components and stays small", () => {
+    for (const name of ["Reply(", "Card(", "TaskRow(", "Stats(", "Choices(", "Open("]) assert.ok(prompt.includes(name), name);
+    // Replies are grouped cards; side-by-side layouts stay on the dashboard.
+    for (const name of ["Columns(", "DayStrip("]) assert.ok(!prompt.includes(name), name);
     // About four characters a token: keep the addition to every run near 2.5k tokens.
     assert.ok(prompt.length < 10000, `prompt is ${prompt.length} characters`);
   });
