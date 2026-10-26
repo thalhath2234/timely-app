@@ -74,9 +74,13 @@ func (s *Service) LiveBlock(ctx context.Context, userID, words, current, today s
 }
 
 func (s *Service) describeCard(ctx context.Context, userID string, req dashboardCardRequest) (dashboardCardResponse, error) {
+	noun := "card"
+	if req.Place == "doc" {
+		noun = "block"
+	}
 	req.Prompt = clipHead(strings.TrimSpace(req.Prompt), dashboardCardMaxText)
 	if req.Prompt == "" {
-		return dashboardCardResponse{}, echo.NewHTTPError(400, "Say what the card should show")
+		return dashboardCardResponse{}, echo.NewHTTPError(400, "Say what the "+noun+" should show")
 	}
 	req.Current = strings.TrimSpace(req.Current)
 	if len(req.Current) > dashboardCardMaxProgram {
@@ -91,7 +95,11 @@ func (s *Service) describeCard(ctx context.Context, userID string, req dashboard
 	}
 	provider := writeProvider(s.view(ctx, row, time.Minute))
 	if provider == "" {
-		return dashboardCardResponse{}, echo.NewHTTPError(409, "Describing cards needs an AI provider. Add a key in Settings → Agent keys")
+		need := "Describing cards needs"
+		if req.Place == "doc" {
+			need = "Live blocks need"
+		}
+		return dashboardCardResponse{}, echo.NewHTTPError(409, need+" an AI provider. Add a key in Settings → Agent keys")
 	}
 	completer, err := s.Completer(ctx, userID, provider, "")
 	if err != nil {
@@ -109,7 +117,7 @@ func (s *Service) describeCard(ctx context.Context, userID string, req dashboard
 	}
 	program, err := boardProgram(reply.Content)
 	if err != nil {
-		return dashboardCardResponse{}, echo.NewHTTPError(502, "The AI's answer was not a card. Try again")
+		return dashboardCardResponse{}, echo.NewHTTPError(502, "The AI's answer was not a "+noun+". Try again")
 	}
 	_, model, _ := s.resolveModel(ctx, userID, provider)
 	return dashboardCardResponse{Program: program, Provider: provider, Model: model}, nil

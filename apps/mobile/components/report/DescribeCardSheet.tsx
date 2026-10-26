@@ -15,6 +15,7 @@ import { useDashboardData, useNow } from "../../lib/dashboard";
 import { useAgentProvidersQuery } from "../../lib/hooks";
 import { colors, controlRadius, createThemedStyleSheet } from "../../lib/theme";
 import DescribedCardView from "./describedCard";
+import { LiveBlockFrame } from "./liveBlockFrame";
 
 export interface DescribedDraft {
   title: string;
@@ -28,21 +29,27 @@ export interface DescribedDraft {
  * person says what the card should show, the account's AI provider writes
  * the card's program once, and the preview draws it from the dashboard's own
  * data. A built card takes further words as changes. There is no size row:
- * the card takes the size its program names.
+ * the card takes the size its program names. In a doc the same sheet builds
+ * a live block, previewed as the doc draws it, with no name to pick.
  */
 export default function DescribeCardSheet({
   open,
   initial,
+  place = "dashboard",
   onClose,
   onSave,
 }: {
   open: boolean;
   /** A described card being changed; absent starts a new one. */
   initial?: DescribedDraft;
+  /** "doc" builds a live block for a doc instead of a dashboard card. */
+  place?: "dashboard" | "doc";
   onClose: () => void;
   onSave: (draft: DescribedDraft) => void;
 }) {
   const router = useRouter();
+  const doc = place === "doc";
+  const noun = doc ? "block" : "card";
   const [words, setWords] = useState("");
   const [program, setProgram] = useState("");
   const [asked, setAsked] = useState<string[]>([]);
@@ -94,15 +101,15 @@ export default function DescribeCardSheet({
     setBusy(true);
     setError("");
     try {
-      const answer = await describeCardWithAi({ prompt, today: todayInZone(timeZone), current: program || undefined });
+      const answer = await describeCardWithAi({ prompt, today: todayInZone(timeZone), current: program || undefined, place });
       if (mine !== attempt.current) return;
-      if (!readBoardProgram(answer.program, data)) throw new Error("The AI's answer was not a card. Try again.");
+      if (!readBoardProgram(answer.program, data)) throw new Error(`The AI's answer was not a ${noun}. Try again.`);
       setProgram(answer.program);
       setAsked((list) => [...list, prompt]);
       setWords("");
     } catch (failure) {
       if (mine === attempt.current)
-        setError(failure instanceof Error ? failure.message : "Could not build the card. Try again.");
+        setError(failure instanceof Error ? failure.message : `Could not build the ${noun}. Try again.`);
     } finally {
       if (mine === attempt.current) setBusy(false);
     }
@@ -118,8 +125,8 @@ export default function DescribeCardSheet({
       <ListGroup>
         <ListRow
           leading={<Sparkles size={18} color={colors.mutedForeground} />}
-          title="Describing cards needs an AI provider"
-          meta="Add a key in Settings → Agent, then describe your card here."
+          title={doc ? "Live blocks need an AI provider" : "Describing cards needs an AI provider"}
+          meta={`Add a key in Settings → Agent, then describe your ${noun} here.`}
           onPress={() => router.push("/(app)/settings/agent")}
         />
       </ListGroup>
@@ -130,20 +137,29 @@ export default function DescribeCardSheet({
     <View style={styles.body}>
       {program ? (
         <View style={styles.section}>
-          <View style={styles.preview} accessibilityLabel={`Preview of ${name}`}>
-            <View style={styles.previewHead}>
-              <Sparkles size={15} color={colors.mutedForeground} />
-              <Text style={styles.previewTitle} numberOfLines={1}>
-                {name}
-              </Text>
+          {doc ? (
+            // The block as the doc draws it.
+            <View accessibilityLabel={`Preview of ${name}`}>
+              <LiveBlockFrame title={name || "Live block"}>
+                <DescribedCardView program={program} data={data} timeZone={timeZone} now={now} onLink={() => undefined} />
+              </LiveBlockFrame>
             </View>
-            <DescribedCardView program={program} data={data} timeZone={timeZone} now={now} onLink={() => undefined} />
-          </View>
-          <GroupHint>Reads your data each time the dashboard shows. The AI isn't asked again.</GroupHint>
+          ) : (
+            <View style={styles.preview} accessibilityLabel={`Preview of ${name}`}>
+              <View style={styles.previewHead}>
+                <Sparkles size={15} color={colors.mutedForeground} />
+                <Text style={styles.previewTitle} numberOfLines={1}>
+                  {name}
+                </Text>
+              </View>
+              <DescribedCardView program={program} data={data} timeZone={timeZone} now={now} onLink={() => undefined} />
+            </View>
+          )}
+          <GroupHint>{`Reads your data each time the ${doc ? "doc opens" : "dashboard shows"}. The AI isn't asked again.`}</GroupHint>
         </View>
       ) : null}
 
-      {program ? (
+      {program && !doc ? (
         <View style={styles.section}>
           <ListGroup>
             <ListRow
@@ -178,11 +194,11 @@ export default function DescribeCardSheet({
         {busy ? (
           <View style={styles.busy} accessibilityLiveRegion="polite">
             <LogoSpinner size={18} />
-            <Text style={styles.busyText}>Building your card…</Text>
+            <Text style={styles.busyText}>{`Building your ${noun}…`}</Text>
           </View>
         ) : (
           <Button
-            label={program ? "Change card" : "Build card"}
+            label={program ? `Change ${noun}` : `Build ${noun}`}
             variant={program ? "secondary" : "primary"}
             size="lg"
             stretch
@@ -229,11 +245,11 @@ export default function DescribeCardSheet({
     <BottomSheet
       open={open}
       onClose={onClose}
-      title={initial ? "Change card" : "Describe a card"}
+      title={doc ? (initial ? "Change live block" : "Add a live block") : initial ? "Change card" : "Describe a card"}
       footer={
         program && aiReady ? (
           <PrimaryButton
-            label={initial ? "Save changes" : "Add to dashboard"}
+            label={initial ? "Save changes" : doc ? "Insert block" : "Add to dashboard"}
             disabled={busy}
             testID="describe-save"
             onPress={save}

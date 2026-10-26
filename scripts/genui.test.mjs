@@ -75,7 +75,8 @@ describe("parser", () => {
 });
 
 describe("described cards", async () => {
-  const { boardExamples, boardParser, boardPrompt, describedCard, drawBoard, runData } = await import("../packages/contract/src/genuiBoard.ts");
+  const { boardExamples, boardParser, boardPrompt, describedCard, drawBoard, liveBlockCards, LIVE_BLOCK_LANGUAGE, runData } = await import("../packages/contract/src/genuiBoard.ts");
+  const { sourcesUsed } = await import("../packages/contract/src/dashboard.ts");
   const { normalizeDashboard } = await import("../packages/contract/src/dashboard.ts");
   const board = boardPrompt();
   const now = new Date("2026-10-28T12:00:00Z"); // a Wednesday
@@ -181,5 +182,18 @@ describe("described cards", async () => {
     assert.deepEqual(stats.props.items.map((stat) => stat.props.value), ["1", "0/2"]);
     assert.deepEqual(list.props.rows.map((row) => [row.typeName, row.props.title]), [["TaskRow", "Send invoice"]]);
     assert.equal(drawBoard('root = Reply([])', data, ctx), null);
+  });
+
+  test("live blocks are the same programs in an openui-lang fence, loading only what they read", () => {
+    // The fence language is the one reply cards use, so Markdown and the agent see one kind of block.
+    assert.equal(LIVE_BLOCK_LANGUAGE, "openui-lang");
+    const events = 'root = Panel("Today", [List(@Each(@Data({source: "events"}).rows, "e", EventRow(e.time, e.title)))])';
+    const cards = liveBlockCards([boardExamples()[0].program, "  ", events]);
+    assert.deepEqual(cards.map((card) => card.id), ["live-0", "live-1"]);
+    assert.equal(cards[1].query.described.program, events);
+    const used = sourcesUsed(cards);
+    assert.ok(used.has("tasks") && used.has("events"), [...used].join());
+    assert.ok(!used.has("sheets"));
+    assert.deepEqual(liveBlockCards([]), []);
   });
 });
