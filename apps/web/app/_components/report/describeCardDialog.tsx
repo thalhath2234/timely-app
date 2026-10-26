@@ -79,12 +79,19 @@ export default function DescribeCardDialog({
   const sources = program ? describedSources(program) : [];
   const previewLoading = sources.some((source) => loading[source as keyof typeof loading]);
 
+  // The parent passes a new onClose on each render, such as a doc saving while
+  // the AI works; only closing the dialog may drop the request.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   useEffect(() => {
     box.current?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -92,7 +99,7 @@ export default function DescribeCardDialog({
       window.removeEventListener("keydown", onKey);
       request.current?.abort();
     };
-  }, [onClose]);
+  }, []);
 
   const build = async (text: string) => {
     const prompt = text.trim();
