@@ -244,7 +244,7 @@ export default function DescribeCardDialog({
             <div className="flex flex-col gap-4 border-t border-border bg-muted/40 px-5 py-4 lg:overflow-y-auto lg:border-l lg:border-t-0">
               <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
                 <Field label="Name">
-                  <Input value={title} onChange={(event) => setTitle(event.target.value.slice(0, 120))} placeholder={built?.title || "Named when it's built"} />
+                  <Input aria-label="Name" value={title} onChange={(event) => setTitle(event.target.value.slice(0, 120))} placeholder={built?.title || "Named when it's built"} />
                 </Field>
                 <Field label="Size">
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -259,6 +259,8 @@ export default function DescribeCardDialog({
                 <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Preview</p>
                 {program ? (
                   <div
+                    role="region"
+                    aria-label={`Preview of ${name}`}
                     className="flex flex-col overflow-hidden rounded-xl border border-border bg-card"
                     style={{ height: previewHeight, width: previewWidth, minWidth: 260, maxWidth: "100%" }}
                   >

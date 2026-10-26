@@ -1,6 +1,9 @@
 package chat
 
-import _ "embed"
+import (
+	_ "embed"
+	"strings"
+)
 
 // genuiPrompt teaches the model reply cards: OpenUI Lang programs in a fenced
 // block that the apps draw with their own components. It is generated from
@@ -14,11 +17,20 @@ var genuiPrompt string
 // (GENUI_CAPABILITY in the contract).
 const genuiCapability = "openui-1"
 
-// replyCards is the system prompt's reply-card section, empty for apps that
-// would show the program as raw text.
-func replyCards(on bool) string {
-	if !on {
-		return ""
+// genuiFence is the code fence language of a reply card program (GENUI_FENCE).
+const genuiFence = "openui-lang"
+
+// replyCards is the system prompt's reply-card section. Apps that would show
+// a program as raw text get none, and a plain-text rule when earlier replies
+// in the conversation carried cards the model might copy.
+func replyCards(on bool, messages []Message) string {
+	if on {
+		return "\n\n" + genuiPrompt
 	}
-	return "\n\n" + genuiPrompt
+	for _, m := range messages {
+		if m.Role == "assistant" && strings.Contains(m.Content, "```"+genuiFence) {
+			return "\nThis app can't draw reply cards: answer in plain text, without ```" + genuiFence + " blocks, even where earlier replies had them."
+		}
+	}
+	return ""
 }

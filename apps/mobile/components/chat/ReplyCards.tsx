@@ -6,7 +6,7 @@ import { CalendarDays } from "lucide-react-native";
 import { createLibrary, Renderer, useRenderNode, type ComponentRenderer } from "@openuidev/react-lang";
 import {
   GENUI_ROOT,
-  genuiNodes,
+  replyBlocks,
   splitReply,
   spokenTime,
   withRenderers,
@@ -34,7 +34,7 @@ const Newest = createContext(false);
 function Reply({ props, renderNode }: KitProps<"Reply">) {
   return (
     <View style={styles.reply}>
-      {genuiNodes(props.blocks).map((block, index) => (
+      {replyBlocks(props.blocks).map((block, index) => (
         <View key={index}>{renderNode(block)}</View>
       ))}
     </View>

@@ -7,7 +7,7 @@ import { CalendarDays } from "lucide-react";
 import { createLibrary, Renderer, type ComponentRenderer } from "@openuidev/react-lang";
 import {
   GENUI_ROOT,
-  genuiNodes,
+  replyBlocks,
   splitReply,
   spokenTime,
   withRenderers,
@@ -33,7 +33,7 @@ const Newest = createContext(false);
 function Reply({ props, renderNode }: KitProps<"Reply">) {
   return (
     <div className="mt-3 flex flex-col gap-3">
-      {genuiNodes(props.blocks).map((block, index) => (
+      {replyBlocks(props.blocks).map((block, index) => (
         <Fragment key={index}>{renderNode(block)}</Fragment>
       ))}
     </div>

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test, { describe } from "node:test";
-import { genuiParser, genuiPrompt, replyText, splitReply } from "../packages/contract/src/genui.ts";
+import { genuiParser, genuiPrompt, replyBlocks, replyText, splitReply } from "../packages/contract/src/genui.ts";
 
 const prompt = genuiPrompt();
 
@@ -61,6 +61,13 @@ describe("splitReply", () => {
 });
 
 describe("parser", () => {
+  test("a cut-off card is left out rather than drawn as an empty frame", () => {
+    const cut = genuiParser().parse('root = Reply([a, b])\na = Card("Today", [r])\nr = TaskRow("tsk_1", "Plan")\nb = Card("Broken", [x, y]');
+    assert.deepEqual(replyBlocks(cut.root.props.blocks).map((block) => block.props.title), ["Today"]);
+    const linked = genuiParser().parse('root = Reply([c])\nc = Card("Tasks", [], "0", open)\nopen = Open("Open Tasks", "tasks")');
+    assert.equal(replyBlocks(linked.root.props.blocks).length, 1, "an empty card with a link still shows");
+  });
+
   test("flags components outside the list", () => {
     const result = genuiParser().parse('root = Reply([x])\nx = Script("alert(1)")');
     assert.ok(result.meta.errors.some((e) => e.code === "unknown-component"));

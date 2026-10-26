@@ -324,6 +324,16 @@ export function genuiNodes(value: unknown): GenuiNode[] {
     : [];
 }
 
+/**
+ * The Reply blocks worth drawing: a Card with no rows and no Open link (a
+ * cut-off program, or rows the parser had to drop) would be an empty frame.
+ */
+export function replyBlocks(blocks: unknown): GenuiNode[] {
+  return genuiNodes(blocks).filter(
+    (block) => block.typeName !== "Card" || genuiNodes(block.props.rows).length > 0 || Boolean(block.props.open),
+  );
+}
+
 export type ReplyPart = { kind: "text"; text: string } | { kind: "ui"; code: string; closed: boolean };
 
 // Fences open and close at the start of a line, as models write them.
