@@ -563,6 +563,14 @@ func normalizeLanguage(raw string) string {
 	return fields[0]
 }
 
+// isLiveBlock reports whether a codeBlock holds a live block's program
+// (packages/contract/src/genuiBoard.ts), drawn by the apps from live data.
+func isLiveBlock(n map[string]any) bool {
+	attrs, _ := asMap(n["attrs"])
+	lang, _ := attrs["language"].(string)
+	return lang == "openui-lang"
+}
+
 func plainText(nodes []any) string {
 	var b strings.Builder
 	for _, raw := range nodes {
@@ -625,6 +633,10 @@ func blockTexts(nodes []any, out *[]string) {
 			if s := bookmarkText(n); s != "" {
 				*out = append(*out, s)
 			}
+			continue
+		}
+		if n["type"] == "codeBlock" && isLiveBlock(n) {
+			// A live block's program is code for the apps, not words to search.
 			continue
 		}
 		if n["type"] == "codeBlock" || !hasBlocks {

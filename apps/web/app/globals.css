@@ -623,6 +623,71 @@ html.reduce-motion .lift:hover {
   white-space: pre-wrap;
 }
 
+/* Live blocks (```openui-lang): a described card drawn in the doc. The card
+   surface, not code: sans text at the doc's size, a header with the block's
+   name and a Live mark, and the program's code below it only when asked for. */
+.doc-code-wrap.doc-live {
+  background: var(--card);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.doc-live-head {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 6px;
+  min-height: 40px;
+  padding: 4px 6px 4px 14px;
+}
+
+.doc-live-mark {
+  align-items: center;
+  color: var(--muted-foreground);
+  cursor: default;
+  display: inline-flex;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 500;
+  gap: 5px;
+  margin-left: 4px;
+}
+
+.doc-live-dot {
+  background: var(--success);
+  border-radius: 999px;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--success) 18%, transparent);
+  height: 6px;
+  width: 6px;
+}
+
+.doc-code-wrap.doc-live.is-selected {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.doc-live-body p {
+  margin: 0;
+}
+
+.doc-live-empty {
+  color: var(--muted-foreground);
+  margin: 0;
+  padding: 12px 14px;
+}
+
+.doc-code-wrap.doc-live pre {
+  background: var(--muted);
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono), ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+.doc-code-wrap.doc-live pre.is-hidden {
+  display: none;
+}
+
 .doc-code-block code {
   background: none;
   color: inherit;

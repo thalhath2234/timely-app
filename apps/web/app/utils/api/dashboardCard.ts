@@ -7,7 +7,7 @@ export type DescribedAnswer = { program: string; provider: string; model: string
  * account's AI provider, or changes `current` (the card's program) by them.
  */
 export async function describeCardWithAi(
-  body: { prompt: string; today: string; current?: string },
+  body: { prompt: string; today: string; current?: string; place?: "dashboard" | "doc" },
   signal?: AbortSignal,
 ): Promise<DescribedAnswer> {
   const res = await apiFetch("/agent/dashboard-card", {

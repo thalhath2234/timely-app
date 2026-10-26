@@ -35,6 +35,7 @@ import {
   Workflow,
   Type,
   Sparkles,
+  LayoutDashboard,
 } from "lucide-react";
 import {
   forwardRef,
@@ -59,6 +60,8 @@ const MENU_MAX_HEIGHT = 330;
 export const OPEN_LINK_EDITOR_EVENT = "timely:open-link-editor";
 /** Emitted on the editor DOM node so the editor can open Help me write. */
 export const OPEN_HELP_ME_WRITE_EVENT = "timely:open-help-me-write";
+/** Emitted on the editor DOM node so the editor can describe a new live block. */
+export const OPEN_LIVE_BLOCK_EVENT = "timely:open-live-block";
 
 function clampedRange(editor: Editor, range: Range): Range {
   const size = editor.state.doc.content.size;
@@ -79,6 +82,8 @@ export function createSlashItems(options?: {
   onCreateSubpage?: (props: { editor: Editor; range: Range }) => void;
   /** Adds "Help me write" (only while an AI provider is set up). */
   helpMeWrite?: boolean;
+  /** Adds "Live block" (docs only, while an AI provider is set up). */
+  liveBlock?: boolean;
 }): SlashCommandItem[] {
   const items: SlashCommandItem[] = [
     {
@@ -341,6 +346,19 @@ export function createSlashItems(options?: {
       run: ({ editor, range }) => {
         runSlash(editor, range, (chain) => chain.run());
         editor.view.dom.dispatchEvent(new CustomEvent(OPEN_HELP_ME_WRITE_EVENT));
+      },
+    });
+  }
+
+  if (options?.liveBlock) {
+    items.push({
+      title: "Live block",
+      description: "A card from your data, kept current",
+      icon: LayoutDashboard,
+      keywords: ["live", "card", "dashboard", "chart", "widget", "data", "tasks", "ai", "openui"],
+      run: ({ editor, range }) => {
+        runSlash(editor, range, (chain) => chain.run());
+        editor.view.dom.dispatchEvent(new CustomEvent(OPEN_LIVE_BLOCK_EVENT));
       },
     });
   }

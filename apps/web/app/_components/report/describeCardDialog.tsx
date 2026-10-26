@@ -26,6 +26,7 @@ import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
 import { Field, Section, Stepper } from "./cardWorkshop";
 import { GRID_GAP, ROW_HEIGHT } from "./dashboardGrid";
 import DescribedCardView from "./describedCard";
+import { LiveBlockFrame } from "./liveBlockFrame";
 import { useDashboardData } from "./useDashboard";
 
 export interface DescribedResult {
@@ -42,18 +43,24 @@ export interface DescribedResult {
  * AI provider writes the card's program once (POST /agent/dashboard-card),
  * and the preview draws it from the dashboard's own data. Further words
  * change the built card. The card workshop's frame: words on the left, the
- * card at its real size on the right.
+ * card at its real size on the right. In a doc the same dialog builds a live
+ * block, previewed at the doc's width with no name or size to pick.
  */
 export default function DescribeCardDialog({
   initial,
+  place = "dashboard",
   onSave,
   onClose,
 }: {
   /** A described card being changed; absent starts a new one. */
   initial?: DescribedResult;
+  /** "doc" builds a live block for a doc instead of a dashboard card. */
+  place?: "dashboard" | "doc";
   onSave: (result: DescribedResult) => void;
   onClose: () => void;
 }) {
+  const doc = place === "doc";
+  const noun = doc ? "block" : "card";
   const titleId = useId();
   const [words, setWords] = useState("");
   const [program, setProgram] = useState(initial?.program ?? "");
@@ -103,9 +110,9 @@ export default function DescribeCardDialog({
     const controller = new AbortController();
     request.current = controller;
     try {
-      const answer = await describeCardWithAi({ prompt, today: todayInZone(timeZone), current: program || undefined }, controller.signal);
+      const answer = await describeCardWithAi({ prompt, today: todayInZone(timeZone), current: program || undefined, place }, controller.signal);
       const next = readBoardProgram(answer.program, data);
-      if (!next) throw new Error("The AI's answer was not a card. Try again.");
+      if (!next) throw new Error(`The AI's answer was not a ${noun}. Try again.`);
       // The program's size applies when it is new or the words changed it; a size picked here stays otherwise.
       if (!built || next.size.w !== built.size.w || next.size.h !== built.size.h) setSize(next.size);
       setProgram(answer.program);
@@ -113,7 +120,7 @@ export default function DescribeCardDialog({
       setWords("");
     } catch (failure) {
       if (controller.signal.aborted) return;
-      setError(failure instanceof Error ? failure.message : "Could not build the card. Try again.");
+      setError(failure instanceof Error ? failure.message : `Could not build the ${noun}. Try again.`);
     } finally {
       if (request.current === controller) {
         request.current = null;
@@ -152,9 +159,11 @@ export default function DescribeCardDialog({
           <header className="flex items-center gap-3 border-b border-border px-5 py-3">
             <div className="min-w-0 flex-1">
               <h2 id={titleId} className="text-base font-semibold text-foreground">
-                {initial ? "Change card" : "Describe a card"}
+                {doc ? (initial ? "Change live block" : "Add a live block") : initial ? "Change card" : "Describe a card"}
               </h2>
-              <p className="text-xs text-muted-foreground">Say what the card should show. The AI builds it once, then your own data keeps it current.</p>
+              <p className="text-xs text-muted-foreground">
+                Say what the {noun} should show. The AI builds it once, then your own data keeps it current.
+              </p>
             </div>
             <button type="button" onClick={onClose} className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Close">
               <X className="size-4" />
@@ -185,15 +194,15 @@ export default function DescribeCardDialog({
                         }
                       }}
                       placeholder={program ? "Show more rows, add a chart by day, only one project…" : "Overdue client work and what's due this week"}
-                      aria-label={program ? "Change the card" : "Describe the card"}
+                      aria-label={program ? `Change the ${noun}` : `Describe the ${noun}`}
                       className="resize-none"
                     />
                     <div className="flex items-center gap-3">
                       <Button type="submit" leading={<Sparkles />} loading={busy} disabled={!words.trim()}>
-                        {program ? "Change card" : "Build card"}
+                        {program ? `Change ${noun}` : `Build ${noun}`}
                       </Button>
                       <span className="text-xs text-muted-foreground" aria-live="polite">
-                        {busy ? "Building your card…" : ""}
+                        {busy ? `Building your ${noun}…` : ""}
                       </span>
                     </div>
                     {error ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -204,8 +213,8 @@ export default function DescribeCardDialog({
                   <ListGroup>
                     <ListRow
                       icon={<Sparkles className="size-4 shrink-0 text-muted-foreground" />}
-                      label="Describing cards needs an AI provider"
-                      meta="Add a key in Settings, or build the card by hand in the card workshop."
+                      label={doc ? "Live blocks need an AI provider" : "Describing cards needs an AI provider"}
+                      meta={doc ? "Add a key in Settings to build one." : "Add a key in Settings, or build the card by hand in the card workshop."}
                     >
                       <Link href="/settings?tab=agent" className={buttonClass({ size: "sm", variant: "outline" })}>
                         Open Agent keys
@@ -242,22 +251,37 @@ export default function DescribeCardDialog({
             </div>
 
             <div className="flex flex-col gap-4 border-t border-border bg-muted/40 px-5 py-4 lg:overflow-y-auto lg:border-l lg:border-t-0">
-              <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
-                <Field label="Name">
-                  <Input aria-label="Name" value={title} onChange={(event) => setTitle(event.target.value.slice(0, 120))} placeholder={built?.title || "Named when it's built"} />
-                </Field>
-                <Field label="Size">
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Stepper value={w} min={min.w} max={12} onChange={(next) => setSize((current) => ({ ...current, w: next }))} label="Width" />
-                    ×
-                    <Stepper value={h} min={min.h} max={10} onChange={(next) => setSize((current) => ({ ...current, h: next }))} label="Height" />
-                  </div>
-                </Field>
-              </div>
+              {doc ? null : (
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
+                  <Field label="Name">
+                    <Input aria-label="Name" value={title} onChange={(event) => setTitle(event.target.value.slice(0, 120))} placeholder={built?.title || "Named when it's built"} />
+                  </Field>
+                  <Field label="Size">
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Stepper value={w} min={min.w} max={12} onChange={(next) => setSize((current) => ({ ...current, w: next }))} label="Width" />
+                      ×
+                      <Stepper value={h} min={min.h} max={10} onChange={(next) => setSize((current) => ({ ...current, h: next }))} label="Height" />
+                    </div>
+                  </Field>
+                </div>
+              )}
 
               <div>
                 <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Preview</p>
-                {program ? (
+                {program && doc ? (
+                  // The block as the doc will show it: the doc's width, as tall as it needs.
+                  <div role="region" aria-label={`Preview of ${name}`} className="doc-code-wrap doc-live" style={{ margin: 0 }}>
+                    <LiveBlockFrame title={name} program={program}>
+                      <div className="doc-live-body">
+                        {previewLoading ? (
+                          <SkeletonLines lines={3} className="px-4 py-3" />
+                        ) : (
+                          <DescribedCardView program={program} data={data} timeZone={timeZone} now={now} layout="doc" />
+                        )}
+                      </div>
+                    </LiveBlockFrame>
+                  </div>
+                ) : program ? (
                   <div
                     role="region"
                     aria-label={`Preview of ${name}`}
@@ -275,21 +299,21 @@ export default function DescribeCardDialog({
                 ) : (
                   <div
                     className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border px-6 text-center"
-                    style={{ height: previewHeight, width: previewWidth, minWidth: 260, maxWidth: "100%" }}
+                    style={doc ? { minHeight: 220 } : { height: previewHeight, width: previewWidth, minWidth: 260, maxWidth: "100%" }}
                   >
                     {busy ? (
                       <SkeletonLines lines={4} className="w-full px-2" />
                     ) : (
                       <>
                         <Sparkles className="size-5 text-muted-foreground" />
-                        <p className="text-sm text-muted-foreground">Your card shows here once it&rsquo;s built.</p>
+                        <p className="text-sm text-muted-foreground">Your {noun} shows here once it&rsquo;s built.</p>
                       </>
                     )}
                   </div>
                 )}
                 <p className="mt-2 text-xs text-muted-foreground">
                   {sources.length
-                    ? `Reads your ${listText(sources.map((source) => SOURCE_LABELS[source].replace("Calendar events", "events").toLowerCase()))} each time the dashboard shows. The AI isn't asked again.`
+                    ? `Reads your ${listText(sources.map((source) => SOURCE_LABELS[source].replace("Calendar events", "events").toLowerCase()))} each time the ${doc ? "doc opens" : "dashboard shows"}. The AI isn't asked again.`
                     : "Built from your tasks, events, projects, docs and sheets. Nothing is changed."}
                 </p>
               </div>
@@ -301,7 +325,7 @@ export default function DescribeCardDialog({
               Cancel
             </button>
             <Button onClick={save} disabled={!program || busy} leading={initial ? <Check /> : <Plus />}>
-              {initial ? "Save changes" : "Add to dashboard"}
+              {initial ? "Save changes" : doc ? "Insert block" : "Add to dashboard"}
             </Button>
           </footer>
         </OverlayPanel>

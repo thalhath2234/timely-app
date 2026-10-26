@@ -48,6 +48,14 @@ func TestDashboardCardMessages(t *testing.T) {
 	if !strings.Contains(user, "<program>\nroot = Panel(\"Late\", [])\n</program>") || !strings.Contains(user, "Change it: make it a chart") {
 		t.Errorf("a change should carry the current program:\n%s", user)
 	}
+	if strings.Contains(user, "live block") {
+		t.Errorf("a dashboard card is not told it sits in a doc:\n%s", user)
+	}
+
+	req.Place = "doc"
+	if user = dashboardCardMessages(req, testVocab())[1].Content; !strings.Contains(user, "live block in a doc") || !strings.Contains(user, "leave the size out") {
+		t.Errorf("a live block is told it takes the doc's width:\n%s", user)
+	}
 }
 
 func TestBoardPromptIsEmbedded(t *testing.T) {

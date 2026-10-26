@@ -505,6 +505,33 @@ export function readBoardProgram(program: string, data: DashboardData = {}): Des
   return { title, size: named ? { ...named } : defaultCardSize(fallback), fallback };
 }
 
+// ---- Live blocks ----
+
+/**
+ * A live block is a described card inside a doc: the same Panel program,
+ * saved in the doc as a fenced code block in this language, so the doc stays
+ * Markdown and other editors show the program as code. The apps draw it at
+ * the doc's width from their own data each time the doc shows; `size` is
+ * left out there.
+ */
+export const LIVE_BLOCK_LANGUAGE = "openui-lang";
+
+/**
+ * Stand-in dashboard cards for live block programs, for the apps' dashboard
+ * data hooks, so they load what the programs read and nothing else.
+ */
+export function liveBlockCards(programs: string[]): DashboardCard[] {
+  return programs
+    .filter((program) => program.trim())
+    .map((program, index) => ({
+      id: `live-${index}`,
+      type: "custom",
+      w: 4,
+      h: 3,
+      query: { ...fitQuery(defaultQuery("tasks")), described: { prompt: "", program } },
+    }));
+}
+
 /** The dashboard card for a described program, or null when it can't be read. */
 export function describedCard(id: string, prompt: string, program: string, data?: DashboardData): DashboardCard | null {
   const read = readBoardProgram(program, data);

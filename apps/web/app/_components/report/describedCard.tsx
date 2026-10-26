@@ -54,11 +54,14 @@ export default function DescribedCardView({
   data,
   timeZone,
   now,
+  layout = "card",
 }: {
   program: string;
   data: DashboardData;
   timeZone?: string;
   now: Date;
+  /** "card" fills a board card edge to edge; "doc" is a live block, as tall as it needs. */
+  layout?: "card" | "doc";
 }) {
   // New data gives new functions, so the program is read again with it.
   const library = useMemo(
@@ -66,9 +69,14 @@ export default function DescribedCardView({
     [data, now, timeZone],
   );
   const [failed, setFailed] = useState(false);
-  if (failed) return <p className="p-1 text-sm text-muted-foreground">This card could not be drawn. Change it to build it again.</p>;
+  if (failed)
+    return (
+      <p className={layout === "doc" ? "px-4 py-3 text-sm text-muted-foreground" : "p-1 text-sm text-muted-foreground"}>
+        This {layout === "doc" ? "block" : "card"} could not be drawn. Change it to build it again.
+      </p>
+    );
   return (
-    <div className="-mx-3 -mb-3 h-[calc(100%+0.75rem)] overflow-y-auto" data-testid="described-card">
+    <div className={layout === "doc" ? undefined : "-mx-3 -mb-3 h-[calc(100%+0.75rem)] overflow-y-auto"} data-testid="described-card">
       <Renderer
         response={program}
         library={library}

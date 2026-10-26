@@ -36,6 +36,8 @@ type dashboardCardRequest struct {
 	Today string `json:"today"`
 	// Current is the card's program when the words change an existing card.
 	Current string `json:"current"`
+	// Place is "doc" for a live block in a doc; anything else is a dashboard card.
+	Place string `json:"place"`
 }
 
 type dashboardCardResponse struct {
@@ -49,9 +51,32 @@ func (s *Service) dashboardCard(c *echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(400, "Invalid request")
 	}
+	answer, err := s.describeCard(c.Request().Context(), user(c), req)
+	if err != nil {
+		return err
+	}
+	return c.JSON(200, answer)
+}
+
+// LiveBlock writes a live block's program for a doc from the person's words,
+// or changes the current one, as the apps' Describe dialog does; the agent's
+// add_live_block tool calls it. today is YYYY-MM-DD in the person's zone.
+func (s *Service) LiveBlock(ctx context.Context, userID, words, current, today string) (string, error) {
+	answer, err := s.describeCard(ctx, userID, dashboardCardRequest{Prompt: words, Current: current, Place: "doc", Today: today})
+	if err != nil {
+		var he *echo.HTTPError
+		if errors.As(err, &he) {
+			return "", errors.New(fmt.Sprint(he.Message))
+		}
+		return "", err
+	}
+	return answer.Program, nil
+}
+
+func (s *Service) describeCard(ctx context.Context, userID string, req dashboardCardRequest) (dashboardCardResponse, error) {
 	req.Prompt = clipHead(strings.TrimSpace(req.Prompt), dashboardCardMaxText)
 	if req.Prompt == "" {
-		return echo.NewHTTPError(400, "Say what the card should show")
+		return dashboardCardResponse{}, echo.NewHTTPError(400, "Say what the card should show")
 	}
 	req.Current = strings.TrimSpace(req.Current)
 	if len(req.Current) > dashboardCardMaxProgram {
@@ -60,35 +85,34 @@ func (s *Service) dashboardCard(c *echo.Context) error {
 	if _, err := time.Parse("2006-01-02", req.Today); err != nil {
 		req.Today = time.Now().Format("2006-01-02")
 	}
-	ctx := c.Request().Context()
-	row, err := s.load(s.db, user(c))
+	row, err := s.load(s.db, userID)
 	if err != nil {
-		return err
+		return dashboardCardResponse{}, err
 	}
 	provider := writeProvider(s.view(ctx, row, time.Minute))
 	if provider == "" {
-		return echo.NewHTTPError(409, "Describing cards needs an AI provider. Add a key in Settings → Agent keys")
+		return dashboardCardResponse{}, echo.NewHTTPError(409, "Describing cards needs an AI provider. Add a key in Settings → Agent keys")
 	}
-	completer, err := s.Completer(ctx, user(c), provider, "")
+	completer, err := s.Completer(ctx, userID, provider, "")
 	if err != nil {
-		return echo.NewHTTPError(409, err.Error())
+		return dashboardCardResponse{}, echo.NewHTTPError(409, err.Error())
 	}
-	vocab, err := s.loadViewVocab(ctx, user(c))
+	vocab, err := s.loadViewVocab(ctx, userID)
 	if err != nil {
-		return err
+		return dashboardCardResponse{}, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, dashboardCardBudget)
 	defer cancel()
 	reply, err := completer.Complete(ctx, dashboardCardMessages(req, vocab), nil, false)
 	if err != nil {
-		return echo.NewHTTPError(502, err.Error())
+		return dashboardCardResponse{}, echo.NewHTTPError(502, err.Error())
 	}
 	program, err := boardProgram(reply.Content)
 	if err != nil {
-		return echo.NewHTTPError(502, "The AI's answer was not a card. Try again")
+		return dashboardCardResponse{}, echo.NewHTTPError(502, "The AI's answer was not a card. Try again")
 	}
-	_, model, _ := s.resolveModel(ctx, user(c), provider)
-	return c.JSON(200, dashboardCardResponse{Program: program, Provider: provider, Model: model})
+	_, model, _ := s.resolveModel(ctx, userID, provider)
+	return dashboardCardResponse{Program: program, Provider: provider, Model: model}, nil
 }
 
 func dashboardCardMessages(req dashboardCardRequest, v viewVocab) []chat.WireMessage {
@@ -107,6 +131,9 @@ func dashboardCardMessages(req dashboardCardRequest, v viewVocab) []chat.WireMes
 	list("Projects", v.projects)
 	list("Statuses", v.statuses)
 	list("Labels", v.labels)
+	if req.Place == "doc" {
+		b.WriteString("\nThis card is a live block in a doc: it takes the doc's width and as much height as it needs, so leave the size out. Up to ten rows fit.\n")
+	}
 	if req.Current != "" {
 		fmt.Fprintf(&b, "\nThe card now:\n<program>\n%s\n</program>\n\nChange it: %s\n", req.Current, req.Prompt)
 	} else {
