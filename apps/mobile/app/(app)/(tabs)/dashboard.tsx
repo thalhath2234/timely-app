@@ -55,6 +55,7 @@ import CustomCardView, { DISPLAY_ICON } from "../../../components/report/customC
 import CardEditor from "../../../components/report/CardEditor";
 import FileCardView, { FILE_ICON, isFileQuery, useFileWatches } from "../../../components/report/fileCards";
 import FileCardBuilder from "../../../components/report/fileCardBuilder";
+import DescribedCardView from "../../../components/report/describedCard";
 import DashboardEditList, { type EditListScroll } from "../../../components/report/DashboardEditList";
 import PomodoroCard from "../../../components/report/pomodoroCard";
 import HighlightsCard from "../../../components/report/highlightsCard";
@@ -135,6 +136,7 @@ function isEditable(card: DashboardCard) {
 }
 
 function cardIcon(card: DashboardCard) {
+  if (card.type === "custom" && card.query?.described) return Sparkles;
   if (card.type === "custom" && card.query?.sheet) return FILE_ICON[card.query.sheet.view];
   if (card.type === "custom" && card.query?.doc) return FILE_ICON[card.query.doc.view];
   if (card.type === "custom") return DISPLAY_ICON[card.query?.display ?? "number"];
@@ -209,6 +211,16 @@ export default function DashboardScreen() {
     [data.events, openItem, router],
   );
 
+  // Links in a described card: screens by path, items as timely://kind/id.
+  const openLink = useCallback(
+    (href: string) => {
+      const item = href.match(/^timely:\/\/(task|project|doc|sheet|event)\/([^/?#]+)/);
+      if (item) return router.push(item[1] === "doc" || item[1] === "sheet" ? fileHref(item[2]) : `/(app)/${item[1]}s/${item[2]}`);
+      if (href.startsWith("/")) router.push(`/(app)${href}`);
+    },
+    [router],
+  );
+
   const addCard = (card: Omit<DashboardCard, "id">) => {
     if (cards.length >= DASHBOARD_MAX_CARDS) {
       useToastStore.getState().show(`A dashboard holds up to ${DASHBOARD_MAX_CARDS} cards`);
@@ -250,6 +262,8 @@ export default function DashboardScreen() {
         if (!card.query) return null;
         if (loading) return <SkeletonRows rows={3} height={28} bare />;
         if (isFileQuery(card.query)) return <FileCardView query={card.query} data={data} />;
+        if (card.query.described)
+          return <DescribedCardView program={card.query.described.program} data={data} timeZone={timeZone} now={now} onLink={openLink} />;
         return <CustomCardView query={card.query} result={computeCard(card.query, data, { now, timeZone })} onOpen={openRow} />;
       }
       case "pomodoro":
