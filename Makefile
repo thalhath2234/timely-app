@@ -359,9 +359,9 @@ test-project-delete: ## Test the confirm that names the tasks a project delete t
 	@node --experimental-strip-types --test scripts/project-delete.test.mjs
 
 .PHONY: test-genui gen-genui-prompt
-test-genui: ## Test reply cards: the agent's OpenUI prompt, its examples and splitting replies
+test-genui: ## Test reply and described cards: the OpenUI prompts, their examples, splitting replies and @Data
 	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/genui.test.mjs
-gen-genui-prompt: ## Write the reply-card instructions for the API from packages/contract/src/genui.ts
+gen-genui-prompt: ## Write the reply- and described-card instructions for the API from packages/contract/src/genui*.ts
 	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs scripts/gen-genui-prompt.mjs
 
 .PHONY: test-dashboard

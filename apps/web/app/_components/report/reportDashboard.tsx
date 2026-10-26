@@ -15,12 +15,14 @@ import {
   RotateCcw,
   Scaling,
   SlidersHorizontal,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import {
   builtinInfo,
   cardTitle,
   defaultDashboard,
+  describedSources,
   minCardSize,
   newCardId,
   DASHBOARD_MAX_CARDS,
@@ -53,6 +55,7 @@ import AddCardDialog from "./addCardDialog";
 import CardWorkshop, { DISPLAY_ICON, type WorkshopResult } from "./cardWorkshop";
 import CustomCardView, { useCardResult } from "./customCardView";
 import FileCardView, { FILE_ICON, isFileQuery, useFileWatches } from "./fileCards";
+import DescribedCardView from "./describedCard";
 import DashboardGrid from "./dashboardGrid";
 import PomodoroCard from "./pomodoroCard";
 import HighlightsCard from "./highlightsCard";
@@ -342,7 +345,13 @@ export default function ReportDashboard() {
 
   const renderIcon = (card: DashboardCard) => {
     if (card.type === "custom") {
-      const Icon = card.query?.sheet ? FILE_ICON[card.query.sheet.view] : card.query?.doc ? FILE_ICON[card.query.doc.view] : DISPLAY_ICON[card.query?.display ?? "number"];
+      const Icon = card.query?.described
+        ? Sparkles
+        : card.query?.sheet
+          ? FILE_ICON[card.query.sheet.view]
+          : card.query?.doc
+            ? FILE_ICON[card.query.doc.view]
+            : DISPLAY_ICON[card.query?.display ?? "number"];
       return <Icon className="size-3.5" />;
     }
     return <BuiltinIcon type={card.type} className="size-3.5" />;
@@ -359,7 +368,11 @@ export default function ReportDashboard() {
             data={data}
             timeZone={timeZone}
             now={now}
-            loading={loading[card.query?.source ?? "tasks"]}
+            loading={
+              card.query?.described
+                ? describedSources(card.query.described.program).some((source) => loading[source])
+                : loading[card.query?.source ?? "tasks"]
+            }
             onOpen={openRow}
             onRowContextMenu={rowMenu}
           />
@@ -567,6 +580,10 @@ function CustomCardSlot({
   if (isFileQuery(card.query)) {
     if (loading) return <SkeletonLines lines={3} className="p-4" />;
     return <FileCardView query={card.query} data={data} />;
+  }
+  if (card.query.described) {
+    if (loading) return <SkeletonLines lines={3} className="p-4" />;
+    return <DescribedCardView program={card.query.described.program} data={data} timeZone={timeZone} now={now} />;
   }
   if (!result) return null;
   if (loading) return <SkeletonLines lines={3} className="p-4" />;

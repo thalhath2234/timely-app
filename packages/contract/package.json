@@ -16,6 +16,7 @@
     "./documents": "./src/documents.ts",
     "./embeds": "./src/embeds.ts",
     "./genui": "./src/genui.ts",
+    "./genuiBoard": "./src/genuiBoard.ts",
     "./entities": "./src/entities.ts",
     "./helpMeWrite": "./src/helpMeWrite.ts",
     "./importFormat": "./src/importFormat.ts",
