@@ -60,7 +60,7 @@ function TaskCard({
         style={[styles.body, trailing ? styles.bodyWithTrailing : null]}
       >
         <View style={styles.titleRow}>
-          <View style={{ flex: 1, minWidth: 0 }}>
+          <View style={styles.titleBox}>
             <StrikeTitle done={done} style={styles.name}>
               {task.name}
             </StrikeTitle>
@@ -122,7 +122,8 @@ const styles = createThemedStyleSheet((colors) => ({
   body: { flex: 1, minHeight: 76, justifyContent: "center", paddingVertical: 14, paddingRight: 14, gap: 7 },
   bodyWithTrailing: { paddingRight: 2 },
   titleRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  name: { flex: 1, minWidth: 0, color: colors.cardForeground, fontSize: 15, fontWeight: "600", lineHeight: 21 },
+  titleBox: { flex: 1, minWidth: 0 },
+  name: { color: colors.cardForeground, fontSize: 15, fontWeight: "600", lineHeight: 21 },
   duration: { color: colors.foreground, fontSize: 12, fontWeight: "600", marginTop: 1, fontVariant: ["tabular-nums"] },
   done: { color: colors.mutedForeground, textDecorationLine: "line-through" },
   meta: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },

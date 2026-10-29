@@ -60,6 +60,7 @@ func Collect(tasks []models.Task, events []models.Event, from, to time.Time, hou
 		if task.IsRecurring() {
 			if task.IsSchedulableWork() {
 				chunkCount := len(task.Blocks)
+				completed := completedOccurrences(task.Recurrence)
 				for _, block := range task.Blocks {
 					if !block.StartAt.Before(to) || !block.EndAt.After(from) {
 						continue
@@ -70,6 +71,7 @@ func Collect(tasks []models.Task, events []models.Event, from, to time.Time, hou
 						item.OriginalStart = &original
 						item.SeriesID = task.Recurrence.ID
 						item.Kind = KindTaskOccurrence
+						item.CompletedAt = completed[original.Unix()]
 					}
 					items = append(items, item)
 				}
@@ -233,6 +235,18 @@ func taskBlockItem(task *models.Task, block models.ScheduledBlock, chunkCount in
 		TaskID:     task.ID,
 		Task:       task,
 	}
+}
+
+// completedOccurrences maps an occurrence's original start (Unix seconds) to
+// when it was ticked off, the same key recurrence.Expand reads exceptions by.
+func completedOccurrences(rule *models.RecurrenceRule) map[int64]*time.Time {
+	out := map[int64]*time.Time{}
+	for _, exception := range rule.Exceptions {
+		if exception.CompletedAt != nil {
+			out[exception.OriginalStart.Unix()] = exception.CompletedAt
+		}
+	}
+	return out
 }
 
 func taskOccurrenceItem(task *models.Task, occurrence recurrence.Occurrence) Item {

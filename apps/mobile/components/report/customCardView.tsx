@@ -1,10 +1,36 @@
 import { Text, View } from "react-native";
-import { ArrowDownRight, ArrowUpRight, CalendarDays, CheckCircle2, FileText, FolderKanban, ListTodo, Minus, Sheet as SheetIcon } from "lucide-react-native";
-import { formatMetric, type CardQuery, type CardResult, type CardRow, type EntityKind } from "@timely/contract/dashboard";
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  BarChart3,
+  CalendarDays,
+  CheckCircle2,
+  FileText,
+  FolderKanban,
+  Gauge,
+  Hash,
+  LineChart as LineIcon,
+  List,
+  ListTodo,
+  Minus,
+  PieChart,
+  Sheet as SheetIcon,
+} from "lucide-react-native";
+import { formatMetric, type CardDisplay, type CardQuery, type CardResult, type CardRow, type EntityKind } from "@timely/contract/dashboard";
 import { seriesColor } from "../../lib/dashboard";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import { CategoryBars, ColumnChart, DonutChart, LineChart, Meter } from "./charts";
+
+/** A custom card's icon in its header, by how it shows. */
+export const DISPLAY_ICON: Record<CardDisplay, typeof Hash> = {
+  number: Hash,
+  list: List,
+  bar: BarChart3,
+  line: LineIcon,
+  pie: PieChart,
+  progress: Gauge,
+};
 
 const ENTITY_ICON: Record<EntityKind, typeof ListTodo> = {
   task: ListTodo,

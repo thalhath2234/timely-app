@@ -266,13 +266,25 @@ export default function RecurrenceEditor({
 }
 
 /** − 2 weeks + : a small stepper for the right side of a row. */
-function Stepper({ value, label, onChange }: { value: number; label: string; onChange: (value: number) => void }) {
+export function Stepper({
+  value,
+  label,
+  onChange,
+  min = 1,
+  max = 999,
+}: {
+  value: number;
+  label: string;
+  onChange: (value: number) => void;
+  min?: number;
+  max?: number;
+}) {
   return (
     <View style={styles.stepper}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Fewer"
-        onPress={() => onChange(Math.max(1, value - 1))}
+        onPress={() => onChange(Math.max(min, value - 1))}
         hitSlop={6}
         style={styles.step}
       >
@@ -284,7 +296,7 @@ function Stepper({ value, label, onChange }: { value: number; label: string; onC
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="More"
-        onPress={() => onChange(Math.min(999, value + 1))}
+        onPress={() => onChange(Math.min(max, value + 1))}
         hitSlop={6}
         style={styles.step}
       >

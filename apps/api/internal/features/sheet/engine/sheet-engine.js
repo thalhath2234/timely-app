@@ -38,238 +38,56 @@ var SheetEngine = (() => {
   // packages/contract/src/sheetEngine.ts
   var sheetEngine_exports = {};
   __export(sheetEngine_exports, {
+    cellsBriefs: () => cellsBriefs,
     evaluate: () => evaluate,
     restructure: () => restructure
   });
 
-  // packages/contract/src/sheetRefs.ts
-  function columnLetterToIndex(letters) {
-    let index = 0;
-    for (const char of letters.toUpperCase()) {
-      index = index * 26 + (char.charCodeAt(0) - 64);
-    }
-    return index - 1;
+  // packages/contract/src/sheetCell.ts
+  function isFormulaValue(value) {
+    return value.trim().startsWith("=");
   }
-  function columnIndexToLetter(index) {
-    let result = "";
-    let current = index + 1;
-    while (current > 0) {
-      const remainder = (current - 1) % 26;
-      result = String.fromCharCode(65 + remainder) + result;
-      current = Math.floor((current - 1) / 26);
+  var CURRENCY_PREFIX = new RegExp("^(?:[A-Z]{3}|rs\\.?|Rs\\.?|RS\\.?|R\\$|kr|Kr|zł|Fr\\.?|\\p{Sc})\\s*", "u");
+  var CURRENCY_SUFFIX = new RegExp("\\s*(?:[A-Z]{3}|rs\\.?|Rs\\.?|RS\\.?|kr|Kr|zł|Fr\\.?|\\p{Sc})$", "u");
+  var FRACTIONS = { "½": 0.5, "¼": 0.25, "¾": 0.75, "⅓": 1 / 3, "⅔": 2 / 3, "⅛": 0.125 };
+  function parseNumberInput(value) {
+    let text2 = value.trim();
+    if (!text2) return null;
+    if (text2 in FRACTIONS) return FRACTIONS[text2];
+    let negative = false;
+    if (text2.startsWith("(") && text2.endsWith(")")) {
+      negative = true;
+      text2 = text2.slice(1, -1).trim();
     }
-    return result;
-  }
-  var ENDPOINT = String.raw`\$?[A-Za-z]{1,3}\$?\d+|\$?[A-Za-z]{1,3}|\$?\d+`;
-  var RANGE_RE = new RegExp(`(${ENDPOINT})\\s*:\\s*(${ENDPOINT})`, "y");
-  var CELL_RE = /\$?[A-Za-z]{1,3}\$?\d+/y;
-  var UNQUOTED_SHEET_RE = /[\p{L}_][\p{L}\p{N}_.]*!/uy;
-  var WORD_CHAR = /[\p{L}\p{N}_.$']/u;
-  var AFTER_REF_CHAR = /[\p{L}\p{N}_(!.]/u;
-  function parseEndpoint(text2) {
-    const match = /^(\$?)([A-Za-z]{1,3})?(\$?)(\d+)?$/.exec(text2);
-    if (!match || !match[2] && !match[4]) return null;
-    const endpoint = { colAbs: false, rowAbs: false };
-    if (match[2]) {
-      endpoint.col = columnLetterToIndex(match[2]);
-      endpoint.colAbs = match[1] === "$";
-      endpoint.rowAbs = match[3] === "$";
+    const percent = text2.endsWith("%");
+    if (percent) text2 = text2.slice(0, -1).trim();
+    if (text2.startsWith("-")) {
+      negative = !negative;
+      text2 = text2.slice(1).trim();
+    }
+    for (let i = 0; i < 2; i += 1) {
+      text2 = text2.replace(CURRENCY_PREFIX, "").replace(CURRENCY_SUFFIX, "").trim();
+    }
+    if (text2.startsWith("-")) {
+      negative = !negative;
+      text2 = text2.slice(1).trim();
+    }
+    text2 = text2.replace(/[\s  ']/g, "");
+    const lastComma = text2.lastIndexOf(",");
+    const lastDot = text2.lastIndexOf(".");
+    if (lastComma >= 0 && lastDot >= 0 && lastComma > lastDot) {
+      text2 = text2.replace(/\./g, "").replace(",", ".");
+    } else if (lastComma >= 0 && lastDot < 0 && text2.split(",").length === 2 && text2.length - lastComma - 1 <= 2) {
+      text2 = text2.replace(",", ".");
     } else {
-      endpoint.rowAbs = match[1] === "$" || match[3] === "$";
+      text2 = text2.replace(/,/g, "");
     }
-    if (match[4]) endpoint.row = Number(match[4]) - 1;
-    return endpoint;
-  }
-  function formatEndpoint(endpoint) {
-    let out = "";
-    if (endpoint.col !== void 0) {
-      out += `${endpoint.colAbs ? "$" : ""}${columnIndexToLetter(endpoint.col)}`;
-    }
-    if (endpoint.row !== void 0) {
-      out += `${endpoint.rowAbs ? "$" : ""}${endpoint.row + 1}`;
-    }
-    return out;
-  }
-  function bareSheetName(name) {
-    return /^[\p{L}_][\p{L}\p{N}_.]*$/u.test(name) && !/^[A-Za-z]{1,3}\d+$/.test(name) && !/^(TRUE|FALSE)$/i.test(name);
-  }
-  function sheetPrefix(name) {
-    return bareSheetName(name) ? `${name}!` : `'${name.replace(/'/g, "''")}'!`;
-  }
-  function formatRef(ref) {
-    const body = ref.to ? `${formatEndpoint(ref.from)}:${formatEndpoint(ref.to)}` : formatEndpoint(ref.from);
-    if (ref.prefix !== void 0) return ref.prefix + body;
-    return ref.sheet ? `${sheetPrefix(ref.sheet)}${body}` : body;
-  }
-  function skipString(formula, index) {
-    let i = index + 1;
-    while (i < formula.length) {
-      if (formula[i] === '"') {
-        if (formula[i + 1] === '"') {
-          i += 2;
-          continue;
-        }
-        return i + 1;
-      }
-      i += 1;
-    }
-    return i;
-  }
-  function readSheetPrefix(formula, index) {
-    if (formula[index] === "'") {
-      let i = index + 1;
-      let name = "";
-      while (i < formula.length) {
-        if (formula[i] === "'") {
-          if (formula[i + 1] === "'") {
-            name += "'";
-            i += 2;
-            continue;
-          }
-          break;
-        }
-        name += formula[i];
-        i += 1;
-      }
-      if (formula[i] === "'" && formula[i + 1] === "!" && name) return { name, next: i + 2 };
-      return null;
-    }
-    UNQUOTED_SHEET_RE.lastIndex = index;
-    const match = UNQUOTED_SHEET_RE.exec(formula);
-    if (!match) return null;
-    return { name: match[0].slice(0, -1), next: index + match[0].length };
-  }
-  function scanFormulaRefs(formula) {
-    var _a, _b, _c, _d;
-    const refs = [];
-    if (!formula.trim().startsWith("=")) return refs;
-    let i = formula.indexOf("=") + 1;
-    while (i < formula.length) {
-      const char = formula[i];
-      if (char === '"') {
-        i = skipString(formula, i);
-        continue;
-      }
-      const before = i > 0 ? formula[i - 1] : "";
-      if (before && WORD_CHAR.test(before)) {
-        i += 1;
-        continue;
-      }
-      const prefix = readSheetPrefix(formula, i);
-      const at = prefix ? prefix.next : i;
-      RANGE_RE.lastIndex = at;
-      const range = RANGE_RE.exec(formula);
-      if (range && !AFTER_REF_CHAR.test((_a = formula[at + range[0].length]) != null ? _a : "")) {
-        const from = parseEndpoint(range[1]);
-        const to = parseEndpoint(range[2]);
-        if (from && to) {
-          refs.push({ start: i, end: at + range[0].length, sheet: (_b = prefix == null ? void 0 : prefix.name) != null ? _b : null, prefix: formula.slice(i, at), from, to });
-          i = at + range[0].length;
-          continue;
-        }
-      }
-      CELL_RE.lastIndex = at;
-      const cell = CELL_RE.exec(formula);
-      if (cell && !AFTER_REF_CHAR.test((_c = formula[at + cell[0].length]) != null ? _c : "")) {
-        const from = parseEndpoint(cell[0]);
-        if (from) {
-          refs.push({ start: i, end: at + cell[0].length, sheet: (_d = prefix == null ? void 0 : prefix.name) != null ? _d : null, prefix: formula.slice(i, at), from, to: null });
-          i = at + cell[0].length;
-          continue;
-        }
-      }
-      if (prefix) {
-        i = prefix.next;
-        continue;
-      }
-      i += 1;
-    }
-    return refs;
-  }
-  function rewriteRefs(formula, rewrite) {
-    const refs = scanFormulaRefs(formula);
-    if (refs.length === 0) return formula;
-    let out = "";
-    let last = 0;
-    let changed = false;
-    for (const ref of refs) {
-      const next = rewrite(ref);
-      if (next === null) continue;
-      out += formula.slice(last, ref.start) + next;
-      last = ref.end;
-      changed = true;
-    }
-    return changed ? out + formula.slice(last) : formula;
-  }
-  var sameSheet = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
-  function adjustFormulaForStructure(value, change, context) {
-    if (!value.trim().startsWith("=") || change.count <= 0) return value;
-    const key = change.axis === "row" ? "row" : "col";
-    const position = change.axis === "row" ? context.formulaRow : context.formulaCol;
-    const lastDeleted = change.at + change.count - 1;
-    return rewriteRefs(value, (ref) => {
-      var _a;
-      const target = (_a = ref.sheet) != null ? _a : context.formulaSheet;
-      if (!sameSheet(target, context.changedSheet)) return null;
-      const from = __spreadValues({}, ref.from);
-      const to = ref.to ? __spreadValues({}, ref.to) : null;
-      const a = from[key];
-      const b = to ? to[key] : void 0;
-      if (change.kind === "insert") {
-        if (!to) {
-          if (a === void 0 || a < change.at) return null;
-          from[key] = a + change.count;
-          return formatRef(__spreadProps(__spreadValues({}, ref), { from, to }));
-        }
-        if (a === void 0 && b === void 0) return null;
-        if (a === void 0 || b === void 0) {
-          const endpoint = a === void 0 ? to : from;
-          if (endpoint[key] < change.at) return null;
-          endpoint[key] = endpoint[key] + change.count;
-          return formatRef(__spreadProps(__spreadValues({}, ref), { from, to }));
-        }
-        const lowEndpoint2 = a <= b ? from : to;
-        const highEndpoint2 = a <= b ? to : from;
-        const low2 = Math.min(a, b);
-        const high2 = Math.max(a, b);
-        const local = !ref.sheet || sameSheet(ref.sheet, context.formulaSheet);
-        if (low2 >= change.at) {
-          lowEndpoint2[key] = low2 + change.count;
-          highEndpoint2[key] = high2 + change.count;
-        } else if (high2 >= change.at) {
-          highEndpoint2[key] = high2 + change.count;
-        } else if (local && high2 === change.at - 1 && position !== void 0 && position >= change.at) {
-          highEndpoint2[key] = high2 + change.count;
-        } else {
-          return null;
-        }
-        return formatRef(__spreadProps(__spreadValues({}, ref), { from, to }));
-      }
-      if (!to) {
-        if (a === void 0 || a < change.at) return null;
-        if (a <= lastDeleted) return "#REF!";
-        from[key] = a - change.count;
-        return formatRef(__spreadProps(__spreadValues({}, ref), { from, to }));
-      }
-      if (a === void 0 || b === void 0) {
-        const endpoint = a === void 0 ? to : from;
-        const coordinate = endpoint[key];
-        if (coordinate < change.at) return null;
-        endpoint[key] = coordinate <= lastDeleted ? change.at : coordinate - change.count;
-        return formatRef(__spreadProps(__spreadValues({}, ref), { from, to }));
-      }
-      const low = Math.min(a, b);
-      const high = Math.max(a, b);
-      if (high < change.at) return null;
-      const nextLow = low > lastDeleted ? low - change.count : low >= change.at ? change.at : low;
-      const nextHigh = high > lastDeleted ? high - change.count : change.at - 1;
-      if (nextHigh < nextLow) return "#REF!";
-      const lowEndpoint = a <= b ? from : to;
-      const highEndpoint = a <= b ? to : from;
-      lowEndpoint[key] = nextLow;
-      highEndpoint[key] = nextHigh;
-      return formatRef(__spreadProps(__spreadValues({}, ref), { from, to }));
-    });
+    if (!/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(text2)) return null;
+    let n = Number(text2);
+    if (!Number.isFinite(n)) return null;
+    if (negative) n = -n;
+    if (percent) n /= 100;
+    return n;
   }
 
   // packages/contract/src/sheetValues.ts
@@ -624,8 +442,8 @@ var SheetEngine = (() => {
     const scaled = percent ? value * 100 : value;
     const decimalsMatch = /\.(0+)/.exec(format);
     const decimals = decimalsMatch ? decimalsMatch[1].length : 0;
-    const grouped = format.includes(",");
-    const body = grouped ? scaled.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) : scaled.toFixed(decimals);
+    const grouped2 = format.includes(",");
+    const body = grouped2 ? scaled.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) : scaled.toFixed(decimals);
     return percent ? `${body}%` : body;
   }
   function textFunction(value, format) {
@@ -1369,6 +1187,313 @@ var SheetEngine = (() => {
     }
   }
 
+  // packages/contract/src/sheetDisplay.ts
+  var symbolCache = /* @__PURE__ */ new Map();
+  function currencyFormatter(code, digits) {
+    const key = `${code}:${digits}`;
+    if (symbolCache.has(key)) return symbolCache.get(key);
+    let formatter = null;
+    try {
+      formatter = new Intl.NumberFormat(void 0, {
+        style: "currency",
+        currency: code,
+        currencyDisplay: "narrowSymbol",
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits
+      });
+    } catch (e) {
+      formatter = null;
+    }
+    symbolCache.set(key, formatter);
+    return formatter;
+  }
+  function grouped(value, digits) {
+    return value.toLocaleString(
+      void 0,
+      digits == null ? { maximumFractionDigits: 10 } : { minimumFractionDigits: digits, maximumFractionDigits: digits }
+    );
+  }
+  function formatCurrency(value, currency, digits = 2) {
+    const code = currency == null ? void 0 : currency.trim();
+    if (!code) return grouped(value, digits);
+    if (/^[A-Za-z]{3}$/.test(code)) {
+      const formatter = currencyFormatter(code.toUpperCase(), digits);
+      if (formatter) return formatter.format(value);
+    }
+    const body = grouped(Math.abs(value), digits);
+    return `${value < 0 ? "-" : ""}${code}${new RegExp("\\p{Sc}$", "u").test(code) ? "" : " "}${body}`;
+  }
+  function formatNumberValue(value, format, decimals, currency) {
+    if (!Number.isFinite(value)) return "#NUM!";
+    const digits = decimals != null ? decimals : format === "currency" || format === "percent" ? 2 : void 0;
+    if (format === "currency") return formatCurrency(value, currency, digits != null ? digits : 2);
+    if (format === "percent") return `${grouped(value * 100, digits)}%`;
+    if (format === "scientific") return value.toExponential(digits != null ? digits : 2);
+    if (format === "plain") return String(value);
+    if (digits != null) return grouped(value, digits);
+    return String(Math.round(value * 1e10) / 1e10);
+  }
+  function formatDateValue(iso, dateFormat) {
+    if (!dateFormat || dateFormat === "yyyy-mm-dd") return iso;
+    const date = parseIsoDate(iso);
+    return date ? formatDateText(date, dateFormat) : iso;
+  }
+  function resolveSheetNumberFormat(type, cellFormat) {
+    if (cellFormat == null ? void 0 : cellFormat.numberFormat) return cellFormat.numberFormat;
+    if (type === "currency") return "currency";
+    if (type === "percent") return "percent";
+    return void 0;
+  }
+  function formatSheetCell(result, column2, raw, cellFormat) {
+    var _a, _b, _c;
+    const type = column2 == null ? void 0 : column2.type;
+    const columnFormat = (_a = column2 == null ? void 0 : column2.format) != null ? _a : {};
+    if (result.type === "error") return result.message;
+    if (result.type === "empty") return "";
+    if (result.type === "boolean") return result.value ? "TRUE" : "FALSE";
+    const decimals = (_b = cellFormat == null ? void 0 : cellFormat.decimals) != null ? _b : columnFormat.decimals;
+    if (result.type === "number") {
+      if (type === "date" && !(cellFormat == null ? void 0 : cellFormat.numberFormat) && raw.trim().startsWith("=")) {
+        const date = serialToCalendar(result.value);
+        return formatDateText(date, (_c = columnFormat.dateFormat) != null ? _c : "yyyy-mm-dd");
+      }
+      const kind = resolveSheetNumberFormat(type, cellFormat);
+      return formatNumberValue(result.value, kind, decimals, columnFormat.currency);
+    }
+    if (type === "date") return formatDateValue(result.value, columnFormat.dateFormat);
+    return toText(result);
+  }
+
+  // packages/contract/src/sheetRefs.ts
+  function columnLetterToIndex(letters) {
+    let index = 0;
+    for (const char of letters.toUpperCase()) {
+      index = index * 26 + (char.charCodeAt(0) - 64);
+    }
+    return index - 1;
+  }
+  function columnIndexToLetter(index) {
+    let result = "";
+    let current = index + 1;
+    while (current > 0) {
+      const remainder = (current - 1) % 26;
+      result = String.fromCharCode(65 + remainder) + result;
+      current = Math.floor((current - 1) / 26);
+    }
+    return result;
+  }
+  var ENDPOINT = String.raw`\$?[A-Za-z]{1,3}\$?\d+|\$?[A-Za-z]{1,3}|\$?\d+`;
+  var RANGE_RE = new RegExp(`(${ENDPOINT})\\s*:\\s*(${ENDPOINT})`, "y");
+  var CELL_RE = /\$?[A-Za-z]{1,3}\$?\d+/y;
+  var UNQUOTED_SHEET_RE = /[\p{L}_][\p{L}\p{N}_.]*!/uy;
+  var WORD_CHAR = /[\p{L}\p{N}_.$']/u;
+  var AFTER_REF_CHAR = /[\p{L}\p{N}_(!.]/u;
+  function parseEndpoint(text2) {
+    const match = /^(\$?)([A-Za-z]{1,3})?(\$?)(\d+)?$/.exec(text2);
+    if (!match || !match[2] && !match[4]) return null;
+    const endpoint = { colAbs: false, rowAbs: false };
+    if (match[2]) {
+      endpoint.col = columnLetterToIndex(match[2]);
+      endpoint.colAbs = match[1] === "$";
+      endpoint.rowAbs = match[3] === "$";
+    } else {
+      endpoint.rowAbs = match[1] === "$" || match[3] === "$";
+    }
+    if (match[4]) endpoint.row = Number(match[4]) - 1;
+    return endpoint;
+  }
+  function formatEndpoint(endpoint) {
+    let out = "";
+    if (endpoint.col !== void 0) {
+      out += `${endpoint.colAbs ? "$" : ""}${columnIndexToLetter(endpoint.col)}`;
+    }
+    if (endpoint.row !== void 0) {
+      out += `${endpoint.rowAbs ? "$" : ""}${endpoint.row + 1}`;
+    }
+    return out;
+  }
+  function bareSheetName(name) {
+    return /^[\p{L}_][\p{L}\p{N}_.]*$/u.test(name) && !/^[A-Za-z]{1,3}\d+$/.test(name) && !/^(TRUE|FALSE)$/i.test(name);
+  }
+  function sheetPrefix(name) {
+    return bareSheetName(name) ? `${name}!` : `'${name.replace(/'/g, "''")}'!`;
+  }
+  function formatRef(ref) {
+    const body = ref.to ? `${formatEndpoint(ref.from)}:${formatEndpoint(ref.to)}` : formatEndpoint(ref.from);
+    if (ref.prefix !== void 0) return ref.prefix + body;
+    return ref.sheet ? `${sheetPrefix(ref.sheet)}${body}` : body;
+  }
+  function skipString(formula, index) {
+    let i = index + 1;
+    while (i < formula.length) {
+      if (formula[i] === '"') {
+        if (formula[i + 1] === '"') {
+          i += 2;
+          continue;
+        }
+        return i + 1;
+      }
+      i += 1;
+    }
+    return i;
+  }
+  function readSheetPrefix(formula, index) {
+    if (formula[index] === "'") {
+      let i = index + 1;
+      let name = "";
+      while (i < formula.length) {
+        if (formula[i] === "'") {
+          if (formula[i + 1] === "'") {
+            name += "'";
+            i += 2;
+            continue;
+          }
+          break;
+        }
+        name += formula[i];
+        i += 1;
+      }
+      if (formula[i] === "'" && formula[i + 1] === "!" && name) return { name, next: i + 2 };
+      return null;
+    }
+    UNQUOTED_SHEET_RE.lastIndex = index;
+    const match = UNQUOTED_SHEET_RE.exec(formula);
+    if (!match) return null;
+    return { name: match[0].slice(0, -1), next: index + match[0].length };
+  }
+  function scanFormulaRefs(formula) {
+    var _a, _b, _c, _d;
+    const refs = [];
+    if (!formula.trim().startsWith("=")) return refs;
+    let i = formula.indexOf("=") + 1;
+    while (i < formula.length) {
+      const char = formula[i];
+      if (char === '"') {
+        i = skipString(formula, i);
+        continue;
+      }
+      const before = i > 0 ? formula[i - 1] : "";
+      if (before && WORD_CHAR.test(before)) {
+        i += 1;
+        continue;
+      }
+      const prefix = readSheetPrefix(formula, i);
+      const at = prefix ? prefix.next : i;
+      RANGE_RE.lastIndex = at;
+      const range = RANGE_RE.exec(formula);
+      if (range && !AFTER_REF_CHAR.test((_a = formula[at + range[0].length]) != null ? _a : "")) {
+        const from = parseEndpoint(range[1]);
+        const to = parseEndpoint(range[2]);
+        if (from && to) {
+          refs.push({ start: i, end: at + range[0].length, sheet: (_b = prefix == null ? void 0 : prefix.name) != null ? _b : null, prefix: formula.slice(i, at), from, to });
+          i = at + range[0].length;
+          continue;
+        }
+      }
+      CELL_RE.lastIndex = at;
+      const cell = CELL_RE.exec(formula);
+      if (cell && !AFTER_REF_CHAR.test((_c = formula[at + cell[0].length]) != null ? _c : "")) {
+        const from = parseEndpoint(cell[0]);
+        if (from) {
+          refs.push({ start: i, end: at + cell[0].length, sheet: (_d = prefix == null ? void 0 : prefix.name) != null ? _d : null, prefix: formula.slice(i, at), from, to: null });
+          i = at + cell[0].length;
+          continue;
+        }
+      }
+      if (prefix) {
+        i = prefix.next;
+        continue;
+      }
+      i += 1;
+    }
+    return refs;
+  }
+  function rewriteRefs(formula, rewrite) {
+    const refs = scanFormulaRefs(formula);
+    if (refs.length === 0) return formula;
+    let out = "";
+    let last = 0;
+    let changed = false;
+    for (const ref of refs) {
+      const next = rewrite(ref);
+      if (next === null) continue;
+      out += formula.slice(last, ref.start) + next;
+      last = ref.end;
+      changed = true;
+    }
+    return changed ? out + formula.slice(last) : formula;
+  }
+  var sameSheet = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+  function adjustFormulaForStructure(value, change, context) {
+    if (!value.trim().startsWith("=") || change.count <= 0) return value;
+    const key = change.axis === "row" ? "row" : "col";
+    const position = change.axis === "row" ? context.formulaRow : context.formulaCol;
+    const lastDeleted = change.at + change.count - 1;
+    return rewriteRefs(value, (ref) => {
+      var _a;
+      const target = (_a = ref.sheet) != null ? _a : context.formulaSheet;
+      if (!sameSheet(target, context.changedSheet)) return null;
+      const from = __spreadValues({}, ref.from);
+      const to = ref.to ? __spreadValues({}, ref.to) : null;
+      const a = from[key];
+      const b = to ? to[key] : void 0;
+      if (change.kind === "insert") {
+        if (!to) {
+          if (a === void 0 || a < change.at) return null;
+          from[key] = a + change.count;
+          return formatRef(__spreadProps(__spreadValues({}, ref), { from, to }));
+        }
+        if (a === void 0 && b === void 0) return null;
+        if (a === void 0 || b === void 0) {
+          const endpoint = a === void 0 ? to : from;
+          if (endpoint[key] < change.at) return null;
+          endpoint[key] = endpoint[key] + change.count;
+          return formatRef(__spreadProps(__spreadValues({}, ref), { from, to }));
+        }
+        const lowEndpoint2 = a <= b ? from : to;
+        const highEndpoint2 = a <= b ? to : from;
+        const low2 = Math.min(a, b);
+        const high2 = Math.max(a, b);
+        const local = !ref.sheet || sameSheet(ref.sheet, context.formulaSheet);
+        if (low2 >= change.at) {
+          lowEndpoint2[key] = low2 + change.count;
+          highEndpoint2[key] = high2 + change.count;
+        } else if (high2 >= change.at) {
+          highEndpoint2[key] = high2 + change.count;
+        } else if (local && high2 === change.at - 1 && position !== void 0 && position >= change.at) {
+          highEndpoint2[key] = high2 + change.count;
+        } else {
+          return null;
+        }
+        return formatRef(__spreadProps(__spreadValues({}, ref), { from, to }));
+      }
+      if (!to) {
+        if (a === void 0 || a < change.at) return null;
+        if (a <= lastDeleted) return "#REF!";
+        from[key] = a - change.count;
+        return formatRef(__spreadProps(__spreadValues({}, ref), { from, to }));
+      }
+      if (a === void 0 || b === void 0) {
+        const endpoint = a === void 0 ? to : from;
+        const coordinate = endpoint[key];
+        if (coordinate < change.at) return null;
+        endpoint[key] = coordinate <= lastDeleted ? change.at : coordinate - change.count;
+        return formatRef(__spreadProps(__spreadValues({}, ref), { from, to }));
+      }
+      const low = Math.min(a, b);
+      const high = Math.max(a, b);
+      if (high < change.at) return null;
+      const nextLow = low > lastDeleted ? low - change.count : low >= change.at ? change.at : low;
+      const nextHigh = high > lastDeleted ? high - change.count : change.at - 1;
+      if (nextHigh < nextLow) return "#REF!";
+      const lowEndpoint = a <= b ? from : to;
+      const highEndpoint = a <= b ? to : from;
+      lowEndpoint[key] = nextLow;
+      highEndpoint[key] = nextHigh;
+      return formatRef(__spreadProps(__spreadValues({}, ref), { from, to }));
+    });
+  }
+
   // packages/contract/src/sheetFormula.ts
   function formatCellResult(result) {
     if (result.type === "number") {
@@ -1876,14 +2001,6 @@ var SheetEngine = (() => {
     return self;
   }
 
-  // packages/contract/src/sheetCell.ts
-  function isFormulaValue(value) {
-    return value.trim().startsWith("=");
-  }
-  var CURRENCY_PREFIX = new RegExp("^(?:[A-Z]{3}|rs\\.?|Rs\\.?|RS\\.?|R\\$|kr|Kr|zł|Fr\\.?|\\p{Sc})\\s*", "u");
-  var CURRENCY_SUFFIX = new RegExp("\\s*(?:[A-Z]{3}|rs\\.?|Rs\\.?|RS\\.?|kr|Kr|zł|Fr\\.?|\\p{Sc})$", "u");
-  var FRACTIONS = { "½": 0.5, "¼": 0.25, "¾": 0.75, "⅓": 1 / 3, "⅔": 2 / 3, "⅛": 0.125 };
-
   // packages/contract/src/sheetOps.ts
   function mapFormulas(rows, columns, rewrite) {
     let changed = false;
@@ -1995,6 +2112,289 @@ var SheetEngine = (() => {
     });
   }
 
+  // packages/contract/src/dashboardFiles.ts
+  var SHEET_VIEWS = ["value", "table", "bar", "line", "pie", "progress", "counter", "addRow"];
+  var VIEWS = new Set(SHEET_VIEWS);
+  function fitSheetPick(raw) {
+    var _a, _b, _c, _d;
+    const view = VIEWS.has(raw.view) ? raw.view : "value";
+    const range = parseRange((_a = raw.range) != null ? _a : "") ? raw.range.toUpperCase().replace(/\s+/g, "") : "A1";
+    const pick = { sheetId: String((_b = raw.sheetId) != null ? _b : ""), range, view };
+    if (typeof raw.fileTitle === "string") pick.fileTitle = raw.fileTitle.slice(0, 200);
+    if (typeof raw.tabId === "string" && raw.tabId) pick.tabId = raw.tabId;
+    if (raw.anchor && typeof raw.anchor === "object") {
+      const anchor = {};
+      for (const key of ["fromRow", "toRow", "fromCol", "toCol"]) {
+        if (typeof raw.anchor[key] === "string" && raw.anchor[key]) anchor[key] = raw.anchor[key];
+      }
+      if (Object.keys(anchor).length) pick.anchor = anchor;
+    }
+    if (Array.isArray(raw.cols)) {
+      const cols = [...new Set(raw.cols.filter((id) => typeof id === "string" && id !== ""))].slice(0, 26);
+      if (cols.length) pick.cols = cols;
+    }
+    if (raw.headers) pick.headers = true;
+    if (raw.grow) pick.grow = true;
+    if (typeof raw.labelCol === "number" && Number.isFinite(raw.labelCol)) pick.labelCol = Math.max(-1, Math.min(99, Math.round(raw.labelCol)));
+    if (typeof raw.target === "string" && raw.target.trim()) {
+      pick.target = raw.target.trim().slice(0, 40);
+      const row2 = (_c = raw.targetAnchor) == null ? void 0 : _c.row;
+      const col = (_d = raw.targetAnchor) == null ? void 0 : _d.col;
+      if (typeof row2 === "string" && row2 && typeof col === "string" && col) pick.targetAnchor = { row: row2, col };
+    }
+    if (typeof raw.step === "number" && Number.isFinite(raw.step) && raw.step > 0) pick.step = raw.step;
+    if (raw.editable) pick.editable = true;
+    return pick;
+  }
+  function parseRange(text2) {
+    const match = /^([A-Z]{1,3})(\d{1,5})(?::([A-Z]{1,3})(\d{1,5})?)?$/i.exec(text2.trim());
+    if (!match) return null;
+    const c0 = columnLetterToIndex(match[1].toUpperCase());
+    const r0 = Number(match[2]) - 1;
+    if (r0 < 0) return null;
+    if (!match[3]) return { c0, r0, c1: c0, r1: r0 };
+    const c1 = columnLetterToIndex(match[3].toUpperCase());
+    const r1 = match[4] ? Number(match[4]) - 1 : null;
+    if (r1 !== null && r1 < 0) return null;
+    return {
+      c0: Math.min(c0, c1),
+      c1: Math.max(c0, c1),
+      r0: r1 === null ? r0 : Math.min(r0, r1),
+      r1: r1 === null ? null : Math.max(r0, r1)
+    };
+  }
+  function formatRange(box) {
+    const start = `${columnIndexToLetter(box.c0)}${box.r0 + 1}`;
+    if (box.r1 === null) return `${start}:${columnIndexToLetter(box.c1)}`;
+    if (box.c0 === box.c1 && box.r0 === box.r1) return start;
+    return `${start}:${columnIndexToLetter(box.c1)}${box.r1 + 1}`;
+  }
+  function sheetTabs(sheet) {
+    var _a, _b, _c;
+    if (sheet.tabs && sheet.tabs.length > 0) return sheet.tabs;
+    return [{ id: "", name: sheet.title || "Sheet 1", columns: (_a = sheet.columns) != null ? _a : [], rows: (_b = sheet.rows) != null ? _b : [], merges: (_c = sheet.merges) != null ? _c : [] }];
+  }
+  function findTab(sheet, tabId) {
+    var _a, _b, _c;
+    const tabs = sheetTabs(sheet);
+    return (_c = (_b = tabId ? tabs.find((tab) => tab.id === tabId) : void 0) != null ? _b : tabId && ((_a = sheet.tabs) == null ? void 0 : _a.length) ? null : tabs[0]) != null ? _c : null;
+  }
+  function anchorFor(tab, box) {
+    var _a, _b, _c, _d;
+    const anchor = {};
+    const fromRow = (_a = tab.rows[box.r0]) == null ? void 0 : _a.id;
+    const toRow = box.r1 === null ? void 0 : (_b = tab.rows[box.r1]) == null ? void 0 : _b.id;
+    const fromCol = (_c = tab.columns[box.c0]) == null ? void 0 : _c.id;
+    const toCol = (_d = tab.columns[box.c1]) == null ? void 0 : _d.id;
+    if (fromRow) anchor.fromRow = fromRow;
+    if (toRow) anchor.toRow = toRow;
+    if (fromCol) anchor.fromCol = fromCol;
+    if (toCol) anchor.toCol = toCol;
+    return anchor;
+  }
+  function hasValue(row2, columns, c0, c1) {
+    var _a, _b, _c;
+    if (!row2) return false;
+    for (let col = c0; col <= c1; col += 1) {
+      const id = (_a = columns[col]) == null ? void 0 : _a.id;
+      if (id && ((_c = (_b = row2.cells) == null ? void 0 : _b[id]) != null ? _c : "").trim() !== "") return true;
+    }
+    return false;
+  }
+  function pickBounds(sheet, pick) {
+    var _a, _b, _c, _d, _e, _f;
+    const tab = findTab(sheet, pick.tabId);
+    const box = parseRange(pick.range);
+    if (!tab || !box || tab.columns.length === 0) return null;
+    const rowAt = (id) => id ? tab.rows.findIndex((row2) => row2.id === id) : -1;
+    const colAt = (id) => id ? tab.columns.findIndex((column2) => column2.id === id) : -1;
+    let r0 = rowAt((_a = pick.anchor) == null ? void 0 : _a.fromRow);
+    if (r0 < 0) r0 = box.r0;
+    let c0 = colAt((_b = pick.anchor) == null ? void 0 : _b.fromCol);
+    if (c0 < 0) c0 = box.c0;
+    let c1 = colAt((_c = pick.anchor) == null ? void 0 : _c.toCol);
+    if (c1 < 0) c1 = box.c1;
+    if (c1 < c0) [c0, c1] = [c1, c0];
+    let r1;
+    if (box.r1 === null || pick.grow) {
+      const start = box.r1 === null ? r0 : Math.max(r0, rowAt((_d = pick.anchor) == null ? void 0 : _d.toRow) >= 0 ? rowAt((_e = pick.anchor) == null ? void 0 : _e.toRow) : box.r1);
+      r1 = start;
+      for (let row2 = tab.rows.length - 1; row2 > start; row2 -= 1) {
+        if (hasValue(tab.rows[row2], tab.columns, c0, Math.min(c1, tab.columns.length - 1))) {
+          r1 = row2;
+          break;
+        }
+      }
+    } else {
+      r1 = rowAt((_f = pick.anchor) == null ? void 0 : _f.toRow);
+      if (r1 < 0) r1 = box.r1;
+    }
+    if (r1 < r0) [r0, r1] = [r1, r0];
+    if (r0 >= tab.rows.length || c0 >= tab.columns.length) return null;
+    return { tab, r0, r1: Math.min(r1, tab.rows.length - 1), c0, c1: Math.min(c1, tab.columns.length - 1) };
+  }
+  function usedBox(tab) {
+    let r1 = -1;
+    let c1 = -1;
+    tab.rows.forEach((row2, r) => {
+      tab.columns.forEach((column2, c) => {
+        var _a, _b;
+        if (((_b = (_a = row2.cells) == null ? void 0 : _a[column2.id]) != null ? _b : "").trim() === "") return;
+        if (r > r1) r1 = r;
+        if (c > c1) c1 = c;
+      });
+    });
+    return r1 < 0 ? null : { r0: 0, c0: 0, r1, c1 };
+  }
+  function repick(sheet, pick, box) {
+    const tab = findTab(sheet, pick.tabId);
+    const next = __spreadProps(__spreadValues({}, pick), { range: formatRange(box) });
+    delete next.cols;
+    if (tab) next.anchor = anchorFor(tab, box);
+    else delete next.anchor;
+    if (next.headers && box.r1 !== null && box.r0 === box.r1) delete next.headers;
+    return fitSheetPick(next);
+  }
+  function columnsOf(bounds, pick) {
+    var _a;
+    if ((_a = pick.cols) == null ? void 0 : _a.length) {
+      const indexes = pick.cols.map((id) => bounds.tab.columns.findIndex((column2) => column2.id === id)).filter((index) => index >= 0);
+      if (indexes.length) return [...new Set(indexes)].sort((a, b) => a - b);
+    }
+    const all = [];
+    for (let col = bounds.c0; col <= bounds.c1; col += 1) all.push(col);
+    return all;
+  }
+  function suggestSheetPick(sheet, tabId) {
+    var _a, _b, _c;
+    const tab = (_a = findTab(sheet, tabId)) != null ? _a : sheetTabs(sheet)[0];
+    const id = (tab == null ? void 0 : tab.id) || void 0;
+    const base = { sheetId: sheet.id, fileTitle: sheet.title || void 0, tabId: id, range: "A1", view: "value" };
+    const box = tab ? usedBox(tab) : null;
+    if (!tab || !box || box.r1 === null) return fitSheetPick(base);
+    const read = readPick(sheet, __spreadProps(__spreadValues({}, base), { range: formatRange(box) }));
+    const grid = (_b = read == null ? void 0 : read.grid) != null ? _b : [];
+    const numeric = (row2) => Boolean(row2 == null ? void 0 : row2.some((cell) => cell.number !== null));
+    const headers = grid.length > 1 && !numeric(grid[0]) && numeric(grid[1]);
+    let rows = headers ? grid.slice(1) : grid;
+    const last = rows[rows.length - 1];
+    if (rows.length > 2 && last.some((cell) => cell.formula) && last.every((cell) => cell.formula || cell.number === null)) {
+      rows = rows.slice(0, -1);
+      box.r1 -= 1;
+    }
+    const textFirstCol = grid[0] && grid[0].length > 1 && rows.every((row2) => {
+      var _a2;
+      return ((_a2 = row2[0]) == null ? void 0 : _a2.number) === null;
+    });
+    const numberCols = ((_c = grid[0]) != null ? _c : []).filter((_, col) => rows.some((row2) => {
+      var _a2;
+      return ((_a2 = row2[col]) == null ? void 0 : _a2.number) !== null;
+    })).length;
+    const view = grid.length === 1 && grid[0].length === 1 ? "value" : rows.length > 1 && numberCols > 0 ? "bar" : "table";
+    return repick(sheet, __spreadProps(__spreadValues({}, base), { headers: headers || void 0, labelCol: textFirstCol ? 0 : -1, view }), box);
+  }
+  function numberOf(result, column2) {
+    if (column2.type === "date") return null;
+    if (result.type === "number") return result.value;
+    if (result.type === "text") return parseNumberInput(result.value);
+    return null;
+  }
+  var workbookEvaluators = /* @__PURE__ */ new WeakMap();
+  function evaluatorsFor(sheet) {
+    let evaluators = workbookEvaluators.get(sheet);
+    if (!evaluators) {
+      evaluators = createWorkbookEvaluators({ tabs: sheetTabs(sheet) });
+      workbookEvaluators.set(sheet, evaluators);
+    }
+    return evaluators;
+  }
+  function readPick(sheet, pick) {
+    const bounds = pickBounds(sheet, pick);
+    if (!bounds) return null;
+    const evaluator = evaluatorsFor(sheet)(bounds.tab.id);
+    if (!evaluator) return null;
+    const columnIndexes = columnsOf(bounds, pick).filter((col) => {
+      var _a;
+      return !((_a = bounds.tab.columns[col]) == null ? void 0 : _a.hidden);
+    });
+    const grid = [];
+    for (let row2 = bounds.r0; row2 <= bounds.r1; row2 += 1) {
+      const sheetRow = bounds.tab.rows[row2];
+      grid.push(
+        columnIndexes.map((col) => {
+          var _a, _b, _c, _d;
+          const column2 = bounds.tab.columns[col];
+          const raw = (_b = (_a = sheetRow == null ? void 0 : sheetRow.cells) == null ? void 0 : _a[column2.id]) != null ? _b : "";
+          const value = evaluator.valueAt(col, row2);
+          return {
+            rowId: (_c = sheetRow == null ? void 0 : sheetRow.id) != null ? _c : "",
+            colId: column2.id,
+            raw,
+            value,
+            text: formatSheetCell(value, column2, raw, (_d = sheetRow == null ? void 0 : sheetRow.formats) == null ? void 0 : _d[column2.id]),
+            number: numberOf(value, column2),
+            column: column2,
+            formula: isFormulaValue(raw),
+            address: `${columnIndexToLetter(col)}${row2 + 1}`
+          };
+        })
+      );
+    }
+    return { bounds, columns: columnIndexes.map((col) => bounds.tab.columns[col]), indexes: columnIndexes, grid };
+  }
+
+  // packages/contract/src/sheetCells.ts
+  var nameKey = (text2) => text2.trim().toLowerCase();
+  var RANGE = /\$?[A-Z]{1,3}\$?\d*:\$?[A-Z]{1,3}\$?\d*/i;
+  function summaryRow(row2) {
+    const filled = row2.filter((cell) => cell.raw.trim() !== "");
+    return filled.length > 0 && filled.every((cell) => cell.formula) && filled.some((cell) => RANGE.test(cell.raw));
+  }
+  function cellsTable(sheet, tab) {
+    const pick = suggestSheetPick(sheet, tab.id || void 0);
+    const read = readPick(sheet, __spreadProps(__spreadValues({}, pick), { view: "table" }));
+    if (!read || read.grid.length === 0) return null;
+    const letters = read.indexes.map((index) => columnIndexToLetter(index));
+    const own = read.columns.map((column2, i) => {
+      var _a, _b;
+      const name = (_b = (_a = column2.name) == null ? void 0 : _a.trim()) != null ? _b : "";
+      return name && name !== letters[i] ? name : "";
+    });
+    const head = pick.headers && own.some((name) => !name) ? read.grid[0] : null;
+    const rows = (head ? read.grid.slice(1) : read.grid).filter((row2) => row2.some((cell) => cell.text.trim() !== "") && !summaryRow(row2));
+    if (rows.length === 0) return null;
+    const columns = read.columns.map((column2, i) => {
+      var _a, _b;
+      const above = (_b = (_a = head == null ? void 0 : head[i]) == null ? void 0 : _a.text.trim()) != null ? _b : "";
+      const filled = rows.map((row2) => row2[i]).filter((cell) => cell && cell.text.trim() !== "");
+      const numeric = filled.filter((cell) => cell.number !== null).length;
+      return {
+        name: own[i] || above || letters[i],
+        names: [...new Set([own[i], above, letters[i]].filter(Boolean).map(nameKey))],
+        numbers: filled.length > 0 && numeric * 2 >= filled.length,
+        column: column2
+      };
+    });
+    const labelCol = columns.length > 1 && !columns[0].numbers && rows.some((row2) => {
+      var _a;
+      return (_a = row2[0]) == null ? void 0 : _a.text.trim();
+    }) ? 0 : -1;
+    return { columns, rows, labelCol };
+  }
+  var BRIEF_TABS = 8;
+  var BRIEF_COLUMNS = 16;
+  function cellsBrief(sheet) {
+    return sheetTabs(sheet).slice(0, BRIEF_TABS).map((tab) => {
+      var _a, _b;
+      const table = cellsTable(sheet, tab);
+      return {
+        name: tab.name,
+        rows: (_a = table == null ? void 0 : table.rows.length) != null ? _a : 0,
+        columns: ((_b = table == null ? void 0 : table.columns) != null ? _b : []).slice(0, BRIEF_COLUMNS).map((column2) => ({ name: column2.name, numbers: column2.numbers }))
+      };
+    });
+  }
+
   // packages/contract/src/sheetEngine.ts
   function plain(result, column2) {
     switch (result.type) {
@@ -2058,6 +2458,12 @@ var SheetEngine = (() => {
       );
     }
     return JSON.stringify({ tabs });
+  }
+  function cellsBriefs(json) {
+    var _a;
+    const request = JSON.parse(json);
+    const sheets = ((_a = request.sheets) != null ? _a : []).map((sheet) => cellsBrief(__spreadProps(__spreadValues({}, sheet), { columns: [], rows: [] })));
+    return JSON.stringify({ sheets });
   }
   return __toCommonJS(sheetEngine_exports);
 })();

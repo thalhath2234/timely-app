@@ -3,7 +3,8 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClie
 import { getMe, listSessions, revokeOtherSessions, revokeSession } from "./api/auth";
 import { getTasks, getTask, updateTask, deleteTask, createTask, captureInbox, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks, duplicateTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, startFocus, pauseFocus, stopFocus, setTodayFocus, getFocusSessions } from "./api/tasks";
 import { getDocs, getDoc, getDocBacklinks, createDoc, updateDoc, deleteDoc, watchDoc, type DocWatchEvent } from "./api/docs";
-import type { Doc, MentionEntityType, NotificationSettings, Project, Sheet, SheetTemplate, Task, TaskViewConfig } from "./types";
+import type { CalendarRange, Doc, MentionEntityType, NotificationSettings, Project, Sheet, SheetTemplate, Task, TaskViewConfig, TodayResponse } from "./types";
+import { withOccurrenceDone, withTaskDone } from "@timely/contract/calendar";
 import { getSheets, getSheet, createSheet, updateSheet, deleteSheet, duplicateSheet, getSheetTemplates, createSheetTemplate, updateSheetTemplate, deleteSheetTemplate, materializeTemplateTab } from "./api/sheets";
 import { getProjects, getProject, createProject, updateProject, deleteProject, createStage, updateStage, deleteStage, reorderStages, duplicateProject, getProjectActivity } from "./api/projects";
 import { getWorkspaces, getConfig, updateConfig, updateTaskViewsConfig } from "./api/workspaces";
@@ -848,11 +849,28 @@ export function useSaveTask() {
         }
         cacheTask(client, next);
       }
-      return { previousTask, previousList };
+      // A tick on Today or in the calendar shows at once: blocks read done from their copy of the task.
+      if (data.completedAt === undefined) return { previousTask, previousList };
+      await Promise.all([client.cancelQueries({ queryKey: keys.today }), client.cancelQueries({ queryKey: ["calendar"] })]);
+      const completedAt = data.completedAt || null;
+      const today = client.getQueryData<TodayResponse>(keys.today);
+      const calendar = client.getQueriesData<CalendarRange>({ queryKey: ["calendar"] });
+      if (today) client.setQueryData<TodayResponse>(keys.today, { ...today, items: withTaskDone(today.items, id, completedAt) });
+      for (const [key, range] of calendar) {
+        if (range?.items) client.setQueryData<CalendarRange>(key, { ...range, items: withTaskDone(range.items, id, completedAt) });
+      }
+      return { previousTask, previousList, today, calendar };
     },
     onError: (_error, { id }, context) => {
       if (context?.previousTask) client.setQueryData(keys.task(id), context.previousTask);
       if (context?.previousList) client.setQueryData(keys.tasks, context.previousList);
+      if (context?.today) client.setQueryData(keys.today, context.today);
+      for (const [key, range] of context?.calendar ?? []) client.setQueryData(key, range);
+      // The tick cancelled any fetch in flight; refetch so no range is left without data.
+      if (context?.calendar) {
+        client.invalidateQueries({ queryKey: keys.today });
+        client.invalidateQueries({ queryKey: ["calendar"] });
+      }
     },
     onSuccess: (task, { data }) => {
       cacheTask(client, task);
@@ -881,11 +899,33 @@ export function useEditTaskOccurrence() {
       newStart?: string;
       newEnd?: string;
     }) => editTaskOccurrence(id, data),
+    onMutate: async ({ id, originalStart, action }) => {
+      if (action !== "complete" && action !== "uncomplete") return undefined;
+      // Today and the calendar tick the day off at once, like a one-off task.
+      await Promise.all([client.cancelQueries({ queryKey: keys.today }), client.cancelQueries({ queryKey: ["calendar"] })]);
+      const completedAt = action === "complete" ? new Date().toISOString() : null;
+      const today = client.getQueryData<TodayResponse>(keys.today);
+      const calendar = client.getQueriesData<CalendarRange>({ queryKey: ["calendar"] });
+      if (today) client.setQueryData<TodayResponse>(keys.today, { ...today, items: withOccurrenceDone(today.items, id, originalStart, completedAt) });
+      for (const [key, range] of calendar) {
+        if (range?.items) client.setQueryData<CalendarRange>(key, { ...range, items: withOccurrenceDone(range.items, id, originalStart, completedAt) });
+      }
+      return { today, calendar };
+    },
+    onError: (_error, _input, context) => {
+      if (context?.today) client.setQueryData(keys.today, context.today);
+      for (const [key, range] of context?.calendar ?? []) client.setQueryData(key, range);
+      if (context) {
+        client.invalidateQueries({ queryKey: keys.today });
+        client.invalidateQueries({ queryKey: ["calendar"] });
+      }
+    },
     onSuccess: (task) => {
       cacheTask(client, task);
       client.invalidateQueries({ queryKey: keys.tasks });
       client.invalidateQueries({ queryKey: ["calendar"] });
       client.invalidateQueries({ queryKey: keys.freeTime });
+      client.invalidateQueries({ queryKey: keys.today });
     },
   });
 }

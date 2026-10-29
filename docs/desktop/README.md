@@ -339,7 +339,7 @@ Secrets (all optional; builds are unsigned without them):
 ### Updates
 
 The desktop app checks GitHub Releases through `electron-updater`, which reads the
-`latest.yml` (Windows) and `latest-linux.yml` (AppImage) assets that
+`latest.yml` (Windows) and `latest-linux.yml` (AppImage and Arch `.pacman`) assets that
 electron-builder uploads next to the installers (plus the `.blockmap` files for differential
 downloads). Every tag `v*` therefore has to be published through `release.yml` — an installer
 attached by hand without the manifests is invisible to the updater. The `publish` block in
@@ -352,6 +352,13 @@ The AUR package (`packaging/aur/timely-bin`) extracts the AppImage into `/opt/ti
 there is no `$APPIMAGE` and `electron-updater` cannot update it (it would answer "up to date"
 forever). Such an install shows "Updated by your package manager" in Settings → Server
 instead of the Check for updates button; it is updated with pacman or an AUR helper.
+
+The Arch package on the release (`Timely-X.Y.Z-linux-x64.pacman`, installed with
+`sudo pacman -U`) is pacman package `timely` in `/opt/Timely`. It carries `resources/package-type`,
+so it is not "managed": `electron-updater` picks its pacman updater, downloads the next `.pacman`
+listed in `latest-linux.yml` and runs `pacman -U` through pkexec, which asks for the user's
+password. `timely-bin` declares `conflicts=('timely')`, so pacman offers to swap one for the other
+instead of installing both. Local builds name theirs `timely-dev` (`electron-builder.local.yml`).
 
 A package upgrade replaces the files under a copy that is still running in the tray. That
 copy's Next server keeps the old build manifest in memory but serves `_next/static` from disk,

@@ -45,7 +45,7 @@ var expectedAuthority = []struct {
 	edit_task_occurrence set_task_recurrence split_event_series split_task_series undo_schedule restore_doc_version`},
 	// Need an Agent proposal depending on their arguments (TestArgumentRules).
 	{Write, ReviewedWhen, `
-	add_3d_model create_sheet mark_notification_read update_doc update_event update_sheet update_sheet_cells
+	add_3d_model add_live_block create_sheet mark_notification_read update_doc update_event update_sheet update_sheet_cells
 	update_sheet_column update_sheet_tab update_task`},
 	// External MCP clients only; chat never sees them.
 	{MCPOnly, Applies, `
@@ -245,6 +245,8 @@ func TestArgumentRules(t *testing.T) {
 		{"update_doc", map[string]any{"markdown": ""}, true},
 		{"add_3d_model", map[string]any{"docId": "doc", "replace": false}, false},
 		{"add_3d_model", map[string]any{"docId": "doc", "replace": true}, true},
+		{"add_live_block", map[string]any{"docId": "doc", "words": "open tasks"}, false},
+		{"add_live_block", map[string]any{"docId": "doc", "words": "add a chart", "block": 1}, true},
 		{"update_task", map[string]any{"clearRecurrence": false}, true},
 		{"update_event", map[string]any{"title": "x"}, false},
 		{"mark_notification_read", map[string]any{"id": "ntf"}, false},

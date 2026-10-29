@@ -3,6 +3,7 @@
 import { formatDuration, formatTime } from "@/app/utils/calendar";
 import { cn } from "@/app/utils/cn";
 import type { CalendarItem } from "@/app/_types/types";
+import { calendarItemDone } from "@timely/contract/calendar";
 
 /** Pixels per hour on the Today timeline: a 15-minute block is 13px, enough
  * for one line of 11px text with the block's minimum height. */
@@ -149,7 +150,7 @@ export default function DayTimeline({
         const blockHeight = Math.max(bottom - top - 2, MIN_BLOCK_PX);
         const color = accent(item);
         const meet = meetingUrl(item);
-        const done = Boolean(item.completedAt || item.task?.completedAt);
+        const done = calendarItemDone(item);
         const roomy = blockHeight >= 38;
         return (
           <div
@@ -205,6 +206,13 @@ export default function DayTimeline({
         if (!start) return null;
         const minutes = minutesOfDay(start);
         if (minutes < from || minutes > to) return null;
+        // Over a block the pin keeps to the right on the card, so the block's
+        // own title stays readable (as the calendar's day view does).
+        const overBlock = items.some((block) => {
+          const blockStart = parse(block.start);
+          const blockEnd = parse(block.end);
+          return blockStart && blockEnd && blockStart <= start && blockEnd > start;
+        });
         return (
           <button
             key={item.id}
@@ -212,12 +220,15 @@ export default function DayTimeline({
             onClick={() => onOpen(item)}
             onContextMenu={(event) => onContextMenu?.(event, item)}
             title={`${item.title} · ${formatTime(start)}`}
-            className="absolute right-0 z-[1] flex -translate-y-1/2 items-center gap-1.5 text-[11px] font-medium text-warning"
-            style={{ left: GUTTER, top: y(minutes) + 4 }}
+            className={cn(
+              "absolute right-0 z-[1] flex -translate-y-1/2 items-center gap-1.5 text-[11px] font-medium text-warning",
+              overBlock && "right-1 max-w-[50%] rounded-full border border-warning/40 bg-card px-2 py-0.5",
+            )}
+            style={overBlock ? { top: y(minutes) + 4 } : { left: GUTTER, top: y(minutes) + 4 }}
           >
             <span className="size-2 shrink-0 rounded-full bg-warning" />
-            <span className="truncate">{item.title}</span>
-            <span className="h-px min-w-4 flex-1 border-t border-dashed border-warning/60" />
+            <span className={cn("truncate", calendarItemDone(item) && "text-muted-foreground line-through")}>{item.title}</span>
+            {overBlock ? null : <span className="h-px min-w-4 flex-1 border-t border-dashed border-warning/60" />}
           </button>
         );
       })}

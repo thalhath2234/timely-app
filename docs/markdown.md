@@ -39,6 +39,7 @@ and TypeScript sides (`make test-api`, `make test-markdown-parity`).
 | Columns | `<!-- columns -->`, the first column's blocks, `<!-- column -->` before each next column, then `<!-- /columns -->`, each on its own line between blank lines. Other Markdown apps hide the comments and show the columns one after another. Widths are always equal |
 | Wiki link | `[[Page title]]`, `[[Page title\|alias]]`, `![[Page title]]` (embed); clicking opens the doc with that title |
 | Map | a ```` ```geojson ```` or ```` ```topojson ```` code block, drawn as an outline (GitHub draws it over a street map) |
+| Live block | a ```` ```openui-lang ```` code block holding a card's program (`root = Panel(...)`); Timely draws it from the person's tasks, events and files each time the doc opens and hides the program unless asked for. Other Markdown apps show the program as code (ADR 0015) |
 | 3D model | a ```` ```stl ```` code block (ASCII STL), drawn with three.js; each `solid <name>` is a part, and a `#rrggbb` word in the name colors it (`solid head #f2c6a0`). Other STL readers ignore the color. Normals are recomputed, so `facet normal 0 0 0` is fine |
 | @mention | `[@Label](timely://task/<id>)` (also project, doc, sheet) |
 | Subpage link | `[Label](timely://doc/<id>)` |
@@ -56,7 +57,9 @@ The agent's MCP tools (`create_doc`, `update_doc`, `append_to_doc`,
 `get_doc`) use the same syntax, so everything in this table can be written
 and read by the assistant. `add_3d_model` builds an `stl` block from simple
 parts (sphere, box, cylinder, cone, capsule, each with a color), so the
-assistant does not write triangles by hand.
+assistant does not write triangles by hand. `add_live_block` takes words
+("open client work with a chart by day") and has the account's AI write the
+live block's program, so the assistant never writes `openui-lang` itself.
 
 Not representable, so the editor does not offer them: merged table cells and
 header columns. Column widths set by dragging are not exported. Raw HTML in

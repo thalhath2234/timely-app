@@ -196,6 +196,7 @@ export function useEditTaskOccurrence() {
         tasks?.map((item) => (item.id === task.id ? { ...item, ...task } : item)),
       );
       queryClient.invalidateQueries({ queryKey: ["calendar"] });
+      queryClient.invalidateQueries({ queryKey: todayKey });
       queryClient.invalidateQueries({ queryKey: taskActivityKey(task.id) });
     },
   });

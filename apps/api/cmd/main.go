@@ -171,6 +171,7 @@ func main() {
 	taskPick = smartSearch.Pick
 	docDecisions = decisions
 	todaySuggestions = suggestions
+	liveBlockWriter = providerService.LiveBlock
 	mcpServer := agent.New(agent.Deps{
 		Auth:       authService,
 		Tasks:      taskService,
@@ -191,6 +192,7 @@ func main() {
 		Decisions:  decisions,
 		Focus:      focus.NewStore(db),
 		Suggest:    suggestions,
+		LiveBlock:  providerService.LiveBlock,
 		DecisionsOn: func(ctx context.Context, userID string) bool {
 			on, _ := decisions.Status(ctx, userID)
 			return on

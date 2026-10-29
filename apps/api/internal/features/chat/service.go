@@ -112,6 +112,9 @@ type sendInput struct {
 	// Client is the app that sent the message: "phone" or "web" (anything
 	// else is the web). The agent's saved-view tools act on that app's views.
 	Client string `json:"client"`
+	// UI is "openui-1" from apps that draw reply cards; the agent may then
+	// add them to its replies.
+	UI string `json:"ui"`
 	// Provider and Model pick the model for a new conversation; empty follows
 	// the account default.
 	Provider string `json:"provider"`
@@ -177,7 +180,7 @@ func (s *Service) create(c *echo.Context) error {
 	}
 	firstMessage := message("user", in.Content)
 	firstMessage.RequestID = in.RequestID
-	row := Conversation{ID: cid, UserID: user(c), Title: string(title), Status: "queued", Phase: "plan", WebSearch: in.WebSearch, ChosenProvider: in.Provider, ChosenModel: in.Model, Timezone: validTimezone(in.Timezone), Client: agent.NormalizeClient(in.Client), Context: in.Context, Messages: []Message{firstMessage}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+	row := Conversation{ID: cid, UserID: user(c), Title: string(title), Status: "queued", Phase: "plan", WebSearch: in.WebSearch, ChosenProvider: in.Provider, ChosenModel: in.Model, Timezone: validTimezone(in.Timezone), Client: agent.NormalizeClient(in.Client), RichUI: in.UI == genuiCapability, Context: in.Context, Messages: []Message{firstMessage}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
 	noteLanguage(&row, in.Content)
 	if err := s.db.Transaction(func(tx *gorm.DB) error {
 		result := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).Create(&row)
@@ -207,6 +210,16 @@ func (s *Service) create(c *echo.Context) error {
 var errAlreadySent = errors.New("message already accepted")
 
 func (s *Service) change(c *echo.Context, fn func(*gorm.DB, *Conversation) error) error {
+	return s.save(c, func(tx *gorm.DB, row *Conversation) error {
+		if err := fn(tx, row); err != nil {
+			return err
+		}
+		row.Revision++
+		return nil
+	})
+}
+
+func (s *Service) save(c *echo.Context, fn func(*gorm.DB, *Conversation) error) error {
 	var row Conversation
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), user(c), c.Param("id"), &row); err != nil {
@@ -218,7 +231,6 @@ func (s *Service) change(c *echo.Context, fn func(*gorm.DB, *Conversation) error
 			}
 			return err
 		}
-		row.Revision++
 		return tx.Save(&row).Error
 	})
 	if err != nil {
@@ -286,6 +298,7 @@ func (s *Service) send(c *echo.Context) error {
 			row.Timezone = zone
 		}
 		row.Client = agent.NormalizeClient(in.Client)
+		row.RichUI = in.UI == genuiCapability
 		noteLanguage(row, in.Content)
 		row.ForceReview = row.Status == "approval" || row.Sensitive
 		archivePlan(row)
@@ -480,7 +493,7 @@ func (s *Service) configure(c *echo.Context) error {
 			return echo.NewHTTPError(400, "Title must be between 1 and 120 characters")
 		}
 	}
-	return s.change(c, func(tx *gorm.DB, row *Conversation) error {
+	return s.save(c, func(tx *gorm.DB, row *Conversation) error {
 		if (in.Context != nil || in.WebSearch != nil) && busy(row) {
 			return echo.NewHTTPError(409, "Wait or stop before changing context")
 		}

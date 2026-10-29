@@ -13,7 +13,7 @@ make dev-worktree     # API :8081 + web :4002 in this worktree
 
 ## Electron
 
-The main process (`electron/main.ts`) loads the Next.js app over HTTP so server components, session cookies, and `/api-proxy` rewrites keep working.
+The main process (`electron/main.ts`) loads the Next.js app over HTTP so server components, session cookies, and the `/api-proxy` route keep working.
 
 | Command | What it does |
 | --- | --- |
@@ -25,7 +25,7 @@ A packaged build embeds a Next.js standalone server. It still talks to the Go AP
 
 ## Configuration
 
-The web app reads the repository-root `.env` (loaded in `next.config.ts`), so `JWT_SECRET` is the same value the API uses. `API_ORIGIN` (default `http://localhost:8080`) is where `/api-proxy/*` requests are rewritten to (see `next.config.ts`).
+The web app reads the repository-root `.env` (loaded in `next.config.ts`), so `JWT_SECRET` is the same value the API uses. `API_ORIGIN` (default `http://127.0.0.1:8080`) is where `/api-proxy/*` requests go (see `app/api-proxy/[...path]/route.ts`). It is read when the server runs, not at `next build`, so one build or Docker image can point at any API: set it in `.env` or the environment and restart the web server.
 
 `make dev-worktree` sets `API_ORIGIN=http://localhost:8081` for its web server.
 

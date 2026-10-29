@@ -167,6 +167,39 @@ export interface CardQuery {
   sheet?: SheetPick;
   /** Docs source only: show this one doc's page or checklist. */
   doc?: DocPick;
+  /**
+   * A described card: the agent's program for the person's words (see
+   * genuiBoard.ts). The rest of the query is the nearest plain card, which
+   * clients without described cards draw and keep when they save the layout.
+   */
+  described?: DescribedPick;
+}
+
+export interface DescribedPick {
+  /** The person's words, kept so the card can be changed later. */
+  prompt: string;
+  /** OpenUI Lang, `root = Panel(...)`. */
+  program: string;
+}
+
+export const DESCRIBED_MAX_PROMPT = 500;
+export const DESCRIBED_MAX_PROGRAM = 8000;
+
+function fitDescribed(value: unknown): DescribedPick | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { prompt, program } = value as Partial<DescribedPick>;
+  if (typeof program !== "string" || !program.trim() || program.length > DESCRIBED_MAX_PROGRAM) return undefined;
+  return { prompt: typeof prompt === "string" ? prompt.slice(0, DESCRIBED_MAX_PROMPT) : "", program };
+}
+
+/** The sources a described card's program reads, from its `source: "..."` arguments; `@Cells` reads sheets. */
+export function describedSources(program: string): CardSource[] {
+  const found = new Set<CardSource>();
+  for (const match of program.matchAll(/source\s*:\s*"(\w+)"/g)) {
+    if (match[1] in SOURCE_LABELS) found.add(match[1] as CardSource);
+  }
+  if (/@Cells\s*\(/.test(program)) found.add("sheets");
+  return [...found];
 }
 
 // ---- Catalogue ----
@@ -378,6 +411,7 @@ export function minCardSize(card: Pick<DashboardCard, "type" | "query">): { w: n
   const view = card.query?.sheet?.view;
   if (view) return view === "value" || view === "counter" || view === "progress" ? { w: 2, h: 2 } : { w: 3, h: 3 };
   if (card.query?.doc) return { w: 3, h: 3 };
+  if (card.query?.described) return { w: 3, h: 2 };
   const display = card.query?.display;
   if (display === "line" || display === "bar" || display === "pie" || display === "list") return { w: 3, h: 3 };
   return CUSTOM_MIN_SIZE;
@@ -679,15 +713,16 @@ export function fitQuery(query: CardQuery): CardQuery {
   const caps = SOURCE_CAPABILITIES[source];
   if (source === "sheets" && query.sheet && typeof query.sheet === "object") {
     const sheet = fitSheetPick(query.sheet);
-    const { doc: _doc, ...rest } = query;
+    const { doc: _doc, described: _described, ...rest } = query;
     return { ...rest, source, display: SHEET_VIEW_DISPLAY[sheet.view], sheet, color: clampInt(query.color ?? 0, 0, 7) };
   }
   if (source === "docs" && query.doc && typeof query.doc === "object") {
     const doc = fitDocPick(query.doc);
-    const { sheet: _sheet, ...rest } = query;
+    const { sheet: _sheet, described: _described, ...rest } = query;
     return { ...rest, source, display: "list", doc, color: clampInt(query.color ?? 0, 0, 7) };
   }
-  const { sheet: _sheet, doc: _doc, ...plain } = query;
+  const { sheet: _sheet, doc: _doc, described: rawDescribed, ...plain } = query;
+  const described = fitDescribed(rawDescribed);
   let display: CardDisplay = query.display in DISPLAY_LABELS ? query.display : "number";
   if (!displaysFor(source).includes(display)) display = "bar";
   const dateField = caps.dateFields.includes(query.dateField) ? query.dateField : caps.dateFields[0];
@@ -733,6 +768,7 @@ export function fitQuery(query: CardQuery): CardQuery {
     goal: query.goal && query.goal > 0 ? query.goal : undefined,
     compare: display === "number" && range.preset !== "all" ? Boolean(query.compare) : undefined,
     color: clampInt(query.color ?? 0, 0, 7),
+    ...(described ? { described } : {}),
   };
 }
 
@@ -1083,6 +1119,12 @@ export interface CardRow {
   meta?: string;
   tone?: "danger" | "success" | "muted";
   done?: boolean;
+  overdue?: boolean;
+  /** `YYYY-MM-DD` of the date the row shows. */
+  day?: string;
+  /** Timed events: the start and length. */
+  at?: string;
+  minutes?: number;
 }
 
 export interface SeriesPoint {
@@ -1304,6 +1346,7 @@ export function sourcesUsed(cards: DashboardCard[]): Set<CardSource | "today"> {
   const used = new Set<CardSource | "today">();
   for (const card of cards) {
     if (card.type === "custom" && card.query) used.add(card.query.source);
+    if (card.type === "custom" && card.query?.described) for (const source of describedSources(card.query.described.program)) used.add(source);
     if (card.type === "matrix" || card.type === "streak" || card.type === "topThree" || card.type === "weeklyReview" || card.type === "highlights") used.add("tasks");
     if (card.type === "goal" || card.type === "focusTime") used.add("tasks");
     if (card.type === "nextUp") used.add("events");
@@ -1669,7 +1712,20 @@ function rowFor(item: Item, query: CardQuery, lookups: Lookups, today: string, t
     const value = measureOf(item, query.measure);
     meta = meta ? `${formatHours(value)} · ${meta}` : formatHours(value);
   }
-  return { id: item.id, entity: item.entity, title: item.title, subtitle: parts.filter(Boolean).join(" · ") || undefined, meta, tone, done: item.done };
+  const timed = item.entity === "event" && item.start && !/^\d{4}-\d{2}-\d{2}$/.test(item.start);
+  return {
+    id: item.id,
+    entity: item.entity,
+    title: item.title,
+    subtitle: parts.filter(Boolean).join(" · ") || undefined,
+    meta,
+    tone,
+    done: item.done,
+    overdue: item.overdue || undefined,
+    day: day ?? undefined,
+    at: timed ? item.start! : undefined,
+    minutes: item.entity === "event" ? item.durationMinutes : undefined,
+  };
 }
 
 function sortItems(items: Item[], query: CardQuery, timeZone?: string): Item[] {

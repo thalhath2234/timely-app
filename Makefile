@@ -216,7 +216,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-inbox test-starter-labels test-view-search test-view-language test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-project-delete test-bulk-edit test-mobile-event-occurrence test-mobile-meeting-url test-mobile-back-fallback ## Run all tests
+test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-inbox test-starter-labels test-view-search test-view-language test-dashboard test-genui test-mobile-live-block test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-web-api-proxy test-project-delete test-bulk-edit test-mobile-event-occurrence test-calendar-occurrence-done test-mobile-meeting-url test-mobile-back-fallback ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -358,6 +358,16 @@ test-view-language: ## Test how plain words become a task view ("overdue bugs in
 test-project-delete: ## Test the confirm that names the tasks a project delete takes with it
 	@node --experimental-strip-types --test scripts/project-delete.test.mjs
 
+.PHONY: test-genui gen-genui-prompt
+test-genui: ## Test reply and described cards: the OpenUI prompts, their examples, splitting replies and @Data
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/genui.test.mjs
+gen-genui-prompt: ## Write the reply- and described-card instructions for the API from packages/contract/src/genui*.ts
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs scripts/gen-genui-prompt.mjs
+
+.PHONY: test-mobile-live-block
+test-mobile-live-block: ## Test the HTML the phone draws a doc's live blocks with in its editor page
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/mobile-live-block.test.mjs
+
 .PHONY: test-dashboard
 test-dashboard: ## Test the shared Report dashboard engine (card queries, layouts, built-in cards)
 	@node --experimental-strip-types --test scripts/dashboard.test.mjs scripts/dashboard-files.test.mjs
@@ -373,6 +383,10 @@ test-mobile-next-free-slot: ## Test how mobile picks its next free slot from the
 .PHONY: test-mobile-event-occurrence
 test-mobile-event-occurrence: ## Test how the phone opens, edits and ends one occurrence of a repeating event
 	@node --experimental-strip-types --test scripts/mobile-event-occurrence.test.mjs
+
+.PHONY: test-calendar-occurrence-done
+test-calendar-occurrence-done: ## Test that Today and the calendar agree on which days of a repeating task are done
+	@node --experimental-strip-types --test scripts/calendar-occurrence-done.test.mjs
 
 .PHONY: test-mobile-picker-seed
 test-mobile-picker-seed: ## Test when a date-time picker adopts a value that arrives while it is open
@@ -469,7 +483,7 @@ test-mobile-offline: ## Test the mobile offline queue: durable enqueue, restart,
 test-electron-guards: ## Test the desktop shell's window-open origin policy
 	@node --experimental-strip-types --test scripts/electron-guards.test.mjs
 
-.PHONY: test-electron-supervisor test-mobile-server-config test-desktop-instance
+.PHONY: test-electron-supervisor test-mobile-server-config test-desktop-instance test-web-api-proxy
 test-electron-supervisor: ## Test the desktop supervisor: config/secrets, ports, Tailscale detection, backoff, stale pid, sidecar lifetime
 	@node --experimental-strip-types --test scripts/electron-supervisor.test.mjs scripts/electron-lifetime.test.mjs
 
@@ -478,6 +492,9 @@ test-mobile-server-config: ## Test mobile pairing: QR payload parsing, server or
 
 test-desktop-instance: ## Test the web Settings → Server helpers (pairing payload, status copy, MCP address) and the retry through a server restart
 	@node --experimental-strip-types --test scripts/desktop-instance.test.mjs scripts/mcp-url.test.mjs scripts/api-retry.test.mjs
+
+test-web-api-proxy: ## Test that the web /api-proxy route reaches API_ORIGIN as set at run time, not at build time
+	@node --experimental-strip-types --test scripts/api-proxy.test.mjs
 
 format-qa: ## Format the 2026-10-01 QA scripts and evidence
 	@pnpm exec prettier --write 'docs/qa/2026-10-01*/**/*.{mjs,json,md}'

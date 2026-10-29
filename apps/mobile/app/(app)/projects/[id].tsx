@@ -377,7 +377,7 @@ export default function ProjectDetailScreen() {
             <ListGroup>
               {(activity.data ?? []).length > 5 ? (
                 // Long logs scroll inside the card so the page stays short.
-                <ScrollView key="log" nestedScrollEnabled keyboardShouldPersistTaps="handled" style={styles.activityLog}>
+                <ScrollView key="log" nestedScrollEnabled keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={styles.activityLog}>
                   <ListGroup style={styles.activityRows}>{activityRows}</ListGroup>
                 </ScrollView>
               ) : (

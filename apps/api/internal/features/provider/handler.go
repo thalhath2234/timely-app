@@ -25,6 +25,7 @@ func (s *Service) Routes(g *echo.Group) {
 	g.POST("/agent/write", s.write)
 	g.POST("/agent/checklist-tasks", s.checklistTasks)
 	g.POST("/agent/view-query", s.viewQuery)
+	g.POST("/agent/dashboard-card", s.dashboardCard)
 	g.GET("/agent/decisions", s.decisionsOverview)
 	g.PATCH("/agent/decisions", s.configureDecisions)
 	g.POST("/agent/decisions/key", s.setTypeSafeKey)

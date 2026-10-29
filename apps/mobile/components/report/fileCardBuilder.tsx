@@ -49,40 +49,54 @@ type Kind = "sheets" | "docs";
  * Builds a dashboard card from one sheet or doc on the phone: pick the file,
  * then the cells (tap the first, then the last) or the part of the doc, then
  * how it shows. The same card definition as the desktop workshop writes.
+ * Given a card made earlier, it starts from that card's pick and name and
+ * saves over it.
  */
 export default function FileCardBuilder({
   kind,
+  initial,
   data,
   onClose,
   onAdd,
+  onSave,
 }: {
   /** Null keeps the sheet closed. */
   kind: Kind | null;
+  /** The card being changed; absent builds a new one. */
+  initial?: { id: string; title: string; query: CardQuery };
   data: DashboardData;
   onClose: () => void;
   onAdd: (card: Omit<DashboardCard, "id">) => void;
+  onSave?: (change: { title?: string; query: CardQuery }) => void;
 }) {
-  // The draft belongs to the kind it was started for; opening the other kind starts fresh.
-  const [draft, setDraft] = useState<{ kind: Kind; query: CardQuery | null; title: string }>({ kind: "sheets", query: null, title: "" });
-  const live = kind !== null && draft.kind === kind ? draft : { kind: kind ?? "sheets", query: null, title: "" };
+  // The draft belongs to the kind and card it was started for; anything else starts fresh.
+  const key = initial?.id ?? "new";
+  const [draft, setDraft] = useState<{ kind: Kind; key: string; query: CardQuery | null; title: string }>({ kind: "sheets", key: "", query: null, title: "" });
+  const live =
+    kind !== null && draft.kind === kind && draft.key === key ? draft : { kind: kind ?? "sheets", key, query: initial?.query ?? null, title: initial?.title ?? "" };
+  const reset = () => setDraft({ kind: kind ?? "sheets", key: "", query: null, title: "" });
   const close = () => {
-    setDraft({ kind: kind ?? "sheets", query: null, title: "" });
+    reset();
     onClose();
   };
   return (
     <BottomSheet
       open={kind !== null}
       onClose={close}
-      title={kind === "docs" ? "Card from a doc" : "Card from a sheet"}
+      title={initial ? "Edit card" : kind === "docs" ? "Card from a doc" : "Card from a sheet"}
       footer={
         live.query ? (
           <PrimaryButton
-            label="Add to dashboard"
+            label={initial ? "Save changes" : "Add to dashboard"}
             onPress={() => {
               const query = live.query!;
-              const size = defaultCardSize(query);
-              onAdd({ type: "custom", title: live.title.trim() || undefined, query, w: size.w, h: size.h });
-              setDraft({ kind: live.kind, query: null, title: "" });
+              if (initial) {
+                onSave?.({ title: live.title.trim() || undefined, query });
+              } else {
+                const size = defaultCardSize(query);
+                onAdd({ type: "custom", title: live.title.trim() || undefined, query, w: size.w, h: size.h });
+              }
+              reset();
             }}
           />
         ) : undefined

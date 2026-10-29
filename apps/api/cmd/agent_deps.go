@@ -45,6 +45,10 @@ var docDecisions agent.Decider
 // makes those tools say they are not available. Set in main.
 var todaySuggestions *suggest.Service
 
+// liveBlockWriter writes the programs of the agent's live blocks in docs on
+// the account's AI provider; nil makes add_live_block unavailable. Set in main.
+var liveBlockWriter func(ctx context.Context, userID, words, current, today string) (string, error)
+
 // Bind all writes (including indexing jobs) to the same transaction as the
 // agent's execution checkpoint. Existing REST and Hermes behavior stays intact.
 // creds supplies each account's own embedding key, as for the REST indexer;
@@ -82,5 +86,6 @@ func chatCatalog(db *gorm.DB, live *realtime.Hub, creds embed.Credentials) agent
 		Decisions: docDecisions,
 		Focus:     focus.NewStore(db),
 		Suggest:   todaySuggestions,
+		LiveBlock: liveBlockWriter,
 	})
 }

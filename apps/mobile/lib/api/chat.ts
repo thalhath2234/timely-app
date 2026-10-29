@@ -1,4 +1,5 @@
 import { File } from "expo-file-system";
+import { GENUI_CAPABILITY } from "@timely/contract/genui";
 import { api } from "./client";
 import { isOffline } from "../networkState";
 import { deviceTimezone } from "../format";
@@ -15,7 +16,7 @@ export function chatRequest<T = Chat>(
     );
   // New messages carry the device zone; the agent uses it when no timezone
   // is saved in Working hours. client=phone makes its saved-view tools act on
-  // the phone's own views.
+  // the phone's own views, and `ui` says this app draws reply cards.
   const sendsMessage =
     method === "POST" && (path === "" || path.endsWith("/messages"));
   if (
@@ -24,7 +25,7 @@ export function chatRequest<T = Chat>(
     typeof body === "object" &&
     !(body instanceof FormData)
   )
-    body = { ...body, timezone: deviceTimezone(), client: "phone" };
+    body = { ...body, timezone: deviceTimezone(), client: "phone", ui: GENUI_CAPABILITY };
   return api<T>(`/chats${path}`, { method, body, queueIfOffline: false });
 }
 export async function uploadChatImage(image: PendingImage): Promise<ChatImage> {
