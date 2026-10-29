@@ -352,7 +352,7 @@ func listenConfig() (int, []string) {
 		portText = strings.TrimSpace(os.Getenv("PORT"))
 	}
 	if portText == "" {
-		portText = "8080"
+		portText = "8087"
 	}
 	port, err := strconv.Atoi(portText)
 	if err != nil || port < 0 || port > 65535 {
