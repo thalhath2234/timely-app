@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -160,7 +161,8 @@ func (s *Service) sheetBriefs(ctx context.Context, userID string) ([]sheetBrief,
 	return briefs, nil
 }
 
-// writeSheets lists sheets for @Cells: each tab with its columns, numbers marked.
+// writeSheets lists sheets for @Cells: each tab with its columns, numbers
+// marked, and the values of columns that hold a few, which `is` must match.
 func writeSheets(b *strings.Builder, sheets []sheetBrief) {
 	wrote := false
 	for _, sh := range sheets {
@@ -178,6 +180,12 @@ func writeSheets(b *strings.Builder, sheets []sheetBrief) {
 				columns[i] = column.Name
 				if column.Numbers {
 					columns[i] += " #"
+				} else if len(column.Values) > 0 {
+					values := make([]string, len(column.Values))
+					for j, value := range column.Values {
+						values[j] = strconv.Quote(value)
+					}
+					columns[i] += " [" + strings.Join(values, ", ") + "]"
 				}
 			}
 			tabs = append(tabs, fmt.Sprintf("  - tab %q, %d rows: %s", tab.Name, tab.Rows, strings.Join(columns, ", ")))
@@ -186,7 +194,7 @@ func writeSheets(b *strings.Builder, sheets []sheetBrief) {
 			continue
 		}
 		if !wrote {
-			b.WriteString("\nThe person's sheets, for @Cells (each tab with its columns; # marks columns of numbers):\n")
+			b.WriteString("\nThe person's sheets, for @Cells (each tab with its columns; # marks columns of numbers; [...] lists the values a column of text holds, written as is must write them):\n")
 			wrote = true
 		}
 		fmt.Fprintf(b, "- %q\n%s\n", title, strings.Join(tabs, "\n"))

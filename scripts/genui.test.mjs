@@ -354,3 +354,87 @@ describe("@Cells: a sheet's cells in described cards and live blocks", async () 
     assert.deepEqual(describeChanges('root = Panel("x", [])\nt = @Data({source: "tasks"})'), DESCRIBE_CHANGES);
   });
 });
+
+describe("@Cells: values as the sheet writes them", async () => {
+  const { cellsProblems, drawBoard, runCells } = await import("../packages/contract/src/genuiBoard.ts");
+  const { cellsBrief, closestValue } = await import("../packages/contract/src/sheetCells.ts");
+  const { buildYearlyExpenses } = await import("../packages/contract/src/sheetTemplates.ts");
+  // Timely's yearly expenses workbook with six October entries: 95,750 spent, the biggest 80,000.
+  const workbook = buildYearlyExpenses({ year: 2026, currency: "LKR" });
+  const october = workbook.tabs.find((tab) => tab.name === "October");
+  const col = Object.fromEntries(october.columns.map((column) => [column.name, column.id]));
+  const entries = [
+    ["2026-10-02", "Rice 5kg", "Groceries", "2500"],
+    ["2026-10-03", "Bus pass", "Transport", "1750"],
+    ["2026-10-05", "Rent", "Rent", "80000"],
+    ["2026-10-08", "Vegetables", "Groceries", "1000"],
+    ["2026-10-12", "Dinner", "Dining out", "4500"],
+    ["2026-10-20", "Electricity", "Bills & utilities", "6000"],
+  ];
+  entries.forEach(([date, item, category, price], i) => {
+    Object.assign(october.rows[i + 1].cells, { [col.Date]: date, [col.Item]: item, [col.Category]: category, [col["Unit price"]]: price });
+  });
+  const data = { sheets: [{ ...workbook, id: "sh_exp", workspaceId: "ws1", updatedAt: "2026-10-28T10:00:00Z" }] };
+  const money = (text) => text.replace(/ /g, " ");
+  // The program the AI wrote for "October expenses": the Summary tab says October, the AI wrote Oct.
+  const program = `root = Panel("October expenses", [nums, list])
+spent = @Cells({sheet: "Expenses 2026", tab: "Summary", label: "Month", value: "Spent", where: "Month", is: "Oct"})
+items = @Cells({sheet: "Expenses 2026", tab: "Summary", label: "Month", value: "Items", where: "Month", is: "Oct"})
+big = @Cells({sheet: "Expenses 2026", tab: "Summary", label: "Month", value: "Biggest buy", where: "Month", is: "Oct"})
+nums = Stats([Stat("Spent this month", spent.text), Stat("Items", items.text), Stat("Biggest buy", big.text)])
+list = List(@Each(spent.rows, "r", InfoRow(r.label, r.text)), "No October row found", open)
+open = Open("Open sheet", "sheet", spent.sheetId)`;
+
+  test("a month's short name finds the month's row: Oct is October", () => {
+    const ask = (is, value = "Spent") => runCells({ sheet: "Expenses 2026", tab: "Summary", label: "Month", value, where: "Month", is }, data);
+    assert.equal(ask("Oct").value, 95750);
+    assert.equal(ask("Oct").count, 1);
+    assert.equal(ask("Oct", "Items").value, 6);
+    assert.equal(ask("Oct", "Biggest buy").value, 80000);
+    for (const is of ["October", "OCTOBER", " oct. ", "Oct."]) assert.equal(ask(is).value, 95750, is);
+    assert.equal(ask("Sept").count, 1, "Sept is September");
+    assert.equal(ask("Sep").value, 0, "September spent nothing");
+    assert.deepEqual(cellsProblems(program, data), [], "nothing missing");
+    const drawn = JSON.stringify(drawBoard(program, data, { now: new Date("2026-10-28T12:00:00Z"), timeZone: "UTC" }));
+    assert.match(money(drawn), /95,750/, "the block shows October's spending");
+    assert.match(drawn, /"October"/, "the list has October's row");
+  });
+
+  test("Year total and Monthly average are totals rows, not months", () => {
+    const year = runCells({ sheet: "Expenses 2026", tab: "Summary", label: "Month", value: "Spent" }, data);
+    assert.equal(year.count, 12, "twelve months");
+    assert.equal(year.value, 95750, "not counted again by Year total and Monthly average");
+    assert.ok(!year.labels.includes("Year total"));
+    const categories = runCells({ sheet: "Expenses 2026", tab: "Categories", label: "Category", value: "Oct", sort: "value", limit: 3 }, data);
+    assert.deepEqual(categories.labels, ["Rent", "Bills & utilities", "Dining out"]);
+    assert.equal(categories.value, 95750, "the Categories tab's Total row is left out too");
+  });
+
+  test("is also matches a number however the cell shows it", () => {
+    assert.equal(runCells({ sheet: "Expenses 2026", tab: "October", label: "Item", value: "Total", where: "Total", is: "80000" }, data).labels[0], "Rent");
+    assert.equal(runCells({ sheet: "Expenses 2026", tab: "October", label: "Item", value: "Total", where: "Total", is: "80,000" }, data).count, 1);
+  });
+
+  test("a near miss shows a note naming the value the column holds, not other numbers", () => {
+    const near = program.replace(/tab: "Summary", label: "Month", value: "Spent", where: "Month", is: "Oct"/, 'tab: "October", label: "Item", value: "Total", where: "Category", is: "Grocery"');
+    assert.deepEqual(cellsProblems(near, data), ["“Expenses 2026” has no Category called “Grocery”. The closest is “Groceries”."]);
+    assert.equal(runCells({ sheet: "Expenses 2026", tab: "October", value: "Total", where: "Category", is: "Grocery" }, data).value, 0, "a near miss draws nothing");
+    // A value nothing like the column's only matches no rows yet: no note.
+    const none = program.replace(/where: "Month", is: "Oct"/, 'where: "Month", is: "Q4"');
+    assert.deepEqual(cellsProblems(none, data), []);
+    assert.equal(closestValue(["Groceries", "Transport"], "Gro"), "Groceries");
+    assert.equal(closestValue(["Dining out"], "Dining"), "Dining out");
+    assert.equal(closestValue(["yes"], "no"), "");
+    assert.equal(closestValue(["Rent", "Transport"], "Travel"), "");
+  });
+
+  test("the AI is told the values a column of text holds", () => {
+    const tabs = cellsBrief(data.sheets[0]);
+    const column = (tab, name) => tabs.find((t) => t.name === tab).columns.find((c) => c.name === name);
+    assert.deepEqual(column("Summary", "Month").values, ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]);
+    assert.equal(column("Summary", "Spent").values, undefined, "numbers list no values");
+    assert.equal(column("Summary", "Notes").values, undefined, "nothing typed outside the totals rows");
+    assert.deepEqual(column("October", "Category").values, ["Groceries", "Transport", "Rent", "Dining out", "Bills & utilities"]);
+    assert.equal(tabs.find((t) => t.name === "Summary").rows, 12);
+  });
+});

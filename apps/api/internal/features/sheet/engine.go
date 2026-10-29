@@ -184,13 +184,19 @@ func EvaluateFormula(sh *models.Sheet, tabID, formula string) (CellValue, error)
 
 // CellsTab is one tab as a described card's @Cells call reads it: its name,
 // how many rows hold anything, and the columns by the names the person sees.
+// A column of text with a few short values (months, categories) lists them,
+// so a program's `is` names one as the sheet writes it.
 type CellsTab struct {
-	Name    string `json:"name"`
-	Rows    int    `json:"rows"`
-	Columns []struct {
-		Name    string `json:"name"`
-		Numbers bool   `json:"numbers"`
-	} `json:"columns"`
+	Name    string        `json:"name"`
+	Rows    int           `json:"rows"`
+	Columns []CellsColumn `json:"columns"`
+}
+
+// CellsColumn is one column of a CellsTab.
+type CellsColumn struct {
+	Name    string   `json:"name"`
+	Numbers bool     `json:"numbers"`
+	Values  []string `json:"values,omitempty"`
 }
 
 // CellsBriefs lists each sheet's tabs and columns with the names the apps'

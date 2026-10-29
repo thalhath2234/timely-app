@@ -480,4 +480,32 @@ func TestCellsBriefsNameColumnsAsTheAppsFindThem(t *testing.T) {
 	if week.Name != "Week" || week.Rows != 2 || columns(week) != "Day, Km#" {
 		t.Fatalf("Week = %d rows, %s (want the names in row 1, no hidden column, no totals row)", week.Rows, columns(week))
 	}
+
+	// A program's `is` must name a value as the sheet writes it ("October",
+	// not "Oct"), so columns of a few short values list them.
+	values := func(tab CellsTab, name string) string {
+		for _, column := range tab.Columns {
+			if column.Name == name {
+				return strings.Join(column.Values, "|")
+			}
+		}
+		return "no column " + name
+	}
+	summary := briefs[0][0]
+	months := "January|February|March|April|May|June|July|August|September|October|November|December"
+	if summary.Name != "Summary" || summary.Rows != 12 || values(summary, "Month") != months {
+		t.Fatalf("Summary = %d rows, Month %s (want the twelve months; Year total and Monthly average are totals rows)", summary.Rows, values(summary, "Month"))
+	}
+	if got := values(summary, "Notes"); got != "" {
+		t.Errorf("Summary Notes = %q (nothing typed outside the totals rows)", got)
+	}
+	if got := values(*january, "Category"); got != "Groceries" {
+		t.Errorf("January Category = %q", got)
+	}
+	if got := values(*january, "Qty"); got != "" {
+		t.Errorf("a column of numbers lists no values: %q", got)
+	}
+	if got := values(week, "Day"); got != "Mon|Tue" {
+		t.Errorf("Week Day = %q", got)
+	}
 }

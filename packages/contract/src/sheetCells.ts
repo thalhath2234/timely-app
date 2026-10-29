@@ -41,15 +41,21 @@ export function tabByName(sheet: Sheet, name: string | undefined): SheetTab | nu
 }
 
 const RANGE = /\$?[A-Z]{1,3}\$?\d*:\$?[A-Z]{1,3}\$?\d*/i;
+/** What a typed totals row is called: "Year total", "Subtotal", "Monthly average". */
+const TOTALS_NAME = /\b(sub)?totals?\b|\baverages?\b/i;
 
 /**
  * A row of totals, wherever it sits (the built-in expenses tabs keep theirs
- * on top): nothing typed, only formulas, and at least one adds up a range.
- * Read as an entry, it would count every entry twice.
+ * on top): at least one formula works over a range, and either nothing is
+ * typed or the first typed cell names the row a total or an average (the
+ * yearly Summary tab's "Year total" and "Monthly average"). Read as an
+ * entry, it would count every entry twice.
  */
 function summaryRow(row: PickCell[]): boolean {
   const filled = row.filter((cell) => cell.raw.trim() !== "");
-  return filled.length > 0 && filled.every((cell) => cell.formula) && filled.some((cell) => RANGE.test(cell.raw));
+  if (!filled.some((cell) => cell.formula && RANGE.test(cell.raw))) return false;
+  const typed = filled.find((cell) => !cell.formula);
+  return !typed || TOTALS_NAME.test(typed.text);
 }
 
 /** A tab's cells by column, worked out; null when the tab holds nothing. */
@@ -87,25 +93,113 @@ export function columnByName(table: CellsTable, name: string): number {
   return table.columns.findIndex((column) => column.names.includes(wanted));
 }
 
+const MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+const WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+/** Short month and weekday names to the full ones: "oct", "sept", "tues". */
+const FULL_NAMES = new Map<string, string>([
+  ...[...MONTHS, ...WEEKDAYS].map((name) => [name.slice(0, 3), name] as [string, string]),
+  ["sept", "september"],
+  ["tues", "tuesday"],
+  ["weds", "wednesday"],
+  ["thur", "thursday"],
+  ["thurs", "thursday"],
+]);
+
+/** A value as `is` compares it: in any case, spaces evened out, a closing full stop dropped, month and weekday names in full. */
+function valueKey(text: string): string {
+  const key = nameKey(text).replace(/\s+/g, " ").replace(/\.$/, "");
+  return FULL_NAMES.get(key) ?? key;
+}
+
+const plainNumber = (text: string) => (/^-?[\d,]*\.?\d+$/.test(text.trim()) ? Number(text.trim().replace(/,/g, "")) : null);
+
+/**
+ * Whether a cell holds what a `@Cells` call's `is` asks for: the same text
+ * in any case ("Oct" for "October" too), or the same number however the
+ * cell shows it ("1200" for "Rs 1,200.00").
+ */
+export function cellIs(wanted: string): (cell: PickCell | undefined) => boolean {
+  const key = valueKey(wanted);
+  const number = plainNumber(wanted);
+  return (cell) => !!cell && cell.text.trim() !== "" && (valueKey(cell.text) === key || (number !== null && cell.number === number));
+}
+
+/** The different values a column holds, as the sheet shows them, in row order. */
+export function columnValues(table: CellsTable, col: number): string[] {
+  const seen = new Map<string, string>();
+  for (const row of table.rows) {
+    const text = row[col]?.text.trim() ?? "";
+    if (text && !seen.has(valueKey(text))) seen.set(valueKey(text), text);
+  }
+  return [...seen.values()];
+}
+
+/** Edits from one word to the other (short words: these are cell values). */
+function distance(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const next = [i];
+    for (let j = 1; j <= b.length; j++) next[j] = Math.min(prev[j] + 1, next[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = next;
+  }
+  return prev[b.length];
+}
+
+/**
+ * The value meant by one that matches nothing: "Groceries" for "Grocery",
+ * "Dining out" for "Dining". One starts the other, or they are a few
+ * letters apart. Empty when nothing is that close.
+ */
+export function closestValue(values: string[], wanted: string): string {
+  const key = valueKey(wanted);
+  if (key.length < 3) return "";
+  let best = "";
+  let bestScore = Infinity;
+  for (const value of values) {
+    const other = valueKey(value);
+    const score = other.startsWith(key) || key.startsWith(other) ? 0.5 : distance(key, other);
+    if (score < bestScore && score <= Math.min(3, Math.ceil(key.length / 3))) {
+      best = value;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
 export interface CellsBrief {
   name: string;
   rows: number;
-  columns: { name: string; numbers: boolean }[];
+  /** values: what a column of text holds, when it holds a few short ones (months, categories), so `is` names one. */
+  columns: { name: string; numbers: boolean; values?: string[] }[];
 }
 
 const BRIEF_TABS = 8;
 const BRIEF_COLUMNS = 16;
+const BRIEF_VALUES = 20;
+const BRIEF_VALUE_LENGTH = 40;
 
-/** Each tab of a sheet with the column names a program can use, for the model's instructions. */
+/**
+ * The tabs of a sheet that hold something, with the column names a program
+ * can use and the values `is` can match, for the model's instructions. Empty
+ * tabs are left out before the cap, so October's entries in a yearly
+ * workbook still reach the model while November and December wait empty.
+ */
 export function cellsBrief(sheet: Sheet): CellsBrief[] {
-  return sheetTabs(sheet)
-    .slice(0, BRIEF_TABS)
-    .map((tab) => {
-      const table = cellsTable(sheet, tab);
-      return {
-        name: tab.name,
-        rows: table?.rows.length ?? 0,
-        columns: (table?.columns ?? []).slice(0, BRIEF_COLUMNS).map((column) => ({ name: column.name, numbers: column.numbers })),
-      };
+  const briefs: CellsBrief[] = [];
+  for (const tab of sheetTabs(sheet)) {
+    if (briefs.length === BRIEF_TABS) break;
+    const table = cellsTable(sheet, tab);
+    if (!table) continue;
+    briefs.push({
+      name: tab.name,
+      rows: table.rows.length,
+      columns: table.columns.slice(0, BRIEF_COLUMNS).map((column, i) => {
+        const values = column.numbers ? [] : columnValues(table, i);
+        // Notes and free text say nothing a program could match.
+        const few = values.length > 0 && values.length <= BRIEF_VALUES && values.every((value) => value.length <= BRIEF_VALUE_LENGTH);
+        return few ? { name: column.name, numbers: column.numbers, values } : { name: column.name, numbers: column.numbers };
+      }),
     });
+  }
+  return briefs;
 }

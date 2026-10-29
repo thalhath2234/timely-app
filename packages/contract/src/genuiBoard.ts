@@ -25,7 +25,7 @@ import {
 import { formatLike } from "./dashboardFiles";
 import { GENUI_COMPONENTS, type GenuiNode } from "./genui";
 import type { Sheet } from "./sheet";
-import { cellsTable, columnByName, nameKey, tabByName, type CellsTable } from "./sheetCells";
+import { cellIs, cellsTable, closestValue, columnByName, columnValues, nameKey, tabByName, type CellsTable } from "./sheetCells";
 import { daysBetween, todayInZone } from "./workStatus";
 
 /**
@@ -372,7 +372,7 @@ export type CellsResult = z.infer<typeof CellsResult>;
 const Cells = defineFunction({
   name: "Cells",
   description:
-    "Reads a sheet's cells, worked out as the sheet shows them. sheet and tab (left out: the first tab) are names from the person's sheets; label is the column that names each row, value the column of numbers (left out: the first one). where/is keep the rows whose cell in that column holds that text (no is: any text). group: rows with the same label add up into one. sort: value (largest first) or label; desc flips it. last: the last rows, the latest entries, instead of the first. limit: rows to keep (12). value/text: the value column's total over the matching rows; average; last: the bottom row's value; count: how many rows match. A value column of text counts rows instead (with group: how many rows have each label). rows, labels, values: the kept rows. sheetId opens the sheet.",
+    "Reads a sheet's cells, worked out as the sheet shows them. sheet and tab (left out: the first tab) are names from the person's sheets; label is the column that names each row, value the column of numbers (left out: the first one). where/is keep the rows whose cell in that column holds that value, written as the sheets below list it (no is: any text). group: rows with the same label add up into one. sort: value (largest first) or label; desc flips it. last: the last rows, the latest entries, instead of the first. limit: rows to keep (12). value/text: the value column's total over the matching rows; average; last: the bottom row's value; count: how many rows match. A value column of text counts rows instead (with group: how many rows have each label). rows, labels, values: the kept rows. sheetId opens the sheet.",
   params: z.object({ query: CellsQuery }),
   returns: CellsResult,
   // Apps bind it to their data with boardFunctions.
@@ -400,8 +400,10 @@ type FoundCells = { sheet?: Sheet; table?: CellsTable; labelCol: number; valueCo
 
 /**
  * What a `@Cells` call names: the sheet, its tab and the columns. missing
- * says, in the person's words, which name matches nothing; a tab with
- * nothing in it is not missing, only empty.
+ * says, in the person's words, which name matches nothing, or which `is`
+ * value is a near miss of one the column holds ("Grocery" for "Groceries");
+ * a tab with nothing in it is not missing, only empty, and an `is` value
+ * nothing like the column's ("yes" in a column of "no") only matches no rows yet.
  */
 function findCells(query: CellsQuery, data: DashboardData): FoundCells {
   const found: FoundCells = { labelCol: -1, valueCol: -1, whereCol: -1, missing: "" };
@@ -425,6 +427,13 @@ function findCells(query: CellsQuery, data: DashboardData): FoundCells {
   const lost = [query.label, query.value, query.where].find((wanted) => wanted?.trim() && columnByName(table, wanted) < 0);
   if (lost) found.missing = `“${title}” has no column called “${lost.trim()}”.`;
   else if (found.valueCol < 0) found.missing = `“${title}” has no column of numbers.`;
+  else if (found.whereCol >= 0 && query.is?.trim()) {
+    const holds = cellIs(query.is);
+    if (!table.rows.some((row) => holds(row[found.whereCol]))) {
+      const near = closestValue(columnValues(table, found.whereCol), query.is);
+      if (near) found.missing = `“${title}” has no ${table.columns[found.whereCol].name} called “${query.is.trim()}”. The closest is “${near}”.`;
+    }
+  }
   return found;
 }
 
@@ -444,11 +453,10 @@ export function runCells(query: CellsQuery, data: DashboardData): CellsResult {
   const counting = !numbers;
   const shown = (value: number) => (counting ? String(value) : formatLike(value, column));
 
-  const wanted = query.is === undefined ? null : nameKey(query.is);
+  const holds = query.is === undefined ? null : cellIs(query.is);
   const matching = table.rows.filter((row) => {
     if (whereCol < 0) return true;
-    const text = nameKey(row[whereCol]?.text ?? "");
-    return wanted === null ? text !== "" : text === wanted;
+    return holds ? holds(row[whereCol]) : (row[whereCol]?.text.trim() ?? "") !== "";
   });
   type Entry = { label: string; value: number; text: string; number: boolean };
   let entries: Entry[] = matching
@@ -541,7 +549,7 @@ const PREAMBLE = `You build one card for the person's Timely dashboard from thei
 
 const RULES = [
   "Every number, row, bar and share comes from @Data or @Cells. Never write the person's tasks, events, names or numbers yourself; labels and empty texts are the only words you write.",
-  "A sheet's cells come from @Cells, never @Data: sheet, tab and column names exactly as in the person's sheets below. Chart them with BarChart(title, c.labels, c.values); list them with @Each(c.rows, \"r\", InfoRow(r.label, r.text)) or ShareRow(r.label, r.text, r.share).",
+  "A sheet's cells come from @Cells, never @Data: sheet, tab and column names exactly as in the person's sheets below, and an is value one of the values listed for that column (\"October\", not \"Oct\"). Chart them with BarChart(title, c.labels, c.values); list them with @Each(c.rows, \"r\", InfoRow(r.label, r.text)) or ShareRow(r.label, r.text, r.share).",
   "Pick the blocks that answer the words: counts as Stats, items as a List of TaskRow or EventRow rows made with @Each, a split as a BarChart or a List of ShareRow rows, two views side by side as Columns of Cards.",
   "TaskRow(t.id, t.title, t.day, t.note) for tasks, reminders and inbox; EventRow(e.time, e.title, e.day + \" · \" + e.length) for events; InfoRow(p.title, p.day) for projects, docs and sheets.",
   "With a range, set date: completedAt for finished work, deadline for due work, scheduled for planned work, start for events. Hours need measure: estimate (planned) or tracked (worked) for tasks, duration for events.",

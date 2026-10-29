@@ -64,22 +64,25 @@ func TestDashboardCardMessagesListSheets(t *testing.T) {
 	req := dashboardCardRequest{Prompt: "spending per category", Today: "2026-10-28", Place: "doc"}
 	tab := func(name string, rows int, columns ...string) sheet.CellsTab {
 		out := sheet.CellsTab{Name: name, Rows: rows}
+		// "Category=Groceries|Rent" lists a column's values.
 		for _, column := range columns {
+			column, values, _ := strings.Cut(column, "=")
 			name, numbers := strings.CutSuffix(column, "#")
-			out.Columns = append(out.Columns, struct {
-				Name    string `json:"name"`
-				Numbers bool   `json:"numbers"`
-			}{name, numbers})
+			each := sheet.CellsColumn{Name: name, Numbers: numbers}
+			if values != "" {
+				each.Values = strings.Split(values, "|")
+			}
+			out.Columns = append(out.Columns, each)
 		}
 		return out
 	}
 	sheets := []sheetBrief{
-		{Title: "Budget 2026", Tabs: []sheet.CellsTab{tab("October", 24, "Date", "Category", "Amount#"), tab("Empty", 0)}},
+		{Title: "Budget 2026", Tabs: []sheet.CellsTab{tab("October", 24, "Date", `Category=Groceries|Bills, "home"`, "Amount#"), tab("Empty", 0)}},
 		{Title: "  ", Tabs: []sheet.CellsTab{tab("Sheet 1", 3, "A#")}},
 		{Title: "Blank", Tabs: []sheet.CellsTab{tab("Sheet 1", 0, "A")}},
 	}
 	user := dashboardCardMessages(req, testVocab(), sheets)[1].Content
-	want := "The person's sheets, for @Cells (each tab with its columns; # marks columns of numbers):\n- \"Budget 2026\"\n  - tab \"October\", 24 rows: Date, Category, Amount #\n"
+	want := "The person's sheets, for @Cells (each tab with its columns; # marks columns of numbers; [...] lists the values a column of text holds, written as is must write them):\n- \"Budget 2026\"\n  - tab \"October\", 24 rows: Date, Category [\"Groceries\", \"Bills, \\\"home\\\"\"], Amount #\n"
 	if !strings.Contains(user, want) {
 		t.Errorf("user message lacks the sheets:\n%s", user)
 	}
