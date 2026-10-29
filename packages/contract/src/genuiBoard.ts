@@ -732,6 +732,31 @@ export function cellsProblems(program: string, data: DashboardData): string[] {
   return [...new Set(missing.filter(Boolean))];
 }
 
+/**
+ * The project, workspace, label and status names a program's `@Data` calls
+ * use that fit nothing in the person's data, which leave their blocks empty,
+ * one sentence each with the closest name when there is one.
+ */
+export function dataProblems(program: string, data: DashboardData): string[] {
+  if (!/@Data\s*\(/.test(program)) return [];
+  const lookups = buildLookups(data);
+  const problems = new Set<string>();
+  for (const query of dataCalls(boardParser().parse(program).root)) {
+    const named: [string, Map<string, string>, string | undefined][] = [
+      ["project", lookups.projects, query.project],
+      ["workspace", lookups.workspaces, query.workspace],
+      ["label", lookups.labels, query.label],
+      ["status", lookups.statuses, query.status],
+    ];
+    for (const [what, names, name] of named) {
+      if (!name?.trim() || idsFor(names, name)?.[0] !== "__no_match__") continue;
+      const near = closestValue([...new Set(names.values())], name);
+      problems.add(`No ${what} is called “${name.trim()}”.${near ? ` The closest is “${near}”.` : ""}`);
+    }
+  }
+  return [...problems];
+}
+
 // ---- Live blocks ----
 
 /**

@@ -172,6 +172,10 @@ func main() {
 	docDecisions = decisions
 	todaySuggestions = suggestions
 	liveBlockWriter = providerService.LiveBlock
+	// Describe (dashboard cards, live blocks) reads through the chat agent's
+	// read tools and draws its drafts from the account's data.
+	providerService.SetReadTools(func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, live, providerService.EmbedCredentials) })
+	providerService.SetBoardData(boardData(db))
 	mcpServer := agent.New(agent.Deps{
 		Auth:       authService,
 		Tasks:      taskService,

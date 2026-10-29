@@ -438,3 +438,59 @@ open = Open("Open sheet", "sheet", spent.sheetId)`;
     assert.equal(tabs.find((t) => t.name === "Summary").rows, 12);
   });
 });
+
+describe("check_block: a draft drawn from the person's data", async () => {
+  const { checkBoard } = await import("../packages/contract/src/boardCheck.ts");
+  const { dataProblems } = await import("../packages/contract/src/genuiBoard.ts");
+  const data = {
+    workspaces: [{ id: "w1", name: "Work", status: [{ id: "s1", name: "In progress" }], lables: [{ id: "l1", name: "Urgent" }] }],
+    projects: [{ id: "p1", title: "Client work" }],
+    tasks: [
+      { id: "t1", name: "Send invoice", kind: "task", deadline: "2026-10-20T10:00:00Z", project: { id: "p1", title: "Client work" } },
+      { id: "t2", name: "Plan week", kind: "task", deadline: "2026-11-20T10:00:00Z", project: { id: "p1", title: "Client work" } },
+    ],
+  };
+  const ctx = { now: new Date("2026-10-29T08:00:00Z"), timeZone: "UTC" };
+  const program = `root = Panel("Client work", [nums, list])
+late = @Data({source: "tasks", project: "Client work", overdue: true})
+nums = Stats([Stat("Overdue", late.text)])
+list = List(@Each(late.rows, "t", TaskRow(t.id, t.title, t.day)), "Nothing overdue")`;
+
+  test("shows each block as the apps draw it", () => {
+    const { problems, shows } = checkBoard(program, data, ctx);
+    assert.deepEqual(problems, []);
+    assert.deepEqual(shows, [
+      'Panel title: "Client work"',
+      "  Stats",
+      '    Stat label: "Overdue", value: "1"',
+      '  List empty: "Nothing overdue"',
+      '    TaskRow taskId: "t1", title: "Send invoice", time: "20 Oct"',
+    ]);
+    const none = checkBoard(program.replace("overdue: true", 'overdue: true, text: "nothing like this"'), data, ctx).shows;
+    assert.ok(none.includes('  List rows: [], empty: "Nothing overdue"'), "an empty list says so");
+  });
+
+  test("names what fits nothing, with the closest name", () => {
+    const wrong = program.replace('project: "Client work"', 'project: "Clients work", workspace: "Wrok", label: "Urgnt", status: "Done"');
+    assert.deepEqual(dataProblems(wrong, data), [
+      "No project is called “Clients work”. The closest is “Client work”.",
+      "No workspace is called “Wrok”. The closest is “Work”.",
+      "No label is called “Urgnt”. The closest is “Urgent”.",
+      "No status is called “Done”.",
+    ]);
+    assert.deepEqual(dataProblems(program.replace("Client work", "CLIENT WORK"), data), [], "names match without case");
+    const broken = checkBoard(`${program.replace("nums = Stats([Stat(\"Overdue\", late.text)])", "nums = Stats([Stat(\"Overdue\", soon.text)])")}\nspare = Text("x")`, data, ctx).problems;
+    assert.ok(broken.includes("soon is used but never defined."), broken.join("\n"));
+    assert.ok(broken.some((problem) => problem.startsWith("spare is defined but no block shows it")), broken.join("\n"));
+    assert.deepEqual(checkBoard("hello", data, ctx).problems, ["The program has no root = Panel(...) line."]);
+  });
+
+  test("the API's bundled check matches packages/contract and runs on its own", async () => {
+    const { bundleBoardCheck } = await import("./gen-board-check.mjs");
+    const source = readFileSync(new URL("../apps/api/internal/features/provider/board/board-check.js", import.meta.url), "utf8");
+    assert.ok(source === (await bundleBoardCheck()), "board-check.js is out of date: run make gen-board-check");
+    const bundle = new Function(`${source};return BoardCheck;`)();
+    const answer = JSON.parse(bundle.check(JSON.stringify({ program, data, now: "2026-10-29T08:00:00Z", timeZone: "UTC" })));
+    assert.deepEqual(answer, checkBoard(program, data, ctx));
+  });
+});

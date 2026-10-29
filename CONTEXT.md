@@ -96,7 +96,7 @@ A card the agent adds under its chat text to show the person's own tasks, events
 _Avoid_: widget (the phone's home-screen widgets), generative UI, OpenUI (in copy)
 
 **Described card**:
-A Dashboard card the AI builds from the person's words in "Describe a card", on desktop or phone. The AI writes the card's layout once from the Reply card kit; the card reads the person's tasks, events and files each time the dashboard shows, so it stays current without asking the AI again. More words change it. Apps that can't draw it show the nearest custom card instead (ADR 0014).
+A Dashboard card the AI builds from the person's words in "Describe a card", on desktop or phone. The AI writes the card's layout once from the Reply card kit; the card reads the person's tasks, events and files each time the dashboard shows, so it stays current without asking the AI again. More words change it. While it builds the card, the AI can read the person's data with the chat agent's read tools and draws its draft from that data to fix empty or mistaken blocks before answering (ADR 0016). Apps that can't draw it show the nearest custom card instead (ADR 0014).
 _Avoid_: AI card, smart card, generated card
 
 **Live block**:

@@ -17,7 +17,8 @@ cards). OpenUI's own `Query()` was skipped: it needs a tool provider and draws
 its defaults before the answer arrives, while `@Data` is synchronous.
 
 The model never sees the person's data, only their workspace, project,
-status and label names, so `@Data` matches names case-insensitively and a
+status and label names (since ADR 0016 it reads the data through the chat
+agent's read tools and draws its drafts before answering), so `@Data` matches names case-insensitively and a
 name that matches nothing finds nothing rather than everything. A described
 card is saved as a custom card whose query is the nearest plain card plus
 `described: {prompt, program}`; apps without described cards draw the plain
