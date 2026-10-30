@@ -207,6 +207,7 @@ func main() {
 	chatService.SetEstimates(suggestions.EstimateMany)
 
 	authHandler := auth.NewHandler(authService, userRepo)
+	authHandler.SetPairingCodes(auth.NewPairingCodes(db))
 	// Chat images need no step here: the image sweep removes every upload
 	// file within 24 hours of its upload.
 	authHandler.SetAfterDelete(func(userID string) {

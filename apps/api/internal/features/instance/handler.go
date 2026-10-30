@@ -36,8 +36,9 @@ type Handler struct {
 	cfg Config
 	db  *sql.DB
 
-	mu        sync.RWMutex
-	listening []string
+	mu         sync.RWMutex
+	listening  []string
+	instanceID string
 }
 
 func NewHandler(cfg Config, db *sql.DB) *Handler {
@@ -65,8 +66,27 @@ func (h *Handler) registrationOpen() bool {
 	return h.cfg.AllowRegistration
 }
 
+// InstanceID is this server's id from server_identity; phones pin it when
+// they pair. Read once: the row never changes.
+func (h *Handler) InstanceID(ctx context.Context) (string, error) {
+	h.mu.RLock()
+	id := h.instanceID
+	h.mu.RUnlock()
+	if id != "" || h.db == nil {
+		return id, nil
+	}
+	if err := h.db.QueryRowContext(ctx, `SELECT id FROM server_identity LIMIT 1`).Scan(&id); err != nil {
+		return "", err
+	}
+	h.mu.Lock()
+	h.instanceID = id
+	h.mu.Unlock()
+	return id, nil
+}
+
 type healthResponse struct {
 	Status           string                  `json:"status"`
+	InstanceID       string                  `json:"instanceId,omitempty"`
 	Version          string                  `json:"version"`
 	DB               string                  `json:"db"`
 	Migrations       database.MigrationState `json:"migrations"`
@@ -105,10 +125,16 @@ func (h *Handler) Health(c *echo.Context) error {
 		out.Status, out.DB = "degraded", "migrations unavailable"
 		return c.JSON(http.StatusServiceUnavailable, out)
 	}
+	if id, err := h.InstanceID(stateCtx); err == nil {
+		out.InstanceID = id
+	} else {
+		log.Printf("health: reading the instance id failed: %v", err)
+	}
 	return c.JSON(http.StatusOK, out)
 }
 
 type instanceResponse struct {
+	InstanceID        string   `json:"instanceId,omitempty"`
 	Version           string   `json:"version"`
 	Platform          string   `json:"platform"`
 	StartedAt         string   `json:"startedAt"`
@@ -128,7 +154,9 @@ func (h *Handler) Instance(c *echo.Context) error {
 	if bind == nil {
 		bind = []string{}
 	}
+	id, _ := h.InstanceID(c.Request().Context())
 	return c.JSON(http.StatusOK, instanceResponse{
+		InstanceID:        id,
 		Version:           buildinfo.Version,
 		Platform:          runtime.GOOS + "/" + runtime.GOARCH,
 		StartedAt:         buildinfo.StartedAt.UTC().Format(time.RFC3339),
