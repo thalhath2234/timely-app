@@ -425,6 +425,59 @@ describe("widgets that work on the home screen", () => {
     assert.equal(counterFormat({ type: "percent" }), null);
   });
 
+  test("a described card draws its own program, not its fallback list", () => {
+    const base = defaultDashboard().cards.find((c) => c.id === "default_open");
+    const item = (text, checked) => ({ type: "taskItem", attrs: { checked }, content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
+    const shopping = { id: "doc_shop", title: "Shopping list", updatedAt: "2026-10-15T08:00:00Z", content: { type: "doc", content: [{ type: "taskList", content: [item("Onion", false), item("Milk", true), item("Bread", false)] }] } };
+    const bugs = { id: "doc_bugs", title: "Timely Bugs Found", updatedAt: "2026-10-14T08:00:00Z", content: { type: "doc", content: [] } };
+    const docs = { ...input, data: { ...data, docs: [shopping, bugs] } };
+    const described = (program) => ({ ...base, id: "dc", title: "Shopping list", query: { ...base.query, source: "docs", described: { prompt: "my shopping list", program } } });
+
+    const list = cardWidgetModel(described(`root = Panel("Shopping list", [nums, list], "tall")
+shop = @Checklist({doc: "Shopping list"})
+nums = Stats([Stat("Left", shop.left), Stat("Done", shop.ratio)])
+list = List(@Each(shop.rows, "i", CheckRow(i.docId, i.text, i.note, i.item)), "Nothing on the list", Open("Open doc", "doc", shop.docId))`), docs);
+    assertDrawable(list, "described checklist");
+    assert.equal(list.value, "2");
+    assert.equal(list.caption, "Left · 1/3 Done");
+    assert.deepEqual(list.rows.map((row) => [row.title, row.done]), [["Onion", false], ["Milk", true], ["Bread", false]]);
+    assert.ok(!list.rows.some((row) => row.title === "Timely Bugs Found"), "not the docs list");
+    assert.deepEqual(list.rows[1].toggle, { kind: "checkItem", docId: "doc_shop", item: 1, text: "Milk", done: false });
+    assert.equal(list.rows[0].uri, "timelymobile://docs/doc_shop");
+    assert.equal(list.uri, "timelymobile://docs/doc_shop");
+
+    // Tasks tick in place, a chart becomes bars, shares become meters.
+    const work = cardWidgetModel(described(`root = Panel("Work", [nums, chart, list, shares])
+todo = @Data({source: "tasks", state: "all", limit: 5})
+nums = Stats([Stat("Tasks", todo.text)])
+chart = BarChart("By day", ["Mon", "Tue"], [2, 5], "h")
+list = List(@Each(todo.rows, "t", TaskRow(t.id, t.title, t.day, t.note)), "Nothing", Open("Open Tasks", "tasks"))
+shares = Card("Split", [ShareRow("Client", "5 h", 100), ShareRow("Admin", "2 h", 40)])`), input);
+    assertDrawable(work, "described tasks");
+    assert.deepEqual(work.bars.map((bar) => [bar.label, bar.value, bar.highlight]), [["Mon", 2, false], ["Tue", 5, true]]);
+    const late = work.rows.find((row) => row.title === "Task a");
+    assert.equal(late.tone, "danger");
+    assert.deepEqual(late.toggle, { kind: "task", taskId: "a", done: true });
+    assert.equal(work.rows.find((row) => row.title === "Task b").done, true);
+    assert.deepEqual(work.meters, [{ label: "Client", value: 1, detail: "5 h" }, { label: "Admin", value: 0.4, detail: "2 h" }]);
+    assert.equal(work.uri, "timelymobile://tasks");
+
+    // An empty list says what the card says; a program that can't be drawn sends you to the app.
+    const none = cardWidgetModel(described(`root = Panel("Garden", [List(@Each(@Data({source: "tasks", project: "Garden"}).rows, "t", TaskRow(t.id, t.title)), "Nothing in the garden")])`), input);
+    assert.equal(none.empty, "Nothing in the garden");
+    assert.ok(cardWidgetModel(described("not a program"), input).empty);
+  });
+
+  test("an item on a doc's checklist ticks in place and redraws at once", () => {
+    const action = { kind: "checkItem", docId: "doc_shop", item: 2, text: "Bread", done: true };
+    assert.deepEqual(parseWidgetAction({ ...action }), action);
+    assert.equal(parseWidgetAction({ kind: "checkItem", docId: "doc_shop", item: 2 }), null);
+    const model = { title: "Shopping", uri: "x://", rows: [{ title: "Bread", done: false, toggle: action }] };
+    const next = optimisticModel(model, action);
+    assert.equal(next.rows[0].done, true);
+    assert.deepEqual(next.rows[0].toggle, { ...action, done: false });
+  });
+
   test("a doc checklist row toggles its own checkbox", () => {
     const base = defaultDashboard().cards.find((c) => c.id === "default_open");
     const item = (text, checked) => ({ type: "taskItem", attrs: { checked }, content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
