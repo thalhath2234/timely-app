@@ -234,11 +234,18 @@ export const account: HelpSection = {
             <ul>
               <li>
                 <strong>Pair your phone</strong> shows the QR code the Android app scans. See{" "}
-                <Link href="/help/install/android">Install on Android</Link>.
+                <Link href="/help/install/android">Install on Android</Link>. <strong>Sign the phone in too</strong>{" "}
+                adds a one-time code to the QR for 5 minutes, so the phone that scans it is signed in without your
+                password.
               </li>
               <li>
                 <strong>Tailscale access</strong> lets your own devices on your Tailscale network reach the server.
                 Nothing is opened to the internet.
+              </li>
+              <li>
+                <strong>HTTPS with Tailscale Serve</strong> also serves Timely at your computer&apos;s{" "}
+                <code>.ts.net</code> name with a real certificate. It needs MagicDNS and HTTPS certificates turned on
+                for your tailnet, and it won&apos;t replace anything else you serve on port 443.
               </li>
               <li>
                 <strong>Allow new accounts</strong> lets someone else register on this computer. Only the first account

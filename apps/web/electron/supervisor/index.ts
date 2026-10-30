@@ -17,9 +17,10 @@ import { reconcilePorts, type PortSet } from "./ports.ts";
 import { PostgresManager } from "./postgres.ts";
 import { resolveShellEnv } from "./shellEnv.ts";
 import { Sidecar, describe, sleep } from "./sidecar.ts";
-import { detectTailscale, urlFor, type TailscaleInfo } from "./tailscale.ts";
+import { detectTailscale, disableServe, enableServe, findTailscaleCli, serveRunner, urlFor, type ServeRunner, type TailscaleInfo } from "./tailscale.ts";
 
 export type UpdateStatus = DesktopInstance["update"];
+export type HttpsState = DesktopInstance["tailscale"]["https"];
 
 export type Updater = {
   /** The status before any check (for example "managed"). */
@@ -48,6 +49,9 @@ export type SupervisorDeps = {
   hostname?: () => string;
   /** Stop sidecars an earlier run left behind (lifetime.ts); on unless a test turns it off. */
   sweepOrphans?: boolean;
+  /** Runs the tailscale CLI for Serve; defaults to the installed CLI. */
+  tailscaleServe?: ServeRunner | null;
+  fetch?: typeof fetch;
 };
 
 export type BootStep = "postgres" | "api" | "web";
@@ -64,7 +68,7 @@ export class BootError extends Error {
   }
 }
 
-export const SETTING_KEYS: readonly DesktopSettingKey[] = ["tailscaleEnabled", "allowRegistration", "setupDone"];
+export const SETTING_KEYS: readonly DesktopSettingKey[] = ["tailscaleEnabled", "tailscaleHttps", "allowRegistration", "setupDone"];
 export const ACTIONS: readonly DesktopAction[] = [
   "restartApi",
   "backupNow",
@@ -78,6 +82,9 @@ export const ACTIONS: readonly DesktopAction[] = [
 const SHUTDOWN_CAP_MS = 15_000;
 const SWEEP_SCAN_CAP_MS = 3_000;
 const TAILSCALE_REFRESH_MS = 5_000;
+/** The first HTTPS request makes Tailscale fetch a certificate, which can take a while. */
+const SERVE_VERIFY_ATTEMPTS = 3;
+const SERVE_VERIFY_TIMEOUT_MS = 10_000;
 
 export type SupervisorEvents = {
   change: [instance: DesktopInstance];
@@ -85,16 +92,20 @@ export type SupervisorEvents = {
 };
 
 /**
- * Builds the pairing payload: Tailscale URLs first (IPv4, then IPv6), then
- * loopback. Pure so the ordering can be tested.
+ * Builds the pairing payload: the Tailscale Serve HTTPS address when it is
+ * on, then Tailscale URLs (IPv4, then IPv6), then loopback. `id` is the API's
+ * instance id, which the phone pins. Pure so the ordering can be tested.
  */
 export function pairingPayload(input: {
   name: string;
+  id?: string;
   apiPort: number;
   tailscaleEnabled: boolean;
   tailscale: Pick<TailscaleInfo, "ipv4" | "ipv6">;
-}): { v: 1; name: string; urls: string[] } {
-  return { v: 1, name: input.name, urls: [...tailscaleUrls(input), urlFor("127.0.0.1", input.apiPort)] };
+  httpsUrl?: string;
+}): DesktopInstance["pairing"] {
+  const urls = [...(input.httpsUrl ? [input.httpsUrl] : []), ...tailscaleUrls(input), urlFor("127.0.0.1", input.apiPort)];
+  return input.id ? { v: 1, name: input.name, id: input.id, urls } : { v: 1, name: input.name, urls };
 }
 
 export function tailscaleUrls(input: { apiPort: number; tailscaleEnabled: boolean; tailscale: Pick<TailscaleInfo, "ipv4" | "ipv6"> }): string[] {
@@ -113,6 +124,10 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
   private secrets: Secrets | null = null;
   private tailscale: TailscaleInfo = { installed: false, running: false };
   private tailscaleCheckedAt = 0;
+  private https: HttpsState = { status: "off" };
+  private serveSync: Promise<void> = Promise.resolve();
+  /** GET /health "instanceId" of the running API; goes in the pairing payload. */
+  private instanceId: string | undefined;
   private postgresVersion: string | undefined;
   private update: UpdateStatus = { status: "idle" };
   private readonly platform: NodeJS.Platform;
@@ -286,6 +301,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
         output: this.sidecarLog("api"),
       });
       await this.apiSidecar.start();
+      await this.readInstanceId();
       this.progress("api", "done");
     } catch (error) {
       const message = describe(error);
@@ -319,6 +335,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
     }
     this.booted = true;
     this.emitChange();
+    void this.syncServe();
   }
 
   /**
@@ -397,6 +414,103 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
     }
   }
 
+  private async readInstanceId() {
+    try {
+      const response = await (this.deps.fetch ?? fetch)(`${this.apiUrl}/health`, { signal: AbortSignal.timeout(3000) });
+      const body = (await response.json()) as { instanceId?: unknown };
+      if (typeof body.instanceId === "string" && body.instanceId) this.instanceId = body.instanceId;
+    } catch (error) {
+      this.log.warn(`api: could not read the instance id: ${describe(error)}`);
+    }
+  }
+
+  /** Runs one Serve change at a time; each sees the settings as they are when it starts. */
+  private syncServe(): Promise<void> {
+    this.serveSync = this.serveSync.then(() => this.applyServe()).catch((error) => {
+      this.https = { status: "error", error: describe(error) };
+      this.log.warn(`tailscale serve: ${describe(error)}`);
+      this.emitChange();
+    });
+    return this.serveSync;
+  }
+
+  private serveRun(): ServeRunner | null {
+    if (this.deps.tailscaleServe !== undefined) return this.deps.tailscaleServe;
+    const cli = findTailscaleCli(this.platform);
+    return cli ? serveRunner(cli) : null;
+  }
+
+  private async applyServe() {
+    const want = this.booted && this.config.tailscaleEnabled && this.config.tailscaleHttps;
+    const run = this.serveRun();
+    const dnsName = this.tailscale.dnsName;
+    if (!want) {
+      const previous = this.config.tailscaleServeTarget;
+      if (previous && run && dnsName) {
+        await disableServe(run, dnsName, previous);
+        this.log.info(`tailscale serve: removed https://${dnsName}`);
+        this.config.tailscaleServeTarget = undefined;
+        this.save();
+      }
+      if (this.https.status !== "off") {
+        this.https = { status: "off" };
+        this.emitChange();
+      }
+      return;
+    }
+    if (!run) {
+      this.https = { status: "error", error: "The tailscale command was not found on this computer." };
+      this.emitChange();
+      return;
+    }
+    if (!dnsName) {
+      this.https = { status: "error", error: "Tailscale is not connected, or MagicDNS is off for your tailnet." };
+      this.emitChange();
+      return;
+    }
+    const url = `https://${dnsName}`;
+    this.https = { status: "starting", url };
+    this.emitChange();
+    const target = this.apiUrl;
+    const result = await enableServe(run, dnsName, target, this.config.tailscaleServeTarget);
+    if (!result.ok) {
+      this.log.warn(`tailscale serve: ${result.error}`);
+      this.https = { status: "error", url, error: result.error };
+      this.emitChange();
+      return;
+    }
+    if (this.config.tailscaleServeTarget !== target) {
+      this.config.tailscaleServeTarget = target;
+      this.save();
+    }
+    const answered = await this.verifyServe(url);
+    this.https = answered
+      ? { status: "on", url }
+      : {
+          status: "error",
+          url,
+          error: `Tailscale Serve is set up, but ${url} did not answer as this Timely. Check that HTTPS certificates are on for your tailnet.`,
+        };
+    this.log.info(`tailscale serve: ${url} ${answered ? "answers" : "did not answer"}`);
+    this.emitChange();
+  }
+
+  /** True once `${url}/health` answers with this API's instance id. */
+  private async verifyServe(url: string): Promise<boolean> {
+    for (let attempt = 0; attempt < SERVE_VERIFY_ATTEMPTS; attempt += 1) {
+      try {
+        const response = await (this.deps.fetch ?? fetch)(`${url}/health`, { signal: AbortSignal.timeout(SERVE_VERIFY_TIMEOUT_MS) });
+        const body = (await response.json()) as { instanceId?: unknown };
+        if (!this.instanceId || body.instanceId === this.instanceId) return true;
+        this.log.warn(`tailscale serve: ${url} answered as instance ${String(body.instanceId)}`);
+        return false;
+      } catch (error) {
+        this.log.warn(`tailscale serve: ${url}/health: ${describe(error)}`);
+      }
+    }
+    return false;
+  }
+
   private emitChange() {
     this.emit("change", this.getInstance());
   }
@@ -404,6 +518,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
   getInstance(): DesktopInstance {
     const name = this.tailscale.hostname || (this.deps.hostname ?? os.hostname)();
     const ts = { apiPort: this.config.apiPort, tailscaleEnabled: this.config.tailscaleEnabled, tailscale: this.tailscale };
+    const httpsUrl = this.https.status === "on" ? this.https.url : undefined;
     return {
       version: this.deps.version,
       platform: this.platform,
@@ -418,13 +533,14 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
       },
       postgres: { ...this.postgresSidecar.current, port: this.config.postgresPort, version: this.postgresVersion },
       web: { ...this.webSidecar.current, port: this.config.webPort },
-      tailscale: { ...this.tailscale },
+      tailscale: { ...this.tailscale, https: { ...this.https } },
       settings: {
         tailscaleEnabled: this.config.tailscaleEnabled,
+        tailscaleHttps: this.config.tailscaleHttps,
         allowRegistration: this.config.allowRegistration,
         setupDone: this.config.setupDone,
       },
-      pairing: pairingPayload({ name, ...ts }),
+      pairing: pairingPayload({ name, id: this.instanceId, httpsUrl, ...ts }),
       update: { ...this.update },
     };
   }
@@ -445,6 +561,10 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
     if (changed && (key === "tailscaleEnabled" || key === "allowRegistration")) {
       await this.restartApi();
     }
+    if (changed && (key === "tailscaleEnabled" || key === "tailscaleHttps")) {
+      await this.refreshTailscale(true);
+      await this.syncServe();
+    }
     this.emitChange();
     return this.getInstance();
   }
@@ -455,6 +575,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
     const shell = await resolveShellEnv({ platform: this.platform });
     this.api.update({ env: this.apiEnv(shell) });
     await this.apiSidecar.start();
+    await this.readInstanceId();
   }
 
   async action(name: DesktopAction): Promise<DesktopActionResult> {

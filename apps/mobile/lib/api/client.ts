@@ -12,6 +12,9 @@ import { DEFAULT_PROBE_TIMEOUT_MS, parseHealthPayload, serverStore, type ServerH
 /** `ApiError.code` when no server has been paired yet (release builds only). */
 export const NO_SERVER_CODE = "no-server";
 export const NO_SERVER_MESSAGE = "Pair with your Timely desktop first";
+/** `ApiError.code` while the known address answers as a different Timely server. */
+export const WRONG_SERVER_CODE = "wrong-server";
+export const WRONG_SERVER_MESSAGE = "Your Timely desktop's address now answers as a different server. Pair again from Settings → Server.";
 
 export class ApiError extends Error {
   status: number;
@@ -44,13 +47,19 @@ export function devApiUrl(): string {
 
 let activeApiUrl: string | null = null;
 let resolvingApiUrl: Promise<string> | null = null;
+let apiGate: Promise<unknown> | null = null;
+let wrongServer = false;
 
 /**
  * The address every request goes to. Memoized; the ServerProvider sets it on
  * launch and whenever a different known address answers. Before the provider
- * runs, the remembered address from SecureStore is used.
+ * runs, the remembered address from SecureStore is used. While the provider's
+ * launch probe checks the server's identity, requests wait for it, so a
+ * session token never goes to a different server at a remembered address.
  */
 export async function getApiUrl(): Promise<string> {
+  if (apiGate) await apiGate.catch(() => undefined);
+  if (wrongServer) throw new ApiError(WRONG_SERVER_MESSAGE, 0, WRONG_SERVER_CODE);
   if (activeApiUrl) return activeApiUrl;
   if (!resolvingApiUrl) {
     resolvingApiUrl = (async () => {
@@ -76,6 +85,19 @@ export function getApiUrlSync(): string {
 export function setActiveApiUrl(url: string | null) {
   activeApiUrl = url ? url.replace(/\/+$/, "") : null;
   resolvingApiUrl = null;
+  wrongServer = false;
+}
+
+/** Requests wait for `gate` (the launch identity probe) before they go out; null lifts it. */
+export function setApiGate(gate: Promise<unknown> | null) {
+  apiGate = gate;
+}
+
+/** Stops every request: the known addresses answer as a different server. `setActiveApiUrl` lifts it. */
+export function blockWrongServer() {
+  activeApiUrl = null;
+  resolvingApiUrl = null;
+  wrongServer = true;
 }
 
 /** Ngrok's free tier serves an interstitial unless every request opts out. */

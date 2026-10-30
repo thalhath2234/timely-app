@@ -10,8 +10,9 @@ import ConfirmSheet from "../../../components/ui/ConfirmSheet";
 import { useServer, type ServerStatus } from "../../../lib/server/ServerProvider";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
-function statusLabel(status: ServerStatus, health: { status: string; db?: string } | null) {
+function statusLabel(status: ServerStatus, health: { status: string; db?: string } | null, wrongServer: boolean) {
   if (status === "checking") return "Checking…";
+  if (status === "offline" && wrongServer) return "Different server";
   if (status === "online") return health?.status === "ok" ? "Online" : "Online · database degraded";
   if (status === "offline") return "Unreachable";
   return "Not reachable";
@@ -47,12 +48,13 @@ export default function ServerSettings() {
             <ListRow title="Address" meta={server.activeUrl || "—"} />
             <ListRow
               title="Status"
-              trailing={<Text numberOfLines={1} style={[styles.value, { color: statusTone(server.status, server.health) }]}>{statusLabel(server.status, server.health)}</Text>}
+              trailing={<Text numberOfLines={1} style={[styles.value, { color: statusTone(server.status, server.health) }]}>{statusLabel(server.status, server.health, server.wrongServer.length > 0)}</Text>}
             />
             {server.health?.db && server.health.status !== "ok" ? (
               <ListRow title="Database" trailing={<Text numberOfLines={1} style={[styles.value, { color: colors.warning }]}>{server.health.db}</Text>} />
             ) : null}
             <ListRow title="Version" trailing={server.health?.version ?? "—"} />
+            {server.config?.id ? <ListRow title="Server ID" meta={server.config.id} /> : null}
             {server.health?.migrations ? (
               <ListRow
                 title="Schema"
@@ -72,9 +74,15 @@ export default function ServerSettings() {
               onPress={() => void server.check()}
             />
           </ListGroup>
+          {server.wrongServer.length > 0 ? (
+            <GroupHint>
+              {server.wrongServer.join(", ")} now answers as a different Timely server, so this phone sends it nothing.
+              Pair again with Change server.
+            </GroupHint>
+          ) : null}
           <GroupHint>
-            This phone talks to the Timely desktop over Tailscale. Every launch re-checks the known addresses and keeps
-            using the first one that answers.
+            This phone talks to the Timely desktop over Tailscale. It re-checks the known addresses when it opens, when
+            you come back to it and when the network changes, and only talks to the server it paired with.
           </GroupHint>
         </View>
 

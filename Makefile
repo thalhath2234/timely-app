@@ -30,11 +30,6 @@ GOOSE_DBSTRING ?= "host=$(DB_HOST) port=$(DB_PORT) user=$(DB_USER) password=$(DB
 GOOSE_MIGRATIONS := goose -dir $(API)/migrations postgres $(GOOSE_DBSTRING)
 GOOSE_SEEDS      := goose -dir $(API)/migrations/seeds postgres $(GOOSE_DBSTRING)
 
-# make dev-api: devtap listens on the API's usual port and forwards to the Go
-# server on DEVTAP_API_PORT (inspector on :9090).
-API_LISTEN_PORT := $(or $(API_PORT),$(PORT),8080)
-DEVTAP_API_PORT ?= 8087
-
 .PHONY: help setup setup-env install tools install-air install-goose \
         dev dev-api dev-web film-studio film-render film-render-loops film-render-stills dev-mobile dev-mobile-device dev-desktop launch-electron \
         dev-worktree dev-worktree-api dev-worktree-web \
@@ -74,10 +69,8 @@ install-goose: ## Install the goose migration CLI
 dev: ## Run API (:8080) and web (:4001) together with live reload
 	@$(MAKE) -j2 --no-print-directory dev-api dev-web
 
-dev-api: ## Run the Go API with live reload (air), through devtap when it's installed
-	@cd $(API) && if command -v devtap >/dev/null; then \
-		devtap $(DEVTAP_API_PORT) -p $(API_LISTEN_PORT) -- env API_PORT=$(DEVTAP_API_PORT) air; \
-	else air; fi
+dev-api: ## Run the Go API with live reload (air)
+	@cd $(API) && air
 
 dev-web: ## Run the Next.js dev server on :4001
 	@pnpm --filter @timely/web dev
