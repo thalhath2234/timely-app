@@ -1,14 +1,16 @@
 "use client";
 
-import { createContext, Fragment, useContext, type CSSProperties, type ReactNode } from "react";
+import { createContext, Fragment, useContext, useMemo, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
 import { ChevronRight, Sparkles } from "lucide-react";
 import type { ComponentRenderProps, ComponentRenderer } from "@openuidev/react-lang";
 import { chartNumber, genuiColorHex, genuiNodes, type GenuiName, type GenuiProps } from "@timely/contract/genui";
 import { motion as MOTION } from "@timely/contract/designTokens";
+import { checklistItems, findChecklistItem } from "@timely/contract/docChecklist";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
 import { useTask, useTasks, useUpdateTask } from "@/app/utils/hooks/tasks";
+import { useDoc, useDocs, useSetChecklistItem } from "@/app/utils/hooks/docs";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { useToastStore } from "@/app/_store/toastStore";
 import { fileHref } from "@/app/utils/fileRoutes";
@@ -260,6 +262,50 @@ function TaskRow({ props }: KitProps<"TaskRow">) {
   );
 }
 
+/** The doc as it is now: from the docs list, or fetched on its own. */
+function useLiveDoc(id: string) {
+  const list = useDocs();
+  const listed = list.data?.find((doc) => doc.id === id);
+  const single = useDoc(list.isSuccess && !listed ? id : undefined);
+  return listed ?? single.data;
+}
+
+/** A doc's checklist item: the tick ticks it in the doc, the words open the doc. */
+function CheckRow({ props }: KitProps<"CheckRow">) {
+  const doc = useLiveDoc(props.docId);
+  const tick = useSetChecklistItem();
+  const items = useMemo(() => checklistItems(doc?.content), [doc?.content]);
+  const item = findChecklistItem(items, props.text, props.item);
+  const text = item?.text ?? props.text;
+  const done = Boolean(item?.done);
+  const toggle = () => {
+    if (!item) return;
+    tick.mutate(
+      { id: props.docId, item: item.item, text: item.text, done: !done },
+      {
+        onError: (error) =>
+          useToastStore.getState().show(error instanceof Error ? error.message : "Could not tick the item"),
+      },
+    );
+  };
+  return (
+    <Row
+      meta={props.note}
+      lead={<TaskCheck checked={done} onToggle={toggle} disabled={!item} label={done ? `Untick ${text}` : `Tick ${text}`} />}
+    >
+      <Link
+        href={fileHref(props.docId)}
+        className={cn(
+          "block max-w-full truncate hover:underline hover:underline-offset-4",
+          done ? "text-muted-foreground line-through" : "text-foreground",
+        )}
+      >
+        {text}
+      </Link>
+    </Row>
+  );
+}
+
 function EventRow({ props }: KitProps<"EventRow">) {
   return (
     <Row
@@ -488,6 +534,7 @@ export const kit: { [N in KitName]: ComponentRenderer<GenuiProps<N>> } = {
   Stats,
   Stat,
   TaskRow,
+  CheckRow,
   EventRow,
   FreeRow,
   InfoRow,

@@ -44,9 +44,9 @@ const describeToolsNote = `
 
 ## Looking things up
 You have tools that read the person's data as it is now, and check_block, which draws a program from that data. Use them before you answer:
-- When the words are about something the person's names below don't settle, read it: list_projects, list_tasks, list_events, list_sheets, get_sheet_values, search and the other read tools. Find the exact project, label or status name, the sheet, tab and column that hold the numbers, and the values a column holds.
+- When the words are about something the person's names below don't settle, read it: list_projects, list_tasks, list_events, list_docs, get_doc, list_sheets, get_sheet_values, search and the other read tools. Find the exact project, label or status name, the doc whose checklist the words mean, the sheet, tab and column that hold the numbers, and the values a column holds.
 - Write the program, then call check_block with it. It returns what every block shows and any problems. When there are problems, a list is empty or a number is 0 where the words expect data, fix the program and check it again.
-- Then answer with the program only, as above. The tools only read: the card still gets every number from @Data or @Cells each time it shows, never from what a tool returned.`
+- Then answer with the program only, as above. The tools only read: the card still gets every number and item from @Data, @Cells or @Checklist each time it shows, never from what a tool returned.`
 
 // describeTools is one Describe's tools: the read tools and check_block,
 // whose data is loaded on the first check and kept for the rest.

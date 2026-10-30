@@ -1,3 +1,4 @@
+import { findChecklistItem, type DocChecklistItem } from "@timely/contract/docChecklist";
 import { chartNumber, genuiColorHex, genuiNodes, replyBlocks, type GenuiNode } from "@timely/contract/genui";
 
 /*
@@ -6,14 +7,20 @@ import { chartNumber, genuiColorHex, genuiNodes, replyBlocks, type GenuiNode } f
  * app works out the block with drawBoard and hands the page this HTML: the
  * phone kit (components/genui/kit.tsx) as markup, with the same rows, stats,
  * bars and strip, styled by the editor's .lv-* rules. Every text is escaped;
- * ticks and links are buttons with data attributes the page passes back to
- * the app, which does the tick or the navigation itself.
+ * ticks (a task's, or an item on a doc's checklist) and links are buttons
+ * with data attributes the page passes back to the app, which does the tick
+ * or the navigation itself.
  */
 
 /** A task as the block shows it now, from the app's own task lists. */
 export type LiveTask = { title: string; done: boolean; late: boolean };
 
-type Lookup = (taskId: string) => LiveTask | undefined;
+/** What the block's rows show as it is now, from the app's own lists. */
+export type Live = {
+  task: (taskId: string) => LiveTask | undefined;
+  /** A doc's checklist items; undefined when the app doesn't have the doc. */
+  checklist: (docId: string) => DocChecklistItem[] | undefined;
+};
 type Place = "top" | "column";
 
 const TIMED = new Set(["TaskRow", "EventRow"]);
@@ -48,10 +55,10 @@ function clock(value: string) {
 }
 
 /** Rows divided by hairlines, sharing a time column when any of them has a time. */
-function rows(value: unknown, tasks: Lookup) {
+function rows(value: unknown, live: Live) {
   const nodes = genuiNodes(value);
   const timed = nodes.some((row) => TIMED.has(row.typeName) && text(row.props.time));
-  return nodes.map((row) => `<div class="lv-item">${node(row, tasks, "top", timed)}</div>`).join("");
+  return nodes.map((row) => `<div class="lv-item">${node(row, live, "top", timed)}</div>`).join("");
 }
 
 function row(parts: { time?: string; timed: boolean; lead?: string; body: string; meta?: string; tone?: string }) {
@@ -70,18 +77,18 @@ function open(props: Record<string, unknown>) {
   return `<button type="button" class="lv-open" data-live-open="${escapeHtml(href)}">${escapeHtml(props.label)}${CHEVRON}</button>`;
 }
 
-function node(item: GenuiNode, tasks: Lookup, place: Place = "top", timed = false): string {
+function node(item: GenuiNode, live: Live, place: Place = "top", timed = false): string {
   const props = item.props;
   switch (item.typeName) {
     case "Panel":
       return `<div class="lv-panel">${replyBlocks(props.blocks)
-        .map((block) => `<div class="lv-sec">${node(block, tasks)}</div>`)
+        .map((block) => `<div class="lv-sec">${node(block, live)}</div>`)
         .join("")}</div>`;
     case "List": {
       const body = genuiNodes(props.rows).length
-        ? rows(props.rows, tasks)
+        ? rows(props.rows, live)
         : `<p class="lv-empty">${escapeHtml(text(props.empty) || "Nothing here yet")}</p>`;
-      const foot = props.open ? `<div class="lv-foot">${node(props.open as GenuiNode, tasks)}</div>` : "";
+      const foot = props.open ? `<div class="lv-foot">${node(props.open as GenuiNode, live)}</div>` : "";
       return body + foot;
     }
     case "Card": {
@@ -90,12 +97,12 @@ function node(item: GenuiNode, tasks: Lookup, place: Place = "top", timed = fals
         `<div class="lv-head"><span class="${place === "column" ? "lv-head-title" : "lv-eyebrow"}">${escapeHtml(place === "column" ? title : title.toUpperCase())}</span>` +
         (text(props.meta) ? `<span class="lv-head-meta">${escapeHtml(props.meta)}</span>` : "") +
         "</div>";
-      const foot = props.open ? `<div class="lv-foot">${node(props.open as GenuiNode, tasks)}</div>` : "";
-      return `<div class="lv-card" aria-label="${escapeHtml(title)}">${head}${rows(props.rows, tasks)}${foot}</div>`;
+      const foot = props.open ? `<div class="lv-foot">${node(props.open as GenuiNode, live)}</div>` : "";
+      return `<div class="lv-card" aria-label="${escapeHtml(title)}">${head}${rows(props.rows, live)}${foot}</div>`;
     }
     case "Columns":
       return genuiNodes(props.cards)
-        .map((card) => `<div class="lv-item">${node(card, tasks, "column")}</div>`)
+        .map((card) => `<div class="lv-item">${node(card, live, "column")}</div>`)
         .join("");
     case "Stats": {
       const items = genuiNodes(props.items);
@@ -104,7 +111,7 @@ function node(item: GenuiNode, tasks: Lookup, place: Place = "top", timed = fals
       return `<div class="lv-stats" style="grid-template-columns:repeat(${columns},minmax(0,1fr))">${items
         .map((stat, index) => {
           const edges = `${index % columns > 0 ? " is-left" : ""}${index >= columns ? " is-top" : ""}`;
-          return `<div class="lv-stat${edges}">${node(stat, tasks)}</div>`;
+          return `<div class="lv-stat${edges}">${node(stat, live)}</div>`;
         })
         .join("")}</div>`;
     }
@@ -120,7 +127,7 @@ function node(item: GenuiNode, tasks: Lookup, place: Place = "top", timed = fals
     }
     case "TaskRow": {
       const id = text(props.taskId);
-      const task = tasks(id);
+      const task = live.task(id);
       const title = task?.title || text(props.title);
       const done = Boolean(task?.done);
       const check =
@@ -139,6 +146,24 @@ function node(item: GenuiNode, tasks: Lookup, place: Place = "top", timed = fals
         meta: done ? "Done" : text(props.note),
         tone: task?.late && !done ? "warning" : undefined,
       });
+    }
+    case "CheckRow": {
+      const docId = text(props.docId);
+      const items = live.checklist(docId);
+      const item = items ? findChecklistItem(items, text(props.text), typeof props.item === "number" ? props.item : undefined) : undefined;
+      const title = item?.text ?? text(props.text);
+      const done = Boolean(item?.done);
+      const check =
+        `<button type="button" class="lv-check${done ? " is-done" : ""}" role="checkbox" aria-checked="${done}"` +
+        ` aria-label="${escapeHtml(`${done ? "Untick" : "Tick"} ${title}`)}"` +
+        (item
+          ? ` data-live-check="${escapeHtml(docId)}" data-item="${item.item}" data-text="${escapeHtml(item.text)}" data-done="${done ? 1 : 0}"`
+          : " disabled") +
+        `>${CHECK}</button>`;
+      const name = items
+        ? `<button type="button" class="lv-title-btn" data-live-open="${escapeHtml(`timely://doc/${encodeURIComponent(docId)}`)}"><span class="lv-title${done ? " is-done" : ""}">${escapeHtml(title)}</span></button>`
+        : `<span class="lv-title">${escapeHtml(title)}</span>`;
+      return row({ timed, lead: check, body: name, meta: text(props.note) });
     }
     case "EventRow":
       return row({
@@ -231,11 +256,11 @@ function node(item: GenuiNode, tasks: Lookup, place: Place = "top", timed = fals
 
 /**
  * The block's HTML for the editor page; empty when the program could not be
- * drawn. problem says what the program names that the sheets don't have
- * (cellsProblems), over the drawing.
+ * drawn. problem says what the program names that the sheets and docs don't have
+ * (blockProblems), over the drawing.
  */
-export function liveBlockHtml(root: GenuiNode | null, tasks: Lookup, problem = ""): string {
+export function liveBlockHtml(root: GenuiNode | null, live: Live, problem = ""): string {
   if (!root) return "";
   const note = problem ? `<p class="lv-problem" role="status">${WARNING}<span>${escapeHtml(problem)}</span></p>` : "";
-  return note + node(root, tasks);
+  return note + node(root, live);
 }

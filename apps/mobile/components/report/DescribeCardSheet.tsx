@@ -38,6 +38,7 @@ export default function DescribeCardSheet({
   place = "dashboard",
   onClose,
   onSave,
+  onLink,
 }: {
   open: boolean;
   /** A described card being changed; absent starts a new one. */
@@ -46,6 +47,8 @@ export default function DescribeCardSheet({
   place?: "dashboard" | "doc";
   onClose: () => void;
   onSave: (draft: DescribedDraft) => void;
+  /** Opens a link in the preview, such as its Open link, after the sheet closes. */
+  onLink?: (href: string) => void;
 }) {
   const router = useRouter();
   const doc = place === "doc";
@@ -133,6 +136,11 @@ export default function DescribeCardSheet({
     </View>
   );
 
+  const openPreviewLink = (href: string) => {
+    onClose();
+    onLink?.(href);
+  };
+
   const form = (
     <View style={styles.body}>
       {program ? (
@@ -141,7 +149,7 @@ export default function DescribeCardSheet({
             // The block as the doc draws it.
             <View accessibilityLabel={`Preview of ${name}`}>
               <LiveBlockFrame title={name || "Live block"}>
-                <DescribedCardView program={program} data={data} timeZone={timeZone} now={now} onLink={() => undefined} />
+                <DescribedCardView program={program} data={data} timeZone={timeZone} now={now} onLink={openPreviewLink} />
               </LiveBlockFrame>
             </View>
           ) : (
@@ -152,7 +160,7 @@ export default function DescribeCardSheet({
                   {name}
                 </Text>
               </View>
-              <DescribedCardView program={program} data={data} timeZone={timeZone} now={now} onLink={() => undefined} />
+              <DescribedCardView program={program} data={data} timeZone={timeZone} now={now} onLink={openPreviewLink} />
             </View>
           )}
           <GroupHint>{`Reads your data each time the ${doc ? "doc opens" : "dashboard shows"}. The AI isn't asked again.`}</GroupHint>

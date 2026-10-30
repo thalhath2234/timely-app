@@ -66,7 +66,14 @@ import {
   Type,
 } from "lucide-react-native";
 import type { DocContent, MentionEntityType } from "../../lib/types";
-import { useDecisionFeedback, useDecisionsStatusQuery, useMentionItems, useSaveTask, useSearchQuery } from "../../lib/hooks";
+import {
+  useDecisionFeedback,
+  useDecisionsStatusQuery,
+  useMentionItems,
+  useSaveTask,
+  useSearchQuery,
+  useSetChecklistItem,
+} from "../../lib/hooks";
 import { matchMention, type MentionMatch, type MentionTarget } from "../../lib/api/decisions";
 import { mentionChoices } from "../../lib/docEditorJev";
 import { colors, createThemedStyleSheet, editorThemeVars, getThemeMode, resolvedAccentHex } from "../../lib/theme";
@@ -378,6 +385,7 @@ export default function RichTextEditor({
     [liveEdit],
   );
   const saveTask = useSaveTask();
+  const setChecklistItem = useSetChecklistItem();
   const [linkPick, setLinkPick] = useState<{ from: number; to: number; text: string; result: MentionMatch | null } | null>(null);
 
   useEffect(() => {
@@ -514,6 +522,7 @@ export default function RichTextEditor({
         program?: string;
         title?: string;
         done?: boolean;
+        item?: number;
       };
       if (msg.type === "lineHint" && msg.key && (msg.action === "toggle" || msg.action === "make" || msg.action === "dismiss")) {
         lineHintsRef.current?.act(msg.key, msg.action);
@@ -596,6 +605,15 @@ export default function RichTextEditor({
           {
             onError: (error) =>
               useToastStore.getState().show(error instanceof Error ? error.message : "Could not update the task"),
+          },
+        );
+      }
+      if (msg.type === "liveCheck" && msg.id && msg.text && typeof msg.done === "boolean") {
+        setChecklistItem.mutate(
+          { id: msg.id, item: typeof msg.item === "number" ? msg.item : -1, text: msg.text, done: msg.done },
+          {
+            onError: (error) =>
+              useToastStore.getState().show(error instanceof Error ? error.message : "Could not tick the item"),
           },
         );
       }
@@ -1176,6 +1194,7 @@ export default function RichTextEditor({
           initial={liveInitial}
           onClose={() => setLiveEdit(null)}
           onSave={saveLiveBlock}
+          onLink={openLiveLink}
         />
       ) : null}
 

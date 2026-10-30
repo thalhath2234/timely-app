@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "rea
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { getMe, listSessions, revokeOtherSessions, revokeSession } from "./api/auth";
 import { getTasks, getTask, updateTask, deleteTask, createTask, captureInbox, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks, duplicateTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, startFocus, pauseFocus, stopFocus, setTodayFocus, getFocusSessions } from "./api/tasks";
-import { getDocs, getDoc, getDocBacklinks, createDoc, updateDoc, deleteDoc, watchDoc, type DocWatchEvent } from "./api/docs";
+import { getDocs, getDoc, getDocBacklinks, createDoc, updateDoc, deleteDoc, setChecklistItem, watchDoc, type DocWatchEvent } from "./api/docs";
+import { tickedContent, type ChecklistTickRequest } from "@timely/contract/docChecklist";
 import type { CalendarRange, Doc, MentionEntityType, NotificationSettings, Project, Sheet, SheetTemplate, Task, TaskViewConfig, TodayResponse } from "./types";
 import { withOccurrenceDone, withTaskDone } from "@timely/contract/calendar";
 import { getSheets, getSheet, createSheet, updateSheet, deleteSheet, duplicateSheet, getSheetTemplates, createSheetTemplate, updateSheetTemplate, deleteSheetTemplate, materializeTemplateTab } from "./api/sheets";
@@ -1054,6 +1055,32 @@ export function useUpdateDoc() {
         docs?.map((item) => (item.id === next.id ? next : item)),
       );
     },
+  });
+}
+
+/**
+ * Ticks one checklist item from a card, a live block or a reply. The tick
+ * shows at once in the doc and the docs list, which cards read, and the
+ * server's copy replaces it; a failed tick is put back.
+ */
+export function useSetChecklistItem() {
+  const client = useQueryClient();
+  const put = (id: string, change: (doc: Doc) => Doc) => {
+    client.setQueryData<Doc>(keys.doc(id), (doc) => (doc ? change(doc) : doc));
+    client.setQueryData<Doc[]>(keys.docs, (docs) => docs?.map((item) => (item.id === id ? change(item) : item)));
+  };
+  return useMutation({
+    mutationFn: ({ id, ...tick }: ChecklistTickRequest & { id: string }) => setChecklistItem(id, tick),
+    onMutate: ({ id, ...tick }) => {
+      const before = { doc: client.getQueryData<Doc>(keys.doc(id)), docs: client.getQueryData<Doc[]>(keys.docs) };
+      put(id, (doc) => ({ ...doc, content: (tickedContent(doc.content, tick) as Doc["content"] | null) ?? doc.content }));
+      return before;
+    },
+    onError: (_error, { id }, before) => {
+      client.setQueryData(keys.doc(id), before?.doc);
+      client.setQueryData(keys.docs, before?.docs);
+    },
+    onSuccess: (doc) => put(doc.id, () => doc),
   });
 }
 

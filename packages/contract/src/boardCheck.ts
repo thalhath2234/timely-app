@@ -9,7 +9,7 @@
  */
 import type { DashboardData, EngineContext } from "./dashboard";
 import type { GenuiNode } from "./genui";
-import { BOARD_ROOT, boardParser, cellsProblems, dataProblems, drawBoard } from "./genuiBoard";
+import { BOARD_ROOT, blockProblems, boardParser, dataProblems, drawBoard } from "./genuiBoard";
 
 export interface BoardCheck {
   /** What is wrong, one sentence each; empty when the program draws as written. */
@@ -62,6 +62,45 @@ function outline(root: GenuiNode): string[] {
   return lines.length > OUTLINE_LINES ? [...lines.slice(0, OUTLINE_LINES), `… ${lines.length - OUTLINE_LINES} more lines`] : lines;
 }
 
+/** The records an Open link's id can name, by target; undefined when they weren't loaded. */
+function idsFor(target: string, data: DashboardData): Set<string> | undefined {
+  const ids = (rows: { id: string }[] | undefined) => (rows ? new Set(rows.map((row) => row.id)) : undefined);
+  switch (target) {
+    case "task":
+      return data.tasks || data.reminders || data.inbox ? new Set([...(data.tasks ?? []), ...(data.reminders ?? []), ...(data.inbox ?? [])].map((task) => task.id)) : undefined;
+    case "project":
+      return ids(data.projects);
+    case "doc":
+      return ids(data.docs);
+    case "sheet":
+      return ids(data.sheets);
+    default:
+      return undefined;
+  }
+}
+
+/** Open links to a task, project, doc or sheet that has no id, or one nothing has: they show nothing or open nothing. */
+function openProblems(root: GenuiNode, data: DashboardData): string[] {
+  const problems: string[] = [];
+  const walk = (value: unknown) => {
+    if (Array.isArray(value)) return value.forEach(walk);
+    if (!isNode(value)) return;
+    if (value.typeName === "Open") {
+      const { label, target, id } = value.props as { label?: unknown; target?: unknown; id?: unknown };
+      const name = typeof label === "string" ? label : "Open";
+      const kind = typeof target === "string" ? target : "";
+      const known = idsFor(kind, data);
+      if (["task", "project", "doc", "sheet"].includes(kind) && (typeof id !== "string" || !id.trim()))
+        problems.push(`Open “${name}” goes to a ${kind} but has no id, so it isn't shown: give it the ${kind}'s id or leave it out.`);
+      else if (known && typeof id === "string" && !known.has(id))
+        problems.push(`Open “${name}” goes to a ${kind}, but no ${kind} has the id “${id}”: use the docId from @Checklist, the sheetId from @Cells or an id a tool returned.`);
+    }
+    Object.values(value.props).forEach(walk);
+  };
+  walk(root);
+  return problems;
+}
+
 /** Draws program from data and says what it shows and what is wrong with it. */
 export function checkBoard(program: string, data: DashboardData, ctx: EngineContext): BoardCheck {
   const parsed = boardParser().parse(program);
@@ -70,8 +109,9 @@ export function checkBoard(program: string, data: DashboardData, ctx: EngineCont
   for (const error of parsed.meta.errors) problems.push(error.statementId ? `${error.statementId}: ${error.message}` : error.message);
   for (const name of parsed.meta.unresolved) problems.push(`${name} is used but never defined.`);
   for (const name of parsed.meta.orphaned) problems.push(`${name} is defined but no block shows it: put it in a block or leave it out.`);
-  problems.push(...dataProblems(program, data), ...cellsProblems(program, data));
+  problems.push(...dataProblems(program, data), ...blockProblems(program, data));
   const root = drawBoard(program, data, ctx);
+  if (root) problems.push(...openProblems(root, data));
   return { problems: [...new Set(problems)], shows: root ? outline(root) : [] };
 }
 

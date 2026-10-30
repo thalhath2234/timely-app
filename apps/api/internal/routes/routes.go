@@ -275,6 +275,7 @@ func setupDocumentRoutes(g *echo.Group, documentHandler *doc.Handler) {
 	g.GET("/docs/:id/versions/:versionId", documentHandler.GetVersion)
 	g.POST("/docs/:id/versions/:versionId/restore", documentHandler.RestoreVersion)
 	g.PUT("/docs/:id", documentHandler.Update)
+	g.PUT("/docs/:id/checklist", documentHandler.SetChecklistItem)
 	g.DELETE("/docs/:id", documentHandler.Delete)
 }
 

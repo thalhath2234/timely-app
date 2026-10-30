@@ -14,6 +14,7 @@ import (
 	"timely-api/internal/features/chat"
 	"timely-api/internal/features/sheet"
 	"timely-api/internal/models"
+	"timely-api/internal/richtext"
 )
 
 // Described dashboard cards: "overdue client work and what's due this week"
@@ -39,6 +40,12 @@ const (
 	// dashboardCardSheets is how many sheets, latest edited first, the model
 	// is told the tabs and columns of.
 	dashboardCardSheets = 12
+	// dashboardCardChecklists is how many docs with a checklist, latest
+	// edited first, the model is told the items of, out of the latest
+	// dashboardCardDocs docs, and dashboardCardItems how many items of each.
+	dashboardCardChecklists = 12
+	dashboardCardDocs       = 60
+	dashboardCardItems      = 12
 )
 
 type dashboardCardRequest struct {
@@ -125,9 +132,13 @@ func (s *Service) describeCard(ctx context.Context, userID string, req dashboard
 	if err != nil {
 		return dashboardCardResponse{}, err
 	}
+	checklists, err := s.checklistBriefs(ctx, userID)
+	if err != nil {
+		return dashboardCardResponse{}, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, dashboardCardBudget)
 	defer cancel()
-	messages := dashboardCardMessages(req, vocab, sheets)
+	messages := dashboardCardMessages(req, vocab, sheets, checklists)
 	tools := s.tools(ctx, userID)
 	if tools != nil {
 		messages[0].Content += describeToolsNote
@@ -273,7 +284,64 @@ func writeSheets(b *strings.Builder, sheets []sheetBrief) {
 	}
 }
 
-func dashboardCardMessages(req dashboardCardRequest, v viewVocab, sheets []sheetBrief) []chat.WireMessage {
+// checklistBrief is one doc's checklist as the model sees it for @Checklist.
+type checklistBrief struct {
+	Title string
+	Items []richtext.ChecklistItem
+}
+
+// checklistBriefs reads the checklists of the person's latest edited docs,
+// numbered as the apps' @Checklist reads them.
+func (s *Service) checklistBriefs(ctx context.Context, userID string) ([]checklistBrief, error) {
+	var docs []models.Document
+	err := s.db.WithContext(ctx).Select("title", "content").Where("user_id = ? AND archived_at IS NULL", userID).Order("updated_at DESC").Limit(dashboardCardDocs).Find(&docs).Error
+	if err != nil {
+		return nil, err
+	}
+	var briefs []checklistBrief
+	for _, doc := range docs {
+		items := richtext.ChecklistItems(doc.Content)
+		if len(items) == 0 || strings.TrimSpace(doc.Title) == "" {
+			continue
+		}
+		briefs = append(briefs, checklistBrief{Title: strings.TrimSpace(doc.Title), Items: items})
+		if len(briefs) == dashboardCardChecklists {
+			break
+		}
+	}
+	return briefs, nil
+}
+
+// writeChecklists lists docs for @Checklist: each with how many items it
+// holds and the first ones, ticked ones marked.
+func writeChecklists(b *strings.Builder, checklists []checklistBrief) {
+	for i, list := range checklists {
+		if i == 0 {
+			b.WriteString("\nThe person's checklists, for @Checklist (each doc with its tick-box items; [x] marks a ticked one):\n")
+		}
+		done := 0
+		shown := make([]string, 0, min(len(list.Items), dashboardCardItems))
+		for j, item := range list.Items {
+			if item.Done {
+				done++
+			}
+			if j < dashboardCardItems {
+				mark := ""
+				if item.Done {
+					mark = "[x] "
+				}
+				shown = append(shown, mark+strconv.Quote(clipHead(item.Text, 60)))
+			}
+		}
+		more := ""
+		if len(list.Items) > dashboardCardItems {
+			more = fmt.Sprintf(", … %d more", len(list.Items)-dashboardCardItems)
+		}
+		fmt.Fprintf(b, "- %q, %d items, %d ticked: %s%s\n", list.Title, len(list.Items), done, strings.Join(shown, ", "), more)
+	}
+}
+
+func dashboardCardMessages(req dashboardCardRequest, v viewVocab, sheets []sheetBrief, checklists []checklistBrief) []chat.WireMessage {
 	var b strings.Builder
 	weekday := ""
 	if day, err := time.Parse("2006-01-02", req.Today); err == nil {
@@ -290,6 +358,7 @@ func dashboardCardMessages(req dashboardCardRequest, v viewVocab, sheets []sheet
 	list("Statuses", v.statuses)
 	list("Labels", v.labels)
 	writeSheets(&b, sheets)
+	writeChecklists(&b, checklists)
 	if req.Place == "doc" {
 		b.WriteString("\nThis card is a live block in a doc: it takes the doc's width and as much height as it needs, so leave the size out. Up to ten rows fit.\n")
 	}

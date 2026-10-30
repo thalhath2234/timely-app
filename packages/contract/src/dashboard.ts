@@ -192,13 +192,14 @@ function fitDescribed(value: unknown): DescribedPick | undefined {
   return { prompt: typeof prompt === "string" ? prompt.slice(0, DESCRIBED_MAX_PROMPT) : "", program };
 }
 
-/** The sources a described card's program reads, from its `source: "..."` arguments; `@Cells` reads sheets. */
+/** The sources a described card's program reads, from its `source: "..."` arguments; `@Cells` reads sheets and `@Checklist` docs. */
 export function describedSources(program: string): CardSource[] {
   const found = new Set<CardSource>();
   for (const match of program.matchAll(/source\s*:\s*"(\w+)"/g)) {
     if (match[1] in SOURCE_LABELS) found.add(match[1] as CardSource);
   }
   if (/@Cells\s*\(/.test(program)) found.add("sheets");
+  if (/@Checklist\s*\(/.test(program)) found.add("docs");
   return [...found];
 }
 

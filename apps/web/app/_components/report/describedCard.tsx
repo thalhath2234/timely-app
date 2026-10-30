@@ -7,7 +7,7 @@ import { TriangleAlert } from "lucide-react";
 import { createLibrary, Renderer, type ComponentRenderProps, type ComponentRenderer } from "@openuidev/react-lang";
 import type { DashboardData } from "@timely/contract/dashboard";
 import { genuiNodes, replyBlocks } from "@timely/contract/genui";
-import { BOARD_ROOT, boardFunctions, cellsProblems, withBoardRenderers, type BoardName, type BoardProps } from "@timely/contract/genuiBoard";
+import { BOARD_ROOT, boardFunctions, blockProblems, withBoardRenderers, type BoardName, type BoardProps } from "@timely/contract/genuiBoard";
 import { kit, RowGroup, Surface } from "../genui/kit";
 
 type Props<N extends BoardName> = ComponentRenderProps<BoardProps<N>>;
@@ -69,8 +69,8 @@ export default function DescribedCardView({
     () => createLibrary({ components, functions: boardFunctions(data, { now, timeZone }), root: BOARD_ROOT }),
     [data, now, timeZone],
   );
-  // A sheet, tab or column renamed after the program was written draws empty; this says why.
-  const problem = useMemo(() => cellsProblems(program, data)[0], [program, data]);
+  // A sheet, tab, column or doc renamed after the program was written draws empty; this says why.
+  const problem = useMemo(() => blockProblems(program, data)[0], [program, data]);
   const [failed, setFailed] = useState(false);
   if (failed)
     return (

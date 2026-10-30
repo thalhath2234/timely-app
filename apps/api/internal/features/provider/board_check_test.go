@@ -111,3 +111,42 @@ func TestZonePartsKnowsZones(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckBoardReadsChecklists(t *testing.T) {
+	data := json.RawMessage(`{"docs": [{"id": "doc_1", "title": "Shopping list", "updatedAt": "2026-10-29T08:00:00Z", "content": {"type": "doc", "content": [
+		{"type": "taskList", "content": [
+			{"type": "taskItem", "attrs": {"checked": false}, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Onion"}]}]},
+			{"type": "taskItem", "attrs": {"checked": true}, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Milk"}]}]}
+		]}]}}]}`)
+	program := `root = Panel("Shopping list", [nums, list])
+shop = @Checklist({doc: "Shopping list"})
+nums = Stats([Stat("Left", shop.left), Stat("Done", shop.ratio)])
+list = List(@Each(shop.rows, "i", CheckRow(i.docId, i.text, i.note, i.item)), "Nothing on the list", open)
+open = Open("Open doc", "doc", shop.docId)`
+	got, err := checkBoard(program, data, boardCheckNow, "Asia/Colombo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Problems) != 0 {
+		t.Errorf("problems = %q", got.Problems)
+	}
+	shows := strings.Join(got.Shows, "\n")
+	for _, want := range []string{
+		`Stat label: "Left", value: "1"`,
+		`CheckRow docId: "doc_1", text: "Onion", note: "", item: 0`,
+		`CheckRow docId: "doc_1", text: "Milk", note: "", item: 1`,
+		`Open label: "Open doc", target: "doc", id: "doc_1"`,
+	} {
+		if !strings.Contains(shows, want) {
+			t.Errorf("shows lacks %s:\n%s", want, shows)
+		}
+	}
+	wrong := strings.Replace(strings.Replace(program, `doc: "Shopping list"`, `doc: "Shoping list"`, 1), "shop.docId", `"Shopping list"`, 1)
+	got, _ = checkBoard(wrong, data, boardCheckNow, "")
+	problems := strings.Join(got.Problems, "\n")
+	for _, want := range []string{"No doc is called “Shoping list”. The closest is “Shopping list”.", "no doc has the id “Shopping list”"} {
+		if !strings.Contains(problems, want) {
+			t.Errorf("problems lack %q:\n%s", want, problems)
+		}
+	}
+}

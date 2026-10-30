@@ -2059,14 +2059,26 @@ export function buildEditorHtml(
       head.addEventListener("mousedown", guard);
       body.addEventListener("mousedown", guard);
       body.addEventListener("click", (event) => {
-        const tick = event.target.closest("[data-live-tick]");
+        const tick = event.target.closest("[data-live-tick], [data-live-check]");
         if (tick) {
           event.preventDefault();
           const done = tick.getAttribute("data-done") === "1";
-          send({ type: "liveTick", id: tick.getAttribute("data-live-tick"), done });
+          if (tick.hasAttribute("data-live-check")) {
+            // An item on a doc's checklist, ticked in that doc by the app.
+            send({
+              type: "liveCheck",
+              id: tick.getAttribute("data-live-check"),
+              item: Number(tick.getAttribute("data-item")),
+              text: tick.getAttribute("data-text"),
+              done: !done,
+            });
+          } else {
+            send({ type: "liveTick", id: tick.getAttribute("data-live-tick"), done });
+          }
           // Shown at once; the app's redraw follows with the saved state.
           tick.classList.toggle("is-done", !done);
           tick.setAttribute("data-done", done ? "0" : "1");
+          tick.setAttribute("aria-checked", String(!done));
           const row = tick.closest(".lv-row");
           const name = row && row.querySelector(".lv-title");
           if (name) name.classList.toggle("is-done", !done);

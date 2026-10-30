@@ -12,7 +12,7 @@ describe("reply card prompt", () => {
   });
 
   test("lists the reply components and stays small", () => {
-    for (const name of ["Reply(", "Card(", "TaskRow(", "Stats(", "Choices(", "Open("]) assert.ok(prompt.includes(name), name);
+    for (const name of ["Reply(", "Card(", "TaskRow(", "CheckRow(", "Stats(", "Choices(", "Open("]) assert.ok(prompt.includes(name), name);
     // Replies are grouped cards; side-by-side layouts stay on the dashboard.
     for (const name of ["Columns(", "DayStrip("]) assert.ok(!prompt.includes(name), name);
     // About four characters a token: keep the addition to every run near 2.5k tokens.
@@ -21,7 +21,7 @@ describe("reply card prompt", () => {
 
   test("its examples parse with no errors", () => {
     const programs = splitReply(prompt).filter((part) => part.kind === "ui");
-    assert.equal(programs.length, 3);
+    assert.equal(programs.length, 4);
     for (const { code } of programs) {
       const result = genuiParser().parse(code);
       assert.deepEqual(result.meta.errors, [], code);
@@ -110,15 +110,15 @@ describe("described cards", async () => {
   });
 
   test("lists the board components and @Data, and stays small", () => {
-    for (const name of ["Panel(", "List(", "Stats(", "TaskRow(", "@Data(", "@Each("]) assert.ok(board.includes(name), name);
+    for (const name of ["Panel(", "List(", "Stats(", "TaskRow(", "CheckRow(", "@Data(", "@Checklist(", "@Each("]) assert.ok(board.includes(name), name);
     assert.ok(!board.includes("Choices("), "no chat-only components");
-    // @Cells made it longer; still near 3.5k tokens a card.
-    assert.ok(board.length < 14500, `prompt is ${board.length} characters`);
+    // @Cells and @Checklist made it longer; still under 4k tokens a card.
+    assert.ok(board.length < 16000, `prompt is ${board.length} characters`);
   });
 
   test("its examples parse with no errors", () => {
     const examples = boardExamples();
-    assert.equal(examples.length, 5);
+    assert.equal(examples.length, 6);
     for (const { program } of examples) {
       const result = boardParser().parse(program);
       assert.deepEqual(result.meta.errors, [], program);
@@ -439,6 +439,108 @@ open = Open("Open sheet", "sheet", spent.sheetId)`;
   });
 });
 
+describe("@Checklist and CheckRow: a doc's checklist in cards, live blocks and replies", async () => {
+  const { blockProblems, boardExamples, checklistProblems, describeChanges, describedCard, drawBoard, runChecklist } = await import("../packages/contract/src/genuiBoard.ts");
+  const { checklistItems, findChecklistItem, tickedContent } = await import("../packages/contract/src/docChecklist.ts");
+  const { describedSources } = await import("../packages/contract/src/dashboard.ts");
+  const ctx = { now: new Date("2026-10-30T12:00:00Z"), timeZone: "UTC" };
+  const para = (text) => ({ type: "paragraph", content: text ? [{ type: "text", text }] : [] });
+  const item = (text, checked = false, nested) => ({ type: "taskItem", attrs: { checked }, content: [para(text), ...(nested ? [nested] : [])] });
+  const list = (...items) => ({ type: "taskList", content: items });
+  const shopping = {
+    type: "doc",
+    content: [
+      list(item("Onion"), item("Milk", true), item("Pasta   optional"), item(""), item("Potato")),
+      { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Hardware" }] },
+      list(item("Nails", false, list(item("Small ones")))),
+      { type: "codeBlock", content: [{ type: "text", text: "- [ ] not an item" }] },
+    ],
+  };
+  const doc = (id, title, content, extra = {}) => ({ id, title, content, plainText: "", workspaceId: "ws1", updatedAt: "2026-10-30T09:00:00Z", archivedAt: null, ...extra });
+  const data = {
+    docs: [
+      doc("doc_shop", "Shopping list", shopping),
+      doc("doc_old", "Shopping list", { type: "doc", content: [list(item("Stale"))] }, { updatedAt: "2026-01-01T00:00:00Z" }),
+      doc("doc_notes", "Notes", { type: "doc", content: [para("No ticks here")] }),
+      doc("doc_gone", "Packing", { type: "doc", content: [list(item("Socks"))] }, { archivedAt: "2026-10-01T00:00:00Z" }),
+    ],
+  };
+
+  test("reads every item in order, numbered as the API numbers them", () => {
+    assert.deepEqual(checklistItems(shopping), [
+      { item: 0, text: "Onion", done: false, heading: "" },
+      { item: 1, text: "Milk", done: true, heading: "" },
+      { item: 2, text: "Pasta optional", done: false, heading: "" },
+      // The empty item keeps its number.
+      { item: 4, text: "Potato", done: false, heading: "" },
+      { item: 5, text: "Nails", done: false, heading: "Hardware" },
+      { item: 6, text: "Small ones", done: false, heading: "Hardware" },
+    ]);
+    assert.deepEqual(checklistItems(null), []);
+  });
+
+  test("finds an item by its place while its words match, else by its words", () => {
+    const items = checklistItems(shopping);
+    assert.equal(findChecklistItem(items, "Milk", 1)?.item, 1);
+    assert.equal(findChecklistItem(items, " milk ")?.item, 1, "case and spaces aside");
+    assert.equal(findChecklistItem(items, "Milk", 4)?.item, 1, "an item that moved is still found by its words");
+    assert.equal(findChecklistItem(items, "Bread"), undefined);
+  });
+
+  test("a tick shows at once on a copy of the doc, as the API will save it", () => {
+    const ticked = tickedContent(shopping, { item: 6, text: "Small ones", done: true });
+    assert.deepEqual(checklistItems(ticked).filter((entry) => entry.done).map((entry) => entry.text), ["Milk", "Small ones"]);
+    assert.equal(checklistItems(shopping)[5].done, false, "the doc itself is left as it was");
+    assert.deepEqual(checklistItems(tickedContent(shopping, { item: 1, text: "Milk", done: false })).filter((entry) => entry.done), []);
+    assert.equal(tickedContent(shopping, { item: 0, text: "Bread", done: true }), null);
+  });
+
+  test("@Checklist reads the latest doc of that name, live, with counts", () => {
+    const all = runChecklist({ doc: "shopping list" }, data);
+    assert.equal(all.docId, "doc_shop");
+    assert.deepEqual(all.rows.map((row) => [row.text, row.done, row.item, row.note]), [
+      ["Onion", false, 0, ""], ["Milk", true, 1, ""], ["Pasta optional", false, 2, ""], ["Potato", false, 4, ""], ["Nails", false, 5, "Hardware"], ["Small ones", false, 6, "Hardware"],
+    ]);
+    assert.ok(all.rows.every((row) => row.docId === "doc_shop"));
+    assert.deepEqual([all.value, all.text, all.left, all.done, all.all, all.ratio, all.percent], [6, "6", "5", 1, 6, "1/6", 17]);
+    const left = runChecklist({ doc: "Shopping list", state: "open", limit: 2 }, data);
+    assert.deepEqual([left.value, left.more, left.rows.map((row) => row.text)], [5, 3, ["Onion", "Pasta optional"]]);
+    assert.deepEqual(runChecklist({ doc: "Shopping list", state: "done" }, data).rows.map((row) => row.text), ["Milk"]);
+    assert.deepEqual(runChecklist({ doc: "Shopping list", text: "small" }, data).rows.map((row) => row.text), ["Small ones"]);
+    assert.equal(runChecklist({ doc: "doc_old" }, data).rows[0].text, "Stale", "an id names the doc too");
+    assert.equal(runChecklist({ doc: "Packing" }, data).value, 0, "archived docs are left out");
+  });
+
+  test("says what a @Checklist call names that isn't there", () => {
+    const program = (name) => `root = Panel("List", [l])\nc = @Checklist({doc: "${name}"})\nl = List(@Each(c.rows, "i", CheckRow(i.docId, i.text)), "Nothing")`;
+    assert.deepEqual(checklistProblems(program("Shopping list"), data), []);
+    assert.deepEqual(checklistProblems(program("Shoping list"), data), ["No doc is called “Shoping list”. The closest is “Shopping list”."]);
+    assert.deepEqual(checklistProblems(program("Notes"), data), ["“Notes” has no checklist."]);
+    assert.deepEqual(blockProblems(program("Notes"), data), ["“Notes” has no checklist."]);
+    assert.deepEqual(checklistProblems(program("Notes"), {}), [], "nothing to say before the docs load");
+  });
+
+  test("the example draws working CheckRows and the doc's link, and loads the docs", () => {
+    const { words, program } = boardExamples().find((example) => example.program.includes("@Checklist("));
+    assert.match(words, /shopping list/);
+    const [stats, rows] = drawBoard(program, data, ctx).props.blocks;
+    assert.deepEqual(stats.props.items.map((stat) => stat.props.value), ["5", "1/6"]);
+    assert.deepEqual(rows.props.rows.slice(0, 2).map((row) => [row.typeName, row.props.docId, row.props.text, row.props.item]), [["CheckRow", "doc_shop", "Onion", 0], ["CheckRow", "doc_shop", "Pasta optional", 2]]);
+    assert.deepEqual(rows.props.open.props, { label: "Open doc", target: "doc", id: "doc_shop" });
+    assert.deepEqual(describedSources(program), ["docs"]);
+    assert.deepEqual(describeChanges(program).slice(0, 2), ["Only what's left", "Show the ticked ones too"]);
+    // Older apps get the list of docs, not tasks.
+    assert.equal(describedCard("c1", words, program, data).query.source, "docs");
+  });
+
+  test("a reply lists a doc's items as CheckRows", () => {
+    const result = genuiParser().parse('root = Reply([c])\nc = Card("Shopping list", [a, b], "2 left")\na = CheckRow("doc_shop", "Onion")\nb = CheckRow("doc_shop", "Nails", "Hardware", 5)');
+    assert.deepEqual(result.meta.errors, []);
+    const rows = result.root.props.blocks[0].props.rows;
+    assert.deepEqual(rows.map((row) => [row.typeName, row.props.text, row.props.note ?? "", row.props.item ?? null]), [["CheckRow", "Onion", "", null], ["CheckRow", "Nails", "Hardware", 5]]);
+  });
+});
+
 describe("check_block: a draft drawn from the person's data", async () => {
   const { checkBoard } = await import("../packages/contract/src/boardCheck.ts");
   const { dataProblems } = await import("../packages/contract/src/genuiBoard.ts");
@@ -483,6 +585,18 @@ list = List(@Each(late.rows, "t", TaskRow(t.id, t.title, t.day)), "Nothing overd
     assert.ok(broken.includes("soon is used but never defined."), broken.join("\n"));
     assert.ok(broken.some((problem) => problem.startsWith("spare is defined but no block shows it")), broken.join("\n"));
     assert.deepEqual(checkBoard("hello", data, ctx).problems, ["The program has no root = Panel(...) line."]);
+  });
+
+  test("names links that open nothing, and checklists that aren't there", () => {
+    const withDocs = { ...data, docs: [{ id: "doc_1", title: "Shopping list", content: { type: "doc", content: [] }, updatedAt: "2026-10-29T08:00:00Z" }] };
+    const linked = (open) => `${program.replace('"Nothing overdue")', '"Nothing overdue", open)')}
+open = ${open}`;
+    assert.deepEqual(checkBoard(linked('Open("Open Tasks", "tasks")'), withDocs, ctx).problems, []);
+    assert.deepEqual(checkBoard(linked('Open("Open doc", "doc", "doc_1")'), withDocs, ctx).problems, []);
+    assert.deepEqual(checkBoard(linked('Open("Open Docs", "doc")'), withDocs, ctx).problems, ["Open “Open Docs” goes to a doc but has no id, so it isn't shown: give it the doc's id or leave it out."]);
+    assert.deepEqual(checkBoard(linked('Open("Open doc", "doc", "Shopping list")'), withDocs, ctx).problems, ["Open “Open doc” goes to a doc, but no doc has the id “Shopping list”: use the docId from @Checklist, the sheetId from @Cells or an id a tool returned."]);
+    const checklist = 'root = Panel("Shopping", [l])\nc = @Checklist({doc: "Shopping list"})\nl = List(@Each(c.rows, "i", CheckRow(i.docId, i.text)), "Nothing")';
+    assert.deepEqual(checkBoard(checklist, withDocs, ctx).problems, ["“Shopping list” has no checklist."]);
   });
 
   test("the API's bundled check matches packages/contract and runs on its own", async () => {
