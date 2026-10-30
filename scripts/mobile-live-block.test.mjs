@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
-import { boardExamples, cellsProblems, drawBoard } from "../packages/contract/src/genuiBoard.ts";
+import { checklistItems } from "../packages/contract/src/docChecklist.ts";
+import { blockProblems, boardExamples, cellsProblems, drawBoard } from "../packages/contract/src/genuiBoard.ts";
 import { escapeHtml, liveBlockHtml } from "../apps/mobile/components/editor/liveBlockHtml.ts";
 
 // The phone draws a doc's live blocks as HTML for its editor page; these
@@ -20,9 +21,12 @@ const data = {
     task("t3", "Ship release", { completedAt: "2026-10-27T15:00:00Z", actualMinutes: 90 }),
   ],
 };
-const lookup = (id) => {
-  const found = data.tasks.find((entry) => entry.id === id);
-  return found && { title: found.name, done: Boolean(found.completedAt), late: id === "t1" };
+const lookup = {
+  task: (id) => {
+    const found = data.tasks.find((entry) => entry.id === id);
+    return found && { title: found.name, done: Boolean(found.completedAt), late: id === "t1" };
+  },
+  checklist: () => undefined,
 };
 const draw = (program) => liveBlockHtml(drawBoard(program, data, ctx), lookup);
 
@@ -97,9 +101,43 @@ note = Text("<img src=x onerror=alert(1)>")`);
   });
 
   test("a task the app doesn't know can't be ticked", () => {
-    const html = liveBlockHtml(drawBoard(`root = Panel("x", [List([TaskRow("gone", "Old task")])])`, data, ctx), () => undefined);
+    const html = liveBlockHtml(drawBoard(`root = Panel("x", [List([TaskRow("gone", "Old task")])])`, data, ctx), { task: () => undefined, checklist: () => undefined });
     assert.match(html, /<button type="button" class="lv-check" role="checkbox" aria-checked="false" aria-label="Complete Old task" disabled>/);
     assert.ok(!html.includes("data-live-open"));
+  });
+
+  test("a doc's checklist items tick in that doc and open it", () => {
+    const item = (text, checked = false) => ({
+      type: "taskItem",
+      attrs: { checked },
+      content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+    });
+    const content = {
+      type: "doc",
+      content: [
+        { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Groceries" }] },
+        { type: "taskList", content: [item("Onion"), item("Milk", true), item("Bread & <jam>")] },
+      ],
+    };
+    const docs = [{ id: "doc_1", title: "Shopping list", content, workspaceId: "ws1", updatedAt: "2026-10-29T09:00:00Z" }];
+    const live = { ...lookup, checklist: (id) => (id === "doc_1" ? checklistItems(content) : undefined) };
+    const program = `root = Panel("Shopping", [list])
+shop = @Checklist({doc: "Shopping list", state: "all"})
+list = List(@Each(shop.rows, "i", CheckRow(i.docId, i.text, i.note, i.item)), "", Open("Open doc", "doc", shop.docId))`;
+    const html = liveBlockHtml(drawBoard(program, { ...data, docs }, ctx), live, blockProblems(program, { ...data, docs })[0]);
+    assert.match(html, /data-live-check="doc_1" data-item="0" data-text="Onion" data-done="0"/);
+    assert.match(html, /class="lv-check is-done" role="checkbox" aria-checked="true" aria-label="Untick Milk" data-live-check="doc_1" data-item="1"/);
+    assert.match(html, /<span class="lv-title is-done">Milk<\/span>/);
+    assert.match(html, /data-text="Bread &amp; &lt;jam&gt;"/);
+    assert.match(html, /<span class="lv-meta">Groceries<\/span>/);
+    assert.match(html, /data-live-open="timely:\/\/doc\/doc_1"><span class="lv-title">Onion/);
+    assert.match(html, /data-live-open="timely:\/\/doc\/doc_1">Open doc/);
+    assert.ok(!html.includes("lv-problem"));
+
+    // A doc the app doesn't have: the item shows but can't be ticked or opened.
+    const gone = liveBlockHtml(drawBoard(`root = Panel("x", [List([CheckRow("doc_9", "Eggs")])])`, data, ctx), lookup);
+    assert.match(gone, /aria-label="Tick Eggs" disabled>/);
+    assert.ok(!gone.includes("data-live-open"));
   });
 
   test("stats, charts, shares, a day strip, columns and links", () => {

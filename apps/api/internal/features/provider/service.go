@@ -20,6 +20,7 @@ import (
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"timely-api/internal/features/agent"
 	"timely-api/internal/features/chat"
 	"timely-api/internal/features/decide"
 	"timely-api/internal/features/embed"
@@ -86,6 +87,11 @@ type Service struct {
 
 	decisions     *decide.Service
 	decisionCheck decide.Caller
+
+	// readTools and boardData let the Describe AI read the person's data and
+	// draw its drafts from it (describe_tools.go); nil leaves Describe one-shot.
+	readTools func(*gorm.DB) agent.Catalog
+	boardData BoardData
 
 	openRouterURL string // overridable for tests
 	anthropicURL  string // overridable for tests

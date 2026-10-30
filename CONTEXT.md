@@ -96,12 +96,16 @@ A card the agent adds under its chat text to show the person's own tasks, events
 _Avoid_: widget (the phone's home-screen widgets), generative UI, OpenUI (in copy)
 
 **Described card**:
-A Dashboard card the AI builds from the person's words in "Describe a card", on desktop or phone. The AI writes the card's layout once from the Reply card kit; the card reads the person's tasks, events and files each time the dashboard shows, so it stays current without asking the AI again. More words change it. Apps that can't draw it show the nearest custom card instead (ADR 0014).
+A Dashboard card the AI builds from the person's words in "Describe a card", on desktop or phone. The AI writes the card's layout once from the Reply card kit; the card reads the person's tasks, events and files each time the dashboard shows, so it stays current without asking the AI again. More words change it. While it builds the card, the AI can read the person's data with the chat agent's read tools and draws its draft from that data to fix empty or mistaken blocks before answering (ADR 0016). Apps that can't draw it show the nearest custom card instead (ADR 0014).
 _Avoid_: AI card, smart card, generated card
 
 **Live block**:
 A Described card inside a doc, added from the "/" menu or by the agent. The doc keeps its program as an `openui-lang` code block, so the doc stays Markdown; the editors draw it at the doc's width from the person's data each time the doc opens, with working ticks and links, and hide the program unless asked for. More words change it, as with a Described card (ADR 0015).
 _Avoid_: embed (that is a video or page from a link), widget, dashboard in a doc
+
+**Checklist row**:
+An item from a doc's checklist shown in a Reply card, a Described card or a Live block. Its tick box ticks the item in the doc and its words open the doc. The row shows the item as the doc has it now, and a tick changes only that item, so an older copy of the doc never overwrites newer edits (ADR 0017).
+_Avoid_: task (a checklist item is not a Task), todo
 
 **Smart suggestions**:
 Pre-filled fields and hints from Jev, TypeSafe's decision model, such as the Clarify form's type, effort, priority, project, labels and possible duplicates, or the Agent's default length for new Work. They use the account's TypeSafe key first and its OpenRouter key otherwise, and change nothing until the person saves. With neither key, or turned off in Settings → Agent, Timely behaves as it does without them.

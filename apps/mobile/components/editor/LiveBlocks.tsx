@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
+import { checklistItems, type DocChecklistItem } from "@timely/contract/docChecklist";
 import type { GenuiNode } from "@timely/contract/genui";
-import { cellsProblems, drawBoard, liveBlockCards } from "@timely/contract/genuiBoard";
+import { blockProblems, drawBoard, liveBlockCards } from "@timely/contract/genuiBoard";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
 import { useDashboardData, useNow } from "../../lib/dashboard";
 import { liveBlockHtml, type LiveTask } from "./liveBlockHtml";
@@ -8,10 +9,11 @@ import { liveBlockHtml, type LiveTask } from "./liveBlockHtml";
 export type LiveDrawing = { program: string; html: string; title: string };
 
 /**
- * Draws a doc's live blocks for the editor page. Each program's @Data and
- * @Cells calls read the app's own data, as described cards on the Dashboard do, so a tick
- * or a refresh draws the blocks again and the AI is never asked. Shows
- * nothing itself: the page puts the drawings in place (editorHtml.ts).
+ * Draws a doc's live blocks for the editor page. Each program's @Data,
+ * @Cells and @Checklist calls read the app's own data, as described cards on
+ * the Dashboard do, so a tick or a refresh draws the blocks again and the AI
+ * is never asked. Shows nothing itself: the page puts the drawings in place
+ * (editorHtml.ts).
  */
 export default function LiveBlocks({
   programs,
@@ -27,12 +29,24 @@ export default function LiveBlocks({
 
   const blocks = useMemo(() => {
     if (loading || eventsLoading || sheetsLoading) return null;
-    // Ticks show the task as it is now, as the Dashboard's rows do (genui/kit.tsx).
+    // Ticks show the task or item as it is now, as the Dashboard's rows do (genui/kit.tsx).
     const today = todayInZone();
     const tasks = new Map<string, LiveTask>();
     for (const task of [...(data.tasks ?? []), ...(data.reminders ?? [])]) {
       tasks.set(task.id, { title: task.name, done: Boolean(task.completedAt), late: isOverdue(task, today) });
     }
+    // A doc's checklist is read when a row asks for it, once per doc.
+    const checklists = new Map<string, DocChecklistItem[] | undefined>();
+    const live = {
+      task: (id: string) => tasks.get(id),
+      checklist: (id: string) => {
+        if (!checklists.has(id)) {
+          const doc = data.docs?.find((item) => item.id === id);
+          checklists.set(id, doc ? checklistItems(doc.content) : undefined);
+        }
+        return checklists.get(id);
+      },
+    };
     const seen = new Set<string>();
     return programs.flatMap((program) => {
       const key = program.trim();
@@ -45,7 +59,7 @@ export default function LiveBlocks({
         root = null;
       }
       const title = typeof root?.props.title === "string" ? root.props.title.trim() : "";
-      return [{ program: key, html: liveBlockHtml(root, (id) => tasks.get(id), cellsProblems(program, data)[0]), title }];
+      return [{ program: key, html: liveBlockHtml(root, live, blockProblems(program, data)[0]), title }];
     });
   }, [programs, data, now, timeZone, loading, eventsLoading, sheetsLoading]);
 

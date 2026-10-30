@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"timely-api/internal/features/chat"
 	"timely-api/internal/features/sheet"
 	"timely-api/internal/models"
+	"timely-api/internal/richtext"
 )
 
 // Described dashboard cards: "overdue client work and what's due this week"
@@ -28,10 +30,22 @@ var boardPrompt string
 const (
 	dashboardCardMaxText    = 500
 	dashboardCardMaxProgram = 8000
-	dashboardCardBudget     = 90 * time.Second
+	// dashboardCardBudget covers the look-ups, checks and the answer.
+	dashboardCardBudget = 3 * time.Minute
+	// dashboardCardTurns caps the model's calls in one Describe.
+	dashboardCardTurns = 10
+	// dashboardCardAnswer is the time kept for the answer: with less left,
+	// the model is told to answer now.
+	dashboardCardAnswer = 45 * time.Second
 	// dashboardCardSheets is how many sheets, latest edited first, the model
 	// is told the tabs and columns of.
 	dashboardCardSheets = 12
+	// dashboardCardChecklists is how many docs with a checklist, latest
+	// edited first, the model is told the items of, out of the latest
+	// dashboardCardDocs docs, and dashboardCardItems how many items of each.
+	dashboardCardChecklists = 12
+	dashboardCardDocs       = 60
+	dashboardCardItems      = 12
 )
 
 type dashboardCardRequest struct {
@@ -118,18 +132,88 @@ func (s *Service) describeCard(ctx context.Context, userID string, req dashboard
 	if err != nil {
 		return dashboardCardResponse{}, err
 	}
+	checklists, err := s.checklistBriefs(ctx, userID)
+	if err != nil {
+		return dashboardCardResponse{}, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, dashboardCardBudget)
 	defer cancel()
-	reply, err := completer.Complete(ctx, dashboardCardMessages(req, vocab, sheets), nil, false)
+	messages := dashboardCardMessages(req, vocab, sheets, checklists)
+	tools := s.tools(ctx, userID)
+	if tools != nil {
+		messages[0].Content += describeToolsNote
+	}
+	program, err := describe(ctx, completer, messages, tools)
+	if errors.Is(err, errNotACard) {
+		return dashboardCardResponse{}, echo.NewHTTPError(502, "The AI's answer was not a "+noun+". Try again")
+	}
 	if err != nil {
 		return dashboardCardResponse{}, echo.NewHTTPError(502, err.Error())
 	}
-	program, err := boardProgram(reply.Content)
-	if err != nil {
-		return dashboardCardResponse{}, echo.NewHTTPError(502, "The AI's answer was not a "+noun+". Try again")
-	}
 	_, model, _ := s.resolveModel(ctx, userID, provider)
 	return dashboardCardResponse{Program: program, Provider: provider, Model: model}, nil
+}
+
+var errNotACard = errors.New("the answer holds no program")
+
+// describe asks the model for the program. With tools it may read the
+// person's data and check drafts first; its answer is drawn once more, and
+// one with problems goes back to the model a single time to be fixed. A
+// model that runs out of turns, or never writes the program out, gets the
+// last draft it checked.
+func describe(ctx context.Context, completer chat.Completer, messages []chat.WireMessage, tools *describeTools) (string, error) {
+	var specs []any
+	if tools != nil {
+		specs = tools.specs
+	}
+	deadline, timed := ctx.Deadline()
+	sentBack, nudged, told := false, false, false
+	for turn := 0; turn < dashboardCardTurns; turn++ {
+		last := turn == dashboardCardTurns-1 || (timed && time.Until(deadline) < dashboardCardAnswer)
+		if last && len(specs) > 0 && turn > 0 && !told {
+			// The tools stay listed: some providers refuse a transcript with
+			// tool calls in it once the tools are gone.
+			messages = append(messages, chat.WireMessage{Role: "user", Content: "Time is up for look-ups: answer now with the whole program and no tool calls."})
+			told = true
+		}
+		reply, err := completer.Complete(ctx, messages, specs, false)
+		if err != nil {
+			return "", err
+		}
+		if len(reply.ToolCalls) == 0 || tools == nil {
+			program, err := boardProgram(reply.Content)
+			if err != nil {
+				if draft := tools.fallback(); draft != "" && (nudged || last) {
+					return draft, nil
+				}
+				if nudged || last {
+					return "", errNotACard
+				}
+				nudged = true
+				messages = append(messages, reply, chat.WireMessage{Role: "user", Content: "Answer with the program only: the whole OpenUI Lang program from the root = Panel(...) line on."})
+				continue
+			}
+			if tools != nil && tools.load != nil && !sentBack && !last {
+				if checked, err := tools.check(ctx, program); err == nil && len(checked.Problems) > 0 {
+					sentBack = true
+					messages = append(messages, reply, chat.WireMessage{Role: "user", Content: "Timely drew this program from the person's data and found problems:\n- " + strings.Join(checked.Problems, "\n- ") + "\nFix them and answer with the whole program again. When one can't be fixed, leave that part out."})
+					continue
+				}
+			}
+			return program, nil
+		}
+		if last {
+			break
+		}
+		messages = append(messages, reply)
+		for _, call := range reply.ToolCalls {
+			messages = append(messages, chat.WireMessage{Role: "tool", ToolCallID: call.ID, Content: tools.call(ctx, call)})
+		}
+	}
+	if draft := tools.fallback(); draft != "" {
+		return draft, nil
+	}
+	return "", errors.New("The AI took too many steps. Try again, or say more exactly what to show")
 }
 
 // sheetBrief is one sheet as the model sees it for @Cells.
@@ -160,7 +244,8 @@ func (s *Service) sheetBriefs(ctx context.Context, userID string) ([]sheetBrief,
 	return briefs, nil
 }
 
-// writeSheets lists sheets for @Cells: each tab with its columns, numbers marked.
+// writeSheets lists sheets for @Cells: each tab with its columns, numbers
+// marked, and the values of columns that hold a few, which `is` must match.
 func writeSheets(b *strings.Builder, sheets []sheetBrief) {
 	wrote := false
 	for _, sh := range sheets {
@@ -178,6 +263,12 @@ func writeSheets(b *strings.Builder, sheets []sheetBrief) {
 				columns[i] = column.Name
 				if column.Numbers {
 					columns[i] += " #"
+				} else if len(column.Values) > 0 {
+					values := make([]string, len(column.Values))
+					for j, value := range column.Values {
+						values[j] = strconv.Quote(value)
+					}
+					columns[i] += " [" + strings.Join(values, ", ") + "]"
 				}
 			}
 			tabs = append(tabs, fmt.Sprintf("  - tab %q, %d rows: %s", tab.Name, tab.Rows, strings.Join(columns, ", ")))
@@ -186,14 +277,71 @@ func writeSheets(b *strings.Builder, sheets []sheetBrief) {
 			continue
 		}
 		if !wrote {
-			b.WriteString("\nThe person's sheets, for @Cells (each tab with its columns; # marks columns of numbers):\n")
+			b.WriteString("\nThe person's sheets, for @Cells (each tab with its columns; # marks columns of numbers; [...] lists the values a column of text holds, written as is must write them):\n")
 			wrote = true
 		}
 		fmt.Fprintf(b, "- %q\n%s\n", title, strings.Join(tabs, "\n"))
 	}
 }
 
-func dashboardCardMessages(req dashboardCardRequest, v viewVocab, sheets []sheetBrief) []chat.WireMessage {
+// checklistBrief is one doc's checklist as the model sees it for @Checklist.
+type checklistBrief struct {
+	Title string
+	Items []richtext.ChecklistItem
+}
+
+// checklistBriefs reads the checklists of the person's latest edited docs,
+// numbered as the apps' @Checklist reads them.
+func (s *Service) checklistBriefs(ctx context.Context, userID string) ([]checklistBrief, error) {
+	var docs []models.Document
+	err := s.db.WithContext(ctx).Select("title", "content").Where("user_id = ? AND archived_at IS NULL", userID).Order("updated_at DESC").Limit(dashboardCardDocs).Find(&docs).Error
+	if err != nil {
+		return nil, err
+	}
+	var briefs []checklistBrief
+	for _, doc := range docs {
+		items := richtext.ChecklistItems(doc.Content)
+		if len(items) == 0 || strings.TrimSpace(doc.Title) == "" {
+			continue
+		}
+		briefs = append(briefs, checklistBrief{Title: strings.TrimSpace(doc.Title), Items: items})
+		if len(briefs) == dashboardCardChecklists {
+			break
+		}
+	}
+	return briefs, nil
+}
+
+// writeChecklists lists docs for @Checklist: each with how many items it
+// holds and the first ones, ticked ones marked.
+func writeChecklists(b *strings.Builder, checklists []checklistBrief) {
+	for i, list := range checklists {
+		if i == 0 {
+			b.WriteString("\nThe person's checklists, for @Checklist (each doc with its tick-box items; [x] marks a ticked one):\n")
+		}
+		done := 0
+		shown := make([]string, 0, min(len(list.Items), dashboardCardItems))
+		for j, item := range list.Items {
+			if item.Done {
+				done++
+			}
+			if j < dashboardCardItems {
+				mark := ""
+				if item.Done {
+					mark = "[x] "
+				}
+				shown = append(shown, mark+strconv.Quote(clipHead(item.Text, 60)))
+			}
+		}
+		more := ""
+		if len(list.Items) > dashboardCardItems {
+			more = fmt.Sprintf(", … %d more", len(list.Items)-dashboardCardItems)
+		}
+		fmt.Fprintf(b, "- %q, %d items, %d ticked: %s%s\n", list.Title, len(list.Items), done, strings.Join(shown, ", "), more)
+	}
+}
+
+func dashboardCardMessages(req dashboardCardRequest, v viewVocab, sheets []sheetBrief, checklists []checklistBrief) []chat.WireMessage {
 	var b strings.Builder
 	weekday := ""
 	if day, err := time.Parse("2006-01-02", req.Today); err == nil {
@@ -210,6 +358,7 @@ func dashboardCardMessages(req dashboardCardRequest, v viewVocab, sheets []sheet
 	list("Statuses", v.statuses)
 	list("Labels", v.labels)
 	writeSheets(&b, sheets)
+	writeChecklists(&b, checklists)
 	if req.Place == "doc" {
 		b.WriteString("\nThis card is a live block in a doc: it takes the doc's width and as much height as it needs, so leave the size out. Up to ten rows fit.\n")
 	}

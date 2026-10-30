@@ -583,6 +583,7 @@ export default function DashboardScreen() {
           setEditingId(null);
         }}
         onSave={saveDescribed}
+        onLink={openLink}
       />
 
       <ConfirmSheet

@@ -1,11 +1,19 @@
-import { createContext, Fragment, useContext, useState, type ReactNode } from "react";
+import { createContext, Fragment, useContext, useMemo, useState, type ReactNode } from "react";
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { ChevronRight, Sparkles } from "lucide-react-native";
 import type { ComponentRenderProps, ComponentRenderer } from "@openuidev/react-lang";
+import { checklistItems, findChecklistItem } from "@timely/contract/docChecklist";
 import { chartNumber, genuiColorHex, genuiNodes, type GenuiName, type GenuiProps } from "@timely/contract/genui";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
-import { useSaveTask, useTaskQuery, useTasksQuery } from "../../lib/hooks";
+import {
+  useDocQuery,
+  useDocsQuery,
+  useSaveTask,
+  useSetChecklistItem,
+  useTaskQuery,
+  useTasksQuery,
+} from "../../lib/hooks";
 import { useToastStore } from "../../lib/toast";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import { Fill, StatNumber, StrikeTitle, TaskCheck } from "../ui/motionKit";
@@ -233,6 +241,60 @@ function TaskRow({ props }: KitProps<"TaskRow">) {
       >
         <StrikeTitle done={done} numberOfLines={1} style={styles.rowTitle}>
           {title}
+        </StrikeTitle>
+      </AnimatedPressable>
+    </Row>
+  );
+}
+
+/** The doc as it is now: from the docs list, or fetched on its own. */
+function useLiveDoc(id: string) {
+  const list = useDocsQuery();
+  const listed = list.data?.find((doc) => doc.id === id);
+  const single = useDocQuery(list.isSuccess && !listed ? id : "");
+  return listed ?? single.data;
+}
+
+/** A doc's checklist item: the tick ticks it in the doc, the words open the doc. */
+function CheckRow({ props }: KitProps<"CheckRow">) {
+  const doc = useLiveDoc(props.docId);
+  const tick = useSetChecklistItem();
+  const link = useContext(Link);
+  const items = useMemo(() => checklistItems(doc?.content), [doc?.content]);
+  const item = findChecklistItem(items, props.text, props.item);
+  const text = item?.text ?? props.text;
+  const done = Boolean(item?.done);
+  const toggle = () => {
+    if (!item) return;
+    tick.mutate(
+      { id: props.docId, item: item.item, text: item.text, done: !done },
+      {
+        onError: (error) =>
+          useToastStore.getState().show(error instanceof Error ? error.message : "Could not tick the item"),
+      },
+    );
+  };
+  return (
+    <Row
+      meta={props.note}
+      lead={
+        <TaskCheck
+          checked={done}
+          onToggle={toggle}
+          disabled={!item}
+          size={20}
+          label={done ? `Untick ${text}` : `Tick ${text}`}
+        />
+      }
+    >
+      <AnimatedPressable
+        accessibilityRole="link"
+        accessibilityLabel={`Open ${doc?.title || "the doc"}`}
+        disabled={!link}
+        onPress={() => link?.(`timely://doc/${encodeURIComponent(props.docId)}`)}
+      >
+        <StrikeTitle done={done} numberOfLines={1} style={styles.rowTitle}>
+          {text}
         </StrikeTitle>
       </AnimatedPressable>
     </Row>
@@ -508,6 +570,7 @@ export const kit: { [N in KitName]: ComponentRenderer<GenuiProps<N>> } = {
   Stats,
   Stat,
   TaskRow,
+  CheckRow,
   EventRow,
   FreeRow,
   InfoRow,

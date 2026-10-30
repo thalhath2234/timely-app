@@ -2346,9 +2346,12 @@ var SheetEngine = (() => {
   // packages/contract/src/sheetCells.ts
   var nameKey = (text2) => text2.trim().toLowerCase();
   var RANGE = /\$?[A-Z]{1,3}\$?\d*:\$?[A-Z]{1,3}\$?\d*/i;
+  var TOTALS_NAME = /\b(sub)?totals?\b|\baverages?\b/i;
   function summaryRow(row2) {
     const filled = row2.filter((cell) => cell.raw.trim() !== "");
-    return filled.length > 0 && filled.every((cell) => cell.formula) && filled.some((cell) => RANGE.test(cell.raw));
+    if (!filled.some((cell) => cell.formula && RANGE.test(cell.raw))) return false;
+    const typed = filled.find((cell) => !cell.formula);
+    return !typed || TOTALS_NAME.test(typed.text);
   }
   function cellsTable(sheet, tab) {
     const pick = suggestSheetPick(sheet, tab.id || void 0);
@@ -2381,18 +2384,51 @@ var SheetEngine = (() => {
     }) ? 0 : -1;
     return { columns, rows, labelCol };
   }
+  var MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+  var WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+  var FULL_NAMES = new Map([
+    ...[...MONTHS, ...WEEKDAYS].map((name) => [name.slice(0, 3), name]),
+    ["sept", "september"],
+    ["tues", "tuesday"],
+    ["weds", "wednesday"],
+    ["thur", "thursday"],
+    ["thurs", "thursday"]
+  ]);
+  function valueKey(text2) {
+    var _a;
+    const key = nameKey(text2).replace(/\s+/g, " ").replace(/\.$/, "");
+    return (_a = FULL_NAMES.get(key)) != null ? _a : key;
+  }
+  function columnValues(table, col) {
+    var _a, _b;
+    const seen = /* @__PURE__ */ new Map();
+    for (const row2 of table.rows) {
+      const text2 = (_b = (_a = row2[col]) == null ? void 0 : _a.text.trim()) != null ? _b : "";
+      if (text2 && !seen.has(valueKey(text2))) seen.set(valueKey(text2), text2);
+    }
+    return [...seen.values()];
+  }
   var BRIEF_TABS = 8;
   var BRIEF_COLUMNS = 16;
+  var BRIEF_VALUES = 20;
+  var BRIEF_VALUE_LENGTH = 40;
   function cellsBrief(sheet) {
-    return sheetTabs(sheet).slice(0, BRIEF_TABS).map((tab) => {
-      var _a, _b;
+    const briefs = [];
+    for (const tab of sheetTabs(sheet)) {
+      if (briefs.length === BRIEF_TABS) break;
       const table = cellsTable(sheet, tab);
-      return {
+      if (!table) continue;
+      briefs.push({
         name: tab.name,
-        rows: (_a = table == null ? void 0 : table.rows.length) != null ? _a : 0,
-        columns: ((_b = table == null ? void 0 : table.columns) != null ? _b : []).slice(0, BRIEF_COLUMNS).map((column2) => ({ name: column2.name, numbers: column2.numbers }))
-      };
-    });
+        rows: table.rows.length,
+        columns: table.columns.slice(0, BRIEF_COLUMNS).map((column2, i) => {
+          const values = column2.numbers ? [] : columnValues(table, i);
+          const few = values.length > 0 && values.length <= BRIEF_VALUES && values.every((value) => value.length <= BRIEF_VALUE_LENGTH);
+          return few ? { name: column2.name, numbers: column2.numbers, values } : { name: column2.name, numbers: column2.numbers };
+        })
+      });
+    }
+    return briefs;
   }
 
   // packages/contract/src/sheetEngine.ts

@@ -351,11 +351,13 @@ test-view-language: ## Test how plain words become a task view ("overdue bugs in
 test-project-delete: ## Test the confirm that names the tasks a project delete takes with it
 	@node --experimental-strip-types --test scripts/project-delete.test.mjs
 
-.PHONY: test-genui gen-genui-prompt
+.PHONY: test-genui gen-genui-prompt gen-board-check
 test-genui: ## Test reply and described cards: the OpenUI prompts, their examples, splitting replies and @Data
 	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/genui.test.mjs
 gen-genui-prompt: ## Write the reply- and described-card instructions for the API from packages/contract/src/genui*.ts
 	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs scripts/gen-genui-prompt.mjs
+gen-board-check: ## Bundle the described-card check for the API (its Describe AI draws draft cards with it)
+	@node scripts/gen-board-check.mjs
 
 .PHONY: test-mobile-live-block
 test-mobile-live-block: ## Test the HTML the phone draws a doc's live blocks with in its editor page

@@ -23,9 +23,11 @@ import {
   type EngineContext,
 } from "./dashboard";
 import { formatLike } from "./dashboardFiles";
+import { checklistItems } from "./docChecklist";
+import type { Doc } from "./documents";
 import { GENUI_COMPONENTS, type GenuiNode } from "./genui";
 import type { Sheet } from "./sheet";
-import { cellsTable, columnByName, nameKey, tabByName, type CellsTable } from "./sheetCells";
+import { cellIs, cellsTable, closestValue, columnByName, columnValues, nameKey, tabByName, type CellsTable } from "./sheetCells";
 import { daysBetween, todayInZone } from "./workStatus";
 
 /**
@@ -55,13 +57,13 @@ export const BOARD_SIZES = {
 } as const;
 export type BoardSize = keyof typeof BOARD_SIZES;
 
-const { Card, Columns, Stats, Stat, TaskRow, EventRow, InfoRow, ShareRow, BarChart, DayStrip, Slot, Text, Open } = GENUI_COMPONENTS;
+const { Card, Columns, Stats, Stat, TaskRow, CheckRow, EventRow, InfoRow, ShareRow, BarChart, DayStrip, Slot, Text, Open } = GENUI_COMPONENTS;
 
 const List = defineComponent({
   name: "List",
   description: "Rows straight on the card, without a heading; shows the empty text when there are none.",
   props: z.object({
-    rows: z.array(z.union([TaskRow.ref, EventRow.ref, InfoRow.ref, ShareRow.ref])),
+    rows: z.array(z.union([TaskRow.ref, CheckRow.ref, EventRow.ref, InfoRow.ref, ShareRow.ref])),
     empty: z.string().optional().describe("e.g. Nothing overdue"),
     open: z.optional(Open.ref),
   }),
@@ -87,6 +89,7 @@ export const BOARD_COMPONENTS = {
   Stats,
   Stat,
   TaskRow,
+  CheckRow,
   EventRow,
   InfoRow,
   ShareRow,
@@ -372,7 +375,7 @@ export type CellsResult = z.infer<typeof CellsResult>;
 const Cells = defineFunction({
   name: "Cells",
   description:
-    "Reads a sheet's cells, worked out as the sheet shows them. sheet and tab (left out: the first tab) are names from the person's sheets; label is the column that names each row, value the column of numbers (left out: the first one). where/is keep the rows whose cell in that column holds that text (no is: any text). group: rows with the same label add up into one. sort: value (largest first) or label; desc flips it. last: the last rows, the latest entries, instead of the first. limit: rows to keep (12). value/text: the value column's total over the matching rows; average; last: the bottom row's value; count: how many rows match. A value column of text counts rows instead (with group: how many rows have each label). rows, labels, values: the kept rows. sheetId opens the sheet.",
+    "Reads a sheet's cells, worked out as the sheet shows them. sheet and tab (left out: the first tab) are names from the person's sheets; label is the column that names each row, value the column of numbers (left out: the first one). where/is keep the rows whose cell in that column holds that value, written as the sheets below list it (no is: any text). group: rows with the same label add up into one. sort: value (largest first) or label; desc flips it. last: the last rows, the latest entries, instead of the first. limit: rows to keep (12). value/text: the value column's total over the matching rows; average; last: the bottom row's value; count: how many rows match. A value column of text counts rows instead (with group: how many rows have each label). rows, labels, values: the kept rows. sheetId opens the sheet.",
   params: z.object({ query: CellsQuery }),
   returns: CellsResult,
   // Apps bind it to their data with boardFunctions.
@@ -400,8 +403,10 @@ type FoundCells = { sheet?: Sheet; table?: CellsTable; labelCol: number; valueCo
 
 /**
  * What a `@Cells` call names: the sheet, its tab and the columns. missing
- * says, in the person's words, which name matches nothing; a tab with
- * nothing in it is not missing, only empty.
+ * says, in the person's words, which name matches nothing, or which `is`
+ * value is a near miss of one the column holds ("Grocery" for "Groceries");
+ * a tab with nothing in it is not missing, only empty, and an `is` value
+ * nothing like the column's ("yes" in a column of "no") only matches no rows yet.
  */
 function findCells(query: CellsQuery, data: DashboardData): FoundCells {
   const found: FoundCells = { labelCol: -1, valueCol: -1, whereCol: -1, missing: "" };
@@ -425,6 +430,13 @@ function findCells(query: CellsQuery, data: DashboardData): FoundCells {
   const lost = [query.label, query.value, query.where].find((wanted) => wanted?.trim() && columnByName(table, wanted) < 0);
   if (lost) found.missing = `“${title}” has no column called “${lost.trim()}”.`;
   else if (found.valueCol < 0) found.missing = `“${title}” has no column of numbers.`;
+  else if (found.whereCol >= 0 && query.is?.trim()) {
+    const holds = cellIs(query.is);
+    if (!table.rows.some((row) => holds(row[found.whereCol]))) {
+      const near = closestValue(columnValues(table, found.whereCol), query.is);
+      if (near) found.missing = `“${title}” has no ${table.columns[found.whereCol].name} called “${query.is.trim()}”. The closest is “${near}”.`;
+    }
+  }
   return found;
 }
 
@@ -444,11 +456,10 @@ export function runCells(query: CellsQuery, data: DashboardData): CellsResult {
   const counting = !numbers;
   const shown = (value: number) => (counting ? String(value) : formatLike(value, column));
 
-  const wanted = query.is === undefined ? null : nameKey(query.is);
+  const holds = query.is === undefined ? null : cellIs(query.is);
   const matching = table.rows.filter((row) => {
     if (whereCol < 0) return true;
-    const text = nameKey(row[whereCol]?.text ?? "");
-    return wanted === null ? text !== "" : text === wanted;
+    return holds ? holds(row[whereCol]) : (row[whereCol]?.text.trim() ?? "") !== "";
   });
   type Entry = { label: string; value: number; text: string; number: boolean };
   let entries: Entry[] = matching
@@ -500,6 +511,101 @@ export function runCells(query: CellsQuery, data: DashboardData): CellsResult {
   return result;
 }
 
+// ---- @Checklist ----
+
+const ChecklistQuery = z.object({
+  doc: z.string(),
+  state: z.enum(["open", "done", "all"]).optional(),
+  text: z.string().optional(),
+  limit: z.number().optional(),
+});
+export type ChecklistQuery = z.infer<typeof ChecklistQuery>;
+
+const ChecklistRow = z.object({ docId: z.string(), item: z.number(), text: z.string(), done: z.boolean(), note: z.string() });
+const ChecklistResult = z.object({
+  docId: z.string(),
+  title: z.string(),
+  value: z.number(),
+  text: z.string(),
+  left: z.string(),
+  done: z.number(),
+  all: z.number(),
+  percent: z.number(),
+  ratio: z.string(),
+  rows: z.array(ChecklistRow),
+  more: z.number(),
+});
+export type ChecklistResult = z.infer<typeof ChecklistResult>;
+
+const Checklist = defineFunction({
+  name: "Checklist",
+  description:
+    "Reads a doc's tick-box items, live. doc: the doc's title from the person's checklists below, or its id. state: open (not ticked), done, or all (the default). text: items holding these words. limit: rows (12). value/text: how many match; left: how many aren't ticked; done/all/percent/ratio: ticked of all, ignoring state. rows: each item's docId, item, text, done and note (its heading). docId opens the doc.",
+  params: z.object({ query: ChecklistQuery }),
+  returns: ChecklistResult,
+  // Apps bind it to their data with boardFunctions.
+  fn: () => emptyChecklist(),
+});
+
+function emptyChecklist(): ChecklistResult {
+  return { docId: "", title: "", value: 0, text: "0", left: "0", done: 0, all: 0, percent: 0, ratio: "0/0", rows: [], more: 0 };
+}
+
+/** The doc a name means: one with that id, else the latest edited with that title, archived ones left out. */
+function docByName(docs: Doc[] | undefined, name: string): Doc | undefined {
+  const wanted = name.trim();
+  const live = (docs ?? []).filter((doc) => !doc.archivedAt);
+  return (
+    live.find((doc) => doc.id === wanted) ??
+    live
+      .filter((doc) => nameKey(doc.title ?? "") === nameKey(wanted))
+      .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))[0]
+  );
+}
+
+/** What a `@Checklist` call names that isn't there, in the person's words; empty when it reads a checklist. */
+function checklistMissing(query: ChecklistQuery, data: DashboardData): string {
+  const name = query.doc?.trim() ?? "";
+  const doc = docByName(data.docs, name);
+  if (!doc) {
+    const near = closestValue([...new Set((data.docs ?? []).filter((each) => !each.archivedAt).map((each) => each.title?.trim() ?? "").filter(Boolean))], name);
+    return `No doc is called “${name}”.${near ? ` The closest is “${near}”.` : ""}`;
+  }
+  return checklistItems(doc.content).length ? "" : `“${doc.title?.trim() || name}” has no checklist.`;
+}
+
+/**
+ * Answers one `@Checklist` call from the docs the app loaded. A doc that
+ * isn't there, or has no checklist, answers with nothing; checklistProblems
+ * says why.
+ */
+export function runChecklist(query: ChecklistQuery, data: DashboardData): ChecklistResult {
+  const result = emptyChecklist();
+  const doc = docByName(data.docs, query.doc ?? "");
+  if (!doc) return result;
+  result.docId = doc.id;
+  result.title = doc.title?.trim() ?? "";
+  const items = checklistItems(doc.content);
+  const done = items.filter((entry) => entry.done).length;
+  result.done = done;
+  result.all = items.length;
+  result.left = String(items.length - done);
+  result.percent = items.length ? Math.round((done / items.length) * 100) : 0;
+  result.ratio = `${done}/${items.length}`;
+  const words = query.text?.trim().toLowerCase();
+  const matching = items.filter(
+    (entry) =>
+      (query.state === "open" ? !entry.done : query.state === "done" ? entry.done : true) &&
+      (!words || entry.text.toLowerCase().includes(words)),
+  );
+  result.value = matching.length;
+  result.text = String(matching.length);
+  const limit = Math.max(1, Math.min(50, Math.round(query.limit ?? 12)));
+  result.more = Math.max(0, matching.length - limit);
+  result.rows = matching.slice(0, limit).map((entry) => ({ docId: doc.id, item: entry.item, text: entry.text, done: entry.done, note: entry.heading }));
+  return result;
+}
+
 /**
  * The board's functions over one copy of the data. Programs repeat the same
  * call in several props, so answers are kept for as long as this data is.
@@ -507,6 +613,7 @@ export function runCells(query: CellsQuery, data: DashboardData): CellsResult {
 export function boardFunctions(data: DashboardData, ctx: EngineContext) {
   const answers = new Map<string, DataResult>();
   const cells = new Map<string, CellsResult>();
+  const checklists = new Map<string, ChecklistResult>();
   return [
     {
       ...Data,
@@ -532,22 +639,35 @@ export function boardFunctions(data: DashboardData, ctx: EngineContext) {
         return answer;
       },
     },
+    {
+      ...Checklist,
+      fn: ({ query }: { query: ChecklistQuery }) => {
+        const key = JSON.stringify(query);
+        let answer = checklists.get(key);
+        if (!answer) {
+          answer = runChecklist(query, data);
+          checklists.set(key, answer);
+        }
+        return answer;
+      },
+    },
   ];
 }
 
 // ---- The model's instructions ----
 
-const PREAMBLE = `You build one card for the person's Timely dashboard from their words. Answer with ONE OpenUI Lang program and nothing else: no text before or after it and no code fence. Timely draws it with its own components and fills every @Data and @Cells call from the person's live data each time the dashboard shows, so the card stays current without you.`;
+const PREAMBLE = `You build one card for the person's Timely dashboard from their words. Answer with ONE OpenUI Lang program and nothing else: no text before or after it and no code fence. Timely draws it with its own components and fills every @Data, @Cells and @Checklist call from the person's live data each time the dashboard shows, so the card stays current without you.`;
 
 const RULES = [
-  "Every number, row, bar and share comes from @Data or @Cells. Never write the person's tasks, events, names or numbers yourself; labels and empty texts are the only words you write.",
-  "A sheet's cells come from @Cells, never @Data: sheet, tab and column names exactly as in the person's sheets below. Chart them with BarChart(title, c.labels, c.values); list them with @Each(c.rows, \"r\", InfoRow(r.label, r.text)) or ShareRow(r.label, r.text, r.share).",
+  "Every number, row, bar and share comes from @Data, @Cells or @Checklist. Never write the person's tasks, events, items, names or numbers yourself; labels and empty texts are the only words you write.",
+  "A sheet's cells come from @Cells, never @Data: sheet, tab and column names exactly as in the person's sheets below, and an is value one of the values listed for that column (\"October\", not \"Oct\"). Chart them with BarChart(title, c.labels, c.values); list them with @Each(c.rows, \"r\", InfoRow(r.label, r.text)) or ShareRow(r.label, r.text, r.share).",
+  "A doc's checklist (its tick-box items, such as a shopping list) comes from @Checklist, never @Data, whose docs source lists docs by name only. List it with @Each(c.rows, \"i\", CheckRow(i.docId, i.text, i.note, i.item)) and link it with Open(\"Open doc\", \"doc\", c.docId).",
   "Pick the blocks that answer the words: counts as Stats, items as a List of TaskRow or EventRow rows made with @Each, a split as a BarChart or a List of ShareRow rows, two views side by side as Columns of Cards.",
   "TaskRow(t.id, t.title, t.day, t.note) for tasks, reminders and inbox; EventRow(e.time, e.title, e.day + \" · \" + e.length) for events; InfoRow(p.title, p.day) for projects, docs and sheets.",
   "With a range, set date: completedAt for finished work, deadline for due work, scheduled for planned work, start for events. Hours need measure: estimate (planned) or tracked (worked) for tasks, duration for events.",
   "project, workspace, label and status take exact names from the person's names below. Leave a filter out when no name fits; never guess one.",
   "Fit the size: small holds one or two Stats; medium up to three Stats or five rows; tall up to ten rows; wide a chart or Columns; large several blocks. Set limit to the rows that fit.",
-  "Give every List an empty text, and an Open link to the full screen when there may be more rows than fit.",
+  "Give every List an empty text. An Open link goes where its rows come from: Tasks for tasks, Calendar for events, a doc or sheet by its docId or sheetId. Show nothing the words don't ask for.",
   "The title is a few words in the person's language, without the word card. Labels are in the person's language too.",
   "When the message holds the card's current program and a change, answer with the whole changed program, keeping the rest as it was.",
 ];
@@ -577,6 +697,14 @@ list = List(@Each(next.rows, "e", EventRow(e.time, e.title, e.day + " · " + e.l
 open = Open("Open Calendar", "calendar")`,
 ];
 
+// Only in the model's instructions: a doc the person may not have is no example to offer them.
+const CHECKLIST_EXAMPLE = `Words: what's left on my shopping list
+root = Panel("Shopping list", [nums, list], "tall")
+shop = @Checklist({doc: "Shopping list", state: "open"})
+nums = Stats([Stat("Left", shop.left), Stat("Done", shop.ratio)])
+list = List(@Each(shop.rows, "i", CheckRow(i.docId, i.text, i.note, i.item)), "Everything is ticked off", open)
+open = Open("Open doc", "doc", shop.docId)`;
+
 // Only in the model's instructions: a sheet the person may not have is no example to offer them.
 const SHEET_EXAMPLE = `Words: spending per category from my Budget sheet
 root = Panel("Spending by category", [nums, chart], "wide")
@@ -584,11 +712,11 @@ spend = @Cells({sheet: "Budget", tab: "October", label: "Category", value: "Amou
 nums = Stats([Stat("Spent", spend.text), Stat("Per entry", spend.average)])
 chart = BarChart("Per category", spend.labels, spend.values)`;
 
-const promptLibrary = () => createLibrary({ components: Object.values(BOARD_COMPONENTS), functions: [Data, Cells], root: BOARD_ROOT });
+const promptLibrary = () => createLibrary({ components: Object.values(BOARD_COMPONENTS), functions: [Data, Cells, Checklist], root: BOARD_ROOT });
 
 /** The model's instructions for described cards (the API embeds this text). */
 export function boardPrompt(): string {
-  return promptLibrary().prompt({ preamble: PREAMBLE, additionalRules: RULES, examples: [...EXAMPLES, SHEET_EXAMPLE], builtinFunctions: true });
+  return promptLibrary().prompt({ preamble: PREAMBLE, additionalRules: RULES, examples: [...EXAMPLES, SHEET_EXAMPLE, CHECKLIST_EXAMPLE], builtinFunctions: true });
 }
 
 /** A parser for described-card programs, for checks outside a renderer. */
@@ -607,8 +735,12 @@ export function drawBoard(program: string, data: DashboardData, ctx: EngineConte
   const schema = library.toJSONSchema();
   const result = createParser(schema, BOARD_ROOT).parse(program);
   if (!result.root) return null;
-  const [data$, cells$] = boardFunctions(data, ctx);
-  const functions = { Data: { ...schema.functions!.Data, fn: data$.fn }, Cells: { ...schema.functions!.Cells, fn: cells$.fn } };
+  const [data$, cells$, checklist$] = boardFunctions(data, ctx);
+  const functions = {
+    Data: { ...schema.functions!.Data, fn: data$.fn },
+    Cells: { ...schema.functions!.Cells, fn: cells$.fn },
+    Checklist: { ...schema.functions!.Checklist, fn: checklist$.fn },
+  };
   const root = evaluateRoot(result, { ctx: { getState: () => undefined, resolveRef: () => undefined, functions }, library, store: null });
   return root?.typeName === BOARD_ROOT ? (root as GenuiNode) : null;
 }
@@ -626,15 +758,18 @@ export function describeExamples(sheets: Sheet[] | undefined): string[] {
 /** Changes to try once a card is built. */
 export const DESCRIBE_CHANGES = ["Show more rows", "Add a chart by day", "Only the overdue ones", "Make it smaller"];
 const SHEET_CHANGES = ["Show more rows", "Only the latest entries", "Sort by name", "Make it smaller"];
+const CHECKLIST_CHANGES = ["Only what's left", "Show the ticked ones too", "Add how many are left", "Make it smaller"];
 
-/** Changes to offer once a card is built: a card of a sheet's cells gets its own. */
+/** Changes to offer once a card is built: a card of a sheet's cells or of a checklist gets its own. */
 export function describeChanges(program: string): string[] {
-  return /@Cells\s*\(/.test(program) && !/@Data\s*\(/.test(program) ? SHEET_CHANGES : DESCRIBE_CHANGES;
+  if (/@Data\s*\(/.test(program)) return DESCRIBE_CHANGES;
+  if (/@Checklist\s*\(/.test(program)) return CHECKLIST_CHANGES;
+  return /@Cells\s*\(/.test(program) ? SHEET_CHANGES : DESCRIBE_CHANGES;
 }
 
 /** The example programs in the prompt, without their "Words:" line. */
 export function boardExamples(): { words: string; program: string }[] {
-  return [...EXAMPLES, SHEET_EXAMPLE].map((example) => {
+  return [...EXAMPLES, SHEET_EXAMPLE, CHECKLIST_EXAMPLE].map((example) => {
     const [first, ...rest] = example.split("\n");
     return { words: first.replace(/^Words:\s*/, ""), program: rest.join("\n") };
   });
@@ -698,12 +833,14 @@ export function readBoardProgram(program: string, data: DashboardData = {}): Des
   const title = typeof root.props.title === "string" ? root.props.title.trim().slice(0, 120) : "";
   const named = BOARD_SIZES[root.props.size as BoardSize];
   const first = dataCalls(result.root)[0];
-  const usesRows = /\b(List|TaskRow|EventRow|InfoRow)\(/.test(program);
+  const usesRows = /\b(List|TaskRow|CheckRow|EventRow|InfoRow)\(/.test(program);
   const usesChart = /\bBarChart\(/.test(program);
-  // A program that reads only cells falls back to the list of sheets: a picked
-  // sheet's card would drop the program when the layout is saved (fitQuery).
+  // A program that reads only cells falls back to the list of sheets, and one
+  // that reads only a checklist to the list of docs: a picked sheet's card
+  // would drop the program when the layout is saved (fitQuery).
   const cellsOnly = !first && calls(result.root, "Cells", CellsQuery).length > 0;
-  const plain = first ? dataCardQuery(first, data) : fitQuery(defaultQuery(cellsOnly ? "sheets" : "tasks"));
+  const checklistOnly = !first && !cellsOnly && calls(result.root, "Checklist", ChecklistQuery).length > 0;
+  const plain = first ? dataCardQuery(first, data) : fitQuery(defaultQuery(cellsOnly ? "sheets" : checklistOnly ? "docs" : "tasks"));
   const fallback = fitQuery({
     ...plain,
     display: usesChart && first?.by ? "bar" : usesRows ? "list" : "number",
@@ -722,6 +859,48 @@ export function cellsProblems(program: string, data: DashboardData): string[] {
   const root = boardParser().parse(program).root;
   const missing = calls(root, "Cells", CellsQuery).map((query) => findCells(query, data).missing);
   return [...new Set(missing.filter(Boolean))];
+}
+
+/**
+ * What a program's `@Checklist` calls name that isn't there, such as a doc
+ * renamed after the card was built, one sentence each. Empty until the docs
+ * are loaded (the apps hold an empty list while they load).
+ */
+export function checklistProblems(program: string, data: DashboardData): string[] {
+  if (!data.docs?.length || !/@Checklist\s*\(/.test(program)) return [];
+  const root = boardParser().parse(program).root;
+  const missing = calls(root, "Checklist", ChecklistQuery).map((query) => checklistMissing(query, data));
+  return [...new Set(missing.filter(Boolean))];
+}
+
+/** What a card or live block reads that the person's sheets and docs don't have: the note over it. */
+export function blockProblems(program: string, data: DashboardData): string[] {
+  return [...cellsProblems(program, data), ...checklistProblems(program, data)];
+}
+
+/**
+ * The project, workspace, label and status names a program's `@Data` calls
+ * use that fit nothing in the person's data, which leave their blocks empty,
+ * one sentence each with the closest name when there is one.
+ */
+export function dataProblems(program: string, data: DashboardData): string[] {
+  if (!/@Data\s*\(/.test(program)) return [];
+  const lookups = buildLookups(data);
+  const problems = new Set<string>();
+  for (const query of dataCalls(boardParser().parse(program).root)) {
+    const named: [string, Map<string, string>, string | undefined][] = [
+      ["project", lookups.projects, query.project],
+      ["workspace", lookups.workspaces, query.workspace],
+      ["label", lookups.labels, query.label],
+      ["status", lookups.statuses, query.status],
+    ];
+    for (const [what, names, name] of named) {
+      if (!name?.trim() || idsFor(names, name)?.[0] !== "__no_match__") continue;
+      const near = closestValue([...new Set(names.values())], name);
+      problems.add(`No ${what} is called “${name.trim()}”.${near ? ` The closest is “${near}”.` : ""}`);
+    }
+  }
+  return [...problems];
 }
 
 // ---- Live blocks ----

@@ -88,6 +88,19 @@ const TaskRow = defineComponent({
   component: null,
 });
 
+const CheckRow = defineComponent({
+  name: "CheckRow",
+  description:
+    "An item on a doc's checklist with a working tick box that ticks it in the doc. Shows the item's live state.",
+  props: z.object({
+    docId: z.string().describe("The doc's id from a tool result"),
+    text: z.string().describe("The item's words exactly as the doc writes them"),
+    note: z.string().optional().describe("Short detail, e.g. the heading the item is under"),
+    item: z.number().optional().describe("The item's place in the doc, from @Checklist rows"),
+  }),
+  component: null,
+});
+
 const EventRow = defineComponent({
   name: "EventRow",
   description: "A calendar event or block in a day.",
@@ -200,7 +213,7 @@ const Card = defineComponent({
   props: z.object({
     title: z.string().describe("e.g. Today · Sun 25 Oct, or Tasks"),
     rows: z.array(
-      z.union([TaskRow.ref, EventRow.ref, FreeRow.ref, InfoRow.ref, ShareRow.ref, Stats.ref, BarChart.ref, Text.ref]),
+      z.union([TaskRow.ref, CheckRow.ref, EventRow.ref, FreeRow.ref, InfoRow.ref, ShareRow.ref, Stats.ref, BarChart.ref, Text.ref]),
     ),
     meta: z.string().optional().describe("Short summary on the right, e.g. 2 events · 3 tasks"),
     open: z.optional(Open.ref),
@@ -240,6 +253,7 @@ export const GENUI_COMPONENTS = {
   Stats,
   Stat,
   TaskRow,
+  CheckRow,
   EventRow,
   FreeRow,
   InfoRow,
@@ -275,11 +289,12 @@ const RULES = [
   "Add a card when the answer is a list of the person's tasks, events or days, numbers worth comparing, or a choice the person makes. Greetings, confirmations, explanations and errors stay text only.",
   "Keep the text to one or two sentences with the conclusion; do not repeat every row of the card in the text.",
   "Show only data you read with tools in this conversation. Never invent tasks, events, ids, times or numbers; leave out a row you cannot back with data.",
-  "taskId, eventId and Open ids must be real ids from tool results; the ids in the examples are placeholders. Use TaskRow for Work and Reminders, EventRow for events and blocks.",
-  "Cards never change anything by themselves: ticking a TaskRow is the person's own action. Every write you make still goes through propose_changes, never through a card.",
+  "taskId, eventId, docId and Open ids must be real ids from tool results; the ids in the examples are placeholders. Use TaskRow for Work and Reminders, EventRow for events and blocks.",
+  "A doc's checklist items are CheckRow rows, in the doc's order, each with the doc's id and the item's words exactly as get_doc shows them after its tick box (`- [ ] Milk` is CheckRow(id, \"Milk\")). Never show checklist items as InfoRow or TaskRow rows: a CheckRow ticks the item in the doc.",
+  "Cards never change anything by themselves: ticking a TaskRow or a CheckRow is the person's own action. Every write you make still goes through propose_changes, never through a card.",
   "When you ask a question with a few likely answers, end the reply with Choices (up to four short options in the person's language). Set pickTime when the answer is a date or time.",
   "Lay out each answer as one Card of grouped rows. A day is one Card: events, free time and timed tasks in time order, then untimed and done tasks, overdue ones last. Numbers go first in their card as Stats, then the ShareRow or BarChart rows that explain them. Add a second Card only for a different subject.",
-  "At most two cards and twelve rows per card; for more, end the card with an Open link to the full list.",
+  "At most two cards and twelve rows per card; for more, end the card with an Open link to the full list. An Open link to a task, project, doc or sheet needs its id; without one, leave the link out.",
   "Write times in the person's local time as 24-hour HH:MM, and every label in the person's language.",
   "Put the fence at the very end of the reply and close it. Never put the fence inside a proposal summary.",
 ];
@@ -308,6 +323,16 @@ p1 = ShareRow("Client work", "5 h 10 min", 100, "indigo")
 p2 = ShareRow("Timely", "2 h 50 min", 55, "teal")
 p3 = ShareRow("Personal", "1 h 40 min", 32, "orange")
 open = Open("Open Dashboard", "dashboard")
+\`\`\``,
+  `Three things left on your Shopping list.
+
+\`\`\`${GENUI_FENCE}
+root = Reply([list])
+list = Card("Shopping list", [milk, bread, eggs], "3 left", open)
+milk = CheckRow("doc_5d1", "Milk")
+bread = CheckRow("doc_5d1", "Bread")
+eggs = CheckRow("doc_5d1", "Eggs, a dozen")
+open = Open("Open doc", "doc", "doc_5d1")
 \`\`\``,
   `When should I remind you to call the bank?
 
