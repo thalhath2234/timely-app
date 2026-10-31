@@ -198,6 +198,13 @@ list = List(@Each(todo.rows, "t", TaskRow(t.id, t.title, t.day, t.note)), "Nothi
     for (const size of SIZES) draw(renderCard(noted, size), `noted ${size.width}x${size.height}`);
     for (const size of SIZES.slice(1)) assert.ok(planCard(noted, size).noteLines >= 1, `note at ${size.width}x${size.height}`);
     assert.ok(planCard(noted, { width: 320, height: 320 }).bars > 0);
+    // A short wide widget keeps its chart beside the figure and the note under them.
+    for (const height of [110, 140]) {
+      const plan = planCard(noted, { width: 320, height });
+      assert.equal(plan.mode, "wide", `${height}`);
+      assert.ok(plan.bars > 0 && plan.noteLines >= 1, `${height}: ${JSON.stringify(plan)}`);
+      draw(renderCard(noted, { width: 320, height }), `noted 320x${height}`);
+    }
   });
 
   test("the card picker's still preview", () => {

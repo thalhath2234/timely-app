@@ -518,7 +518,7 @@ list = List(@Each(shop.rows, "i", CheckRow(i.docId, i.text, i.note, i.item)), "E
     const shown = (program, given = input) => {
       const card = describedCard("dc", "a chart", program, given.data);
       const saved = normalizeDashboard({ cards: [card] }).cards.find((c) => c.id === "dc");
-      const full = genuiNodes(drawBoard(program, given.data, { now: given.now, timeZone: "UTC" }).props.blocks).find((block) => block.typeName === "BarChart").props.labels;
+      const full = genuiNodes(drawBoard(program, given.data, { now: given.now, timeZone: "UTC" }).props.blocks).find((block) => block.typeName === "BarChart" && block.props.labels.length).props.labels;
       return { bars: cardWidgetModel(saved, given).bars.map((bar) => bar.label), full };
     };
     // Past days keep the latest, even when Stats on another @Data come first.
@@ -553,6 +553,25 @@ chart = BarChart("By project", work.labels, work.values)`,
     );
     assert.ok(byProject.full.length > 8);
     assert.deepEqual(byProject.bars, byProject.full.slice(0, 8));
+    // A chart that draws empty isn't drawn, so the next one keeps its own window.
+    const afterEmpty = shown(`root = Panel("Done", [split, days])
+week = @Data({source: "tasks", state: "done", date: "completedAt", range: "lastWeek", by: "project"})
+done = @Data({source: "tasks", state: "done", date: "completedAt", range: "last14", by: "day"})
+split = BarChart("Last week by project", week.labels, week.values)
+days = BarChart("Done per day", done.labels, done.values)`);
+    assert.equal(afterEmpty.full.length, 14);
+    assert.deepEqual(afterEmpty.bars, afterEmpty.full.slice(-8));
+    // A chart under a condition is still read.
+    const shownIf = shown(`root = Panel("Done", [chart])
+done = @Data({source: "tasks", state: "done", date: "completedAt", range: "last14", by: "day"})
+chart = done.value > 0 ? BarChart("Done per day", done.labels, done.values) : Text("Nothing done yet")`);
+    assert.deepEqual(shownIf.bars, shownIf.full.slice(-8));
+    // Done tasks are only ever in the past, so "next14" draws the last 14 days and keeps the latest.
+    const turned = shown(`root = Panel("Done", [chart])
+done = @Data({source: "tasks", state: "done", range: "next14", by: "day"})
+chart = BarChart("Done per day", done.labels, done.values)`);
+    assert.equal(turned.full.length, 14);
+    assert.deepEqual(turned.bars, turned.full.slice(-8));
     // A sheet's latest entries keep the last rows.
     const columns = [{ id: "d", name: "Date", width: 100, type: "text" }, { id: "w", name: "Weight", width: 100, type: "number" }];
     const rows = [{ id: "h", cells: { d: "Date", w: "Weight" } }, ...Array.from({ length: 20 }, (_, i) => ({ id: `r${i}`, cells: { d: `Day ${i + 1}`, w: String(80 - i) } }))];

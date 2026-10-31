@@ -7,10 +7,10 @@
  * bars, shares become meters and text becomes the note. Pure, so
  * `make test-mobile-widgets` runs it under Node.
  */
-import type { DashboardData } from "@timely/contract/dashboard";
+import { fitQuery, type DashboardData } from "@timely/contract/dashboard";
 import { checklistItems, findChecklistItem, type DocChecklistItem } from "@timely/contract/docChecklist";
 import { genuiColorHex, genuiNodes, replyBlocks, type GenuiNode } from "@timely/contract/genui";
-import { blockProblems, chartQueries, drawBoard, type ChartQuery } from "@timely/contract/genuiBoard";
+import { blockProblems, chartQueries, dataCardQuery, drawBoard, type ChartQuery } from "@timely/contract/genuiBoard";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
 import type { WidgetModel, WidgetRow, WidgetTone } from "./model";
 
@@ -53,14 +53,16 @@ const TIME_GROUPS = new Set(["day", "week", "month"]);
  * today in this month by day. A sheet's latest entries keep their last rows.
  * Anything else, such as a chart sorted largest first, keeps its first bars.
  */
-function barsStart(query: ChartQuery | undefined, count: number, today: string): number {
+function barsStart(query: ChartQuery | undefined, count: number, today: string, source: DashboardData): number {
   if (count <= BARS) return 0;
   const latest = count - BARS;
-  const data = query?.data;
-  if (data?.by && TIME_GROUPS.has(data.by)) {
-    const range = data.range ?? "all";
+  // The bars come from the query @Data runs (runData), which can regroup a time the
+  // range can't hold or turn "next" into "last" for dates that are only ever past.
+  const series = query?.data?.by ? fitQuery({ ...dataCardQuery(query.data, source), display: "bar", groupBy: query.data.by }) : undefined;
+  if (series && TIME_GROUPS.has(series.groupBy)) {
+    const range = series.range.preset;
     if (range.startsWith("next")) return 0;
-    if (range === "thisMonth" && data.by === "day") return Math.max(0, Math.min(latest, Number(today.slice(8, 10)) - BARS));
+    if (range === "thisMonth" && series.groupBy === "day") return Math.max(0, Math.min(latest, Number(today.slice(8, 10)) - BARS));
     return latest;
   }
   const cells = query?.cells;
@@ -191,11 +193,17 @@ export function describedModel(program: string, input: Input, title: string): Wi
         const labels = Array.isArray(p.labels) ? p.labels.map(text) : [];
         let query: ChartQuery | undefined;
         try {
-          query = chartQueries(program)[0];
+          // The drawn chart's own query: one that drew empty isn't drawn, so match by statement or title.
+          const charts = chartQueries(program);
+          const statementId = (node as GenuiNode & { statementId?: string }).statementId;
+          query =
+            (statementId ? charts.find((chart) => chart.statementId === statementId) : undefined) ??
+            charts.find((chart) => chart.title !== undefined && chart.title === text(p.title)) ??
+            (charts.length === 1 ? charts[0] : undefined);
         } catch {
           query = undefined;
         }
-        const start = barsStart(query, all.length, today);
+        const start = barsStart(query, all.length, today, input.data);
         const values = all.slice(start, start + BARS);
         const max = Math.max(...values, 0);
         const highlight = text(p.highlight);

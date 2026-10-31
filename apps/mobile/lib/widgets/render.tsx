@@ -610,16 +610,7 @@ export function planCard(model: WidgetModel, size: Size): CardPlan {
   const wideClock =
     size.width >= 260 && short && buttons > 0 && Boolean(model.timer || model.value) && !model.ring && !model.meters && (!rowsWanted || !columnFitsButton);
   const wide =
-    !wideClock &&
-    size.width >= 260 &&
-    short &&
-    Boolean(model.value) &&
-    !model.ring &&
-    !model.meters &&
-    buttons <= 1 &&
-    Boolean(rowsWanted || model.bars?.length) &&
-    // The wide layout has no line for a note, so a card with one stays a column.
-    !model.note;
+    !wideClock && size.width >= 260 && short && Boolean(model.value) && !model.ring && !model.meters && buttons <= 1 && Boolean(rowsWanted || model.bars?.length);
   const plan: CardPlan = {
     mode: wideClock ? "wideClock" : wide ? "wide" : "column",
     header: !tabs,
@@ -674,7 +665,9 @@ export function planCard(model: WidgetModel, size: Size): CardPlan {
     return plan;
   }
   if (wide) {
-    const room = innerH - HEADER_H;
+    // A note takes a line under the figure and its rows or chart.
+    if (model.note) plan.noteLines = 1;
+    const room = innerH - HEADER_H - (model.note ? NOTE_LINE_H + 2 : 0);
     if (buttons) plan.buttonH = 36;
     stat(room - (buttons ? plan.buttonH + GAP : 0), 112, false, 34);
     plan.rows = Math.min(rowsWanted, Math.max(1, Math.floor(room / ROW_H)));
