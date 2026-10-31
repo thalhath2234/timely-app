@@ -30,6 +30,7 @@ import { colors, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import ListEnter from "../ui/ListEnter";
 import LoopImage from "../ui/LoopImage";
+import { planGroups } from "@timely/contract/changeReview";
 import ChangeCards from "./ChangeCards";
 import ImagePreview from "./ImagePreview";
 import { dayLabel, isBusy, phaseLabel, timeOfDay } from "./chatMeta";
@@ -180,19 +181,22 @@ function Archive({
   onReview: (steps: ChatStep[]) => void;
 }) {
   const steps = message.steps ?? [];
-  const done = steps.filter((s) => s.status === "done").length;
+  const groups = planGroups(steps);
+  const done = groups.filter((group) =>
+    group.steps.every((i) => steps[i].status === "done"),
+  ).length;
   const discarded = message.content.toLowerCase().includes("discard");
   return (
     <AnimatedPressable
       accessibilityRole="button"
-      accessibilityLabel={`${discarded ? "Discarded" : "Earlier"} proposal, ${steps.length} changes`}
+      accessibilityLabel={`${discarded ? "Discarded" : "Earlier"} proposal, ${groups.length} changes`}
       onPress={() => onReview(steps)}
       style={styles.archive}
     >
       <History size={16} color={colors.mutedForeground} />
       <Text numberOfLines={1} style={[common.muted, { flex: 1 }]}>
-        {discarded ? "Discarded proposal" : "Earlier proposal"} · {steps.length}{" "}
-        {steps.length === 1 ? "change" : "changes"}
+        {discarded ? "Discarded proposal" : "Earlier proposal"} ·{" "}
+        {groups.length} {groups.length === 1 ? "change" : "changes"}
         {done ? `, ${done} applied` : ""}
       </Text>
       <ChevronRight size={16} color={colors.mutedForeground} />

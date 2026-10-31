@@ -68,6 +68,7 @@ type SheetService interface {
 	// The grid edits below take a tab id; an empty id is the first tab.
 	AddRows(userID, sheetID, tabID string, count int) (*models.Sheet, error)
 	AddRow(userID, sheetID, tabID string, cells map[string]string) (*models.Sheet, int, error)
+	AddEntries(userID, sheetID, tabID string, entries []map[string]string) (*models.Sheet, []int, error)
 	UpdateCells(userID, sheetID, tabID, rowID string, cells map[string]string) (*models.Sheet, error)
 	DeleteRows(userID, sheetID, tabID string, rowIDs []string) (*models.Sheet, error)
 	AddColumn(userID, sheetID, tabID, name, colType string, options []string) (*models.Sheet, error)
@@ -685,17 +686,37 @@ func (s *sheetService) AddRows(userID, sheetID, tabID string, count int) (*model
 // are reused, and an entry goes above a closing totals row. It returns the
 // row's index.
 func (s *sheetService) AddRow(userID, sheetID, tabID string, cells map[string]string) (*models.Sheet, int, error) {
+	sh, indexes, err := s.AddEntries(userID, sheetID, tabID, []map[string]string{cells})
+	if err != nil {
+		return sh, -1, err
+	}
+	return sh, indexes[0], nil
+}
+
+// AddEntries writes several entries into a tab in one save, each the way
+// AddRow writes one, in order. It returns each entry's row index; none is
+// written when any entry is invalid.
+func (s *sheetService) AddEntries(userID, sheetID, tabID string, entries []map[string]string) (*models.Sheet, []int, error) {
+	if len(entries) == 0 {
+		return nil, nil, errors.New("at least one entry is required")
+	}
 	defer s.lockGrid(sheetID)()
-	index := -1
+	indexes := make([]int, 0, len(entries))
 	sh, err := s.editTab(userID, sheetID, tabID, func(tab *models.SheetTab) error {
-		values, err := typedCells(tab.Columns, cells)
-		if err != nil {
-			return err
+		rows := make([]models.SheetRow, 0, len(entries))
+		for _, cells := range entries {
+			values, err := typedCells(tab.Columns, cells)
+			if err != nil {
+				return err
+			}
+			rows = append(rows, models.SheetRow{ID: utils.PrefixedUUID("row"), Cells: values})
 		}
-		index = AppendRow(tab, models.SheetRow{ID: utils.PrefixedUUID("row"), Cells: values})
+		for _, row := range rows {
+			indexes = append(indexes, AppendRow(tab, row))
+		}
 		return nil
 	})
-	return sh, index, err
+	return sh, indexes, err
 }
 
 func (s *sheetService) UpdateCells(userID, sheetID, tabID, rowID string, cells map[string]string) (*models.Sheet, error) {

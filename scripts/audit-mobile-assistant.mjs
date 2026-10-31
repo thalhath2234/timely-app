@@ -22,7 +22,7 @@ stub(
 );
 stub(
   "lib/hooks",
-  `export const useSheetsQuery=()=>({data:[]}); export const useSheetQuery=()=>({data:undefined}); export const useWorkspacesQuery=()=>({data:[]}); export const useAgentProvidersQuery=()=>({data:undefined}); export const useProviderModelsQuery=()=>({data:[]}); export const useChatPromptsQuery=()=>({data:undefined}); export const useDecisionFeedback=()=>({mutate(){}});`,
+  `export const useSheetsQuery=()=>({data:[]}); export const useDocsQuery=()=>({data:[]}); export const useProjectsQuery=()=>({data:[]}); export const useTasksQuery=()=>({data:[]}); export const useSheetQuery=()=>({data:undefined}); export const useWorkspacesQuery=()=>({data:[]}); export const useAgentProvidersQuery=()=>({data:undefined}); export const useProviderModelsQuery=()=>({data:[]}); export const useChatPromptsQuery=()=>({data:undefined}); export const useDecisionFeedback=()=>({mutate(){}});`,
 );
 stub(
   "lib/chat/storage",
@@ -262,14 +262,19 @@ else {
     });
     await page.getByLabel("Review and apply").click();
     await page.getByText("Ready for your review").waitFor();
-    await page.getByLabel("Apply changes").waitFor();
-    await page.getByLabel("Review details").nth(1).click();
+    await page.getByLabel("Apply all").waitFor();
+    // One card is open at a time; the second shows the rows it adds.
+    await page
+      .getByText(
+        "Add Item, Quantity, Unit price, and Total columns, with initial expense rows.",
+      )
+      .click();
     await page.getByText("Hosting").waitFor();
     await page.screenshot({
       path: "/tmp/timely-mobile-proposal.png",
       fullPage: true,
     });
-    await page.getByLabel("Discard proposal").click();
+    await page.getByLabel("Discard all").click();
     await page.getByText("Proposal discarded. Nothing was changed.").waitFor();
     assert(
       (await actions()).some(
@@ -282,13 +287,13 @@ else {
     await page.getByText("Some changes did not finish").first().waitFor();
     await page.getByLabel("View changes").click();
     await page.getByText("Workspace name already exists").first().waitFor();
-    await page.getByLabel("Failed").waitFor();
+    await page.getByText("Failed", { exact: true }).first().waitFor();
     await page.screenshot({
       path: "/tmp/timely-mobile-failed.png",
       fullPage: true,
     });
     await page.getByLabel("Review unfinished changes").click();
-    await page.getByLabel("Apply changes").waitFor();
+    await page.getByLabel("Apply all").waitFor();
     // Running state: stop from the composer
     await page.goto("http://localhost:4002/?chat=running");
     await page.getByText("Thinking it through…").first().waitFor();

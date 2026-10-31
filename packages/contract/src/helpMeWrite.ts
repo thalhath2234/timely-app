@@ -99,19 +99,21 @@ const BOX_TEXT = /^\[( |x|X)?\](?: |$)/;
 
 /** A list where some items have a tick box becomes a checklist: models mix
  * "- [ ]" and "-" lines, and the boxes would otherwise show as "[ ]" text.
- * A box with nothing after it is no item at all. Code blocks are left as
- * they are. */
+ * fromMarkdown already makes such a list a checklist, but a box Markdown
+ * does not read as one ("[] ", or "[ ]" with nothing after it) is still text
+ * there. A box with nothing after it is no item at all. Code blocks are left
+ * as they are. */
 function tidyLists(nodes: Node[]): Node[] {
   return nodes.flatMap((node) => {
     const content = node.content ? tidyLists(node.content as Node[]) : undefined;
     const next = content ? { ...node, content } : node;
-    if (next.type !== "bulletList" && next.type !== "orderedList") return [next];
+    if (next.type !== "bulletList" && next.type !== "orderedList" && next.type !== "taskList") return [next];
     const items = (content ?? []) as Node[];
     const box = (item: Node) => BOX_TEXT.exec(((item.content?.[0] as Node | undefined)?.content?.[0] as Node | undefined)?.text ?? "");
     if (!items.some(box)) return [next];
     const tasks = items.flatMap((item): Node[] => {
       const found = box(item);
-      if (!found) return [{ ...item, type: "taskItem", attrs: { checked: false } }];
+      if (!found) return [item.type === "taskItem" ? item : { ...item, type: "taskItem", attrs: { checked: false } }];
       const [line, ...below] = item.content as Node[];
       const [first, ...inline] = line.content as Node[];
       const left = (first.text ?? "").slice(found[0].length);

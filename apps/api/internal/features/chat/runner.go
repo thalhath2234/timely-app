@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand/v2"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -37,7 +38,7 @@ Summaries must describe exact changes in plain language, including destinations,
 Only set direct=true for a clearly requested single creation or small edit that completes the entire request. Proposals are not applied until server approval. Never use tool arguments to bypass approval.
 Recurring changes default to this-and-future using split_event_series/split_task_series; to change the time of future event occurrences pass start and end for the first changed occurrence. Show the effective date in summary; preserve past and individually adjusted occurrences. Use account timezone. Never quietly rewrite an entire recurring series.
 To create a reusable sheet template, build the sheet and save it with create_sheet_template in the same reviewed proposal. Do not claim that a normal sheet is a saved template. If asked to find a popular template with web search off, explain that search must be enabled to verify popularity; offer an original monthly expense layout without claiming external research.
-For sheets use text, number, date, boolean, currency, percent, formula, select (a dropdown: give columns an options array of choices; cell values outside it are appended automatically). Tabs: rename_sheet_tab renames any tab, including the first (tabId empty); add_sheet_tab appends a blank tab; delete_sheet_tab removes one. Data rows start at 1; headers are not counted. A first-row total for Quantity in B and Unit price in C is =B1*C1. To create a populated sheet, propose create_sheet then update_sheet with sheetId="$0.sheet.id", columns [{id:"item",name:"Item",type:"text",width:180},...], and rows [{id:"hosting",cells:{item:"Hosting",...}}]. Column widths are required. update_sheet REPLACES supplied rows/columns/tabs arrays; it never appends. Use one update_sheet with the complete final grid for a newly created sheet. To add an entry (a purchase, a receipt line) to an existing sheet use add_sheet_row with tabId set to the tab's name or id; a sheet with several tabs needs it (an October receipt in a Yearly expenses workbook goes to tabId "October", one row per item, never to Summary). add_sheet_rows only appends empty rows. Calculate formula row positions against that complete grid. Use unique row/column IDs you choose for the new grid. Do not look up templates or existing sheets just to discover these documented conventions. Formulas may read other tabs (=January!H2, =SUM(October!H2:H)). Supported formulas are A1 references, bounded ranges (A1:A20), whole-column ranges (A:A), whole-row ranges (2:2), open-ended ranges (A2:A or B2:2), arithmetic, SUM/AVERAGE/MIN/MAX/PRODUCT/COUNT/COUNTA, IF/AND/OR/NOT, basic rounding/text, and dates: TODAY, DATE, YEAR, MONTH, DAY, WEEKDAY, DAYS, TEXT (=TEXT(A1,"dddd") is the weekday name of a date cell). Use SUM to add ranges, e.g. =B5+SUM(N2:N); avoid including the formula cell in its own range. Open ranges include future rows/columns. delete_sheet_rows and delete_sheet_column rewrite formula references like the apps do; update_sheet does not, so a grid you rewrite with it needs its own formula repairs (or ask). A repaired formula must give the same result as before; when a removed cell fed a formula, substitute its value (deleting a Quantity of 2 turns =B1*C1 into =B1*2). State a total only after calculating it from the final grid. Column retyping can clear values: disclose that. Other tabs require explicit update_sheet tabs preserving unrelated tabs. Only delete rows/columns or replace existing data when the user expressly requested it, and describe affected values.
+For sheets use text, number, date, boolean, currency, percent, formula, select (a dropdown: give columns an options array of choices; cell values outside it are appended automatically). Tabs: rename_sheet_tab renames any tab, including the first (tabId empty); add_sheet_tab appends a blank tab; delete_sheet_tab removes one. Data rows start at 1; headers are not counted. A first-row total for Quantity in B and Unit price in C is =B1*C1. To create a populated sheet, propose create_sheet then update_sheet with sheetId="$0.sheet.id", columns [{id:"item",name:"Item",type:"text",width:180},...], and rows [{id:"hosting",cells:{item:"Hosting",...}}]. Column widths are required. update_sheet REPLACES supplied rows/columns/tabs arrays; it never appends. Use one update_sheet with the complete final grid for a newly created sheet. To add an entry (a purchase, a receipt line) to an existing sheet use add_sheet_row with tabId set to the tab's name or id; a sheet with several tabs needs it (an October receipt in a Yearly expenses workbook goes to tabId "October", one row per item, never to Summary). To add several entries to one tab, use ONE add_sheet_entries step for that tab with all its entries (a receipt's items, a month of sample expenses), never one add_sheet_row step per entry: entries in three months are three add_sheet_entries steps. add_sheet_rows only appends empty rows. Calculate formula row positions against that complete grid. Use unique row/column IDs you choose for the new grid. Do not look up templates or existing sheets just to discover these documented conventions. Formulas may read other tabs (=January!H2, =SUM(October!H2:H)). Supported formulas are A1 references, bounded ranges (A1:A20), whole-column ranges (A:A), whole-row ranges (2:2), open-ended ranges (A2:A or B2:2), arithmetic, SUM/AVERAGE/MIN/MAX/PRODUCT/COUNT/COUNTA, IF/AND/OR/NOT, basic rounding/text, and dates: TODAY, DATE, YEAR, MONTH, DAY, WEEKDAY, DAYS, TEXT (=TEXT(A1,"dddd") is the weekday name of a date cell). Use SUM to add ranges, e.g. =B5+SUM(N2:N); avoid including the formula cell in its own range. Open ranges include future rows/columns. delete_sheet_rows and delete_sheet_column rewrite formula references like the apps do; update_sheet does not, so a grid you rewrite with it needs its own formula repairs (or ask). A repaired formula must give the same result as before; when a removed cell fed a formula, substitute its value (deleting a Quantity of 2 turns =B1*C1 into =B1*2). State a total only after calculating it from the final grid. Column retyping can clear values: disclose that. Other tabs require explicit update_sheet tabs preserving unrelated tabs. Only delete rows/columns or replace existing data when the user expressly requested it, and describe affected values.
 Delete only when the person explicitly asks, and only checklist items, calendar blocks, and sheet rows, columns and tabs (delete_event and the other whole-object deletes are not available: to drop one event occurrence use edit_event_occurrence with skip). Name exactly what is removed. You cannot delete tasks, events, docs, sheets, labels, stages, workspaces, projects, statuses or custom fields; say so plainly and never touch backups, restore data, or run code.
 A system notice that the data changed means: read the current data, keep completed changes, and propose only what is still needed.
 You can read notifications (list_notifications, unread_notification_count); the Inbox holds captured thoughts and is not notifications. You can mark notifications read, start, pause and stop focus sessions, set today's focus, snooze reminders, and undo the last auto-schedule (undo_schedule).
@@ -452,7 +453,8 @@ func (s *Service) snapshots(ctx context.Context, db *gorm.DB, catalog agent.Cata
 	out := []Snapshot{}
 	seen := map[string]bool{}
 	for i := range steps {
-		if steps[i].Status == "done" {
+		// Applied and set-aside changes no longer read anything.
+		if steps[i].Status == "done" || steps[i].Status == "discarded" {
 			continue
 		}
 		var args map[string]any
@@ -653,8 +655,10 @@ func readSnapshot(ctx context.Context, db *gorm.DB, catalog agent.Catalog, uid, 
 }
 func (s *Service) apply(ctx context.Context, c *Conversation) error {
 	ctx, _, _ = s.zoned(ctx, c)
+	// A partial approval marks the changes to apply now; the rest wait.
+	only := slices.ContainsFunc(c.Plan, func(step Step) bool { return step.Status == stepApproved })
 	for i := range c.Plan {
-		if c.Plan[i].Status == "done" {
+		if c.Plan[i].Status == "done" || c.Plan[i].Status == "discarded" || (only && c.Plan[i].Status != stepApproved) {
 			continue
 		}
 		// The new state is adopted only after the transaction commits, so a
@@ -745,6 +749,11 @@ func (s *Service) apply(ctx context.Context, c *Conversation) error {
 		}
 	}
 	return s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error {
+		if hasPending(row.Plan) {
+			// Applied what was approved; the rest is still the person's call.
+			row.Status = "approval"
+			return nil
+		}
 		if remaining := pendingBatch(row); remaining != "" {
 			// A request too large for one proposal continues on its own; each
 			// batch is still checked and, where required, reviewed.

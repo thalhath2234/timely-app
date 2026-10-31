@@ -90,3 +90,17 @@ test("handwritten extras read like GitHub and Obsidian", () => {
   assert.deepEqual(inline[4], { type: "text", text: " and [^missing]." });
   assert.deepEqual(content.content[5].attrs, { label: "n" });
 });
+
+test("a list mixing tick boxes and plain items is one checklist (as frommarkdown.go)", () => {
+  const { content, plainText } = fromMarkdown("- [ ] Flights\n- Notes\n- [x] Insurance\n\n1. Pack\n2. Leave");
+  assert.deepEqual(
+    content.content.map((node) => node.type),
+    ["taskList", "orderedList"],
+  );
+  assert.deepEqual(
+    content.content[0].content.map((item) => [item.type, item.attrs.checked]),
+    [["taskItem", false], ["taskItem", false], ["taskItem", true]],
+  );
+  assert.equal(plainText, "Flights\nNotes\nInsurance\nPack\nLeave");
+  assert.doesNotMatch(JSON.stringify(content), /\[ \]|\[x\]/);
+});

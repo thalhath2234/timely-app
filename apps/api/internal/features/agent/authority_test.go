@@ -45,7 +45,7 @@ var expectedAuthority = []struct {
 	edit_task_occurrence set_task_recurrence split_event_series split_task_series undo_schedule restore_doc_version`},
 	// Need an Agent proposal depending on their arguments (TestArgumentRules).
 	{Write, ReviewedWhen, `
-	add_3d_model add_live_block create_sheet mark_notification_read update_doc update_event update_sheet update_sheet_cells
+	add_3d_model add_live_block add_sheet_entries create_sheet mark_notification_read update_doc update_event update_sheet update_sheet_cells
 	update_sheet_column update_sheet_tab update_task`},
 	// External MCP clients only; chat never sees them.
 	{MCPOnly, Applies, `
@@ -231,6 +231,9 @@ func TestArgumentRules(t *testing.T) {
 		{"update_sheet_cells", map[string]any{"cells": map[string]any{"a": 1}}, false},
 		{"update_sheet_cells", map[string]any{"cells": map[string]any{"a": 1, "b": 2}}, true},
 		{"update_sheet_cells", nil, true},
+		{"add_sheet_entries", map[string]any{"entries": []any{map[string]any{"cells": map[string]any{"Item": "Rice"}}}}, false},
+		{"add_sheet_entries", map[string]any{"entries": []any{map[string]any{}, map[string]any{}}}, true},
+		{"add_sheet_entries", nil, true},
 		{"update_sheet", map[string]any{"title": "x"}, false},
 		{"update_sheet", map[string]any{"merges": nil}, true},
 		{"update_sheet_column", map[string]any{"type": "number"}, true},
