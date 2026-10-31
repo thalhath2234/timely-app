@@ -194,7 +194,7 @@ var jsonObject = regexp.MustCompile(`(?s)\{.*\}`)
 // parseViewDraft reads the model's JSON, allowing a code fence or a sentence around it.
 func parseViewDraft(text string) (viewQueryDraft, error) {
 	var draft viewQueryDraft
-	body := jsonObject.FindString(cleanWritten(text))
+	body := jsonObject.FindString(cleanWritten(text, false))
 	if body == "" {
 		return draft, errors.New("no JSON in the answer")
 	}

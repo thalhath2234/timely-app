@@ -92,35 +92,37 @@ export function writeStarters(kind: WriteKind, hasText: boolean): WriteChoice[] 
 
 type Node = DocContent & { attrs?: Record<string, unknown>; text?: string };
 
-/** A checkbox the Markdown parser left as text: "[ ] " or "[x] " opening the
- * first line of an item in a list that was not all checklist items. */
-const BOX_TEXT = /^\[( |x|X)\] /;
+/** A checkbox the Markdown parser left as text: "[ ] ", "[x] " or "[] "
+ * opening the first line of an item in a list that was not all checklist
+ * items, or standing alone as an item with no text. */
+const BOX_TEXT = /^\[( |x|X)?\](?: |$)/;
 
 /** A list where some items have a tick box becomes a checklist: models mix
- * "- [ ]" and "-" lines, and the boxes would otherwise show as "[ ]" text. */
+ * "- [ ]" and "-" lines, and the boxes would otherwise show as "[ ]" text.
+ * A box with nothing after it is no item at all. Code blocks are left as
+ * they are. */
 function tidyLists(nodes: Node[]): Node[] {
-  return nodes.map((node) => {
+  return nodes.flatMap((node) => {
     const content = node.content ? tidyLists(node.content as Node[]) : undefined;
     const next = content ? { ...node, content } : node;
-    if (next.type !== "bulletList" && next.type !== "orderedList") return next;
+    if (next.type !== "bulletList" && next.type !== "orderedList") return [next];
     const items = (content ?? []) as Node[];
     const box = (item: Node) => BOX_TEXT.exec(((item.content?.[0] as Node | undefined)?.content?.[0] as Node | undefined)?.text ?? "");
-    if (!items.some(box)) return next;
-    return {
-      type: "taskList",
-      content: items.map((item) => {
-        const found = box(item);
-        if (!found) return { ...item, type: "taskItem", attrs: { checked: false } };
-        const [line, ...below] = item.content as Node[];
-        const [first, ...inline] = line.content as Node[];
-        const left = (first.text ?? "").slice(found[0].length);
-        return {
-          type: "taskItem",
-          attrs: { checked: found[1] !== " " },
-          content: [{ ...line, content: left ? [{ ...first, text: left }, ...inline] : inline }, ...below],
-        };
-      }),
-    };
+    if (!items.some(box)) return [next];
+    const tasks = items.flatMap((item): Node[] => {
+      const found = box(item);
+      if (!found) return [{ ...item, type: "taskItem", attrs: { checked: false } }];
+      const [line, ...below] = item.content as Node[];
+      const [first, ...inline] = line.content as Node[];
+      const left = (first.text ?? "").slice(found[0].length);
+      if (!left && !inline.length && !below.length) return [];
+      return [{
+        type: "taskItem",
+        attrs: { checked: found[1] === "x" || found[1] === "X" },
+        content: [{ ...line, content: left ? [{ ...first, text: left }, ...inline] : inline }, ...below],
+      }];
+    });
+    return tasks.length ? [{ type: "taskList", content: tasks }] : [];
   });
 }
 
@@ -151,9 +153,8 @@ export function writtenContent(
   markdown: string,
   into?: WriteList | null,
 ): { blocks: DocContent[]; inline: DocContent[] | null; items: DocContent[] | null } {
-  // "- []" is a checkbox to the eye but not to Markdown, which wants "- [ ]".
-  const source = markdown.trim().replace(/^([ \t]*(?:[-*+]|\d+[.)])[ \t]+)\[\](?=[ \t]|$)/gm, "$1[ ]");
-  const doc = fromMarkdown(source, { breaks: true }).content;
+  // "- []" is a checkbox to the eye but not to Markdown: tidyLists reads it.
+  const doc = fromMarkdown(markdown.trim(), { breaks: true }).content;
   let blocks = tidyLists((doc.content ?? []) as Node[]);
   const only = blocks.length === 1 ? blocks[0] : null;
   const items = into && only && isWriteList(only.type) ? joinItems(only, into) : null;

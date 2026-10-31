@@ -38,14 +38,15 @@ export type WriteInfo = {
 };
 
 /** How the draft goes in: over the selection, after it or at the caret, or at
- * the end of the text ("Continue writing"). */
-export type WriteInsert = { markdown: string; mode: "replace" | "below" | "insert" | "end" };
+ * the end of the text ("Continue writing"), and the action that wrote it. */
+export type WriteInsert = { markdown: string; mode: "replace" | "below" | "insert" | "end"; action: WriteAction };
 
 type Run = { action: WriteAction; prompt?: string; selection?: string; label?: string };
 
-/** The list a draft inserted this way joins, if any. */
-export function writeList(info: WriteInfo, mode: WriteInsert["mode"]) {
-  if (info.selection) return null;
+/** The list a draft inserted this way joins, if any. A summary or
+ * description is not more items of the list the caret is in. */
+export function writeList(info: WriteInfo, mode: WriteInsert["mode"], action: WriteAction) {
+  if (info.selection || (action !== "write" && action !== "continue")) return null;
   return (mode === "end" ? info.endList : info.list) ?? null;
 }
 
@@ -120,7 +121,7 @@ export default function HelpMeWriteSheet({
 
   const insert = (mode: "replace" | "below") => {
     if (!result) return;
-    onInsert({ markdown: result.text, mode: insertMode(mode, result.run.action) });
+    onInsert({ markdown: result.text, mode: insertMode(mode, result.run.action), action: result.run.action });
   };
 
   const footer = result && !busy ? (
@@ -170,7 +171,7 @@ export default function HelpMeWriteSheet({
             <RichDoc
               content={{
                 type: "doc",
-                content: info ? writtenContent(result.text, writeList(info, insertMode("replace", result.run.action))).blocks : [],
+                content: info ? writtenContent(result.text, writeList(info, insertMode("replace", result.run.action), result.run.action)).blocks : [],
               }}
             />
           </ScrollView>

@@ -45,6 +45,10 @@ type ListSpot = { list: WriteList; at: number; drop?: { from: number; to: number
 
 const isEmptyLine = (node: PMNode | null | undefined) => Boolean(node?.isTextblock && node.content.size === 0);
 
+/** Drafts that add to the text where they go: written at the caret, or
+ * Continue writing at the end. */
+const joinsList = (action: WriteAction) => action === "write" || action === "continue";
+
 /** The list a draft at `pos` joins: the list the caret is in (after its item,
  * or over it when the item is empty), or the list right above an empty line,
  * which is where Enter twice leaves the caret. With `end` (Continue writing)
@@ -100,7 +104,9 @@ function cursorDoc(state: EditorState, pos: number): JSONContent {
       }
     } else {
       const $pos = state.doc.resolve(Math.min(pos, state.doc.content.size));
-      if (isEmptyLine($pos.parent)) tr.insertText(WRITE_CURSOR, $pos.pos);
+      // Only an empty line of its own becomes the draft (insert does the
+      // same); in a table cell or callout the draft goes after the block.
+      if ($pos.depth === 1 && isEmptyLine($pos.parent)) tr.insertText(WRITE_CURSOR, $pos.pos);
       else tr.insert($pos.depth > 0 ? $pos.after(1) : state.doc.content.size, schema.nodes.paragraph.create(null, schema.text(WRITE_CURSOR)));
     }
     return tr.doc.toJSON();
@@ -347,8 +353,10 @@ export default function HelpMeWritePanel({
 
   // Where the panel opened, moved along with any edits made since.
   const caret = () => targetKey.getState(editor.state)?.from ?? captured.from;
-  // The list a draft written with nothing selected joins, if any.
-  const spotFor = (action: WriteAction) => (hasSelection ? null : listSpot(editor.state.doc, caret(), action === "continue"));
+  // The list a draft written with nothing selected joins, if any. A summary
+  // or description is not more items of the list the caret is in.
+  const spotFor = (action: WriteAction) =>
+    hasSelection || !joinsList(action) ? null : listSpot(editor.state.doc, caret(), action === "continue");
 
   const start = async (run: Run) => {
     abort.current?.abort();
@@ -365,7 +373,7 @@ export default function HelpMeWritePanel({
           kind: context.kind,
           title: context.title,
           text: docText(),
-          doc: hasSelection || run.action === "continue" ? editor.getJSON() : cursorDoc(editor.state, caret()),
+          doc: hasSelection || run.action !== "write" ? editor.getJSON() : cursorDoc(editor.state, caret()),
         },
         controller.signal,
       );

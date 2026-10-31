@@ -378,7 +378,7 @@ var (
 // boardProgram takes the program out of the model's answer: inside a code
 // fence when there is one, from the `root = Panel(` line on.
 func boardProgram(answer string) (string, error) {
-	text := cleanWritten(answer)
+	text := cleanWritten(answer, false)
 	if match := programFence.FindStringSubmatch(text); match != nil {
 		text = match[1]
 	}

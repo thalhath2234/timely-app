@@ -1185,11 +1185,11 @@ export default function RichTextEditor({
           info={writeInfo}
           context={writeContext}
           onClose={() => setWriteInfo(null)}
-          onInsert={({ markdown, mode }) => {
+          onInsert={({ markdown, mode, action }) => {
             const info = writeInfo;
             setWriteInfo(null);
             if (!info) return;
-            const list = writeList(info, mode);
+            const list = writeList(info, mode, action);
             const { blocks, inline, items } = writtenContent(markdown, list);
             run("insertWritten", { blocks, inline, items, list, from: info.from, to: info.to, selection: info.selection, mode });
           }}

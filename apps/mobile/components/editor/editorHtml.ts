@@ -2683,7 +2683,9 @@ export function buildEditorHtml(
           }
         } else {
           const $pos = state.doc.resolve(Math.min(pos, state.doc.content.size));
-          if (isEmptyLine($pos.parent)) tr.insertText(WRITE_CURSOR, $pos.pos);
+          // Only an empty line of its own becomes the draft (insertWritten
+          // does the same); in a table cell or callout it goes after the block.
+          if ($pos.depth === 1 && isEmptyLine($pos.parent)) tr.insertText(WRITE_CURSOR, $pos.pos);
           else tr.insert($pos.depth > 0 ? $pos.after(1) : state.doc.content.size, schema.nodes.paragraph.create(null, schema.text(WRITE_CURSOR)));
         }
         return tr.doc.toJSON();
