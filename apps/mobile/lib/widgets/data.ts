@@ -1,5 +1,5 @@
 import Constants from "expo-constants";
-import { describedSources, normalizeDashboard, sourcesUsed, weekStart, type DashboardCard, type DashboardData } from "@timely/contract/dashboard";
+import { normalizeDashboard, sourcesUsed, weekStart, type DashboardCard, type DashboardData } from "@timely/contract/dashboard";
 import { addDaysToDate, todayInZone } from "@timely/contract/workStatus";
 import { getToken } from "../auth/session";
 import { getDoc, getDocs } from "../api/docs";
@@ -71,9 +71,9 @@ export async function loadWidgetInput(cards: DashboardCard[], options: { today?:
   const wantsToday = options.today || used.has("today");
   const wantsFocus = cards.some((card) => card.type === "focusTime" || card.type === "goal");
   const wantsTasks = used.has("tasks") || wantsFocus;
-  // A described card's program can read any range of events ("next7", "thisWeek"), so it
-  // gets the Dashboard's window; other cards only need yesterday to tomorrow.
-  const wideEvents = cards.some((card) => card.query?.described && describedSources(card.query.described.program).includes("events"));
+  // A custom card, plain or described, can read any range of events ("next7", "thisWeek"),
+  // so it gets the Dashboard's window; the other cards only need yesterday to tomorrow.
+  const wideEvents = cards.some((card) => card.type === "custom" && sourcesUsed([card]).has("events"));
   const [eventsFrom, eventsTo] = wideEvents ? [-180, 181] : [-1, 2];
 
   const [tasks, projects, workspaces, docs, sheets, inbox, reminders, events, today, focusSessions] = await Promise.all([
@@ -108,7 +108,8 @@ export async function loadWidgetInput(cards: DashboardCard[], options: { today?:
     projects: projects ?? [],
     workspaces: workspaces ?? [],
     docs: docs ?? [],
-    sheets: sheets ?? [],
+    // Left out when the sheets didn't load, so a card doesn't say its sheet is gone.
+    sheets,
     inbox: inbox ?? [],
     reminders: reminders ?? [],
     events: events?.items ?? [],

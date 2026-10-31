@@ -189,6 +189,15 @@ list = List(@Each(todo.rows, "t", TaskRow(t.id, t.title, t.day, t.note)), "Nothi
     // A chart with no rows still takes all the room it had.
     const { rows, ...chartOnly } = model;
     assert.equal(planCard(chartOnly, { width: 320, height: 320 }).bars, 140);
+    // On a 4x2 the chart gives up rows before it gives up itself.
+    const noStats = cardWidgetModel({ ...base, id: "dc2", query: { ...base.query, described: { prompt: "work", program: program.replace("[nums, chart, list]", "[chart, list]") } } }, input);
+    const short = planCard(noStats, { width: 320, height: 160 });
+    assert.ok(short.bars > 0 && short.rows >= 1, JSON.stringify(short));
+    // A note under a chart (a Text, or a doc the card can't find) draws at every size but the smallest.
+    const noted = cardWidgetModel({ ...base, id: "dc3", query: { ...base.query, described: { prompt: "notes", program: `root = Panel("Done", [Columns([Card("Overdue", [Stats([Stat("Overdue", "4")])]), Card("Per day", [BarChart("Per day", ["Mon", "Tue"], [1, 3]), Text("Keep going")])])])` } } }, input);
+    for (const size of SIZES) draw(renderCard(noted, size), `noted ${size.width}x${size.height}`);
+    for (const size of SIZES.slice(1)) assert.ok(planCard(noted, size).noteLines >= 1, `note at ${size.width}x${size.height}`);
+    assert.ok(planCard(noted, { width: 320, height: 320 }).bars > 0);
   });
 
   test("the card picker's still preview", () => {

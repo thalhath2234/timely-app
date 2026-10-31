@@ -11,7 +11,9 @@ register(
     ),
 );
 
-const { BUILTIN_CARDS, defaultDashboard } = await import("../packages/contract/src/dashboard.ts");
+const { BUILTIN_CARDS, defaultDashboard, normalizeDashboard } = await import("../packages/contract/src/dashboard.ts");
+const { describedCard, drawBoard } = await import("../packages/contract/src/genuiBoard.ts");
+const { genuiNodes } = await import("../packages/contract/src/genui.ts");
 const { CLOCK_LOCAL_LIMITS, POMODORO_LOCAL_LIMITS, cardWidgetModel, clockWidgetModel, counterFormat, counterWidgetModel, formatCount, pomodoroLocalFrom, pomodoroWidgetModel, sheetCounter, todayModel, widgetChoices } = await import("../apps/mobile/lib/widgets/model.ts");
 const { clockChange, isLocalTap, optimisticModel, parseWidgetAction } = await import("../apps/mobile/lib/widgets/actions.ts");
 const { SHARED_MS, sharedLoads } = await import("../apps/mobile/lib/widgets/sharedLoads.ts");
@@ -470,7 +472,7 @@ shares = Card("Split", [ShareRow("Client", "5 h", 100), ShareRow("Admin", "2 h",
 
   test("a described card's cards, charts and rows draw as on the Dashboard", () => {
     const base = defaultDashboard().cards.find((c) => c.id === "default_open");
-    const described = (program, query = {}) => ({ ...base, id: "dc", title: "Card", query: { ...base.query, ...query, described: { prompt: "a card", program } } });
+    const described = (program) => ({ ...base, id: "dc", title: "Card", query: { ...base.query, described: { prompt: "a card", program } } });
 
     // Numbers, a chart and text inside Columns of Cards still draw.
     const columns = cardWidgetModel(described(`root = Panel("Two views", [Columns([one, two])])
@@ -481,14 +483,10 @@ two = Card("Per day", [BarChart("Per day", ["Mon", "Tue"], [1, 3]), Text("Keep g
     assert.equal(columns.note, "Keep going");
     assert.equal(columns.empty, undefined);
 
-    // A time series keeps its latest bars and highlights within them; other charts keep their first.
+    // A chart sorted largest first keeps its first bars, and highlights within them.
     const labels = Array.from({ length: 14 }, (_, i) => `D${i + 1}`);
     const values = labels.map((_, i) => (i === 2 ? 9 : i === 12 ? 5 : 1));
-    const chart = `root = Panel("Days", [BarChart("Per day", [${labels.map((l) => `"${l}"`).join(", ")}], [${values.join(", ")}])])`;
-    const series = cardWidgetModel(described(chart, { groupBy: "day" }), input);
-    assert.deepEqual(series.bars.map((bar) => bar.label), labels.slice(-8));
-    assert.deepEqual(series.bars.filter((bar) => bar.highlight).map((bar) => bar.label), ["D13"]);
-    const ranked = cardWidgetModel(described(chart, { groupBy: "project" }), input);
+    const ranked = cardWidgetModel(described(`root = Panel("Days", [BarChart("Per day", [${labels.map((l) => `"${l}"`).join(", ")}], [${values.join(", ")}])])`), input);
     assert.deepEqual(ranked.bars.map((bar) => bar.label), labels.slice(0, 8));
     assert.deepEqual(ranked.bars.filter((bar) => bar.highlight).map((bar) => bar.label), ["D3"]);
 
@@ -514,6 +512,56 @@ list = List(@Each(shop.rows, "i", CheckRow(i.docId, i.text, i.note, i.item)), "E
     assert.equal(long.rows[1].toggle, undefined);
     assert.equal(long.rows[1].done, false);
     assert.equal(long.rows[1].uri, "timelymobile://docs/doc_shop");
+  });
+
+  test("a described card's chart keeps the bars that end now, saved as the app saves it", () => {
+    const shown = (program, given = input) => {
+      const card = describedCard("dc", "a chart", program, given.data);
+      const saved = normalizeDashboard({ cards: [card] }).cards.find((c) => c.id === "dc");
+      const full = genuiNodes(drawBoard(program, given.data, { now: given.now, timeZone: "UTC" }).props.blocks).find((block) => block.typeName === "BarChart").props.labels;
+      return { bars: cardWidgetModel(saved, given).bars.map((bar) => bar.label), full };
+    };
+    // Past days keep the latest, even when Stats on another @Data come first.
+    const past = shown(`root = Panel("Last 14 days", [nums, chart])
+all = @Data({source: "tasks", state: "done"})
+done = @Data({source: "tasks", state: "done", date: "completedAt", range: "last14", by: "day"})
+nums = Stats([Stat("Done", all.text)])
+chart = BarChart("Done per day", done.labels, done.values)`);
+    assert.equal(past.full.length, 14);
+    assert.deepEqual(past.bars, past.full.slice(-8));
+    // Days ahead keep today first.
+    const ahead = shown(`root = Panel("Ahead", [chart])
+due = @Data({source: "tasks", date: "deadline", range: "next14", by: "day"})
+chart = BarChart("Due per day", due.labels, due.values)`);
+    assert.equal(ahead.full.length, 14);
+    assert.deepEqual(ahead.bars, ahead.full.slice(0, 8));
+    // This month by day ends at today (the 15th).
+    const month = shown(`root = Panel("October", [chart])
+done = @Data({source: "tasks", state: "done", date: "completedAt", range: "thisMonth", by: "day"})
+chart = BarChart("Done per day", done.labels, done.values)`);
+    assert.deepEqual(month.bars, month.full.slice(7, 15));
+    // A by-day @Data for the numbers doesn't make a chart by project a time series.
+    const projects = Array.from({ length: 10 }, (_, i) => ({ id: `p${i}`, name: `P${i}` }));
+    const tasks = projects.flatMap((project, i) => Array.from({ length: 10 - i }, (_, n) => task(`${project.id}_${n}`, { projectId: project.id })));
+    const byProject = shown(
+      `root = Panel("Projects", [nums, chart])
+week = @Data({source: "tasks", range: "last7", by: "day"})
+work = @Data({source: "tasks", by: "project", limit: 12})
+nums = Stats([Stat("This week", week.text)])
+chart = BarChart("By project", work.labels, work.values)`,
+      { ...input, data: { ...data, tasks, projects } },
+    );
+    assert.ok(byProject.full.length > 8);
+    assert.deepEqual(byProject.bars, byProject.full.slice(0, 8));
+    // A sheet's latest entries keep the last rows.
+    const columns = [{ id: "d", name: "Date", width: 100, type: "text" }, { id: "w", name: "Weight", width: 100, type: "number" }];
+    const rows = [{ id: "h", cells: { d: "Date", w: "Weight" } }, ...Array.from({ length: 20 }, (_, i) => ({ id: `r${i}`, cells: { d: `Day ${i + 1}`, w: String(80 - i) } }))];
+    const sheet = { id: "s1", title: "Weight", columns, rows, merges: [], tabs: [{ id: "tab", name: "Log", columns, rows, merges: [] }], archivedAt: null };
+    const latest = shown(`root = Panel("Weight", [chart])
+w = @Cells({sheet: "Weight", label: "Date", value: "Weight", last: true})
+chart = BarChart("Latest", w.labels, w.values)`, { ...input, data: { ...data, sheets: [sheet] } });
+    assert.equal(latest.full.at(-1), "Day 20");
+    assert.deepEqual(latest.bars, latest.full.slice(-8));
   });
 
   test("an item on a doc's checklist ticks in place and redraws at once", () => {

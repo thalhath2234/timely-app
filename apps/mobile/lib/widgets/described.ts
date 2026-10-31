@@ -10,7 +10,7 @@
 import type { DashboardData } from "@timely/contract/dashboard";
 import { checklistItems, findChecklistItem, type DocChecklistItem } from "@timely/contract/docChecklist";
 import { genuiColorHex, genuiNodes, replyBlocks, type GenuiNode } from "@timely/contract/genui";
-import { blockProblems, drawBoard } from "@timely/contract/genuiBoard";
+import { blockProblems, chartQueries, drawBoard, type ChartQuery } from "@timely/contract/genuiBoard";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
 import type { WidgetModel, WidgetRow, WidgetTone } from "./model";
 
@@ -44,16 +44,35 @@ function openPath(open: GenuiNode | undefined) {
   return PLACES[target] && id ? `${PLACES[target]}/${encodeURIComponent(id)}` : "";
 }
 
+const TIME_GROUPS = new Set(["day", "week", "month"]);
+
+/**
+ * Where a chart's bars start when it has more than the widget shows. A time
+ * series keeps the bars that end now, as the widget's plain charts do: the
+ * latest ones of a range in the past, today's first of one ahead, and up to
+ * today in this month by day. A sheet's latest entries keep their last rows.
+ * Anything else, such as a chart sorted largest first, keeps its first bars.
+ */
+function barsStart(query: ChartQuery | undefined, count: number, today: string): number {
+  if (count <= BARS) return 0;
+  const latest = count - BARS;
+  const data = query?.data;
+  if (data?.by && TIME_GROUPS.has(data.by)) {
+    const range = data.range ?? "all";
+    if (range.startsWith("next")) return 0;
+    if (range === "thisMonth" && data.by === "day") return Math.max(0, Math.min(latest, Number(today.slice(8, 10)) - BARS));
+    return latest;
+  }
+  const cells = query?.cells;
+  return cells?.last && !cells.sort ? latest : 0;
+}
+
 /** The blocks of a Panel in order, with Columns opened into their cards. */
 function blocksOf(root: GenuiNode): GenuiNode[] {
   return replyBlocks(root.props.blocks).flatMap((block) => (block.typeName === "Columns" ? genuiNodes(block.props.cards) : [block]));
 }
 
-/**
- * `recent` says the card's chart is a time series (its first @Data groups by
- * day, week or month): it keeps its latest bars, as the widget did before.
- */
-export function describedModel(program: string, input: Input, title: string, options: { recent?: boolean } = {}): WidgetModel {
+export function describedModel(program: string, input: Input, title: string): WidgetModel {
   const link = (path: string) => `${input.scheme}://${path}`;
   let root: GenuiNode | null = null;
   try {
@@ -170,8 +189,13 @@ export function describedModel(program: string, input: Input, title: string, opt
         if (model.bars) break;
         const all = (Array.isArray(p.values) ? p.values : []).map((value) => Number(value) || 0);
         const labels = Array.isArray(p.labels) ? p.labels.map(text) : [];
-        // A time series keeps its latest bars; other charts (largest first) keep their first.
-        const start = options.recent ? Math.max(0, all.length - BARS) : 0;
+        let query: ChartQuery | undefined;
+        try {
+          query = chartQueries(program)[0];
+        } catch {
+          query = undefined;
+        }
+        const start = barsStart(query, all.length, today);
         const values = all.slice(start, start + BARS);
         const max = Math.max(...values, 0);
         const highlight = text(p.highlight);

@@ -818,6 +818,33 @@ function calls<T>(value: unknown, name: string, schema: z.ZodType<T>, out: T[] =
   return out;
 }
 
+/** The @Data or @Cells call a chart reads its labels from. */
+export interface ChartQuery {
+  data?: DataQuery;
+  cells?: CellsQuery;
+}
+
+/**
+ * The query behind each BarChart in a program, in the order its blocks draw
+ * them (a Panel's blocks, a Columns' cards, a Card's rows). Lets a smaller
+ * drawing of the card, such as a phone widget, choose which bars to keep.
+ */
+export function chartQueries(program: string): ChartQuery[] {
+  const out: ChartQuery[] = [];
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) return value.forEach(walk);
+    if (!value || typeof value !== "object" || (value as GenuiNode).type !== "element") return;
+    const node = value as GenuiNode;
+    if (node.typeName === "BarChart") {
+      out.push({ data: dataCalls(node.props.labels)[0], cells: calls(node.props.labels, "Cells", CellsQuery)[0] });
+      return;
+    }
+    Object.values(node.props ?? {}).forEach(walk);
+  };
+  walk(boardParser().parse(program).root);
+  return out;
+}
+
 export interface DescribedParse {
   title: string;
   size: { w: number; h: number };

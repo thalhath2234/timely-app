@@ -610,7 +610,16 @@ export function planCard(model: WidgetModel, size: Size): CardPlan {
   const wideClock =
     size.width >= 260 && short && buttons > 0 && Boolean(model.timer || model.value) && !model.ring && !model.meters && (!rowsWanted || !columnFitsButton);
   const wide =
-    !wideClock && size.width >= 260 && short && Boolean(model.value) && !model.ring && !model.meters && buttons <= 1 && Boolean(rowsWanted || model.bars?.length);
+    !wideClock &&
+    size.width >= 260 &&
+    short &&
+    Boolean(model.value) &&
+    !model.ring &&
+    !model.meters &&
+    buttons <= 1 &&
+    Boolean(rowsWanted || model.bars?.length) &&
+    // The wide layout has no line for a note, so a card with one stays a column.
+    !model.note;
   const plan: CardPlan = {
     mode: wideClock ? "wideClock" : wide ? "wide" : "column",
     header: !tabs,
@@ -701,11 +710,13 @@ export function planCard(model: WidgetModel, size: Size): CardPlan {
     plan.meters = Math.min(model.meters.length, Math.max(0, Math.floor(left / METER_H)));
     left -= plan.meters * METER_H;
   }
-  // A card that also lists rows (a described card) keeps room for a few under its chart.
-  const keep = Math.min(rowsWanted, 3) * ROW_H;
+  // A card that also lists rows or has a note (a described card) keeps room under its chart
+  // for up to three rows, giving rows up before the chart, or for a line of its note.
+  let keep = rowsWanted ? Math.min(rowsWanted, 3) * ROW_H : model.note ? NOTE_LINE_H + 2 : 0;
+  while (rowsWanted && keep && left - keep < BAR_LABEL_H + 12) keep -= ROW_H;
   if (showBars && left - keep >= BAR_LABEL_H + 12) {
     plan.bars = Math.min(140, left - keep - BAR_LABEL_H - 2);
-    left = rowsWanted ? left - plan.bars - BAR_LABEL_H - 2 : 0;
+    left = keep ? left - plan.bars - BAR_LABEL_H - 2 : 0;
   }
   if (!plan.bars && rowsWanted && model.columns?.length && left >= COLUMN_HEAD_H + ROW_H) {
     plan.columnHead = true;
