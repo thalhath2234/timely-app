@@ -1,5 +1,5 @@
 import Constants from "expo-constants";
-import { normalizeDashboard, sourcesUsed, weekStart, type DashboardCard, type DashboardData } from "@timely/contract/dashboard";
+import { describedSources, normalizeDashboard, sourcesUsed, weekStart, type DashboardCard, type DashboardData } from "@timely/contract/dashboard";
 import { addDaysToDate, todayInZone } from "@timely/contract/workStatus";
 import { getToken } from "../auth/session";
 import { getDoc, getDocs } from "../api/docs";
@@ -71,6 +71,10 @@ export async function loadWidgetInput(cards: DashboardCard[], options: { today?:
   const wantsToday = options.today || used.has("today");
   const wantsFocus = cards.some((card) => card.type === "focusTime" || card.type === "goal");
   const wantsTasks = used.has("tasks") || wantsFocus;
+  // A described card's program can read any range of events ("next7", "thisWeek"), so it
+  // gets the Dashboard's window; other cards only need yesterday to tomorrow.
+  const wideEvents = cards.some((card) => card.query?.described && describedSources(card.query.described.program).includes("events"));
+  const [eventsFrom, eventsTo] = wideEvents ? [-180, 181] : [-1, 2];
 
   const [tasks, projects, workspaces, docs, sheets, inbox, reminders, events, today, focusSessions] = await Promise.all([
     wantsTasks ? shared("tasks", () => getTasks()) : undefined,
@@ -81,7 +85,9 @@ export async function loadWidgetInput(cards: DashboardCard[], options: { today?:
     used.has("inbox") || cards.some((card) => card.type === "quickCapture") ? shared("inbox", () => getTasks({ inbox: true })) : undefined,
     used.has("reminders") ? shared("reminders", () => getTasks({ reminders: true })) : undefined,
     used.has("events")
-      ? shared(`events:${day}`, () => getCalendarRange(new Date(`${addDaysToDate(day, -1)}T00:00:00`), new Date(`${addDaysToDate(day, 2)}T00:00:00`)))
+      ? shared(`events:${day}:${eventsFrom}`, () =>
+          getCalendarRange(new Date(`${addDaysToDate(day, eventsFrom)}T00:00:00`), new Date(`${addDaysToDate(day, eventsTo)}T00:00:00`)),
+        )
       : undefined,
     wantsToday ? shared("today", getToday) : undefined,
     wantsFocus

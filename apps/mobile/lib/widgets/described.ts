@@ -9,8 +9,8 @@
  */
 import type { DashboardData } from "@timely/contract/dashboard";
 import { checklistItems, findChecklistItem, type DocChecklistItem } from "@timely/contract/docChecklist";
-import { genuiNodes, replyBlocks, type GenuiNode } from "@timely/contract/genui";
-import { drawBoard } from "@timely/contract/genuiBoard";
+import { genuiColorHex, genuiNodes, replyBlocks, type GenuiNode } from "@timely/contract/genui";
+import { blockProblems, drawBoard } from "@timely/contract/genuiBoard";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
 import type { WidgetModel, WidgetRow, WidgetTone } from "./model";
 
@@ -18,6 +18,10 @@ type Input = { now: Date; data: DashboardData; timeZone?: string; scheme: string
 
 const ROWS = 8;
 const METERS = 5;
+const BARS = 8;
+// A tap's data goes to the app through Android's WorkManager, which takes at
+// most 10 KB; an item longer than this opens its doc instead of ticking.
+const TICK_TEXT = 1000;
 
 const SCREENS: Record<string, string> = {
   today: "today",
@@ -45,7 +49,11 @@ function blocksOf(root: GenuiNode): GenuiNode[] {
   return replyBlocks(root.props.blocks).flatMap((block) => (block.typeName === "Columns" ? genuiNodes(block.props.cards) : [block]));
 }
 
-export function describedModel(program: string, input: Input, title: string): WidgetModel {
+/**
+ * `recent` says the card's chart is a time series (its first @Data groups by
+ * day, week or month): it keeps its latest bars, as the widget did before.
+ */
+export function describedModel(program: string, input: Input, title: string, options: { recent?: boolean } = {}): WidgetModel {
   const link = (path: string) => `${input.scheme}://${path}`;
   let root: GenuiNode | null = null;
   try {
@@ -57,7 +65,7 @@ export function describedModel(program: string, input: Input, title: string): Wi
 
   // Ticks show tasks and checklist items as they are now, as the Dashboard's rows do.
   const today = todayInZone(input.timeZone, input.now);
-  const tasks = new Map([...(input.data.tasks ?? []), ...(input.data.reminders ?? [])].map((task) => [task.id, task]));
+  const tasks = new Map([...(input.data.tasks ?? []), ...(input.data.reminders ?? []), ...(input.data.inbox ?? [])].map((task) => [task.id, task]));
   const checklists = new Map<string, DocChecklistItem[] | undefined>();
   const checklist = (docId: string) => {
     if (!checklists.has(docId)) {
@@ -92,14 +100,15 @@ export function describedModel(program: string, input: Input, title: string): Wi
           title: item?.text ?? text(p.text),
           meta: text(p.note) || undefined,
           uri: link(`docs/${encodeURIComponent(docId)}`),
-          ...(item ? { done, toggle: { kind: "checkItem" as const, docId, item: item.item, text: item.text, done: !done } } : {}),
+          ...(item ? { done } : {}),
+          ...(item && item.text.length <= TICK_TEXT ? { toggle: { kind: "checkItem" as const, docId, item: item.item, text: item.text, done: !done } } : {}),
         };
       }
       case "EventRow":
         return {
           title: text(p.title),
           meta: [text(p.time), text(p.length)].filter(Boolean).join(" · ") || undefined,
-          color: text(p.color) || undefined,
+          color: genuiColorHex(text(p.color)),
           ...(text(p.eventId) ? { uri: link(`events/${encodeURIComponent(text(p.eventId))}`) } : {}),
         };
       case "InfoRow": {
@@ -125,6 +134,11 @@ export function describedModel(program: string, input: Input, title: string): Wi
         meters.push({ label: text(node.props.label), value: share / 100, detail: text(node.props.value) });
         continue;
       }
+      // A Card's rows can hold Stats, a BarChart and Text too (genui.ts Card).
+      if (node.typeName === "Stats" || node.typeName === "BarChart" || node.typeName === "Text") {
+        block(node);
+        continue;
+      }
       const drawn = row(node);
       if (drawn) rows.push(drawn);
     }
@@ -133,9 +147,9 @@ export function describedModel(program: string, input: Input, title: string): Wi
     if (path && model.uri === link("dashboard")) model.uri = link(path);
   };
 
-  for (const block of blocksOf(root)) {
-    const p = block.props;
-    switch (block.typeName) {
+  function block(node: GenuiNode) {
+    const p = node.props;
+    switch (node.typeName) {
       case "Stats": {
         if (model.value !== undefined) break;
         const [first, ...rest] = genuiNodes(p.items);
@@ -154,14 +168,17 @@ export function describedModel(program: string, input: Input, title: string): Wi
         break;
       case "BarChart": {
         if (model.bars) break;
-        const values = (Array.isArray(p.values) ? p.values : []).map((value) => Number(value) || 0);
+        const all = (Array.isArray(p.values) ? p.values : []).map((value) => Number(value) || 0);
         const labels = Array.isArray(p.labels) ? p.labels.map(text) : [];
+        // A time series keeps its latest bars; other charts (largest first) keep their first.
+        const start = options.recent ? Math.max(0, all.length - BARS) : 0;
+        const values = all.slice(start, start + BARS);
         const max = Math.max(...values, 0);
         const highlight = text(p.highlight);
-        model.bars = values.slice(0, 8).map((value, index) => ({
-          label: labels[index] ?? "",
+        model.bars = values.map((value, index) => ({
+          label: labels[start + index] ?? "",
           value,
-          highlight: highlight ? labels[index] === highlight : value === max && max > 0,
+          highlight: highlight ? labels[start + index] === highlight : value === max && max > 0,
         }));
         break;
       }
@@ -176,11 +193,21 @@ export function describedModel(program: string, input: Input, title: string): Wi
         break;
     }
   }
+  blocksOf(root).forEach(block);
 
   if (rows.length) model.rows = rows.slice(0, ROWS);
   if (meters.length) model.meters = meters.slice(0, METERS);
   if (notes.length && !rows.length) model.note = notes.join("\n");
   if (model.bars && !model.bars.length) delete model.bars;
+  // A doc or sheet the program names but can't find says so, as on the Dashboard,
+  // instead of reading as an empty list ("Everything is ticked off").
+  let problem = "";
+  try {
+    problem = blockProblems(program, input.data)[0] ?? "";
+  } catch {
+    problem = "";
+  }
+  if (problem && !rows.length) model.note = problem;
   if (!rows.length && !meters.length && !model.bars && !model.note) {
     const nothing = empty || (model.value ? "" : "Nothing here yet.");
     if (nothing) model.empty = nothing;

@@ -468,6 +468,54 @@ shares = Card("Split", [ShareRow("Client", "5 h", 100), ShareRow("Admin", "2 h",
     assert.ok(cardWidgetModel(described("not a program"), input).empty);
   });
 
+  test("a described card's cards, charts and rows draw as on the Dashboard", () => {
+    const base = defaultDashboard().cards.find((c) => c.id === "default_open");
+    const described = (program, query = {}) => ({ ...base, id: "dc", title: "Card", query: { ...base.query, ...query, described: { prompt: "a card", program } } });
+
+    // Numbers, a chart and text inside Columns of Cards still draw.
+    const columns = cardWidgetModel(described(`root = Panel("Two views", [Columns([one, two])])
+one = Card("Overdue", [Stats([Stat("Overdue", "4")])])
+two = Card("Per day", [BarChart("Per day", ["Mon", "Tue"], [1, 3]), Text("Keep going")])`), input);
+    assert.equal(columns.value, "4");
+    assert.deepEqual(columns.bars.map((bar) => bar.label), ["Mon", "Tue"]);
+    assert.equal(columns.note, "Keep going");
+    assert.equal(columns.empty, undefined);
+
+    // A time series keeps its latest bars and highlights within them; other charts keep their first.
+    const labels = Array.from({ length: 14 }, (_, i) => `D${i + 1}`);
+    const values = labels.map((_, i) => (i === 2 ? 9 : i === 12 ? 5 : 1));
+    const chart = `root = Panel("Days", [BarChart("Per day", [${labels.map((l) => `"${l}"`).join(", ")}], [${values.join(", ")}])])`;
+    const series = cardWidgetModel(described(chart, { groupBy: "day" }), input);
+    assert.deepEqual(series.bars.map((bar) => bar.label), labels.slice(-8));
+    assert.deepEqual(series.bars.filter((bar) => bar.highlight).map((bar) => bar.label), ["D13"]);
+    const ranked = cardWidgetModel(described(chart, { groupBy: "project" }), input);
+    assert.deepEqual(ranked.bars.map((bar) => bar.label), labels.slice(0, 8));
+    assert.deepEqual(ranked.bars.filter((bar) => bar.highlight).map((bar) => bar.label), ["D3"]);
+
+    // Inbox rows tick, and an event's colour name becomes its colour.
+    const inbox = cardWidgetModel(described(`root = Panel("Inbox", [List(@Each(@Data({source: "inbox"}).rows, "t", TaskRow(t.id, t.title)), "Inbox zero")])`), input);
+    assert.deepEqual(inbox.rows[0].toggle, { kind: "task", taskId: "i1", done: true });
+    const events = cardWidgetModel(described(`root = Panel("Gym", [Card("Today", [EventRow("10:00", "Gym", "1 h", "teal")])])`), input);
+    assert.match(events.rows[0].color, /^#[0-9a-f]{6}$/i);
+
+    // A doc the program can't find says so instead of reading as an empty list.
+    const item = (text, checked) => ({ type: "taskItem", attrs: { checked }, content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
+    const groceries = { id: "doc_shop", title: "Groceries", updatedAt: "2026-10-15T08:00:00Z", content: { type: "doc", content: [{ type: "taskList", content: [item("Onion", false), item("x".repeat(1200), false)] }] } };
+    const renamed = cardWidgetModel(described(`root = Panel("Shopping list", [nums, list])
+shop = @Checklist({doc: "Shopping list"})
+nums = Stats([Stat("Left", shop.left)])
+list = List(@Each(shop.rows, "i", CheckRow(i.docId, i.text, i.note, i.item)), "Everything is ticked off")`), { ...input, data: { ...data, docs: [groceries] } });
+    assert.match(renamed.note, /Shopping list/);
+    assert.equal(renamed.empty, undefined);
+
+    // An item too long to carry in a tap opens its doc instead of ticking.
+    const long = cardWidgetModel(described(`root = Panel("Groceries", [List(@Each(@Checklist({doc: "Groceries"}).rows, "i", CheckRow(i.docId, i.text, i.note, i.item)))])`), { ...input, data: { ...data, docs: [groceries] } });
+    assert.equal(long.rows[0].toggle.kind, "checkItem");
+    assert.equal(long.rows[1].toggle, undefined);
+    assert.equal(long.rows[1].done, false);
+    assert.equal(long.rows[1].uri, "timelymobile://docs/doc_shop");
+  });
+
   test("an item on a doc's checklist ticks in place and redraws at once", () => {
     const action = { kind: "checkItem", docId: "doc_shop", item: 2, text: "Bread", done: true };
     assert.deepEqual(parseWidgetAction({ ...action }), action);

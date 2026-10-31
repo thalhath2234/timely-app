@@ -701,20 +701,22 @@ export function planCard(model: WidgetModel, size: Size): CardPlan {
     plan.meters = Math.min(model.meters.length, Math.max(0, Math.floor(left / METER_H)));
     left -= plan.meters * METER_H;
   }
-  if (showBars && left >= BAR_LABEL_H + 12) {
-    plan.bars = Math.min(140, left - BAR_LABEL_H - 2);
-    left = 0;
+  // A card that also lists rows (a described card) keeps room for a few under its chart.
+  const keep = Math.min(rowsWanted, 3) * ROW_H;
+  if (showBars && left - keep >= BAR_LABEL_H + 12) {
+    plan.bars = Math.min(140, left - keep - BAR_LABEL_H - 2);
+    left = rowsWanted ? left - plan.bars - BAR_LABEL_H - 2 : 0;
   }
   if (!plan.bars && rowsWanted && model.columns?.length && left >= COLUMN_HEAD_H + ROW_H) {
     plan.columnHead = true;
     left -= COLUMN_HEAD_H;
   }
-  if (!plan.bars && model.scroll && rowsWanted * ROW_H > left && left >= ROW_H) {
+  if (model.scroll && rowsWanted * ROW_H > left && left >= ROW_H) {
     // More rows than room: they all go in a list that scrolls inside the widget.
     plan.list = left;
     plan.rows = rowsWanted;
     left = 0;
-  } else if (!plan.bars) {
+  } else {
     plan.rows = Math.min(rowsWanted, Math.max(0, Math.floor(left / ROW_H)));
     if (plan.rows && plan.rows === rowsWanted && !buttons) plan.rowH = Math.max(ROW_H, Math.min(40, Math.floor(left / plan.rows)));
     left -= plan.rows * plan.rowH;
