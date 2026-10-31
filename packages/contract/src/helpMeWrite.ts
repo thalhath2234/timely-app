@@ -92,6 +92,42 @@ export function writeStarters(kind: WriteKind, hasText: boolean): WriteChoice[] 
 
 type Node = DocContent & { attrs?: Record<string, unknown>; text?: string };
 
+/** A checkbox the Markdown parser left as text: "[ ] ", "[x] " or "[] "
+ * opening the first line of an item in a list that was not all checklist
+ * items, or standing alone as an item with no text. */
+const BOX_TEXT = /^\[( |x|X)?\](?: |$)/;
+
+/** A list where some items have a tick box becomes a checklist: models mix
+ * "- [ ]" and "-" lines, and the boxes would otherwise show as "[ ]" text.
+ * fromMarkdown already makes such a list a checklist, but a box Markdown
+ * does not read as one ("[] ", or "[ ]" with nothing after it) is still text
+ * there. A box with nothing after it is no item at all. Code blocks are left
+ * as they are. */
+function tidyLists(nodes: Node[]): Node[] {
+  return nodes.flatMap((node) => {
+    const content = node.content ? tidyLists(node.content as Node[]) : undefined;
+    const next = content ? { ...node, content } : node;
+    if (next.type !== "bulletList" && next.type !== "orderedList" && next.type !== "taskList") return [next];
+    const items = (content ?? []) as Node[];
+    const box = (item: Node) => BOX_TEXT.exec(((item.content?.[0] as Node | undefined)?.content?.[0] as Node | undefined)?.text ?? "");
+    if (!items.some(box)) return [next];
+    const tasks = items.flatMap((item): Node[] => {
+      const found = box(item);
+      if (!found) return [item.type === "taskItem" ? item : { ...item, type: "taskItem", attrs: { checked: false } }];
+      const [line, ...below] = item.content as Node[];
+      const [first, ...inline] = line.content as Node[];
+      const left = (first.text ?? "").slice(found[0].length);
+      if (!left && !inline.length && !below.length) return [];
+      return [{
+        type: "taskItem",
+        attrs: { checked: found[1] === "x" || found[1] === "X" },
+        content: [{ ...line, content: left ? [{ ...first, text: left }, ...inline] : inline }, ...below],
+      }];
+    });
+    return tasks.length ? [{ type: "taskList", content: tasks }] : [];
+  });
+}
+
 /** The items of a list answer, made into items of the list they join: a
  * bulleted or numbered answer joins a checklist as unticked items. A
  * checklist answer does not join a plain list, which would drop its boxes. */
@@ -119,11 +155,9 @@ export function writtenContent(
   markdown: string,
   into?: WriteList | null,
 ): { blocks: DocContent[]; inline: DocContent[] | null; items: DocContent[] | null } {
-  // "- []" is a checkbox to the eye but not to Markdown, which wants "- [ ]".
-  const source = markdown.trim().replace(/^([ \t]*(?:[-*+]|\d+[.)])[ \t]+)\[\](?=[ \t]|$)/gm, "$1[ ]");
-  const doc = fromMarkdown(source, { breaks: true }).content;
-  // A list mixing "- [ ]" and "-" lines is already one checklist (fromMarkdown).
-  let blocks = (doc.content ?? []) as Node[];
+  // "- []" is a checkbox to the eye but not to Markdown: tidyLists reads it.
+  const doc = fromMarkdown(markdown.trim(), { breaks: true }).content;
+  let blocks = tidyLists((doc.content ?? []) as Node[]);
   const only = blocks.length === 1 ? blocks[0] : null;
   const items = into && only && isWriteList(only.type) ? joinItems(only, into) : null;
   if (items && into) blocks = [{ type: into, content: items }];

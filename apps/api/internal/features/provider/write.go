@@ -45,8 +45,12 @@ const (
 	cursorTag   = "<cursor/>"
 )
 
-// cursorLine is a line holding only the cursor, alone or as a list item.
-var cursorLine = regexp.MustCompile(`(?m)^[ \t]*(?:[-*+][ \t]+(?:\[[ xX]\][ \t]+)?|\d+[.)][ \t]+)?` + writeCursor + `[ \t]*(?:\n|$)`)
+// cursorLine is a line holding only the cursor, alone or as a list item;
+// tagLine is the same line with the tag the model sees, copied back.
+var (
+	cursorLine = regexp.MustCompile(`(?m)^[ \t]*(?:[-*+][ \t]+(?:\[[ xX]\][ \t]+)?|\d+[.)][ \t]+)?` + writeCursor + `[ \t]*(?:\n|$)`)
+	tagLine    = regexp.MustCompile(`(?m)^[ \t]*(?:[-*+][ \t]+(?:\[[ xX]?\][ \t]*)?|\d+[.)][ \t]+)?` + regexp.QuoteMeta(cursorTag) + `[ \t]*(?:\n|$)`)
+)
 
 const (
 	writeMaxText      = 12000
@@ -66,6 +70,8 @@ type writeRequest struct {
 	// replaces Text as Markdown, so the model sees checklists and headings;
 	// apps from before it send only Text.
 	Doc models.JSONMap `json:"doc"`
+	// cursor: Text shows where the draft goes, as cursorTag.
+	cursor bool
 }
 
 type writeResponse struct {
@@ -85,16 +91,26 @@ func (r *writeRequest) validate() error {
 	r.Prompt = clipHead(strings.TrimSpace(r.Prompt), writeMaxPrompt)
 	r.Selection = clipHead(strings.TrimSpace(r.Selection), writeMaxSelection)
 	r.Title = clipHead(strings.TrimSpace(r.Title), 300)
-	if r.Doc != nil {
+	fromDoc := r.Doc != nil
+	if fromDoc {
 		r.Text = richtext.ToMarkdown(r.Doc)
 		r.Doc = nil
 	}
 	// Only a draft written at the caret goes to the cursor: a rewrite has its
-	// selection and Continue writes at the end.
-	if r.Selection != "" || r.Action == "continue" || strings.TrimSpace(dropCursor(r.Text)) == "" {
+	// selection, Continue writes at the end, and a summary or description is
+	// about the whole text. The editor types the cursor once; plain text from
+	// older apps has none. A doc holding only the cursor line is empty, but a
+	// lone list item still says what kind of list the draft goes into.
+	keep := fromDoc && r.Action == "write" && r.Selection == "" && strings.Count(r.Text, writeCursor) == 1 &&
+		strings.TrimSpace(r.Text) != writeCursor
+	if !keep {
 		r.Text = dropCursor(r.Text)
 	}
-	r.Text = strings.ReplaceAll(clipAround(strings.TrimSpace(r.Text), writeCursor, writeMaxText), writeCursor, cursorTag)
+	r.Text = clipAround(strings.TrimSpace(r.Text), writeCursor, writeMaxText)
+	if r.cursor = strings.Contains(r.Text, writeCursor); r.cursor {
+		// A tag already in the doc's own text is not the spot.
+		r.Text = strings.ReplaceAll(strings.ReplaceAll(r.Text, cursorTag, "&lt;cursor/&gt;"), writeCursor, cursorTag)
+	}
 	switch r.Action {
 	case "write":
 		if r.Prompt == "" {
@@ -145,7 +161,7 @@ func writeMessages(r writeRequest) []chat.WireMessage {
 			b.WriteString("The selection is a single line, so answer with a single paragraph: no headings, list markers or checkboxes.\n")
 		}
 	}
-	if strings.Contains(r.Text, cursorTag) {
+	if r.cursor {
 		b.WriteString("\n" + cursorTag + " in the current text marks where your answer goes; fit it to that spot and do not write the tag. ")
 		b.WriteString("When " + cursorTag + " is a list item, answer with only items of that same kind of list, one per line, with no heading or intro: \"- [ ] item\" for a checklist, \"- item\" for bullets, \"1. item\" for a numbered list.\n")
 	}
@@ -158,9 +174,13 @@ func writeMessages(r writeRequest) []chat.WireMessage {
 var wholeFence = regexp.MustCompile("(?s)^```[a-zA-Z]*\\n(.*)\\n```$")
 
 // cleanWritten drops a code fence wrapped around the whole answer, which some
-// models add despite being told not to, and a cursor tag copied from the doc.
-func cleanWritten(s string) string {
-	s = strings.TrimSpace(strings.ReplaceAll(s, cursorTag, ""))
+// models add despite being told not to, and, when the doc showed one, a
+// cursor tag copied from it, with its line when the tag stood alone there.
+func cleanWritten(s string, cursor bool) string {
+	if cursor {
+		s = strings.ReplaceAll(tagLine.ReplaceAllString(s, ""), cursorTag, "")
+	}
+	s = strings.TrimSpace(s)
 	if m := wholeFence.FindStringSubmatch(s); m != nil {
 		s = strings.TrimSpace(m[1])
 	}
@@ -257,7 +277,7 @@ func (s *Service) write(c *echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(502, err.Error())
 	}
-	text := cleanWritten(reply.Content)
+	text := cleanWritten(reply.Content, req.cursor)
 	if text == "" {
 		return echo.NewHTTPError(502, "The AI returned an empty answer. Try again")
 	}

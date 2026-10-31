@@ -54,6 +54,13 @@ func (s *Service) Run(ctx context.Context) {
 		defer s.wg.Done()
 		s.cleanImages(ctx)
 	}()
+	if s.live != nil {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.relayChanges(ctx)
+		}()
+	}
 	// Dedicated execution lanes; model requests never occupy the reminder worker.
 	for i := 0; i < 3; i++ {
 		s.wg.Add(1)

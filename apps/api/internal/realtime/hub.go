@@ -20,8 +20,9 @@ type subscriber struct {
 
 // Hub fans document mutations out to every open watch stream for that doc.
 type Hub struct {
-	mu   sync.Mutex
-	subs map[string]map[*subscriber]struct{}
+	mu     sync.Mutex
+	subs   map[string]map[*subscriber]struct{}
+	closed bool
 }
 
 func NewHub() *Hub {
@@ -45,48 +46,66 @@ func (h *Hub) Subscribe(userID, docID string) (<-chan Event, func()) {
 	key := docKey(userID, docID)
 
 	h.mu.Lock()
+	if h.closed {
+		h.mu.Unlock()
+		close(sub.ch)
+		return sub.ch, func() {}
+	}
 	if h.subs[key] == nil {
 		h.subs[key] = map[*subscriber]struct{}{}
 	}
 	h.subs[key][sub] = struct{}{}
 	h.mu.Unlock()
 
-	var once sync.Once
 	cancel := func() {
-		once.Do(func() {
-			h.mu.Lock()
-			if set, ok := h.subs[key]; ok {
-				delete(set, sub)
-				if len(set) == 0 {
-					delete(h.subs, key)
-				}
-			}
-			h.mu.Unlock()
-			close(sub.ch)
-		})
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		set, ok := h.subs[key]
+		if _, subscribed := set[sub]; !ok || !subscribed {
+			return
+		}
+		delete(set, sub)
+		if len(set) == 0 {
+			delete(h.subs, key)
+		}
+		close(sub.ch)
 	}
 
 	return sub.ch, cancel
 }
 
+// Publish sends without blocking, under the lock, so a stream that is being
+// cancelled or closed never receives on a closed channel.
 func (h *Hub) Publish(userID, docID string, event Event) {
 	if h == nil {
 		return
 	}
 
 	h.mu.Lock()
-	set := h.subs[docKey(userID, docID)]
-	targets := make([]*subscriber, 0, len(set))
-	for sub := range set {
-		targets = append(targets, sub)
-	}
-	h.mu.Unlock()
-
-	for _, sub := range targets {
+	defer h.mu.Unlock()
+	for sub := range h.subs[docKey(userID, docID)] {
 		select {
 		case sub.ch <- event:
 		default:
 			// A slow client is skipped rather than blocking writers.
 		}
+	}
+}
+
+// Close ends every open stream and every later Subscribe. The server calls it
+// on shutdown, since watch streams would otherwise hold Shutdown open.
+func (h *Hub) Close() {
+	if h == nil {
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.closed = true
+	for key, set := range h.subs {
+		for sub := range set {
+			close(sub.ch)
+		}
+		delete(h.subs, key)
 	}
 }
