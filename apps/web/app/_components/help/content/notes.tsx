@@ -249,6 +249,12 @@ export const notes: HelpSection = {
                   <strong>Make 3 tasks</strong>) turns them all. Undo in the message takes them back.
                 </li>
                 <li>
+                  <strong>Goes to</strong> under <strong>Not tasks yet</strong> picks where tasks from this doc go,
+                  the Inbox or any project, for every offer in it, on every device. <strong>Automatic</strong> puts
+                  them back in the doc&apos;s project, else the suggested one. The <strong>Goes to</strong> row of
+                  one offer changes only that task.
+                </li>
+                <li>
                   The item&apos;s first sentence becomes the task&apos;s name and the rest its description, with a link
                   back to the doc. With an AI provider set up, your default model writes a short title and description
                   instead.

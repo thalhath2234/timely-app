@@ -224,6 +224,9 @@ export const restoreDocHint = (id: string, kind: DocHintKind, value = "") =>
 export type DocChecklist = {
   existing: { name: string; taskId: string }[];
   project?: { id: string; title: string; workspaceId: string };
+  /** Where the person said tasks from this doc go ("inbox" or the project's
+   * id), while it still applies; without it the place is automatic. */
+  picked?: string;
   /** Smart suggestions are on, so items can be offered at all. */
   available?: boolean;
   /** Task offers are turned off for this doc. */
@@ -234,6 +237,11 @@ export type DocChecklist = {
 };
 export const getDocChecklist = (id: string, names: string[], projectId?: string) =>
   api<DocChecklist>(`/suggestions/doc/${encodeURIComponent(id)}/checklist`, { method: "POST", body: { names, projectId: projectId ?? "" } });
+
+/** Where every task made from the doc's offers goes: "inbox", a project's
+ * id, or "" for the automatic place again. */
+export const setDocGoesTo = (id: string, target: string) =>
+  api<void>(`/suggestions/doc/${encodeURIComponent(id)}/goes-to`, { method: "PUT", body: { target } });
 
 export type MentionTarget = { kind: "task" | "project" | "doc" | "sheet"; id: string; title: string };
 /** What a selected phrase may refer to: Jev's match when sure, and up to six

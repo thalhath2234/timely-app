@@ -42,10 +42,14 @@ type ChecklistProject struct {
 type DocChecklist struct {
 	// Existing are the names that are already a task, in the order sent.
 	Existing []ChecklistTask `json:"existing"`
-	// Project is where new tasks go: the doc's own project, else the one the
-	// client proposed (a suggested or related project). Nil: the doc's
-	// workspace, with no project.
+	// Project is where new tasks go: the place picked for the doc's offers
+	// (Goes to), else the doc's own project, else the one the client
+	// proposed (a suggested or related project). Nil: the doc's workspace,
+	// with no project.
 	Project *ChecklistProject `json:"project,omitempty"`
+	// Picked is the doc's Goes to, "inbox" or the project's id, while it
+	// still applies. Empty: the place is automatic.
+	Picked string `json:"picked,omitempty"`
 	// Available: smart suggestions are on, so items can be offered at all.
 	Available bool `json:"available"`
 	// Off: the person turned task offers off for this doc.
@@ -84,21 +88,31 @@ func (s *Service) DocChecklist(ctx context.Context, userID, docID string, names 
 		return DocChecklist{}, err
 	}
 	out := DocChecklist{Existing: []ChecklistTask{}, Offer: []string{}}
+	// A picked place wins. A picked project finished or deleted since is no
+	// place for new tasks, so the automatic one applies again.
+	picked, err := s.docOfferTarget(ctx, userID, doc.ID)
+	if err != nil {
+		return DocChecklist{}, err
+	}
+	if picked == offerTargetInbox {
+		out.Picked = picked
+	} else if picked != "" {
+		p, err := s.openProject(ctx, userID, picked)
+		if err == nil {
+			out.Project, out.Picked = &p, picked
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return DocChecklist{}, err
+		}
+	}
 	candidates := []string{}
-	if doc.ProjectID != nil && *doc.ProjectID != "" {
+	if out.Picked == "" && doc.ProjectID != nil && *doc.ProjectID != "" {
 		candidates = append(candidates, *doc.ProjectID)
 	}
-	if projectID = strings.TrimSpace(projectID); projectID != "" {
+	if projectID = strings.TrimSpace(projectID); out.Picked == "" && projectID != "" {
 		candidates = append(candidates, projectID)
 	}
 	for _, id := range candidates {
-		var p ChecklistProject
-		err := s.db.WithContext(ctx).Table("projects").
-			Select("projects.id", "projects.title", "projects.workspace_id").
-			Joins("JOIN workspaces ON workspaces.id = projects.workspace_id").
-			Where("projects.id = ? AND workspaces.user_id = ? AND projects.completed_at IS NULL", id, userID).
-			Take(&p).Error
-		if err == nil {
+		if p, err := s.openProject(ctx, userID, id); err == nil {
 			out.Project = &p
 			break
 		}

@@ -10,6 +10,7 @@ import {
   getDocChecklist,
   dismissDocHint,
   restoreDocHint,
+  setDocGoesTo,
   type DocChecklist,
   type DocHintKind,
   type DocHints,
@@ -251,7 +252,7 @@ export function useDocOffersOff(docId: string, saved: boolean | undefined) {
 /** Which unchecked checklist items of a doc are already tasks, which to offer
  * as tasks and where new ones go. Offers need smart suggestions on: Jev reads
  * which items are things to get done. */
-export function useDocChecklist(docId: string | undefined, names: string[], projectId?: string) {
+export function useDocChecklist(docId: string | undefined, names: string[], projectId?: string, withoutNames = false) {
   // Asked again when suggestions go on or off, so offers come and go with them;
   // not before they are known, or the first read is made twice.
   const status = useDecisions();
@@ -260,10 +261,60 @@ export function useDocChecklist(docId: string | undefined, names: string[], proj
     queryKey: ["doc-checklist", docId, names, projectId ?? "", on],
     // names says which items an answer covers while a newer one loads.
     queryFn: async () => ({ ...(await getDocChecklist(docId!, names, projectId)), names }),
-    enabled: Boolean(docId) && names.length > 0 && status.isFetched,
+    // withoutNames: asked for the doc's places alone, when its offers are
+    // all lines that read like a task.
+    enabled: Boolean(docId) && (names.length > 0 || withoutNames) && status.isFetched,
     placeholderData: keepPreviousData,
     staleTime: 60 * 1000,
     retry: false,
+  });
+}
+
+type DocGoesTo = { target: string; project?: NonNullable<DocChecklist["project"]> };
+
+/** Keeps where every task made from the doc's offers goes: "inbox", a
+ * project's id (with the project, so the place shows at once), or "" for the
+ * automatic place. The checklist answer is read again once the last pick in a
+ * row is saved; a pick that could not be saved goes back, with a message. */
+export function useSetDocGoesTo(docId: string) {
+  const client = useQueryClient();
+  const queryKey = ["doc-checklist", docId];
+  const mutationKey = ["doc-goes-to", docId];
+  type Place = Pick<DocChecklist, "picked" | "project">;
+  return useMutation({
+    mutationKey,
+    // One at a time per doc, so the last pick made is the one kept.
+    scope: { id: `doc-goes-to:${docId}` },
+    mutationFn: ({ target }: DocGoesTo) => setDocGoesTo(docId, target),
+    onMutate: async ({ target, project }) => {
+      await client.cancelQueries({ queryKey });
+      // Only the place is put back on an error, and only while it is still
+      // this pick's: a later pick's place stays.
+      const undo: { key: readonly unknown[]; before: Place; shown: Place }[] = [];
+      for (const [key, old] of client.getQueriesData<DocChecklist>({ queryKey })) {
+        if (!old) continue;
+        // Back to automatic: the place shown stays until the new read says
+        // what automatic is now.
+        const shown: Place = {
+          picked: target || undefined,
+          project: target === "inbox" ? undefined : target ? (project ?? old.project) : old.project,
+        };
+        undo.push({ key, before: { picked: old.picked, project: old.project }, shown });
+        client.setQueryData<DocChecklist>(key, { ...old, ...shown });
+      }
+      return undo;
+    },
+    onError: (_error, _vars, undo) => {
+      for (const { key, before, shown } of undo ?? []) {
+        client.setQueryData<DocChecklist>(key, (now) =>
+          now && now.picked === shown.picked && now.project?.id === shown.project?.id ? { ...now, ...before } : now,
+        );
+      }
+      useToastStore.getState().show("Couldn’t change where tasks from this doc go. Try again.");
+    },
+    // Read again only after the last pick waiting: an earlier pick's answer
+    // would put that pick back over a newer one still on its way.
+    onSettled: () => (client.isMutating({ mutationKey }) > 1 ? undefined : client.invalidateQueries({ queryKey })),
   });
 }
 
