@@ -818,6 +818,52 @@ function calls<T>(value: unknown, name: string, schema: z.ZodType<T>, out: T[] =
   return out;
 }
 
+/** The @Data or @Cells call a chart reads its labels from, and how to find the chart once drawn. */
+export interface ChartQuery {
+  title?: string;
+  /** The statement the chart is, when it is one (`chart = BarChart(...)`); drawn charts keep it. */
+  statementId?: string;
+  data?: DataQuery;
+  cells?: CellsQuery;
+}
+
+/**
+ * The query behind each BarChart in a program, in program order, including
+ * charts under a condition or in an @Each. Lets a smaller drawing of the card,
+ * such as a phone widget, choose which bars to keep. A chart that draws empty
+ * is still listed, so match a drawn chart by its statement or title.
+ */
+export function chartQueries(program: string): ChartQuery[] {
+  const out: ChartQuery[] = [];
+  const chart = (props: Record<string, unknown>, statementId: unknown) => {
+    const title = typeof props.title === "string" ? props.title : literal(props.title as Ast | undefined);
+    out.push({
+      ...(typeof title === "string" ? { title } : {}),
+      ...(typeof statementId === "string" ? { statementId } : {}),
+      data: dataCalls(props.labels)[0],
+      cells: calls(props.labels, "Cells", CellsQuery)[0],
+    });
+  };
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) return value.forEach(walk);
+    if (!value || typeof value !== "object") return;
+    const node = value as GenuiNode & Ast & { statementId?: unknown };
+    if (node.type === "element") {
+      if (node.typeName === "BarChart") return chart(node.props ?? {}, node.statementId);
+      return Object.values(node.props ?? {}).forEach(walk);
+    }
+    // A component call left in an expression: a condition's branch or an @Each's template.
+    if (node.k === "Comp") {
+      const props = (node.mappedProps as Record<string, unknown> | undefined) ?? {};
+      if (node.name === "BarChart") return chart(props, undefined);
+      return Object.values(node.mappedProps ? props : { args: node.args }).forEach(walk);
+    }
+    Object.values(node).forEach(walk);
+  };
+  walk(boardParser().parse(program).root);
+  return out;
+}
+
 export interface DescribedParse {
   title: string;
   size: { w: number; h: number };

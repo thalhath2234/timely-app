@@ -40,7 +40,7 @@ export async function load(url, c, n) {
 register("data:text/javascript," + encodeURIComponent(loader));
 
 const { buildWidgetTree } = await import(widgetLib + "api/build-widget-tree.js");
-const { renderCard, renderQuickAdd } = await import("../apps/mobile/lib/widgets/render.tsx");
+const { planCard, renderCard, renderQuickAdd } = await import("../apps/mobile/lib/widgets/render.tsx");
 const { cardWidgetModel, clockWidgetModel, counterWidgetModel, pomodoroLocalFrom, pomodoroWidgetModel, sheetCounter, todayModel } = await import("../apps/mobile/lib/widgets/model.ts");
 const { BUILTIN_CARDS, defaultDashboard } = await import("../packages/contract/src/dashboard.ts");
 const { buildYearlyExpenses } = await import("../packages/contract/src/sheetTemplates.ts");
@@ -169,6 +169,41 @@ describe("widgets draw on the phone", () => {
       assert.deepEqual(clicks(phone).filter((click) => click !== "OPEN_URI"), changed ? ["TIMELY_LOCAL", "TIMELY_ACTION", "TIMELY_LOCAL"] : ["TIMELY_LOCAL", "TIMELY_LOCAL"]);
       assert.ok(texts(phone).includes("{{count:'$'#,##0.00;-'$'#,##0.00}}"));
       assert.ok(texts(buildWidgetTree(renderCard(model, SIZES[1]).light)).includes(changed ? "$1,260.00" : "$1,250.00"));
+    }
+  });
+
+  test("a described card with a chart and a list keeps both on a big widget", () => {
+    const base = defaultDashboard().cards.find((c) => c.id === "default_open");
+    const program = `root = Panel("Work", [nums, chart, list])
+todo = @Data({source: "tasks", state: "all", limit: 5})
+nums = Stats([Stat("Tasks", todo.text)])
+chart = BarChart("By day", ["Mon", "Tue", "Wed"], [2, 5, 1])
+list = List(@Each(todo.rows, "t", TaskRow(t.id, t.title, t.day, t.note)), "Nothing")`;
+    const model = cardWidgetModel({ ...base, id: "dc", query: { ...base.query, described: { prompt: "work", program } } }, input);
+    for (const size of SIZES) draw(renderCard(model, size), `described ${size.width}x${size.height}`);
+    for (const size of [{ width: 320, height: 320 }, { width: 320, height: 480 }]) {
+      const plan = planCard(model, size);
+      assert.ok(plan.bars > 0, `${size.height}: chart`);
+      assert.ok(plan.rows >= 2, `${size.height}: rows with their ticks`);
+    }
+    // A chart with no rows still takes all the room it had.
+    const { rows, ...chartOnly } = model;
+    assert.equal(planCard(chartOnly, { width: 320, height: 320 }).bars, 140);
+    // On a 4x2 the chart gives up rows before it gives up itself.
+    const noStats = cardWidgetModel({ ...base, id: "dc2", query: { ...base.query, described: { prompt: "work", program: program.replace("[nums, chart, list]", "[chart, list]") } } }, input);
+    const short = planCard(noStats, { width: 320, height: 160 });
+    assert.ok(short.bars > 0 && short.rows >= 1, JSON.stringify(short));
+    // A note under a chart (a Text, or a doc the card can't find) draws at every size but the smallest.
+    const noted = cardWidgetModel({ ...base, id: "dc3", query: { ...base.query, described: { prompt: "notes", program: `root = Panel("Done", [Columns([Card("Overdue", [Stats([Stat("Overdue", "4")])]), Card("Per day", [BarChart("Per day", ["Mon", "Tue"], [1, 3]), Text("Keep going")])])])` } } }, input);
+    for (const size of SIZES) draw(renderCard(noted, size), `noted ${size.width}x${size.height}`);
+    for (const size of SIZES.slice(1)) assert.ok(planCard(noted, size).noteLines >= 1, `note at ${size.width}x${size.height}`);
+    assert.ok(planCard(noted, { width: 320, height: 320 }).bars > 0);
+    // A short wide widget keeps its chart beside the figure and the note under them.
+    for (const height of [110, 140]) {
+      const plan = planCard(noted, { width: 320, height });
+      assert.equal(plan.mode, "wide", `${height}`);
+      assert.ok(plan.bars > 0 && plan.noteLines >= 1, `${height}: ${JSON.stringify(plan)}`);
+      draw(renderCard(noted, { width: 320, height }), `noted 320x${height}`);
     }
   });
 

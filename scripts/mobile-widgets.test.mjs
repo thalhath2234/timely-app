@@ -11,7 +11,9 @@ register(
     ),
 );
 
-const { BUILTIN_CARDS, defaultDashboard } = await import("../packages/contract/src/dashboard.ts");
+const { BUILTIN_CARDS, defaultDashboard, normalizeDashboard } = await import("../packages/contract/src/dashboard.ts");
+const { describedCard, drawBoard } = await import("../packages/contract/src/genuiBoard.ts");
+const { genuiNodes } = await import("../packages/contract/src/genui.ts");
 const { CLOCK_LOCAL_LIMITS, POMODORO_LOCAL_LIMITS, cardWidgetModel, clockWidgetModel, counterFormat, counterWidgetModel, formatCount, pomodoroLocalFrom, pomodoroWidgetModel, sheetCounter, todayModel, widgetChoices } = await import("../apps/mobile/lib/widgets/model.ts");
 const { clockChange, isLocalTap, optimisticModel, parseWidgetAction } = await import("../apps/mobile/lib/widgets/actions.ts");
 const { SHARED_MS, sharedLoads } = await import("../apps/mobile/lib/widgets/sharedLoads.ts");
@@ -423,6 +425,179 @@ describe("widgets that work on the home screen", () => {
     assert.equal(formatCount(-2, counterFormat({ type: "currency", format: { currency: "USD" } })), "-$2.00");
     // A percentage shows 0.5 as 50%: the phone can't write that from the number.
     assert.equal(counterFormat({ type: "percent" }), null);
+  });
+
+  test("a described card draws its own program, not its fallback list", () => {
+    const base = defaultDashboard().cards.find((c) => c.id === "default_open");
+    const item = (text, checked) => ({ type: "taskItem", attrs: { checked }, content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
+    const shopping = { id: "doc_shop", title: "Shopping list", updatedAt: "2026-10-15T08:00:00Z", content: { type: "doc", content: [{ type: "taskList", content: [item("Onion", false), item("Milk", true), item("Bread", false)] }] } };
+    const bugs = { id: "doc_bugs", title: "Timely Bugs Found", updatedAt: "2026-10-14T08:00:00Z", content: { type: "doc", content: [] } };
+    const docs = { ...input, data: { ...data, docs: [shopping, bugs] } };
+    const described = (program) => ({ ...base, id: "dc", title: "Shopping list", query: { ...base.query, source: "docs", described: { prompt: "my shopping list", program } } });
+
+    const list = cardWidgetModel(described(`root = Panel("Shopping list", [nums, list], "tall")
+shop = @Checklist({doc: "Shopping list"})
+nums = Stats([Stat("Left", shop.left), Stat("Done", shop.ratio)])
+list = List(@Each(shop.rows, "i", CheckRow(i.docId, i.text, i.note, i.item)), "Nothing on the list", Open("Open doc", "doc", shop.docId))`), docs);
+    assertDrawable(list, "described checklist");
+    assert.equal(list.value, "2");
+    assert.equal(list.caption, "Left · 1/3 Done");
+    assert.deepEqual(list.rows.map((row) => [row.title, row.done]), [["Onion", false], ["Milk", true], ["Bread", false]]);
+    assert.ok(!list.rows.some((row) => row.title === "Timely Bugs Found"), "not the docs list");
+    assert.deepEqual(list.rows[1].toggle, { kind: "checkItem", docId: "doc_shop", item: 1, text: "Milk", done: false });
+    assert.equal(list.rows[0].uri, "timelymobile://docs/doc_shop");
+    assert.equal(list.uri, "timelymobile://docs/doc_shop");
+
+    // Tasks tick in place, a chart becomes bars, shares become meters.
+    const work = cardWidgetModel(described(`root = Panel("Work", [nums, chart, list, shares])
+todo = @Data({source: "tasks", state: "all", limit: 5})
+nums = Stats([Stat("Tasks", todo.text)])
+chart = BarChart("By day", ["Mon", "Tue"], [2, 5], "h")
+list = List(@Each(todo.rows, "t", TaskRow(t.id, t.title, t.day, t.note)), "Nothing", Open("Open Tasks", "tasks"))
+shares = Card("Split", [ShareRow("Client", "5 h", 100), ShareRow("Admin", "2 h", 40)])`), input);
+    assertDrawable(work, "described tasks");
+    assert.deepEqual(work.bars.map((bar) => [bar.label, bar.value, bar.highlight]), [["Mon", 2, false], ["Tue", 5, true]]);
+    const late = work.rows.find((row) => row.title === "Task a");
+    assert.equal(late.tone, "danger");
+    assert.deepEqual(late.toggle, { kind: "task", taskId: "a", done: true });
+    assert.equal(work.rows.find((row) => row.title === "Task b").done, true);
+    assert.deepEqual(work.meters, [{ label: "Client", value: 1, detail: "5 h" }, { label: "Admin", value: 0.4, detail: "2 h" }]);
+    assert.equal(work.uri, "timelymobile://tasks");
+
+    // An empty list says what the card says; a program that can't be drawn sends you to the app.
+    const none = cardWidgetModel(described(`root = Panel("Garden", [List(@Each(@Data({source: "tasks", project: "Garden"}).rows, "t", TaskRow(t.id, t.title)), "Nothing in the garden")])`), input);
+    assert.equal(none.empty, "Nothing in the garden");
+    assert.ok(cardWidgetModel(described("not a program"), input).empty);
+  });
+
+  test("a described card's cards, charts and rows draw as on the Dashboard", () => {
+    const base = defaultDashboard().cards.find((c) => c.id === "default_open");
+    const described = (program) => ({ ...base, id: "dc", title: "Card", query: { ...base.query, described: { prompt: "a card", program } } });
+
+    // Numbers, a chart and text inside Columns of Cards still draw.
+    const columns = cardWidgetModel(described(`root = Panel("Two views", [Columns([one, two])])
+one = Card("Overdue", [Stats([Stat("Overdue", "4")])])
+two = Card("Per day", [BarChart("Per day", ["Mon", "Tue"], [1, 3]), Text("Keep going")])`), input);
+    assert.equal(columns.value, "4");
+    assert.deepEqual(columns.bars.map((bar) => bar.label), ["Mon", "Tue"]);
+    assert.equal(columns.note, "Keep going");
+    assert.equal(columns.empty, undefined);
+
+    // A chart sorted largest first keeps its first bars, and highlights within them.
+    const labels = Array.from({ length: 14 }, (_, i) => `D${i + 1}`);
+    const values = labels.map((_, i) => (i === 2 ? 9 : i === 12 ? 5 : 1));
+    const ranked = cardWidgetModel(described(`root = Panel("Days", [BarChart("Per day", [${labels.map((l) => `"${l}"`).join(", ")}], [${values.join(", ")}])])`), input);
+    assert.deepEqual(ranked.bars.map((bar) => bar.label), labels.slice(0, 8));
+    assert.deepEqual(ranked.bars.filter((bar) => bar.highlight).map((bar) => bar.label), ["D3"]);
+
+    // Inbox rows tick, and an event's colour name becomes its colour.
+    const inbox = cardWidgetModel(described(`root = Panel("Inbox", [List(@Each(@Data({source: "inbox"}).rows, "t", TaskRow(t.id, t.title)), "Inbox zero")])`), input);
+    assert.deepEqual(inbox.rows[0].toggle, { kind: "task", taskId: "i1", done: true });
+    const events = cardWidgetModel(described(`root = Panel("Gym", [Card("Today", [EventRow("10:00", "Gym", "1 h", "teal")])])`), input);
+    assert.match(events.rows[0].color, /^#[0-9a-f]{6}$/i);
+
+    // A doc the program can't find says so instead of reading as an empty list.
+    const item = (text, checked) => ({ type: "taskItem", attrs: { checked }, content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
+    const groceries = { id: "doc_shop", title: "Groceries", updatedAt: "2026-10-15T08:00:00Z", content: { type: "doc", content: [{ type: "taskList", content: [item("Onion", false), item("x".repeat(1200), false)] }] } };
+    const renamed = cardWidgetModel(described(`root = Panel("Shopping list", [nums, list])
+shop = @Checklist({doc: "Shopping list"})
+nums = Stats([Stat("Left", shop.left)])
+list = List(@Each(shop.rows, "i", CheckRow(i.docId, i.text, i.note, i.item)), "Everything is ticked off")`), { ...input, data: { ...data, docs: [groceries] } });
+    assert.match(renamed.note, /Shopping list/);
+    assert.equal(renamed.empty, undefined);
+
+    // An item too long to carry in a tap opens its doc instead of ticking.
+    const long = cardWidgetModel(described(`root = Panel("Groceries", [List(@Each(@Checklist({doc: "Groceries"}).rows, "i", CheckRow(i.docId, i.text, i.note, i.item)))])`), { ...input, data: { ...data, docs: [groceries] } });
+    assert.equal(long.rows[0].toggle.kind, "checkItem");
+    assert.equal(long.rows[1].toggle, undefined);
+    assert.equal(long.rows[1].done, false);
+    assert.equal(long.rows[1].uri, "timelymobile://docs/doc_shop");
+  });
+
+  test("a described card's chart keeps the bars that end now, saved as the app saves it", () => {
+    const shown = (program, given = input) => {
+      const card = describedCard("dc", "a chart", program, given.data);
+      const saved = normalizeDashboard({ cards: [card] }).cards.find((c) => c.id === "dc");
+      const full = genuiNodes(drawBoard(program, given.data, { now: given.now, timeZone: "UTC" }).props.blocks).find((block) => block.typeName === "BarChart" && block.props.labels.length)?.props.labels;
+      return { bars: cardWidgetModel(saved, given).bars.map((bar) => bar.label), full };
+    };
+    // Past days keep the latest, even when Stats on another @Data come first.
+    const past = shown(`root = Panel("Last 14 days", [nums, chart])
+all = @Data({source: "tasks", state: "done"})
+done = @Data({source: "tasks", state: "done", date: "completedAt", range: "last14", by: "day"})
+nums = Stats([Stat("Done", all.text)])
+chart = BarChart("Done per day", done.labels, done.values)`);
+    assert.equal(past.full.length, 14);
+    assert.deepEqual(past.bars, past.full.slice(-8));
+    // Days ahead keep today first.
+    const ahead = shown(`root = Panel("Ahead", [chart])
+due = @Data({source: "tasks", date: "deadline", range: "next14", by: "day"})
+chart = BarChart("Due per day", due.labels, due.values)`);
+    assert.equal(ahead.full.length, 14);
+    assert.deepEqual(ahead.bars, ahead.full.slice(0, 8));
+    // This month by day ends at today (the 15th).
+    const month = shown(`root = Panel("October", [chart])
+done = @Data({source: "tasks", state: "done", date: "completedAt", range: "thisMonth", by: "day"})
+chart = BarChart("Done per day", done.labels, done.values)`);
+    assert.deepEqual(month.bars, month.full.slice(7, 15));
+    // A by-day @Data for the numbers doesn't make a chart by project a time series.
+    const projects = Array.from({ length: 10 }, (_, i) => ({ id: `p${i}`, name: `P${i}` }));
+    const tasks = projects.flatMap((project, i) => Array.from({ length: 10 - i }, (_, n) => task(`${project.id}_${n}`, { projectId: project.id })));
+    const byProject = shown(
+      `root = Panel("Projects", [nums, chart])
+week = @Data({source: "tasks", range: "last7", by: "day"})
+work = @Data({source: "tasks", by: "project", limit: 12})
+nums = Stats([Stat("This week", week.text)])
+chart = BarChart("By project", work.labels, work.values)`,
+      { ...input, data: { ...data, tasks, projects } },
+    );
+    assert.ok(byProject.full.length > 8);
+    assert.deepEqual(byProject.bars, byProject.full.slice(0, 8));
+    // A chart that draws empty isn't drawn, so the next one keeps its own window.
+    const afterEmpty = shown(`root = Panel("Done", [split, days])
+week = @Data({source: "tasks", state: "done", date: "completedAt", range: "lastWeek", by: "project"})
+done = @Data({source: "tasks", state: "done", date: "completedAt", range: "last14", by: "day"})
+split = BarChart("Last week by project", week.labels, week.values)
+days = BarChart("Done per day", done.labels, done.values)`);
+    assert.equal(afterEmpty.full.length, 14);
+    assert.deepEqual(afterEmpty.bars, afterEmpty.full.slice(-8));
+    // The same inside Columns of Cards.
+    const inCards = shown(`root = Panel("Done", [Columns([Card("Last week", [split]), Card("Per day", [days])])])
+week = @Data({source: "tasks", state: "done", date: "completedAt", range: "lastWeek", by: "project"})
+done = @Data({source: "tasks", state: "done", date: "completedAt", range: "last14", by: "day"})
+split = BarChart("Last week by project", week.labels, week.values)
+days = BarChart("Done per day", done.labels, done.values)`);
+    assert.deepEqual(inCards.bars, afterEmpty.full.slice(-8));
+    // A chart under a condition is still read.
+    const shownIf = shown(`root = Panel("Done", [chart])
+done = @Data({source: "tasks", state: "done", date: "completedAt", range: "last14", by: "day"})
+chart = done.value > 0 ? BarChart("Done per day", done.labels, done.values) : Text("Nothing done yet")`);
+    assert.deepEqual(shownIf.bars, shownIf.full.slice(-8));
+    // Done tasks are only ever in the past, so "next14" draws the last 14 days and keeps the latest.
+    const turned = shown(`root = Panel("Done", [chart])
+done = @Data({source: "tasks", state: "done", range: "next14", by: "day"})
+chart = BarChart("Done per day", done.labels, done.values)`);
+    assert.equal(turned.full.length, 14);
+    assert.deepEqual(turned.bars, turned.full.slice(-8));
+    // A sheet's latest entries keep the last rows.
+    const columns = [{ id: "d", name: "Date", width: 100, type: "text" }, { id: "w", name: "Weight", width: 100, type: "number" }];
+    const rows = [{ id: "h", cells: { d: "Date", w: "Weight" } }, ...Array.from({ length: 20 }, (_, i) => ({ id: `r${i}`, cells: { d: `Day ${i + 1}`, w: String(80 - i) } }))];
+    const sheet = { id: "s1", title: "Weight", columns, rows, merges: [], tabs: [{ id: "tab", name: "Log", columns, rows, merges: [] }], archivedAt: null };
+    const latest = shown(`root = Panel("Weight", [chart])
+w = @Cells({sheet: "Weight", label: "Date", value: "Weight", last: true})
+chart = BarChart("Latest", w.labels, w.values)`, { ...input, data: { ...data, sheets: [sheet] } });
+    assert.equal(latest.full.at(-1), "Day 20");
+    assert.deepEqual(latest.bars, latest.full.slice(-8));
+  });
+
+  test("an item on a doc's checklist ticks in place and redraws at once", () => {
+    const action = { kind: "checkItem", docId: "doc_shop", item: 2, text: "Bread", done: true };
+    assert.deepEqual(parseWidgetAction({ ...action }), action);
+    assert.equal(parseWidgetAction({ kind: "checkItem", docId: "doc_shop", item: 2 }), null);
+    const model = { title: "Shopping", uri: "x://", rows: [{ title: "Bread", done: false, toggle: action }] };
+    const next = optimisticModel(model, action);
+    assert.equal(next.rows[0].done, true);
+    assert.deepEqual(next.rows[0].toggle, { ...action, done: false });
   });
 
   test("a doc checklist row toggles its own checkbox", () => {

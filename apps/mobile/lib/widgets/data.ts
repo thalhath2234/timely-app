@@ -71,6 +71,10 @@ export async function loadWidgetInput(cards: DashboardCard[], options: { today?:
   const wantsToday = options.today || used.has("today");
   const wantsFocus = cards.some((card) => card.type === "focusTime" || card.type === "goal");
   const wantsTasks = used.has("tasks") || wantsFocus;
+  // A custom card, plain or described, can read any range of events ("next7", "thisWeek"),
+  // so it gets the Dashboard's window; the other cards only need yesterday to tomorrow.
+  const wideEvents = cards.some((card) => card.type === "custom" && sourcesUsed([card]).has("events"));
+  const [eventsFrom, eventsTo] = wideEvents ? [-180, 181] : [-1, 2];
 
   const [tasks, projects, workspaces, docs, sheets, inbox, reminders, events, today, focusSessions] = await Promise.all([
     wantsTasks ? shared("tasks", () => getTasks()) : undefined,
@@ -81,7 +85,9 @@ export async function loadWidgetInput(cards: DashboardCard[], options: { today?:
     used.has("inbox") || cards.some((card) => card.type === "quickCapture") ? shared("inbox", () => getTasks({ inbox: true })) : undefined,
     used.has("reminders") ? shared("reminders", () => getTasks({ reminders: true })) : undefined,
     used.has("events")
-      ? shared(`events:${day}`, () => getCalendarRange(new Date(`${addDaysToDate(day, -1)}T00:00:00`), new Date(`${addDaysToDate(day, 2)}T00:00:00`)))
+      ? shared(`events:${day}:${eventsFrom}`, () =>
+          getCalendarRange(new Date(`${addDaysToDate(day, eventsFrom)}T00:00:00`), new Date(`${addDaysToDate(day, eventsTo)}T00:00:00`)),
+        )
       : undefined,
     wantsToday ? shared("today", getToday) : undefined,
     wantsFocus
@@ -102,7 +108,8 @@ export async function loadWidgetInput(cards: DashboardCard[], options: { today?:
     projects: projects ?? [],
     workspaces: workspaces ?? [],
     docs: docs ?? [],
-    sheets: sheets ?? [],
+    // Left out when the sheets didn't load, so a card doesn't say its sheet is gone.
+    sheets,
     inbox: inbox ?? [],
     reminders: reminders ?? [],
     events: events?.items ?? [],

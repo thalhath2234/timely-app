@@ -1,7 +1,7 @@
 /**
  * What a tap on a widget can do without opening the app: run a pomodoro or
- * a stopwatch, tick a habit, a task or a doc checkbox, or step a sheet
- * counter. The renderer sends these as clickActionData; the widget task
+ * a stopwatch, tick a habit, a task, a doc checkbox or an item on a doc's
+ * checklist, or step a sheet counter. The renderer sends these as clickActionData; the widget task
  * handler runs them (lib/widgets/run.ts) and redraws. Pure, so
  * `make test-mobile-widgets` checks it under Node.
  */
@@ -43,7 +43,9 @@ export type WidgetAction =
   | { kind: "counter"; cardId: string; by: number }
   /** Saves the count a sheet counter widget made on the phone (lib/widgets/counter.ts). */
   | { kind: "counterSave"; cardId: string }
-  | { kind: "docCheck"; cardId: string; index: number; checked: boolean };
+  | { kind: "docCheck"; cardId: string; index: number; checked: boolean }
+  /** An item on a doc's checklist in a described card (CheckRow), ticked by the server (ADR 0017). */
+  | { kind: "checkItem"; docId: string; item: number; text: string; done: boolean };
 
 /** Reads an action back from the flat clickActionData Android hands the handler. */
 export function parseWidgetAction(data: Record<string, unknown> | undefined | null): WidgetAction | null {
@@ -85,6 +87,12 @@ export function parseWidgetAction(data: Record<string, unknown> | undefined | nu
       const index = num("index");
       return cardId && index !== null ? { kind: "docCheck", cardId, index, checked: bool("checked") } : null;
     }
+    case "checkItem": {
+      const item = num("item");
+      return str("docId") && str("text") && item !== null
+        ? { kind: "checkItem", docId: str("docId"), item, text: str("text"), done: bool("done") }
+        : null;
+    }
     default:
       return null;
   }
@@ -118,6 +126,8 @@ function sameAction(a: WidgetAction | undefined, b: WidgetAction) {
       return a.kind === "task" && a.taskId === b.taskId && a.originalStart === b.originalStart;
     case "docCheck":
       return a.kind === "docCheck" && a.index === b.index && a.cardId === b.cardId;
+    case "checkItem":
+      return a.kind === "checkItem" && a.docId === b.docId && a.item === b.item && a.text === b.text;
     default:
       return false;
   }
@@ -128,7 +138,11 @@ function flipRow(row: WidgetRow): WidgetRow {
   const toggle = row.toggle;
   if (!toggle) return { ...row, done };
   const next: WidgetRow["toggle"] =
-    toggle.kind === "task" ? { ...toggle, done: !done } : toggle.kind === "docCheck" ? { ...toggle, checked: !done } : toggle;
+    toggle.kind === "task" || toggle.kind === "checkItem"
+      ? { ...toggle, done: !done }
+      : toggle.kind === "docCheck"
+        ? { ...toggle, checked: !done }
+        : toggle;
   return { ...row, done, toggle: next };
 }
 
@@ -142,7 +156,7 @@ export function optimisticModel(model: WidgetModel, action: WidgetAction): Widge
     if (!model.value || !Number.isFinite(current)) return model;
     return { ...model, value: String(Math.round((current + action.by) * 1e6) / 1e6) };
   }
-  if (action.kind !== "habit" && action.kind !== "task" && action.kind !== "docCheck") return model;
+  if (action.kind !== "habit" && action.kind !== "task" && action.kind !== "docCheck" && action.kind !== "checkItem") return model;
   let changed = false;
   const rows = (model.rows ?? []).map((row) => {
     if (!sameAction(row.toggle, action)) return row;
