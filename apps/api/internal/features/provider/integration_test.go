@@ -598,3 +598,15 @@ func TestIntegrationMigrationMovesUnchosenOpusToHaiku(t *testing.T) {
 		t.Errorf("user-a's default must be emptied: %q %v", stored.DefaultProvider, err)
 	}
 }
+
+func TestIntegrationRehearsedLiveBlockNeedsAProvider(t *testing.T) {
+	db := integrationDB(t)
+	t.Setenv("JWT_SECRET", "integration-secret")
+	t.Setenv("CHAT_LOCAL_CLI", "off")
+	s := New(db, nil, nil)
+	// Outside a chat run the account's own provider is checked, and an
+	// account with none set up hears so before the person reviews anything.
+	if _, err := s.RehearseLiveBlock(context.Background(), "user-a", "my open work", "", "2026-10-31"); err == nil || !strings.Contains(err.Error(), "Live blocks need an AI provider") {
+		t.Fatalf("an account with no provider is refused: %v", err)
+	}
+}
