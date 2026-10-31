@@ -225,7 +225,10 @@ export function buildEditorHtml(
     .hint-label svg { flex: none; width: 11px; height: 11px; color: ${t.primary}; fill: currentColor; }
     .hint-title { margin-top: 4px; font-weight: 600; color: ${t.foreground}; }
     .hint-details { margin-top: 2px; font-size: 13px; color: ${t.mutedForeground}; }
-    .hint-goes { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; margin-top: 10px; border-top: 1px solid ${t.border}; color: ${t.mutedForeground}; }
+    /* A button: tapped, the app opens the Goes to page for this task alone. */
+    .hint-goes { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 44px; margin-top: 10px; padding: 0; border: 0; border-top: 1px solid ${t.border}; background: none; color: ${t.mutedForeground}; font: inherit; font-size: 14px; text-align: left; -webkit-tap-highlight-color: transparent; }
+    .hint-goes .hint-chevron { flex: none; width: 14px; height: 14px; color: ${t.mutedForeground}; }
+    .hint-dot { flex: none; width: 8px; height: 8px; border-radius: 999px; }
     .hint-place { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: ${t.foreground}; font-weight: 500; }
     .hint-place svg { flex: none; width: 14px; height: 14px; }
     .hint-place span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -550,6 +553,7 @@ export function buildEditorHtml(
     const HINT_SPARK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg>';
     const HINT_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
     const HINT_FOLDER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>';
+    const HINT_CHEVRON = '<svg class="hint-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
     const HINT_INBOX = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>';
     function hintEl(tag, cls, text) {
       const el = document.createElement(tag);
@@ -633,15 +637,23 @@ export function buildEditorHtml(
             card.appendChild(eyebrow);
             card.appendChild(hintEl("div", "hint-title", hint.name));
             if (hint.details) card.appendChild(hintEl("div", "hint-details", hint.details));
-            if (hint.target) {
-              const goes = hintEl("div", "hint-goes");
-              goes.appendChild(hintEl("span", "", "Goes to"));
-              const place = hintEl("span", "hint-place");
-              place.innerHTML = hint.target === "Inbox" ? HINT_INBOX : HINT_FOLDER;
-              place.appendChild(hintEl("span", "", hint.target));
-              goes.appendChild(place);
-              card.appendChild(goes);
-            }
+            // Always drawn: it is the only way to pick a place for this task
+            // alone. The Inbox is told by the flag, not the name, so a
+            // project called "Inbox" keeps its dot.
+            const where = hint.target || (hint.targetInbox ? "Inbox" : "Project");
+            const goes = hintButton("hint-goes", "Goes to, " + where + ". Changes only this task", hint.key, "goesTo", true);
+            goes.appendChild(hintEl("span", "", "Goes to"));
+            const place = hintEl("span", "hint-place");
+            if (hint.targetInbox) place.innerHTML = HINT_INBOX;
+            else if (hint.targetColor) {
+              const dot = hintEl("span", "hint-dot");
+              dot.style.background = hint.targetColor;
+              place.appendChild(dot);
+            } else place.innerHTML = HINT_FOLDER;
+            place.appendChild(hintEl("span", "", where));
+            place.insertAdjacentHTML("beforeend", HINT_CHEVRON);
+            goes.appendChild(place);
+            card.appendChild(goes);
             const actions = hintEl("div", "hint-row");
             actions.appendChild(hintEl("span", "hint-gap"));
             const dismiss = hintButton("hint-btn", "Dismiss", hint.key, "dismiss");
@@ -656,7 +668,7 @@ export function buildEditorHtml(
             return card;
           },
           // After the disc when both sit at the end of the same line.
-          { key: "card:" + hint.key + ":" + (config.busy || "") + ":" + (hint.target || ""), side: 2, ignoreSelection: true, stopEvent: () => true },
+          { key: "card:" + hint.key + ":" + (config.busy || "") + ":" + (hint.target || "") + ":" + (hint.targetInbox ? "inbox" : "") + ":" + (hint.targetColor || ""), side: 2, ignoreSelection: true, stopEvent: () => true },
         ),
       );
     }

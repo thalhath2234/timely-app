@@ -527,7 +527,7 @@ export default function RichTextEditor({
         list?: string | null;
         endList?: string | null;
       };
-      if (msg.type === "lineHint" && msg.key && (msg.action === "toggle" || msg.action === "make" || msg.action === "dismiss")) {
+      if (msg.type === "lineHint" && msg.key && (msg.action === "toggle" || msg.action === "make" || msg.action === "dismiss" || msg.action === "goesTo")) {
         lineHintsRef.current?.act(msg.key, msg.action);
       }
       if (msg.type === "linkSelection") {

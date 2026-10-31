@@ -8,7 +8,7 @@ import { ChevronRight, Inbox, ListTodo, Plus, Sparkles, X } from "lucide-react-n
 import { contentFromTemplate, templateVars } from "@timely/contract/templates";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import BottomSheet, { SheetOption } from "../ui/BottomSheet";
-import { GroupLabel, ListGroup, ListRow, ListSwitch, SwitchRow } from "../settings/SettingsList";
+import { ColorDot, GroupHint, GroupLabel, ListGroup, ListRow, ListSwitch, SwitchRow } from "../settings/SettingsList";
 import ConfirmSheet from "../ui/ConfirmSheet";
 import { getDoc } from "../../lib/api/docs";
 import { checklistTaskDrafts } from "../../lib/api/write";
@@ -27,6 +27,7 @@ import {
   useProjectQuery,
   useProjectsQuery,
   useRelatedQuery,
+  useSetDocGoesTo,
   useUpdateDoc,
 } from "../../lib/hooks";
 import { hrefFor } from "../../lib/searchRoutes";
@@ -61,6 +62,10 @@ type Offer = {
   todo?: ChecklistTodo;
   line?: string;
 };
+
+/** Where a task made from an offer goes: a project (with its workspace,
+ * which may not be the doc's), or the Inbox, with no id or title. */
+type Place = { id?: string; title?: string; workspaceId: string; color?: string };
 
 /** Smart suggestions for a doc on the phone, as on the web: a template for a
  * near-empty page, the project or page it may belong under, its type and
@@ -128,10 +133,15 @@ export default function DocHintsCard({
   const names = useMemo(() => todos.map((todo) => todo.name), [todos]);
   // New tasks go to the doc's project, else the one suggestions place the doc
   // in, else the project it is most related to; the server checks the pick.
+  // The doc's Goes to, once picked, wins over all of them, for every offer;
+  // the answer is read for it alone when the doc's offers are only lines
+  // that read like a task.
   const related = useRelatedQuery("doc", doc.id).data;
   const proposed = doc.projectId || data?.project?.id || related?.find((item) => item.kind === "project")?.id;
-  const checklist = useDocChecklistQuery(doc.id, names, proposed ?? undefined);
+  const checklist = useDocChecklistQuery(doc.id, names, proposed ?? undefined, live && Boolean(data?.available && data.work?.length));
   const target = checklist.data?.project;
+  const picked = checklist.data?.picked;
+  const setGoesTo = useSetDocGoesTo(doc.id);
   const taken = new Set((checklist.data?.existing ?? []).map((task) => task.name.toLowerCase()));
   const checked = new Set((checklist.data?.names ?? []).map((name) => name.toLowerCase()));
   // Offered only while smart suggestions are on, and only the items Jev reads
@@ -178,18 +188,38 @@ export default function DocHintsCard({
   // listed in the sheet; it only has no marker.
   for (const todo of todoByKey.values()) offers.push({ key: `todo:${todo.name.toLowerCase()}`, name: todo.name, details: todo.details || undefined, text: "", section: "", todo });
   for (const found of workByKey.values()) offers.push({ key: `work:${found}`, name: found, text: "", section: "", line: found });
-  // A checklist item goes to the project above; a line that reads like a
-  // task goes to the doc's own project, as it always has.
+  // Without a pick, a checklist item goes to the project above, and a line
+  // that reads like a task to the doc's own project, as it always has.
   const docProject = useProjectQuery(doc.projectId ?? undefined).data;
-  // SKETCH: one pick for the whole doc, from the sheet's Goes to row.
-  const allProjects = useProjectsQuery().data ?? [];
-  const [docPick, setDocPick] = useState<string | null>(null);
-  const [picking, setPicking] = useState(false);
-  const autoGoesTo = (offer: Offer): string | undefined =>
-    offer.todo ? (target?.title ?? "Inbox") : doc.projectId ? (docProject?.id === doc.projectId ? docProject.title : undefined) : "Inbox";
-  const goesTo = (offer: Offer): string | undefined =>
-    docPick === null ? autoGoesTo(offer) : docPick ? allProjects.find((project) => project.id === docPick)?.title : "Inbox";
-  const pickedId = docPick ?? "";
+  const allProjects = useProjectsQuery().data;
+  // Only an open project takes new tasks.
+  const openProjects = useMemo(() => (allProjects ?? []).filter((item) => !item.completedAt), [allProjects]);
+  const colorOf = (id: string) => openProjects.find((item) => item.id === id)?.color ?? undefined;
+  const inbox: Place = { workspaceId: doc.workspaceId };
+  const docPlace = (offer?: Offer): Place => {
+    if (picked || offer?.todo) return target ? { ...target, color: colorOf(target.id) } : inbox;
+    if (!doc.projectId) return inbox;
+    const own = docProject?.id === doc.projectId ? docProject : undefined;
+    return { id: doc.projectId, title: own?.title, workspaceId: own?.workspaceId || doc.workspaceId, color: own?.color ?? undefined };
+  };
+  // A pick from a line's card is for that task alone, there and in Make
+  // all, until the doc is opened again: it is not saved.
+  const [linePicks, setLinePicks] = useState<Record<string, string>>({});
+  const placeOf = (offer: Offer): Place => {
+    const pick = linePicks[offer.key];
+    if (pick === "inbox") return inbox;
+    const chosen = pick ? openProjects.find((item) => item.id === pick) : undefined;
+    if (!chosen) return docPlace(offer);
+    return { id: chosen.id, title: chosen.title, workspaceId: chosen.workspaceId || doc.workspaceId, color: chosen.color ?? undefined };
+  };
+  const pickOf = (place: Place) => place.id ?? "inbox";
+  // A place's name. A project whose own read has not come back (or failed)
+  // is named from the project list, else just "Project", never the Inbox.
+  const nameOf = (place: Place) =>
+    place.id ? (place.title ?? allProjects?.find((item) => item.id === place.id)?.title ?? "Project") : "Inbox";
+  // The Goes to page: for the whole doc (the sheet's row), or for one line's
+  // task (its card's row).
+  const [picking, setPicking] = useState<{ key?: string } | null>(null);
 
   const hide = (key: string) => setHidden((prev) => new Set(prev).add(key));
   // Tells Jev whether its checklist offers were wanted: a task made from one,
@@ -242,21 +272,18 @@ export default function DocHintsCard({
     // without a provider, or on any error, the tasks keep the items' own
     // words. A line that reads like a task keeps its words as they are.
     const drafts = aiReady && todoList.length ? await draftChecklistTasks(todoList, doc, (body) => checklistTaskDrafts(body)) : todoList.map(() => null);
-    const made: { task: Task; offer: Offer }[] = [];
+    const made: { task: Task; offer: Offer; place: Place }[] = [];
     for (const offer of list) {
+      const place = placeOf(offer);
       try {
-        const task = await createTask.mutateAsync(
-          offer.todo
-            ? {
-                ...checklistTask(offer.todo, doc, drafts[todoList.indexOf(offer.todo)]),
-                kind: "task",
-                duration: 30,
-                workspaceId: target?.workspaceId ?? doc.workspaceId,
-                projectId: target?.id,
-              }
-            : { ...workLineTask(offer.line ?? offer.name, doc), kind: "task", duration: 30, workspaceId: doc.workspaceId, projectId: doc.projectId ?? undefined },
-        );
-        made.push({ task, offer });
+        const task = await createTask.mutateAsync({
+          ...(offer.todo ? checklistTask(offer.todo, doc, drafts[todoList.indexOf(offer.todo)]) : workLineTask(offer.line ?? offer.name, doc)),
+          kind: "task",
+          duration: 30,
+          workspaceId: place.workspaceId,
+          projectId: place.id,
+        });
+        made.push({ task, offer, place });
         hide(offer.key);
         // Kept for the doc, so the line is not offered again once it or the
         // task is reworded; this reads the suggestions again too.
@@ -275,9 +302,9 @@ export default function DocHintsCard({
       return;
     }
     // Named only when every task went to the same project.
-    const places = new Set(made.map(({ offer }) => goesTo(offer)));
+    const places = new Set(made.map(({ place }) => place.title));
     const [place] = places;
-    const where = places.size === 1 && place && place !== "Inbox" ? ` to ${place}` : "";
+    const where = places.size === 1 && place ? ` to ${place}` : "";
     const message =
       made.length === 1 ? `Task added${where}: ${made[0].task.name}` : `${made.length} tasks added${where}${made.length < list.length ? `, ${list.length - made.length} failed` : ""}`;
     showUndoToast(message, () => {
@@ -301,7 +328,9 @@ export default function DocHintsCard({
       text: offer.text,
       name: offer.name,
       details: offer.details,
-      target: goesTo(offer),
+      target: nameOf(placeOf(offer)),
+      targetInbox: !placeOf(offer).id,
+      targetColor: placeOf(offer).color,
     })),
     ...already.map((task) => ({
       key: `task:${task.taskId}`,
@@ -318,6 +347,10 @@ export default function DocHintsCard({
     }
     if (action === "toggle") {
       setOpenLine((current) => (current === key ? null : key));
+      return;
+    }
+    if (action === "goesTo") {
+      setPicking({ key });
       return;
     }
     const offer = offers.find((item) => item.key === key);
@@ -441,11 +474,57 @@ export default function DocHintsCard({
     if (last && last.section === offer.section) last.offers.push(offer);
     else groups.push({ section: offer.section, offers: [offer] });
   }
-  // One "Goes to" row while every offer goes to the same place; otherwise
-  // each row names its own.
-  const places = new Set(offers.map(goesTo).filter((value): value is string => Boolean(value)));
-  const [place] = places;
-  const mixed = places.size > 1;
+  // Where every offer of the doc goes. Until a place is picked, checklist
+  // items and other lines can go to different ones: the row then says so,
+  // and each offer names its own.
+  const autoPlaces = offers.map((offer) => docPlace(offer));
+  const autoPicks = new Set(autoPlaces.map(pickOf));
+  const mixed = !picked && autoPicks.size > 1;
+  const docPick = picked ?? (autoPicks.size === 1 ? [...autoPicks][0] : undefined);
+  const docShown = mixed ? undefined : picked ? docPlace() : autoPlaces[0];
+  const placeLabel = mixed ? "Several places" : docShown ? nameOf(docShown) : "";
+  // What the Goes to page shows ticked, and what picking does there.
+  const pickingOffer = picking?.key ? offers.find((offer) => offer.key === picking.key) : undefined;
+  const pickingCurrent = pickingOffer ? pickOf(placeOf(pickingOffer)) : docPick;
+  const choose = (pick: string) => {
+    if (picking?.key) setLinePicks((picks) => ({ ...picks, [picking.key!]: pick }));
+    else {
+      const project = openProjects.find((item) => item.id === pick);
+      setGoesTo.mutate({ target: pick, project: project && { id: project.id, title: project.title, workspaceId: project.workspaceId } });
+    }
+    setPicking(null);
+  };
+  const goesToPage = (open: boolean) => (
+    <BottomSheet
+      open={open}
+      onClose={() => setPicking(null)}
+      title="Goes to"
+      subtitle={pickingOffer ? pickingOffer.name : "Tasks made from this doc"}
+    >
+      {/* Back to the doc's project, else the suggested one: only once a
+          place is picked, since until then it is what applies. */}
+      {!pickingOffer && picked ? (
+        <SheetOption selected={false} leading={<Sparkles size={18} color={colors.mutedForeground} />} onSelect={() => choose("")}>
+          Automatic
+        </SheetOption>
+      ) : null}
+      <SheetOption selected={pickingCurrent === "inbox"} leading={<Inbox size={18} color={colors.mutedForeground} />} onSelect={() => choose("inbox")}>
+        Inbox
+      </SheetOption>
+      {openProjects.length > 0 ? <GroupLabel>Projects</GroupLabel> : null}
+      {openProjects.map((item) => (
+        <SheetOption
+          key={item.id}
+          selected={item.id === pickingCurrent}
+          leading={<ColorDot color={item.color} />}
+          onSelect={() => choose(item.id)}
+        >
+          {item.title}
+        </SheetOption>
+      ))}
+      <GroupHint>{pickingOffer ? "Changes only this task. The doc’s Goes to sets it for every offer in it." : "Every task made from this doc’s offers goes here, on every device."}</GroupHint>
+    </BottomSheet>
+  );
   // The switch sits with the offers it governs while the doc has a
   // checklist, or while they are off so they can come back.
   const showSwitch = Boolean(hints) && (hasChecklist(content) || offersAreOff);
@@ -468,7 +547,7 @@ export default function DocHintsCard({
               <ListGroup style={styles.group}>
                 {group.offers.map((offer) => {
                   const kind = offer.todo ? "Checklist item" : "Reads like a task";
-                  const where = mixed ? goesTo(offer) : undefined;
+                  const where = mixed || linePicks[offer.key] ? nameOf(placeOf(offer)) : undefined;
                   return (
                     <View key={offer.key} style={styles.offerRow}>
                       <AnimatedPressable
@@ -509,23 +588,21 @@ export default function DocHintsCard({
               </ListGroup>
             </View>
           ))}
-          {(offers.length > 0 && place && !mixed) || showSwitch ? (
+          {offers.length > 0 || showSwitch ? (
             <ListGroup style={styles.settings}>
-              {offers.length > 0 && place && !mixed ? <ListRow
+              {offers.length > 0 ? (
+                <ListRow
                   title="Goes to"
                   trailing={
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      {pickedId ? (
-                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: allProjects.find((project) => project.id === pickedId)?.color ?? colors.mutedForeground }} />
-                      ) : (
-                        <Inbox size={15} color={colors.mutedForeground} />
-                      )}
-                      <Text style={{ color: colors.mutedForeground, fontSize: 15 }}>{place}</Text>
+                    <View style={styles.place}>
+                      {mixed ? null : docShown?.id ? <ColorDot color={docShown.color} /> : <Inbox size={14} color={colors.mutedForeground} />}
+                      <Text numberOfLines={1} style={styles.placeText}>{placeLabel}</Text>
                     </View>
                   }
-                  onPress={() => setPicking(true)}
-                  accessibilityLabel={`Tasks go to ${place}`}
-                /> : null}
+                  onPress={() => setPicking({})}
+                  accessibilityLabel={`Goes to, ${mixed ? "several places" : placeLabel}. Changes where tasks from this doc go`}
+                />
+              ) : null}
               {showSwitch ? (
                 <SwitchRow
                   title="Offer tasks from checklists"
@@ -550,6 +627,8 @@ export default function DocHintsCard({
           ) : null}
         </View>
       ) : null}
+      {/* A page of this sheet while it is open. */}
+      {goesToPage(picking !== null && !picking.key)}
       {shown.length > 0 ? (
         <View>
           {offers.length > 0 || showSwitch ? <GroupLabel>More suggestions</GroupLabel> : null}
@@ -644,21 +723,8 @@ export default function DocHintsCard({
       <BottomSheet open={sheetOpen && (shown.length > 0 || offers.length > 0)} onClose={() => setSheetOpen(false)} title="Suggestions" footer={makeAll}>
         {body}
       </BottomSheet>
-      <BottomSheet open={picking} onClose={() => setPicking(false)} title="Goes to" subtitle="Tasks made from this doc">
-        <SheetOption selected={!pickedId} leading={<Inbox size={18} color={colors.mutedForeground} />} onSelect={() => { setDocPick(""); setPicking(false); }}>
-          Inbox
-        </SheetOption>
-        {allProjects.map((project) => (
-          <SheetOption
-            key={project.id}
-            selected={project.id === pickedId}
-            leading={<View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: project.color ?? colors.mutedForeground }} />}
-            onSelect={() => { setDocPick(project.id); setPicking(false); }}
-          >
-            {project.title}
-          </SheetOption>
-        ))}
-      </BottomSheet>
+      {/* One line's task, from its card in the doc: a sheet of its own. */}
+      {goesToPage(Boolean(pickingOffer))}
       <ConfirmSheet
         open={confirmTemplate}
         onClose={() => setConfirmTemplate(false)}
@@ -726,4 +792,7 @@ const styles = createThemedStyleSheet((colors) => ({
   todoTitle: { color: colors.foreground, fontSize: 14, lineHeight: 19, fontWeight: "600" },
   already: { marginTop: 10, marginHorizontal: 4, fontSize: 12 },
   link: { color: colors.primary, fontWeight: "500" },
+  place: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1, minWidth: 0 },
+  // The kit's row value (ListRow's own string trailing), after a leading dot or icon.
+  placeText: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500", maxWidth: 150, flexShrink: 1 },
 }));

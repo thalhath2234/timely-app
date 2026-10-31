@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import type { Editor } from "@tiptap/react";
 import { Check, ChevronLeft, ChevronRight, FolderKanban, Inbox, Plus, Search, Sparkle } from "lucide-react";
 import Button from "@/app/_components/_ui/button";
@@ -21,11 +21,11 @@ export default function OfferPopover({
   name,
   details,
   target,
-  targetId = "",
-  places = [],
+  targetId,
+  places,
   onTarget,
-  choosing: choosingProp,
-  onChoosing,
+  chooser,
+  onChooser,
   step,
   busy,
   writing,
@@ -42,15 +42,18 @@ export default function OfferPopover({
   kind: "todo" | "work";
   name: string;
   details?: string;
-  /** The project its task goes to; none means the Inbox. */
-  target?: string;
-  /** The picked place's id ("" for the Inbox), the places to pick from, and
-   * the pick for this task alone. */
-  targetId?: string;
-  places?: { id: string; title: string; color?: string }[];
-  onTarget?: (id: string) => void;
-  choosing?: boolean;
-  onChoosing?: (open: boolean) => void;
+  /** The name of where its task goes: the Inbox or a project. */
+  target: string;
+  /** Where it goes as a pick: "inbox" or the project's id. */
+  targetId: string;
+  /** The projects it can go to instead, and a pick for this task alone. */
+  places: { id: string; title: string; color?: string }[];
+  onTarget: (id: string) => void;
+  /** The "Goes to" chooser while it is open, with what is typed in its
+   * search box. Kept by DocHints: a redraw of the row (a hover does it)
+   * draws the popover afresh, which would lose them here. */
+  chooser: { query: string } | null;
+  onChooser: (chooser: { query: string } | null) => void;
   /** Where it is among the doc's offers, with the previous and next. */
   step?: { index: number; total: number; prev: (() => void) | null; next: (() => void) | null };
   busy: boolean;
@@ -79,11 +82,11 @@ export default function OfferPopover({
   // works) drops focus to the page without it moving on, so this stays set
   // until focus lands somewhere else.
   const holdsFocus = useRef(false);
-  // The chooser's open state lives with DocHints: the popover is drawn again
-  // when its row is (a hover redraws the row), which would reset it here.
-  const choosing = choosingProp ?? false;
-  const setChoosing = (open: boolean) => onChoosing?.(open);
-  const [query, setQuery] = useState("");
+  const goesToButton = useRef<HTMLButtonElement>(null);
+  const search = useRef<HTMLInputElement>(null);
+  const listId = useId();
+  const choosing = chooser !== null;
+  const query = chooser?.query ?? "";
   const leave = useRef(onLeaveWithFocus);
   useEffect(() => {
     leave.current = onLeaveWithFocus;
@@ -120,8 +123,14 @@ export default function OfferPopover({
       holdsFocus.current = false;
       onClose();
     };
+    // Esc in the chooser goes back to the offer; only then does it close.
     const key = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape") return;
+      if (choosing) {
+        event.preventDefault();
+        event.stopPropagation();
+        onChooser(null);
+      } else onClose();
     };
     document.addEventListener("mousedown", down, true);
     document.addEventListener("keydown", key, true);
@@ -129,7 +138,16 @@ export default function OfferPopover({
       document.removeEventListener("mousedown", down, true);
       document.removeEventListener("keydown", key, true);
     };
-  }, [offerKey, onClose]);
+  }, [offerKey, onClose, onChooser, choosing]);
+
+  // Focus goes to the search box as the chooser opens (or is drawn again
+  // open), and back to the Goes to row as it closes.
+  const wasChoosing = useRef(choosing);
+  useLayoutEffect(() => {
+    if (choosing) search.current?.focus({ preventScroll: true });
+    else if (wasChoosing.current) goesToButton.current?.focus({ preventScroll: true });
+    wasChoosing.current = choosing;
+  }, [choosing]);
 
   // Beside the row unless the row's words reach under it; read again as the
   // text is edited or rewraps.
@@ -198,18 +216,24 @@ export default function OfferPopover({
         {name}
       </span>
       {details && <span className="mt-1 line-clamp-2 block text-xs leading-4 text-muted-foreground">{details}</span>}
-      <button
-        type="button"
-        className="-mx-1.5 mt-2.5 flex h-9 w-[calc(100%+0.75rem)] items-center justify-between gap-3 rounded-md border-t border-border px-1.5 text-[13px] hover:bg-foreground/[0.04]"
-        onClick={() => setChoosing(true)}
-      >
-        <span className="shrink-0 text-muted-foreground">Goes to</span>
-        <span className="flex min-w-0 items-center gap-1.5 font-medium text-foreground">
-          {target ? <Dot color={places.find((p) => p.id === targetId)?.color} /> : <Inbox className="size-3.5 shrink-0" aria-hidden />}
-          <span className="truncate">{target ?? "Inbox"}</span>
-          <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-        </span>
-      </button>
+      {/* The divider is the wrapper's, square, as wide as the text; the
+          button's rounded fill sits inside it. */}
+      <span className="mt-2.5 block border-t border-border pt-0.5">
+        <button
+          ref={goesToButton}
+          type="button"
+          aria-label={`Goes to, ${target}. Changes only this task`}
+          className="-mx-1.5 flex h-9 w-[calc(100%+0.75rem)] items-center justify-between gap-3 rounded-[10px] px-1.5 text-[13px] outline-none hover:bg-foreground/[0.04] focus-visible:ring-2 focus-visible:ring-ring/30"
+          onClick={() => onChooser({ query: "" })}
+        >
+          <span className="shrink-0 text-muted-foreground">Goes to</span>
+          <span className="flex min-w-0 items-center gap-1.5 font-medium text-foreground">
+            {targetId === "inbox" ? <Inbox className="size-3.5 shrink-0" aria-hidden /> : <Dot color={places.find((p) => p.id === targetId)?.color} />}
+            <span className="truncate">{target}</span>
+            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+          </span>
+        </button>
+      </span>
       <span className="flex items-center justify-end gap-1.5 pt-0.5">
         <Button size="sm" variant="ghost" disabled={busy} onClick={onDismiss}>
           Dismiss
@@ -223,26 +247,43 @@ export default function OfferPopover({
 
   const needle = query.trim().toLowerCase();
   const shown = places.filter((place) => !needle || place.title.toLowerCase().includes(needle));
-  const option = (id: string, label: string, lead: React.ReactNode) => (
+  const inboxShown = !needle || "inbox".includes(needle);
+  const choose = (id: string) => {
+    onTarget(id);
+    onChooser(null);
+  };
+  // The arrows move through the places, from the search box down and back up.
+  const move = (event: ReactKeyboardEvent<HTMLElement>, from: number) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const pop = event.currentTarget.closest(".doc-offer-pop");
+    const all = [...(pop?.querySelectorAll<HTMLButtonElement>("[role=option]") ?? [])];
+    const to = from + (event.key === "ArrowDown" ? 1 : -1);
+    if (to < 0) pop?.querySelector<HTMLInputElement>("input")?.focus();
+    else all[Math.min(to, all.length - 1)]?.focus();
+  };
+  const option = (id: string, label: string, lead: ReactNode, index: number) => (
     <button
-      key={id || "inbox"}
+      key={id}
       type="button"
-      className={cn("flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-foreground hover:bg-foreground/[0.05]", id === targetId && "bg-foreground/[0.05]")}
-      onClick={() => {
-        onTarget?.(id);
-        setChoosing(false);
-        setQuery("");
-      }}
+      role="option"
+      aria-selected={id === targetId}
+      className={cn(
+        "flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-foreground outline-none hover:bg-foreground/[0.05] focus-visible:bg-foreground/[0.08]",
+        id === targetId && "bg-foreground/[0.05]",
+      )}
+      onKeyDown={(event) => move(event, index)}
+      onClick={() => choose(id)}
     >
       <span className="flex size-4 shrink-0 items-center justify-center">{lead}</span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {id === targetId && <Check className="size-3.5 shrink-0 text-primary" aria-hidden />}
     </button>
   );
-  const chooser = (
+  const chooserView = (
     <>
       <span className="flex min-h-7 items-center gap-1">
-        <Button size="sm" variant="ghost" icon className="-ml-1.5" aria-label="Back" onClick={() => setChoosing(false)}>
+        <Button size="sm" variant="ghost" icon className="-ml-1.5" aria-label="Back" onClick={() => onChooser(null)}>
           <ChevronLeft />
         </Button>
         <span className="text-[13px] font-semibold text-foreground">Goes to</span>
@@ -250,21 +291,36 @@ export default function OfferPopover({
         <span className="truncate text-xs text-muted-foreground">{name}</span>
       </span>
       <span className="relative mt-1.5 block">
-        <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
         <input
+          ref={search}
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => onChooser({ query: event.target.value })}
+          onKeyDown={(event) => {
+            // Enter takes the first place shown.
+            if (event.key === "Enter") {
+              event.preventDefault();
+              event.currentTarget.closest(".doc-offer-pop")?.querySelector<HTMLButtonElement>("[role=option]")?.click();
+            } else move(event, -1);
+          }}
           placeholder="Find a project"
+          aria-label="Find a project"
+          aria-controls={listId}
           className="h-8 w-full rounded-md bg-muted/60 pl-7 pr-2 text-sm text-foreground outline-none placeholder:text-muted-foreground"
         />
       </span>
-      <span className="mt-1 block max-h-56 overflow-y-auto">
-        {(!needle || "inbox".includes(needle)) && option("", "Inbox", <Inbox className="size-3.5 text-muted-foreground" />)}
-        {shown.length > 0 && <span className="block px-2 pb-1 pt-2 text-xs font-medium text-muted-foreground">Projects</span>}
-        {shown.map((place) => option(place.id, place.title, <Dot color={place.color} />))}
+      <span id={listId} role="listbox" aria-label="Places" className="mt-1 block max-h-56 overflow-y-auto">
+        {inboxShown && option("inbox", "Inbox", <Inbox className="size-3.5 text-muted-foreground" aria-hidden />, 0)}
+        {shown.length > 0 && (
+          <span role="presentation" className="block px-2 pb-1 pt-2 text-xs font-medium text-muted-foreground">
+            Projects
+          </span>
+        )}
+        {shown.map((place, i) => option(place.id, place.title, <Dot color={place.color} />, i + (inboxShown ? 1 : 0)))}
+        {!inboxShown && shown.length === 0 && <span className="block px-2 py-1.5 text-sm text-muted-foreground">No matches</span>}
       </span>
       <span className="mt-1 block border-t border-border px-2 pt-2 text-xs leading-4 text-muted-foreground">
-        Just this task. The rail&apos;s Goes to sets it for every offer in the doc.
+        Changes only this task. The doc’s Goes to sets it for every offer in it.
       </span>
     </>
   );
@@ -279,7 +335,7 @@ export default function OfferPopover({
       style={variant === "popover" && below !== null ? { top: below } : undefined}
     >
       {variant === "popover" && below === null && <span aria-hidden className="doc-offer-pop-arrow" />}
-      {choosing ? chooser : body}
+      {choosing ? chooserView : body}
     </span>
   );
 }

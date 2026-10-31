@@ -56,6 +56,7 @@ func (s *Service) docRoutes(g *echo.Group) {
 	g.POST("/suggestions/doc/:id/checklist", s.docChecklist)
 	g.POST("/suggestions/doc/:id/dismiss", s.docDismiss)
 	g.DELETE("/suggestions/doc/:id/dismiss", s.docDismiss)
+	g.PUT("/suggestions/doc/:id/goes-to", s.docGoesTo)
 	g.POST("/suggestions/mention", s.mention)
 	g.POST("/suggestions/import-format", s.importFormat)
 	g.GET("/suggestions/doc-template", s.docTemplate)

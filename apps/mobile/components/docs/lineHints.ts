@@ -14,6 +14,10 @@ export type LineHint = {
   details?: string;
   /** Where the task goes: a project's title, or the Inbox when none. */
   target?: string;
+  /** The task goes to the Inbox (told apart from a project of that name). */
+  targetInbox?: boolean;
+  /** The project's colour, for its dot. */
+  targetColor?: string;
 };
 
 /** What the doc's lines show and what their markers and cards do. */
@@ -29,7 +33,8 @@ export type LineHints = {
    * (a row in the suggestions sheet), so the editor scrolls it into view even
    * when its card was open already. */
   reveal: number;
-  act: (key: string, action: "toggle" | "make" | "dismiss") => void;
+  /** "goesTo": the card's Goes to row, to pick a place for that task alone. */
+  act: (key: string, action: "toggle" | "make" | "dismiss" | "goesTo") => void;
 };
 
 type Node = { type?: string; attrs?: Record<string, unknown>; content?: Node[]; text?: string };

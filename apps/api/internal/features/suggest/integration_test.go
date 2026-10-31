@@ -66,6 +66,9 @@ func integrationDB(t *testing.T) *gorm.DB {
 	if err = db.Exec(`CREATE TABLE doc_hint_dismissals (doc_id text NOT NULL REFERENCES documents(id) ON DELETE CASCADE, hint text NOT NULL, user_id text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (doc_id, hint))`).Error; err != nil {
 		t.Fatal(err)
 	}
+	if err = db.Exec(`CREATE TABLE doc_offer_targets (doc_id text PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE, user_id text NOT NULL, target text NOT NULL, updated_at timestamptz NOT NULL DEFAULT now())`).Error; err != nil {
+		t.Fatal(err)
+	}
 	return db
 }
 

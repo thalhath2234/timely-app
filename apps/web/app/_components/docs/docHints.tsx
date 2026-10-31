@@ -17,7 +17,7 @@ import { getDoc } from "@/app/utils/api/docs";
 import { checklistTaskDrafts } from "@/app/utils/api/write";
 import { readyProviders } from "@/app/_components/chat/modelMenu";
 import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
-import { useDecisionFeedback, useDismissDocHint, useDocChecklist, useDocHints, useDocOffersOff } from "@/app/utils/hooks/decisions";
+import { useDecisionFeedback, useDismissDocHint, useDocChecklist, useDocHints, useDocOffersOff, useSetDocGoesTo } from "@/app/utils/hooks/decisions";
 import type { DocHintKind } from "@/app/utils/api/decisions";
 import { useUpdateDoc } from "@/app/utils/hooks/docs";
 import { useProject, useProjects } from "@/app/utils/hooks/projects";
@@ -33,12 +33,18 @@ import { cn } from "@/app/utils/cn";
 /** Rows of "Not tasks yet" listed before "Show N more", so a long checklist
  * does not push the rest of the rail out of view. */
 const ROWS_SHOWN = 5;
+// The Goes to option that clears a picked place (sent as "").
+const AUTOMATIC = "automatic";
 
 /** Checklist offers answered so far, by decision: one answer each. */
 const answered = new Set<string>();
 
 /** A line of the doc offered as a task, as the "Not tasks yet" card lists it. */
 type OfferRow = { key: string; name: string; section: string } & ({ kind: "todo"; todo: ChecklistTodo } | { kind: "work"; line: string });
+
+/** Where a task made from an offer goes: a project (with its workspace,
+ * which may not be the doc's), or the Inbox, with no id or title. */
+type Place = { id?: string; title?: string; workspaceId: string; color?: string };
 
 /** What smart suggestions read in a doc: a template for a near-empty page,
  * the project or page it may belong under, its type and properties, lines
@@ -92,6 +98,9 @@ export default function DocHints({
   const [focusOn, setFocusOn] = useState<"dialog" | "prev" | "next" | null>(null);
   const opener = useRef<HTMLElement | null>(null);
   const openRef = useRef<string | null>(null);
+  // The open popover's "Goes to" chooser and its search, kept here: the
+  // popover is drawn afresh whenever its row is.
+  const [chooser, setChooser] = useState<{ key: string; query: string } | null>(null);
   // With an AI provider set up (Settings → Agent keys), Make task first asks
   // its default model for a clean title and a brief description.
   const aiReady = readyProviders(useAgentProviders().data).length > 0;
@@ -120,26 +129,46 @@ export default function DocHints({
   const names = useMemo(() => todos.map((todo) => todo.name), [todos]);
   // A checklist item's task goes to the doc's project, else the one
   // suggestions place the doc in, else the project it is most related to;
-  // the server checks the pick.
+  // the server checks the pick. The doc's Goes to, once picked, wins over
+  // all of them, for every offer; the answer is read for it alone when the
+  // doc's offers are only lines that read like a task.
   const related = useRelated("doc", doc.id).data;
   const proposed = doc.projectId || data?.project?.id || related?.find((item) => item.kind === "project")?.id;
-  const checklist = useDocChecklist(doc.id, names, proposed ?? undefined);
+  const checklist = useDocChecklist(doc.id, names, proposed ?? undefined, live && Boolean(data?.available && data.work?.length));
   const target = checklist.data?.project;
-  // A line that reads like a task goes to the doc's own project only, as on
-  // the phone. The card, the popover and the message name what make() sends.
+  const picked = checklist.data?.picked;
+  const setGoesTo = useSetDocGoesTo(doc.id);
+  // Without a pick, a line that reads like a task goes to the doc's own
+  // project only, as on the phone. The card, the popover and the message
+  // name what make() sends.
   const docProject = useProject(doc.projectId || undefined).data;
-  const autoGoesTo = (kind: "todo" | "work") => (kind === "todo" ? target?.title : doc.projectId && docProject?.id === doc.projectId ? docProject.title : undefined);
-  // SKETCH: one pick for the whole doc (rail), and a pick per task (popover).
-  const allProjects = useProjects().data ?? [];
-  const projectPlaces = allProjects.map((project) => ({ id: project.id, title: project.title, color: project.color ?? undefined }));
-  const [docPick, setDocPick] = useState<string | null>(null);
+  const allProjects = useProjects().data;
+  // Only an open project takes new tasks.
+  const openProjects = useMemo(() => (allProjects ?? []).filter((item) => !item.completedAt), [allProjects]);
+  const colorOf = (id: string) => openProjects.find((item) => item.id === id)?.color ?? undefined;
+  const projectPlaces = openProjects.map((item) => ({ id: item.id, title: item.title, color: item.color ?? undefined }));
+  const inbox: Place = { workspaceId: doc.workspaceId };
+  const docPlace = (kind: "todo" | "work"): Place => {
+    if (picked || kind === "todo") return target ? { ...target, color: colorOf(target.id) } : inbox;
+    if (!doc.projectId) return inbox;
+    // Its own read may still be on its way (or have failed): the project
+    // list names it meanwhile.
+    const own = docProject?.id === doc.projectId ? docProject : allProjects?.find((item) => item.id === doc.projectId);
+    return { id: doc.projectId, title: own?.title, workspaceId: own?.workspaceId || doc.workspaceId, color: own?.color ?? undefined };
+  };
+  // A pick in an offer's popover is for that task alone, here and in Make
+  // all, until the doc is opened again: it is not saved.
   const [rowPicks, setRowPicks] = useState<Record<string, string>>({});
-  const [choosingKey, setChoosingKey] = useState<string | null>(null);
-  const titleOf = (id: string) => (id ? allProjects.find((project) => project.id === id)?.title : undefined);
-  const goesTo = (kind: "todo" | "work", key?: string) =>
-    key && rowPicks[key] !== undefined ? titleOf(rowPicks[key]) : docPick !== null ? titleOf(docPick) : autoGoesTo(kind);
-  const goesToId = (kind: "todo" | "work", key?: string) =>
-    key && rowPicks[key] !== undefined ? rowPicks[key] : docPick !== null ? docPick : (allProjects.find((project) => project.title === autoGoesTo(kind))?.id ?? "");
+  const placeOf = (row: Pick<OfferRow, "key" | "kind">): Place => {
+    const pick = rowPicks[row.key];
+    if (pick === "inbox") return inbox;
+    const chosen = pick ? openProjects.find((item) => item.id === pick) : undefined;
+    if (!chosen) return docPlace(row.kind);
+    return { id: chosen.id, title: chosen.title, workspaceId: chosen.workspaceId || doc.workspaceId, color: chosen.color ?? undefined };
+  };
+  const pickOf = (place: Place) => place.id ?? "inbox";
+  // A project not named yet is never shown as the Inbox.
+  const nameOf = (place: Place) => (place.id ? (place.title ?? "Project") : "Inbox");
   const taken = new Set((checklist.data?.existing ?? []).map((task) => task.name.toLowerCase()));
   const checked = new Set((checklist.data?.names ?? []).map((name) => name.toLowerCase()));
   // Offered only while smart suggestions are on, and only the items Jev reads
@@ -188,6 +217,12 @@ export default function DocHints({
   });
   // A made or dismissed offer's popover closes with it.
   const shownKey = openKey && rows.some((row) => row.key === openKey) ? openKey : null;
+  // Another offer opened, or none: its chooser starts closed.
+  const [chooserFor, setChooserFor] = useState(shownKey);
+  if (chooserFor !== shownKey) {
+    setChooserFor(shownKey);
+    setChooser(null);
+  }
   const hotKey = hovered && offers.some((offer) => offer.key === hovered) ? hovered : null;
   useEffect(() => {
     openRef.current = shownKey;
@@ -278,9 +313,13 @@ export default function DocHints({
       feedback.mutate({ logId: data.logId, accepted: true });
     }
   };
-  // Makes tasks from checklist items and lines that read like a task, with
-  // one message whose undo takes them all back.
-  const make = async (items: ChecklistTodo[], workLines: string[], key: string) => {
+  // Makes tasks from checklist items and lines that read like a task, each
+  // where its row goes, with one message whose undo takes them all back.
+  const make = async (offerRows: OfferRow[], key: string) => {
+    const todoRows = offerRows.flatMap((row) => (row.kind === "todo" ? [row] : []));
+    const workRows = offerRows.flatMap((row) => (row.kind === "work" ? [row] : []));
+    const items = todoRows.map((row) => row.todo);
+    const workLines = workRows.map((row) => row.line);
     setMaking(key);
     if (items.length) answerOffers(true);
     if (workLines.length) accept();
@@ -294,15 +333,16 @@ export default function DocHints({
     // Where each made task went, for the message.
     const places = new Set<string | undefined>();
     for (const [i, todo] of items.entries()) {
+      const place = placeOf(todoRows[i]);
       try {
         const task = await createTask.mutateAsync({
           ...checklistTask(todo, doc, drafts[i]),
           kind: "task",
           duration: 30,
-          workspaceId: target?.workspaceId ?? doc.workspaceId,
-          projectId: target?.id,
+          workspaceId: place.workspaceId,
+          projectId: place.id,
         });
-        places.add(goesTo("todo"));
+        places.add(place.title);
         made.push(task);
         from.set(task.id, `todo:${todo.name.toLowerCase()}`);
         hide(`todo:${todo.name.toLowerCase()}`);
@@ -310,10 +350,11 @@ export default function DocHints({
         // Reported below with the count.
       }
     }
-    for (const line of workLines) {
+    for (const [i, line] of workLines.entries()) {
+      const place = placeOf(workRows[i]);
       try {
-        const task = await createTask.mutateAsync({ ...workLineTask(line, doc), kind: "task", duration: 30, workspaceId: doc.workspaceId, projectId: doc.projectId || undefined });
-        places.add(goesTo("work"));
+        const task = await createTask.mutateAsync({ ...workLineTask(line, doc), kind: "task", duration: 30, workspaceId: place.workspaceId, projectId: place.id });
+        places.add(place.title);
         made.push(task);
         from.set(task.id, `work:${line}`);
         madeLines.push(line);
@@ -348,13 +389,8 @@ export default function DocHints({
       );
     });
   };
-  const makeRow = (row: OfferRow) => void (row.kind === "todo" ? make([row.todo], [], row.key) : make([], [row.line], row.key));
-  const makeAll = () =>
-    void make(
-      rows.flatMap((row) => (row.kind === "todo" ? [row.todo] : [])),
-      rows.flatMap((row) => (row.kind === "work" ? [row.line] : [])),
-      "all",
-    );
+  const makeRow = (row: OfferRow) => void make([row], row.key);
+  const makeAll = () => void make(rows, "all");
   const dismissRow = (row: OfferRow) => {
     setOpenKey((current) => (current === row.key ? null : current));
     if (row.kind === "todo") dropTodo(row.todo.name);
@@ -405,12 +441,12 @@ export default function DocHints({
             kind={popoverRow.kind}
             name={popoverRow.name}
             details={popoverRow.kind === "todo" ? popoverRow.todo.details : undefined}
-            target={goesTo(popoverRow.kind, popoverRow.key)}
-            targetId={goesToId(popoverRow.kind, popoverRow.key)}
+            target={nameOf(placeOf(popoverRow))}
+            targetId={pickOf(placeOf(popoverRow))}
             places={projectPlaces}
             onTarget={(id) => setRowPicks((picks) => ({ ...picks, [popoverRow.key]: id }))}
-            choosing={choosingKey === popoverRow.key}
-            onChoosing={(open) => setChoosingKey(open ? popoverRow.key : null)}
+            chooser={chooser?.key === popoverRow.key ? chooser : null}
+            onChooser={(next) => setChooser(next && { key: popoverRow.key, query: next.query })}
             step={
               narrow
                 ? undefined
@@ -583,6 +619,12 @@ export default function DocHints({
     </ul>
   );
 
+  // Where every offer of the doc goes. Until a place is picked, checklist
+  // items and other lines can go to different ones: Goes to then says so,
+  // and each row names its own, as does a row given a place of its own.
+  const autoPlaces = rows.map((row) => docPlace(row.kind));
+  const autoPicks = new Set(autoPlaces.map(pickOf));
+  const mixed = !picked && autoPicks.size > 1;
   // Rows under the doc's own section names, in reading order. A row past
   // the first few is listed too while its popover is open or its line is
   // hovered, so the card always lights the row the doc points at.
@@ -607,6 +649,7 @@ export default function DocHints({
               {group.rows.map((row, i) => {
                 const busy = making === row.key;
                 const isOpen = row.key === shownKey;
+                const where = mixed || rowPicks[row.key] ? nameOf(placeOf(row)) : undefined;
                 return (
                   <li
                     key={row.key}
@@ -625,9 +668,10 @@ export default function DocHints({
                         type="button"
                         title={row.kind === "todo" ? row.todo.text : row.name}
                         onClick={(event) => openFromRail(row.key, event.currentTarget)}
-                        className="min-w-0 flex-1 truncate py-2 text-left text-sm text-foreground"
+                        className="min-w-0 flex-1 py-2 text-left text-sm text-foreground"
                       >
-                        {row.name}
+                        <span className="block truncate">{row.name}</span>
+                        {where && <span className="block truncate text-xs leading-4 text-muted-foreground">Goes to {where}</span>}
                       </button>
                       <Button
                         size="sm"
@@ -666,25 +710,36 @@ export default function DocHints({
       )}
     </>
   );
-  // One "Goes to" row while every offer goes to the same place; otherwise
-  // one for the checklist items and one for the other lines.
-  const kinds = [...new Set(rows.map((row) => row.kind))];
-  const mixed = kinds.length > 1 && goesTo("todo") !== goesTo("work");
-  void mixed;
-  const goesToRows = kinds.length > 0 && (
+  const goesToValue = picked ?? (autoPicks.size === 1 ? [...autoPicks][0] : "");
+  // A place not in the list (the doc's own project, finished) still shows,
+  // but cannot be picked.
+  const unlisted = [target, ...autoPlaces].flatMap((place) =>
+    place?.id && place.title && !projectPlaces.some((item) => item.id === place.id) ? [{ id: place.id, title: place.title }] : [],
+  );
+  const goesToRow = rows.length > 0 && (
     <RailRow
-      key="goes-to"
       label="Goes to"
       value={
         <Select
           variant="row"
           searchable
-          aria-label="Where tasks from this doc go"
-          value={goesToId(kinds[0])}
-          onChange={(id) => setDocPick(id)}
+          aria-label="Goes to"
+          placeholder="Several places"
+          value={goesToValue}
+          onChange={(pick) => {
+            const project = openProjects.find((item) => item.id === pick);
+            setGoesTo.mutate({
+              target: pick === AUTOMATIC ? "" : pick,
+              project: project && { id: project.id, title: project.title, workspaceId: project.workspaceId },
+            });
+          }}
           options={[
-            { value: "", label: "Inbox", icon: <Inbox /> },
+            // Back to the doc's project, else the suggested one: offered once
+            // a place is picked, since until then it is what applies.
+            ...(picked ? [{ value: AUTOMATIC, label: "Automatic", icon: <Sparkles /> }] : []),
+            { value: "inbox", label: "Inbox", icon: <Inbox /> },
             ...projectPlaces.map((place) => ({ value: place.id, label: place.title, color: place.color, group: "Projects" })),
+            ...[...new Map(unlisted.map((place) => [place.id, place])).values()].map((place) => ({ value: place.id, label: place.title, disabled: true, group: "Projects" })),
           ]}
         />
       }
@@ -692,7 +747,7 @@ export default function DocHints({
   );
   const offersFooter = (rows.length > 0 || switchRow) && (
     <RailRows className={rows.length > 0 ? "mt-2 border-t border-border" : undefined}>
-      {goesToRows}
+      {goesToRow}
       {switchRow && (
         <RailRow
           label="Offer tasks from checklists"
