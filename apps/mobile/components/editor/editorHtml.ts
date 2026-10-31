@@ -1,4 +1,5 @@
 import type { DocContent } from "../../lib/types";
+import { WRITE_CURSOR } from "@timely/contract/helpMeWrite";
 import { EMBED_PATTERNS } from "@timely/contract/markdown";
 import { DOC_EDITOR_HELPERS_JS } from "../../lib/docEditorJev";
 
@@ -2623,6 +2624,75 @@ export function buildEditorHtml(
       return null;
     }
 
+    // Help me write: the list a draft at pos joins, as listSpot in the web's
+    // helpMeWrite.tsx: the caret's list (after its item, or over it when it is
+    // empty), the list above an empty line, or with end the list the doc ends
+    // with. at is where the items go; drop is the empty item or line they
+    // replace, never before at.
+    const WRITE_LISTS = { taskList: true, bulletList: true, orderedList: true };
+    const isEmptyLine = (node) => Boolean(node && node.isTextblock && node.content.size === 0);
+    function listSpot(doc, pos, end) {
+      if (end) {
+        let index = doc.childCount - 1;
+        let at = doc.content.size;
+        let drop;
+        if (index > 0 && isEmptyLine(doc.child(index))) {
+          drop = { from: at - doc.child(index).nodeSize, to: at };
+          at = drop.from;
+          index -= 1;
+        }
+        const last = doc.child(index);
+        return WRITE_LISTS[last.type.name] ? { list: last.type.name, at: at - 1, drop } : null;
+      }
+      const $pos = doc.resolve(Math.min(Math.max(0, pos || 0), doc.content.size));
+      for (let depth = $pos.depth; depth > 1; depth--) {
+        const item = $pos.node(depth);
+        const list = $pos.node(depth - 1).type.name;
+        if ((item.type.name === "taskItem" || item.type.name === "listItem") && WRITE_LISTS[list]) {
+          if (item.childCount === 1 && isEmptyLine(item.firstChild)) {
+            return { list, at: $pos.before(depth), drop: { from: $pos.before(depth), to: $pos.after(depth) } };
+          }
+          return { list, at: $pos.after(depth) };
+        }
+      }
+      if ($pos.depth > 0 && isEmptyLine($pos.parent)) {
+        const index = $pos.index($pos.depth - 1);
+        const above = index > 0 ? $pos.node($pos.depth - 1).child(index - 1) : null;
+        if (above && WRITE_LISTS[above.type.name]) {
+          return { list: above.type.name, at: $pos.before() - 1, drop: { from: $pos.before(), to: $pos.after() } };
+        }
+      }
+      return null;
+    }
+
+    // The doc as the AI reads it: the cursor typed where a draft at pos
+    // goes, as a new item when it joins a list (cursorDoc on the web).
+    const WRITE_CURSOR = ${embed(WRITE_CURSOR)};
+    function cursorDoc(pos) {
+      const state = editor.state;
+      const { tr, schema } = state;
+      try {
+        const spot = listSpot(state.doc, pos, false);
+        if (spot) {
+          const item = schema.nodes[spot.list === "taskList" ? "taskItem" : "listItem"];
+          const marked = item.create(null, schema.nodes.paragraph.create(null, schema.text(WRITE_CURSOR)));
+          if (spot.drop && spot.drop.from === spot.at) tr.replaceWith(spot.drop.from, spot.drop.to, marked);
+          else {
+            if (spot.drop) tr.delete(spot.drop.from, spot.drop.to);
+            tr.insert(spot.at, marked);
+          }
+        } else {
+          const $pos = state.doc.resolve(Math.min(pos, state.doc.content.size));
+          if (isEmptyLine($pos.parent)) tr.insertText(WRITE_CURSOR, $pos.pos);
+          else tr.insert($pos.depth > 0 ? $pos.after(1) : state.doc.content.size, schema.nodes.paragraph.create(null, schema.text(WRITE_CURSOR)));
+        }
+        return tr.doc.toJSON();
+      } catch (_) {
+        // Where the cursor cannot go, the AI reads the doc without it.
+        return state.doc.toJSON();
+      }
+    }
+
     function insertWritten(p) {
       const blocks = Array.isArray(p.blocks) ? p.blocks : [];
       const inline = Array.isArray(p.inline) ? p.inline : null;
@@ -2637,7 +2707,15 @@ export function buildEditorHtml(
         return;
       }
       const chain = editor.chain().focus();
-      if (selection && p.mode === "replace") {
+      // Items fitted to the list at the caret (or at the end) join it, when
+      // that is still the list there.
+      const spot = selection ? null : listSpot(doc, from, p.mode === "end");
+      const items = Array.isArray(p.items) ? p.items : null;
+      if (spot && items && spot.list === p.list) {
+        if (spot.drop && spot.drop.from === spot.at) chain.insertContentAt(spot.drop, items).run();
+        else if (spot.drop) chain.deleteRange(spot.drop).insertContentAt(spot.at, items).run();
+        else chain.insertContentAt(spot.at, items).run();
+      } else if (selection && p.mode === "replace") {
         const item = inline ? null : enclosingListItem(from, to);
         if (item && blocks.length === 1 && blocks[0].type === item.listType) {
           chain.insertContentAt({ from: item.from, to: item.to }, blocks[0].content || []).run();
@@ -2750,12 +2828,26 @@ export function buildEditorHtml(
           }
           return;
         }
-        // Help me write: report the selection and the doc's text, then put
-        // the draft in. Mirrors insert() in the web's helpMeWrite.tsx.
+        // Help me write: report the selection, the doc's text, the doc with
+        // the cursor where the draft goes and the lists it would join at the
+        // caret and at the end, then put the draft in. Mirrors the web's
+        // helpMeWrite.tsx.
         if (name === "writeInfo") {
           const { from, to } = editor.state.selection;
-          const selection = from === to ? "" : editor.state.doc.textBetween(from, to, "\\n").trim();
-          send({ type: "writeInfo", from, to, selection, text: editor.getText({ blockSeparator: "\\n", textSerializers: LIVE_TEXT }).trim() });
+          const doc = editor.state.doc;
+          const selection = from === to ? "" : doc.textBetween(from, to, "\\n").trim();
+          const at = selection ? null : listSpot(doc, from, false);
+          const end = selection ? null : listSpot(doc, doc.content.size, true);
+          send({
+            type: "writeInfo",
+            from,
+            to,
+            selection,
+            text: editor.getText({ blockSeparator: "\\n", textSerializers: LIVE_TEXT }).trim(),
+            doc: selection ? editor.getJSON() : cursorDoc(from),
+            list: at ? at.list : null,
+            endList: end ? end.list : null,
+          });
           return;
         }
         if (name === "insertWritten") {

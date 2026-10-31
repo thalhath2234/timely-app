@@ -3,6 +3,8 @@ package provider
 import (
 	"strings"
 	"testing"
+
+	"timely-api/internal/models"
 )
 
 func TestWriteValidate(t *testing.T) {
@@ -68,6 +70,93 @@ func TestCleanWritten(t *testing.T) {
 	inner := "Intro\n\n```go\nfmt.Println()\n```\n\nOutro"
 	if got := cleanWritten(inner); got != inner {
 		t.Errorf("inner code block changed: %q", got)
+	}
+}
+
+// shoppingDoc is a checklist with the cursor typed as a new item at its end,
+// the way the editors mark an empty line under a checklist.
+func shoppingDoc() models.JSONMap {
+	item := func(text string, checked bool) map[string]any {
+		return map[string]any{"type": "taskItem", "attrs": map[string]any{"checked": checked}, "content": []any{
+			map[string]any{"type": "paragraph", "content": []any{map[string]any{"type": "text", "text": text}}},
+		}}
+	}
+	return models.JSONMap{"type": "doc", "content": []any{
+		map[string]any{"type": "taskList", "content": []any{item("Onion", false), item("Cereal", true), item(writeCursor, false)}},
+	}}
+}
+
+func TestWriteDocReadsAsMarkdownWithCursor(t *testing.T) {
+	req := writeRequest{Action: "write", Prompt: "Ingredients for biryani", Kind: "doc", Doc: shoppingDoc()}
+	if err := req.validate(); err != nil {
+		t.Fatal(err)
+	}
+	if want := "- [ ] Onion\n- [x] Cereal\n- [ ] <cursor/>"; req.Text != want {
+		t.Fatalf("text = %q, want %q", req.Text, want)
+	}
+	user := writeMessages(req)[1].Content
+	for _, want := range []string{"<current_text>\n- [ ] Onion", "only items of that same kind", `"- [ ] item" for a checklist`} {
+		if !strings.Contains(user, want) {
+			t.Errorf("user turn misses %q:\n%s", want, user)
+		}
+	}
+	if !strings.Contains(writeMessages(req)[0].Content, `never "- []"`) {
+		t.Error("system turn should say how checklist items are written")
+	}
+}
+
+func TestWriteDropsCursorWhereItIsNotUsed(t *testing.T) {
+	cont := writeRequest{Action: "continue", Kind: "doc", Doc: shoppingDoc()}
+	if err := cont.validate(); err != nil {
+		t.Fatal(err)
+	}
+	if cont.Text != "- [ ] Onion\n- [x] Cereal" {
+		t.Errorf("continue text = %q", cont.Text)
+	}
+	if strings.Contains(writeMessages(cont)[1].Content, "<cursor/>") {
+		t.Error("continue writes at the end, so it gets no cursor")
+	}
+	fix := writeRequest{Action: "fix", Selection: "Onoin", Kind: "doc", Doc: shoppingDoc()}
+	if err := fix.validate(); err != nil || strings.Contains(fix.Text, "<cursor/>") {
+		t.Errorf("a rewrite has its selection, not a cursor: %q %v", fix.Text, err)
+	}
+	// A doc holding only the cursor is empty.
+	empty := writeRequest{Action: "continue", Kind: "doc", Doc: models.JSONMap{"type": "doc", "content": []any{
+		map[string]any{"type": "paragraph", "content": []any{map[string]any{"type": "text", "text": writeCursor}}},
+	}}}
+	if err := empty.validate(); err == nil || empty.Text != "" {
+		t.Errorf("empty doc: text %q, err %v", empty.Text, err)
+	}
+}
+
+func TestDropCursor(t *testing.T) {
+	cases := map[string]string{
+		"Intro\n\n" + writeCursor:                           "Intro\n\n",
+		"- [ ] Milk\n- [ ] " + writeCursor + "\n- [ ] Eggs": "- [ ] Milk\n- [ ] Eggs",
+		"1. One\n2. " + writeCursor:                         "1. One\n",
+		"Pick " + writeCursor + "here":                      "Pick here",
+	}
+	for in, want := range cases {
+		if got := dropCursor(in); got != want {
+			t.Errorf("dropCursor(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestClipAroundKeepsCursor(t *testing.T) {
+	text := strings.Repeat("a", 100) + writeCursor + strings.Repeat("b", 100)
+	got := clipAround(text, writeCursor, 80)
+	if len(got) != 80 || !strings.Contains(got, writeCursor) || !strings.HasPrefix(got, "a") {
+		t.Errorf("got %q", got)
+	}
+	if got := clipAround("abcdef", writeCursor, 3); got != "def" {
+		t.Errorf("no cursor keeps the end: %q", got)
+	}
+}
+
+func TestCleanWrittenDropsCursorTag(t *testing.T) {
+	if got := cleanWritten("- [ ] Rice <cursor/>\n- [ ] Yogurt"); got != "- [ ] Rice \n- [ ] Yogurt" {
+		t.Errorf("got %q", got)
 	}
 }
 

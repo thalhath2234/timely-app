@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { RotateCcw } from "lucide-react-native";
+import type { DocContent } from "@timely/contract/documents";
 import {
   SELECTION_ACTIONS,
   WRITE_BUSY,
   writeStarters,
+  writtenContent,
   type WriteAction,
   type WriteKind,
+  type WriteList,
   type WriteResult,
 } from "@timely/contract/helpMeWrite";
-import { fromMarkdown } from "@timely/contract/markdown";
 import { helpMeWrite } from "../../lib/api/write";
 import { useAgentProvidersQuery } from "../../lib/hooks";
 import { colors, controlRadius, createThemedStyleSheet } from "../../lib/theme";
@@ -22,14 +24,30 @@ import { readyProviders } from "../chat/ModelSheet";
 /** What the editor holds, so the draft fits it. */
 export type WriteContext = { kind: WriteKind; title?: string };
 
-/** The editor's selection and text when Help me write opened. */
-export type WriteInfo = { from: number; to: number; selection: string; text: string };
+/** The editor's selection and text when Help me write opened, the doc with
+ * the cursor typed where the draft goes, and the list a draft joins at the
+ * caret (`list`) and at the end (`endList`, for Continue writing). */
+export type WriteInfo = {
+  from: number;
+  to: number;
+  selection: string;
+  text: string;
+  doc?: DocContent;
+  list?: WriteList | null;
+  endList?: WriteList | null;
+};
 
 /** How the draft goes in: over the selection, after it or at the caret, or at
  * the end of the text ("Continue writing"). */
 export type WriteInsert = { markdown: string; mode: "replace" | "below" | "insert" | "end" };
 
 type Run = { action: WriteAction; prompt?: string; selection?: string; label?: string };
+
+/** The list a draft inserted this way joins, if any. */
+export function writeList(info: WriteInfo, mode: WriteInsert["mode"]) {
+  if (info.selection) return null;
+  return (mode === "end" ? info.endList : info.list) ?? null;
+}
 
 /** Help me write needs a generative AI provider (Settings > Agent keys);
  * TypeSafe alone only answers typed questions, so it does not count. */
@@ -84,6 +102,7 @@ export default function HelpMeWriteSheet({
         kind: context.kind,
         title: context.title,
         text: info.text,
+        doc: info.doc,
       });
       if (id !== attempt.current) return;
       setResult({ ...out, run });
@@ -96,12 +115,12 @@ export default function HelpMeWriteSheet({
     }
   };
 
+  const insertMode = (mode: "replace" | "below", action: WriteAction): WriteInsert["mode"] =>
+    hasSelection ? mode : action === "continue" ? "end" : "insert";
+
   const insert = (mode: "replace" | "below") => {
     if (!result) return;
-    onInsert({
-      markdown: result.text,
-      mode: hasSelection ? mode : result.run.action === "continue" ? "end" : "insert",
-    });
+    onInsert({ markdown: result.text, mode: insertMode(mode, result.run.action) });
   };
 
   const footer = result && !busy ? (
@@ -148,7 +167,12 @@ export default function HelpMeWriteSheet({
             nestedScrollEnabled
             keyboardShouldPersistTaps="handled"
           >
-            <RichDoc content={fromMarkdown(result.text, { breaks: true }).content} />
+            <RichDoc
+              content={{
+                type: "doc",
+                content: info ? writtenContent(result.text, writeList(info, insertMode("replace", result.run.action))).blocks : [],
+              }}
+            />
           </ScrollView>
           <View style={styles.row}>
             <View style={{ flex: 1 }}>

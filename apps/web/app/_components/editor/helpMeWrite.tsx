@@ -3,17 +3,21 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { generateHTML, type Editor, type JSONContent } from "@tiptap/react";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import type { Node as PMNode } from "@tiptap/pm/model";
+import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { ArrowUp, RotateCcw, Sparkles, X } from "lucide-react";
 import {
   SELECTION_ACTIONS,
   WRITE_BUSY,
+  WRITE_CURSOR,
+  isWriteList,
   writeStarters,
   writtenContent,
   type WriteAction,
   type WriteChoice,
   type WriteKind,
+  type WriteList,
   type WriteResult,
 } from "@timely/contract/helpMeWrite";
 import Button from "@/app/_components/_ui/button";
@@ -31,8 +35,80 @@ export type WriteContext = { kind: WriteKind; title?: string };
 const PANEL_WIDTH = 460;
 
 /** The answer as editor nodes (the contract types them loosely). */
-const toNodes = (markdown: string) =>
-  writtenContent(markdown) as { blocks: JSONContent[]; inline: JSONContent[] | null };
+const toNodes = (markdown: string, into?: WriteList | null) =>
+  writtenContent(markdown, into) as { blocks: JSONContent[]; inline: JSONContent[] | null; items: JSONContent[] | null };
+
+/** A list a draft written at the caret joins as more items: `at` is where
+ * they go inside it, and `drop` the empty item or line they take the place
+ * of. `at` never comes after `drop`. */
+type ListSpot = { list: WriteList; at: number; drop?: { from: number; to: number } };
+
+const isEmptyLine = (node: PMNode | null | undefined) => Boolean(node?.isTextblock && node.content.size === 0);
+
+/** The list a draft at `pos` joins: the list the caret is in (after its item,
+ * or over it when the item is empty), or the list right above an empty line,
+ * which is where Enter twice leaves the caret. With `end` (Continue writing)
+ * it is the list the doc ends with. The phone editor mirrors this (listSpot
+ * in apps/mobile/components/editor/editorHtml.ts). */
+function listSpot(doc: PMNode, pos: number, end: boolean): ListSpot | null {
+  if (end) {
+    let index = doc.childCount - 1;
+    let at = doc.content.size;
+    let drop: ListSpot["drop"];
+    if (index > 0 && isEmptyLine(doc.child(index))) {
+      drop = { from: at - doc.child(index).nodeSize, to: at };
+      at = drop.from;
+      index -= 1;
+    }
+    const last = doc.child(index);
+    return isWriteList(last.type.name) ? { list: last.type.name, at: at - 1, drop } : null;
+  }
+  const $pos = doc.resolve(Math.min(pos, doc.content.size));
+  for (let depth = $pos.depth; depth > 1; depth--) {
+    const item = $pos.node(depth);
+    const list = $pos.node(depth - 1).type.name;
+    if ((item.type.name === "taskItem" || item.type.name === "listItem") && isWriteList(list)) {
+      if (item.childCount === 1 && isEmptyLine(item.firstChild)) {
+        return { list, at: $pos.before(depth), drop: { from: $pos.before(depth), to: $pos.after(depth) } };
+      }
+      return { list, at: $pos.after(depth) };
+    }
+  }
+  if ($pos.depth > 0 && isEmptyLine($pos.parent)) {
+    const index = $pos.index($pos.depth - 1);
+    const above = index > 0 ? $pos.node($pos.depth - 1).child(index - 1) : null;
+    if (above && isWriteList(above.type.name)) {
+      return { list: above.type.name, at: $pos.before() - 1, drop: { from: $pos.before(), to: $pos.after() } };
+    }
+  }
+  return null;
+}
+
+/** The doc as the AI reads it: WRITE_CURSOR typed where a draft written at
+ * `pos` goes, as a new item when it joins a list. */
+function cursorDoc(state: EditorState, pos: number): JSONContent {
+  const { tr, schema } = state;
+  try {
+    const spot = listSpot(state.doc, pos, false);
+    if (spot) {
+      const item = schema.nodes[spot.list === "taskList" ? "taskItem" : "listItem"];
+      const marked = item.create(null, schema.nodes.paragraph.create(null, schema.text(WRITE_CURSOR)));
+      if (spot.drop && spot.drop.from === spot.at) tr.replaceWith(spot.drop.from, spot.drop.to, marked);
+      else {
+        if (spot.drop) tr.delete(spot.drop.from, spot.drop.to);
+        tr.insert(spot.at, marked);
+      }
+    } else {
+      const $pos = state.doc.resolve(Math.min(pos, state.doc.content.size));
+      if (isEmptyLine($pos.parent)) tr.insertText(WRITE_CURSOR, $pos.pos);
+      else tr.insert($pos.depth > 0 ? $pos.after(1) : state.doc.content.size, schema.nodes.paragraph.create(null, schema.text(WRITE_CURSOR)));
+    }
+    return tr.doc.toJSON();
+  } catch {
+    // Where the cursor cannot go, the AI reads the doc without it.
+    return state.doc.toJSON();
+  }
+}
 
 /** Help me write needs a generative AI provider (Settings → Agent keys);
  * TypeSafe alone only answers typed questions, so it does not count. */
@@ -188,7 +264,8 @@ export default function HelpMeWritePanel({
   const [refine, setRefine] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [result, setResult] = useState<(WriteResult & { run: Run }) | null>(null);
+  // `list`: the list the draft joins, so the preview shows it as that list.
+  const [result, setResult] = useState<(WriteResult & { run: Run; list?: WriteList }) | null>(null);
   const abort = useRef<AbortController | null>(null);
   const panel = useRef<HTMLDivElement>(null);
   const [top, setTop] = useState(anchor.top);
@@ -268,6 +345,11 @@ export default function HelpMeWritePanel({
     return () => window.removeEventListener("keydown", onKey);
   }, [shown, docked]);
 
+  // Where the panel opened, moved along with any edits made since.
+  const caret = () => targetKey.getState(editor.state)?.from ?? captured.from;
+  // The list a draft written with nothing selected joins, if any.
+  const spotFor = (action: WriteAction) => (hasSelection ? null : listSpot(editor.state.doc, caret(), action === "continue"));
+
   const start = async (run: Run) => {
     abort.current?.abort();
     const controller = new AbortController();
@@ -283,10 +365,11 @@ export default function HelpMeWritePanel({
           kind: context.kind,
           title: context.title,
           text: docText(),
+          doc: hasSelection || run.action === "continue" ? editor.getJSON() : cursorDoc(editor.state, caret()),
         },
         controller.signal,
       );
-      setResult({ ...out, run });
+      setResult({ ...out, run, list: spotFor(run.action)?.list });
       setRefine("");
     } catch (err) {
       if (controller.signal.aborted) return;
@@ -310,7 +393,7 @@ export default function HelpMeWritePanel({
 
   const preview = useMemo(() => {
     if (!result) return "";
-    const { blocks } = toNodes(result.text);
+    const { blocks } = toNodes(result.text, result.list);
     try {
       // Links and checkboxes in the preview are for looking at, so they are
       // left out of the tab order as well as out of reach of the pointer.
@@ -323,7 +406,8 @@ export default function HelpMeWritePanel({
 
   const insert = (mode: "replace" | "below") => {
     if (!result) return;
-    const { blocks, inline } = toNodes(result.text);
+    const spot = spotFor(result.run.action);
+    const { blocks, inline, items } = toNodes(result.text, spot?.list);
     if (blocks.length === 0) return;
     const { doc } = editor.state;
     // Where the panel opened, moved along with any edits made since.
@@ -336,7 +420,14 @@ export default function HelpMeWritePanel({
       useToastStore.getState().show("The text changed while writing. Select it again.");
       return;
     }
-    if (replacing) {
+    if (spot && items) {
+      // The items join the list, after the caret's item or in place of the
+      // empty item or line the caret is on.
+      const { at, drop } = spot;
+      if (drop?.from === at) chain.insertContentAt(drop, items).run();
+      else if (drop) chain.deleteRange(drop).insertContentAt(at, items).run();
+      else chain.insertContentAt(at, items).run();
+    } else if (replacing) {
       // A list answer for text inside a list item replaces that item, so the
       // new items sit beside it instead of nesting inside it.
       const item = !inline ? enclosingListItem(editor, target) : null;
