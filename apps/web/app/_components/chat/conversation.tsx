@@ -331,12 +331,14 @@ export default function Conversation({
             compact ? "h-13" : "h-14",
           )}
         >
-          {onToggleHistory && !historyOpen && (
+          {onToggleHistory && (
+            // The list's own header has Hide; this shows it again. On a phone
+            // the list is a drawer, so the button stays.
             <button
               type="button"
               aria-label="Show history"
               onClick={onToggleHistory}
-              className={cn(iconButton, "-ml-1")}
+              className={cn(iconButton, "-ml-1", historyOpen && "md:hidden")}
             >
               <PanelLeftOpen className="size-4" />
             </button>

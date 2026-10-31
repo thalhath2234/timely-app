@@ -223,6 +223,10 @@ func (s *Service) prepareProposal(ctx context.Context, catalog agent.Catalog, ui
 		step.Before = nil
 		step.Error = ""
 	}
+	origins := identityOrigins(len(p.Steps))
+	if catalog["add_sheet_entries"].Call != nil {
+		p.Steps, origins = mergeSheetEntries(p.Steps)
+	}
 	s.estimateWork(ctx, uid, p.Steps)
 	snapshots, err := s.snapshots(ctx, s.db, catalog, uid, p.Steps)
 	if err != nil {
@@ -233,7 +237,7 @@ func (s *Service) prepareProposal(ctx context.Context, catalog agent.Catalog, ui
 			return p, nil, fmt.Errorf("The object read with %s %s changed after you read it (it was edited meanwhile). Call %s again and rebuild the complete proposal from the current data so the newer edit is kept", snap.Tool, string(snap.Arguments), snap.Tool)
 		}
 	}
-	if err := s.rehearse(ctx, uid, p.Steps); err != nil {
+	if err := s.rehearseAs(ctx, uid, p.Steps, origins); err != nil {
 		return p, nil, err
 	}
 	return p, snapshots, nil
@@ -301,6 +305,12 @@ var errRehearsal = errors.New("rehearsal rolled back")
 // earlier step consumes, a missing confirm flag) reach the model before the
 // person reviews the proposal instead of failing halfway through applying it.
 func (s *Service) rehearse(ctx context.Context, uid string, steps []Step) error {
+	return s.rehearseAs(ctx, uid, steps, identityOrigins(len(steps)))
+}
+
+// rehearseAs rehearses a plan whose steps may merge several of the model's
+// (mergeSheetEntries); errors name the steps as the model numbered them.
+func (s *Service) rehearseAs(ctx context.Context, uid string, steps []Step, origins stepOrigins) error {
 	if s.rehearsal == nil {
 		return nil
 	}
@@ -315,16 +325,16 @@ func (s *Service) rehearse(ctx context.Context, uid string, steps []Step) error 
 			}
 			value, err := resolve(value, trial, i)
 			if err != nil {
-				return fmt.Errorf("Step %d (%s) has an invalid reference: %w", i+1, trial[i].Tool, err)
+				return fmt.Errorf("%s (%s) has an invalid reference: %w", origins.label(i), trial[i].Tool, err)
 			}
 			result, err := catalog[trial[i].Tool].Call(ctx, uid, raw(value))
 			if err != nil {
-				return fmt.Errorf("Step %d (%s) would fail: %w", i+1, trial[i].Tool, err)
+				return fmt.Errorf("%s (%s) would fail: %w", origins.label(i), trial[i].Tool, err)
 			}
 			trial[i].Result = raw(result)
 			trial[i].Status = "done"
 			if _, err := s.snapshots(ctx, tx, catalog, uid, trial); err != nil {
-				return fmt.Errorf("After step %d (%s) runs, %w. If an earlier step replaces or removes that object, reference its result instead (for example \"$%d.task.id\")", i+1, trial[i].Tool, err, i)
+				return fmt.Errorf("After %s (%s) runs, %w. If an earlier step replaces or removes that object, reference its result instead (for example \"$%d.task.id\")", strings.ToLower(origins.label(i)[:1])+origins.label(i)[1:], trial[i].Tool, err, origins.first(i))
 			}
 		}
 		return errRehearsal

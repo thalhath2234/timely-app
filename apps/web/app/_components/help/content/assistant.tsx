@@ -277,9 +277,12 @@ export const assistant: HelpSection = {
                 deleting sheet rows, columns or tabs, and applying Auto-schedule.
               </p>
               <p>
-                The proposal lists every change. <strong>Apply changes</strong> writes them, a reply in the chat asks
-                for a different version first, and <strong>Discard</strong> writes nothing. With smart suggestions on,
-                changes that need a closer look are listed under <strong>Worth a check before you apply</strong>.
+                The proposal groups its changes by kind: one card for a sheet&apos;s new entries (a table per tab), one
+                for new tasks, one per doc shown as it will look, with the totals on top. Each card has its own{" "}
+                <strong>Apply this</strong> and <strong>Discard</strong>; <strong>Apply all</strong> writes the rest,
+                and <strong>Discard all</strong> sets aside whatever is not applied yet. A reply in the chat asks for a
+                different version first. With smart suggestions on, changes that need a closer look are listed under{" "}
+                <strong>Worth a check before you apply</strong>.
               </p>
             </>
           ),
@@ -638,8 +641,8 @@ export const assistant: HelpSection = {
                   worked-out numbers.
                 </li>
                 <li>
-                  <code>add_sheet_row</code> adds one entry in the next free row, and <code>update_sheet_cells</code>{" "}
-                  changes cells in one row.
+                  <code>add_sheet_row</code> adds one entry in the next free row, <code>add_sheet_entries</code> adds
+                  several entries to one tab as one change, and <code>update_sheet_cells</code> changes cells in one row.
                 </li>
                 <li>
                   <code>delete_sheet_rows</code> and <code>delete_sheet_column</code> update formulas on every tab, as

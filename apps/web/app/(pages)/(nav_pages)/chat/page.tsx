@@ -373,7 +373,7 @@ function ChatPage() {
             router.replace(`/chat?id=${encodeURIComponent(next)}`)
           }
           onNew={() => open("/chat")}
-          historyOpen={historyVisible && !mobileHistory ? undefined : false}
+          historyOpen={historyVisible}
           onToggleHistory={() => {
             if (window.innerWidth < 768) setMobileHistory(true);
             else setShowHistory(true);

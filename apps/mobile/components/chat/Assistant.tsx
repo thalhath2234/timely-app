@@ -59,6 +59,7 @@ import HistoryPage from "./HistoryPage";
 import ProposalPage from "./ProposalPage";
 import ReceiptReview from "./ReceiptReview";
 import Thread, { FailureCard, RunStatus, StatusCard, Welcome } from "./Thread";
+import { planGroups } from "@timely/contract/changeReview";
 import { isBusy, phaseLabel, sharedTarget } from "./chatMeta";
 import { Action, IconButton } from "./shared";
 import TimelyLogo from "../ui/TimelyLogo";
@@ -287,7 +288,12 @@ export default function Assistant() {
         setReviewSteps(null);
         setPage("proposal");
       }
+      // Applying one card keeps the review open for the rest.
+      const partial =
+        variables.action === "/approve" &&
+        Array.isArray((variables.body as { steps?: unknown } | undefined)?.steps);
       if (
+        !partial &&
         [
           "/images/discard",
           "/images/confirm",
@@ -298,7 +304,11 @@ export default function Assistant() {
       )
         setPage("chat");
       if (variables.action === "/reject")
-        toast("Proposal discarded. Nothing was changed.");
+        toast(
+          next.plan?.some((step) => step.status === "done")
+            ? "Discarded the rest. Applied changes are kept."
+            : "Proposal discarded. Nothing was changed.",
+        );
       setError("");
     },
     onError: (reason) => {
@@ -1139,8 +1149,15 @@ function PlanSummary({
   onOpen: () => void;
   onLink: (href: string) => void;
 }) {
-  const done = chat.plan.filter((step) => step.status === "done").length;
-  const total = chat.plan.length;
+  // Counted as the review page draws them: 30 entries for one sheet are one change.
+  const groups = planGroups(chat.plan);
+  const done = groups.filter((group) =>
+    group.steps.every((i) => chat.plan[i].status === "done"),
+  ).length;
+  const discarded = groups.filter((group) =>
+    group.steps.every((i) => chat.plan[i].status === "discarded"),
+  ).length;
+  const total = groups.length;
   const approval = chat.status === "approval";
   const failed = chat.status === "failed";
   const applying = isBusy(chat.status) && chat.phase === "apply";
@@ -1172,7 +1189,7 @@ function PlanSummary({
                   ? "Changes applied"
                   : "Your changes"
       }
-      body={`${done} of ${total} ${total === 1 ? "change" : "changes"} applied`}
+      body={`${done} of ${total} ${total === 1 ? "change" : "changes"} applied${discarded ? ` · ${discarded} discarded` : ""}`}
     >
       <View style={styles.planActions}>
         {target ? (

@@ -530,3 +530,104 @@ func TestIntegrationSettingsKeepRevision(t *testing.T) {
 		t.Fatalf("approve after settings change: %d %s %d", code, row.Status, row.Revision)
 	}
 }
+
+// Each change of a proposal can be applied or set aside on its own: the rest
+// stays for review, set-aside changes can come back, and the proposal ends
+// when nothing is left to apply.
+func TestIntegrationApplyAndDiscardPerChange(t *testing.T) {
+	db := integrationDB(t)
+	s := New(db, nil, nil)
+	s.factory = func(tx *gorm.DB) agent.Catalog {
+		return agent.Catalog{"create_workspace": {Call: func(ctx context.Context, uid string, args json.RawMessage) (any, error) {
+			item := testItem{ID: id("item_"), Value: string(args)}
+			if err := tx.Create(&item).Error; err != nil {
+				return nil, err
+			}
+			return map[string]string{"id": item.ID}, nil
+		}}}
+	}
+	step := func(name string, args map[string]string) Step {
+		args["name"] = name
+		return Step{Tool: "create_workspace", Summary: name, Arguments: raw(args), Status: "pending"}
+	}
+	c := runFixture(t, db, []Step{step("first", map[string]string{}), step("second", map[string]string{"after": "$0.id"}), step("third", map[string]string{}), step("fourth", map[string]string{})})
+	db.Model(&Conversation{}).Where("id = ?", c.ID).Updates(map[string]any{"status": "approval", "phase": "plan", "lease": "", "revision": 1})
+
+	e := echo.New()
+	g := e.Group("")
+	g.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error { c.Set("userID", "user-a"); return next(c) }
+	})
+	s.Routes(g)
+	post := func(path, body string) (int, Conversation) {
+		t.Helper()
+		request := httptest.NewRequest("POST", "/chats/"+c.ID+path, strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		recorder := httptest.NewRecorder()
+		e.ServeHTTP(recorder, request)
+		var row Conversation
+		db.First(&row, "id = ?", c.ID)
+		return recorder.Code, row
+	}
+	statuses := func(row Conversation) string {
+		out := []string{}
+		for _, step := range row.Plan {
+			out = append(out, step.Status)
+		}
+		return strings.Join(out, ",")
+	}
+
+	// Setting aside the first takes the second, which builds on it.
+	code, row := post("/steps/discard", `{"revision":1,"steps":[0]}`)
+	if code != 200 || statuses(row) != "discarded,discarded,pending,pending" || row.Status != "approval" {
+		t.Fatalf("discard: %d %s %s", code, statuses(row), row.Status)
+	}
+	// Keeping the second brings back the first.
+	code, row = post("/steps/discard", fmt.Sprintf(`{"revision":%d,"steps":[1],"keep":true}`, row.Revision))
+	if code != 200 || statuses(row) != "pending,pending,pending,pending" {
+		t.Fatalf("keep: %d %s", code, statuses(row))
+	}
+	// Applying the second alone applies the first with it, and nothing else.
+	code, row = post("/approve", fmt.Sprintf(`{"revision":%d,"steps":[1]}`, row.Revision))
+	if code != 200 || statuses(row) != "approved,approved,pending,pending" || row.Status != "queued" {
+		t.Fatalf("approve: %d %s %s", code, statuses(row), row.Status)
+	}
+	db.Model(&Conversation{}).Where("id = ?", c.ID).Updates(map[string]any{"status": "running", "lease": "test-lease"})
+	db.First(&row, "id = ?", c.ID)
+	if err := s.apply(context.Background(), &row); err != nil {
+		t.Fatal(err)
+	}
+	var count int64
+	db.Model(&testItem{}).Count(&count)
+	if count != 2 || statuses(row) != "done,done,pending,pending" || row.Status != "approval" {
+		t.Fatalf("partial apply: %d writes, %s %s", count, statuses(row), row.Status)
+	}
+	// An applied change cannot be set aside or applied again.
+	if code, _ = post("/approve", fmt.Sprintf(`{"revision":%d,"steps":[9]}`, row.Revision)); code != 400 {
+		t.Fatalf("approve outside the plan: %d", code)
+	}
+	code, row = post("/steps/discard", fmt.Sprintf(`{"revision":%d,"steps":[0,2]}`, row.Revision))
+	if code != 200 || statuses(row) != "done,done,discarded,pending" || row.Status != "approval" {
+		t.Fatalf("discard after apply: %d %s %s", code, statuses(row), row.Status)
+	}
+	// Setting aside the last one ends the proposal as applied.
+	code, row = post("/steps/discard", fmt.Sprintf(`{"revision":%d,"steps":[3]}`, row.Revision))
+	if code != 200 || statuses(row) != "done,done,discarded,discarded" || row.Status != "idle" || row.Messages[len(row.Messages)-1].Content != tr(row.Language, txtDone) {
+		t.Fatalf("last discard: %d %s %s", code, statuses(row), row.Status)
+	}
+	if code, _ = post("/approve", fmt.Sprintf(`{"revision":%d}`, row.Revision)); code != 409 {
+		t.Fatalf("approve after the end: %d", code)
+	}
+	// Discard all after applying some keeps what was applied and says so,
+	// rather than "nothing was changed".
+	row.Plan[2].Status, row.Plan[3].Status = "pending", "pending"
+	row.Status = "approval"
+	if err := db.Save(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	before := len(row.Messages)
+	code, row = post("/reject", fmt.Sprintf(`{"revision":%d}`, row.Revision))
+	if code != 200 || statuses(row) != "done,done,discarded,discarded" || row.Status != "idle" || len(row.Messages) != before+1 || row.Messages[before].Content != tr(row.Language, txtDone) {
+		t.Fatalf("discard all after apply: %d %s %s", code, statuses(row), row.Status)
+	}
+}

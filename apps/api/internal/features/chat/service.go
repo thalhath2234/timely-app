@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -65,6 +66,7 @@ func (s *Service) Routes(g *echo.Group) {
 	g.POST("/chats/:id/messages", s.send)
 	g.POST("/chats/:id/approve", s.approve)
 	g.POST("/chats/:id/reject", s.reject)
+	g.POST("/chats/:id/steps/discard", s.discardSteps)
 	g.DELETE("/chats/:id", s.remove)
 	g.POST("/chats/:id/stop", s.stop)
 	g.POST("/chats/:id/retry", s.retry)
@@ -317,9 +319,14 @@ func (s *Service) send(c *echo.Context) error {
 		return attachImages(tx, row, in.ImageIDs)
 	})
 }
+
+// approve applies the proposal. With steps (plan indexes, as the review
+// groups them), only those changes and the earlier changes they build on are
+// applied now; the rest stay for review.
 func (s *Service) approve(c *echo.Context) error {
 	var in struct {
-		Revision int `json:"revision"`
+		Revision int   `json:"revision"`
+		Steps    []int `json:"steps"`
 	}
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(400, "Invalid approval")
@@ -328,7 +335,30 @@ func (s *Service) approve(c *echo.Context) error {
 		if row.Status != "approval" || row.Revision != in.Revision {
 			return echo.NewHTTPError(409, "This proposal changed. Review the latest version before applying")
 		}
-		if row.ImageReview != nil && row.ImageReview.Status != "discarded" {
+		receipt := row.ImageReview != nil && row.ImageReview.Status != "discarded"
+		if len(in.Steps) > 0 && receipt {
+			return echo.NewHTTPError(409, "A receipt is saved as a whole. Apply all of its changes or discard them")
+		}
+		for i := range row.Plan {
+			if row.Plan[i].Status == stepApproved {
+				row.Plan[i].Status = "pending"
+			}
+		}
+		if len(in.Steps) > 0 {
+			chosen, err := planSelection(row.Plan, in.Steps)
+			if err != nil {
+				return err
+			}
+			for _, i := range withDependencies(row.Plan, chosen) {
+				if row.Plan[i].Status != "done" && row.Plan[i].Status != "discarded" {
+					row.Plan[i].Status = stepApproved
+				}
+			}
+		}
+		if len(row.Plan) > 0 && !hasPending(row.Plan) {
+			return echo.NewHTTPError(409, "Every change here is applied or discarded")
+		}
+		if receipt {
 			if err := eraseImages(tx, row.UserID, row.ImageReview.ImageIDs); err != nil {
 				return err
 			}
@@ -358,6 +388,66 @@ func (s *Service) stop(c *echo.Context) error {
 	})
 }
 
+// discardSteps sets changes of a proposal aside before applying it (keep
+// false), or brings them back (keep true). A change built on a discarded one
+// ("$2.task.id") is set aside with it, and one brought back brings back what
+// it builds on. When nothing is left to apply, the proposal ends: as applied
+// when part of it was, else as discarded.
+func (s *Service) discardSteps(c *echo.Context) error {
+	var in struct {
+		Revision int   `json:"revision"`
+		Steps    []int `json:"steps"`
+		Keep     bool  `json:"keep"`
+	}
+	if err := c.Bind(&in); err != nil || len(in.Steps) == 0 {
+		return echo.NewHTTPError(400, "Invalid request")
+	}
+	return s.change(c, func(tx *gorm.DB, row *Conversation) error {
+		if row.Status != "approval" {
+			return echo.NewHTTPError(409, "There is no proposal waiting for approval")
+		}
+		if row.Revision != in.Revision {
+			return echo.NewHTTPError(409, "This proposal changed. Review the latest version first")
+		}
+		if row.ImageReview != nil && row.ImageReview.Status != "discarded" {
+			return echo.NewHTTPError(409, "A receipt is saved as a whole. Apply all of its changes or discard them")
+		}
+		chosen, err := planSelection(row.Plan, in.Steps)
+		if err != nil {
+			return err
+		}
+		if in.Keep {
+			for _, i := range withDependencies(row.Plan, chosen) {
+				if row.Plan[i].Status == "discarded" {
+					row.Plan[i].Status = "pending"
+				}
+			}
+			return nil
+		}
+		for _, i := range withDependents(row.Plan, chosen) {
+			if row.Plan[i].Status == "pending" || row.Plan[i].Status == stepApproved {
+				row.Plan[i].Status = "discarded"
+			}
+		}
+		if hasPending(row.Plan) {
+			return nil
+		}
+		row.Phase = "plan"
+		row.Error = ""
+		row.Unread = false
+		row.Status = "idle"
+		for _, step := range row.Plan {
+			if step.Status == "done" {
+				row.Messages = append(row.Messages, notice(tr(row.Language, txtDone)))
+				return nil
+			}
+		}
+		archivePlanAs(row, tr(row.Language, txtDiscardedChanges), "discarded")
+		row.Messages = append(row.Messages, notice(tr(row.Language, txtDiscarded)))
+		return nil
+	})
+}
+
 // Rejecting a proposal keeps the conversation so the person can ask for a
 // different plan; nothing in the plan has been written yet.
 func (s *Service) reject(c *echo.Context) error {
@@ -373,6 +463,21 @@ func (s *Service) reject(c *echo.Context) error {
 		}
 		if in.Revision != 0 && row.Revision != in.Revision {
 			return echo.NewHTTPError(409, "This proposal changed. Review the latest version first")
+		}
+		if slices.ContainsFunc(row.Plan, func(step Step) bool { return step.Status == "done" }) {
+			// Some cards were applied one by one: those stay, the rest is set
+			// aside, and the plan stays on screen as a finished one would.
+			for i := range row.Plan {
+				if row.Plan[i].Status != "done" {
+					row.Plan[i].Status = "discarded"
+				}
+			}
+			row.Status = "idle"
+			row.Phase = "plan"
+			row.Error = ""
+			row.Unread = false
+			row.Messages = append(row.Messages, notice(tr(row.Language, txtDone)))
+			return nil
 		}
 		archivePlanAs(row, tr(row.Language, txtDiscardedChanges), "discarded")
 		row.Status = "idle"
@@ -419,7 +524,7 @@ func (s *Service) retry(c *echo.Context) error {
 		if row.Phase == "apply" && len(row.Plan) > 0 {
 			row.Status = "approval"
 			for i := range row.Plan {
-				if row.Plan[i].Status != "done" {
+				if row.Plan[i].Status != "done" && row.Plan[i].Status != "discarded" {
 					row.Plan[i].Status = "pending"
 					row.Plan[i].Error = ""
 				}

@@ -8,6 +8,7 @@
     "./account": "./src/account.ts",
     "./bulkEdit": "./src/bulkEdit.ts",
     "./calendar": "./src/calendar.ts",
+    "./changeReview": "./src/changeReview.ts",
     "./config": "./src/config.ts",
     "./dashboard": "./src/dashboard.ts",
     "./dashboardFiles": "./src/dashboardFiles.ts",

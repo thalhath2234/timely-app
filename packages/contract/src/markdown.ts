@@ -635,28 +635,22 @@ function blocksOf(tokens: Token[], options: FromMarkdownOptions): MarkdownNode[]
         break;
       }
       case "list": {
+        // A list with any tick box is a checklist; its plain items join it
+        // unticked, as Help me write does, so no "[ ]" is left as text
+        // (models mix "- [ ]" and "-" lines). Mirrors list in frommarkdown.go.
         const list = token as Tokens.List;
-        const isTaskList = list.items.length > 0 && list.items.every((item) => item.task);
-        if (isTaskList) {
+        if (list.items.some((item) => item.task)) {
           out.push({
             type: "taskList",
             content: list.items.map((item) => ({
               type: "taskItem",
-              attrs: { checked: Boolean(item.checked) },
+              attrs: { checked: Boolean(item.task && item.checked) },
               content: listItemContent(item, options),
             })),
           });
           break;
         }
-        const items = list.items.map((item) => {
-          const content = listItemContent(item, options);
-          // A checkbox in a list that is not all tasks stays visible as text.
-          if (item.task) {
-            const first = content[0];
-            first.content = [{ type: "text", text: item.checked ? "[x] " : "[ ] " }, ...(first.content ?? [])];
-          }
-          return { type: "listItem", content };
-        });
+        const items = list.items.map((item) => ({ type: "listItem", content: listItemContent(item, options) }));
         if (list.ordered) {
           const start = Number(list.start);
           out.push({

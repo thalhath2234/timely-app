@@ -185,6 +185,13 @@ func otherThanOneCell(args map[string]any) bool {
 	return len(cells) != 1
 }
 
+// One entry applies directly like add_sheet_row; several are a bulk edit,
+// reviewed as several add_sheet_row steps would be.
+func severalEntries(args map[string]any) bool {
+	entries, _ := args["entries"].([]any)
+	return len(entries) != 1
+}
+
 // A sheet created from a template arrives populated.
 func fromTemplate(args map[string]any) bool {
 	return args["templateId"] != nil && args["templateId"] != ""

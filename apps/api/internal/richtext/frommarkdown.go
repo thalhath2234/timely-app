@@ -199,6 +199,10 @@ func (r reader) callout(quote *ast.Blockquote) map[string]any {
 	return map[string]any{"type": "callout", "attrs": attrs, "content": content}
 }
 
+// list converts a Markdown list. A list with any tick box is a checklist; its
+// plain items join it unticked, as Help me write does, so no "[ ]" is left as
+// text (models mix "- [ ]" and "-" lines). Mirrors fromMarkdown in
+// packages/contract/src/markdown.ts.
 func (r reader) list(list *ast.List) map[string]any {
 	type item struct {
 		node    *ast.ListItem
@@ -206,7 +210,7 @@ func (r reader) list(list *ast.List) map[string]any {
 		checked bool
 	}
 	var items []item
-	allTasks := list.ChildCount() > 0
+	anyTask := false
 	for n := list.FirstChild(); n != nil; n = n.NextSibling() {
 		li, ok := n.(*ast.ListItem)
 		if !ok {
@@ -218,7 +222,7 @@ func (r reader) list(list *ast.List) map[string]any {
 				it.task, it.checked = true, box.IsChecked
 			}
 		}
-		allTasks = allTasks && it.task
+		anyTask = anyTask || it.task
 		items = append(items, it)
 	}
 
@@ -229,7 +233,7 @@ func (r reader) list(list *ast.List) map[string]any {
 		if len(children) == 0 || children[0].(map[string]any)["type"] != "paragraph" {
 			children = append([]any{paragraphNode(nil)}, children...)
 		}
-		if allTasks {
+		if anyTask {
 			content = append(content, map[string]any{
 				"type":    "taskItem",
 				"attrs":   map[string]any{"checked": it.checked},
@@ -237,21 +241,11 @@ func (r reader) list(list *ast.List) map[string]any {
 			})
 			continue
 		}
-		if it.task {
-			// A checkbox in a list that is not all tasks stays visible as text.
-			first := children[0].(map[string]any)
-			box := "[ ] "
-			if it.checked {
-				box = "[x] "
-			}
-			inline, _ := first["content"].([]any)
-			first["content"] = append([]any{map[string]any{"type": "text", "text": box}}, inline...)
-		}
 		content = append(content, map[string]any{"type": "listItem", "content": children})
 	}
 
 	switch {
-	case allTasks:
+	case anyTask:
 		return map[string]any{"type": "taskList", "content": content}
 	case list.IsOrdered():
 		return map[string]any{"type": "orderedList", "attrs": map[string]any{"start": list.Start}, "content": content}
