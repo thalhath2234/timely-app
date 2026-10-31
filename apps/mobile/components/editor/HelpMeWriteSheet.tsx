@@ -38,10 +38,16 @@ export type WriteInfo = {
 };
 
 /** How the draft goes in: over the selection, after it or at the caret, or at
- * the end of the text ("Continue writing"), and the action that wrote it. */
+ * the end of the text ("Continue writing"), and the action whose spot it
+ * takes. */
 export type WriteInsert = { markdown: string; mode: "replace" | "below" | "insert" | "end"; action: WriteAction };
 
-type Run = { action: WriteAction; prompt?: string; selection?: string; label?: string };
+/** `place`: the action whose spot the draft takes, when it is not `action`.
+ * Ask for changes rewrites a draft as "write", but a refined summary still
+ * goes where a summary goes, and refined Continue writing still goes at the
+ * end. */
+type Run = { action: WriteAction; place?: WriteAction; prompt?: string; selection?: string; label?: string };
+const placeOf = (run: Run) => run.place ?? run.action;
 
 /** The list a draft inserted this way joins, if any. A summary or
  * description is not more items of the list the caret is in. */
@@ -121,7 +127,8 @@ export default function HelpMeWriteSheet({
 
   const insert = (mode: "replace" | "below") => {
     if (!result) return;
-    onInsert({ markdown: result.text, mode: insertMode(mode, result.run.action), action: result.run.action });
+    const place = placeOf(result.run);
+    onInsert({ markdown: result.text, mode: insertMode(mode, place), action: place });
   };
 
   const footer = result && !busy ? (
@@ -171,7 +178,7 @@ export default function HelpMeWriteSheet({
             <RichDoc
               content={{
                 type: "doc",
-                content: info ? writtenContent(result.text, writeList(info, insertMode("replace", result.run.action), result.run.action)).blocks : [],
+                content: info ? writtenContent(result.text, writeList(info, insertMode("replace", placeOf(result.run)), placeOf(result.run))).blocks : [],
               }}
             />
           </ScrollView>
@@ -183,7 +190,9 @@ export default function HelpMeWriteSheet({
               label="Update"
               variant="secondary"
               disabled={!refine.trim()}
-              onPress={() => void start({ action: "write", prompt: refine.trim(), selection: result.text, label: "Updating the draft" })}
+              onPress={() =>
+                void start({ action: "write", place: placeOf(result.run), prompt: refine.trim(), selection: result.text, label: "Updating the draft" })
+              }
             />
           </View>
         </View>

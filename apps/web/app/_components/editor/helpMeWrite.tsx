@@ -193,7 +193,12 @@ function enclosingListItem(editor: Editor, range: Captured) {
   }
   return null;
 }
-type Run = { action: WriteAction; prompt?: string; selection?: string; label?: string };
+/** `place`: the action whose spot the draft takes, when it is not `action`.
+ * Ask for changes rewrites a draft as "write", but a refined summary still
+ * goes where a summary goes, and refined Continue writing still goes at the
+ * end. */
+type Run = { action: WriteAction; place?: WriteAction; prompt?: string; selection?: string; label?: string };
+const placeOf = (run: Run) => run.place ?? run.action;
 
 /** Where the draft will go, kept in step with edits made while the panel
  * stays open, and the lines there marked while it shows. */
@@ -377,7 +382,7 @@ export default function HelpMeWritePanel({
         },
         controller.signal,
       );
-      setResult({ ...out, run, list: spotFor(run.action)?.list });
+      setResult({ ...out, run, list: spotFor(placeOf(run))?.list });
       setRefine("");
     } catch (err) {
       if (controller.signal.aborted) return;
@@ -396,7 +401,7 @@ export default function HelpMeWritePanel({
   const submitRefine = () => {
     const text = refine.trim();
     if (!text || !result) return;
-    void start({ action: "write", prompt: text, selection: result.text, label: "Updating the draft" });
+    void start({ action: "write", place: placeOf(result.run), prompt: text, selection: result.text, label: "Updating the draft" });
   };
 
   const preview = useMemo(() => {
@@ -414,7 +419,8 @@ export default function HelpMeWritePanel({
 
   const insert = (mode: "replace" | "below") => {
     if (!result) return;
-    const spot = spotFor(result.run.action);
+    const place = placeOf(result.run);
+    const spot = spotFor(place);
     const { blocks, inline, items } = toNodes(result.text, spot?.list);
     if (blocks.length === 0) return;
     const { doc } = editor.state;
@@ -444,7 +450,7 @@ export default function HelpMeWritePanel({
       } else {
         chain.insertContentAt({ from: target.from, to: target.to }, inline ?? blocks).run();
       }
-    } else if (result.run.action === "continue") {
+    } else if (place === "continue") {
       chain.insertContentAt(size, blocks).run();
     } else {
       const at = doc.resolve(Math.min(hasSelection ? target.to : target.from, size));
