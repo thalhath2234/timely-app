@@ -9,6 +9,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 	"timely-api/internal/features/chat"
+	"timely-api/internal/models"
+	"timely-api/internal/richtext"
 )
 
 // Help me write: one-shot drafting for docs and task or project descriptions.
@@ -19,7 +21,7 @@ import (
 // and the actions that need a selection are checked in writeRequest.validate.
 var writeActions = map[string]string{
 	"write":     "Write what the user asks for.",
-	"continue":  "Continue the text from where it ends. Match its voice, language and formatting, and do not repeat what is already there.",
+	"continue":  "Continue the text from where it ends. Match its voice, language and formatting, and do not repeat what is already there. When it ends with a list or checklist, carry on with more items of that same kind.",
 	"describe":  "Write a short, useful description for this item from its title and any notes: what it is, why it matters and what done looks like. Use a few short paragraphs or a short checklist of steps, whichever fits.",
 	"improve":   "Rewrite the selected text so it reads clearly and naturally. Keep its meaning, facts, language and formatting.",
 	"shorter":   "Rewrite the selected text so it is noticeably shorter. Keep the key points and its language.",
@@ -31,9 +33,20 @@ var writeActions = map[string]string{
 
 const writeSystem = `You are the writing helper inside Timely, a planner with tasks, projects and docs.
 Reply with only the text to put into the editor, as Markdown: headings, lists, "- [ ]" checklists, tables, bold and links are all fine.
+The current text is the editor's content as Markdown. Lines starting "- [ ]" or "- [x]" are checklist items with tick boxes; write checklist items exactly that way, never "- []" or "[ ]" inside a plain bullet.
 No preamble, no closing remarks, no notes about what you changed, and do not wrap the answer in a code block.
 Write in the language of the user's text unless they ask for another one.
 The current text is context: do not repeat it in your answer unless the task is to rewrite it.`
+
+// writeCursor is typed into the doc where the draft goes (WRITE_CURSOR in
+// packages/contract/src/helpMeWrite.ts); the model sees it as cursorTag.
+const (
+	writeCursor = "TIMELYWRITECURSOR"
+	cursorTag   = "<cursor/>"
+)
+
+// cursorLine is a line holding only the cursor, alone or as a list item.
+var cursorLine = regexp.MustCompile(`(?m)^[ \t]*(?:[-*+][ \t]+(?:\[[ xX]\][ \t]+)?|\d+[.)][ \t]+)?` + writeCursor + `[ \t]*(?:\n|$)`)
 
 const (
 	writeMaxText      = 12000
@@ -49,6 +62,10 @@ type writeRequest struct {
 	Kind  string `json:"kind"`
 	Title string `json:"title"`
 	Text  string `json:"text"`
+	// Doc is the editor's content with writeCursor where the draft goes. It
+	// replaces Text as Markdown, so the model sees checklists and headings;
+	// apps from before it send only Text.
+	Doc models.JSONMap `json:"doc"`
 }
 
 type writeResponse struct {
@@ -68,7 +85,16 @@ func (r *writeRequest) validate() error {
 	r.Prompt = clipHead(strings.TrimSpace(r.Prompt), writeMaxPrompt)
 	r.Selection = clipHead(strings.TrimSpace(r.Selection), writeMaxSelection)
 	r.Title = clipHead(strings.TrimSpace(r.Title), 300)
-	r.Text = clipTail(strings.TrimSpace(r.Text), writeMaxText)
+	if r.Doc != nil {
+		r.Text = richtext.ToMarkdown(r.Doc)
+		r.Doc = nil
+	}
+	// Only a draft written at the caret goes to the cursor: a rewrite has its
+	// selection and Continue writes at the end.
+	if r.Selection != "" || r.Action == "continue" || strings.TrimSpace(dropCursor(r.Text)) == "" {
+		r.Text = dropCursor(r.Text)
+	}
+	r.Text = strings.ReplaceAll(clipAround(strings.TrimSpace(r.Text), writeCursor, writeMaxText), writeCursor, cursorTag)
 	switch r.Action {
 	case "write":
 		if r.Prompt == "" {
@@ -119,6 +145,10 @@ func writeMessages(r writeRequest) []chat.WireMessage {
 			b.WriteString("The selection is a single line, so answer with a single paragraph: no headings, list markers or checkboxes.\n")
 		}
 	}
+	if strings.Contains(r.Text, cursorTag) {
+		b.WriteString("\n" + cursorTag + " in the current text marks where your answer goes; fit it to that spot and do not write the tag. ")
+		b.WriteString("When " + cursorTag + " is a list item, answer with only items of that same kind of list, one per line, with no heading or intro: \"- [ ] item\" for a checklist, \"- item\" for bullets, \"1. item\" for a numbered list.\n")
+	}
 	if r.Prompt != "" {
 		fmt.Fprintf(&b, "\n<request>\n%s\n</request>\n", r.Prompt)
 	}
@@ -128,9 +158,9 @@ func writeMessages(r writeRequest) []chat.WireMessage {
 var wholeFence = regexp.MustCompile("(?s)^```[a-zA-Z]*\\n(.*)\\n```$")
 
 // cleanWritten drops a code fence wrapped around the whole answer, which some
-// models add despite being told not to.
+// models add despite being told not to, and a cursor tag copied from the doc.
 func cleanWritten(s string) string {
-	s = strings.TrimSpace(s)
+	s = strings.TrimSpace(strings.ReplaceAll(s, cursorTag, ""))
 	if m := wholeFence.FindStringSubmatch(s); m != nil {
 		s = strings.TrimSpace(m[1])
 	}
@@ -142,6 +172,25 @@ func clipHead(s string, n int) string {
 		return s
 	}
 	return strings.ToValidUTF8(s[:n], "")
+}
+
+// dropCursor takes the cursor out of the text, with its line when it stood
+// alone there or as a list item of its own.
+func dropCursor(s string) string {
+	return strings.ReplaceAll(cursorLine.ReplaceAllString(s, ""), writeCursor, "")
+}
+
+// clipAround keeps n bytes of a long text around the cursor, most of them
+// before it, so the model sees what leads up to the spot the draft goes.
+// Without a cursor it keeps the end, as clipTail does.
+func clipAround(s, cursor string, n int) string {
+	at := strings.Index(s, cursor)
+	if at < 0 || len(s) <= n {
+		return clipTail(s, n)
+	}
+	start := max(0, at-n*3/4)
+	end := min(len(s), start+n)
+	return strings.ToValidUTF8(s[max(0, end-n):end], "")
 }
 
 // clipTail keeps the end of a long text, which is what "continue" needs.

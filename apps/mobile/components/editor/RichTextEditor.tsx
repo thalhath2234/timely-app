@@ -91,8 +91,8 @@ import { useToastStore } from "../../lib/toast";
 import TimelyLogo from "../ui/TimelyLogo";
 import FindBar from "./FindBar";
 import BlockSheet, { type BlockInfo } from "./BlockSheet";
-import HelpMeWriteSheet, { useHelpMeWriteAvailable, type WriteContext, type WriteInfo } from "./HelpMeWriteSheet";
-import { writtenContent } from "@timely/contract/helpMeWrite";
+import HelpMeWriteSheet, { useHelpMeWriteAvailable, writeList, type WriteContext, type WriteInfo } from "./HelpMeWriteSheet";
+import { isWriteList, writtenContent } from "@timely/contract/helpMeWrite";
 import type { LineHints } from "../docs/lineHints";
 import DescribeCardSheet, { type DescribedDraft } from "../report/DescribeCardSheet";
 import LiveBlocks from "./LiveBlocks";
@@ -523,6 +523,9 @@ export default function RichTextEditor({
         title?: string;
         done?: boolean;
         item?: number;
+        doc?: DocContent;
+        list?: string | null;
+        endList?: string | null;
       };
       if (msg.type === "lineHint" && msg.key && (msg.action === "toggle" || msg.action === "make" || msg.action === "dismiss")) {
         lineHintsRef.current?.act(msg.key, msg.action);
@@ -536,7 +539,15 @@ export default function RichTextEditor({
       }
       if (msg.type === "writeInfo") {
         setPicker(null);
-        setWriteInfo({ from: msg.from ?? 0, to: msg.to ?? 0, selection: msg.selection ?? "", text: msg.text ?? "" });
+        setWriteInfo({
+          from: msg.from ?? 0,
+          to: msg.to ?? 0,
+          selection: msg.selection ?? "",
+          text: msg.text ?? "",
+          doc: msg.doc,
+          list: isWriteList(msg.list) ? msg.list : null,
+          endList: isWriteList(msg.endList) ? msg.endList : null,
+        });
       }
       if (msg.type === "writeStale") {
         useToastStore.getState().show("The text changed while writing. Select it again.");
@@ -1178,8 +1189,9 @@ export default function RichTextEditor({
             const info = writeInfo;
             setWriteInfo(null);
             if (!info) return;
-            const { blocks, inline } = writtenContent(markdown);
-            run("insertWritten", { blocks, inline, from: info.from, to: info.to, selection: info.selection, mode });
+            const list = writeList(info, mode);
+            const { blocks, inline, items } = writtenContent(markdown, list);
+            run("insertWritten", { blocks, inline, items, list, from: info.from, to: info.to, selection: info.selection, mode });
           }}
         />
       ) : null}
