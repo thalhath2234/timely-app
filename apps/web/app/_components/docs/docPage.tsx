@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Editor, Range } from "@tiptap/react";
@@ -38,9 +38,9 @@ import { readMarkdownFile } from "@/app/utils/importMarkdown";
 import { fileHref, FILES_PATH } from "@/app/utils/fileRoutes";
 import { buttonClass } from "@/app/_components/_ui/button";
 
-/** Page width (px) from which the doc gets the toolbar rail, the outline
- * card and margin suggestions: room for the rail, the doc and an 18rem
- * right column. */
+/** Page width (px) from which the doc gets the toolbar rail and a right
+ * column of the outline, offers and suggestions cards: room for the rail,
+ * the doc and an 18rem right column. */
 const MARGIN_LAYOUT_WIDTH = 1024;
 
 /** Whether an element is at least `width` px wide, following resizes. */
@@ -53,6 +53,32 @@ function useWiderThan(element: HTMLElement | null, width: number) {
     return () => observer.disconnect();
   }, [element, width]);
   return wider;
+}
+
+/** A wide page's right column: one sticky stack that scrolls inside when it
+ * is taller than the window, its foot fading while more of it is below. */
+function RailStack({ children }: { children: ReactNode }) {
+  const [box, setBox] = useState<HTMLDivElement | null>(null);
+  const [more, setMore] = useState(false);
+  useEffect(() => {
+    if (!box) return;
+    const read = () => setMore(box.scrollHeight - box.scrollTop - box.clientHeight > 1);
+    // The box keeps its height once it is capped, so the cards are watched
+    // too; the observer also reads it once to start.
+    const observer = new ResizeObserver(read);
+    observer.observe(box);
+    if (box.firstElementChild) observer.observe(box.firstElementChild);
+    box.addEventListener("scroll", read, { passive: true });
+    return () => {
+      observer.disconnect();
+      box.removeEventListener("scroll", read);
+    };
+  }, [box]);
+  return (
+    <div ref={setBox} className="doc-rail-stack sticky top-4 z-10 max-h-[calc(100dvh-4.25rem)] overflow-y-auto [scrollbar-width:none]" data-more={more || undefined}>
+      <div className="flex flex-col gap-4">{children}</div>
+    </div>
+  );
 }
 
 const ICON_CHOICES = [
@@ -160,8 +186,8 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const [marginHost, setMarginHost] = useState<HTMLElement | null>(null);
   const [scrollBox, setScrollBox] = useState<HTMLDivElement | null>(null);
   // A wide page puts the toolbar in a rail left of the doc and the
-  // suggestions in the margin beside their lines; a narrow one keeps the
-  // toolbar row under the tabs and the suggestions above the text.
+  // suggestions in a column right of it; a narrow one keeps the toolbar row
+  // under the tabs and the suggestions above the text.
   const wide = useWiderThan(scrollBox, MARGIN_LAYOUT_WIDTH);
   const lastSavedAtRef = useRef<string | null>(doc.updatedAt);
   // The editor is seeded once per document; later remote updates arrive via
@@ -540,31 +566,36 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
               )}
               <Backlinks docId={doc.id} />
               <RelatedItems kind="doc" id={doc.id} onLink={linkRelated} />
-              {!wide && <ChecklistOffersSwitch doc={doc} editor={editor} version={hintsVersion} variant="chip" />}
+              {!wide && <ChecklistOffersSwitch doc={doc} editor={editor} version={hintsVersion} />}
             </div>
           </div>
 
-          {/* On a wide page the outline card, then the suggestions beside their lines; above the text otherwise (globals.css). */}
+          {/* On a wide page one sticky stack of the outline, the offers and the
+              suggestions, which scrolls inside when taller than the window;
+              the offers open beside their rows. Above the text otherwise (globals.css). */}
           <aside ref={setMarginHost} className="doc-page-rail" aria-label="Suggestions">
-            {wide && (
-              <div className="sticky top-4 z-10 mb-4">
-                <DocOutline
+            {wide ? (
+              <RailStack>
+                <DocOutline editor={editor} wordCount={wordCount} updatedAt={doc.updatedAt} subpages={descendantCount} />
+                <DocHints
+                  doc={doc}
                   editor={editor}
-                  wordCount={wordCount}
-                  updatedAt={doc.updatedAt}
-                  subpages={descendantCount}
-                  rows={<ChecklistOffersSwitch doc={doc} editor={editor} version={hintsVersion} variant="row" />}
+                  nearEmpty={wordCount < 8}
+                  version={hintsVersion}
+                  onApplyContent={applyContent}
+                  layout="margin"
                 />
-              </div>
+              </RailStack>
+            ) : (
+              <DocHints
+                doc={doc}
+                editor={editor}
+                nearEmpty={wordCount < 8}
+                version={hintsVersion}
+                onApplyContent={applyContent}
+                layout="card"
+              />
             )}
-            <DocHints
-              doc={doc}
-              editor={editor}
-              nearEmpty={wordCount < 8}
-              version={hintsVersion}
-              onApplyContent={applyContent}
-              layout={wide ? "margin" : "card"}
-            />
           </aside>
 
           <div className="doc-page-body">

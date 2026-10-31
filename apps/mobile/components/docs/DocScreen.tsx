@@ -88,7 +88,7 @@ function DocEditor({ docId }: { docId: string }) {
   // What the editor holds, a moment after typing stops, for the checklist
   // items the suggestions card offers as tasks.
   const [liveContent, setLiveContent] = useState<DocContent | null>(null);
-  // Markers and cards for checklist rows, from the suggestions to the editor.
+  // Markers and cards for the lines offered as tasks, from the suggestions to the editor.
   const [lineHints, setLineHints] = useState<LineHints | null>(null);
   const liveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(liveTimerRef.current), []);

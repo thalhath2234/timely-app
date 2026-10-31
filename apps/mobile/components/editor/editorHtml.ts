@@ -25,6 +25,10 @@ export function buildEditorHtml(
     border: string;
     /** For live blocks; older callers fall back to the page colours. */
     card?: string;
+    /** Text on the accent, and the hairline of a control; older callers fall
+     * back to the page colours. */
+    primaryForeground?: string;
+    input?: string;
     success?: string;
     warning?: string;
   },
@@ -48,6 +52,8 @@ export function buildEditorHtml(
     border: "rgba(255,255,255,0.09)",
   };
   const live = { card: t.card ?? t.background, success: t.success ?? "#2fa36b", warning: t.warning ?? "#d29922" };
+  const onPrimary = t.primaryForeground ?? t.background;
+  const hairline = t.input ?? t.border;
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -185,6 +191,9 @@ export function buildEditorHtml(
     .tiptap th { background: ${t.muted}; font-weight: 600; }
     .tiptap ul[data-type="taskList"] { list-style: none; padding-left: 0; }
     .tiptap ul[data-type="taskList"] li { display: flex; gap: 8px; align-items: flex-start; }
+    /* The row's words take the rest of the row, so a card opened under them
+       is as wide as the row and not only as its words. */
+    .tiptap ul[data-type="taskList"] li > div { flex: 1; min-width: 0; }
     /* A checklist row's box is its label (DocTaskItem): the native checkbox
        and Tiptap's hidden label text inside it stay out of layout. */
     .tiptap ul[data-type="taskList"] li > label { position: relative; flex: none; box-sizing: border-box; width: 16px; height: 16px; margin-top: 4px; border: 1.5px solid ${t.mutedForeground}; border-radius: 4px; }
@@ -198,23 +207,33 @@ export function buildEditorHtml(
     .math-empty { color: ${t.mutedForeground}; font-style: italic; font-size: 13px; }
     .math-block, .frontmatter { border: 1px solid ${t.border}; border-radius: 10px; margin: 0 0 0.75em; overflow: hidden; }
     .frontmatter { border-style: dashed; }
-    /* Suggestions for checklist rows: a marker at the row's end, and under
-       the open one a card with its actions (lineHints below). */
-    .tiptap ul[data-type="taskList"] li.has-hint { position: relative; padding-right: 30px; }
-    .tiptap li.hint-open { background: color-mix(in oklab, ${t.primary} 10%, transparent); border-radius: 8px; box-shadow: 0 0 0 4px color-mix(in oklab, ${t.primary} 10%, transparent); }
-    .hint-mark { position: absolute; top: -10px; right: -10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; background: none; color: ${t.mutedForeground}; opacity: 0.75; -webkit-tap-highlight-color: transparent; }
-    .hint-mark svg { width: 15px; height: 15px; }
-    .hint-mark.is-open { color: ${t.primary}; opacity: 1; }
+    /* Lines offered as tasks (checklist rows, and lines that read like
+       tasks): a disc at the line's right edge, drawn as the desktop's, and
+       under the open one a card with its actions (lineHints below). The open
+       line keeps room below its tint so the next line does not touch it. */
+    .tiptap .has-hint { position: relative; padding-right: 34px; }
+    .tiptap .hint-open { background: color-mix(in oklab, ${t.primary} 10%, transparent); border-radius: 8px; box-shadow: 0 0 0 4px color-mix(in oklab, ${t.primary} 10%, transparent); padding-bottom: 4px; margin-bottom: 12px; }
+    /* A 44px tap area around a 26px disc, centred on the line's first row. */
+    .hint-mark { position: absolute; top: -10px; right: -10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; background: none; -webkit-tap-highlight-color: transparent; }
+    .hint-disc { box-sizing: border-box; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; border-radius: 999px; border: 1px solid ${hairline}; background: ${live.card}; color: ${t.mutedForeground}; }
+    .hint-disc svg { width: 13px; height: 13px; }
+    .hint-mark.is-task .hint-disc { color: ${t.primary}; }
+    .hint-mark.is-open .hint-disc { border-color: ${t.primary}; background: ${t.primary}; color: ${onPrimary}; }
     .hint-mark.is-open svg { fill: currentColor; }
-    .hint-card { margin: 8px -22px 4px 0; padding: 12px; border: 1px solid color-mix(in oklab, ${t.primary} 35%, transparent); border-radius: 12px; background: ${t.background}; font-size: 14px; line-height: 1.4; user-select: none; -webkit-user-select: none; }
-    .hint-label { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: ${t.primary}; }
+    .hint-card { margin: 8px -22px 4px 0; padding: 12px; border: 1px solid color-mix(in oklab, ${t.primary} 35%, transparent); border-radius: 12px; background: ${live.card}; font-size: 14px; line-height: 1.4; font-style: normal; font-weight: 400; user-select: none; -webkit-user-select: none; }
+    .hint-label { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: ${t.mutedForeground}; }
+    .hint-label svg { flex: none; width: 11px; height: 11px; color: ${t.primary}; fill: currentColor; }
     .hint-title { margin-top: 4px; font-weight: 600; color: ${t.foreground}; }
     .hint-details { margin-top: 2px; font-size: 13px; color: ${t.mutedForeground}; }
+    .hint-goes { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; margin-top: 10px; border-top: 1px solid ${t.border}; color: ${t.mutedForeground}; }
+    .hint-place { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: ${t.foreground}; font-weight: 500; }
+    .hint-place svg { flex: none; width: 14px; height: 14px; }
+    .hint-place span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .hint-row { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
-    .hint-target { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: ${t.mutedForeground}; padding: 6px 10px; border-radius: 8px; background: ${t.muted}; }
+    .hint-goes + .hint-row { margin-top: 0; }
     .hint-gap { flex: 1; }
     .hint-btn { min-height: 44px; padding: 0 14px; border: 0; border-radius: 10px; background: none; color: ${t.mutedForeground}; font: inherit; font-size: 14px; font-weight: 500; -webkit-tap-highlight-color: transparent; }
-    .hint-btn.hint-primary { background: ${t.primary}; color: ${t.background}; font-weight: 600; }
+    .hint-btn.hint-primary { background: ${t.primary}; color: ${onPrimary}; font-weight: 600; }
     .hint-btn:disabled { opacity: 0.6; }
     .ProseMirror .block-picked { background: rgba(59, 130, 246, 0.16); border-radius: 6px; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16); }
     .props-list { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; padding: 8px 12px 10px; font-size: 13px; }
@@ -495,9 +514,11 @@ export function buildEditorHtml(
       },
     });
 
-    // Suggestions for checklist rows, sent by the app (setLineHints): a
-    // marker at the end of each row they are about and, under the open one, a
-    // card with its actions. Taps go back to the app as lineHint messages.
+    // Lines offered as tasks, sent by the app (setLineHints): a marker at the
+    // end of each line they are about and, under the open one, a card with its
+    // actions. A checklist row is found by its words; a line that reads like a
+    // task by its words in lower case, as the app reads the doc's plain lines
+    // (lineHints.ts, docLines). Taps go back to the app as lineHint messages.
     const lineHintKey = new PluginKey("lineHints");
     // A row's words as the app reads them from the saved content: the text of
     // its own paragraphs, spaces collapsed.
@@ -514,8 +535,22 @@ export function buildEditorHtml(
       });
       return parts.join(" ").replace(/\\s+/g, " ").trim();
     }
+    // A plain line's words, lower case with spaces collapsed.
+    function hintWorkText(node) {
+      let text = "";
+      node.descendants((inner) => {
+        if (inner.isText) text += inner.text;
+        return true;
+      });
+      return text.replace(/\\s+/g, " ").trim().toLowerCase();
+    }
+    // Blocks whose lines are never offered as lines of their own; a
+    // checklist row is offered as a checklist item.
+    const HINT_NOT_WORK = new Set(["frontmatter", "codeBlock", "heading", "table", "mermaid", "details", "taskItem"]);
     const HINT_SPARK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg>';
     const HINT_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+    const HINT_FOLDER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>';
+    const HINT_INBOX = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>';
     function hintEl(tag, cls, text) {
       const el = document.createElement(tag);
       if (cls) el.className = cls;
@@ -561,65 +596,124 @@ export function buildEditorHtml(
       });
       return button;
     }
+    // One offered line: its row (a checklist row, a bullet, or the line
+    // itself) is marked, the disc sits at the row's right edge level with its
+    // first line, and the open line's card goes under the line's words, in
+    // flow (cardAt).
+    function addLineHint(decorations, config, hint, row, lineEnd, cardAt) {
+      const open = config.open === hint.key && hint.kind !== "task";
+      const busy = config.busy === hint.key;
+      decorations.push(Decoration.node(row.from, row.to, { class: open ? "has-hint hint-open" : "has-hint" }));
+      decorations.push(
+        Decoration.widget(
+          lineEnd,
+          () => {
+            const task = hint.kind === "task";
+            const label = task ? "Already a task. Open it" : open ? "Hide suggestion" : "Show suggestion";
+            const mark = hintButton("hint-mark" + (task ? " is-task" : "") + (open ? " is-open" : ""), label, hint.key, "toggle", task);
+            mark.contentEditable = "false";
+            const disc = hintEl("span", "hint-disc");
+            disc.innerHTML = task ? HINT_CHECK : HINT_SPARK;
+            mark.appendChild(disc);
+            return mark;
+          },
+          { key: "mark:" + hint.key + (open ? ":open" : ""), side: 1, ignoreSelection: true, stopEvent: () => true },
+        ),
+      );
+      if (!open) return;
+      decorations.push(
+        Decoration.widget(
+          cardAt,
+          () => {
+            const card = hintEl("div", "hint-card");
+            card.contentEditable = "false";
+            const eyebrow = hintEl("div", "hint-label");
+            eyebrow.innerHTML = HINT_SPARK;
+            eyebrow.appendChild(document.createTextNode(hint.kind === "work" ? "Reads like a task" : "Checklist item"));
+            card.appendChild(eyebrow);
+            card.appendChild(hintEl("div", "hint-title", hint.name));
+            if (hint.details) card.appendChild(hintEl("div", "hint-details", hint.details));
+            if (hint.target) {
+              const goes = hintEl("div", "hint-goes");
+              goes.appendChild(hintEl("span", "", "Goes to"));
+              const place = hintEl("span", "hint-place");
+              place.innerHTML = hint.target === "Inbox" ? HINT_INBOX : HINT_FOLDER;
+              place.appendChild(hintEl("span", "", hint.target));
+              goes.appendChild(place);
+              card.appendChild(goes);
+            }
+            const actions = hintEl("div", "hint-row");
+            actions.appendChild(hintEl("span", "hint-gap"));
+            const dismiss = hintButton("hint-btn", "Dismiss", hint.key, "dismiss");
+            dismiss.textContent = "Dismiss";
+            const make = hintButton("hint-btn hint-primary", "Make task", hint.key, "make");
+            // Only a checklist item's title is written by the AI.
+            make.textContent = busy ? (config.writing && hint.kind === "todo" ? "Writing…" : "Adding…") : "Make task";
+            make.disabled = Boolean(config.busy);
+            actions.appendChild(dismiss);
+            actions.appendChild(make);
+            card.appendChild(actions);
+            return card;
+          },
+          // After the disc when both sit at the end of the same line.
+          { key: "card:" + hint.key + ":" + (config.busy || "") + ":" + (hint.target || ""), side: 2, ignoreSelection: true, stopEvent: () => true },
+        ),
+      );
+    }
+    // Where a row's card goes: after the row's own words (its leading
+    // paragraphs), so it sits under them and above any nested list.
+    function hintCardAt(node, pos) {
+      let at = pos + 1;
+      for (let i = 0; i < node.childCount && node.child(i).type.name === "paragraph"; i++) at += node.child(i).nodeSize;
+      return at;
+    }
     function hintDecorations(doc, config) {
       if (!config || !config.hints || !config.hints.length) return DecorationSet.empty;
-      const byText = new Map();
-      for (const hint of config.hints) if (hint.text && !byText.has(hint.text)) byText.set(hint.text, hint);
+      const rows = new Map();
+      const lines = new Map();
+      for (const hint of config.hints) {
+        const byText = hint.kind === "work" ? lines : rows;
+        if (hint.text && !byText.has(hint.text)) byText.set(hint.text, hint);
+      }
       const used = new Set();
       const decorations = [];
-      doc.descendants((node, pos) => {
-        if (node.type.name !== "taskItem") return true;
-        const hint = byText.get(hintLineText(node));
-        if (!hint || used.has(hint.key)) return true;
-        used.add(hint.key);
-        const open = config.open === hint.key && hint.kind === "todo";
-        const busy = config.busy === hint.key;
-        decorations.push(Decoration.node(pos, pos + node.nodeSize, { class: open ? "has-hint hint-open" : "has-hint" }));
-        const first = node.firstChild;
-        // The end of the row's first line, inside its paragraph.
-        const lineEnd = pos + 1 + (first ? Math.max(0, first.nodeSize - 1) : 0);
-        decorations.push(
-          Decoration.widget(
-            lineEnd,
-            () => {
-              const label = hint.kind === "task" ? "Already a task. Open it" : open ? "Hide suggestion" : "Show suggestion";
-              const mark = hintButton("hint-mark" + (open ? " is-open" : ""), label, hint.key, "toggle", hint.kind === "task");
-              mark.contentEditable = "false";
-              mark.innerHTML = hint.kind === "task" ? HINT_CHECK : HINT_SPARK;
-              return mark;
-            },
-            { key: "mark:" + hint.key + (open ? ":open" : ""), side: 1, ignoreSelection: true, stopEvent: () => true },
-          ),
-        );
-        if (open) {
-          decorations.push(
-            Decoration.widget(
-              pos + node.nodeSize - 1,
-              () => {
-                const card = hintEl("div", "hint-card");
-                card.contentEditable = "false";
-                card.appendChild(hintEl("div", "hint-label", "Checklist item"));
-                card.appendChild(hintEl("div", "hint-title", hint.name));
-                if (hint.details) card.appendChild(hintEl("div", "hint-details", hint.details));
-                const row = hintEl("div", "hint-row");
-                if (config.target) row.appendChild(hintEl("span", "hint-target", config.target));
-                row.appendChild(hintEl("span", "hint-gap"));
-                const dismiss = hintButton("hint-btn", "Dismiss", hint.key, "dismiss");
-                dismiss.textContent = "Dismiss";
-                const make = hintButton("hint-btn hint-primary", "Make task", hint.key, "make");
-                make.textContent = busy ? (config.writing ? "Writing…" : "Adding…") : "Make task";
-                make.disabled = Boolean(config.busy);
-                row.appendChild(dismiss);
-                row.appendChild(make);
-                card.appendChild(row);
-                return card;
-              },
-              { key: "card:" + hint.key + ":" + (config.busy || "") + ":" + (config.target || ""), side: 1, ignoreSelection: true, stopEvent: () => true },
-            ),
-          );
-        }
-        return true;
-      });
+      if (rows.size) {
+        doc.descendants((node, pos) => {
+          if (node.type.name !== "taskItem") return true;
+          const hint = rows.get(hintLineText(node));
+          if (!hint || used.has(hint.key)) return true;
+          used.add(hint.key);
+          const first = node.firstChild;
+          // The end of the row's first line, inside its paragraph.
+          const lineEnd = pos + 1 + (first ? Math.max(0, first.nodeSize - 1) : 0);
+          addLineHint(decorations, config, hint, { from: pos, to: pos + node.nodeSize }, lineEnd, hintCardAt(node, pos));
+          return true;
+        });
+      }
+      if (lines.size) {
+        // A bullet's first line marks the whole bullet, so its card sits
+        // under the bullet as a checklist row's does; any other line marks
+        // itself.
+        const walk = (parent, parentPos) => {
+          parent.forEach((child, offset, index) => {
+            const at = parentPos + 1 + offset;
+            const type = child.type.name;
+            if (HINT_NOT_WORK.has(type)) return;
+            if (type === "paragraph") {
+              const hint = lines.get(hintWorkText(child));
+              if (!hint || used.has(hint.key)) return;
+              used.add(hint.key);
+              const bullet = parent.type.name === "listItem" && index === 0;
+              const row = bullet ? { from: parentPos, to: parentPos + parent.nodeSize } : { from: at, to: at + child.nodeSize };
+              const lineEnd = at + child.nodeSize - 1;
+              addLineHint(decorations, config, hint, row, lineEnd, bullet ? hintCardAt(parent, parentPos) : lineEnd);
+              return;
+            }
+            if (child.isBlock && !child.isAtom) walk(child, at);
+          });
+        };
+        walk(doc, -1);
+      }
       return DecorationSet.create(doc, decorations);
     }
     const LineHints = Extension.create({
@@ -2892,11 +2986,17 @@ export function buildEditorHtml(
         if (name === "setLineHints") {
           const before = lineHintKey.getState(editor.state).config;
           editor.view.dispatch(editor.state.tr.setMeta(lineHintKey, payload || null).setMeta("addToHistory", false));
-          // A card that just opened below the fold scrolls up into view.
-          if (payload && payload.open && (!before || before.open !== payload.open)) {
+          // A card that just opened, or a line asked for from the
+          // suggestions sheet, scrolls into view: just enough when the line
+          // shows already, to the middle when it is off screen.
+          if (payload && payload.open && (!before || before.open !== payload.open || before.reveal !== payload.reveal)) {
             requestAnimationFrame(() => {
-              const card = document.querySelector(".hint-card");
-              if (card) card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+              const row = document.querySelector(".hint-open");
+              if (!row) return;
+              const box = row.getBoundingClientRect();
+              const height = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+              const away = box.bottom < 0 || box.top > height;
+              row.scrollIntoView({ block: away && box.height < height ? "center" : "nearest", behavior: "smooth" });
             });
           }
           return;

@@ -310,8 +310,8 @@ export default function RichTextEditor({
   propertyRequest?: { key: string; value: string } | null;
   /** Adds a mention of this item at the end of the doc (Related "Add link"). */
   mentionRequest?: { id: string; label: string; entityType: string } | null;
-  /** Suggestions for checklist rows: a marker at each row's end and a card
-   * under the open one (DocHintsCard). */
+  /** Lines offered as tasks: a marker at each line's end and a card under
+   * the open one (DocHintsCard). */
   lineHints?: LineHints | null;
   /** Turns on Help me write (dock button and "/" entry), shown only while an
    * AI provider is set up. */
@@ -428,7 +428,7 @@ export default function RichTextEditor({
     lineHintsRef.current = lineHints;
   });
   const lineHintsPayload = lineHints
-    ? JSON.stringify({ hints: lineHints.hints, open: lineHints.open, busy: lineHints.busy, target: lineHints.target, writing: lineHints.writing })
+    ? JSON.stringify({ hints: lineHints.hints, open: lineHints.open, busy: lineHints.busy, writing: lineHints.writing, reveal: lineHints.reveal })
     : "null";
   useEffect(() => {
     if (!ready) return;
