@@ -442,8 +442,14 @@ function SmartSuggestionsCard({
   const [keyError, setKeyError] = useState<string | null>(null);
   // The key form opens by itself only when there is no key at all, as on web.
   const editing = editingKey || (!typesafe.keySet && !data.openrouterKeySet);
+  // Suggestions run on Jev, so they switch on only with a key it can use.
+  const hasKey = (typesafe.keySet && !typesafe.rejected) || data.openrouterKeySet;
   let source: string;
-  if (!data.enabled) source = "Off. Timely works as it does without them.";
+  if (!hasKey)
+    source = typesafe.rejected
+      ? "TypeSafe refused your key. Add a working TypeSafe or OpenRouter key to turn these on."
+      : "Add a TypeSafe or OpenRouter key to turn these on.";
+  else if (!data.enabled) source = "Off. Timely works as it does without them.";
   else if (data.provider === "typesafe") source = "Using your TypeSafe key.";
   else if (data.provider === "openrouter")
     source = typesafe.rejected
@@ -455,12 +461,13 @@ function SmartSuggestionsCard({
     <View style={styles.card} testID="smart-suggestions">
       <View style={styles.row}>
         <Text style={styles.title}>Smart suggestions</Text>
-        <Badge tone={data.available ? "ok" : "muted"}>{data.available ? "On" : "Off"}</Badge>
+        <Badge tone={data.available ? "ok" : hasKey ? "muted" : "warn"}>{data.available ? "On" : hasKey ? "Off" : "Needs a key"}</Badge>
         <View style={{ flex: 1 }} />
         <Switch
           accessibilityLabel="Smart suggestions"
-          value={data.enabled}
-          disabled={patch.isPending}
+          accessibilityHint={hasKey ? undefined : "Add a TypeSafe or OpenRouter key first"}
+          value={data.available}
+          disabled={patch.isPending || !hasKey}
           onValueChange={(enabled) => patch.mutate(enabled)}
           trackColor={{ true: colors.primary }}
           thumbColor={colors.background}

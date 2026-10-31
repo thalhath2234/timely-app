@@ -112,7 +112,7 @@ func checklistTasksMessages(r checklistTasksRequest) []chat.WireMessage {
 // items' order. An entry is placed by its number when it has a valid one,
 // else by its position; an item the model skipped gets an empty draft.
 func parseChecklistTasks(text string, count int) ([]checklistTaskDraft, error) {
-	body := jsonObject.FindString(cleanWritten(text))
+	body := jsonObject.FindString(cleanWritten(text, false))
 	if body == "" {
 		return nil, errors.New("no JSON in the answer")
 	}

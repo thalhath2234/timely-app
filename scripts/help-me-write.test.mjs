@@ -57,4 +57,41 @@ describe("writtenContent", () => {
     );
     assert.equal(blocks[1].content.length, 2);
   });
+  test('"- []" items are checklist items, not "[]" text', () => {
+    const { blocks } = writtenContent("- [] Rice\n- [] Yogurt");
+    assert.equal(blocks[0].type, "taskList");
+    assert.equal(blocks[0].content[0].content[0].content[0].text, "Rice");
+  });
+  test("a box with no text is not an item, and code is left as written", () => {
+    const { blocks, items } = writtenContent("- [ ] Rice\n- Yogurt\n- [ ]", "taskList");
+    assert.deepEqual(items.map((item) => item.content[0].content[0].text), ["Rice", "Yogurt"]);
+    assert.equal(blocks[0].content.length, 2);
+    assert.deepEqual(writtenContent("- []").blocks, []);
+    const code = writtenContent("```yaml\nexclude:\n  - []\n```").blocks[0];
+    assert.equal(code.type, "codeBlock");
+    assert.equal(code.content[0].text, "exclude:\n  - []");
+  });
+  test("a list mixing tick boxes and bullets becomes a checklist", () => {
+    const { blocks } = writtenContent("- [ ] Rice\n- Yogurt\n- [x] Mint");
+    assert.equal(blocks[0].type, "taskList");
+    assert.deepEqual(
+      blocks[0].content.map((item) => [item.attrs.checked, item.content[0].content[0].text]),
+      [[false, "Rice"], [false, "Yogurt"], [true, "Mint"]],
+    );
+  });
+  test("a bulleted answer joins a checklist as unticked items", () => {
+    const { blocks, items } = writtenContent("- Rice\n- Yogurt\n  - Greek", "taskList");
+    assert.deepEqual(items.map((item) => item.type), ["taskItem", "taskItem"]);
+    assert.equal(items[0].attrs.checked, false);
+    assert.equal(items[1].content[1].type, "taskList", "nested bullets become nested checklist items");
+    assert.equal(blocks[0].type, "taskList", "the preview shows tick boxes");
+  });
+  test("a checklist answer keeps its boxes beside a bulleted list", () => {
+    assert.equal(writtenContent("- [ ] Rice", "bulletList").items, null);
+    assert.equal(writtenContent("1. Rice\n2. Yogurt", "bulletList").items.length, 2);
+  });
+  test("only a one-list answer joins a list", () => {
+    assert.equal(writtenContent("## Spices\n\n- Cumin", "taskList").items, null);
+    assert.equal(writtenContent("Just this line", "taskList").items, null);
+  });
 });

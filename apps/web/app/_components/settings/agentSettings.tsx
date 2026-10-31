@@ -1092,8 +1092,11 @@ function DecisionsCard() {
 
   const ts = data.typesafe;
   const showForm = editingKey || (!ts.keySet && !data.openrouterKeySet);
+  // Suggestions run on Jev, so they switch on only with a key it can use.
+  const hasKey = (ts.keySet && !ts.rejected) || data.openrouterKeySet;
   let source: string;
-  if (!data.enabled) source = "Off. Timely works as it does without them.";
+  if (!hasKey) source = ts.rejected ? "TypeSafe refused your key. Add a working TypeSafe or OpenRouter key to turn these on." : "Add a TypeSafe or OpenRouter key to turn these on.";
+  else if (!data.enabled) source = "Off. Timely works as it does without them.";
   else if (data.provider === "typesafe") source = "Using your TypeSafe key.";
   else if (data.provider === "openrouter")
     source = ts.rejected
@@ -1114,7 +1117,7 @@ function DecisionsCard() {
             </h3>
             {data.available ? (
               <Badge tone="ok">On</Badge>
-            ) : data.enabled ? (
+            ) : !hasKey ? (
               <Badge tone="warn">Needs a key</Badge>
             ) : (
               <Badge tone="muted">Off</Badge>
@@ -1132,7 +1135,7 @@ function DecisionsCard() {
             description, lists work idle for three weeks, reads how a project
             is going and spots labels or statuses that mean the same. In docs
             it suggests where a doc belongs, its type, properties and a
-            template, lines that could be tasks, a link for selected text and
+            template, lines and checklist items that could be tasks, a link for selected text and
             headings for a plain-text import, and notes a doc that looks out
             of date. On Today it picks work worth focusing on and the best
             task for your next free gap; it reads how urgent each task sounds
@@ -1142,9 +1145,14 @@ function DecisionsCard() {
             fast decision model.
             Suggestions never change anything until you save or apply.
           </p>
-          <p className="mt-1 text-xs text-foreground" data-testid="decisions-source">
+          <p id="decisions-source" className="mt-1 text-xs text-foreground" data-testid="decisions-source">
             {source}
           </p>
+          {setEnabled.error && (
+            <p className="mt-1 text-xs text-destructive">
+              {errorMessage(setEnabled.error, "Could not change smart suggestions.")}
+            </p>
+          )}
           {data.available && (
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button
@@ -1178,24 +1186,26 @@ function DecisionsCard() {
           )}
         </div>
         <label
+          title={hasKey ? undefined : "Add a TypeSafe or OpenRouter key first"}
           className={cn(
             "relative inline-flex shrink-0 items-center",
-            setEnabled.isPending ? "cursor-not-allowed" : "cursor-pointer",
+            setEnabled.isPending || !hasKey ? "cursor-not-allowed" : "cursor-pointer",
           )}
         >
           <input
             type="checkbox"
             role="switch"
-            aria-checked={data.enabled}
+            aria-checked={data.available}
             aria-labelledby="decisions-title"
+            aria-describedby="decisions-source"
             className="peer sr-only"
-            checked={data.enabled}
-            disabled={setEnabled.isPending}
+            checked={data.available}
+            disabled={setEnabled.isPending || !hasKey}
             onChange={(event) => setEnabled.mutate(event.target.checked)}
           />
           <span
             aria-hidden="true"
-            className="relative block h-5 w-9 rounded-full bg-muted transition-colors peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-ring/60 peer-disabled:opacity-50 peer-checked:[&>span]:translate-x-4"
+            className="relative block h-5 w-9 rounded-full bg-muted-foreground/25 transition-colors peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-ring/60 peer-disabled:opacity-50 peer-checked:[&>span]:translate-x-4"
           >
             <span className="absolute left-0.5 top-0.5 block size-4 rounded-full bg-background shadow transition-transform" />
           </span>

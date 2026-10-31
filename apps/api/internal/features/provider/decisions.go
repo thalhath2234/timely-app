@@ -64,6 +64,12 @@ type decisionsView struct {
 	DeepWorkTime string `json:"deepWorkTime"`
 }
 
+// keyUsable reports whether Jev has a key to run on: a TypeSafe key it has
+// not refused, or the OpenRouter key.
+func (v decisionsView) keyUsable() bool {
+	return (v.TypeSafe.KeySet && !v.TypeSafe.Rejected) || v.OpenRouterKeySet
+}
+
 // DeepWorkTimes are the times of day the person may prefer for deep work.
 var DeepWorkTimes = []string{"", "morning", "afternoon", "evening"}
 
@@ -112,6 +118,16 @@ func (s *Service) configureDecisions(c *echo.Context) error {
 	}
 	if in.DeepWorkTime != nil && !slices.Contains(DeepWorkTimes, *in.DeepWorkTime) {
 		return echo.NewHTTPError(400, "Invalid time of day")
+	}
+	// Suggestions run on Jev, so they turn on only with a key it can use.
+	if in.Enabled != nil && *in.Enabled {
+		v, err := s.decisionsView(c.Request().Context(), user(c))
+		if err != nil {
+			return err
+		}
+		if !v.keyUsable() {
+			return echo.NewHTTPError(409, "Add a TypeSafe or OpenRouter key to turn on smart suggestions")
+		}
 	}
 	if _, err := s.update(user(c), func(row *Settings) error {
 		if in.Enabled != nil {

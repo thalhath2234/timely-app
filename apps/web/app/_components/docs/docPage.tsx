@@ -12,7 +12,7 @@ import DocOutline from "@/app/_components/docs/docOutline";
 import RelatedItems from "@/app/_components/_ui/relatedItems";
 import Backlinks from "@/app/_components/docs/backlinks";
 import DocHistory from "@/app/_components/docs/docHistory";
-import DocHints from "@/app/_components/docs/docHints";
+import DocHints, { ChecklistOffersSwitch } from "@/app/_components/docs/docHints";
 import { insertPageMention } from "@/app/_components/editor/mention";
 import TabStripActions from "@/app/_components/pageTabs/stripActions";
 import { hasUploadedImages } from "@/app/_components/editor/docImage";
@@ -265,6 +265,10 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
     },
     [createDoc, doc.id, flush, router],
   );
+
+  // Suggestions are read again once an empty doc gets a title or text, then
+  // as it grows by about fifty words.
+  const hintsVersion = wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50));
 
   const handleDelete = async () => {
     await deleteDoc.mutateAsync(doc.id);
@@ -536,6 +540,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
               )}
               <Backlinks docId={doc.id} />
               <RelatedItems kind="doc" id={doc.id} onLink={linkRelated} />
+              {!wide && <ChecklistOffersSwitch doc={doc} editor={editor} version={hintsVersion} variant="chip" />}
             </div>
           </div>
 
@@ -543,15 +548,20 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
           <aside ref={setMarginHost} className="doc-page-rail" aria-label="Suggestions">
             {wide && (
               <div className="sticky top-4 z-10 mb-4">
-                <DocOutline editor={editor} wordCount={wordCount} updatedAt={doc.updatedAt} subpages={descendantCount} />
+                <DocOutline
+                  editor={editor}
+                  wordCount={wordCount}
+                  updatedAt={doc.updatedAt}
+                  subpages={descendantCount}
+                  rows={<ChecklistOffersSwitch doc={doc} editor={editor} version={hintsVersion} variant="row" />}
+                />
               </div>
             )}
-            {/* Rechecks once an empty doc gets a title or text, then as it grows by about fifty words. */}
             <DocHints
               doc={doc}
               editor={editor}
               nearEmpty={wordCount < 8}
-              version={wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50))}
+              version={hintsVersion}
               onApplyContent={applyContent}
               layout={wide ? "margin" : "card"}
             />

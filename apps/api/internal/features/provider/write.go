@@ -9,6 +9,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 	"timely-api/internal/features/chat"
+	"timely-api/internal/models"
+	"timely-api/internal/richtext"
 )
 
 // Help me write: one-shot drafting for docs and task or project descriptions.
@@ -19,7 +21,7 @@ import (
 // and the actions that need a selection are checked in writeRequest.validate.
 var writeActions = map[string]string{
 	"write":     "Write what the user asks for.",
-	"continue":  "Continue the text from where it ends. Match its voice, language and formatting, and do not repeat what is already there.",
+	"continue":  "Continue the text from where it ends. Match its voice, language and formatting, and do not repeat what is already there. When it ends with a list or checklist, carry on with more items of that same kind.",
 	"describe":  "Write a short, useful description for this item from its title and any notes: what it is, why it matters and what done looks like. Use a few short paragraphs or a short checklist of steps, whichever fits.",
 	"improve":   "Rewrite the selected text so it reads clearly and naturally. Keep its meaning, facts, language and formatting.",
 	"shorter":   "Rewrite the selected text so it is noticeably shorter. Keep the key points and its language.",
@@ -31,9 +33,24 @@ var writeActions = map[string]string{
 
 const writeSystem = `You are the writing helper inside Timely, a planner with tasks, projects and docs.
 Reply with only the text to put into the editor, as Markdown: headings, lists, "- [ ]" checklists, tables, bold and links are all fine.
+The current text is the editor's content as Markdown. Lines starting "- [ ]" or "- [x]" are checklist items with tick boxes; write checklist items exactly that way, never "- []" or "[ ]" inside a plain bullet.
 No preamble, no closing remarks, no notes about what you changed, and do not wrap the answer in a code block.
 Write in the language of the user's text unless they ask for another one.
 The current text is context: do not repeat it in your answer unless the task is to rewrite it.`
+
+// writeCursor is typed into the doc where the draft goes (WRITE_CURSOR in
+// packages/contract/src/helpMeWrite.ts); the model sees it as cursorTag.
+const (
+	writeCursor = "TIMELYWRITECURSOR"
+	cursorTag   = "<cursor/>"
+)
+
+// cursorLine is a line holding only the cursor, alone or as a list item;
+// tagLine is the same line with the tag the model sees, copied back.
+var (
+	cursorLine = regexp.MustCompile(`(?m)^[ \t]*(?:[-*+][ \t]+(?:\[[ xX]\][ \t]+)?|\d+[.)][ \t]+)?` + writeCursor + `[ \t]*(?:\n|$)`)
+	tagLine    = regexp.MustCompile(`(?m)^[ \t]*(?:[-*+][ \t]+(?:\[[ xX]?\][ \t]*)?|\d+[.)][ \t]+)?` + regexp.QuoteMeta(cursorTag) + `[ \t]*(?:\n|$)`)
+)
 
 const (
 	writeMaxText      = 12000
@@ -49,6 +66,12 @@ type writeRequest struct {
 	Kind  string `json:"kind"`
 	Title string `json:"title"`
 	Text  string `json:"text"`
+	// Doc is the editor's content with writeCursor where the draft goes. It
+	// replaces Text as Markdown, so the model sees checklists and headings;
+	// apps from before it send only Text.
+	Doc models.JSONMap `json:"doc"`
+	// cursor: Text shows where the draft goes, as cursorTag.
+	cursor bool
 }
 
 type writeResponse struct {
@@ -68,7 +91,26 @@ func (r *writeRequest) validate() error {
 	r.Prompt = clipHead(strings.TrimSpace(r.Prompt), writeMaxPrompt)
 	r.Selection = clipHead(strings.TrimSpace(r.Selection), writeMaxSelection)
 	r.Title = clipHead(strings.TrimSpace(r.Title), 300)
-	r.Text = clipTail(strings.TrimSpace(r.Text), writeMaxText)
+	fromDoc := r.Doc != nil
+	if fromDoc {
+		r.Text = richtext.ToMarkdown(r.Doc)
+		r.Doc = nil
+	}
+	// Only a draft written at the caret goes to the cursor: a rewrite has its
+	// selection, Continue writes at the end, and a summary or description is
+	// about the whole text. The editor types the cursor once; plain text from
+	// older apps has none. A doc holding only the cursor line is empty, but a
+	// lone list item still says what kind of list the draft goes into.
+	keep := fromDoc && r.Action == "write" && r.Selection == "" && strings.Count(r.Text, writeCursor) == 1 &&
+		strings.TrimSpace(r.Text) != writeCursor
+	if !keep {
+		r.Text = dropCursor(r.Text)
+	}
+	r.Text = clipAround(strings.TrimSpace(r.Text), writeCursor, writeMaxText)
+	if r.cursor = strings.Contains(r.Text, writeCursor); r.cursor {
+		// A tag already in the doc's own text is not the spot.
+		r.Text = strings.ReplaceAll(strings.ReplaceAll(r.Text, cursorTag, "&lt;cursor/&gt;"), writeCursor, cursorTag)
+	}
 	switch r.Action {
 	case "write":
 		if r.Prompt == "" {
@@ -119,6 +161,10 @@ func writeMessages(r writeRequest) []chat.WireMessage {
 			b.WriteString("The selection is a single line, so answer with a single paragraph: no headings, list markers or checkboxes.\n")
 		}
 	}
+	if r.cursor {
+		b.WriteString("\n" + cursorTag + " in the current text marks where your answer goes; fit it to that spot and do not write the tag. ")
+		b.WriteString("When " + cursorTag + " is a list item, answer with only items of that same kind of list, one per line, with no heading or intro: \"- [ ] item\" for a checklist, \"- item\" for bullets, \"1. item\" for a numbered list.\n")
+	}
 	if r.Prompt != "" {
 		fmt.Fprintf(&b, "\n<request>\n%s\n</request>\n", r.Prompt)
 	}
@@ -128,8 +174,12 @@ func writeMessages(r writeRequest) []chat.WireMessage {
 var wholeFence = regexp.MustCompile("(?s)^```[a-zA-Z]*\\n(.*)\\n```$")
 
 // cleanWritten drops a code fence wrapped around the whole answer, which some
-// models add despite being told not to.
-func cleanWritten(s string) string {
+// models add despite being told not to, and, when the doc showed one, a
+// cursor tag copied from it, with its line when the tag stood alone there.
+func cleanWritten(s string, cursor bool) string {
+	if cursor {
+		s = strings.ReplaceAll(tagLine.ReplaceAllString(s, ""), cursorTag, "")
+	}
 	s = strings.TrimSpace(s)
 	if m := wholeFence.FindStringSubmatch(s); m != nil {
 		s = strings.TrimSpace(m[1])
@@ -142,6 +192,25 @@ func clipHead(s string, n int) string {
 		return s
 	}
 	return strings.ToValidUTF8(s[:n], "")
+}
+
+// dropCursor takes the cursor out of the text, with its line when it stood
+// alone there or as a list item of its own.
+func dropCursor(s string) string {
+	return strings.ReplaceAll(cursorLine.ReplaceAllString(s, ""), writeCursor, "")
+}
+
+// clipAround keeps n bytes of a long text around the cursor, most of them
+// before it, so the model sees what leads up to the spot the draft goes.
+// Without a cursor it keeps the end, as clipTail does.
+func clipAround(s, cursor string, n int) string {
+	at := strings.Index(s, cursor)
+	if at < 0 || len(s) <= n {
+		return clipTail(s, n)
+	}
+	start := max(0, at-n*3/4)
+	end := min(len(s), start+n)
+	return strings.ToValidUTF8(s[max(0, end-n):end], "")
 }
 
 // clipTail keeps the end of a long text, which is what "continue" needs.
@@ -208,7 +277,7 @@ func (s *Service) write(c *echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(502, err.Error())
 	}
-	text := cleanWritten(reply.Content)
+	text := cleanWritten(reply.Content, req.cursor)
 	if text == "" {
 		return echo.NewHTTPError(502, "The AI returned an empty answer. Try again")
 	}

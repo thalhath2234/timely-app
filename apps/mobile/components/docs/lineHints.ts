@@ -59,3 +59,10 @@ export function checklistLines(content: DocContent | null | undefined): Map<stri
   walk(content as Node | null | undefined);
   return lines;
 }
+
+/** Whether the doc holds a checklist, ticked or not. */
+export function hasChecklist(content: DocContent | null | undefined): boolean {
+  const walk = (node: Node | null | undefined): boolean =>
+    Boolean(node && typeof node === "object" && (node.type === "taskItem" || (node.content ?? []).some(walk)));
+  return walk(content as Node | null | undefined);
+}
