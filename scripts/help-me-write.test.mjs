@@ -62,6 +62,15 @@ describe("writtenContent", () => {
     assert.equal(blocks[0].type, "taskList");
     assert.equal(blocks[0].content[0].content[0].content[0].text, "Rice");
   });
+  test("a box with no text is not an item, and code is left as written", () => {
+    const { blocks, items } = writtenContent("- [ ] Rice\n- Yogurt\n- [ ]", "taskList");
+    assert.deepEqual(items.map((item) => item.content[0].content[0].text), ["Rice", "Yogurt"]);
+    assert.equal(blocks[0].content.length, 2);
+    assert.deepEqual(writtenContent("- []").blocks, []);
+    const code = writtenContent("```yaml\nexclude:\n  - []\n```").blocks[0];
+    assert.equal(code.type, "codeBlock");
+    assert.equal(code.content[0].text, "exclude:\n  - []");
+  });
   test("a list mixing tick boxes and bullets becomes a checklist", () => {
     const { blocks } = writtenContent("- [ ] Rice\n- Yogurt\n- [x] Mint");
     assert.equal(blocks[0].type, "taskList");

@@ -45,6 +45,10 @@ type ListSpot = { list: WriteList; at: number; drop?: { from: number; to: number
 
 const isEmptyLine = (node: PMNode | null | undefined) => Boolean(node?.isTextblock && node.content.size === 0);
 
+/** Drafts that add to the text where they go: written at the caret, or
+ * Continue writing at the end. */
+const joinsList = (action: WriteAction) => action === "write" || action === "continue";
+
 /** The list a draft at `pos` joins: the list the caret is in (after its item,
  * or over it when the item is empty), or the list right above an empty line,
  * which is where Enter twice leaves the caret. With `end` (Continue writing)
@@ -100,7 +104,9 @@ function cursorDoc(state: EditorState, pos: number): JSONContent {
       }
     } else {
       const $pos = state.doc.resolve(Math.min(pos, state.doc.content.size));
-      if (isEmptyLine($pos.parent)) tr.insertText(WRITE_CURSOR, $pos.pos);
+      // Only an empty line of its own becomes the draft (insert does the
+      // same); in a table cell or callout the draft goes after the block.
+      if ($pos.depth === 1 && isEmptyLine($pos.parent)) tr.insertText(WRITE_CURSOR, $pos.pos);
       else tr.insert($pos.depth > 0 ? $pos.after(1) : state.doc.content.size, schema.nodes.paragraph.create(null, schema.text(WRITE_CURSOR)));
     }
     return tr.doc.toJSON();
@@ -187,7 +193,12 @@ function enclosingListItem(editor: Editor, range: Captured) {
   }
   return null;
 }
-type Run = { action: WriteAction; prompt?: string; selection?: string; label?: string };
+/** `place`: the action whose spot the draft takes, when it is not `action`.
+ * Ask for changes rewrites a draft as "write", but a refined summary still
+ * goes where a summary goes, and refined Continue writing still goes at the
+ * end. */
+type Run = { action: WriteAction; place?: WriteAction; prompt?: string; selection?: string; label?: string };
+const placeOf = (run: Run) => run.place ?? run.action;
 
 /** Where the draft will go, kept in step with edits made while the panel
  * stays open, and the lines there marked while it shows. */
@@ -347,8 +358,10 @@ export default function HelpMeWritePanel({
 
   // Where the panel opened, moved along with any edits made since.
   const caret = () => targetKey.getState(editor.state)?.from ?? captured.from;
-  // The list a draft written with nothing selected joins, if any.
-  const spotFor = (action: WriteAction) => (hasSelection ? null : listSpot(editor.state.doc, caret(), action === "continue"));
+  // The list a draft written with nothing selected joins, if any. A summary
+  // or description is not more items of the list the caret is in.
+  const spotFor = (action: WriteAction) =>
+    hasSelection || !joinsList(action) ? null : listSpot(editor.state.doc, caret(), action === "continue");
 
   const start = async (run: Run) => {
     abort.current?.abort();
@@ -365,11 +378,11 @@ export default function HelpMeWritePanel({
           kind: context.kind,
           title: context.title,
           text: docText(),
-          doc: hasSelection || run.action === "continue" ? editor.getJSON() : cursorDoc(editor.state, caret()),
+          doc: hasSelection || run.action !== "write" ? editor.getJSON() : cursorDoc(editor.state, caret()),
         },
         controller.signal,
       );
-      setResult({ ...out, run, list: spotFor(run.action)?.list });
+      setResult({ ...out, run, list: spotFor(placeOf(run))?.list });
       setRefine("");
     } catch (err) {
       if (controller.signal.aborted) return;
@@ -388,7 +401,7 @@ export default function HelpMeWritePanel({
   const submitRefine = () => {
     const text = refine.trim();
     if (!text || !result) return;
-    void start({ action: "write", prompt: text, selection: result.text, label: "Updating the draft" });
+    void start({ action: "write", place: placeOf(result.run), prompt: text, selection: result.text, label: "Updating the draft" });
   };
 
   const preview = useMemo(() => {
@@ -406,7 +419,8 @@ export default function HelpMeWritePanel({
 
   const insert = (mode: "replace" | "below") => {
     if (!result) return;
-    const spot = spotFor(result.run.action);
+    const place = placeOf(result.run);
+    const spot = spotFor(place);
     const { blocks, inline, items } = toNodes(result.text, spot?.list);
     if (blocks.length === 0) return;
     const { doc } = editor.state;
@@ -436,7 +450,7 @@ export default function HelpMeWritePanel({
       } else {
         chain.insertContentAt({ from: target.from, to: target.to }, inline ?? blocks).run();
       }
-    } else if (result.run.action === "continue") {
+    } else if (place === "continue") {
       chain.insertContentAt(size, blocks).run();
     } else {
       const at = doc.resolve(Math.min(hasSelection ? target.to : target.from, size));
