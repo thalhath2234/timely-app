@@ -190,6 +190,8 @@ export function describedModel(program: string, input: Input, title: string): Wi
       case "BarChart": {
         if (model.bars) break;
         const all = (Array.isArray(p.values) ? p.values : []).map((value) => Number(value) || 0);
+        // A chart with nothing to show isn't drawn on the Dashboard, so it leaves the slot to the next one.
+        if (!all.length) break;
         const labels = Array.isArray(p.labels) ? p.labels.map(text) : [];
         let query: ChartQuery | undefined;
         try {

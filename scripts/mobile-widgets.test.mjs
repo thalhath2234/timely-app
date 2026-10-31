@@ -518,7 +518,7 @@ list = List(@Each(shop.rows, "i", CheckRow(i.docId, i.text, i.note, i.item)), "E
     const shown = (program, given = input) => {
       const card = describedCard("dc", "a chart", program, given.data);
       const saved = normalizeDashboard({ cards: [card] }).cards.find((c) => c.id === "dc");
-      const full = genuiNodes(drawBoard(program, given.data, { now: given.now, timeZone: "UTC" }).props.blocks).find((block) => block.typeName === "BarChart" && block.props.labels.length).props.labels;
+      const full = genuiNodes(drawBoard(program, given.data, { now: given.now, timeZone: "UTC" }).props.blocks).find((block) => block.typeName === "BarChart" && block.props.labels.length)?.props.labels;
       return { bars: cardWidgetModel(saved, given).bars.map((bar) => bar.label), full };
     };
     // Past days keep the latest, even when Stats on another @Data come first.
@@ -561,6 +561,13 @@ split = BarChart("Last week by project", week.labels, week.values)
 days = BarChart("Done per day", done.labels, done.values)`);
     assert.equal(afterEmpty.full.length, 14);
     assert.deepEqual(afterEmpty.bars, afterEmpty.full.slice(-8));
+    // The same inside Columns of Cards.
+    const inCards = shown(`root = Panel("Done", [Columns([Card("Last week", [split]), Card("Per day", [days])])])
+week = @Data({source: "tasks", state: "done", date: "completedAt", range: "lastWeek", by: "project"})
+done = @Data({source: "tasks", state: "done", date: "completedAt", range: "last14", by: "day"})
+split = BarChart("Last week by project", week.labels, week.values)
+days = BarChart("Done per day", done.labels, done.values)`);
+    assert.deepEqual(inCards.bars, afterEmpty.full.slice(-8));
     // A chart under a condition is still read.
     const shownIf = shown(`root = Panel("Done", [chart])
 done = @Data({source: "tasks", state: "done", date: "completedAt", range: "last14", by: "day"})
