@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
-import { ChevronLeft, ChevronRight, FolderKanban, Inbox, Plus, Sparkle } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, FolderKanban, Inbox, Plus, Search, Sparkle } from "lucide-react";
 import Button from "@/app/_components/_ui/button";
 import { cn } from "@/app/utils/cn";
 
@@ -21,6 +21,11 @@ export default function OfferPopover({
   name,
   details,
   target,
+  targetId = "",
+  places = [],
+  onTarget,
+  choosing: choosingProp,
+  onChoosing,
   step,
   busy,
   writing,
@@ -39,6 +44,13 @@ export default function OfferPopover({
   details?: string;
   /** The project its task goes to; none means the Inbox. */
   target?: string;
+  /** The picked place's id ("" for the Inbox), the places to pick from, and
+   * the pick for this task alone. */
+  targetId?: string;
+  places?: { id: string; title: string; color?: string }[];
+  onTarget?: (id: string) => void;
+  choosing?: boolean;
+  onChoosing?: (open: boolean) => void;
   /** Where it is among the doc's offers, with the previous and next. */
   step?: { index: number; total: number; prev: (() => void) | null; next: (() => void) | null };
   busy: boolean;
@@ -67,6 +79,11 @@ export default function OfferPopover({
   // works) drops focus to the page without it moving on, so this stays set
   // until focus lands somewhere else.
   const holdsFocus = useRef(false);
+  // The chooser's open state lives with DocHints: the popover is drawn again
+  // when its row is (a hover redraws the row), which would reset it here.
+  const choosing = choosingProp ?? false;
+  const setChoosing = (open: boolean) => onChoosing?.(open);
+  const [query, setQuery] = useState("");
   const leave = useRef(onLeaveWithFocus);
   useEffect(() => {
     leave.current = onLeaveWithFocus;
@@ -181,13 +198,18 @@ export default function OfferPopover({
         {name}
       </span>
       {details && <span className="mt-1 line-clamp-2 block text-xs leading-4 text-muted-foreground">{details}</span>}
-      <span className="mt-2.5 flex h-9 items-center justify-between gap-3 border-t border-border text-[13px]">
+      <button
+        type="button"
+        className="-mx-1.5 mt-2.5 flex h-9 w-[calc(100%+0.75rem)] items-center justify-between gap-3 rounded-md border-t border-border px-1.5 text-[13px] hover:bg-foreground/[0.04]"
+        onClick={() => setChoosing(true)}
+      >
         <span className="shrink-0 text-muted-foreground">Goes to</span>
         <span className="flex min-w-0 items-center gap-1.5 font-medium text-foreground">
-          {target ? <FolderKanban className="size-3.5 shrink-0" aria-hidden /> : <Inbox className="size-3.5 shrink-0" aria-hidden />}
+          {target ? <Dot color={places.find((p) => p.id === targetId)?.color} /> : <Inbox className="size-3.5 shrink-0" aria-hidden />}
           <span className="truncate">{target ?? "Inbox"}</span>
+          <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
         </span>
-      </span>
+      </button>
       <span className="flex items-center justify-end gap-1.5 pt-0.5">
         <Button size="sm" variant="ghost" disabled={busy} onClick={onDismiss}>
           Dismiss
@@ -195,6 +217,54 @@ export default function OfferPopover({
         <Button size="sm" variant="primary" leading={<Plus />} loading={busy} disabled={disabled} onClick={onMake}>
           {writing ? "Writing…" : "Make task"}
         </Button>
+      </span>
+    </>
+  );
+
+  const needle = query.trim().toLowerCase();
+  const shown = places.filter((place) => !needle || place.title.toLowerCase().includes(needle));
+  const option = (id: string, label: string, lead: React.ReactNode) => (
+    <button
+      key={id || "inbox"}
+      type="button"
+      className={cn("flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-foreground hover:bg-foreground/[0.05]", id === targetId && "bg-foreground/[0.05]")}
+      onClick={() => {
+        onTarget?.(id);
+        setChoosing(false);
+        setQuery("");
+      }}
+    >
+      <span className="flex size-4 shrink-0 items-center justify-center">{lead}</span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {id === targetId && <Check className="size-3.5 shrink-0 text-primary" aria-hidden />}
+    </button>
+  );
+  const chooser = (
+    <>
+      <span className="flex min-h-7 items-center gap-1">
+        <Button size="sm" variant="ghost" icon className="-ml-1.5" aria-label="Back" onClick={() => setChoosing(false)}>
+          <ChevronLeft />
+        </Button>
+        <span className="text-[13px] font-semibold text-foreground">Goes to</span>
+        <span className="flex-1" />
+        <span className="truncate text-xs text-muted-foreground">{name}</span>
+      </span>
+      <span className="relative mt-1.5 block">
+        <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Find a project"
+          className="h-8 w-full rounded-md bg-muted/60 pl-7 pr-2 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+        />
+      </span>
+      <span className="mt-1 block max-h-56 overflow-y-auto">
+        {(!needle || "inbox".includes(needle)) && option("", "Inbox", <Inbox className="size-3.5 text-muted-foreground" />)}
+        {shown.length > 0 && <span className="block px-2 pb-1 pt-2 text-xs font-medium text-muted-foreground">Projects</span>}
+        {shown.map((place) => option(place.id, place.title, <Dot color={place.color} />))}
+      </span>
+      <span className="mt-1 block border-t border-border px-2 pt-2 text-xs leading-4 text-muted-foreground">
+        Just this task. The rail&apos;s Goes to sets it for every offer in the doc.
       </span>
     </>
   );
@@ -209,7 +279,11 @@ export default function OfferPopover({
       style={variant === "popover" && below !== null ? { top: below } : undefined}
     >
       {variant === "popover" && below === null && <span aria-hidden className="doc-offer-pop-arrow" />}
-      {body}
+      {choosing ? chooser : body}
     </span>
   );
+}
+
+function Dot({ color }: { color?: string }) {
+  return color ? <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} /> : <FolderKanban className="size-3.5 shrink-0" aria-hidden />;
 }

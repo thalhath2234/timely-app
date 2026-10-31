@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
-import { ChevronRight, ListTodo, Plus, Sparkles, X } from "lucide-react-native";
+import { ChevronRight, Inbox, ListTodo, Plus, Sparkles, X } from "lucide-react-native";
 import { contentFromTemplate, templateVars } from "@timely/contract/templates";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import BottomSheet, { SheetOption } from "../ui/BottomSheet";
@@ -25,6 +25,7 @@ import {
   useDocOffersOff,
   useDocHintsQuery,
   useProjectQuery,
+  useProjectsQuery,
   useRelatedQuery,
   useUpdateDoc,
 } from "../../lib/hooks";
@@ -180,8 +181,15 @@ export default function DocHintsCard({
   // A checklist item goes to the project above; a line that reads like a
   // task goes to the doc's own project, as it always has.
   const docProject = useProjectQuery(doc.projectId ?? undefined).data;
-  const goesTo = (offer: Offer): string | undefined =>
+  // SKETCH: one pick for the whole doc, from the sheet's Goes to row.
+  const allProjects = useProjectsQuery().data ?? [];
+  const [docPick, setDocPick] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
+  const autoGoesTo = (offer: Offer): string | undefined =>
     offer.todo ? (target?.title ?? "Inbox") : doc.projectId ? (docProject?.id === doc.projectId ? docProject.title : undefined) : "Inbox";
+  const goesTo = (offer: Offer): string | undefined =>
+    docPick === null ? autoGoesTo(offer) : docPick ? allProjects.find((project) => project.id === docPick)?.title : "Inbox";
+  const pickedId = docPick ?? "";
 
   const hide = (key: string) => setHidden((prev) => new Set(prev).add(key));
   // Tells Jev whether its checklist offers were wanted: a task made from one,
@@ -503,7 +511,21 @@ export default function DocHintsCard({
           ))}
           {(offers.length > 0 && place && !mixed) || showSwitch ? (
             <ListGroup style={styles.settings}>
-              {offers.length > 0 && place && !mixed ? <ListRow title="Goes to" trailing={place} accessibilityLabel={`Tasks go to ${place}`} /> : null}
+              {offers.length > 0 && place && !mixed ? <ListRow
+                  title="Goes to"
+                  trailing={
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      {pickedId ? (
+                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: allProjects.find((project) => project.id === pickedId)?.color ?? colors.mutedForeground }} />
+                      ) : (
+                        <Inbox size={15} color={colors.mutedForeground} />
+                      )}
+                      <Text style={{ color: colors.mutedForeground, fontSize: 15 }}>{place}</Text>
+                    </View>
+                  }
+                  onPress={() => setPicking(true)}
+                  accessibilityLabel={`Tasks go to ${place}`}
+                /> : null}
               {showSwitch ? (
                 <SwitchRow
                   title="Offer tasks from checklists"
@@ -621,6 +643,21 @@ export default function DocHintsCard({
       ) : null}
       <BottomSheet open={sheetOpen && (shown.length > 0 || offers.length > 0)} onClose={() => setSheetOpen(false)} title="Suggestions" footer={makeAll}>
         {body}
+      </BottomSheet>
+      <BottomSheet open={picking} onClose={() => setPicking(false)} title="Goes to" subtitle="Tasks made from this doc">
+        <SheetOption selected={!pickedId} leading={<Inbox size={18} color={colors.mutedForeground} />} onSelect={() => { setDocPick(""); setPicking(false); }}>
+          Inbox
+        </SheetOption>
+        {allProjects.map((project) => (
+          <SheetOption
+            key={project.id}
+            selected={project.id === pickedId}
+            leading={<View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: project.color ?? colors.mutedForeground }} />}
+            onSelect={() => { setDocPick(project.id); setPicking(false); }}
+          >
+            {project.title}
+          </SheetOption>
+        ))}
       </BottomSheet>
       <ConfirmSheet
         open={confirmTemplate}

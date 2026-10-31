@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactN
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ListTodo, Plus, Sparkles, X } from "lucide-react";
+import { ChevronDown, Inbox, ListTodo, Plus, Sparkles, X } from "lucide-react";
 import { contentFromTemplate, templateVars } from "@timely/contract/templates";
 import type { Doc, Task } from "@/app/_types/types";
 import Button from "@/app/_components/_ui/button";
@@ -20,7 +20,8 @@ import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
 import { useDecisionFeedback, useDismissDocHint, useDocChecklist, useDocHints, useDocOffersOff } from "@/app/utils/hooks/decisions";
 import type { DocHintKind } from "@/app/utils/api/decisions";
 import { useUpdateDoc } from "@/app/utils/hooks/docs";
-import { useProject } from "@/app/utils/hooks/projects";
+import { useProject, useProjects } from "@/app/utils/hooks/projects";
+import Select from "@/app/_components/_ui/select";
 import { useRelated } from "@/app/utils/hooks/search";
 import { openTasksEntity } from "@/app/utils/entityDetail";
 import { useCreateTask, useDeleteTask } from "@/app/utils/hooks/tasks";
@@ -127,7 +128,18 @@ export default function DocHints({
   // A line that reads like a task goes to the doc's own project only, as on
   // the phone. The card, the popover and the message name what make() sends.
   const docProject = useProject(doc.projectId || undefined).data;
-  const goesTo = (kind: "todo" | "work") => (kind === "todo" ? target?.title : doc.projectId && docProject?.id === doc.projectId ? docProject.title : undefined);
+  const autoGoesTo = (kind: "todo" | "work") => (kind === "todo" ? target?.title : doc.projectId && docProject?.id === doc.projectId ? docProject.title : undefined);
+  // SKETCH: one pick for the whole doc (rail), and a pick per task (popover).
+  const allProjects = useProjects().data ?? [];
+  const projectPlaces = allProjects.map((project) => ({ id: project.id, title: project.title, color: project.color ?? undefined }));
+  const [docPick, setDocPick] = useState<string | null>(null);
+  const [rowPicks, setRowPicks] = useState<Record<string, string>>({});
+  const [choosingKey, setChoosingKey] = useState<string | null>(null);
+  const titleOf = (id: string) => (id ? allProjects.find((project) => project.id === id)?.title : undefined);
+  const goesTo = (kind: "todo" | "work", key?: string) =>
+    key && rowPicks[key] !== undefined ? titleOf(rowPicks[key]) : docPick !== null ? titleOf(docPick) : autoGoesTo(kind);
+  const goesToId = (kind: "todo" | "work", key?: string) =>
+    key && rowPicks[key] !== undefined ? rowPicks[key] : docPick !== null ? docPick : (allProjects.find((project) => project.title === autoGoesTo(kind))?.id ?? "");
   const taken = new Set((checklist.data?.existing ?? []).map((task) => task.name.toLowerCase()));
   const checked = new Set((checklist.data?.names ?? []).map((name) => name.toLowerCase()));
   // Offered only while smart suggestions are on, and only the items Jev reads
@@ -393,7 +405,12 @@ export default function DocHints({
             kind={popoverRow.kind}
             name={popoverRow.name}
             details={popoverRow.kind === "todo" ? popoverRow.todo.details : undefined}
-            target={goesTo(popoverRow.kind)}
+            target={goesTo(popoverRow.kind, popoverRow.key)}
+            targetId={goesToId(popoverRow.kind, popoverRow.key)}
+            places={projectPlaces}
+            onTarget={(id) => setRowPicks((picks) => ({ ...picks, [popoverRow.key]: id }))}
+            choosing={choosingKey === popoverRow.key}
+            onChoosing={(open) => setChoosingKey(open ? popoverRow.key : null)}
             step={
               narrow
                 ? undefined
@@ -653,11 +670,26 @@ export default function DocHints({
   // one for the checklist items and one for the other lines.
   const kinds = [...new Set(rows.map((row) => row.kind))];
   const mixed = kinds.length > 1 && goesTo("todo") !== goesTo("work");
-  const goesToRows = (mixed ? (["todo", "work"] as const) : kinds.slice(0, 1)).map((kind) => {
-    const value = goesTo(kind);
-    const label = !mixed ? "Goes to" : kind === "todo" ? "Checklist items go to" : "Other lines go to";
-    return <RailRow key={kind} label={label} value={value ?? "Inbox"} tone={value ? "default" : "muted"} />;
-  });
+  void mixed;
+  const goesToRows = kinds.length > 0 && (
+    <RailRow
+      key="goes-to"
+      label="Goes to"
+      value={
+        <Select
+          variant="row"
+          searchable
+          aria-label="Where tasks from this doc go"
+          value={goesToId(kinds[0])}
+          onChange={(id) => setDocPick(id)}
+          options={[
+            { value: "", label: "Inbox", icon: <Inbox /> },
+            ...projectPlaces.map((place) => ({ value: place.id, label: place.title, color: place.color, group: "Projects" })),
+          ]}
+        />
+      }
+    />
+  );
   const offersFooter = (rows.length > 0 || switchRow) && (
     <RailRows className={rows.length > 0 ? "mt-2 border-t border-border" : undefined}>
       {goesToRows}
