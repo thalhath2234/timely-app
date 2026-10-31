@@ -2,6 +2,7 @@ package suggest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -20,9 +21,11 @@ import (
 // go to.
 
 const (
-	maxChecklistNames = 50
-	// Most items Jev reads at once; the rest wait for a later read.
-	maxChecklistAsk = 30
+	maxChecklistNames = 200
+	// Most items Jev reads at once. Items already tasks or dismissed do not
+	// count, but ones Jev said no to do: its "no" is not kept, so a later
+	// read meets them first again.
+	maxChecklistAsk = 50
 )
 
 type ChecklistTask struct {
@@ -111,6 +114,9 @@ func (s *Service) DocChecklist(ctx context.Context, userID, docID string, names 
 		}
 		byLower[l] = n
 		order = append(order, l)
+		if len(order) == maxChecklistNames {
+			break
+		}
 	}
 	if len(order) == 0 {
 		return out, nil
@@ -240,6 +246,11 @@ func (s *Service) checklistOffers(ctx context.Context, userID string, doc models
 			described[i] = map[string]any{"heading": clip(l.heading, 120), "items": clipped}
 		}
 		state["checklists"] = described
+		// Long lists in a script of wide characters can outgrow what Jev
+		// takes; the items alone still say enough.
+		if raw, err := json.Marshal(state); err != nil || len(raw) > decide.MaxStateBytes {
+			delete(state, "checklists")
+		}
 	}
 	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "doc_checklist", State: state, Questions: questions})
 	if err != nil {

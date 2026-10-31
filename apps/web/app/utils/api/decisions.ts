@@ -64,7 +64,7 @@ async function request<T>(
     } catch {
       // keep the fallback message
     }
-    throw new Error(message);
+    throw Object.assign(new Error(message), { status: res.status });
   }
   return res.status === 204 ? (undefined as T) : res.json();
 }

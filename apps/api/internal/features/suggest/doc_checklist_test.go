@@ -2,6 +2,8 @@ package suggest
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -143,6 +145,69 @@ func TestIntegrationDocChecklistOffers(t *testing.T) {
 	must(t, err)
 	if out.Available || len(out.Offer) != 0 {
 		t.Fatalf("%+v", out)
+	}
+}
+
+// Items already handled (dismissed, or tasks already) leave room for later
+// ones: up to maxChecklistAsk of the rest are read, however many come first.
+func TestIntegrationDocChecklistAsksPastHandledItems(t *testing.T) {
+	w := newWorld(t)
+	must(t, w.db.AutoMigrate(&decide.DecisionLog{}))
+	doc := models.Document{ID: "doc_trip", Title: "Trip", WorkspaceID: w.ws, UserID: w.user, CreatedAt: "2026-10-01T09:00:00Z"}
+	must(t, w.db.Create(&doc).Error)
+	s := New(w.db, nil, nil)
+	ctx := context.Background()
+	var names []string
+	for i := 1; i <= 59; i++ {
+		names = append(names, fmt.Sprintf("Pack item %d", i))
+		if i <= 20 {
+			must(t, s.DismissDocHint(ctx, w.user, doc.ID, docHintKey("todo", names[i-1])))
+		}
+	}
+	names = append(names, "Book the airport taxi")
+	// Items 21-60 are read, numbered from i1: the taxi is i40.
+	jev := &jevStub{answers: map[string]any{"i40": yesNo(0.95)}}
+	for i := 1; i < 40; i++ {
+		jev.answers[fmt.Sprintf("i%d", i)] = yesNo(0.05)
+	}
+	s = New(w.db, jev.serviceDB(t, w.db), nil)
+	out, err := s.DocChecklist(ctx, w.user, doc.ID, names, "")
+	must(t, err)
+	if len(jev.asked(0)) != 40 || len(out.Offer) != 1 || out.Offer[0] != "Book the airport taxi" {
+		t.Fatalf("%+v asked %d", out, len(jev.asked(0)))
+	}
+	// At most maxChecklistAsk are read at once.
+	var many []string
+	for i := 1; i <= 70; i++ {
+		many = append(many, fmt.Sprintf("Errand %d", i))
+	}
+	_, err = s.DocChecklist(ctx, w.user, doc.ID, many, "")
+	must(t, err)
+	if len(jev.asked(1)) != maxChecklistAsk {
+		t.Fatalf("asked %d", len(jev.asked(1)))
+	}
+}
+
+// A doc full of dismissals still keeps its task offers turned off, and a
+// dismissal past the cap is refused rather than dropped without a word.
+func TestIntegrationDocDismissalsCap(t *testing.T) {
+	w := newWorld(t)
+	doc := models.Document{ID: "doc_full", Title: "Weekly", WorkspaceID: w.ws, UserID: w.user, CreatedAt: "2026-10-01T09:00:00Z"}
+	must(t, w.db.Create(&doc).Error)
+	s := New(w.db, nil, nil)
+	ctx := context.Background()
+	for i := 0; i < maxDocDismissals; i++ {
+		must(t, s.DismissDocHint(ctx, w.user, doc.ID, docHintKey("work", fmt.Sprintf("line %d", i))))
+	}
+	if err := s.DismissDocHint(ctx, w.user, doc.ID, docHintKey("todo", "Call the plumber")); !errors.Is(err, errDocDismissalsFull) {
+		t.Fatalf("past the cap: %v", err)
+	}
+	// Kept already: not an error, full or not.
+	must(t, s.DismissDocHint(ctx, w.user, doc.ID, docHintKey("work", "line 3")))
+	must(t, s.DismissDocHint(ctx, w.user, doc.ID, docHintKey("todos", "")))
+	must(t, s.DismissDocHint(ctx, w.user, doc.ID, docHintKey("todos", "")))
+	if !s.docDismissed(ctx, w.user, doc.ID)["todos"] {
+		t.Fatal("todos not kept")
 	}
 }
 

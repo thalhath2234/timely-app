@@ -22,6 +22,7 @@ import {
   useDeleteTask,
   useDismissDocHint,
   useDocChecklistQuery,
+  useDocOffersOff,
   useDocHintsQuery,
   useRelatedQuery,
   useUpdateDoc,
@@ -116,7 +117,8 @@ export default function DocHintsCard({
   // as things to get done (a call, an errand), not ones kept in the doc to
   // tick off there (milk, an ingredient).
   const offered = new Set((checklist.data?.offer ?? []).map((name) => name.toLowerCase()));
-  const open = checklist.data?.off
+  const offersAreOff = useDocOffersOff(doc.id, checklist.data?.off);
+  const open = offersAreOff
     ? []
     : todos.filter((todo) => {
         const key = todo.name.toLowerCase();
@@ -145,10 +147,19 @@ export default function DocHintsCard({
   // Turned off for this doc on every device; the doc's More menu, or the
   // undo here, turns them back on.
   const offersOff = () => {
+    const logId = checklist.data?.logId;
+    // The same offers come back if this is not saved or is undone, so a task
+    // made from one can still say so.
+    const offersBack = () => {
+      if (logId) answered.current.delete(logId);
+    };
     setSheetOpen(false);
-    dismissHint.mutate({ kind: "todos" });
+    dismissHint.mutate({ kind: "todos" }, { onError: offersBack });
     answerOffers(false);
-    showUndoToast("Tasks won’t be offered from this doc’s checklists", () => dismissHint.mutate({ kind: "todos", restore: true }));
+    showUndoToast("Tasks won’t be offered from this doc’s checklists", () => {
+      offersBack();
+      dismissHint.mutate({ kind: "todos", restore: true });
+    });
   };
   const make = async (list: ChecklistTodo[], key: string) => {
     setMaking(key);
@@ -534,7 +545,7 @@ export function ChecklistOffersOption({ doc, content, version }: { doc: Doc; con
   const { data } = useDocHintsQuery(doc.id, version, live);
   const dismissHint = useDismissDocHint(doc.id);
   const has = useMemo(() => hasChecklist(content), [content]);
-  const off = Boolean(data?.todosOff);
+  const off = useDocOffersOff(doc.id, data?.todosOff);
   if (!on || !data?.available || !(has || off)) return null;
   const turn = (next: boolean) => dismissHint.mutate({ kind: "todos", restore: next });
   return (

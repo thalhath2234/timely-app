@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useToastStore } from "@/app/_store/toastStore";
 import {
   getEstimate,
   getCellFit,
@@ -190,38 +191,76 @@ export function useDocHints(docId: string | undefined, version = "", enabled = t
   }));
 }
 
+type DocHintChange = { kind: DocHintKind; value?: string; restore?: boolean };
+
+const docHintChangeKey = (docId: string) => ["doc-hint-change", docId] as const;
+
 /** Dismisses a doc suggestion for good, or with `restore` takes a dismissal
  * back. The doc's cached suggestions and checklist offers are read again
  * afterwards, so the row stays gone when the doc reopens. The doc's task
- * offers switch ("todos") flips at once everywhere it shows. */
+ * offers switch ("todos") flips at once everywhere it shows
+ * (useDocOffersOff), and flips back with a message if it could not be saved. */
 export function useDismissDocHint(docId: string) {
   const client = useQueryClient();
+  const reads = [["doc-hints", docId], ["doc-checklist", docId]];
+  // A read under way may have started before the change was saved.
+  const cancelReads = () => Promise.all(reads.map((queryKey) => client.cancelQueries({ queryKey })));
   return useMutation({
-    mutationFn: ({ kind, value, restore }: { kind: DocHintKind; value?: string; restore?: boolean }) =>
-      (restore ? restoreDocHint : dismissDocHint)(docId, kind, value),
-    onMutate: ({ kind, restore }) => {
+    mutationKey: docHintChangeKey(docId),
+    // One at a time per doc, so the last change made is the one kept.
+    scope: { id: `doc-hint-change:${docId}` },
+    mutationFn: ({ kind, value, restore }: DocHintChange) => (restore ? restoreDocHint : dismissDocHint)(docId, kind, value),
+    onMutate: async ({ kind, restore }) => {
       if (kind !== "todos") return;
+      await cancelReads();
+      const before = reads.flatMap((queryKey) => client.getQueriesData({ queryKey }));
       client.setQueriesData<DocHints>({ queryKey: ["doc-hints", docId] }, (old) => old && { ...old, todosOff: !restore });
       client.setQueriesData<DocChecklist>({ queryKey: ["doc-checklist", docId] }, (old) => old && { ...old, off: !restore });
+      return before;
     },
-    onSettled: () => {
-      void client.invalidateQueries({ queryKey: ["doc-hints", docId] });
-      void client.invalidateQueries({ queryKey: ["doc-checklist", docId] });
+    onError: (error, { kind }, before) => {
+      for (const [queryKey, data] of before ?? []) client.setQueryData(queryKey, data);
+      if (kind === "todos") useToastStore.getState().show("Couldn’t change task offers for this doc. Try again.");
+      // The doc keeps too many dismissals: this one will show again.
+      else if ((error as { status?: number }).status === 409) useToastStore.getState().show(error.message);
+    },
+    onSettled: async (_data, error, { kind }) => {
+      if (kind === "todos") await cancelReads();
+      const reread = Promise.all(reads.map((queryKey) => client.invalidateQueries({ queryKey })));
+      // Saved: the change shows as pending until the new read is in. Not
+      // saved: the old answer is back already, and offline the read waits.
+      if (!error) await reread;
     },
   });
+}
+
+/** Whether the doc's task offers are off: a change still being saved wins
+ * over `saved`, the cached answer, which may have been read before it. */
+export function useDocOffersOff(docId: string, saved: boolean | undefined) {
+  const pending = useMutationState({
+    filters: {
+      mutationKey: docHintChangeKey(docId),
+      status: "pending",
+      predicate: (mutation) => (mutation.state.variables as DocHintChange | undefined)?.kind === "todos",
+    },
+    select: (mutation) => !(mutation.state.variables as DocHintChange).restore,
+  });
+  return pending.length > 0 ? pending[pending.length - 1] : Boolean(saved);
 }
 
 /** Which unchecked checklist items of a doc are already tasks, which to offer
  * as tasks and where new ones go. Offers need smart suggestions on: Jev reads
  * which items are things to get done. */
 export function useDocChecklist(docId: string | undefined, names: string[], projectId?: string) {
-  // Asked again when suggestions go on or off, so offers come and go with them.
-  const on = useSmartOn();
+  // Asked again when suggestions go on or off, so offers come and go with them;
+  // not before they are known, or the first read is made twice.
+  const status = useDecisions();
+  const on = status.data?.available === true;
   return useQuery({
     queryKey: ["doc-checklist", docId, names, projectId ?? "", on],
     // names says which items an answer covers while a newer one loads.
     queryFn: async () => ({ ...(await getDocChecklist(docId!, names, projectId)), names }),
-    enabled: Boolean(docId) && names.length > 0,
+    enabled: Boolean(docId) && names.length > 0 && status.isFetched,
     placeholderData: keepPreviousData,
     staleTime: 60 * 1000,
     retry: false,

@@ -3,7 +3,9 @@ package suggest
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 	"gorm.io/gorm"
@@ -17,6 +19,9 @@ import (
 // back on.
 
 const maxDocDismissals = 200
+
+// errDocDismissalsFull: the doc already keeps maxDocDismissals dismissals.
+var errDocDismissalsFull = errors.New("doc dismissals full")
 
 // docHintKey names one suggestion of a doc: its kind and what it offers.
 // Lines and property values compare as the person reads them, ignoring case
@@ -42,7 +47,8 @@ func (s *Service) docDismiss(c *echo.Context) error {
 		Kind  string `json:"kind"`
 		Value string `json:"value"`
 	}
-	if err := c.Bind(&in); err != nil || len(in.Value) > 400 {
+	// Counted in characters: a checklist item's name is up to 200 of them.
+	if err := c.Bind(&in); err != nil || utf8.RuneCountInString(in.Value) > 400 {
 		return echo.NewHTTPError(400, "Invalid request")
 	}
 	key := docHintKey(in.Kind, in.Value)
@@ -58,6 +64,9 @@ func (s *Service) docDismiss(c *echo.Context) error {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return echo.NewHTTPError(404, "Doc not found")
 	}
+	if errors.Is(err, errDocDismissalsFull) {
+		return echo.NewHTTPError(409, "This doc has too many dismissed suggestions")
+	}
 	if err != nil {
 		return err
 	}
@@ -65,15 +74,32 @@ func (s *Service) docDismiss(c *echo.Context) error {
 }
 
 // DismissDocHint keeps one dismissed suggestion of the person's doc, at most
-// maxDocDismissals per doc.
+// maxDocDismissals per doc. The doc's task offers turned off ("todos") is a
+// setting rather than a dismissal, so it is always kept.
 func (s *Service) DismissDocHint(ctx context.Context, userID, docID, key string) error {
 	var doc models.Document
 	if err := s.db.WithContext(ctx).Select("id").Where("id = ? AND user_id = ?", docID, userID).First(&doc).Error; err != nil {
 		return err
 	}
-	return s.db.WithContext(ctx).Exec(`INSERT INTO doc_hint_dismissals (doc_id, hint, user_id)
+	limit := maxDocDismissals
+	if key == "todos" {
+		limit = math.MaxInt32
+	}
+	res := s.db.WithContext(ctx).Exec(`INSERT INTO doc_hint_dismissals (doc_id, hint, user_id)
 		SELECT ?, ?, ? WHERE (SELECT count(*) FROM doc_hint_dismissals WHERE doc_id = ?) < ?
-		ON CONFLICT (doc_id, hint) DO NOTHING`, doc.ID, key, userID, doc.ID, maxDocDismissals).Error
+		ON CONFLICT (doc_id, hint) DO NOTHING`, doc.ID, key, userID, doc.ID, limit)
+	if res.Error != nil || res.RowsAffected > 0 {
+		return res.Error
+	}
+	// Nothing new: kept already, or the doc is full.
+	var kept int64
+	if err := s.db.WithContext(ctx).Table("doc_hint_dismissals").Where("doc_id = ? AND hint = ?", doc.ID, key).Count(&kept).Error; err != nil {
+		return err
+	}
+	if kept == 0 {
+		return errDocDismissalsFull
+	}
+	return nil
 }
 
 // RestoreDocHint forgets one dismissed suggestion of the person's doc.

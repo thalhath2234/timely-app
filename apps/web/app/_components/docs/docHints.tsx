@@ -20,7 +20,7 @@ import { getDoc } from "@/app/utils/api/docs";
 import { checklistTaskDrafts } from "@/app/utils/api/write";
 import { readyProviders } from "@/app/_components/chat/modelMenu";
 import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
-import { useDecisionFeedback, useDismissDocHint, useDocChecklist, useDocHints } from "@/app/utils/hooks/decisions";
+import { useDecisionFeedback, useDismissDocHint, useDocChecklist, useDocHints, useDocOffersOff } from "@/app/utils/hooks/decisions";
 import type { DocHintKind } from "@/app/utils/api/decisions";
 import { useUpdateDoc } from "@/app/utils/hooks/docs";
 import { useRelated } from "@/app/utils/hooks/search";
@@ -109,7 +109,8 @@ export default function DocHints({
   // as things to get done (a call, an errand), not ones kept in the doc to
   // tick off there (milk, an ingredient).
   const offered = new Set((checklist.data?.offer ?? []).map((name) => name.toLowerCase()));
-  const open = checklist.data?.off
+  const offersAreOff = useDocOffersOff(doc.id, checklist.data?.off);
+  const open = offersAreOff
     ? []
     : todos.filter((todo) => {
         const key = todo.name.toLowerCase();
@@ -141,9 +142,18 @@ export default function DocHints({
   // Turned off for this doc on every device; the outline card's switch, or
   // the undo here, turns them back on.
   const offersOff = () => {
-    dismissHint.mutate({ kind: "todos" });
+    const logId = checklist.data?.logId;
+    // The same offers come back if this is not saved or is undone, so a task
+    // made from one can still say so.
+    const offersBack = () => {
+      if (logId) answered.current.delete(logId);
+    };
+    dismissHint.mutate({ kind: "todos" }, { onError: offersBack });
     answerOffers(false);
-    showUndoToast("Tasks won’t be offered from this doc’s checklists", () => dismissHint.mutate({ kind: "todos", restore: true }));
+    showUndoToast("Tasks won’t be offered from this doc’s checklists", () => {
+      offersBack();
+      dismissHint.mutate({ kind: "todos", restore: true });
+    });
   };
   const make = async (list: ChecklistTodo[], key: string) => {
     setMaking(key);
@@ -585,7 +595,7 @@ export function ChecklistOffersSwitch({
   const { data } = useDocHints(doc.id, version, !doc.isTemplate && !doc.archivedAt);
   const hasChecklist = useHasChecklist(editor);
   const dismissHint = useDismissDocHint(doc.id);
-  const off = Boolean(data?.todosOff);
+  const off = useDocOffersOff(doc.id, data?.todosOff);
   const turn = (on: boolean) => dismissHint.mutate({ kind: "todos", restore: on });
   if (!data?.available || !(hasChecklist || off)) return null;
   if (variant === "chip") {
