@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { NodeViewContent, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import { Check, ChevronDown, ChevronUp, Copy, Trash2 } from "lucide-react";
+import { LIVE_BLOCK_LANGUAGE } from "@timely/contract/genuiBoard";
 import { normalizeCodeLanguage } from "@/app/utils/markdown";
 import Select from "@/app/_components/_ui/select";
+import LiveBlockView from "./liveBlock";
 import MapPreview from "./mapPreview";
 import MermaidPreview from "./mermaidPreview";
 import StlPreview from "./stlPreview";
@@ -28,13 +30,19 @@ const LANGUAGES = [
   "geojson",
   "topojson",
   "stl",
+  LIVE_BLOCK_LANGUAGE,
 ];
 
 // Long code folds to a few lines so it doesn't push the rest of the doc (or
 // the drawing under a diagram, map or model) far down the page.
 const FOLDED_LINES = 3;
 
-export default function CodeBlockView({ node, editor, updateAttributes, deleteNode }: NodeViewProps) {
+// A live block is drawn as its card; other code shows its source with a bar.
+export default function CodeBlockView(props: NodeViewProps) {
+  return normalizeCodeLanguage(String(props.node.attrs.language ?? "")) === LIVE_BLOCK_LANGUAGE ? <LiveBlockView {...props} /> : <SourceBlockView {...props} />;
+}
+
+function SourceBlockView({ node, editor, updateAttributes, deleteNode }: NodeViewProps) {
   // Older docs and MCP writes may carry short aliases ("js"); show them under
   // their canonical name so the selector never silently falls back to plain.
   const language = normalizeCodeLanguage(String(node.attrs.language ?? ""));

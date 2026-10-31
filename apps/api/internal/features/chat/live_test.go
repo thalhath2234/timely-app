@@ -12,7 +12,7 @@ import (
 
 func TestIntegrationChatChangesReachWatchers(t *testing.T) {
 	db := integrationDB(t)
-	migration, err := os.ReadFile("../../../migrations/20261025070000_chat_change_notify.sql")
+	migration, err := os.ReadFile("../../../migrations/20261031090000_chat_change_notify.sql")
 	if err != nil {
 		t.Fatal(err)
 	}

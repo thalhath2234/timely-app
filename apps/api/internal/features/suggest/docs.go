@@ -55,6 +55,7 @@ func (s *Service) docRoutes(g *echo.Group) {
 	g.GET("/suggestions/doc/:id", s.docHints)
 	g.POST("/suggestions/doc/:id/checklist", s.docChecklist)
 	g.POST("/suggestions/doc/:id/dismiss", s.docDismiss)
+	g.DELETE("/suggestions/doc/:id/dismiss", s.docDismiss)
 	g.POST("/suggestions/mention", s.mention)
 	g.POST("/suggestions/import-format", s.importFormat)
 	g.GET("/suggestions/doc-template", s.docTemplate)
@@ -85,10 +86,9 @@ type DocHints struct {
 	Properties []PropertyHint `json:"properties,omitempty"` // [52]
 	Template   *DocRef        `json:"template,omitempty"`   // [52] for a near-empty doc
 	Outdated   bool           `json:"outdated,omitempty"`   // [57]
-	// KeptLists are the items (lower case) of checklists kept in the doc to
-	// tick off there, like groceries or packing, not worked as tasks; the
-	// clients offer none of a list's items as tasks (docChecklist).
-	KeptLists []string `json:"keptLists,omitempty"`
+	// TodosOff: the person turned off checklist items offered as tasks for
+	// this doc (DocChecklist), so its switch shows off.
+	TodosOff bool `json:"todosOff,omitempty"`
 }
 
 func (s *Service) docHints(c *echo.Context) error {
@@ -122,6 +122,7 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 	}
 	daily := doc.DailyDate != nil && *doc.DailyDate != ""
 	dismissed := s.docDismissed(ctx, userID, doc.ID)
+	out.TodosOff = dismissed[docHintKey("todos", "")]
 
 	state := map[string]any{"title": clip(doc.Title, 200)}
 	questions := map[string]decide.Question{}
@@ -220,28 +221,6 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 			state["lines"] = list
 		}
 	}
-	// An unchecked item says it is a to-do, but not every list is work: a
-	// grocery or packing list is ticked off in the doc. Jev judges each list
-	// whole, by its heading and items, even in a short doc.
-	lists := checklists(doc.Content)
-	if len(lists) > 0 {
-		described := make([]map[string]any, len(lists))
-		for i, l := range lists {
-			key := fmt.Sprintf("c%d", i+1)
-			items := l.items
-			if len(items) > maxListItems {
-				items = items[:maxListItems]
-			}
-			shown := make([]string, len(items))
-			for j, it := range items {
-				shown[j] = clip(it, 120)
-			}
-			described[i] = map[string]any{"list": key, "heading": clip(l.heading, 120), "items": shown}
-			questions[key] = decide.YesNo(fmt.Sprintf("Is checklist %s a list of things the person has to get done, each worth tracking as its own task (work, errands, calls, follow-ups), rather than a list kept in the doc to tick off there, such as groceries, a shopping or packing list, ingredients, or things to read or watch?", key),
-				"Yes, its items are tasks to get done.", "No, it is a list kept in the doc.")
-		}
-		state["checklists"] = described
-	}
 	if len(questions) == 0 {
 		return out, nil
 	}
@@ -288,14 +267,6 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 			out.Work = append(out.Work, l)
 			if len(out.Work) == maxWorkHints {
 				break
-			}
-		}
-	}
-	// Hiding suggestions is unprompted, so it waits for a confident "no".
-	for i, l := range lists {
-		if yes, ok := a.Yes(fmt.Sprintf("c%d", i+1), decide.Route); ok && !yes {
-			for _, it := range l.items {
-				out.KeptLists = append(out.KeptLists, strings.ToLower(it))
 			}
 		}
 	}

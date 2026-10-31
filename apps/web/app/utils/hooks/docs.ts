@@ -9,10 +9,12 @@ import {
   getDoc,
   getDocBacklinks,
   getDocs,
+  setChecklistItem,
   updateDoc,
   watchDoc,
 } from "@/app/utils/api/docs";
 import { Doc } from "@/app/_types/types";
+import { tickedContent, type ChecklistTickRequest } from "@timely/contract/docChecklist";
 
 export const docsKey = ["docs"] as const;
 export const docKey = (id: string) => ["docs", id] as const;
@@ -76,6 +78,32 @@ export function useUpdateDoc() {
         docs?.map((item) => (item.id === doc.id ? doc : item)),
       );
     },
+  });
+}
+
+/**
+ * Ticks one checklist item from a card or reply. The tick shows at once in
+ * the doc and the docs list, which cards read, and the server's copy
+ * replaces it; a failed tick is put back.
+ */
+export function useSetChecklistItem() {
+  const queryClient = useQueryClient();
+  const put = (id: string, change: (doc: Doc) => Doc) => {
+    queryClient.setQueryData<Doc>(docKey(id), (doc) => (doc ? change(doc) : doc));
+    queryClient.setQueryData<Doc[]>(docsKey, (docs) => docs?.map((item) => (item.id === id ? change(item) : item)));
+  };
+  return useMutation({
+    mutationFn: ({ id, ...tick }: ChecklistTickRequest & { id: string }) => setChecklistItem(id, tick),
+    onMutate: ({ id, ...tick }) => {
+      const before = { doc: queryClient.getQueryData<Doc>(docKey(id)), docs: queryClient.getQueryData<Doc[]>(docsKey) };
+      put(id, (doc) => ({ ...doc, content: tickedContent(doc.content, tick) ?? doc.content }));
+      return before;
+    },
+    onError: (_error, { id }, before) => {
+      queryClient.setQueryData(docKey(id), before?.doc);
+      queryClient.setQueryData(docsKey, before?.docs);
+    },
+    onSuccess: (doc) => put(doc.id, () => doc),
   });
 }
 

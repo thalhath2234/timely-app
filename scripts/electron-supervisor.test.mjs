@@ -27,8 +27,12 @@ import {
   expandIPv6,
   isTailscaleIPv4,
   isTailscaleIPv6,
+  describeServeFailure,
+  disableServe,
+  enableServe,
   mergeStatus,
   scanInterfaces,
+  serveOwner,
   urlFor,
 } from "../apps/web/electron/supervisor/tailscale.ts";
 import { FLAVOR, flavorFor } from "../apps/web/electron/flavor.ts";
@@ -297,7 +301,7 @@ test("tailscale: interface scan and CLI status merge", () => {
   assert.deepEqual(cliDown, { installed: true, running: false });
 
   const cli = mergeStatus(true, { BackendState: "Running", Self: { HostName: "laptop", DNSName: "laptop.tail.ts.net.", TailscaleIPs: ["100.64.1.1", "fd7a:115c:a1e0::2"] } }, {});
-  assert.deepEqual(cli, { installed: true, running: true, ipv4: "100.64.1.1", ipv6: "fd7a:115c:a1e0::2", hostname: "laptop" });
+  assert.deepEqual(cli, { installed: true, running: true, ipv4: "100.64.1.1", ipv6: "fd7a:115c:a1e0::2", hostname: "laptop", dnsName: "laptop.tail.ts.net" });
 
   const dnsOnly = mergeStatus(true, { Self: { DNSName: "laptop.tail.ts.net.", TailscaleIPs: [] } }, {});
   assert.equal(dnsOnly.hostname, "laptop.tail.ts.net");
@@ -404,6 +408,15 @@ test("pairing: Tailscale URLs first (v4 then v6), loopback last; empty when disa
     urls: ["http://100.64.1.1:48080", "http://[fd7a:115c:a1e0::2]:48080", "http://127.0.0.1:48080"],
   });
   assert.deepEqual(pairingPayload({ name: "laptop", apiPort: 48080, tailscaleEnabled: false, tailscale: ts }).urls, ["http://127.0.0.1:48080"]);
+  assert.deepEqual(
+    pairingPayload({ name: "laptop", id: "inst-1", apiPort: 48080, tailscaleEnabled: true, tailscale: ts, httpsUrl: "https://laptop.tail.ts.net" }),
+    {
+      v: 1,
+      name: "laptop",
+      id: "inst-1",
+      urls: ["https://laptop.tail.ts.net", "http://100.64.1.1:48080", "http://[fd7a:115c:a1e0::2]:48080", "http://127.0.0.1:48080"],
+    },
+  );
   assert.deepEqual(tailscaleUrls({ apiPort: 1, tailscaleEnabled: true, tailscale: {} }), []);
   assert.deepEqual(tailscaleUrls({ apiPort: 1, tailscaleEnabled: true, tailscale: { ipv6: "fd7a:115c:a1e0::9" } }), ["http://[fd7a:115c:a1e0::9]:1"]);
 });
@@ -596,4 +609,74 @@ test("an AUR install (no $APPIMAGE, no package-type) is package-managed", () => 
   } finally {
     cleanup();
   }
+});
+
+// ---------------------------------------------------------------------------
+// Tailscale Serve (HTTPS)
+// ---------------------------------------------------------------------------
+
+const DNS = "laptop.tail.ts.net";
+const OURS = "http://127.0.0.1:48080";
+const serveJson = (handlers, tcp = { HTTPS: true }) => ({ TCP: { 443: tcp }, Web: { [`${DNS}:443`]: { Handlers: handlers } } });
+
+test("tailscale serve: who owns https://<dns>:443", () => {
+  assert.deepEqual(serveOwner({}, DNS, OURS), { owner: "none" });
+  assert.deepEqual(serveOwner(null, DNS, OURS), { owner: "none" });
+  assert.deepEqual(serveOwner(serveJson({ "/": { Proxy: OURS } }), DNS, OURS), { owner: "ours" });
+  assert.deepEqual(serveOwner(serveJson({ "/": { Proxy: "http://localhost:48080/" } }), DNS, OURS), { owner: "ours" });
+  assert.equal(serveOwner(serveJson({ "/": { Proxy: "http://127.0.0.1:3000" } }), DNS, OURS).owner, "other");
+  assert.equal(serveOwner(serveJson({ "/": { Proxy: OURS }, "/grafana": { Proxy: "http://127.0.0.1:3000" } }), DNS, OURS).owner, "other");
+  assert.equal(serveOwner({ TCP: { 443: { TCPForward: "127.0.0.1:22" } } }, DNS, OURS).owner, "other");
+  // Another port on the same name is not ours to worry about.
+  assert.deepEqual(serveOwner({ TCP: { 8443: { HTTPS: true } }, Web: { [`${DNS}:8443`]: { Handlers: { "/": { Proxy: "http://127.0.0.1:1" } } } } }, DNS, OURS), { owner: "none" });
+});
+
+function fakeServe(status) {
+  const calls = [];
+  const run = async (args) => {
+    calls.push(args.join(" "));
+    if (args[1] === "status") return { ok: true, output: JSON.stringify(status) };
+    return { ok: true, output: "" };
+  };
+  return { run, calls };
+}
+
+test("tailscale serve: enable sets up an empty port, keeps ours, refuses someone else's", async () => {
+  const empty = fakeServe({});
+  assert.deepEqual(await enableServe(empty.run, DNS, OURS), { ok: true });
+  assert.deepEqual(empty.calls, ["serve status --json", `serve --bg --https=443 ${OURS}`]);
+
+  const ours = fakeServe(serveJson({ "/": { Proxy: OURS } }));
+  assert.deepEqual(await enableServe(ours.run, DNS, OURS), { ok: true });
+  assert.deepEqual(ours.calls, ["serve status --json"]);
+
+  const other = fakeServe(serveJson({ "/": { Proxy: "http://127.0.0.1:3000" } }));
+  const refused = await enableServe(other.run, DNS, OURS);
+  assert.equal(refused.ok, false);
+  assert.match(refused.error, /already used by Tailscale Serve/);
+  assert.deepEqual(other.calls, ["serve status --json"]);
+
+  // The API moved ports: Timely's earlier route is replaced, not refused.
+  const moved = fakeServe(serveJson({ "/": { Proxy: "http://127.0.0.1:48090" } }));
+  assert.deepEqual(await enableServe(moved.run, DNS, OURS, "http://127.0.0.1:48090"), { ok: true });
+  assert.equal(moved.calls.at(-1), `serve --bg --https=443 ${OURS}`);
+});
+
+test("tailscale serve: disable only removes Timely's own route", async () => {
+  const ours = fakeServe(serveJson({ "/": { Proxy: OURS } }));
+  await disableServe(ours.run, DNS, OURS);
+  assert.deepEqual(ours.calls, ["serve status --json", "serve --https=443 off"]);
+
+  const other = fakeServe(serveJson({ "/": { Proxy: "http://127.0.0.1:3000" } }));
+  await disableServe(other.run, DNS, OURS);
+  assert.deepEqual(other.calls, ["serve status --json"]);
+});
+
+test("tailscale serve: failures say what to do", () => {
+  assert.match(
+    describeServeFailure("Serve is not enabled on your tailnet.\nTo enable, visit:\n\n         https://login.tailscale.com/f/serve?node=abc123\n"),
+    /open https:\/\/login\.tailscale\.com\/f\/serve\?node=abc123, then try again/,
+  );
+  assert.match(describeServeFailure("serve config denied: Access denied: serve config denied"), /--operator=\$USER/);
+  assert.match(describeServeFailure(""), /did not finish in time/);
 });

@@ -34,6 +34,7 @@ import ChangeCards from "./ChangeCards";
 import ImagePreview from "./ImagePreview";
 import { dayLabel, isBusy, phaseLabel, timeOfDay } from "./chatMeta";
 import { Action, ChatText, styles as common } from "./shared";
+import ReplyBody from "./ReplyCards";
 import { LogoSpinner } from "../ui/TimelyLogo";
 import { useAgentProvidersQuery, useChatPromptsQuery, useDecisionFeedback } from "../../lib/hooks";
 import { readyProviders } from "./ModelSheet";
@@ -242,6 +243,7 @@ export default function Thread({
   onReviewArchive,
   pending,
   onSimilar,
+  onAsk,
 }: {
   chat: Chat;
   onLink: (href: string) => void;
@@ -249,9 +251,15 @@ export default function Thread({
   onReviewArchive: (steps: ChatStep[]) => void;
   pending: boolean;
   onSimilar: (action: "move" | "stay") => void;
+  /** Sends a reply card's text as a message; unset while the chat can't take one. */
+  onAsk?: (text: string) => void;
 }) {
   let lastDay = "";
   const last = chat.messages[chat.messages.length - 1];
+  // Only the newest reply, with nothing the person said after it, keeps live answer chips.
+  const newest = chat.messages.findLast(
+    (m) => (m.role === "user" && !m.kind) || (m.role === "assistant" && !m.kind),
+  );
   return (
     <View style={{ gap: 18 }}>
       {chat.messages.map((message) => {
@@ -353,7 +361,12 @@ export default function Thread({
                       {timeOfDay(message.createdAt)}
                     </Text>
                   </View>
-                  <ChatText text={message.content} onLink={onLink} />
+                  <ReplyBody
+                    content={message.content}
+                    onLink={onLink}
+                    ask={onAsk}
+                    newest={message === newest}
+                  />
                   {images.length ? (
                     <View style={styles.imageRow}>
                       {images.map((image) => (

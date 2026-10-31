@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { useQueryClient } from "@tanstack/react-query";
 import type { User } from "../types";
 import { createWorkspace, getConfig, getWorkspaces } from "../api/workspaces";
-import { completeOnboarding, getMe, login as loginApi, register as registerApi, logout as logoutApi, refreshSession } from "../api/auth";
+import { completeOnboarding, getMe, login as loginApi, pair as pairApi, register as registerApi, logout as logoutApi, refreshSession } from "../api/auth";
 import { unregisterServerPush } from "../notifications";
 import { ApiError, flushOfflineQueue } from "../api/client";
 import { clearToken, getCachedUser, setCachedUser, getRefreshToken, getToken, onSessionExpired, setSession } from "./session";
@@ -18,6 +18,8 @@ type AuthState = {
 
 type AuthContextValue = AuthState & {
   login: (email: string, password: string) => Promise<User>;
+  /** Signs in with the one-time code from the desktop's pairing QR. */
+  pair: (code: string) => Promise<User>;
   signup: (name: string, email: string, password: string) => Promise<User>;
   logout: () => Promise<void>;
   refresh: () => Promise<User | null>;
@@ -133,6 +135,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ...state,
       login: async (email, password) => {
         const session = await loginApi(email, password);
+        await setSession(session.token, session.refreshToken);
+        return hydrate(session.token);
+      },
+      pair: async (code) => {
+        const session = await pairApi(code);
         await setSession(session.token, session.refreshToken);
         return hydrate(session.token);
       },

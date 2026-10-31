@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { Editor } from "@tiptap/react";
 import { ChevronDown, List } from "lucide-react";
 import { useDocHeadings } from "@/app/_components/docs/headingMinimap";
@@ -26,11 +26,14 @@ export default function DocOutline({
   wordCount,
   updatedAt,
   subpages,
+  rows,
 }: {
   editor: Editor | null;
   wordCount: number;
   updatedAt: string;
   subpages: number;
+  /** More rows for the page's numbers, such as a switch for the doc. */
+  rows?: ReactNode;
 }) {
   const { headings, activePos, goTo } = useDocHeadings(editor);
   const [collapsed, setCollapsed] = useState(readCollapsed);
@@ -77,6 +80,7 @@ export default function DocOutline({
         <RailRow label="Words" value={wordCount.toLocaleString()} />
         {subpages > 0 ? <RailRow label="Subpages" value={subpages} /> : null}
         <RailRow label="Last edited" value={edited} tone="muted" />
+        {rows}
       </RailRows>
       {headings.length === 0 ? (
         <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">

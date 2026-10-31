@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"time"
 
 	"gorm.io/gorm"
 	"timely-api/internal/features/agent"
@@ -14,6 +15,7 @@ import (
 	"timely-api/internal/features/notify"
 	"timely-api/internal/features/placement"
 	"timely-api/internal/features/project"
+	"timely-api/internal/features/provider"
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/search"
 	"timely-api/internal/features/sheet"
@@ -44,6 +46,10 @@ var docDecisions agent.Decider
 // todaySuggestions answers the agent's Today suggestions and stale Work; nil
 // makes those tools say they are not available. Set in main.
 var todaySuggestions *suggest.Service
+
+// liveBlockWriter writes the programs of the agent's live blocks in docs on
+// the account's AI provider; nil makes add_live_block unavailable. Set in main.
+var liveBlockWriter func(ctx context.Context, userID, words, current, today string) (string, error)
 
 // Bind all writes (including indexing jobs) to the same transaction as the
 // agent's execution checkpoint. Existing REST and Hermes behavior stays intact.
@@ -82,5 +88,65 @@ func chatCatalog(db *gorm.DB, live *realtime.Hub, creds embed.Credentials) agent
 		Decisions: docDecisions,
 		Focus:     focus.NewStore(db),
 		Suggest:   todaySuggestions,
+		LiveBlock: liveBlockWriter,
 	})
+}
+
+// boardData loads what the apps' dashboards read for one account, as their
+// REST calls return it (the contract's DashboardData), so the Describe AI
+// draws its draft cards from the data the person will see.
+func boardData(db *gorm.DB) provider.BoardData {
+	return func(ctx context.Context, userID string) (any, error) {
+		db := db.WithContext(ctx)
+		tasks := task.NewTaskRepository(db)
+		projects := project.NewProjectRepository(db)
+		workspaces := workspace.NewWorkspaceRepository(db)
+		sched := schedule.NewRepository(db)
+		indexer := embed.New(db)
+		taskService := task.NewTaskService(tasks, projects, workspaces, recurrence.NewStore(db), placement.New(db, sched.GetWorkingHours), indexer)
+		yes := true
+		all, err := taskService.List(userID, task.TaskFilter{})
+		if err != nil {
+			return nil, err
+		}
+		inbox, err := taskService.List(userID, task.TaskFilter{Inbox: &yes})
+		if err != nil {
+			return nil, err
+		}
+		reminders, err := taskService.List(userID, task.TaskFilter{Reminders: &yes})
+		if err != nil {
+			return nil, err
+		}
+		projectList, err := project.NewProjectService(projects, workspaces, indexer).GetAllProjectByUser(userID)
+		if err != nil {
+			return nil, err
+		}
+		workspaceList, err := workspace.NewWorkspaceService(workspaces).GetAllWorkspaceByUser(userID)
+		if err != nil {
+			return nil, err
+		}
+		docs, err := doc.NewDocumentService(doc.NewDocumentRepository(db), indexer, nil).List(userID, doc.DocumentFilter{})
+		if err != nil {
+			return nil, err
+		}
+		sheets, err := sheet.NewSheetService(sheet.NewSheetRepository(db), indexer, nil).List(userID, sheet.SheetFilter{})
+		if err != nil {
+			return nil, err
+		}
+		// The apps read events from 180 days back to 181 ahead.
+		hours, _ := sched.GetWorkingHours(userID)
+		now := time.Now()
+		if loc, err := time.LoadLocation(hours.Timezone); err == nil && hours.Timezone != "" {
+			now = now.In(loc)
+		}
+		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		events, err := calendar.NewService(tasks, event.NewEventRepository(db), sched.GetWorkingHours).Range(userID, today.AddDate(0, 0, -180), today.AddDate(0, 0, 181))
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"tasks": all, "inbox": inbox, "reminders": reminders, "projects": projectList,
+			"workspaces": workspaceList, "docs": docs, "sheets": sheets, "events": events.Items,
+		}, nil
+	}
 }

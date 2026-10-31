@@ -446,8 +446,8 @@ export const assistant: HelpSection = {
                 </p>
               </Steps>
               <p>
-                The line under the description says which key is in use. <strong>Needs a key</strong> means the
-                switch is on but no key is saved yet.
+                The line under the description says which key is in use. <strong>Needs a key</strong> means no key
+                is saved yet, or TypeSafe refused yours: the switch turns on once a TypeSafe or OpenRouter key works.
               </p>
             </>
           ),
@@ -469,9 +469,10 @@ export const assistant: HelpSection = {
                 it.
               </li>
               <li>
-                <strong>Docs:</strong> lines that read like tasks, with <strong>Make task</strong>. A line that is
-                already a task, even after you edit it, is not offered again, and a dismissed suggestion stays
-                dismissed for that doc on every device. Docs also get hints for where a doc belongs, its type,
+                <strong>Docs:</strong> lines and checklist items that read like tasks, with <strong>Make task</strong>.
+                A line that is already a task, even after you edit it, is not offered again, and a dismissed
+                suggestion stays dismissed for that doc on every device. A list kept in the doc, such as groceries,
+                offers no tasks. Docs also get hints for where a doc belongs, its type,
                 properties and a template, a link for selected text, and a note when a doc looks out of date. See{" "}
                 <HelpLink href="/help/notes/docs">Docs</HelpLink>.
               </li>

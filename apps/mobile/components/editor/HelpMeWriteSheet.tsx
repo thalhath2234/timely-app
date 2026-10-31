@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { RotateCcw } from "lucide-react-native";
+import type { DocContent } from "@timely/contract/documents";
 import {
   SELECTION_ACTIONS,
   WRITE_BUSY,
   writeStarters,
+  writtenContent,
   type WriteAction,
   type WriteKind,
+  type WriteList,
   type WriteResult,
 } from "@timely/contract/helpMeWrite";
-import { fromMarkdown } from "@timely/contract/markdown";
 import { helpMeWrite } from "../../lib/api/write";
 import { useAgentProvidersQuery } from "../../lib/hooks";
 import { colors, controlRadius, createThemedStyleSheet } from "../../lib/theme";
@@ -22,14 +24,37 @@ import { readyProviders } from "../chat/ModelSheet";
 /** What the editor holds, so the draft fits it. */
 export type WriteContext = { kind: WriteKind; title?: string };
 
-/** The editor's selection and text when Help me write opened. */
-export type WriteInfo = { from: number; to: number; selection: string; text: string };
+/** The editor's selection and text when Help me write opened, the doc with
+ * the cursor typed where the draft goes, and the list a draft joins at the
+ * caret (`list`) and at the end (`endList`, for Continue writing). */
+export type WriteInfo = {
+  from: number;
+  to: number;
+  selection: string;
+  text: string;
+  doc?: DocContent;
+  list?: WriteList | null;
+  endList?: WriteList | null;
+};
 
 /** How the draft goes in: over the selection, after it or at the caret, or at
- * the end of the text ("Continue writing"). */
-export type WriteInsert = { markdown: string; mode: "replace" | "below" | "insert" | "end" };
+ * the end of the text ("Continue writing"), and the action whose spot it
+ * takes. */
+export type WriteInsert = { markdown: string; mode: "replace" | "below" | "insert" | "end"; action: WriteAction };
 
-type Run = { action: WriteAction; prompt?: string; selection?: string; label?: string };
+/** `place`: the action whose spot the draft takes, when it is not `action`.
+ * Ask for changes rewrites a draft as "write", but a refined summary still
+ * goes where a summary goes, and refined Continue writing still goes at the
+ * end. */
+type Run = { action: WriteAction; place?: WriteAction; prompt?: string; selection?: string; label?: string };
+const placeOf = (run: Run) => run.place ?? run.action;
+
+/** The list a draft inserted this way joins, if any. A summary or
+ * description is not more items of the list the caret is in. */
+export function writeList(info: WriteInfo, mode: WriteInsert["mode"], action: WriteAction) {
+  if (info.selection || (action !== "write" && action !== "continue")) return null;
+  return (mode === "end" ? info.endList : info.list) ?? null;
+}
 
 /** Help me write needs a generative AI provider (Settings > Agent keys);
  * TypeSafe alone only answers typed questions, so it does not count. */
@@ -84,6 +109,7 @@ export default function HelpMeWriteSheet({
         kind: context.kind,
         title: context.title,
         text: info.text,
+        doc: info.doc,
       });
       if (id !== attempt.current) return;
       setResult({ ...out, run });
@@ -96,12 +122,13 @@ export default function HelpMeWriteSheet({
     }
   };
 
+  const insertMode = (mode: "replace" | "below", action: WriteAction): WriteInsert["mode"] =>
+    hasSelection ? mode : action === "continue" ? "end" : "insert";
+
   const insert = (mode: "replace" | "below") => {
     if (!result) return;
-    onInsert({
-      markdown: result.text,
-      mode: hasSelection ? mode : result.run.action === "continue" ? "end" : "insert",
-    });
+    const place = placeOf(result.run);
+    onInsert({ markdown: result.text, mode: insertMode(mode, place), action: place });
   };
 
   const footer = result && !busy ? (
@@ -148,7 +175,12 @@ export default function HelpMeWriteSheet({
             nestedScrollEnabled
             keyboardShouldPersistTaps="handled"
           >
-            <RichDoc content={fromMarkdown(result.text, { breaks: true }).content} />
+            <RichDoc
+              content={{
+                type: "doc",
+                content: info ? writtenContent(result.text, writeList(info, insertMode("replace", placeOf(result.run)), placeOf(result.run))).blocks : [],
+              }}
+            />
           </ScrollView>
           <View style={styles.row}>
             <View style={{ flex: 1 }}>
@@ -158,7 +190,9 @@ export default function HelpMeWriteSheet({
               label="Update"
               variant="secondary"
               disabled={!refine.trim()}
-              onPress={() => void start({ action: "write", prompt: refine.trim(), selection: result.text, label: "Updating the draft" })}
+              onPress={() =>
+                void start({ action: "write", place: placeOf(result.run), prompt: refine.trim(), selection: result.text, label: "Updating the draft" })
+              }
             />
           </View>
         </View>

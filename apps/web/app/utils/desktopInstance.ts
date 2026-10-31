@@ -14,9 +14,33 @@ export type StatusSummary = {
   detail?: string;
 };
 
-/** The exact text the Settings → Server QR code encodes. */
-export function pairingPayload(instance: Pick<DesktopInstance, "pairing">): string {
-  return JSON.stringify(instance.pairing);
+/** The exact text the Settings → Server QR code encodes; `code` signs the phone in too. */
+export function pairingPayload(instance: Pick<DesktopInstance, "pairing">, code?: string): string {
+  return JSON.stringify(code ? { ...instance.pairing, code } : instance.pairing);
+}
+
+/** "4:05" until `expiresAt`, or null once it has passed. */
+export function codeTimeLeft(expiresAt: string, now: number): string | null {
+  const ms = Date.parse(expiresAt) - now;
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  const seconds = Math.ceil(ms / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+export function describeHttps(instance: Pick<DesktopInstance, "tailscale" | "settings">): StatusSummary {
+  const https = instance.tailscale.https;
+  if (!instance.settings.tailscaleEnabled || !instance.settings.tailscaleHttps) return { label: "Off", tone: "muted" };
+  switch (https.status) {
+    case "on":
+      return { label: "On", tone: "ok", detail: https.url ? `The phone uses ${https.url} first.` : undefined };
+    case "starting":
+      return { label: "Setting up…", tone: "warn", detail: "Tailscale may take a few seconds to get a certificate." };
+    case "error":
+      return { label: "Not working", tone: "danger", detail: https.error };
+    case "off":
+    default:
+      return { label: "Off", tone: "muted" };
+  }
 }
 
 /** Addresses the phone will try, in order. */

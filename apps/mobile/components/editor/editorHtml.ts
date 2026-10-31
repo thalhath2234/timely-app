@@ -1,4 +1,5 @@
 import type { DocContent } from "../../lib/types";
+import { WRITE_CURSOR } from "@timely/contract/helpMeWrite";
 import { EMBED_PATTERNS } from "@timely/contract/markdown";
 import { DOC_EDITOR_HELPERS_JS } from "../../lib/docEditorJev";
 
@@ -22,6 +23,10 @@ export function buildEditorHtml(
     accent: string;
     accentForeground: string;
     border: string;
+    /** For live blocks; older callers fall back to the page colours. */
+    card?: string;
+    success?: string;
+    warning?: string;
   },
   /** The server address; uploaded images are stored as "/files/<id>". */
   apiBase = "",
@@ -42,6 +47,7 @@ export function buildEditorHtml(
     accentForeground: "#d4cff5",
     border: "rgba(255,255,255,0.09)",
   };
+  const live = { card: t.card ?? t.background, success: t.success ?? "#2fa36b", warning: t.warning ?? "#d29922" };
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -81,6 +87,91 @@ export function buildEditorHtml(
     .tiptap p code { background: ${t.muted}; color: ${t.accentForeground}; padding: 0.1em 0.35em; border-radius: 4px; }
     .code-delete { position: absolute; top: 8px; right: 8px; display: flex; align-items: center; justify-content: center; width: 26px; height: 23px; padding: 0; background: ${t.muted}; color: ${t.mutedForeground}; border: 1px solid ${t.border}; border-radius: 6px; }
     .code-copy { position: absolute; top: 8px; right: 40px; background: ${t.muted}; color: ${t.mutedForeground}; border: 1px solid ${t.border}; border-radius: 6px; font-size: 11px; font-weight: 600; padding: 4px 8px; }
+    /* Live blocks: a described card drawn from the person's data, the
+       phone kit's rows as markup (liveBlockHtml.ts). The program stays
+       hidden unless asked for or the caret is in it. */
+    .live-wrap { --lv-fg: ${t.foreground}; --lv-muted-fg: ${t.mutedForeground}; --lv-border: ${t.border}; --lv-card: ${live.card}; --lv-fill: ${t.muted}; --lv-primary: ${t.primary}; --lv-success: ${live.success}; --lv-warning: ${live.warning}; --lv-check: ${t.background};
+      background: var(--lv-card); border: 1px solid var(--lv-border); border-radius: 12px; overflow: clip; margin: 0 0 0.75em; color: var(--lv-fg); font-size: 15px; line-height: 1.35; }
+    .live-wrap.is-selected { outline: 2px solid var(--lv-primary); outline-offset: 2px; }
+    .live-head, .live-body { -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+    .live-head { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 2px 0 14px; border-bottom: 1px solid var(--lv-border); }
+    .live-icon { display: flex; flex: none; color: var(--lv-muted-fg); }
+    .live-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
+    .live-mark { display: inline-flex; align-items: center; gap: 5px; flex: none; color: var(--lv-muted-fg); font-size: 12px; font-weight: 500; }
+    .live-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--lv-success); box-shadow: 0 0 0 3px color-mix(in oklab, var(--lv-success) 18%, transparent); }
+    .live-actions { display: flex; align-items: center; flex: none; margin-left: auto; }
+    .live-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 40px; height: 40px; padding: 0 9px; background: transparent; border: 0; border-radius: 10px; color: var(--lv-muted-fg); font: inherit; font-size: 13px; font-weight: 600; -webkit-tap-highlight-color: transparent; }
+    .live-actions button:active { background: var(--lv-fill); }
+    .live-actions button[aria-pressed="true"] { color: var(--lv-primary); }
+    .tiptap .live-wrap pre.live-code { margin: 0; padding: 12px; border: 0; border-top: 1px solid var(--lv-border); border-radius: 0; background: var(--lv-fill); color: var(--lv-fg); }
+    .tiptap .live-wrap pre.live-code.is-hidden { display: none; }
+    .live-loading { padding: 14px; display: grid; gap: 10px; }
+    .live-loading span { display: block; height: 12px; border-radius: 6px; background: var(--lv-fill); }
+    .live-loading span:nth-child(2) { width: 70%; }
+    .live-loading span:nth-child(3) { width: 45%; }
+    .lv-sec + .lv-sec, .lv-item + .lv-item, .lv-foot { border-top: 1px solid var(--lv-border); }
+    .lv-head { display: flex; align-items: center; gap: 10px; padding: 11px 14px 7px; }
+    .lv-eyebrow, .lv-head-title, .lv-head-meta, .lv-title, .lv-meta, .lv-value, .lv-time, .lv-stat-label, .lv-bar-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lv-eyebrow { color: var(--lv-muted-fg); font-size: 11px; font-weight: 600; letter-spacing: 0.8px; }
+    .lv-head-title { font-size: 14px; font-weight: 600; }
+    .lv-head-meta { margin-left: auto; flex-shrink: 4; color: var(--lv-muted-fg); font-size: 13px; font-weight: 500; }
+    .lv-foot { padding: 11px 14px; }
+    .lv-row { box-sizing: border-box; min-height: 48px; display: flex; align-items: center; gap: 10px; padding: 6px 14px; }
+    .lv-row.is-warning { background: color-mix(in oklab, var(--lv-warning) 9%, transparent); }
+    .lv-time { width: 48px; flex: none; color: var(--lv-muted-fg); font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+    .lv-lead { width: 20px; flex: none; align-self: stretch; display: flex; align-items: center; justify-content: center; }
+    .lv-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .lv-title { display: block; color: var(--lv-fg); font-size: 15px; }
+    .lv-title.is-done { color: var(--lv-muted-fg); text-decoration: line-through; }
+    .lv-title-btn { display: block; min-width: 0; max-width: 100%; padding: 0; background: none; border: 0; font: inherit; color: inherit; text-align: left; -webkit-tap-highlight-color: transparent; }
+    .lv-meta { color: var(--lv-muted-fg); font-size: 12px; font-weight: 500; line-height: 16px; margin-top: 1px; }
+    .lv-row.is-warning .lv-meta, .lv-row.is-warning .lv-value { color: var(--lv-warning); }
+    .lv-row.is-success .lv-value { color: var(--lv-success); }
+    .lv-note { margin-top: 1px; }
+    .lv-check { position: relative; box-sizing: border-box; width: 20px; height: 20px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 999px; border: 1.5px solid var(--lv-muted-fg); background: transparent; color: transparent; -webkit-tap-highlight-color: transparent; }
+    .lv-check::after { content: ""; position: absolute; inset: -12px; }
+    .lv-check.is-done { background: var(--lv-success); border-color: var(--lv-success); color: var(--lv-check); }
+    .lv-check:active { transform: scale(0.88); }
+    .lv-check:disabled { opacity: 0.5; }
+    .lv-event-bar { width: 3px; flex: 1; margin: 9px 0; border-radius: 2px; }
+    .lv-line { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .lv-label { flex: 1; }
+    .lv-value { flex-shrink: 0; color: var(--lv-muted-fg); font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+    .lv-dot { width: 8px; height: 8px; flex: none; border-radius: 4px; }
+    .lv-share { display: flex; flex-direction: column; gap: 8px; padding: 11px 14px; }
+    .lv-fill { display: block; height: 6px; margin-left: 18px; border-radius: 3px; background: var(--lv-fill); overflow: hidden; }
+    .lv-fill span { display: block; height: 100%; border-radius: 3px; }
+    .lv-stats { display: grid; }
+    .lv-stat { padding: 12px 14px; min-width: 0; }
+    .lv-stat.is-left { border-left: 1px solid var(--lv-border); }
+    .lv-stat.is-top { border-top: 1px solid var(--lv-border); }
+    .lv-stat-value { color: var(--lv-fg); font-size: 20px; font-weight: 600; letter-spacing: -0.4px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .lv-stat-total { color: var(--lv-muted-fg); font-size: 13px; font-weight: 500; letter-spacing: 0; }
+    .lv-stat-label { color: var(--lv-muted-fg); font-size: 12px; font-weight: 500; }
+    .lv-stat-hint { color: var(--lv-muted-fg); font-size: 12px; line-height: 16px; }
+    .lv-chart { padding: 4px 14px 12px; }
+    .lv-chart-title { color: var(--lv-muted-fg); font-size: 12px; font-weight: 500; margin: 6px 0 4px; }
+    .lv-bars { display: flex; align-items: flex-end; gap: 8px; height: 108px; }
+    .lv-bar-col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 5px; }
+    .lv-bar { width: 100%; max-width: 30px; border-radius: 5px 5px 2px 2px; background: var(--lv-fill); }
+    .lv-bar.is-high { background: var(--lv-primary); }
+    .lv-bar-text { color: var(--lv-muted-fg); font-size: 11px; font-variant-numeric: tabular-nums; }
+    .lv-bar-label { max-width: 100%; font-weight: 500; }
+    .lv-strip-wrap { padding: 4px 14px 10px; }
+    .lv-strip { position: relative; height: 32px; border-radius: 8px; background: var(--lv-fill); overflow: hidden; }
+    .lv-slot { position: absolute; top: 5px; bottom: 5px; box-sizing: border-box; display: flex; align-items: center; padding: 0 6px; border-radius: 5px; overflow: hidden; color: #fff; font-size: 11px; font-weight: 600; white-space: nowrap; }
+    .lv-slot.is-task { background: var(--lv-primary); }
+    .lv-slot.is-free { background: var(--lv-card); border: 1px dashed var(--lv-border); color: var(--lv-muted-fg); }
+    .lv-slot span { overflow: hidden; text-overflow: ellipsis; }
+    .lv-ticks { position: relative; height: 16px; margin-top: 4px; color: var(--lv-muted-fg); font-size: 11px; font-variant-numeric: tabular-nums; }
+    .lv-ticks span { position: absolute; top: 0; transform: translateX(-50%); }
+    .lv-ticks span.is-start { transform: none; }
+    .lv-ticks span.is-end { transform: translateX(-100%); }
+    .lv-text { margin: 0; padding: 10px 14px; color: var(--lv-muted-fg); font-size: 14px; line-height: 20px; }
+    .lv-empty { margin: 0; padding: 12px 14px; color: var(--lv-muted-fg); font-size: 14px; }
+    .lv-problem { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--lv-border); color: var(--lv-muted-fg); font-size: 13px; line-height: 18px; }
+    .lv-problem svg { flex: none; margin-top: 2px; color: var(--lv-warning); }
+    .lv-open { display: inline-flex; align-items: center; gap: 2px; padding: 0; background: none; border: 0; color: var(--lv-primary); font: inherit; font-size: 14px; font-weight: 600; -webkit-tap-highlight-color: transparent; }
     .tok-keyword { color: #569cd6; }
     .tok-string { color: #ce9178; }
     .tok-comment { color: #6a9955; }
@@ -1847,11 +1938,242 @@ export function buildEditorHtml(
       }, 400);
     }
 
+    // Live blocks (an openui-lang code block): a described card drawn from
+    // the person's data. The page reports the doc's programs (livePrograms),
+    // the app draws each one (liveBlockHtml.ts) and sends it back with
+    // liveHtml; ticks, links and Change go to the app, which does them.
+    const LIVE_LANG = "openui-lang";
+    const isLiveNode = (node) => Boolean(node) && node.type.name === "codeBlock" && node.attrs.language === LIVE_LANG;
+    // For getText: a block's program is code for the app, not words to count or search.
+    const LIVE_TEXT = { codeBlock: ({ node }) => (isLiveNode(node) ? "" : node.textContent) };
+    const liveDrawn = new Map();
+    const liveViews = new Set();
+    let liveReported = null;
+    function reportLivePrograms(doc) {
+      const programs = [];
+      doc.descendants((node) => {
+        if (!isLiveNode(node)) return true;
+        programs.push(node.textContent);
+        return false;
+      });
+      const key = JSON.stringify(programs);
+      if (key === liveReported) return;
+      liveReported = key;
+      send({ type: "livePrograms", programs });
+    }
+    const svg = (paths, size) => '<svg width="' + (size || 15) + '" height="' + (size || 15) + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + paths + "</svg>";
+    const LIVE_ICON = svg('<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>', 16);
+    const SPARKLES_ICON = svg('<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/>');
+    const CODE_ICON = svg('<path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/>');
+    const TRASH_ICON = svg('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>');
+    function liveView(node, getPos, editor) {
+      const dom = document.createElement("div");
+      dom.className = "live-wrap";
+      dom.setAttribute("role", "group");
+      const head = document.createElement("div");
+      head.className = "live-head";
+      head.setAttribute("contenteditable", "false");
+      const icon = document.createElement("span");
+      icon.className = "live-icon";
+      icon.innerHTML = LIVE_ICON;
+      const title = document.createElement("span");
+      title.className = "live-title";
+      const mark = document.createElement("span");
+      mark.className = "live-mark";
+      mark.title = "Reads your data each time the doc opens";
+      mark.innerHTML = '<span class="live-dot"></span>Live';
+      const actions = document.createElement("span");
+      actions.className = "live-actions";
+      const button = (label, html, onTap) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.setAttribute("aria-label", label);
+        btn.innerHTML = html;
+        btn.addEventListener("click", (event) => {
+          event.preventDefault();
+          onTap();
+        });
+        return btn;
+      };
+      let current = node;
+      let codeOpen = false;
+      let shown = null;
+      const change = button("Change live block", SPARKLES_ICON + "<span>Change</span>", () => {
+        const pos = getPos();
+        if (typeof pos === "number") send({ type: "liveChange", pos, program: current.textContent, title: title.textContent });
+      });
+      const codeBtn = button("Show the block's code", CODE_ICON, () => {
+        codeOpen = !codeOpen;
+        paintCode();
+      });
+      const del = button("Delete live block", TRASH_ICON, () => {
+        const pos = getPos();
+        if (typeof pos !== "number") return;
+        editor.view.dispatch(editor.state.tr.delete(pos, pos + current.nodeSize));
+      });
+      if (editor.isEditable) actions.append(change, codeBtn, del);
+      else actions.append(codeBtn);
+      head.append(icon, title, mark, actions);
+      const body = document.createElement("div");
+      body.className = "live-body";
+      body.setAttribute("contenteditable", "false");
+      const pre = document.createElement("pre");
+      pre.className = "live-code";
+      const code = document.createElement("code");
+      code.className = "language-" + LIVE_LANG;
+      pre.appendChild(code);
+      dom.append(head, body, pre);
+      const paintCode = () => {
+        const pos = getPos();
+        const { from, to } = editor.state.selection;
+        const inside = typeof pos === "number" && editor.isFocused && from > pos && to < pos + current.nodeSize;
+        const empty = !current.textContent.trim();
+        const open = empty || codeOpen || inside;
+        pre.classList.toggle("is-hidden", !open);
+        codeBtn.style.display = empty ? "none" : "";
+        codeBtn.setAttribute("aria-pressed", String(open));
+        codeBtn.setAttribute("aria-label", open ? "Hide the block's code" : "Show the block's code");
+      };
+      const paint = () => {
+        const program = current.textContent.trim();
+        const entry = liveDrawn.get(program);
+        const name = (entry && entry.title) || (program ? title.textContent || "Live block" : "Live block");
+        title.textContent = name;
+        dom.setAttribute("aria-label", "Live block: " + name);
+        change.lastChild.textContent = program ? "Change" : "Describe";
+        let html = null;
+        if (!program) html = '<p class="lv-empty">Describe what this block should show, or write its program below.</p>';
+        else if (entry) html = entry.html || '<p class="lv-empty">This block could not be drawn. Change it to build it again.</p>';
+        // Until the app draws it; a changed program keeps its last drawing meanwhile.
+        else if (shown === null) html = '<div class="live-loading" aria-label="Loading"><span></span><span></span><span></span></div>';
+        if (html !== null && html !== shown) {
+          body.innerHTML = html;
+          shown = html;
+        }
+        paintCode();
+      };
+      // A press on the drawn card is the card's own: the caret never moves
+      // into the hidden program and no selection starts. Buttons still work.
+      const guard = (event) => {
+        if (!event.target.closest("button")) event.preventDefault();
+      };
+      head.addEventListener("mousedown", guard);
+      body.addEventListener("mousedown", guard);
+      body.addEventListener("click", (event) => {
+        const tick = event.target.closest("[data-live-tick], [data-live-check]");
+        if (tick) {
+          event.preventDefault();
+          const done = tick.getAttribute("data-done") === "1";
+          if (tick.hasAttribute("data-live-check")) {
+            // An item on a doc's checklist, ticked in that doc by the app.
+            send({
+              type: "liveCheck",
+              id: tick.getAttribute("data-live-check"),
+              item: Number(tick.getAttribute("data-item")),
+              text: tick.getAttribute("data-text"),
+              done: !done,
+            });
+          } else {
+            send({ type: "liveTick", id: tick.getAttribute("data-live-tick"), done });
+          }
+          // Shown at once; the app's redraw follows with the saved state.
+          tick.classList.toggle("is-done", !done);
+          tick.setAttribute("data-done", done ? "0" : "1");
+          tick.setAttribute("aria-checked", String(!done));
+          const row = tick.closest(".lv-row");
+          const name = row && row.querySelector(".lv-title");
+          if (name) name.classList.toggle("is-done", !done);
+          return;
+        }
+        const link = event.target.closest("[data-live-open]");
+        if (link) {
+          event.preventDefault();
+          send({ type: "liveOpen", href: link.getAttribute("data-live-open") });
+        }
+      });
+      const view = {
+        dom,
+        contentDOM: code,
+        paint,
+        paintCode,
+        update(next) {
+          if (next.type !== current.type || !isLiveNode(next)) return false;
+          current = next;
+          paint();
+          return true;
+        },
+        selectNode() { dom.classList.add("is-selected"); },
+        deselectNode() { dom.classList.remove("is-selected"); },
+        // Only the program is the editor's; the card handles its own presses.
+        stopEvent(event) { return !code.contains(event.target); },
+        ignoreMutation(mutation) {
+          if (mutation.type === "selection") return false;
+          return !code.contains(mutation.target);
+        },
+        destroy() { liveViews.delete(view); },
+      };
+      liveViews.add(view);
+      paint();
+      return view;
+    }
+    // Backspace at the start of the line after a live block, or Delete at
+    // the end of the line before one, selects the block (an empty line
+    // goes) instead of joining the text into its hidden program.
+    function liveStep(view, dir) {
+      const { selection } = view.state;
+      if (!selection.empty) return false;
+      const $from = selection.$from;
+      if (!$from.parent.isTextblock || $from.depth === 0) return false;
+      if (dir < 0 ? $from.parentOffset !== 0 : $from.parentOffset !== $from.parent.content.size) return false;
+      const container = $from.node($from.depth - 1);
+      const index = $from.index($from.depth - 1) + dir;
+      if (index < 0 || index >= container.childCount) return false;
+      const block = container.child(index);
+      if (!isLiveNode(block)) return false;
+      const lineStart = $from.before();
+      let at = dir < 0 ? lineStart - block.nodeSize : $from.after();
+      const tr = view.state.tr;
+      if ($from.parent.content.size === 0) {
+        tr.delete(lineStart, $from.after());
+        if (dir > 0) at = lineStart;
+      }
+      view.dispatch(tr.setSelection(NodeSelection.create(tr.doc, at)).scrollIntoView());
+      return true;
+    }
+    const LiveBlockKeys = Extension.create({
+      name: "liveBlockKeys",
+      // Ahead of the editor's own Backspace, which would join the line into the block.
+      priority: 1001,
+      addProseMirrorPlugins() {
+        return [
+          new Plugin({
+            props: {
+              handleKeyDown(view, event) {
+                if (event.key === "Backspace") return liveStep(view, -1);
+                if (event.key === "Delete") return liveStep(view, 1);
+                return false;
+              },
+              handleDOMEvents: {
+                // Phone keyboards delete through beforeinput, not key presses.
+                beforeinput(view, event) {
+                  const dir = event.inputType === "deleteContentBackward" ? -1 : event.inputType === "deleteContentForward" ? 1 : 0;
+                  if (!dir || !liveStep(view, dir)) return false;
+                  event.preventDefault();
+                  return true;
+                },
+              },
+            },
+          }),
+        ];
+      },
+    });
+
     // Code blocks get a wrapper so a mermaid diagram can sit under the
     // source without ProseMirror removing it as unknown DOM.
     const DiagramCodeBlock = CodeBlock.extend({
       addNodeView() {
         return ({ node, getPos, editor }) => {
+          if (isLiveNode(node)) return liveView(node, getPos, editor);
           const dom = document.createElement("div");
           dom.className = "code-wrap";
           const pre = document.createElement("pre");
@@ -1929,7 +2251,8 @@ export function buildEditorHtml(
             dom,
             contentDOM: code,
             update(next) {
-              if (next.type !== node.type) return false;
+              // Turning into a live block takes the live block's view.
+              if (next.type !== node.type || isLiveNode(next)) return false;
               apply(next);
               return true;
             },
@@ -2040,6 +2363,7 @@ export function buildEditorHtml(
         Highlight,
         DocImage.configure({ inline: true }),
         DiagramCodeBlock,
+        LiveBlockKeys,
         TableKit.configure({ table: { resizable: false } }),
         Mention,
         MathInline,
@@ -2071,6 +2395,7 @@ export function buildEditorHtml(
         send({ type: "ready" });
         reportSelection();
         enhanceCodeBlocks();
+        reportLivePrograms(editor.state.doc);
         editor.view.dom.addEventListener("click", (event) => {
           const ref = event.target.closest && event.target.closest("sup[data-footnote-ref]");
           if (ref) {
@@ -2090,13 +2415,23 @@ export function buildEditorHtml(
         }, true);
       },
       onUpdate({ editor }) {
-        send({ type: "change", content: editor.getJSON(), plainText: editor.getText() });
+        send({ type: "change", content: editor.getJSON(), plainText: editor.getText({ textSerializers: LIVE_TEXT }) });
         reportSelection();
         enhanceCodeBlocks();
+        reportLivePrograms(editor.state.doc);
       },
-      onSelectionUpdate() { reportSelection(); },
-      onFocus() { send({ type: "focus" }); },
-      onBlur() { send({ type: "blur" }); },
+      onSelectionUpdate() {
+        reportSelection();
+        liveViews.forEach((view) => view.paintCode());
+      },
+      onFocus() {
+        send({ type: "focus" });
+        liveViews.forEach((view) => view.paintCode());
+      },
+      onBlur() {
+        send({ type: "blur" });
+        liveViews.forEach((view) => view.paintCode());
+      },
     });
 
     const TABLE_CMDS = {
@@ -2165,13 +2500,15 @@ export function buildEditorHtml(
       body.querySelectorAll(".details").forEach((el) => el.setAttribute("data-open", ""));
       body.querySelectorAll("[contenteditable]").forEach((el) => el.removeAttribute("contenteditable"));
       body.querySelectorAll(".code-wrap > .block-head").forEach((el) => el.remove());
+      // A live block prints as drawn, without its buttons or hidden program.
+      body.querySelectorAll(".live-actions, .live-code.is-hidden").forEach((el) => el.remove());
       body.querySelectorAll(".block-head button").forEach((el) => el.remove());
       const styles = Array.from(document.querySelectorAll("style")).map((el) => el.textContent).join("\\n");
       const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).map((el) => '<link rel="stylesheet" href="' + el.href + '">').join("");
       const heading = document.createElement("h1");
       heading.className = "print-title";
       heading.textContent = title || "Untitled";
-      const light = "html, body { background: #fff !important; color: #111 !important; } body { padding: 0 !important; } .tiptap { padding: 0 !important; color: #111; } .tiptap pre, .tiptap code, .block-head, .callout, .props-chip { background: #f3f3f5 !important; color: #111 !important; } .tiptap a, .mention, .wiki-link { color: #3730a3 !important; } .print-title { font-family: -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif; font-size: 28px; font-weight: 700; margin: 0 0 16px; } .code-wrap pre { padding-top: 12px !important; max-height: none !important; -webkit-mask-image: none !important; mask-image: none !important; } .doc-bookmark { border-color: #ddd !important; } pre, table, img, svg, .callout { break-inside: avoid; } @page { margin: 18mm 16mm; }";
+      const light = "html, body { background: #fff !important; color: #111 !important; } body { padding: 0 !important; } .tiptap { padding: 0 !important; color: #111; } .tiptap pre, .tiptap code, .block-head, .callout, .props-chip { background: #f3f3f5 !important; color: #111 !important; } .tiptap a, .mention, .wiki-link { color: #3730a3 !important; } .print-title { font-family: -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif; font-size: 28px; font-weight: 700; margin: 0 0 16px; } .code-wrap pre { padding-top: 12px !important; max-height: none !important; -webkit-mask-image: none !important; mask-image: none !important; } .doc-bookmark { border-color: #ddd !important; } .live-wrap { --lv-fg: #111; --lv-muted-fg: #555; --lv-border: #ddd; --lv-card: #fff; --lv-fill: #eee; --lv-check: #fff; } pre, table, img, svg, .callout, .live-wrap { break-inside: avoid; } @page { margin: 18mm 16mm; }";
       send({ type: "exportHtml", html: "<!doctype html><html><head><meta charset=\\"utf-8\\">" + links + "<style>" + styles + "</style><style>" + light + "</style></head><body>" + heading.outerHTML + body.outerHTML + "</body></html>" });
     }
     // The Block menu (BlockSheet.tsx) works on the caret's block: the
@@ -2287,6 +2624,77 @@ export function buildEditorHtml(
       return null;
     }
 
+    // Help me write: the list a draft at pos joins, as listSpot in the web's
+    // helpMeWrite.tsx: the caret's list (after its item, or over it when it is
+    // empty), the list above an empty line, or with end the list the doc ends
+    // with. at is where the items go; drop is the empty item or line they
+    // replace, never before at.
+    const WRITE_LISTS = { taskList: true, bulletList: true, orderedList: true };
+    const isEmptyLine = (node) => Boolean(node && node.isTextblock && node.content.size === 0);
+    function listSpot(doc, pos, end) {
+      if (end) {
+        let index = doc.childCount - 1;
+        let at = doc.content.size;
+        let drop;
+        if (index > 0 && isEmptyLine(doc.child(index))) {
+          drop = { from: at - doc.child(index).nodeSize, to: at };
+          at = drop.from;
+          index -= 1;
+        }
+        const last = doc.child(index);
+        return WRITE_LISTS[last.type.name] ? { list: last.type.name, at: at - 1, drop } : null;
+      }
+      const $pos = doc.resolve(Math.min(Math.max(0, pos || 0), doc.content.size));
+      for (let depth = $pos.depth; depth > 1; depth--) {
+        const item = $pos.node(depth);
+        const list = $pos.node(depth - 1).type.name;
+        if ((item.type.name === "taskItem" || item.type.name === "listItem") && WRITE_LISTS[list]) {
+          if (item.childCount === 1 && isEmptyLine(item.firstChild)) {
+            return { list, at: $pos.before(depth), drop: { from: $pos.before(depth), to: $pos.after(depth) } };
+          }
+          return { list, at: $pos.after(depth) };
+        }
+      }
+      if ($pos.depth > 0 && isEmptyLine($pos.parent)) {
+        const index = $pos.index($pos.depth - 1);
+        const above = index > 0 ? $pos.node($pos.depth - 1).child(index - 1) : null;
+        if (above && WRITE_LISTS[above.type.name]) {
+          return { list: above.type.name, at: $pos.before() - 1, drop: { from: $pos.before(), to: $pos.after() } };
+        }
+      }
+      return null;
+    }
+
+    // The doc as the AI reads it: the cursor typed where a draft at pos
+    // goes, as a new item when it joins a list (cursorDoc on the web).
+    const WRITE_CURSOR = ${embed(WRITE_CURSOR)};
+    function cursorDoc(pos) {
+      const state = editor.state;
+      const { tr, schema } = state;
+      try {
+        const spot = listSpot(state.doc, pos, false);
+        if (spot) {
+          const item = schema.nodes[spot.list === "taskList" ? "taskItem" : "listItem"];
+          const marked = item.create(null, schema.nodes.paragraph.create(null, schema.text(WRITE_CURSOR)));
+          if (spot.drop && spot.drop.from === spot.at) tr.replaceWith(spot.drop.from, spot.drop.to, marked);
+          else {
+            if (spot.drop) tr.delete(spot.drop.from, spot.drop.to);
+            tr.insert(spot.at, marked);
+          }
+        } else {
+          const $pos = state.doc.resolve(Math.min(pos, state.doc.content.size));
+          // Only an empty line of its own becomes the draft (insertWritten
+          // does the same); in a table cell or callout it goes after the block.
+          if ($pos.depth === 1 && isEmptyLine($pos.parent)) tr.insertText(WRITE_CURSOR, $pos.pos);
+          else tr.insert($pos.depth > 0 ? $pos.after(1) : state.doc.content.size, schema.nodes.paragraph.create(null, schema.text(WRITE_CURSOR)));
+        }
+        return tr.doc.toJSON();
+      } catch (_) {
+        // Where the cursor cannot go, the AI reads the doc without it.
+        return state.doc.toJSON();
+      }
+    }
+
     function insertWritten(p) {
       const blocks = Array.isArray(p.blocks) ? p.blocks : [];
       const inline = Array.isArray(p.inline) ? p.inline : null;
@@ -2301,7 +2709,15 @@ export function buildEditorHtml(
         return;
       }
       const chain = editor.chain().focus();
-      if (selection && p.mode === "replace") {
+      // Items fitted to the list at the caret (or at the end) join it, when
+      // that is still the list there.
+      const spot = selection ? null : listSpot(doc, from, p.mode === "end");
+      const items = Array.isArray(p.items) ? p.items : null;
+      if (spot && items && spot.list === p.list) {
+        if (spot.drop && spot.drop.from === spot.at) chain.insertContentAt(spot.drop, items).run();
+        else if (spot.drop) chain.deleteRange(spot.drop).insertContentAt(spot.at, items).run();
+        else chain.insertContentAt(spot.at, items).run();
+      } else if (selection && p.mode === "replace") {
         const item = inline ? null : enclosingListItem(from, to);
         if (item && blocks.length === 1 && blocks[0].type === item.listType) {
           chain.insertContentAt({ from: item.from, to: item.to }, blocks[0].content || []).run();
@@ -2414,12 +2830,26 @@ export function buildEditorHtml(
           }
           return;
         }
-        // Help me write: report the selection and the doc's text, then put
-        // the draft in. Mirrors insert() in the web's helpMeWrite.tsx.
+        // Help me write: report the selection, the doc's text, the doc with
+        // the cursor where the draft goes and the lists it would join at the
+        // caret and at the end, then put the draft in. Mirrors the web's
+        // helpMeWrite.tsx.
         if (name === "writeInfo") {
           const { from, to } = editor.state.selection;
-          const selection = from === to ? "" : editor.state.doc.textBetween(from, to, "\\n").trim();
-          send({ type: "writeInfo", from, to, selection, text: editor.getText({ blockSeparator: "\\n" }).trim() });
+          const doc = editor.state.doc;
+          const selection = from === to ? "" : doc.textBetween(from, to, "\\n").trim();
+          const at = selection ? null : listSpot(doc, from, false);
+          const end = selection ? null : listSpot(doc, doc.content.size, true);
+          send({
+            type: "writeInfo",
+            from,
+            to,
+            selection,
+            text: editor.getText({ blockSeparator: "\\n", textSerializers: LIVE_TEXT }).trim(),
+            doc: selection ? editor.getJSON() : cursorDoc(from),
+            list: at ? at.list : null,
+            endList: end ? end.list : null,
+          });
           return;
         }
         if (name === "insertWritten") {
@@ -2469,6 +2899,35 @@ export function buildEditorHtml(
               if (card) card.scrollIntoView({ block: "nearest", behavior: "smooth" });
             });
           }
+          return;
+        }
+        // The app's drawings of the doc's live blocks, by program.
+        if (name === "liveHtml") {
+          liveDrawn.clear();
+          ((payload && payload.blocks) || []).forEach((block) => {
+            liveDrawn.set(String(block.program || "").trim(), { html: String(block.html || ""), title: String(block.title || "") });
+          });
+          liveViews.forEach((view) => view.paint());
+          return;
+        }
+        // A block changed in the app's Describe sheet: the block at pos, or
+        // the one with the program it was opened on if the doc moved since.
+        if (name === "setLiveBlock") {
+          const { state } = editor;
+          const program = String((payload && payload.program) || "");
+          const was = String((payload && payload.was) || "");
+          let pos = Number(payload && payload.pos);
+          const at = Number.isInteger(pos) && pos >= 0 && pos < state.doc.content.size ? state.doc.nodeAt(pos) : null;
+          if (!isLiveNode(at) || at.textContent !== was) {
+            pos = -1;
+            state.doc.descendants((node, p) => {
+              if (pos < 0 && isLiveNode(node) && node.textContent === was) pos = p;
+              return pos < 0;
+            });
+          }
+          const target = pos >= 0 ? state.doc.nodeAt(pos) : null;
+          if (!program.trim() || !isLiveNode(target)) return;
+          editor.view.dispatch(state.tr.replaceWith(pos + 1, pos + target.nodeSize - 1, state.schema.text(program)));
           return;
         }
         // Picked in the app's callout sheet; no focus, so the keyboard

@@ -171,6 +171,11 @@ func main() {
 	taskPick = smartSearch.Pick
 	docDecisions = decisions
 	todaySuggestions = suggestions
+	liveBlockWriter = providerService.LiveBlock
+	// Describe (dashboard cards, live blocks) reads through the chat agent's
+	// read tools and draws its drafts from the account's data.
+	providerService.SetReadTools(func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, live, providerService.EmbedCredentials) })
+	providerService.SetBoardData(boardData(db))
 	mcpServer := agent.New(agent.Deps{
 		Auth:       authService,
 		Tasks:      taskService,
@@ -191,6 +196,7 @@ func main() {
 		Decisions:  decisions,
 		Focus:      focus.NewStore(db),
 		Suggest:    suggestions,
+		LiveBlock:  providerService.LiveBlock,
 		DecisionsOn: func(ctx context.Context, userID string) bool {
 			on, _ := decisions.Status(ctx, userID)
 			return on
@@ -206,6 +212,7 @@ func main() {
 	chatService.SetEstimates(suggestions.EstimateMany)
 
 	authHandler := auth.NewHandler(authService, userRepo)
+	authHandler.SetPairingCodes(auth.NewPairingCodes(db))
 	// Chat images need no step here: the image sweep removes every upload
 	// file within 24 hours of its upload.
 	authHandler.SetAfterDelete(func(userID string) {
@@ -357,7 +364,7 @@ func listenConfig() (int, []string) {
 		portText = strings.TrimSpace(os.Getenv("PORT"))
 	}
 	if portText == "" {
-		portText = "8080"
+		portText = "8087"
 	}
 	port, err := strconv.Atoi(portText)
 	if err != nil || port < 0 || port > 65535 {

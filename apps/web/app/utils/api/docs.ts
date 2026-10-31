@@ -1,5 +1,6 @@
 import type { Doc } from "@/app/_types/types";
 import type { CreateDocPayload, DailyDocPayload, DocBacklink, DocVersion, UpdateDocPayload } from "@timely/contract/documents";
+import type { ChecklistTickRequest } from "@timely/contract/docChecklist";
 import type { LinkPreview } from "@timely/contract/embeds";
 import { isRichContentEmpty } from "@/app/utils/richText";
 import { apiFetch, apiUrl } from "./client";
@@ -90,6 +91,21 @@ export async function updateDoc(
     throw new Error("Document body was not persisted");
   }
   return saved;
+}
+
+/** Ticks or unticks one checklist item in the doc as the server holds it (a card's CheckRow). */
+export async function setChecklistItem(id: string, tick: ChecklistTickRequest): Promise<Doc> {
+  const response = await apiFetch(`/docs/${id}/checklist`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(tick),
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response, "Could not tick the item"));
+  }
+  const resData = await response.json();
+  return resData.document ?? resData;
 }
 
 /** SSE last-write-wins stream. Cookie session is sent via withCredentials. */

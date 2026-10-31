@@ -57,6 +57,7 @@ type DocumentService interface {
 	GetVersion(userID, documentID, versionID string) (*Version, error)
 	RestoreVersion(userID, documentID, versionID string) (*models.Document, error)
 	Daily(userID string, request DailyRequest) (*models.Document, bool, error)
+	SetChecklistItem(userID, documentID string, tick ChecklistTick) (*models.Document, error)
 }
 
 type documentService struct {

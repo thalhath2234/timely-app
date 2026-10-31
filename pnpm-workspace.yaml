@@ -17,6 +17,8 @@ allowBuilds:
   # Prebuilt per platform (@koromix/koffi-*); its install script would only
   # compile from source when no prebuilt matches.
   koffi: false
+  # Its postinstall only sends install telemetry; the package needs no build.
+  '@openuidev/lang-core': false
 
 minimumReleaseAgeExclude:
   - '@next/env@16.3.8'

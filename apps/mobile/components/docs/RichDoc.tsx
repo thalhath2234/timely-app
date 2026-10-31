@@ -5,6 +5,8 @@ import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { frontmatterEntries } from "@timely/contract/properties";
 import { embedInfo, linkHost } from "@timely/contract/embeds";
 import { getApiUrlSync } from "../../lib/api/client";
+import { LIVE_BLOCK_LANGUAGE } from "@timely/contract/genuiBoard";
+import LiveBlockCard from "../report/liveBlockFrame";
 
 type Mark = { type?: string; attrs?: Record<string, unknown> };
 type Node = {
@@ -58,6 +60,7 @@ function Block({ node, onLink }: { node: Node; onLink?: (href: string) => void }
         </View>
       );
     case "codeBlock":
+      if (node.attrs?.language === LIVE_BLOCK_LANGUAGE) return <LiveBlockCard program={plain(node)} />;
       return (
         <ScrollView showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" horizontal style={styles.code} contentContainerStyle={styles.codeInner}>
           <Text style={styles.codeText}>{plain(node)}</Text>

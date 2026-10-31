@@ -26,8 +26,23 @@ export type WriteRequest = {
   selection?: string;
   kind: WriteKind;
   title?: string;
+  /** Plain text, for an API from before `doc`. */
   text?: string;
+  /** The editor's content with WRITE_CURSOR typed where the draft goes. The
+   * API reads it as Markdown, so the model sees the checklists, lists and
+   * headings around that spot, not just the words. */
+  doc?: DocContent;
 };
+
+/** Typed into a copy of the doc where the draft goes; the API shows it to
+ * the model as <cursor/>. Letters only, so Markdown leaves it alone. */
+export const WRITE_CURSOR = "TIMELYWRITECURSOR";
+
+/** The lists a draft can join as more items. */
+export type WriteList = "taskList" | "bulletList" | "orderedList";
+
+export const isWriteList = (type: unknown): type is WriteList =>
+  type === "taskList" || type === "bulletList" || type === "orderedList";
 
 /** `text` is Markdown. */
 export type WriteResult = { text: string; provider: string; model: string };
@@ -75,12 +90,75 @@ export function writeStarters(kind: WriteKind, hasText: boolean): WriteChoice[] 
   ];
 }
 
+type Node = DocContent & { attrs?: Record<string, unknown>; text?: string };
+
+/** A checkbox the Markdown parser left as text: "[ ] ", "[x] " or "[] "
+ * opening the first line of an item in a list that was not all checklist
+ * items, or standing alone as an item with no text. */
+const BOX_TEXT = /^\[( |x|X)?\](?: |$)/;
+
+/** A list where some items have a tick box becomes a checklist: models mix
+ * "- [ ]" and "-" lines, and the boxes would otherwise show as "[ ]" text.
+ * A box with nothing after it is no item at all. Code blocks are left as
+ * they are. */
+function tidyLists(nodes: Node[]): Node[] {
+  return nodes.flatMap((node) => {
+    const content = node.content ? tidyLists(node.content as Node[]) : undefined;
+    const next = content ? { ...node, content } : node;
+    if (next.type !== "bulletList" && next.type !== "orderedList") return [next];
+    const items = (content ?? []) as Node[];
+    const box = (item: Node) => BOX_TEXT.exec(((item.content?.[0] as Node | undefined)?.content?.[0] as Node | undefined)?.text ?? "");
+    if (!items.some(box)) return [next];
+    const tasks = items.flatMap((item): Node[] => {
+      const found = box(item);
+      if (!found) return [{ ...item, type: "taskItem", attrs: { checked: false } }];
+      const [line, ...below] = item.content as Node[];
+      const [first, ...inline] = line.content as Node[];
+      const left = (first.text ?? "").slice(found[0].length);
+      if (!left && !inline.length && !below.length) return [];
+      return [{
+        type: "taskItem",
+        attrs: { checked: found[1] === "x" || found[1] === "X" },
+        content: [{ ...line, content: left ? [{ ...first, text: left }, ...inline] : inline }, ...below],
+      }];
+    });
+    return tasks.length ? [{ type: "taskList", content: tasks }] : [];
+  });
+}
+
+/** The items of a list answer, made into items of the list they join: a
+ * bulleted or numbered answer joins a checklist as unticked items. A
+ * checklist answer does not join a plain list, which would drop its boxes. */
+function joinItems(list: Node, into: WriteList): Node[] | null {
+  const items = (list.content ?? []) as Node[];
+  if (list.type === into) return items;
+  if (into !== "taskList") return list.type === "taskList" ? null : items;
+  const toTask = (item: Node): Node => ({
+    type: "taskItem",
+    attrs: { checked: false },
+    content: ((item.content ?? []) as Node[]).map((child) =>
+      child.type === "bulletList" || child.type === "orderedList"
+        ? { type: "taskList", content: ((child.content ?? []) as Node[]).map(toTask) }
+        : child,
+    ),
+  });
+  return items.map(toTask);
+}
+
 /** Turns a Markdown answer into blocks to insert. A one-paragraph answer comes
- * back as inline content so it can replace words inside a line. */
-export function writtenContent(markdown: string): { blocks: DocContent[]; inline: DocContent[] | null } {
+ * back as inline content so it can replace words inside a line. With `into`,
+ * the list at the spot the draft goes, a one-list answer also comes back as
+ * `items` of that list's kind to join it, and `blocks` shows them that way. */
+export function writtenContent(
+  markdown: string,
+  into?: WriteList | null,
+): { blocks: DocContent[]; inline: DocContent[] | null; items: DocContent[] | null } {
+  // "- []" is a checkbox to the eye but not to Markdown: tidyLists reads it.
   const doc = fromMarkdown(markdown.trim(), { breaks: true }).content;
-  const blocks = (doc.content ?? []) as DocContent[];
+  let blocks = tidyLists((doc.content ?? []) as Node[]);
   const only = blocks.length === 1 ? blocks[0] : null;
+  const items = into && only && isWriteList(only.type) ? joinItems(only, into) : null;
+  if (items && into) blocks = [{ type: into, content: items }];
   const inline = only?.type === "paragraph" ? ((only.content ?? []) as DocContent[]) : null;
-  return { blocks, inline };
+  return { blocks, inline, items };
 }

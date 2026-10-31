@@ -79,6 +79,7 @@ Guard rails before anything starts:
   "apiPort": 48080,
   "webPort": 44001,
   "tailscaleEnabled": false,
+  "tailscaleHttps": false,
   "allowRegistration": false,
   "setupDone": false,
   "secrets": {
@@ -88,6 +89,10 @@ Guard rails before anything starts:
   }
 }
 ```
+
+`tailscaleHttps` turns on Tailscale Serve (see "HTTPS with Tailscale Serve"); it only takes
+effect while `tailscaleEnabled` is on. `tailscaleServeTarget` records the Serve target Timely
+set up last, so a moved API port replaces Timely's own route and nothing else.
 
 Secrets are generated on first run (32 random bytes, base64url). A sealed value that can no
 longer be unsealed (the OS keyring changed) is replaced, and the old sealed value is moved to
@@ -123,6 +128,7 @@ The Next sidecar gets `PORT=webPort`, `HOSTNAME=127.0.0.1`, `API_ORIGIN=http://1
 ```json
 {
   "status": "ok",
+  "instanceId": "5be7a0c7-1ad1-47e8-a11c-03838acd2082",
   "version": "0.1.0",
   "db": "ok",
   "migrations": { "version": 20261002130631, "pending": 0 },
@@ -132,6 +138,10 @@ The Next sidecar gets `PORT=webPort`, `HOSTNAME=127.0.0.1`, `API_ORIGIN=http://1
 ```
 
 Returns 503 with `"status": "degraded"` and `"db": "<error>"` when the database ping fails.
+
+`instanceId` is this server's id (the one row of `server_identity`, made by its migration). A
+phone pins it when it pairs and sends nothing to an address that answers with a different id,
+or with none. It is missing while the database is down. `GET /instance` returns it too.
 
 `GET /instance` (authenticated):
 
@@ -161,8 +171,14 @@ password returns 403. The answer is `{"registrationOpen": bool, "lastAccount": b
 desktop app (Settings → Account, shown only there) then opens sign-up or sign-in, and sets
 `setupDone` back to false when no account is left so the first-run setup runs again.
 
-`/login`, `/register`, `/auth/refresh` and `DELETE /me` are rate limited: 20 requests per minute per IP and 8 per
-minute per account (email; `DELETE /me` by IP only). Over the limit returns 429 with `Retry-After`.
+`POST /pairing-codes` (authenticated) returns `{"code": "pair_…", "expiresAt": "<RFC 3339>"}`:
+a one-time code, good for 5 minutes, that the desktop adds to its pairing QR on request.
+`POST /auth/pair` (public, body `{"code": "pair_…"}`) spends the code and answers like
+`/login` with a new session for the person who made it. An unknown, used or expired code
+returns 401. Only a SHA-256 of each code is stored (`pairing_codes`).
+
+`/login`, `/register`, `/auth/refresh`, `/auth/pair` and `DELETE /me` are rate limited: 20 requests per minute per IP and 8 per
+minute per account (email; `DELETE /me` and `/auth/pair` by IP only). Over the limit returns 429 with `Retry-After`.
 
 `POST /agent/providers/rescan` (authenticated) drops the cached CLI detection so the next
 `GET /agent/providers` runs detection again.
@@ -174,12 +190,13 @@ Typed in `apps/web/electron-env.d.ts`. The renderer only sees it inside the desk
 ```ts
 timelyDesktop.instance.get(): Promise<DesktopInstance>
 timelyDesktop.instance.subscribe((instance) => void): () => void
-timelyDesktop.instance.setSetting("tailscaleEnabled" | "allowRegistration", boolean): Promise<DesktopInstance>
+timelyDesktop.instance.setSetting("tailscaleEnabled" | "tailscaleHttps" | "allowRegistration", boolean): Promise<DesktopInstance>
 timelyDesktop.instance.action("restartApi" | "backupNow" | "openDataFolder" | "openLogs" | "checkForUpdates" | "copyAddress"): Promise<DesktopActionResult>
 ```
 
 `setSetting("tailscaleEnabled", …)` rebinds the API by restarting only the API sidecar.
 `setSetting("allowRegistration", …)` also restarts only the API sidecar.
+`setSetting("tailscaleHttps", …)` changes Tailscale Serve and leaves the API running.
 
 Confirm dialogs move the mouse pointer onto their Cancel button when they open, like
 Windows' "Snap To" setting. The page passes the button's centre in CSS pixels; the main
@@ -197,12 +214,42 @@ timelyDesktop.snapPointer(x: number, y: number): void
 The QR code in Settings → Server encodes JSON:
 
 ```json
-{ "v": 1, "name": "my-laptop", "urls": ["http://100.101.102.103:48080", "http://127.0.0.1:48080"] }
+{
+  "v": 1,
+  "name": "my-laptop",
+  "id": "5be7a0c7-1ad1-47e8-a11c-03838acd2082",
+  "urls": ["https://my-laptop.tail1234.ts.net", "http://100.101.102.103:48080", "http://127.0.0.1:48080"],
+  "code": "pair_…"
+}
 ```
 
+`urls` lists the Tailscale Serve address first when HTTPS is on, then the Tailscale IPs, then
+loopback. `id` is the API's `instanceId`. `code` is there only while the person has pressed
+"Sign the phone in too" and the code has not expired; the phone then signs in with
+`POST /auth/pair` instead of asking for a password.
+
 The phone also accepts a bare URL pasted by hand. It calls `GET /health` on each URL in order,
-stores the whole list in SecureStore, and remembers the first one that answered. On every
-cold start it re-checks, trying the remembered URL first.
+stores the whole list and the id in SecureStore (never the code), and remembers the first one
+that answered. A bare URL pins the id of the server that answers it.
+
+The phone checks again when it starts, when it comes back to the foreground, when the network
+changes (turning Tailscale on counts) and every 15 s while nothing answers, trying the
+remembered URL first. Requests wait for the check at start, so a session token never goes to an
+address that now answers as a different server. While nothing answers, the phone counts as
+offline: changes queue and the banner says the desktop can't be reached.
+
+### HTTPS with Tailscale Serve
+
+With `tailscaleHttps` on, the supervisor runs
+`tailscale serve --bg --https=443 http://127.0.0.1:<apiPort>`, so the API answers at
+`https://<MagicDNS name>/` with a certificate Tailscale manages. Before that it reads
+`tailscale serve status --json` and refuses to replace anything else on port 443 of that name.
+Then it waits until `https://<name>/health` answers with this API's `instanceId` before it
+puts the address in the QR. MagicDNS and HTTPS certificates must be on for the tailnet. On
+Linux the user may need `sudo tailscale set --operator=$USER` once. Turning the setting off
+runs `tailscale serve --https=443 off`, but only while the route is still Timely's. Quitting
+the app leaves the route in place, so the phone falls back to the next address until Timely
+runs again.
 
 ## Development
 

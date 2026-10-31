@@ -9,6 +9,7 @@ import TimelyLogo from "../components/ui/TimelyLogo";
 import AnimatedPressable from "../components/ui/AnimatedPressable";
 import { Field, PrimaryButton } from "../components/ui/primitives";
 import { useAuth } from "../lib/auth/AuthProvider";
+import { ApiError } from "../lib/api/client";
 import { isInsecureServerUrl, parsePairingInput } from "../lib/server";
 import { useServer } from "../lib/server/ServerProvider";
 import { colors, createThemedStyleSheet } from "../lib/theme";
@@ -25,6 +26,15 @@ function confirmInsecure(url: string): Promise<boolean> {
       ],
       { cancelable: true, onDismiss: () => resolve(false) },
     );
+  });
+}
+
+/** The QR's sign-in code failed (expired, used); the person signs in with a password instead. */
+function noticeCodeFailed(message: string): Promise<void> {
+  return new Promise((resolve) => {
+    Alert.alert("Sign in with your password", `${message} Paired with the desktop; sign in to continue.`, [
+      { text: "OK", onPress: () => resolve() },
+    ], { cancelable: true, onDismiss: () => resolve() });
   });
 }
 
@@ -77,7 +87,9 @@ export default function ConnectScreen() {
     setError("");
     setPending(parsed.urls.length > 1 ? "Trying each address…" : "Connecting…");
     try {
-      const sameServer = changing && server.config?.urls.includes(parsed.urls[0]) === true;
+      const sameServer =
+        changing &&
+        (parsed.id && server.config?.id ? parsed.id === server.config.id : server.config?.urls.includes(parsed.urls[0]) === true);
       await server.connect(parsed, {
         beforeApply: async () => {
           // Tokens belong to one server; a different one gets a fresh sign-in.
@@ -87,6 +99,21 @@ export default function ConnectScreen() {
       if (changing && sameServer && auth.token) {
         router.back();
         return;
+      }
+      if (parsed.code) {
+        setPending("Signing in…");
+        try {
+          await auth.pair(parsed.code);
+          router.replace("/");
+          return;
+        } catch (err) {
+          setPending(null);
+          await noticeCodeFailed(
+            err instanceof ApiError && err.status === 401
+              ? "The sign-in code in the QR code expired or was already used."
+              : "Signing in with the QR code did not work.",
+          );
+        }
       }
       router.replace("/login");
     } catch (err) {

@@ -30,11 +30,6 @@ GOOSE_DBSTRING ?= "host=$(DB_HOST) port=$(DB_PORT) user=$(DB_USER) password=$(DB
 GOOSE_MIGRATIONS := goose -dir $(API)/migrations postgres $(GOOSE_DBSTRING)
 GOOSE_SEEDS      := goose -dir $(API)/migrations/seeds postgres $(GOOSE_DBSTRING)
 
-# make dev-api: devtap listens on the API's usual port and forwards to the Go
-# server on DEVTAP_API_PORT (inspector on :9090).
-API_LISTEN_PORT := $(or $(API_PORT),$(PORT),8080)
-DEVTAP_API_PORT ?= 8087
-
 .PHONY: help setup setup-env install tools install-air install-goose \
         dev dev-api dev-web film-studio film-render film-render-loops film-render-stills dev-mobile dev-mobile-device dev-desktop launch-electron \
         dev-worktree dev-worktree-api dev-worktree-web \
@@ -74,10 +69,8 @@ install-goose: ## Install the goose migration CLI
 dev: ## Run API (:8080) and web (:4001) together with live reload
 	@$(MAKE) -j2 --no-print-directory dev-api dev-web
 
-dev-api: ## Run the Go API with live reload (air), through devtap when it's installed
-	@cd $(API) && if command -v devtap >/dev/null; then \
-		devtap $(DEVTAP_API_PORT) -p $(API_LISTEN_PORT) -- env API_PORT=$(DEVTAP_API_PORT) air; \
-	else air; fi
+dev-api: ## Run the Go API with live reload (air)
+	@cd $(API) && air
 
 dev-web: ## Run the Next.js dev server on :4001
 	@pnpm --filter @timely/web dev
@@ -216,7 +209,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-inbox test-starter-labels test-view-search test-view-language test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-web-api-proxy test-chat-stream test-project-delete test-bulk-edit test-mobile-event-occurrence test-calendar-occurrence-done test-mobile-meeting-url test-mobile-back-fallback ## Run all tests
+test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-inbox test-starter-labels test-view-search test-view-language test-dashboard test-genui test-mobile-live-block test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-web-api-proxy test-chat-stream test-project-delete test-bulk-edit test-mobile-event-occurrence test-calendar-occurrence-done test-mobile-meeting-url test-mobile-back-fallback ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -357,6 +350,18 @@ test-view-language: ## Test how plain words become a task view ("overdue bugs in
 .PHONY: test-project-delete
 test-project-delete: ## Test the confirm that names the tasks a project delete takes with it
 	@node --experimental-strip-types --test scripts/project-delete.test.mjs
+
+.PHONY: test-genui gen-genui-prompt gen-board-check
+test-genui: ## Test reply and described cards: the OpenUI prompts, their examples, splitting replies and @Data
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/genui.test.mjs
+gen-genui-prompt: ## Write the reply- and described-card instructions for the API from packages/contract/src/genui*.ts
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs scripts/gen-genui-prompt.mjs
+gen-board-check: ## Bundle the described-card check for the API (its Describe AI draws draft cards with it)
+	@node scripts/gen-board-check.mjs
+
+.PHONY: test-mobile-live-block
+test-mobile-live-block: ## Test the HTML the phone draws a doc's live blocks with in its editor page
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/mobile-live-block.test.mjs
 
 .PHONY: test-dashboard
 test-dashboard: ## Test the shared Report dashboard engine (card queries, layouts, built-in cards)

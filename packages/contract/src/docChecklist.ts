@@ -66,36 +66,6 @@ export function checklistTaskName(text: string): { name: string; details: string
   return { name, details };
 }
 
-/** One-word items that read as a to-do on their own: an action ("Call",
- * "Deploy") or a chore that names its action ("Laundry", "Dentist"). */
-const ONE_WORD_TASKS = new Set(
-  (
-    "add apply archive ask backup bake book build buy call cancel change check clean cleanup commit compile confirm contact cook " +
-    "debug decide delete deploy design document download draft email exercise export file finish fix follow-up followup " +
-    "implement import install invite iron mail meditate meet merge migrate mop move order organise organize pack paint pay " +
-    "phone plan post practice practise prepare print publish push read rebase record refactor register release remind renew " +
-    "repair reply report research reschedule return review revise run schedule send sign ship shop shower sort study submit " +
-    "sweep sync test text tidy train translate unpack update upgrade upload vacuum verify visit vote walk wash water work " +
-    "workout write " +
-    "appointment bills chores dentist dishes doctor errands groceries gym haircut homework invoice laundry meeting rent " +
-    "shopping standup taxes"
-  ).split(" ").filter(Boolean),
-);
-
-/** Whether an item's name reads as something to do, so it is worth offering
- * as a task. A name of two words or more does; a lone word only when it is an
- * action or a chore, so a stray word ("Adwad"), a label ("Login") or a bare
- * number, date or link is not offered. */
-export function readsLikeTask(name: string): boolean {
-  const words = name
-    .replace(/\b(?:https?:\/\/|www\.)\S+/giu, " ")
-    .split(/\s+/)
-    .map((word) => word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""))
-    .filter((word) => /\p{L}/u.test(word));
-  if (words.length >= 2) return true;
-  return words.length === 1 && ONE_WORD_TASKS.has(words[0].toLowerCase());
-}
-
 /** A checklist item's own words: its paragraphs, not its nested items. */
 function itemText(node: Node): string {
   return (node.content ?? [])
@@ -107,32 +77,100 @@ function itemText(node: Node): string {
     .trim();
 }
 
-/** Unchecked checklist items in a doc, in order, one per distinct task name.
- * Checked items, empty ones, ones that already mention a task and ones inside
- * code or properties are left out. A nested item is its own entry. Items that
- * do not read like a task are still listed, so one made a task anyway is
- * shown as one; the clients offer only those that do (readsLikeTask).
- *
- * `keptLists` are the words of items (lower case) on checklists that are kept
- * in the doc rather than worked as tasks, such as groceries or packing (the
- * API's doc hints, `keptLists`). A checklist holding any of them is left out
- * whole, so an item added to it later is left out too. */
-export function openChecklistItems(content: DocContent | null | undefined, keptLists?: readonly string[]): ChecklistTodo[] {
-  const out: ChecklistTodo[] = [];
-  const seen = new Set<string>();
-  const kept = new Set(keptLists ?? []);
+/** A checklist item as cards and replies show it (@Checklist, CheckRow). */
+export interface DocChecklistItem {
+  /** Its place among the doc's checklist items, from 0, empty ones counted;
+   * what `PUT /docs/:id/checklist` takes to tick it. */
+  item: number;
+  /** The item's own words, spaces collapsed. */
+  text: string;
+  done: boolean;
+  /** The heading above its checklist, when there is one. */
+  heading: string;
+}
+
+/** The text of a heading or paragraph as headings read: spaces collapsed. */
+function blockText(node: Node): string {
+  return inlineText(node).replace(/\s+/g, " ").trim();
+}
+
+/** Every checklist item in a doc, ticked or not, in order, nested ones too;
+ * empty ones are left out but keep their place in the numbering. Items in
+ * code or properties are not checklist items. The API numbers them the same
+ * way (richtext.ChecklistItems) when it ticks one. */
+export function checklistItems(content: DocContent | null | undefined): DocChecklistItem[] {
+  const out: DocChecklistItem[] = [];
+  let item = 0;
+  let heading = "";
   const walk = (raw: unknown) => {
     const node = asNode(raw);
     if (!node || SKIP.has(node.type ?? "")) return;
-    if (
-      kept.size &&
-      node.type === "taskList" &&
-      (node.content ?? []).some((child) => {
-        const row = asNode(child);
-        return row?.type === "taskItem" && kept.has(itemText(row).toLowerCase());
-      })
-    )
+    if (node.type === "heading") {
+      heading = blockText(node);
       return;
+    }
+    if (node.type === "taskItem") {
+      const text = itemText(node);
+      if (text) out.push({ item, text, done: node.attrs?.checked === true, heading });
+      item += 1;
+    }
+    for (const child of node.content ?? []) walk(child);
+  };
+  walk(content);
+  return out;
+}
+
+/** Compares an item's words the way CheckRow finds them: case and spaces aside. */
+export function checklistKey(text: string): string {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/** The item a CheckRow means: the one at `item` when its words still match,
+ * else the first with those words. */
+export function findChecklistItem(items: DocChecklistItem[], text: string, item?: number): DocChecklistItem | undefined {
+  const key = checklistKey(text);
+  const placed = typeof item === "number" ? items.find((entry) => entry.item === item) : undefined;
+  if (placed && checklistKey(placed.text) === key) return placed;
+  return items.find((entry) => checklistKey(entry.text) === key);
+}
+
+/** What `PUT /docs/:id/checklist` takes: the item by its place and words, and its new state. */
+export interface ChecklistTickRequest {
+  item: number;
+  text: string;
+  done: boolean;
+}
+
+/** The doc's content with one item ticked or unticked, as the API will save
+ * it, for showing a tick at once; null when the doc has no such item. */
+export function tickedContent(content: DocContent | null | undefined, tick: ChecklistTickRequest): DocContent | null {
+  const target = findChecklistItem(checklistItems(content), tick.text, tick.item);
+  if (!content || !target) return null;
+  let item = 0;
+  const copy = (raw: unknown): unknown => {
+    const node = asNode(raw);
+    if (!node || SKIP.has(node.type ?? "") || node.type === "heading") return raw;
+    let next: Node = node;
+    if (node.type === "taskItem") {
+      if (item === target.item) next = { ...node, attrs: { ...node.attrs, checked: tick.done } };
+      item += 1;
+    }
+    return next.content ? { ...next, content: next.content.map(copy) } : next;
+  };
+  return copy(content) as DocContent;
+}
+
+/** Unchecked checklist items in a doc, in order, one per distinct task name.
+ * Checked items, empty ones, ones that already mention a task and ones inside
+ * code or properties are left out. A nested item is its own entry. Every
+ * open item is listed, so one made a task already is shown as one; the API
+ * says which to offer (Jev reads which are things to get done). */
+export function openChecklistItems(content: DocContent | null | undefined): ChecklistTodo[] {
+  const out: ChecklistTodo[] = [];
+  const seen = new Set<string>();
+  const walk = (raw: unknown) => {
+    const node = asNode(raw);
+    if (!node || SKIP.has(node.type ?? "")) return;
     if (node.type === "taskItem" && node.attrs?.checked !== true && !linksTask(node)) {
       const text = itemText(node);
       if ([...text].length >= 2) {

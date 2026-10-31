@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
-import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useMutationState, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { getMe, listSessions, revokeOtherSessions, revokeSession } from "./api/auth";
 import { getTasks, getTask, updateTask, deleteTask, createTask, captureInbox, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks, duplicateTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, startFocus, pauseFocus, stopFocus, setTodayFocus, getFocusSessions } from "./api/tasks";
-import { getDocs, getDoc, getDocBacklinks, createDoc, updateDoc, deleteDoc, watchDoc, type DocWatchEvent } from "./api/docs";
+import { getDocs, getDoc, getDocBacklinks, createDoc, updateDoc, deleteDoc, setChecklistItem, watchDoc, type DocWatchEvent } from "./api/docs";
+import { tickedContent, type ChecklistTickRequest } from "@timely/contract/docChecklist";
 import type { CalendarRange, Doc, MentionEntityType, NotificationSettings, Project, Sheet, SheetTemplate, Task, TaskViewConfig, TodayResponse } from "./types";
 import { withOccurrenceDone, withTaskDone } from "@timely/contract/calendar";
 import { getSheets, getSheet, createSheet, updateSheet, deleteSheet, duplicateSheet, getSheetTemplates, createSheetTemplate, updateSheetTemplate, deleteSheetTemplate, materializeTemplateTab } from "./api/sheets";
@@ -28,6 +29,8 @@ import {
   updateWorkingHours,
 } from "./api/schedule";
 import { useScheduleActivity } from "./scheduleActivity";
+import { useToastStore } from "./toast";
+import { ApiError } from "./api/client";
 import { deviceTimezone } from "./format";
 import { createEvent, deleteEvent, editEventOccurrence, getEvent, splitEventSeries, updateEvent } from "./api/events";
 import { relatedItems, searchItems, smartSearch, type RelatedKind } from "./api/search";
@@ -54,7 +57,10 @@ import {
   getDocHints,
   getDocChecklist,
   dismissDocHint,
+  restoreDocHint,
+  type DocChecklist,
   type DocHintKind,
+  type DocHints,
   getTodaySuggestions,
   getHighlights,
   runNotificationTriage,
@@ -622,24 +628,77 @@ export function useDocHintsQuery(id: string | undefined, version: string, enable
   });
 }
 
-/** Dismisses a doc suggestion for good. The doc's cached suggestions are
- * read again afterwards, so the row stays gone when the doc reopens. */
+type DocHintChange = { kind: DocHintKind; value?: string; restore?: boolean };
+
+const docHintChangeKey = (id: string) => ["doc-hint-change", id] as const;
+
+/** Dismisses a doc suggestion for good, or with `restore` takes a dismissal
+ * back. The doc's cached suggestions and checklist offers are read again
+ * afterwards, so the row stays gone when the doc reopens. The doc's task
+ * offers switch ("todos") flips at once everywhere it shows
+ * (useDocOffersOff), and flips back with a message if it could not be saved,
+ * offline too. */
 export function useDismissDocHint(id: string) {
   const client = useQueryClient();
+  const reads = [["doc-hints", id], ["doc-checklist", id]];
+  // A read under way may have started before the change was saved.
+  const cancelReads = () => Promise.all(reads.map((queryKey) => client.cancelQueries({ queryKey })));
   return useMutation({
-    mutationFn: ({ kind, value }: { kind: DocHintKind; value?: string }) => dismissDocHint(id, kind, value),
-    onSettled: () => client.invalidateQueries({ queryKey: ["doc-hints", id] }),
+    mutationKey: docHintChangeKey(id),
+    // One at a time per doc, so the last change made is the one kept.
+    scope: { id: `doc-hint-change:${id}` },
+    mutationFn: ({ kind, value, restore }: DocHintChange) => (restore ? restoreDocHint : dismissDocHint)(id, kind, value),
+    onMutate: async ({ kind, restore }) => {
+      if (kind !== "todos") return;
+      await cancelReads();
+      const before = reads.flatMap((queryKey) => client.getQueriesData({ queryKey }));
+      client.setQueriesData<DocHints>({ queryKey: ["doc-hints", id] }, (old) => old && { ...old, todosOff: !restore });
+      client.setQueriesData<DocChecklist>({ queryKey: ["doc-checklist", id] }, (old) => old && { ...old, off: !restore });
+      return before;
+    },
+    onError: (error, { kind }, before) => {
+      for (const [queryKey, data] of before ?? []) client.setQueryData(queryKey, data);
+      if (kind === "todos") useToastStore.getState().show("Couldn’t change task offers for this doc. Try again.");
+      // The doc keeps too many dismissals: this one will show again.
+      else if (error instanceof ApiError && error.status === 409) useToastStore.getState().show(error.message);
+    },
+    onSettled: async (_data, error, { kind }) => {
+      if (kind === "todos") await cancelReads();
+      const reread = Promise.all(reads.map((queryKey) => client.invalidateQueries({ queryKey })));
+      // Saved: the change shows as pending until the new read is in. Not
+      // saved: the old answer is back already, and offline the read waits.
+      if (!error) await reread;
+    },
   });
 }
 
-/** Which unchecked checklist items of a doc are already tasks, and where new
- * ones go. Runs with suggestions off too: a checklist item needs no model. */
+/** Whether the doc's task offers are off: a change still being saved wins
+ * over `saved`, the cached answer, which may have been read before it. */
+export function useDocOffersOff(id: string, saved: boolean | undefined) {
+  const pending = useMutationState({
+    filters: {
+      mutationKey: docHintChangeKey(id),
+      status: "pending",
+      predicate: (mutation) => (mutation.state.variables as DocHintChange | undefined)?.kind === "todos",
+    },
+    select: (mutation) => !(mutation.state.variables as DocHintChange).restore,
+  });
+  return pending.length > 0 ? pending[pending.length - 1] : Boolean(saved);
+}
+
+/** Which unchecked checklist items of a doc are already tasks, which to offer
+ * as tasks and where new ones go. Offers need smart suggestions on: Jev reads
+ * which items are things to get done. */
 export function useDocChecklistQuery(id: string | undefined, names: string[], projectId?: string) {
+  // Asked again when suggestions go on or off, so offers come and go with them;
+  // not before they are known, or the first read is made twice.
+  const status = useDecisionsStatusQuery(!!id);
+  const on = status.data?.available === true;
   return useQuery({
-    queryKey: keys.docChecklist(id ?? "", names, projectId ?? ""),
+    queryKey: [...keys.docChecklist(id ?? "", names, projectId ?? ""), on],
     // names says which items an answer covers while a newer one loads.
     queryFn: async () => ({ ...(await getDocChecklist(id!, names, projectId)), names }),
-    enabled: !!id && names.length > 0,
+    enabled: !!id && names.length > 0 && status.isFetched,
     placeholderData: keepPreviousData,
     retry: false,
     staleTime: 60 * 1000,
@@ -1054,6 +1113,32 @@ export function useUpdateDoc() {
         docs?.map((item) => (item.id === next.id ? next : item)),
       );
     },
+  });
+}
+
+/**
+ * Ticks one checklist item from a card, a live block or a reply. The tick
+ * shows at once in the doc and the docs list, which cards read, and the
+ * server's copy replaces it; a failed tick is put back.
+ */
+export function useSetChecklistItem() {
+  const client = useQueryClient();
+  const put = (id: string, change: (doc: Doc) => Doc) => {
+    client.setQueryData<Doc>(keys.doc(id), (doc) => (doc ? change(doc) : doc));
+    client.setQueryData<Doc[]>(keys.docs, (docs) => docs?.map((item) => (item.id === id ? change(item) : item)));
+  };
+  return useMutation({
+    mutationFn: ({ id, ...tick }: ChecklistTickRequest & { id: string }) => setChecklistItem(id, tick),
+    onMutate: ({ id, ...tick }) => {
+      const before = { doc: client.getQueryData<Doc>(keys.doc(id)), docs: client.getQueryData<Doc[]>(keys.docs) };
+      put(id, (doc) => ({ ...doc, content: (tickedContent(doc.content, tick) as Doc["content"] | null) ?? doc.content }));
+      return before;
+    },
+    onError: (_error, { id }, before) => {
+      client.setQueryData(keys.doc(id), before?.doc);
+      client.setQueryData(keys.docs, before?.docs);
+    },
+    onSuccess: (doc) => put(doc.id, () => doc),
   });
 }
 
