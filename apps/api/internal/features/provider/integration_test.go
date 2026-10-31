@@ -518,7 +518,8 @@ func TestIntegrationOpenRouterKeyNeverTakesChat(t *testing.T) {
 	}
 	mu.Unlock()
 	// Choosing OpenRouter for chat is the moment its chat model is tested.
-	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/providers", map[string]string{"defaultProvider": OpenRouter}); code != 200 || body["defaultChosen"] != true {
+	// The apps still learn what Automatic would pick while another is chosen.
+	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/providers", map[string]string{"defaultProvider": OpenRouter}); code != 200 || body["defaultChosen"] != true || body["defaultProvider"] != OpenRouter || body["autoProvider"] != "anthropic" {
 		t.Fatalf("%d %v", code, body)
 	}
 	mu.Lock()

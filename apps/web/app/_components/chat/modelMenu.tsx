@@ -47,6 +47,7 @@ export default function ModelMenu({
   const ready = readyProviders(providers.data);
   const defaultId = providers.data?.defaultProvider;
   const defaultModel = ready.find((p) => p.id === defaultId)?.model ?? "";
+  const automatic = providers.data ? !providers.data.defaultChosen : false;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [browsing, setBrowsing] = useState<string>("");
@@ -147,7 +148,7 @@ export default function ModelMenu({
               <span className="block text-sm text-foreground">Default</span>
               <span className="block truncate text-[11px] text-muted-foreground">
                 {defaultId
-                  ? `${label(defaultId)}${defaultModel ? ` · ${defaultModel}` : ""}`
+                  ? `${automatic ? "Automatic · " : ""}${label(defaultId)}${defaultModel ? ` · ${defaultModel}` : ""}`
                   : "Set in Settings → Agent"}
               </span>
             </span>
