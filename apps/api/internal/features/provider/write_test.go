@@ -225,16 +225,37 @@ func TestClipTailKeepsEnd(t *testing.T) {
 	}
 }
 
-func TestWriteProvider(t *testing.T) {
-	o := overview{DefaultProvider: OpenRouter, APIs: []apiView{{ID: "anthropic", Ready: true}}}
-	if got := writeProvider(o); got != "anthropic" {
-		t.Errorf("default not ready: got %q", got)
+func TestWriteProviderFollowsTheChatDefault(t *testing.T) {
+	// The writing features use the same provider as new chat runs, even when
+	// it is not ready: they fail with that provider's own message instead of
+	// moving to another provider.
+	o := overview{DefaultProvider: ClaudeCLI, DefaultChosen: true, LocalCLI: true, OpenRouter: openRouterView{Ready: true}, APIs: []apiView{{ID: "anthropic", Ready: true}}}
+	if got := writeProvider(o); got != ClaudeCLI {
+		t.Errorf("chosen default: got %q", got)
 	}
-	o.OpenRouter.Ready = true
-	if got := writeProvider(o); got != OpenRouter {
-		t.Errorf("ready default: got %q", got)
+	if got := writeProvider(overview{}); got != "" {
+		t.Errorf("nothing ready: got %q", got)
 	}
-	if got := writeProvider(overview{DefaultProvider: OpenRouter}); got != "" {
+}
+
+func TestAutoProviderPutsOpenRouterLast(t *testing.T) {
+	ready := func(o overview) string { return autoProvider(o) }
+	both := overview{OpenRouter: openRouterView{Ready: true}, APIs: []apiView{{ID: "anthropic", Ready: true}}}
+	if got := ready(both); got != "anthropic" {
+		t.Errorf("an OpenRouter key saved for search must not take chat from Anthropic: got %q", got)
+	}
+	cli := overview{LocalCLI: true, Claude: cliView{Ready: true}, OpenRouter: openRouterView{Ready: true}}
+	if got := ready(cli); got != ClaudeCLI {
+		t.Errorf("connected Claude Code before OpenRouter: got %q", got)
+	}
+	cli.LocalCLI = false
+	if got := ready(cli); got != OpenRouter {
+		t.Errorf("CLIs switched off on the server: got %q", got)
+	}
+	if got := ready(overview{OpenRouter: openRouterView{Ready: true}, APIs: []apiView{{ID: "anthropic"}}}); got != OpenRouter {
+		t.Errorf("OpenRouter alone keeps chat working: got %q", got)
+	}
+	if got := ready(overview{}); got != "" {
 		t.Errorf("nothing ready: got %q", got)
 	}
 }

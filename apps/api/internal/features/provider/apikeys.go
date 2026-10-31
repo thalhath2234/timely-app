@@ -184,19 +184,14 @@ func (s *Service) anthropicBase(base string) string {
 // pickModel keeps a still-listed choice, else the provider's preferred
 // default, else the first listed model.
 func pickModel(spec *apiProvider, current string, list []ModelOption) string {
-	has := func(id string) bool {
-		for _, m := range list {
-			if m.ID == id {
-				return true
-			}
-		}
-		return false
-	}
-	if current != "" && (has(current) || len(list) == 0) {
+	if current != "" && len(list) == 0 {
 		return current
 	}
+	if id, ok := listedModel(list, current); ok {
+		return id
+	}
 	for _, id := range spec.Defaults {
-		if has(id) {
+		if id, ok := listedModel(list, id); ok {
 			return id
 		}
 	}
@@ -207,6 +202,28 @@ func pickModel(spec *apiProvider, current string, list []ModelOption) string {
 		return spec.Defaults[0]
 	}
 	return ""
+}
+
+// listedModel finds id in a model list, or the same model under a dated name
+// (claude-haiku-5-5 and claude-haiku-5-5-20261001), so a replaced key or a
+// list that names models differently keeps the person's model.
+func listedModel(list []ModelOption, id string) (string, bool) {
+	if id == "" {
+		return "", false
+	}
+	for _, m := range list {
+		if m.ID == id {
+			return m.ID, true
+		}
+	}
+	// The last match is the newest: lists are sorted by display name.
+	found := ""
+	for _, m := range list {
+		if strings.HasPrefix(m.ID, id+"-") || strings.HasPrefix(id, m.ID+"-") {
+			found = m.ID
+		}
+	}
+	return found, found != ""
 }
 
 func (s *Service) buildAPI(spec *apiProvider, row APIKey, model string) (chat.Completer, error) {
@@ -334,7 +351,7 @@ func (s *Service) removeAPIKey(c *echo.Context) error {
 	}
 	if _, err := s.update(user(c), func(row *Settings) error {
 		if row.DefaultProvider == id {
-			row.DefaultProvider = OpenRouter
+			row.DefaultProvider = ""
 		}
 		return nil
 	}); err != nil {

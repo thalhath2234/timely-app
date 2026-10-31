@@ -66,6 +66,15 @@ func WithCompleter(ctx context.Context, c Completer) context.Context {
 	return context.WithValue(ctx, completerKey{}, c)
 }
 
+// CompleterFrom returns the run's client attached with WithCompleter, or nil
+// outside a run, so a model call made by a tool uses the run's own model.
+func CompleterFrom(ctx context.Context) Completer {
+	if c, ok := ctx.Value(completerKey{}).(Completer); ok && c != nil {
+		return c
+	}
+	return nil
+}
+
 // canSearch reports whether the run's provider can answer web searches.
 func canSearch(ctx context.Context) bool {
 	if c, ok := ctx.Value(completerKey{}).(Searcher); ok && c != nil {

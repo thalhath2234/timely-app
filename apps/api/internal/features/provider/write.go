@@ -221,33 +221,11 @@ func clipTail(s string, n int) string {
 	return strings.ToValidUTF8(s[len(s)-n:], "")
 }
 
-// writeProvider picks the account default when it is ready, otherwise the
-// first ready provider in the order the model menu lists them.
+// writeProvider is the provider the writing features use: the same one new
+// chat runs use (the person's default, else autoProvider's pick), so they never
+// move to another provider on their own.
 func writeProvider(o overview) string {
-	ready := []string{}
-	if o.OpenRouter.Ready {
-		ready = append(ready, OpenRouter)
-	}
-	if o.LocalCLI && o.Claude.Ready {
-		ready = append(ready, ClaudeCLI)
-	}
-	if o.LocalCLI && o.Codex.Ready {
-		ready = append(ready, CodexCLI)
-	}
-	for _, api := range o.APIs {
-		if api.Ready {
-			ready = append(ready, api.ID)
-		}
-	}
-	for _, id := range ready {
-		if id == o.DefaultProvider {
-			return id
-		}
-	}
-	if len(ready) > 0 {
-		return ready[0]
-	}
-	return ""
+	return o.DefaultProvider
 }
 
 func (s *Service) write(c *echo.Context) error {

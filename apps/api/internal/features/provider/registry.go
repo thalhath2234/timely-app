@@ -154,7 +154,8 @@ var apiProviders = []*apiProvider{
 		Description: "Claude models billed to your Anthropic Console key. Separate from the Claude Code subscription.",
 		KeyURL:      "https://platform.claude.com/settings/keys", KeyPlaceholder: "sk-ant-…",
 		Endpoints: []endpoint{{ID: "default", Label: "api.anthropic.com", BaseURL: "https://api.anthropic.com/v1"}},
-		Defaults:  []string{"claude-opus-5-5"},
+		// Haiku first: the key is the person's own and billed per token.
+		Defaults: []string{"claude-haiku-5-5", "claude-haiku"},
 	},
 	{
 		// Every OpenAI model goes through the Responses API: the newest models

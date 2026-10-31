@@ -13,6 +13,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -93,9 +94,10 @@ type Service struct {
 	readTools func(*gorm.DB) agent.Catalog
 	boardData BoardData
 
-	openRouterURL string // overridable for tests
-	anthropicURL  string // overridable for tests
-	ollamaURL     string // OLLAMA_BASE_URL: the default Ollama address
+	openRouterURL    string // overridable for tests
+	openRouterKeyURL string // overridable for tests; checks a key without spending tokens
+	anthropicURL     string // overridable for tests
+	ollamaURL        string // OLLAMA_BASE_URL: the default Ollama address
 }
 
 func New(db *gorm.DB, indexer embed.Indexer, queue *jobs.Queue) *Service {
@@ -119,8 +121,9 @@ func New(db *gorm.DB, indexer embed.Indexer, queue *jobs.Queue) *Service {
 		envChat:  chatModel, envEmbed: embedModel,
 		key: sha256.Sum256([]byte("timely-agent-provider:" + secret)),
 
-		openRouterURL: "https://openrouter.ai/api/v1/chat/completions",
-		ollamaURL:     strings.TrimRight(strings.TrimSpace(os.Getenv("OLLAMA_BASE_URL")), "/"),
+		openRouterURL:    "https://openrouter.ai/api/v1/chat/completions",
+		openRouterKeyURL: "https://openrouter.ai/api/v1/key",
+		ollamaURL:        strings.TrimRight(strings.TrimSpace(os.Getenv("OLLAMA_BASE_URL")), "/"),
 	}
 	if indexer != nil {
 		indexer.SetCredentials(s.EmbedCredentials)
@@ -137,14 +140,13 @@ func (s *Service) LocalCLI() bool { return s.localCLI }
 
 // ---- storage ----
 
+// An empty DefaultProvider means the person has not picked one: runs then use
+// the first ready provider in autoProvider's order.
 func (s *Service) load(db *gorm.DB, userID string) (Settings, error) {
 	var row Settings
 	err := db.Where("user_id = ?", userID).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return Settings{UserID: userID, DefaultProvider: OpenRouter}, nil
-	}
-	if row.DefaultProvider == "" {
-		row.DefaultProvider = OpenRouter
+		return Settings{UserID: userID}, nil
 	}
 	return row, err
 }
@@ -262,12 +264,27 @@ func (s *Service) chatModel(row Settings, provider string) string {
 	}
 }
 
+// errNoProvider is the answer when no provider is chosen and none is ready.
+var errNoProvider = errors.New("No AI provider is set up. Add a Claude or other API key in Settings → Agent, or choose OpenRouter there")
+
+// defaultProvider is the provider runs and the writing features use: the
+// person's choice, else the first ready one in autoProvider's order.
+func (s *Service) defaultProvider(ctx context.Context, row Settings) string {
+	if row.DefaultProvider != "" {
+		return row.DefaultProvider
+	}
+	return s.view(ctx, row, time.Minute).DefaultProvider
+}
+
 func (s *Service) Resolve(ctx context.Context, userID string) (string, string, error) {
 	row, err := s.load(s.db.WithContext(ctx), userID)
 	if err != nil {
 		return "", "", err
 	}
-	provider := row.DefaultProvider
+	provider := s.defaultProvider(ctx, row)
+	if provider == "" {
+		return "", "", errNoProvider
+	}
 	if (provider == ClaudeCLI || provider == CodexCLI) && !s.localCLI {
 		return provider, "", fmt.Errorf("Local CLIs are turned off on this server (CHAT_LOCAL_CLI=off). Pick another provider in Settings → Agent")
 	}
@@ -287,7 +304,9 @@ func (s *Service) Completer(ctx context.Context, userID, provider, model string)
 		return nil, err
 	}
 	if provider == "" {
-		provider = row.DefaultProvider
+		if provider = s.defaultProvider(ctx, row); provider == "" {
+			return nil, errNoProvider
+		}
 	}
 	if spec := apiProviderByID(provider); spec != nil {
 		api, found, err := s.apiRow(s.db.WithContext(ctx), userID, provider)
@@ -365,6 +384,33 @@ func (s *Service) EmbedCredentials(userID string) (string, string) {
 		model = s.envEmbed
 	}
 	return key, model
+}
+
+// checkOpenRouterKey asks OpenRouter whether a key is valid. The key endpoint
+// spends no tokens and sends no chat, so a key saved only for embeddings and
+// smart suggestions never runs a chat model.
+func (s *Service) checkOpenRouterKey(ctx context.Context, key string) error {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.openRouterKeyURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	res, err := s.models.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("Could not reach OpenRouter to check this key. Try again")
+	}
+	defer res.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 1<<16))
+	switch {
+	case res.StatusCode/100 == 2:
+		return nil
+	case res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden:
+		return errors.New("OpenRouter rejected this key")
+	default:
+		return fmt.Errorf("OpenRouter could not check this key (HTTP %d). Try again", res.StatusCode)
+	}
 }
 
 // testCompleter sends one tiny request so a saved model or key is known to work.
