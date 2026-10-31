@@ -1211,11 +1211,13 @@ html.reduce-motion:not([data-public-site]) .tl-bar {
 
 .doc-callout {
   --callout: var(--primary);
+  /* Read by the offer discs of rows inside, to reach the lane past it. */
+  --callout-pad: 0.9rem;
   background: color-mix(in oklab, var(--callout) 8%, transparent);
   border-left: 3px solid var(--callout);
   border-radius: 0 8px 8px 0;
   margin: 0.85em 0;
-  padding: 0.5rem 0.9rem 0.6rem;
+  padding: 0.5rem var(--callout-pad) 0.6rem;
 }
 
 .doc-callout-tip { --callout: oklch(0.65 0.17 155); }
@@ -1556,11 +1558,177 @@ html.reduce-motion:not([data-public-site]) .tl-bar {
 .doc-page-grid[data-layout="margin"] > .doc-page-rail {
   position: relative;
 }
-/* The line a margin suggestion is about, while its card is open or hovered. */
+/* The rail's sticky stack (docPage.tsx RailStack) fades at its foot while
+ * more of it is below, so it reads as something to scroll. */
+.doc-rail-stack[data-more] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent);
+}
+/* The line a suggestion is about, while its offer is open or hovered. */
 .doc-line-hinted {
   border-radius: 0.375rem;
   background: color-mix(in oklab, var(--primary) 9%, transparent);
   box-shadow: 0 0 0 4px color-mix(in oklab, var(--primary) 9%, transparent);
+}
+
+/* "Make task" offers (offerMarks.ts): a disc on each offered row, level with
+ * its first line. It is placed against its own row, never measured, so it
+ * cannot drift when the rail changes, the page scrolls or the doc is edited.
+ * A row ends at the text column's right edge, or a callout's padding short
+ * of it (--offer-inset), so on a wide page the disc lands in the middle of
+ * the 2.5rem gap before the rail, all discs in one lane. On a narrow page,
+ * and for rows in columns and tables, it sits at the row's right edge
+ * inside the text (is-inline). */
+.doc-offer-row {
+  position: relative;
+}
+.doc-callout .doc-offer-row {
+  --offer-inset: var(--callout-pad);
+}
+.doc-callout .doc-callout .doc-offer-row {
+  --offer-inset: calc(2 * var(--callout-pad));
+}
+.doc-offer-anchor {
+  position: absolute;
+  /* With no `top`, the host stays at the height of its place before the
+   * first word, and the margin centres the disc on that line. */
+  left: calc(100% + 8px + var(--offer-inset, 0px));
+  z-index: 1;
+  display: block;
+  width: 24px;
+  height: 24px;
+  margin-top: calc((1lh - 24px) / 2);
+  text-indent: 0;
+  user-select: none;
+}
+.doc-offer-line.is-inline {
+  padding-right: 2rem;
+}
+.doc-offer-line.is-inline > .doc-offer-anchor {
+  left: auto;
+  right: 4px;
+}
+.doc-offer-line.is-open > .doc-offer-anchor {
+  z-index: 30;
+}
+.doc-offer-disc {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.doc-offer-disc svg {
+  width: 12px;
+  height: 12px;
+}
+.doc-offer-disc:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+/* The pointer or the caret on the row, or its rail row hovered. */
+.doc-offer-disc:hover,
+.doc-offer-line.is-hot > .doc-offer-anchor > .doc-offer-disc,
+.doc-offer-line.is-caret > .doc-offer-anchor > .doc-offer-disc {
+  border-color: color-mix(in oklab, var(--primary) 40%, transparent);
+  background: color-mix(in oklab, var(--primary) 12%, var(--card));
+  color: var(--primary);
+}
+.doc-offer-line.is-open > .doc-offer-anchor > .doc-offer-disc {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.doc-offer-line.is-open > .doc-offer-anchor > .doc-offer-disc svg path {
+  fill: currentColor;
+}
+.doc-offer-line.is-busy > .doc-offer-anchor > .doc-offer-disc {
+  animation: doc-offer-busy 1s ease-in-out infinite alternate;
+}
+@keyframes doc-offer-busy {
+  to {
+    opacity: 0.45;
+  }
+}
+/* On a wide page the tint runs on across the gap to the disc. */
+.doc-offer-row.doc-line-hinted:not(.is-inline) {
+  border-radius: 0.375rem 0 0 0.375rem;
+}
+.doc-offer-row.doc-line-hinted:not(.is-inline)::after {
+  content: "";
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  left: calc(100% + 4px);
+  width: calc(32px + var(--offer-inset, 0px));
+  border-radius: 0 12px 12px 0;
+  background: color-mix(in oklab, var(--primary) 9%, transparent);
+  pointer-events: none;
+}
+/* The open offer: a popover left of the disc, over the empty end of the
+ * text column, or (is-card) a card in flow under the row on a narrow page.
+ * It sits inside the row's paragraph, so it sets its own type. */
+.doc-offer-pop {
+  position: absolute;
+  top: -12px;
+  right: calc(100% + 12px);
+  display: block;
+  box-sizing: border-box;
+  width: 320px;
+  padding: 12px;
+  border: 1px solid color-mix(in oklab, var(--primary) 35%, transparent);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 12px 32px -8px rgb(0 0 0 / 0.22), 0 2px 6px rgb(0 0 0 / 0.06);
+  cursor: default;
+  font-size: 0.875rem;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.25rem;
+  text-align: left;
+  text-decoration: none;
+  white-space: normal;
+  animation: doc-offer-pop 330ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: right top;
+}
+.doc-offer-pop.is-card {
+  position: relative;
+  top: auto;
+  right: auto;
+  width: 100%;
+  max-width: 380px;
+  box-shadow: none;
+  transform-origin: left top;
+}
+.doc-offer-pop:focus {
+  outline: none;
+}
+.doc-offer-pop-arrow {
+  position: absolute;
+  top: 18px;
+  right: -6px;
+  width: 10px;
+  height: 10px;
+  border-top: 1px solid color-mix(in oklab, var(--primary) 35%, transparent);
+  border-right: 1px solid color-mix(in oklab, var(--primary) 35%, transparent);
+  background: var(--card);
+  transform: rotate(45deg);
+}
+@keyframes doc-offer-pop {
+  from {
+    transform: scale(0.96);
+  }
+}
+.doc-offer-card-host {
+  display: block;
+  padding: 8px 0 12px;
 }
 
 /* Block drag handle (blockHandle.ts): a grip in the left gutter of the

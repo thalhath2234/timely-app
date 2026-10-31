@@ -93,7 +93,8 @@ export const notes: HelpSection = {
                 <li>
                   When the doc has room, as in a wide window, the toolbar moves into a column on the left of the doc.
                   Pictures, embeds, diagrams, maths and the other blocks are then under its <strong>Insert</strong>{" "}
-                  button. Suggestions move into the right margin, each one level with the line it is about.
+                  button. The outline and the doc&apos;s suggestions stay in view on the right as you scroll, and each line
+                  offered as a task has a mark in the margin, level with it.
                 </li>
                 <li>A minimap of headings on the right jumps through long docs.</li>
               </ul>
@@ -233,10 +234,16 @@ export const notes: HelpSection = {
                 With <Link href="/help/assistant/smart-suggestions">smart suggestions</Link> on, unticked checklist
                 items that read like something to get done, and are not tasks yet, are offered as tasks. Jev reads
                 each item with its list and heading: &ldquo;Call the plumber&rdquo; is offered, &ldquo;Milk&rdquo; on
-                a shopping list is not. A card says how many there are and which project the tasks go to: the
-                doc&apos;s project, else the one it seems to belong to.
+                a shopping list is not. The <strong>Not tasks yet</strong> card says how many there are and which
+                project the tasks go to: the doc&apos;s project, else the one it seems to belong to.
               </p>
               <ul>
+                <li>
+                  On a wide page each offered item has a mark in the margin beside it. Click the mark, or the item in
+                  the card, to see where its task goes, with <strong>Make task</strong> and <strong>Dismiss</strong>;
+                  the arrows step through the doc&apos;s other offers. On a narrow page the card sits above the doc and
+                  the item opens under its row.
+                </li>
                 <li>
                   <strong>Make task</strong> turns one item into a task, and <strong>Make all</strong> (or{" "}
                   <strong>Make 3 tasks</strong>) turns them all. Undo in the message takes them back.
@@ -247,17 +254,17 @@ export const notes: HelpSection = {
                   instead.
                 </li>
                 <li>
-                  Items that are tasks already are listed with a link to the task, not offered again. This holds after
-                  you reword the item.
+                  Items that are tasks already have a tick in the margin that opens the task, and are not offered
+                  again. This holds after you reword the item.
                 </li>
                 <li>
                   Dismiss an item with its <strong>×</strong> and it is not offered again in that doc, on any device.
                 </li>
                 <li>
-                  <strong>Don&apos;t offer tasks in this doc</strong> (the <strong>×</strong> on the card) stops the
-                  offers for that doc. Turn them back on with <strong>Offer tasks from checklists</strong> in the
-                  outline card beside a wide page, <strong>Task offers off</strong> under the title of a narrow one,
-                  or the doc&apos;s <strong>More</strong> menu on the phone.
+                  Turning off <strong>Offer tasks from checklists</strong> at the foot of the card stops the offers
+                  for that doc. Turn them back on with the same switch beside a wide page, <strong>Task offers
+                  off</strong> under the title of a narrow one, or the doc&apos;s <strong>More</strong> menu on the
+                  phone.
                 </li>
               </ul>
               <p>
@@ -280,8 +287,8 @@ export const notes: HelpSection = {
               </p>
               <ul>
                 <li>
-                  <strong>Create task</strong> (<strong>Make task</strong> beside the line) makes a task named after
-                  the line. Its description says <strong>From</strong> with a link to the doc, and quotes the line.
+                  <strong>Make task</strong>, from the line&apos;s mark or the <strong>Not tasks yet</strong> card,
+                  makes a task named after the line. Its description says <strong>From</strong> with a link to the doc, and quotes the line.
                 </li>
                 <li>
                   A line is not offered again once it is a task, even after you or Help me write reword the line or
