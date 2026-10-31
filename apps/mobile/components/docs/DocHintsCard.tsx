@@ -1,5 +1,5 @@
 import { docTypePhrase } from "@timely/contract/documents";
-import { checklistTask, docWorkLines, draftChecklistTasks, openChecklistItems, readsLikeTask, workLineKey, workLineTask, type ChecklistTodo } from "@timely/contract/docChecklist";
+import { checklistTask, docWorkLines, draftChecklistTasks, openChecklistItems, workLineKey, workLineTask, type ChecklistTodo } from "@timely/contract/docChecklist";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
@@ -7,7 +7,8 @@ import { useRouter } from "expo-router";
 import { ChevronRight, FolderKanban, ListTodo, Plus, Sparkles, X } from "lucide-react-native";
 import { contentFromTemplate, templateVars } from "@timely/contract/templates";
 import AnimatedPressable from "../ui/AnimatedPressable";
-import BottomSheet from "../ui/BottomSheet";
+import BottomSheet, { SheetOption } from "../ui/BottomSheet";
+import { ListSwitch } from "../settings/SettingsList";
 import ConfirmSheet from "../ui/ConfirmSheet";
 import { getDoc } from "../../lib/api/docs";
 import { checklistTaskDrafts } from "../../lib/api/write";
@@ -17,9 +18,11 @@ import {
   useAgentProvidersQuery,
   useCreateTask,
   useDecisionFeedback,
+  useDecisionsStatusQuery,
   useDeleteTask,
   useDismissDocHint,
   useDocChecklistQuery,
+  useDocOffersOff,
   useDocHintsQuery,
   useRelatedQuery,
   useUpdateDoc,
@@ -29,7 +32,7 @@ import { showUndoToast, useToastStore } from "../../lib/toast";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import type { DocHintKind } from "../../lib/api/decisions";
 import type { Doc, DocContent, Task } from "../../lib/types";
-import { checklistLines, type LineHint, type LineHints } from "./lineHints";
+import { checklistLines, hasChecklist, type LineHint, type LineHints } from "./lineHints";
 
 type Row = {
   key: string;
@@ -46,8 +49,9 @@ type Row = {
  * near-empty page, the project or page it may belong under, its type and
  * property values (set in the doc's Properties block), lines that read like
  * tasks, and whether it looks out of date. Above them, the doc's unchecked
- * checklist items that are not tasks yet, offered as tasks even while
- * suggestions are off. Above the doc it is one summary row; the rows
+ * checklist items that Jev reads as things to get done and are not tasks
+ * yet, offered as tasks; the offers can be turned off for the doc. Above the
+ * doc it is one summary row; the rows
  * themselves open in a sheet, so the doc keeps the screen. Checklist rows
  * also get a marker in the doc itself (`onLineHints`), which opens a card
  * with that row's suggestion under it. */
@@ -87,6 +91,8 @@ export default function DocHintsCard({
   const feedback = useDecisionFeedback();
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [sent, setSent] = useState(false);
+  // Checklist offers answered so far, by decision: one answer each.
+  const answered = useRef(new Set<string>());
   const [confirmTemplate, setConfirmTemplate] = useState(false);
   const [making, setMaking] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -94,9 +100,7 @@ export default function DocHintsCard({
   // its default model for a clean title and a brief description.
   const aiReady = readyProviders(useAgentProvidersQuery().data).length > 0;
 
-  // Checklists Jev reads as kept in the doc (groceries, packing) offer no tasks.
-  const kept = data?.available ? data.keptLists : undefined;
-  const todos = useMemo(() => (live ? openChecklistItems(content, kept) : []), [content, live, kept]);
+  const todos = useMemo(() => (live ? openChecklistItems(content) : []), [content, live]);
   // Suggestions are read when the word count moves on, so a line read
   // mid-typing, or since turned into a checklist item, can still be in them.
   const workLines = useMemo(() => docWorkLines(content), [content]);
@@ -109,19 +113,57 @@ export default function DocHintsCard({
   const target = checklist.data?.project;
   const taken = new Set((checklist.data?.existing ?? []).map((task) => task.name.toLowerCase()));
   const checked = new Set((checklist.data?.names ?? []).map((name) => name.toLowerCase()));
-  // An item that does not read like a task (a stray word, a label) is not offered.
-  const open = todos.filter((todo) => {
-    const key = todo.name.toLowerCase();
-    return readsLikeTask(todo.name) && checked.has(key) && !taken.has(key) && !hidden.has(`todo:${key}`);
-  });
+  // Offered only while smart suggestions are on, and only the items Jev reads
+  // as things to get done (a call, an errand), not ones kept in the doc to
+  // tick off there (milk, an ingredient).
+  const offered = new Set((checklist.data?.offer ?? []).map((name) => name.toLowerCase()));
+  const offersAreOff = useDocOffersOff(doc.id, checklist.data?.off);
+  const open = offersAreOff
+    ? []
+    : todos.filter((todo) => {
+        const key = todo.name.toLowerCase();
+        return offered.has(key) && checked.has(key) && !taken.has(key) && !hidden.has(`todo:${key}`);
+      });
   // Items that are tasks already are named under the open ones, so it is
   // clear why they are not offered; alone they are not worth a card.
   const already = (checklist.data?.existing ?? []).filter((task) => todos.some((todo) => todo.name.toLowerCase() === task.name.toLowerCase()));
   const router = useRouter();
 
   const hide = (key: string) => setHidden((prev) => new Set(prev).add(key));
+  // Tells Jev whether its checklist offers were wanted: a task made from one,
+  // or one dismissed.
+  const answerOffers = (accepted: boolean) => {
+    const logId = checklist.data?.logId;
+    if (!logId || answered.current.has(logId)) return;
+    answered.current.add(logId);
+    feedback.mutate({ logId, accepted });
+  };
+  // A dismissed item is not offered again in this doc, on any device.
+  const dropTodo = (name: string) => {
+    hide(`todo:${name.toLowerCase()}`);
+    dismissHint.mutate({ kind: "todo", value: name });
+    answerOffers(false);
+  };
+  // Turned off for this doc on every device; the doc's More menu, or the
+  // undo here, turns them back on.
+  const offersOff = () => {
+    const logId = checklist.data?.logId;
+    // The same offers come back if this is not saved or is undone, so a task
+    // made from one can still say so.
+    const offersBack = () => {
+      if (logId) answered.current.delete(logId);
+    };
+    setSheetOpen(false);
+    dismissHint.mutate({ kind: "todos" }, { onError: offersBack });
+    answerOffers(false);
+    showUndoToast("Tasks won’t be offered from this doc’s checklists", () => {
+      offersBack();
+      dismissHint.mutate({ kind: "todos", restore: true });
+    });
+  };
   const make = async (list: ChecklistTodo[], key: string) => {
     setMaking(key);
+    answerOffers(true);
     // One request for all the items, a few seconds at most; without a
     // provider, or on any error, the tasks keep the items' own words.
     const drafts = aiReady ? await draftChecklistTasks(list, doc, (body) => checklistTaskDrafts(body)) : list.map(() => null);
@@ -186,7 +228,7 @@ export default function DocHintsCard({
     }
     const todo = open.find((item) => `todo:${item.name.toLowerCase()}` === key);
     if (action === "toggle") setOpenLine((current) => (current === key ? null : key));
-    else if (action === "dismiss") hide(key);
+    else if (action === "dismiss") dropTodo(todo?.name ?? key.slice("todo:".length));
     else if (todo) void make([todo], key);
   };
   const act = useCallback<LineHints["act"]>((key, action) => actRef.current(key, action), []);
@@ -356,7 +398,7 @@ export default function DocHintsCard({
                   disabled={making !== null}
                   onPress={() => void make([todo], key)}
                 />
-                <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Dismiss ${todo.name}`} onPress={() => hide(key)} style={styles.dismiss} hitSlop={8}>
+                <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Dismiss ${todo.name}`} onPress={() => dropTodo(todo.name)} style={styles.dismiss} hitSlop={8}>
                   <X size={14} color={colors.mutedForeground} />
                 </AnimatedPressable>
               </View>
@@ -387,6 +429,10 @@ export default function DocHintsCard({
               onPress={() => void make(open, "all")}
             />
           ) : null}
+          {/* Spelled out: an icon alone would read as closing the sheet. */}
+          <AnimatedPressable accessibilityRole="button" onPress={offersOff} style={styles.offersOff} hitSlop={4}>
+            <Text style={styles.offersOffText}>Don’t offer tasks in this doc</Text>
+          </AnimatedPressable>
         </View>
       ) : null}
       {open.length > 0 && shown.length > 0 ? <View style={styles.divider} /> : null}
@@ -489,7 +535,32 @@ export default function DocHintsCard({
   );
 }
 
+/** The doc's switch for checklist items offered as tasks, in its More menu:
+ * shown while smart suggestions are on and the doc has a checklist, or while
+ * the offers are off so they can come back. The card's "Don't offer tasks in
+ * this doc" turns them off too. */
+export function ChecklistOffersOption({ doc, content, version }: { doc: Doc; content: DocContent | null | undefined; version: string }) {
+  const live = !doc.isTemplate && !doc.archivedAt;
+  const on = useDecisionsStatusQuery(live).data?.available === true;
+  const { data } = useDocHintsQuery(doc.id, version, live);
+  const dismissHint = useDismissDocHint(doc.id);
+  const has = useMemo(() => hasChecklist(content), [content]);
+  const off = useDocOffersOff(doc.id, data?.todosOff);
+  if (!on || !data?.available || !(has || off)) return null;
+  const turn = (next: boolean) => dismissHint.mutate({ kind: "todos", restore: next });
+  return (
+    <SheetOption onSelect={() => turn(off)} leading={<ListTodo size={18} color={colors.mutedForeground} />}>
+      <View style={styles.option}>
+        <Text style={styles.optionText}>Offer tasks from checklists</Text>
+        <ListSwitch label="Offer tasks from checklists" value={!off} onChange={turn} />
+      </View>
+    </SheetOption>
+  );
+}
+
 const styles = createThemedStyleSheet((colors) => ({
+  option: { flexDirection: "row", alignItems: "center", gap: 12 },
+  optionText: { flex: 1, color: colors.foreground, fontSize: 15, fontWeight: "600" },
   summary: {
     flexDirection: "row",
     alignItems: "center",
@@ -521,4 +592,6 @@ const styles = createThemedStyleSheet((colors) => ({
   already: { paddingLeft: 24, fontSize: 12 },
   link: { color: colors.primary, fontWeight: "500" },
   divider: { height: 1, backgroundColor: colors.border, marginVertical: 4 },
+  offersOff: { alignSelf: "center", minHeight: 36, paddingHorizontal: 12, justifyContent: "center" },
+  offersOffText: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
 }));

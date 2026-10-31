@@ -4,7 +4,7 @@ import { motion } from "motion/react";
 import { motion as MOTION } from "@timely/contract/designTokens";
 import { easeOut } from "@/app/_components/_ui/motion";
 import { docTypePhrase } from "@timely/contract/documents";
-import { checklistTask, docWorkLines, draftChecklistTasks, openChecklistItems, readsLikeTask, workLineKey, workLineTask, type ChecklistTodo } from "@timely/contract/docChecklist";
+import { checklistTask, docWorkLines, draftChecklistTasks, openChecklistItems, workLineKey, workLineTask, type ChecklistTodo } from "@timely/contract/docChecklist";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Editor } from "@tiptap/react";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
@@ -14,11 +14,13 @@ import { ArrowUpRight, Check, FolderKanban, ListTodo, Plus, Sparkles, X } from "
 import { contentFromTemplate, templateVars } from "@timely/contract/templates";
 import type { Doc, Task } from "@/app/_types/types";
 import Button from "@/app/_components/_ui/button";
+import { ListSwitch } from "@/app/_components/_ui/groupedList";
+import { RailRow } from "@/app/_components/_ui/pageWithRail";
 import { getDoc } from "@/app/utils/api/docs";
 import { checklistTaskDrafts } from "@/app/utils/api/write";
 import { readyProviders } from "@/app/_components/chat/modelMenu";
 import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
-import { useDecisionFeedback, useDismissDocHint, useDocChecklist, useDocHints } from "@/app/utils/hooks/decisions";
+import { useDecisionFeedback, useDismissDocHint, useDocChecklist, useDocHints, useDocOffersOff } from "@/app/utils/hooks/decisions";
 import type { DocHintKind } from "@/app/utils/api/decisions";
 import { useUpdateDoc } from "@/app/utils/hooks/docs";
 import { useRelated } from "@/app/utils/hooks/search";
@@ -35,8 +37,9 @@ const TODOS_SHOWN = 4;
 /** What smart suggestions read in a doc: a template for a near-empty page,
  * the project or page it may belong under, its type and properties, lines
  * that read like something to do, and whether it looks out of date. Above
- * them, the doc's unchecked checklist items that are not tasks yet, offered
- * as tasks even while suggestions are off. Every row can be dismissed. */
+ * them, the doc's unchecked checklist items that Jev reads as things to get
+ * done and are not tasks yet, offered as tasks. Every row can be dismissed,
+ * and the offers turned off for the doc. */
 export default function DocHints({
   doc,
   editor,
@@ -64,6 +67,8 @@ export default function DocHints({
   const feedback = useDecisionFeedback();
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [sent, setSent] = useState(false);
+  // Checklist offers answered so far, by decision: one answer each.
+  const answered = useRef(new Set<string>());
   const [making, setMaking] = useState<string | null>(null);
   const [showAllTodos, setShowAllTodos] = useState(false);
   // With an AI provider set up (Settings → Agent keys), Make task first asks
@@ -87,9 +92,7 @@ export default function DocHints({
       editor.off("update", read);
     };
   }, [editor]);
-  // Checklists Jev reads as kept in the doc (groceries, packing) offer no tasks.
-  const kept = data?.available ? data.keptLists : undefined;
-  const todos = useMemo(() => (live ? openChecklistItems(content, kept) : []), [content, live, kept]);
+  const todos = useMemo(() => (live ? openChecklistItems(content) : []), [content, live]);
   // Suggestions are read when the word count moves on, so a line read
   // mid-typing, or since turned into a checklist item, can still be in them.
   const lines = useMemo(() => docWorkLines(content), [content]);
@@ -102,25 +105,59 @@ export default function DocHints({
   const target = checklist.data?.project;
   const taken = new Set((checklist.data?.existing ?? []).map((task) => task.name.toLowerCase()));
   const checked = new Set((checklist.data?.names ?? []).map((name) => name.toLowerCase()));
-  // An item that does not read like a task (a stray word, a label) is not offered.
-  const open = todos.filter((todo) => {
-    const key = todo.name.toLowerCase();
-    return readsLikeTask(todo.name) && checked.has(key) && !taken.has(key) && !hidden.has(`todo:${key}`);
-  });
+  // Offered only while smart suggestions are on, and only the items Jev reads
+  // as things to get done (a call, an errand), not ones kept in the doc to
+  // tick off there (milk, an ingredient).
+  const offered = new Set((checklist.data?.offer ?? []).map((name) => name.toLowerCase()));
+  const offersAreOff = useDocOffersOff(doc.id, checklist.data?.off);
+  const open = offersAreOff
+    ? []
+    : todos.filter((todo) => {
+        const key = todo.name.toLowerCase();
+        return offered.has(key) && checked.has(key) && !taken.has(key) && !hidden.has(`todo:${key}`);
+      });
   // Items that are tasks already are named under the open ones, so it is
   // clear why they are not offered; alone they are not worth a card.
   const already = (checklist.data?.existing ?? []).filter((task) => todos.some((todo) => todo.name.toLowerCase() === task.name.toLowerCase()));
 
   const hide = (key: string) => setHidden((prev) => new Set(prev).add(key));
   const dismissHint = useDismissDocHint(doc.id);
-  // A dismissed suggestion is remembered for the doc, on every device; a
-  // checklist item (no kind) only for now, as it is still a to-do.
-  const forget = (key: string, kind?: DocHintKind, value = "") => {
+  // A dismissed suggestion is remembered for the doc, on every device.
+  const forget = (key: string, kind: DocHintKind, value = "") => {
     hide(key);
-    if (kind) dismissHint.mutate({ kind, value });
+    dismissHint.mutate({ kind, value });
+  };
+  // Tells Jev whether its checklist offers were wanted: a task made from one,
+  // or one dismissed.
+  const answerOffers = (accepted: boolean) => {
+    const logId = checklist.data?.logId;
+    if (!logId || answered.current.has(logId)) return;
+    answered.current.add(logId);
+    feedback.mutate({ logId, accepted });
+  };
+  const dropTodo = (name: string) => {
+    forget(`todo:${name.toLowerCase()}`, "todo", name);
+    answerOffers(false);
+  };
+  // Turned off for this doc on every device; the outline card's switch, or
+  // the undo here, turns them back on.
+  const offersOff = () => {
+    const logId = checklist.data?.logId;
+    // The same offers come back if this is not saved or is undone, so a task
+    // made from one can still say so.
+    const offersBack = () => {
+      if (logId) answered.current.delete(logId);
+    };
+    dismissHint.mutate({ kind: "todos" }, { onError: offersBack });
+    answerOffers(false);
+    showUndoToast("Tasks won’t be offered from this doc’s checklists", () => {
+      offersBack();
+      dismissHint.mutate({ kind: "todos", restore: true });
+    });
   };
   const make = async (list: ChecklistTodo[], key: string) => {
     setMaking(key);
+    answerOffers(true);
     // One request for all the items, a few seconds at most; without a
     // provider, or on any error, the tasks keep the items' own words.
     const drafts = aiReady ? await draftChecklistTasks(list, doc, checklistTaskDrafts) : list.map(() => null);
@@ -181,7 +218,7 @@ export default function DocHints({
   const suggestions = Boolean(template || project || parent || docType || properties.length || work.length || outdated);
   if (!suggestions && !open.length) return null;
 
-  const dismiss = (key: string, kind?: DocHintKind, value = "") => (
+  const dismiss = (key: string, kind: DocHintKind, value = "") => (
     <button
       type="button"
       aria-label="Dismiss"
@@ -352,6 +389,17 @@ export default function DocHints({
     </li>
   );
   const makeAllLabel = aiReady && making === "all" ? "Writing titles…" : open.length === 1 ? "Make task" : "Make all";
+  const offersOffButton = (
+    <button
+      type="button"
+      title="Don’t offer tasks in this doc"
+      aria-label="Don’t offer tasks in this doc"
+      onClick={offersOff}
+      className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+    >
+      <X className="size-3.5" />
+    </button>
+  );
 
   if (layout === "margin") {
     return (
@@ -368,7 +416,7 @@ export default function DocHints({
         aiReady={aiReady}
         onMake={(todo) => void make([todo], `todo:${todo.name.toLowerCase()}`)}
         onMakeWork={makeWork}
-        onDismiss={(key) => (key.startsWith("work:") ? forget(key, "work", key.slice("work:".length)) : hide(key))}
+        onDismiss={(key) => (key.startsWith("work:") ? forget(key, "work", key.slice("work:".length)) : dropTodo(key.slice("todo:".length)))}
         summary={
           open.length > 0 && (
             <div className="flex items-center gap-2.5" data-testid="doc-checklist-tasks">
@@ -386,6 +434,7 @@ export default function DocHints({
               <Button size="sm" variant="primary" loading={making === "all"} disabled={making !== null} onClick={() => void make(open, "all")}>
                 {makeAllLabel}
               </Button>
+              {offersOffButton}
             </div>
           )
         }
@@ -421,6 +470,7 @@ export default function DocHints({
                 {aiReady && making === "all" ? "Writing titles…" : `Make ${open.length} tasks`}
               </Button>
             )}
+            {offersOffButton}
           </div>
           {open.length > 1 && (
             <Button size="sm" variant="soft" className="mt-2 w-full @lg:hidden" loading={making === "all"} disabled={making !== null} leading={<Plus />} onClick={() => void make(open, "all")}>
@@ -450,7 +500,14 @@ export default function DocHints({
                   >
                     <span className="@max-lg:hidden">{aiReady && making === key ? "Writing…" : "Make task"}</span>
                   </Button>
-                  {dismiss(key)}
+                  <button
+                    type="button"
+                    aria-label={`Dismiss: ${todo.name}`}
+                    onClick={() => dropTodo(todo.name)}
+                    className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    <X className="size-3.5" />
+                  </button>
                 </li>
               );
             })}
@@ -494,6 +551,75 @@ export default function DocHints({
       )}
     </section>
   );
+}
+
+/** Whether the open doc holds a checklist, kept current as it is edited. */
+function useHasChecklist(editor: Editor | null) {
+  const [has, setHas] = useState(false);
+  useEffect(() => {
+    if (!editor) return;
+    const read = () => {
+      let found = false;
+      editor.state.doc.descendants((node) => {
+        if (node.type.name === "taskItem") found = true;
+        return !found;
+      });
+      setHas(found);
+    };
+    read();
+    editor.on("update", read);
+    return () => {
+      editor.off("update", read);
+    };
+  }, [editor]);
+  return has;
+}
+
+/** The doc's switch for checklist items offered as tasks. "row" is a row of
+ * the outline card beside a wide page, shown while smart suggestions are on
+ * and the doc has a checklist; "chip" sits under the title of a narrow page
+ * only while the offers are off, to turn them back on. The card's "Don't
+ * offer tasks in this doc" turns them off. */
+export function ChecklistOffersSwitch({
+  doc,
+  editor,
+  version,
+  variant,
+}: {
+  doc: Doc;
+  editor: Editor | null;
+  /** DocHints' version, so both read the same answer. */
+  version: string;
+  variant: "row" | "chip";
+}) {
+  const { data } = useDocHints(doc.id, version, !doc.isTemplate && !doc.archivedAt);
+  const hasChecklist = useHasChecklist(editor);
+  const dismissHint = useDismissDocHint(doc.id);
+  const off = useDocOffersOff(doc.id, data?.todosOff);
+  const turn = (on: boolean) => dismissHint.mutate({ kind: "todos", restore: on });
+  if (!data?.available || !(hasChecklist || off)) return null;
+  if (variant === "chip") {
+    if (!off) return null;
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          turn(true);
+          useToastStore.getState().show("Tasks are offered from this doc’s checklists again");
+        }}
+        className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        <ListTodo className="size-3" /> Task offers off · Turn on
+      </button>
+    );
+  }
+  // A block, so the switch sits level with the label rather than on a text line.
+  const toggle = (
+    <span className="flex">
+      <ListSwitch checked={!off} label="Offer tasks from checklists" onChange={turn} />
+    </span>
+  );
+  return <RailRow label="Offer tasks from checklists" value={toggle} />;
 }
 
 /** A suggestion that belongs to one line of the doc. */
@@ -693,10 +819,13 @@ function MarginHints({
   useEffect(() => {
     const root = rootRef.current;
     if (!editor || !root) return;
-    // Images loading, the window resizing and wrapped lines all move lines.
+    // Images loading, the window resizing and wrapped lines all move lines,
+    // and a card above the hints growing (the outline's switch row showing
+    // up) moves the hints.
     const observer = new ResizeObserver(() => placeRef.current());
     observer.observe(editor.view.dom);
     observer.observe(root);
+    for (let el = root.previousElementSibling; el; el = el.previousElementSibling) observer.observe(el);
     return () => observer.disconnect();
   }, [editor]);
 

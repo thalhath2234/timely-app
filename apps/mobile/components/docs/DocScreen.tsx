@@ -25,7 +25,7 @@ import { getDocVersion, getDocVersions, restoreDocVersion, type DocVersion } fro
 import { DOC_VERSION_REASONS } from "@timely/contract/documents";
 import RichDoc from "./RichDoc";
 import RelatedList from "../search/RelatedList";
-import DocHintsCard from "./DocHintsCard";
+import DocHintsCard, { ChecklistOffersOption } from "./DocHintsCard";
 import type { LineHints } from "./lineHints";
 import { PrimaryButton } from "../ui/primitives";
 import { useKeyboardCover } from "../ui/useKeyboardCover";
@@ -179,6 +179,9 @@ function DocEditor({ docId }: { docId: string }) {
   const descendantCount = countDescendants(docs, doc.id);
   const parents = docs.filter((d) => d.id !== docId && d.workspaceId === doc.workspaceId);
   const parentTitle = docs.find((d) => d.id === doc.parentId)?.title || "None";
+  // Suggestions are read again once an empty doc gets a title or text, then
+  // as it grows by about fifty words.
+  const hintsVersion = wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50));
 
   return (
     <Screen>
@@ -256,7 +259,7 @@ function DocEditor({ docId }: { docId: string }) {
         <DocHintsCard
           doc={doc}
           content={liveContent ?? remoteContent ?? seedContent}
-          version={wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50))}
+          version={hintsVersion}
           nearEmpty={wordCount < 8}
           isEmpty={() => contentEmptyRef.current}
           onSetProperty={(key, value) => setPropertyRequest({ key, value })}
@@ -395,6 +398,7 @@ function DocEditor({ docId }: { docId: string }) {
         <SheetOption onSelect={() => openAfterMore("parent")} leading={<FolderUp size={18} color={colors.mutedForeground} />}>
           {`Parent page: ${parentTitle}`}
         </SheetOption>
+        <ChecklistOffersOption doc={doc} content={liveContent ?? remoteContent ?? seedContent} version={hintsVersion} />
         <SheetOption
           onSelect={() => {
             const next = !doc.archivedAt;
