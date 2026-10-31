@@ -15,7 +15,7 @@ import (
 // TestIntegrationDecisionSettings covers the smart-suggestion (Jev) card: the
 // TypeSafe key is checked before it is saved, stored encrypted, never shown in
 // the chat provider list, comes first over OpenRouter, and the switch turns
-// every call off.
+// every call off. The switch turns on only with a key Jev can use.
 func TestIntegrationDecisionSettings(t *testing.T) {
 	db := integrationDB(t)
 	t.Setenv("JWT_SECRET", "integration-secret")
@@ -71,6 +71,16 @@ func TestIntegrationDecisionSettings(t *testing.T) {
 	if _, body := call(t, s, "user-b", http.MethodGet, "/agent/decisions", nil); body["available"] != false {
 		t.Fatal("keys must be account-scoped")
 	}
+	// Without a key the switch can go off but not on: suggestions run on Jev.
+	if code, body := call(t, s, "user-b", http.MethodPatch, "/agent/decisions", map[string]bool{"enabled": false}); code != 200 || body["enabled"] != false {
+		t.Fatalf("switch off without a key: %d %v", code, body)
+	}
+	if code, _ := call(t, s, "user-b", http.MethodPatch, "/agent/decisions", map[string]bool{"enabled": true}); code != 409 {
+		t.Fatalf("switch on without a key: %d", code)
+	}
+	if _, body := call(t, s, "user-b", http.MethodGet, "/agent/decisions", nil); body["enabled"] != false {
+		t.Fatalf("a refused switch must not be saved: %v", body)
+	}
 
 	// A real call goes to TypeSafe and is logged without content.
 	a, err := d.Ask(context.Background(), "user-a", decide.Request{Feature: "test", State: "Buy milk",
@@ -102,12 +112,17 @@ func TestIntegrationDecisionSettings(t *testing.T) {
 		Questions: map[string]decide.Question{"ok": decide.YesNo("Is it a test?", "yes", "no")}}); err == nil {
 		t.Fatal("switched off must answer ErrOff")
 	}
-	call(t, s, "user-a", http.MethodPatch, "/agent/decisions", map[string]bool{"enabled": true})
+	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/decisions", map[string]bool{"enabled": true}); code != 200 || body["available"] != true {
+		t.Fatalf("switch on with a key: %d %v", code, body)
+	}
 
 	// A refused saved key is skipped until replaced.
 	s.MarkTypeSafeRejected("user-a")
 	if _, body := call(t, s, "user-a", http.MethodGet, "/agent/decisions", nil); body["available"] != false || body["typesafe"].(map[string]any)["rejected"] != true {
 		t.Fatalf("rejected key view: %v", body)
+	}
+	if code, _ := call(t, s, "user-a", http.MethodPatch, "/agent/decisions", map[string]bool{"enabled": true}); code != 409 {
+		t.Fatalf("a refused key cannot switch it on: %d", code)
 	}
 	if code, body := call(t, s, "user-a", http.MethodDelete, "/agent/decisions/key", nil); code != 200 || body["typesafe"].(map[string]any)["keySet"] != false {
 		t.Fatalf("remove key: %d %v", code, body)

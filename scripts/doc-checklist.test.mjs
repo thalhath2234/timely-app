@@ -7,7 +7,6 @@ import {
   docWorkLines,
   draftChecklistTasks,
   openChecklistItems,
-  readsLikeTask,
   workLineKey,
   workLineTask,
 } from "../packages/contract/src/docChecklist.ts";
@@ -66,44 +65,6 @@ describe("openChecklistItems", () => {
   test("an empty or missing doc has none", () => {
     assert.deepEqual(openChecklistItems(undefined), []);
     assert.deepEqual(openChecklistItems({ type: "doc" }), []);
-  });
-
-  test("a list kept in the doc is left out whole, new items too", () => {
-    const content = {
-      type: "doc",
-      content: [
-        list(item(false, para("Call the plumber"))),
-        list(item(true, para("Milk")), item(false, para("Eggs")), item(false, para("Oat bread")), item(false, para("Flour", list(item(false, para("Rye")))))),
-      ],
-    };
-    // The API named the list by the items it saw; "Oat bread" was added later.
-    assert.deepEqual(
-      openChecklistItems(content, ["milk", "eggs"]).map((t) => t.name),
-      ["Call the plumber"],
-    );
-    assert.deepEqual(openChecklistItems(content, []).length, 5);
-  });
-});
-
-describe("readsLikeTask", () => {
-  test("a name of two words or more reads like a task", () => {
-    for (const name of ["Add predictive back gesture", "Call the plumber", "Read Spec", "Nested step", "Fix login crash on Android"]) {
-      assert.equal(readsLikeTask(name), true, name);
-    }
-  });
-
-  test("a lone word only when it is an action or a chore", () => {
-    for (const name of ["Call", "deploy", "Laundry", "Dentist!", "Follow-up", "Pay."]) assert.equal(readsLikeTask(name), true, name);
-    for (const name of ["Adwad", "Login", "Eggs", "asdf", "x"]) assert.equal(readsLikeTask(name), false, name);
-  });
-
-  test("numbers, dates, links and symbols alone are not tasks", () => {
-    for (const name of ["42", "12/10/2026", "https://example.com/spec", "www.example.com", "-> ->", "🙂"]) {
-      assert.equal(readsLikeTask(name), false, name);
-    }
-    assert.equal(readsLikeTask("Read https://example.com/spec"), true);
-    assert.equal(readsLikeTask("Spec https://example.com/spec"), false);
-    assert.equal(readsLikeTask("Read the spec https://example.com/spec"), true);
   });
 });
 

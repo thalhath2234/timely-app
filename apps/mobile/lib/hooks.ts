@@ -55,7 +55,10 @@ import {
   getDocHints,
   getDocChecklist,
   dismissDocHint,
+  restoreDocHint,
+  type DocChecklist,
   type DocHintKind,
+  type DocHints,
   getTodaySuggestions,
   getHighlights,
   runNotificationTriage,
@@ -623,21 +626,35 @@ export function useDocHintsQuery(id: string | undefined, version: string, enable
   });
 }
 
-/** Dismisses a doc suggestion for good. The doc's cached suggestions are
- * read again afterwards, so the row stays gone when the doc reopens. */
+/** Dismisses a doc suggestion for good, or with `restore` takes a dismissal
+ * back. The doc's cached suggestions and checklist offers are read again
+ * afterwards, so the row stays gone when the doc reopens. The doc's task
+ * offers switch ("todos") flips at once everywhere it shows. */
 export function useDismissDocHint(id: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ kind, value }: { kind: DocHintKind; value?: string }) => dismissDocHint(id, kind, value),
-    onSettled: () => client.invalidateQueries({ queryKey: ["doc-hints", id] }),
+    mutationFn: ({ kind, value, restore }: { kind: DocHintKind; value?: string; restore?: boolean }) =>
+      (restore ? restoreDocHint : dismissDocHint)(id, kind, value),
+    onMutate: ({ kind, restore }) => {
+      if (kind !== "todos") return;
+      client.setQueriesData<DocHints>({ queryKey: ["doc-hints", id] }, (old) => old && { ...old, todosOff: !restore });
+      client.setQueriesData<DocChecklist>({ queryKey: ["doc-checklist", id] }, (old) => old && { ...old, off: !restore });
+    },
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: ["doc-hints", id] });
+      void client.invalidateQueries({ queryKey: ["doc-checklist", id] });
+    },
   });
 }
 
-/** Which unchecked checklist items of a doc are already tasks, and where new
- * ones go. Runs with suggestions off too: a checklist item needs no model. */
+/** Which unchecked checklist items of a doc are already tasks, which to offer
+ * as tasks and where new ones go. Offers need smart suggestions on: Jev reads
+ * which items are things to get done. */
 export function useDocChecklistQuery(id: string | undefined, names: string[], projectId?: string) {
+  // Asked again when suggestions go on or off, so offers come and go with them.
+  const on = useDecisionsStatusQuery(!!id).data?.available === true;
   return useQuery({
-    queryKey: keys.docChecklist(id ?? "", names, projectId ?? ""),
+    queryKey: [...keys.docChecklist(id ?? "", names, projectId ?? ""), on],
     // names says which items an answer covers while a newer one loads.
     queryFn: async () => ({ ...(await getDocChecklist(id!, names, projectId)), names }),
     enabled: !!id && names.length > 0,

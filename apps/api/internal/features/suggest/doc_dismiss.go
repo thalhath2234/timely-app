@@ -12,7 +12,9 @@ import (
 
 // A dismissed doc suggestion stays dismissed for that doc, on every device,
 // so the card does not offer the same line as a task each time the doc
-// opens.
+// opens. "todo" is one checklist item offered as a task and "todos" all of
+// them: the doc's "Offer tasks from checklists" switch, which can be turned
+// back on.
 
 const maxDocDismissals = 200
 
@@ -22,9 +24,9 @@ const maxDocDismissals = 200
 func docHintKey(kind, value string) string {
 	value = strings.ToLower(strings.Join(strings.Fields(value), " "))
 	switch kind {
-	case "outdated":
+	case "outdated", "todos":
 		return kind
-	case "template", "project", "parent", "type", "prop", "work":
+	case "template", "project", "parent", "type", "prop", "work", "todo":
 		if value == "" {
 			return ""
 		}
@@ -33,6 +35,8 @@ func docHintKey(kind, value string) string {
 	return ""
 }
 
+// docDismiss keeps a dismissal (POST) or takes it back (DELETE: an undo, or
+// the doc's task offers turned on again).
 func (s *Service) docDismiss(c *echo.Context) error {
 	var in struct {
 		Kind  string `json:"kind"`
@@ -45,7 +49,12 @@ func (s *Service) docDismiss(c *echo.Context) error {
 	if key == "" {
 		return echo.NewHTTPError(400, "Unknown suggestion")
 	}
-	err := s.DismissDocHint(c.Request().Context(), user(c), c.Param("id"), key)
+	var err error
+	if c.Request().Method == "DELETE" {
+		err = s.RestoreDocHint(c.Request().Context(), user(c), c.Param("id"), key)
+	} else {
+		err = s.DismissDocHint(c.Request().Context(), user(c), c.Param("id"), key)
+	}
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return echo.NewHTTPError(404, "Doc not found")
 	}
@@ -65,6 +74,15 @@ func (s *Service) DismissDocHint(ctx context.Context, userID, docID, key string)
 	return s.db.WithContext(ctx).Exec(`INSERT INTO doc_hint_dismissals (doc_id, hint, user_id)
 		SELECT ?, ?, ? WHERE (SELECT count(*) FROM doc_hint_dismissals WHERE doc_id = ?) < ?
 		ON CONFLICT (doc_id, hint) DO NOTHING`, doc.ID, key, userID, doc.ID, maxDocDismissals).Error
+}
+
+// RestoreDocHint forgets one dismissed suggestion of the person's doc.
+func (s *Service) RestoreDocHint(ctx context.Context, userID, docID, key string) error {
+	var doc models.Document
+	if err := s.db.WithContext(ctx).Select("id").Where("id = ? AND user_id = ?", docID, userID).First(&doc).Error; err != nil {
+		return err
+	}
+	return s.db.WithContext(ctx).Exec(`DELETE FROM doc_hint_dismissals WHERE doc_id = ? AND hint = ? AND user_id = ?`, doc.ID, key, userID).Error
 }
 
 // docDismissed are the keys of the doc's dismissed suggestions.

@@ -239,25 +239,39 @@ export type DocHints = {
   properties?: { key: string; value: string }[];
   template?: { id: string; title: string };
   outdated?: boolean;
-  /** Items (lower case) of checklists kept in the doc, not worked as tasks. */
-  keptLists?: string[];
+  /** Checklist items offered as tasks are turned off for this doc. */
+  todosOff?: boolean;
 };
 
 export const getDocHints = (docId: string) => request<DocHints>(`/suggestions/doc/${encodeURIComponent(docId)}`);
 
 /** One kind of doc suggestion and what it offers: an id for a template,
- * project or page, the type, "key=value" for a property, the line for work. */
-export type DocHintKind = "template" | "project" | "parent" | "type" | "prop" | "work" | "outdated";
+ * project or page, the type, "key=value" for a property, the line for work,
+ * the item's name for a checklist item offered as a task. "todos" is all of
+ * the doc's checklist items: its task offers switched off. */
+export type DocHintKind = "template" | "project" | "parent" | "type" | "prop" | "work" | "outdated" | "todo" | "todos";
 
 /** Remembers a dismissed suggestion for the doc, on every device. */
 export const dismissDocHint = (docId: string, kind: DocHintKind, value = "") =>
   request<void>(`/suggestions/doc/${encodeURIComponent(docId)}/dismiss`, "POST", { kind, value });
 
-/** Which of a doc's checklist task names are already tasks, and the project
- * new ones go to. Plain code on the server: it answers with no keys. */
+/** Takes a dismissal back: an undo, or the doc's task offers on again. */
+export const restoreDocHint = (docId: string, kind: DocHintKind, value = "") =>
+  request<void>(`/suggestions/doc/${encodeURIComponent(docId)}/dismiss`, "DELETE", { kind, value });
+
+/** Which of a doc's checklist task names are already tasks, which Jev offers
+ * as tasks (only while smart suggestions are on), and the project new ones
+ * go to. */
 export type DocChecklist = {
   existing: { name: string; taskId: string }[];
   project?: { id: string; title: string; workspaceId: string };
+  /** Smart suggestions are on, so items can be offered at all. */
+  available?: boolean;
+  /** Task offers are turned off for this doc. */
+  off?: boolean;
+  /** Names, as sent, that read as things to get done and are not tasks yet. */
+  offer?: string[];
+  logId?: string;
 };
 
 export const getDocChecklist = (docId: string, names: string[], projectId?: string) =>

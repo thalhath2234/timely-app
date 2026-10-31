@@ -230,8 +230,10 @@ export const notes: HelpSection = {
           body: (
             <>
               <p>
-                Unticked checklist items that are not tasks yet are offered as tasks, with or without smart
-                suggestions or an AI provider. A card says how many there are and which project the tasks go to: the
+                With <Link href="/help/assistant/smart-suggestions">smart suggestions</Link> on, unticked checklist
+                items that read like something to get done, and are not tasks yet, are offered as tasks. Jev reads
+                each item with its list and heading: &ldquo;Call the plumber&rdquo; is offered, &ldquo;Milk&rdquo; on
+                a shopping list is not. A card says how many there are and which project the tasks go to: the
                 doc&apos;s project, else the one it seems to belong to.
               </p>
               <ul>
@@ -249,12 +251,13 @@ export const notes: HelpSection = {
                   you reword the item.
                 </li>
                 <li>
-                  Only items that read like something to do are offered. A lone word such as a name or a label is
-                  left alone, unless it is an action or a chore like <em>Call</em> or <em>Laundry</em>.
+                  Dismiss an item with its <strong>×</strong> and it is not offered again in that doc, on any device.
                 </li>
                 <li>
-                  With smart suggestions on, a checklist meant to stay in the doc, such as groceries or packing, offers
-                  no tasks.
+                  <strong>Don&apos;t offer tasks in this doc</strong> (the <strong>×</strong> on the card) stops the
+                  offers for that doc. Turn them back on with <strong>Offer tasks from checklists</strong> in the
+                  outline card beside a wide page, <strong>Task offers off</strong> under the title of a narrow one,
+                  or the doc&apos;s <strong>More</strong> menu on the phone.
                 </li>
               </ul>
               <p>
@@ -289,8 +292,7 @@ export const notes: HelpSection = {
                   is left out.
                 </li>
                 <li>
-                  Dismiss a suggestion with its <strong>×</strong> and it stays gone for that doc on every device. A
-                  dismissed checklist item comes back later, as it is still a to-do.
+                  Dismiss a suggestion with its <strong>×</strong> and it stays gone for that doc on every device.
                 </li>
               </ul>
               <p>
