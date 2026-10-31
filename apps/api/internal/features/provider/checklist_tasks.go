@@ -208,9 +208,12 @@ func (s *Service) checklistTasks(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	// The same provider and model as Help me write: the account default when
-	// it is ready, with the model chosen for it in Settings → Agent keys.
-	provider := writeProvider(s.view(ctx, row, time.Minute))
+	// The same provider and model as Help me write and new chat runs: the
+	// account default, with the model chosen for it in Settings → Agent keys.
+	provider, err := s.defaultProvider(ctx, row)
+	if err != nil {
+		return err
+	}
 	if provider == "" {
 		return echo.NewHTTPError(409, "Naming tasks with AI needs an AI provider. Add a key in Settings → Agent keys")
 	}

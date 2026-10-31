@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -264,16 +265,22 @@ func (s *Service) chatModel(row Settings, provider string) string {
 	}
 }
 
-// errNoProvider is the answer when no provider is chosen and none is ready.
-var errNoProvider = errors.New("No AI provider is set up. Add a Claude or other API key in Settings → Agent, or choose OpenRouter there")
+// errNoProvider is the answer when no provider is chosen and none is set up.
+var errNoProvider = errors.New("No AI provider is set up. Add an API key or connect one in Settings → Agent")
 
-// defaultProvider is the provider runs and the writing features use: the
-// person's choice, else the first ready one in autoProvider's order.
-func (s *Service) defaultProvider(ctx context.Context, row Settings) string {
+// defaultProvider is the provider new chat runs and the writing features
+// (Help me write, checklist task offers, view queries, dashboard cards) use:
+// the person's choice, else autoProvider's pick ("" when nothing is set up).
+// Both read it here so they never move to different providers.
+func (s *Service) defaultProvider(ctx context.Context, row Settings) (string, error) {
 	if row.DefaultProvider != "" {
-		return row.DefaultProvider
+		return row.DefaultProvider, nil
 	}
-	return s.view(ctx, row, time.Minute).DefaultProvider
+	rows, err := s.apiRows(s.db.WithContext(ctx), row.UserID)
+	if err != nil {
+		return "", err
+	}
+	return autoProvider(row, rows, s.localCLI), nil
 }
 
 func (s *Service) Resolve(ctx context.Context, userID string) (string, string, error) {
@@ -281,7 +288,10 @@ func (s *Service) Resolve(ctx context.Context, userID string) (string, string, e
 	if err != nil {
 		return "", "", err
 	}
-	provider := s.defaultProvider(ctx, row)
+	provider, err := s.defaultProvider(ctx, row)
+	if err != nil {
+		return "", "", err
+	}
 	if provider == "" {
 		return "", "", errNoProvider
 	}
@@ -304,7 +314,10 @@ func (s *Service) Completer(ctx context.Context, userID, provider, model string)
 		return nil, err
 	}
 	if provider == "" {
-		if provider = s.defaultProvider(ctx, row); provider == "" {
+		if provider, err = s.defaultProvider(ctx, row); err != nil {
+			return nil, err
+		}
+		if provider == "" {
 			return nil, errNoProvider
 		}
 	}
@@ -402,9 +415,20 @@ func (s *Service) checkOpenRouterKey(ctx context.Context, key string) error {
 		return fmt.Errorf("Could not reach OpenRouter to check this key. Try again")
 	}
 	defer res.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 1<<16))
+	var body struct {
+		Data struct {
+			// LimitRemaining is null for a key with no spending limit.
+			LimitRemaining *float64 `json:"limit_remaining"`
+		} `json:"data"`
+	}
+	raw, _ := io.ReadAll(io.LimitReader(res.Body, 1<<16))
 	switch {
 	case res.StatusCode/100 == 2:
+		// A key whose own limit is spent still reads as valid here, but every
+		// embedding and Jev call would fail with it.
+		if json.Unmarshal(raw, &body) == nil && body.Data.LimitRemaining != nil && *body.Data.LimitRemaining <= 0 {
+			return errors.New("This OpenRouter key has used up its credit limit. Raise the limit on openrouter.ai or use another key")
+		}
 		return nil
 	case res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden:
 		return errors.New("OpenRouter rejected this key")

@@ -75,6 +75,7 @@ func (s *Service) view(ctx context.Context, row Settings, maxAge time.Duration) 
 		out.OpenRouter.EmbedModel = s.envEmbed
 	}
 	out.OpenRouter.Ready = out.OpenRouter.KeySet
+	// Runs read the rows again through autoPick, which returns this error.
 	rows, _ := s.apiRows(s.db.WithContext(ctx), row.UserID)
 	out.APIs = s.apiViews(rows)
 	if s.localCLI {
@@ -87,29 +88,34 @@ func (s *Service) view(ctx context.Context, row Settings, maxAge time.Duration) 
 	}
 	out.DefaultChosen = out.DefaultProvider != ""
 	if !out.DefaultChosen {
-		out.DefaultProvider = autoProvider(out)
+		out.DefaultProvider = autoProvider(row, rows, s.localCLI)
 	}
 	return out
 }
 
-// autoProvider picks the provider for an account that has not chosen one: a
-// direct API key first (registry order, so Anthropic leads), then a connected
-// CLI, and OpenRouter last. An OpenRouter key is also what search embeddings
-// and smart suggestions use, so saving one for those never takes chat away
-// from a provider the person added for it.
-func autoProvider(o overview) string {
-	for _, api := range o.APIs {
-		if api.Ready {
-			return api.ID
+// autoProvider picks the provider for an account that has not chosen one: the
+// first one the person set up, direct API keys first (registry order, so
+// Anthropic leads), then a connected CLI, and OpenRouter last. An OpenRouter
+// key is also what search embeddings and smart suggestions use, so saving one
+// for those never takes chat away from a provider the person added for it.
+//
+// It reads stored settings only, so a run never waits on a CLI check, and a
+// provider that is set up but not ready right now (signed out, no model) is
+// still picked: its run fails with its own error instead of moving to
+// OpenRouter.
+func autoProvider(row Settings, rows map[string]APIKey, localCLI bool) string {
+	for _, spec := range apiProviders {
+		if api, ok := rows[spec.ID]; ok && (api.Key != "" || spec.KeyOptional) {
+			return spec.ID
 		}
 	}
-	if o.LocalCLI && o.Claude.Ready {
+	if localCLI && row.ClaudeConnectedAt != nil {
 		return ClaudeCLI
 	}
-	if o.LocalCLI && o.Codex.Ready {
+	if localCLI && row.CodexConnectedAt != nil {
 		return CodexCLI
 	}
-	if o.OpenRouter.Ready {
+	if row.OpenRouterKey != "" {
 		return OpenRouter
 	}
 	return ""
@@ -319,6 +325,9 @@ func (s *Service) removeKey(c *echo.Context) error {
 	row, err := s.update(user(c), func(row *Settings) error {
 		row.OpenRouterKey = ""
 		row.OpenRouterKeyHint = ""
+		if row.DefaultProvider == OpenRouter {
+			row.DefaultProvider = ""
+		}
 		return nil
 	})
 	if err != nil {
@@ -434,8 +443,14 @@ func (s *Service) configure(c *echo.Context) error {
 		}
 		// OpenRouter's chat model is only tested while OpenRouter runs chat; it
 		// is tested again when OpenRouter becomes the default.
-		if change.provider == OpenRouter && s.view(ctx, trial, time.Minute).DefaultProvider != OpenRouter {
-			continue
+		if change.provider == OpenRouter {
+			runsChat, err := s.defaultProvider(ctx, trial)
+			if err != nil {
+				return err
+			}
+			if runsChat != OpenRouter {
+				continue
+			}
 		}
 		// Verify the chosen model actually answers before it becomes the default.
 		completer, err := s.build(trial, change.provider, s.chatModel(trial, change.provider))

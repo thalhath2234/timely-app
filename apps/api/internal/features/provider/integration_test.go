@@ -494,8 +494,9 @@ func TestIntegrationOpenRouterKeyNeverTakesChat(t *testing.T) {
 	if err != nil || provider != "anthropic" || model != "claude-haiku-5-5" {
 		t.Fatalf("chat runs: %s %s %v", provider, model, err)
 	}
-	if got := writeProvider(s.view(context.Background(), Settings{UserID: "user-a"}, time.Minute)); got != "anthropic" {
-		t.Fatalf("writing features: %q", got)
+	// The writing features run on the same provider and model, through the handler.
+	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/write", map[string]string{"action": "write", "prompt": "two ideas for a rainy Sunday", "kind": "doc", "title": "Weekend"}); code != 200 || body["provider"] != "anthropic" || body["model"] != "claude-haiku-5-5" {
+		t.Fatalf("Help me write: %d %v", code, body)
 	}
 	// Changing OpenRouter's chat model while Anthropic runs chat sends nothing.
 	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/providers", map[string]string{"openrouterChatModel": "openai/gpt-5.5"}); code != 200 {
@@ -528,8 +529,19 @@ func TestIntegrationOpenRouterKeyNeverTakesChat(t *testing.T) {
 	if provider, _, _ := s.Resolve(context.Background(), "user-a"); provider != OpenRouter {
 		t.Fatalf("a chosen OpenRouter default is kept: %q", provider)
 	}
-	// Handing the choice back returns chat to Anthropic.
-	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/providers", map[string]string{"defaultProvider": ""}); code != 200 || body["defaultProvider"] != "anthropic" {
+	// Removing the OpenRouter key hands chat back to Anthropic, as removing
+	// any other default does, instead of leaving runs failing on OpenRouter.
+	if code, body := call(t, s, "user-a", http.MethodDelete, "/agent/providers/openrouter/key", nil); code != 200 || body["defaultProvider"] != "anthropic" || body["defaultChosen"] != false {
+		t.Fatalf("%d %v %v", code, body["defaultProvider"], body["defaultChosen"])
+	}
+	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/openrouter/key", map[string]string{"key": "sk-or-v1-goodkey"}); code != 200 || body["defaultProvider"] != "anthropic" {
+		t.Fatalf("%d %v", code, body)
+	}
+	// Choosing Anthropic, then handing the choice back, keeps chat on Anthropic.
+	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/providers", map[string]string{"defaultProvider": "anthropic"}); code != 200 || body["defaultChosen"] != true {
+		t.Fatalf("%d %v", code, body)
+	}
+	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/providers", map[string]string{"defaultProvider": ""}); code != 200 || body["defaultProvider"] != "anthropic" || body["defaultChosen"] != false {
 		t.Fatalf("%d %v", code, body)
 	}
 	// Removing the Anthropic key leaves OpenRouter as the only provider.
@@ -538,9 +550,51 @@ func TestIntegrationOpenRouterKeyNeverTakesChat(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
+	if len(chatModels) != 1 {
+		t.Fatalf("only choosing OpenRouter may send it a chat call: %v", chatModels)
+	}
+	// Help me write and choosing Anthropic each sent one call.
+	if len(anthropicModels) != 2 {
+		t.Fatalf("expected 2 Anthropic calls, got %v", anthropicModels)
+	}
 	for _, m := range anthropicModels {
 		if !strings.Contains(m, "haiku") {
 			t.Fatalf("an Anthropic call ran %q, not Haiku", m)
 		}
+	}
+}
+
+func TestIntegrationMigrationMovesUnchosenOpusToHaiku(t *testing.T) {
+	db := integrationDB(t)
+	// Before the migration: user-a never chose a provider (stored as
+	// 'openrouter' by the old column default) and saved an Anthropic key that
+	// was given Opus; user-b chose Anthropic and runs Opus on purpose.
+	for _, row := range []Settings{{UserID: "user-a", DefaultProvider: OpenRouter, OpenRouterKey: "enc"}, {UserID: "user-b", DefaultProvider: "anthropic"}} {
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, uid := range []string{"user-a", "user-b"} {
+		if err := db.Create(&APIKey{UserID: uid, Provider: "anthropic", Key: "enc", Model: "claude-opus-5-5", CreatedAt: time.Now(), UpdatedAt: time.Now()}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	auto, err := os.ReadFile("../../../migrations/20261031170000_default_provider_auto.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Exec(strings.Split(string(auto), "-- +goose Down")[0]).Error; err != nil {
+		t.Fatal(err)
+	}
+	s := New(db, nil, jobs.NewQueue(db))
+	for uid, want := range map[string]string{"user-a": "claude-haiku-5-5", "user-b": "claude-opus-5-5"} {
+		provider, model, err := s.Resolve(context.Background(), uid)
+		if err != nil || provider != "anthropic" || model != want {
+			t.Errorf("%s: got %s %s %v, want anthropic %s", uid, provider, model, err, want)
+		}
+	}
+	var stored Settings
+	if err := db.First(&stored, "user_id = ?", "user-a").Error; err != nil || stored.DefaultProvider != "" {
+		t.Errorf("user-a's default must be emptied: %q %v", stored.DefaultProvider, err)
 	}
 }

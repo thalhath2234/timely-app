@@ -221,13 +221,6 @@ func clipTail(s string, n int) string {
 	return strings.ToValidUTF8(s[len(s)-n:], "")
 }
 
-// writeProvider is the provider the writing features use: the same one new
-// chat runs use (the person's default, else autoProvider's pick), so they never
-// move to another provider on their own.
-func writeProvider(o overview) string {
-	return o.DefaultProvider
-}
-
 func (s *Service) write(c *echo.Context) error {
 	var req writeRequest
 	if err := c.Bind(&req); err != nil {
@@ -241,7 +234,10 @@ func (s *Service) write(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	provider := writeProvider(s.view(ctx, row, time.Minute))
+	provider, err := s.defaultProvider(ctx, row)
+	if err != nil {
+		return err
+	}
 	if provider == "" {
 		return echo.NewHTTPError(409, "Help me write needs an AI provider. Add a key in Settings → Agent keys")
 	}

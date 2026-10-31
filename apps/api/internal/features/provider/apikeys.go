@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -198,28 +199,45 @@ func pickModel(spec *apiProvider, current string, list []ModelOption) string {
 	if len(list) > 0 {
 		return list[0].ID
 	}
-	if len(spec.Defaults) > 0 {
+	if len(spec.Defaults) > 0 && !strings.HasSuffix(spec.Defaults[0], "*") {
 		return spec.Defaults[0]
 	}
 	return ""
 }
 
+// modelVersion is what may follow a model id and still name the same model:
+// a release date (Anthropic's 20261001, OpenAI's 2026-10-01) or "latest".
+var modelVersion = regexp.MustCompile(`^-(\d{8}|\d{4}-\d{2}-\d{2}|latest)$`)
+
 // listedModel finds id in a model list, or the same model under a dated name
-// (claude-haiku-5-5 and claude-haiku-5-5-20261001), so a replaced key or a
-// list that names models differently keeps the person's model.
+// (claude-haiku-5-5 and claude-haiku-5-5-20261001, either way round), so a
+// replaced key or a list that names models differently keeps the person's
+// model. An id ending in "*" is a family default ("claude-haiku-*") and takes
+// the family's newest listed model.
 func listedModel(list []ModelOption, id string) (string, bool) {
 	if id == "" {
 		return "", false
+	}
+	if family, ok := strings.CutSuffix(id, "*"); ok {
+		// The last match is the newest: lists are sorted by display name.
+		found := ""
+		for _, m := range list {
+			if family != "" && strings.HasPrefix(m.ID, family) {
+				found = m.ID
+			}
+		}
+		return found, found != ""
 	}
 	for _, m := range list {
 		if m.ID == id {
 			return m.ID, true
 		}
 	}
-	// The last match is the newest: lists are sorted by display name.
 	found := ""
 	for _, m := range list {
-		if strings.HasPrefix(m.ID, id+"-") || strings.HasPrefix(id, m.ID+"-") {
+		if rest, ok := strings.CutPrefix(m.ID, id); ok && modelVersion.MatchString(rest) {
+			found = m.ID
+		} else if rest, ok := strings.CutPrefix(id, m.ID); ok && modelVersion.MatchString(rest) {
 			found = m.ID
 		}
 	}

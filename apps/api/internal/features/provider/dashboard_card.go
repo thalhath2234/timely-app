@@ -157,7 +157,10 @@ func (s *Service) describeCompleter(ctx context.Context, userID, place string) (
 	if err != nil {
 		return nil, "", err
 	}
-	provider := writeProvider(s.view(ctx, row, time.Minute))
+	provider, err := s.defaultProvider(ctx, row)
+	if err != nil {
+		return nil, "", err
+	}
 	if provider == "" {
 		need := "Describing cards needs"
 		if place == "doc" {

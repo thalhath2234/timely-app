@@ -84,7 +84,7 @@ The floating chat bar opened with Ctrl/Cmd+Shift+J from any screen. It carries C
 _Avoid_: agent modal, chat overlay (in copy)
 
 **Agent provider**:
-The model source an account's Agent runs use: OpenRouter or a direct API provider (Anthropic, OpenAI, Gemini, DeepSeek, xAI, Mistral, Z.ai, Kimi, Ollama, NVIDIA, OpenCode) with the account's own key, or the Claude Code or Codex CLI installed and signed in on the API host. Each account may choose one default provider, and has a model per provider; with no choice, runs use the first ready provider, OpenRouter last (ADR 0019). A run keeps the provider it started with.
+The model source an account's Agent runs use: OpenRouter or a direct API provider (Anthropic, OpenAI, Gemini, DeepSeek, xAI, Mistral, Z.ai, Kimi, Ollama, NVIDIA, OpenCode) with the account's own key, or the Claude Code or Codex CLI installed and signed in on the API host. Each account may choose one default provider, and has a model per provider; with no choice, runs use the first provider set up, OpenRouter last (ADR 0019). A run keeps the provider it started with.
 _Avoid_: backend, engine (Auto-schedule is the engine), LLM (in copy)
 
 **Connect**:
