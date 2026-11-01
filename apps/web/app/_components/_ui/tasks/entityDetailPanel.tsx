@@ -525,7 +525,9 @@ function DetailBody({
   const { schedule, saveNow, flush, status } = useAutosave<DetailPatch>(save, 800, {
     onRejected: (error, patch) => {
       useToastStore.getState().show(refusalMessage(error));
-      if (patch.title !== undefined) setTitle(savedTitleRef.current);
+      // Unless more was typed since: that newer name is still on its way.
+      if (patch.title !== undefined)
+        setTitle((current) => (current === patch.title ? savedTitleRef.current : current));
       onRejected?.();
     },
   });

@@ -22,7 +22,7 @@ import InboxSuggestionsCard from "../../../components/tasks/InboxSuggestionsCard
 import TaskHintsCard from "../../../components/tasks/TaskHintsCard";
 import RelatedList from "../../../components/search/RelatedList";
 import { toCustomFieldDrafts, withCustomFieldDraft } from "../../../lib/customFields";
-import type { CustomFieldValueInput, DocContent } from "../../../lib/types";
+import type { CustomFieldValueInput, DocContent, Task } from "../../../lib/types";
 import {
   useAddBlock,
   useAddChecklistItem,
@@ -142,7 +142,18 @@ export default function TaskDetailScreen() {
           : {}),
       },
     });
-  }, undefined, { onRejected: (error) => onRefused(error) });
+  }, undefined, {
+    onRejected: (error, patch) => {
+      onRefused(error);
+      // A refused name goes back to the saved one, unless more was typed
+      // since. The save's own rollback has put the saved copy back by now.
+      if (patch.name === undefined || !id) return;
+      const saved =
+        queryClient.getQueryData<Task>(["task", id])?.name ??
+        queryClient.getQueryData<Task[]>(["tasks"])?.find((item) => item.id === id)?.name;
+      if (saved !== undefined) setName((current) => (current === patch.name ? saved : current));
+    },
+  });
   const remove = useDeleteTask();
   const addBlock = useAddBlock();
   const pinTask = usePinTask();
