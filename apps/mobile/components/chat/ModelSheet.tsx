@@ -54,6 +54,7 @@ export default function ModelSheet({
   const ready = readyProviders(providers.data);
   const defaultId = providers.data?.defaultProvider;
   const defaultModel = ready.find((p) => p.id === defaultId)?.model ?? "";
+  const automatic = providers.data ? !providers.data.defaultChosen : false;
   const [browsing, setBrowsing] = useState("");
   const [query, setQuery] = useState("");
   const shown =
@@ -99,7 +100,7 @@ export default function ModelSheet({
         <Text style={styles.name}>Default</Text>
         <Text numberOfLines={1} style={styles.sub}>
           {defaultId
-            ? `${label(defaultId)}${defaultModel ? ` · ${defaultModel}` : ""}`
+            ? `${automatic ? "Automatic · " : ""}${label(defaultId)}${defaultModel ? ` · ${defaultModel}` : ""}`
             : "Set in Settings → Agent"}
         </Text>
       </SheetOption>

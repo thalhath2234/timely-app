@@ -3,13 +3,44 @@ package suggest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"timely-api/internal/features/decide"
 	"timely-api/internal/features/notify"
 	"timely-api/internal/models"
+
+	"github.com/google/uuid"
 )
+
+// A Jev call that fails is returned, so the day's smart alerts job can try
+// again; with suggestions off there is nothing to retry.
+func TestIntegrationAlertsReportAFailedCall(t *testing.T) {
+	w := newWorld(t)
+	now := time.Now()
+	w.task(t, "Pay the plumber's invoice", func(task *models.Task) { task.Deadline = ptr(now.AddDate(0, 0, 1).Format("2006-01-02")) })
+	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
+		rw.WriteHeader(529)
+		_, _ = rw.Write([]byte(`{"error":{"message":"Overloaded"}}`))
+	}))
+	t.Cleanup(srv.Close)
+	client := decide.NewClient(nil)
+	client.TypeSafeURL = srv.URL
+	keys := decide.Keys{Enabled: true, TypeSafe: "ts-test-key-123"}
+	s := New(w.db, decide.New(nil, func(context.Context, string) (decide.Keys, error) { return keys, nil }, client), nil)
+	out, err := s.Alerts(context.Background(), w.user, now, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "529") || len(out) != 0 {
+		t.Fatalf("want the failed call, got %v %+v", err, out)
+	}
+	keys.Enabled = false
+	if out, err := s.Alerts(context.Background(), w.user, now, nil, nil); err != nil || len(out) != 0 {
+		t.Fatalf("off: %v %+v", err, out)
+	}
+}
 
 func TestIntegrationAlertsGroupAndPickSteps(t *testing.T) {
 	w := newWorld(t)
@@ -43,7 +74,8 @@ func TestIntegrationAlertsGroupAndPickSteps(t *testing.T) {
 		"group_c3": choice("none"), "group_c1": choice("none"), "group_c4": choice("none"),
 	}}
 	s := New(w.db, jev.service(t), nil)
-	out := s.Alerts(context.Background(), w.user, now, nil, nil)
+	out, err := s.Alerts(context.Background(), w.user, now, nil, nil)
+	must(t, err)
 	if len(out) != 2 {
 		t.Fatalf("%+v", out)
 	}
@@ -70,7 +102,8 @@ func TestIntegrationAlertsGroupAndPickSteps(t *testing.T) {
 	}
 
 	// Work alerted about this week is left out.
-	s.Alerts(context.Background(), w.user, now, map[string]bool{inbox[0].ID: true, invoice.ID: true}, nil)
+	_, err = s.Alerts(context.Background(), w.user, now, map[string]bool{inbox[0].ID: true, invoice.ID: true}, nil)
+	must(t, err)
 	asked := jev.asked(1)
 	// Only the unblocked plumber is left: one candidate, so no group question.
 	if _, ok := asked["alert_c1"]; !ok || len(asked) != 2 {
@@ -139,6 +172,55 @@ func TestIntegrationHighlightsThemesReasonsAndTips(t *testing.T) {
 	must(t, json.Unmarshal(mustJSON(t, jev.requests[0].State), &reasons))
 	if len(reasons.Blocked) != 2 {
 		t.Fatalf("blocked state %+v", reasons)
+	}
+}
+
+// Long descriptions and comments on every blocked and unfinished task still
+// leave room for the reasons call, so both groups show.
+func TestIntegrationHighlightsReasonsFitLongComments(t *testing.T) {
+	w := newWorld(t)
+	now := time.Now()
+	long := func(c string, n int) string { return strings.Repeat(c, n) }
+	blocker := w.task(t, "Waiting for the landlord", nil)
+	addComments := func(task models.Task) {
+		for c := 0; c < 3; c++ {
+			must(t, w.db.Create(&models.TaskActivity{ID: uuid.NewString(), TaskID: task.ID, UserID: w.user, Action: "commented",
+				Message: long("c", 500), CreatedAt: now.Add(time.Duration(c-10) * time.Minute).Format(time.RFC3339)}).Error)
+		}
+	}
+	for i := 0; i < maxBlocked; i++ {
+		task := w.task(t, fmt.Sprintf("%02d %s", i, long("b", 197)), func(task *models.Task) {
+			task.Description = long("d", 300)
+			task.BlockedByID = &blocker.ID
+		})
+		addComments(task)
+	}
+	for i := 0; i < 5; i++ {
+		task := w.task(t, fmt.Sprintf("%02d %s", i, long("m", 197)), func(task *models.Task) {
+			task.Description = long("d", 300)
+			task.Duration = 60
+		})
+		addComments(task)
+		end := now.Add(-time.Duration(i+1) * time.Hour)
+		must(t, w.db.Exec("INSERT INTO scheduled_blocks (id, task_id, user_id, start_at, end_at) VALUES (?, ?, ?, ?, ?)",
+			uuid.NewString(), task.ID, w.user, end.Add(-time.Minute), end).Error)
+	}
+	answers := map[string]any{}
+	for i := 1; i <= maxBlocked; i++ {
+		answers[fmt.Sprintf("b%d", i)] = choice("person")
+	}
+	for i := 1; i <= 5; i++ {
+		answers[fmt.Sprintf("m%d", i)] = choice("too_big")
+	}
+	jev := &jevStub{answers: answers}
+	s := New(w.db, jev.service(t), nil)
+	out, err := s.Highlights(context.Background(), w.user, nil, now)
+	must(t, err)
+	if len(out.Blockers) != 1 || out.Blockers[0].Count != maxBlocked || len(out.Missed) != 1 || out.Missed[0].Count != 5 {
+		t.Fatalf("blockers %+v missed %+v", out.Blockers, out.Missed)
+	}
+	if raw := mustJSON(t, jev.requests[0].State); len(raw) > decide.MaxStateBytes {
+		t.Fatalf("reasons state is %d bytes", len(raw))
 	}
 }
 

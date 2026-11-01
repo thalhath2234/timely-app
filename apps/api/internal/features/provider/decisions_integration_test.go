@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -117,7 +118,7 @@ func TestIntegrationDecisionSettings(t *testing.T) {
 	}
 
 	// A refused saved key is skipped until replaced.
-	s.MarkTypeSafeRejected("user-a")
+	s.MarkTypeSafeRejected("user-a", "ts-goodkey-123")
 	if _, body := call(t, s, "user-a", http.MethodGet, "/agent/decisions", nil); body["available"] != false || body["typesafe"].(map[string]any)["rejected"] != true {
 		t.Fatalf("rejected key view: %v", body)
 	}
@@ -149,3 +150,83 @@ func TestIntegrationDecisionSettings(t *testing.T) {
 }
 
 func mustJSON(v any) string { b, _ := json.Marshal(v); return string(b) }
+
+// TestIntegrationTypeSafeRefusalFollowsTheKey: a refusal is about the key a
+// call used, so a late 401 for a replaced key leaves the new one alone;
+// Settings → Test asks TypeSafe again about a refused key and clears the
+// flag when it is taken; a key that cannot be decrypted says so.
+func TestIntegrationTypeSafeRefusalFollowsTheKey(t *testing.T) {
+	db := integrationDB(t)
+	t.Setenv("JWT_SECRET", "integration-secret")
+	t.Setenv("CHAT_LOCAL_CLI", "off")
+
+	jev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if auth := r.Header.Get("Authorization"); auth != "Bearer ts-newkey-456" && auth != "Bearer ts-oldkey-123" {
+			w.WriteHeader(401)
+			return
+		}
+		_, _ = w.Write([]byte(`{"model":"jev-1.13.0","answers":{"ok":{"type":"noul","noul":0.97}},"usage":{"input_tokens":12,"output_tokens":0}}`))
+	}))
+	defer jev.Close()
+	client := decide.NewClient(nil)
+	client.TypeSafeURL = jev.URL
+	client.OpenRouterURL = jev.URL + "/openrouter"
+	s := New(db, nil, jobs.NewQueue(db))
+	d := decide.New(db, s.DecisionKeys, client)
+	client.Rejected = s.MarkTypeSafeRejected
+	s.SetDecisions(d, client)
+	typesafe := func() map[string]any {
+		_, body := call(t, s, "user-a", http.MethodGet, "/agent/decisions", nil)
+		return body["typesafe"].(map[string]any)
+	}
+
+	for _, key := range []string{"ts-oldkey-123", "ts-newkey-456"} {
+		if code, _ := call(t, s, "user-a", http.MethodPost, "/agent/decisions/key", map[string]string{"key": key}); code != 200 {
+			t.Fatalf("save %s: %d", key, code)
+		}
+	}
+	// A call made with the old key comes back refused after the new key
+	// was saved.
+	s.MarkTypeSafeRejected("user-a", "ts-oldkey-123")
+	if ts := typesafe(); ts["rejected"] != false {
+		t.Fatalf("a late refusal of the old key flagged the new one: %v", ts)
+	}
+	s.MarkTypeSafeRejected("user-a", "ts-newkey-456")
+	if ts := typesafe(); ts["rejected"] != true {
+		t.Fatalf("a refusal of the saved key must flag it: %v", ts)
+	}
+	if keys, _ := s.DecisionKeys(context.Background(), "user-a"); keys.Usable() || !keys.TypeSafeRefused {
+		t.Fatalf("a refused key is skipped and named: %+v", keys)
+	}
+
+	// Test asks TypeSafe again; it takes the key now, so the flag goes.
+	code, body := call(t, s, "user-a", http.MethodPost, "/agent/decisions/test", nil)
+	if code != 200 || body["ok"] != true || body["provider"] != decide.ProviderTypeSafe {
+		t.Fatalf("test of a refused key: %d %v", code, body)
+	}
+	if ts := typesafe(); ts["rejected"] != false {
+		t.Fatalf("a key TypeSafe took again stays flagged: %v", ts)
+	}
+
+	// A key that can no longer be decrypted is named, not called missing.
+	if err := db.Model(&APIKey{}).Where("user_id = ? AND provider = ?", "user-a", TypeSafe).Update("api_key", "bm90LWEtc2VhbGVkLWtleQ==").Error; err != nil {
+		t.Fatal(err)
+	}
+	if ts := typesafe(); ts["unreadable"] != true || ts["keySet"] != true || ts["rejected"] != false {
+		t.Fatalf("unreadable key view: %v", ts)
+	}
+	if keys, _ := s.DecisionKeys(context.Background(), "user-a"); keys.Usable() || !keys.TypeSafeUnreadable {
+		t.Fatalf("an unreadable key is skipped and named: %+v", keys)
+	}
+	if _, err := d.Ask(context.Background(), "user-a", decide.Request{Feature: "test", State: "Buy milk",
+		Questions: map[string]decide.Question{"ok": decide.YesNo("Is it a test?", "yes", "no")}}); !errors.Is(err, decide.ErrKeyUnreadable) {
+		t.Fatalf("ask with an unreadable key: %v", err)
+	}
+	code, body = call(t, s, "user-a", http.MethodPost, "/agent/decisions/test", nil)
+	if code != 200 || body["ok"] != false || body["error"] != "Timely can't read your saved TypeSafe key. Enter it again, or add an OpenRouter key." {
+		t.Fatalf("test of an unreadable key: %d %v", code, body)
+	}
+	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/decisions", map[string]bool{"enabled": true}); code != 409 || !strings.Contains(mustJSON(body), "can't read your saved TypeSafe key. Enter it again, or add an OpenRouter key, to turn on smart suggestions") {
+		t.Fatalf("switch on with an unreadable key: %d %v", code, body)
+	}
+}

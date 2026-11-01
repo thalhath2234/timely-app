@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { CalendarPlus, Sparkles, Star, Target, X } from "lucide-react";
 import { browserTimezone } from "@/app/utils/api/schedule";
 import type { EffortKind } from "@/app/utils/api/decisions";
+import { ApiError } from "@/app/utils/api/worksapce";
 import { formatDuration, formatTime } from "@/app/utils/calendar";
 import { useDecisionFeedback, useTodaySuggestions } from "@/app/utils/hooks/decisions";
 import { useAddTaskBlock } from "@/app/utils/hooks/calendar";
@@ -43,6 +45,7 @@ export default function TodaySuggestions({
 }) {
   const { data } = useTodaySuggestions(browserTimezone(), version);
   const setFocus = useSetTodayFocus();
+  const queryClient = useQueryClient();
   const addBlock = useAddTaskBlock();
   const feedback = useDecisionFeedback();
   const openTask = useEntityDetailStore((state) => state.openTask);
@@ -99,7 +102,7 @@ export default function TodaySuggestions({
                           {reason.charAt(0).toUpperCase() + reason.slice(1)}
                         </span>
                       ))}
-                    {pick.effortKind ? <span className={chip}>{EFFORT_LABELS[pick.effortKind]}</span> : null}
+                    {pick.effortKind && EFFORT_LABELS[pick.effortKind] ? <span className={chip}>{EFFORT_LABELS[pick.effortKind]}</span> : null}
                   </span>
                 </button>
                 <Button
@@ -113,7 +116,15 @@ export default function TodaySuggestions({
                     void setFocus
                       .mutateAsync({ taskId: pick.taskId, date })
                       .then(() => toast(`Added “${pick.name}” to Today’s Focus`))
-                      .catch(() => toast("Could not add it to Today’s Focus"));
+                      .catch((error: unknown) => {
+                        if (error instanceof ApiError && error.status === 404) {
+                          // Deleted since the picks loaded; others may be too.
+                          toast(`Could not add “${pick.name}”. It was deleted.`);
+                          void queryClient.invalidateQueries({ queryKey: ["today-suggestions"] });
+                          return;
+                        }
+                        toast("Could not add it to Today’s Focus");
+                      });
                     hide(`focus:${pick.taskId}`);
                   }}
                 >
@@ -136,7 +147,7 @@ export default function TodaySuggestions({
                 {gap.task.name}
               </button>{" "}
               fits here
-              {gap.task.effortKind ? ` · ${EFFORT_LABELS[gap.task.effortKind]}` : ""}.
+              {gap.task.effortKind && EFFORT_LABELS[gap.task.effortKind] ? ` · ${EFFORT_LABELS[gap.task.effortKind]}` : ""}.
             </span>
             <Button
               variant="outline"

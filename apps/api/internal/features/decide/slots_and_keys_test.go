@@ -26,7 +26,9 @@ func TestCallThatWaitedTooLongForASlotIsNotStarted(t *testing.T) {
 			return
 		}
 		<-block
-		w.WriteHeader(503)
+		// An answer, not an error: failed calls would rest the provider and
+		// leave the last call out for that reason instead.
+		_, _ = w.Write([]byte(`{"answers":{"q":{"type":"noul","noul":0.5}}}`))
 	}))
 	defer srv.Close()
 	c := NewClient(nil)

@@ -10,6 +10,7 @@ import {
   queryContext,
   resolveDateValue,
   runView,
+  viewUsesSuggestedFields,
 } from "../packages/contract/src/taskQuery.ts";
 
 const NOW = new Date("2026-10-14T10:00:00Z"); // Wednesday, UTC
@@ -134,4 +135,19 @@ describe("sorting, limits and groups", () => {
     assert.ok(bucketGroupRank("deadline", "Later") < bucketGroupRank("deadline", "No deadline"));
     assert.equal(bucketGroupLabels(tasks[0], "project", ctx), undefined);
   });
+});
+
+test("a view on effort or urgency is found wherever it names them", () => {
+  const base = { rules: [], groupFields: [], sortBy: "deadline" };
+  assert.equal(viewUsesSuggestedFields(base), false);
+  // The tester's Deep, Pressing and By effort views.
+  assert.equal(viewUsesSuggestedFields({ ...base, rules: [{ field: "effort", op: "anyOf", value: ["deep"] }] }), true);
+  assert.equal(
+    viewUsesSuggestedFields({ ...base, rules: [{ match: "any", rules: [{ field: "urgency", op: "gte", value: 3 }] }] }),
+    true,
+  );
+  assert.equal(viewUsesSuggestedFields({ ...base, groupFields: ["effort"] }), true);
+  assert.equal(viewUsesSuggestedFields({ ...base, sortBy: "urgency" }), true);
+  assert.equal(viewUsesSuggestedFields({ ...base, thenSortBy: "urgency" }), true);
+  assert.equal(viewUsesSuggestedFields({ ...base, rules: [{ field: "priority", op: "anyOf", value: ["High"] }] }), false);
 });

@@ -194,7 +194,7 @@ export default function InboxSuggestionsCard({
     return (
       <View style={styles.card} testID="inbox-suggestions-error">
         <TaskSectionHeader icon={<Sparkles size={18} color={colors.primary} />} title="Suggestions" />
-        <Text style={styles.hint}>{data.error} Check Settings → Agent → Smart suggestions.</Text>
+        <Text style={styles.hint}>{data.error}</Text>
       </View>
     );
   if (!plan) return null;
@@ -229,6 +229,8 @@ export default function InboxSuggestionsCard({
           ))}
         </View>
       ) : null}
+      {/* Said even when the item's own words filled a date: the rest was not read. */}
+      {data?.error ? <Text style={styles.hint}>{data.error}</Text> : null}
       <View style={styles.actions}>
         {plan.update ? (
           <AnimatedPressable

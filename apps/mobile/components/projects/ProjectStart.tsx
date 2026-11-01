@@ -19,18 +19,17 @@ const none: StartChoices = { copy: false, doc: false, sheet: false };
 export function useProjectStart(title: string, workspaceId: string) {
   const status = useDecisionsStatusQuery();
   const active = status.data?.available === true;
-  const [fetched, setFetched] = useState<{ suggestion: ProjectStart; workspaceId: string }>();
-  const [choices, setChoices] = useState<StartChoices>(none);
+  const [fetched, setFetched] = useState<{ suggestion: ProjectStart; workspaceId: string; title: string }>();
+  const [choices, setChoices] = useState<{ title: string; ticked: StartChoices }>({ title: "", ticked: none });
+  const trimmed = title.trim();
   useEffect(() => {
-    const trimmed = title.trim();
     if (!active || !workspaceId || trimmed.length < 3) return;
     let stale = false;
     const timer = setTimeout(() => {
       getProjectStart(trimmed, workspaceId)
         .then((next) => {
           if (stale) return;
-          setFetched(next.available ? { suggestion: next, workspaceId } : undefined);
-          setChoices(none);
+          setFetched(next.available ? { suggestion: next, workspaceId, title: trimmed } : undefined);
         })
         .catch(() => {});
     }, 700);
@@ -38,11 +37,15 @@ export function useProjectStart(title: string, workspaceId: string) {
       stale = true;
       clearTimeout(timer);
     };
-  }, [title, workspaceId, active]);
-  // A suggestion only counts for the workspace it was asked for; a copy
-  // always lands in the source project's workspace.
-  const shown = active && title.trim().length >= 3 && fetched?.workspaceId === workspaceId ? fetched.suggestion : undefined;
-  return { suggestion: shown, choices, setChoices };
+  }, [trimmed, workspaceId, active]);
+  // A suggestion only counts for the title and workspace it was asked for (a
+  // copy always lands in the source project's workspace), and a switch only
+  // for the title it was turned on under: after a new title, nothing is copied
+  // or added until the person turns on what the new title's answer offers.
+  const shown = active && trimmed.length >= 3 && fetched?.workspaceId === workspaceId && fetched.title === trimmed ? fetched.suggestion : undefined;
+  const ticked = shown && choices.title === trimmed ? choices.ticked : none;
+  const setTicked = (next: StartChoices) => setChoices({ title: trimmed, ticked: next });
+  return { suggestion: shown, choices: ticked, setChoices: setTicked };
 }
 
 export function ProjectStartChoices({

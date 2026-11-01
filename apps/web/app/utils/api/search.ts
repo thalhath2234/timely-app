@@ -29,6 +29,7 @@ async function readError(response: Response, fallback: string) {
 export async function searchItems(
   query: string,
   semantic = true,
+  signal?: AbortSignal,
 ): Promise<SearchHit[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
@@ -38,6 +39,7 @@ export async function searchItems(
 
   const response = await apiFetch(`/search?${params.toString()}`, {
     credentials: "include",
+    signal,
   });
 
   if (!response.ok) {
@@ -68,10 +70,11 @@ export type SmartSearch = {
   logId?: string;
 };
 
-export async function smartSearch(query: string): Promise<SmartSearch> {
+export async function smartSearch(query: string, signal?: AbortSignal): Promise<SmartSearch> {
   const params = new URLSearchParams({ q: query.trim() });
   const response = await apiFetch(`/search/smart?${params.toString()}`, {
     credentials: "include",
+    signal,
   });
   if (!response.ok) {
     throw new Error(await readError(response, "Search failed"));
@@ -88,10 +91,11 @@ export type RelatedItem = {
 };
 
 /** Items Jev confirms are about the same thing; [] when it is off. */
-export async function relatedItems(kind: RelatedItem["kind"], id: string): Promise<RelatedItem[]> {
+export async function relatedItems(kind: RelatedItem["kind"], id: string, signal?: AbortSignal): Promise<RelatedItem[]> {
   const params = new URLSearchParams({ kind, id });
   const response = await apiFetch(`/search/related?${params.toString()}`, {
     credentials: "include",
+    signal,
   });
   if (!response.ok) {
     throw new Error(await readError(response, "Couldn't load related items"));

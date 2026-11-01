@@ -44,14 +44,19 @@ type Service interface {
 type service struct {
 	db      *gorm.DB
 	indexer embed.Indexer
+	// rebuild queues a background rebuild of the account's index; nil
+	// leaves a partial index as it is.
+	rebuild func(userID string)
 }
 
 // queryEmbedBudget is how long a semantic search waits for its query's
 // embedding before answering with keyword hits alone. A var for tests.
 var queryEmbedBudget = 3 * time.Second
 
-func NewService(db *gorm.DB, indexer embed.Indexer) Service {
-	return &service{db: db, indexer: indexer}
+// NewService builds search. rebuild, when not nil, is called when a semantic
+// search finds items missing from the index; it should queue a rebuild.
+func NewService(db *gorm.DB, indexer embed.Indexer, rebuild func(userID string)) Service {
+	return &service{db: db, indexer: indexer, rebuild: rebuild}
 }
 
 func (s *service) Search(userID, query string, limit int) ([]Hit, error) {
@@ -75,17 +80,13 @@ func (s *service) SemanticSearch(ctx context.Context, userID, query string, limi
 	if userID == "" {
 		return nil, errors.New("user not authenticated")
 	}
-	query, filters := splitQuery(strings.TrimSpace(query))
+	kinds = allowedKinds(kinds)
+	query, filters := splitFor(strings.TrimSpace(query), kinds)
 	if query == "" && len(filters) == 0 {
 		return []Hit{}, nil
 	}
 	limit = clampLimit(limit)
-	kinds = allowedKinds(kinds)
 	if len(filters) > 0 {
-		// Only docs have properties.
-		if len(kinds) > 0 && !contains(kinds, "doc") {
-			return []Hit{}, nil
-		}
 		kinds = []string{"doc"}
 	}
 
@@ -149,13 +150,15 @@ func (s *service) vector(ctx context.Context, userID, query string, limit int, k
 	if s.indexer == nil || !s.indexer.EnabledFor(userID) {
 		return nil, embed.ErrDisabled
 	}
-	n, err := s.indexer.Count(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	if n == 0 {
-		if _, err := s.indexer.ReindexUser(ctx, userID); err != nil {
-			return nil, err
+	// Items missing from the index (after a restore, an interrupted rebuild
+	// or a failed job) are rebuilt by a background job, never inside this
+	// request: a cancelled request then cannot leave the index half built,
+	// and the search answers from what is indexed now, plus keywords.
+	if s.rebuild != nil {
+		if missing, err := s.indexer.Missing(ctx, userID); err != nil {
+			log.Printf("search: index coverage check failed: %v", err)
+		} else if missing > 0 {
+			s.rebuild(userID)
 		}
 	}
 	// Embedding the query gets a short budget of its own: a slow provider

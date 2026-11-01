@@ -20,7 +20,7 @@ type switchingIndexer struct {
 
 func (*switchingIndexer) SetCredentials(embed.Credentials) {}
 func (*switchingIndexer) EnabledFor(string) bool           { return true }
-func (x *switchingIndexer) Reindex(_ context.Context, userID string, progress func(done, total int)) (int, error) {
+func (x *switchingIndexer) Reindex(_ context.Context, userID string, progress func(done, total, skipped int)) (int, error) {
 	x.passes++
 	if x.passes == 1 {
 		if _, err := x.s.update(userID, func(row *Settings) error {
@@ -31,7 +31,7 @@ func (x *switchingIndexer) Reindex(_ context.Context, userID string, progress fu
 		}
 	}
 	if progress != nil {
-		progress(9, 9)
+		progress(9, 9, 0)
 	}
 	return 9, nil
 }

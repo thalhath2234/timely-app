@@ -23,11 +23,14 @@ import {
   cardTitle,
   defaultDashboard,
   describedSources,
+  sourcesUsed,
+  SOURCE_LABELS,
   minCardSize,
   newCardId,
   DASHBOARD_MAX_CARDS,
   type BuiltinCardType,
   type CardRow,
+  type CardSource,
   type CardTemplate,
   type DashboardCard,
 } from "@timely/contract/dashboard";
@@ -102,7 +105,7 @@ export default function ReportDashboard() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const { layout, isLoading, error, retry, update, updateCard, saveState } = useDashboardLayout();
   const cards = useMemo(() => layout?.cards ?? [], [layout]);
-  const { data, today, failures, loading, timeZone } = useDashboardData(cards);
+  const { data, today, failures, loading, unread, timeZone } = useDashboardData(cards);
   useFileWatches(cards);
   const configQuery = useConfig();
   const now = useNow(30_000);
@@ -378,6 +381,16 @@ export default function ReportDashboard() {
   const renderCard = (card: DashboardCard) => {
     const settings = card.settings ?? {};
     const setSettings = (next: Record<string, unknown>) => updateCard(card.id, (current) => ({ ...current, settings: { ...current.settings, ...next } }));
+    // A source that failed with nothing loaded would read as zero here.
+    const missing = [...sourcesUsed([card])].filter((source): source is CardSource => source !== "today" && Boolean(unread[source]));
+    if (missing.length) {
+      return (
+        <p className="text-xs text-muted-foreground" data-testid="card-load-failed">
+          Couldn’t load {missing.map((source) => SOURCE_LABELS[source].toLowerCase()).join(" or ")}. Use Retry at the
+          top of the page.
+        </p>
+      );
+    }
     switch (card.type) {
       case "custom":
         return (
@@ -503,7 +516,7 @@ export default function ReportDashboard() {
         {failures.length > 0 ? (
           <div className="mb-4 flex flex-col gap-2">
             {failures.map(({ what, query }) => (
-              <LoadErrorBanner key={what} what={what} error={query.error} onRetry={() => query.refetch()} retrying={query.isFetching} />
+              <LoadErrorBanner key={what} what={what} error={query.error} hasCopy={query.data !== undefined} onRetry={() => query.refetch()} retrying={query.isFetching} />
             ))}
           </div>
         ) : null}

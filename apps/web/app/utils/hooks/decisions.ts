@@ -71,8 +71,11 @@ function useDecisionsMutation<TVars>(
     onSuccess: (data) => queryClient.setQueryData(decisionsKey, data),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: decisionsKey, exact: true });
-      for (const key of ["clarify-suggestions", "task-hints", "stale-work", "project-insights", "cleanup-suggestions", "doc-hints", "today-suggestions", "goal-progress"])
+      for (const key of ["clarify-suggestions", "task-hints", "stale-work", "project-insights", "cleanup-suggestions", "doc-hints", "today-suggestions", "goal-progress", "highlights"])
         queryClient.invalidateQueries({ queryKey: [key] });
+      // A search answered with smart suggestions on keeps its order and
+      // hidden hits only while they stay on: it is asked again when needed.
+      queryClient.removeQueries({ queryKey: ["search-smart"] });
     },
   });
 }
@@ -101,8 +104,14 @@ export function useClarifySuggestions(inboxId: string | undefined, enabled = tru
   });
 }
 
+/** Test also asks TypeSafe again about a key it refused, so the card reloads
+ * afterwards: a key TypeSafe takes again is in use again. */
 export function useTestDecisions() {
-  return useMutation({ mutationFn: testDecisions });
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: testDecisions,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: decisionsKey, exact: true }),
+  });
 }
 
 export function useDecisionFeedback() {
@@ -169,28 +178,31 @@ export function useCleanupSuggestions(workspaceId: string | undefined) {
   }));
 }
 
-/** Merges, then refreshes everything that shows labels, statuses or fields. */
+/** Merges, then refreshes everything that shows labels, statuses or fields;
+ * a merge refused for a rename made elsewhere refreshes them too. */
 export function useMergeTaxonomy(workspaceId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (merge: CleanupMerge) => mergeTaxonomy(workspaceId, merge),
-    onSuccess: () => {
+    onSettled: () => {
       for (const key of ["workspaces", "tasks", "today", "projects", "config", "cleanup-suggestions"])
         queryClient.invalidateQueries({ queryKey: [key] });
     },
   });
 }
 
-/** Suggestions for a doc; `version` refetches after the text settles. */
+/** Suggestions for a doc; `version` refetches after the text settles. A read
+ * that failed is asked again when the doc is opened next, and one still
+ * running when the doc is left is dropped. */
 export function useDocHints(docId: string | undefined, version = "", enabled = true) {
   const on = useSmartOn();
   return whenOn(on, useQuery({
     queryKey: ["doc-hints", docId, version],
-    queryFn: () => getDocHints(docId!),
+    queryFn: ({ signal }) => getDocHints(docId!, signal),
     enabled: on && Boolean(docId) && enabled,
     // Keeps the card up while a newer read loads.
     placeholderData: keepPreviousData,
-    staleTime: 5 * 60 * 1000,
+    staleTime: (query) => (query.state.data?.failed ? 0 : 5 * 60 * 1000),
     retry: false,
   }));
 }
@@ -335,13 +347,38 @@ export function useTodaySuggestions(timezone: string, version = "", enabled = tr
   }));
 }
 
+type HighlightFact = { id: string; text: string };
+
+/** How often Highlights are asked again while the facts keep changing
+ * (a task ticked off changes them). */
+const HIGHLIGHTS_EVERY_MS = 3 * 60 * 1000;
+
+const factsKey = (facts: HighlightFact[]) => facts.map((fact) => fact.text).join("\n");
+
+/** The facts to ask about. Until the card first asks (`enabled`, once its
+ * data has loaded) they are passed on as they are, so the first ask reads the
+ * loaded data, not the empty week drawn while it loaded. After that a change
+ * is passed on HIGHLIGHTS_EVERY_MS after the last one at the soonest, with
+ * the facts as they are then. */
+function useThrottledFacts(facts: HighlightFact[], enabled: boolean) {
+  const key = factsKey(facts);
+  const [passed, setPassed] = useState<{ facts: HighlightFact[]; key: string; at: number } | null>(null);
+  useEffect(() => {
+    if (!enabled || passed?.key === key) return;
+    const wait = passed ? Math.max(0, passed.at + HIGHLIGHTS_EVERY_MS - Date.now()) : 0;
+    const timer = setTimeout(() => setPassed({ facts, key, at: Date.now() }), wait);
+    return () => clearTimeout(timer);
+  }, [enabled, facts, key, passed]);
+  return enabled && passed ? passed : { facts, key };
+}
+
 /** Dashboard Highlights for the facts the card worked out; asked again when
- * the facts change, at most every ten minutes otherwise. */
-export function useHighlights(facts: { id: string; text: string }[], enabled = true) {
-  const key = facts.map((fact) => fact.text).join("\n");
+ * the facts change, at most every few minutes, and every ten otherwise. */
+export function useHighlights(facts: HighlightFact[], enabled = true) {
+  const asked = useThrottledFacts(facts, enabled);
   return useQuery({
-    queryKey: ["highlights", key],
-    queryFn: () => getHighlights(facts),
+    queryKey: ["highlights", asked.key],
+    queryFn: () => getHighlights(asked.facts),
     enabled,
     staleTime: 10 * 60 * 1000,
     placeholderData: keepPreviousData,
@@ -431,24 +468,30 @@ export function useSaveUseCase() {
   });
 }
 
-/** A suggested length for new Work with this title, asked a moment after the
- * title stops changing; undefined while suggestions are off or unsure. */
+/** How long a new task's title must stay the same before its length is
+ * asked: longer than the pause between words, so a title typed word by word
+ * is asked about once. */
+const ESTIMATE_SETTLE_MS = 1500;
+
+/** A suggested length for new Work with this title, asked once the title
+ * stops changing; undefined while suggestions are off or unsure. A newer
+ * title drops the request for an older one. */
 export function useSuggestedDuration(title: string, enabled: boolean) {
   const on = useSmartOn() && enabled;
   const [answer, setAnswer] = useState<{ title: string; minutes: number }>();
   useEffect(() => {
     const name = title.trim();
     if (!on || name.length < 3) return;
-    let stale = false;
+    const request = new AbortController();
     const timer = setTimeout(() => {
-      getEstimate(name)
+      getEstimate(name, "", request.signal)
         .then((next) => {
-          if (!stale && next.available && next.minutes) setAnswer({ title: name, minutes: next.minutes });
+          if (!request.signal.aborted && next.available && next.minutes) setAnswer({ title: name, minutes: next.minutes });
         })
         .catch(() => {});
-    }, 800);
+    }, ESTIMATE_SETTLE_MS);
     return () => {
-      stale = true;
+      request.abort();
       clearTimeout(timer);
     };
   }, [title, on]);

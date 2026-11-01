@@ -38,9 +38,12 @@ import {
   defaultDashboard,
   fitQuery,
   newCardId,
+  sourcesUsed,
+  SOURCE_LABELS,
   type BuiltinCardType,
   type CardQuery,
   type CardRow,
+  type CardSource,
   type DashboardCard,
 } from "@timely/contract/dashboard";
 import { describedCard, readBoardProgram } from "@timely/contract/genuiBoard";
@@ -157,7 +160,7 @@ export default function DashboardScreen() {
   const router = useRouter();
   const { layout, isLoading, isError, retry, update, updateCard } = useDashboardLayout();
   const cards = useMemo(() => layout?.cards ?? [], [layout]);
-  const { data, today, failures, loading, eventsLoading, timeZone } = useDashboardData(cards);
+  const { data, today, failures, unread, loading, eventsLoading, timeZone } = useDashboardData(cards);
   useFileWatches(cards);
   const [building, setBuilding] = useState<"sheets" | "docs" | null>(null);
   const config = useConfigQuery();
@@ -284,6 +287,14 @@ export default function DashboardScreen() {
         const base = current.settings ?? {};
         return { ...current, settings: { ...base, ...(typeof next === "function" ? next(base) : next) } };
       });
+    // A source that failed with nothing loaded would read as zero here.
+    const missing = [...sourcesUsed([card])].filter((source): source is CardSource => source !== "today" && Boolean(unread[source]));
+    if (missing.length)
+      return (
+        <Text style={styles.muted} testID="card-load-failed">
+          Couldn’t load {missing.map((source) => SOURCE_LABELS[source].toLowerCase()).join(" or ")}. Pull down to try again.
+        </Text>
+      );
     switch (card.type) {
       case "custom": {
         if (!card.query) return null;

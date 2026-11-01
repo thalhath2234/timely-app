@@ -6,6 +6,7 @@ import {
   defaultDashboard,
   normalizeDashboard,
   sourcesUsed,
+  type CardSource,
   type DashboardCard,
   type DashboardData,
   type DashboardLayout,
@@ -191,5 +192,16 @@ export function useDashboardData(cards: DashboardCard[], extra: DashboardCard[] 
     reminders: reminders.isLoading && used.has("reminders"),
   };
 
-  return { data, today, failures, loading, timeZone };
+  // Sources that failed with no copy to show: a card reading one would draw
+  // an empty list as "Nothing overdue", so it says it could not load instead.
+  const unread: Partial<Record<CardSource, boolean>> = {
+    tasks: tasks.isError && !tasks.data,
+    events: events.isError && !events.data,
+    docs: docs.isError && !docs.data,
+    sheets: sheets.isError && !sheets.data,
+    inbox: inbox.isError && !inbox.data,
+    reminders: reminders.isError && !reminders.data,
+  };
+
+  return { data, today, failures, loading, unread, timeZone };
 }

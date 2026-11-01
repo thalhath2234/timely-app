@@ -1,10 +1,12 @@
 package provider
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
 
+	"timely-api/internal/features/chat"
 	"timely-api/internal/features/sheet"
 	"timely-api/internal/richtext"
 )
@@ -117,5 +119,30 @@ func TestDashboardCardMessagesListChecklists(t *testing.T) {
 func TestBoardPromptIsEmbedded(t *testing.T) {
 	if !strings.Contains(boardPrompt, "@Data(") || !strings.Contains(boardPrompt, "Panel(") {
 		t.Fatal("board_prompt.txt is missing or stale; run make gen-genui-prompt")
+	}
+}
+
+// modelMustNotRun fails the test when a model call is made.
+type modelMustNotRun struct{ t *testing.T }
+
+func (m modelMustNotRun) Complete(context.Context, []chat.WireMessage, []any, bool) (chat.WireMessage, error) {
+	m.t.Fatal("a rehearsed live block called the model")
+	return chat.WireMessage{}, nil
+}
+
+func TestRehearseLiveBlockNeverCallsTheModel(t *testing.T) {
+	var s Service
+	ctx := chat.WithCompleter(context.Background(), modelMustNotRun{t})
+	got, err := s.RehearseLiveBlock(ctx, "user-a", "my open work", "", "2026-10-31")
+	if err != nil || got != liveBlockStandIn {
+		t.Fatalf("a new block rehearses as the stand-in: %q %v", got, err)
+	}
+	if _, err := boardProgram(got); err != nil {
+		t.Fatalf("the stand-in is a program the apps can draw: %v", err)
+	}
+	current := "root = Panel(\"Late\", [list])\nlist = List([])"
+	got, err = s.RehearseLiveBlock(ctx, "user-a", "add a chart", "\n"+current+"\n", "2026-10-31")
+	if err != nil || got != current {
+		t.Fatalf("a changed block rehearses as its current program: %q %v", got, err)
 	}
 }

@@ -84,8 +84,23 @@ export interface InboxWordsCopy {
  * under these words, so a rename asks again. "" when neither copy is loaded.
  */
 export function inboxSuggestionWords(listed?: InboxWordsCopy, own?: InboxWordsCopy): string {
-  const newest = listed && own ? ((own.updatedAt ?? "") > (listed.updatedAt ?? "") ? own : listed) : (listed ?? own);
+  const newest = listed && own ? (savedAfter(own.updatedAt, listed.updatedAt) ? own : listed) : (listed ?? own);
   return newest ? `${newest.name}\n${newest.description ?? ""}` : "";
+}
+
+/** Whether time `a` is later than `b`, to the nanosecond. The server leaves
+ * trailing zeros off the fraction ("…:05.1Z" is later than "…:05.09Z", and
+ * "…:05Z" earlier than "…:05.5Z"), so comparing the text sorts them wrong.
+ * The fraction is compared on its own: Date.parse keeps milliseconds at most. */
+function savedAfter(a?: string | null, b?: string | null): boolean {
+  const order = (value?: string | null) => {
+    const seconds = Date.parse((value ?? "").replace(/\.\d+/, ""));
+    const fraction = (/\.(\d+)/.exec(value ?? "")?.[1] ?? "").padEnd(9, "0").slice(0, 9);
+    return { seconds: Number.isNaN(seconds) ? -Infinity : seconds, fraction };
+  };
+  const x = order(a);
+  const y = order(b);
+  return x.seconds !== y.seconds ? x.seconds > y.seconds : x.fraction > y.fraction;
 }
 
 /** The parts of a smart-suggestions answer for one capture that the Up next card reads. */

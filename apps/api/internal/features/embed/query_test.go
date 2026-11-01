@@ -13,11 +13,11 @@ import (
 	"unicode/utf8"
 )
 
-// fakeEmbeddings answers OpenRouter's embeddings call with one vector per
+// queryEmbeddings answers OpenRouter's embeddings call with one vector per
 // input and keeps the inputs it was sent.
-type fakeEmbeddings struct{ inputs []string }
+type queryEmbeddings struct{ inputs []string }
 
-func (f *fakeEmbeddings) RoundTrip(r *http.Request) (*http.Response, error) {
+func (f *queryEmbeddings) RoundTrip(r *http.Request) (*http.Response, error) {
 	var req embedRequest
 	raw, _ := io.ReadAll(r.Body)
 	_ = json.Unmarshal(raw, &req)
@@ -39,7 +39,7 @@ func (f *fakeEmbeddings) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 // queryIndexer is an indexer whose account holds count items, each one chunk.
-func queryIndexer(fake *fakeEmbeddings, count int) *indexer {
+func queryIndexer(fake *queryEmbeddings, count int) *indexer {
 	i := &indexer{http: &http.Client{Transport: fake}, model: defaultModel}
 	i.resolve = func(string) (string, string) { return "sk-or-test", defaultModel }
 	i.vectors = newVectorCache(time.Minute, func(context.Context, string) ([]cachedChunk, error) {
@@ -47,7 +47,7 @@ func queryIndexer(fake *fakeEmbeddings, count int) *indexer {
 		for n := range chunks {
 			vec := make([]float32, vectorDims)
 			vec[0], vec[1] = 1, float32(n)/float32(count)
-			chunks[n] = cachedChunk{kind: KindTask, entityID: fmt.Sprintf("t%d", n), title: "Task", content: "words", vec: vec}
+			chunks[n] = cachedChunk{kind: KindTask, entityID: fmt.Sprintf("t%d", n), title: "Task", content: "words", model: defaultModel, vec: vec}
 		}
 		return chunks, nil
 	})
@@ -56,7 +56,7 @@ func queryIndexer(fake *fakeEmbeddings, count int) *indexer {
 
 // A pasted page used to be embedded whole (about 7,500 tokens per search).
 func TestQueryEmbedsAClippedQuery(t *testing.T) {
-	fake := &fakeEmbeddings{}
+	fake := &queryEmbeddings{}
 	i := queryIndexer(fake, 3)
 	long := strings.Repeat("vehicle service ", 2000)
 	if _, err := i.Query(context.Background(), "u1", long, 10, nil); err != nil {
@@ -76,7 +76,7 @@ func TestQueryEmbedsAClippedQuery(t *testing.T) {
 // Hybrid search asks for twice its limit: limit 40 asked for 80, which was
 // reset to 20, so semantic_search(limit 40) found at most 20 items.
 func TestQueryKeepsALargeLimit(t *testing.T) {
-	i := queryIndexer(&fakeEmbeddings{}, 120)
+	i := queryIndexer(&queryEmbeddings{}, 120)
 	hits, err := i.Query(context.Background(), "u1", "qqzzvv", 80, nil)
 	if err != nil {
 		t.Fatal(err)

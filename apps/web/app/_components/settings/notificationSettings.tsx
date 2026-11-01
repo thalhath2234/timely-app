@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { jobKindLabel } from "@timely/contract/notifications";
 import { TimeField } from "@/app/_components/_ui/datePicker";
 import {
   useFailedJobs,
@@ -156,14 +157,28 @@ function FailedJobsPanel() {
   const jobs = useFailedJobs();
   const health = useJobHealth();
   const retry = useRetryJob();
+  const [retryError, setRetryError] = useState<{ id: string; message: string } | null>(null);
   const items = jobs.data ?? [];
+
+  async function retryJob(id: string) {
+    setRetryError(null);
+    try {
+      await retry.mutateAsync(id);
+    } catch (err) {
+      setRetryError({ id, message: err instanceof Error ? err.message : "Couldn’t retry this job." });
+    }
+  }
 
   return (
     <section className="max-w-xl">
       <h2 className="text-base font-semibold">Background jobs</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Failed reminder, digest, and index jobs can be retried. Pending {health.data?.pending ?? 0}, failed{" "}
-        {health.data?.failed ?? 0}.
+        Reminders, digests, alerts and search index updates that failed show up here. Retry runs one again.
+        Retrying smart alerts or a search index job uses your AI provider again.
+      </p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {health.data?.pending ?? 0} waiting
+        {health.data?.running ? `, ${health.data.running} running` : ""}, {health.data?.failed ?? 0} failed
       </p>
       {jobs.isLoading ? (
         <p className="mt-3 text-sm text-muted-foreground">Loading jobs…</p>
@@ -175,19 +190,29 @@ function FailedJobsPanel() {
             <li key={job.id} className="rounded-lg border border-border px-3 py-2 text-sm">
               <div className="flex items-center justify-between gap-3">
                 <span>
-                  {job.kind} · {job.attempts}/{job.maxAttempts}
+                  {jobKindLabel(job.kind)}{" "}
+                  <span className="text-muted-foreground">
+                    · {job.attempts} of {job.maxAttempts} tries
+                  </span>
                 </span>
                 <button
                   type="button"
                   className="text-xs text-primary hover:underline"
                   disabled={retry.isPending}
-                  onClick={() => void retry.mutateAsync(job.id)}
+                  onClick={() => void retryJob(job.id)}
                 >
                   Retry
                 </button>
               </div>
               {job.lastError ? (
-                <p className="mt-1 text-xs text-destructive">{job.lastError}</p>
+                <p title={job.lastError} className="mt-1 line-clamp-3 break-words text-xs text-destructive">
+                  {job.lastError}
+                </p>
+              ) : null}
+              {retryError?.id === job.id ? (
+                <p role="status" className="mt-2 break-words text-xs text-foreground">
+                  {retryError.message}
+                </p>
               ) : null}
             </li>
           ))}

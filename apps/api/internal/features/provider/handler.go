@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -13,6 +14,52 @@ import (
 )
 
 func user(c *echo.Context) string { v, _ := c.Get("userID").(string); return v }
+
+// oneShotPerUser is how many one-shot AI requests (Help me write, checklist
+// names, view queries, card descriptions) one account may have running at
+// once. The apps send one at a time and cancel the one before, so only a
+// script or a stuck client reaches it; each request costs a model call.
+const oneShotPerUser = 4
+
+// inFlight counts requests in flight per account.
+type inFlight struct {
+	mu sync.Mutex
+	n  map[string]int
+}
+
+func (f *inFlight) take(id string, limit int) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.n == nil {
+		f.n = map[string]int{}
+	}
+	if f.n[id] >= limit {
+		return false
+	}
+	f.n[id]++
+	return true
+}
+
+func (f *inFlight) give(id string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.n[id]--; f.n[id] <= 0 {
+		delete(f.n, id)
+	}
+}
+
+// oneShotLimit answers 429 while the account already has oneShotPerUser
+// one-shot AI requests running.
+func (s *Service) oneShotLimit(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		id := user(c)
+		if !s.busy.take(id, oneShotPerUser) {
+			return echo.NewHTTPError(429, "Too many AI requests at once. Wait for one to finish, then try again")
+		}
+		defer s.busy.give(id)
+		return next(c)
+	}
+}
 
 func (s *Service) Routes(g *echo.Group) {
 	g.GET("/agent/providers", s.overview)
@@ -23,10 +70,10 @@ func (s *Service) Routes(g *echo.Group) {
 	g.POST("/agent/providers/:id/disconnect", s.disconnect)
 	g.POST("/agent/providers/:id/key", s.setAPIKey)
 	g.DELETE("/agent/providers/:id/key", s.removeAPIKey)
-	g.POST("/agent/write", s.write)
-	g.POST("/agent/checklist-tasks", s.checklistTasks)
-	g.POST("/agent/view-query", s.viewQuery)
-	g.POST("/agent/dashboard-card", s.dashboardCard)
+	g.POST("/agent/write", s.write, s.oneShotLimit)
+	g.POST("/agent/checklist-tasks", s.checklistTasks, s.oneShotLimit)
+	g.POST("/agent/view-query", s.viewQuery, s.oneShotLimit)
+	g.POST("/agent/dashboard-card", s.dashboardCard, s.oneShotLimit)
 	g.GET("/agent/decisions", s.decisionsOverview)
 	g.PATCH("/agent/decisions", s.configureDecisions)
 	g.POST("/agent/decisions/key", s.setTypeSafeKey)
@@ -66,6 +113,9 @@ type overview struct {
 	Codex           cliView        `json:"codex"`
 	APIs            []apiView      `json:"apiProviders"`
 	Reindex         ReindexState   `json:"reindex"`
+	// AutoProvider is what an empty default picks, also while another
+	// provider is chosen, so the apps can name it beside Automatic.
+	AutoProvider string `json:"autoProvider"`
 }
 
 func (s *Service) view(ctx context.Context, row Settings, maxAge time.Duration) overview {
@@ -87,9 +137,10 @@ func (s *Service) view(ctx context.Context, row Settings, maxAge time.Duration) 
 		out.Codex = cliView{Enabled: true, Status: codex, Connected: row.CodexConnectedAt != nil, ConnectedAt: row.CodexConnectedAt, Model: s.chatModel(row, CodexCLI)}
 		out.Codex.Ready = out.Codex.Connected && codex.Found && codex.LoggedIn
 	}
+	out.AutoProvider = autoProvider(row, rows, s.localCLI)
 	out.DefaultChosen = out.DefaultProvider != ""
 	if !out.DefaultChosen {
-		out.DefaultProvider = autoProvider(row, rows, s.localCLI)
+		out.DefaultProvider = out.AutoProvider
 	}
 	return out
 }
@@ -123,6 +174,7 @@ func autoProvider(row Settings, rows map[string]APIKey, localCLI bool) string {
 }
 
 func (s *Service) overview(c *echo.Context) error {
+	s.checkIndex(c.Request().Context(), user(c))
 	row, err := s.load(s.db, user(c))
 	if err != nil {
 		return err

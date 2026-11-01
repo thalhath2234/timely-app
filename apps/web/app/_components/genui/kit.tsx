@@ -212,7 +212,8 @@ function Stat({ props }: KitProps<"Stat">) {
 function useLiveTask(id: string) {
   const list = useTasks();
   const listed = list.data?.find((task) => task.id === id);
-  const single = useTask(list.isSuccess && !listed ? id : undefined);
+  // Asked once: a row written with an id no task has gets a 404 each try.
+  const single = useTask(list.isSuccess && !listed ? id : undefined, { retry: false });
   return listed ?? single.data;
 }
 
@@ -274,10 +275,16 @@ function useLiveDoc(id: string) {
 function CheckRow({ props }: KitProps<"CheckRow">) {
   const doc = useLiveDoc(props.docId);
   const tick = useSetChecklistItem();
-  const items = useMemo(() => checklistItems(doc?.content), [doc?.content]);
+  // An archived doc offers no ticks, as @Checklist leaves it out (the API
+  // refuses them too).
+  const archived = Boolean(doc?.archivedAt);
+  const items = useMemo(() => (archived ? [] : checklistItems(doc?.content)), [archived, doc?.content]);
   const item = findChecklistItem(items, props.text, props.item);
   const text = item?.text ?? props.text;
   const done = Boolean(item?.done);
+  // Say why a loaded doc's item can't be ticked here: it was archived, or its
+  // words now match no item or more than one.
+  const blocked = archived ? "Doc archived" : doc && !item ? "Open the doc to tick" : undefined;
   const toggle = () => {
     if (!item) return;
     tick.mutate(
@@ -290,8 +297,16 @@ function CheckRow({ props }: KitProps<"CheckRow">) {
   };
   return (
     <Row
-      meta={props.note}
-      lead={<TaskCheck checked={done} onToggle={toggle} disabled={!item} label={done ? `Untick ${text}` : `Tick ${text}`} />}
+      meta={blocked ?? props.note}
+      lead={
+        <TaskCheck
+          checked={done}
+          onToggle={toggle}
+          disabled={!item}
+          label={done ? `Untick ${text}` : `Tick ${text}`}
+          className="disabled:opacity-50 disabled:hover:border-muted-foreground/50"
+        />
+      }
     >
       <Link
         href={fileHref(props.docId)}

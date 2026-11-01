@@ -45,11 +45,12 @@ export function useTasks() {
   });
 }
 
-export function useTask(id: string | undefined) {
+export function useTask(id: string | undefined, { retry }: { retry?: boolean } = {}) {
   return useQuery({
     queryKey: taskKey(id ?? ""),
     queryFn: () => getTask(id!),
     enabled: Boolean(id),
+    ...(retry === false ? { retry: false } : {}),
   });
 }
 
