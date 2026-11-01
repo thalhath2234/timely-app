@@ -131,6 +131,9 @@ func (i *indexer) loadChunks(ctx context.Context, userID string) ([]cachedChunk,
 	if err := i.db.WithContext(ctx).
 		Select("entity_kind", "entity_id", "title", "content", "embedding").
 		Where("user_id = ?", userID).
+		// An item's first chunk comes first: Related reads it as the item's
+		// opening text.
+		Order("chunk_index").
 		Find(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -157,13 +160,14 @@ func (i *indexer) Query(ctx context.Context, userID, query string, limit int, ki
 	if !i.EnabledFor(userID) {
 		return nil, ErrDisabled
 	}
-	query = strings.TrimSpace(query)
+	query = clipQuery(strings.TrimSpace(query))
 	if query == "" {
 		return nil, ErrEmptyQuery
 	}
-	if limit <= 0 || limit > 50 {
+	if limit <= 0 {
 		limit = 20
 	}
+	limit = min(limit, maxQueryHits)
 	kinds = normalizeKinds(kinds)
 
 	vectors, err := i.embedTexts(ctx, userID, []string{query})
@@ -187,9 +191,10 @@ func (i *indexer) Related(ctx context.Context, userID, kind, entityID string, li
 	if !i.EnabledFor(userID) {
 		return Source{}, nil, ErrDisabled
 	}
-	if limit <= 0 || limit > 50 {
+	if limit <= 0 {
 		limit = 10
 	}
+	limit = min(limit, maxQueryHits)
 	chunks, err := i.vectors.get(ctx, userID)
 	if err != nil {
 		return Source{}, nil, err
@@ -216,4 +221,21 @@ func normalizeKinds(kinds []string) []string {
 		out = append(out, kind)
 	}
 	return out
+}
+
+// maxQueryHits caps the hits one vector query returns. Hybrid search asks
+// for twice its own limit (at most 50) so the two lists can be fused.
+const maxQueryHits = 100
+
+// maxQueryRunes is the longest search text that is embedded. A query is a
+// few words, and the longest built in code is a title and 300 characters of
+// text; a pasted page would cost thousands of tokens for no better match.
+const maxQueryRunes = 1000
+
+// clipQuery keeps the first maxQueryRunes of a query.
+func clipQuery(query string) string {
+	if r := []rune(query); len(r) > maxQueryRunes {
+		return strings.TrimSpace(string(r[:maxQueryRunes]))
+	}
+	return query
 }

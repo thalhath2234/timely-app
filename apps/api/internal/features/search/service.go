@@ -7,6 +7,7 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/models"
@@ -271,7 +272,48 @@ func (s *service) Reindex(ctx context.Context, userID string) (int, error) {
 	if s.indexer == nil || !s.indexer.EnabledFor(userID) {
 		return 0, embed.ErrDisabled
 	}
+	// Two rebuilds at once would both embed every stale item. The second one
+	// waits for the first and then finds nothing left to embed.
+	unlock, err := reindexing.lock(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	defer unlock()
 	return s.indexer.ReindexUser(ctx, userID)
+}
+
+// reindexing holds one manual rebuild per account at a time (POST
+// /search/reindex and the reindex_search tool).
+var reindexing = userLocks{held: map[string]chan struct{}{}}
+
+type userLocks struct {
+	mu   sync.Mutex
+	held map[string]chan struct{}
+}
+
+// lock waits until no other rebuild runs for the account, or ctx ends.
+func (l *userLocks) lock(ctx context.Context, userID string) (func(), error) {
+	for {
+		l.mu.Lock()
+		busy, ok := l.held[userID]
+		if !ok {
+			done := make(chan struct{})
+			l.held[userID] = done
+			l.mu.Unlock()
+			return func() {
+				l.mu.Lock()
+				delete(l.held, userID)
+				l.mu.Unlock()
+				close(done)
+			}, nil
+		}
+		l.mu.Unlock()
+		select {
+		case <-busy:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 }
 
 // keyword runs the ranked substring query over every requested kind and
@@ -429,11 +471,12 @@ func (s *service) keywordKind(query string, limit int, q kindQuery) []keywordHit
 	return out
 }
 
+// clampLimit keeps a result count between 1 and 50; none asked means 20.
 func clampLimit(limit int) int {
-	if limit <= 0 || limit > 50 {
+	if limit <= 0 {
 		return 20
 	}
-	return limit
+	return min(limit, 50)
 }
 
 var searchKinds = map[string]bool{"task": true, "project": true, "doc": true, "sheet": true, "event": true}
