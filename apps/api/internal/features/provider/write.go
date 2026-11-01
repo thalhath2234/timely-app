@@ -287,7 +287,10 @@ var (
 	fenceLine = regexp.MustCompile("^ {0,3}```[ \\t]*([^`\\s]*)[ \\t]*$")
 	// chatOpener is a line a model opens its answer with ("Sure! Here is
 	// the list:"), and chatCloser one it ends with ("Let me know if...").
-	chatOpener = regexp.MustCompile(`(?i)^(?:sure|certainly|of course|absolutely|okay|ok|here(?:'s|’s| is| are))\b.{0,160}:$`)
+	// A "Here are..." line counts only when it talks about the answer
+	// itself (a draft, a shorter version): "Here are the next steps:" or
+	// "Here's what we agreed:" is the text, as in a continued doc.
+	chatOpener = regexp.MustCompile(`(?i)^(?:(?:sure|certainly|of course|absolutely|okay|ok)\b.{0,160}|here(?:'s|’s| is| are)\b.{0,160}\b(?:version|draft|rewrite|rewritten|revised|polished|corrected|summary|continuation|description|checklist|list|suggestions?|ideas|options)\b.{0,80}):$`)
 	chatCloser = regexp.MustCompile(`(?i)^(?:let me know|i hope|hope this|feel free|would you like|do you want|want me to|if you(?:'d|’d| would) like|happy to)\b.{0,200}$`)
 )
 

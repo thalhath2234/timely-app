@@ -457,6 +457,19 @@ func TestCleanWrittenDropsPreambleAndClosing(t *testing.T) {
 	if got := cleanWritten(reply, false); got != reply {
 		t.Errorf("draft opening dropped: %q", got)
 	}
+	// A "Here are..." line that leads into the doc's own list is the text
+	// (Continue writing meeting notes), not talk about the answer.
+	for _, own := range []string{
+		"Here are the next steps:\n\n1. Book the van\n2. Pack the boxes",
+		"Here's what we agreed on:\n\n- Move on Friday\n- Sam brings tape",
+	} {
+		if got := cleanWritten(own, false); got != own {
+			t.Errorf("the draft's own lead-in was dropped: %q", got)
+		}
+	}
+	if got := cleanWritten("Here is a shorter version:\n\nPack light and go.", false); got != "Pack light and go." {
+		t.Errorf("a version preamble was kept: %q", got)
+	}
 }
 
 // W22: a cursor tag inside a line leaves one space, not two.
