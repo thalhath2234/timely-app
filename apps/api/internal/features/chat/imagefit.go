@@ -2,33 +2,96 @@ package chat
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
-	"image/draw"
 	"image/jpeg"
+	"math"
+	"os"
+
+	"golang.org/x/image/draw"
 )
 
-var errImageUnreadable = errors.New("This image could not be read")
+const (
+	// maxImageEdge is the longest side a photo is stored and sent at. Claude
+	// reads images at up to 2576 px on the long edge and shrinks larger ones
+	// itself, so nothing it can read is lost; it refuses sides over 8000 px.
+	maxImageEdge = 2576
+	// maxSentImageBytes caps one photo's base64 size. Anthropic refuses an
+	// image over 10 MB of base64, and up to five photos share one request.
+	maxSentImageBytes = 5 << 20
+)
+
+var (
+	errImageUnreadable  = errors.New("This image could not be read")
+	errImageTooDetailed = errors.New("This photo is too detailed to send, even after resizing. Crop it to the receipt and upload it again")
+)
 
 // prepareImage turns an uploaded JPEG or PNG into the JPEG Timely stores and
 // sends: turned upright by its EXIF orientation, transparency flattened onto
-// white, and re-encoded so EXIF and other metadata are dropped.
+// white, shrunk to maxImageEdge, re-encoded so EXIF and other metadata are
+// dropped, and small enough in base64 for the provider.
 func prepareImage(data []byte) ([]byte, error) {
 	decoded, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, errImageUnreadable
 	}
 	b := decoded.Bounds()
-	clean := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+	w, h := fitWithin(b.Dx(), b.Dy(), maxImageEdge)
+	clean := image.NewRGBA(image.Rect(0, 0, w, h))
 	draw.Draw(clean, clean.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
-	draw.Draw(clean, clean.Bounds(), decoded, b.Min, draw.Over)
-	var out bytes.Buffer
-	if err := jpeg.Encode(&out, orient(clean, exifOrientation(data)), &jpeg.Options{Quality: 90}); err != nil {
-		return nil, err
+	if w == b.Dx() && h == b.Dy() {
+		draw.Draw(clean, clean.Bounds(), decoded, b.Min, draw.Over)
+	} else {
+		draw.CatmullRom.Scale(clean, clean.Bounds(), decoded, b, draw.Over, nil)
 	}
-	return out.Bytes(), nil
+	return encodeWithin(orient(clean, exifOrientation(data)), maxSentImageBytes)
+}
+
+// encodeWithin encodes img as a JPEG, lowering the quality until its base64
+// size is at most budget.
+func encodeWithin(img image.Image, budget int) ([]byte, error) {
+	for _, quality := range []int{90, 80, 70, 60} {
+		var out bytes.Buffer
+		if err := jpeg.Encode(&out, img, &jpeg.Options{Quality: quality}); err != nil {
+			return nil, err
+		}
+		if base64.StdEncoding.EncodedLen(out.Len()) <= budget {
+			return out.Bytes(), nil
+		}
+	}
+	return nil, errImageTooDetailed
+}
+
+// fitWithin shrinks w×h, keeping its shape, so neither side is over edge.
+func fitWithin(w, h, edge int) (int, int) {
+	if w <= edge && h <= edge {
+		return w, h
+	}
+	if w >= h {
+		return edge, max(1, int(math.Round(float64(h)*float64(edge)/float64(w))))
+	}
+	return max(1, int(math.Round(float64(w)*float64(edge)/float64(h)))), edge
+}
+
+// sendableImage returns a stored photo within the provider's limits. Photos
+// stored before uploads were resized can be over them: those are resized here
+// and saved, so a retry never sends again a photo that can only be refused.
+func sendableImage(id string, data []byte) ([]byte, error) {
+	config, err := jpeg.DecodeConfig(bytes.NewReader(data))
+	tooWide := err == nil && max(config.Width, config.Height) > maxImageEdge
+	if !tooWide && base64.StdEncoding.EncodedLen(len(data)) <= maxSentImageBytes {
+		return data, nil
+	}
+	fitted, err := prepareImage(data)
+	if err != nil {
+		return nil, fmt.Errorf("A photo is too large to read, and trying again won't help. Discard these images and upload a cropped or smaller photo")
+	}
+	_ = os.WriteFile(imagePath(id), fitted, 0600)
+	return fitted, nil
 }
 
 // exifOrientation reads the Orientation tag (0x0112) of a JPEG's EXIF data:

@@ -2,10 +2,13 @@ package chat
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
+	"errors"
 	"image"
 	"image/color"
 	"image/jpeg"
+	"os"
 	"testing"
 )
 
@@ -103,5 +106,98 @@ func TestExifOrientationIgnoresBrokenData(t *testing.T) {
 	}
 	if exifOrientation(photo) != 6 {
 		t.Fatal("orientation 6 not read")
+	}
+}
+
+// photoOfSize is a w×h JPEG with soft stripes, like a long receipt.
+func photoOfSize(t *testing.T, w, h int, noisy bool) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	seed := uint32(1)
+	for y := range h {
+		for x := range w {
+			v := uint8(200 + (x/7+y/11)%50)
+			r, g, b := v, v, v^0x55
+			if noisy {
+				seed = seed*1664525 + 1013904223
+				r, g, b = uint8(seed>>24), uint8(seed>>16), uint8(seed>>8)
+			}
+			i := img.PixOffset(x, y)
+			img.Pix[i], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = r, g, b, 255
+		}
+	}
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 95}); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestPreparedPhotosFitTheProviderLimits(t *testing.T) {
+	// A 10000×2000 panorama was refused for its 8000 px side; a 4472×4472
+	// photo for its base64 size. Both are now shrunk, keeping their shape.
+	for _, size := range []image.Point{{10000, 2000}, {1500, 6000}, {4472, 4472}, {800, 600}} {
+		prepared, err := prepareImage(photoOfSize(t, size.X, size.Y, false))
+		if err != nil {
+			t.Fatal(err)
+		}
+		config, err := jpeg.DecodeConfig(bytes.NewReader(prepared))
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantW, wantH := fitWithin(size.X, size.Y, maxImageEdge)
+		if config.Width != wantW || config.Height != wantH || max(config.Width, config.Height) > maxImageEdge {
+			t.Fatalf("%v: stored %dx%d, want %dx%d", size, config.Width, config.Height, wantW, wantH)
+		}
+		if size.X <= maxImageEdge && size.Y <= maxImageEdge && (wantW != size.X || wantH != size.Y) {
+			t.Fatalf("%v: a photo within the limits was resized", size)
+		}
+		if n := base64.StdEncoding.EncodedLen(len(prepared)); n > maxSentImageBytes {
+			t.Fatalf("%v: %d base64 bytes", size, n)
+		}
+	}
+	if w, h := fitWithin(10000, 2000, maxImageEdge); w != 2576 || h != 515 {
+		t.Fatalf("panorama fits as %dx%d", w, h)
+	}
+}
+
+func TestDetailedPhotoIsEncodedWithinTheSizeBudget(t *testing.T) {
+	noise, err := jpeg.Decode(bytes.NewReader(photoOfSize(t, 600, 600, true)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	best, err := encodeWithin(noise, maxSentImageBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One byte under the best quality's size: a lower quality must fit.
+	budget := base64.StdEncoding.EncodedLen(len(best)) - 1
+	smaller, err := encodeWithin(noise, budget)
+	if err != nil || base64.StdEncoding.EncodedLen(len(smaller)) > budget {
+		t.Fatalf("err %v, %d bytes for a budget of %d", err, len(smaller), budget)
+	}
+	if _, err := encodeWithin(noise, 1000); !errors.Is(err, errImageTooDetailed) {
+		t.Fatalf("err = %v, want the too-detailed error", err)
+	}
+}
+
+func TestStoredOversizedPhotoIsResizedBeforeItIsSent(t *testing.T) {
+	t.Setenv("CHAT_IMAGE_DIR", t.TempDir())
+	legacy := photoOfSize(t, 9000, 1000, false)
+	if err := os.WriteFile(imagePath("img_legacy"), legacy, 0600); err != nil {
+		t.Fatal(err)
+	}
+	sent, err := sendableImage("img_legacy", legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, _ := jpeg.DecodeConfig(bytes.NewReader(sent))
+	stored, _ := os.ReadFile(imagePath("img_legacy"))
+	if config.Width != maxImageEdge || !bytes.Equal(stored, sent) {
+		t.Fatalf("sent %dx%d; stored copy updated: %v", config.Width, config.Height, bytes.Equal(stored, sent))
+	}
+	small := markedPhoto(t, 0)
+	if same, err := sendableImage("img_small", small); err != nil || !bytes.Equal(same, small) {
+		t.Fatal("a photo within the limits must be sent as stored")
 	}
 }

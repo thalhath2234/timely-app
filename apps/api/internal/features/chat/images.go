@@ -70,14 +70,11 @@ func (s *Service) uploadImage(c *echo.Context) error {
 		return echo.NewHTTPError(400, "Use a JPEG or PNG image with at most 20 megapixels")
 	}
 	encoded, err := prepareImage(data)
-	if errors.Is(err, errImageUnreadable) {
+	if errors.Is(err, errImageUnreadable) || errors.Is(err, errImageTooDetailed) {
 		return echo.NewHTTPError(400, err.Error())
 	}
 	if err != nil {
 		return err
-	}
-	if len(encoded) > maxImageBytes {
-		return echo.NewHTTPError(400, "This image is too large; use a smaller photo")
 	}
 	now := time.Now().UTC()
 	name := []rune(filepath.Base(file.Filename))
@@ -241,6 +238,9 @@ func (s *Service) extractImages(ctx context.Context, c *Conversation) error {
 		data, err := os.ReadFile(imagePath(a.ID))
 		if err != nil {
 			return fmt.Errorf("An image is no longer available. Please upload it again")
+		}
+		if data, err = sendableImage(a.ID, data); err != nil {
+			return err
 		}
 		request.ImageURLs = append(request.ImageURLs, "data:image/jpeg;base64,"+base64.StdEncoding.EncodeToString(data))
 	}
