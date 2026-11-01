@@ -90,10 +90,8 @@ func (s *Server) addLiveBlock(ctx context.Context, req *mcp.CallToolRequest, in 
 
 // prepareLiveBlock is add_live_block's Prepare: the AI writes the program
 // before the write's transaction opens, and the write then only splices it in.
+// The catalog has checked uid and args by then (Server.prepare).
 func (s *Server) prepareLiveBlock(ctx context.Context, uid string, args json.RawMessage) (context.Context, error) {
-	if uid == "" {
-		return nil, errors.New("not authenticated")
-	}
 	var in addLiveBlockIn
 	if err := json.Unmarshal(args, &in); err != nil {
 		return nil, err
@@ -143,11 +141,12 @@ func (s *Server) writeLiveProgram(ctx context.Context, uid string, in addLiveBlo
 	return liveProgram{uid: uid, docID: in.DocID, words: words, block: in.Block, existing: existing, program: program}, nil
 }
 
-// liveWords is the words as the AI gets them.
+// liveWords is the words as the AI gets them: at most liveBlockMaxWords
+// bytes, cut before a character the limit would split.
 func liveWords(words string) string {
 	words = strings.TrimSpace(words)
 	if len(words) > liveBlockMaxWords {
-		words = words[:liveBlockMaxWords]
+		words = strings.ToValidUTF8(words[:liveBlockMaxWords], "")
 	}
 	return words
 }

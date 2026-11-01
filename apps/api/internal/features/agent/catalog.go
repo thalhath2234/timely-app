@@ -24,6 +24,8 @@ type Tool struct {
 	// result for Call. The chat agent runs it before an apply's transaction
 	// opens, so no lock is held while the AI answers; Call works without it.
 	Prepare func(context.Context, string, json.RawMessage) (context.Context, error) `json:"-"`
+	// check refuses arguments that do not match Parameters, as Call does.
+	check func(json.RawMessage) error
 }
 type Catalog map[string]Tool
 
@@ -63,17 +65,23 @@ func registerTool[I, O any](s *Server, server *mcp.Server, tool *mcp.Tool, autho
 	if tool.Name == "create_task" {
 		description = "Create Work in an explicitly named or unambiguous attached workspace. Omit duration unless the user gives one; Timely sets an estimated length (30 minutes without one), so do not state a length the user did not give. kind=reminder requires scheduleAt. Never infer an Inbox capture. Descriptions accept markdown."
 	}
-	s.catalog[tool.Name] = Tool{Name: tool.Name, Description: description, Parameters: schema, Authority: authority,
+	check := func(raw json.RawMessage) error {
+		var value any
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return err
+		}
+		if err := resolved.Validate(value); err != nil {
+			return fmt.Errorf("invalid %s arguments: %w", tool.Name, err)
+		}
+		return nil
+	}
+	s.catalog[tool.Name] = Tool{Name: tool.Name, Description: description, Parameters: schema, Authority: authority, check: check,
 		Call: func(ctx context.Context, uid string, raw json.RawMessage) (any, error) {
 			if uid == "" {
 				return nil, fmt.Errorf("not authenticated")
 			}
-			var value any
-			if err := json.Unmarshal(raw, &value); err != nil {
+			if err := check(raw); err != nil {
 				return nil, err
-			}
-			if err := resolved.Validate(value); err != nil {
-				return nil, fmt.Errorf("invalid %s arguments: %w", tool.Name, err)
 			}
 			var input I
 			if err := json.Unmarshal(raw, &input); err != nil {
@@ -91,10 +99,20 @@ func registerTool[I, O any](s *Server, server *mcp.Server, tool *mcp.Tool, autho
 		}}
 }
 
-// prepare gives a registered catalog tool its Prepare step.
+// prepare gives a registered catalog tool its Prepare step. Arguments Call
+// would refuse are refused the same way first, so nothing slow runs for them.
 func (s *Server) prepare(name string, fn func(context.Context, string, json.RawMessage) (context.Context, error)) {
 	if t, ok := s.catalog[name]; ok {
-		t.Prepare = fn
+		check := t.check
+		t.Prepare = func(ctx context.Context, uid string, raw json.RawMessage) (context.Context, error) {
+			if uid == "" {
+				return nil, fmt.Errorf("not authenticated")
+			}
+			if err := check(raw); err != nil {
+				return nil, err
+			}
+			return fn(ctx, uid, raw)
+		}
 		s.catalog[name] = t
 	}
 }

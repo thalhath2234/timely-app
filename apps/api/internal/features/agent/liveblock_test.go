@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"timely-api/internal/features/doc"
 	"timely-api/internal/models"
@@ -134,5 +135,66 @@ func TestLiveBlockPrepareAsksOnceBeforeTheWrite(t *testing.T) {
 	other, _ := json.Marshal(map[string]any{"docId": "doc_1", "words": "done this week"})
 	if _, err := tool.Call(ctx, "usr_1", other); err != nil || asked != 2 {
 		t.Fatalf("other words are asked for: %v asked=%d", err, asked)
+	}
+}
+
+// Prepare refuses the arguments Call refuses, with Call's message, before it
+// asks the AI for anything.
+func TestLiveBlockPrepareChecksTheArgumentsFirst(t *testing.T) {
+	docs := &liveDocs{d: &models.Document{ID: "doc_1", Title: "Plan"}}
+	docs.set("v1")
+	asked := 0
+	tools := NewCatalog(Deps{Docs: docs, LiveBlock: func(context.Context, string, string, string, string) (string, error) {
+		asked++
+		return liveTestProgram, nil
+	}})
+	tool := tools["add_live_block"]
+	for _, args := range []string{
+		`{"docId":"doc_1","words":5}`,
+		`{"docId":"doc_1","words":"overdue tasks","block":"first"}`,
+		`{"docId":"doc_1","words":"overdue tasks","color":"red"}`,
+	} {
+		_, callErr := tool.Call(context.Background(), "usr_1", json.RawMessage(args))
+		_, err := tool.Prepare(context.Background(), "usr_1", json.RawMessage(args))
+		if err == nil || !strings.HasPrefix(err.Error(), "invalid add_live_block arguments") || callErr == nil || err.Error() != callErr.Error() {
+			t.Fatalf("Prepare refuses %s as Call does:\nprepare: %v\ncall:    %v", args, err, callErr)
+		}
+	}
+	if _, err := tool.Prepare(context.Background(), "", liveBlockArgs(0)); err == nil || err.Error() != "not authenticated" {
+		t.Fatalf("Prepare needs a person: %v", err)
+	}
+	if asked != 0 || docs.updates != 0 {
+		t.Fatalf("nothing is asked or written for refused arguments: asked=%d updates=%d", asked, docs.updates)
+	}
+}
+
+// Long words are cut to the limit before a character, never through one, so
+// the AI never gets a broken character at the end.
+func TestLiveBlockCutsLongWordsBetweenCharacters(t *testing.T) {
+	docs := &liveDocs{d: &models.Document{ID: "doc_1", Title: "Plan"}}
+	var sent string
+	tools := NewCatalog(Deps{Docs: docs, LiveBlock: func(_ context.Context, _, words, _, _ string) (string, error) {
+		sent = words
+		return liveTestProgram, nil
+	}})
+	// The 3-byte "ക" starts at byte 499, so the 500-byte limit falls inside it.
+	words := "GAPLBW" + strings.Repeat("a", 493) + "ക" + "more"
+	args, _ := json.Marshal(map[string]any{"docId": "doc_1", "words": words})
+	if _, err := tools["add_live_block"].Call(context.Background(), "usr_1", args); err != nil {
+		t.Fatal(err)
+	}
+	if want := words[:499]; sent != want || !utf8.ValidString(sent) {
+		t.Fatalf("the words stop before the split character: got %d bytes ending %q", len(sent), sent[max(0, len(sent)-4):])
+	}
+
+	// Words that fit, or a limit that falls between characters, are kept whole.
+	for _, words := range []string{"കഖ", strings.Repeat("a", 497) + "ക"} {
+		args, _ := json.Marshal(map[string]any{"docId": "doc_1", "words": words})
+		if _, err := tools["add_live_block"].Call(context.Background(), "usr_1", args); err != nil {
+			t.Fatal(err)
+		}
+		if sent != words {
+			t.Fatalf("words within the limit are sent whole: got %q", sent)
+		}
 	}
 }
