@@ -29,8 +29,13 @@ export function genuiColorHex(name: string | undefined): string | undefined {
   return ACCENT_PRESETS.find((preset) => preset.label.toLowerCase() === name)?.hex;
 }
 
-/** A picked date and time as the person's answer, e.g. "Thu, 30 Oct, 17:00" (24-hour, like the agent's times). */
-export function spokenTime(date: Date, now = new Date()): string {
+/**
+ * A picked date and time as the person's answer, e.g. "Thu, 30 Oct, 17:00
+ * (Asia/Tokyo)" (24-hour, like the agent's times). The zone is the device's,
+ * where the time was picked: the agent would otherwise read it in the zone
+ * saved in Working hours, which differs while the person travels.
+ */
+export function spokenTime(date: Date, now = new Date(), zone = deviceZone()): string {
   const day = date.toLocaleDateString(undefined, {
     weekday: "short",
     day: "numeric",
@@ -38,7 +43,68 @@ export function spokenTime(date: Date, now = new Date()): string {
     year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
   });
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${day}, ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const time = `${day}, ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return zone ? `${time} (${zone})` : time;
+}
+
+function deviceZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The host a markdown link really opens, for showing next to a label that
+ * doesn't name it ("Timely support (evil.example)"). Empty for a label that
+ * already shows its host and for links that aren't http(s).
+ */
+export function linkHost(label: string, href: string): string {
+  const authority = /^https?:\/\/([^/?#\s]+)/i.exec(href)?.[1];
+  if (!authority) return "";
+  // user@host and host:port open host.
+  const host = authority.replace(/^.*@/, "").replace(/:\d*$/, "").replace(/^www\./i, "").toLowerCase();
+  return host && !label.toLowerCase().includes(host) ? host : "";
+}
+
+/** Markdown with each link's host after a label that hides it (see linkHost). */
+export function showLinkHosts(markdown: string): string {
+  return markdown.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/gi, (link, label: string, href: string) => {
+    const host = linkHost(label, href);
+    return host ? `[${label} (${host})](${href})` : link;
+  });
+}
+
+/** Rows a chat Card draws; the prompt allows twelve, and more would each load. */
+export const GENUI_MAX_ROWS = 12;
+
+/** The longest answer chip; a longer option is cut, so a chip sends what it shows. */
+export const GENUI_MAX_CHOICE = 80;
+
+/**
+ * A Choices block's answer chips: trimmed, without blanks or repeats, at
+ * most four, each short enough to read in full.
+ */
+export function choiceOptions(options: unknown): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const option of Array.isArray(options) ? options : []) {
+    if (typeof option !== "string") continue;
+    let text = option.replace(/\s+/g, " ").trim();
+    if (Array.from(text).length > GENUI_MAX_CHOICE) text = `${Array.from(text).slice(0, GENUI_MAX_CHOICE - 1).join("").trimEnd()}…`;
+    const key = text.toLowerCase();
+    if (!text || seen.has(key)) continue;
+    seen.add(key);
+    result.push(text);
+    if (result.length === 4) break;
+  }
+  return result;
+}
+
+/** An id an Open link or row may use: one path segment of letters, digits, _ and -. */
+export function genuiId(id: unknown): string {
+  return typeof id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(id) ? id : "";
 }
 
 /** Where an Open link goes; task, project, doc and sheet need an id. */
@@ -380,8 +446,9 @@ export function replyBlocks(blocks: unknown): GenuiNode[] {
 
 export type ReplyPart = { kind: "text"; text: string } | { kind: "ui"; code: string; closed: boolean };
 
-// Fences open and close at the start of a line, as models write them.
-const FENCE = new RegExp("(?:^|\\n)```" + GENUI_FENCE + "[ \\t]*\\n([\\s\\S]*?)(\\n```|$)", "g");
+// Fences open and close at the start of a line, as models write them; the
+// name's case and an indent (a fence inside a list) don't matter.
+const FENCE = new RegExp("(?:^|\\n)[ \\t]*```" + GENUI_FENCE + "[ \\t]*\\n([\\s\\S]*?)(\\n[ \\t]*```|$)", "gi");
 
 /**
  * A reply split into its text and its card programs, in order. An unclosed
@@ -393,12 +460,19 @@ export function splitReply(content: string): ReplyPart[] {
   for (const match of content.matchAll(FENCE)) {
     const text = content.slice(last, match.index).trim();
     if (text) parts.push({ kind: "text", text });
-    parts.push({ kind: "ui", code: match[1].trim(), closed: match[2] !== "" });
+    parts.push({ kind: "ui", code: dedent(match[1]).trim(), closed: match[2] !== "" });
     last = match.index + match[0].length;
   }
   const rest = content.slice(last).trim();
   if (rest) parts.push({ kind: "text", text: rest });
   return parts;
+}
+
+/** Lines without the indent they all share. */
+function dedent(code: string): string {
+  const lines = code.split("\n");
+  const indent = Math.min(...lines.filter((line) => line.trim()).map((line) => /^[ \t]*/.exec(line)![0].length));
+  return Number.isFinite(indent) && indent > 0 ? lines.map((line) => line.slice(indent)).join("\n") : code;
 }
 
 /** The reply without its card programs, for previews, copying and old clients. */

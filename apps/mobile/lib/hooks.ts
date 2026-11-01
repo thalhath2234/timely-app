@@ -244,6 +244,9 @@ export function useTaskQuery(id: string | undefined) {
     queryFn: () => getTask(id!),
     enabled: Boolean(id),
     placeholderData: (previous) => previous,
+    // A task that isn't there (deleted, or an id a reply card made up) stays
+    // missing: asking again only adds a request.
+    retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 1,
   });
 }
 

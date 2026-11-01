@@ -3,7 +3,15 @@ import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-na
 import { ChevronRight, Sparkles } from "lucide-react-native";
 import type { ComponentRenderProps, ComponentRenderer } from "@openuidev/react-lang";
 import { checklistItems, findChecklistItem } from "@timely/contract/docChecklist";
-import { chartNumber, genuiColorHex, genuiNodes, type GenuiName, type GenuiProps } from "@timely/contract/genui";
+import {
+  chartNumber,
+  GENUI_MAX_ROWS,
+  genuiColorHex,
+  genuiId,
+  genuiNodes,
+  type GenuiName,
+  type GenuiProps,
+} from "@timely/contract/genui";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import {
@@ -37,6 +45,8 @@ export const Ask = createContext<((text: string) => void) | undefined>(undefined
 export const Place = createContext<"top" | "card" | "column">("top");
 /** Chat draws cards with their own border; a board card is already one. */
 export const Surface = createContext<"chat" | "board">("chat");
+/** The title of the card a row is in, such as its day, for the text a row sends. */
+const CardTitle = createContext("");
 /** The card has timed rows, so every row keeps the time column for alignment. */
 const Timed = createContext(false);
 
@@ -115,6 +125,9 @@ function Row({
 function Card({ props, renderNode }: KitProps<"Card">) {
   const place = useContext(Place);
   const surface = useContext(Surface);
+  // A chat card draws the twelve rows the prompt allows; each task row loads
+  // its task, so a runaway list would fire a request per row.
+  const rows = surface === "chat" ? genuiNodes(props.rows).slice(0, GENUI_MAX_ROWS) : props.rows;
   return (
     <View style={surface === "chat" ? styles.card : undefined} accessibilityLabel={props.title}>
       <View style={styles.head}>
@@ -127,7 +140,9 @@ function Card({ props, renderNode }: KitProps<"Card">) {
           </Text>
         ) : null}
       </View>
-      <RowGroup rows={props.rows} renderNode={renderNode} />
+      <CardTitle.Provider value={props.title ?? ""}>
+        <RowGroup rows={rows} renderNode={renderNode} />
+      </CardTitle.Provider>
       {props.open ? <View style={styles.foot}>{renderNode(props.open)}</View> : null}
     </View>
   );
@@ -317,6 +332,9 @@ function EventRow({ props }: KitProps<"EventRow">) {
 
 function FreeRow({ props }: KitProps<"FreeRow">) {
   const ask = useContext(Ask);
+  // The card's title names the day ("Fri 6 Nov"), which an older reply's gap
+  // needs: the next message may be about another day.
+  const day = useContext(CardTitle);
   return (
     <Row
       time={props.from}
@@ -326,7 +344,7 @@ function FreeRow({ props }: KitProps<"FreeRow">) {
         ask ? (
           <AnimatedPressable
             accessibilityRole="button"
-            onPress={() => ask(`Plan something for ${props.from}–${props.to}`)}
+            onPress={() => ask(`Plan something for ${props.from}–${props.to}${day ? ` (${day})` : ""}`)}
             hitSlop={8}
             style={styles.plan}
           >
@@ -542,7 +560,9 @@ const SCREENS = {
 
 function Open({ props }: KitProps<"Open">) {
   const link = useContext(Link);
-  const { target, id } = props;
+  const { target } = props;
+  // Ids come from the model: only a plain id, never a path.
+  const id = genuiId(props.id);
   const href =
     target in SCREENS
       ? SCREENS[target as keyof typeof SCREENS]

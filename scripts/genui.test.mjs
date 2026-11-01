@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test, { describe } from "node:test";
-import { genuiParser, genuiPrompt, replyBlocks, replyText, splitReply } from "../packages/contract/src/genui.ts";
+import {
+  choiceOptions,
+  genuiId,
+  genuiParser,
+  genuiPrompt,
+  linkHost,
+  replyBlocks,
+  replyText,
+  showLinkHosts,
+  splitReply,
+  spokenTime,
+} from "../packages/contract/src/genui.ts";
 
 const prompt = genuiPrompt();
 
@@ -52,6 +63,17 @@ describe("splitReply", () => {
   test("leaves other code fences in the text", () => {
     const text = "Use this:\n```js\nconsole.log(1)\n```";
     assert.deepEqual(splitReply(text), [{ kind: "text", text }]);
+  });
+
+  test("reads a fence whatever its case or indent", () => {
+    const upper = splitReply('Today:\n```OpenUI-Lang\nroot = Reply([c])\nc = Card("Today", [])\n```');
+    assert.deepEqual(upper[1], { kind: "ui", code: 'root = Reply([c])\nc = Card("Today", [])', closed: true });
+    const indented = splitReply('1. Today:\n    ```openui-lang\n    root = Reply([c])\n    c = Card("Today", [])\n    ```\nDone.');
+    assert.deepEqual(indented, [
+      { kind: "text", text: "1. Today:" },
+      { kind: "ui", code: 'root = Reply([c])\nc = Card("Today", [])', closed: true },
+      { kind: "text", text: "Done." },
+    ]);
   });
 
   test("replyText drops the programs", () => {
@@ -606,5 +628,37 @@ open = ${open}`;
     const bundle = new Function(`${source};return BoardCheck;`)();
     const answer = JSON.parse(bundle.check(JSON.stringify({ program, data, now: "2026-10-29T08:00:00Z", timeZone: "UTC" })));
     assert.deepEqual(answer, checkBoard(program, data, ctx));
+  });
+});
+
+describe("reply card safety", () => {
+  test("a link shows the host its label hides", () => {
+    assert.equal(linkHost("Timely support", "https://evil.example/login"), "evil.example");
+    assert.equal(linkHost("Settings", "https://timely.app@evil.example:8443/x"), "evil.example");
+    assert.equal(linkHost("docs.example.com guide", "https://www.docs.example.com/a"), "");
+    assert.equal(linkHost("Open", "timely://task/tsk_1"), "");
+    assert.equal(
+      showLinkHosts("Verify at [Timely support](https://evil.example/login) or [example.org](https://example.org)."),
+      "Verify at [Timely support (evil.example)](https://evil.example/login) or [example.org](https://example.org).",
+    );
+  });
+
+  test("a picked time says the zone it was picked in", () => {
+    const at = new Date(2026, 10, 2, 17, 0);
+    assert.match(spokenTime(at, at, "Asia/Tokyo"), /17:00 \(Asia\/Tokyo\)$/);
+    assert.match(spokenTime(at, at, ""), /17:00$/);
+  });
+
+  test("answer chips are unique, complete and short", () => {
+    assert.deepEqual(choiceOptions(["Yes", "yes ", "", 3, "Later", "No", "Maybe", "Never"]), ["Yes", "Later", "No", "Maybe"]);
+    const [long] = choiceOptions(["x".repeat(3000)]);
+    assert.equal(Array.from(long).length, 80);
+    assert.ok(long.endsWith("…"));
+    assert.deepEqual(choiceOptions(undefined), []);
+  });
+
+  test("an Open id is one path segment", () => {
+    assert.equal(genuiId("doc_3f2a-91"), "doc_3f2a-91");
+    for (const bad of ["../settings?tab=agent", "doc_1/../../x", "", "a b", 7]) assert.equal(genuiId(bad), "", String(bad));
   });
 });

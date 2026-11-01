@@ -66,10 +66,10 @@ export async function getTasks(query: {
 }
 
 export async function getTask(id: string): Promise<Task> {
-  const response = await apiFetch(`/task/${id}`, {});
+  const response = await apiFetch(`/task/${encodeURIComponent(id)}`, {});
 
   if (!response.ok) {
-    throw new Error("Failed to fetch task");
+    throw Object.assign(new Error("Failed to fetch task"), { status: response.status });
   }
 
   return response.json();

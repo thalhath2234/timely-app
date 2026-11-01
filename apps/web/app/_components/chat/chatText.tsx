@@ -1,4 +1,5 @@
 import { Fragment } from "react";
+import { linkHost } from "@timely/contract/genui";
 
 // React text nodes keep tool/model content inert. Only safe links are rendered;
 // no model-authored HTML or raw innerHTML enters the conversation.
@@ -9,7 +10,10 @@ function inline(text: string) {
     )
     .map((part, i) => {
       const link = part.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
-      if (link)
+      if (link) {
+        // A label never hides where the link goes: text read from a photo
+        // or a reply could say "Timely support" for any site.
+        const host = linkHost(link[1], link[2]);
         return (
           <a
             key={i}
@@ -19,8 +23,10 @@ function inline(text: string) {
             className="break-words text-primary underline underline-offset-4"
           >
             {link[1]}
+            {host ? <span className="text-muted-foreground"> ({host})</span> : null}
           </a>
         );
+      }
       if (/^https?:\/\//.test(part))
         return (
           <a
