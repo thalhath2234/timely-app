@@ -142,18 +142,17 @@ func validateBackup(backup *Backup) error {
 }
 
 // requireAccountBasics refuses a backup that would leave the account without
-// what every account has: its settings, a workspace and task statuses. A
-// restore replaces everything, so an empty or hand-built backup would
-// otherwise wipe the account and leave it unusable. Every export has them.
+// what every account has: its settings and a workspace. A restore replaces
+// everything, so an empty or hand-built backup would otherwise wipe the
+// account and leave it unusable. Every export has both: registration makes
+// the settings row and the last workspace cannot be deleted. Statuses are not
+// required, because a person may delete them all and still export.
 func requireAccountBasics(backup *Backup) error {
 	if len(backup.Rows["configs"]) != 1 {
 		return errors.New("This backup has no account settings, so your account was not changed. Choose a backup exported from Timely.")
 	}
 	if len(backup.Rows["workspaces"]) == 0 {
 		return errors.New("This backup has no workspace, so your account was not changed. Choose a backup exported from Timely.")
-	}
-	if len(backup.Rows["statuses"]) == 0 {
-		return errors.New("This backup has no task statuses, so your account was not changed. Choose a backup exported from Timely.")
 	}
 	return nil
 }

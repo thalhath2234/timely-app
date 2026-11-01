@@ -75,3 +75,29 @@ func TestIntegrationRestoreRefusesABackupWithoutTheAccountBasics(t *testing.T) {
 		t.Fatal("a refused restore ran the after-restore step")
 	}
 }
+
+// Settings lets a person delete every status of a workspace. Their own
+// export must still restore: only the settings row and a workspace are
+// required.
+func TestIntegrationRestoreAcceptsAnAccountWithoutStatuses(t *testing.T) {
+	db := migratedDB(t)
+	const uid = "usr_portability_nostatus"
+	if err := db.Create(&models.User{ID: uid, Email: "nostatus@example.invalid", Password: "not-a-real-hash"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	seedAccountBasics(t, db, uid, true)
+	if err := db.Where("workspace_id = ?", "ws_"+uid).Delete(&models.Status{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(db, nil)
+	backup, err := service.Export(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backup.Rows["statuses"]) != 0 {
+		t.Fatalf("export holds %d statuses", len(backup.Rows["statuses"]))
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatalf("own export refused: %v", err)
+	}
+}

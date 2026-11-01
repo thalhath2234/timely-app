@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// basicRows are what every exported account has: settings, a workspace and
-// its statuses.
+// basicRows are what an exported account has: settings, a workspace and its
+// statuses.
 func basicRows(extra map[string][]json.RawMessage) map[string][]json.RawMessage {
 	rows := map[string][]json.RawMessage{
 		"configs":    {json.RawMessage(`{"id":"cfg_1","user_id":"usr_1"}`)},
@@ -57,8 +57,8 @@ func TestValidateBackupRejectsUnknownAndOversizedSchemas(t *testing.T) {
 	}
 }
 
-// GB1: a backup with no rows, or without the account's settings, workspace
-// or statuses, used to be restored and wiped the account, leaving it broken.
+// GB1: a backup with no rows, or without the account's settings or a
+// workspace, used to be restored and wiped the account, leaving it broken.
 func TestValidateBackupRequiresTheAccountBasics(t *testing.T) {
 	for name, rows := range map[string]map[string][]json.RawMessage{
 		"empty":       {},
@@ -68,12 +68,17 @@ func TestValidateBackupRequiresTheAccountBasics(t *testing.T) {
 			json.RawMessage(`{"id":"cfg_1"}`), json.RawMessage(`{"id":"cfg_2"}`),
 		}}),
 		"no workspace": basicRows(map[string][]json.RawMessage{"workspaces": {}}),
-		"no statuses":  basicRows(map[string][]json.RawMessage{"statuses": {}}),
 	} {
 		backup := &Backup{Format: backupFormat, SchemaVersion: schemaVersion, Rows: rows}
 		if err := validateBackup(backup); err == nil {
 			t.Errorf("%s backup accepted", name)
 		}
+	}
+	// Statuses can all be deleted in Settings, and that account's own
+	// export must still restore.
+	noStatuses := &Backup{Format: backupFormat, SchemaVersion: schemaVersion, Rows: basicRows(map[string][]json.RawMessage{"statuses": {}})}
+	if err := validateBackup(noStatuses); err != nil {
+		t.Errorf("backup of an account without statuses refused: %v", err)
 	}
 }
 
