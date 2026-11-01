@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 	"timely-api/internal/features/calendar"
+	"timely-api/internal/features/decide"
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/search"
 	"timely-api/internal/features/task"
@@ -54,6 +55,12 @@ func (s *Server) semanticSearch(ctx context.Context, req *mcp.CallToolRequest, i
 	}
 	if hits == nil {
 		hits = []search.Hit{}
+	}
+	if len(hits) == 0 && decide.IsSensitive(ctx) {
+		// A private chat searches by exact words, never by meaning, so a
+		// long phrase can miss what one or two of its words would find.
+		return reply(fmt.Sprintf("0 hits for %q. This private chat matches exact words only: search again with one or two distinctive words.", in.Query),
+			map[string]any{"hits": hits, "note": "exact words only in a private chat: search again with one or two distinctive words"})
 	}
 	if s.Rerank != nil && len(hits) > 0 {
 		if kept, hidden, ok := s.Rerank(ctx, uid, in.Query, hits); ok {
