@@ -230,7 +230,8 @@ func TestIntegrationClarifySuggestions(t *testing.T) {
 	// A new title, so the earlier answer is not served from the cache.
 	db.Model(&models.Task{}).Where("id = ?", inbox).Update("name", "Buy grout for the kitchen")
 	got, err = s.Clarify(context.Background(), uid, inbox)
-	if err != nil || got.Available || !strings.Contains(got.Error, "No endpoints found") {
+	// The reason is Timely's own line; the provider's text stays in the log.
+	if err != nil || got.Available || got.Error != "OpenRouter could not answer right now." {
 		t.Fatalf("a failed call must report its reason: %+v %v", got, err)
 	}
 }

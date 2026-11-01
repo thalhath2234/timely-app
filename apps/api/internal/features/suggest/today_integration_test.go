@@ -2,10 +2,13 @@ package suggest
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
 	"timely-api/internal/features/focus"
+	"timely-api/internal/features/notify"
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/models"
 )
@@ -135,15 +138,27 @@ func TestIntegrationTodayFocusGapGoalsAndTraits(t *testing.T) {
 		t.Fatal("the second call should be the Today call")
 	}
 
-	// Asked again with nothing changed: one Today call, no traits call.
+	// Asked again ten minutes later with nothing changed: the Today answer is
+	// reused (the state names the day and part of day, not the minute), and
+	// only t3 and t4, whose effort and urgency never came back, are read
+	// again instead of being stored as unknown.
 	before := len(jev.requests)
-	_, err = s.Today(context.Background(), w.user, "UTC", now.Add(10*time.Minute))
+	later := now.Add(10 * time.Minute)
+	_, err = s.Today(context.Background(), w.user, "UTC", later)
 	must(t, err)
-	if len(jev.requests) != before+1 {
-		t.Fatalf("expected only the Today call, got %d more", len(jev.requests)-before)
+	want := 1
+	if later.UTC().YearDay() != now.UTC().YearDay() || partOfDay(later.UTC()) != partOfDay(now.UTC()) {
+		want = 2 // the part of day changed in between: a new Today call
 	}
-	if _, ok := jev.asked(before)["effort_t1"]; ok {
-		t.Fatal("asked traits for unchanged tasks")
+	if len(jev.requests) != before+want {
+		t.Fatalf("expected %d calls, got %d", want, len(jev.requests)-before)
+	}
+	q := jev.asked(before)
+	if _, ok := q["effort_t3"]; !ok {
+		t.Fatal("a task whose traits did not come back was not asked again")
+	}
+	if _, ok := q["effort_t1"]; ok {
+		t.Fatal("asked traits for a task already read")
 	}
 
 	// An edited task is read again.
@@ -151,7 +166,7 @@ func TestIntegrationTodayFocusGapGoalsAndTraits(t *testing.T) {
 	before = len(jev.requests)
 	_, err = s.Today(context.Background(), w.user, "UTC", now.Add(20*time.Minute))
 	must(t, err)
-	q := jev.asked(before)
+	q = jev.asked(before)
 	if _, ok := q["effort_t1"]; !ok {
 		t.Fatal("the edited task was not read again")
 	}
@@ -193,15 +208,48 @@ func TestIntegrationTaskHintsSplitAndDeepTime(t *testing.T) {
 func TestIntegrationTriagePicksAStep(t *testing.T) {
 	w := newWorld(t)
 	task := w.task(t, "Send the invoice", func(task *models.Task) { task.Duration = 30 })
-	jev := &jevStub{answers: map[string]any{"next": choice("extend")}}
+	jev := &jevStub{answers: map[string]any{"next1": choice("extend")}}
 	s := New(w.db, jev.service(t), nil)
-	if got := s.Triage(context.Background(), w.user, &task, "overdue", 3); got != "extend" {
+	if got := s.Triage(context.Background(), w.user, []notify.TriageItem{{Task: &task, Kind: "overdue", OverdueDays: 3}}); len(got) != 1 || got[0] != "extend" {
 		t.Fatalf("overdue step %q", got)
 	}
-	if jev.requests[0].State["daysPastDeadline"] != float64(3) {
+	var state struct {
+		Tasks []map[string]any `json:"tasks"`
+	}
+	must(t, json.Unmarshal(mustJSON(t, jev.requests[0].State), &state))
+	if len(state.Tasks) != 1 || state.Tasks[0]["daysPastDeadline"] != float64(3) || state.Tasks[0]["task"] != "t1" {
 		t.Fatalf("state %+v", jev.requests[0].State)
 	}
-	if got := s.Triage(context.Background(), w.user, &task, "other", 0); got != "" {
+	if got := s.Triage(context.Background(), w.user, []notify.TriageItem{{Task: &task, Kind: "other"}}); len(got) != 1 || got[0] != "" {
 		t.Fatalf("unknown kind gave %q", got)
+	}
+}
+
+// A sweep's overdue and missed notifications cost one call per kind, not one
+// per task, and each pick lands on its own task.
+func TestIntegrationTriageAsksABatchInOneCall(t *testing.T) {
+	w := newWorld(t)
+	var items []notify.TriageItem
+	for i := 0; i < 10; i++ {
+		task := w.task(t, fmt.Sprintf("Overdue %d", i+1), nil)
+		items = append(items, notify.TriageItem{Task: &task, Kind: "overdue", OverdueDays: i + 1})
+	}
+	missed := w.task(t, "Write the report", func(task *models.Task) { task.Duration = 60 })
+	items = append(items, notify.TriageItem{Task: &missed, Kind: "missed"})
+	jev := &jevStub{answers: map[string]any{"next1": choice("lower"), "next10": choice("extend")}}
+	s := New(w.db, jev.service(t), nil)
+	got := s.Triage(context.Background(), w.user, items)
+	if len(jev.requests) != 2 {
+		t.Fatalf("%d calls for one batch", len(jev.requests))
+	}
+	// The missed task is t1 of its own call and gets "lower" too; the
+	// overdue ones in between have no confident answer.
+	if len(got) != 11 || got[0] != "lower" || got[9] != "extend" || got[1] != "" || got[10] != "lower" {
+		t.Fatalf("picks %q", got)
+	}
+	for _, r := range jev.requests {
+		if n := len(r.Questions); n != 10 && n != 1 {
+			t.Fatalf("a call asked %d questions", n)
+		}
 	}
 }
