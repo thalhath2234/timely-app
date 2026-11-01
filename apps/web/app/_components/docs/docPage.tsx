@@ -293,8 +293,11 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   );
 
   // Suggestions are read again once an empty doc gets a title or text, then
-  // as it grows by about fifty words.
-  const hintsVersion = wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50));
+  // as it grows by about fifty words. They read the saved copy, so this counts
+  // the saved words: counted from the editor, a doc typed in one go asked
+  // before its first save landed and never again.
+  const savedWords = useMemo(() => countWords(doc.plainText), [doc.plainText]);
+  const hintsVersion = savedWords < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(savedWords / 50));
 
   const handleDelete = async () => {
     await deleteDoc.mutateAsync(doc.id);

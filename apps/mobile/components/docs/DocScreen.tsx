@@ -172,6 +172,10 @@ function DocEditor({ docId }: { docId: string }) {
     ...(selectedText ? [contextChip("selection", "Selected text", selectedText)] : []),
     ...(hasUnsavedChanges() ? [contextChip("draft", "Unsaved document", { title, plainText: assistantText })] : []),
   ] : []);
+  // Suggestions read the saved copy, so they are asked again as the saved
+  // words change, not as the editor's do: counted from the editor, a doc
+  // typed in one go asked before its first save landed and never again.
+  const savedWords = useMemo(() => countWords(doc?.plainText ?? ""), [doc?.plainText]);
   if (!doc) return null;
   const versionIsCurrent = Boolean(version && versions?.find((item) => item.id === version.id)?.current);
 
@@ -181,7 +185,7 @@ function DocEditor({ docId }: { docId: string }) {
   const parentTitle = docs.find((d) => d.id === doc.parentId)?.title || "None";
   // Suggestions are read again once an empty doc gets a title or text, then
   // as it grows by about fifty words.
-  const hintsVersion = wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50));
+  const hintsVersion = savedWords < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(savedWords / 50));
 
   return (
     <Screen>
