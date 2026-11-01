@@ -71,6 +71,23 @@ export function skipInboxItem(items: readonly InboxItemFields[], skipped: readon
   return next.length >= live.size ? [] : next;
 }
 
+/** A copy of a capture as the app last loaded it. */
+export interface InboxWordsCopy {
+  name: string;
+  description?: string | null;
+  updatedAt?: string | null;
+}
+
+/**
+ * The words a capture's suggestions are worked out from: its name and notes,
+ * from the newer of the Inbox list's copy and its own. The answer is kept
+ * under these words, so a rename asks again. "" when neither copy is loaded.
+ */
+export function inboxSuggestionWords(listed?: InboxWordsCopy, own?: InboxWordsCopy): string {
+  const newest = listed && own ? ((own.updatedAt ?? "") > (listed.updatedAt ?? "") ? own : listed) : (listed ?? own);
+  return newest ? `${newest.name}\n${newest.description ?? ""}` : "";
+}
+
 /** The parts of a smart-suggestions answer for one capture that the Up next card reads. */
 export interface InboxSuggestionFields {
   kind?: "task" | "reminder";

@@ -11,7 +11,7 @@ register(
     ),
 );
 
-const { inboxAge, inboxQueue, inboxSuggestionSummary, skipInboxItem, INBOX_STALE_DAYS } = await import("../packages/contract/src/inbox.ts");
+const { inboxAge, inboxQueue, inboxSuggestionSummary, inboxSuggestionWords, skipInboxItem, INBOX_STALE_DAYS } = await import("../packages/contract/src/inbox.ts");
 
 const now = new Date("2026-10-11T12:00:00Z");
 const item = (id, createdAt) => ({ id, createdAt });
@@ -135,5 +135,28 @@ describe("inboxSuggestionSummary", () => {
       summary.duplicates.map((item) => item.id),
       ["t1", "t2"],
     );
+  });
+});
+
+describe("inboxSuggestionWords", () => {
+  const listed = { name: "Call Bob by Friday", description: "", updatedAt: "2026-11-01T02:33:00Z" };
+  const renamed = { name: "Call Bob by Monday", description: "", updatedAt: "2026-11-01T02:34:00Z" };
+
+  test("a rename gives new words, so the suggestions are asked again", () => {
+    const before = inboxSuggestionWords(listed, undefined);
+    const after = inboxSuggestionWords(listed, renamed);
+    assert.equal(before, "Call Bob by Friday\n");
+    assert.equal(after, "Call Bob by Monday\n");
+    assert.notEqual(after, before);
+  });
+
+  test("takes the newer copy, whichever list it came from", () => {
+    assert.equal(inboxSuggestionWords(renamed, listed), "Call Bob by Monday\n");
+    assert.equal(inboxSuggestionWords(undefined, renamed), "Call Bob by Monday\n");
+    assert.equal(inboxSuggestionWords({ name: "Water the plants", description: "Balcony too" }), "Water the plants\nBalcony too");
+  });
+
+  test("is empty before either copy is loaded", () => {
+    assert.equal(inboxSuggestionWords(undefined, undefined), "");
   });
 });
