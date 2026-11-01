@@ -43,6 +43,15 @@ func TestOlderChangeRecordsShrinkInThePrompt(t *testing.T) {
 	}
 }
 
+func TestTriageHintPointsAtWebSearchWhenItIsOn(t *testing.T) {
+	if hint := (triage{web: true}).hint(true); !strings.Contains(hint, "web search is on") || !strings.Contains(hint, "web_search") {
+		t.Fatalf("hint = %q", hint)
+	}
+	if hint := (triage{web: true}).hint(false); !strings.Contains(hint, "web search is off") {
+		t.Fatalf("hint = %q", hint)
+	}
+}
+
 func TestCacheTailMarksACopy(t *testing.T) {
 	messages := []WireMessage{{Role: "system", Content: "rules"}, {Role: "user", Content: "hi"}}
 	sent := CacheTail(messages)
@@ -89,8 +98,8 @@ func TestIntegrationPromptKeepsAStablePrefixAndReadsContextUpFront(t *testing.T)
 	}
 	first := model.seen[0]
 	system := first[0]
-	if !system.Cache || strings.Contains(system.Content, "Current UTC time") {
-		t.Fatalf("the system prompt is cached and holds no clock: cache=%v", system.Cache)
+	if !system.Cache || strings.Contains(system.Content, "Current UTC time") || !strings.Contains(system.Content, "Web search is on in this chat") {
+		t.Fatalf("the system prompt is cached, holds no clock, and puts web lookups in scope: cache=%v", system.Cache)
 	}
 	marked := []string{}
 	stored, clock, current := -1, -1, -1

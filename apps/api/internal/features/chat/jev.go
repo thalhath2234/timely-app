@@ -279,6 +279,8 @@ func (t triage) hint(webSearch bool) string {
 	}
 	if t.web && !webSearch {
 		parts = append(parts, "it may need public information from the web, and web search is off: if Timely data cannot answer it, say that turning on web search would help")
+	} else if t.web {
+		parts = append(parts, "it may need public information from the web, and web search is on: look it up with web_search and answer with the sources, even when it is not about Timely")
 	}
 	switch t.scope {
 	case "one":
