@@ -46,8 +46,9 @@ func (s *Service) SetSchedule(sched schedule.Service) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), traitsBudget)
 		defer cancel()
-		s.fillTopTraits(ctx, userID, "")
-		if ctx.Err() != nil {
+		// A slow or failed call pauses the hook, so a failing provider does
+		// not cost every Preview a call (or two, with the fallback).
+		if err := s.fillTopTraits(ctx, userID, ""); err != nil || ctx.Err() != nil {
 			s.traitsPause.Store(userID, time.Now().Add(traitsPauseFor))
 		}
 	})
@@ -87,8 +88,14 @@ func traitQuestions(questions map[string]decide.Question, key, which string) {
 }
 
 // readTraits stores what Jev was sure of. An unsure answer is stored as
-// unknown with the hash, so the same words are not asked about again.
+// unknown with the hash, so the same words are not asked about again; a task
+// whose questions did not come back at all is left to be asked next time.
 func (s *Service) readTraits(ctx context.Context, a decide.Answers, key string, t *models.Task) {
+	_, effort := a.Raw("effort_" + key)
+	_, urgency := a.Raw("urgency_" + key)
+	if !effort && !urgency {
+		return
+	}
 	t.EffortKind, t.Urgency = "", nil
 	if kind, ok := a.Choice("effort_"+key, decide.Prefill); ok {
 		t.EffortKind = kind
@@ -113,6 +120,12 @@ func derefStr(v *string) string {
 // [34]. Nothing is asked when every task is current. It returns the tasks
 // with their traits.
 func (s *Service) FillTraits(ctx context.Context, userID string, tasks []models.Task) []models.Task {
+	out, _ := s.fillTraits(ctx, userID, tasks)
+	return out
+}
+
+// fillTraits is FillTraits that also returns why the call failed.
+func (s *Service) fillTraits(ctx context.Context, userID string, tasks []models.Task) ([]models.Task, error) {
 	if len(tasks) > maxTraitTasks {
 		tasks = tasks[:maxTraitTasks]
 	}
@@ -124,7 +137,7 @@ func (s *Service) FillTraits(ctx context.Context, userID string, tasks []models.
 		}
 	}
 	if !stale {
-		return tasks
+		return tasks, nil
 	}
 	list := make([]map[string]any, 0, len(tasks))
 	questions := map[string]decide.Question{}
@@ -148,9 +161,11 @@ func (s *Service) FillTraits(ctx context.Context, userID string, tasks []models.
 			questions["group_"+key] = decide.Choice(fmt.Sprintf("Which other task shares a topic, place, person or tool with task %s, so doing them back to back saves effort?", key), opts...)
 		}
 	}
-	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "traits", State: map[string]any{"tasks": list}, Questions: questions})
+	state := map[string]any{"tasks": list}
+	decide.Fit(state, list, "description", "title")
+	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "traits", State: state, Questions: questions})
 	if err != nil {
-		return tasks
+		return tasks, err
 	}
 	out := append([]models.Task(nil), tasks...)
 	parent := make([]int, len(out))
@@ -219,20 +234,21 @@ func (s *Service) FillTraits(ctx context.Context, userID string, tasks []models.
 				UpdateColumn("group_key", key)
 		}
 	}
-	return out
+	return out, nil
 }
 
-// fillTopTraits fills the traits of the Work Auto-schedule ranks highest.
-func (s *Service) fillTopTraits(ctx context.Context, userID, timezone string) {
+// fillTopTraits fills the traits of the Work Auto-schedule ranks highest,
+// and returns the error when the call failed.
+func (s *Service) fillTopTraits(ctx context.Context, userID, timezone string) error {
 	if s.schedule == nil {
-		return
+		return nil
 	}
 	if ok, _ := s.decide.Status(ctx, userID); !ok {
-		return
+		return nil
 	}
 	ranked, err := s.schedule.Rank(userID, timezone)
 	if err != nil {
-		return
+		return nil
 	}
 	tasks := make([]models.Task, 0, maxTraitTasks)
 	for _, r := range ranked {
@@ -243,7 +259,11 @@ func (s *Service) fillTopTraits(ctx context.Context, userID, timezone string) {
 			tasks = append(tasks, r.Task)
 		}
 	}
-	s.FillTraits(ctx, userID, tasks)
+	_, err = s.fillTraits(ctx, userID, tasks)
+	if err == decide.ErrOff {
+		return nil
+	}
+	return err
 }
 
 // Prefs is what the person told suggestions to weigh: their goals (on Today,
@@ -480,7 +500,9 @@ func (s *Service) Today(ctx context.Context, userID, timezone string, now time.T
 			gapCands = append(gapCands, i)
 		}
 	}
-	state := map[string]any{"today": day.Now().Format("Monday 2 January, 15:04"), "tasks": list}
+	// The day and part of day, not the minute: the same tasks read the same
+	// way all morning, so a reload within ten minutes uses the cached answer.
+	state := map[string]any{"today": day.Now().Format("Monday 2 January") + ", " + partOfDay(day.Now()), "tasks": list}
 	if len(prefs.Goals) > 0 {
 		state["goals"] = prefs.Goals
 	}
@@ -499,9 +521,12 @@ func (s *Service) Today(ctx context.Context, userID, timezone string, now time.T
 		state["freeGap"] = map[string]any{"starts": gap.Start.In(loc).Format("15:04"), "minutes": gap.Minutes, "partOfDay": partOfDay(gap.Start.In(loc))}
 		questions["gap"] = decide.Choice("The person has the free gap in freeGap. Which task is the best use of it, given its length, the kind of effort each task takes and the time of day?", opts...)
 	}
+	// Titles and descriptions full of "&" or "<" take six bytes a character
+	// as JSON; they are cut until the state fits rather than dropping the call.
+	decide.Fit(state, list, "description", "title", "project")
 	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "today", State: state, Questions: questions})
 	if err != nil {
-		out.Error = failure(ctx, err)
+		out.Error = failure(err)
 		return out, nil
 	}
 	out.LogID = a.LogID
@@ -516,7 +541,9 @@ func (s *Service) Today(ctx context.Context, userID, timezone string, now time.T
 	tags := map[string]int{}
 	for i, t := range cands {
 		key := fmt.Sprintf("t%d", i+1)
-		if goalOpts != nil {
+		if _, answered := a.Raw("goal_" + key); goalOpts != nil && answered {
+			// A question left out of the answer is not stored as "no goal":
+			// goal progress asks it again.
 			n := focus.ReadGoal(a, "goal_"+key, len(prefs.Goals))
 			tags[t.ID] = n
 			if n >= 0 {

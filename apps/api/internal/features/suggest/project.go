@@ -22,12 +22,14 @@ import (
 // Jev only reads words and these facts.
 
 const (
-	projectBudget    = 8 * time.Second
-	maxProjectTasks  = 15
-	maxRequirements  = 8
-	maxOverlap       = 5
-	maxMisfiled      = 3
-	maxMoveTargets   = 30
+	projectBudget   = 8 * time.Second
+	maxProjectTasks = 15
+	maxRequirements = 8
+	maxOverlap      = 5
+	maxMisfiled     = 3
+	maxMoveTargets  = 30
+	// moveMinLeft is the time the move-target call needs.
+	moveMinLeft      = 1500 * time.Millisecond
 	recentDays       = 14
 	projectStaleDays = 21
 	// stalledMinAge is how long a project must have existed before it can
@@ -227,6 +229,11 @@ func (s *Service) ProjectInsights(ctx context.Context, userID, projectID, timezo
 	if len(questions) == 0 {
 		return out, nil
 	}
+	// A long brief and task titles in a wide script (emoji take four bytes
+	// each) are cut until the state fits, rather than skipping the call.
+	if !decide.Fit(state, append(list, state), "description", "title", "brief", "project") {
+		delete(state, "doneTasks")
+	}
 	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "project_insights", State: state, Questions: questions})
 	if err != nil {
 		return out, nil
@@ -263,7 +270,9 @@ func (s *Service) ProjectInsights(ctx context.Context, userID, projectID, timezo
 			out.Overlaps = append(out.Overlaps, ProjectRef{ID: p.ID, Title: p.Title})
 		}
 	}
-	if len(out.Misfiled) > 0 {
+	// The move call shares the screen's budget; with too little left it
+	// would only be cut off, so the misfiled tasks show without a target.
+	if deadline, ok := ctx.Deadline(); len(out.Misfiled) > 0 && (!ok || time.Until(deadline) > moveMinLeft) {
 		s.moveTargets(ctx, userID, project, out.Misfiled, shown)
 	}
 	return out, nil
@@ -399,7 +408,7 @@ func (s *Service) moveTargets(ctx context.Context, userID string, project models
 	titles := map[string]string{}
 	opts := []decide.Option{{Name: "none", Description: "None of these projects fits"}}
 	for _, p := range projects {
-		name := uniqueName(p.Title, byName)
+		name := uniqueName(notSentinel(clip(p.Title, maxOptionRunes), "project", "none"), byName)
 		byName[name] = p.ID
 		titles[p.ID] = p.Title
 		desc := fmt.Sprintf("The project “%s”", clip(p.Title, 80))

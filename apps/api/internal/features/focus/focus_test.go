@@ -177,9 +177,16 @@ func TestTagTasksReadsGoalsAtPrefill(t *testing.T) {
 	if picks[tasks[0].ID] != 0 || picks[tasks[20].ID] != 0 || picks[tasks[1].ID] != 1 || picks[tasks[21].ID] != 1 {
 		t.Fatalf("picks %v", picks)
 	}
-	for _, i := range []int{2, 3, 4, 5, 19, 22} {
+	// Unsure and "none" are answers: stored as no goal.
+	for _, i := range []int{2, 3, 22} {
 		if p, ok := picks[tasks[i].ID]; !ok || p != -1 {
 			t.Errorf("task %d: %d %v", i, p, ok)
+		}
+	}
+	// No answer, or a goal that was never offered: asked again next time.
+	for _, i := range []int{4, 5, 19} {
+		if p, ok := picks[tasks[i].ID]; ok {
+			t.Errorf("task %d has no answer but was kept as %d", i, p)
 		}
 	}
 	goalsState, _ := json.Marshal(jev.states[0]["goals"])
@@ -194,8 +201,24 @@ func TestTagTasksFailureLeavesBatchOut(t *testing.T) {
 	if err == nil || len(picks) != 0 {
 		t.Fatalf("picks %v err %v", picks, err)
 	}
-	if msg := failure(context.Background(), err); !strings.HasPrefix(msg, "Smart suggestions could not run") {
+	// A quick refusal reads as what it is, never as "took too long", even
+	// though the ask's own budget is over by the time the line is written.
+	if msg := decide.Reason(err); msg == "" || strings.Contains(msg, "too long") || strings.Contains(msg, "bad request") {
 		t.Errorf("failure %q", msg)
+	}
+}
+
+// Questions left out of an answer are asked again next time instead of
+// being stored as "no goal".
+func TestTagTasksKeepsOnlyAnsweredTasks(t *testing.T) {
+	jev := &jevStub{answers: map[string]any{"goal_t1": map[string]any{"type": "choice", "choice": "g1", "confidence": 0.95}}}
+	tasks := []models.Task{{ID: "tsk_1", Name: "Run 5k"}, {ID: "tsk_2", Name: "Stretch"}}
+	picks, err := TagTasks(context.Background(), jev.service(t), "usr_1", []Goal{{ID: "g", Title: "Get fit"}}, tasks, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(picks) != 1 || picks["tsk_1"] != 0 {
+		t.Fatalf("want only the answered task, got %v", picks)
 	}
 }
 

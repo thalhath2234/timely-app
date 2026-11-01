@@ -254,7 +254,7 @@ func TestIntegrationStaleWorkSkipsRepeatingScheduledAndRecent(t *testing.T) {
 
 	jev := &jevStub{answers: map[string]any{"task1": choice("obsolete"), "task2": choice("actionable")}}
 	s := New(w.db, jev.service(t), nil)
-	out, err := s.StaleWork(context.Background(), w.user, now)
+	out, err := s.StaleWork(context.Background(), w.user, "", now)
 	must(t, err)
 	if len(out.Tasks) != 2 || out.Tasks[0].ID != older.ID || out.Tasks[1].ID != idle.ID {
 		t.Fatalf("%+v", out.Tasks)

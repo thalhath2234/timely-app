@@ -59,8 +59,11 @@ type Tip struct {
 }
 
 type Highlights struct {
-	Available  bool    `json:"available"`
-	LogID      string  `json:"logId,omitempty"`
+	Available bool   `json:"available"`
+	LogID     string `json:"logId,omitempty"`
+	// Error says why a call failed, so the card does not read a failure as
+	// "nothing stands out".
+	Error      string  `json:"error,omitempty"`
 	Highlights []Fact  `json:"highlights"`
 	Blockers   []Group `json:"blockers"`
 	Missed     []Group `json:"missed"`
@@ -150,6 +153,8 @@ func (s *Service) Highlights(ctx context.Context, userID string, facts []Fact, n
 		if a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "dashboard_reasons", State: state, Questions: questions}); err == nil {
 			out.Blockers = groupBy(asked, "b", a, blockerLabels)
 			out.Missed = groupBy(askedMissed, "m", a, missedLabels)
+		} else {
+			out.Error = failure(err)
 		}
 	}
 
@@ -189,6 +194,9 @@ func (s *Service) Highlights(ctx context.Context, userID string, facts []Fact, n
 	}
 	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "dashboard_highlights", State: map[string]any{"facts": list, "tips": tipList}, Questions: questions})
 	if err != nil {
+		if out.Error == "" {
+			out.Error = failure(err)
+		}
 		return out, nil
 	}
 	out.LogID = a.LogID
@@ -388,7 +396,7 @@ func groupBy(work []workNote, prefix string, a decide.Answers, labels map[string
 	var order []string
 	for i, w := range work {
 		key, ok := a.Choice(fmt.Sprintf("%s%d", prefix, i+1), decide.Flag)
-		if !ok {
+		if !ok || labels[key] == "" {
 			continue
 		}
 		g, found := byKey[key]
