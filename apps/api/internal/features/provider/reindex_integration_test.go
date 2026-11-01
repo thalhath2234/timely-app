@@ -99,7 +99,7 @@ type failingIndexer struct {
 	err error
 }
 
-func (f *failingIndexer) Reindex(context.Context, string, func(int, int)) (int, error) {
+func (f *failingIndexer) Reindex(context.Context, string, func(int, int, int)) (int, error) {
 	return 0, f.err
 }
 
@@ -119,5 +119,101 @@ func TestIntegrationReindexFailureWithAnUnstorableErrorIsSaved(t *testing.T) {
 	}
 	if row.Reindex.Status != "failed" || !strings.HasPrefix(row.Reindex.Error, "openrouter embed: bad") {
 		t.Fatalf("rebuild state after the failure: %+v", row.Reindex)
+	}
+}
+
+// runReindexJob claims the account's rebuild job and does what the worker does.
+func runReindexJob(t *testing.T, s *Service, queue *jobs.Queue) models.Job {
+	t.Helper()
+	job, err := queue.Claim(context.Background(), "test", jobs.Lane{})
+	if err != nil || job == nil {
+		t.Fatalf("no rebuild job to run: %v", err)
+	}
+	if err := s.handleReindex(context.Background(), job); err != nil {
+		if err := queue.Fail(job, err); err != nil {
+			t.Fatal(err)
+		}
+	} else if err := queue.Succeed(job); err != nil {
+		t.Fatal(err)
+	}
+	var row models.Job
+	s.db.First(&row, "id = ?", job.ID)
+	return row
+}
+
+// GB28: the card read "failed" after the first failed attempt while the job
+// was still waiting to try again. GB3: an error no retry can fix (no credits,
+// a refused key) spent all eight attempts, and a Retry eight more.
+func TestIntegrationRebuildStatusFollowsItsAttempts(t *testing.T) {
+	db := integrationDB(t)
+	queue := jobs.NewQueue(db)
+	idx := &failingIndexer{err: &embed.ProviderError{Status: 503, Message: "openrouter embed: HTTP 503 Service Unavailable"}}
+	s := New(db, idx, queue)
+	state := func() ReindexState {
+		row, err := s.load(db, "user-a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return row.Reindex
+	}
+	if err := s.QueueReindex("user-a"); err != nil {
+		t.Fatal(err)
+	}
+	job := runReindexJob(t, s, queue)
+	if st := state(); job.Status != models.JobPending || st.Status != "queued" {
+		t.Fatalf("after a failed first attempt: job %s, card %+v", job.Status, st)
+	}
+
+	db.Exec(`UPDATE jobs SET run_at = now() - interval '1 minute', attempts = max_attempts - 1`)
+	job = runReindexJob(t, s, queue)
+	if st := state(); job.Status != models.JobFailed || st.Status != "failed" || st.Error == "" {
+		t.Fatalf("after the last attempt: job %s, card %+v", job.Status, st)
+	}
+
+	idx.err = &embed.ProviderError{Status: 402, Message: "openrouter embed: Insufficient credits"}
+	if _, err := queue.Retry("user-a", job.ID); err != nil {
+		t.Fatal(err)
+	}
+	job = runReindexJob(t, s, queue)
+	if st := state(); job.Status != models.JobFailed || job.Attempts != 1 || st.Error != "openrouter embed: Insufficient credits" {
+		t.Fatalf("no credits: job %s after %d attempts, card %+v", job.Status, job.Attempts, st)
+	}
+}
+
+// skippingIndexer is a rebuild in which OpenRouter refused some items.
+type skippingIndexer struct {
+	coverageIndexer
+	indexed, skipped int
+}
+
+func (s *skippingIndexer) Reindex(_ context.Context, _ string, progress func(int, int, int)) (int, error) {
+	progress(s.indexed+s.skipped, s.indexed+s.skipped, s.skipped)
+	return s.indexed, nil
+}
+
+// GB14: one item OpenRouter refused failed the whole rebuild, so nothing else
+// was indexed. Now it is skipped and counted, and the items it leaves missing
+// do not queue a new rebuild on every search.
+func TestIntegrationRebuildCountsRefusedItems(t *testing.T) {
+	db := integrationDB(t)
+	queue := jobs.NewQueue(db)
+	idx := &skippingIndexer{indexed: 5, skipped: 1}
+	idx.missing = 1
+	s := New(db, idx, queue)
+	if err := s.QueueReindex("user-a"); err != nil {
+		t.Fatal(err)
+	}
+	if job := runReindexJob(t, s, queue); job.Status != models.JobSucceeded {
+		t.Fatalf("rebuild job %s", job.Status)
+	}
+	row, _ := s.load(db, "user-a")
+	if st := row.Reindex; st.Status != "done" || st.Total != 5 || st.Skipped != 1 {
+		t.Fatalf("card after the rebuild: %+v", st)
+	}
+	s.EnsureIndex("user-a")
+	var waiting int64
+	db.Model(&models.Job{}).Where("status = ?", models.JobPending).Count(&waiting)
+	if waiting != 0 {
+		t.Fatal("the refused item queued another rebuild straight away")
 	}
 }

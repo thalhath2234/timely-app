@@ -73,6 +73,8 @@ type fakeEmbeddings struct {
 	// during, when set, runs while a request is in flight, before it is
 	// answered: what the person does while the provider works.
 	during func(texts []string)
+	// refuse, when set, answers 400 for texts it returns true for.
+	refuse func(texts []string) bool
 }
 
 func (f *fakeEmbeddings) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -80,10 +82,14 @@ func (f *fakeEmbeddings) RoundTrip(r *http.Request) (*http.Response, error) {
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	f.mu.Lock()
 	f.texts = append(f.texts, req.Input...)
-	during := f.during
+	during, refuse := f.during, f.refuse
 	f.mu.Unlock()
 	if during != nil {
 		during(req.Input)
+	}
+	if refuse != nil && refuse(req.Input) {
+		return &http.Response{StatusCode: 400, Status: "400 Bad Request", Header: http.Header{"Content-Type": {"application/json"}},
+			Body: io.NopCloser(strings.NewReader(`{"error":{"message":"input rejected"}}`))}, nil
 	}
 	var out embedResponse
 	for n := range req.Input {
@@ -338,6 +344,100 @@ func TestIntegrationItemDeletedWhileEmbeddedKeepsNoRows(t *testing.T) {
 	db.Model(&models.Embedding{}).Where("entity_id = ?", task.ID).Count(&rows)
 	if rows != 0 {
 		t.Fatalf("%d embedding rows kept for a task deleted while it was embedded", rows)
+	}
+}
+
+// GB7: an index call still waiting on the provider when a restore (or any
+// other change) replaced the item wrote the old text back afterwards, and the
+// palette showed the old title for the restored item.
+func TestIntegrationLateVectorsForChangedTextAreDropped(t *testing.T) {
+	db := integrationDB(t)
+	ix, _, fake := testIndexer(t, db)
+	user := "user-a"
+	seedUser(t, db, user)
+	task := &models.Task{ID: "tsk-restored", UserID: &user, Name: "NEWER-1 renamed just before restore"}
+	saveTask(t, db, task)
+	// The rebuild after the restore already indexed the restored title.
+	fake.during = func([]string) {
+		fake.during = nil
+		saveTask(t, db, &models.Task{ID: task.ID, UserID: &user, Name: "OLD-1 quarterly report section"})
+		if err := ix.IndexEntity(context.Background(), user, KindTask, task.ID); err != nil {
+			t.Error(err)
+		}
+	}
+	if err := ix.IndexEntity(context.Background(), user, KindTask, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := indexedTitles(t, db, task.ID); len(got) != 1 || got[0] != "OLD-1 quarterly report section" {
+		t.Fatalf("indexed %v; the late call wrote the replaced title back", got)
+	}
+}
+
+// GB14: one item whose text the provider refused failed the whole rebuild,
+// on every attempt, so no other item was ever indexed.
+func TestIntegrationReindexSkipsARefusedItem(t *testing.T) {
+	db := integrationDB(t)
+	ix, _, fake := testIndexer(t, db)
+	user := "user-a"
+	seedUser(t, db, user)
+	for _, task := range []*models.Task{
+		{ID: "tsk-1", UserID: &user, Name: "Plan the garden"},
+		{ID: "tsk-2", UserID: &user, Name: "POISON review vendor"},
+		{ID: "tsk-3", UserID: &user, Name: "Book piano lessons"},
+	} {
+		saveTask(t, db, task)
+	}
+	fake.refuse = func(texts []string) bool { return strings.Contains(strings.Join(texts, " "), "POISON") }
+	var skipped int
+	n, err := ix.Reindex(context.Background(), user, func(_, _, skip int) { skipped = skip })
+	if err != nil || n != 2 || skipped != 1 {
+		t.Fatalf("reindex = %d indexed, %d skipped, %v; want 2, 1, nil", n, skipped, err)
+	}
+	for _, id := range []string{"tsk-1", "tsk-3"} {
+		if got := indexedTitles(t, db, id); len(got) != 1 {
+			t.Fatalf("%s was not indexed past the refused item", id)
+		}
+	}
+
+	// Refusals with nothing accepted point at the account (a model that takes
+	// no input), so the rebuild stops after a few instead of trying them all.
+	db.Exec(`DELETE FROM embeddings`)
+	for i := 4; i <= 9; i++ {
+		saveTask(t, db, &models.Task{ID: "tsk-" + string(rune('0'+i)), UserID: &user, Name: "Another task"})
+	}
+	fake.refuse = func([]string) bool { return true }
+	before := len(fake.sent())
+	if _, err := ix.Reindex(context.Background(), user, nil); !Rejected(err) {
+		t.Fatalf("every item refused should stop the rebuild with the refusal, got %v", err)
+	}
+	if calls := len(fake.sent()) - before; calls != rejectedBeforeAny {
+		t.Fatalf("made %d calls before stopping, want %d", calls, rejectedBeforeAny)
+	}
+}
+
+// RV-jobs-2: a title of tabs or no-break spaces trims to nothing when it is
+// indexed, so the item never gets rows; Missing counted it for good and every
+// search queued a rebuild.
+func TestIntegrationMissingIgnoresTitlesOfWhiteSpace(t *testing.T) {
+	db := integrationDB(t)
+	ix, _, _ := testIndexer(t, db)
+	user := "user-a"
+	seedUser(t, db, user)
+	for _, task := range []*models.Task{
+		{ID: "tsk-tabs", UserID: &user, Name: "\t\n"},
+		{ID: "tsk-nbsp", UserID: &user, Name: "\u00a0\u2003\u3000"},
+		{ID: "tsk-words", UserID: &user, Name: " Plan the garden"},
+	} {
+		saveTask(t, db, task)
+	}
+	if n, err := ix.Missing(context.Background(), user); err != nil || n != 1 {
+		t.Fatalf("missing = %d, %v; want only the task with words", n, err)
+	}
+	if _, err := ix.Reindex(context.Background(), user, nil); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := ix.Missing(context.Background(), user); err != nil || n != 0 {
+		t.Fatalf("missing after a reindex = %d, %v", n, err)
 	}
 }
 

@@ -66,7 +66,7 @@ type Indexer interface {
 	// and have no index job on the way.
 	Missing(ctx context.Context, userID string) (int64, error)
 	ReindexUser(ctx context.Context, userID string) (int, error)
-	Reindex(ctx context.Context, userID string, progress func(done, total int)) (int, error)
+	Reindex(ctx context.Context, userID string, progress func(done, total, skipped int)) (int, error)
 }
 
 type Document struct {

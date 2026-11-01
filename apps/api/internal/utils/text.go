@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
@@ -16,6 +17,19 @@ func ClipUTF8(s string, n int) string {
 		end--
 	}
 	return s[:end] + "…"
+}
+
+var (
+	secretKey   = regexp.MustCompile(`\b(sk|pk|rk)-[A-Za-z0-9][A-Za-z0-9_\-]{7,}`)
+	bearerToken = regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._~+/\-]{8,}=*`)
+)
+
+// RedactSecrets hides API keys and bearer tokens in outside text, such as a
+// provider's error message that quotes the key it refused, before the text is
+// saved or shown.
+func RedactSecrets(s string) string {
+	s = secretKey.ReplaceAllString(s, "$1-…")
+	return bearerToken.ReplaceAllString(s, "Bearer …")
 }
 
 // StorableText makes outside text, such as a provider's error message, safe

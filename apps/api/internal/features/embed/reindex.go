@@ -3,6 +3,7 @@ package embed
 import (
 	"context"
 	"errors"
+	"log"
 	"timely-api/internal/models"
 
 	"gorm.io/gorm"
@@ -12,12 +13,21 @@ func (i *indexer) ReindexUser(ctx context.Context, userID string) (int, error) {
 	return i.Reindex(ctx, userID, nil)
 }
 
-// Reindex re-embeds every record the account owns. Rows whose content and
-// model are unchanged are skipped by upsert, so switching the embedding model
-// or key re-embeds only what the new model has not seen. Rows left behind by
-// deleted items are removed first. progress, when set, is called after each
-// record.
-func (i *indexer) Reindex(ctx context.Context, userID string, progress func(done, total int)) (int, error) {
+// rejectedBeforeAny is how many items the provider may refuse, with none
+// accepted, before a rebuild takes the refusals for an account-wide problem
+// (a model that takes no input at all) and stops.
+const rejectedBeforeAny = 3
+
+// Reindex re-embeds every record the account owns and returns how many it
+// indexed. Rows whose content and model are unchanged are skipped by upsert,
+// so switching the embedding model or key re-embeds only what the new model
+// has not seen. Rows left behind by deleted items are removed first. An item
+// whose text the provider refuses (see Rejected) is skipped and counted, so
+// it cannot keep every other item out of the index; any other error stops
+// the rebuild, to be tried again later. progress, when set, is called after
+// each record with the records done so far (indexed or skipped), the total
+// and how many were skipped.
+func (i *indexer) Reindex(ctx context.Context, userID string, progress func(done, total, skipped int)) (int, error) {
 	if !i.EnabledFor(userID) {
 		return 0, ErrDisabled
 	}
@@ -33,14 +43,19 @@ func (i *indexer) Reindex(ctx context.Context, userID string, progress func(done
 	if err != nil {
 		return 0, err
 	}
-	n := 0
+	n, skipped := 0, 0
 	for _, doc := range docs {
 		if err := i.indexCurrent(ctx, doc.UserID, doc.Kind, doc.EntityID); err != nil {
-			return n, err
+			if !Rejected(err) || (n == 0 && skipped+1 >= rejectedBeforeAny) {
+				return n, err
+			}
+			skipped++
+			log.Printf("embed reindex %s/%s skipped: %v", doc.Kind, doc.EntityID, err)
+		} else {
+			n++
 		}
-		n++
 		if progress != nil {
-			progress(n, len(docs))
+			progress(n+skipped, len(docs), skipped)
 		}
 	}
 	return n, nil

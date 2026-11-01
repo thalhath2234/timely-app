@@ -9,6 +9,7 @@ import (
 	"timely-api/internal/models"
 	"timely-api/internal/utils"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 )
 
@@ -90,6 +91,16 @@ func (q *Queue) Enqueue(job Enqueue) (*models.Job, error) {
 // text is never kept in the queue.
 func (q *Queue) EnqueueIndex(userID, kind, entityID string) error {
 	key := indexKey(kind, entityID)
+	// Inside a transaction (an agent's tool call), hold the waiting job until
+	// it ends: a worker that claimed it meanwhile would read the item without
+	// this change, which is not committed yet, and nothing would index it
+	// later. Claim skips locked jobs; outside a transaction the lock ends at
+	// once.
+	var waiting []string
+	if err := q.db.Raw(`SELECT id FROM jobs WHERE dedupe_key = ? AND status = ? FOR UPDATE`, key, models.JobPending).
+		Scan(&waiting).Error; err != nil {
+		return err
+	}
 	// A running job may have read the item before this change. Free its key
 	// so the change gets a waiting job of its own instead of being merged
 	// into one that is already past it.
@@ -184,40 +195,83 @@ func (q *Queue) Renew(job *models.Job, workerID string) error {
 
 func (q *Queue) Succeed(job *models.Job) error {
 	now := time.Now().UTC()
-	return q.db.Model(job).Updates(map[string]any{
+	if err := q.db.Model(job).Updates(map[string]any{
 		"status":      models.JobSucceeded,
 		"finished_at": now,
 		"locked_at":   nil,
 		"locked_by":   nil,
 		"last_error":  nil,
 		"updated_at":  now,
+	}).Error; err != nil {
+		return err
+	}
+	return q.supersede(job, now)
+}
+
+// supersede cancels earlier failed runs of the work a job just did, so they
+// leave the failed list instead of offering a Retry that would do it again.
+// Index jobs are matched by their item: a running one's key may have been
+// freed for a newer edit (see EnqueueIndex).
+func (q *Queue) supersede(job *models.Job, now time.Time) error {
+	older := q.db.Model(&models.Job{}).Where("user_id = ? AND status = ? AND id <> ?", job.UserID, models.JobFailed, job.ID)
+	switch {
+	case job.Kind == models.JobIndexEntity && job.Payload.String("entityId") != "":
+		older = older.Where("kind = ? AND payload->>'kind' = ? AND payload->>'entityId' = ?",
+			models.JobIndexEntity, job.Payload.String("kind"), job.Payload.String("entityId"))
+	case job.DedupeKey != nil && *job.DedupeKey != "":
+		older = older.Where("dedupe_key = ?", *job.DedupeKey)
+	default:
+		return nil
+	}
+	return older.Updates(map[string]any{
+		"status":      models.JobCancelled,
+		"finished_at": now,
+		"updated_at":  now,
 	}).Error
 }
 
-// maxErrorBytes bounds a job's saved last_error.
-const maxErrorBytes = 2000
+// maxErrorBytes bounds a job's saved last_error, which the apps list.
+const maxErrorBytes = 500
 
 // unsavedError replaces a job's error when even the cleaned text cannot be
 // saved, so the job still leaves 'running'.
 const unsavedError = "Failed with an error that could not be saved."
 
+// Permanent marks an error that another attempt would only repeat: a refused
+// key, no credits left, an input the provider rejects. Fail then marks the
+// job failed at once instead of spending its other attempts on it; a person
+// can still Retry it.
+func Permanent(err error) error {
+	if err == nil {
+		return nil
+	}
+	return permanentError{err}
+}
+
+type permanentError struct{ error }
+
+func (e permanentError) Unwrap() error { return e.error }
+
 // Fail records the error and either schedules another attempt or, after the
-// last one, marks the job failed. The error usually quotes a provider, so it
-// is cleaned first: Postgres refuses invalid UTF-8 and NUL, and a refused
-// update would leave the job 'running' for RecoverStuck to run again.
+// last one or a Permanent error, marks the job failed. The error usually
+// quotes a provider, so it is cleaned first: keys it echoes are hidden, and
+// Postgres refuses invalid UTF-8 and NUL, and a refused update would leave
+// the job 'running' for RecoverStuck to run again.
 func (q *Queue) Fail(job *models.Job, cause error) error {
-	err := q.fail(job, utils.StorableText(cause.Error(), maxErrorBytes))
+	var permanent permanentError
+	final := job.Attempts >= job.MaxAttempts || errors.As(cause, &permanent)
+	err := q.fail(job, utils.StorableText(utils.RedactSecrets(cause.Error()), maxErrorBytes), final)
 	if err != nil {
-		if again := q.fail(job, unsavedError); again == nil {
+		if again := q.fail(job, unsavedError, final); again == nil {
 			return nil
 		}
 	}
 	return err
 }
 
-func (q *Queue) fail(job *models.Job, msg string) error {
+func (q *Queue) fail(job *models.Job, msg string, final bool) error {
 	now := time.Now().UTC()
-	if job.Attempts >= job.MaxAttempts {
+	if final {
 		return q.db.Model(job).Updates(map[string]any{
 			"status":      models.JobFailed,
 			"finished_at": now,
@@ -252,6 +306,10 @@ func Backoff(attempts int) time.Duration {
 	return d
 }
 
+// ErrNewerRun refuses a Retry while a newer run of the same work is waiting
+// or running; that run does what the retry would.
+var ErrNewerRun = errors.New("A newer run of this job is already waiting or running, so it wasn’t retried.")
+
 func (q *Queue) Retry(userID, jobID string) (*models.Job, error) {
 	var job models.Job
 	if err := q.db.Where("id = ? AND user_id = ?", jobID, userID).First(&job).Error; err != nil {
@@ -259,6 +317,17 @@ func (q *Queue) Retry(userID, jobID string) (*models.Job, error) {
 	}
 	if job.Status != models.JobFailed && job.Status != models.JobCancelled {
 		return nil, errors.New("only failed or cancelled jobs can be retried")
+	}
+	if job.DedupeKey != nil && *job.DedupeKey != "" {
+		var newer int64
+		if err := q.db.Model(&models.Job{}).
+			Where("dedupe_key = ? AND status IN ? AND id <> ?", *job.DedupeKey, []string{models.JobPending, models.JobRunning}, job.ID).
+			Count(&newer).Error; err != nil {
+			return nil, err
+		}
+		if newer > 0 {
+			return nil, ErrNewerRun
+		}
 	}
 	now := time.Now().UTC()
 	if err := q.db.Model(&job).Updates(map[string]any{
@@ -271,6 +340,11 @@ func (q *Queue) Retry(userID, jobID string) (*models.Job, error) {
 		"locked_by":   nil,
 		"updated_at":  now,
 	}).Error; err != nil {
+		// A newer run was queued between the check and this update.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return nil, ErrNewerRun
+		}
 		return nil, err
 	}
 	job.Status = models.JobPending

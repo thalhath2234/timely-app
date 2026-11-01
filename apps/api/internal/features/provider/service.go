@@ -44,9 +44,12 @@ const (
 // ReindexState is the progress of the account's semantic-search rebuild after
 // its key or embedding model changed.
 type ReindexState struct {
-	Status    string    `json:"status,omitempty"` // queued, running, done, failed
-	Done      int       `json:"done"`
-	Total     int       `json:"total"`
+	Status string `json:"status,omitempty"` // queued, running, done, failed
+	Done   int    `json:"done"`
+	Total  int    `json:"total"`
+	// Skipped counts the items OpenRouter refused to embed in a finished
+	// rebuild; they can be found by their words only.
+	Skipped   int       `json:"skipped,omitempty"`
 	Error     string    `json:"error,omitempty"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -505,6 +508,10 @@ func (s *Service) EnsureIndex(userID string) {
 		return
 	case st.Status == "failed" && time.Since(st.UpdatedAt) < retryFailedReindexAfter:
 		return
+	case st.Status == "done" && st.Skipped > 0 && time.Since(st.UpdatedAt) < retryFailedReindexAfter:
+		// The items OpenRouter refused stay missing; asking again on every
+		// search would only repeat the refusal.
+		return
 	}
 	if err := s.QueueReindex(userID); err != nil {
 		log.Printf("ensure search index: %v", err)
@@ -535,9 +542,11 @@ func (s *Service) handleReindex(ctx context.Context, job *models.Job) error {
 			return nil
 		})
 	}
-	setState(func(st *ReindexState) { st.Status, st.Done, st.Error = "running", 0, "" })
+	setState(func(st *ReindexState) { st.Status, st.Done, st.Skipped, st.Error = "running", 0, 0, "" })
 	last := time.Now()
-	n, err := s.indexer.Reindex(ctx, job.UserID, func(done, total int) {
+	skipped := 0
+	n, err := s.indexer.Reindex(ctx, job.UserID, func(done, total, skip int) {
+		skipped = skip
 		if time.Since(last) < 2*time.Second && done != total {
 			return
 		}
@@ -549,12 +558,26 @@ func (s *Service) handleReindex(ctx context.Context, job *models.Job) error {
 		return nil
 	}
 	if err != nil {
+		permanent := embed.Permanent(err)
+		if !permanent && job.Attempts < job.MaxAttempts {
+			// The queue tries again after a pause, so the rebuild is still on
+			// its way: Settings says so rather than "failed" in between.
+			setState(func(st *ReindexState) { st.Status, st.Error = "queued", "" })
+			return err
+		}
 		// The error usually quotes OpenRouter. The state is jsonb, which
 		// refuses a NUL: an unsaved failure would leave the status "running",
 		// and EnsureIndex would queue a new rebuild on every look.
-		setState(func(st *ReindexState) { st.Status, st.Error = "failed", utils.StorableText(err.Error(), 500) })
+		setState(func(st *ReindexState) {
+			st.Status, st.Error = "failed", utils.StorableText(utils.RedactSecrets(err.Error()), 500)
+		})
+		if permanent {
+			// Another attempt would get the same answer (a refused key, no
+			// credits): stop here instead of asking seven more times.
+			return jobs.Permanent(err)
+		}
 		return err
 	}
-	setState(func(st *ReindexState) { st.Status, st.Done, st.Total = "done", n, n })
+	setState(func(st *ReindexState) { st.Status, st.Done, st.Total, st.Skipped = "done", n, n, skipped })
 	return nil
 }

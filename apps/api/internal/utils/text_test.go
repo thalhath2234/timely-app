@@ -41,3 +41,19 @@ func TestStorableTextDropsWhatPostgresRejects(t *testing.T) {
 		t.Fatalf("got %q", got[:40])
 	}
 }
+
+// GB31: a provider's 401 quoted the refused key, and the failed jobs list
+// showed it.
+func TestRedactSecretsHidesKeys(t *testing.T) {
+	for in, want := range map[string]string{
+		"Bad key sk-or-standin-livegbe-0001 <img src=x>":      "Bad key sk-… <img src=x>",
+		"invalid x-api-key sk-ant-api03-AbC_dEf-123456789":    "invalid x-api-key sk-…",
+		"Authorization: Bearer abcDEF123456.xyz== rejected":   "Authorization: Bearer … rejected",
+		"openrouter embed: HTTP 503 Service Unavailable":      "openrouter embed: HTTP 503 Service Unavailable",
+		"task-list and desk-chair are words, not keys; sk-ab": "task-list and desk-chair are words, not keys; sk-ab",
+	} {
+		if got := RedactSecrets(in); got != want {
+			t.Errorf("RedactSecrets(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
