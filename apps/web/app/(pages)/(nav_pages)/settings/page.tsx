@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AccountSettings from "@/app/_components/settings/accountSettings";
 import WorkspaceSettings from "@/app/_components/settings/workspaceSettings";
@@ -115,6 +115,14 @@ function SettingsTabs({ initialTab }: { initialTab: SettingsTab }) {
   // Appearance shows itself; Workspaces shows what the open workspace's
   // statuses, labels and fields are used by. Other tabs lay out in two columns.
   const rail = tab === "appearance" ? <AppearancePreview /> : tab === "workspaces" ? <WorkspaceUsage workspaceId={workspaceId} /> : null;
+  // In the narrow strip, keep the open section's entry in view.
+  const nav = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const strip = nav.current;
+    const active = strip?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!strip || !active || strip.scrollWidth <= strip.clientWidth) return;
+    strip.scrollLeft += active.getBoundingClientRect().left - strip.getBoundingClientRect().left - 8;
+  }, [tab]);
 
   return (
     <main className="flex h-full flex-col overflow-hidden bg-background">
@@ -123,8 +131,10 @@ function SettingsTabs({ initialTab }: { initialTab: SettingsTab }) {
         title="Settings"
       />
 
-      <div className="flex min-h-0 flex-1">
-        <nav className="flex w-52 shrink-0 flex-col gap-1 border-r border-border bg-background p-3">
+      {/* On a narrow screen the section list becomes a scrolling strip above
+          the section, so the section keeps the full width. */}
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+        <nav ref={nav} className="flex shrink-0 gap-1 overflow-x-auto border-b border-border bg-background p-2 md:w-52 md:flex-col md:overflow-x-visible md:border-r md:border-b-0 md:p-3">
           {tabs.map((item) => {
             const active = tab === item.id;
             return (
@@ -134,7 +144,7 @@ function SettingsTabs({ initialTab }: { initialTab: SettingsTab }) {
                 onClick={() => setTab(item.id)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative rounded-lg px-3 py-2 text-left transition-colors",
+                  "relative shrink-0 rounded-lg px-3 py-2 text-left whitespace-nowrap transition-colors md:whitespace-normal",
                   active
                     ? "text-foreground"
                     : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -148,7 +158,7 @@ function SettingsTabs({ initialTab }: { initialTab: SettingsTab }) {
                   />
                 ) : null}
                 <span className="relative z-10 block text-sm font-medium">{item.label}</span>
-                <span className="relative z-10 mt-0.5 block text-[11px] opacity-80">
+                <span className="relative z-10 mt-0.5 hidden text-[11px] opacity-80 md:block">
                   {item.description}
                 </span>
               </button>
@@ -156,7 +166,7 @@ function SettingsTabs({ initialTab }: { initialTab: SettingsTab }) {
           })}
         </nav>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-6">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={tab}
