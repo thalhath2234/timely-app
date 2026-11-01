@@ -2,6 +2,7 @@ package suggest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -145,28 +146,10 @@ func (s *Service) Highlights(ctx context.Context, userID string, facts []Fact, n
 
 	// First call: themes and reasons, counted in code.
 	if len(blocked)+len(missed) > 0 {
-		questions := map[string]decide.Question{}
-		var bList, mList []map[string]any
-		for i, b := range blocked {
-			key := fmt.Sprintf("b%d", i+1)
-			bList = append(bList, b.state(key))
-			questions[key] = decide.Choice(fmt.Sprintf("Blocked task %s: what is it most likely waiting on?", key), blockerThemes...)
-		}
-		for i, m := range missed {
-			key := fmt.Sprintf("m%d", i+1)
-			mList = append(mList, m.state(key))
-			questions[key] = decide.Choice(fmt.Sprintf("Task %s had time planned that passed with it still open. What most likely kept it from being finished?", key), missedReasons...)
-		}
-		state := map[string]any{}
-		if len(bList) > 0 {
-			state["blocked"] = bList
-		}
-		if len(mList) > 0 {
-			state["unfinished"] = mList
-		}
+		asked, askedMissed, state, questions := reasonsRequest(blocked, missed)
 		if a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "dashboard_reasons", State: state, Questions: questions}); err == nil {
-			out.Blockers = groupBy(blocked, "b", a, blockerLabels)
-			out.Missed = groupBy(missed, "m", a, missedLabels)
+			out.Blockers = groupBy(asked, "b", a, blockerLabels)
+			out.Missed = groupBy(askedMissed, "m", a, missedLabels)
 		}
 	}
 
@@ -277,10 +260,66 @@ func (w workNote) state(key string) map[string]any {
 	if len(w.Facts) > 0 {
 		m["facts"] = w.Facts
 	}
-	if len(w.Comments) > 0 {
-		m["latestComments"] = w.Comments
+	if c := fitComments(w.Comments, maxCommentRunes); len(c) > 0 {
+		m["latestComments"] = c
 	}
 	return m
+}
+
+// maxCommentRunes is all the comment text Jev reads for one task, so a few
+// long comments on every task cannot outgrow the state.
+const maxCommentRunes = 600
+
+// fitComments keeps the newest comments (the list is oldest first) up to n
+// runes in all; the oldest one kept may be cut short.
+func fitComments(comments []string, n int) []string {
+	start := len(comments)
+	for start > 0 && n > 0 {
+		start--
+		n -= len([]rune(comments[start]))
+	}
+	out := append([]string(nil), comments[start:]...)
+	if n < 0 && len(out) > 0 {
+		out[0] = clip(out[0], len([]rune(out[0]))+n)
+	}
+	return out
+}
+
+// reasonsRequest builds the themes-and-reasons call. Both lists are newest
+// first; while the state is too big for Jev, the oldest item of the longer
+// list goes, so blocked and unfinished Work both keep a share. It returns
+// the items asked about, in the order their keys (b1…, m1…) number them.
+func reasonsRequest(blocked, missed []workNote) ([]workNote, []workNote, map[string]any, map[string]decide.Question) {
+	for {
+		questions := map[string]decide.Question{}
+		var bList, mList []map[string]any
+		for i, b := range blocked {
+			key := fmt.Sprintf("b%d", i+1)
+			bList = append(bList, b.state(key))
+			questions[key] = decide.Choice(fmt.Sprintf("Blocked task %s: what is it most likely waiting on?", key), blockerThemes...)
+		}
+		for i, m := range missed {
+			key := fmt.Sprintf("m%d", i+1)
+			mList = append(mList, m.state(key))
+			questions[key] = decide.Choice(fmt.Sprintf("Task %s had time planned that passed with it still open. What most likely kept it from being finished?", key), missedReasons...)
+		}
+		state := map[string]any{}
+		if len(bList) > 0 {
+			state["blocked"] = bList
+		}
+		if len(mList) > 0 {
+			state["unfinished"] = mList
+		}
+		raw, err := json.Marshal(state)
+		if (err == nil && len(raw) <= decide.MaxStateBytes) || len(blocked)+len(missed) <= 1 {
+			return blocked, missed, state, questions
+		}
+		if len(blocked) >= len(missed) {
+			blocked = blocked[:len(blocked)-1]
+		} else {
+			missed = missed[:len(missed)-1]
+		}
+	}
 }
 
 // blockedWork is open Work that waits on an open task or sits in a status
