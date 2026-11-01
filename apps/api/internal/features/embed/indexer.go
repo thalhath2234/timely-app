@@ -154,6 +154,14 @@ func (i *indexer) IndexEntity(ctx context.Context, userID, kind, entityID string
 	if !i.EnabledFor(userID) {
 		return ErrDisabled
 	}
+	return i.indexCurrent(ctx, userID, kind, entityID)
+}
+
+// indexCurrent embeds an item's text as it is now. An item that is gone loses
+// its rows with no provider call. An item deleted while its text was being
+// embedded loses the rows written after its delete removed the old ones, so
+// a deleted item's text is not kept.
+func (i *indexer) indexCurrent(ctx context.Context, userID, kind, entityID string) error {
 	doc, ok, err := i.load(ctx, userID, kind, entityID)
 	if err != nil {
 		return err
@@ -162,7 +170,13 @@ func (i *indexer) IndexEntity(ctx context.Context, userID, kind, entityID string
 		i.deleteRows(userID, kind, entityID)
 		return nil
 	}
-	return i.upsert(ctx, doc)
+	if err := i.upsert(ctx, doc); err != nil {
+		return err
+	}
+	if still, err := i.exists(ctx, userID, kind, entityID); err == nil && !still {
+		i.deleteRows(userID, kind, entityID)
+	}
+	return nil
 }
 
 func (i *indexer) IndexTask(task *models.Task) {

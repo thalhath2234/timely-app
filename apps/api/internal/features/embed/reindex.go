@@ -35,7 +35,7 @@ func (i *indexer) Reindex(ctx context.Context, userID string, progress func(done
 	}
 	n := 0
 	for _, doc := range docs {
-		if err := i.upsert(ctx, doc); err != nil {
+		if err := i.indexCurrent(ctx, doc.UserID, doc.Kind, doc.EntityID); err != nil {
 			return n, err
 		}
 		n++
@@ -66,8 +66,8 @@ func (i *indexer) deleteOrphans(ctx context.Context, userID string) error {
 	return nil
 }
 
-// load reads one item's current title and text the way collect does; ok is
-// false when the account has no such item.
+// load reads one item's current title and text; ok is false when the account
+// has no such item.
 func (i *indexer) load(ctx context.Context, userID, kind, entityID string) (doc Document, ok bool, err error) {
 	db := i.db.WithContext(ctx)
 	doc = Document{UserID: userID, Kind: kind, EntityID: entityID}
@@ -104,55 +104,51 @@ func (i *indexer) load(ctx context.Context, userID, kind, entityID string) (doc 
 	return doc, err == nil, err
 }
 
+// itemQueries list an account's items of each kind, and existsQueries check
+// one item; both take the user id, existsQueries the item id first.
+var (
+	itemQueries = map[string]string{
+		KindTask:    `SELECT id FROM tasks WHERE user_id = ?`,
+		KindDoc:     `SELECT id FROM documents WHERE user_id = ?`,
+		KindSheet:   `SELECT id FROM sheets WHERE user_id = ?`,
+		KindEvent:   `SELECT id FROM events WHERE user_id = ?`,
+		KindProject: `SELECT x.id FROM projects x JOIN workspaces w ON w.id = x.workspace_id WHERE w.user_id = ?`,
+	}
+	existsQueries = map[string]string{
+		KindTask:    `SELECT EXISTS (SELECT 1 FROM tasks WHERE id = ? AND user_id = ?)`,
+		KindDoc:     `SELECT EXISTS (SELECT 1 FROM documents WHERE id = ? AND user_id = ?)`,
+		KindSheet:   `SELECT EXISTS (SELECT 1 FROM sheets WHERE id = ? AND user_id = ?)`,
+		KindEvent:   `SELECT EXISTS (SELECT 1 FROM events WHERE id = ? AND user_id = ?)`,
+		KindProject: `SELECT EXISTS (SELECT 1 FROM projects x JOIN workspaces w ON w.id = x.workspace_id WHERE x.id = ? AND w.user_id = ?)`,
+	}
+	itemKinds = []string{KindTask, KindDoc, KindSheet, KindEvent, KindProject}
+)
+
+// exists reports whether the account still has the item.
+func (i *indexer) exists(ctx context.Context, userID, kind, entityID string) (bool, error) {
+	query, ok := existsQueries[kind]
+	if !ok {
+		return false, nil
+	}
+	var found bool
+	err := i.db.WithContext(ctx).Raw(query, entityID, userID).Scan(&found).Error
+	return found, err
+}
+
+// collect lists the account's items by kind and id only. Reindex reads each
+// item's text when it reaches it (indexCurrent): item index jobs run beside a
+// reindex, so text read when a long reindex started could overwrite an edit
+// that was indexed while it ran.
 func (i *indexer) collect(ctx context.Context, userID string) ([]Document, error) {
 	var out []Document
-
-	var tasks []models.Task
-	if err := i.db.WithContext(ctx).Select("id", "user_id", "name", "description").
-		Where("user_id = ?", userID).Find(&tasks).Error; err != nil {
-		return nil, err
+	for _, kind := range itemKinds {
+		var ids []string
+		if err := i.db.WithContext(ctx).Raw(itemQueries[kind], userID).Scan(&ids).Error; err != nil {
+			return nil, err
+		}
+		for _, id := range ids {
+			out = append(out, Document{UserID: userID, Kind: kind, EntityID: id})
+		}
 	}
-	for _, task := range tasks {
-		out = append(out, Document{UserID: userID, Kind: KindTask, EntityID: task.ID, Title: task.Name, Body: task.Description})
-	}
-
-	var docs []models.Document
-	if err := i.db.WithContext(ctx).Select("id", "user_id", "title", "plain_text", "content").
-		Where("user_id = ?", userID).Find(&docs).Error; err != nil {
-		return nil, err
-	}
-	for _, doc := range docs {
-		out = append(out, Document{UserID: userID, Kind: KindDoc, EntityID: doc.ID, Title: doc.Title, Body: DocBody(&doc)})
-	}
-
-	var sheets []models.Sheet
-	if err := i.db.WithContext(ctx).Where("user_id = ?", userID).Find(&sheets).Error; err != nil {
-		return nil, err
-	}
-	for idx := range sheets {
-		out = append(out, Document{UserID: userID, Kind: KindSheet, EntityID: sheets[idx].ID, Title: sheets[idx].Title, Body: FlattenSheet(&sheets[idx])})
-	}
-
-	var events []models.Event
-	if err := i.db.WithContext(ctx).Select("id", "user_id", "title", "description").
-		Where("user_id = ?", userID).Find(&events).Error; err != nil {
-		return nil, err
-	}
-	for _, event := range events {
-		out = append(out, Document{UserID: userID, Kind: KindEvent, EntityID: event.ID, Title: event.Title, Body: event.Description})
-	}
-
-	var projects []models.Project
-	if err := i.db.WithContext(ctx).
-		Joins("JOIN workspaces ON workspaces.id = projects.workspace_id").
-		Where("workspaces.user_id = ?", userID).
-		Select("projects.id", "projects.title", "projects.description").
-		Find(&projects).Error; err != nil {
-		return nil, err
-	}
-	for _, project := range projects {
-		out = append(out, Document{UserID: userID, Kind: KindProject, EntityID: project.ID, Title: project.Title, Body: project.Description})
-	}
-
 	return out, nil
 }

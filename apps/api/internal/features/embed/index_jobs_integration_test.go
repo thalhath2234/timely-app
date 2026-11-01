@@ -70,6 +70,9 @@ func integrationDB(t *testing.T) *gorm.DB {
 type fakeEmbeddings struct {
 	mu    sync.Mutex
 	texts []string
+	// during, when set, runs while a request is in flight, before it is
+	// answered: what the person does while the provider works.
+	during func(texts []string)
 }
 
 func (f *fakeEmbeddings) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -77,7 +80,11 @@ func (f *fakeEmbeddings) RoundTrip(r *http.Request) (*http.Response, error) {
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	f.mu.Lock()
 	f.texts = append(f.texts, req.Input...)
+	during := f.during
 	f.mu.Unlock()
+	if during != nil {
+		during(req.Input)
+	}
 	var out embedResponse
 	for n := range req.Input {
 		vec := make([]float32, vectorDims)
@@ -279,6 +286,58 @@ func TestIntegrationDeletedItemsAreNeverIndexed(t *testing.T) {
 	db.Model(&models.Embedding{}).Where("entity_id = ?", "tsk-gone").Count(&rows)
 	if rows != 0 {
 		t.Fatal("reindex kept the rows of a deleted task")
+	}
+}
+
+// E6 follow-up: item index jobs now run beside a reindex, so a reindex that
+// embedded the text it read when it started would write it over an edit that
+// was indexed while it ran. Each item's text is read when the reindex gets
+// to it.
+func TestIntegrationReindexReadsEachItemWhenItGetsThere(t *testing.T) {
+	db := integrationDB(t)
+	ix, _, fake := testIndexer(t, db)
+	user := "user-a"
+	seedUser(t, db, user)
+	if err := db.Create(&models.Workspace{ID: "ws-1", Name: "Home", UserID: &user}).Error; err != nil {
+		t.Fatal(err)
+	}
+	saveTask(t, db, &models.Task{ID: "tsk-first", UserID: &user, Name: "Plan the garden"})
+	if err := db.Exec(`INSERT INTO documents (id, user_id, workspace_id, title, plain_text, updated_at) VALUES ('doc-later', ?, 'ws-1', 'Draft budget', '', now())`, user).Error; err != nil {
+		t.Fatal(err)
+	}
+	// Tasks come first; while the task is embedded, the doc is renamed.
+	fake.during = func(texts []string) {
+		if strings.Contains(strings.Join(texts, " "), "Plan the garden") {
+			db.Exec(`UPDATE documents SET title = 'Kitchen renovation costs' WHERE id = 'doc-later'`)
+		}
+	}
+	if _, err := ix.Reindex(context.Background(), user, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := indexedTitles(t, db, "doc-later"); len(got) != 1 || got[0] != "Kitchen renovation costs" {
+		t.Fatalf("reindex stored %v for a doc renamed while it ran", got)
+	}
+}
+
+// E2 follow-up: an item deleted while its own text was being embedded had its
+// rows written after the delete had removed the old ones, keeping its text.
+func TestIntegrationItemDeletedWhileEmbeddedKeepsNoRows(t *testing.T) {
+	db := integrationDB(t)
+	ix, queue, fake := testIndexer(t, db)
+	user := "user-a"
+	seedUser(t, db, user)
+	task := &models.Task{ID: "tsk-dup", UserID: &user, Name: "Accidental duplicate entry", Description: "locker code 4471"}
+	saveTask(t, db, task)
+	ix.IndexTask(task)
+	fake.during = func([]string) {
+		db.Exec(`DELETE FROM tasks WHERE id = ?`, task.ID)
+		ix.Delete(user, KindTask, task.ID)
+	}
+	runIndexJob(t, ix, queue)
+	var rows int64
+	db.Model(&models.Embedding{}).Where("entity_id = ?", task.ID).Count(&rows)
+	if rows != 0 {
+		t.Fatalf("%d embedding rows kept for a task deleted while it was embedded", rows)
 	}
 }
 
