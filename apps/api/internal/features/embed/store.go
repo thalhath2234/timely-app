@@ -21,7 +21,7 @@ func (i *indexer) upsert(ctx context.Context, doc Document) error {
 	combined := validUTF8(Combine(doc.Title, doc.Body))
 	chunks := Chunk(combined)
 	if len(chunks) == 0 {
-		i.Delete(doc.UserID, doc.Kind, doc.EntityID)
+		i.deleteRows(doc.UserID, doc.Kind, doc.EntityID)
 		return nil
 	}
 

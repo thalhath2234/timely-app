@@ -146,6 +146,25 @@ func TestIntegrationFailSavesUnstorableErrors(t *testing.T) {
 	}
 }
 
+// GB10: index jobs written before they named the item only still hold its
+// text; the list never returns it.
+func TestIntegrationListLeavesItemTextOut(t *testing.T) {
+	db := integrationDB(t)
+	q := NewQueue(db)
+	if _, err := q.Enqueue(Enqueue{UserID: "user-1", Kind: models.JobIndexEntity, Payload: models.JobPayload{
+		"kind": "doc", "entityId": "doc-1", "title": "Salaries", "body": "PAYLOADLEAK",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := q.List("user-1", "", 10)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("list: %v %v", rows, err)
+	}
+	if _, ok := rows[0].Payload["body"]; ok || rows[0].Payload["title"] != nil || rows[0].Payload.String("entityId") != "doc-1" {
+		t.Fatalf("listed payload %v", rows[0].Payload)
+	}
+}
+
 // A job that keeps losing its worker stops once its attempts are used up.
 func TestIntegrationRecoverStuckFailsAJobOutOfAttempts(t *testing.T) {
 	db := integrationDB(t)

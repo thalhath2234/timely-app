@@ -84,19 +84,48 @@ func (q *Queue) Enqueue(job Enqueue) (*models.Job, error) {
 	return row, nil
 }
 
-func (q *Queue) EnqueueIndex(userID, kind, entityID, title, body string) error {
+// EnqueueIndex asks for an item's search index rows to be brought up to date.
+// The job names the item only: its handler reads the item's text when it
+// runs, so a waiting job always indexes the latest edit and a deleted item's
+// text is never kept in the queue.
+func (q *Queue) EnqueueIndex(userID, kind, entityID string) error {
+	key := indexKey(kind, entityID)
+	// A running job may have read the item before this change. Free its key
+	// so the change gets a waiting job of its own instead of being merged
+	// into one that is already past it.
+	if err := q.db.Model(&models.Job{}).
+		Where("dedupe_key = ? AND status = ?", key, models.JobRunning).
+		Update("dedupe_key", nil).Error; err != nil {
+		return err
+	}
 	_, err := q.Enqueue(Enqueue{
 		UserID:    userID,
 		Kind:      models.JobIndexEntity,
-		DedupeKey: fmt.Sprintf("index:%s:%s", kind, entityID),
-		Payload: models.JobPayload{
-			"kind":     kind,
-			"entityId": entityID,
-			"title":    title,
-			"body":     body,
-		},
+		DedupeKey: key,
+		Payload:   models.JobPayload{"kind": kind, "entityId": entityID},
 	})
 	return err
+}
+
+// CancelIndex cancels an item's waiting and failed index jobs once the item
+// is deleted, so nothing indexes it again (a cancelled job can still be
+// retried; it then finds the item gone and does nothing).
+func (q *Queue) CancelIndex(userID, kind, entityID string) error {
+	now := time.Now().UTC()
+	return q.db.Model(&models.Job{}).
+		Where("user_id = ? AND kind = ? AND status IN ?", userID, models.JobIndexEntity, []string{models.JobPending, models.JobFailed}).
+		Where("payload->>'kind' = ? AND payload->>'entityId' = ?", kind, entityID).
+		Updates(map[string]any{
+			"status":      models.JobCancelled,
+			"finished_at": now,
+			"locked_at":   nil,
+			"locked_by":   nil,
+			"updated_at":  now,
+		}).Error
+}
+
+func indexKey(kind, entityID string) string {
+	return fmt.Sprintf("index:%s:%s", kind, entityID)
 }
 
 func (q *Queue) Claim(ctx context.Context, workerID string) (*models.Job, error) {
@@ -241,6 +270,13 @@ func (q *Queue) List(userID, status string, limit int) ([]models.Job, error) {
 	}
 	if rows == nil {
 		rows = []models.Job{}
+	}
+	for i := range rows {
+		if rows[i].Kind == models.JobIndexEntity {
+			// Index jobs name their item only; never list an item's text.
+			delete(rows[i].Payload, "title")
+			delete(rows[i].Payload, "body")
+		}
 	}
 	return rows, nil
 }

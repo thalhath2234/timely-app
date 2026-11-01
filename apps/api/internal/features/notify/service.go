@@ -924,13 +924,9 @@ func (s *Service) HandleIndex(ctx context.Context, job *models.Job) error {
 	if s.indexer == nil {
 		return nil
 	}
-	err := s.indexer.IndexDocument(ctx, embed.Document{
-		UserID:   job.UserID,
-		Kind:     job.Payload.String("kind"),
-		EntityID: job.Payload.String("entityId"),
-		Title:    job.Payload.String("title"),
-		Body:     job.Payload.String("body"),
-	})
+	// The job names the item; its text is read now, so a job that waited
+	// through edits indexes the latest one and a deleted item is skipped.
+	err := s.indexer.IndexEntity(ctx, job.UserID, job.Payload.String("kind"), job.Payload.String("entityId"))
 	if errors.Is(err, embed.ErrDisabled) {
 		return nil
 	}
