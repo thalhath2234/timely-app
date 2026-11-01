@@ -15,11 +15,11 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	"timely-api/internal/models"
 	"timely-api/internal/utils"
 )
 
@@ -229,32 +229,46 @@ func (s *Service) extractImages(ctx context.Context, c *Conversation) error {
 	if c.ImageReview == nil {
 		return fmt.Errorf("No image review is available")
 	}
+	if !readsImages(ctx) {
+		// Never send photos to a text-only model; it would answer without
+		// seeing them.
+		return fmt.Errorf("The chosen model can't read photos. Pick a model that accepts images in the model menu, then try again")
+	}
 	request := WireMessage{Role: "user", Content: "Read all attached photos. " + latestUserContent(c), Sensitive: true}
 	for _, imageID := range c.ImageReview.ImageIDs {
 		var a ImageAttachment
 		if err := s.db.WithContext(ctx).Where("id = ? AND user_id = ? AND conversation_id = ? AND deleted_at IS NULL AND expires_at > ?", imageID, c.UserID, c.ID, time.Now()).First(&a).Error; err != nil {
-			return fmt.Errorf("An image expired or was removed. Upload it again to process it")
+			// Trying again cannot bring a photo back: the person discards the
+			// review and uploads it again.
+			return Final("An image expired or was removed. Discard these images and upload them again")
 		}
 		data, err := os.ReadFile(imagePath(a.ID))
 		if err != nil {
-			return fmt.Errorf("An image is no longer available. Please upload it again")
+			return Final("An image is no longer available. Discard these images and upload them again")
 		}
 		if data, err = sendableImage(ctx, a.ID, data); err != nil {
 			return err
 		}
 		request.ImageURLs = append(request.ImageURLs, "data:image/jpeg;base64,"+base64.StdEncoding.EncodeToString(data))
 	}
-	var config models.Config
-	if err := s.db.WithContext(ctx).Select("working_hours").Where("user_id = ?", c.UserID).First(&config).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return err
+	// A receipt without a printed date gets the person's today: saved
+	// Working hours zone, then the device zone, then the server's.
+	_, loc, _ := s.zoned(ctx, c)
+	today := time.Now().In(loc).Format("2006-01-02")
+	// Discarding the review while the photos were read stops the run before
+	// they are sent; the lease watcher alone notices only every few seconds.
+	if !s.stillLeased(ctx, c) {
+		return context.Canceled
 	}
-	today := time.Now().In(config.WorkingHours.Location(time.Local)).Format("2006-01-02")
 	extracted, err := s.extractReceipt(ctx, request, today)
 	if err != nil {
 		return err
 	}
-	if len(extracted.Text) > 20000 || (extracted.Receipt != nil && len(extracted.Receipt.Items) > 300) {
+	if tooLong(extracted.Text) || (extracted.Receipt != nil && len(extracted.Receipt.Items) > 300) {
 		return fmt.Errorf("This receipt is too large. Split it into smaller sections")
+	}
+	if extracted.Receipt == nil && strings.TrimSpace(extracted.Text) == "" {
+		return fmt.Errorf("Nothing readable was found in these photos. Try again, or discard them and upload a clearer photo")
 	}
 	hints, suggested := s.receiptHints(ctx, c, extracted.Receipt, true)
 	return s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error {
@@ -283,6 +297,27 @@ func (s *Service) extractImages(ctx context.Context, c *Conversation) error {
 	})
 }
 
+// maxExtractedText bounds the text read from photos, in characters: a
+// receipt in Japanese uses three bytes for each one.
+const maxExtractedText = 20000
+
+func tooLong(text string) bool { return utf8.RuneCountInString(text) > maxExtractedText }
+
+// dateAssumed is the issue a receipt without a printed date gets, so the
+// person checks the date filled in for it.
+const dateAssumed = "No date is printed on the receipt, so today's date was used. Check it"
+
+// stillLeased reports whether the run still holds the conversation. A
+// discarded review or Stop clears the lease.
+func (s *Service) stillLeased(ctx context.Context, c *Conversation) bool {
+	if s.db == nil {
+		return true
+	}
+	var n int64
+	err := s.db.WithContext(ctx).Model(&Conversation{}).Where("id = ? AND user_id = ? AND lease = ? AND status = 'running'", c.ID, c.UserID, c.Lease).Count(&n).Error
+	return err != nil || n == 1
+}
+
 func (s *Service) fillImages(row *Conversation) {
 	s.db.Where("user_id = ? AND conversation_id = ?", row.UserID, row.ID).Order("created_at").Find(&row.Images)
 }
@@ -307,18 +342,20 @@ func (s *Service) extractReceipt(ctx context.Context, request WireMessage, today
 	if err != nil {
 		return imageExtraction{}, err
 	}
-	if extracted.Receipt != nil && len(extracted.Receipt.Items) <= 300 && len(extracted.Text) <= 20000 {
+	if extracted.Receipt != nil && len(extracted.Receipt.Items) <= 300 && !tooLong(extracted.Text) {
 		if issues := reconciliationIssues(*extracted.Receipt); len(issues) > 0 {
 			// Re-read the actual photos once; never manufacture a balancing item.
 			messages = append(messages,
 				WireMessage{Role: "assistant", Content: string(raw(extracted)), Sensitive: true},
 				WireMessage{Role: "user", Sensitive: true, Content: "Recheck the original images: " + strings.Join(issues, "; ") + ". Look for omitted shopping bags, fees, quantities, discounts and tax lines. Return the complete corrected JSON with every printed purchased item. Preserve printed totals; never invent an item or change amounts just to balance. Keep unresolved uncertainties in issues."},
 			)
-			corrected, retryErr := s.readReceipt(ctx, messages)
+			// The recheck is optional: when it fails the first reading is kept,
+			// so a failed attempt is not repeated with the photos again.
+			corrected, retryErr := s.readReceipt(WithoutRetries(ctx), messages)
 			if ctx.Err() != nil {
 				return imageExtraction{}, ctx.Err()
 			}
-			if retryErr == nil && corrected.Receipt != nil && len(corrected.Receipt.Items) >= len(extracted.Receipt.Items) && len(corrected.Receipt.Items) <= 300 && len(corrected.Text) <= 20000 && len(reconciliationIssues(*corrected.Receipt)) < len(issues) {
+			if retryErr == nil && corrected.Receipt != nil && len(corrected.Receipt.Items) >= len(extracted.Receipt.Items) && len(corrected.Receipt.Items) <= 300 && !tooLong(corrected.Text) && len(reconciliationIssues(*corrected.Receipt)) < len(issues) {
 				extracted = corrected
 			}
 		}
@@ -326,6 +363,7 @@ func (s *Service) extractReceipt(ctx context.Context, request WireMessage, today
 	if extracted.Receipt != nil {
 		if strings.TrimSpace(extracted.Receipt.Date) == "" {
 			extracted.Receipt.Date = today
+			extracted.Receipt.Issues = append(extracted.Receipt.Issues, dateAssumed)
 		}
 		normalizeReceipt(extracted.Receipt)
 	}

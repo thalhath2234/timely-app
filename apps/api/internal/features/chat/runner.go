@@ -139,7 +139,7 @@ func (s *Service) work(ctx context.Context) {
 		}(c.UserID, c.ID, c.Lease)
 		if providerErr != nil {
 			// The selected provider is unusable; never switch silently (see Settings → Agent).
-			err = providerErr
+			err = NeedsSettings(providerErr.Error())
 		} else if c.Phase == "receipt_edit" {
 			err = s.editReceipt(runCtx, &c)
 		} else if c.Phase == "extract" {
@@ -158,6 +158,7 @@ func (s *Service) work(ctx context.Context) {
 			saveErr := s.checkpoint(ctx, &c, func(tx *gorm.DB, row *Conversation) error {
 				row.Status = "failed"
 				row.Error = err.Error()
+				row.ErrorAction = failureAction(err)
 				if row.Phase == "apply" {
 					// Name the step that stopped the run; retry resets it to pending.
 					for i := range row.Plan {
@@ -170,6 +171,7 @@ func (s *Service) work(ctx context.Context) {
 				}
 				if errors.Is(err, context.DeadlineExceeded) {
 					row.Error = "This request took too long. Please try again or split it into smaller requests; completed changes are saved"
+					row.ErrorAction = ActionRetry
 				}
 				return notify(tx, row, tr(row.Language, txtPushAttention))
 			})
@@ -444,7 +446,8 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 		}
 		messages = append(messages, batch[1:]...)
 	}
-	return fmt.Errorf("This request needs more steps. Try narrowing it down")
+	// The same request would run out of steps again: no Try again.
+	return Final("This request needs more steps. Try narrowing it down")
 }
 
 // Snapshot every existing referenced entity, even if the model forgot to read it.

@@ -87,7 +87,7 @@ func (p *Responses) completeOnce(ctx context.Context, messages []chat.WireMessag
 		return empty, fmt.Errorf("%s: %s", p.Spec.Label, msg)
 	}
 	if data.Status == "incomplete" && data.IncompleteDetails != nil && data.IncompleteDetails.Reason == "max_output_tokens" {
-		return empty, fmt.Errorf("The proposal was too large; try a smaller request")
+		return empty, chat.Final("The proposal was too large; try a smaller request")
 	}
 	out := chat.WireMessage{Role: "assistant"}
 	var text strings.Builder

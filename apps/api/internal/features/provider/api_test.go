@@ -134,7 +134,7 @@ func TestCompatQuotesTheProvidersError(t *testing.T) {
 	defer server.Close()
 	p := &Compat{Spec: apiProviderByID("gemini"), Base: server.URL, Key: "k", Model: "gemini-9", Client: server.Client()}
 	_, err := p.Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, nil, false)
-	if err == nil || !strings.Contains(err.Error(), "Google Gemini returned HTTP 400: Model gemini-9 is not found") {
+	if err == nil || !strings.Contains(err.Error(), "Google Gemini refused the request (HTTP 400): Model gemini-9 is not found") {
 		t.Fatalf("%v", err)
 	}
 }
@@ -166,8 +166,8 @@ func TestCompatModelListsFilterAndNormalise(t *testing.T) {
 	}))
 	defer server.Close()
 	spec := &apiProvider{ID: "t", Label: "Test", ModelsPath: "models", Skip: nonChat}
-	if _, err := fetchCompatModels(context.Background(), server.Client(), spec, server.URL, "bad"); err == nil || !strings.Contains(err.Error(), "Incorrect API key provided") {
-		t.Fatalf("a bad key must fail with the provider's message: %v", err)
+	if _, err := fetchCompatModels(context.Background(), server.Client(), spec, server.URL, "bad"); err == nil || !strings.Contains(err.Error(), "Test didn't accept the API key (HTTP 401)") {
+		t.Fatalf("a bad key must fail naming the provider: %v", err)
 	}
 	list, err := fetchCompatModels(context.Background(), server.Client(), spec, server.URL, "good")
 	if err != nil {
@@ -260,7 +260,8 @@ func TestAnthropicQuotesErrorsAndListsModels(t *testing.T) {
 	}))
 	defer server.Close()
 	_, err := (&Anthropic{Key: "bad", Model: "x", Base: server.URL, Client: server.Client()}).Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, nil, false)
-	if err == nil || !strings.Contains(err.Error(), "invalid x-api-key") {
+	var failure *chat.Failure
+	if !errors.As(err, &failure) || failure.Action != chat.ActionSettings || !strings.Contains(err.Error(), "didn't accept the API key") {
 		t.Fatalf("%v", err)
 	}
 	list, effort, err := anthropicModels(context.Background(), &Anthropic{Key: "good", Base: server.URL, Client: server.Client()})

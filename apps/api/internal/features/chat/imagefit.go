@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -109,7 +108,7 @@ func sendableImage(ctx context.Context, id string, data []byte) ([]byte, error) 
 		return nil, ctx.Err()
 	}
 	if err != nil {
-		return nil, fmt.Errorf("A photo is too large to read, and trying again won't help. Discard these images and upload a cropped or smaller photo")
+		return nil, Final("A photo is too large to read, and trying again won't help. Discard these images and upload a cropped or smaller photo")
 	}
 	replaceStoredImage(id, fitted)
 	return fitted, nil

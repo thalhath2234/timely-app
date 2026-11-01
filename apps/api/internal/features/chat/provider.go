@@ -58,6 +58,22 @@ type Searcher interface {
 	CanSearch() bool
 }
 
+// ImageReader is implemented by completers that can tell whether their
+// model takes images. known is false when that could not be found out.
+type ImageReader interface {
+	ReadsImages(ctx context.Context) (reads, known bool)
+}
+
+// readsImages reports whether the run's model can be sent photos; a model
+// that cannot say is tried.
+func readsImages(ctx context.Context) bool {
+	if r, ok := ctx.Value(completerKey{}).(ImageReader); ok && r != nil {
+		reads, known := r.ReadsImages(ctx)
+		return reads || !known
+	}
+	return true
+}
+
 type completerKey struct{}
 
 // WithCompleter attaches the run's client to the context so every model call in
@@ -73,6 +89,21 @@ func CompleterFrom(ctx context.Context) Completer {
 		return c
 	}
 	return nil
+}
+
+type noRetryKey struct{}
+
+// WithoutRetries marks a model call the caller can do without, such as the
+// receipt recheck: the client then sends it once and returns the first
+// error instead of retrying it.
+func WithoutRetries(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noRetryKey{}, true)
+}
+
+// RetriesOff reports whether the call was marked with WithoutRetries.
+func RetriesOff(ctx context.Context) bool {
+	off, _ := ctx.Value(noRetryKey{}).(bool)
+	return off
 }
 
 // canSearch reports whether the run's provider can answer web searches.
@@ -96,6 +127,16 @@ func (s *Service) complete(ctx context.Context, messages []WireMessage, tools []
 type OpenRouter struct {
 	Key, Model, URL string
 	Client          *http.Client
+	// Vision says whether a model takes images, from the model list; nil
+	// when unknown.
+	Vision func(ctx context.Context, model string) (reads, known bool)
+}
+
+func (p *OpenRouter) ReadsImages(ctx context.Context) (bool, bool) {
+	if p.Vision == nil {
+		return false, false
+	}
+	return p.Vision(ctx, p.Model)
 }
 
 func NewOpenRouter() *OpenRouter {
@@ -110,6 +151,9 @@ func NewOpenRouter() *OpenRouter {
 // Only model inference is retried here; no domain tool executes until a complete
 // response has been accepted. A failed attempt cannot replay an app mutation.
 func (p *OpenRouter) Complete(ctx context.Context, messages []WireMessage, tools []any, search bool) (WireMessage, error) {
+	if RetriesOff(ctx) {
+		return p.completeOnce(ctx, messages, tools, search)
+	}
 	return RetryTransient(ctx, func() (WireMessage, error) { return p.completeOnce(ctx, messages, tools, search) })
 }
 
@@ -200,6 +244,14 @@ func (p *OpenRouter) completeOnce(ctx context.Context, messages []WireMessage, t
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
+		// A refused key or missing credit is the same on every route, and
+		// trying again cannot fix it.
+		switch res.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return empty, NeedsSettings(fmt.Sprintf("OpenRouter didn't accept the API key (HTTP %d). Check the key in Settings → Agent", res.StatusCode))
+		case http.StatusPaymentRequired:
+			return empty, NeedsSettings("OpenRouter says the account is out of credit (HTTP 402). Add credit on openrouter.ai, or pick another provider in Settings → Agent")
+		}
 		if sensitive {
 			return empty, fmt.Errorf("The zero-retention AI route is unavailable (HTTP %d). Try again; no fallback provider was used", res.StatusCode)
 		}
@@ -221,7 +273,7 @@ func (p *OpenRouter) completeOnce(ctx context.Context, messages []WireMessage, t
 		return empty, fmt.Errorf("AI provider did not return a response")
 	}
 	if data.Choices[0].FinishReason == "length" {
-		return empty, fmt.Errorf("The proposal was too large; try a smaller request")
+		return empty, Final("The proposal was too large; try a smaller request")
 	}
 	return data.Choices[0].Message, nil
 }
