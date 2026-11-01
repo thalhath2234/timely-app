@@ -493,6 +493,9 @@ function OpenRouterCard({ data }: { data: AgentProviders }) {
         {reindex.status === "done" && (
           <p className="text-xs text-muted-foreground">
             Search index up to date ({reindex.total} items).
+            {reindex.skipped
+              ? ` ${reindex.skipped === 1 ? "1 item was" : `${reindex.skipped} items were`} skipped because your AI provider refused ${reindex.skipped === 1 ? "it" : "them"}.`
+              : ""}
           </p>
         )}
         {reindex.status === "failed" && (
