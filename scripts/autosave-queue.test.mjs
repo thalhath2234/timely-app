@@ -102,8 +102,8 @@ describe("autosave queue", () => {
   });
 
   test("the refusal note says the change was not saved, then why", () => {
-    assert.equal(refusalMessage(refused("blocking task not found")), "Couldn’t save that change. Blocking task not found.");
-    assert.equal(refusalMessage(refused("Name is too long.")), "Couldn’t save that change. Name is too long.");
-    assert.equal(refusalMessage({}), "Couldn’t save that change.");
+    assert.equal(refusalMessage(refused("blocking task not found")), "Could not save that change. Blocking task not found.");
+    assert.equal(refusalMessage(refused("Name is too long.")), "Could not save that change. Name is too long.");
+    assert.equal(refusalMessage({}), "Could not save that change.");
   });
 });

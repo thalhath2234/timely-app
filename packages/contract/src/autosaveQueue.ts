@@ -120,5 +120,5 @@ export function createAutosaveQueue<T extends object>(): AutosaveQueue<T> {
 /** The note for a change the server refused: that it was not saved, then the server's reason. */
 export function refusalMessage(error: unknown): string {
   const reason = error instanceof Error ? error.message.trim().replace(/\.$/, "") : "";
-  return reason ? `Couldn’t save that change. ${reason.charAt(0).toUpperCase()}${reason.slice(1)}.` : "Couldn’t save that change.";
+  return reason ? `Could not save that change. ${reason.charAt(0).toUpperCase()}${reason.slice(1)}.` : "Could not save that change.";
 }
