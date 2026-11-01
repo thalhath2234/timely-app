@@ -11,7 +11,12 @@ import {
   SELECTION_ACTIONS,
   WRITE_BUSY,
   WRITE_CURSOR,
+  WRITE_TOO_LONG,
+  belowFit,
   isWriteList,
+  replaceFit,
+  selectionTooLong,
+  spotList,
   writeStarters,
   writtenContent,
   type WriteAction,
@@ -28,6 +33,7 @@ import { useToastStore } from "@/app/_store/toastStore";
 import { helpMeWrite } from "@/app/utils/api/write";
 import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
 import { cn } from "@/app/utils/cn";
+import { captureSelection, placeBelow, placeReplace, plainBetween, type Captured } from "./writeRange";
 
 /** What the editor holds, so the draft fits it. */
 export type WriteContext = { kind: WriteKind; title?: string };
@@ -178,21 +184,6 @@ export function HelpMeWriteButton({
   );
 }
 
-type Captured = { from: number; to: number; text: string };
-
-/** The list item a one-line selection sits in, with its list's type. */
-function enclosingListItem(editor: Editor, range: Captured) {
-  const { doc } = editor.state;
-  const $from = doc.resolve(range.from);
-  if (!$from.sameParent(doc.resolve(range.to))) return null;
-  for (let depth = $from.depth; depth > 1; depth--) {
-    const name = $from.node(depth).type.name;
-    if (name === "listItem" || name === "taskItem") {
-      return { from: $from.before(depth), to: $from.after(depth), listType: $from.node(depth - 1).type.name };
-    }
-  }
-  return null;
-}
 /** `place`: the action whose spot the draft takes, when it is not `action`.
  * Ask for changes rewrites a draft as "write", but a refined summary still
  * goes where a summary goes, and refined Continue writing still goes at the
@@ -262,10 +253,7 @@ export default function HelpMeWritePanel({
   onDone: () => void;
 }) {
   // The selection when the panel opened; focus moves into the panel after this.
-  const [captured] = useState<Captured>(() => {
-    const { from, to } = editor.state.selection;
-    return { from, to, text: from === to ? "" : editor.state.doc.textBetween(from, to, "\n").trim() };
-  });
+  const [captured] = useState<Captured>(() => captureSelection(editor.state));
   const hasSelection = captured.text !== "";
   const docText = () => editor.getText({ blockSeparator: "\n" }).trim();
   const [hasText] = useState(() => docText() !== "");
@@ -365,6 +353,13 @@ export default function HelpMeWritePanel({
 
   const start = async (run: Run) => {
     abort.current?.abort();
+    // Rewriting only part of a long selection would let Replace delete the
+    // rest, so it is refused here before anything is sent (the API refuses
+    // it too).
+    if (!run.selection && hasSelection && selectionTooLong(captured.text)) {
+      setError(WRITE_TOO_LONG);
+      return;
+    }
     const controller = new AbortController();
     abort.current = controller;
     setBusy(run.label ?? WRITE_BUSY[run.action]);
@@ -375,6 +370,8 @@ export default function HelpMeWritePanel({
           action: run.action,
           prompt: run.prompt,
           selection: run.selection ?? (captured.text || undefined),
+          // "Ask for changes" rewrites the draft, which is already Markdown.
+          selectionDoc: run.selection ? undefined : captured.doc,
           kind: context.kind,
           title: context.title,
           text: docText(),
@@ -382,7 +379,7 @@ export default function HelpMeWritePanel({
         },
         controller.signal,
       );
-      setResult({ ...out, run, list: spotFor(placeOf(run))?.list });
+      setResult({ ...out, run, list: hasSelection ? spotList(captured.spot) ?? undefined : spotFor(placeOf(run))?.list });
       setRefine("");
     } catch (err) {
       if (controller.signal.aborted) return;
@@ -417,11 +414,33 @@ export default function HelpMeWritePanel({
     }
   }, [editor, result]);
 
+  // How the draft can replace the selection; null: only Insert below.
+  const fit = useMemo(() => {
+    if (!result || !hasSelection || !captured.spot) return null;
+    return replaceFit(captured.spot, toNodes(result.text, spotList(captured.spot)));
+  }, [result, hasSelection, captured]);
+
+  /** The selected text's draft goes over the selection or below it, never
+   * over more than was sent. */
+  const insertForSelection = (mode: "replace" | "below", target: { from: number; to: number }) => {
+    const spot = captured.spot;
+    if (!result || !spot) return false;
+    const written = toNodes(result.text, spotList(spot));
+    const tr =
+      mode === "replace"
+        ? placeReplace(editor.state, target, fit, written)
+        : placeBelow(editor.state, target, belowFit(spot, written), written);
+    if (!tr) return false;
+    editor.view.dispatch(tr.scrollIntoView());
+    editor.commands.focus();
+    return true;
+  };
+
   const insert = (mode: "replace" | "below") => {
     if (!result) return;
     const place = placeOf(result.run);
     const spot = spotFor(place);
-    const { blocks, inline, items } = toNodes(result.text, spot?.list);
+    const { blocks, items } = toNodes(result.text, spot?.list);
     if (blocks.length === 0) return;
     const { doc } = editor.state;
     // Where the panel opened, moved along with any edits made since.
@@ -429,33 +448,28 @@ export default function HelpMeWritePanel({
     const target = { ...captured, from: mapped?.from ?? captured.from, to: mapped?.to ?? captured.to };
     const size = doc.content.size;
     const chain = editor.chain().focus();
-    const replacing = hasSelection && mode === "replace";
-    if (hasSelection && (target.to > size || doc.textBetween(target.from, target.to, "\n").trim() !== captured.text)) {
+    if (hasSelection && (target.to > size || plainBetween(doc, target.from, target.to) !== captured.text)) {
       useToastStore.getState().show("The text changed while writing. Select it again.");
       return;
     }
-    if (spot && items) {
+    if (hasSelection) {
+      if (!insertForSelection(mode, target)) {
+        useToastStore.getState().show("This draft can't take the place of your selection. Use Insert below.");
+        return;
+      }
+    } else if (spot && items) {
       // The items join the list, after the caret's item or in place of the
       // empty item or line the caret is on.
       const { at, drop } = spot;
       if (drop?.from === at) chain.insertContentAt(drop, items).run();
       else if (drop) chain.deleteRange(drop).insertContentAt(at, items).run();
       else chain.insertContentAt(at, items).run();
-    } else if (replacing) {
-      // A list answer for text inside a list item replaces that item, so the
-      // new items sit beside it instead of nesting inside it.
-      const item = !inline ? enclosingListItem(editor, target) : null;
-      if (item && blocks.length === 1 && blocks[0].type === item.listType) {
-        chain.insertContentAt({ from: item.from, to: item.to }, blocks[0].content ?? []).run();
-      } else {
-        chain.insertContentAt({ from: target.from, to: target.to }, inline ?? blocks).run();
-      }
     } else if (place === "continue") {
       chain.insertContentAt(size, blocks).run();
     } else {
-      const at = doc.resolve(Math.min(hasSelection ? target.to : target.from, size));
+      const at = doc.resolve(Math.min(target.from, size));
       const block = at.depth > 0 ? at.node(1) : null;
-      if (!hasSelection && block?.isTextblock && block.content.size === 0) {
+      if (block?.isTextblock && block.content.size === 0) {
         // An empty line becomes the draft.
         chain.insertContentAt({ from: at.before(1), to: at.after(1) }, blocks).run();
       } else if (at.depth > 0) {
@@ -530,6 +544,11 @@ export default function HelpMeWritePanel({
                 // generateHTML serialises through the editor schema, which escapes text.
                 dangerouslySetInnerHTML={{ __html: preview }}
               />
+              {hasSelection && !fit && (
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  This draft can&rsquo;t take the place of your selection, so it goes below it.
+                </p>
+              )}
               <form
                 className="flex items-center gap-1.5"
                 onSubmit={(event) => {
@@ -627,13 +646,15 @@ export default function HelpMeWritePanel({
             </Button>
             <span className="flex-1" />
             {hasSelection && (
-              <Button variant="outline" size="sm" onClick={() => insert("below")}>
+              <Button variant={fit ? "outline" : "primary"} size="sm" onClick={() => insert("below")}>
                 Insert below
               </Button>
             )}
-            <Button size="sm" onClick={() => insert("replace")}>
-              {hasSelection ? "Replace" : "Insert"}
-            </Button>
+            {(!hasSelection || fit) && (
+              <Button size="sm" onClick={() => insert("replace")}>
+                {hasSelection ? "Replace" : "Insert"}
+              </Button>
+            )}
           </div>
         )}
       </div>

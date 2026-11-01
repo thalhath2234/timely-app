@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -53,15 +54,26 @@ var (
 )
 
 const (
-	writeMaxText      = 12000
-	writeMaxSelection = 8000
-	writeMaxPrompt    = 2000
+	writeMaxText   = 12000
+	writeMaxPrompt = 2000
+	// writeMaxSelection is the most selected text (as Markdown) a rewrite
+	// takes, WRITE_MAX_SELECTION in packages/contract/src/helpMeWrite.ts. A
+	// longer selection is refused, never cut: Replace puts the answer over
+	// the whole selection, so a rewrite of part of it would delete the rest.
+	writeMaxSelection = 20000
+	// writeTooLong is WRITE_TOO_LONG in the contract.
+	writeTooLong = "That's too much text to rewrite at once. Select up to about 3,000 words and try again."
 )
 
 type writeRequest struct {
 	Action    string `json:"action"`
 	Prompt    string `json:"prompt"`
 	Selection string `json:"selection"`
+	// SelectionDoc is the selected part of the editor's content as a doc,
+	// read as Markdown in place of Selection, so the model sees the links,
+	// @mentions, tick boxes and tables it holds and can keep them. Apps from
+	// before it send only Selection, the plain text.
+	SelectionDoc models.JSONMap `json:"selectionDoc"`
 	// Kind is "doc", "task" or "project"; Title and Text describe what is open.
 	Kind  string `json:"kind"`
 	Title string `json:"title"`
@@ -72,6 +84,8 @@ type writeRequest struct {
 	Doc models.JSONMap `json:"doc"`
 	// cursor: Text shows where the draft goes, as cursorTag.
 	cursor bool
+	// rich: Selection is Markdown read from SelectionDoc.
+	rich bool
 }
 
 type writeResponse struct {
@@ -89,7 +103,16 @@ func (r *writeRequest) validate() error {
 		return fmt.Errorf("Unknown writing action %q", r.Action)
 	}
 	r.Prompt = clipHead(strings.TrimSpace(r.Prompt), writeMaxPrompt)
-	r.Selection = clipHead(strings.TrimSpace(r.Selection), writeMaxSelection)
+	if r.SelectionDoc != nil {
+		if markdown := strings.TrimSpace(richtext.ToMarkdown(r.SelectionDoc)); markdown != "" {
+			r.Selection, r.rich = markdown, true
+		}
+		r.SelectionDoc = nil
+	}
+	r.Selection = strings.TrimSpace(r.Selection)
+	if len(r.Selection) > writeMaxSelection {
+		return errors.New(writeTooLong)
+	}
 	r.Title = clipHead(strings.TrimSpace(r.Title), 300)
 	fromDoc := r.Doc != nil
 	if fromDoc {
@@ -157,8 +180,16 @@ func writeMessages(r writeRequest) []chat.WireMessage {
 	}
 	if r.Selection != "" {
 		fmt.Fprintf(&b, "\n<selected_text>\n%s\n</selected_text>\n", r.Selection)
-		if !strings.Contains(r.Selection, "\n") && (r.Action == "improve" || r.Action == "shorter" || r.Action == "longer" || r.Action == "fix") {
+		rewrite := r.Action == "improve" || r.Action == "shorter" || r.Action == "longer" || r.Action == "fix"
+		if !strings.Contains(r.Selection, "\n") && rewrite {
 			b.WriteString("The selection is a single line, so answer with a single paragraph: no headings, list markers or checkboxes.\n")
+		}
+		if r.rich {
+			b.WriteString("The selected text is Markdown from the editor. Keep every link and every @mention link ([@Name](timely://...)) exactly as written.")
+			if rewrite {
+				b.WriteString(" Keep its shape: the same headings, list items, ticked and unticked boxes and table rows and columns.")
+			}
+			b.WriteString("\n")
 		}
 	}
 	if r.cursor {

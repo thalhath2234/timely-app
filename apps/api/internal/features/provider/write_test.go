@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -223,6 +224,82 @@ func TestWriteCursorOnlyForDraftsFromTheEditor(t *testing.T) {
 func TestClipTailKeepsEnd(t *testing.T) {
 	if got := clipTail("abcdef", 3); got != "def" {
 		t.Errorf("got %q", got)
+	}
+}
+
+// A long selection goes to the model whole, or not at all: Replace puts the
+// answer over all of it, so a rewrite of its first part would delete the
+// rest (W1).
+func TestWriteNeverCutsTheSelection(t *testing.T) {
+	var lines []string
+	for i := 1; len(strings.Join(lines, "\n")) < 9000; i++ {
+		lines = append(lines, fmt.Sprintf("Line %d: the crew will arrive at 10am and set up the stage.", i))
+	}
+	lines = append(lines, "FINAL LINE: wrap up in December 2027.")
+	whole := strings.Join(lines, "\n")
+	req := writeRequest{Action: "fix", Selection: whole}
+	if err := req.validate(); err != nil || req.Selection != whole {
+		t.Fatalf("a %d-byte selection must go whole: err %v, kept %d bytes", len(whole), err, len(req.Selection))
+	}
+	if !strings.Contains(writeMessages(req)[1].Content, "FINAL LINE") {
+		t.Error("the end of the selection must reach the model")
+	}
+	tooLong := writeRequest{Action: "fix", Selection: strings.Repeat("word ", writeMaxSelection/5+1)}
+	if err := tooLong.validate(); err == nil || err.Error() != writeTooLong {
+		t.Fatalf("over the limit must be refused with %q, got %v", writeTooLong, err)
+	}
+}
+
+func richSelection() models.JSONMap {
+	text := func(s string, marks ...any) map[string]any {
+		node := map[string]any{"type": "text", "text": s}
+		if len(marks) > 0 {
+			node["marks"] = marks
+		}
+		return node
+	}
+	para := func(content ...any) map[string]any { return map[string]any{"type": "paragraph", "content": content} }
+	item := func(s string, checked bool) any {
+		return map[string]any{"type": "taskItem", "attrs": map[string]any{"checked": checked}, "content": []any{para(text(s))}}
+	}
+	cell := func(kind, s string) any { return map[string]any{"type": kind, "content": []any{para(text(s))}} }
+	return models.JSONMap{"type": "doc", "content": []any{
+		para(text("See the "), text("spec", map[string]any{"type": "link", "attrs": map[string]any{"href": "https://example.com/spec"}}),
+			text(" with "), map[string]any{"type": "mention", "attrs": map[string]any{"id": "tsk_1", "label": "Alice onboarding", "entityType": "task"}},
+			text(" tomorow")),
+		map[string]any{"type": "taskList", "content": []any{item("buy milk", true), item("call bob", false)}},
+		map[string]any{"type": "table", "content": []any{
+			map[string]any{"type": "tableRow", "content": []any{cell("tableHeader", "Who"), cell("tableHeader", "When")}},
+			map[string]any{"type": "tableRow", "content": []any{cell("tableCell", "Sam"), cell("tableCell", "Monday")}},
+		}},
+	}}
+}
+
+// The selection goes as Markdown, so links, @mentions, tick boxes and
+// tables reach the model and can come back (GW1).
+func TestWriteSendsARichSelectionAsMarkdown(t *testing.T) {
+	req := writeRequest{Action: "improve", Selection: "See the spec with  tomorow", SelectionDoc: richSelection()}
+	if err := req.validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"[spec](https://example.com/spec)", "[@Alice onboarding](timely://task/tsk_1)",
+		"- [x] buy milk\n- [ ] call bob", "| Who | When |", "| Sam | Monday |",
+	} {
+		if !strings.Contains(req.Selection, want) {
+			t.Errorf("selection misses %q:\n%s", want, req.Selection)
+		}
+	}
+	user := writeMessages(req)[1].Content
+	for _, want := range []string{"<selected_text>\nSee the [spec]", "Keep every link and every @mention", "ticked and unticked boxes"} {
+		if !strings.Contains(user, want) {
+			t.Errorf("user turn misses %q:\n%s", want, user)
+		}
+	}
+	// Apps from before selectionDoc still send plain text.
+	plain := writeRequest{Action: "improve", Selection: "teh plan"}
+	if err := plain.validate(); err != nil || strings.Contains(writeMessages(plain)[1].Content, "@mention") {
+		t.Errorf("plain selection: %v", err)
 	}
 }
 

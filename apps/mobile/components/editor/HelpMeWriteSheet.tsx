@@ -5,12 +5,17 @@ import type { DocContent } from "@timely/contract/documents";
 import {
   SELECTION_ACTIONS,
   WRITE_BUSY,
+  WRITE_TOO_LONG,
+  replaceFit,
+  selectionTooLong,
+  spotList,
   writeStarters,
   writtenContent,
   type WriteAction,
   type WriteKind,
   type WriteList,
   type WriteResult,
+  type WriteSpot,
 } from "@timely/contract/helpMeWrite";
 import { helpMeWrite } from "../../lib/api/write";
 import { useAgentProvidersQuery } from "../../lib/hooks";
@@ -26,11 +31,15 @@ export type WriteContext = { kind: WriteKind; title?: string };
 
 /** The editor's selection and text when Help me write opened, the doc with
  * the cursor typed where the draft goes, and the list a draft joins at the
- * caret (`list`) and at the end (`endList`, for Continue writing). */
+ * caret (`list`) and at the end (`endList`, for Continue writing). A
+ * selection comes as it is rewritten: its plain text, the same part as a
+ * doc (`selectionDoc`) and where it sits (`spot`). */
 export type WriteInfo = {
   from: number;
   to: number;
   selection: string;
+  selectionDoc?: DocContent;
+  spot?: WriteSpot | null;
   text: string;
   doc?: DocContent;
   list?: WriteList | null;
@@ -49,10 +58,12 @@ export type WriteInsert = { markdown: string; mode: "replace" | "below" | "inser
 type Run = { action: WriteAction; place?: WriteAction; prompt?: string; selection?: string; label?: string };
 const placeOf = (run: Run) => run.place ?? run.action;
 
-/** The list a draft inserted this way joins, if any. A summary or
- * description is not more items of the list the caret is in. */
+/** The list a draft inserted this way joins, if any: for a selection, the
+ * list it sits in. A summary or description is not more items of the list
+ * the caret is in. */
 export function writeList(info: WriteInfo, mode: WriteInsert["mode"], action: WriteAction) {
-  if (info.selection || (action !== "write" && action !== "continue")) return null;
+  if (info.selection) return spotList(info.spot);
+  if (action !== "write" && action !== "continue") return null;
   return (mode === "end" ? info.endList : info.list) ?? null;
 }
 
@@ -98,6 +109,12 @@ export default function HelpMeWriteSheet({
 
   const start = async (run: Run) => {
     if (!info) return;
+    // Rewriting only part of a long selection would let Replace delete the
+    // rest, so it is refused before anything is sent (the API refuses it too).
+    if (!run.selection && info.selection && selectionTooLong(info.selection)) {
+      setError(WRITE_TOO_LONG);
+      return;
+    }
     const id = ++attempt.current;
     setBusy(run.label ?? WRITE_BUSY[run.action]);
     setError("");
@@ -106,6 +123,8 @@ export default function HelpMeWriteSheet({
         action: run.action,
         prompt: run.prompt,
         selection: run.selection ?? (info.selection || undefined),
+        // "Ask for changes" rewrites the draft, which is already Markdown.
+        selectionDoc: run.selection ? undefined : info.selectionDoc,
         kind: context.kind,
         title: context.title,
         text: info.text,
@@ -131,13 +150,16 @@ export default function HelpMeWriteSheet({
     onInsert({ markdown: result.text, mode: insertMode(mode, place), action: place });
   };
 
+  // How the draft can replace the selection; null: only Below.
+  const fit = result && info?.spot ? replaceFit(info.spot, writtenContent(result.text, spotList(info.spot))) : null;
+
   const footer = result && !busy ? (
     <View style={styles.footer}>
       <Button label="Try again" variant="ghost" size="sm" icon={<RotateCcw size={16} color={colors.mutedForeground} />} onPress={() => void start(result.run)} />
       <Button label="Discard" variant="destructive-ghost" size="sm" onPress={() => setResult(null)} />
       <View style={{ flex: 1 }} />
-      {hasSelection ? <Button label="Below" accessibilityLabel="Insert below" variant="outline" size="sm" onPress={() => insert("below")} /> : null}
-      <Button label={hasSelection ? "Replace" : "Insert"} size="sm" onPress={() => insert("replace")} />
+      {hasSelection ? <Button label="Below" accessibilityLabel="Insert below" variant={fit ? "outline" : "primary"} size="sm" onPress={() => insert("below")} /> : null}
+      {!hasSelection || fit ? <Button label={hasSelection ? "Replace" : "Insert"} size="sm" onPress={() => insert("replace")} /> : null}
     </View>
   ) : undefined;
 
@@ -182,6 +204,9 @@ export default function HelpMeWriteSheet({
               }}
             />
           </ScrollView>
+          {hasSelection && !fit ? (
+            <Text style={styles.note}>This draft can’t take the place of your selection, so it goes below it.</Text>
+          ) : null}
           <View style={styles.row}>
             <View style={{ flex: 1 }}>
               <Field value={refine} onChangeText={setRefine} placeholder="Ask for changes" autoCapitalize="sentences" />
@@ -242,6 +267,7 @@ const styles = createThemedStyleSheet((colors) => ({
     marginBottom: 12,
   },
   gap: { gap: 12 },
+  note: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   row: { flexDirection: "row", alignItems: "center", gap: 8 },
   busy: {
