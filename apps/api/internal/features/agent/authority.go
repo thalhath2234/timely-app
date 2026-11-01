@@ -177,6 +177,11 @@ func AuthorityOf(name string) (Authority, bool) {
 	return t.Authority, ok
 }
 
+// Prepares reports whether a tool has a Prepare step (see Tool.Prepare).
+func Prepares(name string) bool {
+	return authorities()[name].Prepare != nil
+}
+
 // Argument rules for the ReviewedWhen tools (ADR 0007).
 
 // A single clear cell edit executes immediately; several cells are a bulk edit.
