@@ -10,7 +10,7 @@ import type { Config, Project, Task, TaskViewConfig, Workspace } from "@/app/_ty
 import { matchViewByName } from "@timely/contract/viewSearch";
 import { searchQueryText } from "@timely/contract/searchQuery";
 import { describeView, readingIsListing, readViewQuery, viewFromAiDraft, viewFromReading, viewNoun, vocabularyFrom } from "@timely/contract/viewLanguage";
-import { runView } from "@timely/contract/taskQuery";
+import { runView, viewUsesSuggestedFields } from "@timely/contract/taskQuery";
 import { todayInZone } from "@timely/contract/workStatus";
 import { useTasks } from "@/app/utils/hooks/tasks";
 import { useProjects } from "@/app/utils/hooks/projects";
@@ -170,8 +170,12 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
   }] : [];
   // A search that names a saved view ("show my deadline") opens it straight
   // away, with or without Smart suggestions; one that reads as "show me what
-  // needs attention" gets Smart suggestions' pick.
-  const namedView = trimmed ? matchViewByName(trimmed, savedViews) : undefined;
+  // needs attention" gets Smart suggestions' pick. A named view that filters
+  // on effort or urgency and lists nothing is not offered: smart suggestions
+  // fill those fields, so it would open empty.
+  const named = trimmed ? matchViewByName(trimmed, savedViews) : undefined;
+  const namedShows = useViewHasTasks(named);
+  const namedView = named && (namedShows || !viewUsesSuggestedFields(named)) ? named : undefined;
   // Smart suggestions' pick is offered only while the view is still saved and
   // has tasks to show: one that filters on effort or urgency nobody has read
   // yet would open empty.

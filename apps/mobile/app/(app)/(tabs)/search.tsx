@@ -17,7 +17,7 @@ import { hrefFor } from "../../../lib/searchRoutes";
 import { defaultNativeTaskViews, normalizeViews } from "../../../lib/nativeTaskViewsMerge";
 import { matchViewByName } from "@timely/contract/viewSearch";
 import { searchQueryText } from "@timely/contract/searchQuery";
-import { runView } from "@timely/contract/taskQuery";
+import { runView, viewUsesSuggestedFields } from "@timely/contract/taskQuery";
 import { SEARCH_KIND_ICONS, searchKindIcon } from "../../../components/search/kindIcon";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import ListingCard from "../../../components/search/ListingCard";
@@ -82,12 +82,15 @@ export default function SearchTab() {
     const views = normalizeViews(mobileTaskViews);
     return views.length ? views : defaultNativeTaskViews();
   }, [mobileTaskViews]);
-  const namedView = trimmed ? matchViewByName(trimmed, savedViews) : undefined;
   // Smart suggestions' pick is offered only while the view is still saved and
   // has tasks to show: one that filters on effort or urgency nobody has read
-  // yet would open empty.
+  // yet would open empty. A named view on those fields that lists nothing is
+  // not offered either.
   const tasks = useTasksQuery().data;
   const timeZone = useWorkingHoursZone();
+  const named = trimmed ? matchViewByName(trimmed, savedViews) : undefined;
+  const namedShows = useMemo(() => (named ? runView(tasks ?? [], named, { timeZone }).length > 0 : false), [named, tasks, timeZone]);
+  const namedView = named && (namedShows || !viewUsesSuggestedFields(named)) ? named : undefined;
   const pickedView = savedViews.find((view) => view.id === smartData?.view?.id);
   const pickedShows = useMemo(() => (pickedView ? runView(tasks ?? [], pickedView, { timeZone }).length > 0 : false), [pickedView, tasks, timeZone]);
   const smartView = !pending && !failed && pickedShows ? smartData?.view : undefined;
