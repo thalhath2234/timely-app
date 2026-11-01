@@ -488,10 +488,12 @@ export function useAgentProvidersQuery() {
   return useQuery({
     queryKey: keys.agentProviders,
     queryFn: getAgentProviders,
-    // Poll while the semantic-search rebuild runs so the count moves.
+    // Poll while the semantic-search rebuild runs so the count moves, and
+    // more slowly while a failed rebuild waits for its next try.
     refetchInterval: (query) => {
       const status = query.state.data?.reindex?.status;
-      return status === "queued" || status === "running" ? 2000 : false;
+      if (status === "queued" || status === "running") return 2000;
+      return status === "retrying" ? 5000 : false;
     },
   });
 }

@@ -19,7 +19,11 @@ import ConfirmSheet, {
 } from "../../../components/ui/ConfirmSheet";
 import { Field, PrimaryButton, Select, type SelectOption } from "../../../components/ui/primitives";
 import { GroupHint, ListGroup } from "../../../components/settings/SettingsList";
-import { readyProviders } from "../../../components/chat/ModelSheet";
+import {
+  ProviderSheet,
+  readyIds,
+  type ProviderRequest,
+} from "../../../components/settings/DefaultChoice";
 import {
   useAgentProvidersQuery,
   useConnectProvider,
@@ -226,7 +230,6 @@ function ProviderCard({
 }) {
   const patch = usePatchAgentProviders();
   const isDefault = data.defaultProvider === id;
-  const auto = !data.defaultChosen;
   return (
     <View
       style={[styles.card, isDefault && styles.cardDefault]}
@@ -235,21 +238,19 @@ function ProviderCard({
       <View style={styles.row}>
         <Text style={styles.title}>{PROVIDER_LABELS[id]}</Text>
         {isDefault ? (
-          <Badge tone="primary">{auto ? "Automatic default" : "Default"}</Badge>
+          <Badge tone="primary">Default</Badge>
         ) : ready ? (
           <Badge tone="ok">Ready</Badge>
         ) : null}
       </View>
       <Text style={styles.meta}>{description}</Text>
       {children}
-      {!isDefault || auto ? (
+      {!isDefault ? (
         <PrimaryButton
           label={
             patch.isPending && patch.variables?.defaultProvider === id
               ? "Switching…"
-              : isDefault
-                ? "Keep as default"
-                : "Use as default"
+              : "Use as default"
           }
           disabled={!ready || patch.isPending}
           onPress={() => patch.mutate({ defaultProvider: id })}
@@ -266,10 +267,10 @@ function ProviderCard({
 
 function OpenRouterCard({
   data,
-  confirm,
+  ask,
 }: {
   data: AgentProviders;
-  confirm: (req: ConfirmRequest) => void;
+  ask: (req: ProviderRequest) => void;
 }) {
   const patch = usePatchAgentProviders();
   const setKey = useSetOpenRouterKey();
@@ -315,11 +316,13 @@ function OpenRouterCard({
             <Pressable
               accessibilityRole="button"
               onPress={() =>
-                confirm({
+                ask({
+                  kind: "remove",
+                  id: "openrouter",
                   title: "Remove your OpenRouter key?",
                   message: "OpenRouter chats and semantic search stop until you add one again, and so do smart suggestions unless you have a TypeSafe key.",
                   confirmLabel: "Remove",
-                  onConfirm: () => removeKey.mutate(),
+                  onRemove: () => removeKey.mutateAsync(),
                 })
               }
             >
@@ -346,9 +349,12 @@ function OpenRouterCard({
             onPress={() => {
               setKeyError(null);
               setKey.mutate(key.trim(), {
-                onSuccess: () => {
+                onSuccess: (next) => {
                   setKeyValue("");
                   setEditing(false);
+                  // Nothing becomes the default on its own (ADR 0020): ask now.
+                  if (!next.defaultChosen && next.openrouter.ready)
+                    ask({ kind: "choose", initial: "openrouter" });
                 },
                 onError: (err) =>
                   setKeyError(errorMessage(err, "Could not save the key.")),
@@ -414,6 +420,11 @@ function OpenRouterCard({
         {reindex.status === "done" ? (
           <Text style={styles.meta}>
             Search index up to date ({reindex.total} items).
+          </Text>
+        ) : null}
+        {reindex.status === "retrying" ? (
+          <Text style={styles.warn} testID="reindex-retrying">
+            Index rebuild failed and will try again soon ({reindex.error}).
           </Text>
         ) : null}
         {reindex.status === "failed" ? (
@@ -773,34 +784,24 @@ function LearnedDefaults() {
 
 const CUSTOM_ENDPOINT = "custom";
 
-const AUTOMATIC = "automatic";
-
-/** Which provider runs new chats and the writing tools. Automatic leaves the
- * pick to the server: the first provider set up, OpenRouter last (ADR 0019).
- * A chosen provider stays until it is removed or Automatic is picked again. */
+/** Which provider runs new chats and the writing tools. Nothing is picked on
+ * the person's behalf: until they choose, those features wait (ADR 0020). */
 function DefaultProviderGroup({ data }: { data: AgentProviders }) {
   const patch = usePatchAgentProviders();
-  const ready = readyProviders(data);
+  const ready = readyIds(data);
   const chosen = data.defaultChosen ? data.defaultProvider : "";
-  const auto = data.autoProvider ? PROVIDER_LABELS[data.autoProvider] : "";
-  const options: SelectOption[] = [
-    { value: AUTOMATIC, label: auto ? `Automatic · ${auto}` : "Automatic" },
-    ...ready.map((p) => ({ value: p.id, label: PROVIDER_LABELS[p.id] })),
-  ];
+  const options: SelectOption[] = ready.map((id) => ({ value: id, label: PROVIDER_LABELS[id] }));
   // A chosen provider that is not ready right now (signed out) stays named.
-  if (chosen && !ready.some((p) => p.id === chosen))
+  if (chosen && !ready.includes(chosen))
     options.push({ value: chosen, label: PROVIDER_LABELS[chosen] });
   const saving = patch.isPending ? patch.variables?.defaultProvider : undefined;
-  const value = (saving ?? chosen) || AUTOMATIC;
+  const value = saving ?? chosen;
 
-  let hint: string;
-  if (!chosen && !auto)
-    hint = "Add a key below. The first provider you set up runs new chats.";
-  else if (!chosen)
-    hint = "Picked automatically: the first provider you set up, OpenRouter last. Choose one to keep it.";
-  else if (auto && auto !== PROVIDER_LABELS[chosen])
-    hint = `Chosen by you. Automatic would pick ${auto}.`;
-  else hint = "Chosen by you. Automatic picks the first provider you set up.";
+  const hint = chosen
+    ? "Runs new chats and Help me write."
+    : ready.length
+      ? "Chats and Help me write wait until you choose one."
+      : "Add a key below, then choose it here.";
 
   return (
     <View testID="default-provider" style={{ gap: 6 }}>
@@ -808,12 +809,11 @@ function DefaultProviderGroup({ data }: { data: AgentProviders }) {
         <Select
           trigger="row"
           label="Default provider"
+          placeholder="Not chosen"
           value={value}
           onChange={(next) => {
             if (patch.isPending || next === value) return;
-            patch.mutate({
-              defaultProvider: next === AUTOMATIC ? "" : (next as ProviderId),
-            });
+            patch.mutate({ defaultProvider: next as ProviderId });
           }}
           options={options}
         />
@@ -824,9 +824,7 @@ function DefaultProviderGroup({ data }: { data: AgentProviders }) {
         </Text>
       ) : (
         <GroupHint>
-          {saving !== undefined
-            ? "Switching…"
-            : `Runs new chats and Help me write. ${hint}`}
+          {saving !== undefined ? "Switching…" : hint}
         </GroupHint>
       )}
     </View>
@@ -837,17 +835,17 @@ function DefaultProviderGroup({ data }: { data: AgentProviders }) {
  * suggestions stay the two keys people see first. */
 function MoreApiKeys({
   data,
-  confirm,
+  ask,
 }: {
   data: AgentProviders;
-  confirm: (req: ConfirmRequest) => void;
+  ask: (req: ProviderRequest) => void;
 }) {
   const [open, setOpen] = useState(false);
   const providers = data.apiProviders;
   const connected = providers.filter((view) => view.connected);
   const defaultView = providers.find((view) => view.id === data.defaultProvider);
   const summary = defaultView
-    ? `${defaultView.label} runs new chats${data.defaultChosen ? "" : " · automatic"}`
+    ? `${defaultView.label} runs new chats`
     : connected.length > 0
       ? connected.map((view) => view.label).join(", ")
       : providers.length > 3
@@ -899,7 +897,7 @@ function MoreApiKeys({
               key={view.id}
               data={data}
               view={view}
-              confirm={confirm}
+              ask={ask}
               first={index === 0}
             />
           ))}
@@ -913,12 +911,12 @@ function MoreApiKeys({
 function ApiProviderRow({
   data,
   view,
-  confirm,
+  ask,
   first,
 }: {
   data: AgentProviders;
   view: ApiProviderView;
-  confirm: (req: ConfirmRequest) => void;
+  ask: (req: ProviderRequest) => void;
   first: boolean;
 }) {
   const patch = usePatchAgentProviders();
@@ -962,9 +960,7 @@ function ApiProviderRow({
           {view.label}
         </Text>
         {isDefault ? (
-          <Badge tone="primary">
-            {data.defaultChosen ? "Default" : "Automatic default"}
-          </Badge>
+          <Badge tone="primary">Default</Badge>
         ) : view.connected ? (
           <Badge tone="ok">{view.keySet ? "Key saved" : "Connected"}</Badge>
         ) : null}
@@ -1009,17 +1005,17 @@ function ApiProviderRow({
               <Pressable
                 accessibilityRole="button"
                 onPress={() =>
-                  confirm({
+                  ask({
+                    kind: "remove",
+                    id: view.id,
                     title: `Disconnect ${view.label}?`,
                     message: "The saved key is deleted.",
                     confirmLabel: "Disconnect",
-                    onConfirm: () =>
-                      removeKey.mutate(view.id, {
-                        onSuccess: () => {
-                          setOpen(false);
-                          setEditing(true);
-                        },
-                      }),
+                    onRemove: async () => {
+                      await removeKey.mutateAsync(view.id);
+                      setOpen(false);
+                      setEditing(true);
+                    },
                   })
                 }
               >
@@ -1098,12 +1094,15 @@ function ApiProviderRow({
                       setKey.mutate(
                         { id: view.id, key: key.trim(), baseUrl },
                         {
-                          onSuccess: () => {
+                          onSuccess: (next) => {
                             // Blur first: unmounting a focused input on Android
                             // moves focus to another field.
                             Keyboard.dismiss();
                             setKeyValue("");
                             setEditing(false);
+                            // Nothing becomes the default on its own (ADR 0020).
+                            if (!next.defaultChosen && readyIds(next).includes(view.id))
+                              ask({ kind: "choose", initial: view.id });
                           },
                           onError: (err) =>
                             setKeyError(
@@ -1155,7 +1154,7 @@ function ApiProviderRow({
               answer without it.
             </Text>
           ) : null}
-          {view.connected && (!isDefault || !data.defaultChosen) ? (
+          {view.connected && !isDefault ? (
             <Pressable
               accessibilityRole="button"
               disabled={!view.ready || patch.isPending}
@@ -1165,9 +1164,7 @@ function ApiProviderRow({
               <Text style={styles.smallLink}>
                 {patch.isPending && patch.variables?.defaultProvider === view.id
                   ? "Switching…"
-                  : isDefault
-                    ? "Keep as default"
-                    : "Use as default"}
+                  : "Use as default"}
               </Text>
             </Pressable>
           ) : null}
@@ -1186,10 +1183,12 @@ function CliCard({
   id,
   data,
   view,
+  ask,
 }: {
   id: "claude" | "codex";
   data: AgentProviders;
   view: CliProviderView;
+  ask: (req: ProviderRequest) => void;
 }) {
   const patch = usePatchAgentProviders();
   const connect = useConnectProvider();
@@ -1257,6 +1256,11 @@ function CliCard({
           onPress={() => {
             setConnectError(null);
             connect.mutate(id, {
+              // Nothing becomes the default on its own (ADR 0020): ask now.
+              onSuccess: (next) => {
+                if (!next.defaultChosen && readyIds(next).includes(id))
+                  ask({ kind: "choose", initial: id });
+              },
               onError: (err) =>
                 setConnectError(errorMessage(err, "Could not connect.")),
             });
@@ -1274,7 +1278,19 @@ function CliCard({
           <Pressable
             accessibilityRole="button"
             disabled={disconnect.isPending}
-            onPress={() => disconnect.mutate(id)}
+            onPress={() =>
+              // The default asks which provider takes its place.
+              data.defaultChosen && data.defaultProvider === id
+                ? ask({
+                    kind: "remove",
+                    id,
+                    title: `Disconnect ${PROVIDER_LABELS[id]}?`,
+                    message: "Timely stops using its sign-in on the server.",
+                    confirmLabel: "Disconnect",
+                    onRemove: () => disconnect.mutateAsync(id),
+                  })
+                : disconnect.mutate(id)
+            }
           >
             <Text style={styles.danger}>Disconnect</Text>
           </Pressable>
@@ -1312,6 +1328,8 @@ export default function AgentSettings() {
   const providers = useAgentProvidersQuery();
   const decisions = useDecisionSettingsQuery();
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+  // Choosing the default after a setup, or its replacement on removal.
+  const [providerRequest, setProviderRequest] = useState<ProviderRequest | null>(null);
   const data = providers.data;
 
   return (
@@ -1349,18 +1367,18 @@ export default function AgentSettings() {
         {data ? (
           <>
             <DefaultProviderGroup data={data} />
-            <OpenRouterCard data={data} confirm={setConfirm} />
+            <OpenRouterCard data={data} ask={setProviderRequest} />
             {decisions.data ? (
               <SmartSuggestionsCard
                 data={decisions.data}
                 confirm={setConfirm}
               />
             ) : null}
-            <MoreApiKeys data={data} confirm={setConfirm} />
+            <MoreApiKeys data={data} ask={setProviderRequest} />
             {data.localCli ? (
               <>
-                <CliCard id="claude" data={data} view={data.claude} />
-                <CliCard id="codex" data={data} view={data.codex} />
+                <CliCard id="claude" data={data} view={data.claude} ask={setProviderRequest} />
+                <CliCard id="codex" data={data} view={data.codex} ask={setProviderRequest} />
               </>
             ) : (
               <Text style={styles.meta}>
@@ -1391,6 +1409,13 @@ export default function AgentSettings() {
         confirmLabel={confirm?.confirmLabel}
         onConfirm={() => confirm?.onConfirm()}
       />
+      {data ? (
+        <ProviderSheet
+          data={data}
+          request={providerRequest}
+          onClose={() => setProviderRequest(null)}
+        />
+      ) : null}
     </Screen>
   );
 }
@@ -1416,6 +1441,7 @@ const styles = createThemedStyleSheet((colors) => ({
   meta: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
   sourceLine: { color: colors.foreground, fontSize: 13, lineHeight: 18 },
   error: { color: colors.destructive, fontSize: 13 },
+  warn: { color: colors.warning, fontSize: 13, lineHeight: 18 },
   warning: { color: colors.warning, fontSize: 13 },
   link: {
     color: colors.primary,

@@ -11,6 +11,8 @@ import { LogoSpinner } from "../ui/TimelyLogo";
 import { GroupHint, GroupLabel, ListGroup, ListRow } from "../settings/SettingsList";
 import { readyProviders } from "../chat/ModelSheet";
 import { describeCardWithAi } from "../../lib/api/dashboardCard";
+import { ApiError } from "../../lib/api/client";
+import { PROVIDER_NOT_CHOSEN } from "@timely/contract/helpMeWrite";
 import { useDashboardData, useNow } from "../../lib/dashboard";
 import { useAgentProvidersQuery } from "../../lib/hooks";
 import { colors, controlRadius, createThemedStyleSheet } from "../../lib/theme";
@@ -60,6 +62,7 @@ export default function DescribeCardSheet({
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [needsChoice, setNeedsChoice] = useState(false);
   // The phone client cannot abort a request; closing the sheet drops its answer.
   const attempt = useRef(0);
 
@@ -74,6 +77,7 @@ export default function DescribeCardSheet({
     setTitle(initial && initial.title !== readBoardProgram(initial.program)?.title ? initial.title : "");
     setBusy(false);
     setError("");
+    setNeedsChoice(false);
   }, [open, initial]);
 
   // The preview reads what the program needs, even a source no other card on the board uses.
@@ -103,6 +107,7 @@ export default function DescribeCardSheet({
     const mine = ++attempt.current;
     setBusy(true);
     setError("");
+    setNeedsChoice(false);
     try {
       const answer = await describeCardWithAi({ prompt, today: todayInZone(timeZone), current: program || undefined, place });
       if (mine !== attempt.current) return;
@@ -113,6 +118,8 @@ export default function DescribeCardSheet({
     } catch (failure) {
       if (mine === attempt.current)
         setError(failure instanceof Error ? failure.message : `Could not build the ${noun}. Try again.`);
+      // Providers are set up but none is chosen (ADR 0020): offer the fix.
+      if (mine === attempt.current) setNeedsChoice(failure instanceof ApiError && failure.code === PROVIDER_NOT_CHOSEN);
     } finally {
       if (mine === attempt.current) setBusy(false);
     }
@@ -218,6 +225,17 @@ export default function DescribeCardSheet({
           <Text accessibilityRole="alert" style={styles.error}>
             {error}
           </Text>
+        ) : null}
+        {error && needsChoice ? (
+          <Button
+            label="Choose provider"
+            variant="outline"
+            size="sm"
+            onPress={() => {
+              onClose();
+              router.push("/(app)/settings/agent");
+            }}
+          />
         ) : null}
       </View>
 

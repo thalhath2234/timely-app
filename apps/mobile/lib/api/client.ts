@@ -136,11 +136,20 @@ export async function apiHealth(
 }
 
 export async function readError(response: Response, fallback: string) {
+  return (await readErrorBody(response, fallback)).message;
+}
+
+/** The error's words and, when the server sends one, its code (such as
+ * "provider_not_chosen"), so a screen can offer the fix. */
+async function readErrorBody(response: Response, fallback: string) {
   try {
-    const body = (await response.json()) as { message?: string; error?: string };
-    return body.message || body.error || fallback;
+    const body = (await response.json()) as { message?: string; error?: string; code?: unknown };
+    return {
+      message: body.message || body.error || fallback,
+      code: typeof body.code === "string" ? body.code : undefined,
+    };
   } catch {
-    return fallback;
+    return { message: fallback, code: undefined };
   }
 }
 
@@ -223,7 +232,8 @@ export async function api<T>(path: string, options: RequestOptions = {}, retried
   }
 
   if (!response.ok) {
-    throw new ApiError(await readError(response, `${method} ${path} failed`), response.status);
+    const failure = await readErrorBody(response, `${method} ${path} failed`);
+    throw new ApiError(failure.message, response.status, failure.code);
   }
 
   if (options.response) return response as T;

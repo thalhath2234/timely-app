@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
 import { RotateCcw } from "lucide-react-native";
 import type { DocContent } from "@timely/contract/documents";
 import {
+  PROVIDER_NOT_CHOSEN,
   SELECTION_ACTIONS,
   WRITE_BUSY,
   writeStarters,
@@ -13,6 +15,7 @@ import {
   type WriteResult,
 } from "@timely/contract/helpMeWrite";
 import { helpMeWrite } from "../../lib/api/write";
+import { ApiError } from "../../lib/api/client";
 import { useAgentProvidersQuery } from "../../lib/hooks";
 import { colors, controlRadius, createThemedStyleSheet } from "../../lib/theme";
 import BottomSheet from "../ui/BottomSheet";
@@ -79,6 +82,9 @@ export default function HelpMeWriteSheet({
   const [refine, setRefine] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
+  // The account has providers but none is chosen (ADR 0020): offer the fix.
+  const [needsChoice, setNeedsChoice] = useState(false);
+  const router = useRouter();
   const [result, setResult] = useState<(WriteResult & { run: Run }) | null>(null);
   // The phone client cannot abort a request; Stop and Close drop its answer.
   const attempt = useRef(0);
@@ -90,6 +96,7 @@ export default function HelpMeWriteSheet({
     setRefine("");
     setBusy(null);
     setError("");
+    setNeedsChoice(false);
     setResult(null);
   }, [info]);
 
@@ -101,6 +108,7 @@ export default function HelpMeWriteSheet({
     const id = ++attempt.current;
     setBusy(run.label ?? WRITE_BUSY[run.action]);
     setError("");
+    setNeedsChoice(false);
     try {
       const out = await helpMeWrite({
         action: run.action,
@@ -117,6 +125,7 @@ export default function HelpMeWriteSheet({
     } catch (err) {
       if (id !== attempt.current) return;
       setError(err instanceof Error ? err.message : "Could not write that. Try again.");
+      setNeedsChoice(err instanceof ApiError && err.code === PROVIDER_NOT_CHOSEN);
     } finally {
       if (id === attempt.current) setBusy(null);
     }
@@ -221,7 +230,20 @@ export default function HelpMeWriteSheet({
         </View>
       )}
 
-      {error ? (
+      {error && needsChoice ? (
+        <View accessibilityRole="alert" style={styles.notice}>
+          <Text style={styles.noticeText}>{error}</Text>
+          <Button
+            label="Choose provider"
+            variant="outline"
+            size="sm"
+            onPress={() => {
+              onClose();
+              router.push("/(app)/settings/agent");
+            }}
+          />
+        </View>
+      ) : error ? (
         <Text accessibilityRole="alert" style={styles.error}>
           {error}
         </Text>
@@ -265,6 +287,17 @@ const styles = createThemedStyleSheet((colors) => ({
   // own padding is not part of what scrolls, so it clipped the draft's last line.
   previewContent: { paddingHorizontal: 14, paddingVertical: 10 },
   footer: { flexDirection: "row", alignItems: "center", gap: 4 },
+  notice: {
+    marginTop: 12,
+    gap: 8,
+    alignItems: "flex-start",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    backgroundColor: colors.muted,
+    borderRadius: controlRadius,
+    padding: 10,
+  },
+  noticeText: { color: colors.foreground, fontSize: 13, lineHeight: 18 },
   error: {
     marginTop: 12,
     color: colors.destructiveForeground,

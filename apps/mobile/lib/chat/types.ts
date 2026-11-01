@@ -51,6 +51,8 @@ export type Chat = {
   revision: number;
   unread: boolean;
   error: string;
+  /** Set with some errors, such as "provider_not_chosen" (ADR 0020). */
+  errorCode?: string;
   updatedAt: string;
   createdAt: string;
 };
