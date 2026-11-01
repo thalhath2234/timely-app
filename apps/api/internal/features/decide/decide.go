@@ -27,6 +27,13 @@ import (
 // not answer in time. Callers treat it as "no suggestion".
 var ErrOff = errors.New("suggestions are off")
 
+// Failed reports whether err is a call that went out and failed (a refused
+// key, a timeout, an answer with no answers), rather than suggestions being
+// off or the account busy. A background job can try the first again later.
+func Failed(err error) bool {
+	return err != nil && err != ErrOff && errors.Is(err, ErrOff)
+}
+
 // MaxStateBytes is the largest JSON state Ask sends (about 8,000 tokens,
 // well inside Jev's 32K limit). Callers with open-ended state trim to it.
 const MaxStateBytes = 32000

@@ -3,13 +3,41 @@ package suggest
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"timely-api/internal/features/decide"
 	"timely-api/internal/features/notify"
 	"timely-api/internal/models"
 )
+
+// A Jev call that fails is returned, so the day's smart alerts job can try
+// again; with suggestions off there is nothing to retry.
+func TestIntegrationAlertsReportAFailedCall(t *testing.T) {
+	w := newWorld(t)
+	now := time.Now()
+	w.task(t, "Pay the plumber's invoice", func(task *models.Task) { task.Deadline = ptr(now.AddDate(0, 0, 1).Format("2006-01-02")) })
+	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
+		rw.WriteHeader(529)
+		_, _ = rw.Write([]byte(`{"error":{"message":"Overloaded"}}`))
+	}))
+	t.Cleanup(srv.Close)
+	client := decide.NewClient(nil)
+	client.TypeSafeURL = srv.URL
+	keys := decide.Keys{Enabled: true, TypeSafe: "ts-test-key-123"}
+	s := New(w.db, decide.New(nil, func(context.Context, string) (decide.Keys, error) { return keys, nil }, client), nil)
+	out, err := s.Alerts(context.Background(), w.user, now, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "529") || len(out) != 0 {
+		t.Fatalf("want the failed call, got %v %+v", err, out)
+	}
+	keys.Enabled = false
+	if out, err := s.Alerts(context.Background(), w.user, now, nil, nil); err != nil || len(out) != 0 {
+		t.Fatalf("off: %v %+v", err, out)
+	}
+}
 
 func TestIntegrationAlertsGroupAndPickSteps(t *testing.T) {
 	w := newWorld(t)
@@ -43,7 +71,8 @@ func TestIntegrationAlertsGroupAndPickSteps(t *testing.T) {
 		"group_c3": choice("none"), "group_c1": choice("none"), "group_c4": choice("none"),
 	}}
 	s := New(w.db, jev.service(t), nil)
-	out := s.Alerts(context.Background(), w.user, now, nil, nil)
+	out, err := s.Alerts(context.Background(), w.user, now, nil, nil)
+	must(t, err)
 	if len(out) != 2 {
 		t.Fatalf("%+v", out)
 	}
@@ -70,7 +99,8 @@ func TestIntegrationAlertsGroupAndPickSteps(t *testing.T) {
 	}
 
 	// Work alerted about this week is left out.
-	s.Alerts(context.Background(), w.user, now, map[string]bool{inbox[0].ID: true, invoice.ID: true}, nil)
+	_, err = s.Alerts(context.Background(), w.user, now, map[string]bool{inbox[0].ID: true, invoice.ID: true}, nil)
+	must(t, err)
 	asked := jev.asked(1)
 	// Only the unblocked plumber is left: one candidate, so no group question.
 	if _, ok := asked["alert_c1"]; !ok || len(asked) != 2 {
