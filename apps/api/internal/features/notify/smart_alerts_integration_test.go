@@ -2,6 +2,7 @@ package notify
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -49,7 +50,7 @@ func TestIntegrationSmartAlertsSendOnceAndApply(t *testing.T) {
 		return nil
 	})
 	var skipped []map[string]bool
-	svc.SetAlerts(func(_ context.Context, _ string, _ time.Time, skip, _ map[string]bool) []Alert {
+	svc.SetAlerts(func(_ context.Context, _ string, _ time.Time, skip, _ map[string]bool) ([]Alert, error) {
 		skipped = append(skipped, skip)
 		return []Alert{
 			{Key: "project:pr_1", Kind: "project", ProjectID: "pr_1", Title: "Project “Kitchen” is due in 2 days", Body: "It is due in 2 days.", Action: AlertReview,
@@ -57,7 +58,7 @@ func TestIntegrationSmartAlertsSendOnceAndApply(t *testing.T) {
 			{Key: "unblocked:tsk_c", Kind: "unblocked", Title: "“Work tsk_c” is ready to start", Action: AlertFocus, Items: []AlertItem{{ID: "tsk_c", Name: "Work tsk_c"}}, LogID: "dec_alerts"},
 			{Key: "stale:tsk_d", Kind: "stale", Title: "Idle", Action: AlertReview, Items: []AlertItem{{ID: "tsk_d", Name: "Work tsk_d"}}},
 			{Key: "inbox", Kind: "inbox", Title: "Inbox", Action: AlertClarify, Items: []AlertItem{{ID: "tsk_x", Name: "x"}}},
-		}
+		}, nil
 	})
 	day := time.Now().Format("2006-01-02")
 	job := &models.Job{UserID: user, Kind: models.JobSmartAlerts, Payload: models.JobPayload{"date": day}}
@@ -92,8 +93,8 @@ func TestIntegrationSmartAlertsSendOnceAndApply(t *testing.T) {
 	}
 
 	// A retried job never goes past three alerts for the day.
-	svc.SetAlerts(func(context.Context, string, time.Time, map[string]bool, map[string]bool) []Alert {
-		return []Alert{{Key: "stale:new", Kind: "stale", Title: "New", Action: AlertReview, Items: []AlertItem{{ID: "tsk_new", Name: "New"}}}}
+	svc.SetAlerts(func(context.Context, string, time.Time, map[string]bool, map[string]bool) ([]Alert, error) {
+		return []Alert{{Key: "stale:new", Kind: "stale", Title: "New", Action: AlertReview, Items: []AlertItem{{ID: "tsk_new", Name: "New"}}}}, nil
 	})
 	if err := svc.HandleSmartAlerts(context.Background(), job); err != nil {
 		t.Fatal(err)
@@ -143,9 +144,9 @@ func TestIntegrationSmartAlertsSendOnceAndApply(t *testing.T) {
 	if err := db.Model(&models.Config{}).Where("user_id = ?", user).Update("notification_settings", models.NotificationSettings{Reminders: true, SmartAlerts: &off}).Error; err != nil {
 		t.Fatal(err)
 	}
-	svc.SetAlerts(func(_ context.Context, _ string, _ time.Time, skip, _ map[string]bool) []Alert {
+	svc.SetAlerts(func(_ context.Context, _ string, _ time.Time, skip, _ map[string]bool) ([]Alert, error) {
 		skipped = append(skipped, skip)
-		return nil
+		return nil, nil
 	})
 	if err := svc.HandleSmartAlerts(context.Background(), job); err != nil || len(skipped) != 2 {
 		t.Fatalf("asked while off: %d %v", len(skipped), err)
@@ -222,5 +223,110 @@ func TestIntegrationMorningBriefingNamesTopItems(t *testing.T) {
 	db.Where("dedupe_key = ?", *job.DedupeKey).First(&off)
 	if asked || off.DeliveredAt == nil || svc.queue.HasJob("push:"+off.ID) {
 		t.Fatalf("off: asked %v delivered %v", asked, off.DeliveredAt)
+	}
+}
+
+// A failed model call fails the day's smart alerts job, so the queue tries
+// it again later the same day; the sweep adds no second job meanwhile, and
+// the retry sends the alerts.
+func TestIntegrationSmartAlertsRetryAfterAFailedCall(t *testing.T) {
+	_, db := zoneService(t, models.NotificationSettings{Reminders: true, MorningDigestAt: "00:00"})
+	queue := jobs.NewQueue(db)
+	svc := NewService(db, queue, nil, nil, nil, nil)
+	calls := 0
+	svc.SetAlerts(func(context.Context, string, time.Time, map[string]bool, map[string]bool) ([]Alert, error) {
+		calls++
+		if calls == 1 {
+			return nil, errors.New("typesafe answered 529: overloaded")
+		}
+		return []Alert{{Key: "due:tsk_a", Kind: "due", Title: "“Pay rent” is due tomorrow", Action: AlertReschedule, Items: []AlertItem{{ID: "tsk_a", Name: "Pay rent"}}}}, nil
+	})
+	user := zoneTestUser
+	// The alert names an open task: alerts for Work that is gone or done are dropped.
+	if err := db.Create(&models.Task{ID: "tsk_a", Name: "Pay rent", Kind: models.KindTask, UserID: &user}).Error; err != nil {
+		t.Fatal(err)
+	}
+	run := func() error {
+		t.Helper()
+		job, err := queue.Claim(context.Background(), "test", jobs.Lane{})
+		if err != nil || job == nil {
+			t.Fatalf("no job to run: %v", err)
+		}
+		if err := svc.HandleSmartAlerts(context.Background(), job); err != nil {
+			if failErr := queue.Fail(job, err); failErr != nil {
+				t.Fatal(failErr)
+			}
+			return err
+		}
+		return queue.Succeed(job)
+	}
+	now := time.Now()
+	if err := svc.sweepSmartAlerts(context.Background(), user, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(); err == nil || !strings.Contains(err.Error(), "529") {
+		t.Fatalf("a failed call must fail the job, got %v", err)
+	}
+	var job models.Job
+	if err := db.Where("user_id = ? AND kind = ?", user, models.JobSmartAlerts).First(&job).Error; err != nil {
+		t.Fatal(err)
+	}
+	if job.Status != models.JobPending || job.LastError == nil || !job.RunAt.After(now) {
+		t.Fatalf("the job is not waiting to retry: %s %v %v", job.Status, job.LastError, job.RunAt)
+	}
+	if err := svc.sweepSmartAlerts(context.Background(), user, now); err != nil {
+		t.Fatal(err)
+	}
+	var n int64
+	db.Model(&models.Job{}).Where("user_id = ? AND kind = ?", user, models.JobSmartAlerts).Count(&n)
+	if n != 1 {
+		t.Fatalf("the sweep queued %d smart alerts jobs for the day", n)
+	}
+	// The back-off passes.
+	db.Model(&models.Job{}).Where("id = ?", job.ID).Update("run_at", now.Add(-time.Second))
+	if err := run(); err != nil {
+		t.Fatal(err)
+	}
+	var sent int64
+	db.Model(&models.Notification{}).Where("user_id = ? AND category = ?", user, models.NotifySuggestion).Count(&sent)
+	db.First(&job, "id = ?", job.ID)
+	if sent != 1 || job.Status != models.JobSucceeded || job.Attempts != 2 {
+		t.Fatalf("retry: sent %d, job %s after %d attempts", sent, job.Status, job.Attempts)
+	}
+}
+
+// Before a key is saved (the sign-up day) the sweep queues no smart alerts
+// job, so the day is not used up by a job that does nothing; once
+// suggestions are on, the next sweep after the wait queues it.
+func TestIntegrationSmartAlertsWaitForAKey(t *testing.T) {
+	_, db := zoneService(t, models.NotificationSettings{Reminders: true, MorningDigestAt: "00:00"})
+	queue := jobs.NewQueue(db)
+	svc := NewService(db, queue, nil, nil, nil, nil)
+	svc.SetAlerts(func(context.Context, string, time.Time, map[string]bool, map[string]bool) ([]Alert, error) {
+		return nil, nil
+	})
+	on, asked := false, 0
+	svc.SetDecisions(func(context.Context, string) bool { asked++; return on }, nil)
+	user := zoneTestUser
+	queued := func() int64 {
+		var n int64
+		db.Model(&models.Job{}).Where("user_id = ? AND kind = ?", user, models.JobSmartAlerts).Count(&n)
+		return n
+	}
+	now := time.Now()
+	for _, at := range []time.Time{now, now.Add(time.Minute), now.Add(5 * time.Minute)} {
+		if err := svc.sweepSmartAlerts(context.Background(), user, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := queued(); n != 0 || asked != 1 {
+		t.Fatalf("without a key: %d jobs queued, status asked %d times", n, asked)
+	}
+	on = true // the person saves a key
+	if err := svc.sweepSmartAlerts(context.Background(), user, now.Add(smartOffRecheck+time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if n := queued(); n != 1 || asked != 2 {
+		t.Fatalf("with a key: %d jobs queued, status asked %d times", n, asked)
 	}
 }

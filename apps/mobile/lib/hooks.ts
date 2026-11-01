@@ -551,8 +551,13 @@ export const usePatchDecisionSettings = () =>
 export const useSetTypeSafeKey = () => useDecisionSettingsMutation((key: string) => setTypeSafeKey(key));
 export const useRemoveTypeSafeKey = () => useDecisionSettingsMutation<void>(() => removeTypeSafeKey());
 export const useSetDeepWorkTime = () => useDecisionSettingsMutation((time: DeepWorkTime) => patchDeepWorkTime(time));
-/** One live call with the saved keys; the settings card shows the result. */
-export const useTestDecisions = () => useMutation({ mutationFn: testDecisions });
+/** One live call with the saved keys; the settings card shows the result.
+ * It also asks TypeSafe again about a key it refused, so the settings reload:
+ * a key TypeSafe takes again is in use again. */
+export function useTestDecisions() {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: testDecisions, onSettled: () => client.invalidateQueries({ queryKey: keys.decisions }) });
+}
 
 /** Whether smart suggestions can run. Fails quietly: an older server without
  * the endpoint just means no suggestions. */

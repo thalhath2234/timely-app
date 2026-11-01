@@ -91,7 +91,12 @@ export type ReindexState = {
 };
 
 export type AgentProviders = {
-  defaultProvider: ProviderId;
+  /** Runs new chats and the writing tools: the person's choice when
+   * defaultChosen, otherwise autoProvider ("" with nothing set up). */
+  defaultProvider: ProviderId | "";
+  defaultChosen: boolean;
+  /** What Automatic picks: the first provider set up, OpenRouter last. */
+  autoProvider: ProviderId | "";
   localCli: boolean;
   openrouter: OpenRouterView;
   claude: CliProviderView;
@@ -109,7 +114,8 @@ export type ModelOption = {
 };
 
 export type ProviderPatch = {
-  defaultProvider?: ProviderId;
+  /** "" hands the choice back to Automatic. */
+  defaultProvider?: ProviderId | "";
   openrouterChatModel?: string;
   openrouterEmbedModel?: string;
   claudeModel?: string;

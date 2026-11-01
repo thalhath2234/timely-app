@@ -19,7 +19,7 @@ const none: StartChoices = { copy: false, doc: false, sheet: false };
 export function useProjectStart(title: string, workspaceId: string, open: boolean) {
   const smartOn = useDecisions().data?.available === true;
   const active = open && smartOn;
-  const [fetched, setFetched] = useState<{ suggestion: ProjectStart; workspaceId: string }>();
+  const [fetched, setFetched] = useState<{ suggestion: ProjectStart; workspaceId: string; title: string }>();
   const [choices, setChoices] = useState<StartChoices>(none);
   useEffect(() => {
     const trimmed = title.trim();
@@ -29,7 +29,7 @@ export function useProjectStart(title: string, workspaceId: string, open: boolea
       getProjectStart(trimmed, workspaceId)
         .then((next) => {
           if (stale) return;
-          setFetched(next.available ? { suggestion: next, workspaceId } : undefined);
+          setFetched(next.available ? { suggestion: next, workspaceId, title: trimmed } : undefined);
           setChoices(none);
         })
         .catch(() => {});
@@ -39,9 +39,10 @@ export function useProjectStart(title: string, workspaceId: string, open: boolea
       clearTimeout(timer);
     };
   }, [title, workspaceId, active]);
-  // A suggestion only counts for the workspace it was asked for; a copy
-  // always lands in the source project's workspace.
-  const shown = active && title.trim().length >= 3 && fetched?.workspaceId === workspaceId ? fetched.suggestion : undefined;
+  // A suggestion only counts for the workspace and title it was asked for (a
+  // copy always lands in the source project's workspace), so an answer for an
+  // older title is hidden while the next one is on its way.
+  const shown = active && fetched?.workspaceId === workspaceId && fetched.title === title.trim() ? fetched.suggestion : undefined;
   return { suggestion: shown, choices, setChoices };
 }
 

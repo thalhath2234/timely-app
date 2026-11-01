@@ -28,13 +28,13 @@ func TestIntegrationSmartAlertsSkipEarlierDaysAndGoneWork(t *testing.T) {
 		}
 	}
 	calls := 0
-	svc.SetAlerts(func(context.Context, string, time.Time, map[string]bool, map[string]bool) []Alert {
+	svc.SetAlerts(func(context.Context, string, time.Time, map[string]bool, map[string]bool) ([]Alert, error) {
 		calls++
 		return []Alert{
 			{Key: "stale:tsk_open", Kind: "stale", Title: "Idle", Action: AlertReview, Items: []AlertItem{{ID: "tsk_open", Name: "Send the invoice"}}},
 			{Key: "stale:tsk_done", Kind: "stale", Title: "Idle", Action: AlertReview, Items: []AlertItem{{ID: "tsk_done", Name: "Book the venue"}}},
 			{Key: "stale:tsk_gone", Kind: "stale", Title: "Idle", Action: AlertReview, Items: []AlertItem{{ID: "tsk_gone", Name: "Removed by a restore"}}},
-		}
+		}, nil
 	})
 	sent := func() []models.Notification {
 		var rows []models.Notification

@@ -17,10 +17,14 @@ up but not ready right now (signed out, no model) keeps the pick: its run fails
 with its own message instead of moving to OpenRouter. An OpenRouter-only
 account keeps working; adding any other provider moves chat to it, since adding
 that key is the person's choice of where their data goes (ADR 0009). Removing
-or disconnecting the chosen default, OpenRouter included, empties it again. The
-writing features follow exactly the provider chat uses, so the two never
-disagree, and a live block written from a chat is described by that chat's own
-model.
+or disconnecting the chosen default, OpenRouter included, empties it again.
+Settings → Agent names the pick as Automatic (the Default provider row reads
+"Automatic · Anthropic API", the card "Automatic default"), and choosing
+Automatic there empties a chosen default. The writing features follow exactly
+the provider chat uses, so the two never disagree, and a live block written
+from a chat is described by that chat's own model, once: a proposal's rehearsal
+gives the block a stand-in program, since the review shows the words and not
+the program.
 
 Saving an OpenRouter key is checked with OpenRouter's key endpoint, which
 spends no tokens, so a key meant for search never runs a chat model; a key

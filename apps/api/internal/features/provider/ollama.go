@@ -122,7 +122,7 @@ func (p *Ollama) completeOnce(ctx context.Context, messages []chat.WireMessage, 
 		return empty, fmt.Errorf("%s: %s", p.Spec.Label, clip(data.Error))
 	}
 	if data.DoneReason == "length" {
-		return empty, fmt.Errorf("The proposal was too large; try a smaller request")
+		return empty, chat.ErrOutputTooLong
 	}
 	out := chat.WireMessage{Role: "assistant", Content: data.Message.Content}
 	for i, call := range data.Message.ToolCalls {

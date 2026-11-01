@@ -35,6 +35,14 @@ type Service struct {
 	briefing     Briefer // nil until SetBriefing
 	triageSlots  chan struct{}
 	triageWait   sync.WaitGroup
+	// triagePending holds each account's notifications waiting for a step;
+	// an account is listed while its runTriage runs.
+	triageMu      sync.Mutex
+	triagePending map[string][]triageWork
+	triageGather  time.Duration
+	// briefSlots are the morning briefing's own, so a triage backlog never
+	// holds a briefing back.
+	briefSlots chan struct{}
 
 	// Smart suggestions' status and feedback; nil until SetDecisions.
 	decisionsOn func(ctx context.Context, userID string) bool
@@ -48,6 +56,9 @@ type Service struct {
 	// reminderSwept is when each account's reminders were last swept, so a
 	// sweep after a gap (the computer slept, the app was closed) catches up.
 	reminderSwept map[string]time.Time
+	// smartOffUntil is when the sweep next asks whether an account without
+	// smart suggestions has them now; sweepSmartAlerts fills it.
+	smartOffUntil map[string]time.Time
 }
 
 func NewService(db *gorm.DB, queue *jobs.Queue, calendar calendar.Service, tasks task.TaskService, scheduler schedule.Service, indexer embed.Indexer) *Service {
@@ -61,6 +72,10 @@ func NewService(db *gorm.DB, queue *jobs.Queue, calendar calendar.Service, tasks
 		http:         &http.Client{Timeout: 15 * time.Second},
 		overdueSwept: map[string]time.Time{},
 		triageSlots:  make(chan struct{}, triageParallel),
+
+		triagePending: map[string][]triageWork{},
+		triageGather:  triageGather,
+		briefSlots:    make(chan struct{}, briefParallel),
 	}
 }
 

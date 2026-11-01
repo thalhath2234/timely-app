@@ -3,9 +3,13 @@ package notify
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"timely-api/internal/features/calendar"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/features/event"
 	"timely-api/internal/features/placement"
@@ -46,9 +50,10 @@ func TestIntegrationOverdueTriageSuggestsAndApplies(t *testing.T) {
 		kind string
 		days int
 	}
-	svc.SetTriage(func(_ context.Context, _ string, _ *models.Task, kind string, days int) string {
-		asked.kind, asked.days = kind, days
-		return "extend"
+	svc.triageGather = 0
+	svc.SetTriage(func(_ context.Context, _ string, items []TriageItem) []string {
+		asked.kind, asked.days = items[0].Kind, items[0].OverdueDays
+		return []string{"extend"}
 	})
 	job := &models.Job{UserID: user, Kind: models.JobOverdueTask, DedupeKey: ptrTo("overdue:tsk_triage:" + deadline),
 		Payload: models.JobPayload{"taskId": item.ID, "deadline": deadline}}
@@ -101,7 +106,7 @@ func TestIntegrationOverdueTriageSuggestsAndApplies(t *testing.T) {
 	}
 
 	// Without a suggestion the notification reads as before.
-	svc.SetTriage(func(context.Context, string, *models.Task, string, int) string { return "" })
+	svc.SetTriage(func(_ context.Context, _ string, items []TriageItem) []string { return make([]string, len(items)) })
 	past := today.Now().AddDate(0, 0, -1).Format("2006-01-02")
 	db.Model(&models.Task{}).Where("id = ?", item.ID).Update("deadline", past)
 	job.DedupeKey, job.Payload = ptrTo("overdue:tsk_triage:"+past), models.JobPayload{"taskId": item.ID, "deadline": past}
@@ -113,6 +118,31 @@ func TestIntegrationOverdueTriageSuggestsAndApplies(t *testing.T) {
 	db.Where("dedupe_key = ?", *job.DedupeKey).First(&plain)
 	if plain.Body != "Past deadline. Reschedule as urgent?" || plain.Data.String("suggest") != "" {
 		t.Fatalf("plain %q %+v", plain.Body, plain.Data)
+	}
+
+	// A suggestion that comes back after the person acted on the
+	// notification is dropped, so it cannot contradict what they did.
+	acted := make(chan struct{})
+	svc.SetTriage(func(_ context.Context, _ string, items []TriageItem) []string {
+		<-acted
+		return []string{"reschedule"}
+	})
+	late := today.Now().AddDate(0, 0, -2).Format("2006-01-02")
+	db.Model(&models.Task{}).Where("id = ?", item.ID).Updates(map[string]any{"deadline": late, "priority_level": models.PriorityHigh})
+	job.DedupeKey, job.Payload = ptrTo("overdue:tsk_triage:"+late), models.JobPayload{"taskId": item.ID, "deadline": late}
+	if err := svc.HandleOverdueTask(context.Background(), job); err != nil {
+		t.Fatal(err)
+	}
+	var pending models.Notification
+	db.Where("dedupe_key = ?", *job.DedupeKey).First(&pending)
+	if _, err := svc.ApplyTriage(user, pending.ID, "lower"); err != nil {
+		t.Fatal(err)
+	}
+	close(acted)
+	svc.triageWait.Wait()
+	db.First(&pending, "id = ?", pending.ID)
+	if pending.Body != "Past deadline. Reschedule as urgent?" || pending.Data.String("suggest") != "" {
+		t.Fatalf("a late suggestion rewrote an acted-on notification: %q %+v", pending.Body, pending.Data)
 	}
 }
 
@@ -334,5 +364,131 @@ func TestIntegrationDoneTaskSettlesAlerts(t *testing.T) {
 	}
 	if len(unread) != 2 || !unread["ntf_overdue_open"] || !unread["ntf_reminder_done"] {
 		t.Fatalf("unread after settling: %v", unread)
+	}
+}
+
+// A sweep of many overdue tasks is asked about in batches, one call at a time
+// per account, so a backlog never takes every slot; and while two accounts'
+// backlogs hold both triage slots, a third account's morning briefing still
+// names its top items.
+func TestIntegrationTriageBatchesAndNeverStarvesTheBriefing(t *testing.T) {
+	_, db := zoneService(t, models.NotificationSettings{Reminders: true})
+	tasks := task.NewTaskRepository(db)
+	sched := schedule.NewRepository(db)
+	place := placement.New(db, sched.GetWorkingHours)
+	indexer := embed.New(db)
+	taskService := task.NewTaskService(tasks, project.NewProjectRepository(db), workspace.NewWorkspaceRepository(db), recurrence.NewStore(db), place, indexer)
+	date := time.Now().Format("2006-01-02")
+	today := &calendar.TodayResponse{Date: date, Timezone: "UTC",
+		Items: []calendar.Item{{ID: "evt_1", Kind: "event", EventID: "evt_1", Title: "Board meeting", Start: time.Date(2026, 10, 10, 10, 0, 0, 0, time.UTC)}}}
+	svc := NewService(db, jobs.NewQueue(db), todayStub{today: today}, taskService, schedule.NewService(sched, tasks, event.NewEventRepository(db), place), indexer)
+	svc.triageGather = 50 * time.Millisecond
+
+	busy := []string{zoneTestUser, "usr_notify_backlog_test"}
+	other := "usr_notify_brief_test"
+	for _, row := range []any{
+		&models.User{ID: busy[1], Email: "notify-backlog@example.invalid", Password: "not-a-real-hash"},
+		&models.Config{ID: "cfg_notify_backlog_test", UserID: busy[1], NotificationSettings: models.NotificationSettings{Reminders: true}},
+		&models.User{ID: other, Email: "notify-brief@example.invalid", Password: "not-a-real-hash"},
+		&models.Config{ID: "cfg_notify_brief_test", UserID: other, NotificationSettings: models.NotificationSettings{DigestMorning: true}},
+	} {
+		if err := db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	release := make(chan struct{})
+	var mu sync.Mutex
+	batches := map[string][]int{}
+	inFlight, most := map[string]int{}, map[string]int{}
+	held := 0
+	svc.SetTriage(func(_ context.Context, userID string, items []TriageItem) []string {
+		mu.Lock()
+		batches[userID] = append(batches[userID], len(items))
+		inFlight[userID]++
+		held++
+		most[userID] = max(most[userID], inFlight[userID])
+		mu.Unlock()
+		<-release
+		mu.Lock()
+		inFlight[userID]--
+		held--
+		mu.Unlock()
+		out := make([]string, len(items))
+		for i := range out {
+			out[i] = "lower"
+		}
+		return out
+	})
+	svc.SetBriefing(func(context.Context, string, []BriefItem) []int { return []int{0} })
+
+	const backlog = 25
+	for n, user := range busy {
+		ws := models.Workspace{ID: fmt.Sprintf("ws_backlog_%d", n), Name: "Home", UserID: &user}
+		if err := db.Create(&ws).Error; err != nil {
+			t.Fatal(err)
+		}
+		deadline := svc.notificationToday(user).Now().AddDate(0, 0, -2).Format("2006-01-02")
+		for i := 0; i < backlog; i++ {
+			id := fmt.Sprintf("tsk_backlog_%d_%02d", n, i)
+			if err := db.Create(&models.Task{ID: id, Name: "Imported " + id, Kind: models.KindTask, Duration: 30, UserID: &user, WorkspaceID: &ws.ID, Deadline: &deadline}).Error; err != nil {
+				t.Fatal(err)
+			}
+			job := &models.Job{UserID: user, Kind: models.JobOverdueTask, DedupeKey: ptrTo("overdue:" + id + ":" + deadline),
+				Payload: models.JobPayload{"taskId": id, "deadline": deadline}}
+			if err := svc.HandleOverdueTask(context.Background(), job); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for start := time.Now(); time.Since(start) < 5*time.Second; time.Sleep(20 * time.Millisecond) {
+		mu.Lock()
+		full := held == triageParallel
+		mu.Unlock()
+		if full {
+			break
+		}
+	}
+
+	// Both triage slots are taken; the briefing does not wait behind them.
+	brief := &models.Job{UserID: other, Kind: models.JobDailyDigest, DedupeKey: ptrTo("digest:morning:" + date),
+		Payload: models.JobPayload{"kind": "morning", "date": date, "timezone": "UTC"}}
+	if err := svc.HandleDigest(context.Background(), brief); err != nil {
+		t.Fatal(err)
+	}
+	var ntf models.Notification
+	for start := time.Now(); time.Since(start) < 5*time.Second; time.Sleep(50 * time.Millisecond) {
+		db.Where("dedupe_key = ?", *brief.DedupeKey).First(&ntf)
+		if strings.HasPrefix(ntf.Body, "Top today: Board meeting") {
+			break
+		}
+	}
+	mu.Lock()
+	heldDuringBrief := held
+	mu.Unlock()
+	if heldDuringBrief != triageParallel || !strings.HasPrefix(ntf.Body, "Top today: Board meeting") {
+		t.Fatalf("with %d triage slots held, the briefing reads %q", heldDuringBrief, ntf.Body)
+	}
+
+	close(release)
+	svc.triageWait.Wait()
+	for _, user := range busy {
+		// In batches of at most ten: the first is what arrived within the
+		// gather wait, the rest queued behind its call.
+		asked := 0
+		for _, n := range batches[user] {
+			asked += n
+			if n > triageBatch {
+				t.Fatalf("a batch of %d", n)
+			}
+		}
+		if most[user] != 1 || asked != backlog || len(batches[user]) > 4 {
+			t.Fatalf("%s: batches %v, at most %d calls at once", user, batches[user], most[user])
+		}
+	}
+	var suggested int64
+	db.Model(&models.Notification{}).Where("category = ? AND body = ?", models.NotifyOverdue, "Past deadline. Suggested: lower its priority.").Count(&suggested)
+	if suggested != 2*backlog {
+		t.Fatalf("%d of %d notifications got their step", suggested, 2*backlog)
 	}
 }

@@ -83,13 +83,36 @@ func (s *Service) dashboardCard(c *echo.Context) error {
 func (s *Service) LiveBlock(ctx context.Context, userID, words, current, today string) (string, error) {
 	answer, err := s.describeCard(ctx, userID, dashboardCardRequest{Prompt: words, Current: current, Place: "doc", Today: today})
 	if err != nil {
-		var he *echo.HTTPError
-		if errors.As(err, &he) {
-			return "", errors.New(fmt.Sprint(he.Message))
-		}
-		return "", err
+		return "", toolError(err)
 	}
 	return answer.Program, nil
+}
+
+// liveBlockStandIn is the program a rehearsed new live block gets.
+const liveBlockStandIn = `root = Panel("Live block", [])`
+
+// RehearseLiveBlock takes LiveBlock's place while an Agent proposal is
+// rehearsed. That doc is rolled back and the review shows the person's words,
+// never the program, so asking the model there would write every block twice:
+// once for nothing, then again on apply. It still refuses when no provider can
+// write the block, and a changed block keeps its current program.
+func (s *Service) RehearseLiveBlock(ctx context.Context, userID, words, current, today string) (string, error) {
+	if _, _, err := s.describeCompleter(ctx, userID, "doc"); err != nil {
+		return "", toolError(err)
+	}
+	if current = strings.TrimSpace(current); current != "" {
+		return current, nil
+	}
+	return liveBlockStandIn, nil
+}
+
+// toolError gives an agent tool the message of an HTTP error.
+func toolError(err error) error {
+	var he *echo.HTTPError
+	if errors.As(err, &he) {
+		return errors.New(fmt.Sprint(he.Message))
+	}
+	return err
 }
 
 func (s *Service) describeCard(ctx context.Context, userID string, req dashboardCardRequest) (dashboardCardResponse, error) {
@@ -97,7 +120,7 @@ func (s *Service) describeCard(ctx context.Context, userID string, req dashboard
 	if req.Place == "doc" {
 		noun = "block"
 	}
-	req.Prompt = clipHead(strings.TrimSpace(req.Prompt), dashboardCardMaxText)
+	req.Prompt = clipRunes(strings.TrimSpace(req.Prompt), dashboardCardMaxText)
 	if req.Prompt == "" {
 		return dashboardCardResponse{}, echo.NewHTTPError(400, "Say what the "+noun+" should show")
 	}
@@ -124,7 +147,11 @@ func (s *Service) describeCard(ctx context.Context, userID string, req dashboard
 	if err != nil {
 		return dashboardCardResponse{}, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, dashboardCardBudget)
+	model := ""
+	if provider != "" {
+		_, model, _ = s.resolveModel(ctx, userID, provider)
+	}
+	ctx, cancel := context.WithTimeout(oneShot(ctx), dashboardCardBudget)
 	defer cancel()
 	messages := dashboardCardMessages(req, vocab, sheets, checklists)
 	tools := s.tools(ctx, userID)
@@ -132,15 +159,14 @@ func (s *Service) describeCard(ctx context.Context, userID string, req dashboard
 		messages[0].Content += describeToolsNote
 	}
 	program, err := describe(ctx, completer, messages, tools)
-	if errors.Is(err, errNotACard) {
+	var nothing noDataError
+	switch {
+	case errors.Is(err, errNotACard):
 		return dashboardCardResponse{}, echo.NewHTTPError(502, "The AI's answer was not a "+noun+". Try again")
-	}
-	if err != nil {
-		return dashboardCardResponse{}, echo.NewHTTPError(502, err.Error())
-	}
-	model := ""
-	if provider != "" {
-		_, model, _ = s.resolveModel(ctx, userID, provider)
+	case errors.As(err, &nothing):
+		return dashboardCardResponse{}, echo.NewHTTPError(422, "Couldn't make this "+noun+". "+nothing.reason)
+	case err != nil:
+		return dashboardCardResponse{}, oneShotError(err, "The "+noun+" was too long to finish. Ask for fewer things on it.")
 	}
 	return dashboardCardResponse{Program: program, Provider: provider, Model: model}, nil
 }
@@ -177,11 +203,34 @@ func (s *Service) describeCompleter(ctx context.Context, userID, place string) (
 
 var errNotACard = errors.New("the answer holds no program")
 
+// noDataMark opens an answer that says the person's data holds nothing to
+// build the card from (board_prompt.txt), instead of a card that only says
+// so and promises to fill in later, which a fixed program never does.
+const noDataMark = "NO_DATA:"
+
+type noDataError struct{ reason string }
+
+func (e noDataError) Error() string { return "nothing to build from: " + e.reason }
+
+// noData reads a noDataMark answer's reason.
+func noData(answer string) (noDataError, bool) {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(cleanWritten(answer, false)), noDataMark)
+	if !ok {
+		return noDataError{}, false
+	}
+	reason := strings.TrimSpace(rest)
+	if reason == "" {
+		reason = "There is no data like that yet."
+	}
+	return noDataError{reason: clipRunes(reason, 200)}, true
+}
+
 // describe asks the model for the program. With tools it may read the
 // person's data and check drafts first; its answer is drawn once more, and
 // one with problems goes back to the model a single time to be fixed. A
 // model that runs out of turns, or never writes the program out, gets the
-// last draft it checked.
+// last draft it checked; a provider error after a draft drew clean gets that
+// draft.
 func describe(ctx context.Context, completer chat.Completer, messages []chat.WireMessage, tools *describeTools) (string, error) {
 	var specs []any
 	if tools != nil {
@@ -199,9 +248,15 @@ func describe(ctx context.Context, completer chat.Completer, messages []chat.Wir
 		}
 		reply, err := completer.Complete(ctx, messages, specs, false)
 		if err != nil {
+			if tools != nil && tools.clean != "" {
+				return tools.clean, nil
+			}
 			return "", err
 		}
 		if len(reply.ToolCalls) == 0 || tools == nil {
+			if nothing, ok := noData(reply.Content); ok {
+				return "", nothing
+			}
 			program, err := boardProgram(reply.Content)
 			if err != nil {
 				if draft := tools.fallback(); draft != "" && (nudged || last) {

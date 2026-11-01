@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, type ReactNode } from "react";
+import { useIsFetching } from "@tanstack/react-query";
 import { Check, ChevronDown, Flame, GripVertical, Pencil, Plus, Target, Trash2 } from "lucide-react";
 import { cn } from "@/app/utils/cn";
 import { MAX_FOCUS_NAME, MAX_GOALS, MAX_HABITS, type Goal, type Habit } from "@/app/utils/api/focus";
@@ -197,7 +198,10 @@ function HabitChips({ today, habits, onAdd }: { today: string; habits: Habit[]; 
 }
 
 function GoalRows({ goals, version, onAdd }: { goals: Goal[]; version: string; onAdd: () => void }) {
-  const progress = useGoalProgress(`${version}|${goals.map((goal) => `${goal.id}:${goal.title}`).join(",")}`, goals.length > 0);
+  // Today's suggestions tag tasks with goals too and the server keeps those
+  // tags, so progress waits for them rather than asking the same question.
+  const todayLoading = useIsFetching({ queryKey: ["today-suggestions"] }) > 0;
+  const progress = useGoalProgress(`${version}|${goals.map((goal) => `${goal.id}:${goal.title}`).join(",")}`, goals.length > 0 && !todayLoading);
   const openTask = useEntityDetailStore((state) => state.openTask);
   const [open, setOpen] = useState<string | null>(null);
   const addTask = () => {

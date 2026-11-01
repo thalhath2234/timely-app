@@ -31,6 +31,7 @@ func (s *Service) SetBriefing(fn Briefer) { s.briefing = fn }
 const (
 	maxBriefItems     = 12
 	maxBriefNamed     = 3
+	briefParallel     = 2
 	briefingBudget    = 10 * time.Second
 	briefingNameRunes = 60
 	// briefingFallback is when a queued push sends the briefing as it is,
@@ -66,15 +67,16 @@ func (s *Service) briefLater(ctx context.Context, ntf *models.Notification, toda
 	s.triageWait.Add(1)
 	go func() {
 		defer s.triageWait.Done()
-		// The budget covers the wait for a slot too, so a backlog of triage
-		// calls never holds the briefing back; it then goes out as it is.
+		// The briefing has slots of its own, apart from triage, so another
+		// account's backlog of overdue tasks never takes its turn. The budget
+		// covers the wait for a slot too; it then goes out as it is.
 		ctx, cancel := context.WithTimeout(context.Background(), briefingBudget)
 		defer cancel()
 		var picks []int
 		select {
-		case s.triageSlots <- struct{}{}:
+		case s.briefSlots <- struct{}{}:
 			picks = s.briefing(ctx, ntf.UserID, items)
-			<-s.triageSlots
+			<-s.briefSlots
 		case <-ctx.Done():
 		}
 		names := make([]string, 0, maxBriefNamed)

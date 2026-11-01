@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Config, TaskViewConfig } from "@/app/_types/types";
 import { ApiError } from "@/app/utils/api/worksapce";
@@ -71,6 +71,14 @@ export function useTaskViewsState() {
   );
   const viewsReady = Boolean(typedConfig);
 
+  // The saved views as they are now, for an update that lands late (an AI
+  // reading that answers after the person moved on): a callback from an
+  // older render would otherwise write back that render's views and tab.
+  const saved = useRef({ views: configViews, activeId: typedConfig?.activeTaskViewId });
+  useLayoutEffect(() => {
+    saved.current = { views: configViews, activeId: typedConfig?.activeTaskViewId };
+  }, [configViews, typedConfig?.activeTaskViewId]);
+
   const withDraft = useCallback(
     (
       updater: (
@@ -79,12 +87,12 @@ export function useTaskViewsState() {
       ) => { views: TaskViewConfig[]; activeId: string },
     ) => {
       setDraft((previous) => {
-        const views = previous?.views ?? configViews;
-        const activeId = resolveActiveId(views, previous?.activeId ?? typedConfig?.activeTaskViewId);
+        const views = previous?.views ?? saved.current.views;
+        const activeId = resolveActiveId(views, previous?.activeId ?? saved.current.activeId);
         return updater(views, activeId);
       });
     },
-    [configViews, typedConfig?.activeTaskViewId],
+    [],
   );
 
   const setActiveTaskViewId = useCallback(
@@ -132,6 +140,22 @@ export function useTaskViewsState() {
       }));
     },
     [preview, withDraft],
+  );
+
+  /** Changes one view by its id and leaves the open tab as it is: for an
+   * answer that arrives after the person may have opened another tab. */
+  const patchView = useCallback(
+    (viewId: string, patch: Partial<TaskViewConfig>) => {
+      if (viewId === PREVIEW_VIEW_ID) {
+        setPreview((current) => (current ? { ...current, ...patch } : current));
+        return;
+      }
+      withDraft((views, activeId) => ({
+        views: views.map((view) => (view.id === viewId ? { ...view, ...patch } : view)),
+        activeId,
+      }));
+    },
+    [withDraft],
   );
 
   const addNewView = useCallback(() => {
@@ -242,6 +266,7 @@ export function useTaskViewsState() {
     savePreview,
     saveViewAsNew,
     patchActiveView,
+    patchView,
     addNewView,
     deleteActiveView,
     renameView,

@@ -77,6 +77,7 @@ function Tasks() {
     savePreview,
     saveViewAsNew,
     patchActiveView,
+    patchView,
     addNewView,
     deleteActiveView,
     renameView,
@@ -439,8 +440,8 @@ function Tasks() {
                 vocab={vocab}
                 today={todayInZone(typedConfig?.workingHours?.timezone)}
                 aiReady={aiReady}
-                onPatch={patchActiveView}
-                className="w-56 focus-within:w-72"
+                onPatch={(patch, viewId) => (viewId ? patchView(viewId, patch) : patchActiveView(patch))}
+                boxClassName="w-56 flex-none focus-within:w-72"
               />
             }
             filters={

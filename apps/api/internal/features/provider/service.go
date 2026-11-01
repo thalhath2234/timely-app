@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -94,6 +95,8 @@ type Service struct {
 
 	decisions     *decide.Service
 	decisionCheck decide.Caller
+	// checking holds the accounts with a key check in flight (oneCheck).
+	checking sync.Map
 
 	// readTools and boardData let the Describe AI read the person's data and
 	// draw its drafts from it (describe_tools.go); nil leaves Describe one-shot.
@@ -104,6 +107,9 @@ type Service struct {
 	openRouterKeyURL string // overridable for tests; checks a key without spending tokens
 	anthropicURL     string // overridable for tests
 	ollamaURL        string // OLLAMA_BASE_URL: the default Ollama address
+
+	// busy counts each account's one-shot AI requests in flight (oneShotLimit).
+	busy inFlight
 }
 
 func New(db *gorm.DB, indexer embed.Indexer, queue *jobs.Queue) *Service {

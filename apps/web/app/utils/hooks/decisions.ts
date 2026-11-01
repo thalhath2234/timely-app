@@ -98,8 +98,14 @@ export function useClarifySuggestions(inboxId: string | undefined, enabled = tru
   });
 }
 
+/** Test also asks TypeSafe again about a key it refused, so the card reloads
+ * afterwards: a key TypeSafe takes again is in use again. */
 export function useTestDecisions() {
-  return useMutation({ mutationFn: testDecisions });
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: testDecisions,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: decisionsKey, exact: true }),
+  });
 }
 
 export function useDecisionFeedback() {
