@@ -90,8 +90,26 @@ func sendableImage(id string, data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("A photo is too large to read, and trying again won't help. Discard these images and upload a cropped or smaller photo")
 	}
-	_ = os.WriteFile(imagePath(id), fitted, 0600)
+	replaceStoredImage(id, fitted)
 	return fitted, nil
+}
+
+// replaceStoredImage overwrites a stored photo, but never creates one: when
+// the review was discarded while the photo was being resized, its file is
+// gone and must stay gone. A failed write removes the file, so a cut-off copy
+// is never sent; the next read asks for the photo again.
+func replaceStoredImage(id string, data []byte) {
+	f, err := os.OpenFile(imagePath(id), os.O_WRONLY|os.O_TRUNC, 0)
+	if err != nil {
+		return
+	}
+	_, err = f.Write(data)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		_ = os.Remove(imagePath(id))
+	}
 }
 
 // exifOrientation reads the Orientation tag (0x0112) of a JPEG's EXIF data:

@@ -201,3 +201,18 @@ func TestStoredOversizedPhotoIsResizedBeforeItIsSent(t *testing.T) {
 		t.Fatal("a photo within the limits must be sent as stored")
 	}
 }
+
+func TestResizingNeverBringsBackADiscardedPhoto(t *testing.T) {
+	// The review was discarded while the stored photo was being resized:
+	// eraseImages removed its file, and saving the resized copy must not
+	// write it again.
+	t.Setenv("CHAT_IMAGE_DIR", t.TempDir())
+	legacy := photoOfSize(t, 9000, 1000, false)
+	sent, err := sendableImage("img_discarded", legacy)
+	if err != nil || len(sent) == 0 {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := os.Stat(imagePath("img_discarded")); !os.IsNotExist(err) {
+		t.Fatalf("the discarded photo's file is back: %v", err)
+	}
+}
