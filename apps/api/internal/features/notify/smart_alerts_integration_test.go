@@ -290,3 +290,39 @@ func TestIntegrationSmartAlertsRetryAfterAFailedCall(t *testing.T) {
 		t.Fatalf("retry: sent %d, job %s after %d attempts", sent, job.Status, job.Attempts)
 	}
 }
+
+// Before a key is saved (the sign-up day) the sweep queues no smart alerts
+// job, so the day is not used up by a job that does nothing; once
+// suggestions are on, the next sweep after the wait queues it.
+func TestIntegrationSmartAlertsWaitForAKey(t *testing.T) {
+	_, db := zoneService(t, models.NotificationSettings{Reminders: true, MorningDigestAt: "00:00"})
+	queue := jobs.NewQueue(db)
+	svc := NewService(db, queue, nil, nil, nil, nil)
+	svc.SetAlerts(func(context.Context, string, time.Time, map[string]bool, map[string]bool) ([]Alert, error) {
+		return nil, nil
+	})
+	on, asked := false, 0
+	svc.SetDecisions(func(context.Context, string) bool { asked++; return on }, nil)
+	user := zoneTestUser
+	queued := func() int64 {
+		var n int64
+		db.Model(&models.Job{}).Where("user_id = ? AND kind = ?", user, models.JobSmartAlerts).Count(&n)
+		return n
+	}
+	now := time.Now()
+	for _, at := range []time.Time{now, now.Add(time.Minute), now.Add(5 * time.Minute)} {
+		if err := svc.sweepSmartAlerts(context.Background(), user, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := queued(); n != 0 || asked != 1 {
+		t.Fatalf("without a key: %d jobs queued, status asked %d times", n, asked)
+	}
+	on = true // the person saves a key
+	if err := svc.sweepSmartAlerts(context.Background(), user, now.Add(smartOffRecheck+time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if n := queued(); n != 1 || asked != 2 {
+		t.Fatalf("with a key: %d jobs queued, status asked %d times", n, asked)
+	}
+}

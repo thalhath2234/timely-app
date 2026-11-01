@@ -119,6 +119,31 @@ func TestIntegrationOverdueTriageSuggestsAndApplies(t *testing.T) {
 	if plain.Body != "Past deadline. Reschedule as urgent?" || plain.Data.String("suggest") != "" {
 		t.Fatalf("plain %q %+v", plain.Body, plain.Data)
 	}
+
+	// A suggestion that comes back after the person acted on the
+	// notification is dropped, so it cannot contradict what they did.
+	acted := make(chan struct{})
+	svc.SetTriage(func(_ context.Context, _ string, items []TriageItem) []string {
+		<-acted
+		return []string{"reschedule"}
+	})
+	late := today.Now().AddDate(0, 0, -2).Format("2006-01-02")
+	db.Model(&models.Task{}).Where("id = ?", item.ID).Updates(map[string]any{"deadline": late, "priority_level": models.PriorityHigh})
+	job.DedupeKey, job.Payload = ptrTo("overdue:tsk_triage:"+late), models.JobPayload{"taskId": item.ID, "deadline": late}
+	if err := svc.HandleOverdueTask(context.Background(), job); err != nil {
+		t.Fatal(err)
+	}
+	var pending models.Notification
+	db.Where("dedupe_key = ?", *job.DedupeKey).First(&pending)
+	if _, err := svc.ApplyTriage(user, pending.ID, "lower"); err != nil {
+		t.Fatal(err)
+	}
+	close(acted)
+	svc.triageWait.Wait()
+	db.First(&pending, "id = ?", pending.ID)
+	if pending.Body != "Past deadline. Reschedule as urgent?" || pending.Data.String("suggest") != "" {
+		t.Fatalf("a late suggestion rewrote an acted-on notification: %q %+v", pending.Body, pending.Data)
+	}
 }
 
 // Moving missed work the engine has no room for changes nothing: the

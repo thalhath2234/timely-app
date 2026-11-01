@@ -56,6 +56,9 @@ type Service struct {
 	// reminderSwept is when each account's reminders were last swept, so a
 	// sweep after a gap (the computer slept, the app was closed) catches up.
 	reminderSwept map[string]time.Time
+	// smartOffUntil is when the sweep next asks whether an account without
+	// smart suggestions has them now; sweepSmartAlerts fills it.
+	smartOffUntil map[string]time.Time
 }
 
 func NewService(db *gorm.DB, queue *jobs.Queue, calendar calendar.Service, tasks task.TaskService, scheduler schedule.Service, indexer embed.Indexer) *Service {

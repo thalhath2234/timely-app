@@ -104,6 +104,8 @@ const (
 	alertMuteDays       = 14
 	// Dismissed alerts are kept this long to count.
 	dismissedKeepDays = 30
+	// An account whose smart suggestions are off is asked again after this.
+	smartOffRecheck = 10 * time.Minute
 )
 
 // sweepDismissed deletes an account's smart alerts dismissed more than
@@ -142,11 +144,24 @@ func (s *Service) sweepSmartAlerts(ctx context.Context, userID string, now time.
 	}
 	day := local.Format("2006-01-02")
 	key := "smart_alerts:" + userID + ":" + day
-	// The key check happens in the job, so an account with no key costs one
-	// queued job a day rather than a key lookup on every sweep.
 	if s.queue.HasJob(key) {
 		return nil
 	}
+	// A job queued while smart suggestions are off (no key saved yet, as on
+	// the sign-up day) would do nothing and still take the day's key, so the
+	// sweep waits until they are on. It asks at most every smartOffRecheck,
+	// so an account without a key costs few key lookups.
+	if until, ok := s.smartOffUntil[userID]; ok && now.Before(until) {
+		return nil
+	}
+	if !s.smartOn(ctx, userID) {
+		if s.smartOffUntil == nil {
+			s.smartOffUntil = map[string]time.Time{}
+		}
+		s.smartOffUntil[userID] = now.Add(smartOffRecheck)
+		return nil
+	}
+	delete(s.smartOffUntil, userID)
 	_, err = s.queue.Enqueue(jobs.Enqueue{UserID: userID, Kind: models.JobSmartAlerts, DedupeKey: key, Payload: models.JobPayload{"date": day}})
 	return err
 }
