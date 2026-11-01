@@ -326,6 +326,7 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 	reads := map[string]string{}
 	// Jev's resolve_target picks in this run, for feedback on the proposal.
 	picks := []*targetPick{}
+	lookups := targetLookups{}
 	nudges := 0
 	for turn := 0; turn < 12; turn++ {
 		if err := ctx.Err(); err != nil {
@@ -410,7 +411,9 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 				}
 			} else if name == targetTool && targets {
 				var pick *targetPick
-				result, pick, err = s.resolveTarget(ctx, c, catalog, loc, time.Now(), args)
+				result, pick, err = lookups.resolve(args, func() (any, *targetPick, error) {
+					return s.resolveTarget(ctx, c, catalog, loc, time.Now(), args)
+				})
 				if pick != nil {
 					picks = append(picks, pick)
 				}
@@ -757,7 +760,8 @@ func (s *Service) apply(ctx context.Context, c *Conversation) error {
 			row.Status = "approval"
 			return nil
 		}
-		if remaining := pendingBatch(row); remaining != "" {
+		remaining, capped := pendingBatch(row)
+		if remaining != "" && !capped {
 			// A request too large for one proposal continues on its own; each
 			// batch is still checked and, where required, reviewed.
 			archivePlan(row)
@@ -769,6 +773,14 @@ func (s *Service) apply(ctx context.Context, c *Conversation) error {
 			return notify(tx, row, tr(row.Language, txtPushContinuing))
 		}
 		row.Status = "idle"
+		if remaining != "" {
+			// The request is not finished: say so instead of "Done", and keep
+			// what is left so "continue" picks it up.
+			paused := notice(fmt.Sprintf(tr(row.Language, txtPaused), maxBatches))
+			paused.Continue = remaining
+			row.Messages = append(row.Messages, paused)
+			return notify(tx, row, tr(row.Language, txtPushReply))
+		}
 		row.Messages = append(row.Messages, notice(tr(row.Language, txtDone)))
 		return notify(tx, row, tr(row.Language, txtPushComplete))
 	})
@@ -813,9 +825,10 @@ func serializationFailure(err error) bool {
 const maxBatches = 10
 
 // pendingBatch returns what the applied proposal left for a next batch, or ""
-// when the request is finished or has already continued maxBatches times.
-func pendingBatch(c *Conversation) string {
-	remaining, found, batches := "", false, 0
+// when the request is finished. capped is true when the request has already
+// run maxBatches batches, so the rest waits for the person.
+func pendingBatch(c *Conversation) (remaining string, capped bool) {
+	found, batches := false, 0
 	for i := len(c.Messages) - 1; i >= 0; i-- {
 		m := c.Messages[i]
 		if m.Role == "user" {
@@ -828,8 +841,5 @@ func pendingBatch(c *Conversation) string {
 			remaining, found = m.Remaining, true
 		}
 	}
-	if batches >= maxBatches-1 {
-		return ""
-	}
-	return remaining
+	return remaining, remaining != "" && batches >= maxBatches-1
 }

@@ -65,6 +65,41 @@ type targetPick struct {
 }
 
 // resolveTarget runs resolve_target. now and loc write dates in words.
+// maxTargetLookups bounds resolve_target in one run: each lookup costs an
+// embedding and up to two Jev calls.
+const maxTargetLookups = 5
+
+// targetLookups remembers a run's resolve_target answers, so the same name
+// is looked up once, and counts lookups against maxTargetLookups.
+type targetLookups struct {
+	seen  map[string]any
+	count int
+}
+
+func (l *targetLookups) resolve(args json.RawMessage, look func() (any, *targetPick, error)) (any, *targetPick, error) {
+	var in struct {
+		Kind string `json:"kind"`
+		Name string `json:"name"`
+	}
+	_ = json.Unmarshal(args, &in)
+	key := strings.ToLower(strings.TrimSpace(in.Kind)) + "\x00" + strings.ToLower(strings.Join(strings.Fields(in.Name), " "))
+	if result, ok := l.seen[key]; ok {
+		return result, nil, nil
+	}
+	if l.count >= maxTargetLookups {
+		return nil, nil, fmt.Errorf("resolve_target was already used %d times for this message. Use the candidates you have, search with semantic_search, or ask the person which item they mean", maxTargetLookups)
+	}
+	l.count++
+	result, pick, err := look()
+	if err == nil {
+		if l.seen == nil {
+			l.seen = map[string]any{}
+		}
+		l.seen[key] = result
+	}
+	return result, pick, err
+}
+
 func (s *Service) resolveTarget(ctx context.Context, c *Conversation, catalog agent.Catalog, loc *time.Location, now time.Time, args json.RawMessage) (any, *targetPick, error) {
 	var in struct {
 		Kind string `json:"kind"`
