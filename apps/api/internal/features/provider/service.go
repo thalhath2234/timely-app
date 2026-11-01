@@ -23,6 +23,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"timely-api/internal/features/agent"
+	"timely-api/internal/features/auth"
 	"timely-api/internal/features/chat"
 	"timely-api/internal/features/decide"
 	"timely-api/internal/features/embed"
@@ -99,6 +100,11 @@ type Service struct {
 	openRouterKeyURL string // overridable for tests; checks a key without spending tokens
 	anthropicURL     string // overridable for tests
 	ollamaURL        string // OLLAMA_BASE_URL: the default Ollama address
+	// privateOllama lets a typed Ollama address point at this server or its
+	// private network: only while the server is closed to sign-ups
+	// (ALLOW_REGISTRATION off, the default), when every account was let in by
+	// whoever runs it. The listed addresses work either way.
+	privateOllama bool
 }
 
 func New(db *gorm.DB, indexer embed.Indexer, queue *jobs.Queue) *Service {
@@ -125,6 +131,7 @@ func New(db *gorm.DB, indexer embed.Indexer, queue *jobs.Queue) *Service {
 		openRouterURL:    "https://openrouter.ai/api/v1/chat/completions",
 		openRouterKeyURL: "https://openrouter.ai/api/v1/key",
 		ollamaURL:        strings.TrimRight(strings.TrimSpace(os.Getenv("OLLAMA_BASE_URL")), "/"),
+		privateOllama:    !auth.AllowRegistrationFromEnv(),
 	}
 	if indexer != nil {
 		indexer.SetCredentials(s.EmbedCredentials)

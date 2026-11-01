@@ -166,6 +166,9 @@ func (s *Service) apiModelList(ctx context.Context, spec *apiProvider, base, key
 			}
 			return list, err
 		}
+		if s.typedBase(spec, base) {
+			return listOllamaModels(ctx, s.typedClient(20*time.Second), spec, base, key, true)
+		}
 		if spec.ListModels != nil {
 			return spec.ListModels(ctx, s.models.client, spec, base, key)
 		}
@@ -273,6 +276,9 @@ func (s *Service) buildAPI(spec *apiProvider, row APIKey, model string) (chat.Co
 	case routeResponses:
 		return &Responses{Spec: spec, Base: base, Key: key, Model: model, Client: client}, nil
 	case routeOllama:
+		if s.typedBase(spec, base) {
+			return &Ollama{Spec: spec, Base: base, Key: key, Model: model, Client: s.typedClient(4 * time.Minute), Typed: true}, nil
+		}
 		return &Ollama{Spec: spec, Base: base, Key: key, Model: model, Client: client}, nil
 	case routeChat:
 		return &Compat{Spec: spec, Base: base, Key: key, Model: model, Client: client}, nil
