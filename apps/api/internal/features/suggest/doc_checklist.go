@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 	"gorm.io/gorm"
@@ -23,8 +24,8 @@ import (
 const (
 	maxChecklistNames = 200
 	// Most items Jev reads at once. Items already tasks or dismissed do not
-	// count, but ones Jev said no to do: its "no" is not kept, so a later
-	// read meets them first again.
+	// count. In a longer list, the items Jev already read as kept in the doc
+	// go after the rest (checklistRead), so every item is read in time.
 	maxChecklistAsk = 50
 )
 
@@ -213,26 +214,68 @@ func (s *Service) DocChecklist(ctx context.Context, userID, docID string, names 
 	if !out.Available || out.Off {
 		return out, nil
 	}
-	var ask []string
+	var ask, read []string
+	seen := checklistRead(userID, doc.ID)
 	for _, l := range order {
 		if _, ok := found[l]; ok || dismissed[docHintKey("todo", l)] {
 			continue
 		}
-		ask = append(ask, byLower[l])
-		if len(ask) == maxChecklistAsk {
-			break
+		if seen[l] {
+			read = append(read, byLower[l])
+		} else {
+			ask = append(ask, byLower[l])
 		}
 	}
+	ask = append(ask, read...)
+	more := len(ask) > maxChecklistAsk
+	if more {
+		ask = ask[:maxChecklistAsk]
+	}
 	if len(ask) > 0 {
-		out.Offer, out.LogID = s.checklistOffers(ctx, userID, doc, ask)
+		var kept []string
+		out.Offer, kept, out.LogID = s.checklistOffers(ctx, userID, doc, ask)
+		if more || len(seen) > 0 {
+			rememberChecklistRead(userID, doc.ID, kept)
+		}
 	}
 	return out, nil
+}
+
+// checklistNo holds, per doc, the checklist items Jev read as kept in the
+// doc (see checklistRead).
+var checklistNo sync.Map
+
+// checklistRead are the items, lower-cased, that Jev read as kept in the doc
+// in an earlier read of a list too long for one call. A later read asks the
+// items it has not read first: the 51st item of a list used to wait forever
+// behind fifty that Jev had said no to.
+func checklistRead(userID, docID string) map[string]bool {
+	if v, ok := checklistNo.Load(userID + "/" + docID); ok {
+		return v.(map[string]bool)
+	}
+	return nil
+}
+
+// rememberChecklistRead adds items Jev read as kept in the doc. Only lists
+// longer than one call are remembered, and a doc's memory starts over once it
+// holds more names than two lists can send.
+func rememberChecklistRead(userID, docID string, kept []string) {
+	next := map[string]bool{}
+	if old := checklistRead(userID, docID); len(old)+len(kept) <= 2*maxChecklistNames {
+		for l := range old {
+			next[l] = true
+		}
+	}
+	for _, name := range kept {
+		next[strings.ToLower(name)] = true
+	}
+	checklistNo.Store(userID+"/"+docID, next)
 }
 
 // checklistOffers are the items Jev reads as things to get done, each worth
 // its own task, rather than things kept in the doc to tick off there. An
 // offer is unprompted, so only a confident yes counts; no answer offers none.
-func (s *Service) checklistOffers(ctx context.Context, userID string, doc models.Document, names []string) ([]string, string) {
+func (s *Service) checklistOffers(ctx context.Context, userID string, doc models.Document, names []string) (offer, kept []string, logID string) {
 	ctx, cancel := context.WithTimeout(ctx, docBudget)
 	defer cancel()
 	items := make([]map[string]string, len(names))
@@ -268,15 +311,18 @@ func (s *Service) checklistOffers(ctx context.Context, userID string, doc models
 	}
 	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "doc_checklist", State: state, Questions: questions})
 	if err != nil {
-		return []string{}, ""
+		return []string{}, nil, ""
 	}
-	offer := []string{}
+	offer = []string{}
 	for i, name := range names {
-		if yes, ok := a.Yes(fmt.Sprintf("i%d", i+1), decide.Route); ok && yes {
+		id := fmt.Sprintf("i%d", i+1)
+		if yes, ok := a.Yes(id, decide.Route); ok && yes {
 			offer = append(offer, name)
+		} else if _, answered := a.Raw(id); answered {
+			kept = append(kept, name)
 		}
 	}
-	return offer, a.LogID
+	return offer, kept, a.LogID
 }
 
 // quotesItem reports whether a task description quotes the checklist item

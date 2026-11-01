@@ -204,7 +204,8 @@ func (s *Service) triage(ctx context.Context, c *Conversation) (triage, bool) {
 		return triage{}, false
 	}
 	var t triage
-	if area, ok := a.Choice("area", decide.Route); ok && area != "mixed" {
+	// An area that was not offered would narrow the tools to the essentials.
+	if area, ok := a.Choice("area", decide.Route); ok && areaTools[area] != nil {
 		t.area = area
 	}
 	if yes, ok := a.Yes("change", decide.Route); ok {
@@ -279,6 +280,8 @@ func (t triage) hint(webSearch bool) string {
 	}
 	if t.web && !webSearch {
 		parts = append(parts, "it may need public information from the web, and web search is off: if Timely data cannot answer it, say that turning on web search would help")
+	} else if t.web {
+		parts = append(parts, "it may need public information from the web, and web search is on: look it up with web_search and answer with the sources, even when it is not about Timely")
 	}
 	switch t.scope {
 	case "one":
@@ -543,9 +546,9 @@ func (s *Service) similar(c *echo.Context) error {
 			target.Client = row.Client
 			target.RichUI = row.RichUI
 		}
-		if row.ChosenProvider != "" {
-			target.ChosenProvider, target.ChosenModel = row.ChosenProvider, row.ChosenModel
-		}
+		// Default (no choice) too: the earlier chat's own pick must not
+		// carry a request written on Default to another provider.
+		target.ChosenProvider, target.ChosenModel = row.ChosenProvider, row.ChosenModel
 		target.Status, target.Phase = "queued", "plan"
 		target.Error, target.Unread = "", false
 		target.Revision++

@@ -1,7 +1,20 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test, { describe } from "node:test";
-import { genuiParser, genuiPrompt, replyBlocks, replyText, splitReply } from "../packages/contract/src/genui.ts";
+import {
+  choiceOptions,
+  genuiId,
+  genuiOpenable,
+  genuiParser,
+  genuiPrompt,
+  linkHost,
+  replyBlocks,
+  replyDraws,
+  replyText,
+  showLinkHosts,
+  splitReply,
+  spokenTime,
+} from "../packages/contract/src/genui.ts";
 
 const prompt = genuiPrompt();
 
@@ -54,6 +67,17 @@ describe("splitReply", () => {
     assert.deepEqual(splitReply(text), [{ kind: "text", text }]);
   });
 
+  test("reads a fence whatever its case or indent", () => {
+    const upper = splitReply('Today:\n```OpenUI-Lang\nroot = Reply([c])\nc = Card("Today", [])\n```');
+    assert.deepEqual(upper[1], { kind: "ui", code: 'root = Reply([c])\nc = Card("Today", [])', closed: true });
+    const indented = splitReply('1. Today:\n    ```openui-lang\n    root = Reply([c])\n    c = Card("Today", [])\n    ```\nDone.');
+    assert.deepEqual(indented, [
+      { kind: "text", text: "1. Today:" },
+      { kind: "ui", code: 'root = Reply([c])\nc = Card("Today", [])', closed: true },
+      { kind: "text", text: "Done." },
+    ]);
+  });
+
   test("replyText drops the programs", () => {
     assert.equal(replyText(reply), "Here is today.\n\nAnything else?");
     assert.equal(replyText("Plain answer"), "Plain answer");
@@ -66,6 +90,14 @@ describe("parser", () => {
     assert.deepEqual(replyBlocks(cut.root.props.blocks).map((block) => block.props.title), ["Today"]);
     const linked = genuiParser().parse('root = Reply([c])\nc = Card("Tasks", [], "0", open)\nopen = Open("Open Tasks", "tasks")');
     assert.equal(replyBlocks(linked.root.props.blocks).length, 1, "an empty card with a link still shows");
+  });
+
+  test("a program that draws nothing shows the fallback, not an empty space", () => {
+    const draws = (code) => replyDraws(genuiParser().parse(code).root);
+    assert.equal(draws('root = Reply([c])\nc = Card("Broken", [Broken('), false, "every card cut off");
+    assert.equal(draws("root = Foo()"), false, "no root");
+    assert.equal(draws("root = Reply([])"), false, "no cards");
+    assert.equal(draws('root = Reply([a, b])\na = Card("Today", [r])\nr = TaskRow("tsk_1", "Plan")\nb = Card("Broken", [x, y]'), true, "one card left");
   });
 
   test("flags components outside the list", () => {
@@ -165,6 +197,44 @@ describe("described cards", async () => {
     const broken = normalizeDashboard({ version: 1, cards: [{ ...card, query: { ...card.query, described: { program: 42 } } }] });
     assert.equal(broken.cards[0].query.described, undefined);
     assert.equal(describedCard("c2", "x", 'root = Reply([])'), null);
+  });
+
+  test("a described card follows its project through a rename, and says when the project is gone", async () => {
+    const { drawProblems } = await import("../packages/contract/src/genuiBoard.ts");
+    const program = `root = Panel("Client work", [nums, list])
+late = @Data({source: "tasks", project: "Client work", overdue: true})
+nums = Stats([Stat("Overdue", late.text)])
+list = List(@Each(late.rows, "t", TaskRow(t.id, t.title, t.day)), "Nothing overdue")`;
+    const card = describedCard("c1", "overdue client work", program, data);
+    assert.deepEqual(card.query.described.names, { project: { "client work": ["p1"] } });
+    const names = normalizeDashboard({ version: 1, cards: [card] }).cards[0].query.described.names;
+    assert.deepEqual(names, { project: { "client work": ["p1"] } }, "kept when the layout is saved");
+
+    const rename = (title) => ({
+      ...data,
+      projects: data.projects.map((p) => (p.id === "p1" ? { ...p, title } : p)),
+      tasks: data.tasks.map((t) => (t.projectId === "p1" ? { ...t, project: { ...t.project, title } } : t)),
+    });
+    const renamed = rename("Clients");
+    const late = runData({ source: "tasks", project: "Client work", overdue: true }, renamed, ctx, names);
+    assert.deepEqual([late.value, late.rows.map((row) => row.title)], [1, ["Send invoice"]]);
+    assert.deepEqual(drawProblems(program, renamed, names), []);
+    const root = drawBoard(program, renamed, ctx, names);
+    assert.equal(root.props.blocks[0].props.items[0].props.value, "1");
+
+    // A card made before cards kept ids reads the name alone, and says so.
+    assert.equal(runData({ source: "tasks", project: "Client work", overdue: true }, renamed, ctx).value, 0);
+    assert.match(drawProblems(program, renamed)[0], /^No project is called “Client work”\./);
+
+    // A name that fits again wins over the saved id.
+    const swapped = { ...renamed, projects: [...renamed.projects, { id: "p9", title: "Client work", workspaceId: "ws1" }] };
+    assert.deepEqual(runData({ source: "tasks", project: "Client work", overdue: true }, swapped, ctx, names).value, 0);
+
+    // Deleted: the saved id is gone too.
+    const deleted = { ...data, projects: data.projects.filter((p) => p.id !== "p1"), tasks: data.tasks.filter((t) => t.projectId !== "p1") };
+    assert.match(drawProblems(program, deleted, names)[0], /^No project is called “Client work”\./);
+    // Nothing flagged while the data loads.
+    assert.deepEqual(drawProblems(program, { workspaces: [], projects: [], tasks: [] }, names), []);
   });
 
   test("drawBoard works out every prop the phone draws", () => {
@@ -487,6 +557,16 @@ describe("@Checklist and CheckRow: a doc's checklist in cards, live blocks and r
     assert.equal(findChecklistItem(items, "Bread"), undefined);
   });
 
+  test("a moved item whose words several items share is not guessed", () => {
+    // [Milk, Bread, Milk] with Eggs added on top: the card still says the
+    // second Milk is item 2, which is Bread now.
+    const groceries = checklistItems({ type: "doc", content: [list(item("Eggs"), item("Milk"), item("Bread"), item("Milk"))] });
+    assert.equal(findChecklistItem(groceries, "Milk", 2), undefined);
+    assert.equal(findChecklistItem(groceries, "Milk"), undefined);
+    assert.equal(findChecklistItem(groceries, "Milk", 3)?.item, 3, "its place still holds its words");
+    assert.equal(findChecklistItem(groceries, "Bread", 0)?.item, 2, "words only one item has are found anywhere");
+  });
+
   test("a tick shows at once on a copy of the doc, as the API will save it", () => {
     const ticked = tickedContent(shopping, { item: 6, text: "Small ones", done: true });
     assert.deepEqual(checklistItems(ticked).filter((entry) => entry.done).map((entry) => entry.text), ["Milk", "Small ones"]);
@@ -599,6 +679,21 @@ open = ${open}`;
     assert.deepEqual(checkBoard(checklist, withDocs, ctx).problems, ["“Shopping list” has no checklist."]);
   });
 
+  test("names rows written out with an id nothing has", () => {
+    const withDocs = { ...data, docs: [{ id: "doc_1", title: "Shopping list", content: { type: "doc", content: [] }, updatedAt: "2026-10-29T08:00:00Z" }] };
+    // The tester's scripted card: a made-up task row beside a real one.
+    const rows = (row) => `root = Panel("Client work", [l])\nl = List([${row}], "Nothing")`;
+    assert.deepEqual(checkBoard(rows('TaskRow("t_fake", "Pay rent", "Today")'), data, ctx).problems, [
+      "TaskRow “Pay rent” names the task id “t_fake”, which no task has: draw rows from @Data, or use an id a tool returned.",
+    ]);
+    assert.deepEqual(checkBoard(rows('TaskRow("t1", "Send invoice")'), data, ctx).problems, [], "a real id passes");
+    assert.deepEqual(checkBoard(rows('CheckRow("doc_x", "Milk")'), withDocs, ctx).problems, [
+      "CheckRow “Milk” names the doc id “doc_x”, which no doc has: draw rows from @Checklist and use its docId.",
+    ]);
+    assert.deepEqual(checkBoard(rows('CheckRow("doc_x", "Milk")'), data, ctx).problems, [], "not judged before the docs are loaded");
+    assert.deepEqual(checkBoard(program, data, ctx).problems, [], "rows drawn from @Data pass");
+  });
+
   test("the API's bundled check matches packages/contract and runs on its own", async () => {
     const { bundleBoardCheck } = await import("./gen-board-check.mjs");
     const source = readFileSync(new URL("../apps/api/internal/features/provider/board/board-check.js", import.meta.url), "utf8");
@@ -606,5 +701,43 @@ open = ${open}`;
     const bundle = new Function(`${source};return BoardCheck;`)();
     const answer = JSON.parse(bundle.check(JSON.stringify({ program, data, now: "2026-10-29T08:00:00Z", timeZone: "UTC" })));
     assert.deepEqual(answer, checkBoard(program, data, ctx));
+  });
+});
+
+describe("reply card safety", () => {
+  test("a link shows the host its label hides", () => {
+    assert.equal(linkHost("Timely support", "https://evil.example/login"), "evil.example");
+    assert.equal(linkHost("Settings", "https://timely.app@evil.example:8443/x"), "evil.example");
+    assert.equal(linkHost("docs.example.com guide", "https://www.docs.example.com/a"), "");
+    assert.equal(linkHost("Open", "timely://task/tsk_1"), "");
+    assert.equal(
+      showLinkHosts("Verify at [Timely support](https://evil.example/login) or [example.org](https://example.org)."),
+      "Verify at [Timely support (evil.example)](https://evil.example/login) or [example.org](https://example.org).",
+    );
+  });
+
+  test("a picked time says the zone it was picked in", () => {
+    const at = new Date(2026, 10, 2, 17, 0);
+    assert.match(spokenTime(at, at, "Asia/Tokyo"), /17:00 \(Asia\/Tokyo\)$/);
+    assert.match(spokenTime(at, at, ""), /17:00$/);
+  });
+
+  test("answer chips are unique, complete and short", () => {
+    assert.deepEqual(choiceOptions(["Yes", "yes ", "", 3, "Later", "No", "Maybe", "Never"]), ["Yes", "Later", "No", "Maybe"]);
+    const [long] = choiceOptions(["x".repeat(3000)]);
+    assert.equal(Array.from(long).length, 80);
+    assert.ok(long.endsWith("…"));
+    assert.deepEqual(choiceOptions(undefined), []);
+  });
+
+  test("an Open id is one path segment", () => {
+    assert.equal(genuiId("doc_3f2a-91"), "doc_3f2a-91");
+    for (const bad of ["../settings?tab=agent", "doc_1/../../x", "", "a b", 7]) assert.equal(genuiId(bad), "", String(bad));
+    const open = (target, id) => ({ type: "element", typeName: "Open", props: { label: "Fix", target, id } });
+    assert.equal(genuiOpenable(open("doc", "../settings?tab=agent")), false);
+    assert.equal(genuiOpenable(open("doc", "doc_1")), true);
+    assert.equal(genuiOpenable(open("today")), true);
+    // A card whose only content is a link that goes nowhere is not drawn.
+    assert.deepEqual(replyBlocks([{ type: "element", typeName: "Card", props: { title: "x", rows: [], open: open("doc", "../x") } }]), []);
   });
 });

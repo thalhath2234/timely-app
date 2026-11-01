@@ -86,6 +86,8 @@ export type ReindexState = {
   status?: "queued" | "running" | "retrying" | "done" | "failed" | "";
   done: number;
   total: number;
+  /** Items the provider refused in a finished rebuild. */
+  skipped?: number;
   error?: string;
 };
 

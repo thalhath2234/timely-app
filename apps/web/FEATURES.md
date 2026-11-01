@@ -572,7 +572,7 @@ Mint an API key → point Hermes at `/mcp`. The server instructions tell the age
 
 **Task-creation rules:** `create_task` defaults to Work with a 30-minute duration and requires `workspaceId`; an explicit duration ≤ 0 is rejected; `kind=inbox` is refused in favor of `capture_inbox_item` (title only). `clarify_inbox_item` creates new Work or a Reminder and consumes the item.
 
-Destructive actions — `delete_workspace`, `delete_project`, `delete_doc`, `delete_backup`, `restore_account` — require `confirm=true`. Prefer `archive_doc` / `archive_sheet` over delete. Deleting a document does not cascade to subpages.
+Destructive actions — `delete_workspace`, `delete_project`, `delete_doc`, `delete_backup`, `restore_account` — require `confirm=true`; `restore_account` also needs `mode="replace"` (like `POST /restore?mode=replace`) and refuses a backup without the account settings and a workspace. Prefer `archive_doc` / `archive_sheet` over delete. Deleting a document does not cascade to subpages.
 
 ### Complete MCP tool list (172)
 

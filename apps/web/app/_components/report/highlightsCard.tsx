@@ -47,6 +47,8 @@ export default function HighlightsCard({
     );
   }
   const empty = !result.highlights.length && !result.blockers.length && !result.missed.length && !result.tips.length;
+  // A failed call is not an empty week: say why nothing came back.
+  if (empty && result.error) return <p className="text-xs text-muted-foreground">Highlights could not load. {result.error}</p>;
   if (empty) return <p className="text-xs text-muted-foreground">Nothing stands out this week.</p>;
 
   return (

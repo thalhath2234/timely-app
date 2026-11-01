@@ -19,6 +19,7 @@ import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import { Dot } from "../../../components/ui/primitives";
 import {
   useBulkUpdateTasks,
+  useDecisionsStatusQuery,
   useDeleteTask,
   useProjectsQuery,
   useSaveTask,
@@ -58,6 +59,7 @@ import {
   sortTasks,
   viewLimit,
   viewSort,
+  viewUsesSuggestedFields,
   type QueryContext,
 } from "@timely/contract/taskQuery";
 import { vocabularyFrom } from "@timely/contract/viewLanguage";
@@ -193,6 +195,10 @@ export default function TasksScreen() {
   const activeView = preview ?? nativeViews.activeView;
   const activeViewId = preview ? preview.id : nativeViews.activeViewId;
   const patchView = preview ? patchPreview : nativeViews.patchActiveView;
+  // Effort and urgency are filled in only by smart suggestions, so a view
+  // built on them says why it is empty while they are off.
+  const suggestionsOff = useDecisionsStatusQuery().data?.available === false;
+  const needsSuggestions = suggestionsOff && Boolean(activeView) && viewUsesSuggestedFields(activeView!);
   const pendingSave = useViewPreviewStore((state) => state.pendingSave);
   const setPendingSave = useViewPreviewStore((state) => state.setPendingSave);
   const { saveViewAsNew } = nativeViews;
@@ -720,12 +726,28 @@ export default function TasksScreen() {
           renderItem={renderTask}
           renderSectionHeader={renderSectionHeader}
           ListHeaderComponent={
-            routeProjectId ? null : (
-              <>
-                <ScreenTip screen="tasks" style={{ marginTop: 8 }} />
-                <StaleWorkCard />
-              </>
-            )
+            <>
+              {routeProjectId ? null : (
+                <>
+                  <ScreenTip screen="tasks" style={{ marginTop: 8 }} />
+                  <StaleWorkCard />
+                </>
+              )}
+              {needsSuggestions ? (
+                <Text style={styles.suggestionsHint} testID="view-needs-suggestions">
+                  This view uses effort or urgency, which smart suggestions fill in. They’re off, so those fields stay blank. Turn them on
+                  in{" "}
+                  <Text
+                    accessibilityRole="link"
+                    style={styles.suggestionsLink}
+                    onPress={() => router.push("/(app)/settings/agent")}
+                  >
+                    Settings → Agent
+                  </Text>
+                  .
+                </Text>
+              ) : null}
+            </>
           }
           stickySectionHeadersEnabled={false}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: fabInset }}
@@ -852,6 +874,8 @@ export default function TasksScreen() {
 const styles = createThemedStyleSheet((colors) => ({
   // Group headers are a tinted strip in the group's own colour, one line.
   headWrap: { paddingTop: 14, paddingBottom: 8 },
+  suggestionsHint: { color: colors.mutedForeground, fontSize: 12, lineHeight: 17, marginTop: 10 },
+  suggestionsLink: { color: colors.primary, fontWeight: "600" },
   head: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 7, paddingHorizontal: 10, borderRadius: 10 },
   dot: { width: 8, height: 8, borderRadius: 4 },
   group: { color: colors.foreground, fontSize: 14, fontWeight: "600", flex: 1, letterSpacing: -0.1 },

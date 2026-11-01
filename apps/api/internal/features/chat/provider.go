@@ -10,8 +10,31 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
+
+// ErrOutputTooLong is a model stopping at its output limit, so the answer is
+// cut. Each feature words it for itself (a proposal, a draft); this text is
+// the chat agent's. It is Final: the same request would be cut again.
+var ErrOutputTooLong = Final("The proposal was too large; try a smaller request")
+
+// OutputTooLong is ErrOutputTooLong in other words, such as for a cut-off
+// text answer rather than a proposal.
+func OutputTooLong(text string) error { return &cutOff{Failure{Text: text, Action: ActionNone}} }
+
+type cutOff struct{ Failure }
+
+func (c *cutOff) Is(target error) bool { return target == ErrOutputTooLong }
+
+// As lets failureAction read the action of a cut-off answer.
+func (c *cutOff) As(target any) bool {
+	if f, ok := target.(**Failure); ok {
+		*f = &c.Failure
+		return true
+	}
+	return false
+}
 
 type ToolCall struct {
 	ID       string `json:"id"`
@@ -25,8 +48,13 @@ type ToolCall struct {
 	ExtraContent json.RawMessage `json:"extra_content,omitempty"`
 }
 type WireMessage struct {
-	ImageURLs        []string          `json:"-"`
-	Sensitive        bool              `json:"-"`
+	ImageURLs []string `json:"-"`
+	Sensitive bool     `json:"-"`
+	// Cache marks the end of a prompt prefix worth caching: a provider with
+	// prompt caching (Anthropic) caches everything up to this message, so
+	// the next call that starts the same way reads it back instead of paying
+	// for it again. Providers without it ignore the mark.
+	Cache            bool              `json:"-"`
 	Role             string            `json:"role"`
 	Content          string            `json:"content"`
 	ToolCalls        []ToolCall        `json:"tool_calls,omitempty"`
@@ -44,12 +72,28 @@ type Completer interface {
 	Complete(context.Context, []WireMessage, []any, bool) (WireMessage, error)
 }
 
-// ErrAnswerTooLong is a model's answer cut off at its length limit. Every
-// provider reports it with these words, which fit chat and Help me write.
-var ErrAnswerTooLong = errors.New("The answer hit the model's length limit before it was finished. Try a smaller request")
+// CacheTail is messages with the last one marked Cache, for a tool loop: the
+// next turn resends all of it plus the new tool results, and reads this
+// turn's prompt back from the cache. The mark goes on a copy, so marks from
+// earlier turns never pile up in the transcript.
+func CacheTail(messages []WireMessage) []WireMessage {
+	if len(messages) == 0 {
+		return messages
+	}
+	out := append([]WireMessage(nil), messages...)
+	out[len(out)-1].Cache = true
+	return out
+}
 
-// ErrInputTooLong is a request longer than the model can read at once.
-var ErrInputTooLong = errors.New("This is more text than the model can read at once. Try a shorter request, or start a new chat")
+// ErrAnswerTooLong is a model's answer cut off at its length limit. Every
+// provider reports it with these words, which fit chat and Help me write. It
+// is also ErrOutputTooLong, so a feature that words a cut answer for itself
+// still does.
+var ErrAnswerTooLong = OutputTooLong("The answer hit the model's length limit before it was finished. Try a smaller request")
+
+// ErrInputTooLong is a request longer than the model can read at once. The
+// same request would be refused again.
+var ErrInputTooLong = Final("This is more text than the model can read at once. Try a shorter request, or start a new chat")
 
 // NotChosenMessage is what a run, Help me write and the other writing
 // features answer while the account has providers set up but has not chosen
@@ -75,6 +119,22 @@ type Searcher interface {
 	CanSearch() bool
 }
 
+// ImageReader is implemented by completers that can tell whether their
+// model takes images. known is false when that could not be found out.
+type ImageReader interface {
+	ReadsImages(ctx context.Context) (reads, known bool)
+}
+
+// readsImages reports whether the run's model can be sent photos; a model
+// that cannot say is tried.
+func readsImages(ctx context.Context) bool {
+	if r, ok := ctx.Value(completerKey{}).(ImageReader); ok && r != nil {
+		reads, known := r.ReadsImages(ctx)
+		return reads || !known
+	}
+	return true
+}
+
 type completerKey struct{}
 
 // WithCompleter attaches the run's client to the context so every model call in
@@ -92,6 +152,29 @@ func CompleterFrom(ctx context.Context) Completer {
 	return nil
 }
 
+type noRetryKey struct{}
+
+// WithoutRetries marks a model call the caller can do without, such as the
+// receipt recheck: the client then sends it once and returns the first
+// error instead of retrying it.
+func WithoutRetries(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noRetryKey{}, true)
+}
+
+// RetriesOff reports whether the call was marked with WithoutRetries.
+func RetriesOff(ctx context.Context) bool {
+	off, _ := ctx.Value(noRetryKey{}).(bool)
+	return off
+}
+
+// unusable stands in for a run's provider that could not be set up: every
+// call fails with the reason, so nothing switches to another provider.
+type unusable struct{ err error }
+
+func (u unusable) Complete(context.Context, []WireMessage, []any, bool) (WireMessage, error) {
+	return WireMessage{}, u.err
+}
+
 // canSearch reports whether the run's provider can answer web searches.
 func canSearch(ctx context.Context) bool {
 	if c, ok := ctx.Value(completerKey{}).(Searcher); ok && c != nil {
@@ -101,18 +184,90 @@ func canSearch(ctx context.Context) bool {
 }
 
 func (s *Service) complete(ctx context.Context, messages []WireMessage, tools []any, search bool) (WireMessage, error) {
+	var reply WireMessage
+	var err error
 	if c, ok := ctx.Value(completerKey{}).(Completer); ok && c != nil {
-		return c.Complete(ctx, messages, tools, search)
-	}
-	if s.provider == nil {
+		reply, err = c.Complete(ctx, messages, tools, search)
+	} else if s.provider == nil {
 		return WireMessage{}, fmt.Errorf("No AI provider is set up. Open Settings → Agent to connect one")
+	} else {
+		reply, err = s.provider.Complete(ctx, messages, tools, search)
 	}
-	return s.provider.Complete(ctx, messages, tools, search)
+	if err != nil {
+		return reply, err
+	}
+	return withoutNUL(reply), nil
+}
+
+// withoutNUL drops NUL characters from a model's reply. Postgres can't
+// store them in text or JSON, so one NUL in an answer failed the run with a
+// database error after the answer was paid for.
+func withoutNUL(m WireMessage) WireMessage {
+	m.Content = dropNUL(m.Content)
+	m.ReasoningContent = dropNUL(m.ReasoningContent)
+	if len(m.ToolCalls) > 0 {
+		m.ToolCalls = append([]ToolCall(nil), m.ToolCalls...)
+		for i := range m.ToolCalls {
+			m.ToolCalls[i].Function.Arguments = nulFreeJSON(m.ToolCalls[i].Function.Arguments)
+		}
+	}
+	return m
+}
+
+func dropNUL(s string) string {
+	if !strings.ContainsRune(s, 0) {
+		return s
+	}
+	return strings.ReplaceAll(s, "\x00", "")
+}
+
+// nulFreeJSON drops NULs (written \u0000) from the strings of a JSON text.
+func nulFreeJSON(text string) string {
+	if !strings.Contains(text, `\u0000`) && !strings.ContainsRune(text, 0) {
+		return text
+	}
+	var value any
+	if json.Unmarshal([]byte(text), &value) != nil {
+		return dropNUL(text)
+	}
+	cleaned, err := json.Marshal(dropNULs(value))
+	if err != nil {
+		return text
+	}
+	return string(cleaned)
+}
+
+func dropNULs(value any) any {
+	switch v := value.(type) {
+	case string:
+		return dropNUL(v)
+	case []any:
+		for i := range v {
+			v[i] = dropNULs(v[i])
+		}
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for key, item := range v {
+			out[dropNUL(key)] = dropNULs(item)
+		}
+		return out
+	}
+	return value
 }
 
 type OpenRouter struct {
 	Key, Model, URL string
 	Client          *http.Client
+	// Vision says whether a model takes images, from the model list; nil
+	// when unknown.
+	Vision func(ctx context.Context, model string) (reads, known bool)
+}
+
+func (p *OpenRouter) ReadsImages(ctx context.Context) (bool, bool) {
+	if p.Vision == nil {
+		return false, false
+	}
+	return p.Vision(ctx, p.Model)
 }
 
 func NewOpenRouter() *OpenRouter {
@@ -127,11 +282,35 @@ func NewOpenRouter() *OpenRouter {
 // Only model inference is retried here; no domain tool executes until a complete
 // response has been accepted. A failed attempt cannot replay an app mutation.
 func (p *OpenRouter) Complete(ctx context.Context, messages []WireMessage, tools []any, search bool) (WireMessage, error) {
+	if RetriesOff(ctx) {
+		return p.completeOnce(ctx, messages, tools, search)
+	}
 	return RetryTransient(ctx, func() (WireMessage, error) { return p.completeOnce(ctx, messages, tools, search) })
+}
+
+// providerMessage is the message in an error body ({"error":{"message":...}}),
+// so the person reads the provider's reason ("Insufficient credits").
+func providerMessage(body io.Reader) string {
+	var data struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.NewDecoder(io.LimitReader(body, 16<<10)).Decode(&data) != nil {
+		return ""
+	}
+	msg := strings.Join(strings.Fields(data.Error.Message), " ")
+	if len(msg) > 300 {
+		msg = strings.ToValidUTF8(msg[:300], "") + "…"
+	}
+	return msg
 }
 
 // RetryTransient runs one model call and retries it once after a network
 // timeout or a cut-off body. Other errors and cancellation return at once.
+// A cut-off body may come after the provider counted the answer, so the
+// retry can cost a second answer; it is still kept, because without it the
+// person's next step is the same request again by hand.
 func RetryTransient(ctx context.Context, call func() (WireMessage, error)) (WireMessage, error) {
 	var result WireMessage
 	var err error
@@ -217,8 +396,24 @@ func (p *OpenRouter) completeOnce(ctx context.Context, messages []WireMessage, t
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
+		// A refused key or missing credit is the same on every route, and
+		// trying again cannot fix it.
+		switch res.StatusCode {
+		case http.StatusUnauthorized:
+			return empty, NeedsSettings("OpenRouter didn't accept the API key (HTTP 401). Check the key in Settings → Agent")
+		case http.StatusForbidden:
+			// OpenRouter answers 403 when a model's content filter flags the
+			// input, not for a bad key: another model in the chat's menu, then
+			// Try again, can help.
+			return empty, fmt.Errorf("OpenRouter refused the request (HTTP 403); the model's content filter may have flagged it. Reword it, or pick another model in the model menu, then try again")
+		case http.StatusPaymentRequired:
+			return empty, NeedsSettings("OpenRouter says the account is out of credit (HTTP 402). Add credit on openrouter.ai, or pick another provider in Settings → Agent")
+		}
 		if sensitive {
 			return empty, fmt.Errorf("The zero-retention AI route is unavailable (HTTP %d). Try again; no fallback provider was used", res.StatusCode)
+		}
+		if msg := providerMessage(res.Body); msg != "" {
+			return empty, fmt.Errorf("OpenRouter returned HTTP %d: %s", res.StatusCode, msg)
 		}
 		return empty, fmt.Errorf("OpenRouter returned HTTP %d; check model access, credit, or retry", res.StatusCode)
 	}

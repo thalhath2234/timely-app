@@ -81,6 +81,12 @@ export type Chat = {
   revision: number;
   unread: boolean;
   error: string;
+  /**
+   * What the person can do about `error`: "settings" for a key, credit or
+   * provider problem, "none" when the same request would fail again, and
+   * "" (Try again) otherwise.
+   */
+  errorAction?: "" | "settings" | "none";
   /** Stable code of a failure the app can offer a fix for (PROVIDER_NOT_CHOSEN). */
   errorCode?: string;
   updatedAt: string;
@@ -90,13 +96,20 @@ export type Chat = {
  * New messages carry the browser zone; the agent uses it when no timezone is
  * saved in Working hours. client=web (web, desktop and the quick prompt) makes
  * its saved-view tools act on the web and desktop views, and `ui` says this
- * app draws reply cards.
+ * app draws reply cards. Try again sends them too, so a run retried here
+ * after it started on the phone uses this device.
  */
 function withTimezone(path: string, method: string, body: unknown) {
-  const sendsMessage =
-    method === "POST" && (path === "" || path.endsWith("/messages"));
-  return sendsMessage && body && typeof body === "object"
-    ? { ...body, timezone: browserTimezone(), client: "web", ui: GENUI_CAPABILITY }
+  const sendsDevice =
+    method === "POST" &&
+    (path === "" || path.endsWith("/messages") || path.endsWith("/retry"));
+  return sendsDevice
+    ? {
+        ...(body && typeof body === "object" ? body : {}),
+        timezone: browserTimezone(),
+        client: "web",
+        ui: GENUI_CAPABILITY,
+      }
     : body;
 }
 

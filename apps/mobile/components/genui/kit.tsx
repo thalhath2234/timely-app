@@ -3,7 +3,16 @@ import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-na
 import { ChevronRight, Sparkles } from "lucide-react-native";
 import type { ComponentRenderProps, ComponentRenderer } from "@openuidev/react-lang";
 import { checklistItems, findChecklistItem } from "@timely/contract/docChecklist";
-import { chartNumber, genuiColorHex, genuiNodes, type GenuiName, type GenuiProps } from "@timely/contract/genui";
+import {
+  chartNumber,
+  GENUI_MAX_ROWS,
+  genuiColorHex,
+  genuiId,
+  genuiNodes,
+  genuiOpenable,
+  type GenuiName,
+  type GenuiProps,
+} from "@timely/contract/genui";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import {
@@ -37,6 +46,8 @@ export const Ask = createContext<((text: string) => void) | undefined>(undefined
 export const Place = createContext<"top" | "card" | "column">("top");
 /** Chat draws cards with their own border; a board card is already one. */
 export const Surface = createContext<"chat" | "board">("chat");
+/** The title of the card a row is in, such as its day, for the text a row sends. */
+const CardTitle = createContext("");
 /** The card has timed rows, so every row keeps the time column for alignment. */
 const Timed = createContext(false);
 
@@ -115,6 +126,12 @@ function Row({
 function Card({ props, renderNode }: KitProps<"Card">) {
   const place = useContext(Place);
   const surface = useContext(Surface);
+  // A chat card draws the twelve rows the prompt allows; each task row loads
+  // its task, so a runaway list would fire a request per row. The card says
+  // how many it left out, so a clipped list doesn't read as the whole list.
+  const all = genuiNodes(props.rows);
+  const rows = surface === "chat" ? all.slice(0, GENUI_MAX_ROWS) : props.rows;
+  const hidden = surface === "chat" ? all.length - GENUI_MAX_ROWS : 0;
   return (
     <View style={surface === "chat" ? styles.card : undefined} accessibilityLabel={props.title}>
       <View style={styles.head}>
@@ -127,8 +144,15 @@ function Card({ props, renderNode }: KitProps<"Card">) {
           </Text>
         ) : null}
       </View>
-      <RowGroup rows={props.rows} renderNode={renderNode} />
-      {props.open ? <View style={styles.foot}>{renderNode(props.open)}</View> : null}
+      <CardTitle.Provider value={props.title ?? ""}>
+        <RowGroup rows={rows} renderNode={renderNode} />
+      </CardTitle.Provider>
+      {hidden > 0 ? (
+        <View style={styles.more}>
+          <Text style={styles.moreText}>{hidden} more not shown</Text>
+        </View>
+      ) : null}
+      {genuiOpenable(props.open) ? <View style={styles.foot}>{renderNode(props.open)}</View> : null}
     </View>
   );
 }
@@ -190,16 +214,20 @@ function Stat({ props }: KitProps<"Stat">) {
   );
 }
 
-/** The task as it is now: from the task list, or fetched on its own (a Reminder). */
+/**
+ * The task as it is now: from the task list, or fetched on its own (a
+ * Reminder). `missing` once neither has it: an id the model made up, or a
+ * task deleted since the reply.
+ */
 function useLiveTask(id: string) {
   const list = useTasksQuery();
   const listed = list.data?.find((task) => task.id === id);
   const single = useTaskQuery(list.isSuccess && !listed ? id : undefined);
-  return listed ?? single.data;
+  return { task: listed ?? single.data, missing: !listed && single.isError };
 }
 
 function TaskRow({ props }: KitProps<"TaskRow">) {
-  const task = useLiveTask(props.taskId);
+  const { task, missing } = useLiveTask(props.taskId);
   const save = useSaveTask();
   const link = useContext(Link);
   const title = task?.name || props.title;
@@ -222,7 +250,7 @@ function TaskRow({ props }: KitProps<"TaskRow">) {
     <Row
       time={props.time}
       tone={late ? "warning" : "default"}
-      meta={done ? "Done" : props.note}
+      meta={missing ? "Task not found" : done ? "Done" : props.note}
       lead={
         <TaskCheck
           checked={done}
@@ -230,6 +258,7 @@ function TaskRow({ props }: KitProps<"TaskRow">) {
           disabled={!task}
           size={20}
           label={done ? `Reopen ${title}` : `Complete ${title}`}
+          style={missing ? { opacity: 0.5 } : undefined}
         />
       }
     >
@@ -239,7 +268,7 @@ function TaskRow({ props }: KitProps<"TaskRow">) {
         disabled={!task || !link}
         onPress={() => link?.(`timely://task/${encodeURIComponent(props.taskId)}`)}
       >
-        <StrikeTitle done={done} numberOfLines={1} style={styles.rowTitle}>
+        <StrikeTitle done={done} numberOfLines={1} style={[styles.rowTitle, missing && { color: colors.mutedForeground }]}>
           {title}
         </StrikeTitle>
       </AnimatedPressable>
@@ -260,10 +289,16 @@ function CheckRow({ props }: KitProps<"CheckRow">) {
   const doc = useLiveDoc(props.docId);
   const tick = useSetChecklistItem();
   const link = useContext(Link);
-  const items = useMemo(() => checklistItems(doc?.content), [doc?.content]);
+  // An archived doc offers no ticks, as @Checklist leaves it out (the API
+  // refuses them too).
+  const archived = Boolean(doc?.archivedAt);
+  const items = useMemo(() => (archived ? [] : checklistItems(doc?.content)), [archived, doc?.content]);
   const item = findChecklistItem(items, props.text, props.item);
   const text = item?.text ?? props.text;
   const done = Boolean(item?.done);
+  // Say why a loaded doc's item can't be ticked here: it was archived, or its
+  // words now match no item or more than one.
+  const blocked = archived ? "Doc archived" : doc && !item ? "Open the doc to tick" : undefined;
   const toggle = () => {
     if (!item) return;
     tick.mutate(
@@ -276,7 +311,7 @@ function CheckRow({ props }: KitProps<"CheckRow">) {
   };
   return (
     <Row
-      meta={props.note}
+      meta={blocked ?? props.note}
       lead={
         <TaskCheck
           checked={done}
@@ -317,6 +352,9 @@ function EventRow({ props }: KitProps<"EventRow">) {
 
 function FreeRow({ props }: KitProps<"FreeRow">) {
   const ask = useContext(Ask);
+  // The card's title names the day ("Fri 6 Nov"), which an older reply's gap
+  // needs: the next message may be about another day.
+  const day = useContext(CardTitle);
   return (
     <Row
       time={props.from}
@@ -326,7 +364,7 @@ function FreeRow({ props }: KitProps<"FreeRow">) {
         ask ? (
           <AnimatedPressable
             accessibilityRole="button"
-            onPress={() => ask(`Plan something for ${props.from}–${props.to}`)}
+            onPress={() => ask(`Plan something for ${props.from}–${props.to}${day ? ` (${day})` : ""}`)}
             hitSlop={8}
             style={styles.plan}
           >
@@ -542,7 +580,9 @@ const SCREENS = {
 
 function Open({ props }: KitProps<"Open">) {
   const link = useContext(Link);
-  const { target, id } = props;
+  const { target } = props;
+  // Ids come from the model: only a plain id, never a path.
+  const id = genuiId(props.id);
   const href =
     target in SCREENS
       ? SCREENS[target as keyof typeof SCREENS]
@@ -624,6 +664,13 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingHorizontal: 14,
     paddingVertical: 11,
   },
+  more: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  moreText: { color: colors.mutedForeground, fontSize: 12 },
   row: {
     minHeight: 48,
     flexDirection: "row",

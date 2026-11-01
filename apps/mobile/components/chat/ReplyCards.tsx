@@ -5,8 +5,12 @@ import { Text, View } from "react-native";
 import { CalendarDays } from "lucide-react-native";
 import { createLibrary, Renderer, useRenderNode, type ComponentRenderer } from "@openuidev/react-lang";
 import {
+  choiceOptions,
   GENUI_ROOT,
+  genuiNodes,
   replyBlocks,
+  showLinkHosts,
+  replyDraws,
   splitReply,
   spokenTime,
   withRenderers,
@@ -32,9 +36,13 @@ import { ChatText } from "./shared";
 const Newest = createContext(false);
 
 function Reply({ props, renderNode }: KitProps<"Reply">) {
+  const blocks = replyBlocks(props.blocks);
+  // Cards that all came out empty say so instead of leaving nothing.
+  if (!blocks.length && genuiNodes(props.blocks).length)
+    return <Text style={styles.failed}>These cards could not be shown.</Text>;
   return (
     <View style={styles.reply}>
-      {replyBlocks(props.blocks).map((block, index) => (
+      {blocks.map((block, index) => (
         <View key={index}>{renderNode(block)}</View>
       ))}
     </View>
@@ -51,7 +59,7 @@ function Choices({ props }: KitProps<"Choices">) {
     setPicked(text);
     answer(text);
   };
-  const options = (Array.isArray(props.options) ? props.options : []).slice(0, 4);
+  const options = choiceOptions(props.options);
   return (
     <View>
       <View accessibilityLabel="Suggested answers" style={[styles.choices, !answer && styles.choicesOff]}>
@@ -107,7 +115,10 @@ function Cards({ code }: { code: string }) {
       response={code}
       library={library}
       publishObservability={false}
-      onParseResult={(result) => setRoot((result?.root as GenuiNode | null | undefined) ?? null)}
+      onParseResult={(result) => {
+        const parsed = result?.root as GenuiNode | null | undefined;
+        setRoot(replyDraws(parsed) ? parsed : null);
+      }}
     >
       {root ? (
         <Root node={root} />
@@ -142,7 +153,8 @@ export default function ReplyBody({
         <Newest.Provider value={newest}>
           {parts.map((part, index) =>
             part.kind === "text" ? (
-              <ChatText key={index} text={part.text} onLink={onLink} />
+              // A link's label never hides where it goes (see showLinkHosts).
+              <ChatText key={index} text={showLinkHosts(part.text)} onLink={onLink} />
             ) : (
               <Cards key={index} code={part.code} />
             ),

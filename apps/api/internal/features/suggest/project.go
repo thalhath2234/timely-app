@@ -11,6 +11,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"gorm.io/gorm"
 	"timely-api/internal/features/decide"
+	"timely-api/internal/features/schedule"
+	"timely-api/internal/features/task"
 	"timely-api/internal/models"
 )
 
@@ -20,14 +22,19 @@ import (
 // Jev only reads words and these facts.
 
 const (
-	projectBudget    = 8 * time.Second
-	maxProjectTasks  = 15
-	maxRequirements  = 8
-	maxOverlap       = 5
-	maxMisfiled      = 3
-	maxMoveTargets   = 30
+	projectBudget   = 8 * time.Second
+	maxProjectTasks = 15
+	maxRequirements = 8
+	maxOverlap      = 5
+	maxMisfiled     = 3
+	maxMoveTargets  = 30
+	// moveMinLeft is the time the move-target call needs.
+	moveMinLeft      = 1500 * time.Millisecond
 	recentDays       = 14
 	projectStaleDays = 21
+	// stalledMinAge is how long a project must have existed before it can
+	// read as stalled: a week-old project with nothing done yet is new.
+	stalledMinAge = 7
 )
 
 func (s *Service) projectRoutes(g *echo.Group) {
@@ -43,6 +50,8 @@ type ProjectFacts struct {
 	Overdue    int `json:"overdue"`
 	Blocked    int `json:"blocked"` // open tasks waiting on an open task
 	IdleDays   int `json:"idleDays"`
+	// AgeDays is how long since the project or its first task was made.
+	AgeDays int `json:"ageDays"`
 	// DaysLeft is set when the project has a deadline; negative when past.
 	DaysLeft *int `json:"daysLeft,omitempty"`
 }
@@ -82,7 +91,7 @@ type ProjectInsights struct {
 func (s *Service) projectInsights(c *echo.Context) error {
 	ctx, cancel := context.WithTimeout(c.Request().Context(), projectBudget)
 	defer cancel()
-	out, err := s.ProjectInsights(ctx, user(c), c.Param("id"), time.Now())
+	out, err := s.ProjectInsights(ctx, user(c), c.Param("id"), c.QueryParam("timezone"), time.Now())
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return echo.NewHTTPError(404, "Project not found")
 	}
@@ -101,8 +110,10 @@ func (s *Service) ownProject(ctx context.Context, userID, projectID string) (mod
 }
 
 // ProjectInsights reads one project. With Jev off it returns an empty answer
-// before reading any tasks; clients show nothing then.
-func (s *Service) ProjectInsights(ctx context.Context, userID, projectID string, now time.Time) (ProjectInsights, error) {
+// before reading any tasks; clients show nothing then. Dates (overdue, days
+// to the deadline) are counted in the person's own day: their saved hours'
+// zone, else the client's timezone, as Today does.
+func (s *Service) ProjectInsights(ctx context.Context, userID, projectID, timezone string, now time.Time) (ProjectInsights, error) {
 	on, _ := s.decide.Status(ctx, userID)
 	if !on {
 		return ProjectInsights{}, nil
@@ -111,6 +122,11 @@ func (s *Service) ProjectInsights(ctx context.Context, userID, projectID string,
 	if err != nil {
 		return ProjectInsights{}, err
 	}
+	hours, err := schedule.NewRepository(s.db.WithContext(ctx)).GetWorkingHours(userID)
+	if err != nil {
+		hours = models.WorkingHours{}
+	}
+	now = task.TodayFor(hours, timezone, now).Now()
 	var tasks []models.Task
 	if err := s.db.WithContext(ctx).Select("id", "name", "description", "completed_at", "deadline", "blocked_by_id", "stage_id", "created_at", "updated_at").
 		Where("project_id = ? AND user_id = ? AND kind = ?", project.ID, userID, models.KindTask).
@@ -161,12 +177,17 @@ func (s *Service) ProjectInsights(ctx context.Context, userID, projectID string,
 	}
 
 	questions := map[string]decide.Question{}
-	// Health [25].
+	// Health [25]. A project too new to have stalled is not offered that
+	// reading: with nothing done yet, Jev would read it as stalled.
 	if len(tasks) > 0 {
-		questions["health"] = decide.Choice("From the facts and the tasks, how is this project going?",
-			decide.Option{Name: "progressing", Description: "Work is getting done and nothing big stands in the way"},
-			decide.Option{Name: "stalled", Description: "Little or nothing has moved for a while"},
-			decide.Option{Name: "blocked", Description: "It is held up by tasks waiting on others, overdue work, or a missed deadline"})
+		opts := []decide.Option{
+			{Name: "progressing", Description: "Work is getting done and nothing big stands in the way"},
+			{Name: "blocked", Description: "It is held up by tasks waiting on others, overdue work, or a missed deadline"},
+		}
+		if out.Facts.AgeDays >= stalledMinAge {
+			opts = append(opts, decide.Option{Name: "stalled", Description: "Little or nothing has moved for a while"})
+		}
+		questions["health"] = decide.Choice("From the facts and the tasks, how is this project going?", opts...)
 	}
 	// Outcome and next action [23].
 	if brief != "" {
@@ -208,12 +229,17 @@ func (s *Service) ProjectInsights(ctx context.Context, userID, projectID string,
 	if len(questions) == 0 {
 		return out, nil
 	}
+	// A long brief and task titles in a wide script (emoji take four bytes
+	// each) are cut until the state fits, rather than skipping the call.
+	if !decide.Fit(state, append(list, state), "description", "title", "brief", "project") {
+		delete(state, "doneTasks")
+	}
 	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "project_insights", State: state, Questions: questions})
 	if err != nil {
 		return out, nil
 	}
 	out.LogID = a.LogID
-	if v, ok := a.Choice("health", decide.Prefill); ok {
+	if v, ok := a.Choice("health", decide.Prefill); ok && (v != "stalled" || out.Facts.AgeDays >= stalledMinAge) {
 		out.Health = v
 	}
 	if yes, ok := a.Yes("outcome", decide.Flag); ok && !yes {
@@ -244,16 +270,19 @@ func (s *Service) ProjectInsights(ctx context.Context, userID, projectID string,
 			out.Overlaps = append(out.Overlaps, ProjectRef{ID: p.ID, Title: p.Title})
 		}
 	}
-	if len(out.Misfiled) > 0 {
+	// The move call shares the screen's budget; with too little left it
+	// would only be cut off, so the misfiled tasks show without a target.
+	if deadline, ok := ctx.Deadline(); len(out.Misfiled) > 0 && (!ok || time.Until(deadline) > moveMinLeft) {
 		s.moveTargets(ctx, userID, project, out.Misfiled, shown)
 	}
 	return out, nil
 }
 
-// projectFacts counts what Jev and the page both read.
+// projectFacts counts what Jev and the page both read. Dates are read in
+// now's location, the person's own day.
 func (s *Service) projectFacts(ctx context.Context, project models.Project, tasks []models.Task, now time.Time) ProjectFacts {
 	f := ProjectFacts{}
-	today := now.UTC().Format("2006-01-02")
+	today := now.Format("2006-01-02")
 	openIDs := map[string]bool{}
 	for _, t := range tasks {
 		if t.CompletedAt == nil || *t.CompletedAt == "" {
@@ -261,8 +290,9 @@ func (s *Service) projectFacts(ctx context.Context, project models.Project, task
 		}
 	}
 	latest := parseWhen(project.UpdatedAt)
-	if c := parseWhen(project.CreatedAt); c.After(latest) {
-		latest = c
+	born := parseWhen(project.CreatedAt)
+	if born.After(latest) {
+		latest = born
 	}
 	ids := make([]string, 0, len(tasks))
 	for _, t := range tasks {
@@ -271,6 +301,10 @@ func (s *Service) projectFacts(ctx context.Context, project models.Project, task
 			if w := parseWhen(v); w.After(latest) {
 				latest = w
 			}
+		}
+		// Work moved in from elsewhere is as old as its first task.
+		if w := parseWhen(t.CreatedAt); !w.IsZero() && (born.IsZero() || w.Before(born)) {
+			born = w
 		}
 		if !openIDs[t.ID] {
 			f.Done++
@@ -306,6 +340,9 @@ func (s *Service) projectFacts(ctx context.Context, project models.Project, task
 	}
 	if !latest.IsZero() {
 		f.IdleDays = max(0, int(now.Sub(latest).Hours()/24))
+	}
+	if !born.IsZero() {
+		f.AgeDays = max(0, int(now.Sub(born).Hours()/24))
 	}
 	if project.Deadline != nil && *project.Deadline != "" {
 		if d, err := time.Parse("2006-01-02", dateOnly(*project.Deadline)); err == nil {
@@ -371,7 +408,7 @@ func (s *Service) moveTargets(ctx context.Context, userID string, project models
 	titles := map[string]string{}
 	opts := []decide.Option{{Name: "none", Description: "None of these projects fits"}}
 	for _, p := range projects {
-		name := uniqueName(p.Title, byName)
+		name := uniqueName(notSentinel(clip(p.Title, maxOptionRunes), "project", "none"), byName)
 		byName[name] = p.ID
 		titles[p.ID] = p.Title
 		desc := fmt.Sprintf("The project “%s”", clip(p.Title, 80))

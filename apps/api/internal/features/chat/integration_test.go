@@ -489,6 +489,58 @@ func TestIntegrationChosenModelOverridesDefault(t *testing.T) {
 	}
 }
 
+// brokenCompleters is an account whose provider can't be used: its key
+// was removed after the proposal was made.
+type brokenCompleters struct{}
+
+func (brokenCompleters) Resolve(context.Context, string) (string, string, error) {
+	return "anthropic", "", nil
+}
+func (brokenCompleters) Completer(context.Context, string, string, string) (Completer, error) {
+	return nil, fmt.Errorf("Anthropic API is not connected. Add its key in Settings → Agent")
+}
+
+func TestIntegrationApprovedChangesApplyWithoutAProvider(t *testing.T) {
+	db := integrationDB(t)
+	s := New(db, nil, nil)
+	s.SetCompleters(brokenCompleters{})
+	var modelErr error
+	s.factory = func(tx *gorm.DB) agent.Catalog {
+		return agent.Catalog{
+			"create_task": {Call: func(context.Context, string, json.RawMessage) (any, error) {
+				return map[string]string{"id": "tsk_1"}, nil
+			}},
+			// A step that needs a model gets the run's provider error.
+			"add_live_block": {Call: func(ctx context.Context, _ string, _ json.RawMessage) (any, error) {
+				_, modelErr = CompleterFrom(ctx).Complete(ctx, nil, nil, false)
+				return map[string]string{"id": "doc_1"}, nil
+			}},
+		}
+	}
+	c := runFixture(t, db, []Step{
+		{Tool: "create_task", Summary: "A", Arguments: raw(map[string]string{"name": "A"}), Status: "pending"},
+		{Tool: "create_task", Summary: "B", Arguments: raw(map[string]string{"name": "B"}), Status: "pending"},
+		{Tool: "add_live_block", Summary: "Block", Arguments: raw(map[string]string{"words": "Overdue tasks"}), Status: "pending"},
+	})
+	c.Status, c.Lease = "queued", ""
+	db.Save(&c)
+	ctx, cancel := context.WithCancel(context.Background())
+	go s.work(ctx)
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		db.First(&c, "id = ?", c.ID)
+		if c.Status != "queued" && c.Status != "running" {
+			break
+		}
+	}
+	cancel()
+	if c.Status == "failed" || c.Plan[0].Status != "done" || c.Plan[1].Status != "done" {
+		t.Fatalf("approved changes must apply without the model: %s %q %+v", c.Status, c.Error, c.Plan)
+	}
+	if modelErr == nil || !strings.Contains(modelErr.Error(), "not connected") {
+		t.Fatalf("a step that needs a model must get the provider's error, got %v", modelErr)
+	}
+}
+
 func TestIntegrationSettingsKeepRevision(t *testing.T) {
 	db := integrationDB(t)
 	s := New(db, nil, nil)

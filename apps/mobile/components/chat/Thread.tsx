@@ -470,21 +470,35 @@ export function RunStatus({ chat }: { chat: Chat }) {
   );
 }
 
+/**
+ * A failed run and the one thing that helps: Agent settings for a key,
+ * credit or provider problem, no Try again for a failure that would repeat,
+ * and Discard for photos still waiting for review.
+ */
 export function FailureCard({
   chat,
   locked,
   onRetry,
+  onDiscardImages,
   onOpenSettings,
 }: {
   chat: Chat;
   locked: boolean;
   onRetry: () => void;
+  onDiscardImages: () => void;
   onOpenSettings: () => void;
 }) {
   const needsProvider = useNeedsProvider();
   // The run waited for the person to choose a default provider (ADR 0020).
   const notChosen = chat.errorCode === PROVIDER_NOT_CHOSEN;
   if (!chat.error || chat.plan.length) return null;
+  const settings = needsProvider || notChosen || chat.errorAction === "settings";
+  const stopped = ["failed", "stopped"].includes(chat.status);
+  // Once a provider is chosen, the waiting chat can run.
+  const retry = stopped && !needsProvider && (notChosen || (!settings && chat.errorAction !== "none"));
+  // Photos that failed before their review opened; an open review has its
+  // own Discard images button.
+  const photos = stopped && chat.imageReview?.status === "extracting";
   return (
     <StatusCard
       tone="destructive"
@@ -494,30 +508,43 @@ export function FailureCard({
           ? "Connect an AI provider to chat"
           : notChosen
             ? "Choose a provider for chats"
-            : "Something went wrong"
+            : settings
+              ? "Check your AI provider"
+              : chat.errorAction === "none"
+                ? "Couldn't finish this request"
+                : "Something went wrong"
       }
       body={chat.error}
     >
-      <View style={styles.failureActions}>
-        {needsProvider || notChosen ? (
-          <Action
-            label={notChosen ? "Choose provider" : "Open Agent settings"}
-            primary={notChosen}
-            compact
-            onPress={onOpenSettings}
-          />
-        ) : null}
-        {/* Once a provider is chosen, the waiting chat can run. */}
-        {!needsProvider && ["failed", "stopped"].includes(chat.status) ? (
-          <Action
-            label="Try again"
-            icon={RefreshCw}
-            compact
-            disabled={locked}
-            onPress={onRetry}
-          />
-        ) : null}
-      </View>
+      {settings || retry || photos ? (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {settings ? (
+            <Action
+              label={notChosen ? "Choose provider" : "Open Agent settings"}
+              primary={notChosen}
+              compact
+              onPress={onOpenSettings}
+            />
+          ) : null}
+          {retry ? (
+            <Action
+              label="Try again"
+              icon={RefreshCw}
+              compact
+              disabled={locked}
+              onPress={onRetry}
+            />
+          ) : null}
+          {photos ? (
+            <Action
+              label="Discard images"
+              compact
+              disabled={locked}
+              onPress={onDiscardImages}
+            />
+          ) : null}
+        </View>
+      ) : null}
     </StatusCard>
   );
 }

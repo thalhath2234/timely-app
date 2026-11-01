@@ -129,6 +129,7 @@ export function Field({
   hint,
   align,
   accessibilityLabel,
+  maxLength,
 }: {
   /** Caption above the field. Required unless the screen already names it. */
   label?: string;
@@ -152,6 +153,8 @@ export function Field({
   /** A bare field typed as a heading: the name of a new task, event or doc. */
   large?: boolean;
   autoFocus?: boolean;
+  /** Most characters the field takes. */
+  maxLength?: number;
 }) {
   const [focused, setFocused] = useState(false);
   const [contentHeight, setContentHeight] = useState(0);
@@ -180,6 +183,7 @@ export function Field({
       } : undefined}
       selectionColor={colors.primary}
       autoFocus={autoFocus}
+      maxLength={maxLength}
       style={[styles.input, multiline && styles.area, focused && styles.inputFocused, bare && styles.inputBare, bare && multiline && styles.inputBareArea, large && styles.inputLarge, autoGrow && { height: Math.max(large ? 34 : bare ? 30 : 38, contentHeight + 2) }, align === "right" && styles.inputRight]}
     />
   );

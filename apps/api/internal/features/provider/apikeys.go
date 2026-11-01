@@ -275,7 +275,7 @@ func (s *Service) buildAPI(spec *apiProvider, row APIKey, model string) (chat.Co
 		if spec.Anthropic && s.anthropicURL != "" {
 			sdkBase = s.anthropicURL
 		}
-		return &Anthropic{Key: key, Model: model, Base: sdkBase, Effort: effort, Search: spec.Anthropic, Label: spec.Label, Client: client}, nil
+		return &Anthropic{Key: key, Model: model, Base: sdkBase, Effort: effort, Search: spec.Anthropic, Cache: spec.Anthropic, Label: spec.Label, Client: client}, nil
 	case routeResponses:
 		return &Responses{Spec: spec, Base: base, Key: key, Model: model, Client: client}, nil
 	case routeOllama:

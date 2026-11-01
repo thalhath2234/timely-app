@@ -151,7 +151,7 @@ func TestIntegrationHelpMeWriteKeepsTheModelWhenTheKeyGoesMeanwhile(t *testing.T
 type errIndexer struct{ embed.Indexer }
 
 func (errIndexer) SetCredentials(embed.Credentials) {}
-func (errIndexer) Reindex(context.Context, string, func(done, total int)) (int, error) {
+func (errIndexer) Reindex(context.Context, string, func(done, total, skipped int)) (int, error) {
 	return 0, errors.New("openrouter embed: Insufficient credits")
 }
 

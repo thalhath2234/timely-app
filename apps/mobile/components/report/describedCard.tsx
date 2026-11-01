@@ -10,9 +10,9 @@ import {
   type ComponentRenderProps,
   type ComponentRenderer,
 } from "@openuidev/react-lang";
-import type { DashboardData } from "@timely/contract/dashboard";
+import type { DashboardData, DescribedNames } from "@timely/contract/dashboard";
 import { genuiNodes, replyBlocks, type GenuiNode } from "@timely/contract/genui";
-import { BOARD_ROOT, blockProblems, drawBoard, withBoardRenderers, type BoardName, type BoardProps } from "@timely/contract/genuiBoard";
+import { BOARD_ROOT, drawBoard, drawProblems, withBoardRenderers, type BoardName, type BoardProps } from "@timely/contract/genuiBoard";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { kit, Link, RowGroup, Surface } from "../genui/kit";
 
@@ -68,21 +68,25 @@ const library = createLibrary({ components, root: BOARD_ROOT });
 
 export default function DescribedCardView({
   program,
+  names,
   data,
   timeZone,
   now,
   onLink,
 }: {
   program: string;
+  /** The ids the program's names meant when the card was made, so it follows a rename. */
+  names?: DescribedNames;
   data: DashboardData;
   timeZone?: string;
   now: Date;
   onLink: (href: string) => void;
 }) {
   // New data answers the @Data calls again, so a tick redraws the card at once.
-  const root = useMemo(() => drawBoard(program, data, { now, timeZone }), [program, data, now, timeZone]);
-  // A sheet, tab, column or doc renamed after the program was written draws empty; this says why.
-  const problem = useMemo(() => blockProblems(program, data)[0], [program, data]);
+  const root = useMemo(() => drawBoard(program, data, { now, timeZone }, names), [program, data, now, timeZone, names]);
+  // A name that fits nothing (a project deleted), or a sheet, tab, column or
+  // doc renamed after the program was written, draws empty; this says why.
+  const problem = useMemo(() => drawProblems(program, data, names)[0], [program, data, names]);
   return (
     <Link.Provider value={onLink}>
       <View style={styles.bleed}>

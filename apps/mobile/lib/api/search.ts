@@ -1,3 +1,4 @@
+import { smartCreate } from "@timely/contract/smartSearch";
 import { api } from "./client";
 
 export type SearchKind = "task" | "project" | "doc" | "sheet" | "event" | string;
@@ -16,12 +17,12 @@ export type SearchHit = {
  * to keyword-only on its own when no embedding provider is configured.
  * Pass `semantic = false` to force the plain keyword path.
  */
-export async function searchItems(query: string, semantic = true): Promise<SearchHit[]> {
+export async function searchItems(query: string, semantic = true, signal?: AbortSignal): Promise<SearchHit[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
   const params = new URLSearchParams({ q: trimmed });
   if (semantic) params.set("mode", "semantic");
-  const data = await api<SearchHit[] | { hits: SearchHit[] }>(`/search?${params.toString()}`);
+  const data = await api<SearchHit[] | { hits: SearchHit[] }>(`/search?${params.toString()}`, { signal });
   return dedupeHits(Array.isArray(data) ? data : data.hits ?? []);
 }
 
@@ -57,7 +58,7 @@ export type SmartSearch = {
  * few seconds), so callers show plain results first. Comes back with
  * `hits: null` when Smart suggestions are off or unsure.
  */
-export async function smartSearch(query: string): Promise<SmartSearch> {
+export async function smartSearch(query: string, signal?: AbortSignal): Promise<SmartSearch> {
   const trimmed = query.trim();
   if (!trimmed) return { hits: null, hidden: [] };
   // client=phone: a saved view pick comes from the phone's own views.
@@ -69,7 +70,7 @@ export async function smartSearch(query: string): Promise<SmartSearch> {
     create?: { kind: SmartCategory; title: string } | null;
     view?: { id: string; name: string } | null;
     logId?: string;
-  }>(`/search/smart?${params.toString()}`);
+  }>(`/search/smart?${params.toString()}`, { signal });
   // One seen-set across both lists so a hidden item never repeats a kept one.
   const seen = new Set<string>();
   const hits = Array.isArray(data?.hits) ? dedupeHits(data.hits, seen) : null;
@@ -78,7 +79,7 @@ export async function smartSearch(query: string): Promise<SmartSearch> {
     hits,
     hidden,
     category: data?.category || undefined,
-    create: data?.create?.kind && data.create.title?.trim() ? { kind: data.create.kind, title: data.create.title.trim() } : undefined,
+    create: smartCreate(data?.create),
     view: data?.view?.id && data.view.name?.trim() ? { id: data.view.id, name: data.view.name.trim() } : undefined,
     logId: data?.logId,
   };

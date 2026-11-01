@@ -170,10 +170,10 @@ func TestAnthropicErrorsSayWhatToDo(t *testing.T) {
 			w.Header().Set("retry-after-ms", "1")
 			w.WriteHeader(500)
 			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"api_error","message":"Internal server error"}}`))
-		}, "Anthropic had a server error (HTTP 500). Try again in a minute"},
+		}, "Anthropic is unavailable right now (HTTP 500). Try again in a minute"},
 		{"unreadable answer", func(w http.ResponseWriter) {
 			_, _ = w.Write([]byte(`{"id":"m","type":"message","content":[{"type":"te`))
-		}, "Anthropic sent an answer Timely could not read. Try again"},
+		}, "Anthropic's answer was cut off. Try again"},
 	}
 	for _, c := range cases {
 		server, _ := fakeMessages(t, func(_ int, _ map[string]any, w http.ResponseWriter) { c.reply(w) })

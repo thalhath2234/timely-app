@@ -10,7 +10,8 @@ export type DecisionSettings = {
   enabled: boolean;
   available: boolean;
   provider?: DecisionProvider;
-  typesafe: { keySet: boolean; keyHint?: string; rejected: boolean };
+  /** unreadable: a key is saved but the server can no longer decrypt it, so it must be entered again. */
+  typesafe: { keySet: boolean; keyHint?: string; rejected: boolean; unreadable?: boolean };
   openrouterKeySet: boolean;
   deepWorkTime?: "" | "morning" | "afternoon" | "evening";
 };
@@ -99,6 +100,8 @@ export const getImportFormat = (lines: string[]) =>
 export type TaskHints = {
   available: boolean;
   logId?: string;
+  /** Set when suggestions are on but the call failed. */
+  error?: string;
   statusId?: string;
   stageId?: string;
   fields?: { fieldId: string; type: string; optionIds?: string[]; value?: string }[];
@@ -122,7 +125,7 @@ export type StaleWork = {
   logId?: string;
   tasks: { id: string; name: string; idleDays: number; verdict?: StaleVerdict }[];
 };
-export const getStaleWork = () => api<StaleWork>("/suggestions/stale-work");
+export const getStaleWork = () => api<StaleWork>(`/suggestions/stale-work?timezone=${encodeURIComponent(deviceTimezone())}`);
 export const keepStaleTask = (id: string) =>
   api<void>(`/suggestions/stale-work/${encodeURIComponent(id)}/keep`, { method: "POST" });
 
@@ -138,8 +141,10 @@ export type ProjectInsights = {
   misfiled?: { taskId: string; name: string; moveTo?: string; moveToTitle?: string; stageId?: string }[];
   overlaps?: { id: string; title: string }[];
 };
+/** Overdue and days left are counted in the person's own day, so the
+ * device's zone goes along for an account with no saved working hours. */
 export const getProjectInsights = (id: string) =>
-  api<ProjectInsights>(`/suggestions/project/${encodeURIComponent(id)}`);
+  api<ProjectInsights>(`/suggestions/project/${encodeURIComponent(id)}?timezone=${encodeURIComponent(deviceTimezone())}`);
 
 /** What a new project's title suggests starting from: an earlier project to
  * copy, a doc template and a sheet template. */
@@ -178,12 +183,12 @@ export const mergeTaxonomy = (workspaceId: string, merge: CleanupMerge) => {
   if (merge.kind === "option")
     return api<MergeResult>(`/workspaces/${ws}/custom-field/${encodeURIComponent(merge.fieldId ?? "")}/options/merge`, {
       method: "POST",
-      body: { from: merge.from.id, into: merge.into.id },
+      body: { from: merge.from.id, into: merge.into.id, fromName: merge.from.name, intoName: merge.into.name },
     });
   const path = merge.kind === "label" ? "lable" : "status";
   return api<MergeResult>(`/workspaces/${ws}/${path}/${encodeURIComponent(merge.from.id)}/merge`, {
     method: "POST",
-    body: { into: merge.into.id },
+    body: { into: merge.into.id, fromName: merge.from.name, intoName: merge.into.name },
   });
 };
 
@@ -201,8 +206,10 @@ export type DocHints = {
   outdated?: boolean;
   /** Checklist items offered as tasks are turned off for this doc. */
   todosOff?: boolean;
+  /** Smart suggestions were busy or failed: the hints are missing, not empty. */
+  failed?: boolean;
 };
-export const getDocHints = (id: string) => api<DocHints>(`/suggestions/doc/${encodeURIComponent(id)}`);
+export const getDocHints = (id: string, signal?: AbortSignal) => api<DocHints>(`/suggestions/doc/${encodeURIComponent(id)}`, { signal });
 
 /** One kind of doc suggestion and what it offers: an id for a template,
  * project or page, the type, "key=value" for a property, the line for work,
@@ -275,6 +282,8 @@ export type HighlightGroup = { key: string; label: string; count: number; tasks:
 export type Highlights = {
   available: boolean;
   logId?: string;
+  /** Set when suggestions are on but a call failed. */
+  error?: string;
   highlights: { id: string; text: string }[];
   blockers: HighlightGroup[];
   missed: HighlightGroup[];

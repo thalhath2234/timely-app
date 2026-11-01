@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpRight,
@@ -14,7 +13,12 @@ import TimelyLogo, {
   LogoSpinner,
   SPINNER_LOOP_SECONDS,
 } from "@/app/_components/_ui/timelyLogo";
-import { chatRequest, type Chat, type ChatContext } from "@/app/utils/api/chat";
+import {
+  chatRequest,
+  type Chat,
+  type ChatContext,
+  type ReceiptDraft,
+} from "@/app/utils/api/chat";
 import { chatKey, chatsKey, useChat } from "@/app/utils/hooks/chat";
 import { cn } from "@/app/utils/cn";
 import LoadError from "@/app/_components/_ui/loadError";
@@ -23,6 +27,7 @@ import EmptyHero from "./emptyHero";
 import MessageList from "./messageList";
 import ProposalPanel from "./proposalPanel";
 import ReceiptReview from "./receiptReview";
+import FailureCard from "./failureCard";
 import { useImageUploads } from "./imageAttachments";
 import type { ModelChoice } from "./modelMenu";
 import { isBusy, phaseLabel, statusMeta } from "./chatMeta";
@@ -33,7 +38,6 @@ import {
 import { buttonClass } from "@/app/_components/_ui/button";
 import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
 import { readyProviders } from "./modelMenu";
-import { PROVIDER_NOT_CHOSEN } from "@timely/contract/helpMeWrite";
 
 const iconButton =
   "rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
@@ -119,8 +123,6 @@ export default function Conversation({
   const needsProvider = Boolean(providers.data) && readyProviders(providers.data).length === 0;
   const cache = useQueryClient();
   const chat = query.data;
-  // The run waited for the person to choose a default provider (ADR 0020).
-  const notChosen = chat?.errorCode === PROVIDER_NOT_CHOSEN;
   const [draft, setDraft] = useState("");
   const [receiptDirty, setReceiptDirty] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -134,7 +136,22 @@ export default function Conversation({
   const input = useRef<HTMLTextAreaElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const receiptAnchor = useRef<HTMLDivElement>(null);
+  // The receipt form as the person left it, sent with a message typed
+  // during the review so unsaved edits are revised, not lost.
+  const receiptDraft = useRef<ReceiptDraft | null>(null);
   const lastRevision = useRef<number | null>(null);
+  // One request id per message being sent, as the phone app does: a second
+  // press, or a resend after a lost answer, is the same request, so the
+  // server starts one conversation and one run for it.
+  const pending = useRef<{ key: string; id: string } | null>(null);
+  const requestIdFor = (key: string) => {
+    if (pending.current?.key !== key)
+      pending.current = {
+        key,
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`,
+      };
+    return pending.current.id;
+  };
   const busy = isBusy(chat?.status);
   const chips = chat?.context || context;
   const webSearch = chat?.webSearch ?? search;
@@ -151,15 +168,18 @@ export default function Conversation({
       /** Text sent from a reply card leaves the composer as it was. */
       keepDraft?: boolean;
     }) => {
-      if (!id)
+      if (!id) {
+        const imageIds = uploads.images.map((i) => i.id);
         return chatRequest<Chat>("", "POST", {
           content: draft.trim(),
-          imageIds: uploads.images.map((i) => i.id),
+          imageIds,
+          requestId: requestIdFor(`${draft.trim()}\n${imageIds.join(",")}`),
           context,
           webSearch: search,
           provider: choice.provider,
           model: choice.model,
         });
+      }
       return chatRequest<Chat>(
         `/${encodeURIComponent(id)}${action}`,
         action === "" ? "PATCH" : "POST",
@@ -167,6 +187,7 @@ export default function Conversation({
       );
     },
     onSuccess: (next, vars) => {
+      if (!id || vars.action === "/messages") pending.current = null;
       cache.setQueryData(chatKey(next.id), next);
       void cache.invalidateQueries({ queryKey: chatsKey });
       if (!id) onCreated(next.id);
@@ -229,11 +250,14 @@ export default function Conversation({
       busy
     )
       return;
+    const imageIds = uploads.images.map((i) => i.id);
     mutation.mutate({
       action: "/messages",
       body: {
         content: draft.trim(),
-        imageIds: uploads.images.map((i) => i.id),
+        imageIds,
+        requestId: requestIdFor(`${draft.trim()}\n${imageIds.join(",")}`),
+        ...unsavedReceipt(),
       },
     });
   }
@@ -241,9 +265,16 @@ export default function Conversation({
     if (!id || mutation.isPending || busy) return;
     mutation.mutate({
       action: "/messages",
-      body: { content, imageIds: [] },
+      body: { content, imageIds: [], requestId: requestIdFor(`${content}\n`), ...unsavedReceipt() },
       keepDraft: true,
     });
+  }
+  function unsavedReceipt() {
+    return receiptDirty &&
+      receiptDraft.current &&
+      chat?.imageReview?.status === "review"
+      ? { receipt: receiptDraft.current }
+      : {};
   }
   function configure(nextContext: ChatContext[], nextSearch: boolean) {
     if (id)
@@ -458,6 +489,7 @@ export default function Conversation({
                   chat={chat}
                   pending={mutation.isPending}
                   onDirty={() => setReceiptDirty(true)}
+                  draftRef={receiptDraft}
                   act={act}
                 />
               )}
@@ -527,37 +559,12 @@ export default function Conversation({
               </div>
             )}
             {chat?.error && !chat.plan?.length && (
-              <div
-                role="alert"
-                className="mt-5 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm"
-              >
-                <p className="font-medium text-destructive">
-                  {needsProvider
-                    ? "Connect an AI provider to chat"
-                    : notChosen
-                      ? "Choose a provider for chats"
-                      : "Something went wrong"}
-                </p>
-                <p className="mt-1 text-sm leading-6">{chat.error}</p>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  {needsProvider || notChosen ? (
-                    <Link href="/settings?tab=agent" className={buttonClass({})}>
-                      {notChosen ? "Choose provider" : "Open Agent settings"}
-                    </Link>
-                  ) : null}
-                  {/* Once a provider is chosen, the waiting chat can run. */}
-                  {!needsProvider && ["failed", "stopped"].includes(chat.status) && (
-                    <button
-                      type="button"
-                      disabled={mutation.isPending}
-                      onClick={() => act("/retry")}
-                      className={buttonClass({ variant: "outline" })}
-                    >
-                      Try again
-                    </button>
-                  )}
-                </div>
-              </div>
+              <FailureCard
+                chat={chat}
+                needsProvider={needsProvider}
+                pending={mutation.isPending}
+                act={act}
+              />
             )}
             {chat?.error && !!chat.plan?.length && (
               <p role="alert" className="mt-3 text-sm text-destructive">

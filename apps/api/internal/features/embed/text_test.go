@@ -48,6 +48,36 @@ func TestChunkCaps(t *testing.T) {
 	}
 }
 
+// E4: a doc past about 30,000 characters kept only its first 20 windows, so
+// its end was never searchable by meaning.
+func TestChunkSpreadsOverALongText(t *testing.T) {
+	var b strings.Builder
+	for i := 0; b.Len() < 37000; i++ {
+		b.WriteString("Paragraph about the garden, the kitchen and the weekly shop. ")
+	}
+	b.WriteString("Zebra-striped umbrella stand from the antique shop in Porto.")
+	text := b.String()
+	got := Chunk(text)
+	if len(got) != maxChunks {
+		t.Fatalf("got %d chunks, want %d", len(got), maxChunks)
+	}
+	if !strings.HasPrefix(text, got[0]) {
+		t.Fatal("the first chunk should start the text")
+	}
+	if last := got[len(got)-1]; !strings.HasSuffix(last, "antique shop in Porto.") {
+		t.Fatalf("the last paragraph is not indexed; the last chunk ends %q", last[len(last)-40:])
+	}
+	// The chunks keep their order through the text.
+	at := 0
+	for n, chunk := range got {
+		next := strings.Index(text[at:], chunk)
+		if next < 0 {
+			t.Fatalf("chunk %d is not the text's, in order", n)
+		}
+		at += next + 1
+	}
+}
+
 func TestCombine(t *testing.T) {
 	if Combine("Title", "Body") != "Title\n\nBody" {
 		t.Fatal("expected title then body")

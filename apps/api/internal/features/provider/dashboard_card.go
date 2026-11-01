@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/labstack/echo/v5"
 	"timely-api/internal/features/chat"
@@ -32,8 +33,9 @@ const (
 	dashboardCardMaxProgram = 8000
 	// dashboardCardBudget covers the look-ups, checks and the answer.
 	dashboardCardBudget = 3 * time.Minute
-	// dashboardCardTurns caps the model's calls in one Describe.
-	dashboardCardTurns = 10
+	// dashboardCardTurns caps the model's calls in one Describe (a card
+	// takes two or three; describeCallMax bounds the look-ups among them).
+	dashboardCardTurns = 8
 	// dashboardCardAnswer is the time kept for the answer: with less left,
 	// the model is told to answer now.
 	dashboardCardAnswer = 45 * time.Second
@@ -120,13 +122,14 @@ func (s *Service) describeCard(ctx context.Context, userID string, req dashboard
 	if req.Place == "doc" {
 		noun = "block"
 	}
-	req.Prompt = clipHead(strings.TrimSpace(req.Prompt), dashboardCardMaxText)
+	req.Prompt = clipRunes(strings.TrimSpace(req.Prompt), dashboardCardMaxText)
 	if req.Prompt == "" {
 		return dashboardCardResponse{}, echo.NewHTTPError(400, "Say what the "+noun+" should show")
 	}
 	req.Current = strings.TrimSpace(req.Current)
-	if len(req.Current) > dashboardCardMaxProgram {
-		req.Current = ""
+	if programLength(req.Current) > dashboardCardMaxProgram {
+		// Dropping it would quietly write a new card in its place.
+		return dashboardCardResponse{}, echo.NewHTTPError(400, fmt.Sprintf("This %s is too large to change with AI. Describe a new %s instead", noun, noun))
 	}
 	if _, err := time.Parse("2006-01-02", req.Today); err != nil {
 		req.Today = time.Now().Format("2006-01-02")
@@ -152,7 +155,7 @@ func (s *Service) describeCard(ctx context.Context, userID string, req dashboard
 	if err != nil {
 		return dashboardCardResponse{}, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, dashboardCardBudget)
+	ctx, cancel := context.WithTimeout(oneShot(ctx), dashboardCardBudget)
 	defer cancel()
 	messages := dashboardCardMessages(req, vocab, sheets, checklists)
 	tools := s.tools(ctx, userID)
@@ -160,11 +163,16 @@ func (s *Service) describeCard(ctx context.Context, userID string, req dashboard
 		messages[0].Content += describeToolsNote
 	}
 	program, err := describe(ctx, completer, messages, tools)
-	if errors.Is(err, errNotACard) {
+	var nothing noDataError
+	switch {
+	case errors.Is(err, errNotACard):
 		return dashboardCardResponse{}, echo.NewHTTPError(502, "The AI's answer was not a "+noun+". Try again")
-	}
-	if err != nil {
-		return dashboardCardResponse{}, echo.NewHTTPError(502, err.Error())
+	case errors.As(err, &nothing):
+		return dashboardCardResponse{}, echo.NewHTTPError(422, "Couldn't make this "+noun+". "+nothing.reason)
+	case errors.Is(err, errProgramTooLong):
+		return dashboardCardResponse{}, echo.NewHTTPError(502, "The AI made a "+noun+" that is too large. Ask for fewer blocks or rows")
+	case err != nil:
+		return dashboardCardResponse{}, oneShotError(err, "The "+noun+" was too long to finish. Ask for fewer things on it.")
 	}
 	return dashboardCardResponse{Program: program, Provider: provider, Model: model}, nil
 }
@@ -201,11 +209,34 @@ func (s *Service) describeCompleter(ctx context.Context, userID, place string) (
 
 var errNotACard = errors.New("the answer holds no program")
 
+// noDataMark opens an answer that says the person's data holds nothing to
+// build the card from (board_prompt.txt), instead of a card that only says
+// so and promises to fill in later, which a fixed program never does.
+const noDataMark = "NO_DATA:"
+
+type noDataError struct{ reason string }
+
+func (e noDataError) Error() string { return "nothing to build from: " + e.reason }
+
+// noData reads a noDataMark answer's reason.
+func noData(answer string) (noDataError, bool) {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(cleanWritten(answer, false)), noDataMark)
+	if !ok {
+		return noDataError{}, false
+	}
+	reason := strings.TrimSpace(rest)
+	if reason == "" {
+		reason = "There is no data like that yet."
+	}
+	return noDataError{reason: clipRunes(reason, 200)}, true
+}
+
 // describe asks the model for the program. With tools it may read the
 // person's data and check drafts first; its answer is drawn once more, and
 // one with problems goes back to the model a single time to be fixed. A
 // model that runs out of turns, or never writes the program out, gets the
-// last draft it checked.
+// last draft it checked; a provider error after a draft drew clean gets that
+// draft.
 func describe(ctx context.Context, completer chat.Completer, messages []chat.WireMessage, tools *describeTools) (string, error) {
 	var specs []any
 	if tools != nil {
@@ -214,31 +245,51 @@ func describe(ctx context.Context, completer chat.Completer, messages []chat.Wir
 	deadline, timed := ctx.Deadline()
 	sentBack, nudged, told := false, false, false
 	for turn := 0; turn < dashboardCardTurns; turn++ {
-		last := turn == dashboardCardTurns-1 || (timed && time.Until(deadline) < dashboardCardAnswer)
+		// final: no turn (or no time) is left after this one. last: no more
+		// look-ups either, which is also the case once the tools stopped them;
+		// a turn may still follow then, to fix an answer that drew with
+		// problems or was not a program.
+		final := turn == dashboardCardTurns-1 || (timed && time.Until(deadline) < dashboardCardAnswer)
+		last := final || tools.stopped()
 		if last && len(specs) > 0 && turn > 0 && !told {
 			// The tools stay listed: some providers refuse a transcript with
 			// tool calls in it once the tools are gone.
 			messages = append(messages, chat.WireMessage{Role: "user", Content: "Time is up for look-ups: answer now with the whole program and no tool calls."})
 			told = true
 		}
-		reply, err := completer.Complete(ctx, messages, specs, false)
+		// Each turn resends the whole Describe so far: cached, the next turn
+		// reads it back instead of paying for it again.
+		reply, err := completer.Complete(ctx, chat.CacheTail(messages), specs, false)
 		if err != nil {
+			if tools != nil && tools.clean != "" {
+				return tools.clean, nil
+			}
 			return "", err
 		}
 		if len(reply.ToolCalls) == 0 || tools == nil {
+			if nothing, ok := noData(reply.Content); ok {
+				return "", nothing
+			}
 			program, err := boardProgram(reply.Content)
 			if err != nil {
-				if draft := tools.fallback(); draft != "" && (nudged || last) {
+				if draft := tools.fallback(); draft != "" && (nudged || final) {
 					return draft, nil
 				}
-				if nudged || last {
+				if nudged || final {
+					if errors.Is(err, errProgramTooLong) {
+						return "", err
+					}
 					return "", errNotACard
 				}
 				nudged = true
-				messages = append(messages, reply, chat.WireMessage{Role: "user", Content: "Answer with the program only: the whole OpenUI Lang program from the root = Panel(...) line on."})
+				nudge := "Answer with the program only: the whole OpenUI Lang program from the root = Panel(...) line on."
+				if errors.Is(err, errProgramTooLong) {
+					nudge = fmt.Sprintf("That program is longer than a card may be (%d characters at most). Answer with a shorter whole program: fewer blocks, rows or words.", dashboardCardMaxProgram)
+				}
+				messages = append(messages, reply, chat.WireMessage{Role: "user", Content: nudge})
 				continue
 			}
-			if tools != nil && tools.load != nil && !sentBack && !last {
+			if tools != nil && tools.load != nil && !sentBack && !final {
 				if checked, err := tools.check(ctx, program); err == nil && len(checked.Problems) > 0 {
 					sentBack = true
 					messages = append(messages, reply, chat.WireMessage{Role: "user", Content: "Timely drew this program from the person's data and found problems:\n- " + strings.Join(checked.Problems, "\n- ") + "\nFix them and answer with the whole program again. When one can't be fixed, leave that part out."})
@@ -412,28 +463,128 @@ func dashboardCardMessages(req dashboardCardRequest, v viewVocab, sheets []sheet
 	} else {
 		fmt.Fprintf(&b, "\nWords: %s\n", req.Prompt)
 	}
-	return []chat.WireMessage{{Role: "system", Content: boardPrompt}, {Role: "user", Content: b.String()}}
+	// The board prompt (with the tools) is the same for every card: cached.
+	return []chat.WireMessage{{Role: "system", Content: boardPrompt, Cache: true}, {Role: "user", Content: b.String()}}
 }
 
 var (
 	programFence = regexp.MustCompile("(?s)```[\\w-]*[ \\t]*\\n(.*?)(?:\\n```|$)")
 	programRoot  = regexp.MustCompile(`(?m)^root\s*=\s*Panel\(`)
+	// programStatement starts a statement (`name = ...`); programPart starts
+	// the rest of one written over several lines (an indented line, a
+	// closing bracket, the next item of a list) or is a comment (`//` and
+	// `#`, which the parser skips).
+	programStatement = regexp.MustCompile(`^[A-Za-z_$][\w$]*\s*=[^=]`)
+	programPart      = regexp.MustCompile(`^(\s|[\])},"\[@#]|//|[A-Z]\w*\()`)
 )
 
-// boardProgram takes the program out of the model's answer: inside a code
-// fence when there is one, from the `root = Panel(` line on.
+// errProgramTooLong is a program over dashboardCardMaxProgram characters.
+var errProgramTooLong = errors.New("the program is too long")
+
+// programLength counts a program as the apps do (DESCRIBED_MAX_PROGRAM is a
+// JavaScript string length): Japanese takes one unit, not three bytes.
+func programLength(program string) int {
+	n := 0
+	for _, r := range program {
+		n += utf16.RuneLen(r)
+	}
+	return n
+}
+
+// boardProgram takes the program out of the model's answer: from the code
+// fence that holds `root = Panel(` when there is one, the root statement
+// first, then the statements after it up to any prose, then the ones
+// written above it.
 func boardProgram(answer string) (string, error) {
 	text := cleanWritten(answer, false)
-	if match := programFence.FindStringSubmatch(text); match != nil {
-		text = match[1]
+	for _, match := range programFence.FindAllStringSubmatch(text, -1) {
+		if programRoot.MatchString(match[1]) {
+			text = match[1]
+			break
+		}
 	}
 	loc := programRoot.FindStringIndex(text)
 	if loc == nil {
 		return "", errors.New("no Panel root in the answer")
 	}
-	program := strings.TrimSpace(text[loc[0]:])
-	if len(program) > dashboardCardMaxProgram {
-		return "", errors.New("the program is too long")
+	// A line inside an open bracket is part of its statement, whatever it
+	// starts with; between statements, a line that is not a program's ends
+	// the program ("This card shows your overdue tasks.").
+	after := strings.Split(text[loc[0]:], "\n")
+	lines := []string{after[0]}
+	depth := bracketDepth(0, after[0])
+	for _, line := range after[1:] {
+		if depth == 0 && !programLine(line) {
+			break
+		}
+		lines = append(lines, line)
+		depth = bracketDepth(depth, line)
+	}
+	// Above the root, the program is the run of lines after the last one
+	// that is not a program's.
+	above := strings.Split(strings.TrimRight(text[:loc[0]], "\n"), "\n")
+	start, depth := -1, 0
+	for i, line := range above {
+		if depth == 0 {
+			if !programLine(line) {
+				start = -1
+			} else if start < 0 {
+				start = i
+			}
+		}
+		depth = bracketDepth(depth, line)
+	}
+	if start >= 0 && depth == 0 {
+		lines = append(lines, above[start:]...)
+	}
+	var kept []string
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			kept = append(kept, strings.TrimRight(line, " \t"))
+		}
+	}
+	program := strings.Join(kept, "\n")
+	if programLength(program) > dashboardCardMaxProgram {
+		return "", errProgramTooLong
 	}
 	return program, nil
+}
+
+// programLine reports whether a line belongs to a program: blank, a
+// statement, or part of one.
+func programLine(line string) bool {
+	return strings.TrimSpace(line) == "" || programStatement.MatchString(line) || programPart.MatchString(line)
+}
+
+// bracketDepth is how many brackets are open after line, given depth open
+// before it: brackets in strings and comments don't count, and a line
+// that closes more than is open leaves none open.
+func bracketDepth(depth int, line string) int {
+	var quote rune
+	escaped, slash := false, false
+	for _, r := range line {
+		if quote != 0 {
+			if escaped {
+				escaped = false
+			} else if r == '\\' {
+				escaped = true
+			} else if r == quote {
+				quote = 0
+			}
+			continue
+		}
+		if r == '#' || (r == '/' && slash) {
+			break
+		}
+		slash = r == '/'
+		switch r {
+		case '"', '\'':
+			quote = r
+		case '(', '[', '{':
+			depth++
+		case ')', ']', '}':
+			depth = max(0, depth-1)
+		}
+	}
+	return depth
 }

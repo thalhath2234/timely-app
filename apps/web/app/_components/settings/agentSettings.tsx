@@ -507,13 +507,16 @@ function OpenRouterCard({ data }: { data: AgentProviders }) {
             data-testid="reindex-progress"
           >
             <LogoSpinner size={14} label="Rebuilding" />
-            Rebuilding search index… {reindex.done}
-            {reindex.total ? ` / ${reindex.total}` : ""}
+            Rebuilding search index…
+            {reindex.total ? ` ${reindex.done} / ${reindex.total}` : ""}
           </div>
         )}
         {reindex.status === "done" && (
           <p className="text-xs text-muted-foreground">
             Search index up to date ({reindex.total} items).
+            {reindex.skipped
+              ? ` ${reindex.skipped === 1 ? "1 item was" : `${reindex.skipped} items were`} skipped because your AI provider refused ${reindex.skipped === 1 ? "it" : "them"}.`
+              : ""}
           </p>
         )}
         {reindex.status === "retrying" && (
@@ -1197,15 +1200,22 @@ function DecisionsCard() {
   const ts = data.typesafe;
   const showForm = editingKey || (!ts.keySet && !data.openrouterKeySet);
   // Suggestions run on Jev, so they switch on only with a key it can use.
-  const hasKey = (ts.keySet && !ts.rejected) || data.openrouterKeySet;
+  const hasKey = (ts.keySet && !ts.rejected && !ts.unreadable) || data.openrouterKeySet;
   let source: string;
-  if (!hasKey) source = ts.rejected ? "TypeSafe refused your key. Add a working TypeSafe or OpenRouter key to turn these on." : "Add a TypeSafe or OpenRouter key to turn these on.";
+  if (!hasKey)
+    source = ts.unreadable
+      ? "Timely can't read your saved TypeSafe key. Enter it again, or add an OpenRouter key, to turn these on."
+      : ts.rejected
+        ? "TypeSafe refused your key. Add a working TypeSafe or OpenRouter key to turn these on."
+        : "Add a TypeSafe or OpenRouter key to turn these on.";
   else if (!data.enabled) source = "Off. Timely works as it does without them.";
   else if (data.provider === "typesafe") source = "Using your TypeSafe key.";
   else if (data.provider === "openrouter")
-    source = ts.rejected
-      ? "TypeSafe refused your key, so your OpenRouter key is used for now."
-      : "Using your OpenRouter key. A TypeSafe key is used first when you add one.";
+    source = ts.unreadable
+      ? "Timely can't read your saved TypeSafe key, so your OpenRouter key is used for now."
+      : ts.rejected
+        ? "TypeSafe refused your key, so your OpenRouter key is used for now."
+        : "Using your OpenRouter key. A TypeSafe key is used first when you add one.";
   else source = "Add a TypeSafe or OpenRouter key to turn these on.";
 
   return (
@@ -1222,7 +1232,7 @@ function DecisionsCard() {
             {data.available ? (
               <Badge tone="ok">On</Badge>
             ) : !hasKey ? (
-              <Badge tone="warn">Needs a key</Badge>
+              <Badge tone="warn">{ts.keySet ? "Key not working" : "Needs a key"}</Badge>
             ) : (
               <Badge tone="muted">Off</Badge>
             )}
@@ -1257,7 +1267,9 @@ function DecisionsCard() {
               {errorMessage(setEnabled.error, "Could not change smart suggestions.")}
             </p>
           )}
-          {data.available && (
+          {/* Test also asks TypeSafe again about a key it refused; if it takes
+              the key now, suggestions use it again. */}
+          {(data.available || (data.enabled && ts.rejected)) && (
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -1321,7 +1333,11 @@ function DecisionsCard() {
         {!showForm ? (
           <div className="flex flex-wrap items-center gap-2">
             {ts.keySet ? (
-              ts.rejected ? (
+              ts.unreadable ? (
+                <Badge tone="danger">
+                  <CircleAlert className="size-3" /> Key can&apos;t be read {ts.keyHint}
+                </Badge>
+              ) : ts.rejected ? (
                 <Badge tone="danger">
                   <CircleAlert className="size-3" /> Key refused {ts.keyHint}
                 </Badge>
@@ -1587,7 +1603,7 @@ function DecisionPrefs({ data }: { data: DecisionsView }) {
 }
 
 export default function AgentSettings() {
-  const { data, isLoading, error, refetch } = useAgentProviders();
+  const { data, isLoading, error, refetch } = useAgentProviders({ watchReindex: true });
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">

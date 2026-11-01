@@ -51,11 +51,31 @@ export interface JobRecord {
   maxAttempts: number;
   lastError?: string;
   lockedAt?: string;
-  lockedBy?: string;
   startedAt?: string;
   finishedAt?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+const jobKindLabels: Record<string, string> = {
+  send_reminder: "Reminder",
+  daily_digest: "Daily digest",
+  overdue_task: "Overdue task alert",
+  missed_block: "Missed time block alert",
+  start_soon: "Starting soon alert",
+  send_push: "Push notification",
+  create_backup: "Backup",
+  index_entity: "Search index update",
+  reindex_user: "Search index rebuild",
+  smart_alerts: "Smart alerts",
+};
+
+/** The name a person sees for a job kind; a kind added later reads as words. */
+export function jobKindLabel(kind: string): string {
+  const label = jobKindLabels[kind];
+  if (label) return label;
+  const words = kind.replace(/_/g, " ").trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : "Job";
 }
 
 export interface JobHealth {

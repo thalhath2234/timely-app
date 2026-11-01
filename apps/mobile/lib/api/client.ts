@@ -160,6 +160,8 @@ type RequestOptions = {
   headers?: Record<string, string>;
   queueIfOffline?: boolean;
   response?: boolean;
+  /** Drops the request (and the server's work on it) when the screen gives up on it. */
+  signal?: AbortSignal;
 };
 
 let refreshInFlight: Promise<boolean> | null = null;
@@ -213,6 +215,7 @@ export async function api<T>(path: string, options: RequestOptions = {}, retried
       method,
       headers,
       body: body === undefined ? undefined : multipart ? body : JSON.stringify(body),
+      signal: options.signal,
     });
   } catch (error) {
     if (queueIfOffline && getOfflineQueueUser()) {

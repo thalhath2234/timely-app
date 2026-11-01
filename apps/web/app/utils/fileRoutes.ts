@@ -9,7 +9,7 @@ export const FILES_PATH = "/files";
 export type FileKind = "doc" | "sheet" | "template";
 
 export function fileHref(id: string) {
-  return `${FILES_PATH}/${id}`;
+  return `${FILES_PATH}/${encodeURIComponent(id)}`;
 }
 
 export function fileKind(id: string): FileKind {

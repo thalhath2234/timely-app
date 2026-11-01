@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"timely-api/internal/models"
+
 	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -35,6 +37,9 @@ func TestRestorePostgresRoundTrip(t *testing.T) {
 	suffix := fmt.Sprint(time.Now().UnixNano())
 	userID, workspaceID, statusID, taskID := "usr_restore_"+suffix, "ws_restore_"+suffix, "tst_restore_"+suffix, "tsk_restore_"+suffix
 	if err := tx.Exec(`INSERT INTO users (id,email,name,password,created_at,updated_at) VALUES (?,?,?,?,?,?)`, userID, "restore-"+suffix+"@example.test", "Restore Test", "not-a-login", "2026-09-13", "2026-09-13").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Create(&models.Config{ID: "cfg_restore_" + suffix, UserID: userID, TaskViews: models.DefaultTaskViews(), ActiveTaskViewId: "view_task_list"}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Exec(`INSERT INTO workspaces (id,name,user_id,created_at,updated_at) VALUES (?,?,?,?,?)`, workspaceID, "Private", userID, "2026-09-13", "2026-09-13").Error; err != nil {

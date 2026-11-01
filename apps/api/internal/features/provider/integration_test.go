@@ -408,8 +408,8 @@ func TestIntegrationDirectAPIProviders(t *testing.T) {
 		t.Fatalf("models without a key: %d", code)
 	}
 
-	// Anthropic: a bad key is rejected with Anthropic's own message; a good one is stored encrypted.
-	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": "sk-ant-badkey"}); code != 409 || !strings.Contains(body["message"].(string), "invalid x-api-key") {
+	// Anthropic: a bad key is rejected in plain words; a good one is stored encrypted.
+	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": "sk-ant-badkey"}); code != 409 || !strings.Contains(body["message"].(string), "didn't accept the API key (HTTP 401)") {
 		t.Fatalf("bad key: %d %v", code, body)
 	}
 	code, body = call(t, s, "user-a", http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": "sk-ant-goodkey"})

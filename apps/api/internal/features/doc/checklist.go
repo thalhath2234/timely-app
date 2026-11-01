@@ -26,6 +26,9 @@ type ChecklistTick struct {
 // ErrNoChecklistItem is a tick for an item the doc no longer has.
 var ErrNoChecklistItem = errors.New("the doc no longer has this item")
 
+// ErrArchivedChecklist is a tick for an item in an archived doc.
+var ErrArchivedChecklist = errors.New("the doc is archived")
+
 // checklistLocks holds a lock per doc, so two quick ticks on one list read
 // and save the doc one after the other and neither undoes the other.
 var checklistLocks sync.Map
@@ -45,11 +48,19 @@ func (s *documentService) SetChecklistItem(userID, documentID string, tick Check
 	if err != nil {
 		return nil, err
 	}
+	// A card or reply can still name an archived doc; it is read-only until
+	// it is restored, as it is in the editor's lists.
+	if current.ArchivedAt != nil {
+		return nil, ErrArchivedChecklist
+	}
 	content := current.Content
 	if content == nil {
 		return nil, ErrNoChecklistItem
 	}
 	_, changed, err := richtext.SetChecklistItem(content, tick.Item, tick.Text, tick.Done)
+	if errors.Is(err, richtext.ErrAmbiguousChecklistItem) {
+		return nil, err
+	}
 	if err != nil {
 		return nil, ErrNoChecklistItem
 	}
@@ -72,6 +83,12 @@ func (h *Handler) SetChecklistItem(c *echo.Context) error {
 	document, err := h.documentService.SetChecklistItem(userID, c.Param("id"), tick)
 	if errors.Is(err, ErrNoChecklistItem) {
 		return echo.NewHTTPError(http.StatusConflict, "The doc no longer has this item. Open the doc to tick it there")
+	}
+	if errors.Is(err, richtext.ErrAmbiguousChecklistItem) {
+		return echo.NewHTTPError(http.StatusConflict, "The doc has more than one item with these words. Open the doc to tick the right one")
+	}
+	if errors.Is(err, ErrArchivedChecklist) {
+		return echo.NewHTTPError(http.StatusConflict, "This doc is archived. Restore it to tick its items")
 	}
 	if err != nil {
 		return documentError(err)

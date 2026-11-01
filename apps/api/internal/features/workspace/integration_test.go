@@ -45,7 +45,10 @@ func integrationDB(t *testing.T) *gorm.DB {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { sqlDB, _ := db.DB(); sqlDB.Close() })
-	if err = db.AutoMigrate(&models.User{}, &models.Workspace{}, &models.Project{}, &models.Task{}, &models.Status{}, &models.Lable{}, &models.CustomField{}); err != nil {
+	// Documents, sheets, events and embeddings: a workspace delete clears the
+	// index rows of the items it takes with it.
+	if err = db.AutoMigrate(&models.User{}, &models.Workspace{}, &models.Project{}, &models.Task{}, &models.Status{}, &models.Lable{}, &models.CustomField{},
+		&models.Document{}, &models.Sheet{}, &models.Event{}, &models.Embedding{}); err != nil {
 		t.Fatal(err)
 	}
 	return db

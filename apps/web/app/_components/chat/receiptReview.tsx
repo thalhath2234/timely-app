@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState, type RefObject } from "react";
 import {
   AlertCircle,
   ArrowRight,
@@ -53,16 +53,26 @@ export default function ReceiptReview({
   pending,
   act,
   onDirty,
+  draftRef,
 }: {
   chat: Chat;
   pending: boolean;
   onDirty: () => void;
+  /** Holds the form's current draft for a message sent during the review. */
+  draftRef?: RefObject<ReceiptDraft | null>;
   act: (action: string, body?: unknown) => void;
 }) {
   const review = chat.imageReview!;
   const [draft, setDraft] = useState<ReceiptDraft>(() =>
     structuredClone(review.receipt!),
   );
+  useEffect(() => {
+    if (!draftRef) return;
+    draftRef.current = draft;
+    return () => {
+      draftRef.current = null;
+    };
+  }, [draft, draftRef]);
   const [chosenDestination, setChosenDestination] = useState<
     ReceiptDestination | undefined
   >(review.destination);

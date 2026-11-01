@@ -82,10 +82,12 @@ type Conversation struct {
 	Revision       int               `json:"revision"`
 	Unread         bool              `json:"unread"`
 	Error          string            `json:"error"`
-	Lease          string            `json:"-"`
-	LeaseUntil     *time.Time        `json:"-"`
-	CreatedAt      time.Time         `json:"createdAt"`
-	UpdatedAt      time.Time         `json:"updatedAt"`
+	// ErrorAction says what the person can do about Error (failure.go).
+	ErrorAction string     `json:"errorAction,omitempty"`
+	Lease       string     `json:"-"`
+	LeaseUntil  *time.Time `json:"-"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
 func (Conversation) TableName() string { return "agent_conversations" }

@@ -23,7 +23,12 @@ export type WriteKind = "doc" | "task" | "project";
 export type WriteRequest = {
   action: WriteAction;
   prompt?: string;
+  /** The selected text, plain, for an API from before `selectionDoc`. */
   selection?: string;
+  /** The selected part of the doc as a doc (see WriteSpot for its shape).
+   * The API reads it as Markdown, so links, @mentions, tick boxes and tables
+   * reach the model and come back in its answer. */
+  selectionDoc?: DocContent;
   kind: WriteKind;
   title?: string;
   /** Plain text, for an API from before `doc`. */
@@ -32,11 +37,57 @@ export type WriteRequest = {
    * API reads it as Markdown, so the model sees the checklists, lists and
    * headings around that spot, not just the words. */
   doc?: DocContent;
+  /** The cursor typed into `doc` for this request (writeCursorMark), so a
+   * doc that holds the word WRITE_CURSOR keeps it. */
+  cursorMark?: string;
 };
 
 /** Typed into a copy of the doc where the draft goes; the API shows it to
  * the model as <cursor/>. Letters only, so Markdown leaves it alone. */
 export const WRITE_CURSOR = "TIMELYWRITECURSOR";
+
+/** WRITE_CURSOR with random capital letters after it, new for each request:
+ * a doc that mentions WRITE_CURSOR itself can't be taken for the cursor. */
+export function writeCursorMark(random: () => number = Math.random): string {
+  let letters = "";
+  for (let i = 0; i < 10; i++) letters += String.fromCharCode(65 + Math.floor(random() * 26));
+  return WRITE_CURSOR + letters;
+}
+
+/** The most characters the prompt box takes (writeMaxPrompt in the API, which
+ * counts characters the same way), so nothing typed is cut without a word. */
+export const WRITE_MAX_PROMPT = 2000;
+
+/** What the panel says when an answer has nothing in it to insert, such as
+ * a lone "- [ ]" (the API says the same for an empty one). */
+export const WRITE_EMPTY = "The AI returned an empty answer. Try again.";
+
+/** Whether an answer for a task or project description takes the place of
+ * the whole description: "Rewrite description" (describe, with text there)
+ * writes a new one, which Insert would put inside the old one. */
+export const replacesAll = (kind: WriteKind, action: WriteAction, hasText: boolean) =>
+  kind !== "doc" && action === "describe" && hasText;
+
+/** The most selected text a rewrite takes, in UTF-8 bytes of Markdown
+ * (writeMaxSelection in apps/api/internal/features/provider/write.go). A
+ * longer selection is refused, never cut, because Replace puts the answer
+ * over all of it. */
+export const WRITE_MAX_SELECTION = 20_000;
+
+/** What the panel and the API say about a longer selection. */
+export const WRITE_TOO_LONG =
+  "That's too much text to rewrite at once. Select up to about 3,000 words and try again.";
+
+/** WRITE_TOO_LONG in the words of the action: Summarize doesn't rewrite. */
+export const writeTooLong = (action: WriteAction) =>
+  action === "summarize"
+    ? "That's too much text to summarize at once. Select up to about 3,000 words and try again."
+    : WRITE_TOO_LONG;
+
+/** Whether selected text is over WRITE_MAX_SELECTION. The API measures the
+ * Markdown, which links and @mentions make a little longer than this text,
+ * so it can still refuse a selection just under the limit. */
+export const selectionTooLong = (text: string) => new TextEncoder().encode(text).length > WRITE_MAX_SELECTION;
 
 /** The lists a draft can join as more items. */
 export type WriteList = "taskList" | "bulletList" | "orderedList";
@@ -44,8 +95,13 @@ export type WriteList = "taskList" | "bulletList" | "orderedList";
 export const isWriteList = (type: unknown): type is WriteList =>
   type === "taskList" || type === "bulletList" || type === "orderedList";
 
-/** `text` is Markdown. */
-export type WriteResult = { text: string; provider: string; model: string };
+/** `text` is Markdown. `shortened`: the doc was too long to read whole, so
+ * a summary, description or continuation comes from its start and end. */
+export type WriteResult = { text: string; provider: string; model: string; shortened?: boolean };
+
+/** What the panel says above a draft from a shortened doc. */
+export const shortenedNote = (kind: WriteKind) =>
+  `This ${kind === "doc" ? "doc" : "description"} is long, so the AI read its start and end but not the middle.`;
 
 /** The error code (409 body `code`, a failed chat's `errorCode`) of a feature
  * that runs on the default provider while the person has not chosen one in
@@ -168,4 +224,74 @@ export function writtenContent(
   if (items && into) blocks = [{ type: into, content: items }];
   const inline = only?.type === "paragraph" ? ((only.content ?? []) as DocContent[]) : null;
   return { blocks, inline, items };
+}
+
+/**
+ * Where the selected text sits, as the editor reads it when Help me write
+ * opens (captureSelection in the web's helpMeWrite.tsx, writeInfo in the
+ * phone's editorHtml.ts). Replace only ever puts the answer over exactly
+ * what was sent, so a selection is one of:
+ * - "line": words inside one line (a paragraph, heading, list item's line or
+ *   table cell's line). `whole` when they are the line's whole text; `in`
+ *   says what holds the line, with the item's `list` and whether the line is
+ *   the item's only content (`alone`, no sub-items).
+ * - "items": whole items of one list (`list`), with their sub-items. A
+ *   selection across items grows to them.
+ * - "blocks": whole blocks of the doc, a callout, a column or a table cell
+ *   (`in`). A selection across lines grows to the blocks it touches; across
+ *   table cells it grows to the whole table.
+ */
+export type WriteSpot =
+  | { kind: "line"; whole: boolean; in: "block" | "item" | "cell"; list?: WriteList | null; alone?: boolean }
+  | { kind: "items"; list: WriteList }
+  | { kind: "blocks"; in: "block" | "cell" };
+
+/** How an answer replaces the selection:
+ * - "inline": a one-paragraph answer goes over the selected words;
+ * - "line": the answer's blocks take the place of the selected line;
+ * - "item": the answer's items take the place of the line's list item;
+ * - "items" / "blocks": the answer's items or blocks take the place of the
+ *   selected items or blocks.
+ * null: the answer does not fit there (a list for a few words of a line, a
+ * table in a table cell), so Replace is not offered; Insert below still is. */
+export type WriteFit = "inline" | "line" | "item" | "items" | "blocks" | null;
+
+/** The list an answer for this selection is read into (writtenContent's
+ * `into`), so items come back as items of the selected list. */
+export const spotList = (spot: WriteSpot | null | undefined): WriteList | null =>
+  spot && (spot.kind === "items" || (spot.kind === "line" && spot.in === "item")) ? (spot.list ?? null) : null;
+
+type Written = ReturnType<typeof writtenContent>;
+
+const hasTable = (blocks: DocContent[]) => blocks.some((block) => block.type === "table");
+
+/** Whether and how `answer` (writtenContent(text, spotList(spot))) can
+ * replace the selection. It never reaches past the selection: a list answer
+ * for some words of a list item does not take the whole item, and nothing
+ * nests a list in a line or a table in a table. */
+export function replaceFit(spot: WriteSpot, answer: Written): WriteFit {
+  if (!answer.blocks.length) return null;
+  if (spot.kind === "line") {
+    if (answer.inline) return "inline";
+    if (!spot.whole) return null;
+    if (spot.in === "block") return "line";
+    if (spot.in === "item" && spot.alone && answer.items) return "item";
+    return null;
+  }
+  if (spot.kind === "items") return answer.items ? "items" : null;
+  if (spot.in === "cell" && hasTable(answer.blocks)) return null;
+  return "blocks";
+}
+
+/** Where Insert below puts `answer`:
+ * - "afterItem": its items join the list right after the line's item;
+ * - "afterItems" / "afterBlocks": right after the selected items or blocks;
+ * - "afterBlock": after the doc's top-level block the selection ends in. */
+export type WriteBelow = "afterItem" | "afterItems" | "afterBlocks" | "afterBlock";
+
+export function belowFit(spot: WriteSpot, answer: Written): WriteBelow {
+  if (spot.kind === "line") return spot.in === "item" && answer.items ? "afterItem" : "afterBlock";
+  if (spot.kind === "items") return answer.items ? "afterItems" : "afterBlock";
+  if (spot.in === "cell" && hasTable(answer.blocks)) return "afterBlock";
+  return "afterBlocks";
 }

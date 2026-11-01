@@ -35,6 +35,14 @@ type Service struct {
 	briefing     Briefer // nil until SetBriefing
 	triageSlots  chan struct{}
 	triageWait   sync.WaitGroup
+	// triagePending holds each account's notifications waiting for a step;
+	// an account is listed while its runTriage runs.
+	triageMu      sync.Mutex
+	triagePending map[string][]triageWork
+	triageGather  time.Duration
+	// briefSlots are the morning briefing's own, so a triage backlog never
+	// holds a briefing back.
+	briefSlots chan struct{}
 
 	// Smart suggestions' status and feedback; nil until SetDecisions.
 	decisionsOn func(ctx context.Context, userID string) bool
@@ -48,6 +56,9 @@ type Service struct {
 	// reminderSwept is when each account's reminders were last swept, so a
 	// sweep after a gap (the computer slept, the app was closed) catches up.
 	reminderSwept map[string]time.Time
+	// smartOffUntil is when the sweep next asks whether an account without
+	// smart suggestions has them now; sweepSmartAlerts fills it.
+	smartOffUntil map[string]time.Time
 }
 
 func NewService(db *gorm.DB, queue *jobs.Queue, calendar calendar.Service, tasks task.TaskService, scheduler schedule.Service, indexer embed.Indexer) *Service {
@@ -61,6 +72,10 @@ func NewService(db *gorm.DB, queue *jobs.Queue, calendar calendar.Service, tasks
 		http:         &http.Client{Timeout: 15 * time.Second},
 		overdueSwept: map[string]time.Time{},
 		triageSlots:  make(chan struct{}, triageParallel),
+
+		triagePending: map[string][]triageWork{},
+		triageGather:  triageGather,
+		briefSlots:    make(chan struct{}, briefParallel),
 	}
 }
 
@@ -825,6 +840,12 @@ func (s *Service) HandleDigest(ctx context.Context, job *models.Job) error {
 	if kind == "evening" && !settings.DigestEvening {
 		return nil
 	}
+	// A digest for an earlier day (retried, or run late) is stale: it would
+	// count today's work and brief it against that day's date.
+	loc := settings.Location(s.repo.WorkingHoursTimezone(job.UserID))
+	if day := job.Payload.String("date"); day != "" && day < time.Now().In(loc).Format("2006-01-02") {
+		return nil
+	}
 	tz := job.Payload.String("timezone")
 	today, err := s.calendar.Today(job.UserID, job.Payload.String("date"), tz)
 	if err != nil {
@@ -924,15 +945,16 @@ func (s *Service) HandleIndex(ctx context.Context, job *models.Job) error {
 	if s.indexer == nil {
 		return nil
 	}
-	err := s.indexer.IndexDocument(ctx, embed.Document{
-		UserID:   job.UserID,
-		Kind:     job.Payload.String("kind"),
-		EntityID: job.Payload.String("entityId"),
-		Title:    job.Payload.String("title"),
-		Body:     job.Payload.String("body"),
-	})
+	// The job names the item; its text is read now, so a job that waited
+	// through edits indexes the latest one and a deleted item is skipped.
+	err := s.indexer.IndexEntity(ctx, job.UserID, job.Payload.String("kind"), job.Payload.String("entityId"))
 	if errors.Is(err, embed.ErrDisabled) {
 		return nil
+	}
+	if embed.Permanent(err) {
+		// A refused key, no credits or a refused text: trying again later
+		// would only be refused again.
+		return jobs.Permanent(err)
 	}
 	return err
 }

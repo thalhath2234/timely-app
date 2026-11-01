@@ -126,12 +126,15 @@ export function checklistKey(text: string): string {
 }
 
 /** The item a CheckRow means: the one at `item` when its words still match,
- * else the first with those words. */
+ * else the only one with those words. When several items share the words and
+ * none is at `item`, it is not known which one was meant, so there is none
+ * (the server refuses such a tick too). */
 export function findChecklistItem(items: DocChecklistItem[], text: string, item?: number): DocChecklistItem | undefined {
   const key = checklistKey(text);
   const placed = typeof item === "number" ? items.find((entry) => entry.item === item) : undefined;
   if (placed && checklistKey(placed.text) === key) return placed;
-  return items.find((entry) => checklistKey(entry.text) === key);
+  const same = items.filter((entry) => checklistKey(entry.text) === key);
+  return same.length === 1 ? same[0] : undefined;
 }
 
 /** What `PUT /docs/:id/checklist` takes: the item by its place and words, and its new state. */
@@ -222,6 +225,9 @@ export async function draftChecklistTasks(
   doc: { title: string },
   ask: (body: ChecklistTasksRequest, signal: AbortSignal) => Promise<ChecklistTasksResult>,
   timeoutMs = CHECKLIST_TASKS_TIMEOUT_MS,
+  /** Told the error's message when the request failed (not when it was only
+   * slow), so the app can say why the items kept their own words. */
+  onFailed?: (message: string) => void,
 ): Promise<(ChecklistTaskDraft | null)[]> {
   const none = todos.map(() => null);
   const sent = todos.slice(0, MAX_DRAFTS);
@@ -247,11 +253,26 @@ export async function draftChecklistTasks(
       const description = typeof draft.description === "string" ? draft.description.replace(/\s+/g, " ").trim() : "";
       return { title, description };
     });
-  } catch {
+  } catch (error) {
+    if (!controller.signal.aborted) onFailed?.(error instanceof Error ? error.message : String(error));
     return none;
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** A note for the "Task added" toast when AI naming failed for a reason the
+ * person has to fix (a rejected key, no credit), from the API's message. A
+ * busy or slow provider says nothing: the next try may work. The API's
+ * catch-all text for an unexplained error ("check the model, key and
+ * credit, or retry") names credit too, so only the provider's own words
+ * for it count; a 403 that isn't about the key (a flagged request) neither. */
+export function namingFailedNote(message: string): string | null {
+  if (/HTTP 401\b|rejected the request \(HTTP 403\)/.test(message)) return "AI naming skipped: your AI key was rejected (Settings → Agent keys).";
+  if (/HTTP 402\b|credit balance|insufficient (?:credit|funds|balance)|exceeded your current quota/i.test(message)) {
+    return "AI naming skipped: your AI provider is out of credit.";
+  }
+  return null;
 }
 
 /** A task description that keeps the item's extra words and links back to

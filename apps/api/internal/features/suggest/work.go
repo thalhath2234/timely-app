@@ -11,6 +11,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"gorm.io/gorm"
 	"timely-api/internal/features/decide"
+	"timely-api/internal/features/schedule"
+	"timely-api/internal/features/task"
 	"timely-api/internal/models"
 	"timely-api/internal/utils"
 )
@@ -48,6 +50,9 @@ type FieldSuggestion struct {
 type TaskHints struct {
 	Available bool   `json:"available"`
 	LogID     string `json:"logId,omitempty"`
+	// Error says why suggestions are on but the call failed, so failed hints
+	// do not look the same as no hints.
+	Error string `json:"error,omitempty"`
 
 	StatusID  string            `json:"statusId,omitempty"`
 	StageID   string            `json:"stageId,omitempty"`
@@ -153,7 +158,7 @@ func (s *Service) TaskHints(ctx context.Context, userID, taskID string) (TaskHin
 	if len(stages) > 0 {
 		opts := []decide.Option{{Name: "none", Description: "None of these stages fits, or it is unclear"}}
 		for _, st := range stages {
-			name := uniqueName(st.Name, stageByName)
+			name := uniqueName(notSentinel(clip(st.Name, maxOptionRunes), "stage", "none"), stageByName)
 			stageByName[name] = st.ID
 			opts = append(opts, decide.Option{Name: name, Description: fmt.Sprintf("The project stage “%s”", clip(st.Name, 60))})
 		}
@@ -194,12 +199,14 @@ func (s *Service) TaskHints(ctx context.Context, userID, taskID string) (TaskHin
 					decide.Option{Name: "no", Description: "It clearly says no"},
 					decide.Option{Name: "unknown", Description: "It does not say"})
 			case models.CustomFieldTypeSelect:
-				if len(f.Options.Options) == 0 {
+				// With "unknown" a choice has room for MaxOptions-1 values; a
+				// field with more is skipped so the other hints still come.
+				if len(f.Options.Options) == 0 || len(f.Options.Options) > decide.MaxOptions-1 {
 					continue
 				}
 				opts := []decide.Option{{Name: "unknown", Description: "The description does not say"}}
 				for _, o := range f.Options.Options {
-					name := uniqueName(o.Value, ask.names)
+					name := uniqueName(notSentinel(clip(o.Value, maxOptionRunes), "value", "unknown"), ask.names)
 					ask.names[name] = o.ID
 					opts = append(opts, decide.Option{Name: name})
 				}
@@ -281,6 +288,7 @@ func (s *Service) TaskHints(ctx context.Context, userID, taskID string) (TaskHin
 
 	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "task_hints", State: state, Questions: questions})
 	if err != nil {
+		out.Error = failure(err)
 		return out, nil
 	}
 	out.LogID = a.LogID
@@ -302,12 +310,9 @@ func (s *Service) TaskHints(ctx context.Context, userID, taskID string) (TaskHin
 		f := ask.field
 		switch f.Type {
 		case models.CustomFieldTypeBoolean:
-			if v, ok := a.Choice(key, decide.Prefill); ok && v != "unknown" {
-				value := "false"
-				if v == "yes" {
-					value = "true"
-				}
-				out.Fields = append(out.Fields, FieldSuggestion{FieldID: f.ID, Type: string(f.Type), Value: value})
+			// Only a clear yes or no fills the field; anything else is unsure.
+			if v, ok := a.Choice(key, decide.Prefill); ok && (v == "yes" || v == "no") {
+				out.Fields = append(out.Fields, FieldSuggestion{FieldID: f.ID, Type: string(f.Type), Value: map[string]string{"yes": "true", "no": "false"}[v]})
 			}
 		case models.CustomFieldTypeSelect:
 			if v, ok := a.Choice(key, decide.Prefill); ok && v != "unknown" && ask.names[v] != "" {
@@ -460,7 +465,7 @@ type StaleWork struct {
 }
 
 func (s *Service) staleWork(c *echo.Context) error {
-	out, err := s.StaleWork(c.Request().Context(), user(c), time.Now())
+	out, err := s.StaleWork(c.Request().Context(), user(c), c.QueryParam("timezone"), time.Now())
 	if err != nil {
 		return err
 	}
@@ -469,8 +474,9 @@ func (s *Service) staleWork(c *echo.Context) error {
 
 // StaleWork lists open Work with no edits, comments or upcoming Blocks for
 // three weeks, oldest first, and asks Jev what each one needs. The idle
-// days are counted in code.
-func (s *Service) StaleWork(ctx context.Context, userID string, now time.Time) (StaleWork, error) {
+// days are counted in code. The date Jev reads is the person's: their saved
+// hours' zone, else timezone (the client's), as Today does.
+func (s *Service) StaleWork(ctx context.Context, userID, timezone string, now time.Time) (StaleWork, error) {
 	ctx, cancel := context.WithTimeout(ctx, workBudget)
 	defer cancel()
 	on, _ := s.decide.Status(ctx, userID)
@@ -497,8 +503,14 @@ func (s *Service) StaleWork(ctx context.Context, userID string, now time.Time) (
 			decide.Option{Name: "blocked", Description: "It is waiting on someone or something else"},
 			decide.Option{Name: "obsolete", Description: "It was tied to a date or event that has already passed, or is likely no longer needed"})
 	}
-	// Today's date lets Jev tell a task tied to a past date or event.
-	state := map[string]any{"today": now.Format("Monday 2 January 2006"), "tasks": list}
+	// Today's date lets Jev tell a task tied to a past date or event; it is
+	// the person's date, which can be a day ahead of or behind the server's.
+	hours, herr := schedule.NewRepository(s.db.WithContext(ctx)).GetWorkingHours(userID)
+	if herr != nil {
+		hours = models.WorkingHours{}
+	}
+	state := map[string]any{"today": task.TodayFor(hours, timezone, now).Now().Format("Monday 2 January 2006"), "tasks": list}
+	decide.Fit(state, list, "description", "title")
 	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "stale_work", State: state, Questions: questions})
 	for i, st := range stale {
 		item := StaleTask{ID: st.task.ID, Name: st.task.Name, IdleDays: st.days}

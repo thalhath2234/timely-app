@@ -93,6 +93,22 @@ func TestSetChecklistItemTicksOneItemInTheDocAsItIsNow(t *testing.T) {
 	}
 }
 
+// A card can still name a doc that was archived since: its items are not
+// ticked, and nothing is saved.
+func TestSetChecklistItemLeavesArchivedDocs(t *testing.T) {
+	doc := shoppingList()
+	archived := "2026-10-01T00:00:00Z"
+	doc.ArchivedAt = &archived
+	repo := &checklistRepo{doc: doc}
+	s := &documentService{repo: repo}
+	if _, err := s.SetChecklistItem("usr_1", "doc_1", ChecklistTick{Item: 1, Text: "Milk", Done: true}); !errors.Is(err, ErrArchivedChecklist) {
+		t.Fatalf("err = %v, want ErrArchivedChecklist", err)
+	}
+	if repo.updates != 0 {
+		t.Fatalf("an archived doc was saved %d times", repo.updates)
+	}
+}
+
 // Quick ticks on one list arrive together; each is saved on top of the one
 // before, so none is lost.
 func TestSetChecklistItemKeepsTicksThatArriveTogether(t *testing.T) {

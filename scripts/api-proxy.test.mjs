@@ -22,8 +22,8 @@ async function fakeApi(name) {
   return { origin: `http://127.0.0.1:${server.address().port}`, seen, close: () => new Promise((resolve) => server.close(resolve)) };
 }
 
-function request(method, url, { headers = {}, body = null } = {}) {
-  return { method, nextUrl: new URL(url), headers: new Headers(headers), body };
+function request(method, url, { headers = {}, body = null, signal = new AbortController().signal } = {}) {
+  return { method, nextUrl: new URL(url), headers: new Headers(headers), body, signal };
 }
 
 const params = (...path) => ({ params: Promise.resolve({ path }) });
@@ -96,4 +96,52 @@ test("an API that is not running answers 502, the gap the web client retries thr
   const response = await GET(request("GET", "http://web.test/api-proxy/health"), params("health"));
   assert.equal(response.status, 502);
   assert.match((await response.json()).message, /did not answer/);
+});
+
+test("a browser that stops waiting cancels the API request, so the API stops its AI call", async (t) => {
+  const saved = process.env.API_ORIGIN;
+  t.after(() => (saved === undefined ? delete process.env.API_ORIGIN : (process.env.API_ORIGIN = saved)));
+  // An API that takes its time answering, as an AI call does, and notes when
+  // the proxy hangs up on it.
+  let closed = false;
+  let arrived;
+  const reached = new Promise((resolve) => (arrived = resolve));
+  const slow = createServer((req, res) => {
+    req.resume();
+    arrived();
+    res.on("close", () => (closed = !res.writableFinished));
+    setTimeout(() => res.end("{}"), 5000).unref();
+  });
+  await new Promise((resolve) => slow.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => slow.close(resolve)));
+  process.env.API_ORIGIN = `http://127.0.0.1:${slow.address().port}`;
+
+  const browser = new AbortController();
+  const answer = POST(
+    request("POST", "http://web.test/api-proxy/agent/write", { body: new Blob(['{"action":"improve"}']).stream(), signal: browser.signal }),
+    params("agent", "write"),
+  );
+  await reached;
+  browser.abort();
+  const response = await answer;
+  assert.equal(response.status, 499);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(closed, true, "the API saw the request go away before it answered");
+});
+
+test("a streamed answer still flows through to the end", async (t) => {
+  const saved = process.env.API_ORIGIN;
+  t.after(() => (saved === undefined ? delete process.env.API_ORIGIN : (process.env.API_ORIGIN = saved)));
+  const stream = createServer((req, res) => {
+    res.setHeader("content-type", "text/event-stream");
+    res.write("data: one\n\n");
+    setTimeout(() => res.end("data: two\n\n"), 50);
+  });
+  await new Promise((resolve) => stream.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => stream.close(resolve)));
+  process.env.API_ORIGIN = `http://127.0.0.1:${stream.address().port}`;
+
+  const response = await GET(request("GET", "http://web.test/api-proxy/chat/stream"), params("chat", "stream"));
+  assert.equal(response.headers.get("content-type"), "text/event-stream");
+  assert.equal(await response.text(), "data: one\n\ndata: two\n\n");
 });
