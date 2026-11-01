@@ -127,8 +127,11 @@ function Card({ props, renderNode }: KitProps<"Card">) {
   const place = useContext(Place);
   const surface = useContext(Surface);
   // A chat card draws the twelve rows the prompt allows; each task row loads
-  // its task, so a runaway list would fire a request per row.
-  const rows = surface === "chat" ? genuiNodes(props.rows).slice(0, GENUI_MAX_ROWS) : props.rows;
+  // its task, so a runaway list would fire a request per row. The card says
+  // how many it left out, so a clipped list doesn't read as the whole list.
+  const all = genuiNodes(props.rows);
+  const rows = surface === "chat" ? all.slice(0, GENUI_MAX_ROWS) : props.rows;
+  const hidden = surface === "chat" ? all.length - GENUI_MAX_ROWS : 0;
   return (
     <View style={surface === "chat" ? styles.card : undefined} accessibilityLabel={props.title}>
       <View style={styles.head}>
@@ -144,6 +147,11 @@ function Card({ props, renderNode }: KitProps<"Card">) {
       <CardTitle.Provider value={props.title ?? ""}>
         <RowGroup rows={rows} renderNode={renderNode} />
       </CardTitle.Provider>
+      {hidden > 0 ? (
+        <View style={styles.more}>
+          <Text style={styles.moreText}>{hidden} more not shown</Text>
+        </View>
+      ) : null}
       {genuiOpenable(props.open) ? <View style={styles.foot}>{renderNode(props.open)}</View> : null}
     </View>
   );
@@ -645,6 +653,13 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingHorizontal: 14,
     paddingVertical: 11,
   },
+  more: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  moreText: { color: colors.mutedForeground, fontSize: 12 },
   row: {
     minHeight: 48,
     flexDirection: "row",

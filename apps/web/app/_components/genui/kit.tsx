@@ -137,8 +137,11 @@ function Card({ props, renderNode }: KitProps<"Card">) {
   const place = useContext(Place);
   const surface = useContext(Surface);
   // A chat card draws the twelve rows the prompt allows; each task row loads
-  // its task, so a runaway list would fire a request per row.
-  const rows = surface === "chat" ? genuiNodes(props.rows).slice(0, GENUI_MAX_ROWS) : props.rows;
+  // its task, so a runaway list would fire a request per row. The card says
+  // how many it left out, so a clipped list doesn't read as the whole list.
+  const all = genuiNodes(props.rows);
+  const rows = surface === "chat" ? all.slice(0, GENUI_MAX_ROWS) : props.rows;
+  const hidden = surface === "chat" ? all.length - GENUI_MAX_ROWS : 0;
   return (
     <section className={surface === "chat" ? CARD : "@container/card"} aria-label={props.title}>
       <header className="flex min-h-10 items-center gap-3 px-4 pb-1.5 pt-2.5">
@@ -159,6 +162,7 @@ function Card({ props, renderNode }: KitProps<"Card">) {
       <CardTitle.Provider value={props.title ?? ""}>
         <RowGroup rows={rows} renderNode={renderNode} />
       </CardTitle.Provider>
+      {hidden > 0 ? <p className="border-t border-border px-4 py-2 text-xs text-muted-foreground">{hidden} more not shown</p> : null}
       {genuiOpenable(props.open) ? <footer className="border-t border-border px-4 py-2.5">{renderNode(props.open)}</footer> : null}
     </section>
   );

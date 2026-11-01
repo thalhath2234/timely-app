@@ -55,7 +55,9 @@ export function ImagePreview({
   }, [image.id, image.expiresAt, removed]);
   if (removed || unavailable)
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-dashed border-border p-3 text-xs text-muted-foreground">
+      // The placeholder takes the color of the bubble it sits in, so it
+      // reads on the primary-colored message bubble as well as on a card.
+      <div className="flex items-center gap-2 rounded-xl border border-dashed border-current/35 p-3 text-xs opacity-80">
         <ImageIcon className="size-4" />
         Image removed
       </div>
