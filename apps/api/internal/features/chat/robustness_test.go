@@ -558,12 +558,14 @@ func TestFullProposalMustSayWhatRemains(t *testing.T) {
 
 // A remaining that only says nothing is left must not start another paid run.
 func TestRemainingInWordsThatNothingIsLeftIsDone(t *testing.T) {
-	for _, done := range []string{"No further changes needed.", "Nothing else remains", "None – this completes the request.", "No more changes.", "All done!", "N/A", "Complete."} {
+	for _, done := range []string{"No further changes needed.", "Nothing else remains", "None – this completes the request.", "No more changes.", "All done!", "N/A", "Complete.", "None, this completes the request.", "No further changes are needed.", "Nothing left to do.", "This batch completes the whole request."} {
 		if got := remainingWork(done); got != "" {
 			t.Errorf("%q read as work left: %q", done, got)
 		}
 	}
-	for _, left := range []string{"Workout days 31-35", "Create the other tasks from the list", "No due dates were given for the other 12 tasks: add them", "Nothing is scheduled yet for Tuesday through Friday; add those blocks and the reminders"} {
+	for _, left := range []string{"Workout days 31-35", "Create the other tasks from the list", "No due dates were given for the other 12 tasks: add them", "Nothing is scheduled yet for Tuesday through Friday; add those blocks and the reminders",
+		// Short, no number, and starting like "nothing left", but naming work.
+		"Complete the remaining renames in the Work project", "Done tasks in Home still need archiving", "None of the Friday tasks are scheduled yet", "Nothing for Tuesday or Friday yet; add those", "No reminders yet for the Friday meetings", "None – rename the Work tasks next"} {
 		if got := remainingWork(left); got != left {
 			t.Errorf("%q dropped: %q", left, got)
 		}
