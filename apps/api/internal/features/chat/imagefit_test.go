@@ -2,6 +2,7 @@ package chat
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"image/jpeg"
 	"os"
 	"testing"
+	"time"
 )
 
 // markedPhoto is a 40x20 JPEG with a red block at its top-left and a blue one
@@ -187,7 +189,7 @@ func TestStoredOversizedPhotoIsResizedBeforeItIsSent(t *testing.T) {
 	if err := os.WriteFile(imagePath("img_legacy"), legacy, 0600); err != nil {
 		t.Fatal(err)
 	}
-	sent, err := sendableImage("img_legacy", legacy)
+	sent, err := sendableImage(context.Background(), "img_legacy", legacy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +199,7 @@ func TestStoredOversizedPhotoIsResizedBeforeItIsSent(t *testing.T) {
 		t.Fatalf("sent %dx%d; stored copy updated: %v", config.Width, config.Height, bytes.Equal(stored, sent))
 	}
 	small := markedPhoto(t, 0)
-	if same, err := sendableImage("img_small", small); err != nil || !bytes.Equal(same, small) {
+	if same, err := sendableImage(context.Background(), "img_small", small); err != nil || !bytes.Equal(same, small) {
 		t.Fatal("a photo within the limits must be sent as stored")
 	}
 }
@@ -208,11 +210,31 @@ func TestResizingNeverBringsBackADiscardedPhoto(t *testing.T) {
 	// write it again.
 	t.Setenv("CHAT_IMAGE_DIR", t.TempDir())
 	legacy := photoOfSize(t, 9000, 1000, false)
-	sent, err := sendableImage("img_discarded", legacy)
+	sent, err := sendableImage(context.Background(), "img_discarded", legacy)
 	if err != nil || len(sent) == 0 {
 		t.Fatalf("err = %v", err)
 	}
 	if _, err := os.Stat(imagePath("img_discarded")); !os.IsNotExist(err) {
 		t.Fatalf("the discarded photo's file is back: %v", err)
+	}
+}
+
+func TestPhotosArePreparedFewAtATime(t *testing.T) {
+	// Resizing holds hundreds of MB, so a photo waits while every slot is
+	// taken, and gives up when its request ends.
+	for range cap(photoSlots) {
+		photoSlots <- struct{}{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err := preparePhoto(ctx, markedPhoto(t, 0))
+	for range cap(photoSlots) {
+		<-photoSlots
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v: a photo was prepared while every slot was taken", err)
+	}
+	if _, err := preparePhoto(context.Background(), markedPhoto(t, 0)); err != nil {
+		t.Fatal(err)
 	}
 }

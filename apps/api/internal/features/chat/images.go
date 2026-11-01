@@ -69,7 +69,7 @@ func (s *Service) uploadImage(c *echo.Context) error {
 	if err != nil || (format != "jpeg" && format != "png") || config.Width < 1 || config.Height < 1 || int64(config.Width)*int64(config.Height) > 20_000_000 {
 		return echo.NewHTTPError(400, "Use a JPEG or PNG image with at most 20 megapixels")
 	}
-	encoded, err := prepareImage(data)
+	encoded, err := preparePhoto(c.Request().Context(), data)
 	if errors.Is(err, errImageUnreadable) || errors.Is(err, errImageTooDetailed) {
 		return echo.NewHTTPError(400, err.Error())
 	}
@@ -239,7 +239,7 @@ func (s *Service) extractImages(ctx context.Context, c *Conversation) error {
 		if err != nil {
 			return fmt.Errorf("An image is no longer available. Please upload it again")
 		}
-		if data, err = sendableImage(a.ID, data); err != nil {
+		if data, err = sendableImage(ctx, a.ID, data); err != nil {
 			return err
 		}
 		request.ImageURLs = append(request.ImageURLs, "data:image/jpeg;base64,"+base64.StdEncoding.EncodeToString(data))

@@ -2,6 +2,7 @@ package chat
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
@@ -51,6 +52,23 @@ func prepareImage(data []byte) ([]byte, error) {
 	return encodeWithin(orient(clean, exifOrientation(data)), maxSentImageBytes)
 }
 
+// photoSlots bounds how many photos are decoded and resized at once. The
+// scaler holds a float buffer of the new width times the old height, about
+// 330 MB for a 20-megapixel photo, so many uploads at the same moment could
+// otherwise run the server out of memory.
+var photoSlots = make(chan struct{}, 2)
+
+// preparePhoto runs prepareImage once a slot is free.
+func preparePhoto(ctx context.Context, data []byte) ([]byte, error) {
+	select {
+	case photoSlots <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-photoSlots }()
+	return prepareImage(data)
+}
+
 // encodeWithin encodes img as a JPEG, lowering the quality until its base64
 // size is at most budget.
 func encodeWithin(img image.Image, budget int) ([]byte, error) {
@@ -80,13 +98,16 @@ func fitWithin(w, h, edge int) (int, int) {
 // sendableImage returns a stored photo within the provider's limits. Photos
 // stored before uploads were resized can be over them: those are resized here
 // and saved, so a retry never sends again a photo that can only be refused.
-func sendableImage(id string, data []byte) ([]byte, error) {
+func sendableImage(ctx context.Context, id string, data []byte) ([]byte, error) {
 	config, err := jpeg.DecodeConfig(bytes.NewReader(data))
 	tooWide := err == nil && max(config.Width, config.Height) > maxImageEdge
 	if !tooWide && base64.StdEncoding.EncodedLen(len(data)) <= maxSentImageBytes {
 		return data, nil
 	}
-	fitted, err := prepareImage(data)
+	fitted, err := preparePhoto(ctx, data)
+	if err != nil && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if err != nil {
 		return nil, fmt.Errorf("A photo is too large to read, and trying again won't help. Discard these images and upload a cropped or smaller photo")
 	}
