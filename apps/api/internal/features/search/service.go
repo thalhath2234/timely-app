@@ -7,6 +7,7 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"time"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/models"
 	"timely-api/internal/richtext"
@@ -43,6 +44,10 @@ type service struct {
 	db      *gorm.DB
 	indexer embed.Indexer
 }
+
+// queryEmbedBudget is how long a semantic search waits for its query's
+// embedding before answering with keyword hits alone. A var for tests.
+var queryEmbedBudget = 3 * time.Second
 
 func NewService(db *gorm.DB, indexer embed.Indexer) Service {
 	return &service{db: db, indexer: indexer}
@@ -152,7 +157,12 @@ func (s *service) vector(ctx context.Context, userID, query string, limit int, k
 			return nil, err
 		}
 	}
-	raw, err := s.indexer.Query(ctx, userID, query, limit, kinds)
+	// Embedding the query gets a short budget of its own: a slow provider
+	// otherwise held every search for its client timeout (25 s) before the
+	// keyword hits, which are ready in milliseconds, could be shown.
+	qctx, cancel := context.WithTimeout(ctx, queryEmbedBudget)
+	defer cancel()
+	raw, err := s.indexer.Query(qctx, userID, query, limit, kinds)
 	if err != nil {
 		return nil, err
 	}

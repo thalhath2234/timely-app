@@ -429,12 +429,31 @@ export function useSearchQuery(query: string) {
   }, [query]);
 
   const trimmed = debounced.trim();
-  const result = useQuery({
+  const enabled = trimmed.length > 0;
+  // Keyword hits are ready in milliseconds; the semantic ones wait on an
+  // embedding (up to a few seconds when the provider is slow). Keyword hits
+  // show first and the semantic answer replaces them when it arrives.
+  const semantic = useQuery({
     queryKey: keys.search(trimmed),
     queryFn: () => searchItems(trimmed),
-    enabled: trimmed.length > 0,
+    enabled,
   });
-  return { ...result, query: trimmed };
+  const keyword = useQuery({
+    queryKey: [...keys.search(trimmed), "keyword"],
+    queryFn: () => searchItems(trimmed, false),
+    enabled,
+  });
+  const data = semantic.data ?? keyword.data;
+  // No keyword hits is not "no results" while the semantic ones may still find some.
+  const waitingForSemantic = semantic.isFetching && !semantic.data && !keyword.data?.length;
+  return {
+    data,
+    // Fetching with nothing to show yet.
+    isFetching: (!data && (semantic.isFetching || keyword.isFetching)) || waitingForSemantic,
+    isError: semantic.isError && keyword.isError,
+    refetch: () => Promise.all([semantic.refetch(), keyword.refetch()]),
+    query: trimmed,
+  };
 }
 
 /**

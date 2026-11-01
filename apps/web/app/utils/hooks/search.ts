@@ -12,14 +12,32 @@ export function useSearch(query: string) {
   }, [query]);
 
   const trimmed = debounced.trim();
+  const enabled = trimmed.length > 0;
 
-  const result = useQuery({
+  // Keyword hits are ready in milliseconds; the semantic ones wait on an
+  // embedding (up to a few seconds when the provider is slow). Keyword hits
+  // show first and the semantic answer replaces them when it arrives.
+  const semantic = useQuery({
     queryKey: ["search", trimmed],
     queryFn: () => searchItems(trimmed),
-    enabled: trimmed.length > 0,
+    enabled,
   });
+  const keyword = useQuery({
+    queryKey: ["search", "keyword", trimmed],
+    queryFn: () => searchItems(trimmed, false),
+    enabled,
+  });
+  const data = semantic.data ?? keyword.data;
+  // No keyword hits is not "no results" while the semantic ones may still find some.
+  const waitingForSemantic = semantic.isFetching && !semantic.data && !keyword.data?.length;
 
-  return { ...result, query: trimmed };
+  return {
+    data,
+    // Fetching with nothing to show yet.
+    isFetching: (!data && (semantic.isFetching || keyword.isFetching)) || waitingForSemantic,
+    isError: semantic.isError && keyword.isError,
+    query: trimmed,
+  };
 }
 
 /** Jev's take on an already-debounced query. Nothing is requested while smart
