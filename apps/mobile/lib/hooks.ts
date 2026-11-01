@@ -4,6 +4,7 @@ import { getMe, listSessions, revokeOtherSessions, revokeSession } from "./api/a
 import { getTasks, getTask, updateTask, deleteTask, createTask, captureInbox, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks, duplicateTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, startFocus, pauseFocus, stopFocus, setTodayFocus, getFocusSessions } from "./api/tasks";
 import { getDocs, getDoc, getDocBacklinks, createDoc, updateDoc, deleteDoc, setChecklistItem, watchDoc, type DocWatchEvent } from "./api/docs";
 import { tickedContent, type ChecklistTickRequest } from "@timely/contract/docChecklist";
+import { relatedRefetchInterval, relatedStaleTime } from "@timely/contract/smartSearch";
 import type { CalendarRange, Doc, MentionEntityType, NotificationSettings, Project, Sheet, SheetTemplate, Task, TaskViewConfig, TodayResponse } from "./types";
 import { withOccurrenceDone, withTaskDone } from "@timely/contract/calendar";
 import { SEARCH_DEBOUNCE_MS, SEARCH_SETTLE_MS, searchQueryText } from "@timely/contract/searchQuery";
@@ -477,14 +478,17 @@ export function useSearchQuery(query: string) {
 export function useSmartSearchQuery(debouncedQuery: string, enabled = true) {
   const query = debouncedQuery.trim();
   const status = useDecisionsStatusQuery(enabled && query.length >= 2);
+  const on = status.data?.available === true;
   const result = useQuery({
     queryKey: keys.smartSearch(query),
     queryFn: ({ signal }) => smartSearch(query, signal),
-    enabled: enabled && query.length >= 2 && status.data?.available === true,
+    enabled: enabled && query.length >= 2 && on,
     staleTime: (q) => (q.state.data?.hits ? 5 * 60 * 1000 : 0),
     retry: false,
   });
-  return { ...result, query };
+  // A disabled query keeps its cached answer: one from before smart
+  // suggestions went off is not shown.
+  return { ...result, data: on ? result.data : undefined, query };
 }
 
 /** A suggested length for new Work with this title; quiet while Smart suggestions are off. */
@@ -500,16 +504,22 @@ export function useEstimateQuery(title: string, enabled = true) {
   });
 }
 
-/** Items related to one task, project, doc or sheet; quiet while Smart suggestions are off. */
+/** Items related to one task, project, doc or sheet, while smart suggestions are on. An empty list
+ * is asked again shortly: an item saved a moment ago is not indexed yet. */
 export function useRelatedQuery(kind: RelatedKind, id: string | undefined, enabled = true) {
   const status = useDecisionsStatusQuery(enabled && !!id);
-  return useQuery({
+  const on = status.data?.available === true;
+  const result = useQuery({
     queryKey: keys.related(kind, id ?? ""),
     queryFn: () => relatedItems(kind, id ?? ""),
-    enabled: enabled && !!id && status.data?.available === true,
-    staleTime: 10 * 60 * 1000,
+    enabled: enabled && !!id && on,
+    staleTime: (query) => relatedStaleTime(query.state),
+    refetchInterval: (query) => relatedRefetchInterval(query.state),
     retry: false,
   });
+  // A disabled query keeps its cached answer: one from before smart
+  // suggestions went off is not shown.
+  return on ? result : ({ ...result, data: undefined } as typeof result);
 }
 
 export function useApiKeysQuery() {

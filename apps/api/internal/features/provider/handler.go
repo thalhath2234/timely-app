@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+	"timely-api/internal/features/decide"
 	"timely-api/internal/features/embed"
 )
 
@@ -529,7 +530,8 @@ func (s *Service) configure(c *echo.Context) error {
 				}
 				dims, err := embed.Probe(ctx, key, value)
 				if err != nil {
-					return echo.NewHTTPError(409, "OpenRouter could not embed with this model: "+err.Error())
+					// OpenRouter can quote the key it refused.
+					return echo.NewHTTPError(409, "OpenRouter could not embed with this model: "+decide.HideKeys(err.Error(), key))
 				}
 				if dims != embed.VectorDims() {
 					return echo.NewHTTPError(409, fmt.Sprintf("This model produces %d-dimension vectors; Timely's search index needs %d. Pick a %d-dimension model such as openai/text-embedding-3-small", dims, embed.VectorDims(), embed.VectorDims()))

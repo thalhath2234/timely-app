@@ -1,3 +1,4 @@
+import { smartCreate } from "@timely/contract/smartSearch";
 import { api } from "./client";
 
 export type SearchKind = "task" | "project" | "doc" | "sheet" | "event" | string;
@@ -78,7 +79,7 @@ export async function smartSearch(query: string, signal?: AbortSignal): Promise<
     hits,
     hidden,
     category: data?.category || undefined,
-    create: data?.create?.kind && data.create.title?.trim() ? { kind: data.create.kind, title: data.create.title.trim() } : undefined,
+    create: smartCreate(data?.create),
     view: data?.view?.id && data.view.name?.trim() ? { id: data.view.id, name: data.view.name.trim() } : undefined,
     logId: data?.logId,
   };

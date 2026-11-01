@@ -318,12 +318,25 @@ func (r *workspaceRepository) CountByUser(userID string) (int64, error) {
 }
 
 func (r *workspaceRepository) DeleteWorkspace(userID, workspaceID string) error {
-	result := r.db.Where("id = ? AND user_id = ?", workspaceID, userID).Delete(&models.Workspace{})
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
-	}
-	return nil
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Where("id = ? AND user_id = ?", workspaceID, userID).Delete(&models.Workspace{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		// The workspace's projects, tasks, docs, sheets and events go with
+		// it (ON DELETE CASCADE); so do their search index rows, which hold
+		// their text.
+		return tx.Exec(orphanEmbeddings, userID).Error
+	})
 }
+
+// orphanEmbeddings deletes an account's search index rows whose item is gone.
+const orphanEmbeddings = `DELETE FROM embeddings e WHERE e.user_id = ? AND (
+	(e.entity_kind = 'task' AND NOT EXISTS (SELECT 1 FROM tasks x WHERE x.id = e.entity_id))
+	OR (e.entity_kind = 'project' AND NOT EXISTS (SELECT 1 FROM projects x WHERE x.id = e.entity_id))
+	OR (e.entity_kind = 'doc' AND NOT EXISTS (SELECT 1 FROM documents x WHERE x.id = e.entity_id))
+	OR (e.entity_kind = 'sheet' AND NOT EXISTS (SELECT 1 FROM sheets x WHERE x.id = e.entity_id))
+	OR (e.entity_kind = 'event' AND NOT EXISTS (SELECT 1 FROM events x WHERE x.id = e.entity_id)))`

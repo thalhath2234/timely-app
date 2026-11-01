@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -214,7 +213,7 @@ func (c *Client) post(ctx context.Context, provider, url, key string, body any) 
 		return nil, err
 	}
 	defer res.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	raw, err := readReply(res, key)
 	if err != nil {
 		return nil, err
 	}

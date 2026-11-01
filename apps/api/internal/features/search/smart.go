@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 	"timely-api/internal/features/decide"
@@ -177,6 +178,20 @@ func (s *Smart) Rerank(ctx context.Context, userID, query string, hits []Hit) (k
 	return kept, hidden, true
 }
 
+// sheetNumbers masks numbers in a sheet's cells the way receipt and cell-fit
+// questions do (ADR 0012): amounts and card digits written from a receipt say
+// nothing about what a sheet is for.
+var sheetNumbers = regexp.MustCompile(`\d+(?:[.,]\d+)*`)
+
+// hitText is an item's text as Jev reads it, at most n characters.
+func hitText(kind, text string, n int) string {
+	text = clip(text, n)
+	if kind == "sheet" {
+		text = sheetNumbers.ReplaceAllString(text, "#")
+	}
+	return text
+}
+
 type stateHit struct {
 	N     int    `json:"n"`
 	Kind  string `json:"kind"`
@@ -192,7 +207,7 @@ func rerankQuestions(query string, hits []Hit) (map[string]any, map[string]decid
 	results := make([]stateHit, len(top))
 	questions := map[string]decide.Question{}
 	for i, hit := range top {
-		results[i] = stateHit{N: i + 1, Kind: kindLabels[hit.Kind], Title: titleOr(hit.Title), Text: clip(hit.Snippet, 200)}
+		results[i] = stateHit{N: i + 1, Kind: kindLabels[hit.Kind], Title: titleOr(hit.Title), Text: hitText(hit.Kind, hit.Snippet, 200)}
 		questions[fmt.Sprintf("match%d", i+1)] = decide.YesNo(
 			fmt.Sprintf("Is result number %d something the person could be looking for with this search?", i+1),
 			"Yes, it fits what they searched for", "No, it is unrelated to the search")
@@ -317,13 +332,13 @@ func (s *Smart) Related(ctx context.Context, userID, kind, id string) ([]Related
 	candidates := make([]stateHit, len(near))
 	questions := map[string]decide.Question{}
 	for i, hit := range near {
-		candidates[i] = stateHit{N: i + 1, Kind: kindLabels[hit.Kind], Title: titleOr(hit.Title), Text: clip(hit.Content, 240)}
+		candidates[i] = stateHit{N: i + 1, Kind: kindLabels[hit.Kind], Title: titleOr(hit.Title), Text: hitText(hit.Kind, hit.Content, 240)}
 		questions[fmt.Sprintf("rel%d", i+1)] = decide.YesNo(
 			fmt.Sprintf("Is candidate number %d about the same topic, project or piece of work as the open item, so the person would want it at hand?", i+1),
 			"Yes, it is closely related", "No, it is only loosely similar or unrelated")
 	}
 	state := map[string]any{
-		"open":       stateHit{Kind: kindLabels[kind], Title: titleOr(src.Title), Text: clip(src.Content, 600)},
+		"open":       stateHit{Kind: kindLabels[kind], Title: titleOr(src.Title), Text: hitText(kind, src.Content, 600)},
 		"candidates": candidates,
 	}
 	answers, err := s.decisions.Ask(ctx, userID, decide.Request{Feature: "search_related", State: state, Questions: questions})

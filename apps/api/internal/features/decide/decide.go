@@ -694,7 +694,14 @@ func (s *Service) store(key string, a Answers) {
 	s.cache[key] = cached{answers: a, until: time.Now().Add(cacheFor)}
 }
 
-// acquire limits each account to a few calls at once.
+// minCallTime is the least time left that a call which waited for a slot
+// still starts with; Jev usually answers well within it.
+const minCallTime = time.Second
+
+// acquire limits each account to a few calls at once. A call that had to
+// wait for a slot is not started when too little of its time is left for an
+// answer: smart search used to get a slot with under a second of its three
+// left, and its call could only time out.
 func (s *Service) acquire(ctx context.Context, userID string) (func(), bool) {
 	s.mu.Lock()
 	slot, ok := s.slots[userID]
@@ -710,6 +717,10 @@ func (s *Service) acquire(ctx context.Context, userID string) (func(), bool) {
 	}
 	select {
 	case slot <- struct{}{}:
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < minCallTime {
+			<-slot
+			return nil, false
+		}
 		return func() { <-slot }, true
 	case <-ctx.Done():
 		return nil, false

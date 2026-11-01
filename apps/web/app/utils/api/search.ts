@@ -1,3 +1,4 @@
+import { smartCreate, type SmartCreate } from "@timely/contract/smartSearch";
 import { apiFetch } from "./client";
 
 export type SearchKind = "task" | "project" | "doc" | "sheet" | "event" | string;
@@ -63,7 +64,7 @@ export type SmartSearch = {
   hits: SearchHit[] | null;
   hidden?: SearchHit[];
   category?: "doc" | "sheet" | "task" | "project" | "event";
-  create?: { kind: "doc" | "sheet" | "task" | "project" | "event"; title: string };
+  create?: SmartCreate;
   /** A saved view the search seems to ask for ("what needs attention"). */
   view?: { id: string; name: string };
   logId?: string;
@@ -78,7 +79,8 @@ export async function smartSearch(query: string, signal?: AbortSignal): Promise<
   if (!response.ok) {
     throw new Error(await readError(response, "Search failed"));
   }
-  return response.json();
+  const data = await response.json();
+  return { ...data, create: smartCreate(data?.create) };
 }
 
 export type RelatedItem = {
