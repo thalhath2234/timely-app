@@ -270,8 +270,14 @@ func httpFailure(label string, status int, raw []byte) error {
 		msg = keyLike.ReplaceAllString(errorText(raw), "[hidden]")
 	}
 	switch {
-	case status == http.StatusUnauthorized || status == http.StatusForbidden:
-		return chat.NeedsSettings(fmt.Sprintf("%s didn't accept the API key (HTTP %d). Check the key in Settings → Agent", label, status))
+	case status == http.StatusUnauthorized:
+		return chat.NeedsSettings(fmt.Sprintf("%s didn't accept the API key (HTTP 401). Check the key in Settings → Agent", label))
+	case status == http.StatusForbidden && msg != "":
+		// A key without access to the model, a region the provider doesn't
+		// serve, or a flagged request: the provider's own words say which.
+		return chat.NeedsSettings(fmt.Sprintf("%s refused the request (HTTP 403): %s. Check the key and model in Settings → Agent", label, strings.TrimRight(msg, ". ")))
+	case status == http.StatusForbidden:
+		return chat.NeedsSettings(fmt.Sprintf("%s refused the request (HTTP 403). Check the key and model in Settings → Agent", label))
 	case status == http.StatusPaymentRequired:
 		return chat.NeedsSettings(fmt.Sprintf("%s says the account is out of credit (HTTP 402). Add credit with %s, or pick another provider in Settings → Agent", label, label))
 	case status == http.StatusTooManyRequests:

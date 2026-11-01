@@ -247,8 +247,13 @@ func (p *OpenRouter) completeOnce(ctx context.Context, messages []WireMessage, t
 		// A refused key or missing credit is the same on every route, and
 		// trying again cannot fix it.
 		switch res.StatusCode {
-		case http.StatusUnauthorized, http.StatusForbidden:
-			return empty, NeedsSettings(fmt.Sprintf("OpenRouter didn't accept the API key (HTTP %d). Check the key in Settings → Agent", res.StatusCode))
+		case http.StatusUnauthorized:
+			return empty, NeedsSettings("OpenRouter didn't accept the API key (HTTP 401). Check the key in Settings → Agent")
+		case http.StatusForbidden:
+			// OpenRouter answers 403 when a model's moderation flags the
+			// input, not for a bad key: another model in the chat's menu, then
+			// Try again, can help.
+			return empty, fmt.Errorf("OpenRouter refused this request (HTTP 403); the model's moderation may have flagged it. Reword the request, or pick another model in the model menu and try again")
 		case http.StatusPaymentRequired:
 			return empty, NeedsSettings("OpenRouter says the account is out of credit (HTTP 402). Add credit on openrouter.ai, or pick another provider in Settings → Agent")
 		}

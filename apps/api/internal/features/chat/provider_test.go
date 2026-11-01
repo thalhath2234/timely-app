@@ -134,3 +134,32 @@ func TestOpenRouterImagesUsePrivateMultimodalRouting(t *testing.T) {
 		t.Fatal("private search accepted")
 	}
 }
+
+// OpenRouter's refusals say what helps: a refused key or missing credit goes
+// to Settings → Agent, while a 403 (moderation flagged the input) is not
+// blamed on the key and can be tried again on another model.
+func TestOpenRouterRefusalsSayWhatHelps(t *testing.T) {
+	cases := []struct {
+		code         int
+		want, action string
+	}{
+		{401, "didn't accept the API key (HTTP 401)", ActionSettings},
+		{402, "out of credit (HTTP 402)", ActionSettings},
+		{403, "moderation may have flagged it", ActionRetry},
+	}
+	for _, tc := range cases {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(tc.code)
+			_, _ = w.Write([]byte(`{"error":{"message":"refused"}}`))
+		}))
+		p := OpenRouter{Key: "test", Model: "test", URL: server.URL, Client: server.Client()}
+		_, err := p.Complete(context.Background(), []WireMessage{{Role: "user", Content: "Hello", Sensitive: true}}, nil, false)
+		server.Close()
+		if err == nil || !strings.Contains(err.Error(), tc.want) || failureAction(err) != tc.action {
+			t.Fatalf("HTTP %d: %v (action %q)", tc.code, err, failureAction(err))
+		}
+		if tc.code == 403 && strings.Contains(err.Error(), "API key") {
+			t.Fatalf("a 403 blamed the key: %v", err)
+		}
+	}
+}
