@@ -212,5 +212,21 @@ describe("naming failures (GW15)", () => {
     assert.equal(namingFailedNote("OpenRouter returned HTTP 402: Insufficient credits"), "AI naming skipped: your AI provider is out of credit.");
     assert.equal(namingFailedNote("The AI could not name the tasks: Anthropic API returned HTTP 529: Overloaded"), null);
     assert.equal(namingFailedNote("The AI took too long to name the tasks"), null);
+    assert.equal(
+      namingFailedNote("The AI could not name the tasks: Anthropic API returned HTTP 400: Your credit balance is too low to access the Anthropic API."),
+      "AI naming skipped: your AI provider is out of credit.",
+    );
+    assert.equal(
+      namingFailedNote("The AI could not name the tasks: OpenAI rejected the request (HTTP 403): Project does not have access"),
+      "AI naming skipped: your AI key was rejected (Settings → Agent keys).",
+    );
+  });
+
+  test("the API's catch-all text is not taken for a credit or key problem", () => {
+    // Both name credit only as something to check, for any status without a body.
+    assert.equal(namingFailedNote("The AI could not name the tasks: OpenRouter returned HTTP 503; check model access, credit, or retry"), null);
+    assert.equal(namingFailedNote("The AI could not name the tasks: Mistral returned HTTP 500; check the model, key and credit, or retry"), null);
+    // OpenRouter answers 403 for a request its moderation flagged, not for a key.
+    assert.equal(namingFailedNote("The AI could not name the tasks: OpenRouter returned HTTP 403: Your input was flagged"), null);
   });
 });

@@ -260,10 +260,15 @@ export async function draftChecklistTasks(
 
 /** A note for the "Task added" toast when AI naming failed for a reason the
  * person has to fix (a rejected key, no credit), from the API's message. A
- * busy or slow provider says nothing: the next try may work. */
+ * busy or slow provider says nothing: the next try may work. The API's
+ * catch-all text for an unexplained error ("check the model, key and
+ * credit, or retry") names credit too, so only the provider's own words
+ * for it count; a 403 that isn't about the key (a flagged request) neither. */
 export function namingFailedNote(message: string): string | null {
-  if (/HTTP 40[13]\b/.test(message)) return "AI naming skipped: your AI key was rejected (Settings → Agent keys).";
-  if (/HTTP 402\b|credit/i.test(message)) return "AI naming skipped: your AI provider is out of credit.";
+  if (/HTTP 401\b|rejected the request \(HTTP 403\)/.test(message)) return "AI naming skipped: your AI key was rejected (Settings → Agent keys).";
+  if (/HTTP 402\b|credit balance|insufficient (?:credit|funds|balance)|exceeded your current quota/i.test(message)) {
+    return "AI naming skipped: your AI provider is out of credit.";
+  }
   return null;
 }
 
