@@ -227,22 +227,21 @@ func (i *indexer) Query(ctx context.Context, userID, query string, limit int, ki
 }
 
 // queryVector embeds a search query, or reuses the vector it got for the same
-// words and model a moment ago: the palette's plain and smart searches ask
-// for the same query, and hints ask with an item's words on every view.
+// words and model a moment ago, or waits for the one being fetched now: the
+// palette's plain and smart searches ask for the same query at once, and
+// hints ask with an item's words on every view.
 func (i *indexer) queryVector(ctx context.Context, userID, model, query string) ([]float32, error) {
 	key := userID + "\x00" + model + "\x00" + query
-	if vec, ok := queryVectors.get(key); ok {
-		return vec, nil
-	}
-	vectors, err := i.embedTexts(ctx, userID, []string{query})
-	if err != nil {
-		return nil, err
-	}
-	if err := CheckDims(vectors); err != nil {
-		return nil, err
-	}
-	queryVectors.put(key, vectors[0])
-	return vectors[0], nil
+	return queryVectors.share(ctx, key, func() ([]float32, error) {
+		vectors, err := i.embedTexts(ctx, userID, []string{query})
+		if err != nil {
+			return nil, err
+		}
+		if err := CheckDims(vectors); err != nil {
+			return nil, err
+		}
+		return vectors[0], nil
+	})
 }
 
 // Related returns the items nearest to an indexed one. It needs no

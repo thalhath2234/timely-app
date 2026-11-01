@@ -3,6 +3,7 @@ package embed
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -188,21 +189,28 @@ func TestQueryEmbedsTheSameWordsOnce(t *testing.T) {
 	model := "jc1-model"
 	ix.SetCredentials(func(userID string) (string, string) { return "key", model })
 	ctx := context.Background()
+	// The query cache lives for the process: fresh accounts keep a repeated
+	// run (go test -count) from finding the first run's vectors.
+	a, b := freshAccount("jc1-a"), freshAccount("jc1-b")
 	for range 3 {
-		if _, err := ix.Query(ctx, "jc1-a", "money for the builder", 5, nil); err != nil {
+		if _, err := ix.Query(ctx, a, "money for the builder", 5, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if sent := fake.sent(); len(sent) != 1 {
 		t.Fatalf("the same query was embedded %d times", len(sent))
 	}
-	ix.Query(ctx, "jc1-b", "money for the builder", 5, nil)
+	ix.Query(ctx, b, "money for the builder", 5, nil)
 	model = "jc1-other-model"
-	ix.Query(ctx, "jc1-a", "money for the builder", 5, nil)
-	ix.Query(ctx, "jc1-a", "money for the roofer", 5, nil)
+	ix.Query(ctx, a, "money for the builder", 5, nil)
+	ix.Query(ctx, a, "money for the roofer", 5, nil)
 	if sent := fake.sent(); len(sent) != 4 {
 		t.Fatalf("another account, model or query must embed again: %d calls", len(sent))
 	}
+}
+
+func freshAccount(prefix string) string {
+	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 }
 
 func TestQueryCacheDropsOldAndLeastUsed(t *testing.T) {
@@ -222,5 +230,97 @@ func TestQueryCacheDropsOldAndLeastUsed(t *testing.T) {
 	now = now.Add(2 * time.Minute)
 	if _, ok := c.get("a"); ok {
 		t.Fatal("an entry past its age limit was kept")
+	}
+}
+
+// JC1: the palette sends its plain and its smart search for a new query at
+// the same moment, so both missed the cache and the words were embedded twice.
+func TestQueryAskedTwiceAtOnceEmbedsOnce(t *testing.T) {
+	inFlight := make(chan struct{}, 2)
+	release := make(chan struct{})
+	fake := &fakeEmbeddings{during: func([]string) {
+		inFlight <- struct{}{}
+		<-release
+	}}
+	ix := &indexer{http: &http.Client{Transport: fake}, model: defaultModel}
+	ix.vectors = newVectorCache(time.Hour, func(context.Context, string) ([]cachedChunk, error) { return nil, nil })
+	ix.SetCredentials(func(string) (string, string) { return "key", "jc1-together-model" })
+	ctx := context.Background()
+
+	errs := make(chan error, 2)
+	account := freshAccount("jc1-together")
+	ask := func() {
+		_, err := ix.Query(ctx, account, "invoice for the plumber", 5, nil)
+		errs <- err
+	}
+	go ask()
+	select {
+	case <-inFlight:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the first search never reached the provider")
+	}
+	go ask()
+	// Without sharing, the second search sends its own request, which
+	// reaches the provider while the first is still waiting for an answer.
+	select {
+	case <-inFlight:
+		close(release)
+		t.Fatal("the second search embedded the same words again")
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if sent := fake.sent(); len(sent) != 1 {
+		t.Fatalf("embedded %d times", len(sent))
+	}
+}
+
+// A search cancelled while its words are being embedded must not fail the
+// other search waiting on the same request, and a failure is not kept.
+func TestQueryShareSurvivesACancelledFirstCaller(t *testing.T) {
+	c := newQueryCache(8, time.Minute)
+	first, cancel := context.WithCancel(context.Background())
+	started := make(chan struct{})
+	stop := make(chan struct{})
+	firstErr := make(chan error, 1)
+	go func() {
+		_, err := c.share(first, "k", func() ([]float32, error) {
+			close(started)
+			<-stop
+			return nil, first.Err()
+		})
+		firstErr <- err
+	}()
+	<-started
+	type answer struct {
+		vec []float32
+		err error
+	}
+	second := make(chan answer, 1)
+	go func() {
+		vec, err := c.share(context.Background(), "k", func() ([]float32, error) { return []float32{7}, nil })
+		second <- answer{vec, err}
+	}()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	close(stop)
+	if err := <-firstErr; !errors.Is(err, context.Canceled) {
+		t.Fatalf("first caller: %v", err)
+	}
+	got := <-second
+	if got.err != nil || len(got.vec) != 1 || got.vec[0] != 7 {
+		t.Fatalf("the waiting search got %+v", got)
+	}
+
+	failed := errors.New("openrouter embed: HTTP 503 Service Unavailable")
+	if _, err := c.share(context.Background(), "bad", func() ([]float32, error) { return nil, failed }); !errors.Is(err, failed) {
+		t.Fatalf("error: %v", err)
+	}
+	if _, ok := c.get("bad"); ok {
+		t.Fatal("a failed embedding was cached")
 	}
 }
