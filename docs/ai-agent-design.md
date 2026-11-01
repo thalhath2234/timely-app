@@ -228,7 +228,9 @@ confirmation even if a later sheet write fails; retries use the reviewed draft.
 
 Vision and subsequent private-image conversation requests enforce OpenRouter
 `provider.zdr=true`, with no non-ZDR fallback. Image conversations cannot invoke web
-search. This is a provider routing policy, not a claim that deleting Timely's copy
+search. Their searches match exact words only and are never sent to the embedding
+service, which has no zero-retention routing; a search that finds nothing tells the
+model to search again with one or two distinctive words. This is a provider routing policy, not a claim that deleting Timely's copy
 recalls transmitted data. See [OpenRouter ZDR](https://openrouter.ai/docs/guides/features/zdr).
 
 Verification includes provider payload/privacy tests, account isolation, image
