@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"timely-api/internal/features/chat"
+	"timely-api/internal/utils"
 )
 
 // Compat talks to an OpenAI-compatible /chat/completions endpoint with an
@@ -308,12 +309,9 @@ func errorText(raw []byte) string {
 	return clip(string(raw))
 }
 
+// clip shortens a provider's message without cutting a character in half.
 func clip(s string) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if len(s) > 300 {
-		s = s[:300] + "…"
-	}
-	return s
+	return utils.ClipUTF8(strings.Join(strings.Fields(s), " "), 300)
 }
 
 func joinURL(base, path string) string {

@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"timely-api/internal/utils"
 )
 
 const embedURL = "https://openrouter.ai/api/v1/embeddings"
@@ -84,7 +86,7 @@ func embedWith(ctx context.Context, client *http.Client, key, model string, text
 		return nil, fmt.Errorf("openrouter embed: %s", parsed.Error.Message)
 	}
 	if res.StatusCode >= 300 {
-		return nil, fmt.Errorf("openrouter embed: HTTP %s: %s", res.Status, truncate(string(raw), 300))
+		return nil, fmt.Errorf("openrouter embed: HTTP %s: %s", res.Status, utils.ClipUTF8(string(raw), 300))
 	}
 	if len(parsed.Data) != len(texts) {
 		return nil, fmt.Errorf("openrouter embed: expected %d vectors, got %d", len(texts), len(parsed.Data))
@@ -116,13 +118,6 @@ func CheckDims(vectors [][]float32) error {
 		}
 	}
 	return nil
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
 }
 
 func defaultHTTPClient() *http.Client {

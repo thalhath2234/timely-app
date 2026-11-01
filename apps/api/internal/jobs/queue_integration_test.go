@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"os"
 	"strings"
@@ -109,5 +110,61 @@ func TestIntegrationClaimUsesTheAPIClock(t *testing.T) {
 		if err := q.Succeed(&row); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// A provider error with a character cut in half or a NUL used to make Fail's
+// update fail, so the job stayed 'running' and RecoverStuck ran it again
+// every ten minutes, forever.
+func TestIntegrationFailSavesUnstorableErrors(t *testing.T) {
+	db := integrationDB(t)
+	q := NewQueue(db)
+	ctx := context.Background()
+	for _, cause := range []string{
+		"openrouter embed: HTTP 503: " + strings.Repeat("x", 271) + "\xc3",
+		"openrouter embed: bad \x00 input",
+	} {
+		job, err := q.Enqueue(Enqueue{UserID: "user-1", Kind: models.JobIndexEntity})
+		if err != nil {
+			t.Fatal(err)
+		}
+		claimed, err := q.Claim(ctx, "w1")
+		if err != nil || claimed == nil || claimed.ID != job.ID {
+			t.Fatalf("claim: %+v %v", claimed, err)
+		}
+		claimed.MaxAttempts = 1
+		if err := q.Fail(claimed, errors.New(cause)); err != nil {
+			t.Fatalf("fail: %v", err)
+		}
+		var row models.Job
+		if err := db.First(&row, "id = ?", job.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if row.Status != models.JobFailed || row.LastError == nil || !strings.HasPrefix(*row.LastError, "openrouter embed:") {
+			t.Fatalf("job after Fail: status %s error %v", row.Status, row.LastError)
+		}
+	}
+}
+
+// A job that keeps losing its worker stops once its attempts are used up.
+func TestIntegrationRecoverStuckFailsAJobOutOfAttempts(t *testing.T) {
+	db := integrationDB(t)
+	q := NewQueue(db)
+	job, err := q.Enqueue(Enqueue{UserID: "user-1", Kind: models.JobIndexEntity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&models.Job{}).Where("id = ?", job.ID).Updates(map[string]any{
+		"status": models.JobRunning, "attempts": 8, "locked_at": time.Now().Add(-time.Hour),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := q.RecoverStuck(10 * time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	var row models.Job
+	db.First(&row, "id = ?", job.ID)
+	if row.Status != models.JobFailed || row.LastError == nil || row.FinishedAt == nil {
+		t.Fatalf("job out of attempts: status %s error %v", row.Status, row.LastError)
 	}
 }

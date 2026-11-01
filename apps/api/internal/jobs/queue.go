@@ -140,9 +140,29 @@ func (q *Queue) Succeed(job *models.Job) error {
 	}).Error
 }
 
+// maxErrorBytes bounds a job's saved last_error.
+const maxErrorBytes = 2000
+
+// unsavedError replaces a job's error when even the cleaned text cannot be
+// saved, so the job still leaves 'running'.
+const unsavedError = "the job failed with an error that could not be saved"
+
+// Fail records the error and either schedules another attempt or, after the
+// last one, marks the job failed. The error usually quotes a provider, so it
+// is cleaned first: Postgres refuses invalid UTF-8 and NUL, and a refused
+// update would leave the job 'running' for RecoverStuck to run again.
 func (q *Queue) Fail(job *models.Job, cause error) error {
+	err := q.fail(job, utils.StorableText(cause.Error(), maxErrorBytes))
+	if err != nil {
+		if again := q.fail(job, unsavedError); again == nil {
+			return nil
+		}
+	}
+	return err
+}
+
+func (q *Queue) fail(job *models.Job, msg string) error {
 	now := time.Now().UTC()
-	msg := cause.Error()
 	if job.Attempts >= job.MaxAttempts {
 		return q.db.Model(job).Updates(map[string]any{
 			"status":      models.JobFailed,
@@ -280,11 +300,17 @@ func (q *Queue) HasJob(dedupeKey string) bool {
 	return n > 0
 }
 
+// RecoverStuck puts back jobs locked longer than olderThan, whose worker
+// most likely stopped. A job that has used all its attempts is marked failed
+// instead, so a job that keeps losing its worker cannot run forever.
 func (q *Queue) RecoverStuck(olderThan time.Duration) error {
 	now := q.now().UTC()
 	return q.db.Exec(`
 		UPDATE jobs
-		SET status = 'pending', locked_at = NULL, locked_by = NULL, updated_at = ?
-		WHERE status = 'running' AND locked_at IS NOT NULL AND locked_at < ?
-	`, now, now.Add(-olderThan)).Error
+		SET status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'pending' END,
+		    finished_at = CASE WHEN attempts >= max_attempts THEN @now ELSE finished_at END,
+		    last_error = CASE WHEN attempts >= max_attempts THEN @lost ELSE last_error END,
+		    locked_at = NULL, locked_by = NULL, updated_at = @now
+		WHERE status = 'running' AND locked_at IS NOT NULL AND locked_at < @cutoff
+	`, sql.Named("now", now), sql.Named("cutoff", now.Add(-olderThan)), sql.Named("lost", "the job stopped without finishing on every attempt")).Error
 }
