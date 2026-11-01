@@ -247,6 +247,92 @@ func TestAnthropicMapsTheTranscriptToMessages(t *testing.T) {
 	}
 }
 
+// cacheMarks lists where a Messages request carries cache_control: "system N"
+// or "message M block B".
+func cacheMarks(body map[string]any) []string {
+	var marks []string
+	system, _ := body["system"].([]any)
+	for i, block := range system {
+		if cc, ok := block.(map[string]any)["cache_control"].(map[string]any); ok && cc["type"] == "ephemeral" {
+			marks = append(marks, fmt.Sprintf("system %d", i))
+		}
+	}
+	for i, message := range body["messages"].([]any) {
+		for j, block := range message.(map[string]any)["content"].([]any) {
+			if cc, ok := block.(map[string]any)["cache_control"].(map[string]any); ok && cc["type"] == "ephemeral" {
+				marks = append(marks, fmt.Sprintf("message %d block %d", i, j))
+			}
+		}
+	}
+	return marks
+}
+
+func TestAnthropicCachesTheMarkedPrefixes(t *testing.T) {
+	var bodies []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		bodies = append(bodies, body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","model":"claude-haiku-5-5","stop_reason":"end_turn","content":[{"type":"text","text":"Done."}],"usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":900}}`))
+	}))
+	defer server.Close()
+	call := chat.ToolCall{ID: "call_1", Type: "function"}
+	call.Function.Name, call.Function.Arguments = "list_tasks", `{}`
+	// A chat turn: the system prompt and the stored conversation are marked,
+	// and CacheTail marks the newest tool result.
+	transcript := []chat.WireMessage{
+		{Role: "system", Content: "Stable rules and write schemas.", Cache: true},
+		{Role: "user", Content: "Earlier question"},
+		{Role: "assistant", Content: "Earlier answer"},
+		{Role: "user", Content: "New question", Cache: true},
+		{Role: "user", Content: "System notice (not written by the user): the clock"},
+		{Role: "assistant", ToolCalls: []chat.ToolCall{call}},
+		{Role: "tool", ToolCallID: "call_1", Content: `{"tasks":[]}`},
+	}
+	messages := chat.CacheTail(transcript)
+	cached := &Anthropic{Key: "sk-ant-test", Model: "claude-haiku-5-5", Base: server.URL, Cache: true, Client: server.Client()}
+	if _, err := cached.Complete(context.Background(), messages, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	// Another server on the same protocol (OpenCode) gets no cache_control.
+	plain := &Anthropic{Key: "sk-ant-test", Model: "claude-haiku-5-5", Base: server.URL, Client: server.Client()}
+	if _, err := plain.Complete(context.Background(), messages, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	// The stored question shares a user turn with the clock notice after it:
+	// the mark sits on the question's block, so the notice stays outside.
+	want := "system 0,message 2 block 0,message 4 block 0"
+	if got := strings.Join(cacheMarks(bodies[0]), ","); got != want {
+		t.Fatalf("cache_control on %s, want %s", got, want)
+	}
+	if got := cacheMarks(bodies[1]); len(got) != 0 {
+		t.Fatalf("no cache_control without prompt caching: %v", got)
+	}
+	if transcript[len(transcript)-1].Cache {
+		t.Fatal("CacheTail marks a copy: marks from earlier turns must not pile up in the transcript")
+	}
+}
+
+func TestAnthropicKeepsAtMostFourCacheMarks(t *testing.T) {
+	messages := []chat.WireMessage{{Role: "system", Content: "Rules", Cache: true}}
+	for i := 0; i < 6; i++ {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		messages = append(messages, chat.WireMessage{Role: role, Content: fmt.Sprintf("turn %d", i), Cache: true})
+	}
+	system, out := anthropicMessages(messages, true, true)
+	raw, _ := json.Marshal(map[string]any{"system": system, "messages": out})
+	var body map[string]any
+	_ = json.Unmarshal(raw, &body)
+	// The system prompt and the latest three turns keep theirs.
+	if got := strings.Join(cacheMarks(body), ","); got != "system 0,message 3 block 0,message 4 block 0,message 5 block 0" {
+		t.Fatalf("cache_control on %s", got)
+	}
+}
+
 func TestAnthropicQuotesErrorsAndListsModels(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

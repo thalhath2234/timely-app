@@ -27,6 +27,7 @@ type Anthropic struct {
 	Base   string // overridable for tests
 	Effort bool   // the model accepts output_config.effort
 	Search bool   // server-side web search is available (Anthropic itself)
+	Cache  bool   // prompt caching: messages marked Cache become breakpoints (Anthropic itself)
 	Label  string // provider name in errors; "Anthropic" when empty
 	Client *http.Client
 }
@@ -92,7 +93,7 @@ func (p *Anthropic) completeOnce(ctx context.Context, messages []chat.WireMessag
 	// Thinking counts toward max_tokens, so allow more than the 8192 used
 	// for models without it.
 	params := anthropic.MessageNewParams{Model: anthropic.Model(p.Model), MaxTokens: 16384}
-	params.System, params.Messages = anthropicMessages(messages, replayThinking)
+	params.System, params.Messages = anthropicMessages(messages, replayThinking, p.Cache)
 	if len(params.Messages) == 0 {
 		return empty, errors.New("Nothing to send to Anthropic")
 	}
@@ -155,21 +156,38 @@ func (p *Anthropic) completeOnce(ctx context.Context, messages []chat.WireMessag
 	return out, nil
 }
 
+// maxCacheBreakpoints is the most cache_control markers one request may carry.
+const maxCacheBreakpoints = 4
+
 // anthropicMessages maps the OpenAI-style transcript onto Messages API turns:
 // system text moves to the system field, tool results become tool_result
-// blocks in a user turn, and adjacent same-role turns are merged.
-func anthropicMessages(messages []chat.WireMessage, replayThinking bool) ([]anthropic.TextBlockParam, []anthropic.MessageParam) {
+// blocks in a user turn, and adjacent same-role turns are merged. With cache
+// on, the last block of each message marked Cache gets cache_control, so the
+// prompt up to it is cached (tools render first, so a mark on the system
+// prompt caches the tools too).
+func anthropicMessages(messages []chat.WireMessage, replayThinking, cache bool) ([]anthropic.TextBlockParam, []anthropic.MessageParam) {
 	var system []anthropic.TextBlockParam
 	var out []anthropic.MessageParam
-	add := func(role anthropic.MessageParamRole, blocks ...anthropic.ContentBlockParamUnion) {
+	// marks are the blocks that end a cached prefix: msg -1 is a system block.
+	type mark struct{ msg, block int }
+	var marks []mark
+	add := func(role anthropic.MessageParamRole, blocks ...anthropic.ContentBlockParamUnion) bool {
 		if len(blocks) == 0 {
-			return
+			return false
 		}
 		if n := len(out); n > 0 && out[n-1].Role == role {
 			out[n-1].Content = append(out[n-1].Content, blocks...)
-			return
+			return true
 		}
 		out = append(out, anthropic.MessageParam{Role: role, Content: blocks})
+		return true
+	}
+	// added notes a mark on the block just added for a message marked Cache.
+	added := func(m chat.WireMessage, ok bool) {
+		if ok && m.Cache && cache {
+			n := len(out) - 1
+			marks = append(marks, mark{msg: n, block: len(out[n].Content) - 1})
+		}
 	}
 	for _, m := range messages {
 		switch m.Role {
@@ -177,10 +195,13 @@ func anthropicMessages(messages []chat.WireMessage, replayThinking bool) ([]anth
 			if len(out) == 0 {
 				if strings.TrimSpace(m.Content) != "" {
 					system = append(system, anthropic.TextBlockParam{Text: m.Content})
+					if m.Cache && cache {
+						marks = append(marks, mark{msg: -1, block: len(system) - 1})
+					}
 				}
 				continue
 			}
-			add(anthropic.MessageParamRoleUser, anthropic.NewTextBlock("System notice (not written by the user): "+m.Content))
+			added(m, add(anthropic.MessageParamRoleUser, anthropic.NewTextBlock("System notice (not written by the user): "+m.Content)))
 		case "assistant":
 			var blocks []anthropic.ContentBlockParamUnion
 			for _, raw := range m.ThinkingBlocks {
@@ -204,9 +225,9 @@ func anthropicMessages(messages []chat.WireMessage, replayThinking bool) ([]anth
 				}
 				blocks = append(blocks, anthropic.NewToolUseBlock(tc.ID, input, tc.Function.Name))
 			}
-			add(anthropic.MessageParamRoleAssistant, blocks...)
+			added(m, add(anthropic.MessageParamRoleAssistant, blocks...))
 		case "tool":
-			add(anthropic.MessageParamRoleUser, anthropic.NewToolResultBlock(m.ToolCallID, m.Content, false))
+			added(m, add(anthropic.MessageParamRoleUser, anthropic.NewToolResultBlock(m.ToolCallID, m.Content, false)))
 		default:
 			var blocks []anthropic.ContentBlockParamUnion
 			for _, url := range m.ImageURLs {
@@ -217,7 +238,20 @@ func anthropicMessages(messages []chat.WireMessage, replayThinking bool) ([]anth
 			if strings.TrimSpace(m.Content) != "" || len(blocks) == 0 {
 				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
 			}
-			add(anthropic.MessageParamRoleUser, blocks...)
+			added(m, add(anthropic.MessageParamRoleUser, blocks...))
+		}
+	}
+	// Past the limit, keep the first mark (the system prompt, reused across
+	// conversations) and the latest ones (the conversation so far).
+	if len(marks) > maxCacheBreakpoints {
+		marks = append(marks[:1], marks[len(marks)-maxCacheBreakpoints+1:]...)
+	}
+	for _, at := range marks {
+		if at.msg < 0 {
+			system[at.block].CacheControl = anthropic.NewCacheControlEphemeralParam()
+		} else if cc := out[at.msg].Content[at.block].GetCacheControl(); cc != nil {
+			// Thinking blocks take no cache_control; such a mark is dropped.
+			*cc = anthropic.NewCacheControlEphemeralParam()
 		}
 	}
 	return system, out

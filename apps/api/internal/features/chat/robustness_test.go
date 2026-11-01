@@ -339,8 +339,16 @@ func TestIntegrationDeviceTimezoneReachesTools(t *testing.T) {
 	if seen != "Asia/Tokyo" {
 		t.Fatalf("tool saw timezone %q", seen)
 	}
-	if !strings.Contains(model.seen[0][0].Content, "Asia/Tokyo (from their device") {
-		t.Fatal("system prompt lacks the device timezone")
+	// The clock follows the stored conversation, out of the cached system prompt.
+	prompt := ""
+	for _, m := range model.seen[0] {
+		prompt += m.Content + "\n"
+	}
+	if !strings.Contains(prompt, "Asia/Tokyo (from their device") || strings.Contains(model.seen[0][0].Content, "Asia/Tokyo") {
+		t.Fatal("the prompt's clock notice lacks the device timezone")
+	}
+	if !strings.Contains(prompt, "Current get_context result") || !strings.Contains(prompt, "2026-10-02T20:47:00+09:00") {
+		t.Fatal("the context read up front is localized like a tool result")
 	}
 	if tool := model.seen[1][len(model.seen[1])-1]; !strings.Contains(tool.Content, "2026-10-02T20:47:00+09:00") {
 		t.Fatalf("tool result not localized: %s", tool.Content)

@@ -25,8 +25,13 @@ type ToolCall struct {
 	ExtraContent json.RawMessage `json:"extra_content,omitempty"`
 }
 type WireMessage struct {
-	ImageURLs        []string          `json:"-"`
-	Sensitive        bool              `json:"-"`
+	ImageURLs []string `json:"-"`
+	Sensitive bool     `json:"-"`
+	// Cache marks the end of a prompt prefix worth caching: a provider with
+	// prompt caching (Anthropic) caches everything up to this message, so
+	// the next call that starts the same way reads it back instead of paying
+	// for it again. Providers without it ignore the mark.
+	Cache            bool              `json:"-"`
 	Role             string            `json:"role"`
 	Content          string            `json:"content"`
 	ToolCalls        []ToolCall        `json:"tool_calls,omitempty"`
@@ -42,6 +47,19 @@ type WireMessage struct {
 }
 type Completer interface {
 	Complete(context.Context, []WireMessage, []any, bool) (WireMessage, error)
+}
+
+// CacheTail is messages with the last one marked Cache, for a tool loop: the
+// next turn resends all of it plus the new tool results, and reads this
+// turn's prompt back from the cache. The mark goes on a copy, so marks from
+// earlier turns never pile up in the transcript.
+func CacheTail(messages []WireMessage) []WireMessage {
+	if len(messages) == 0 {
+		return messages
+	}
+	out := append([]WireMessage(nil), messages...)
+	out[len(out)-1].Cache = true
+	return out
 }
 
 // Completers picks the model client for each account. Resolve runs once when a
