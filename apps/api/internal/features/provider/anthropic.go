@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,8 +42,40 @@ func (p *Anthropic) label() string {
 	return "Anthropic"
 }
 
+// maxRetryWait is the longest a retry waits on a 429 or 529's retry-after.
+// The SDK would sleep as long as the hint says (15 minutes left a chat
+// "thinking" until the run timed out); past this the error comes back at
+// once, saying the provider is rate limiting or busy.
+const maxRetryWait = 30 * time.Second
+
+// boundedRetry stops the SDK's retry when the response asks to wait longer
+// than maxRetryWait.
+func boundedRetry(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+	res, err := next(req)
+	if err == nil && res != nil && retryWait(res.Header) > maxRetryWait {
+		res.Header.Set("x-should-retry", "false")
+	}
+	return res, err
+}
+
+// retryWait reads a response's retry-after-ms or retry-after header (seconds
+// or an HTTP date), 0 when it has none.
+func retryWait(h http.Header) time.Duration {
+	if ms, err := strconv.ParseFloat(h.Get("Retry-After-Ms"), 64); err == nil {
+		return time.Duration(ms * float64(time.Millisecond))
+	}
+	value := h.Get("Retry-After")
+	if seconds, err := strconv.ParseFloat(value, 64); err == nil {
+		return time.Duration(seconds * float64(time.Second))
+	}
+	if at, err := http.ParseTime(value); err == nil {
+		return time.Until(at)
+	}
+	return 0
+}
+
 func (p *Anthropic) client() anthropic.Client {
-	opts := []option.RequestOption{option.WithAPIKey(p.Key), option.WithMaxRetries(1), option.WithRequestTimeout(4 * time.Minute)}
+	opts := []option.RequestOption{option.WithAPIKey(p.Key), option.WithMaxRetries(1), option.WithRequestTimeout(4 * time.Minute), option.WithMiddleware(boundedRetry)}
 	if p.Client != nil {
 		opts = append(opts, option.WithHTTPClient(p.Client))
 	}
@@ -110,19 +143,59 @@ func (p *Anthropic) completeOnce(ctx context.Context, messages []chat.WireMessag
 		params.OutputConfig = anthropic.OutputConfigParam{Effort: anthropic.OutputConfigEffortLow}
 	}
 	client := p.client()
-	res, err := client.Messages.New(ctx, params)
-	if err != nil {
-		return empty, err
-	}
-	switch res.StopReason {
-	case anthropic.StopReasonMaxTokens:
-		return empty, fmt.Errorf("The proposal was too large; try a smaller request")
-	case anthropic.StopReasonRefusal:
-		return empty, fmt.Errorf("The model declined this request")
-	}
 	out := chat.WireMessage{Role: "assistant"}
 	var text strings.Builder
 	seen := map[string]bool{}
+	for pauses := 0; ; pauses++ {
+		res, err := client.Messages.New(ctx, params)
+		if err != nil {
+			return empty, err
+		}
+		if err := stopError(res); err != nil {
+			return empty, err
+		}
+		collect(res, &out, &text, seen)
+		if res.StopReason != anthropic.StopReasonPauseTurn {
+			break
+		}
+		// A long server-side search pauses the turn: send it back as it is
+		// and the model carries on from there.
+		if pauses == maxPauses {
+			return empty, errors.New("The AI stopped before finishing its answer. Try again")
+		}
+		params.Messages = append(params.Messages, res.ToParam())
+	}
+	out.Content = text.String()
+	return out, nil
+}
+
+// maxPauses is how many times one answer may continue after pause_turn.
+const maxPauses = 2
+
+// stopError is the error for an answer that stopped before it was whole.
+// pause_turn is not one: completeOnce continues it.
+func stopError(res *anthropic.Message) error {
+	switch res.StopReason {
+	case "", anthropic.StopReasonEndTurn, anthropic.StopReasonToolUse, anthropic.StopReasonStopSequence, anthropic.StopReasonPauseTurn:
+		return nil
+	case anthropic.StopReasonMaxTokens:
+		for _, block := range res.Content {
+			if block.Type == "tool_use" {
+				return fmt.Errorf("The proposal was too large; try a smaller request")
+			}
+		}
+		return errors.New("The answer got too long and was cut off. Try asking for less at a time")
+	case anthropic.StopReasonRefusal:
+		return fmt.Errorf("The model declined this request")
+	case anthropic.StopReasonModelContextWindowExceeded:
+		return errors.New("This chat is too long for the AI to read. Start a new chat to continue")
+	}
+	return errors.New("The AI stopped before finishing its answer. Try again")
+}
+
+// collect adds a response's blocks to out: text to text, citations as
+// annotations (each URL once), thinking blocks and tool calls.
+func collect(res *anthropic.Message, out *chat.WireMessage, text *strings.Builder, seen map[string]bool) {
 	for _, block := range res.Content {
 		switch b := block.AsAny().(type) {
 		case anthropic.ThinkingBlock:
@@ -152,8 +225,6 @@ func (p *Anthropic) completeOnce(ctx context.Context, messages []chat.WireMessag
 			out.ToolCalls = append(out.ToolCalls, tc)
 		}
 	}
-	out.Content = text.String()
-	return out, nil
 }
 
 // maxCacheBreakpoints is the most cache_control markers one request may carry.
@@ -312,7 +383,7 @@ func anthropicError(label string, err error) error {
 		case http.StatusUnauthorized, http.StatusForbidden:
 			return fmt.Errorf("%s rejected the request (HTTP %d): %s", label, apiErr.StatusCode, msg)
 		case http.StatusTooManyRequests:
-			return fmt.Errorf("%s is rate limiting this key (HTTP 429): %s", label, msg)
+			return fmt.Errorf("%s is rate limiting this key (HTTP 429): %s%s", label, msg, waitHint(apiErr.Response))
 		}
 		return fmt.Errorf("%s returned HTTP %d: %s", label, apiErr.StatusCode, msg)
 	}
@@ -320,6 +391,22 @@ func anthropicError(label string, err error) error {
 		return err // already a Timely message
 	}
 	return fmt.Errorf("Could not reach %s: %w", label, err)
+}
+
+// waitHint says how long a rate-limited key should wait, from a retry-after
+// over maxRetryWait (shorter waits are retried, so they never show).
+func waitHint(res *http.Response) string {
+	if res == nil {
+		return ""
+	}
+	wait := retryWait(res.Header)
+	if wait <= maxRetryWait {
+		return ""
+	}
+	if minutes := int((wait + time.Minute - 1) / time.Minute); minutes > 1 {
+		return fmt.Sprintf(". Try again in about %d minutes", minutes)
+	}
+	return ". Try again in a minute"
 }
 
 // anthropicModels lists the account's models with their image and effort

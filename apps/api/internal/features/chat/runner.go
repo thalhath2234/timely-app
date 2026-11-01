@@ -53,6 +53,14 @@ After tools finish, provide a concise answer or clarification. Do not expose int
 // hours or a trip was declined as unrelated with the search turned on.
 const webSearchOn = "\nWeb search is on in this chat. When the person asks you to search the web or look up public information (opening hours, travel, events, public holidays, prices, news), that is in scope even when it has nothing to do with their Timely data: call web_search, answer with the sources, and offer a Timely step (a task, reminder or event) only when it helps. Writing code, scraping and other unrelated requests stay out of scope."
 
+// maxSearches is how many web searches one run may make, and
+// maxSearchFailures how many may fail before the model is told to answer
+// without searching: each is a paid request with up to five searches.
+const (
+	maxSearches       = 6
+	maxSearchFailures = 2
+)
+
 // recordFieldMax is the most bytes an argument, result or before value of an
 // older change record keeps in the prompt (see promptSteps).
 const recordFieldMax = 2000
@@ -366,6 +374,7 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 	// Jev's resolve_target picks in this run, for feedback on the proposal.
 	picks := []*targetPick{}
 	nudges := 0
+	searches, searchFailures := 0, 0
 	for turn := 0; turn < 12; turn++ {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -440,12 +449,32 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 					Query string `json:"query"`
 				}
 				err = json.Unmarshal(args, &in)
-				if err == nil && len(in.Query) > 0 && len(in.Query) < 2000 {
+				query := strings.TrimSpace(in.Query)
+				if searchFailures >= maxSearchFailures {
+					err = fmt.Errorf("Web search is not working right now. Answer without it and tell the person the search failed")
+				} else if searches >= maxSearches {
+					err = fmt.Errorf("That is as many searches as one request may make. Answer from the results above")
+				} else if err == nil && len(query) > 0 && len(query) < 2000 {
+					searches++
 					var answer WireMessage
-					answer, err = s.complete(ctx, []WireMessage{{Role: "user", Content: in.Query + "\nInclude source links."}}, nil, true)
+					answer, err = s.complete(ctx, []WireMessage{{Role: "user", Content: query + "\nInclude source links."}}, nil, true)
+					if err == nil && strings.TrimSpace(answer.Content) == "" {
+						err = fmt.Errorf("The search returned no answer")
+					}
+					if err != nil {
+						if ctx.Err() != nil {
+							return ctx.Err()
+						}
+						// Each failed search is a paid request, and the
+						// provider retries it: after two, later calls get
+						// an error without searching. The tool stays listed:
+						// some providers refuse a transcript with calls to a
+						// tool that is gone.
+						searchFailures++
+					}
 					result = map[string]any{"answer": answer.Content, "sources": answer.Annotations}
 				} else {
-					err = fmt.Errorf("Invalid search query")
+					err = fmt.Errorf("Invalid search query: write the words to search for")
 				}
 			} else if name == targetTool && targets {
 				var pick *targetPick

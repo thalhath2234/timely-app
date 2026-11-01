@@ -355,6 +355,84 @@ func TestAnthropicQuotesErrorsAndListsModels(t *testing.T) {
 	}
 }
 
+func TestAnthropicDoesNotWaitOutALongRetryAfter(t *testing.T) {
+	calls, wait := 0, "900"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", wait)
+		if calls > 1 && r.Header.Get("X-Stainless-Retry-Count") == "1" {
+			_, _ = w.Write([]byte(`{"id":"m","type":"message","role":"assistant","model":"x","content":[{"type":"text","text":"Back"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+			return
+		}
+		w.WriteHeader(429)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"rate_limit_error","message":"Number of requests has exceeded your rate limit"}}`))
+	}))
+	defer server.Close()
+	p := &Anthropic{Key: "k", Model: "x", Base: server.URL, Client: server.Client()}
+	started := time.Now()
+	_, err := p.Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, nil, false)
+	if err == nil || calls != 1 || time.Since(started) > 5*time.Second {
+		t.Fatalf("a 15-minute retry-after must fail at once: %v after %d calls, %s", err, calls, time.Since(started))
+	}
+	if !strings.Contains(err.Error(), "rate limiting this key (HTTP 429)") || !strings.Contains(err.Error(), "Try again in about 15 minutes") {
+		t.Fatalf("the error must say it is a rate limit and when to retry: %v", err)
+	}
+	// A short hint is still waited out and retried once.
+	calls, wait = 0, "0"
+	if got, err := p.Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, nil, false); err != nil || got.Content != "Back" || calls != 2 {
+		t.Fatalf("a short retry-after should be retried: %q %v (%d calls)", got.Content, err, calls)
+	}
+}
+
+func TestAnthropicStopReasons(t *testing.T) {
+	var replies []string
+	var bodies []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		bodies = append(bodies, body)
+		w.Header().Set("Content-Type", "application/json")
+		reply := replies[0]
+		replies = replies[1:]
+		_, _ = w.Write([]byte(reply))
+	}))
+	defer server.Close()
+	answer := func(stop, content string) string {
+		return `{"id":"m","type":"message","role":"assistant","model":"x","content":[` + content + `],"stop_reason":"` + stop + `","usage":{"input_tokens":1,"output_tokens":1}}`
+	}
+	text := func(s string) string { return `{"type":"text","text":"` + s + `"}` }
+	p := &Anthropic{Key: "k", Model: "x", Base: server.URL, Client: server.Client(), Search: true}
+	ask := func(search bool, script ...string) (chat.WireMessage, error) {
+		replies, bodies = script, nil
+		return p.Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "Write me a long weekly review"}}, nil, search)
+	}
+	for stop, want := range map[string]string{
+		"max_tokens":                    "got too long and was cut off",
+		"model_context_window_exceeded": "chat is too long",
+		"something_new":                 "stopped before finishing",
+	} {
+		if got, err := ask(false, answer(stop, text("Partial answ"))); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: a partial answer must fail with %q, got %q %v", stop, want, got.Content, err)
+		}
+	}
+	if _, err := ask(false, answer("max_tokens", `{"type":"tool_use","id":"t1","name":"propose_changes","input":{}}`)); err == nil || !strings.Contains(err.Error(), "proposal was too large") {
+		t.Errorf("a cut-off proposal keeps its own message: %v", err)
+	}
+	// pause_turn continues the turn with what it has so far.
+	got, err := ask(true, answer("pause_turn", text("Opening hours: ")), answer("end_turn", text("10:00 to 18:00.")))
+	if err != nil || got.Content != "Opening hours: 10:00 to 18:00." || len(bodies) != 2 {
+		t.Fatalf("pause_turn must continue: %q %v (%d calls)", got.Content, err, len(bodies))
+	}
+	if messages := bodies[1]["messages"].([]any); len(messages) != 2 || messages[1].(map[string]any)["role"] != "assistant" {
+		t.Fatalf("the paused turn must be sent back: %v", messages)
+	}
+	// A turn that keeps pausing fails instead of answering half.
+	if _, err := ask(true, answer("pause_turn", text("a")), answer("pause_turn", text("b")), answer("pause_turn", text("c"))); err == nil || len(bodies) != 3 {
+		t.Fatalf("an unfinished turn must fail after %d continuations: %v (%d calls)", maxPauses, err, len(bodies))
+	}
+}
+
 func TestResolveBaseOnlyAllowsTypedURLsForSelfHosted(t *testing.T) {
 	s := &Service{}
 	zai, ollama := apiProviderByID("zai"), apiProviderByID("ollama")

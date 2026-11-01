@@ -257,6 +257,50 @@ func planFixture(t *testing.T, db *gorm.DB) Conversation {
 	return c
 }
 
+// searching answers the run's calls from main and fails every web search
+// sub-call, counting them.
+type searching struct {
+	main     *scripted
+	searches []string
+}
+
+func (s *searching) Complete(ctx context.Context, messages []WireMessage, tools []any, search bool) (WireMessage, error) {
+	if search {
+		s.searches = append(s.searches, messages[0].Content)
+		return WireMessage{}, errors.New("Anthropic returned HTTP 529: Overloaded")
+	}
+	return s.main.Complete(ctx, messages, tools, search)
+}
+
+func TestIntegrationWebSearchSkipsBlankQueriesAndStopsAfterFailures(t *testing.T) {
+	db := integrationDB(t)
+	main := &scripted{responses: []WireMessage{
+		call("web_search", map[string]string{"query": "  "}),
+		call("web_search", map[string]string{"query": "Lisbon museum hours"}),
+		call("web_search", map[string]string{"query": "Lisbon museum opening hours"}),
+		call("web_search", map[string]string{"query": "Museu do Azulejo hours"}),
+		{Role: "assistant", Content: "The search is not working right now."},
+	}}
+	model := &searching{main: main}
+	s := New(db, readCatalog, model)
+	c := planFixture(t, db)
+	c.WebSearch = true
+	db.Save(&c)
+	if err := s.plan(context.Background(), &c); err != nil || c.Status != "idle" {
+		t.Fatalf("the run must end with an answer: %v %s", err, c.Status)
+	}
+	if len(model.searches) != maxSearchFailures || strings.HasPrefix(model.searches[0], " ") {
+		t.Fatalf("a blank query must not search, and searching stops after %d failures: %q", maxSearchFailures, model.searches)
+	}
+	results := []string{}
+	for _, seen := range main.seen[1:] {
+		results = append(results, seen[len(seen)-1].Content)
+	}
+	if !strings.Contains(results[0], "Invalid search query") || !strings.Contains(results[3], "not working right now") {
+		t.Fatalf("the model must be told why: %q", results)
+	}
+}
+
 func TestIntegrationEmptyReplyIsRetriedAndDirectWritesAreRedirected(t *testing.T) {
 	db := integrationDB(t)
 	model := &scripted{responses: []WireMessage{
