@@ -138,8 +138,10 @@ export type ProjectInsights = {
   misfiled?: { taskId: string; name: string; moveTo?: string; moveToTitle?: string; stageId?: string }[];
   overlaps?: { id: string; title: string }[];
 };
+/** Overdue and days left are counted in the person's own day, so the
+ * device's zone goes along for an account with no saved working hours. */
 export const getProjectInsights = (id: string) =>
-  api<ProjectInsights>(`/suggestions/project/${encodeURIComponent(id)}`);
+  api<ProjectInsights>(`/suggestions/project/${encodeURIComponent(id)}?timezone=${encodeURIComponent(deviceTimezone())}`);
 
 /** What a new project's title suggests starting from: an earlier project to
  * copy, a doc template and a sheet template. */

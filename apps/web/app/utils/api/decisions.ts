@@ -179,8 +179,12 @@ export type ProjectInsights = {
   misfiled?: { taskId: string; name: string; moveTo?: string; moveToTitle?: string; stageId?: string }[];
   overlaps?: { id: string; title: string }[];
 };
+/** Overdue and days left are counted in the person's own day, so the
+ * browser's zone goes along for an account with no saved working hours. */
 export const getProjectInsights = (projectId: string) =>
-  request<ProjectInsights>(`/suggestions/project/${encodeURIComponent(projectId)}`);
+  request<ProjectInsights>(
+    `/suggestions/project/${encodeURIComponent(projectId)}?timezone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`,
+  );
 
 export type ProjectStart = {
   available: boolean;
