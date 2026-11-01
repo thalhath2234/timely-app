@@ -304,7 +304,7 @@ function CheckRow({ props }: KitProps<"CheckRow">) {
           onToggle={toggle}
           disabled={!item}
           label={done ? `Untick ${text}` : `Tick ${text}`}
-          className="disabled:opacity-40 disabled:hover:border-muted-foreground/50"
+          className="disabled:opacity-50 disabled:hover:border-muted-foreground/50"
         />
       }
     >

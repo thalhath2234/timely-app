@@ -845,7 +845,6 @@ function MoreApiKeys({
   );
 }
 
-/** One direct API provider inside More API keys: a single line until opened. */
 /** What the Disconnect confirm says. Removing the default provider moves chat
  * to the next one set up, so the confirm names it rather than switching
  * silently. */
@@ -857,6 +856,7 @@ function disconnectNote(data: AgentProviders, id: ProviderId) {
   return `The saved key is deleted. Chat and the writing tools will use ${PROVIDER_LABELS[next as ProviderId]} instead.`;
 }
 
+/** One direct API provider inside More API keys: a single line until opened. */
 function ApiProviderRow({
   data,
   view,
