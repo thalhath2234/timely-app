@@ -130,6 +130,8 @@ export type ReviewGroup =
   | (GroupBase & { kind: "change"; tool: string; fields: ReviewField[]; table?: ReviewSheetTab });
 
 const SHEET_ENTRY_TOOLS = new Set(["add_sheet_row", "add_sheet_entries"]);
+/** Sheet writes that review with the sheet's entries: one card per sheet. */
+const SHEET_TOOLS = new Set([...SHEET_ENTRY_TOOLS, "update_sheet_cells"]);
 const TASK_TOOLS = new Set([
   "create_task",
   "update_task",
@@ -535,6 +537,37 @@ function entriesOf(step: ReviewStep, index: number): Entry[] {
   return entries.map((entry, i) => ({ step: index, tabId, cells: obj(obj(entry)?.cells) ?? {}, worked: obj(worked[i]) }));
 }
 
+/** A tab's grid as get_sheet returns it for a sheet with one tab. */
+type ReadTab = { columns?: SheetColumn[]; rows?: { id: string; cells?: Record<string, unknown> }[] };
+
+/**
+ * An update_sheet_cells step as one field per cell: the row by what it
+ * names ("Internet · Amount", never the row id), with the value it had
+ * before when the review read the row.
+ */
+function cellEdits(step: ReviewStep, info: ReviewSheetInfo | undefined): ReviewField[] {
+  const args = step.arguments ?? {};
+  const read = obj(obj(step.before)?.tab) as ReadTab | undefined;
+  const columns = read?.columns ?? findTab(info, str(args.tabId))?.columns ?? info?.columns ?? [];
+  const rows = Array.isArray(read?.rows) ? read.rows : [];
+  const number = Number(args.row);
+  const numbered = Number.isInteger(number) && number >= 1;
+  const at = str(args.rowId) ? rows.findIndex((row) => row.id === str(args.rowId)) : numbered && number <= rows.length ? number - 1 : -1;
+  const row = at >= 0 ? rows[at] : undefined;
+  const lead = columns.find((column) => column.type === "text" && !column.hidden && str(row?.cells?.[column.id]).trim());
+  const rowName = lead ? str(row?.cells?.[lead.id]).trim() : at >= 0 ? `Row ${at + 1}` : numbered ? `Row ${number}` : "A row";
+  return Object.entries(obj(args.cells) ?? {}).map(([key, value]) => {
+    const column = columnForKey(columns, key);
+    const after = reviewCell(column, value) || "Empty";
+    const field: ReviewField = { label: `${rowName} · ${column?.name ?? headingName(key)}`, value: after };
+    if (row && column) {
+      const before = reviewCell(column, row.cells?.[column.id]) || "Empty";
+      if (before !== after) field.was = before;
+    }
+    return field;
+  });
+}
+
 function sheetGroup(key: string, indexes: number[], steps: ReviewStep[], names: ReviewNames): ReviewGroup {
   const sheetId = str(steps[indexes[0]].arguments?.sheetId);
   let info: ReviewSheetInfo | undefined;
@@ -623,18 +656,23 @@ function sheetGroup(key: string, indexes: number[], steps: ReviewStep[], names: 
   }
   const title = info?.title || reviewName(sheetId, names, steps);
   const tabWord = tabs.length > 1 ? ` in ${tabs.length} tabs` : tabs[0] && tabs[0].name !== "Sheet" ? ` in ${tabs[0].name}` : "";
+  const fields = indexes.filter((i) => steps[i].tool === "update_sheet_cells").flatMap((i) => cellEdits(steps[i], info));
+  const scope = [
+    ...(fields.length ? [`${fields.length} ${fields.length === 1 ? "change" : "changes"}`] : []),
+    ...(total || !fields.length ? [`${total} new ${total === 1 ? "entry" : "entries"}${tabWord}`] : []),
+  ];
   return {
     key,
     kind: "sheet",
     steps: indexes,
     eyebrow: "Sheet",
     title,
-    meta: `${total} new ${total === 1 ? "entry" : "entries"}${tabWord}`,
+    meta: scope.join(" · "),
     removal: false,
     sheetId,
     icon: info?.icon || undefined,
     tabs,
-    fields: [],
+    fields,
   };
 }
 
@@ -911,7 +949,7 @@ function changeGroup(key: string, index: number, steps: ReviewStep[], names: Rev
 
 /** The group a step joins: entries by sheet, tasks together, a doc alone. */
 function groupKey(step: ReviewStep, index: number): { key: string; kind: ReviewKind } {
-  if (SHEET_ENTRY_TOOLS.has(step.tool)) return { key: `sheet:${str(step.arguments?.sheetId)}`, kind: "sheet" };
+  if (SHEET_TOOLS.has(step.tool)) return { key: `sheet:${str(step.arguments?.sheetId)}`, kind: "sheet" };
   if (TASK_TOOLS.has(step.tool)) return { key: "tasks", kind: "tasks" };
   if (DOC_TOOLS.has(step.tool)) return { key: `doc:${index}`, kind: "doc" };
   if (EVENT_TOOLS.has(step.tool)) return { key: "events", kind: "events" };
@@ -969,6 +1007,7 @@ export type ReviewStat = { value: number; label: string };
  */
 export function reviewStats(groups: ReviewGroup[]): ReviewStat[] {
   let entries = 0;
+  let sheetChanges = 0;
   let newTasks = 0;
   let taskChanges = 0;
   let newDocs = 0;
@@ -977,7 +1016,10 @@ export function reviewStats(groups: ReviewGroup[]): ReviewStat[] {
   let removals = 0;
   let other = 0;
   for (const group of groups) {
-    if (group.kind === "sheet") entries += group.tabs.reduce((n, tab) => n + tab.rows.length, 0);
+    if (group.kind === "sheet") {
+      entries += group.tabs.reduce((n, tab) => n + tab.rows.length, 0);
+      sheetChanges += group.fields.length;
+    }
     else if (group.kind === "tasks") {
       const created = group.rows.filter((row) => row.action === "create").length;
       newTasks += created;
@@ -992,6 +1034,7 @@ export function reviewStats(groups: ReviewGroup[]): ReviewStat[] {
   const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
   const stats: ReviewStat[] = [
     { value: entries, label: plural(entries, "Sheet entry", "Sheet entries") },
+    { value: sheetChanges, label: plural(sheetChanges, "Sheet change", "Sheet changes") },
     { value: newTasks, label: plural(newTasks, "New task", "New tasks") },
     { value: taskChanges, label: plural(taskChanges, "Task change", "Task changes") },
     { value: newDocs, label: plural(newDocs, "New doc", "New docs") },

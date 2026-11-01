@@ -698,9 +698,14 @@ function GroupCard({
       : own.find((s) => s.status === "done");
   let body: ReactNode = null;
   if (group.kind === "sheet")
-    body = group.tabs.map((tab) => (
-      <SheetTab key={tab.name} tab={tab} steps={steps} />
-    ));
+    body = (
+      <>
+        {group.tabs.map((tab) => (
+          <SheetTab key={tab.name} tab={tab} steps={steps} />
+        ))}
+        {group.fields.length ? <FieldRows fields={group.fields} /> : null}
+      </>
+    );
   else if (group.kind === "tasks")
     body = <TaskRows group={group} steps={steps} />;
   else if (group.kind === "doc") body = <DocBody group={group} />;

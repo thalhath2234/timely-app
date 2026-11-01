@@ -101,7 +101,8 @@ function Cards({ code }: { code: string }) {
       response={code}
       library={library}
       publishObservability={false}
-      onParseResult={(result) => setEmpty(Boolean(result) && !result?.root)}
+      // Reply cards arrive whole, so no result is a block that did not parse.
+      onParseResult={(result) => setEmpty(!result?.root)}
     />
   );
 }

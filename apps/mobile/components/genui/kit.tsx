@@ -190,16 +190,20 @@ function Stat({ props }: KitProps<"Stat">) {
   );
 }
 
-/** The task as it is now: from the task list, or fetched on its own (a Reminder). */
+/**
+ * The task as it is now: from the task list, or fetched on its own (a
+ * Reminder). `missing` once neither has it: an id the model made up, or a
+ * task deleted since the reply.
+ */
 function useLiveTask(id: string) {
   const list = useTasksQuery();
   const listed = list.data?.find((task) => task.id === id);
   const single = useTaskQuery(list.isSuccess && !listed ? id : undefined);
-  return listed ?? single.data;
+  return { task: listed ?? single.data, missing: !listed && single.isError };
 }
 
 function TaskRow({ props }: KitProps<"TaskRow">) {
-  const task = useLiveTask(props.taskId);
+  const { task, missing } = useLiveTask(props.taskId);
   const save = useSaveTask();
   const link = useContext(Link);
   const title = task?.name || props.title;
@@ -222,7 +226,7 @@ function TaskRow({ props }: KitProps<"TaskRow">) {
     <Row
       time={props.time}
       tone={late ? "warning" : "default"}
-      meta={done ? "Done" : props.note}
+      meta={missing ? "Task not found" : done ? "Done" : props.note}
       lead={
         <TaskCheck
           checked={done}
@@ -230,6 +234,7 @@ function TaskRow({ props }: KitProps<"TaskRow">) {
           disabled={!task}
           size={20}
           label={done ? `Reopen ${title}` : `Complete ${title}`}
+          style={missing ? { opacity: 0.4 } : undefined}
         />
       }
     >
@@ -239,7 +244,7 @@ function TaskRow({ props }: KitProps<"TaskRow">) {
         disabled={!task || !link}
         onPress={() => link?.(`timely://task/${encodeURIComponent(props.taskId)}`)}
       >
-        <StrikeTitle done={done} numberOfLines={1} style={styles.rowTitle}>
+        <StrikeTitle done={done} numberOfLines={1} style={[styles.rowTitle, missing && { color: colors.mutedForeground }]}>
           {title}
         </StrikeTitle>
       </AnimatedPressable>
