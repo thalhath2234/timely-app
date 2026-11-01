@@ -135,7 +135,43 @@ func validateBackup(backup *Backup) error {
 			}
 		}
 	}
+	if err := requireAccountBasics(backup); err != nil {
+		return err
+	}
 	return rejectNestedTaskBackup(backup)
+}
+
+// requireAccountBasics refuses a backup that would leave the account without
+// what every account has: its settings and a workspace. A restore replaces
+// everything, so an empty or hand-built backup would otherwise wipe the
+// account and leave it unusable. Every export has both: registration makes
+// the settings row and the last workspace cannot be deleted. Statuses are not
+// required, because a person may delete them all and still export.
+func requireAccountBasics(backup *Backup) error {
+	if len(backup.Rows["configs"]) != 1 {
+		return errors.New("This backup has no account settings, so your account was not changed. Choose a backup exported from Timely.")
+	}
+	if len(backup.Rows["workspaces"]) == 0 {
+		return errors.New("This backup has no workspace, so your account was not changed. Choose a backup exported from Timely.")
+	}
+	return nil
+}
+
+// checkAccountBasics runs inside the restore, after the rows are written: if
+// the backup's rows did not give the account its settings and a workspace,
+// the restore is rolled back and the account keeps its data.
+func checkAccountBasics(tx *gorm.DB, userID string) error {
+	var configs, workspaces int64
+	if err := tx.Raw(`SELECT count(*) FROM configs WHERE user_id = ?`, userID).Scan(&configs).Error; err != nil {
+		return err
+	}
+	if err := tx.Raw(`SELECT count(*) FROM workspaces WHERE user_id = ?`, userID).Scan(&workspaces).Error; err != nil {
+		return err
+	}
+	if configs != 1 || workspaces == 0 {
+		return errors.New("This backup would leave your account without its settings or a workspace, so your account was not changed. Choose a backup exported from Timely.")
+	}
+	return nil
 }
 
 func rejectNestedTaskBackup(backup *Backup) error {
@@ -218,7 +254,7 @@ func (s *Service) Restore(userID string, backup *Backup) (*RestoreResult, error)
 				return fmt.Errorf("restore relationship %s.%s: %w", ref.table, ref.column, err)
 			}
 		}
-		return nil
+		return checkAccountBasics(tx, userID)
 	})
 	if err != nil {
 		return nil, err
@@ -378,8 +414,14 @@ func clearAccountData(tx *gorm.DB, userID string) error {
 		`DELETE FROM notifications WHERE user_id = ?`,
 		`DELETE FROM habits WHERE user_id = ?`,
 		`DELETE FROM goals WHERE user_id = ?`,
-		`DELETE FROM goal_task_tags WHERE user_id = ?`,
-		`DELETE FROM jobs WHERE user_id = ?`,
+		// Goal tags stay: each one holds hashes of the goals and the task's
+		// words, so it is used only while both still match, and dropping
+		// them made the next goal progress ask about every task again.
+		//
+		// Finished jobs stay too: they are the record of what was already
+		// done (today's digest, smart alerts, overdue alerts), which the sweep
+		// checks before queueing the same work again.
+		`DELETE FROM jobs WHERE user_id = ? AND status <> 'succeeded'`,
 		`DELETE FROM embeddings WHERE user_id = ?`,
 	}
 	for _, query := range queries {

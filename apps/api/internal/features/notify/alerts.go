@@ -178,6 +178,12 @@ func (s *Service) HandleSmartAlerts(ctx context.Context, job *models.Job) error 
 	if !settings.SmartAlertsOn() || !s.smartOn(ctx, job.UserID) {
 		return nil
 	}
+	// A job for an earlier day (retried, or run late) is stale: it would
+	// send today's alerts counted against that day's cap, past today's.
+	loc := settings.Location(s.repo.WorkingHoursTimezone(job.UserID))
+	if day := job.Payload.String("date"); day != "" && day != time.Now().In(loc).Format("2006-01-02") {
+		return nil
+	}
 	skip, err := s.repo.RecentlyAlerted(job.UserID, time.Now().AddDate(0, 0, -alertQuietDays))
 	if err != nil {
 		return err
@@ -205,6 +211,9 @@ func (s *Service) HandleSmartAlerts(ctx context.Context, job *models.Job) error 
 	}
 	if left := maxAlertsPerDay - int(sent); left < len(alerts) {
 		alerts = alerts[:max(left, 0)]
+	}
+	if alerts, err = s.stillOpen(job.UserID, alerts); err != nil {
+		return err
 	}
 	for _, a := range alerts {
 		ids := make([]any, 0, len(a.Items))
@@ -237,6 +246,36 @@ func (s *Service) HandleSmartAlerts(ctx context.Context, job *models.Job) error 
 		}
 	}
 	return nil
+}
+
+// stillOpen drops alerts naming Work that is gone or done by now. Smart
+// suggestions can take seconds to answer, and a restore or an edit in that
+// time would leave an alert whose step can no longer be taken.
+func (s *Service) stillOpen(userID string, alerts []Alert) ([]Alert, error) {
+	var ids []string
+	for _, a := range alerts {
+		for _, it := range a.Items {
+			ids = append(ids, it.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return alerts, nil
+	}
+	open, err := s.repo.OpenTasks(userID, ids)
+	if err != nil {
+		return nil, err
+	}
+	kept := alerts[:0:0]
+	for _, a := range alerts {
+		ok := true
+		for _, it := range a.Items {
+			ok = ok && open[it.ID]
+		}
+		if ok {
+			kept = append(kept, a)
+		}
+	}
+	return kept, nil
 }
 
 // applyAlert runs a smart alert's Focus or Reschedule step; Review and

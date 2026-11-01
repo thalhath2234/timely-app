@@ -47,6 +47,7 @@ import (
 	"timely-api/internal/jobs"
 	"timely-api/internal/lifeline"
 	"timely-api/internal/middleware"
+	"timely-api/internal/models"
 	"timely-api/internal/realtime"
 	"timely-api/internal/recurrence"
 	"timely-api/internal/routes"
@@ -129,11 +130,15 @@ func main() {
 	eventService := event.NewEventService(eventRepo, recurrenceStore, place, indexer)
 	calendarService := calendar.NewService(taskRepo, eventRepo, scheduleRepo.GetWorkingHours)
 	scheduleService := schedule.NewService(scheduleRepo, taskRepo, eventRepo, place)
-	searchService := search.NewService(db, indexer)
+	searchService := search.NewService(db, indexer, rebuildIndex)
 	notifyService := notify.NewService(db, jobQueue, calendarService, taskService, scheduleService, indexer)
 	portabilityService := portability.NewService(db, jobQueue)
-	portabilityService.SetAfterRestore(indexer.Invalidate)
 	jobWorker := jobs.NewWorker(jobQueue)
+	// Embedding work waits on OpenRouter: a whole account's reindex makes one
+	// request per item, so it and per-item index jobs each get a lane of their
+	// own and never hold up reminders, pushes or each other.
+	jobWorker.Separate(models.JobReindexUser)
+	jobWorker.Separate(models.JobIndexEntity)
 	notifyService.Register(jobWorker)
 	portabilityService.Register(jobWorker)
 	var decisions *decide.Service // set below, once the provider keys exist
@@ -148,6 +153,15 @@ func main() {
 	})
 	providerService := provider.New(db, indexer, jobQueue)
 	providerService.Register(jobWorker)
+	indexRebuild = providerService.EnsureIndex
+	// A restore replaces every row and drops the search index with them, so
+	// it queues a rebuild, which Settings shows while it runs.
+	portabilityService.SetAfterRestore(func(userID string) {
+		indexer.Invalidate(userID)
+		if err := providerService.QueueReindex(userID); err != nil {
+			log.Printf("restore: queue search reindex: %v", err)
+		}
+	})
 	// Smart suggestions (Jev): TypeSafe key first, then the OpenRouter key;
 	// with neither, decide answers ErrOff and nothing changes.
 	jev := decide.NewClient(nil)

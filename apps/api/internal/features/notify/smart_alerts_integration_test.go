@@ -242,9 +242,13 @@ func TestIntegrationSmartAlertsRetryAfterAFailedCall(t *testing.T) {
 		return []Alert{{Key: "due:tsk_a", Kind: "due", Title: "“Pay rent” is due tomorrow", Action: AlertReschedule, Items: []AlertItem{{ID: "tsk_a", Name: "Pay rent"}}}}, nil
 	})
 	user := zoneTestUser
+	// The alert names an open task: alerts for Work that is gone or done are dropped.
+	if err := db.Create(&models.Task{ID: "tsk_a", Name: "Pay rent", Kind: models.KindTask, UserID: &user}).Error; err != nil {
+		t.Fatal(err)
+	}
 	run := func() error {
 		t.Helper()
-		job, err := queue.Claim(context.Background(), "test")
+		job, err := queue.Claim(context.Background(), "test", jobs.Lane{})
 		if err != nil || job == nil {
 			t.Fatalf("no job to run: %v", err)
 		}

@@ -109,16 +109,33 @@ func TestSmartSearchReordersHidesAndReadsCommands(t *testing.T) {
 	}
 }
 
+// countedHits is fixedHits that counts its searches.
+type countedHits struct {
+	fixedHits
+	searches *int
+}
+
+func (c countedHits) SemanticSearch(ctx context.Context, userID, query string, limit int, kinds []string) ([]Hit, error) {
+	*c.searches++
+	return c.fixedHits.SemanticSearch(ctx, userID, query, limit, kinds)
+}
+
 func TestSmartSearchOffOrUnsureChangesNothing(t *testing.T) {
 	var calls atomic.Int32
 	hits := []Hit{{Kind: "doc", ID: "a"}, {Kind: "doc", ID: "b"}}
-	off := NewSmart(fixedHits{hits: hits}, nil, jevService(t, false, nil, &calls))
+	searches := 0
+	off := NewSmart(countedHits{fixedHits{hits: hits}, &searches}, nil, jevService(t, false, nil, &calls))
 	got, err := off.Search(context.Background(), "u1", "budget", nil)
 	if err != nil || got.Hits != nil || got.Create != nil || got.Category != "" {
 		t.Fatalf("off: %+v, %v", got, err)
 	}
 	if calls.Load() != 0 {
 		t.Fatalf("off sent %d calls to Jev", calls.Load())
+	}
+	// JC1: with suggestions off the search, and its query embedding, ran
+	// anyway, only for its hits to be dropped.
+	if searches != 0 {
+		t.Fatalf("off ran %d searches", searches)
 	}
 
 	// Unsure: "find" is the only confident intent, the category is "any".

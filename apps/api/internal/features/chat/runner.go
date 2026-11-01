@@ -22,6 +22,7 @@ import (
 	"timely-api/internal/features/placement"
 	"timely-api/internal/models"
 	"timely-api/internal/recurrence"
+	"timely-api/internal/utils"
 )
 
 const instruction = `You are Timely's in-app assistant. Help the signed-in person organize their own work.
@@ -154,16 +155,19 @@ func (s *Service) work(ctx context.Context) {
 		cancel()
 		<-leaseDone
 		if err != nil && ctx.Err() == nil {
+			// The error often quotes a provider: drop what Postgres refuses
+			// (invalid UTF-8, NUL) so the failure can be saved.
+			msg := utils.StorableText(err.Error(), maxRunErrorBytes)
 			// Use a fresh context for recording provider timeouts, never replay a write.
 			saveErr := s.checkpoint(ctx, &c, func(tx *gorm.DB, row *Conversation) error {
 				row.Status = "failed"
-				row.Error = err.Error()
+				row.Error = msg
 				if row.Phase == "apply" {
 					// Name the step that stopped the run; retry resets it to pending.
 					for i := range row.Plan {
 						if row.Plan[i].Status != "done" {
 							row.Plan[i].Status = "failed"
-							row.Plan[i].Error = err.Error()
+							row.Plan[i].Error = msg
 							break
 						}
 					}
@@ -175,9 +179,48 @@ func (s *Service) work(ctx context.Context) {
 			})
 			if saveErr != nil && !errors.Is(saveErr, context.Canceled) {
 				log.Printf("chat failure checkpoint: %v", saveErr)
+				// A run left 'running' is claimed again when its lease ends and
+				// the provider is called again, so record the failure plainly.
+				if plainErr := s.failPlainly(ctx, &c); plainErr != nil {
+					log.Printf("chat failure fallback: %v", plainErr)
+				}
 			}
 		}
 	}
+}
+
+// maxRunErrorBytes bounds the error saved on a failed run.
+const maxRunErrorBytes = 2000
+
+// runFailedUnsaved is the error a failed run shows when its own error could
+// not be saved.
+const runFailedUnsaved = "This request failed, and its error could not be shown. Please try again; completed changes are saved"
+
+// failPlainly marks a run failed with a fixed message, touching only the
+// status columns, for when the full failure checkpoint could not be saved.
+func (s *Service) failPlainly(ctx context.Context, c *Conversation) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var latest Conversation
+		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), c.UserID, c.ID, &latest); err != nil {
+			return err
+		}
+		if latest.Lease != c.Lease || latest.Status != "running" {
+			return nil
+		}
+		latest.Status = "failed"
+		latest.Error = runFailedUnsaved
+		latest.Revision++
+		if err := notify(tx, &latest, tr(latest.Language, txtPushAttention)); err != nil {
+			return err
+		}
+		return tx.Model(&Conversation{}).Where("id = ? AND user_id = ?", latest.ID, latest.UserID).Updates(map[string]any{
+			"status":     latest.Status,
+			"error":      latest.Error,
+			"revision":   latest.Revision,
+			"unread":     latest.Unread,
+			"updated_at": time.Now().UTC(),
+		}).Error
+	})
 }
 
 // Renew without changing the conversation revision or racing with its in-memory

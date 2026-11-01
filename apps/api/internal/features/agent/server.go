@@ -337,7 +337,7 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "list_backups", Description: "List encrypted server backups."}, mcpOnlyReads, s.listBackups)
 	registerTool(s, server, &mcp.Tool{Name: "download_backup", Description: "Decrypt and return one server backup."}, mcpOnlyReads, s.downloadBackup)
 	registerTool(s, server, &mcp.Tool{Name: "delete_backup", Description: "Delete one encrypted server backup. Requires confirm=true."}, mcpOnly.reviewed().destroys(), s.deleteBackup)
-	registerTool(s, server, &mcp.Tool{Name: "restore_account", Description: "Replace this account's data with a timely-backup JSON object. Requires confirm=true. Same guard as POST /restore."}, mcpOnly.destroys(), s.restoreAccount)
+	registerTool(s, server, &mcp.Tool{Name: "restore_account", Description: "Replace all of this account's data with a timely-backup JSON object exported from Timely (it must hold the account settings and a workspace). Requires confirm=true and mode=\"replace\", the same guard as POST /restore?mode=replace."}, mcpOnly.destroys(), s.restoreAccount)
 	s.registerFocus(server)
 	s.registerSuggest(server)
 }

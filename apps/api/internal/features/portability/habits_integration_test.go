@@ -20,6 +20,7 @@ func TestIntegrationBackupKeepsHabitsAndGoals(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	seedAccountBasics(t, db, uid, true)
 	for _, q := range []string{
 		`INSERT INTO habits (id, user_id, name, position) VALUES ('hab_1', '` + uid + `', 'Walk', 0), ('hab_x', '` + other + `', 'Read', 0)`,
 		`INSERT INTO habit_checks (habit_id, user_id, day) VALUES ('hab_1', '` + uid + `', '2026-10-09'), ('hab_1', '` + uid + `', '2026-10-10')`,

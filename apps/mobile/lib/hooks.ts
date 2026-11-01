@@ -1802,19 +1802,24 @@ export function useSaveNotificationSettings() {
   });
 }
 
+// Jobs run on the server, so the list only learns that a retried job failed
+// again, or that one finished, by asking. It asks while it is on screen.
+const jobsPollMs = 10_000;
+
 export function useFailedJobsQuery() {
-  return useQuery({ queryKey: keys.failedJobs, queryFn: listFailedJobs });
+  return useQuery({ queryKey: keys.failedJobs, queryFn: listFailedJobs, refetchInterval: jobsPollMs });
 }
 
 export function useJobHealthQuery() {
-  return useQuery({ queryKey: keys.jobHealth, queryFn: getJobHealth });
+  return useQuery({ queryKey: keys.jobHealth, queryFn: getJobHealth, refetchInterval: jobsPollMs });
 }
 
 export function useRetryJob() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: retryJob,
-    onSuccess: () => {
+    // A refused retry (a newer run is waiting) changes the counts too.
+    onSettled: () => {
       client.invalidateQueries({ queryKey: keys.failedJobs });
       client.invalidateQueries({ queryKey: keys.jobHealth });
     },

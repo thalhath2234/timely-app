@@ -406,14 +406,17 @@ function OpenRouterCard({
           <View style={styles.row}>
             <LogoSpinner size={16} color={colors.mutedForeground} />
             <Text style={styles.meta}>
-              Rebuilding search index… {reindex.done}
-              {reindex.total ? ` / ${reindex.total}` : ""}
+              Rebuilding search index…
+              {reindex.total ? ` ${reindex.done} / ${reindex.total}` : ""}
             </Text>
           </View>
         ) : null}
         {reindex.status === "done" ? (
           <Text style={styles.meta}>
             Search index up to date ({reindex.total} items).
+            {reindex.skipped
+              ? ` ${reindex.skipped === 1 ? "1 item was" : `${reindex.skipped} items were`} skipped because your AI provider refused ${reindex.skipped === 1 ? "it" : "them"}.`
+              : ""}
           </Text>
         ) : null}
         {reindex.status === "failed" ? (
