@@ -465,14 +465,17 @@ export function useSearchQuery(query: string) {
 export function useSmartSearchQuery(debouncedQuery: string, enabled = true) {
   const query = debouncedQuery.trim();
   const status = useDecisionsStatusQuery(enabled && query.length >= 2);
+  const on = status.data?.available === true;
   const result = useQuery({
     queryKey: keys.smartSearch(query),
     queryFn: () => smartSearch(query),
-    enabled: enabled && query.length >= 2 && status.data?.available === true,
+    enabled: enabled && query.length >= 2 && on,
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
-  return { ...result, query };
+  // A disabled query keeps its cached answer: one from before smart
+  // suggestions went off is not shown.
+  return { ...result, data: on ? result.data : undefined, query };
 }
 
 /** A suggested length for new Work with this title; quiet while Smart suggestions are off. */
@@ -488,8 +491,7 @@ export function useEstimateQuery(title: string, enabled = true) {
   });
 }
 
-/** Items related to one task, project, doc or sheet; quiet while Smart suggestions are off. */
-/** Items related to one item, while smart suggestions are on. An empty list
+/** Items related to one task, project, doc or sheet, while smart suggestions are on. An empty list
  * is asked again shortly: an item saved a moment ago is not indexed yet. */
 export function useRelatedQuery(kind: RelatedKind, id: string | undefined, enabled = true) {
   const status = useDecisionsStatusQuery(enabled && !!id);
