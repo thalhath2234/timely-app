@@ -559,6 +559,10 @@ func TestWriteMessagesSayToday(t *testing.T) {
 	if !strings.HasPrefix(user, "Today is Sunday 2026-11-01 (Europe/Lisbon).\n") {
 		t.Errorf("user turn: %s", user)
 	}
+	// Live, a dated request once came back with the date sums written out.
+	if !strings.Contains(writeSystem, "never show how you worked something out") {
+		t.Error("the system prompt must ask for the result only")
+	}
 }
 
 // W13: Describe and Continue are told not to make things up.
