@@ -167,6 +167,44 @@ describe("described cards", async () => {
     assert.equal(describedCard("c2", "x", 'root = Reply([])'), null);
   });
 
+  test("a described card follows its project through a rename, and says when the project is gone", async () => {
+    const { drawProblems } = await import("../packages/contract/src/genuiBoard.ts");
+    const program = `root = Panel("Client work", [nums, list])
+late = @Data({source: "tasks", project: "Client work", overdue: true})
+nums = Stats([Stat("Overdue", late.text)])
+list = List(@Each(late.rows, "t", TaskRow(t.id, t.title, t.day)), "Nothing overdue")`;
+    const card = describedCard("c1", "overdue client work", program, data);
+    assert.deepEqual(card.query.described.names, { project: { "client work": ["p1"] } });
+    const names = normalizeDashboard({ version: 1, cards: [card] }).cards[0].query.described.names;
+    assert.deepEqual(names, { project: { "client work": ["p1"] } }, "kept when the layout is saved");
+
+    const rename = (title) => ({
+      ...data,
+      projects: data.projects.map((p) => (p.id === "p1" ? { ...p, title } : p)),
+      tasks: data.tasks.map((t) => (t.projectId === "p1" ? { ...t, project: { ...t.project, title } } : t)),
+    });
+    const renamed = rename("Clients");
+    const late = runData({ source: "tasks", project: "Client work", overdue: true }, renamed, ctx, names);
+    assert.deepEqual([late.value, late.rows.map((row) => row.title)], [1, ["Send invoice"]]);
+    assert.deepEqual(drawProblems(program, renamed, names), []);
+    const root = drawBoard(program, renamed, ctx, names);
+    assert.equal(root.props.blocks[0].props.items[0].props.value, "1");
+
+    // A card made before cards kept ids reads the name alone, and says so.
+    assert.equal(runData({ source: "tasks", project: "Client work", overdue: true }, renamed, ctx).value, 0);
+    assert.match(drawProblems(program, renamed)[0], /^No project is called “Client work”\./);
+
+    // A name that fits again wins over the saved id.
+    const swapped = { ...renamed, projects: [...renamed.projects, { id: "p9", title: "Client work", workspaceId: "ws1" }] };
+    assert.deepEqual(runData({ source: "tasks", project: "Client work", overdue: true }, swapped, ctx, names).value, 0);
+
+    // Deleted: the saved id is gone too.
+    const deleted = { ...data, projects: data.projects.filter((p) => p.id !== "p1"), tasks: data.tasks.filter((t) => t.projectId !== "p1") };
+    assert.match(drawProblems(program, deleted, names)[0], /^No project is called “Client work”\./);
+    // Nothing flagged while the data loads.
+    assert.deepEqual(drawProblems(program, { workspaces: [], projects: [], tasks: [] }, names), []);
+  });
+
   test("drawBoard works out every prop the phone draws", () => {
     const leaves = (node, out = []) => {
       if (Array.isArray(node)) node.forEach((item) => leaves(item, out));

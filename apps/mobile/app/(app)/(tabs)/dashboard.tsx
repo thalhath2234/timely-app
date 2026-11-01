@@ -290,7 +290,7 @@ export default function DashboardScreen() {
         if (loading) return <SkeletonRows rows={3} height={28} bare />;
         if (isFileQuery(card.query)) return <FileCardView query={card.query} data={data} />;
         if (card.query.described)
-          return <DescribedCardView program={card.query.described.program} data={data} timeZone={timeZone} now={now} onLink={openLink} />;
+          return <DescribedCardView program={card.query.described.program} names={card.query.described.names} data={data} timeZone={timeZone} now={now} onLink={openLink} />;
         return <CustomCardView query={card.query} result={computeCard(card.query, data, { now, timeZone })} onOpen={openRow} />;
       }
       case "pomodoro":

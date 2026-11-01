@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { checklistItems, type DocChecklistItem } from "@timely/contract/docChecklist";
 import type { GenuiNode } from "@timely/contract/genui";
-import { blockProblems, drawBoard, liveBlockCards } from "@timely/contract/genuiBoard";
+import { drawBoard, drawProblems, liveBlockCards } from "@timely/contract/genuiBoard";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
 import { useDashboardData, useNow } from "../../lib/dashboard";
 import { liveBlockHtml, type LiveTask } from "./liveBlockHtml";
@@ -59,7 +59,7 @@ export default function LiveBlocks({
         root = null;
       }
       const title = typeof root?.props.title === "string" ? root.props.title.trim() : "";
-      return [{ program: key, html: liveBlockHtml(root, live, blockProblems(program, data)[0]), title }];
+      return [{ program: key, html: liveBlockHtml(root, live, drawProblems(program, data)[0]), title }];
     });
   }, [programs, data, now, timeZone, loading, eventsLoading, sheetsLoading]);
 

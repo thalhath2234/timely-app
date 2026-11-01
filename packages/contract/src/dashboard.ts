@@ -180,16 +180,47 @@ export interface DescribedPick {
   prompt: string;
   /** OpenUI Lang, `root = Panel(...)`. */
   program: string;
+  /** The ids each name in the program's @Data calls meant when the card was made. */
+  names?: DescribedNames;
 }
+
+export const DESCRIBED_NAME_KINDS = ["project", "workspace", "label", "status"] as const;
+export type DescribedNameKind = (typeof DESCRIBED_NAME_KINDS)[number];
+/**
+ * For each kind, a name as the program writes it (trimmed, lower case) and
+ * the ids it fitted when the card was made, so the card keeps reading them
+ * after a rename (genuiBoard.ts describedNames).
+ */
+export type DescribedNames = Partial<Record<DescribedNameKind, Record<string, string[]>>>;
 
 export const DESCRIBED_MAX_PROMPT = 500;
 export const DESCRIBED_MAX_PROGRAM = 8000;
+const DESCRIBED_MAX_NAMES = 20;
+const DESCRIBED_MAX_IDS = 20;
+
+function fitDescribedNames(value: unknown): DescribedNames | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const out: DescribedNames = {};
+  for (const kind of DESCRIBED_NAME_KINDS) {
+    const names = (value as Record<string, unknown>)[kind];
+    if (!names || typeof names !== "object" || Array.isArray(names)) continue;
+    const kept: Record<string, string[]> = {};
+    for (const [name, ids] of Object.entries(names).slice(0, DESCRIBED_MAX_NAMES)) {
+      if (!name || name.length > 200 || !Array.isArray(ids)) continue;
+      const fitted = ids.filter((id): id is string => typeof id === "string" && id.length > 0 && id.length <= 64).slice(0, DESCRIBED_MAX_IDS);
+      if (fitted.length) kept[name] = fitted;
+    }
+    if (Object.keys(kept).length) out[kind] = kept;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
 
 function fitDescribed(value: unknown): DescribedPick | undefined {
   if (!value || typeof value !== "object") return undefined;
-  const { prompt, program } = value as Partial<DescribedPick>;
+  const { prompt, program, names } = value as Partial<DescribedPick>;
   if (typeof program !== "string" || !program.trim() || program.length > DESCRIBED_MAX_PROGRAM) return undefined;
-  return { prompt: typeof prompt === "string" ? prompt.slice(0, DESCRIBED_MAX_PROMPT) : "", program };
+  const fitted = fitDescribedNames(names);
+  return { prompt: typeof prompt === "string" ? prompt.slice(0, DESCRIBED_MAX_PROMPT) : "", program, ...(fitted ? { names: fitted } : {}) };
 }
 
 /** The sources a described card's program reads, from its `source: "..."` arguments; `@Cells` reads sheets and `@Checklist` docs. */

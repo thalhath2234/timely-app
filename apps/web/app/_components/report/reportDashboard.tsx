@@ -615,7 +615,7 @@ function CustomCardSlot({
   }
   if (card.query.described) {
     if (loading) return <SkeletonLines lines={3} className="p-4" />;
-    return <DescribedCardView program={card.query.described.program} data={data} timeZone={timeZone} now={now} />;
+    return <DescribedCardView program={card.query.described.program} names={card.query.described.names} data={data} timeZone={timeZone} now={now} />;
   }
   if (!result) return null;
   if (loading) return <SkeletonLines lines={3} className="p-4" />;
