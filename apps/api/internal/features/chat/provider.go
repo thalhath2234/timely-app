@@ -44,6 +44,23 @@ type Completer interface {
 	Complete(context.Context, []WireMessage, []any, bool) (WireMessage, error)
 }
 
+// ErrAnswerTooLong is a model's answer cut off at its length limit. Every
+// provider reports it with these words, which fit chat and Help me write.
+var ErrAnswerTooLong = errors.New("The answer hit the model's length limit before it was finished. Try a smaller request")
+
+// ErrInputTooLong is a request longer than the model can read at once.
+var ErrInputTooLong = errors.New("This is more text than the model can read at once. Try a shorter request, or start a new chat")
+
+// NotChosenMessage is what a run, Help me write and the other writing
+// features answer while the account has providers set up but has not chosen
+// which one runs them. ErrorCodeNotChosen is its stable code (Conversation
+// JSON errorCode, the HTTP error body's code), which the apps answer with a
+// button to Settings → Agent.
+const (
+	NotChosenMessage   = "Choose which provider runs chats and Help me write in Settings → Agent."
+	ErrorCodeNotChosen = "provider_not_chosen"
+)
+
 // Completers picks the model client for each account. Resolve runs once when a
 // queued run is claimed; Completer rebuilds the client for that recorded choice
 // so resumed runs keep their provider.
@@ -221,7 +238,7 @@ func (p *OpenRouter) completeOnce(ctx context.Context, messages []WireMessage, t
 		return empty, fmt.Errorf("AI provider did not return a response")
 	}
 	if data.Choices[0].FinishReason == "length" {
-		return empty, fmt.Errorf("The proposal was too large; try a smaller request")
+		return empty, ErrAnswerTooLong
 	}
 	return data.Choices[0].Message, nil
 }

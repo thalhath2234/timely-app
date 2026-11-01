@@ -221,6 +221,8 @@ func (s *Service) checklistTasks(c *echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(409, err.Error())
 	}
+	// Read with the client, so a key removed during the call keeps the name.
+	_, model, _ := s.resolveModel(ctx, user(c), provider)
 	drafts, err := draftChecklistTasks(ctx, completer, req)
 	if errors.Is(err, context.DeadlineExceeded) {
 		return echo.NewHTTPError(504, "The AI took too long to name the tasks")
@@ -228,6 +230,5 @@ func (s *Service) checklistTasks(c *echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(502, "The AI could not name the tasks: "+err.Error())
 	}
-	_, model, _ := s.resolveModel(ctx, user(c), provider)
 	return c.JSON(200, checklistTasksResponse{Items: drafts, Provider: provider, Model: model})
 }

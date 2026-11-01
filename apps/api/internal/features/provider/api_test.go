@@ -392,7 +392,7 @@ func TestResponsesReportsTruncation(t *testing.T) {
 	}))
 	defer server.Close()
 	p := &Responses{Spec: apiProviderByID("openai"), Base: server.URL, Key: "k", Model: "m", Client: server.Client()}
-	if _, err := p.Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, nil, false); err == nil || !strings.Contains(err.Error(), "too large") {
+	if _, err := p.Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, nil, false); !errors.Is(err, chat.ErrAnswerTooLong) {
 		t.Fatalf("%v", err)
 	}
 }

@@ -137,7 +137,12 @@ func (s *Service) resolveBase(spec *apiProvider, requested, current string) (str
 	}
 	u, err := url.Parse(requested)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || len(requested) > 300 {
-		return "", errors.New("Enter a plain http:// or https:// address, such as http://192.168.1.20:11434")
+		example := "http://192.168.1.20:11434"
+		if !s.privateOllama {
+			// An open server refuses private addresses, so show a public one.
+			example = "https://ollama.example.com"
+		}
+		return "", errors.New("Enter a plain http:// or https:// address, such as " + example)
 	}
 	// Link-local addresses host cloud metadata services; Ollama never lives there.
 	if ip := net.ParseIP(u.Hostname()); ip != nil && (ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()) {
@@ -253,7 +258,7 @@ func (s *Service) buildAPI(spec *apiProvider, row APIKey, model string) (chat.Co
 		return nil, err
 	}
 	if key == "" && !spec.KeyOptional {
-		return nil, fmt.Errorf("Add a %s API key in Settings → Agent", spec.Label)
+		return nil, fmt.Errorf("Add %s in Settings → Agent", apiKeyName(spec))
 	}
 	if model == "" {
 		return nil, fmt.Errorf("Choose a %s model in Settings → Agent", spec.Label)
@@ -265,14 +270,12 @@ func (s *Service) buildAPI(spec *apiProvider, row APIKey, model string) (chat.Co
 	client := &http.Client{Timeout: 4 * time.Minute}
 	switch spec.route(model) {
 	case routeMessages:
-		s.models.mu.Lock()
-		effort := s.models.effort[model]
-		s.models.mu.Unlock()
+		effort := spec.Anthropic && s.effortFor(spec, base, key, model)
 		sdkBase := strings.TrimSuffix(strings.TrimRight(base, "/"), "/v1")
 		if spec.Anthropic && s.anthropicURL != "" {
 			sdkBase = s.anthropicURL
 		}
-		return &Anthropic{Key: key, Model: model, Base: sdkBase, Effort: spec.Anthropic && effort, Search: spec.Anthropic, Label: spec.Label, Client: client}, nil
+		return &Anthropic{Key: key, Model: model, Base: sdkBase, Effort: effort, Search: spec.Anthropic, Label: spec.Label, Client: client}, nil
 	case routeResponses:
 		return &Responses{Spec: spec, Base: base, Key: key, Model: model, Client: client}, nil
 	case routeOllama:
@@ -284,6 +287,31 @@ func (s *Service) buildAPI(spec *apiProvider, row APIKey, model string) (chat.Co
 		return &Compat{Spec: spec, Base: base, Key: key, Model: model, Client: client}, nil
 	}
 	return nil, fmt.Errorf("%s serves %s through a protocol Timely does not support. Choose another model", spec.Label, model)
+}
+
+// effortFor reports whether an Anthropic model accepts output_config.effort,
+// from the account's model list. The list is read again when this process
+// has not seen the model yet (after a restart, or a model id the picker took
+// by hand), so every call to a model gets the same effort.
+func (s *Service) effortFor(spec *apiProvider, base, key, model string) bool {
+	if ok, known := s.models.effortOf(model); known {
+		return ok
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, _ = s.apiModelList(ctx, spec, base, key, 10*time.Minute)
+	ok, _ := s.models.effortOf(model)
+	return ok
+}
+
+// apiKeyName names a provider's key in a sentence: "an OpenAI API key",
+// "a DeepSeek API key".
+func apiKeyName(spec *apiProvider) string {
+	name := strings.TrimSuffix(spec.Label, " API") + " API key"
+	if strings.ContainsRune("AEIOU", rune(name[0])) || strings.HasPrefix(name, "xAI") || strings.HasPrefix(name, "NVIDIA") {
+		return "an " + name
+	}
+	return "a " + name
 }
 
 // ---- handlers ----
@@ -314,9 +342,12 @@ func (s *Service) setAPIKey(c *echo.Context) error {
 		return err
 	}
 	savedKey := row.Key
-	key := strings.TrimSpace(in.Key)
+	// A key of only spaces is no key: the saved one is kept, as for an
+	// empty field, and every check below reads the trimmed value.
+	in.Key = strings.TrimSpace(in.Key)
+	key := in.Key
 	if key != "" && (len(key) < 8 || len(key) > 400 || strings.ContainsAny(key, " \n\t")) {
-		return echo.NewHTTPError(400, "That does not look like a "+spec.Label+" API key")
+		return echo.NewHTTPError(400, "That does not look like "+apiKeyName(spec))
 	}
 	sealed := row.Key
 	if key != "" {
@@ -327,7 +358,7 @@ func (s *Service) setAPIKey(c *echo.Context) error {
 		return echo.NewHTTPError(409, err.Error())
 	}
 	if key == "" && !spec.KeyOptional {
-		return echo.NewHTTPError(400, "Paste a "+spec.Label+" API key")
+		return echo.NewHTTPError(400, "Paste "+apiKeyName(spec))
 	}
 	base, err := s.resolveBase(spec, in.BaseURL, row.BaseURL)
 	if err != nil {
@@ -350,6 +381,7 @@ func (s *Service) setAPIKey(c *echo.Context) error {
 		if err := testCompleter(ctx, completer); err != nil {
 			return echo.NewHTTPError(409, spec.Label+" did not accept this key: "+err.Error())
 		}
+		s.verified.mark(verifiedKey(row.UserID, id, row.Key, row.BaseURL, row.Model))
 	}
 	if in.Key != "" {
 		row.KeyHint = hint(key)

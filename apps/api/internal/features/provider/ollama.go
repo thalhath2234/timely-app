@@ -131,7 +131,7 @@ func (p *Ollama) completeOnce(ctx context.Context, messages []chat.WireMessage, 
 	}
 	if err = json.NewDecoder(io.LimitReader(res.Body, 2<<20)).Decode(&data); err != nil {
 		if p.Typed {
-			return empty, typedFailure(p.Spec.Label, p.Base, 0, nil)
+			return empty, typedUnreadable(p.Spec.Label, p.Base, err)
 		}
 		return empty, fmt.Errorf("%s answer could not be read: %w", p.Spec.Label, err)
 	}
@@ -142,7 +142,7 @@ func (p *Ollama) completeOnce(ctx context.Context, messages []chat.WireMessage, 
 		return empty, fmt.Errorf("%s: %s", p.Spec.Label, clip(data.Error))
 	}
 	if data.DoneReason == "length" {
-		return empty, fmt.Errorf("The proposal was too large; try a smaller request")
+		return empty, chat.ErrAnswerTooLong
 	}
 	out := chat.WireMessage{Role: "assistant", Content: data.Message.Content}
 	for i, call := range data.Message.ToolCalls {
@@ -204,7 +204,7 @@ func listOllamaModels(ctx context.Context, client *http.Client, spec *apiProvide
 		}
 		err = json.NewDecoder(io.LimitReader(res.Body, 16<<20)).Decode(out)
 		if err != nil && typed {
-			return typedFailure(spec.Label, base, 0, nil)
+			return typedUnreadable(spec.Label, base, err)
 		}
 		return err
 	}
@@ -290,6 +290,13 @@ func typedFailure(label, base string, status int, err error) error {
 		msg = fmt.Sprintf("%s did not answer like an %s server. Check the address", base, label)
 	}
 	return &typedError{msg: msg, err: err}
+}
+
+// typedUnreadable is typedFailure for an answer that could not be read. It
+// keeps the decode error, so an answer cut off on the way (io.ErrUnexpectedEOF)
+// is sent again by RetryTransient like any other dropped connection.
+func typedUnreadable(label, base string, err error) error {
+	return &typedError{msg: fmt.Sprintf("%s did not answer like an %s server. Check the address", base, label), err: err}
 }
 
 // publicAddr reports whether ip is on the public internet: not this machine,

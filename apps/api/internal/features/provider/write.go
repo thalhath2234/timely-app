@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -56,6 +57,8 @@ const (
 	writeMaxText      = 12000
 	writeMaxSelection = 8000
 	writeMaxPrompt    = 2000
+	// writeBudget is how long one Help me write answer may take.
+	writeBudget = 3 * time.Minute
 )
 
 type writeRequest struct {
@@ -245,9 +248,15 @@ func (s *Service) write(c *echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(409, err.Error())
 	}
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	// The model is read with the client, before the slow call: a key removed
+	// meanwhile must not leave the answer without the model that wrote it.
+	_, model, _ := s.resolveModel(ctx, user(c), provider)
+	ctx, cancel := context.WithTimeout(ctx, writeBudget)
 	defer cancel()
 	reply, err := completer.Complete(ctx, writeMessages(req), nil, false)
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() != nil {
+		return echo.NewHTTPError(504, "The AI took more than 3 minutes to answer. Try again, or ask for something shorter")
+	}
 	if err != nil {
 		return echo.NewHTTPError(502, err.Error())
 	}
@@ -255,7 +264,6 @@ func (s *Service) write(c *echo.Context) error {
 	if text == "" {
 		return echo.NewHTTPError(502, "The AI returned an empty answer. Try again")
 	}
-	_, model, _ := s.resolveModel(ctx, user(c), provider)
 	return c.JSON(200, writeResponse{Text: text, Provider: provider, Model: model})
 }
 

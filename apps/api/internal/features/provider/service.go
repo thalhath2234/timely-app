@@ -43,7 +43,7 @@ const (
 // ReindexState is the progress of the account's semantic-search rebuild after
 // its key or embedding model changed.
 type ReindexState struct {
-	Status    string    `json:"status,omitempty"` // queued, running, done, failed
+	Status    string    `json:"status,omitempty"` // queued, running, retrying (a try failed, another follows), done, failed
 	Done      int       `json:"done"`
 	Total     int       `json:"total"`
 	Error     string    `json:"error,omitempty"`
@@ -105,6 +105,8 @@ type Service struct {
 	// (ALLOW_REGISTRATION off, the default), when every account was let in by
 	// whoever runs it. The listed addresses work either way.
 	privateOllama bool
+
+	verified verifiedChecks // recent passed test calls (handler.go)
 }
 
 func New(db *gorm.DB, indexer embed.Indexer, queue *jobs.Queue) *Service {
@@ -148,8 +150,8 @@ func (s *Service) LocalCLI() bool { return s.localCLI }
 
 // ---- storage ----
 
-// An empty DefaultProvider means the person has not picked one: runs then use
-// the first ready provider in autoProvider's order.
+// An empty DefaultProvider means the person has not picked one: runs and the
+// writing features then wait for the pick (errNotChosen, ADR 0020).
 func (s *Service) load(db *gorm.DB, userID string) (Settings, error) {
 	var row Settings
 	err := db.Where("user_id = ?", userID).First(&row).Error
@@ -275,10 +277,25 @@ func (s *Service) chatModel(row Settings, provider string) string {
 // errNoProvider is the answer when no provider is chosen and none is set up.
 var errNoProvider = errors.New("No AI provider is set up. Add an API key or connect one in Settings → Agent")
 
+// notChosenError is the answer while providers are set up but the person has
+// not chosen which one runs chats and the writing features. Its JSON body
+// carries a stable code the apps answer with a button to Settings → Agent.
+type notChosenError struct{}
+
+func (notChosenError) Error() string   { return chat.NotChosenMessage }
+func (notChosenError) StatusCode() int { return http.StatusConflict }
+func (notChosenError) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]string{"message": chat.NotChosenMessage, "code": chat.ErrorCodeNotChosen})
+}
+
+var errNotChosen error = notChosenError{}
+
 // defaultProvider is the provider new chat runs and the writing features
-// (Help me write, checklist task offers, view queries, dashboard cards) use:
-// the person's choice, else autoProvider's pick ("" when nothing is set up).
-// Both read it here so they never move to different providers.
+// (Help me write, checklist task offers, view queries, dashboard cards and
+// live blocks) use: the person's choice. With none chosen it is "" and
+// errNotChosen when a provider is set up (no provider is picked for the
+// person, ADR 0020), or "" and nil when nothing is set up. Both read it here
+// so they never move to different providers.
 func (s *Service) defaultProvider(ctx context.Context, row Settings) (string, error) {
 	if row.DefaultProvider != "" {
 		return row.DefaultProvider, nil
@@ -287,7 +304,10 @@ func (s *Service) defaultProvider(ctx context.Context, row Settings) (string, er
 	if err != nil {
 		return "", err
 	}
-	return autoProvider(row, rows, s.localCLI), nil
+	if firstSetUp(row, rows, s.localCLI) != "" {
+		return "", errNotChosen
+	}
+	return "", nil
 }
 
 func (s *Service) Resolve(ctx context.Context, userID string) (string, string, error) {
@@ -449,6 +469,9 @@ func testCompleter(ctx context.Context, c chat.Completer) error {
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	reply, err := c.Complete(ctx, []chat.WireMessage{{Role: "system", Content: "You are a connectivity check."}, {Role: "user", Content: "Reply with the single word OK."}}, nil, false)
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() != nil {
+		return errors.New("The provider did not answer the test request within 90 seconds. Try again, or choose another model")
+	}
 	if err != nil {
 		return err
 	}
@@ -493,7 +516,14 @@ func (s *Service) handleReindex(ctx context.Context, job *models.Job) error {
 		return nil
 	}
 	if err != nil {
-		setState(func(st *ReindexState) { st.Status, st.Error = "failed", err.Error() })
+		// The queue tries a failed job again (jobs.Queue.Fail) until its
+		// attempts run out, so until then the rebuild is "retrying", which the
+		// apps keep following, and only the last failure reads "failed".
+		status := "failed"
+		if job.Attempts < job.MaxAttempts {
+			status = "retrying"
+		}
+		setState(func(st *ReindexState) { st.Status, st.Error = status, err.Error() })
 		return err
 	}
 	setState(func(st *ReindexState) { st.Status, st.Done, st.Total = "done", n, n })

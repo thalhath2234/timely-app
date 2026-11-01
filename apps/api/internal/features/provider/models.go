@@ -49,6 +49,26 @@ func newCatalogue() *catalogue {
 	return &catalogue{fetched: map[string]time.Time{}, cached: map[string][]ModelOption{}, effort: map[string]bool{}, client: &http.Client{Timeout: 20 * time.Second}}
 }
 
+// effortOf reports whether a listed Anthropic model accepts effort; known is
+// false when no list read so far named it. A dated id and its undated name
+// (claude-haiku-5-5-20261001, claude-haiku-5-5) are the same model.
+func (c *catalogue) effortOf(model string) (ok, known bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if ok, known := c.effort[model]; known {
+		return ok, true
+	}
+	for id, ok := range c.effort {
+		if rest, cut := strings.CutPrefix(model, id); cut && modelVersion.MatchString(rest) {
+			return ok, true
+		}
+		if rest, cut := strings.CutPrefix(id, model); cut && modelVersion.MatchString(rest) {
+			return ok, true
+		}
+	}
+	return false, false
+}
+
 func (c *catalogue) get(key string, maxAge time.Duration, load func() ([]ModelOption, error)) ([]ModelOption, error) {
 	c.mu.Lock()
 	if list, ok := c.cached[key]; ok && time.Since(c.fetched[key]) < maxAge {

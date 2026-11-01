@@ -89,3 +89,17 @@ type Conversation struct {
 }
 
 func (Conversation) TableName() string { return "agent_conversations" }
+
+// MarshalJSON adds errorCode, a stable name for a failure the apps answer
+// with their own action: "provider_not_chosen" opens Settings → Agent.
+func (c Conversation) MarshalJSON() ([]byte, error) {
+	type plain Conversation
+	out := struct {
+		plain
+		ErrorCode string `json:"errorCode,omitempty"`
+	}{plain: plain(c)}
+	if c.Error == NotChosenMessage {
+		out.ErrorCode = ErrorCodeNotChosen
+	}
+	return json.Marshal(out)
+}

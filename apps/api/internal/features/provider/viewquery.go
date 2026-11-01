@@ -425,6 +425,8 @@ func (s *Service) viewQuery(c *echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(409, err.Error())
 	}
+	// Read with the client, so a key removed during the call keeps the name.
+	_, model, _ := s.resolveModel(ctx, user(c), provider)
 	vocab, err := s.loadViewVocab(ctx, user(c))
 	if err != nil {
 		return err
@@ -443,6 +445,5 @@ func (s *Service) viewQuery(c *echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(502, "The AI's view was not valid: "+err.Error())
 	}
-	_, model, _ := s.resolveModel(ctx, user(c), provider)
 	return c.JSON(200, viewQueryResponse{View: draft, Dropped: dropped, Provider: provider, Model: model})
 }

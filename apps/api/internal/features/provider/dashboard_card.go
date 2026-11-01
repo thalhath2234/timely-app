@@ -135,6 +135,11 @@ func (s *Service) describeCard(ctx context.Context, userID string, req dashboard
 	if err != nil {
 		return dashboardCardResponse{}, err
 	}
+	// Read with the client, so a key removed during the call keeps the name.
+	model := ""
+	if provider != "" {
+		_, model, _ = s.resolveModel(ctx, userID, provider)
+	}
 	vocab, err := s.loadViewVocab(ctx, userID)
 	if err != nil {
 		return dashboardCardResponse{}, err
@@ -160,10 +165,6 @@ func (s *Service) describeCard(ctx context.Context, userID string, req dashboard
 	}
 	if err != nil {
 		return dashboardCardResponse{}, echo.NewHTTPError(502, err.Error())
-	}
-	model := ""
-	if provider != "" {
-		_, model, _ = s.resolveModel(ctx, userID, provider)
 	}
 	return dashboardCardResponse{Program: program, Provider: provider, Model: model}, nil
 }
