@@ -113,6 +113,9 @@ describe("readViewQuery", () => {
     assert.deepEqual(read("high or urgent tasks").view.rules, [{ field: "priority", op: "anyOf", value: ["High", "Urgent"] }]);
     assert.deepEqual(read("no priority").view.rules, [{ field: "priority", op: "isEmpty" }]);
     assert.deepEqual(read("deep work").view.rules, [{ field: "effort", op: "anyOf", value: ["deep"] }]);
+    // Laundry and the bins read as routine, a passport form as admin.
+    assert.deepEqual(read("my chores").view.rules, [{ field: "effort", op: "anyOf", value: ["admin", "routine"] }]);
+    assert.deepEqual(read("errands").view.rules, [{ field: "effort", op: "anyOf", value: ["admin"] }]);
     assert.deepEqual(read("untouched for 2 weeks").view.rules, [{ field: "updatedAt", op: "before", value: "-14" }]);
     assert.deepEqual(read("tasks not updated in 30 days").view.rules, [{ field: "updatedAt", op: "before", value: "-30" }]);
     assert.deepEqual(read("repeating tasks").view.rules, [{ field: "recurring", op: "is", value: true }]);

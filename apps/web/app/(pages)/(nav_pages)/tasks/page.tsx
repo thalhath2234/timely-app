@@ -27,13 +27,15 @@ import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
 import StaleWorkReview from "@/app/_components/_ui/tasks/staleWorkReview";
 import { useProjects } from "@/app/utils/hooks/projects";
 import { filterTasks } from "@/app/utils/taskFilters";
-import { bucketGroupLabels, queryContext, sortTasks } from "@timely/contract/taskQuery";
+import { bucketGroupLabels, queryContext, sortTasks, viewUsesSuggestedFields } from "@timely/contract/taskQuery";
+import { useDecisions } from "@/app/utils/hooks/decisions";
 import { vocabularyFrom } from "@timely/contract/viewLanguage";
 import { todayInZone } from "@timely/contract/workStatus";
 import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
 import { readyProviders } from "@/app/_components/chat/modelMenu";
 import ViewRulesBar, { DescribeViewInput } from "@/app/_components/_ui/tasks/viewRulesBar";
 import { useViewPreviewStore } from "@/app/_store/viewPreviewStore";
+import { useToastStore } from "@/app/_store/toastStore";
 import { stageColorMap, stageNameMap } from "@/app/utils/stages";
 import { MAX_TASK_VIEWS, PREVIEW_VIEW_ID, useTaskViewsState } from "@/app/utils/hooks/taskViews";
 import ScreenTip from "@/app/_components/_ui/screenTip";
@@ -127,6 +129,11 @@ function Tasks() {
   const stageColors = useMemo(() => stageColorMap(typedProjects), [typedProjects]);
   const { data: providers } = useAgentProviders();
   const aiReady = readyProviders(providers).length > 0;
+  // Effort and urgency are filled in only by smart suggestions, so a view
+  // built on them says why it is empty while they are off.
+  const suggestionsOff = useDecisions().data?.available === false;
+  const needsSuggestions =
+    suggestionsOff && viewUsesSuggestedFields({ rules, groupFields, sortBy, thenSortBy });
   const vocab = useMemo(
     () => vocabularyFrom({ workspaces: typedWorkspaces, projects: typedProjects, customFields }),
     [typedWorkspaces, typedProjects, customFields],
@@ -147,12 +154,35 @@ function Tasks() {
   // the view is active so later view switches are the person's own.
   const viewParam = searchParams.get("view");
   const hasViewParam = Boolean(viewParam && taskViews.some((view) => view.id === viewParam));
+  // The saved views are read again first: this tab's copy can be older than
+  // a delete made elsewhere, and opening the view from it would save it back.
+  const [viewsRead, setViewsRead] = useState<{ view: string } | null>(null);
+  // The read already used to open a view, so the same ?view= later reads again.
+  const usedRead = useRef<{ view: string } | null>(null);
+  // The ?view= being read again or already opened, so it is handled once.
+  const handledView = useRef<string | null>(null);
+  const refetchConfig = configQuery.refetch;
   useEffect(() => {
-    if (!viewParam || !configLoaded) return;
+    if (!viewParam) {
+      handledView.current = null;
+      return;
+    }
+    if (!configLoaded || handledView.current === viewParam) return;
+    if (viewsRead?.view !== viewParam || viewsRead === usedRead.current) {
+      handledView.current = viewParam;
+      void refetchConfig().finally(() => {
+        handledView.current = null;
+        setViewsRead({ view: viewParam });
+      });
+      return;
+    }
+    handledView.current = viewParam;
+    usedRead.current = viewsRead;
     // A view deleted since the search ran is dropped from the URL too.
     if (hasViewParam) setActiveTaskViewId(viewParam);
+    else useToastStore.getState().show("That view was deleted, so it can’t be opened.");
     router.replace("/tasks", { scroll: false });
-  }, [viewParam, hasViewParam, configLoaded, setActiveTaskViewId, router]);
+  }, [viewParam, hasViewParam, configLoaded, viewsRead, refetchConfig, setActiveTaskViewId, router]);
 
   // The open row lives in the URL so an @mention can link straight to it.
   // Clicks set it locally first, inside a view transition (router updates
@@ -523,6 +553,16 @@ function Tasks() {
                 Clear
               </button>
             </div>
+          ) : null}
+
+          {needsSuggestions ? (
+            <p className="border-b border-border px-4 py-2 text-xs text-muted-foreground" data-testid="view-needs-suggestions">
+              This view uses effort or urgency, which smart suggestions fill in. They’re off, so those fields stay blank. Turn them on in{" "}
+              <Link href="/settings?tab=agent" className="underline underline-offset-2">
+                Settings → Agent
+              </Link>
+              .
+            </p>
           ) : null}
 
           {dataMode === "task" && !showReminders ? (

@@ -1068,9 +1068,11 @@ function readFlags(r: Reader) {
   });
 
   // Effort kinds.
-  const effort = (source: string, value: string) => r.take(W(source), () => r.rule({ field: "effort", op: "anyOf", value: [value] }));
+  const effort = (source: string, ...value: string[]) => r.take(W(source), () => r.rule({ field: "effort", op: "anyOf", value }));
   effort("deep work|deep focus|deep|focus work|heads? down|hard thinking", "deep");
-  effort("admin(?: work| stuff| tasks)?|paperwork|errands|chores|busywork|busy work", "admin");
+  // Chores are as often routine (laundry, the bins) as admin (a form).
+  effort("chores", "admin", "routine");
+  effort("admin(?: work| stuff| tasks)?|paperwork|errands|busywork|busy work", "admin");
   effort("creative(?: work| stuff| tasks)?", "creative");
   effort("routine(?: work| stuff| tasks)?", "routine");
 }
