@@ -23,10 +23,9 @@ export default function FailureCard({
   const settings = needsProvider || chat.errorAction === "settings";
   const stopped = ["failed", "stopped"].includes(chat.status);
   const retry = stopped && !settings && chat.errorAction !== "none";
-  const photos =
-    stopped &&
-    !!chat.imageReview &&
-    !["confirmed", "discarded"].includes(chat.imageReview.status);
+  // Photos that failed before their review opened; an open review has its
+  // own Discard images button.
+  const photos = stopped && chat.imageReview?.status === "extracting";
   return (
     <div
       role="alert"
