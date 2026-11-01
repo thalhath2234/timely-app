@@ -8,9 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"image/color"
-	"image/draw"
-	"image/jpeg"
 	_ "image/png"
 	"io"
 	"net/http"
@@ -72,19 +69,14 @@ func (s *Service) uploadImage(c *echo.Context) error {
 	if err != nil || (format != "jpeg" && format != "png") || config.Width < 1 || config.Height < 1 || int64(config.Width)*int64(config.Height) > 20_000_000 {
 		return echo.NewHTTPError(400, "Use a JPEG or PNG image with at most 20 megapixels")
 	}
-	decoded, _, err := image.Decode(bytes.NewReader(data))
-	if err != nil {
-		return echo.NewHTTPError(400, "This image could not be read")
+	encoded, err := prepareImage(data)
+	if errors.Is(err, errImageUnreadable) {
+		return echo.NewHTTPError(400, err.Error())
 	}
-	// Flatten transparency and re-encode to remove EXIF and other embedded metadata.
-	clean := image.NewRGBA(decoded.Bounds())
-	draw.Draw(clean, clean.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
-	draw.Draw(clean, clean.Bounds(), decoded, decoded.Bounds().Min, draw.Over)
-	var encoded bytes.Buffer
-	if err = jpeg.Encode(&encoded, clean, &jpeg.Options{Quality: 90}); err != nil {
+	if err != nil {
 		return err
 	}
-	if encoded.Len() > maxImageBytes {
+	if len(encoded) > maxImageBytes {
 		return echo.NewHTTPError(400, "This image is too large; use a smaller photo")
 	}
 	now := time.Now().UTC()
@@ -108,7 +100,7 @@ func (s *Service) uploadImage(c *echo.Context) error {
 		if count >= 20 {
 			return echo.NewHTTPError(400, "Review or discard existing images before adding more")
 		}
-		if err := os.WriteFile(imagePath(attachment.ID), encoded.Bytes(), 0600); err != nil {
+		if err := os.WriteFile(imagePath(attachment.ID), encoded, 0600); err != nil {
 			return err
 		}
 		if err := tx.Create(&attachment).Error; err != nil {
