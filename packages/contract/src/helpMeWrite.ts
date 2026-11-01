@@ -103,6 +103,11 @@ export type WriteResult = { text: string; provider: string; model: string; short
 export const shortenedNote = (kind: WriteKind) =>
   `This ${kind === "doc" ? "doc" : "description"} is long, so the AI read its start and end but not the middle.`;
 
+/** The error code (409 body `code`, a failed chat's `errorCode`) of a feature
+ * that runs on the default provider while the person has not chosen one in
+ * Settings → Agent. The apps answer it with a way to choose. */
+export const PROVIDER_NOT_CHOSEN = "provider_not_chosen";
+
 /** What the panel says while the AI works on each action. */
 export const WRITE_BUSY: Record<WriteAction, string> = {
   write: "Writing",

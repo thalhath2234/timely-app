@@ -380,33 +380,29 @@ func TestWriteLongDocKeepsStartAndEnd(t *testing.T) {
 	}
 }
 
-func TestAutoProviderPutsOpenRouterLast(t *testing.T) {
+// firstSetUp only tells "nothing set up" from "set up but not chosen"
+// (ADR 0020); it never picks the provider a run uses.
+func TestFirstSetUpSeesEveryKindOfProvider(t *testing.T) {
 	now := time.Now()
-	withKey := map[string]APIKey{"anthropic": {Key: "enc", Model: "claude-haiku-5-5"}}
-	if got := autoProvider(Settings{OpenRouterKey: "enc"}, withKey, true); got != "anthropic" {
-		t.Errorf("an OpenRouter key saved for search must not take chat from Anthropic: got %q", got)
+	cases := []struct {
+		name string
+		row  Settings
+		rows map[string]APIKey
+		cli  bool
+		want string
+	}{
+		{"api key before OpenRouter", Settings{OpenRouterKey: "enc"}, map[string]APIKey{"anthropic": {Key: "enc", Model: "m"}}, true, "anthropic"},
+		{"connected CLI", Settings{OpenRouterKey: "enc", ClaudeConnectedAt: &now}, nil, true, ClaudeCLI},
+		{"CLIs off on the server", Settings{OpenRouterKey: "enc", ClaudeConnectedAt: &now}, nil, false, OpenRouter},
+		{"set up without a model", Settings{}, map[string]APIKey{"anthropic": {Key: "enc"}}, true, "anthropic"},
+		{"Ollama needs no key", Settings{}, map[string]APIKey{"ollama": {Model: "m"}}, true, "ollama"},
+		{"OpenRouter alone", Settings{OpenRouterKey: "enc"}, nil, true, OpenRouter},
+		{"nothing set up", Settings{}, nil, true, ""},
 	}
-	cli := Settings{OpenRouterKey: "enc", ClaudeConnectedAt: &now}
-	if got := autoProvider(cli, nil, true); got != ClaudeCLI {
-		t.Errorf("connected Claude Code before OpenRouter: got %q", got)
-	}
-	if got := autoProvider(cli, nil, false); got != OpenRouter {
-		t.Errorf("CLIs switched off on the server: got %q", got)
-	}
-	// A provider that is set up stays the pick when it is not ready right now
-	// (here: no model yet); its run fails with its own message.
-	if got := autoProvider(Settings{OpenRouterKey: "enc"}, map[string]APIKey{"anthropic": {Key: "enc"}}, true); got != "anthropic" {
-		t.Errorf("a set-up provider must not lose chat to OpenRouter: got %q", got)
-	}
-	// Ollama needs no key; its saved row is enough.
-	if got := autoProvider(Settings{OpenRouterKey: "enc"}, map[string]APIKey{"ollama": {Model: "llama4"}}, true); got != "ollama" {
-		t.Errorf("Ollama: got %q", got)
-	}
-	if got := autoProvider(Settings{OpenRouterKey: "enc"}, nil, true); got != OpenRouter {
-		t.Errorf("OpenRouter alone keeps chat working: got %q", got)
-	}
-	if got := autoProvider(Settings{}, nil, true); got != "" {
-		t.Errorf("nothing set up: got %q", got)
+	for _, c := range cases {
+		if got := firstSetUp(c.row, c.rows, c.cli); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
 	}
 }
 

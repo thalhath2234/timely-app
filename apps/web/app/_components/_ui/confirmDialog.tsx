@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Trash2 } from "lucide-react";
 import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
@@ -14,6 +14,9 @@ export default function ConfirmDialog({
   pendingLabel = "Deleting…",
   onConfirm,
   onCancel,
+  tone = "danger",
+  icon,
+  children,
 }: {
   title: string;
   description?: string;
@@ -23,6 +26,12 @@ export default function ConfirmDialog({
   pendingLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
+  /** "primary" for a choice that deletes nothing, such as picking a provider. */
+  tone?: "danger" | "primary";
+  /** Replaces the bin icon. */
+  icon?: ReactNode;
+  /** A choice to make before confirming, under the description. */
+  children?: ReactNode;
 }) {
   const titleId = useId();
   const descriptionId = useId();
@@ -71,8 +80,14 @@ export default function ConfirmDialog({
           onClick={(event) => event.stopPropagation()}
         >
           <div className="flex gap-3">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive/15 text-destructive">
-              <Trash2 className="size-4" />
+            <span
+              className={
+                tone === "primary"
+                  ? "flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/12 text-primary"
+                  : "flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive/15 text-destructive"
+              }
+            >
+              {icon ?? <Trash2 className="size-4" />}
             </span>
             <div className="min-w-0 flex-1 pt-0.5">
               <h2 id={titleId} className="text-sm font-semibold text-foreground">
@@ -83,6 +98,7 @@ export default function ConfirmDialog({
                   {description}
                 </p>
               ) : null}
+              {children}
             </div>
           </div>
           <div className="mt-5 flex justify-end gap-2">
@@ -99,7 +115,11 @@ export default function ConfirmDialog({
               type="button"
               onClick={onConfirm}
               disabled={pending}
-              className="rounded-lg bg-destructive-container px-3 py-1.5 text-sm font-medium text-destructive-foreground transition-colors hover:bg-destructive-container/90 disabled:opacity-60"
+              className={
+                tone === "primary"
+                  ? "rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+                  : "rounded-lg bg-destructive-container px-3 py-1.5 text-sm font-medium text-destructive-foreground transition-colors hover:bg-destructive-container/90 disabled:opacity-60"
+              }
             >
               {pending ? pendingLabel : confirmLabel}
             </button>

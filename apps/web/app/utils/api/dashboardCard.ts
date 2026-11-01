@@ -1,4 +1,5 @@
 import { apiFetch } from "./client";
+import { codedError } from "./codedError";
 
 export type DescribedAnswer = { program: string; provider: string; model: string };
 
@@ -16,15 +17,6 @@ export async function describeCardWithAi(
     body: JSON.stringify(body),
     signal,
   });
-  if (!res.ok) {
-    let message = "Could not build the card. Try again.";
-    try {
-      const data = await res.json();
-      if (typeof data?.message === "string") message = data.message;
-    } catch {
-      // keep the fallback message
-    }
-    throw new Error(message);
-  }
+  if (!res.ok) throw await codedError(res, "Could not build the card. Try again.");
   return res.json();
 }

@@ -57,6 +57,8 @@ export type Chat = {
    * "" (Try again) otherwise.
    */
   errorAction?: "" | "settings" | "none";
+  /** Set with some errors, such as "provider_not_chosen" (ADR 0020). */
+  errorCode?: string;
   updatedAt: string;
   createdAt: string;
 };

@@ -2,6 +2,8 @@ package provider
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -9,6 +11,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"timely-api/internal/features/decide"
 	"timely-api/internal/features/embed"
 )
@@ -102,9 +106,9 @@ type openRouterView struct {
 }
 
 type overview struct {
-	// DefaultProvider is the provider new runs and the writing features use:
-	// the person's choice when DefaultChosen, otherwise autoProvider's pick
-	// ("" when nothing is ready).
+	// DefaultProvider is the provider the person chose for new runs and the
+	// writing features; "" until they choose one, and then those wait
+	// (ADR 0020). DefaultChosen says the same as a flag.
 	DefaultProvider string         `json:"defaultProvider"`
 	DefaultChosen   bool           `json:"defaultChosen"`
 	LocalCLI        bool           `json:"localCli"`
@@ -113,9 +117,6 @@ type overview struct {
 	Codex           cliView        `json:"codex"`
 	APIs            []apiView      `json:"apiProviders"`
 	Reindex         ReindexState   `json:"reindex"`
-	// AutoProvider is what an empty default picks, also while another
-	// provider is chosen, so the apps can name it beside Automatic.
-	AutoProvider string `json:"autoProvider"`
 }
 
 func (s *Service) view(ctx context.Context, row Settings, maxAge time.Duration) overview {
@@ -126,7 +127,7 @@ func (s *Service) view(ctx context.Context, row Settings, maxAge time.Duration) 
 		out.OpenRouter.EmbedModel = s.envEmbed
 	}
 	out.OpenRouter.Ready = out.OpenRouter.KeySet
-	// Runs read the rows again through autoPick, which returns this error.
+	// Runs read the rows again through defaultProvider, which returns this error.
 	rows, _ := s.apiRows(s.db.WithContext(ctx), row.UserID)
 	out.APIs = s.apiViews(rows)
 	if s.localCLI {
@@ -137,25 +138,17 @@ func (s *Service) view(ctx context.Context, row Settings, maxAge time.Duration) 
 		out.Codex = cliView{Enabled: true, Status: codex, Connected: row.CodexConnectedAt != nil, ConnectedAt: row.CodexConnectedAt, Model: s.chatModel(row, CodexCLI)}
 		out.Codex.Ready = out.Codex.Connected && codex.Found && codex.LoggedIn
 	}
-	out.AutoProvider = autoProvider(row, rows, s.localCLI)
 	out.DefaultChosen = out.DefaultProvider != ""
-	if !out.DefaultChosen {
-		out.DefaultProvider = out.AutoProvider
-	}
 	return out
 }
 
-// autoProvider picks the provider for an account that has not chosen one: the
-// first one the person set up, direct API keys first (registry order, so
-// Anthropic leads), then a connected CLI, and OpenRouter last. An OpenRouter
-// key is also what search embeddings and smart suggestions use, so saving one
-// for those never takes chat away from a provider the person added for it.
+// firstSetUp is the first provider the account has set up, direct API keys
+// first (registry order), then a connected CLI, and OpenRouter last; "" when
+// none is. It is never picked for the person: it only tells "nothing set up"
+// (the add-a-key message) from "set up but not chosen" (errNotChosen).
 //
-// It reads stored settings only, so a run never waits on a CLI check, and a
-// provider that is set up but not ready right now (signed out, no model) is
-// still picked: its run fails with its own error instead of moving to
-// OpenRouter.
-func autoProvider(row Settings, rows map[string]APIKey, localCLI bool) string {
+// It reads stored settings only, so a run never waits on a CLI check.
+func firstSetUp(row Settings, rows map[string]APIKey, localCLI bool) string {
 	for _, spec := range apiProviders {
 		if api, ok := rows[spec.ID]; ok && (api.Key != "" || spec.KeyOptional) {
 			return spec.ID
@@ -221,16 +214,18 @@ func (s *Service) listModels(c *echo.Context) error {
 		if spec == nil {
 			return echo.NewHTTPError(404, "Unknown provider")
 		}
-		row, found, err := s.apiRow(s.db, user(c), spec.ID)
-		if err != nil {
-			return err
+		// Distinct names: a := here would shadow err, and a failed list
+		// would be answered 200 with no models and no reason.
+		row, found, rowErr := s.apiRow(s.db, user(c), spec.ID)
+		if rowErr != nil {
+			return rowErr
 		}
 		if !found && !spec.KeyOptional {
-			return echo.NewHTTPError(409, "Add a "+spec.Label+" API key first")
+			return echo.NewHTTPError(409, "Add "+apiKeyName(spec)+" first")
 		}
-		key, err := s.apiKey(row)
-		if err != nil {
-			return echo.NewHTTPError(409, err.Error())
+		key, keyErr := s.apiKey(row)
+		if keyErr != nil {
+			return echo.NewHTTPError(409, keyErr.Error())
 		}
 		base := row.BaseURL
 		if base == "" {
@@ -244,7 +239,9 @@ func (s *Service) listModels(c *echo.Context) error {
 		}
 	}
 	if err != nil {
-		return echo.NewHTTPError(502, err.Error())
+		// 409, not 502: the apps take a 502 on a GET for an API restart and
+		// send it again four times, asking the provider each time.
+		return echo.NewHTTPError(409, err.Error())
 	}
 	return c.JSON(200, list)
 }
@@ -412,20 +409,24 @@ func (s *Service) configure(c *echo.Context) error {
 	}
 	trial := row
 	reindex := false
-	clean := func(v *string) (string, bool) {
+	// clean trims a model name; problem says what is wrong with it.
+	clean := func(v *string) (value, problem string) {
 		if v == nil {
-			return "", false
+			return "", ""
 		}
-		value := strings.TrimSpace(*v)
-		if len(value) > 200 || strings.ContainsAny(value, " \n\t") {
-			return "", false
+		value = strings.TrimSpace(*v)
+		switch {
+		case len(value) > 200:
+			return "", "Model names can be at most 200 characters"
+		case strings.ContainsAny(value, " \n\t"):
+			return "", "Model names cannot contain spaces"
 		}
-		return value, true
+		return value, ""
 	}
 	if in.DefaultProvider != nil {
 		switch *in.DefaultProvider {
 		case "", OpenRouter, ClaudeCLI, CodexCLI:
-			// "" hands the choice back to autoProvider.
+			// "" clears the choice; the features then wait for one (ADR 0020).
 			trial.DefaultProvider = *in.DefaultProvider
 		default:
 			if apiProviderByID(*in.DefaultProvider) == nil {
@@ -441,9 +442,12 @@ func (s *Service) configure(c *echo.Context) error {
 		if spec == nil {
 			return echo.NewHTTPError(400, "Unknown provider")
 		}
-		model, ok := clean(&value)
-		if !ok || model == "" {
-			return echo.NewHTTPError(400, "Model names cannot be empty or contain spaces")
+		model, problem := clean(&value)
+		if problem != "" {
+			return echo.NewHTTPError(400, problem)
+		}
+		if model == "" {
+			return echo.NewHTTPError(400, "Choose a "+spec.Label+" model")
 		}
 		api, found, err := s.apiRow(s.db, user(c), id)
 		if err != nil {
@@ -462,6 +466,7 @@ func (s *Service) configure(c *echo.Context) error {
 		if err := testCompleter(ctx, completer); err != nil {
 			return echo.NewHTTPError(409, err.Error())
 		}
+		s.verified.mark(verifiedKey(api.UserID, id, api.Key, api.BaseURL, model))
 		api.Model = model
 		apiChanges[id] = api
 	}
@@ -475,12 +480,12 @@ func (s *Service) configure(c *echo.Context) error {
 		{ClaudeCLI, in.ClaudeModel, &trial.ClaudeModel},
 		{CodexCLI, in.CodexModel, &trial.CodexModel},
 	} {
-		value, ok := clean(change.input)
+		value, problem := clean(change.input)
 		if change.input == nil {
 			continue
 		}
-		if !ok {
-			return echo.NewHTTPError(400, "Model names cannot contain spaces")
+		if problem != "" {
+			return echo.NewHTTPError(400, problem)
 		}
 		if value == *change.target {
 			continue
@@ -494,16 +499,10 @@ func (s *Service) configure(c *echo.Context) error {
 		if (change.provider == ClaudeCLI && trial.ClaudeConnectedAt == nil) || (change.provider == CodexCLI && trial.CodexConnectedAt == nil) {
 			continue
 		}
-		// OpenRouter's chat model is only tested while OpenRouter runs chat; it
-		// is tested again when OpenRouter becomes the default.
-		if change.provider == OpenRouter {
-			runsChat, err := s.defaultProvider(ctx, trial)
-			if err != nil {
-				return err
-			}
-			if runsChat != OpenRouter {
-				continue
-			}
+		// OpenRouter's chat model is only tested while OpenRouter is the chosen
+		// default; it is tested when OpenRouter becomes the default.
+		if change.provider == OpenRouter && trial.DefaultProvider != OpenRouter {
+			continue
 		}
 		// Verify the chosen model actually answers before it becomes the default.
 		completer, err := s.build(trial, change.provider, s.chatModel(trial, change.provider))
@@ -513,14 +512,26 @@ func (s *Service) configure(c *echo.Context) error {
 		if err := testCompleter(ctx, completer); err != nil {
 			return echo.NewHTTPError(409, err.Error())
 		}
-		openRouterTested = openRouterTested || change.provider == OpenRouter
+		if change.provider == OpenRouter {
+			openRouterTested = true
+			s.verified.mark(verifiedKey(trial.UserID, OpenRouter, trial.OpenRouterKey, "", value))
+		}
 	}
-	if value, ok := clean(in.OpenRouterEmbedModel); in.OpenRouterEmbedModel != nil {
-		if !ok {
-			return echo.NewHTTPError(400, "Model names cannot contain spaces")
+	if value, problem := clean(in.OpenRouterEmbedModel); in.OpenRouterEmbedModel != nil {
+		if problem != "" {
+			return echo.NewHTTPError(400, problem)
 		}
 		if value != trial.OpenRouterEmbedModel {
-			if value != "" {
+			// Naming the model already in effect (the server's default) is
+			// recorded, but embeds nothing and rebuilds nothing.
+			effective := func(model string) string {
+				if model == "" {
+					return s.envEmbed
+				}
+				return model
+			}
+			changes := effective(value) != effective(trial.OpenRouterEmbedModel)
+			if value != "" && changes {
 				key, err := s.openRouterKey(trial)
 				if err != nil {
 					return err
@@ -538,7 +549,7 @@ func (s *Service) configure(c *echo.Context) error {
 				}
 			}
 			trial.OpenRouterEmbedModel = value
-			reindex = true
+			reindex = changes
 		}
 	}
 	if trial.DefaultProvider != row.DefaultProvider {
@@ -554,14 +565,21 @@ func (s *Service) configure(c *echo.Context) error {
 				api = changed
 			} else {
 				if !found {
-					return echo.NewHTTPError(409, "Add a "+spec.Label+" API key first")
+					return echo.NewHTTPError(409, "Add "+apiKeyName(spec)+" first")
 				}
-				completer, err := s.buildAPI(spec, api, api.Model)
-				if err != nil {
-					return echo.NewHTTPError(409, err.Error())
-				}
-				if err := testCompleter(ctx, completer); err != nil {
-					return echo.NewHTTPError(409, err.Error())
+				// A model that answered a test call on this key within the
+				// hour (just picked, or the default a moment ago) is not
+				// asked again.
+				checked := verifiedKey(api.UserID, spec.ID, api.Key, api.BaseURL, api.Model)
+				if !s.verified.ok(checked) {
+					completer, err := s.buildAPI(spec, api, api.Model)
+					if err != nil {
+						return echo.NewHTTPError(409, err.Error())
+					}
+					if err := testCompleter(ctx, completer); err != nil {
+						return echo.NewHTTPError(409, err.Error())
+					}
+					s.verified.mark(checked)
 				}
 			}
 		} else if trial.DefaultProvider != "" {
@@ -572,27 +590,60 @@ func (s *Service) configure(c *echo.Context) error {
 			// Saving an OpenRouter key checks only the key, so choosing it for
 			// chat checks its chat model (CLIs answered a test call at Connect).
 			if trial.DefaultProvider == OpenRouter && !openRouterTested {
-				if err := testCompleter(ctx, completer); err != nil {
-					return echo.NewHTTPError(409, err.Error())
+				checked := verifiedKey(trial.UserID, OpenRouter, trial.OpenRouterKey, "", s.chatModel(trial, OpenRouter))
+				if !s.verified.ok(checked) {
+					if err := testCompleter(ctx, completer); err != nil {
+						return echo.NewHTTPError(409, err.Error())
+					}
+					s.verified.mark(checked)
 				}
 			}
 		}
 	}
-	for _, api := range apiChanges {
-		if err := s.saveAPIRow(&api); err != nil {
+	// The test calls above take seconds, and another tab or device may
+	// disconnect a provider meanwhile. So the save runs under the settings row
+	// lock and writes only what this request changed: a tested model only onto
+	// the connection it was tested with, and a new default only while that
+	// provider is still connected. A removed key stays removed.
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		current, err := s.load(tx.Clauses(clause.Locking{Strength: "UPDATE"}), user(c))
+		if err != nil {
 			return err
 		}
-	}
-	row, err = s.update(user(c), func(row *Settings) error {
-		row.DefaultProvider = trial.DefaultProvider
-		row.OpenRouterChatModel = trial.OpenRouterChatModel
-		row.OpenRouterEmbedModel = trial.OpenRouterEmbedModel
-		row.ClaudeModel = trial.ClaudeModel
-		row.CodexModel = trial.CodexModel
-		if reindex {
-			row.Reindex = ReindexState{Status: "queued", UpdatedAt: time.Now().UTC()}
+		for id, api := range apiChanges {
+			res := tx.Model(&APIKey{}).Where("user_id = ? AND provider = ? AND api_key = ? AND base_url = ?", api.UserID, id, api.Key, api.BaseURL).
+				Updates(map[string]any{"model": api.Model, "updated_at": time.Now().UTC()})
+			if res.Error != nil {
+				return res.Error
+			}
+			if res.RowsAffected == 0 {
+				return changedMeanwhile(apiProviderByID(id).Label)
+			}
 		}
-		return nil
+		if trial.DefaultProvider != row.DefaultProvider {
+			if err := s.stillConnected(tx, current, trial.DefaultProvider); err != nil {
+				return err
+			}
+			current.DefaultProvider = trial.DefaultProvider
+		}
+		for _, field := range []struct {
+			was, now string
+			target   *string
+		}{
+			{row.OpenRouterChatModel, trial.OpenRouterChatModel, &current.OpenRouterChatModel},
+			{row.OpenRouterEmbedModel, trial.OpenRouterEmbedModel, &current.OpenRouterEmbedModel},
+			{row.ClaudeModel, trial.ClaudeModel, &current.ClaudeModel},
+			{row.CodexModel, trial.CodexModel, &current.CodexModel},
+		} {
+			if field.now != field.was {
+				*field.target = field.now
+			}
+		}
+		if reindex {
+			current.Reindex = ReindexState{Status: "queued", UpdatedAt: time.Now().UTC()}
+		}
+		row = current
+		return s.save(tx, &current)
 	})
 	if err != nil {
 		return err
@@ -603,4 +654,84 @@ func (s *Service) configure(c *echo.Context) error {
 		}
 	}
 	return c.JSON(200, s.view(ctx, row, time.Minute))
+}
+
+// verifiedFor is how long a passed test call vouches for a model on a key.
+const verifiedFor = time.Hour
+
+// verifiedChecks remembers recent passed test calls, so choosing a model and
+// then pressing "Use as default", or switching back to a provider soon after,
+// sends one test request instead of two. A new key, endpoint or model is a
+// new entry, so it is always tested.
+type verifiedChecks struct {
+	mu sync.Mutex
+	at map[string]time.Time
+}
+
+func verifiedKey(userID, provider, sealedKey, base, model string) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{userID, provider, sealedKey, base, model}, "\x00")))
+	return hex.EncodeToString(sum[:])
+}
+
+func (v *verifiedChecks) ok(key string) bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	at, found := v.at[key]
+	return found && time.Since(at) < verifiedFor
+}
+
+func (v *verifiedChecks) mark(key string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.at == nil {
+		v.at = map[string]time.Time{}
+	}
+	for k, at := range v.at {
+		if time.Since(at) >= verifiedFor {
+			delete(v.at, k)
+		}
+	}
+	v.at[key] = time.Now()
+}
+
+// changedMeanwhile answers a change whose provider was disconnected or given
+// another key (from another tab or device) while the change was checked.
+func changedMeanwhile(label string) error {
+	return echo.NewHTTPError(409, label+" changed in another tab or device during the check, so nothing was saved. Try again")
+}
+
+// stillConnected checks, inside the saving transaction, that the provider
+// about to become the default was not disconnected after it was tested. The
+// key row is share-locked, so a disconnect waits for this save and then
+// resets the default as usual.
+func (s *Service) stillConnected(tx *gorm.DB, row Settings, provider string) error {
+	switch provider {
+	case "":
+		return nil
+	case OpenRouter:
+		if row.OpenRouterKey == "" {
+			return changedMeanwhile("OpenRouter")
+		}
+	case ClaudeCLI:
+		if row.ClaudeConnectedAt == nil {
+			return changedMeanwhile("Claude Code")
+		}
+	case CodexCLI:
+		if row.CodexConnectedAt == nil {
+			return changedMeanwhile("Codex")
+		}
+	default:
+		spec := apiProviderByID(provider)
+		if spec == nil {
+			return echo.NewHTTPError(400, "Unknown provider")
+		}
+		api, found, err := s.apiRow(tx.Clauses(clause.Locking{Strength: "SHARE"}), row.UserID, provider)
+		if err != nil {
+			return err
+		}
+		if !found || (api.Key == "" && !spec.KeyOptional) {
+			return changedMeanwhile(spec.Label)
+		}
+	}
+	return nil
 }

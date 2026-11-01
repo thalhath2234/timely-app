@@ -25,6 +25,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"timely-api/internal/features/agent"
+	"timely-api/internal/features/auth"
 	"timely-api/internal/features/chat"
 	"timely-api/internal/features/decide"
 	"timely-api/internal/features/embed"
@@ -45,7 +46,7 @@ const (
 // ReindexState is the progress of the account's semantic-search rebuild after
 // its key or embedding model changed.
 type ReindexState struct {
-	Status string `json:"status,omitempty"` // queued, running, done, failed
+	Status string `json:"status,omitempty"` // queued, running, retrying (a try failed, another follows), done, failed
 	Done   int    `json:"done"`
 	Total  int    `json:"total"`
 	// Skipped counts the items OpenRouter refused to embed in a finished
@@ -110,6 +111,14 @@ type Service struct {
 
 	// busy counts each account's one-shot AI requests in flight (oneShotLimit).
 	busy inFlight
+
+	// privateOllama lets a typed Ollama address point at this server or its
+	// private network: only while the server is closed to sign-ups
+	// (ALLOW_REGISTRATION off, the default), when every account was let in by
+	// whoever runs it. The listed addresses work either way.
+	privateOllama bool
+
+	verified verifiedChecks // recent passed test calls (handler.go)
 }
 
 func New(db *gorm.DB, indexer embed.Indexer, queue *jobs.Queue) *Service {
@@ -136,6 +145,7 @@ func New(db *gorm.DB, indexer embed.Indexer, queue *jobs.Queue) *Service {
 		openRouterURL:    "https://openrouter.ai/api/v1/chat/completions",
 		openRouterKeyURL: "https://openrouter.ai/api/v1/key",
 		ollamaURL:        strings.TrimRight(strings.TrimSpace(os.Getenv("OLLAMA_BASE_URL")), "/"),
+		privateOllama:    !auth.AllowRegistrationFromEnv(),
 	}
 	if indexer != nil {
 		indexer.SetCredentials(s.EmbedCredentials)
@@ -152,8 +162,8 @@ func (s *Service) LocalCLI() bool { return s.localCLI }
 
 // ---- storage ----
 
-// An empty DefaultProvider means the person has not picked one: runs then use
-// the first ready provider in autoProvider's order.
+// An empty DefaultProvider means the person has not picked one: runs and the
+// writing features then wait for the pick (errNotChosen, ADR 0020).
 func (s *Service) load(db *gorm.DB, userID string) (Settings, error) {
 	var row Settings
 	err := db.Where("user_id = ?", userID).First(&row).Error
@@ -279,10 +289,25 @@ func (s *Service) chatModel(row Settings, provider string) string {
 // errNoProvider is the answer when no provider is chosen and none is set up.
 var errNoProvider = errors.New("No AI provider is set up. Add an API key or connect one in Settings → Agent")
 
+// notChosenError is the answer while providers are set up but the person has
+// not chosen which one runs chats and the writing features. Its JSON body
+// carries a stable code the apps answer with a button to Settings → Agent.
+type notChosenError struct{}
+
+func (notChosenError) Error() string   { return chat.NotChosenMessage }
+func (notChosenError) StatusCode() int { return http.StatusConflict }
+func (notChosenError) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]string{"message": chat.NotChosenMessage, "code": chat.ErrorCodeNotChosen})
+}
+
+var errNotChosen error = notChosenError{}
+
 // defaultProvider is the provider new chat runs and the writing features
-// (Help me write, checklist task offers, view queries, dashboard cards) use:
-// the person's choice, else autoProvider's pick ("" when nothing is set up).
-// Both read it here so they never move to different providers.
+// (Help me write, checklist task offers, view queries, dashboard cards and
+// live blocks) use: the person's choice. With none chosen it is "" and
+// errNotChosen when a provider is set up (no provider is picked for the
+// person, ADR 0020), or "" and nil when nothing is set up. Both read it here
+// so they never move to different providers.
 func (s *Service) defaultProvider(ctx context.Context, row Settings) (string, error) {
 	if row.DefaultProvider != "" {
 		return row.DefaultProvider, nil
@@ -291,7 +316,10 @@ func (s *Service) defaultProvider(ctx context.Context, row Settings) (string, er
 	if err != nil {
 		return "", err
 	}
-	return autoProvider(row, rows, s.localCLI), nil
+	if firstSetUp(row, rows, s.localCLI) != "" {
+		return "", errNotChosen
+	}
+	return "", nil
 }
 
 func (s *Service) Resolve(ctx context.Context, userID string) (string, string, error) {
@@ -469,6 +497,9 @@ func testCompleter(ctx context.Context, c chat.Completer) error {
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	reply, err := c.Complete(ctx, []chat.WireMessage{{Role: "system", Content: "You are a connectivity check."}, {Role: "user", Content: "Reply with the single word OK."}}, nil, false)
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() != nil {
+		return errors.New("The provider did not answer the test request within 90 seconds. Try again, or choose another model")
+	}
 	if err != nil {
 		return err
 	}
@@ -596,22 +627,23 @@ func (s *Service) handleReindex(ctx context.Context, job *models.Job) error {
 		return nil
 	}
 	if err != nil {
+		// The queue tries a failed job again (jobs.Queue.Fail) until its
+		// attempts run out, so until then the rebuild is "retrying", which the
+		// apps keep following, and only the last failure reads "failed". A
+		// refused key or no credits is permanent: another attempt would get
+		// the same answer, so it fails now instead of asking seven more times.
 		permanent := embed.Permanent(err)
+		status := "failed"
 		if !permanent && job.Attempts < job.MaxAttempts {
-			// The queue tries again after a pause, so the rebuild is still on
-			// its way: Settings says so rather than "failed" in between.
-			setState(func(st *ReindexState) { st.Status, st.Error = "queued", "" })
-			return err
+			status = "retrying"
 		}
 		// The error usually quotes OpenRouter. The state is jsonb, which
 		// refuses a NUL: an unsaved failure would leave the status "running",
 		// and EnsureIndex would queue a new rebuild on every look.
 		setState(func(st *ReindexState) {
-			st.Status, st.Error = "failed", utils.StorableText(utils.RedactSecrets(err.Error()), 500)
+			st.Status, st.Error = status, utils.StorableText(utils.RedactSecrets(err.Error()), 500)
 		})
 		if permanent {
-			// Another attempt would get the same answer (a refused key, no
-			// credits): stop here instead of asking seven more times.
 			return jobs.Permanent(err)
 		}
 		return err

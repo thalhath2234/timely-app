@@ -1,6 +1,7 @@
 import type { ChecklistTasksRequest, ChecklistTasksResult } from "@timely/contract/docChecklist";
 import type { WriteRequest, WriteResult } from "@timely/contract/helpMeWrite";
 import { apiFetch } from "./client";
+import { codedError } from "./codedError";
 
 /** Help me write: one-shot drafting on the account's AI provider. */
 export async function helpMeWrite(body: WriteRequest, signal?: AbortSignal): Promise<WriteResult> {
@@ -10,16 +11,7 @@ export async function helpMeWrite(body: WriteRequest, signal?: AbortSignal): Pro
     body: JSON.stringify(body),
     signal,
   });
-  if (!res.ok) {
-    let message = "Could not write that. Try again.";
-    try {
-      const data = await res.json();
-      if (typeof data?.message === "string") message = data.message;
-    } catch {
-      // keep the fallback message
-    }
-    throw new Error(message);
-  }
+  if (!res.ok) throw await codedError(res, "Could not write that. Try again.");
   return res.json();
 }
 
@@ -32,17 +24,6 @@ export async function checklistTaskDrafts(body: ChecklistTasksRequest, signal?: 
     body: JSON.stringify(body),
     signal,
   });
-  if (!res.ok) {
-    // The API's message says why (a rejected key, no credit), which the
-    // "Task added" toast passes on (namingFailedNote).
-    let message = `Could not name the tasks (${res.status})`;
-    try {
-      const data = await res.json();
-      if (typeof data?.message === "string") message = data.message;
-    } catch {
-      // keep the fallback message
-    }
-    throw new Error(message);
-  }
+  if (!res.ok) throw await codedError(res, `Could not name the tasks (${res.status})`);
   return res.json();
 }

@@ -23,7 +23,7 @@ func TestProviderErrorsAreWordedForThePerson(t *testing.T) {
 		hidden             []string
 	}{
 		{name: "html 502", code: 502, body: "<html><body>502 Bad Gateway</body></html>", want: "Anthropic is unavailable right now (HTTP 502)", action: chat.ActionRetry, hidden: []string{"<html", "Bad Gateway"}},
-		{name: "overloaded", code: 529, body: `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`, want: "Anthropic is unavailable right now (HTTP 529)", action: chat.ActionRetry},
+		{name: "overloaded", code: 529, body: `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`, want: "Anthropic is overloaded right now (HTTP 529)", action: chat.ActionRetry},
 		{name: "key echoed", code: 401, body: `{"type":"error","error":{"type":"authentication_error","message":"bad key sk-ant-standin-livegc-0001"}}`, want: "Anthropic didn't accept the API key (HTTP 401). Check the key in Settings → Agent", action: chat.ActionSettings, hidden: []string{"sk-ant", "bad key"}},
 		{name: "no access to the model", code: 403, body: `{"type":"error","error":{"type":"permission_error","message":"Your API key does not have permission to use the specified resource."}}`, want: "Anthropic refused the request (HTTP 403): Your API key does not have permission to use the specified resource. Check the key and model in Settings → Agent", action: chat.ActionSettings, hidden: []string{"didn't accept"}},
 		{name: "no credit", code: 402, body: `{"error":{"message":"Insufficient credits"}}`, want: "out of credit (HTTP 402)", action: chat.ActionSettings},

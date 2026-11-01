@@ -33,7 +33,7 @@ own OpenRouter key (Settings → Agent); keyword search works without it.
 | --- | --- | --- |
 | `API_PORT` (older name `PORT`) | `8080` | TCP port for every listener. |
 | `API_BIND` | `127.0.0.1` | Comma-separated hosts to listen on. Loopback only by default; add a Tailscale address for a phone, or `0.0.0.0` on a server. A host that fails to bind is logged and skipped; the API exits only when none binds. |
-| `ALLOW_REGISTRATION` | `true` | `false` makes `POST /register` answer 403 once one account exists; the first account can always be created. |
+| `ALLOW_REGISTRATION` | `false` | `true` (or `1`, `on`, `yes`) lets anyone sign up. Otherwise `POST /register` answers 403 once one account exists; the first account can always be created. While sign-ups are open, an Ollama address an account types must be public (see `OLLAMA_BASE_URL`). |
 | `TIMELY_DATA_DIR` | unset | Roots every file the API writes: backups in `<dir>/backups`, chat images in `<dir>/chat-images`. Created with mode 0700. |
 | `TIMELY_BACKUP_DIR` | `data/backups` (or `<TIMELY_DATA_DIR>/backups`) | Backup root; a relative value resolves under `TIMELY_DATA_DIR` when that is set. |
 | `CHAT_IMAGE_DIR` | `$TMPDIR/timely-chat-images` (or `<TIMELY_DATA_DIR>/chat-images`) | Chat upload directory; relative values resolve like `TIMELY_BACKUP_DIR`. |

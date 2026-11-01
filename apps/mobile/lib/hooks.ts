@@ -8,7 +8,7 @@ import { relatedRefetchInterval, relatedStaleTime } from "@timely/contract/smart
 import type { CalendarRange, Doc, MentionEntityType, NotificationSettings, Project, Sheet, SheetTemplate, Task, TaskViewConfig, TodayResponse } from "./types";
 import { withOccurrenceDone, withTaskDone } from "@timely/contract/calendar";
 import { SEARCH_DEBOUNCE_MS, SEARCH_SETTLE_MS, searchQueryText } from "@timely/contract/searchQuery";
-import { reindexPollInterval } from "@timely/contract/reindexPoll";
+import { reindexActive, reindexPollInterval } from "@timely/contract/reindexPoll";
 import { getSheets, getSheet, createSheet, updateSheet, deleteSheet, duplicateSheet, getSheetTemplates, createSheetTemplate, updateSheetTemplate, deleteSheetTemplate, materializeTemplateTab } from "./api/sheets";
 import { getProjects, getProject, createProject, updateProject, deleteProject, createStage, updateStage, deleteStage, reorderStages, duplicateProject, getProjectActivity } from "./api/projects";
 import { getWorkspaces, getConfig, updateConfig, updateTaskViewsConfig } from "./api/workspaces";
@@ -540,7 +540,7 @@ export function useAgentProvidersQuery({ watchReindex = false }: { watchReindex?
     refetchInterval: watchReindex
       ? (query) => {
           const status = query.state.data?.reindex?.status;
-          if (status !== "queued" && status !== "running") since.current = null;
+          if (!reindexActive(status)) since.current = null;
           else since.current ??= Date.now();
           return reindexPollInterval(status, since.current === null ? 0 : Date.now() - since.current);
         }
@@ -554,6 +554,9 @@ export function useProviderModelsQuery(id: ProviderId, kind?: "embed", enabled =
     queryFn: () => listProviderModels(id, kind),
     enabled,
     staleTime: 10 * 60 * 1000,
+    // A failed list answers 409 with its reason: show it at once instead of
+    // asking the provider again. A dropped connection is still tried once more.
+    retry: (failures, error) => failures < 1 && !(error instanceof ApiError && error.status < 500),
   });
 }
 

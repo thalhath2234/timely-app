@@ -22,6 +22,8 @@ import { ListGroup, ListRow } from "@/app/_components/_ui/groupedList";
 import { SkeletonLines } from "@/app/_components/_ui/skeleton";
 import { readyProviders } from "@/app/_components/chat/modelMenu";
 import { describeCardWithAi } from "@/app/utils/api/dashboardCard";
+import { errorCode } from "@/app/utils/api/codedError";
+import { PROVIDER_NOT_CHOSEN } from "@timely/contract/helpMeWrite";
 import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
 import { Field, Section, Stepper } from "./cardWorkshop";
 import { GRID_GAP, ROW_HEIGHT } from "./dashboardGrid";
@@ -71,6 +73,8 @@ export default function DescribeCardDialog({
   const [size, setSize] = useState({ w: initial?.w ?? 4, h: initial?.h ?? 3 });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Providers are set up but none is chosen (ADR 0020): offer the fix.
+  const [needsChoice, setNeedsChoice] = useState(false);
   const request = useRef<AbortController | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
 
@@ -113,6 +117,7 @@ export default function DescribeCardDialog({
     if (!prompt || busy) return;
     setBusy(true);
     setError("");
+    setNeedsChoice(false);
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
@@ -128,6 +133,7 @@ export default function DescribeCardDialog({
     } catch (failure) {
       if (controller.signal.aborted) return;
       setError(failure instanceof Error ? failure.message : `Could not build the ${noun}. Try again.`);
+      setNeedsChoice(errorCode(failure) === PROVIDER_NOT_CHOSEN);
     } finally {
       if (request.current === controller) {
         request.current = null;
@@ -212,7 +218,21 @@ export default function DescribeCardDialog({
                         {busy ? `Building your ${noun}…` : ""}
                       </span>
                     </div>
-                    {error ? <p className="text-sm text-destructive">{error}</p> : null}
+                    {/* Not chosen is a step to take, not a failure: a neutral
+                        notice with the way to take it, as in Help me write. */}
+                    {error && needsChoice ? (
+                      <div
+                        role="status"
+                        className="flex flex-col items-start gap-2 rounded-md border border-border bg-muted/60 px-2.5 py-2 text-sm text-foreground"
+                      >
+                        <p>{error}</p>
+                        <Link href="/settings?tab=agent" className={buttonClass({ size: "sm", variant: "outline" })}>
+                          Choose provider
+                        </Link>
+                      </div>
+                    ) : error ? (
+                      <p className="text-sm text-destructive">{error}</p>
+                    ) : null}
                   </form>
                 </Section>
               ) : (

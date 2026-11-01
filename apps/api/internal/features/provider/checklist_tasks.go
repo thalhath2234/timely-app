@@ -312,6 +312,7 @@ func (s *Service) checklistTasks(c *echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(409, err.Error())
 	}
+	// Read with the client, so a key removed during the call keeps the name.
 	_, model, _ := s.resolveModel(ctx, user(c), provider)
 	drafts, err := draftChecklistTasks(oneShot(ctx), completer, req)
 	switch {

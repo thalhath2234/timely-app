@@ -514,13 +514,17 @@ func (s *Service) write(c *echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(409, err.Error())
 	}
-	// The model is read before the call, so the answer names the one that
-	// wrote it even when Settings change while it writes.
+	// The model is read with the client, before the slow call: a key removed
+	// meanwhile must not leave the answer without the model that wrote it, and
+	// a Settings change while it writes does not rename it.
 	_, model, _ := s.resolveModel(ctx, user(c), provider)
 	req.today = s.today(ctx, user(c))
 	ctx, cancel := context.WithTimeout(oneShot(ctx), writeBudget)
 	defer cancel()
 	reply, err := completer.Complete(ctx, writeMessages(req), nil, false)
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() != nil {
+		return echo.NewHTTPError(504, "The AI took more than 3 minutes to answer. Try again, or ask for something shorter")
+	}
 	if err != nil {
 		return oneShotError(err, "The draft was too long to finish. Ask for something shorter, or split it into parts.")
 	}

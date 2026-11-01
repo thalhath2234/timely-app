@@ -570,11 +570,12 @@ func (s *Service) viewQuery(c *echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(409, err.Error())
 	}
+	// Read with the client, so a key removed during the call keeps the name.
+	_, model, _ := s.resolveModel(ctx, user(c), provider)
 	vocab, err := s.loadViewVocab(ctx, user(c))
 	if err != nil {
 		return err
 	}
-	_, model, _ := s.resolveModel(ctx, user(c), provider)
 	ctx, cancel := context.WithTimeout(oneShot(ctx), viewQueryBudget)
 	defer cancel()
 	reply, err := completer.Complete(ctx, viewQueryMessages(req, vocab), nil, false)

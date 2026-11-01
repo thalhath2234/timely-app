@@ -55,6 +55,8 @@ export type ChatSummary = {
   revision: number;
   unread: boolean;
   error: string;
+  /** Stable code of a failure the app can offer a fix for (PROVIDER_NOT_CHOSEN). */
+  errorCode?: string;
   updatedAt: string;
   createdAt: string;
 };
@@ -85,6 +87,8 @@ export type Chat = {
    * "" (Try again) otherwise.
    */
   errorAction?: "" | "settings" | "none";
+  /** Stable code of a failure the app can offer a fix for (PROVIDER_NOT_CHOSEN). */
+  errorCode?: string;
   updatedAt: string;
   createdAt: string;
 };

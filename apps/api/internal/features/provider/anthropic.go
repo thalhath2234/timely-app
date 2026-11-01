@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -23,7 +24,8 @@ import (
 // replayed unchanged on the turn that produced them, as tool use requires. A
 // resumed run rebuilds the system prompt, which invalidates earlier blocks,
 // so a request the API rejects for its thinking blocks is retried once
-// without them.
+// without them, and those blocks are left out of the later turns of the run
+// (one Anthropic value serves a whole run), so each turn makes one call.
 type Anthropic struct {
 	Key    string
 	Model  string
@@ -33,7 +35,21 @@ type Anthropic struct {
 	Cache  bool   // prompt caching: messages marked Cache become breakpoints (Anthropic itself)
 	Label  string // provider name in errors; "Anthropic" when empty
 	Client *http.Client
+
+	mu       sync.Mutex
+	rejected map[string]bool // thinking blocks the API refused, by their JSON
 }
+
+// maxRetryWait is the longest a retry waits when the API asks to be called
+// back later (a 429 or 529's retry-after). The SDK would sleep as long as the
+// hint says (15 minutes left a chat "thinking" until the run timed out); a
+// longer retry-after fails at once, saying the provider is rate limiting or
+// busy, so a person never waits minutes for an error.
+const maxRetryWait = 10 * time.Second
+
+// maxContinues bounds how often a turn the API paused (pause_turn: its own
+// web search loop ran long) is sent back to be finished.
+const maxContinues = 3
 
 func (p *Anthropic) CanSearch() bool { return p.Search }
 
@@ -57,18 +73,12 @@ func oneShot(ctx context.Context) context.Context {
 // person gets the busy message now, not after 30 s and a second request.
 const oneShotMaxWait = 5 * time.Second
 
-// maxRetryWait is the longest any other retry waits on a 429 or 529's
-// retry-after. The SDK would sleep as long as the hint says (15 minutes left
-// a chat "thinking" until the run timed out); past this the error comes back
-// at once, saying the provider is rate limiting or busy.
-const maxRetryWait = 30 * time.Second
-
 // boundedRetry stops the SDK's automatic retry when the answer asks to wait
 // longer than the call allows: oneShotMaxWait for a one-shot call,
 // maxRetryWait for the rest.
 func boundedRetry(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
 	res, err := next(req)
-	if err != nil || res == nil {
+	if err != nil || res == nil || res.StatusCode < 400 {
 		return res, err
 	}
 	limit := maxRetryWait
@@ -114,9 +124,12 @@ func (p *Anthropic) Complete(ctx context.Context, messages []chat.WireMessage, t
 	}
 	reply, err := p.completeOnce(ctx, messages, tools, search, true)
 	var apiErr *anthropic.Error
-	if err != nil && errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest && hasThinking(messages) {
+	if err != nil && errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest && p.replays(messages) {
 		if msg := strings.ToLower(apiErr.RawJSON()); strings.Contains(msg, "thinking") || strings.Contains(msg, "signature") {
 			reply, err = p.completeOnce(ctx, messages, tools, search, false)
+			if err == nil {
+				p.reject(messages)
+			}
 		}
 	}
 	if err != nil {
@@ -128,13 +141,38 @@ func (p *Anthropic) Complete(ctx context.Context, messages []chat.WireMessage, t
 	return reply, nil
 }
 
-func hasThinking(messages []chat.WireMessage) bool {
+// replays reports whether a request would carry any thinking block.
+func (p *Anthropic) replays(messages []chat.WireMessage) bool {
 	for _, m := range messages {
-		if len(m.ThinkingBlocks) > 0 {
-			return true
+		for _, raw := range m.ThinkingBlocks {
+			if !p.isRejected(raw) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// reject remembers the thinking blocks of a request the API refused for
+// them, so the later turns of this run leave them out instead of failing
+// first. Blocks from replies after this one are still replayed.
+func (p *Anthropic) reject(messages []chat.WireMessage) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.rejected == nil {
+		p.rejected = map[string]bool{}
+	}
+	for _, m := range messages {
+		for _, raw := range m.ThinkingBlocks {
+			p.rejected[string(raw)] = true
+		}
+	}
+}
+
+func (p *Anthropic) isRejected(raw json.RawMessage) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.rejected[string(raw)]
 }
 
 type thinkingBlock struct {
@@ -149,7 +187,7 @@ func (p *Anthropic) completeOnce(ctx context.Context, messages []chat.WireMessag
 	// Thinking counts toward max_tokens, so allow more than the 8192 used
 	// for models without it.
 	params := anthropic.MessageNewParams{Model: anthropic.Model(p.Model), MaxTokens: 16384}
-	params.System, params.Messages = anthropicMessages(messages, replayThinking, p.Cache)
+	params.System, params.Messages = anthropicMessages(messages, replayThinking, p.Cache, p.isRejected)
 	if len(params.Messages) == 0 {
 		return empty, errors.New("Nothing to send to Anthropic")
 	}
@@ -187,17 +225,14 @@ func (p *Anthropic) completeOnce(ctx context.Context, messages []chat.WireMessag
 		}
 		// A long server-side search pauses the turn: send it back as it is
 		// and the model carries on from there.
-		if pauses == maxPauses {
-			return empty, stopped(unfinished)
+		if pauses == maxContinues {
+			return empty, stopped("The web search took too many steps to finish. Try again, or ask a narrower question")
 		}
 		params.Messages = append(params.Messages, res.ToParam())
 	}
 	out.Content = text.String()
 	return out, nil
 }
-
-// maxPauses is how many times one answer may continue after pause_turn.
-const maxPauses = 2
 
 // stopError is the error for an answer that stopped before it was whole.
 // pause_turn is not one: completeOnce continues it.
@@ -213,11 +248,11 @@ func stopError(res *anthropic.Message) error {
 				return chat.ErrOutputTooLong
 			}
 		}
-		return chat.OutputTooLong("The answer got too long and was cut off. Try asking for less at a time")
+		return chat.ErrAnswerTooLong
 	case anthropic.StopReasonRefusal:
 		return chat.Final("The model declined this request")
 	case anthropic.StopReasonModelContextWindowExceeded:
-		return stopped("This chat is too long for the AI to read. Start a new chat to continue")
+		return chat.ErrInputTooLong
 	}
 	return stopped(unfinished)
 }
@@ -272,8 +307,9 @@ const maxCacheBreakpoints = 4
 // blocks in a user turn, and adjacent same-role turns are merged. With cache
 // on, the last block of each message marked Cache gets cache_control, so the
 // prompt up to it is cached (tools render first, so a mark on the system
-// prompt caches the tools too).
-func anthropicMessages(messages []chat.WireMessage, replayThinking, cache bool) ([]anthropic.TextBlockParam, []anthropic.MessageParam) {
+// prompt caches the tools too). rejected, when set, names thinking blocks to
+// leave out.
+func anthropicMessages(messages []chat.WireMessage, replayThinking, cache bool, rejected func(json.RawMessage) bool) ([]anthropic.TextBlockParam, []anthropic.MessageParam) {
 	var system []anthropic.TextBlockParam
 	var out []anthropic.MessageParam
 	// marks are the blocks that end a cached prefix: msg -1 is a system block.
@@ -314,7 +350,7 @@ func anthropicMessages(messages []chat.WireMessage, replayThinking, cache bool) 
 			var blocks []anthropic.ContentBlockParamUnion
 			for _, raw := range m.ThinkingBlocks {
 				var tb thinkingBlock
-				if !replayThinking || json.Unmarshal(raw, &tb) != nil {
+				if !replayThinking || (rejected != nil && rejected(raw)) || json.Unmarshal(raw, &tb) != nil {
 					continue
 				}
 				if tb.Type == "redacted_thinking" {
@@ -417,17 +453,24 @@ func anthropicError(label string, err error) error {
 				return fmt.Errorf("%s is rate limiting this key (HTTP 429)%s", label, hint)
 			}
 		}
+		if apiErr.StatusCode == 529 {
+			return fmt.Errorf("%s is overloaded right now (HTTP 529). Try again in a minute", label)
+		}
 		return httpFailure(label, apiErr.StatusCode, []byte(apiErr.RawJSON()))
 	}
 	var answer stopped
-	if errors.As(err, &answer) || strings.HasPrefix(err.Error(), "The ") {
+	if errors.As(err, &answer) || strings.HasPrefix(err.Error(), "The ") || strings.HasPrefix(err.Error(), "This ") {
 		return err // already a Timely message
 	}
 	var netErr net.Error
 	var syntax *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
 	if !errors.As(err, &netErr) && (errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &syntax)) {
 		// The host answered, but the answer was cut off or garbled.
 		return fmt.Errorf("%s's answer was cut off. Try again", label)
+	}
+	if errors.As(err, &typeErr) || strings.Contains(err.Error(), "error parsing response json") {
+		return fmt.Errorf("%s sent an answer Timely could not read. Try again", label)
 	}
 	return fmt.Errorf("Could not reach %s: %w", label, err)
 }
@@ -442,10 +485,15 @@ func waitHint(res *http.Response) string {
 	if !ok || wait <= maxRetryWait {
 		return ""
 	}
-	if minutes := int((wait + time.Minute - 1) / time.Minute); minutes > 1 {
-		return fmt.Sprintf(". Try again in about %d minutes", minutes)
+	return ". Try again in " + waitText(wait)
+}
+
+// waitText says a retry-after wait in words.
+func waitText(wait time.Duration) string {
+	if wait < 2*time.Minute {
+		return fmt.Sprintf("about %d seconds", int(wait.Round(time.Second)/time.Second))
 	}
-	return ". Try again in a minute"
+	return fmt.Sprintf("about %d minutes", int(wait.Round(time.Minute)/time.Minute))
 }
 
 // anthropicModels lists the account's models with their image and effort

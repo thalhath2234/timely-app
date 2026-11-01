@@ -1,5 +1,8 @@
 # Chat prefers a dedicated provider over OpenRouter
 
+> The Automatic pick below is superseded by ADR 0020: nothing becomes the
+> default on its own, and the features wait until the person picks one.
+
 An account's OpenRouter key does three jobs: semantic-search embeddings, smart
 suggestions (Jev through OpenRouter's decisions endpoint) and, optionally,
 chat. Until now every account started with OpenRouter as its default provider,

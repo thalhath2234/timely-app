@@ -16,7 +16,7 @@ import {
   type ProviderPatch,
 } from "@/app/utils/api/agentProviders";
 import { rescanProviders } from "@/app/utils/api/instance";
-import { reindexPollInterval } from "@timely/contract/reindexPoll";
+import { reindexActive, reindexPollInterval } from "@timely/contract/reindexPoll";
 
 export const agentProvidersKey = ["agent-providers"] as const;
 
@@ -31,7 +31,7 @@ export function useAgentProviders({ watchReindex = false }: { watchReindex?: boo
     refetchInterval: watchReindex
       ? (query) => {
           const status = query.state.data?.reindex?.status;
-          if (status !== "queued" && status !== "running") since.current = null;
+          if (!reindexActive(status)) since.current = null;
           else since.current ??= Date.now();
           return reindexPollInterval(status, since.current === null ? 0 : Date.now() - since.current);
         }
@@ -49,6 +49,10 @@ export function useProviderModels(
     queryFn: () => listProviderModels(id, kind),
     enabled,
     staleTime: 10 * 60 * 1000,
+    // A failed list answers 409 with its reason: show it at once instead of
+    // asking the provider three more times. apiFetch already rides out an
+    // API restart for a GET.
+    retry: false,
   });
 }
 

@@ -2,6 +2,7 @@
 import Link from "next/link";
 import type { Chat } from "@/app/utils/api/chat";
 import Button, { buttonClass } from "@/app/_components/_ui/button";
+import { PROVIDER_NOT_CHOSEN } from "@timely/contract/helpMeWrite";
 
 /**
  * A failed run: what went wrong and the one thing that helps. A key, credit
@@ -20,9 +21,12 @@ export default function FailureCard({
   pending: boolean;
   act: (action: string, body?: unknown) => void;
 }) {
-  const settings = needsProvider || chat.errorAction === "settings";
+  // The run waited for the person to choose a default provider (ADR 0020):
+  // once one is chosen, the waiting chat can run, so Try again stays.
+  const notChosen = chat.errorCode === PROVIDER_NOT_CHOSEN;
+  const settings = needsProvider || notChosen || chat.errorAction === "settings";
   const stopped = ["failed", "stopped"].includes(chat.status);
-  const retry = stopped && !settings && chat.errorAction !== "none";
+  const retry = stopped && !needsProvider && (notChosen || (!settings && chat.errorAction !== "none"));
   // Photos that failed before their review opened; an open review has its
   // own Discard images button.
   const photos = stopped && chat.imageReview?.status === "extracting";
@@ -34,11 +38,13 @@ export default function FailureCard({
       <p className="font-medium text-destructive">
         {needsProvider
           ? "Connect an AI provider to chat"
-          : settings
-            ? "Check your AI provider"
-            : chat.errorAction === "none"
-              ? "Couldn't finish this request"
-              : "Something went wrong"}
+          : notChosen
+            ? "Choose a provider for chats"
+            : settings
+              ? "Check your AI provider"
+              : chat.errorAction === "none"
+                ? "Couldn't finish this request"
+                : "Something went wrong"}
       </p>
       <p className="mt-1 text-sm leading-6">{chat.error}</p>
       {(settings || retry || photos) && (
@@ -48,7 +54,7 @@ export default function FailureCard({
               href="/settings?tab=agent"
               className={buttonClass({ size: "sm" })}
             >
-              Open Agent settings
+              {notChosen ? "Choose provider" : "Open Agent settings"}
             </Link>
           )}
           {retry && (

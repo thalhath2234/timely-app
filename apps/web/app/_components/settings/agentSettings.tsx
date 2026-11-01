@@ -48,7 +48,6 @@ import { useDesktopBridge } from "@/app/utils/hooks/desktop";
 import type { DecisionsView, DeepWorkTime } from "@/app/utils/api/decisions";
 import Select, { type SelectOption } from "@/app/_components/_ui/select";
 import { GroupHint, ListGroup, ListRow } from "@/app/_components/_ui/groupedList";
-import { readyProviders } from "@/app/_components/chat/modelMenu";
 import {
   PROVIDER_LABELS,
   type AgentProviders,
@@ -57,8 +56,8 @@ import {
   type ModelOption,
   type ProviderId,
 } from "@/app/utils/api/agentProviders";
-import { providerAfterRemoval } from "@timely/contract/providerFallback";
 import { controlClass } from "@/app/_components/_ui/field";
+import { ChooseDefaultDialog, RemoveProviderDialog, readyIds } from "@/app/_components/settings/defaultChoice";
 import { buttonClass } from "@/app/_components/_ui/button";
 
 export const CLI_INSTALL_URLS = {
@@ -264,26 +263,47 @@ export function Badge({
   );
 }
 
+/** Why "Use as default" did not take, shown under the button that failed.
+ * The server answers with the provider's own reason (a failed test call, a
+ * provider disconnected meanwhile). */
+function DefaultError({ error }: { error: unknown }) {
+  if (!error) return null;
+  return (
+    <p role="alert" className="flex items-start gap-1.5 text-xs leading-relaxed text-destructive">
+      <CircleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+      <span>{errorMessage(error, "Could not switch provider.")}</span>
+    </p>
+  );
+}
+
+/** The error of a patch, only while it is the default switch to `id`; a failed
+ * model save on the same mutation shows its own message in the picker. */
+function defaultSwitchError(
+  patch: ReturnType<typeof usePatchAgentProviders>,
+  id: ProviderId,
+) {
+  return patch.variables?.defaultProvider === id ? patch.error : null;
+}
+
 function ProviderCard({
   id,
   title,
   description,
   isDefault,
-  auto,
   ready,
   onMakeDefault,
   makingDefault,
+  defaultError,
   children,
 }: {
   id: ProviderId;
   title: string;
   description: string;
   isDefault: boolean;
-  /** The default was picked automatically, not chosen. */
-  auto: boolean;
   ready: boolean;
   onMakeDefault: () => void;
   makingDefault: boolean;
+  defaultError: unknown;
   children: React.ReactNode;
 }) {
   return (
@@ -298,32 +318,25 @@ function ProviderCard({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-            {isDefault && (
-              <Badge tone="primary">{auto ? "Automatic default" : "Default"}</Badge>
-            )}
+            {isDefault && <Badge tone="primary">Default</Badge>}
             {!isDefault && ready && <Badge tone="ok">Ready</Badge>}
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
         </div>
-        {(!isDefault || auto) && (
+        {!isDefault && (
           <button
             type="button"
             onClick={onMakeDefault}
             disabled={!ready || makingDefault}
-            title={
-              isDefault
-                ? "Keep this provider even after you add another"
-                : ready
-                  ? "Use this provider for new chats"
-                  : "Connect this provider first"
-            }
+            title={ready ? "Use this provider for new chats" : "Connect this provider first"}
             className={secondaryButton}
           >
             {makingDefault ? <LogoSpinner size={14} label="Saving" /> : null}
-            {isDefault ? "Keep as default" : "Use as default"}
+            Use as default
           </button>
         )}
       </div>
+      <DefaultError error={defaultError} />
       {children}
     </section>
   );
@@ -338,14 +351,18 @@ function OpenRouterCard({ data }: { data: AgentProviders }) {
   const [editingKey, setEditingKey] = useState(!data.openrouter.keySet);
   const [key, setKeyValue] = useState("");
   const [keyError, setKeyError] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [removing, setRemoving] = useState(false);
 
   const onSaveKey = async (event: FormEvent) => {
     event.preventDefault();
     setKeyError(null);
     try {
-      await setKey.mutateAsync(key.trim());
+      const next = await setKey.mutateAsync(key.trim());
       setKeyValue("");
       setEditingKey(false);
+      // Nothing becomes the default on its own (ADR 0020): ask now.
+      if (!next.defaultChosen && next.openrouter.ready) setAsking(true);
     } catch (err) {
       setKeyError(errorMessage(err, "Could not save the key."));
     }
@@ -361,12 +378,12 @@ function OpenRouterCard({ data }: { data: AgentProviders }) {
       title="OpenRouter"
       description="Hosted models with your own API key. Images and receipts use OpenRouter's zero-data-retention route."
       isDefault={data.defaultProvider === "openrouter"}
-      auto={!data.defaultChosen}
       ready={data.openrouter.ready}
       onMakeDefault={() => patch.mutate({ defaultProvider: "openrouter" })}
       makingDefault={
         patch.isPending && patch.variables?.defaultProvider === "openrouter"
       }
+      defaultError={defaultSwitchError(patch, "openrouter")}
     >
       <div className="flex flex-col gap-2">
         <span className="text-xs text-muted-foreground">API key</span>
@@ -392,14 +409,7 @@ function OpenRouterCard({ data }: { data: AgentProviders }) {
             {data.openrouter.keySet && (
               <button
                 type="button"
-                onClick={() =>
-                  requestConfirm({
-                    title: "Remove your OpenRouter key?",
-                    description: "OpenRouter chats and semantic search stop until you add one again.",
-                    confirmLabel: "Remove key",
-                    onConfirm: () => removeKey.mutate(),
-                  })
-                }
+                onClick={() => setRemoving(true)}
                 disabled={removeKey.isPending}
                 className="inline-flex h-9 items-center rounded-lg px-2 text-sm text-destructive hover:bg-destructive/10"
               >
@@ -509,44 +519,44 @@ function OpenRouterCard({ data }: { data: AgentProviders }) {
               : ""}
           </p>
         )}
+        {reindex.status === "retrying" && (
+          <p className="text-xs text-amber-700 dark:text-amber-300" data-testid="reindex-retrying">
+            Index rebuild failed and will try again soon ({reindex.error}).
+          </p>
+        )}
         {reindex.status === "failed" && (
           <p className="text-xs text-destructive">
             Index rebuild failed: {reindex.error}
           </p>
         )}
       </div>
+      {asking && <ChooseDefaultDialog data={data} initial="openrouter" onClose={() => setAsking(false)} />}
+      {removing && (
+        <RemoveProviderDialog
+          data={data}
+          id="openrouter"
+          title="Remove your OpenRouter key?"
+          description="OpenRouter chats and semantic search stop until you add one again."
+          confirmLabel="Remove key"
+          onRemove={() => removeKey.mutateAsync()}
+          onClose={() => setRemoving(false)}
+        />
+      )}
     </ProviderCard>
   );
 }
 
-const AUTOMATIC = "automatic";
-
-/** Which provider runs new chats and the writing tools. Automatic leaves the
- * pick to the server: the first provider set up, OpenRouter last (ADR 0019).
- * A chosen provider stays until it is removed or Automatic is picked again. */
+/** Which provider runs new chats and the writing tools. Nothing is picked
+ * for the person: until they choose, those features wait (ADR 0020). */
 function DefaultProviderGroup({ data }: { data: AgentProviders }) {
   const patch = usePatchAgentProviders();
-  const ready = readyProviders(data);
+  const ready = readyIds(data);
   const chosen = data.defaultChosen ? data.defaultProvider : "";
-  const auto = data.autoProvider ? PROVIDER_LABELS[data.autoProvider] : "";
-  const options: SelectOption[] = [
-    { value: AUTOMATIC, label: auto ? `Automatic · ${auto}` : "Automatic" },
-    ...ready.map((p) => ({ value: p.id, label: PROVIDER_LABELS[p.id] })),
-  ];
+  const options: SelectOption[] = ready.map((id) => ({ value: id, label: PROVIDER_LABELS[id] }));
   // A chosen provider that is not ready right now (signed out) stays named.
-  if (chosen && !ready.some((p) => p.id === chosen))
+  if (chosen && !ready.includes(chosen))
     options.push({ value: chosen, label: PROVIDER_LABELS[chosen], disabled: true });
   const saving = patch.isPending ? patch.variables?.defaultProvider : undefined;
-  const value = (saving ?? chosen) || AUTOMATIC;
-
-  let hint: string;
-  if (!chosen && !auto)
-    hint = "Add a key below. The first provider you set up runs new chats.";
-  else if (!chosen)
-    hint = "Picked automatically: the first provider you set up, OpenRouter last. Choose one to keep it.";
-  else if (auto && auto !== PROVIDER_LABELS[chosen])
-    hint = `Chosen by you. Automatic would pick ${auto}.`;
-  else hint = "Chosen by you. Automatic picks the first provider you set up.";
 
   return (
     <div data-testid="default-provider">
@@ -556,21 +566,26 @@ function DefaultProviderGroup({ data }: { data: AgentProviders }) {
           <Select
             variant="row"
             aria-label="Default provider"
-            value={value}
-            onChange={(next) =>
-              patch.mutate({
-                defaultProvider: next === AUTOMATIC ? "" : (next as ProviderId),
-              })
-            }
-            disabled={patch.isPending || (!chosen && !auto)}
+            value={saving ?? chosen}
+            placeholder="Not chosen"
+            onChange={(next) => patch.mutate({ defaultProvider: next as ProviderId })}
+            disabled={patch.isPending || options.length === 0}
             options={options}
             menuMinWidth={240}
           />
         </ListRow>
       </ListGroup>
-      <GroupHint className={patch.error ? "text-destructive" : undefined}>
-        {patch.error ? errorMessage(patch.error, "Could not switch provider.") : hint}
-      </GroupHint>
+      {patch.error ? (
+        <div className="mt-1.5 px-1">
+          <DefaultError error={patch.error} />
+        </div>
+      ) : !chosen ? (
+        <GroupHint>
+          {ready.length
+            ? "Chats and Help me write wait until you choose one."
+            : "Add a key below, then choose it here."}
+        </GroupHint>
+      ) : null}
     </div>
   );
 }
@@ -586,7 +601,7 @@ export function MoreApiKeys({ data }: { data: AgentProviders }) {
   const connected = providers.filter((view) => view.connected);
   const defaultView = providers.find((view) => view.id === data.defaultProvider);
   const summary = defaultView
-    ? `${defaultView.label} runs new chats${data.defaultChosen ? "" : " · automatic"}`
+    ? `${defaultView.label} runs new chats`
     : connected.length > 0
       ? connected.map((view) => view.label).join(", ")
       : providers.length > 3
@@ -650,17 +665,6 @@ export function MoreApiKeys({ data }: { data: AgentProviders }) {
   );
 }
 
-/** What the Disconnect confirm says. Removing the default provider moves chat
- * to the next one set up, so the confirm names it rather than switching
- * silently. */
-function disconnectNote(data: AgentProviders, id: ProviderId) {
-  const next = providerAfterRemoval(data, id);
-  if (next === data.defaultProvider) return "The saved key is deleted.";
-  if (!next)
-    return "The saved key is deleted. Chat and the writing tools won’t work until you set up another provider.";
-  return `The saved key is deleted. Chat and the writing tools will use ${PROVIDER_LABELS[next as ProviderId]} instead.`;
-}
-
 /** One direct API provider inside More API keys: a single line until opened. */
 function ApiProviderRow({
   data,
@@ -684,6 +688,8 @@ function ApiProviderRow({
   );
   const [customUrl, setCustomUrl] = useState(matched ? "" : view.baseUrl);
   const [keyError, setKeyError] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const isDefault = data.defaultProvider === view.id;
   const makingDefault =
     patch.isPending && patch.variables?.defaultProvider === view.id;
@@ -703,9 +709,11 @@ function ApiProviderRow({
     event.preventDefault();
     setKeyError(null);
     try {
-      await setKey.mutateAsync({ id: view.id, key: key.trim(), baseUrl });
+      const next = await setKey.mutateAsync({ id: view.id, key: key.trim(), baseUrl });
       setKeyValue("");
       setEditingKey(false);
+      // Nothing becomes the default on its own (ADR 0020): ask now.
+      if (!next.defaultChosen && readyIds(next).includes(view.id)) setAsking(true);
     } catch (err) {
       setKeyError(errorMessage(err, "Could not save the key."));
     }
@@ -723,9 +731,7 @@ function ApiProviderRow({
           {view.label}
         </span>
         {isDefault ? (
-          <Badge tone="primary">
-            {data.defaultChosen ? "Default" : "Automatic default"}
-          </Badge>
+          <Badge tone="primary">Default</Badge>
         ) : view.connected ? (
           <Badge tone="ok">{view.keySet ? "Key saved" : "Connected"}</Badge>
         ) : null}
@@ -771,20 +777,7 @@ function ApiProviderRow({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  requestConfirm({
-                    title: `Disconnect ${view.label}?`,
-                    description: disconnectNote(data, view.id),
-                    confirmLabel: "Disconnect",
-                    onConfirm: () =>
-                      removeKey.mutate(view.id, {
-                        onSuccess: () => {
-                          setOpen(false);
-                          setEditingKey(true);
-                        },
-                      }),
-                  });
-                }}
+                onClick={() => setRemoving(true)}
                 disabled={removeKey.isPending}
                 className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-destructive hover:bg-destructive/10"
               >
@@ -907,27 +900,38 @@ function ApiProviderRow({
               answer without it.
             </p>
           )}
-          {view.connected && (!isDefault || !data.defaultChosen) && (
-            <div>
+          {view.connected && !isDefault && (
+            <div className="flex flex-col items-start gap-2">
               <button
                 type="button"
                 onClick={() => patch.mutate({ defaultProvider: view.id })}
                 disabled={!view.ready || makingDefault}
-                title={
-                  isDefault
-                    ? "Keep this provider even after you add another"
-                    : view.ready
-                      ? "Use this provider for new chats"
-                      : "Pick a chat model first"
-                }
+                title={view.ready ? "Use this provider for new chats" : "Pick a chat model first"}
                 className={compactButton}
               >
                 {makingDefault ? <LogoSpinner size={14} label="Saving" /> : null}
-                {isDefault ? "Keep as default" : "Use as default"}
+                Use as default
               </button>
+              <DefaultError error={defaultSwitchError(patch, view.id)} />
             </div>
           )}
         </div>
+      )}
+      {asking && <ChooseDefaultDialog data={data} initial={view.id} onClose={() => setAsking(false)} />}
+      {removing && (
+        <RemoveProviderDialog
+          data={data}
+          id={view.id}
+          title={`Disconnect ${view.label}?`}
+          description="The saved key is deleted."
+          confirmLabel="Disconnect"
+          onRemove={async () => {
+            await removeKey.mutateAsync(view.id);
+            setOpen(false);
+            setEditingKey(true);
+          }}
+          onClose={() => setRemoving(false)}
+        />
       )}
     </div>
   );
@@ -953,6 +957,9 @@ function CliCard({
     view.connected || view.status.found,
   );
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const isDefault = data.defaultProvider === id;
   const status = view.status;
   const loginCommand = id === "claude" ? "claude auth login" : "codex login";
   const host = desktop ? "this computer" : "the server";
@@ -960,7 +967,9 @@ function CliCard({
   const onConnect = async () => {
     setConnectError(null);
     try {
-      await connect.mutateAsync(id);
+      const next = await connect.mutateAsync(id);
+      // Nothing becomes the default on its own (ADR 0020): ask now.
+      if (!next.defaultChosen && readyIds(next).includes(id)) setAsking(true);
     } catch (err) {
       setConnectError(errorMessage(err, "Could not connect."));
     }
@@ -975,11 +984,11 @@ function CliCard({
           ? `Uses the Claude Code CLI and its sign-in on ${host}. Runs with every built-in tool disabled.`
           : `Uses the Codex CLI and its sign-in on ${host}. Runs in a read-only sandbox with the shell disabled.`
       }
-      isDefault={data.defaultProvider === id}
-      auto={!data.defaultChosen}
+      isDefault={isDefault}
       ready={view.ready}
       onMakeDefault={() => patch.mutate({ defaultProvider: id })}
       makingDefault={patch.isPending && patch.variables?.defaultProvider === id}
+      defaultError={defaultSwitchError(patch, id)}
     >
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
@@ -1082,7 +1091,7 @@ function CliCard({
           {view.connected && (
             <button
               type="button"
-              onClick={() => disconnect.mutate(id)}
+              onClick={() => (isDefault ? setRemoving(true) : disconnect.mutate(id))}
               disabled={disconnect.isPending}
               className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-sm text-destructive hover:bg-destructive/10"
             >
@@ -1136,6 +1145,18 @@ function CliCard({
             : "Search models…"
         }
       />
+      {asking && <ChooseDefaultDialog data={data} initial={id} onClose={() => setAsking(false)} />}
+      {removing && (
+        <RemoveProviderDialog
+          data={data}
+          id={id}
+          title={`Disconnect ${PROVIDER_LABELS[id]}?`}
+          description={`Timely stops using its sign-in on ${host}.`}
+          confirmLabel="Disconnect"
+          onRemove={() => disconnect.mutateAsync(id)}
+          onClose={() => setRemoving(false)}
+        />
+      )}
     </ProviderCard>
   );
 }
@@ -1583,7 +1604,6 @@ function DecisionPrefs({ data }: { data: DecisionsView }) {
 
 export default function AgentSettings() {
   const { data, isLoading, error, refetch } = useAgentProviders({ watchReindex: true });
-  const patch = usePatchAgentProviders();
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">
@@ -1612,12 +1632,6 @@ export default function AgentSettings() {
           </button>
         </div>
       )}
-      {patch.error && (
-        <p className="text-sm text-destructive">
-          {errorMessage(patch.error, "Could not save.")}
-        </p>
-      )}
-
       {data && (
         <>
           <DefaultProviderGroup data={data} />

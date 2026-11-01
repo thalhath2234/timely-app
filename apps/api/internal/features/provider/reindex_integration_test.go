@@ -160,7 +160,7 @@ func TestIntegrationRebuildStatusFollowsItsAttempts(t *testing.T) {
 		t.Fatal(err)
 	}
 	job := runReindexJob(t, s, queue)
-	if st := state(); job.Status != models.JobPending || st.Status != "queued" {
+	if st := state(); job.Status != models.JobPending || st.Status != "retrying" {
 		t.Fatalf("after a failed first attempt: job %s, card %+v", job.Status, st)
 	}
 

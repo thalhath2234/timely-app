@@ -323,7 +323,7 @@ func TestAnthropicKeepsAtMostFourCacheMarks(t *testing.T) {
 		}
 		messages = append(messages, chat.WireMessage{Role: role, Content: fmt.Sprintf("turn %d", i), Cache: true})
 	}
-	system, out := anthropicMessages(messages, true, true)
+	system, out := anthropicMessages(messages, true, true, nil)
 	raw, _ := json.Marshal(map[string]any{"system": system, "messages": out})
 	var body map[string]any
 	_ = json.Unmarshal(raw, &body)
@@ -356,7 +356,7 @@ func TestAnthropicQuotesErrorsAndListsModels(t *testing.T) {
 	}
 }
 
-func TestAnthropicDoesNotWaitOutALongRetryAfter(t *testing.T) {
+func TestAnthropicFailsAtOnceOnAFifteenMinuteRetryAfter(t *testing.T) {
 	calls, wait := 0, "900"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
@@ -409,8 +409,8 @@ func TestAnthropicStopReasons(t *testing.T) {
 		return p.Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "Write me a long weekly review"}}, nil, search)
 	}
 	for stop, want := range map[string]string{
-		"max_tokens":                    "got too long and was cut off",
-		"model_context_window_exceeded": "chat is too long",
+		"max_tokens":                    "length limit",
+		"model_context_window_exceeded": "more text than the model can read",
 		"something_new":                 "stopped before finishing",
 	} {
 		if got, err := ask(false, answer(stop, text("Partial answ"))); err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "Could not reach") {
@@ -429,8 +429,12 @@ func TestAnthropicStopReasons(t *testing.T) {
 		t.Fatalf("the paused turn must be sent back: %v", messages)
 	}
 	// A turn that keeps pausing fails instead of answering half.
-	if _, err := ask(true, answer("pause_turn", text("a")), answer("pause_turn", text("b")), answer("pause_turn", text("c"))); err == nil || len(bodies) != 3 {
-		t.Fatalf("an unfinished turn must fail after %d continuations: %v (%d calls)", maxPauses, err, len(bodies))
+	pauses := make([]string, 0, maxContinues+1)
+	for range maxContinues + 1 {
+		pauses = append(pauses, answer("pause_turn", text("a")))
+	}
+	if _, err := ask(true, pauses...); err == nil || len(bodies) != 1+maxContinues {
+		t.Fatalf("an unfinished turn must fail after %d continuations: %v (%d calls)", maxContinues, err, len(bodies))
 	}
 }
 
@@ -557,7 +561,7 @@ func TestResponsesReportsTruncation(t *testing.T) {
 	}))
 	defer server.Close()
 	p := &Responses{Spec: apiProviderByID("openai"), Base: server.URL, Key: "k", Model: "m", Client: server.Client()}
-	if _, err := p.Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, nil, false); err == nil || !strings.Contains(err.Error(), "too large") {
+	if _, err := p.Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, nil, false); !errors.Is(err, chat.ErrAnswerTooLong) {
 		t.Fatalf("%v", err)
 	}
 }

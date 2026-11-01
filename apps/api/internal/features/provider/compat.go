@@ -94,7 +94,7 @@ func (p *Compat) completeOnce(ctx context.Context, messages []chat.WireMessage, 
 	}
 	choice := data.Choices[0]
 	if choice.FinishReason == "length" {
-		return empty, chat.ErrOutputTooLong
+		return empty, chat.ErrAnswerTooLong
 	}
 	out := chat.WireMessage{Role: "assistant", Content: contentText(choice.Message.Content), ToolCalls: choice.Message.ToolCalls}
 	if p.Spec.EchoReasoning {

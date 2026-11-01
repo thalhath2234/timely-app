@@ -54,7 +54,8 @@ export default function ModelSheet({
   const ready = readyProviders(providers.data);
   const defaultId = providers.data?.defaultProvider;
   const defaultModel = ready.find((p) => p.id === defaultId)?.model ?? "";
-  const automatic = providers.data ? !providers.data.defaultChosen : false;
+  // Set up but not chosen: a chat without its own model waits (ADR 0020).
+  const unchosen = !defaultId && ready.length > 0;
   const [browsing, setBrowsing] = useState("");
   const [query, setQuery] = useState("");
   const shown =
@@ -100,8 +101,10 @@ export default function ModelSheet({
         <Text style={styles.name}>Default</Text>
         <Text numberOfLines={1} style={styles.sub}>
           {defaultId
-            ? `${automatic ? "Automatic · " : ""}${label(defaultId)}${defaultModel ? ` · ${defaultModel}` : ""}`
-            : "Set in Settings → Agent"}
+            ? `${label(defaultId)}${defaultModel ? ` · ${defaultModel}` : ""}`
+            : unchosen
+              ? "Not chosen. Choose one in Settings → Agent"
+              : "Set in Settings → Agent"}
         </Text>
       </SheetOption>
       {providers.isLoading ? (

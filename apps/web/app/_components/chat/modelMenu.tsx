@@ -47,7 +47,8 @@ export default function ModelMenu({
   const ready = readyProviders(providers.data);
   const defaultId = providers.data?.defaultProvider;
   const defaultModel = ready.find((p) => p.id === defaultId)?.model ?? "";
-  const automatic = providers.data ? !providers.data.defaultChosen : false;
+  // Set up but not chosen: a chat without its own model waits (ADR 0020).
+  const unchosen = !defaultId && ready.length > 0;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [browsing, setBrowsing] = useState<string>("");
@@ -97,7 +98,9 @@ export default function ModelMenu({
     ? value.model || label(value.provider)
     : defaultModel
       ? `Default · ${defaultModel}`
-      : "Default model";
+      : unchosen
+        ? "Choose a model"
+        : "Default model";
 
   return (
     <div ref={wrap} className="relative">
@@ -148,8 +151,10 @@ export default function ModelMenu({
               <span className="block text-sm text-foreground">Default</span>
               <span className="block truncate text-[11px] text-muted-foreground">
                 {defaultId
-                  ? `${automatic ? "Automatic · " : ""}${label(defaultId)}${defaultModel ? ` · ${defaultModel}` : ""}`
-                  : "Set in Settings → Agent"}
+                  ? `${label(defaultId)}${defaultModel ? ` · ${defaultModel}` : ""}`
+                  : unchosen
+                    ? "Not chosen. Choose one in Settings → Agent"
+                    : "Set in Settings → Agent"}
               </span>
             </span>
             {!value.provider && (
