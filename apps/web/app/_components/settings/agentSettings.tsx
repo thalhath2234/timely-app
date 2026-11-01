@@ -486,8 +486,8 @@ function OpenRouterCard({ data }: { data: AgentProviders }) {
             data-testid="reindex-progress"
           >
             <LogoSpinner size={14} label="Rebuilding" />
-            Rebuilding search index… {reindex.done}
-            {reindex.total ? ` / ${reindex.total}` : ""}
+            Rebuilding search index…
+            {reindex.total ? ` ${reindex.done} / ${reindex.total}` : ""}
           </div>
         )}
         {reindex.status === "done" && (
