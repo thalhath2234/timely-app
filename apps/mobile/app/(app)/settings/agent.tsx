@@ -470,7 +470,7 @@ function SmartSuggestionsCard({
     <View style={styles.card} testID="smart-suggestions">
       <View style={styles.row}>
         <Text style={styles.title}>Smart suggestions</Text>
-        <Badge tone={data.available ? "ok" : hasKey ? "muted" : "warn"}>{data.available ? "On" : hasKey ? "Off" : "Needs a key"}</Badge>
+        <Badge tone={data.available ? "ok" : hasKey ? "muted" : "warn"}>{data.available ? "On" : hasKey ? "Off" : typesafe.keySet ? "Key not working" : "Needs a key"}</Badge>
         <View style={{ flex: 1 }} />
         <Switch
           accessibilityLabel="Smart suggestions"

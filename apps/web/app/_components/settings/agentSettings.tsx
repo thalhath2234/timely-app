@@ -1196,7 +1196,7 @@ function DecisionsCard() {
             {data.available ? (
               <Badge tone="ok">On</Badge>
             ) : !hasKey ? (
-              <Badge tone="warn">Needs a key</Badge>
+              <Badge tone="warn">{ts.keySet ? "Key not working" : "Needs a key"}</Badge>
             ) : (
               <Badge tone="muted">Off</Badge>
             )}
