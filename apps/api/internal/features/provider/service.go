@@ -29,6 +29,7 @@ import (
 	"timely-api/internal/features/embed"
 	"timely-api/internal/jobs"
 	"timely-api/internal/models"
+	"timely-api/internal/utils"
 )
 
 const (
@@ -548,7 +549,10 @@ func (s *Service) handleReindex(ctx context.Context, job *models.Job) error {
 		return nil
 	}
 	if err != nil {
-		setState(func(st *ReindexState) { st.Status, st.Error = "failed", err.Error() })
+		// The error usually quotes OpenRouter. The state is jsonb, which
+		// refuses a NUL: an unsaved failure would leave the status "running",
+		// and EnsureIndex would queue a new rebuild on every look.
+		setState(func(st *ReindexState) { st.Status, st.Error = "failed", utils.StorableText(err.Error(), 500) })
 		return err
 	}
 	setState(func(st *ReindexState) { st.Status, st.Done, st.Total = "done", n, n })

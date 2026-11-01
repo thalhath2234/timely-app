@@ -2,6 +2,8 @@ package provider
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -88,5 +90,34 @@ func TestIntegrationIndexStatusFollowsCoverage(t *testing.T) {
 	idx.missing = 0
 	if got := status(); got != "done" || reindexJobs() != 0 {
 		t.Fatalf("complete index: status %q, %d jobs", got, reindexJobs())
+	}
+}
+
+// failingIndexer is an index whose rebuild fails with a provider's error.
+type failingIndexer struct {
+	coverageIndexer
+	err error
+}
+
+func (f *failingIndexer) Reindex(context.Context, string, func(int, int)) (int, error) {
+	return 0, f.err
+}
+
+// GB4 on the rebuild: a provider error holding a NUL could not be saved in
+// the status, which stayed "running". Settings then showed "Rebuilding…"
+// for good and queued a new rebuild on every look once the job had failed.
+func TestIntegrationReindexFailureWithAnUnstorableErrorIsSaved(t *testing.T) {
+	db := integrationDB(t)
+	idx := &failingIndexer{err: errors.New("openrouter embed: bad \x00 input \xc3")}
+	s := New(db, idx, jobs.NewQueue(db))
+	if err := s.handleReindex(context.Background(), &models.Job{UserID: "user-a", Kind: models.JobReindexUser}); err == nil {
+		t.Fatal("a failed rebuild reported success")
+	}
+	row, err := s.load(db, "user-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Reindex.Status != "failed" || !strings.HasPrefix(row.Reindex.Error, "openrouter embed: bad") {
+		t.Fatalf("rebuild state after the failure: %+v", row.Reindex)
 	}
 }
