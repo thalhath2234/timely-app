@@ -678,26 +678,23 @@ func (s *Service) apply(ctx context.Context, c *Conversation) error {
 					return context.Canceled
 				}
 				catalog := s.factory(tx)
-				for _, snap := range row.Snapshots {
-					value, err := readSnapshot(ctx, tx, catalog, row.UserID, snap.Tool, snap.Arguments)
-					if err != nil || hash(value) != snap.Hash {
-						archivePlan(&row)
-						row.ForceReview = true
-						refresh := message("system", tr(row.Language, txtDataChanged))
-						refresh.Kind = "notice"
-						row.Messages = append(row.Messages, refresh)
-						row.Phase = "plan"
-						if row.ImageReview != nil && row.ImageReview.Receipt != nil && row.ImageReview.Destination != nil {
-							row.Phase = "receipt_plan"
-						}
-						row.Status = "queued"
-						row.Revision++
-						if err := tx.Save(&row).Error; err != nil {
-							return err
-						}
-						next = row
-						return nil
+				if readsChanged(ctx, tx, catalog, &row) {
+					archivePlan(&row)
+					row.ForceReview = true
+					refresh := message("system", tr(row.Language, txtDataChanged))
+					refresh.Kind = "notice"
+					row.Messages = append(row.Messages, refresh)
+					row.Phase = "plan"
+					if row.ImageReview != nil && row.ImageReview.Receipt != nil && row.ImageReview.Destination != nil {
+						row.Phase = "receipt_plan"
 					}
+					row.Status = "queued"
+					row.Revision++
+					if err := tx.Save(&row).Error; err != nil {
+						return err
+					}
+					next = row
+					return nil
 				}
 				var value any
 				if err := json.Unmarshal(row.Plan[i].Arguments, &value); err != nil {
@@ -784,8 +781,23 @@ func (s *Service) prepareStep(ctx context.Context, c *Conversation, i int) (cont
 	if !isWriteTool(step.Tool) || !agent.Prepares(step.Tool) {
 		return ctx, nil
 	}
-	prepare := s.factory(s.db.WithContext(ctx))[step.Tool].Prepare
+	db := s.db.WithContext(ctx)
+	catalog := s.factory(db)
+	prepare := catalog[step.Tool].Prepare
 	if prepare == nil {
+		return ctx, nil
+	}
+	// The transaction's own checks, run first so the AI is never asked for
+	// nothing: a stopped run writes nothing, and a plan whose reads changed
+	// is planned again, so its answer would be thrown away.
+	var row Conversation
+	if err := s.find(db, c.UserID, c.ID, &row); err != nil {
+		return nil, err
+	}
+	if row.Status != "running" || row.Lease != c.Lease {
+		return nil, context.Canceled
+	}
+	if readsChanged(ctx, db, catalog, &row) {
 		return ctx, nil
 	}
 	var value any
@@ -802,6 +814,18 @@ func (s *Service) prepareStep(ctx context.Context, c *Conversation, i int) (cont
 	}
 	// Stopped while the AI answered: nothing is written.
 	return prepared, prepared.Err()
+}
+
+// readsChanged reports whether an object the plan was checked against has
+// changed since (or can no longer be read), so the plan must be made again.
+func readsChanged(ctx context.Context, db *gorm.DB, catalog agent.Catalog, row *Conversation) bool {
+	for _, snap := range row.Snapshots {
+		value, err := readSnapshot(ctx, db, catalog, row.UserID, snap.Tool, snap.Arguments)
+		if err != nil || hash(value) != snap.Hash {
+			return true
+		}
+	}
+	return false
 }
 
 // Serializable apply transactions can lose a race with another write by the

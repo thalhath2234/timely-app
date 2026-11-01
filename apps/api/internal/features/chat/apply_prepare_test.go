@@ -96,3 +96,46 @@ func TestIntegrationPreparedStepHoldsNoLock(t *testing.T) {
 		t.Fatalf("one AI answer for a retried step: %d prepares, %d calls, %d writes, step %s", prepares, calls, count, c.Plan[0].Status)
 	}
 }
+
+// The transaction's checks run before Prepare too: a plan whose reads changed
+// before Apply is planned again, and a stopped run ends, without asking the AI
+// for an answer that would be thrown away.
+func TestIntegrationPrepareSkipsAStaleOrStoppedPlan(t *testing.T) {
+	db := integrationDB(t)
+	s := New(db, nil, nil)
+	prepares, calls := 0, 0
+	s.factory = func(tx *gorm.DB) agent.Catalog {
+		return agent.Catalog{
+			"get_doc": {Call: func(context.Context, string, json.RawMessage) (any, error) {
+				return map[string]string{"markdown": "edited after the proposal"}, nil
+			}},
+			"add_live_block": {
+				Prepare: func(ctx context.Context, _ string, _ json.RawMessage) (context.Context, error) {
+					prepares++
+					return ctx, nil
+				},
+				Call: func(context.Context, string, json.RawMessage) (any, error) { calls++; return nil, nil },
+			},
+		}
+	}
+	steps := []Step{{Tool: "add_live_block", Summary: "Add a live block", Arguments: raw(map[string]string{"docId": "doc_1", "words": "overdue tasks"}), Status: "pending"}}
+
+	c := runFixture(t, db, steps)
+	c.Snapshots = []Snapshot{{Tool: "get_doc", Arguments: raw(map[string]string{"docId": "doc_1"}), Hash: "as proposed"}}
+	db.Save(&c)
+	if err := s.apply(context.Background(), &c); err != nil {
+		t.Fatal(err)
+	}
+	if prepares != 0 || calls != 0 || !c.ForceReview || c.Phase != "plan" || c.Status != "queued" {
+		t.Fatalf("a stale plan is planned again without asking the AI: %d prepares, %d calls, %s/%s", prepares, calls, c.Phase, c.Status)
+	}
+
+	c = runFixture(t, db, steps)
+	db.Model(&Conversation{}).Where("id = ?", c.ID).Updates(map[string]any{"status": "stopped", "lease": ""})
+	if err := s.apply(context.Background(), &c); !errors.Is(err, context.Canceled) {
+		t.Fatalf("a stopped run ends: %v", err)
+	}
+	if prepares != 0 || calls != 0 {
+		t.Fatalf("a stopped run asks nothing: %d prepares, %d calls", prepares, calls)
+	}
+}
