@@ -17,6 +17,7 @@ import { insertPageMention } from "@/app/_components/editor/mention";
 import TabStripActions from "@/app/_components/pageTabs/stripActions";
 import { hasUploadedImages } from "@/app/_components/editor/docImage";
 import { Doc } from "@/app/_types/types";
+import { countDocWords, docHintsVersion } from "@timely/contract/documents";
 import { UpdateDocPayload } from "@/app/utils/api/docs";
 import type { RelatedItem } from "@/app/utils/api/search";
 import { useQueryClient } from "@tanstack/react-query";
@@ -86,24 +87,6 @@ const ICON_CHOICES = [
   "🐛", "🧪", "📚", "🔧", "🔥", "✅", "⭐", "🧠",
 ];
 
-// Runs on every keystroke, so it counts in place instead of splitting the
-// text: a doc holding a large 3D model or map has hundreds of thousands of
-// "words", and building that array each time stalled typing.
-function countWords(text: string) {
-  let count = 0;
-  let inWord = false;
-  for (let i = 0; i < text.length; i += 1) {
-    const code = text.charCodeAt(i);
-    const space = code === 32 || (code >= 9 && code <= 13) || code === 160 || code === 0x2028 || code === 0x2029 || code === 0xfeff || (code >= 0x2000 && code <= 0x200a) || code === 0x1680 || code === 0x202f || code === 0x205f || code === 0x3000;
-    if (space) inWord = false;
-    else if (!inWord) {
-      inWord = true;
-      count += 1;
-    }
-  }
-  return count;
-}
-
 function buildBreadcrumb(docs: Doc[], docId: string) {
   const byId = new Map(docs.map((doc) => [doc.id, doc]));
   const trail: Doc[] = [];
@@ -170,7 +153,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const deleteDoc = useDeleteDoc();
 
   const [title, setTitle] = useState(doc.title);
-  const [wordCount, setWordCount] = useState(() => countWords(doc.plainText));
+  const [wordCount, setWordCount] = useState(() => countDocWords(doc.plainText));
   const [isIconPickerOpen, setIsIconPickerOpen] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -211,7 +194,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
     onRemote: (remote) => {
       const next = remote ?? queryClient.getQueryData<Doc>(docKey(doc.id)) ?? doc;
       setTitle(next.title);
-      setWordCount(countWords(next.plainText));
+      setWordCount(countDocWords(next.plainText));
       setRemoteContent(resolveDocContent(next.content, next.plainText));
       setRemoteEpoch((epoch) => epoch + 1);
     },
@@ -236,7 +219,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const handleEditorChange = useCallback(
     ({ content, plainText }: { content: Doc["content"]; plainText: string }) => {
       window.clearTimeout(wordTimerRef.current);
-      wordTimerRef.current = window.setTimeout(() => setWordCount(countWords(plainText)), 300);
+      wordTimerRef.current = window.setTimeout(() => setWordCount(countDocWords(plainText)), 300);
       schedule({ content, plainText });
     },
     [schedule],
@@ -246,7 +229,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const applyContent = useCallback(
     (content: Doc["content"], plainText: string) => {
       editorRef.current?.commands.setContent(content as Parameters<Editor["commands"]["setContent"]>[0]);
-      setWordCount(countWords(plainText));
+      setWordCount(countDocWords(plainText));
       schedule({ content, plainText });
       // Suggestions read the saved copy, so they are asked again once it is in.
       void flush().then(() => queryClient.invalidateQueries({ queryKey: ["doc-hints", doc.id] }));
@@ -292,12 +275,8 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
     [createDoc, doc.id, flush, router],
   );
 
-  // Suggestions are read again once an empty doc gets a title or text, then
-  // as it grows by about fifty words. They read the saved copy, so this counts
-  // the saved words: counted from the editor, a doc typed in one go asked
-  // before its first save landed and never again.
-  const savedWords = useMemo(() => countWords(doc.plainText), [doc.plainText]);
-  const hintsVersion = savedWords < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(savedWords / 50));
+  // From the saved copy, which the suggestions read, not the editor's words.
+  const hintsVersion = useMemo(() => docHintsVersion({ title: doc.title, plainText: doc.plainText }), [doc.title, doc.plainText]);
 
   const handleDelete = async () => {
     await deleteDoc.mutateAsync(doc.id);
@@ -630,7 +609,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
             lastSavedAtRef.current = restored.updatedAt;
             queryClient.setQueryData(docKey(doc.id), restored);
             setTitle(restored.title);
-            setWordCount(countWords(restored.plainText));
+            setWordCount(countDocWords(restored.plainText));
             setRemoteContent(resolveDocContent(restored.content, restored.plainText));
             setRemoteEpoch((epoch) => epoch + 1);
           }}

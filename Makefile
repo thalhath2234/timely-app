@@ -328,7 +328,7 @@ test-change-review: ## Test how an Agent proposal is grouped for review: one ite
 	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/change-review.test.mjs
 
 .PHONY: test-doc-checklist
-test-doc-checklist: ## Test which doc checklist items are offered as tasks, and the task name and description they get
+test-doc-checklist: ## Test which doc checklist items are offered as tasks, the task name and description they get, and when a doc's suggestions are read again
 	@node --experimental-strip-types --test scripts/doc-checklist.test.mjs
 
 .PHONY: test-work-status
