@@ -29,7 +29,7 @@ test("clipping never cuts an emoji in two", () => {
 });
 
 test("the costly searches wait for longer than a pause between words", () => {
-  // The tester typed with pauses of about 420 ms: each pause asked Jev once.
+  // The tester typed with pauses of about 420 ms: each pause asked smart suggestions once.
   assert.ok(SEARCH_DEBOUNCE_MS < 420);
   assert.ok(SEARCH_SETTLE_MS > 420);
   // A title typed one word a second was asked about at every autosave.

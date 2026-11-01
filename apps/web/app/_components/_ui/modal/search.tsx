@@ -102,7 +102,7 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
   const hits = trimmed && matchesCurrentQuery ? search.data ?? [] : [];
   // Smart suggestions reorder the results, set clear misses aside and may
   // read the query as a command. Plain results show first; this applies when
-  // Jev answers, and only for the query on screen. Jev is asked once the
+  // they answer, and only for the query on screen. They are asked once the
   // typing settles, not at every pause between words.
   const smart = useSmartSearch(search.settled);
   const smartData = trimmed && smart.query === trimmed && matchesCurrentQuery ? smart.data : undefined;

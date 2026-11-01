@@ -90,8 +90,9 @@ type DocHints struct {
 	// TodosOff: the person turned off checklist items offered as tasks for
 	// this doc (DocChecklist), so its switch shows off.
 	TodosOff bool `json:"todosOff,omitempty"`
-	// Failed: Jev was busy or did not answer, so the hints are missing, not
-	// empty; the apps ask again the next time the doc is opened.
+	// Failed: smart suggestions were busy or did not answer, so the hints
+	// are missing, not empty; the apps ask again the next time the doc is
+	// opened.
 	Failed bool `json:"failed,omitempty"`
 }
 

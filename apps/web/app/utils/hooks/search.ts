@@ -42,9 +42,9 @@ export function useSearch(query: string) {
   };
 }
 
-/** Jev's take on a settled query (useSearch's `settled`). Nothing is
+/** Smart suggestions' take on a settled query (useSearch's `settled`). Nothing is
  * requested while smart suggestions are off, so the palette looks like it
- * always did. An answer without Jev's order (it did not answer) is asked
+ * always did. An answer without their order (they did not answer) is asked
  * again the next time the same words are searched. */
 export function useSmartSearch(query: string) {
   const on = useDecisions().data?.available ?? false;
