@@ -218,7 +218,7 @@ receipt proposal and renewed approval; committed create steps are not repeated.
 
 Images are temporary, account-scoped files outside the database. Uploads are decoded,
 turned upright by their EXIF orientation, shrunk to at most 2576 px on the long edge
-(the most Claude reads; it refuses sides over 8000 px) and re-encoded to remove
+(the most the image model reads; Anthropic refuses sides over 8000 px) and re-encoded to remove
 embedded metadata, at most 5 MB of base64 each; only attachment metadata and extracted
 text/receipt data enter chat storage. Images are served through authenticated,
 no-store routes and removed when the person confirms, discards, or after 24 hours.

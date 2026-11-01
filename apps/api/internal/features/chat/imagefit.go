@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	// maxImageEdge is the longest side a photo is stored and sent at. Claude
-	// reads images at up to 2576 px on the long edge and shrinks larger ones
-	// itself, so nothing it can read is lost; it refuses sides over 8000 px.
+	// maxImageEdge is the longest side a photo is stored and sent at. The
+	// image model reads up to 2576 px on the long edge and shrinks larger ones
+	// itself, so nothing it can read is lost; Anthropic refuses sides over 8000 px.
 	maxImageEdge = 2576
 	// maxSentImageBytes caps one photo's base64 size. Anthropic refuses an
 	// image over 10 MB of base64, and up to five photos share one request.
