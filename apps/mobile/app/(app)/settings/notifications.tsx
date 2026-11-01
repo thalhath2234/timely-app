@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Linking, ScrollView, Text, View } from "react-native";
 import { Bell, BellRing, RotateCcw } from "lucide-react-native";
+import { jobKindLabel } from "@timely/contract/notifications";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import { PrimaryButton } from "../../../components/ui/primitives";
@@ -36,6 +37,16 @@ export default function NotificationSettingsScreen() {
   const smart = useDecisionsStatusQuery().data?.available === true;
   const [draft, setDraft] = useState<NotificationSettings | null>(null);
   const [message, setMessage] = useState("");
+  const [retryError, setRetryError] = useState("");
+
+  async function retryJob(id: string) {
+    setRetryError("");
+    try {
+      await retry.mutateAsync(id);
+    } catch (err) {
+      setRetryError(err instanceof Error ? err.message : "Couldn’t retry this job.");
+    }
+  }
 
   const refresh = useCallback(async () => {
     const status = await getNotificationPermission();
@@ -166,16 +177,20 @@ export default function NotificationSettingsScreen() {
           {(jobs.data ?? []).map((job) => (
             <ListRow
               key={job.id}
-              title={`${job.kind} · ${job.attempts}/${job.maxAttempts}`}
+              title={`${jobKindLabel(job.kind)} · ${job.attempts} of ${job.maxAttempts} tries`}
               meta={job.lastError || undefined}
-              accessibilityLabel={`Retry ${job.kind}`}
-              onPress={() => void retry.mutateAsync(job.id)}
+              accessibilityLabel={`Retry ${jobKindLabel(job.kind)}`}
+              onPress={() => void retryJob(job.id)}
+              disabled={retry.isPending}
               trailing={<RotateCcw size={16} color={colors.primary} />}
               chevron={false}
             />
           ))}
         </ListGroup>
-        <GroupHint>Tap a failed reminder or digest to retry it.</GroupHint>
+        {retryError ? <Text style={styles.retryNote}>{retryError}</Text> : null}
+        <GroupHint>
+          Tap a failed job to run it again. Smart alerts and search index jobs use your AI provider again.
+        </GroupHint>
       </ScrollView>
     </Screen>
   );
@@ -200,6 +215,7 @@ const styles = createThemedStyleSheet((colors) => ({
   meta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
   hint: { color: colors.mutedForeground, fontSize: 12, lineHeight: 18 },
   error: { color: colors.destructive, fontSize: 12, marginTop: 4 },
+  retryNote: { color: colors.foreground, fontSize: 12, marginTop: 8, paddingHorizontal: 4 },
   pills: { flexDirection: "row", alignItems: "center", gap: 6 },
   dash: { color: colors.mutedForeground, fontSize: 14 },
   count: { color: colors.foreground, fontSize: 14, fontWeight: "500", fontVariant: ["tabular-nums"] },

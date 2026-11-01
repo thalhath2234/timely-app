@@ -1,6 +1,6 @@
 "use client";
 
-import { checklistTask, docWorkLines, draftChecklistTasks, openChecklistItems, workLineKey, workLineTask, type ChecklistTodo } from "@timely/contract/docChecklist";
+import { checklistTask, docWorkLines, draftChecklistTasks, namingFailedNote, openChecklistItems, workLineKey, workLineTask, type ChecklistTodo } from "@timely/contract/docChecklist";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
@@ -325,7 +325,13 @@ export default function DocHints({
     if (workLines.length) accept();
     // One request for all the items, a few seconds at most; without a
     // provider, or on any error, the tasks keep the items' own words.
-    const drafts = aiReady && items.length ? await draftChecklistTasks(items, doc, checklistTaskDrafts) : items.map(() => null);
+    // A rejected key or no credit is said in the message, so it is not
+    // missed; the tasks are still made, from the items' own words.
+    let namingNote: string | null = null;
+    const drafts =
+      aiReady && items.length
+        ? await draftChecklistTasks(items, doc, checklistTaskDrafts, undefined, (failure) => { namingNote = namingFailedNote(failure); })
+        : items.map(() => null);
     const made: Task[] = [];
     // The offer's key each task came from; the name may differ.
     const from = new Map<string, string>();
@@ -377,8 +383,9 @@ export default function DocHints({
     // A project is named only when every task went to it.
     const [place] = places;
     const to = places.size === 1 && place ? ` to ${place}` : "";
-    const message =
+    const added =
       made.length === 1 ? `Task added${to}: ${made[0].name}` : `${made.length} tasks added${to}${made.length < asked ? `, ${asked - made.length} failed` : ""}`;
+    const message = namingNote ? `${added}. ${namingNote}` : added;
     showUndoToast(message, () => {
       unhide(made.map((task) => from.get(task.id) ?? `todo:${task.name.toLowerCase()}`));
       for (const line of madeLines) dismissHint.mutate({ kind: "work", value: line, restore: true });

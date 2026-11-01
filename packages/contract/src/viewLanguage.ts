@@ -1068,9 +1068,11 @@ function readFlags(r: Reader) {
   });
 
   // Effort kinds.
-  const effort = (source: string, value: string) => r.take(W(source), () => r.rule({ field: "effort", op: "anyOf", value: [value] }));
+  const effort = (source: string, ...value: string[]) => r.take(W(source), () => r.rule({ field: "effort", op: "anyOf", value }));
   effort("deep work|deep focus|deep|focus work|heads? down|hard thinking", "deep");
-  effort("admin(?: work| stuff| tasks)?|paperwork|errands|chores|busywork|busy work", "admin");
+  // Chores are as often routine (laundry, the bins) as admin (a form).
+  effort("chores", "admin", "routine");
+  effort("admin(?: work| stuff| tasks)?|paperwork|errands|busywork|busy work", "admin");
   effort("creative(?: work| stuff| tasks)?", "creative");
   effort("routine(?: work| stuff| tasks)?", "routine");
 }
@@ -1759,6 +1761,18 @@ export function viewPatchFrom(view: Partial<TaskViewConfig>, parts: ReadingParts
 /** `viewPatchFrom` for a plain-words reading. */
 export function readingPatch(reading: ViewReading): Partial<TaskViewConfig> {
   return viewPatchFrom(reading.view, reading.parts);
+}
+
+/** The most characters a view description takes (viewQueryMaxText in the
+ * API, which counts characters the same way), so Read with AI reads all of it. */
+export const VIEW_QUERY_MAX = 500;
+
+/** What the AI's reading could not use (the API's `dropped`: a name that
+ * does not exist, a rule it could not check), said next to the view so it
+ * is clear the view shows more than was asked. Empty when nothing was left out. */
+export function droppedNote(dropped: readonly string[] | null | undefined): string {
+  const parts = (dropped ?? []).map((part) => part.trim()).filter(Boolean);
+  return parts.length ? `Left out: ${parts.join("; ")}` : "";
 }
 
 /** `viewPatchFrom` for an AI answer, whose parts are the ones it filled in. */

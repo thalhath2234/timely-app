@@ -44,7 +44,7 @@ export default function ImagePreview({
     return (
       <Text style={styles.muted}>
         {expired
-          ? "Temporary image removed or expired. Extracted details are kept."
+          ? "Temporary image removed or expired."
           : error}
       </Text>
     );

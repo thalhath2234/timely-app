@@ -347,6 +347,13 @@ export default function Assistant() {
   function act(action: string, body?: unknown) {
     if (!pending && !offline) mutation.mutate({ action, body });
   }
+  // The receipt form as the person left it, so a message typed during the
+  // review revises their edits instead of dropping them.
+  function unsavedReceipt() {
+    return receiptDirty && reviewEdit && chat?.imageReview?.status === "review"
+      ? { receipt: reviewEdit.draft }
+      : {};
+  }
   function ask(content: string) {
     if (runningAction.current || pending || busy || offline || !id) return;
     mutation.mutate({
@@ -355,6 +362,7 @@ export default function Assistant() {
         content,
         imageIds: [],
         requestId: `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`,
+        ...unsavedReceipt(),
       },
       fromCard: true,
     });
@@ -476,6 +484,7 @@ export default function Assistant() {
           imageIds,
           requestId,
           ...(!id ? { context, webSearch: search, ...model } : {}),
+          ...unsavedReceipt(),
         },
       });
     } catch (reason) {
@@ -1057,6 +1066,7 @@ export default function Assistant() {
                       chat={chat}
                       locked={locked}
                       onRetry={() => act("/retry")}
+                      onDiscardImages={() => act("/images/discard")}
                       onOpenSettings={() => assistant.openResult("/(app)/settings/agent")}
                     />
                   ) : null}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"timely-api/internal/features/agent"
@@ -250,6 +251,28 @@ func (s *Service) SetEstimates(fn func(ctx context.Context, userID string, names
 	s.estimates = fn
 }
 
+// literalName resolves a "$N.task.name" (or "$N.name") reference to the name
+// an earlier create_task step gives in its own arguments, or returns ref when
+// it names anything else.
+func literalName(steps []Step, index int, ref string) string {
+	parts := strings.Split(strings.TrimPrefix(ref, "$"), ".")
+	if len(parts) < 2 || parts[len(parts)-1] != "name" || len(parts) > 3 || (len(parts) == 3 && parts[1] != "task") {
+		return ref
+	}
+	n, err := strconv.Atoi(parts[0])
+	if err != nil || n < 0 || n >= index || steps[n].Tool != "create_task" {
+		return ref
+	}
+	var in map[string]any
+	if json.Unmarshal(steps[n].Arguments, &in) != nil {
+		return ref
+	}
+	if name, ok := in["name"].(string); ok && !strings.HasPrefix(name, "$") {
+		return name
+	}
+	return ref
+}
+
 // estimateWork writes a length into every create_task step for Work that has
 // none, before the rehearsal: create_task would otherwise ask for its own
 // estimate one step at a time inside the rehearsal's transaction, and again
@@ -274,6 +297,11 @@ func (s *Service) estimateWork(ctx context.Context, uid string, steps []Step) {
 			continue
 		}
 		name, _ := in["name"].(string)
+		if strings.HasPrefix(name, "$") {
+			// "$0.task.name" names an earlier create_task's literal name, so
+			// it joins the batch instead of estimating alone in the rehearsal.
+			name = literalName(steps, i, name)
+		}
 		if strings.TrimSpace(name) == "" || strings.HasPrefix(name, "$") {
 			continue
 		}

@@ -8,7 +8,8 @@ import type { ProjectInsights as Insights } from "@/app/utils/api/decisions";
 import { useDecisionFeedback, useProjectInsights } from "@/app/utils/hooks/decisions";
 import { useCreateTask, useUpdateTask } from "@/app/utils/hooks/tasks";
 import { openTasksEntity } from "@/app/utils/entityDetail";
-import { showUndoToast } from "@/app/_store/toastStore";
+import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
+import { getProject } from "@/app/utils/api/projects";
 import { useQueryClient } from "@tanstack/react-query";
 
 const health: Record<NonNullable<Insights["health"]>, { label: string; className: string }> = {
@@ -142,10 +143,27 @@ export default function ProjectInsights({ project }: { project: Project }) {
                 <button
                   type="button"
                   className={button}
-                  onClick={() => {
-                    updateTask.mutate({ id: m.taskId, projectId: m.moveTo, stageId: "" }, { onSuccess: refresh });
-                    accept();
+                  onClick={async () => {
+                    // The suggestion may be older than the projects: the
+                    // target is read again, and the toast waits for the move.
                     hide(`move:${m.taskId}`);
+                    try {
+                      const target = await getProject(m.moveTo!);
+                      if (target.completedAt) {
+                        useToastStore.getState().show(`“${target.title}” is completed, so “${m.name}” wasn’t moved.`);
+                        refresh();
+                        return;
+                      }
+                      await updateTask.mutateAsync({ id: m.taskId, projectId: m.moveTo, stageId: "" });
+                    } catch (error) {
+                      const reason = error instanceof Error ? error.message.trim().replace(/\.$/, "") : "";
+                      useToastStore.getState().show(`Couldn’t move “${m.name}”.${reason ? ` ${reason.charAt(0).toUpperCase()}${reason.slice(1)}.` : ""}`);
+                      refresh();
+                      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+                      return;
+                    }
+                    accept();
+                    refresh();
                     showUndoToast(`Moved “${m.name}” to ${m.moveToTitle}`, () =>
                       updateTask.mutate({ id: m.taskId, projectId: project.id, stageId: m.stageId ?? "" }, { onSuccess: refresh }),
                     );

@@ -7,6 +7,9 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"sync"
+	"time"
+	"timely-api/internal/features/decide"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/models"
 	"timely-api/internal/richtext"
@@ -42,10 +45,19 @@ type Service interface {
 type service struct {
 	db      *gorm.DB
 	indexer embed.Indexer
+	// rebuild queues a background rebuild of the account's index; nil
+	// leaves a partial index as it is.
+	rebuild func(userID string)
 }
 
-func NewService(db *gorm.DB, indexer embed.Indexer) Service {
-	return &service{db: db, indexer: indexer}
+// queryEmbedBudget is how long a semantic search waits for its query's
+// embedding before answering with keyword hits alone. A var for tests.
+var queryEmbedBudget = 3 * time.Second
+
+// NewService builds search. rebuild, when not nil, is called when a semantic
+// search finds items missing from the index; it should queue a rebuild.
+func NewService(db *gorm.DB, indexer embed.Indexer, rebuild func(userID string)) Service {
+	return &service{db: db, indexer: indexer, rebuild: rebuild}
 }
 
 func (s *service) Search(userID, query string, limit int) ([]Hit, error) {
@@ -69,17 +81,13 @@ func (s *service) SemanticSearch(ctx context.Context, userID, query string, limi
 	if userID == "" {
 		return nil, errors.New("user not authenticated")
 	}
-	query, filters := splitQuery(strings.TrimSpace(query))
+	kinds = allowedKinds(kinds)
+	query, filters := splitFor(strings.TrimSpace(query), kinds)
 	if query == "" && len(filters) == 0 {
 		return []Hit{}, nil
 	}
 	limit = clampLimit(limit)
-	kinds = allowedKinds(kinds)
 	if len(filters) > 0 {
-		// Only docs have properties.
-		if len(kinds) > 0 && !contains(kinds, "doc") {
-			return []Hit{}, nil
-		}
 		kinds = []string{"doc"}
 	}
 
@@ -140,19 +148,28 @@ func contains(list []string, item string) bool {
 }
 
 func (s *service) vector(ctx context.Context, userID, query string, limit int, kinds []string) ([]Hit, error) {
-	if s.indexer == nil || !s.indexer.EnabledFor(userID) {
+	// A private chat (a photo) never sends its searches out to be embedded:
+	// they can quote the photo. Keyword results still come back.
+	if s.indexer == nil || !s.indexer.EnabledFor(userID) || decide.IsSensitive(ctx) {
 		return nil, embed.ErrDisabled
 	}
-	n, err := s.indexer.Count(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	if n == 0 {
-		if _, err := s.indexer.ReindexUser(ctx, userID); err != nil {
-			return nil, err
+	// Items missing from the index (after a restore, an interrupted rebuild
+	// or a failed job) are rebuilt by a background job, never inside this
+	// request: a cancelled request then cannot leave the index half built,
+	// and the search answers from what is indexed now, plus keywords.
+	if s.rebuild != nil {
+		if missing, err := s.indexer.Missing(ctx, userID); err != nil {
+			log.Printf("search: index coverage check failed: %v", err)
+		} else if missing > 0 {
+			s.rebuild(userID)
 		}
 	}
-	raw, err := s.indexer.Query(ctx, userID, query, limit, kinds)
+	// Embedding the query gets a short budget of its own: a slow provider
+	// otherwise held every search for its client timeout (25 s) before the
+	// keyword hits, which are ready in milliseconds, could be shown.
+	qctx, cancel := context.WithTimeout(ctx, queryEmbedBudget)
+	defer cancel()
+	raw, err := s.indexer.Query(qctx, userID, query, limit, kinds)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +278,48 @@ func (s *service) Reindex(ctx context.Context, userID string) (int, error) {
 	if s.indexer == nil || !s.indexer.EnabledFor(userID) {
 		return 0, embed.ErrDisabled
 	}
+	// Two rebuilds at once would both embed every stale item. The second one
+	// waits for the first and then finds nothing left to embed.
+	unlock, err := reindexing.lock(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	defer unlock()
 	return s.indexer.ReindexUser(ctx, userID)
+}
+
+// reindexing holds one manual rebuild per account at a time (POST
+// /search/reindex and the reindex_search tool).
+var reindexing = userLocks{held: map[string]chan struct{}{}}
+
+type userLocks struct {
+	mu   sync.Mutex
+	held map[string]chan struct{}
+}
+
+// lock waits until no other rebuild runs for the account, or ctx ends.
+func (l *userLocks) lock(ctx context.Context, userID string) (func(), error) {
+	for {
+		l.mu.Lock()
+		busy, ok := l.held[userID]
+		if !ok {
+			done := make(chan struct{})
+			l.held[userID] = done
+			l.mu.Unlock()
+			return func() {
+				l.mu.Lock()
+				delete(l.held, userID)
+				l.mu.Unlock()
+				close(done)
+			}, nil
+		}
+		l.mu.Unlock()
+		select {
+		case <-busy:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 }
 
 // keyword runs the ranked substring query over every requested kind and
@@ -419,11 +477,12 @@ func (s *service) keywordKind(query string, limit int, q kindQuery) []keywordHit
 	return out
 }
 
+// clampLimit keeps a result count between 1 and 50; none asked means 20.
 func clampLimit(limit int) int {
-	if limit <= 0 || limit > 50 {
+	if limit <= 0 {
 		return 20
 	}
-	return limit
+	return min(limit, 50)
 }
 
 var searchKinds = map[string]bool{"task": true, "project": true, "doc": true, "sheet": true, "event": true}

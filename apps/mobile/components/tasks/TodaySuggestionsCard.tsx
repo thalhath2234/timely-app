@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Text, View } from "react-native";
 import { CalendarPlus, Sparkles, Star, Target, X } from "lucide-react-native";
 import AnimatedPressable from "../ui/AnimatedPressable";
@@ -8,6 +9,7 @@ import { deviceTimezone, formatDuration } from "../../lib/format";
 import { useToastStore } from "../../lib/toast";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import type { EffortKind } from "../../lib/api/decisions";
+import { ApiError } from "../../lib/api/client";
 
 const EFFORT: Record<EffortKind, string> = { deep: "Deep focus", admin: "Admin", creative: "Creative", routine: "Routine" };
 
@@ -39,6 +41,7 @@ export default function TodaySuggestionsCard({
 }) {
   const { data } = useTodaySuggestionsQuery(deviceTimezone(), version);
   const setFocus = useSetTodayFocus();
+  const queryClient = useQueryClient();
   const addBlock = useAddBlock();
   const feedback = useDecisionFeedback();
   const [hidden, setHidden] = useState<Set<string>>(new Set());
@@ -76,7 +79,7 @@ export default function TodaySuggestionsCard({
           ...pick.reasons
             .filter((reason) => reason !== "open work" && reason !== "unscheduled")
             .map((reason) => reason.charAt(0).toUpperCase() + reason.slice(1)),
-          ...(pick.effortKind ? [EFFORT[pick.effortKind]] : []),
+          ...(pick.effortKind && EFFORT[pick.effortKind] ? [EFFORT[pick.effortKind]] : []),
         ];
         return (
           <View key={pick.taskId} style={styles.row}>
@@ -99,7 +102,15 @@ export default function TodaySuggestionsCard({
                 void setFocus
                   .mutateAsync({ id: pick.taskId, date })
                   .then(() => toast(`Added to Today focus: ${pick.name}`))
-                  .catch(() => toast("Could not add it to Today focus"));
+                  .catch((error: unknown) => {
+                    if (error instanceof ApiError && error.status === 404) {
+                      // Deleted since the picks loaded; others may be too.
+                      toast(`Could not add “${pick.name}”. It was deleted.`);
+                      void queryClient.invalidateQueries({ queryKey: ["today-suggestions"] });
+                      return;
+                    }
+                    toast("Could not add it to Today focus");
+                  });
                 hide(`focus:${pick.taskId}`);
               }}
               style={[styles.button, slotsLeft <= 0 && { opacity: 0.5 }]}
@@ -122,7 +133,7 @@ export default function TodaySuggestionsCard({
               Free {clock(gap.start)}–{clock(gap.end)} ({formatDuration(gap.minutes)})
             </Text>
             <Text style={styles.title} numberOfLines={2}>
-              {gap.task.name} fits here{gap.task.effortKind ? ` · ${EFFORT[gap.task.effortKind]}` : ""}
+              {gap.task.name} fits here{gap.task.effortKind && EFFORT[gap.task.effortKind] ? ` · ${EFFORT[gap.task.effortKind]}` : ""}
             </Text>
           </AnimatedPressable>
           <AnimatedPressable

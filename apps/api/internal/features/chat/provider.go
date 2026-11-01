@@ -14,6 +14,28 @@ import (
 	"time"
 )
 
+// ErrOutputTooLong is a model stopping at its output limit, so the answer is
+// cut. Each feature words it for itself (a proposal, a draft); this text is
+// the chat agent's. It is Final: the same request would be cut again.
+var ErrOutputTooLong = Final("The proposal was too large; try a smaller request")
+
+// OutputTooLong is ErrOutputTooLong in other words, such as for a cut-off
+// text answer rather than a proposal.
+func OutputTooLong(text string) error { return &cutOff{Failure{Text: text, Action: ActionNone}} }
+
+type cutOff struct{ Failure }
+
+func (c *cutOff) Is(target error) bool { return target == ErrOutputTooLong }
+
+// As lets failureAction read the action of a cut-off answer.
+func (c *cutOff) As(target any) bool {
+	if f, ok := target.(**Failure); ok {
+		*f = &c.Failure
+		return true
+	}
+	return false
+}
+
 type ToolCall struct {
 	ID       string `json:"id"`
 	Type     string `json:"type"`
@@ -77,6 +99,22 @@ type Searcher interface {
 	CanSearch() bool
 }
 
+// ImageReader is implemented by completers that can tell whether their
+// model takes images. known is false when that could not be found out.
+type ImageReader interface {
+	ReadsImages(ctx context.Context) (reads, known bool)
+}
+
+// readsImages reports whether the run's model can be sent photos; a model
+// that cannot say is tried.
+func readsImages(ctx context.Context) bool {
+	if r, ok := ctx.Value(completerKey{}).(ImageReader); ok && r != nil {
+		reads, known := r.ReadsImages(ctx)
+		return reads || !known
+	}
+	return true
+}
+
 type completerKey struct{}
 
 // WithCompleter attaches the run's client to the context so every model call in
@@ -92,6 +130,21 @@ func CompleterFrom(ctx context.Context) Completer {
 		return c
 	}
 	return nil
+}
+
+type noRetryKey struct{}
+
+// WithoutRetries marks a model call the caller can do without, such as the
+// receipt recheck: the client then sends it once and returns the first
+// error instead of retrying it.
+func WithoutRetries(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noRetryKey{}, true)
+}
+
+// RetriesOff reports whether the call was marked with WithoutRetries.
+func RetriesOff(ctx context.Context) bool {
+	off, _ := ctx.Value(noRetryKey{}).(bool)
+	return off
 }
 
 // unusable stands in for a run's provider that could not be set up: every
@@ -185,6 +238,16 @@ func dropNULs(value any) any {
 type OpenRouter struct {
 	Key, Model, URL string
 	Client          *http.Client
+	// Vision says whether a model takes images, from the model list; nil
+	// when unknown.
+	Vision func(ctx context.Context, model string) (reads, known bool)
+}
+
+func (p *OpenRouter) ReadsImages(ctx context.Context) (bool, bool) {
+	if p.Vision == nil {
+		return false, false
+	}
+	return p.Vision(ctx, p.Model)
 }
 
 func NewOpenRouter() *OpenRouter {
@@ -199,11 +262,35 @@ func NewOpenRouter() *OpenRouter {
 // Only model inference is retried here; no domain tool executes until a complete
 // response has been accepted. A failed attempt cannot replay an app mutation.
 func (p *OpenRouter) Complete(ctx context.Context, messages []WireMessage, tools []any, search bool) (WireMessage, error) {
+	if RetriesOff(ctx) {
+		return p.completeOnce(ctx, messages, tools, search)
+	}
 	return RetryTransient(ctx, func() (WireMessage, error) { return p.completeOnce(ctx, messages, tools, search) })
+}
+
+// providerMessage is the message in an error body ({"error":{"message":...}}),
+// so the person reads the provider's reason ("Insufficient credits").
+func providerMessage(body io.Reader) string {
+	var data struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.NewDecoder(io.LimitReader(body, 16<<10)).Decode(&data) != nil {
+		return ""
+	}
+	msg := strings.Join(strings.Fields(data.Error.Message), " ")
+	if len(msg) > 300 {
+		msg = strings.ToValidUTF8(msg[:300], "") + "…"
+	}
+	return msg
 }
 
 // RetryTransient runs one model call and retries it once after a network
 // timeout or a cut-off body. Other errors and cancellation return at once.
+// A cut-off body may come after the provider counted the answer, so the
+// retry can cost a second answer; it is still kept, because without it the
+// person's next step is the same request again by hand.
 func RetryTransient(ctx context.Context, call func() (WireMessage, error)) (WireMessage, error) {
 	var result WireMessage
 	var err error
@@ -289,8 +376,24 @@ func (p *OpenRouter) completeOnce(ctx context.Context, messages []WireMessage, t
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
+		// A refused key or missing credit is the same on every route, and
+		// trying again cannot fix it.
+		switch res.StatusCode {
+		case http.StatusUnauthorized:
+			return empty, NeedsSettings("OpenRouter didn't accept the API key (HTTP 401). Check the key in Settings → Agent")
+		case http.StatusForbidden:
+			// OpenRouter answers 403 when a model's content filter flags the
+			// input, not for a bad key: another model in the chat's menu, then
+			// Try again, can help.
+			return empty, fmt.Errorf("OpenRouter refused the request (HTTP 403); the model's content filter may have flagged it. Reword it, or pick another model in the model menu, then try again")
+		case http.StatusPaymentRequired:
+			return empty, NeedsSettings("OpenRouter says the account is out of credit (HTTP 402). Add credit on openrouter.ai, or pick another provider in Settings → Agent")
+		}
 		if sensitive {
 			return empty, fmt.Errorf("The zero-retention AI route is unavailable (HTTP %d). Try again; no fallback provider was used", res.StatusCode)
+		}
+		if msg := providerMessage(res.Body); msg != "" {
+			return empty, fmt.Errorf("OpenRouter returned HTTP %d: %s", res.StatusCode, msg)
 		}
 		return empty, fmt.Errorf("OpenRouter returned HTTP %d; check model access, credit, or retry", res.StatusCode)
 	}
@@ -310,7 +413,7 @@ func (p *OpenRouter) completeOnce(ctx context.Context, messages []WireMessage, t
 		return empty, fmt.Errorf("AI provider did not return a response")
 	}
 	if data.Choices[0].FinishReason == "length" {
-		return empty, fmt.Errorf("The proposal was too large; try a smaller request")
+		return empty, ErrOutputTooLong
 	}
 	return data.Choices[0].Message, nil
 }

@@ -13,6 +13,11 @@ func TestReplyCardsOnlyForAppsThatDrawThem(t *testing.T) {
 	if got := replyCards(false, carded); !strings.Contains(got, "plain text") || strings.Contains(got, "root = Reply(") {
 		t.Fatalf("an app without reply cards in a conversation that had them got %q", got)
 	}
+	// The apps draw a fence whatever its case, so it counts as a card too.
+	upper := []Message{{Role: "assistant", Content: "Here.\n  ```OpenUI-Lang\n  root = Reply([])\n  ```"}}
+	if got := replyCards(false, upper); !strings.Contains(got, "plain text") {
+		t.Fatalf("an upper-case fence was not noticed: %q", got)
+	}
 	on := replyCards(true, carded)
 	for _, want := range []string{"```openui-lang", "root = Reply(", "TaskRow(taskId: string", "propose_changes"} {
 		if !strings.Contains(on, want) {

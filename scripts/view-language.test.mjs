@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
-import { describeView, readViewQuery, readingIsListing, viewNoun } from "../packages/contract/src/viewLanguage.ts";
+import { describeView, droppedNote, readViewQuery, readingIsListing, viewNoun } from "../packages/contract/src/viewLanguage.ts";
 
 const TODAY = "2026-10-14"; // a Wednesday
 const vocab = {
@@ -113,6 +113,9 @@ describe("readViewQuery", () => {
     assert.deepEqual(read("high or urgent tasks").view.rules, [{ field: "priority", op: "anyOf", value: ["High", "Urgent"] }]);
     assert.deepEqual(read("no priority").view.rules, [{ field: "priority", op: "isEmpty" }]);
     assert.deepEqual(read("deep work").view.rules, [{ field: "effort", op: "anyOf", value: ["deep"] }]);
+    // Laundry and the bins read as routine, a passport form as admin.
+    assert.deepEqual(read("my chores").view.rules, [{ field: "effort", op: "anyOf", value: ["admin", "routine"] }]);
+    assert.deepEqual(read("errands").view.rules, [{ field: "effort", op: "anyOf", value: ["admin"] }]);
     assert.deepEqual(read("untouched for 2 weeks").view.rules, [{ field: "updatedAt", op: "before", value: "-14" }]);
     assert.deepEqual(read("tasks not updated in 30 days").view.rules, [{ field: "updatedAt", op: "before", value: "-30" }]);
     assert.deepEqual(read("repeating tasks").view.rules, [{ field: "recurring", op: "is", value: true }]);
@@ -177,5 +180,17 @@ describe("readViewQuery", () => {
     assert.deepEqual(chips("show me tasks for tomorrow"), ["Due or planned tomorrow", "Open only", "Soonest deadline first"]);
     assert.ok(chips("urgent bugs in Home").includes("Workspace: Home"));
     assert.ok(chips("urgent bugs in Home").includes("Label bug"));
+  });
+});
+
+describe("droppedNote", () => {
+  test("says which parts of an AI reading were left out (W7)", () => {
+    assert.equal(droppedNote(["no project named Atlantis"]), "Left out: no project named Atlantis");
+    assert.equal(droppedNote(["no project named Atlantis", " no stage named Ship "]), "Left out: no project named Atlantis; no stage named Ship");
+  });
+  test("is empty when nothing was left out", () => {
+    assert.equal(droppedNote(undefined), "");
+    assert.equal(droppedNote([]), "");
+    assert.equal(droppedNote(["  "]), "");
   });
 });

@@ -449,11 +449,11 @@ func TestPendingBatchContinuesOnlyTheLatestProposal(t *testing.T) {
 	last := message("assistant", "Batch 2")
 	last.Proposal = true
 	c := Conversation{Messages: []Message{user, first}}
-	if pendingBatch(&c) != "chapters 31-40" {
+	if got, capped := pendingBatch(&c); got != "chapters 31-40" || capped {
 		t.Fatal("first batch did not continue")
 	}
 	c.Messages = []Message{user, first, more, last}
-	if got := pendingBatch(&c); got != "" {
+	if got, capped := pendingBatch(&c); got != "" || capped {
 		t.Fatalf("finished request continued with %q", got)
 	}
 	c.Messages = []Message{user}
@@ -464,8 +464,10 @@ func TestPendingBatchContinuesOnlyTheLatestProposal(t *testing.T) {
 		n.Continue = "more"
 		c.Messages = append(c.Messages, p, n)
 	}
-	if pendingBatch(&c) != "" {
-		t.Fatal("continuation is unbounded")
+	// The cap stops automatic batches but still reports what is left, so the
+	// person is told the request is unfinished instead of "Done".
+	if got, capped := pendingBatch(&c); got != "more" || !capped {
+		t.Fatalf("continuation is unbounded or the rest is lost: %q capped=%v", got, capped)
 	}
 }
 

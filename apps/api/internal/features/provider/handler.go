@@ -5,13 +5,61 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
+	"timely-api/internal/features/decide"
 	"timely-api/internal/features/embed"
 )
 
 func user(c *echo.Context) string { v, _ := c.Get("userID").(string); return v }
+
+// oneShotPerUser is how many one-shot AI requests (Help me write, checklist
+// names, view queries, card descriptions) one account may have running at
+// once. The apps send one at a time and cancel the one before, so only a
+// script or a stuck client reaches it; each request costs a model call.
+const oneShotPerUser = 4
+
+// inFlight counts requests in flight per account.
+type inFlight struct {
+	mu sync.Mutex
+	n  map[string]int
+}
+
+func (f *inFlight) take(id string, limit int) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.n == nil {
+		f.n = map[string]int{}
+	}
+	if f.n[id] >= limit {
+		return false
+	}
+	f.n[id]++
+	return true
+}
+
+func (f *inFlight) give(id string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.n[id]--; f.n[id] <= 0 {
+		delete(f.n, id)
+	}
+}
+
+// oneShotLimit answers 429 while the account already has oneShotPerUser
+// one-shot AI requests running.
+func (s *Service) oneShotLimit(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		id := user(c)
+		if !s.busy.take(id, oneShotPerUser) {
+			return echo.NewHTTPError(429, "Too many AI requests at once. Wait for one to finish, then try again")
+		}
+		defer s.busy.give(id)
+		return next(c)
+	}
+}
 
 func (s *Service) Routes(g *echo.Group) {
 	g.GET("/agent/providers", s.overview)
@@ -22,10 +70,10 @@ func (s *Service) Routes(g *echo.Group) {
 	g.POST("/agent/providers/:id/disconnect", s.disconnect)
 	g.POST("/agent/providers/:id/key", s.setAPIKey)
 	g.DELETE("/agent/providers/:id/key", s.removeAPIKey)
-	g.POST("/agent/write", s.write)
-	g.POST("/agent/checklist-tasks", s.checklistTasks)
-	g.POST("/agent/view-query", s.viewQuery)
-	g.POST("/agent/dashboard-card", s.dashboardCard)
+	g.POST("/agent/write", s.write, s.oneShotLimit)
+	g.POST("/agent/checklist-tasks", s.checklistTasks, s.oneShotLimit)
+	g.POST("/agent/view-query", s.viewQuery, s.oneShotLimit)
+	g.POST("/agent/dashboard-card", s.dashboardCard, s.oneShotLimit)
 	g.GET("/agent/decisions", s.decisionsOverview)
 	g.PATCH("/agent/decisions", s.configureDecisions)
 	g.POST("/agent/decisions/key", s.setTypeSafeKey)
@@ -126,6 +174,7 @@ func autoProvider(row Settings, rows map[string]APIKey, localCLI bool) string {
 }
 
 func (s *Service) overview(c *echo.Context) error {
+	s.checkIndex(c.Request().Context(), user(c))
 	row, err := s.load(s.db, user(c))
 	if err != nil {
 		return err
@@ -481,7 +530,8 @@ func (s *Service) configure(c *echo.Context) error {
 				}
 				dims, err := embed.Probe(ctx, key, value)
 				if err != nil {
-					return echo.NewHTTPError(409, "OpenRouter could not embed with this model: "+err.Error())
+					// OpenRouter can quote the key it refused.
+					return echo.NewHTTPError(409, "OpenRouter could not embed with this model: "+decide.HideKeys(err.Error(), key))
 				}
 				if dims != embed.VectorDims() {
 					return echo.NewHTTPError(409, fmt.Sprintf("This model produces %d-dimension vectors; Timely's search index needs %d. Pick a %d-dimension model such as openai/text-embedding-3-small", dims, embed.VectorDims(), embed.VectorDims()))

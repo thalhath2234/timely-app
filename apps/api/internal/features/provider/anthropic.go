@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"sort"
 	"strconv"
@@ -42,36 +44,57 @@ func (p *Anthropic) label() string {
 	return "Anthropic"
 }
 
-// maxRetryWait is the longest a retry waits on a 429 or 529's retry-after.
-// The SDK would sleep as long as the hint says (15 minutes left a chat
-// "thinking" until the run timed out); past this the error comes back at
-// once, saying the provider is rate limiting or busy.
+type oneShotKey struct{}
+
+// oneShot marks a call a person waits on in a panel: Help me write, view
+// queries, checklist names and card descriptions. Its retry sits out a
+// shorter wait than other calls' (boundedRetry).
+func oneShot(ctx context.Context) context.Context {
+	return context.WithValue(ctx, oneShotKey{}, true)
+}
+
+// oneShotMaxWait is the longest retry-after a one-shot call sits out: the
+// person gets the busy message now, not after 30 s and a second request.
+const oneShotMaxWait = 5 * time.Second
+
+// maxRetryWait is the longest any other retry waits on a 429 or 529's
+// retry-after. The SDK would sleep as long as the hint says (15 minutes left
+// a chat "thinking" until the run timed out); past this the error comes back
+// at once, saying the provider is rate limiting or busy.
 const maxRetryWait = 30 * time.Second
 
-// boundedRetry stops the SDK's retry when the response asks to wait longer
-// than maxRetryWait.
+// boundedRetry stops the SDK's automatic retry when the answer asks to wait
+// longer than the call allows: oneShotMaxWait for a one-shot call,
+// maxRetryWait for the rest.
 func boundedRetry(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
 	res, err := next(req)
-	if err == nil && res != nil && retryWait(res.Header) > maxRetryWait {
+	if err != nil || res == nil {
+		return res, err
+	}
+	limit := maxRetryWait
+	if req.Context().Value(oneShotKey{}) != nil {
+		limit = oneShotMaxWait
+	}
+	if wait, ok := retryAfter(res.Header); ok && wait > limit {
 		res.Header.Set("x-should-retry", "false")
 	}
 	return res, err
 }
 
-// retryWait reads a response's retry-after-ms or retry-after header (seconds
-// or an HTTP date), 0 when it has none.
-func retryWait(h http.Header) time.Duration {
-	if ms, err := strconv.ParseFloat(h.Get("Retry-After-Ms"), 64); err == nil {
-		return time.Duration(ms * float64(time.Millisecond))
+// retryAfter reads retry-after-ms, or retry-after in seconds or as an HTTP
+// date.
+func retryAfter(h http.Header) (time.Duration, bool) {
+	if ms, err := strconv.ParseFloat(h.Get("retry-after-ms"), 64); err == nil {
+		return time.Duration(ms * float64(time.Millisecond)), true
 	}
-	value := h.Get("Retry-After")
-	if seconds, err := strconv.ParseFloat(value, 64); err == nil {
-		return time.Duration(seconds * float64(time.Second))
+	value := h.Get("retry-after")
+	if secs, err := strconv.ParseFloat(value, 64); err == nil {
+		return time.Duration(secs * float64(time.Second)), true
 	}
 	if at, err := http.ParseTime(value); err == nil {
-		return time.Until(at)
+		return time.Until(at), true
 	}
-	return 0
+	return 0, false
 }
 
 func (p *Anthropic) client() anthropic.Client {
@@ -143,11 +166,15 @@ func (p *Anthropic) completeOnce(ctx context.Context, messages []chat.WireMessag
 		params.OutputConfig = anthropic.OutputConfigParam{Effort: anthropic.OutputConfigEffortLow}
 	}
 	client := p.client()
+	var once []option.RequestOption
+	if chat.RetriesOff(ctx) {
+		once = append(once, option.WithMaxRetries(0))
+	}
 	out := chat.WireMessage{Role: "assistant"}
 	var text strings.Builder
 	seen := map[string]bool{}
 	for pauses := 0; ; pauses++ {
-		res, err := client.Messages.New(ctx, params)
+		res, err := client.Messages.New(ctx, params, once...)
 		if err != nil {
 			return empty, err
 		}
@@ -179,14 +206,16 @@ func stopError(res *anthropic.Message) error {
 	case "", anthropic.StopReasonEndTurn, anthropic.StopReasonToolUse, anthropic.StopReasonStopSequence, anthropic.StopReasonPauseTurn:
 		return nil
 	case anthropic.StopReasonMaxTokens:
+		// Both are chat.ErrOutputTooLong, which each feature words for itself;
+		// a cut-off text answer says so in the chat.
 		for _, block := range res.Content {
 			if block.Type == "tool_use" {
-				return stopped("The proposal was too large; try a smaller request")
+				return chat.ErrOutputTooLong
 			}
 		}
-		return stopped("The answer got too long and was cut off. Try asking for less at a time")
+		return chat.OutputTooLong("The answer got too long and was cut off. Try asking for less at a time")
 	case anthropic.StopReasonRefusal:
-		return stopped("The model declined this request")
+		return chat.Final("The model declined this request")
 	case anthropic.StopReasonModelContextWindowExceeded:
 		return stopped("This chat is too long for the AI to read. Start a new chat to continue")
 	}
@@ -383,21 +412,22 @@ func anthropicTool(spec any) (anthropic.ToolParam, bool) {
 func anthropicError(label string, err error) error {
 	var apiErr *anthropic.Error
 	if errors.As(err, &apiErr) {
-		msg := errorText([]byte(apiErr.RawJSON()))
-		if msg == "" {
-			msg = http.StatusText(apiErr.StatusCode)
+		if apiErr.StatusCode == http.StatusTooManyRequests {
+			if hint := waitHint(apiErr.Response); hint != "" {
+				return fmt.Errorf("%s is rate limiting this key (HTTP 429)%s", label, hint)
+			}
 		}
-		switch apiErr.StatusCode {
-		case http.StatusUnauthorized, http.StatusForbidden:
-			return fmt.Errorf("%s rejected the request (HTTP %d): %s", label, apiErr.StatusCode, msg)
-		case http.StatusTooManyRequests:
-			return fmt.Errorf("%s is rate limiting this key (HTTP 429): %s%s", label, msg, waitHint(apiErr.Response))
-		}
-		return fmt.Errorf("%s returned HTTP %d: %s", label, apiErr.StatusCode, msg)
+		return httpFailure(label, apiErr.StatusCode, []byte(apiErr.RawJSON()))
 	}
 	var answer stopped
 	if errors.As(err, &answer) || strings.HasPrefix(err.Error(), "The ") {
 		return err // already a Timely message
+	}
+	var netErr net.Error
+	var syntax *json.SyntaxError
+	if !errors.As(err, &netErr) && (errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &syntax)) {
+		// The host answered, but the answer was cut off or garbled.
+		return fmt.Errorf("%s's answer was cut off. Try again", label)
 	}
 	return fmt.Errorf("Could not reach %s: %w", label, err)
 }
@@ -408,8 +438,8 @@ func waitHint(res *http.Response) string {
 	if res == nil {
 		return ""
 	}
-	wait := retryWait(res.Header)
-	if wait <= maxRetryWait {
+	wait, ok := retryAfter(res.Header)
+	if !ok || wait <= maxRetryWait {
 		return ""
 	}
 	if minutes := int((wait + time.Minute - 1) / time.Minute); minutes > 1 {

@@ -51,7 +51,8 @@ func contentHash(model, content string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Chunk splits text into overlapping rune windows. Empty input yields nothing.
+// Chunk splits text into overlapping rune windows, at most maxChunks of them,
+// spread over the whole of a longer text. Empty input yields nothing.
 func Chunk(text string) []string {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -62,9 +63,10 @@ func Chunk(text string) []string {
 		return []string{text}
 	}
 
-	var chunks []string
+	type window struct{ start, end int }
+	var windows []window
 	start := 0
-	for len(chunks) < maxChunks && start < len(runes) {
+	for start < len(runes) {
 		end := start + chunkSize
 		if end > len(runes) {
 			end = len(runes)
@@ -72,7 +74,7 @@ func Chunk(text string) []string {
 		if end < len(runes) {
 			end = breakAtBoundary(runes, start, end)
 		}
-		chunks = append(chunks, string(runes[start:end]))
+		windows = append(windows, window{start, end})
 		if end >= len(runes) {
 			break
 		}
@@ -83,6 +85,20 @@ func Chunk(text string) []string {
 		if start >= end {
 			start = end
 		}
+	}
+	// A long text keeps maxChunks windows spread evenly from its first to its
+	// last, so its middle and end can be found by meaning too, not only its
+	// first maxChunks windows.
+	picked := windows
+	if len(windows) > maxChunks {
+		picked = make([]window, maxChunks)
+		for n := range picked {
+			picked[n] = windows[n*(len(windows)-1)/(maxChunks-1)]
+		}
+	}
+	chunks := make([]string, len(picked))
+	for n, w := range picked {
+		chunks[n] = string(runes[w.start:w.end])
 	}
 	return chunks
 }

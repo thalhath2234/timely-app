@@ -43,19 +43,21 @@ import {
   useWorkspacesQuery,
 } from "../../../lib/hooks";
 import { PRIORITIES, normalizePriority } from "../../../lib/priority";
-import { showUndoToast } from "../../../lib/toast";
+import { showUndoToast, useToastStore } from "../../../lib/toast";
 import { formatShortDate, PRIORITY_META, timeAgo, toDateInputValue } from "../../../lib/format";
 import { colorName, resolvedColor, stableColorForId } from "../../../lib/entityColor";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { useDraftText } from "../../../lib/draftText";
 import { useAutosave } from "../../../lib/autosave";
+import { refusalMessage } from "@timely/contract/autosaveQueue";
+import { useQueryClient } from "@tanstack/react-query";
 import type { UpdateProjectPayload } from "../../../lib/api/projects";
 import { requestQuickAdd } from "../../../lib/quickAddIntent";
 import DescriptionCard from "../../../components/editor/DescriptionCard";
 import RelatedList from "../../../components/search/RelatedList";
 import ProjectInsightsCard from "../../../components/projects/ProjectInsightsCard";
 import { isRichContentEmpty, toRichContent } from "../../../lib/richText";
-import type { DocContent, Stage, Task } from "../../../lib/types";
+import type { DocContent, Project, Stage, Task } from "../../../lib/types";
 import { FocusGroup, FocusGroupScrollView } from "../../../components/ui/FocusGroup";
 
 export default function ProjectDetailScreen() {
@@ -70,9 +72,23 @@ export default function ProjectDetailScreen() {
   const tasks = useTasksQuery().data ?? [];
   const spaces = useWorkspacesQuery().data ?? [];
   const save = useUpdateProject();
+  const queryClient = useQueryClient();
   const { schedule: scheduleSave, flush: flushSave } = useAutosave<UpdateProjectPayload>(async (data) => {
     if (!id) return;
     await save.mutateAsync({ id, data });
+  }, undefined, {
+    // A refused change is dropped so later edits still save (autosave.ts):
+    // say why, read the project again, and put a refused title back, unless
+    // more was typed since. The save's own rollback has restored the copy.
+    onRejected: (error, patch) => {
+      useToastStore.getState().show(refusalMessage(error));
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      if (patch.title === undefined || !id) return;
+      const saved =
+        queryClient.getQueryData<Project>(["projects", id])?.title ??
+        queryClient.getQueryData<Project[]>(["projects"])?.find((item) => item.id === id)?.title;
+      if (saved !== undefined) setTitle((current) => (current === patch.title ? saved : current));
+    },
   });
   const remove = useDeleteProject();
   const duplicate = useDuplicateProject();

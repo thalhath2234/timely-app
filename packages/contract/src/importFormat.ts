@@ -39,6 +39,12 @@ export function plainLines(source: string): PlainLine[] | null {
 
 const prefix: Record<ImportLineKind, string> = { heading: "## ", bullet: "- ", numbered: "1. ", quote: "> ", paragraph: "" };
 
+/** A line kind as the apps know it; anything else is a paragraph. An unknown
+ * kind ("title") used to put the word "undefined" in front of the line. */
+export function importLineKind(kind: unknown): ImportLineKind {
+  return typeof kind === "string" && Object.prototype.hasOwnProperty.call(prefix, kind) ? (kind as ImportLineKind) : "paragraph";
+}
+
 /** Markdown for plain lines given each line's block type. Lines of one list
  * stay together, and paragraph lines of one block stay one paragraph (a
  * hard-wrapped line is not a new paragraph); every other line is its own
@@ -46,8 +52,8 @@ const prefix: Record<ImportLineKind, string> = { heading: "## ", bullet: "- ", n
 export function linesToMarkdown(lines: PlainLine[], kinds: ImportLineKind[]) {
   let out = "";
   lines.forEach((line, i) => {
-    const kind = kinds[i] ?? "paragraph";
-    const previous = kinds[i - 1] ?? "paragraph";
+    const kind = importLineKind(kinds[i]);
+    const previous = importLineKind(kinds[i - 1]);
     const sameBlock = i > 0 && lines[i - 1].block === line.block;
     const together =
       sameBlock && ((kind === "paragraph" && previous === "paragraph") || ((kind === "bullet" || kind === "numbered") && previous === kind));
@@ -71,7 +77,7 @@ export async function formatPlainText(source: string, ask: (lines: string[]) => 
     });
     const result = await Promise.race([ask(lines.map((line) => line.text)), timeout]);
     if (!result?.available || result.kinds.length !== lines.length) return source;
-    if (result.kinds.every((kind) => kind === "paragraph")) return source;
+    if (result.kinds.every((kind) => importLineKind(kind) === "paragraph")) return source;
     return linesToMarkdown(lines, result.kinds);
   } catch {
     return source;

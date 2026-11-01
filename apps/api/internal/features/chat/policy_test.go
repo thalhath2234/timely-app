@@ -217,4 +217,24 @@ func TestProposalEstimatesNewWorkInOneBatch(t *testing.T) {
 	if len(batches) != 0 {
 		t.Fatal("a sensitive chat sent titles to estimate")
 	}
+
+	// A name that refers to an earlier step's literal name joins the batch,
+	// so the rehearsal makes no estimate of its own for it; other
+	// references are left to the step.
+	batches = nil
+	refs := []Step{
+		{Tool: "create_task", Arguments: raw(map[string]any{"name": "Write the grant report", "duration": 60})},
+		{Tool: "create_task", Arguments: raw(map[string]any{"name": "$0.task.name"})},
+		{Tool: "create_task", Arguments: raw(map[string]any{"name": "$0.task.id"})},
+	}
+	s.estimateWork(context.Background(), "user", refs)
+	if len(batches) != 1 || strings.Join(batches[0], "|") != "Write the grant report" {
+		t.Fatalf("estimated %v", batches)
+	}
+	if d := duration(refs[1]); d != 60.0 {
+		t.Errorf("referenced name got duration %v", d)
+	}
+	if d := duration(refs[2]); d != nil {
+		t.Errorf("an id reference is not a name: %v", d)
+	}
 }

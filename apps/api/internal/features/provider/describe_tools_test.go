@@ -302,6 +302,35 @@ func TestDescribeAnswersWithTheLastCleanDraft(t *testing.T) {
 	}
 }
 
+// W12: a provider error after a draft drew clean answers with that draft.
+func TestDescribeKeepsTheCleanDraftOnAnError(t *testing.T) {
+	loaded := 0
+	model := &scriptedDescribe{replies: []chat.WireMessage{toolCall("c1", "check_block", map[string]any{"program": rightProject})}}
+	program, err := describe(context.Background(), model, []chat.WireMessage{{Role: "user", Content: "Words: late"}}, testDescribeTools(&loaded))
+	if err != nil || program != rightProject {
+		t.Fatalf("program %q, err %v: the clean draft must survive the next turn's error", program, err)
+	}
+	// A draft with problems is not shown for an error: the error is.
+	model = &scriptedDescribe{replies: []chat.WireMessage{toolCall("c1", "check_block", map[string]any{"program": wrongProject})}}
+	if _, err := describe(context.Background(), model, []chat.WireMessage{{Role: "user", Content: "Words: late"}}, testDescribeTools(&loaded)); err == nil {
+		t.Fatal("a draft with problems must not stand in for an error")
+	}
+}
+
+// W21: "nothing to build from" comes back as that, not as a static card
+// that promises to fill in later.
+func TestDescribeSaysWhenThereIsNoData(t *testing.T) {
+	model := &scriptedDescribe{replies: []chat.WireMessage{{Role: "assistant", Content: "NO_DATA: There is no CRM sheet yet."}}}
+	_, err := describe(context.Background(), model, []chat.WireMessage{{Role: "user", Content: "Words: pipeline by stage from the CRM sheet"}}, nil)
+	var nothing noDataError
+	if !errors.As(err, &nothing) || nothing.reason != "There is no CRM sheet yet." {
+		t.Fatalf("err %v", err)
+	}
+	if !strings.Contains(boardPrompt, "NO_DATA:") {
+		t.Error("the prompt must say how to answer when there is nothing to build from")
+	}
+}
+
 func TestCheckBlockFlagsIdsThePersonDoesNotHave(t *testing.T) {
 	loaded := 0
 	tools := testDescribeTools(&loaded)

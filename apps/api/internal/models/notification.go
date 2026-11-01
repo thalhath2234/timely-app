@@ -95,11 +95,13 @@ type Job struct {
 	MaxAttempts int        `gorm:"not null;default:8" json:"maxAttempts"`
 	LastError   *string    `json:"lastError,omitempty"`
 	LockedAt    *time.Time `json:"lockedAt,omitempty"`
-	LockedBy    *string    `json:"lockedBy,omitempty"`
-	StartedAt   *time.Time `json:"startedAt,omitempty"`
-	FinishedAt  *time.Time `json:"finishedAt,omitempty"`
-	CreatedAt   time.Time  `gorm:"type:timestamptz;not null" json:"createdAt"`
-	UpdatedAt   time.Time  `gorm:"type:timestamptz;not null" json:"updatedAt"`
+	// LockedBy names the worker (host and process) holding the job; it stays
+	// out of responses.
+	LockedBy   *string    `json:"-"`
+	StartedAt  *time.Time `json:"startedAt,omitempty"`
+	FinishedAt *time.Time `json:"finishedAt,omitempty"`
+	CreatedAt  time.Time  `gorm:"type:timestamptz;not null" json:"createdAt"`
+	UpdatedAt  time.Time  `gorm:"type:timestamptz;not null" json:"updatedAt"`
 }
 
 func (Job) TableName() string { return "jobs" }

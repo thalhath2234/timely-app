@@ -5,7 +5,16 @@ import Link from "next/link";
 import { motion } from "motion/react";
 import { ChevronRight, Sparkles } from "lucide-react";
 import type { ComponentRenderProps, ComponentRenderer } from "@openuidev/react-lang";
-import { chartNumber, genuiColorHex, genuiNodes, type GenuiName, type GenuiProps } from "@timely/contract/genui";
+import {
+  chartNumber,
+  GENUI_MAX_ROWS,
+  genuiColorHex,
+  genuiId,
+  genuiNodes,
+  genuiOpenable,
+  type GenuiName,
+  type GenuiProps,
+} from "@timely/contract/genui";
 import { motion as MOTION } from "@timely/contract/designTokens";
 import { checklistItems, findChecklistItem } from "@timely/contract/docChecklist";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
@@ -37,6 +46,8 @@ export const Place = createContext<"top" | "card" | "column">("top");
 export const Surface = createContext<"chat" | "board">("chat");
 /** The card has timed rows, so every row keeps the time column for alignment. */
 const Timed = createContext(false);
+/** The title of the card a row is in, such as its day, for the text a row sends. */
+const CardTitle = createContext("");
 
 const TIMED = new Set(["TaskRow", "EventRow", "FreeRow"]);
 
@@ -136,6 +147,12 @@ function Row({
 function Card({ props, renderNode }: KitProps<"Card">) {
   const place = useContext(Place);
   const surface = useContext(Surface);
+  // A chat card draws the twelve rows the prompt allows; each task row loads
+  // its task, so a runaway list would fire a request per row. The card says
+  // how many it left out, so a clipped list doesn't read as the whole list.
+  const all = genuiNodes(props.rows);
+  const rows = surface === "chat" ? all.slice(0, GENUI_MAX_ROWS) : props.rows;
+  const hidden = surface === "chat" ? all.length - GENUI_MAX_ROWS : 0;
   return (
     <section className={surface === "chat" ? CARD : "@container/card"} aria-label={props.title}>
       <header className="flex min-h-10 items-center gap-3 px-4 pb-1.5 pt-2.5">
@@ -153,8 +170,11 @@ function Card({ props, renderNode }: KitProps<"Card">) {
           <span className="ml-auto min-w-0 shrink-[4] truncate text-[13px] font-medium text-muted-foreground">{props.meta}</span>
         ) : null}
       </header>
-      <RowGroup rows={props.rows} renderNode={renderNode} />
-      {props.open ? <footer className="border-t border-border px-4 py-2.5">{renderNode(props.open)}</footer> : null}
+      <CardTitle.Provider value={props.title ?? ""}>
+        <RowGroup rows={rows} renderNode={renderNode} />
+      </CardTitle.Provider>
+      {hidden > 0 ? <p className="border-t border-border px-4 py-2 text-xs text-muted-foreground">{hidden} more not shown</p> : null}
+      {genuiOpenable(props.open) ? <footer className="border-t border-border px-4 py-2.5">{renderNode(props.open)}</footer> : null}
     </section>
   );
 }
@@ -227,7 +247,8 @@ function Stat({ props }: KitProps<"Stat">) {
 function useLiveTask(id: string) {
   const list = useTasks();
   const listed = list.data?.find((task) => task.id === id);
-  const single = useTask(list.isSuccess && !listed ? id : undefined);
+  // Asked once: a row written with an id no task has gets a 404 each try.
+  const single = useTask(list.isSuccess && !listed ? id : undefined, { retry: false });
   return { task: listed ?? single.data, missing: !listed && single.isError };
 }
 
@@ -290,10 +311,16 @@ function useLiveDoc(id: string) {
 function CheckRow({ props }: KitProps<"CheckRow">) {
   const doc = useLiveDoc(props.docId);
   const tick = useSetChecklistItem();
-  const items = useMemo(() => checklistItems(doc?.content), [doc?.content]);
+  // An archived doc offers no ticks, as @Checklist leaves it out (the API
+  // refuses them too).
+  const archived = Boolean(doc?.archivedAt);
+  const items = useMemo(() => (archived ? [] : checklistItems(doc?.content)), [archived, doc?.content]);
   const item = findChecklistItem(items, props.text, props.item);
   const text = item?.text ?? props.text;
   const done = Boolean(item?.done);
+  // Say why a loaded doc's item can't be ticked here: it was archived, or its
+  // words now match no item or more than one.
+  const blocked = archived ? "Doc archived" : doc && !item ? "Open the doc to tick" : undefined;
   const toggle = () => {
     if (!item) return;
     tick.mutate(
@@ -306,8 +333,16 @@ function CheckRow({ props }: KitProps<"CheckRow">) {
   };
   return (
     <Row
-      meta={props.note}
-      lead={<TaskCheck checked={done} onToggle={toggle} disabled={!item} label={done ? `Untick ${text}` : `Tick ${text}`} />}
+      meta={blocked ?? props.note}
+      lead={
+        <TaskCheck
+          checked={done}
+          onToggle={toggle}
+          disabled={!item}
+          label={done ? `Untick ${text}` : `Tick ${text}`}
+          className="disabled:opacity-50 disabled:hover:border-muted-foreground/50"
+        />
+      }
     >
       <Link
         href={fileHref(props.docId)}
@@ -342,6 +377,9 @@ function EventRow({ props }: KitProps<"EventRow">) {
 
 function FreeRow({ props }: KitProps<"FreeRow">) {
   const ask = useContext(Ask);
+  // The card's title names the day ("Fri 6 Nov"), which an older reply's gap
+  // needs: the next message may be about another day.
+  const day = useContext(CardTitle);
   return (
     <Row
       time={props.from}
@@ -351,7 +389,7 @@ function FreeRow({ props }: KitProps<"FreeRow">) {
         ask ? (
           <button
             type="button"
-            onClick={() => ask(`Plan something for ${props.from}–${props.to}`)}
+            onClick={() => ask(`Plan something for ${props.from}–${props.to}${day ? ` (${day})` : ""}`)}
             className="inline-flex items-center gap-1 text-primary hover:underline hover:underline-offset-4"
           >
             <Sparkles className="size-3.5" />
@@ -517,7 +555,9 @@ function Open({ props }: KitProps<"Open">) {
       <ChevronRight className="size-3.5" />
     </>
   );
-  const { target, id } = props;
+  const { target } = props;
+  // Ids come from the model: only a plain id, never a path such as ../settings.
+  const id = genuiId(props.id);
   if (target in SCREENS)
     return (
       <Link href={SCREENS[target as keyof typeof SCREENS]} className={LINK}>

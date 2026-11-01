@@ -109,6 +109,17 @@ func (c *catalogue) fetchOpenRouter(ctx context.Context, url string) ([]openRout
 	return body.Data, nil
 }
 
+// visionOf says whether model takes images, by the model list; known is
+// false for a model the list does not have.
+func visionOf(list []ModelOption, model string) (reads, known bool) {
+	for _, m := range list {
+		if m.ID == model {
+			return m.Vision, true
+		}
+	}
+	return false, false
+}
+
 // OpenRouterChatModels lists tool-calling models; the agent cannot run on a
 // model without function calling. Vision marks models that accept images.
 func (c *catalogue) OpenRouterChatModels(ctx context.Context, defaultModel string) ([]ModelOption, error) {

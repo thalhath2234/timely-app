@@ -72,6 +72,7 @@ func TestIntegrationBackupKeepsPhoneViews(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	seedAccountBasics(t, db, uid, false)
 	service := NewService(db, nil)
 	backup, err := service.Export(uid)
 	if err != nil {

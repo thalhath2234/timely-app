@@ -28,7 +28,8 @@ func replyCards(on bool, messages []Message) string {
 		return "\n\n" + genuiPrompt
 	}
 	for _, m := range messages {
-		if m.Role == "assistant" && strings.Contains(m.Content, "```"+genuiFence) {
+		// The apps read a fence whatever its case (splitReply), so this does too.
+		if m.Role == "assistant" && strings.Contains(strings.ToLower(m.Content), "```"+genuiFence) {
 			return "\nThis app can't draw reply cards: answer in plain text, without ```" + genuiFence + " blocks, even where earlier replies had them."
 		}
 	}

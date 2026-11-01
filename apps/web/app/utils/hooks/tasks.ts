@@ -26,6 +26,7 @@ import {
   type TaskOccurrencePayload,
 } from "@/app/utils/api/tasks";
 import { Label, Task, TaskActivity } from "@/app/_types/types";
+import { inboxSuggestionWords } from "@timely/contract/inbox";
 
 export const tasksKey = ["tasks"] as const;
 export const inboxKey = ["tasks", "inbox"] as const;
@@ -44,12 +45,28 @@ export function useTasks() {
   });
 }
 
-export function useTask(id: string | undefined) {
+export function useTask(id: string | undefined, { retry }: { retry?: boolean } = {}) {
   return useQuery({
     queryKey: taskKey(id ?? ""),
     queryFn: () => getTask(id!),
     enabled: Boolean(id),
+    // A task that isn't there (deleted, or an id a reply card made up) stays
+    // missing: asking again three times only adds requests.
+    retry: retry === false ? false : (count, error) => (error as { status?: number }).status !== 404 && count < 3,
   });
+}
+
+/** A capture's name and notes as the app last saw them from the server (see
+ * inboxSuggestionWords). Read from the cache only: nothing is fetched for it. */
+export function useTaskWords(id: string | undefined) {
+  const listed = useQuery({
+    queryKey: inboxKey,
+    queryFn: () => getTasks({ inbox: true }),
+    enabled: false,
+    select: (items: Task[]) => items.find((item) => item.id === id),
+  }).data;
+  const own = useQuery({ queryKey: taskKey(id ?? ""), queryFn: () => getTask(id!), enabled: false }).data;
+  return inboxSuggestionWords(listed, own);
 }
 
 export function useCreateTask() {

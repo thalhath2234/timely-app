@@ -124,6 +124,9 @@ type sendInput struct {
 	// the account default.
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
+	// Receipt is the receipt review form as the person left it, sent with a
+	// message typed during the review so unsaved edits are revised, not lost.
+	Receipt *ReceiptDraft `json:"receipt"`
 }
 
 // ProviderIDs is implemented by Completers that can tell a provider id they
@@ -187,9 +190,14 @@ func validateInput(in sendInput) error {
 		return err
 	}
 	for _, c := range in.Context {
-		if len(c.Value) > 12000 || len(c.Label) > 200 || len(c.Kind) > 30 {
+		// Counted in characters, as the apps clip them: a chip of Japanese
+		// text is three bytes a character.
+		if utf8.RuneCountInString(c.Value) > 12000 || utf8.RuneCountInString(c.Label) > 200 || len(c.Kind) > 30 {
 			return echo.NewHTTPError(400, "Context attachment is too large")
 		}
+	}
+	if in.Receipt != nil && len(in.Receipt.Items) > 300 {
+		return echo.NewHTTPError(400, "A receipt can contain at most 300 items")
 	}
 	return nil
 }
@@ -355,6 +363,12 @@ func (s *Service) send(c *echo.Context) error {
 			row.Phase = "extract"
 		} else if len(in.ImageIDs) == 0 && row.ImageReview != nil && row.ImageReview.Receipt != nil && row.ImageReview.Status == "review" {
 			row.Phase = "receipt_edit"
+			if in.Receipt != nil {
+				// The person's unsaved form edits are the draft to revise.
+				draft := *in.Receipt
+				normalizeReceipt(&draft)
+				row.ImageReview.Receipt = &draft
+			}
 		}
 		row.Error = ""
 		row.Unread = false
@@ -400,7 +414,10 @@ func (s *Service) approve(c *echo.Context) error {
 		if len(row.Plan) > 0 && !hasPending(row.Plan) {
 			return echo.NewHTTPError(409, "Every change here is applied or discarded")
 		}
-		if receipt {
+		if receipt && row.ImageReview.Status != "confirmed" {
+			// Said once, when the receipt is confirmed: approving again after
+			// a failed apply, or a later proposal in the same chat, adds no
+			// second confirmation.
 			if err := eraseImages(tx, row.UserID, row.ImageReview.ImageIDs); err != nil {
 				return err
 			}
@@ -557,13 +574,35 @@ func (s *Service) remove(c *echo.Context) error {
 	return c.NoContent(204)
 }
 func (s *Service) retry(c *echo.Context) error {
+	// The app that retries says where it is, as a new message does: a run
+	// retried on the computer after the phone left off uses the computer's
+	// zone and views.
+	var in struct {
+		Timezone string `json:"timezone"`
+		Client   string `json:"client"`
+		UI       string `json:"ui"`
+	}
+	if err := c.Bind(&in); err != nil {
+		return echo.NewHTTPError(400, "Invalid request")
+	}
 	return s.change(c, func(tx *gorm.DB, row *Conversation) error {
 		if row.Status != "failed" && row.Status != "stopped" {
 			return echo.NewHTTPError(409, "This run cannot be retried")
 		}
+		if in.Client != "" {
+			if zone := validTimezone(in.Timezone); zone != "" {
+				row.Timezone = zone
+			}
+			row.Client = agent.NormalizeClient(in.Client)
+			row.RichUI = in.UI == genuiCapability
+		}
 		row.Error = ""
 		row.Unread = false
-		if row.Phase == "apply" && len(row.Plan) > 0 {
+		if row.Phase == "apply" && len(row.Plan) > 0 && !hasPending(row.Plan) {
+			// Stopped after the last change was saved: finish the apply, which
+			// continues with the next batch or says the request is done.
+			row.Status = "queued"
+		} else if row.Phase == "apply" && len(row.Plan) > 0 {
 			row.Status = "approval"
 			for i := range row.Plan {
 				if row.Plan[i].Status != "done" && row.Plan[i].Status != "discarded" {

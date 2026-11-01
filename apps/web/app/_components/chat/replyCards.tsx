@@ -6,7 +6,9 @@ import { Fragment, useContext, useMemo, useState, createContext } from "react";
 import { CalendarDays } from "lucide-react";
 import { createLibrary, Renderer, type ComponentRenderer } from "@openuidev/react-lang";
 import {
+  choiceOptions,
   GENUI_ROOT,
+  genuiNodes,
   replyBlocks,
   replyDraws,
   splitReply,
@@ -32,13 +34,20 @@ import ChatText from "./chatText";
 const Newest = createContext(false);
 
 function Reply({ props, renderNode }: KitProps<"Reply">) {
+  const blocks = replyBlocks(props.blocks);
+  // Cards that all came out empty say so instead of leaving nothing.
+  if (!blocks.length && genuiNodes(props.blocks).length) return <CardsFailed />;
   return (
     <div className="mt-3 flex flex-col gap-3">
-      {replyBlocks(props.blocks).map((block, index) => (
+      {blocks.map((block, index) => (
         <Fragment key={index}>{renderNode(block)}</Fragment>
       ))}
     </div>
   );
+}
+
+function CardsFailed() {
+  return <p className="mt-2 text-xs text-muted-foreground">These cards could not be shown.</p>;
 }
 
 function Choices({ props }: KitProps<"Choices">) {
@@ -52,7 +61,7 @@ function Choices({ props }: KitProps<"Choices">) {
     setPicked(text);
     answer(text);
   };
-  const options = (Array.isArray(props.options) ? props.options : []).slice(0, 4);
+  const options = choiceOptions(props.options);
   return (
     <div>
       <div role="group" aria-label="Suggested answers" className="flex flex-wrap items-center gap-2">
@@ -62,9 +71,10 @@ function Choices({ props }: KitProps<"Choices">) {
             type="button"
             disabled={!answer}
             onClick={() => send(option)}
+            title={option}
             className={propertyChipClass({ active: picked === option })}
           >
-            {option}
+            <span className="min-w-0 truncate">{option}</span>
           </button>
         ))}
         {props.pickTime ? (
@@ -96,7 +106,7 @@ const library = createLibrary({ components: withRenderers(renderers), root: GENU
 
 function Cards({ code }: { code: string }) {
   const [empty, setEmpty] = useState(false);
-  if (empty) return <p className="mt-2 text-xs text-muted-foreground">These cards could not be shown.</p>;
+  if (empty) return <CardsFailed />;
   return (
     <Renderer
       response={code}

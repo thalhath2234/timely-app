@@ -34,9 +34,11 @@ var (
 // An empty key means the account has none of its own.
 type Credentials func(userID string) (key, model string)
 
-// IndexQueue defers embedding work to the job worker.
+// IndexQueue defers embedding work to the job worker. Jobs name the item
+// only; IndexEntity reads its text when the job runs.
 type IndexQueue interface {
-	EnqueueIndex(userID, kind, entityID, title, body string) error
+	EnqueueIndex(userID, kind, entityID string) error
+	CancelIndex(userID, kind, entityID string) error
 }
 
 // Indexer stores OpenRouter embeddings as real[] rows and ranks them in
@@ -46,7 +48,9 @@ type Indexer interface {
 	EnabledFor(userID string) bool
 	SetQueue(IndexQueue)
 	SetCredentials(Credentials)
-	IndexDocument(ctx context.Context, doc Document) error
+	// IndexEntity embeds an item's current text, read now; an item that no
+	// longer exists loses its rows instead, with no provider call.
+	IndexEntity(ctx context.Context, userID, kind, entityID string) error
 	IndexTask(*models.Task)
 	IndexProject(*models.Project)
 	IndexDoc(*models.Document)
@@ -58,9 +62,11 @@ type Indexer interface {
 	// Related ranks the account's other items by closeness to an item that
 	// is already indexed; the source item's own chunks come first in Source.
 	Related(ctx context.Context, userID, kind, entityID string, limit int, kinds []string) (Source, []Hit, error)
-	Count(ctx context.Context, userID string) (int64, error)
+	// Missing counts the account's items with a title that are not indexed
+	// by the current embedding model and have no index job on the way.
+	Missing(ctx context.Context, userID string) (int64, error)
 	ReindexUser(ctx context.Context, userID string) (int, error)
-	Reindex(ctx context.Context, userID string, progress func(done, total int)) (int, error)
+	Reindex(ctx context.Context, userID string, progress func(done, total, skipped int)) (int, error)
 }
 
 type Document struct {
@@ -144,11 +150,33 @@ func (i *indexer) SetQueue(queue IndexQueue) {
 	i.queue = queue
 }
 
-func (i *indexer) IndexDocument(ctx context.Context, doc Document) error {
-	if !i.Enabled() {
+func (i *indexer) IndexEntity(ctx context.Context, userID, kind, entityID string) error {
+	if !i.EnabledFor(userID) {
+		return ErrDisabled
+	}
+	return i.indexCurrent(ctx, userID, kind, entityID)
+}
+
+// indexCurrent embeds an item's text as it is now. An item that is gone loses
+// its rows with no provider call. An item deleted while its text was being
+// embedded loses the rows written after its delete removed the old ones, so
+// a deleted item's text is not kept.
+func (i *indexer) indexCurrent(ctx context.Context, userID, kind, entityID string) error {
+	doc, ok, err := i.load(ctx, userID, kind, entityID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		i.deleteRows(userID, kind, entityID)
 		return nil
 	}
-	return i.upsert(ctx, doc)
+	if err := i.upsert(ctx, doc); err != nil {
+		return err
+	}
+	if still, err := i.exists(ctx, userID, kind, entityID); err == nil && !still {
+		i.deleteRows(userID, kind, entityID)
+	}
+	return nil
 }
 
 func (i *indexer) IndexTask(task *models.Task) {
@@ -220,12 +248,15 @@ func (i *indexer) IndexEvent(event *models.Event) {
 	})
 }
 
+// upsertAsync queues the item for indexing. Only its kind and id travel: the
+// job reads the text when it runs. Accounts without embeddings queue nothing;
+// adding a key reindexes everything.
 func (i *indexer) upsertAsync(doc Document) {
-	if !i.Enabled() {
+	if !i.EnabledFor(doc.UserID) {
 		return
 	}
 	if i.queue != nil {
-		if err := i.queue.EnqueueIndex(doc.UserID, doc.Kind, doc.EntityID, doc.Title, doc.Body); err != nil {
+		if err := i.queue.EnqueueIndex(doc.UserID, doc.Kind, doc.EntityID); err != nil {
 			log.Printf("embed enqueue %s/%s: %v", doc.Kind, doc.EntityID, err)
 		}
 		return
@@ -234,7 +265,7 @@ func (i *indexer) upsertAsync(doc Document) {
 		var lastErr error
 		for attempt := 0; attempt < 4; attempt++ {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			lastErr = i.upsert(ctx, doc)
+			lastErr = i.IndexEntity(ctx, doc.UserID, doc.Kind, doc.EntityID)
 			cancel()
 			if lastErr == nil {
 				return
@@ -245,10 +276,20 @@ func (i *indexer) upsertAsync(doc Document) {
 	}()
 }
 
+// Delete removes a deleted item's rows and cancels its queued index jobs.
 func (i *indexer) Delete(userID, kind, entityID string) {
 	if userID == "" || kind == "" || entityID == "" {
 		return
 	}
+	i.deleteRows(userID, kind, entityID)
+	if i.queue != nil {
+		if err := i.queue.CancelIndex(userID, kind, entityID); err != nil {
+			log.Printf("embed cancel %s/%s: %v", kind, entityID, err)
+		}
+	}
+}
+
+func (i *indexer) deleteRows(userID, kind, entityID string) {
 	if err := i.db.Where("user_id = ? AND entity_kind = ? AND entity_id = ?", userID, kind, entityID).
 		Delete(&models.Embedding{}).Error; err != nil {
 		log.Printf("embed delete %s/%s: %v", kind, entityID, err)

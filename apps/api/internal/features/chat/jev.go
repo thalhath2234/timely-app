@@ -204,7 +204,8 @@ func (s *Service) triage(ctx context.Context, c *Conversation) (triage, bool) {
 		return triage{}, false
 	}
 	var t triage
-	if area, ok := a.Choice("area", decide.Route); ok && area != "mixed" {
+	// An area that was not offered would narrow the tools to the essentials.
+	if area, ok := a.Choice("area", decide.Route); ok && areaTools[area] != nil {
 		t.area = area
 	}
 	if yes, ok := a.Yes("change", decide.Route); ok {

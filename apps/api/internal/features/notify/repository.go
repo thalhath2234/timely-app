@@ -243,6 +243,24 @@ func (r *repository) RecentlyAlerted(userID string, since time.Time) (map[string
 	return out, nil
 }
 
+// OpenTasks is which of ids are the person's tasks that are not done.
+func (r *repository) OpenTasks(userID string, ids []string) (map[string]bool, error) {
+	open := map[string]bool{}
+	if len(ids) == 0 {
+		return open, nil
+	}
+	var found []string
+	if err := r.db.Model(&models.Task{}).
+		Where("user_id = ? AND id IN ? AND completed_at IS NULL", userID, ids).
+		Pluck("id", &found).Error; err != nil {
+		return nil, err
+	}
+	for _, id := range found {
+		open[id] = true
+	}
+	return open, nil
+}
+
 // CountByDedupePrefix counts a person's notifications whose dedupe key
 // starts with prefix.
 func (r *repository) CountByDedupePrefix(userID, prefix string) (int64, error) {
@@ -257,9 +275,12 @@ func (r *repository) SetBody(id, body string) error {
 }
 
 // SetSuggestion adds the suggested next step to a notification's data and
-// replaces its text with the one naming the step.
+// replaces its text with the one naming the step. A suggestion that comes
+// back after the person read, snoozed, dismissed or acted on the
+// notification is dropped: it would contradict what they just did.
 func (r *repository) SetSuggestion(id, step, body string) error {
-	return r.db.Exec(`UPDATE notifications SET body = ?, data = data || jsonb_build_object('suggest', ?::text) WHERE id = ?`, body, step, id).Error
+	return r.db.Exec(`UPDATE notifications SET body = ?, data = data || jsonb_build_object('suggest', ?::text)
+		WHERE id = ? AND read_at IS NULL AND dismissed_at IS NULL AND data->>'acted' IS NULL`, body, step, id).Error
 }
 
 func mustJSON(payload models.JobPayload) string {
