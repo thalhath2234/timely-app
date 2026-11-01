@@ -2,9 +2,12 @@ package provider
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"timely-api/internal/models"
 )
 
@@ -73,5 +76,38 @@ func TestResolveDraftMapsNamesAndDropsUnknowns(t *testing.T) {
 	}
 	if len(dropped) != 3 {
 		t.Errorf("dropped = %v, want the project, the bad field and the stage", dropped)
+	}
+}
+
+// A view whose every filter names something that does not exist is not
+// made: with no rules left it would show every task (W7).
+func TestViewQueryRefusesAViewWithNothingLeft(t *testing.T) {
+	raw := func(s string) json.RawMessage { return json.RawMessage(s) }
+	resolve := func(rules ...models.ViewRule) error {
+		draft := viewQueryDraft{Name: "Atlantis tasks", Rules: rules}
+		asked := len(draft.Rules)
+		out, dropped, err := testVocab().resolveDraft(draft, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return nothingLeft(asked, out, dropped)
+	}
+	err := resolve(models.ViewRule{Field: "project", Op: "anyOf", Value: raw(`["Atlantis"]`)})
+	var he *echo.HTTPError
+	if !errors.As(err, &he) || he.Code != 422 || !strings.Contains(fmt.Sprint(he.Message), "no project named Atlantis") {
+		t.Fatalf("want 422 naming the project, got %v", err)
+	}
+	// A group whose rules all fail goes the same way.
+	group := models.ViewRule{Match: "any", Rules: []models.ViewRule{{Field: "stage", Op: "anyOf", Value: raw(`["Ship"]`)}}}
+	if err := resolve(group); err == nil {
+		t.Error("an emptied group must not leave a view of everything")
+	}
+	// Some rules left: the view is made, and what was left out is reported.
+	if err := resolve(models.ViewRule{Field: "label", Op: "anyOf", Value: raw(`["bug"]`)}, models.ViewRule{Field: "project", Op: "anyOf", Value: raw(`["Atlantis"]`)}); err != nil {
+		t.Errorf("a view with a rule left must be made: %v", err)
+	}
+	// No rules asked for (only a sort): nothing was dropped, so it is fine.
+	if err := resolve(); err != nil {
+		t.Errorf("a view with no rules asked for: %v", err)
 	}
 }

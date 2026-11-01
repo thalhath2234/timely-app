@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { ListFilter, Plus, Sparkles, X } from "lucide-react";
+import { CircleAlert, ListFilter, Plus, Sparkles, X } from "lucide-react";
 import { newCondition, replaceRule } from "@timely/contract/ruleBuilder";
 import { isRuleGroup, normalizeRules } from "@timely/contract/taskQuery";
 import {
   aiDraftPatch,
   describeView,
+  droppedNote,
   readingPatch,
   readViewQuery,
   type ViewChip,
@@ -120,6 +121,7 @@ export function DescribeViewInput({
   aiReady,
   onPatch,
   className,
+  boxClassName = "min-w-40 flex-1",
 }: {
   view: TaskViewConfig | undefined;
   vocab: ViewVocabulary;
@@ -127,9 +129,11 @@ export function DescribeViewInput({
   aiReady: boolean;
   onPatch: (patch: Partial<TaskViewConfig>) => void;
   className?: string;
+  /** Sizes the text box alone, so a note beside it never squeezes it shut. */
+  boxClassName?: string;
 }) {
   const [words, setWords] = useState({ viewId: "", text: "" });
-  const [ai, setAi] = useState<{ text: string; busy?: boolean; error?: string; done?: boolean } | null>(null);
+  const [ai, setAi] = useState<{ text: string; busy?: boolean; error?: string; done?: boolean; dropped?: string[] } | null>(null);
   const [leftover, setLeftover] = useState<{ text: string; words: string[] } | null>(null);
   if (!view) return null;
   const text = words.viewId === view.id ? words.text : "";
@@ -153,7 +157,7 @@ export function DescribeViewInput({
     readViewWithAi({ query, today, client: "web" })
       .then((result) => {
         onPatch({ ...aiDraftPatch(result.view, vocab), prompt: query.slice(0, 300) });
-        setAi({ text: query, done: true });
+        setAi({ text: query, done: true, dropped: result.dropped });
         setLeftover(null);
       })
       .catch((error: Error) => setAi({ text: query, error: error.message }));
@@ -163,7 +167,10 @@ export function DescribeViewInput({
   return (
     <form onSubmit={describe} className={cn("flex min-w-0 items-center gap-1.5", className)}>
       <label
-        className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md border border-input bg-card px-2 shadow-xs transition-[border-color,box-shadow,width] focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20"
+        className={cn(
+          "flex h-7 items-center gap-2 rounded-md border border-input bg-card px-2 shadow-xs transition-[border-color,box-shadow,width] focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20",
+          boxClassName,
+        )}
         title={aiState?.error ?? undefined}
       >
         <ListFilter className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -181,8 +188,34 @@ export function DescribeViewInput({
           {aiState?.busy ? "Reading…" : "Read with AI"}
         </Button>
       ) : null}
-      {aiState?.error ? <span className="text-xs text-destructive">{aiState.error}</span> : null}
+      {aiState?.error ? <ViewNote note={aiState.error} tone="error" className="max-w-72" /> : null}
+      <DroppedNote dropped={aiState?.done ? aiState.dropped : undefined} className="max-w-72" />
     </form>
+  );
+}
+
+/** The parts of a description the AI could not use, so a view that shows
+ * more than was asked says why. */
+export function DroppedNote({ dropped, className }: { dropped?: readonly string[]; className?: string }) {
+  const note = droppedNote(dropped);
+  return note ? <ViewNote note={note} tone="warning" className={className} /> : null;
+}
+
+/** A short note beside the describe box: two lines at most, the rest on hover. */
+function ViewNote({ note, tone, className }: { note: string; tone: "warning" | "error"; className?: string }) {
+  return (
+    <span
+      role={tone === "error" ? "alert" : "status"}
+      title={note}
+      className={cn(
+        "flex min-w-0 shrink items-center gap-1 text-xs leading-4",
+        tone === "error" ? "text-destructive" : "text-muted-foreground",
+        className,
+      )}
+    >
+      <CircleAlert className={cn("size-3.5 shrink-0", tone === "warning" && "text-warning")} aria-hidden="true" />
+      <span className="line-clamp-2">{note}</span>
+    </span>
   );
 }
 

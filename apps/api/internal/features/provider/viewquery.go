@@ -397,6 +397,16 @@ func (v viewVocab) resolveDraft(draft viewQueryDraft, phone bool) (viewQueryDraf
 	return draft, dropped, nil
 }
 
+// nothingLeft refuses a draft whose every filter was dropped: with no rules
+// left the view would show every task, the opposite of what was asked. The
+// person is told what could not be used instead (422).
+func nothingLeft(asked int, draft viewQueryDraft, dropped []string) error {
+	if asked == 0 || len(draft.Rules) > 0 || len(dropped) == 0 {
+		return nil
+	}
+	return echo.NewHTTPError(422, "Couldn't make this view: "+strings.Join(dropped, "; ")+". Check the names and try again.")
+}
+
 func (s *Service) viewQuery(c *echo.Context) error {
 	var req viewQueryRequest
 	if err := c.Bind(&req); err != nil {
@@ -439,9 +449,13 @@ func (s *Service) viewQuery(c *echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(502, "The AI's answer was not a view. Try again")
 	}
+	asked := len(draft.Rules)
 	draft, dropped, err := vocab.resolveDraft(draft, req.Client == "phone")
 	if err != nil {
 		return echo.NewHTTPError(502, "The AI's view was not valid: "+err.Error())
+	}
+	if err := nothingLeft(asked, draft, dropped); err != nil {
+		return err
 	}
 	_, model, _ := s.resolveModel(ctx, user(c), provider)
 	return c.JSON(200, viewQueryResponse{View: draft, Dropped: dropped, Provider: provider, Model: model})

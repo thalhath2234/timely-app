@@ -440,7 +440,7 @@ function Tasks() {
                 today={todayInZone(typedConfig?.workingHours?.timezone)}
                 aiReady={aiReady}
                 onPatch={patchActiveView}
-                className="w-56 focus-within:w-72"
+                boxClassName="w-56 flex-none focus-within:w-72"
               />
             }
             filters={

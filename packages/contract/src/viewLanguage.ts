@@ -1761,6 +1761,14 @@ export function readingPatch(reading: ViewReading): Partial<TaskViewConfig> {
   return viewPatchFrom(reading.view, reading.parts);
 }
 
+/** What the AI's reading could not use (the API's `dropped`: a name that
+ * does not exist, a rule it could not check), said next to the view so it
+ * is clear the view shows more than was asked. Empty when nothing was left out. */
+export function droppedNote(dropped: readonly string[] | null | undefined): string {
+  const parts = (dropped ?? []).map((part) => part.trim()).filter(Boolean);
+  return parts.length ? `Left out: ${parts.join("; ")}` : "";
+}
+
 /** `viewPatchFrom` for an AI answer, whose parts are the ones it filled in. */
 export function aiDraftPatch(draft: AiViewDraft, vocab: ViewVocabulary = {}): Partial<TaskViewConfig> {
   const view = viewFromAiDraft(draft, "draft", vocab);
