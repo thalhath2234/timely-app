@@ -19,6 +19,23 @@ import (
 // the chat agent's. It is Final: the same request would be cut again.
 var ErrOutputTooLong = Final("The proposal was too large; try a smaller request")
 
+// OutputTooLong is ErrOutputTooLong in other words, such as for a cut-off
+// text answer rather than a proposal.
+func OutputTooLong(text string) error { return &cutOff{Failure{Text: text, Action: ActionNone}} }
+
+type cutOff struct{ Failure }
+
+func (c *cutOff) Is(target error) bool { return target == ErrOutputTooLong }
+
+// As lets failureAction read the action of a cut-off answer.
+func (c *cutOff) As(target any) bool {
+	if f, ok := target.(**Failure); ok {
+		*f = &c.Failure
+		return true
+	}
+	return false
+}
+
 type ToolCall struct {
 	ID       string `json:"id"`
 	Type     string `json:"type"`
@@ -31,8 +48,13 @@ type ToolCall struct {
 	ExtraContent json.RawMessage `json:"extra_content,omitempty"`
 }
 type WireMessage struct {
-	ImageURLs        []string          `json:"-"`
-	Sensitive        bool              `json:"-"`
+	ImageURLs []string `json:"-"`
+	Sensitive bool     `json:"-"`
+	// Cache marks the end of a prompt prefix worth caching: a provider with
+	// prompt caching (Anthropic) caches everything up to this message, so
+	// the next call that starts the same way reads it back instead of paying
+	// for it again. Providers without it ignore the mark.
+	Cache            bool              `json:"-"`
 	Role             string            `json:"role"`
 	Content          string            `json:"content"`
 	ToolCalls        []ToolCall        `json:"tool_calls,omitempty"`
@@ -48,6 +70,19 @@ type WireMessage struct {
 }
 type Completer interface {
 	Complete(context.Context, []WireMessage, []any, bool) (WireMessage, error)
+}
+
+// CacheTail is messages with the last one marked Cache, for a tool loop: the
+// next turn resends all of it plus the new tool results, and reads this
+// turn's prompt back from the cache. The mark goes on a copy, so marks from
+// earlier turns never pile up in the transcript.
+func CacheTail(messages []WireMessage) []WireMessage {
+	if len(messages) == 0 {
+		return messages
+	}
+	out := append([]WireMessage(nil), messages...)
+	out[len(out)-1].Cache = true
+	return out
 }
 
 // Completers picks the model client for each account. Resolve runs once when a
@@ -112,6 +147,14 @@ func RetriesOff(ctx context.Context) bool {
 	return off
 }
 
+// unusable stands in for a run's provider that could not be set up: every
+// call fails with the reason, so nothing switches to another provider.
+type unusable struct{ err error }
+
+func (u unusable) Complete(context.Context, []WireMessage, []any, bool) (WireMessage, error) {
+	return WireMessage{}, u.err
+}
+
 // canSearch reports whether the run's provider can answer web searches.
 func canSearch(ctx context.Context) bool {
 	if c, ok := ctx.Value(completerKey{}).(Searcher); ok && c != nil {
@@ -121,13 +164,75 @@ func canSearch(ctx context.Context) bool {
 }
 
 func (s *Service) complete(ctx context.Context, messages []WireMessage, tools []any, search bool) (WireMessage, error) {
+	var reply WireMessage
+	var err error
 	if c, ok := ctx.Value(completerKey{}).(Completer); ok && c != nil {
-		return c.Complete(ctx, messages, tools, search)
-	}
-	if s.provider == nil {
+		reply, err = c.Complete(ctx, messages, tools, search)
+	} else if s.provider == nil {
 		return WireMessage{}, fmt.Errorf("No AI provider is set up. Open Settings → Agent to connect one")
+	} else {
+		reply, err = s.provider.Complete(ctx, messages, tools, search)
 	}
-	return s.provider.Complete(ctx, messages, tools, search)
+	if err != nil {
+		return reply, err
+	}
+	return withoutNUL(reply), nil
+}
+
+// withoutNUL drops NUL characters from a model's reply. Postgres can't
+// store them in text or JSON, so one NUL in an answer failed the run with a
+// database error after the answer was paid for.
+func withoutNUL(m WireMessage) WireMessage {
+	m.Content = dropNUL(m.Content)
+	m.ReasoningContent = dropNUL(m.ReasoningContent)
+	if len(m.ToolCalls) > 0 {
+		m.ToolCalls = append([]ToolCall(nil), m.ToolCalls...)
+		for i := range m.ToolCalls {
+			m.ToolCalls[i].Function.Arguments = nulFreeJSON(m.ToolCalls[i].Function.Arguments)
+		}
+	}
+	return m
+}
+
+func dropNUL(s string) string {
+	if !strings.ContainsRune(s, 0) {
+		return s
+	}
+	return strings.ReplaceAll(s, "\x00", "")
+}
+
+// nulFreeJSON drops NULs (written \u0000) from the strings of a JSON text.
+func nulFreeJSON(text string) string {
+	if !strings.Contains(text, `\u0000`) && !strings.ContainsRune(text, 0) {
+		return text
+	}
+	var value any
+	if json.Unmarshal([]byte(text), &value) != nil {
+		return dropNUL(text)
+	}
+	cleaned, err := json.Marshal(dropNULs(value))
+	if err != nil {
+		return text
+	}
+	return string(cleaned)
+}
+
+func dropNULs(value any) any {
+	switch v := value.(type) {
+	case string:
+		return dropNUL(v)
+	case []any:
+		for i := range v {
+			v[i] = dropNULs(v[i])
+		}
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for key, item := range v {
+			out[dropNUL(key)] = dropNULs(item)
+		}
+		return out
+	}
+	return value
 }
 
 type OpenRouter struct {

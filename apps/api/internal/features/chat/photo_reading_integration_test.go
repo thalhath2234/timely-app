@@ -25,13 +25,13 @@ func routeCall(t *testing.T, e *echo.Echo, method, path, body string) (int, Conv
 	return w.Code, row
 }
 
-type brokenCompleters struct{}
+type unreadablePhotoCompleters struct{}
 
-func (brokenCompleters) Resolve(context.Context, string) (string, string, error) {
+func (unreadablePhotoCompleters) Resolve(context.Context, string) (string, string, error) {
 	return "anthropic", "test-model", nil
 }
 
-func (brokenCompleters) Completer(context.Context, string, string, string) (Completer, error) {
+func (unreadablePhotoCompleters) Completer(context.Context, string, string, string) (Completer, error) {
 	return nil, errors.New("Anthropic API is not connected. Add its key in Settings → Agent")
 }
 
@@ -39,7 +39,7 @@ func (brokenCompleters) Completer(context.Context, string, string, string) (Comp
 func TestIntegrationFailedRunSaysWhatToDo(t *testing.T) {
 	db := integrationDB(t)
 	s := New(db, nil, nil)
-	s.SetCompleters(brokenCompleters{})
+	s.SetCompleters(unreadablePhotoCompleters{})
 	c := runFixture(t, db, nil)
 	c.Status, c.Lease, c.Phase = "queued", "", "plan"
 	c.Messages = []Message{message("user", "hi")}

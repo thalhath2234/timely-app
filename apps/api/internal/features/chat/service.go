@@ -129,8 +129,40 @@ type sendInput struct {
 	Receipt *ReceiptDraft `json:"receipt"`
 }
 
-// validChoice checks the shape of a model picked in the chat menu. Whether the
-// provider is connected is checked when a run starts, like the default.
+// ProviderIDs is implemented by Completers that can tell a provider id they
+// serve from a typo; a choice they don't know is refused when it is made
+// instead of failing the run later.
+type ProviderIDs interface {
+	KnownProvider(id string) bool
+}
+
+// pickProvider is the provider id of a model picked in the chat menu, lower
+// case ("Anthropic" is "anthropic"); an id the server has no provider for
+// is refused. Whether the provider is connected is checked when a run
+// starts, like the default.
+func (s *Service) pickProvider(provider string) (string, error) {
+	provider = strings.ToLower(provider)
+	if known, ok := s.completers.(ProviderIDs); ok && provider != "" && !known.KnownProvider(provider) {
+		return "", echo.NewHTTPError(400, fmt.Sprintf("Unknown AI provider %q. Pick one in the chat's model menu", provider))
+	}
+	return provider, nil
+}
+
+// cleanInput drops NUL characters, which Postgres can't store: a message
+// with one failed with HTTP 500.
+func cleanInput(in *sendInput) {
+	in.Content = dropNUL(in.Content)
+	in.Context = cleanChips(in.Context)
+}
+
+func cleanChips(chips []ContextChip) []ContextChip {
+	for i := range chips {
+		chips[i] = ContextChip{Kind: dropNUL(chips[i].Kind), Label: dropNUL(chips[i].Label), Value: dropNUL(chips[i].Value)}
+	}
+	return chips
+}
+
+// validChoice checks the shape of a model picked in the chat menu.
 func validChoice(provider, model string) error {
 	if len(provider) > 40 || len(model) > 200 || strings.ContainsAny(provider+model, " \n\t") {
 		return echo.NewHTTPError(400, "Invalid model choice")
@@ -174,9 +206,15 @@ func (s *Service) create(c *echo.Context) error {
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(400, "Invalid message")
 	}
+	cleanInput(&in)
 	if err := validateInput(in); err != nil {
 		return err
 	}
+	provider, err := s.pickProvider(in.Provider)
+	if err != nil {
+		return err
+	}
+	in.Provider = provider
 	if in.Context == nil {
 		in.Context = []ContextChip{}
 	}
@@ -278,6 +316,7 @@ func (s *Service) send(c *echo.Context) error {
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(400, "Invalid message")
 	}
+	cleanInput(&in)
 	if err := validateInput(in); err != nil {
 		return err
 	}
@@ -625,17 +664,23 @@ func (s *Service) configure(c *echo.Context) error {
 		if err := validChoice(*in.Provider, model); err != nil {
 			return err
 		}
+		provider, err := s.pickProvider(*in.Provider)
+		if err != nil {
+			return err
+		}
+		in.Provider = &provider
 	} else if in.Model != nil {
 		return echo.NewHTTPError(400, "Choose a provider for this model")
 	}
 	if in.Context != nil {
+		*in.Context = cleanChips(*in.Context)
 		if err := validateInput(sendInput{Content: "context", Context: *in.Context}); err != nil {
 			return err
 		}
 	}
 	title := ""
 	if in.Title != nil {
-		title = strings.TrimSpace(*in.Title)
+		title = strings.TrimSpace(dropNUL(*in.Title))
 		if title == "" || len([]rune(title)) > 120 {
 			return echo.NewHTTPError(400, "Title must be between 1 and 120 characters")
 		}

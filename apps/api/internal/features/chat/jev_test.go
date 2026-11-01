@@ -245,6 +245,15 @@ func TestIntegrationSimilarChatWaitsForAChoice(t *testing.T) {
 	if count != 0 {
 		t.Fatal("the new chat must be removed after moving")
 	}
+
+	// A request written on Default runs on Default there too, not on the
+	// provider the earlier chat had picked.
+	earlier, c = newChat()
+	db.Model(&Conversation{}).Where("id = ?", earlier.ID).Updates(map[string]any{"chosen_provider": "openrouter", "chosen_model": "test/model"})
+	code, moved = post("/chats/"+c.ID+"/similar", `{"action":"move"}`)
+	if code != 200 || moved.ID != earlier.ID || moved.ChosenProvider != "" || moved.ChosenModel != "" {
+		t.Fatalf("a Default request must not take the earlier chat's model: %d %s/%s", code, moved.ChosenProvider, moved.ChosenModel)
+	}
 }
 
 func TestIntegrationReviewNotesForceReview(t *testing.T) {

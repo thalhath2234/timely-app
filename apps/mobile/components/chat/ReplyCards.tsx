@@ -10,6 +10,7 @@ import {
   genuiNodes,
   replyBlocks,
   showLinkHosts,
+  replyDraws,
   splitReply,
   spokenTime,
   withRenderers,
@@ -114,7 +115,10 @@ function Cards({ code }: { code: string }) {
       response={code}
       library={library}
       publishObservability={false}
-      onParseResult={(result) => setRoot((result?.root as GenuiNode | null | undefined) ?? null)}
+      onParseResult={(result) => {
+        const parsed = result?.root as GenuiNode | null | undefined;
+        setRoot(replyDraws(parsed) ? parsed : null);
+      }}
     >
       {root ? (
         <Root node={root} />

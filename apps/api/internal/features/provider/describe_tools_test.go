@@ -142,7 +142,7 @@ func TestDescribeStopsLookingUp(t *testing.T) {
 	loaded := 0
 	replies := make([]chat.WireMessage, dashboardCardTurns)
 	for i := range replies {
-		replies[i] = toolCall("c", "list_projects", map[string]any{})
+		replies[i] = toolCall("c", "list_projects", map[string]any{"n": i})
 	}
 	model := &scriptedDescribe{replies: replies}
 	if _, err := describe(context.Background(), model, []chat.WireMessage{{Role: "user", Content: "Words: late"}}, testDescribeTools(&loaded)); err == nil {
@@ -154,6 +154,125 @@ func TestDescribeStopsLookingUp(t *testing.T) {
 	last := model.sent[len(model.sent)-1]
 	if got := last[len(last)-1].Content; !strings.Contains(got, "answer now") {
 		t.Errorf("the last call asks for the answer: %q", got)
+	}
+}
+
+// A model that keeps making the same call (live: list_projects ten times,
+// 37 KB growing to 268 KB per request) gets a short reminder instead of the
+// result again, and its next turn must answer.
+func TestDescribeStopsWhenACallRepeats(t *testing.T) {
+	loaded := 0
+	replies := make([]chat.WireMessage, dashboardCardTurns)
+	for i := range replies {
+		replies[i] = toolCall("c", "list_projects", map[string]any{})
+	}
+	model := &scriptedDescribe{replies: replies}
+	if _, err := describe(context.Background(), model, []chat.WireMessage{{Role: "user", Content: "Words: late"}}, testDescribeTools(&loaded)); err == nil {
+		t.Fatal("a model that never answers gets an error")
+	}
+	if len(model.sent) != 3 {
+		t.Fatalf("calls = %d: the look-up, its repeat, then the answer turn", len(model.sent))
+	}
+	repeat := model.sent[2][len(model.sent[2])-2].Content
+	if !strings.Contains(repeat, "already made this call") || strings.Contains(repeat, "Client work") {
+		t.Errorf("the repeat gets a reminder, not the result again: %q", repeat)
+	}
+	if got := model.sent[2][len(model.sent[2])-1].Content; !strings.Contains(got, "answer now") {
+		t.Errorf("the turn after a repeat asks for the answer: %q", got)
+	}
+}
+
+// Stopping the look-ups leaves turns: the answer is still drawn, and one
+// with problems goes back once, as on any turn but the final one.
+func TestDescribeChecksTheAnswerAfterLookUpsStop(t *testing.T) {
+	loaded := 0
+	model := &scriptedDescribe{replies: []chat.WireMessage{
+		toolCall("c1", "list_projects", map[string]any{}),
+		toolCall("c2", "list_projects", map[string]any{}),
+		{Role: "assistant", Content: wrongProject},
+		{Role: "assistant", Content: rightProject},
+	}}
+	program, err := describe(context.Background(), model, []chat.WireMessage{{Role: "user", Content: "Words: late"}}, testDescribeTools(&loaded))
+	if err != nil || program != rightProject {
+		t.Fatalf("program %q, err %v", program, err)
+	}
+	if len(model.sent) != 4 {
+		t.Fatalf("calls = %d: the look-up, its repeat, the answer, the fix", len(model.sent))
+	}
+	if got := model.sent[3][len(model.sent[3])-1].Content; !strings.Contains(got, "found problems") || !strings.Contains(got, "Clients work") {
+		t.Errorf("the answer with problems goes back once: %q", got)
+	}
+}
+
+func TestDescribeBoundsLookUps(t *testing.T) {
+	// More calls in one turn than one Describe may run.
+	var calls []chat.ToolCall
+	for i := 0; i < describeCallMax+2; i++ {
+		calls = append(calls, toolCall("c", "list_projects", map[string]any{"n": i}).ToolCalls...)
+	}
+	loaded := 0
+	tools := testDescribeTools(&loaded)
+	model := &scriptedDescribe{replies: []chat.WireMessage{{Role: "assistant", ToolCalls: calls}, {Role: "assistant", Content: rightProject}}}
+	program, err := describe(context.Background(), model, []chat.WireMessage{{Role: "user", Content: "Words: late"}}, tools)
+	if err != nil || program != rightProject {
+		t.Fatalf("program %q, err %v", program, err)
+	}
+	sent := model.sent[1]
+	results := sent[len(sent)-1-len(calls) : len(sent)-1]
+	for i, result := range results {
+		refused := strings.Contains(result.Content, "No more look-ups")
+		if refused != (i >= describeCallMax) {
+			t.Errorf("result %d refused=%v: %s", i, refused, result.Content)
+		}
+	}
+	if !strings.Contains(sent[len(sent)-1].Content, "answer now") {
+		t.Errorf("the turn after the last allowed call asks for the answer: %q", sent[len(sent)-1].Content)
+	}
+
+	// Results that together go past the budget: the one that would is refused.
+	big := strings.Repeat("x", describeResultMax-1000)
+	catalog := agent.Catalog{"list_tasks": {Description: "List tasks.", Call: func(context.Context, string, json.RawMessage) (any, error) {
+		return map[string]string{"tasks": big}, nil
+	}}}
+	tools = newDescribeTools("u1", catalog, nil, "")
+	first := tools.call(context.Background(), toolCall("c1", "list_tasks", map[string]any{"page": 1}).ToolCalls[0])
+	second := tools.call(context.Background(), toolCall("c2", "list_tasks", map[string]any{"page": 2}).ToolCalls[0])
+	third := tools.call(context.Background(), toolCall("c3", "list_tasks", map[string]any{"page": 3}).ToolCalls[0])
+	if !strings.Contains(first, big) || !strings.Contains(second, big) || strings.Contains(third, big) || !strings.Contains(third, "answer now") || !tools.stopped() {
+		t.Fatalf("budget: %d, %d, %q", len(first), len(second), third)
+	}
+}
+
+func TestDescribeOffersTheReadToolsACardNeeds(t *testing.T) {
+	read := func(context.Context, string, json.RawMessage) (any, error) { return nil, nil }
+	catalog := agent.Catalog{}
+	for _, name := range []string{"list_tasks", "list_events", "get_sheet_values", "list_habits", "get_notification_settings", "auto_schedule_preview", "create_task"} {
+		catalog[name] = agent.Tool{Description: name, Call: read}
+	}
+	tools := newDescribeTools("u1", catalog, nil, "")
+	if got := strings.Join(offeredNames(tools.specs), ","); got != "get_sheet_values,list_events,list_tasks" {
+		t.Fatalf("offered %s", got)
+	}
+}
+
+// The board prompt with its tools is cached, and each turn's whole request
+// is marked so the next turn reads it back.
+func TestDescribeMarksWhatToCache(t *testing.T) {
+	loaded := 0
+	model := &scriptedDescribe{replies: []chat.WireMessage{
+		toolCall("c1", "list_projects", map[string]any{}),
+		{Role: "assistant", Content: rightProject},
+	}}
+	messages := dashboardCardMessages(dashboardCardRequest{Prompt: "late client work", Today: "2026-11-01"}, viewVocab{}, nil, nil)
+	if _, err := describe(context.Background(), model, messages, testDescribeTools(&loaded)); err != nil {
+		t.Fatal(err)
+	}
+	for turn, sent := range model.sent {
+		for i, m := range sent {
+			if want := i == 0 || i == len(sent)-1; m.Cache != want {
+				t.Errorf("turn %d message %d (%s) Cache=%v", turn, i, m.Role, m.Cache)
+			}
+		}
 	}
 }
 
@@ -209,5 +328,39 @@ func TestDescribeSaysWhenThereIsNoData(t *testing.T) {
 	}
 	if !strings.Contains(boardPrompt, "NO_DATA:") {
 		t.Error("the prompt must say how to answer when there is nothing to build from")
+	}
+}
+
+func TestCheckBlockFlagsIdsThePersonDoesNotHave(t *testing.T) {
+	loaded := 0
+	tools := testDescribeTools(&loaded)
+	tools.owns = func(_ context.Context, kind, id string) bool {
+		return (kind == "task" && id == "tsk_real") || (kind == "doc" && id == "doc_real")
+	}
+	program := `root = Panel("Mine", [list, open])
+list = List([TaskRow("task_fake", "X"), TaskRow("tsk_real", "Y")])
+open = Open("Open doc", "doc", "doc_fake")`
+	checked, err := tools.check(context.Background(), program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(checked.Problems, "\n")
+	if !strings.Contains(joined, `"task_fake"`) || strings.Contains(joined, `"tsk_real"`) {
+		t.Fatalf("written-out ids the person does not have must be problems: %q", checked.Problems)
+	}
+	if strings.Count(joined, "doc_fake") > 1 {
+		t.Fatalf("an Open to a missing doc is flagged once, by the board check: %q", checked.Problems)
+	}
+	// Rows from @Data name no id of their own.
+	clean, err := tools.check(context.Background(), `root = Panel("Late", [list])
+late = @Data({source: "tasks", overdue: true})
+list = List(@Each(late.rows, "t", TaskRow(t.id, t.title)))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, problem := range clean.Problems {
+		if strings.Contains(problem, "does not have") {
+			t.Fatalf("an @Each row was flagged: %q", problem)
+		}
 	}
 }

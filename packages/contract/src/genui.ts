@@ -454,6 +454,16 @@ export function replyBlocks(blocks: unknown): GenuiNode[] {
   });
 }
 
+/**
+ * Whether a parsed reply program draws anything. A program with no root, or
+ * a Reply whose every card was cut off (`Card("Broken", [Broken(`), would
+ * leave an empty space, so the apps say the cards could not be shown.
+ */
+export function replyDraws(root: GenuiNode | null | undefined): boolean {
+  if (!root) return false;
+  return root.typeName !== GENUI_ROOT || replyBlocks(root.props.blocks).length > 0;
+}
+
 export type ReplyPart = { kind: "text"; text: string } | { kind: "ui"; code: string; closed: boolean };
 
 // Fences open and close at the start of a line, as models write them; the

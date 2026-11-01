@@ -2,10 +2,12 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"timely-api/internal/features/chat"
 	"timely-api/internal/features/sheet"
 	"timely-api/internal/richtext"
@@ -32,6 +34,90 @@ func TestBoardProgramFindsTheProgram(t *testing.T) {
 	}
 	if _, err := boardProgram("root = Panel(\"x\", [])\n" + strings.Repeat("a = 1\n", 2000)); err == nil {
 		t.Error("want an error for an oversized program")
+	}
+}
+
+func TestBoardProgramKeepsTheWholeProgramAndNothingElse(t *testing.T) {
+	root := `root = Panel("Late", [list])`
+	late := `late = @Data({source: "tasks", overdue: true})`
+	list := `list = List(@Each(late.rows, "t", TaskRow(t.id, t.title)))`
+	want := root + "\n" + late + "\n" + list
+	for name, answer := range map[string]string{
+		// Statements written above the root are kept, after it.
+		"root last":             late + "\n" + list + "\n" + root,
+		"root in the middle":    late + "\n" + root + "\n" + list,
+		"prose, then root last": "Here is the card:\n\n" + late + "\n" + list + "\n" + root,
+		// Prose after the program is not part of it.
+		"trailing prose": want + "\n\nThis card shows your overdue tasks.",
+		// The fence that holds the root, not an earlier one.
+		"decoy fence": "Here:\n```\nsize: medium\n```\n```openui-lang\n" + want + "\n```",
+		// A statement written over several lines keeps its lines.
+		"multi-line": root + "\n" + late + "\n" + list,
+	} {
+		got, err := boardProgram(answer)
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		if !strings.HasPrefix(got, root) || !strings.Contains(got, late) || !strings.Contains(got, list) || strings.Contains(got, "This card shows") || strings.Contains(got, "size: medium") || strings.Contains(got, "Here") {
+			t.Errorf("%s: got %q", name, got)
+		}
+	}
+	multi := "root = Panel(\"Late\", [\n  list\n])\n" + list + "\n" + late
+	if got, err := boardProgram(multi + "\nThat's it."); err != nil || got != multi {
+		t.Errorf("a root over several lines: %q %v", got, err)
+	}
+	// Comments are the program's (the parser skips them), and so is every
+	// line inside an open bracket, however it starts.
+	commented := root + "\n// the rows\n" + list + "\n# where they come from\n" + late
+	if got, err := boardProgram(commented + "\n\nThis card shows your overdue tasks."); err != nil || got != commented {
+		t.Errorf("a comment ended the program: %q %v", got, err)
+	}
+	unindented := "root = Panel(\"Late\", [nums,\nlist], \"medium\")\nnums = Stats([Stat(\"Late\",\nlate.text)])\n" + list + "\n" + late
+	if got, err := boardProgram(unindented + "\nDone (a short card)."); err != nil || got != unindented {
+		t.Errorf("a line inside brackets was cut: %q %v", got, err)
+	}
+	if got, err := boardProgram("Here it is :)\n" + late + "\nlist = List(@Each(late.rows, \"t\",\nTaskRow(t.id, t.title)))\n" + root); err != nil || got != root+"\n"+late+"\nlist = List(@Each(late.rows, \"t\",\nTaskRow(t.id, t.title)))" {
+		t.Errorf("statements above the root: %q %v", got, err)
+	}
+}
+
+// The apps count a program's length in JavaScript string units, so a
+// Japanese card of 3,000 characters (9,000 bytes) is not too long.
+func TestBoardProgramCountsCharactersAsTheAppsDo(t *testing.T) {
+	program := `root = Panel("` + strings.Repeat("予定", 1500) + `", [])`
+	if _, err := boardProgram(program); err != nil {
+		t.Fatalf("a 3,000-character Japanese card was refused: %v", err)
+	}
+	if _, err := boardProgram(`root = Panel("` + strings.Repeat("a", dashboardCardMaxProgram) + `", [])`); !errors.Is(err, errProgramTooLong) {
+		t.Fatalf("an 8,000+ character card was kept: %v", err)
+	}
+}
+
+// A card too large to change is refused, not silently replaced by a new one.
+func TestDescribeRefusesToChangeACardThatIsTooLarge(t *testing.T) {
+	s := &Service{}
+	current := `root = Panel("Big", [])` + "\n" + strings.Repeat(`x = Text("filler filler filler")`+"\n", 300)
+	_, err := s.describeCard(context.Background(), "u1", dashboardCardRequest{Prompt: "add a chart by day", Current: current})
+	var he *echo.HTTPError
+	if !errors.As(err, &he) || he.Code != 400 || !strings.Contains(fmt.Sprint(he.Message), "too large to change") {
+		t.Fatalf("want 400 too large to change, got %v", err)
+	}
+}
+
+func TestDescribeTellsTheModelTheSizeLimit(t *testing.T) {
+	long := `root = Panel("` + strings.Repeat("a", dashboardCardMaxProgram) + `", [])`
+	model := &scriptedDescribe{replies: []chat.WireMessage{{Role: "assistant", Content: long}, {Role: "assistant", Content: `root = Panel("Short", [])`}}}
+	program, err := describe(context.Background(), model, []chat.WireMessage{{Role: "user", Content: "Words: x"}}, nil)
+	if err != nil || program != `root = Panel("Short", [])` {
+		t.Fatalf("%q %v", program, err)
+	}
+	if nudge := model.sent[1][len(model.sent[1])-1].Content; !strings.Contains(nudge, "8000 characters at most") {
+		t.Fatalf("the model must be told the limit: %q", nudge)
+	}
+	model = &scriptedDescribe{replies: []chat.WireMessage{{Role: "assistant", Content: long}, {Role: "assistant", Content: long}}}
+	if _, err := describe(context.Background(), model, []chat.WireMessage{{Role: "user", Content: "Words: x"}}, nil); !errors.Is(err, errProgramTooLong) {
+		t.Fatalf("a card that stays too long must say so: %v", err)
 	}
 }
 

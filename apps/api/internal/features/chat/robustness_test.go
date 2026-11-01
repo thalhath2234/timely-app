@@ -257,6 +257,50 @@ func planFixture(t *testing.T, db *gorm.DB) Conversation {
 	return c
 }
 
+// searching answers the run's calls from main and fails every web search
+// sub-call, counting them.
+type searching struct {
+	main     *scripted
+	searches []string
+}
+
+func (s *searching) Complete(ctx context.Context, messages []WireMessage, tools []any, search bool) (WireMessage, error) {
+	if search {
+		s.searches = append(s.searches, messages[0].Content)
+		return WireMessage{}, errors.New("Anthropic returned HTTP 529: Overloaded")
+	}
+	return s.main.Complete(ctx, messages, tools, search)
+}
+
+func TestIntegrationWebSearchSkipsBlankQueriesAndStopsAfterFailures(t *testing.T) {
+	db := integrationDB(t)
+	main := &scripted{responses: []WireMessage{
+		call("web_search", map[string]string{"query": "  "}),
+		call("web_search", map[string]string{"query": "Lisbon museum hours"}),
+		call("web_search", map[string]string{"query": "Lisbon museum opening hours"}),
+		call("web_search", map[string]string{"query": "Museu do Azulejo hours"}),
+		{Role: "assistant", Content: "The search is not working right now."},
+	}}
+	model := &searching{main: main}
+	s := New(db, readCatalog, model)
+	c := planFixture(t, db)
+	c.WebSearch = true
+	db.Save(&c)
+	if err := s.plan(context.Background(), &c); err != nil || c.Status != "idle" {
+		t.Fatalf("the run must end with an answer: %v %s", err, c.Status)
+	}
+	if len(model.searches) != maxSearchFailures || strings.HasPrefix(model.searches[0], " ") {
+		t.Fatalf("a blank query must not search, and searching stops after %d failures: %q", maxSearchFailures, model.searches)
+	}
+	results := []string{}
+	for _, seen := range main.seen[1:] {
+		results = append(results, seen[len(seen)-1].Content)
+	}
+	if !strings.Contains(results[0], "Invalid search query") || !strings.Contains(results[3], "not working right now") {
+		t.Fatalf("the model must be told why: %q", results)
+	}
+}
+
 func TestIntegrationEmptyReplyIsRetriedAndDirectWritesAreRedirected(t *testing.T) {
 	db := integrationDB(t)
 	model := &scripted{responses: []WireMessage{
@@ -339,8 +383,16 @@ func TestIntegrationDeviceTimezoneReachesTools(t *testing.T) {
 	if seen != "Asia/Tokyo" {
 		t.Fatalf("tool saw timezone %q", seen)
 	}
-	if !strings.Contains(model.seen[0][0].Content, "Asia/Tokyo (from their device") {
-		t.Fatal("system prompt lacks the device timezone")
+	// The clock follows the stored conversation, out of the cached system prompt.
+	prompt := ""
+	for _, m := range model.seen[0] {
+		prompt += m.Content + "\n"
+	}
+	if !strings.Contains(prompt, "Asia/Tokyo (from their device") || strings.Contains(model.seen[0][0].Content, "Asia/Tokyo") {
+		t.Fatal("the prompt's clock notice lacks the device timezone")
+	}
+	if !strings.Contains(prompt, "Current get_context result") || !strings.Contains(prompt, "2026-10-02T20:47:00+09:00") {
+		t.Fatal("the context read up front is localized like a tool result")
 	}
 	if tool := model.seen[1][len(model.seen[1])-1]; !strings.Contains(tool.Content, "2026-10-02T20:47:00+09:00") {
 		t.Fatalf("tool result not localized: %s", tool.Content)
@@ -503,6 +555,22 @@ func TestFullProposalMustSayWhatRemains(t *testing.T) {
 	}
 	if p, err := propose("Workout days 31-35"); err != nil || p.Remaining != "Workout days 31-35" {
 		t.Fatalf("partial batch: %v %q", err, p.Remaining)
+	}
+}
+
+// A remaining that only says nothing is left must not start another paid run.
+func TestRemainingInWordsThatNothingIsLeftIsDone(t *testing.T) {
+	for _, done := range []string{"No further changes needed.", "Nothing else remains", "None – this completes the request.", "No more changes.", "All done!", "N/A", "Complete.", "None, this completes the request.", "No further changes are needed.", "Nothing left to do.", "This batch completes the whole request."} {
+		if got := remainingWork(done); got != "" {
+			t.Errorf("%q read as work left: %q", done, got)
+		}
+	}
+	for _, left := range []string{"Workout days 31-35", "Create the other tasks from the list", "No due dates were given for the other 12 tasks: add them", "Nothing is scheduled yet for Tuesday through Friday; add those blocks and the reminders",
+		// Short, no number, and starting like "nothing left", but naming work.
+		"Complete the remaining renames in the Work project", "Done tasks in Home still need archiving", "None of the Friday tasks are scheduled yet", "Nothing for Tuesday or Friday yet; add those", "No reminders yet for the Friday meetings", "None – rename the Work tasks next"} {
+		if got := remainingWork(left); got != left {
+			t.Errorf("%q dropped: %q", left, got)
+		}
 	}
 }
 

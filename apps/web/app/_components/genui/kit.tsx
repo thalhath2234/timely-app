@@ -78,11 +78,17 @@ export function RowGroup({ rows, renderNode }: { rows: unknown; renderNode: (nod
   const timed = nodes.some((row) => TIMED.has(row.typeName) && row.props.time);
   // Share bars line up when the value column fits the longest value, such as an amount of money.
   const longest = Math.max(0, ...nodes.filter((row) => row.typeName === "ShareRow").map((row) => String(row.props.value ?? "").length));
-  const shares = longest ? ({ "--share-value": `max(84px, ${longest + 1}ch)` } as CSSProperties) : undefined;
+  // The time column fits the longest time ("Due Tue 3 Nov", not only "17:00") up to a cap, past which it truncates;
+  // on a narrow card the cap is 40% of the row, so the titles keep most of it.
+  const longestTime = Math.max(0, ...nodes.filter((row) => TIMED.has(row.typeName)).map((row) => String(row.props.time ?? row.props.from ?? "").length));
+  const columns = {
+    ...(longest ? { "--share-value": `max(84px, ${longest + 1}ch)` } : {}),
+    ...(longestTime > 5 ? { "--time-column": `min(${longestTime + 1}ch, 7.5rem, 40%)` } : {}),
+  } as CSSProperties;
   return (
     <Place.Provider value="card">
       <Timed.Provider value={timed}>
-        <div className="divide-y divide-border" style={shares}>
+        <div className="divide-y divide-border" style={columns}>
           {nodes.map((row, index) => (
             <Fragment key={index}>{renderNode(row)}</Fragment>
           ))}
@@ -119,7 +125,12 @@ function Row({
       style={style}
     >
       {timed || time ? (
-        <span className="w-12 shrink-0 whitespace-nowrap text-[13px] font-medium tabular-nums text-muted-foreground">{time}</span>
+        <span
+          title={time}
+          className="w-[var(--time-column,3rem)] min-w-12 shrink-0 truncate text-[13px] font-medium tabular-nums text-muted-foreground"
+        >
+          {time}
+        </span>
       ) : null}
       {lead !== undefined ? <span className="flex w-[18px] shrink-0 items-center justify-center self-stretch">{lead}</span> : null}
       <span className="min-w-0 flex-auto">
@@ -228,17 +239,21 @@ function Stat({ props }: KitProps<"Stat">) {
   );
 }
 
-/** The task as it is now: from the task list, or fetched on its own (a Reminder). */
+/**
+ * The task as it is now: from the task list, or fetched on its own (a
+ * Reminder). `missing` once neither has it: an id the model made up, or a
+ * task deleted since the reply.
+ */
 function useLiveTask(id: string) {
   const list = useTasks();
   const listed = list.data?.find((task) => task.id === id);
   // Asked once: a row written with an id no task has gets a 404 each try.
   const single = useTask(list.isSuccess && !listed ? id : undefined, { retry: false });
-  return listed ?? single.data;
+  return { task: listed ?? single.data, missing: !listed && single.isError };
 }
 
 function TaskRow({ props }: KitProps<"TaskRow">) {
-  const task = useLiveTask(props.taskId);
+  const { task, missing } = useLiveTask(props.taskId);
   const update = useUpdateTask();
   const openTask = useEntityDetailStore((state) => state.openTask);
   const title = task?.name || props.title;
@@ -258,13 +273,14 @@ function TaskRow({ props }: KitProps<"TaskRow">) {
     <Row
       time={props.time}
       tone={late ? "warning" : "default"}
-      meta={done ? "Done" : props.note}
+      meta={missing ? "Task not found" : done ? "Done" : props.note}
       lead={
         <TaskCheck
           checked={done}
           onToggle={toggle}
           disabled={!task}
           label={done ? `Reopen ${title}` : `Complete ${title}`}
+          className={cn(missing && "opacity-50")}
         />
       }
     >
@@ -274,7 +290,7 @@ function TaskRow({ props }: KitProps<"TaskRow">) {
         onClick={() => task && openTask(task.id)}
         className={cn(
           "block max-w-full truncate text-left enabled:hover:underline enabled:hover:underline-offset-4",
-          done ? "text-muted-foreground line-through" : "text-foreground",
+          done ? "text-muted-foreground line-through" : missing ? "text-muted-foreground" : "text-foreground",
         )}
       >
         {title}

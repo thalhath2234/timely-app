@@ -107,6 +107,32 @@ describe("reviewGroups: sheet entries", () => {
     assert.deepEqual(reviewProgress(group, [entries]), { state: "done", done: 1, total: 1 });
   });
 
+  test("a cell change joins the sheet's entries and names the row, with its value before", () => {
+    const amount = { id: "c_amt", name: "Amount", type: "currency", width: 100, format: { currency: "EUR" } };
+    const item = { id: "c_item", name: "Item", type: "text", width: 160 };
+    const expenses = { id: "sht_2", title: "Monthly expenses", tabs: [{ id: "", name: "Sheet" }] };
+    const read = { sheet: expenses, tab: { columns: [item, amount], rows: [{ id: "r1", cells: { c_item: "Rent", c_amt: "850" } }, { id: "r2", cells: { c_item: "Internet", c_amt: "45" } }] } };
+    const edit = { tool: "update_sheet_cells", summary: "Change Internet amount from 45 to 50", arguments: { sheetId: "sht_2", rowId: "r2", cells: { Amount: "50" } }, status: "pending", before: read };
+    const entry = { tool: "add_sheet_row", summary: "Add Gym 30", arguments: { sheetId: "sht_2", cells: { Item: "Gym", Amount: "30" } }, status: "pending", before: read };
+    const groups = reviewGroups([edit, entry]);
+    assert.equal(groups.length, 1);
+    const [group] = groups;
+    assert.equal(group.kind, "sheet");
+    assert.equal(group.title, "Monthly expenses");
+    assert.deepEqual(group.steps, [0, 1]);
+    assert.equal(group.meta, "1 change · 1 new entry");
+    assert.deepEqual(group.fields, [{ label: "Internet · Amount", value: "€50.00", was: "€45.00" }]);
+    assert.ok(!JSON.stringify(group).includes("r2"), "the row id is never shown");
+    assert.deepEqual(reviewStats(groups), [
+      { value: 1, label: "Sheet entry" },
+      { value: 1, label: "Sheet change" },
+    ]);
+    // A row given by number, on a sheet the review read without rows.
+    const [byNumber] = reviewGroups([{ ...edit, arguments: { sheetId: "sht_2", row: 2, cells: { Amount: "50" } }, before: { sheet: expenses } }]);
+    assert.equal(byNumber.meta, "1 change");
+    assert.deepEqual(byNumber.fields, [{ label: "Row 2 · Amount", value: "50" }]);
+  });
+
   test("a sheet the review cannot read still shows its cells, never its id", () => {
     const bare = { ...row("September", "2026-09-01", "Rent", "850"), before: undefined };
     const [group] = reviewGroups([bare]);

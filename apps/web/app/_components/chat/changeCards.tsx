@@ -610,9 +610,9 @@ function EventRows({
 function FieldRows({ fields }: { fields: ReviewField[] }) {
   return (
     <dl className="divide-y divide-border border-t border-border">
-      {fields.map((field) => (
+      {fields.map((field, i) => (
         <div
-          key={field.label}
+          key={`${i}:${field.label}`}
           className={cn(
             "flex min-h-10 gap-4 px-4 py-2 text-[13px]",
             field.blocks ? "flex-col gap-1.5" : "items-center justify-between",
@@ -698,9 +698,14 @@ function GroupCard({
       : own.find((s) => s.status === "done");
   let body: ReactNode = null;
   if (group.kind === "sheet")
-    body = group.tabs.map((tab) => (
-      <SheetTab key={tab.name} tab={tab} steps={steps} />
-    ));
+    body = (
+      <>
+        {group.tabs.map((tab) => (
+          <SheetTab key={tab.name} tab={tab} steps={steps} />
+        ))}
+        {group.fields.length ? <FieldRows fields={group.fields} /> : null}
+      </>
+    );
   else if (group.kind === "tasks")
     body = <TaskRows group={group} steps={steps} />;
   else if (group.kind === "doc") body = <DocBody group={group} />;

@@ -319,6 +319,16 @@ func (s *Service) Resolve(ctx context.Context, userID string) (string, string, e
 	return provider, s.chatModel(row, provider), nil
 }
 
+// KnownProvider reports whether id names a provider this server can run, so
+// a chat's model menu choice is checked when it is made (chat.ProviderIDs).
+func (s *Service) KnownProvider(id string) bool {
+	switch id {
+	case OpenRouter, ClaudeCLI, CodexCLI:
+		return true
+	}
+	return apiProviderByID(id) != nil
+}
+
 func (s *Service) Completer(ctx context.Context, userID, provider, model string) (chat.Completer, error) {
 	row, err := s.load(s.db.WithContext(ctx), userID)
 	if err != nil {

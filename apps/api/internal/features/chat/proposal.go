@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -157,7 +158,7 @@ func (s *Service) prepareProposal(ctx context.Context, catalog agent.Catalog, ui
 	if len(p.Steps) == 30 && strings.TrimSpace(p.Remaining) == "" {
 		return p, nil, fmt.Errorf("This proposal has the maximum 30 changes. Set remaining to what is still left of the request, or to \"none\" if these 30 changes complete it")
 	}
-	p.Reply, p.Remaining = blankIfNone(p.Reply), blankIfNone(p.Remaining)
+	p.Reply, p.Remaining = blankIfNone(p.Reply), remainingWork(p.Remaining)
 	if strings.TrimSpace(p.Summary) == "" {
 		// Never show an empty proposal message; the step summaries are required.
 		parts := []string{}
@@ -396,4 +397,55 @@ func blankIfNone(text string) string {
 		return ""
 	}
 	return strings.TrimSpace(text)
+}
+
+var (
+	// remainingClause splits a remaining into its clauses: "None – this
+	// completes the request." is two.
+	remainingClause = regexp.MustCompile(`\s*(?:[,;:]|\s[-–—]\s)\s*`)
+	// requestDone is a clause that says the request is finished.
+	requestDone = regexp.MustCompile(`^(?:(?:all )?(?:done|complete|completed|finished)|that'?s (?:all|everything)|that is (?:all|everything)|(?:this|these|that)(?: (?:proposal|batch|plan|changes?))? (?:completes?|finish(?:es)?|covers?) (?:the|this|your)(?: (?:whole|entire|full))? (?:request|task|job|plan|list)|(?:the |your )?(?:request|task|job|work|plan) is (?:now )?(?:done|complete|completed|finished))$`)
+)
+
+// nothingLeftWords are the words that may follow no, nothing or none in a
+// clause that says nothing is left ("No further changes needed", "Nothing
+// else remains"). A clause with any other word names work.
+var nothingLeftWords = map[string]bool{
+	"more": true, "further": true, "other": true, "additional": true, "else": true,
+	"change": true, "changes": true, "step": true, "steps": true, "work": true, "task": true, "tasks": true,
+	"item": true, "items": true, "action": true, "actions": true, "update": true, "updates": true, "edits": true,
+	"is": true, "are": true, "left": true, "needed": true, "required": true, "remain": true, "remains": true, "remaining": true,
+	"pending": true, "necessary": true, "to": true, "do": true, "make": true, "apply": true, "be": true, "made": true, "applied": true,
+}
+
+// remainingWork is what a proposal's remaining leaves for the next batch:
+// empty when it only says that nothing is left. Each batch costs another
+// model run, so "No further changes needed." must not start one; but work
+// that is left must never be dropped, so every clause has to say nothing is
+// left ("Complete the remaining renames" and "None of the Friday tasks are
+// moved yet" name work).
+func remainingWork(text string) string {
+	text = blankIfNone(text)
+	for _, clause := range remainingClause.Split(strings.ToLower(strings.Trim(text, " .!")), -1) {
+		if !saysNothingLeft(clause) {
+			return text
+		}
+	}
+	return ""
+}
+
+func saysNothingLeft(clause string) bool {
+	if requestDone.MatchString(clause) {
+		return true
+	}
+	words := strings.Fields(clause)
+	if len(words) == 0 || (words[0] != "no" && words[0] != "nothing" && words[0] != "none") {
+		return false
+	}
+	for _, word := range words[1:] {
+		if !nothingLeftWords[word] {
+			return false
+		}
+	}
+	return true
 }

@@ -524,7 +524,7 @@ function FieldRows({ fields }: { fields: ReviewField[] }) {
     <View style={styles.section}>
       {fields.map((field, i) => (
         <View
-          key={field.label}
+          key={`${i}:${field.label}`}
           style={[
             field.blocks ? styles.fieldBlock : styles.field,
             i > 0 && styles.rowLine,
@@ -590,9 +590,14 @@ function GroupCard({
   const icon = "icon" in group && group.icon ? group.icon : undefined;
   let body: ReactNode = null;
   if (group.kind === "sheet")
-    body = group.tabs.map((tab) => (
-      <SheetTab key={tab.name} tab={tab} steps={steps} />
-    ));
+    body = (
+      <>
+        {group.tabs.map((tab) => (
+          <SheetTab key={tab.name} tab={tab} steps={steps} />
+        ))}
+        {group.fields.length ? <FieldRows fields={group.fields} /> : null}
+      </>
+    );
   else if (group.kind === "tasks")
     body = <TaskRows group={group} steps={steps} onLink={onLink} />;
   else if (group.kind === "doc") body = <DocBody group={group} />;

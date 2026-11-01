@@ -10,6 +10,7 @@ import {
   GENUI_ROOT,
   genuiNodes,
   replyBlocks,
+  replyDraws,
   splitReply,
   spokenTime,
   withRenderers,
@@ -111,7 +112,8 @@ function Cards({ code }: { code: string }) {
       response={code}
       library={library}
       publishObservability={false}
-      onParseResult={(result) => setEmpty(Boolean(result) && !result?.root)}
+      // Reply cards arrive whole, so a program that draws nothing did not parse.
+      onParseResult={(result) => setEmpty(!replyDraws(result?.root))}
     />
   );
 }

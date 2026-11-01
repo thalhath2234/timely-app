@@ -140,6 +140,18 @@ export default function Conversation({
   // during the review so unsaved edits are revised, not lost.
   const receiptDraft = useRef<ReceiptDraft | null>(null);
   const lastRevision = useRef<number | null>(null);
+  // One request id per message being sent, as the phone app does: a second
+  // press, or a resend after a lost answer, is the same request, so the
+  // server starts one conversation and one run for it.
+  const pending = useRef<{ key: string; id: string } | null>(null);
+  const requestIdFor = (key: string) => {
+    if (pending.current?.key !== key)
+      pending.current = {
+        key,
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`,
+      };
+    return pending.current.id;
+  };
   const busy = isBusy(chat?.status);
   const chips = chat?.context || context;
   const webSearch = chat?.webSearch ?? search;
@@ -156,15 +168,18 @@ export default function Conversation({
       /** Text sent from a reply card leaves the composer as it was. */
       keepDraft?: boolean;
     }) => {
-      if (!id)
+      if (!id) {
+        const imageIds = uploads.images.map((i) => i.id);
         return chatRequest<Chat>("", "POST", {
           content: draft.trim(),
-          imageIds: uploads.images.map((i) => i.id),
+          imageIds,
+          requestId: requestIdFor(`${draft.trim()}\n${imageIds.join(",")}`),
           context,
           webSearch: search,
           provider: choice.provider,
           model: choice.model,
         });
+      }
       return chatRequest<Chat>(
         `/${encodeURIComponent(id)}${action}`,
         action === "" ? "PATCH" : "POST",
@@ -172,6 +187,7 @@ export default function Conversation({
       );
     },
     onSuccess: (next, vars) => {
+      if (!id || vars.action === "/messages") pending.current = null;
       cache.setQueryData(chatKey(next.id), next);
       void cache.invalidateQueries({ queryKey: chatsKey });
       if (!id) onCreated(next.id);
@@ -234,11 +250,13 @@ export default function Conversation({
       busy
     )
       return;
+    const imageIds = uploads.images.map((i) => i.id);
     mutation.mutate({
       action: "/messages",
       body: {
         content: draft.trim(),
-        imageIds: uploads.images.map((i) => i.id),
+        imageIds,
+        requestId: requestIdFor(`${draft.trim()}\n${imageIds.join(",")}`),
         ...unsavedReceipt(),
       },
     });
@@ -247,7 +265,7 @@ export default function Conversation({
     if (!id || mutation.isPending || busy) return;
     mutation.mutate({
       action: "/messages",
-      body: { content, imageIds: [], ...unsavedReceipt() },
+      body: { content, imageIds: [], requestId: requestIdFor(`${content}\n`), ...unsavedReceipt() },
       keepDraft: true,
     });
   }
