@@ -21,16 +21,24 @@ import (
 // Help me write it runs on the account's default generative provider and its
 // chosen model (Settings → Agent keys). The clients give it a few seconds and
 // make the tasks from the item's own words when there is no provider, an
-// error or no answer in time, so the budget here is short too.
+// error or no answer in time, so the budget here is short too. The time an
+// answer takes grows with the number of items, so a long list is named in
+// batches that run side by side, and every batch that answers in time is
+// used even when another one does not.
 
 const (
 	checklistTasksMax       = 50
-	checklistTasksBudget    = 9 * time.Second
+	checklistTasksBatch     = 12
 	checklistTaskNameMax    = 300
 	checklistTaskDetailsMax = 1000
 	checklistTaskTitleMax   = 80
 	checklistTaskDescMax    = 400
 )
+
+// checklistTasksBudget is how long all the batches together may take; the
+// clients wait CHECKLIST_TASKS_TIMEOUT_MS (packages/contract/src/docChecklist.ts),
+// a little longer. A var so tests can shorten it.
+var checklistTasksBudget = 9 * time.Second
 
 type checklistTaskItem struct {
 	// Name is the item's first sentence (the task name it would get as is);
@@ -183,16 +191,65 @@ func clipRunesAtWord(s string, n int) string {
 	return strings.TrimRight(cut, " ,;:-") + "…"
 }
 
-// draftChecklistTasks asks the model for every item's title and description
-// in one call.
+// checklistBatches splits n items into runs of at most checklistTasksBatch,
+// as even as they can be: 50 items are five batches of 10, not four of 12
+// and one of 2. Each is [start, end).
+func checklistBatches(n int) [][2]int {
+	count := (n + checklistTasksBatch - 1) / checklistTasksBatch
+	out := make([][2]int, 0, count)
+	for i, start := 0, 0; i < count; i++ {
+		end := start + (n-start)/(count-i)
+		out = append(out, [2]int{start, end})
+		start = end
+	}
+	return out
+}
+
+// draftChecklistTasks asks the model for every item's title and description:
+// one call for a short list, batches side by side for a long one, all within
+// checklistTasksBudget. A batch that fails or runs out of time leaves its
+// items empty (the client keeps their own words); the others are kept. It
+// fails only when no batch answered.
 func draftChecklistTasks(ctx context.Context, completer chat.Completer, req checklistTasksRequest) ([]checklistTaskDraft, error) {
 	ctx, cancel := context.WithTimeout(ctx, checklistTasksBudget)
 	defer cancel()
-	reply, err := completer.Complete(ctx, checklistTasksMessages(req), nil, false)
-	if err != nil {
-		return nil, err
+	type answer struct {
+		start  int
+		drafts []checklistTaskDraft
+		err    error
 	}
-	return parseChecklistTasks(reply.Content, len(req.Items))
+	batches := checklistBatches(len(req.Items))
+	answers := make(chan answer, len(batches))
+	for _, b := range batches {
+		part := checklistTasksRequest{DocTitle: req.DocTitle, Items: req.Items[b[0]:b[1]]}
+		go func(start int) {
+			reply, err := completer.Complete(ctx, checklistTasksMessages(part), nil, false)
+			if err != nil {
+				answers <- answer{start: start, err: err}
+				return
+			}
+			drafts, err := parseChecklistTasks(reply.Content, len(part.Items))
+			answers <- answer{start: start, drafts: drafts, err: err}
+		}(b[0])
+	}
+	out := make([]checklistTaskDraft, len(req.Items))
+	var firstErr error
+	named := false
+	for range batches {
+		a := <-answers
+		if a.err != nil {
+			if firstErr == nil || errors.Is(a.err, context.DeadlineExceeded) {
+				firstErr = a.err
+			}
+			continue
+		}
+		copy(out[a.start:], a.drafts)
+		named = true
+	}
+	if !named {
+		return nil, firstErr
+	}
+	return out, nil
 }
 
 func (s *Service) checklistTasks(c *echo.Context) error {
