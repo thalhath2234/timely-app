@@ -827,32 +827,30 @@ type HighlightFact = { id: string; text: string };
  * (a task ticked off changes them). */
 const HIGHLIGHTS_EVERY_MS = 3 * 60 * 1000;
 
-/** The facts to ask about: a change is passed on at once when the last ask
- * (`lastAsk`, 0 before the first) was long enough ago, else when
- * HIGHLIGHTS_EVERY_MS has passed since it, with the facts as they are then.
- * Facts that change while the card loads go straight through. */
-function useThrottledFacts(facts: HighlightFact[], lastAsk: MutableRefObject<number>) {
+/** The facts to ask about. Until the card first asks (`enabled`, once its
+ * data has loaded) they are passed on as they are, so the first ask reads the
+ * loaded data, not the empty week drawn while it loaded. After that a change
+ * is passed on HIGHLIGHTS_EVERY_MS after the last one at the soonest, with
+ * the facts as they are then. */
+function useThrottledFacts(facts: HighlightFact[], enabled: boolean) {
   const key = facts.map((fact) => fact.text).join("\n");
-  const [asked, setAsked] = useState({ facts, key });
+  const [passed, setPassed] = useState<{ facts: HighlightFact[]; key: string; at: number } | null>(null);
   useEffect(() => {
-    if (key === asked.key) return;
-    const timer = setTimeout(() => setAsked({ facts, key }), Math.max(0, lastAsk.current + HIGHLIGHTS_EVERY_MS - Date.now()));
+    if (!enabled || passed?.key === key) return;
+    const wait = passed ? Math.max(0, passed.at + HIGHLIGHTS_EVERY_MS - Date.now()) : 0;
+    const timer = setTimeout(() => setPassed({ facts, key, at: Date.now() }), wait);
     return () => clearTimeout(timer);
-  }, [facts, key, asked, lastAsk]);
-  return asked;
+  }, [enabled, facts, key, passed]);
+  return enabled && passed ? passed : { facts, key };
 }
 
 /** Dashboard Highlights for the facts the card worked out; asked again when
  * the facts change, at most every few minutes. */
 export function useHighlightsQuery(facts: HighlightFact[], enabled = true) {
-  const lastAsk = useRef(0);
-  const asked = useThrottledFacts(facts, lastAsk);
+  const asked = useThrottledFacts(facts, enabled);
   return useQuery({
     queryKey: keys.highlights(asked.key),
-    queryFn: () => {
-      lastAsk.current = Date.now();
-      return getHighlights(asked.facts);
-    },
+    queryFn: () => getHighlights(asked.facts),
     enabled,
     placeholderData: keepPreviousData,
     retry: false,
