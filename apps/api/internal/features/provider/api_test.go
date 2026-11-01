@@ -412,7 +412,7 @@ func TestAnthropicStopReasons(t *testing.T) {
 		"model_context_window_exceeded": "chat is too long",
 		"something_new":                 "stopped before finishing",
 	} {
-		if got, err := ask(false, answer(stop, text("Partial answ"))); err == nil || !strings.Contains(err.Error(), want) {
+		if got, err := ask(false, answer(stop, text("Partial answ"))); err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "Could not reach") {
 			t.Errorf("%s: a partial answer must fail with %q, got %q %v", stop, want, got.Content, err)
 		}
 	}

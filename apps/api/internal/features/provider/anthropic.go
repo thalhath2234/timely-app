@@ -161,7 +161,7 @@ func (p *Anthropic) completeOnce(ctx context.Context, messages []chat.WireMessag
 		// A long server-side search pauses the turn: send it back as it is
 		// and the model carries on from there.
 		if pauses == maxPauses {
-			return empty, errors.New("The AI stopped before finishing its answer. Try again")
+			return empty, stopped(unfinished)
 		}
 		params.Messages = append(params.Messages, res.ToParam())
 	}
@@ -181,17 +181,25 @@ func stopError(res *anthropic.Message) error {
 	case anthropic.StopReasonMaxTokens:
 		for _, block := range res.Content {
 			if block.Type == "tool_use" {
-				return fmt.Errorf("The proposal was too large; try a smaller request")
+				return stopped("The proposal was too large; try a smaller request")
 			}
 		}
-		return errors.New("The answer got too long and was cut off. Try asking for less at a time")
+		return stopped("The answer got too long and was cut off. Try asking for less at a time")
 	case anthropic.StopReasonRefusal:
-		return fmt.Errorf("The model declined this request")
+		return stopped("The model declined this request")
 	case anthropic.StopReasonModelContextWindowExceeded:
-		return errors.New("This chat is too long for the AI to read. Start a new chat to continue")
+		return stopped("This chat is too long for the AI to read. Start a new chat to continue")
 	}
-	return errors.New("The AI stopped before finishing its answer. Try again")
+	return stopped(unfinished)
 }
+
+const unfinished = "The AI stopped before finishing its answer. Try again"
+
+// stopped is why an answer that did arrive cannot be used. It is shown as
+// it is: the provider was reached.
+type stopped string
+
+func (s stopped) Error() string { return string(s) }
 
 // collect adds a response's blocks to out: text to text, citations as
 // annotations (each URL once), thinking blocks and tool calls.
@@ -387,7 +395,8 @@ func anthropicError(label string, err error) error {
 		}
 		return fmt.Errorf("%s returned HTTP %d: %s", label, apiErr.StatusCode, msg)
 	}
-	if strings.HasPrefix(err.Error(), "The ") {
+	var answer stopped
+	if errors.As(err, &answer) || strings.HasPrefix(err.Error(), "The ") {
 		return err // already a Timely message
 	}
 	return fmt.Errorf("Could not reach %s: %w", label, err)
