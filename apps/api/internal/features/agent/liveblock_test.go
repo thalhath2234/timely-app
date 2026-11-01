@@ -95,3 +95,44 @@ func TestLiveBlockRefusesABlockChangedWhileTheAIAnswers(t *testing.T) {
 		t.Fatalf("nothing is written:\n%s", got)
 	}
 }
+
+// The chat agent asks for the program in Prepare, outside its transaction;
+// the write then asks nothing and still uses the doc as it is by then.
+func TestLiveBlockPrepareAsksOnceBeforeTheWrite(t *testing.T) {
+	docs := &liveDocs{d: &models.Document{ID: "doc_1", Title: "Plan"}}
+	docs.set("v1")
+	asked := 0
+	tools := NewCatalog(Deps{Docs: docs, LiveBlock: func(context.Context, string, string, string, string) (string, error) {
+		asked++
+		return liveTestProgram, nil
+	}})
+	tool := tools["add_live_block"]
+	if tool.Prepare == nil || !Prepares("add_live_block") || Prepares("append_to_doc") {
+		t.Fatal("only add_live_block has a Prepare step")
+	}
+	ctx, err := tool.Prepare(context.Background(), "usr_1", liveBlockArgs(0))
+	if err != nil || asked != 1 || docs.updates != 0 {
+		t.Fatalf("Prepare asks the AI once and writes nothing: %v asked=%d updates=%d", err, asked, docs.updates)
+	}
+
+	// Stopped after the AI answered: nothing is written.
+	stopped, stop := context.WithCancel(ctx)
+	stop()
+	if _, err := tool.Call(stopped, "usr_1", liveBlockArgs(0)); !errors.Is(err, context.Canceled) || docs.updates != 0 {
+		t.Fatalf("a stopped write saves nothing: %v updates=%d", err, docs.updates)
+	}
+
+	docs.set("v1\n\nv2")
+	if _, err := tool.Call(ctx, "usr_1", liveBlockArgs(0)); err != nil {
+		t.Fatal(err)
+	}
+	if got := docs.markdown(); asked != 1 || !strings.Contains(got, "v2") || !strings.Contains(got, `Panel("Late"`) {
+		t.Fatalf("the write uses the prepared program on the latest doc: asked=%d\n%s", asked, got)
+	}
+
+	// A program prepared for other words is not used for these.
+	other, _ := json.Marshal(map[string]any{"docId": "doc_1", "words": "done this week"})
+	if _, err := tool.Call(ctx, "usr_1", other); err != nil || asked != 2 {
+		t.Fatalf("other words are asked for: %v asked=%d", err, asked)
+	}
+}

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -33,18 +34,24 @@ type addLiveBlockIn struct {
 // liveProgram is a live block's program as the AI wrote it, with what it was
 // written from.
 type liveProgram struct {
+	uid, docID, words string
+	block             int
 	// existing is the block's program the words change; "" for a new block.
 	existing, program string
 }
+
+type liveProgramKey struct{}
 
 func (s *Server) addLiveBlock(ctx context.Context, req *mcp.CallToolRequest, in addLiveBlockIn) (*mcp.CallToolResult, any, error) {
 	uid, err := userID(req)
 	if err != nil {
 		return fail(err)
 	}
-	written, err := s.writeLiveProgram(ctx, uid, in)
-	if err != nil {
-		return fail(err)
+	written, ok := ctx.Value(liveProgramKey{}).(liveProgram)
+	if !ok || written.uid != uid || written.docID != in.DocID || written.block != in.Block || written.words != liveWords(in.Words) {
+		if written, err = s.writeLiveProgram(ctx, uid, in); err != nil {
+			return fail(err)
+		}
 	}
 	// Stopped or abandoned while the AI answered: write nothing.
 	if err := ctx.Err(); err != nil {
@@ -79,6 +86,23 @@ func (s *Server) addLiveBlock(ctx context.Context, req *mcp.CallToolRequest, in 
 		return fail(err)
 	}
 	return reply(fmt.Sprintf("%s a live block in %s; it reads the person's data each time the doc opens", verb, d.Title), docPayload(d))
+}
+
+// prepareLiveBlock is add_live_block's Prepare: the AI writes the program
+// before the write's transaction opens, and the write then only splices it in.
+func (s *Server) prepareLiveBlock(ctx context.Context, uid string, args json.RawMessage) (context.Context, error) {
+	if uid == "" {
+		return nil, errors.New("not authenticated")
+	}
+	var in addLiveBlockIn
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, err
+	}
+	written, err := s.writeLiveProgram(ctx, uid, in)
+	if err != nil {
+		return nil, err
+	}
+	return context.WithValue(ctx, liveProgramKey{}, written), nil
 }
 
 // writeLiveProgram has the AI write the program for in: a new block, or a
@@ -116,7 +140,7 @@ func (s *Server) writeLiveProgram(ctx context.Context, uid string, in addLiveBlo
 	if err != nil {
 		return liveProgram{}, err
 	}
-	return liveProgram{existing: existing, program: program}, nil
+	return liveProgram{uid: uid, docID: in.DocID, words: words, block: in.Block, existing: existing, program: program}, nil
 }
 
 // liveWords is the words as the AI gets them.

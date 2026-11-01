@@ -19,6 +19,11 @@ type Tool struct {
 	Parameters  *jsonschema.Schema                                          `json:"parameters"`
 	Authority   Authority                                                   `json:"-"`
 	Call        func(context.Context, string, json.RawMessage) (any, error) `json:"-"`
+	// Prepare, when set, does the slow part of a write that needs no
+	// transaction, such as an AI call, and returns a context that carries its
+	// result for Call. The chat agent runs it before an apply's transaction
+	// opens, so no lock is held while the AI answers; Call works without it.
+	Prepare func(context.Context, string, json.RawMessage) (context.Context, error) `json:"-"`
 }
 type Catalog map[string]Tool
 
@@ -84,4 +89,12 @@ func registerTool[I, O any](s *Server, server *mcp.Server, tool *mcp.Tool, autho
 			}
 			return objectContent(data), nil
 		}}
+}
+
+// prepare gives a registered catalog tool its Prepare step.
+func (s *Server) prepare(name string, fn func(context.Context, string, json.RawMessage) (context.Context, error)) {
+	if t, ok := s.catalog[name]; ok {
+		t.Prepare = fn
+		s.catalog[name] = t
+	}
 }

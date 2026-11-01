@@ -661,10 +661,14 @@ func (s *Service) apply(ctx context.Context, c *Conversation) error {
 		if c.Plan[i].Status == "done" || c.Plan[i].Status == "discarded" || (only && c.Plan[i].Status != stepApproved) {
 			continue
 		}
+		stepCtx, err := s.prepareStep(ctx, c, i)
+		if err != nil {
+			return err
+		}
 		// The new state is adopted only after the transaction commits, so a
 		// retried attempt starts again from the stored conversation.
 		var next Conversation
-		err := retrySerializable(ctx, func() error {
+		err = retrySerializable(ctx, func() error {
 			return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 				var row Conversation
 				if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), c.UserID, c.ID, &row); err != nil {
@@ -706,7 +710,7 @@ func (s *Service) apply(ctx context.Context, c *Conversation) error {
 				if !isWriteTool(row.Plan[i].Tool) {
 					return fmt.Errorf("Action not permitted")
 				}
-				result, err := catalog[row.Plan[i].Tool].Call(ctx, row.UserID, raw(value))
+				result, err := catalog[row.Plan[i].Tool].Call(stepCtx, row.UserID, raw(value))
 				if err != nil {
 					return err
 				}
@@ -769,6 +773,35 @@ func (s *Service) apply(ctx context.Context, c *Conversation) error {
 		row.Messages = append(row.Messages, notice(tr(row.Language, txtDone)))
 		return notify(tx, row, tr(row.Language, txtPushComplete))
 	})
+}
+
+// prepareStep runs the Prepare of step i's tool, when it has one, before the
+// step's transaction opens, and returns the context for its Call. A live
+// block's AI call then holds no lock on the conversation, so Stop answers at
+// once, and a retried transaction reuses the answer instead of asking again.
+func (s *Service) prepareStep(ctx context.Context, c *Conversation, i int) (context.Context, error) {
+	step := c.Plan[i]
+	if !isWriteTool(step.Tool) || !agent.Prepares(step.Tool) {
+		return ctx, nil
+	}
+	prepare := s.factory(s.db.WithContext(ctx))[step.Tool].Prepare
+	if prepare == nil {
+		return ctx, nil
+	}
+	var value any
+	if err := json.Unmarshal(step.Arguments, &value); err != nil {
+		return nil, err
+	}
+	value, err := resolve(value, c.Plan, i)
+	if err != nil {
+		return nil, err
+	}
+	prepared, err := prepare(ctx, c.UserID, raw(value))
+	if err != nil {
+		return nil, err
+	}
+	// Stopped while the AI answered: nothing is written.
+	return prepared, prepared.Err()
 }
 
 // Serializable apply transactions can lose a race with another write by the
