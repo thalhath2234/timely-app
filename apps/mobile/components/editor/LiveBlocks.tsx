@@ -42,7 +42,8 @@ export default function LiveBlocks({
       checklist: (id: string) => {
         if (!checklists.has(id)) {
           const doc = data.docs?.find((item) => item.id === id);
-          checklists.set(id, doc ? checklistItems(doc.content) : undefined);
+          // An archived doc offers no ticks (the API refuses them).
+          checklists.set(id, doc ? (doc.archivedAt ? [] : checklistItems(doc.content)) : undefined);
         }
         return checklists.get(id);
       },

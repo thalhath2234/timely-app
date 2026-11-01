@@ -126,12 +126,15 @@ export function checklistKey(text: string): string {
 }
 
 /** The item a CheckRow means: the one at `item` when its words still match,
- * else the first with those words. */
+ * else the only one with those words. When several items share the words and
+ * none is at `item`, it is not known which one was meant, so there is none
+ * (the server refuses such a tick too). */
 export function findChecklistItem(items: DocChecklistItem[], text: string, item?: number): DocChecklistItem | undefined {
   const key = checklistKey(text);
   const placed = typeof item === "number" ? items.find((entry) => entry.item === item) : undefined;
   if (placed && checklistKey(placed.text) === key) return placed;
-  return items.find((entry) => checklistKey(entry.text) === key);
+  const same = items.filter((entry) => checklistKey(entry.text) === key);
+  return same.length === 1 ? same[0] : undefined;
 }
 
 /** What `PUT /docs/:id/checklist` takes: the item by its place and words, and its new state. */

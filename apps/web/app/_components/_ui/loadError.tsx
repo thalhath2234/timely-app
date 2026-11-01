@@ -57,8 +57,10 @@ export default function LoadError({ what, error, onRetry, retrying, className }:
 /**
  * Inline banner for a list that already has data on screen. The stale rows
  * stay visible; the banner says the latest refresh failed and offers Retry.
+ * With `hasCopy` false (a page of cards whose source never loaded) it says
+ * the load failed and claims no copy.
  */
-export function LoadErrorBanner({ what, error, onRetry, retrying, className }: LoadErrorProps) {
+export function LoadErrorBanner({ what, error, onRetry, retrying, className, hasCopy = true }: LoadErrorProps & { hasCopy?: boolean }) {
   return (
     <div
       role="alert"
@@ -69,9 +71,12 @@ export function LoadErrorBanner({ what, error, onRetry, retrying, className }: L
     >
       <AlertTriangle className="size-3.5 shrink-0 text-destructive" />
       <span className="min-w-0 flex-1">
-        <span className="font-medium">Couldn&apos;t refresh {what}.</span>{" "}
+        <span className="font-medium">
+          {hasCopy ? `Couldn’t refresh ${what}.` : `Couldn’t load ${what}.`}
+        </span>{" "}
         <span className="text-muted-foreground">
-          Showing the last loaded copy. {describe(error, "")}
+          {hasCopy ? "Showing the last loaded copy. " : ""}
+          {describe(error, "")}
         </span>
       </span>
       {onRetry ? (

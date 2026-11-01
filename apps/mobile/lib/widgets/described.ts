@@ -92,7 +92,8 @@ export function describedModel(program: string, input: Input, title: string, nam
   const checklist = (docId: string) => {
     if (!checklists.has(docId)) {
       const doc = input.data.docs?.find((entry) => entry.id === docId);
-      checklists.set(docId, doc ? checklistItems(doc.content) : undefined);
+      // An archived doc offers no ticks (the API refuses them).
+      checklists.set(docId, doc ? (doc.archivedAt ? [] : checklistItems(doc.content)) : undefined);
     }
     return checklists.get(docId);
   };

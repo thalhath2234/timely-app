@@ -525,6 +525,16 @@ describe("@Checklist and CheckRow: a doc's checklist in cards, live blocks and r
     assert.equal(findChecklistItem(items, "Bread"), undefined);
   });
 
+  test("a moved item whose words several items share is not guessed", () => {
+    // [Milk, Bread, Milk] with Eggs added on top: the card still says the
+    // second Milk is item 2, which is Bread now.
+    const groceries = checklistItems({ type: "doc", content: [list(item("Eggs"), item("Milk"), item("Bread"), item("Milk"))] });
+    assert.equal(findChecklistItem(groceries, "Milk", 2), undefined);
+    assert.equal(findChecklistItem(groceries, "Milk"), undefined);
+    assert.equal(findChecklistItem(groceries, "Milk", 3)?.item, 3, "its place still holds its words");
+    assert.equal(findChecklistItem(groceries, "Bread", 0)?.item, 2, "words only one item has are found anywhere");
+  });
+
   test("a tick shows at once on a copy of the doc, as the API will save it", () => {
     const ticked = tickedContent(shopping, { item: 6, text: "Small ones", done: true });
     assert.deepEqual(checklistItems(ticked).filter((entry) => entry.done).map((entry) => entry.text), ["Milk", "Small ones"]);
@@ -635,6 +645,21 @@ open = ${open}`;
     assert.deepEqual(checkBoard(linked('Open("Open doc", "doc", "Shopping list")'), withDocs, ctx).problems, ["Open “Open doc” goes to a doc, but no doc has the id “Shopping list”: use the docId from @Checklist, the sheetId from @Cells or an id a tool returned."]);
     const checklist = 'root = Panel("Shopping", [l])\nc = @Checklist({doc: "Shopping list"})\nl = List(@Each(c.rows, "i", CheckRow(i.docId, i.text)), "Nothing")';
     assert.deepEqual(checkBoard(checklist, withDocs, ctx).problems, ["“Shopping list” has no checklist."]);
+  });
+
+  test("names rows written out with an id nothing has", () => {
+    const withDocs = { ...data, docs: [{ id: "doc_1", title: "Shopping list", content: { type: "doc", content: [] }, updatedAt: "2026-10-29T08:00:00Z" }] };
+    // The tester's scripted card: a made-up task row beside a real one.
+    const rows = (row) => `root = Panel("Client work", [l])\nl = List([${row}], "Nothing")`;
+    assert.deepEqual(checkBoard(rows('TaskRow("t_fake", "Pay rent", "Today")'), data, ctx).problems, [
+      "TaskRow “Pay rent” names the task id “t_fake”, which no task has: draw rows from @Data, or use an id a tool returned.",
+    ]);
+    assert.deepEqual(checkBoard(rows('TaskRow("t1", "Send invoice")'), data, ctx).problems, [], "a real id passes");
+    assert.deepEqual(checkBoard(rows('CheckRow("doc_x", "Milk")'), withDocs, ctx).problems, [
+      "CheckRow “Milk” names the doc id “doc_x”, which no doc has: draw rows from @Checklist and use its docId.",
+    ]);
+    assert.deepEqual(checkBoard(rows('CheckRow("doc_x", "Milk")'), data, ctx).problems, [], "not judged before the docs are loaded");
+    assert.deepEqual(checkBoard(program, data, ctx).problems, [], "rows drawn from @Data pass");
   });
 
   test("the API's bundled check matches packages/contract and runs on its own", async () => {

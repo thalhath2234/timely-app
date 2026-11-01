@@ -1,6 +1,7 @@
 package richtext
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"timely-api/internal/models"
@@ -36,10 +37,14 @@ func ChecklistItems(doc models.JSONMap) []ChecklistItem {
 	return out
 }
 
+// ErrAmbiguousChecklistItem is a tick whose place no longer holds its words
+// while several other items share them, so which one was meant is unknown.
+var ErrAmbiguousChecklistItem = errors.New("the doc has more than one item with these words")
+
 // SetChecklistItem ticks or unticks the item at place item when its words
-// still match text, else the first item with those words, as CheckRow finds
-// it. It changes doc in place and says which item it found and whether its
-// state changed.
+// still match text, else the only item with those words, as CheckRow finds
+// it; several such items give ErrAmbiguousChecklistItem. It changes doc in
+// place and says which item it found and whether its state changed.
 func SetChecklistItem(doc models.JSONMap, item int, text string, done bool) (ChecklistItem, bool, error) {
 	key := checklistKey(text)
 	if key == "" {
@@ -48,6 +53,7 @@ func SetChecklistItem(doc models.JSONMap, item int, text string, done bool) (Che
 	var placed, first map[string]any
 	at := -1
 	firstAt := -1
+	same := 0
 	walkChecklist(doc, func(place int, node map[string]any, _ string) bool {
 		if checklistKey(checklistText(node)) != key {
 			return true
@@ -56,11 +62,15 @@ func SetChecklistItem(doc models.JSONMap, item int, text string, done bool) (Che
 			placed, at = node, place
 			return false
 		}
+		same++
 		if first == nil {
 			first, firstAt = node, place
 		}
 		return true
 	})
+	if placed == nil && same > 1 {
+		return ChecklistItem{}, false, ErrAmbiguousChecklistItem
+	}
 	if placed == nil {
 		placed, at = first, firstAt
 	}
