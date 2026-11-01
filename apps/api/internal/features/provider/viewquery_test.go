@@ -111,3 +111,76 @@ func TestViewQueryRefusesAViewWithNothingLeft(t *testing.T) {
 		t.Errorf("a view with no rules asked for: %v", err)
 	}
 }
+
+// W10: a brace after the JSON, or a stray object in a note before it, does
+// not lose the answer.
+func TestParseViewDraftTakesTheViewObject(t *testing.T) {
+	after := "```json\n{\"name\":\"Bugs\",\"rules\":[]}\n```\nHope this helps! {not json}"
+	if draft, err := parseViewDraft(after); err != nil || draft.Name != "Bugs" {
+		t.Errorf("trailing brace: %+v %v", draft, err)
+	}
+	before := "Note: a rule looks like {\"field\":\"label\"}.\n{\"name\":\"Bugs\",\"rules\":[{\"field\":\"label\",\"op\":\"anyOf\",\"value\":[\"bug\"]}]}"
+	if draft, err := parseViewDraft(before); err != nil || draft.Name != "Bugs" || len(draft.Rules) != 1 {
+		t.Errorf("stray object first: %+v %v", draft, err)
+	}
+}
+
+// W8: a priority level or a date the apps can't read is dropped and named,
+// not kept as a chip that filters nothing.
+func TestResolveDraftDropsUnreadableValues(t *testing.T) {
+	raw := func(s string) json.RawMessage { return json.RawMessage(s) }
+	draft := viewQueryDraft{Rules: []models.ViewRule{
+		{Field: "priority", Op: "gte", Value: raw(`"Hgh"`)},
+		{Field: "deadline", Op: "in", Value: raw(`"someday"`)},
+		{Field: "priority", Op: "gte", Value: raw(`"high"`)},
+		{Field: "deadline", Op: "in", Value: raw(`"next:7"`)},
+		{Field: "createdAt", Op: "between", Value: raw(`"2026-10-01"`), To: raw(`"later"`)},
+		{Field: "updatedAt", Op: "before", Value: raw(`"-30"`)},
+	}}
+	out, dropped, err := testVocab().resolveDraft(draft, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Rules) != 3 || string(out.Rules[0].Value) != `"High"` {
+		t.Fatalf("rules kept: %+v", out.Rules)
+	}
+	want := []string{"unknown priority Hgh", `deadline "someday" is not a date`, `createdAt "later" is not a date`}
+	if strings.Join(dropped, "|") != strings.Join(want, "|") {
+		t.Errorf("dropped %q, want %q", dropped, want)
+	}
+}
+
+// GW25: 31 conditions keep the first 30 and name the rest.
+func TestResolveDraftTrimsToThirtyRules(t *testing.T) {
+	rules := make([]models.ViewRule, 31)
+	for i := range rules {
+		rules[i] = models.ViewRule{Field: "name", Op: "contains", Value: json.RawMessage(fmt.Sprintf(`"word%d"`, i))}
+	}
+	out, dropped, err := testVocab().resolveDraft(viewQueryDraft{Rules: rules}, false)
+	if err != nil || len(out.Rules) != models.MaxViewRules {
+		t.Fatalf("%d rules, %v", len(out.Rules), err)
+	}
+	if len(dropped) != 1 || dropped[0] != "1 more condition (a view holds 30)" {
+		t.Errorf("dropped %q", dropped)
+	}
+}
+
+// GW26: names go in as JSON, so "Red, Blue" stays one label, and each
+// field's options are capped.
+func TestViewQueryMessagesQuoteNamesAndCapOptions(t *testing.T) {
+	options := make([]models.Option, 2000)
+	for i := range options {
+		options[i] = models.Option{ID: fmt.Sprintf("o%d", i), Value: fmt.Sprintf("Size %d", i)}
+	}
+	vocab := viewVocab{
+		labels: []vocabRow{{ID: "l1", Name: "Red, Blue"}, {ID: "l2", Name: "Red"}},
+		fields: []vocabRow{{ID: "c1", Name: "Size", Type: "select", Options: models.Options{Options: options}}},
+	}
+	user := viewQueryMessages(viewQueryRequest{Query: "red, blue labels", Today: "2026-11-01"}, vocab)[1].Content
+	if !strings.Contains(user, `- Labels: ["Red, Blue","Red"]`) {
+		t.Errorf("labels line: %s", user)
+	}
+	if strings.Contains(user, "Size 60\"") || !strings.Contains(user, "and 1940 more") || len(user) > 3000 {
+		t.Errorf("options not capped (%d bytes)", len(user))
+	}
+}

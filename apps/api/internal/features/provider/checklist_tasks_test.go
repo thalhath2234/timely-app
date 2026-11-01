@@ -331,3 +331,52 @@ func TestIntegrationChecklistTasksUsesTheDefaultModel(t *testing.T) {
 		t.Fatalf("empty request: want 400, got %d", code)
 	}
 }
+
+// GW12: an answer without numbers that skips an item leaves the items
+// unplaced instead of shifting each later title onto the item before it.
+func TestParseChecklistTasksDoesNotShift(t *testing.T) {
+	got, err := parseChecklistTasks(`{"tasks":[{"title":"Book flights to Paris"},{"title":"Pay rent"}]}`, 3)
+	if err == nil {
+		t.Fatalf("two unnumbered titles for three items can't be placed: %+v", got)
+	}
+	// A duplicate number does not push the second title onto the next item.
+	got, err = parseChecklistTasks(`{"tasks":[{"n":1,"title":"A"},{"n":1,"title":"B"},{"n":3,"title":"C"}]}`, 3)
+	if err != nil || got[0].Title != "A" || got[1].Title != "" || got[2].Title != "C" {
+		t.Fatalf("duplicate n: %+v %v", got, err)
+	}
+}
+
+// W10: a brace after the JSON does not lose every title.
+func TestParseChecklistTasksIgnoresTextAfterTheJSON(t *testing.T) {
+	answer := "```json\n{\"tasks\":[{\"n\":1,\"title\":\"Call the plumber\"}]}\n```\nHope this helps! {not json}"
+	got, err := parseChecklistTasks(answer, 1)
+	if err != nil || got[0].Title != "Call the plumber" {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
+
+// W22: no emoji in a title and no HTML tags in a title or description; a
+// title of emoji only leaves the item its own words.
+func TestCleanTaskTitleDropsEmojiAndTags(t *testing.T) {
+	if got := cleanTaskTitle("🛒🥛🍞"); got != "" {
+		t.Errorf("emoji-only title = %q", got)
+	}
+	if got := cleanTaskTitle("Buy milk 🥛 and bread"); got != "Buy milk and bread" {
+		t.Errorf("got %q", got)
+	}
+	if got := cleanTaskTitle("Set oven to 180°"); got != "Set oven to 180°" {
+		t.Errorf("a degree sign is not an emoji: %q", got)
+	}
+	if got := cleanTaskDescription("Fix it <script>alert(1)</script> today."); got != "Fix it alert(1) today." {
+		t.Errorf("got %q", got)
+	}
+}
+
+// W19: an answer that can't be read gets a plain message, not a Go type dump.
+func TestDraftChecklistTasksHidesParseErrors(t *testing.T) {
+	model := &fakeCompleter{reply: `{"tasks": {"n":1,"title":"x"}}`}
+	_, err := draftChecklistTasks(context.Background(), model, checklistTasksRequest{Items: []checklistTaskItem{{Name: "x"}}})
+	if !errors.Is(err, errUnreadable) || strings.Contains(err.Error(), "struct") {
+		t.Fatalf("err = %v", err)
+	}
+}

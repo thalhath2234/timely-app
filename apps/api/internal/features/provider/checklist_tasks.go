@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -116,12 +118,18 @@ func checklistTasksMessages(r checklistTasksRequest) []chat.WireMessage {
 	return []chat.WireMessage{{Role: "system", Content: checklistTasksSystem}, {Role: "user", Content: b.String()}}
 }
 
+// errUnreadable is an answer with no usable titles in it. What exactly was
+// wrong is logged, not shown: it reads like a Go type dump.
+var errUnreadable = errors.New("the answer had no titles Timely could read")
+
 // parseChecklistTasks reads the model's JSON into one draft per item, in the
-// items' order. An entry is placed by its number when it has a valid one,
-// else by its position; an item the model skipped gets an empty draft.
+// items' order. An entry is placed by its number. Only when no entry has a
+// number and there is one for every item are they placed by position: an
+// answer that skipped one would otherwise put each later title on the item
+// before its own. An item with no entry gets an empty draft.
 func parseChecklistTasks(text string, count int) ([]checklistTaskDraft, error) {
-	body := jsonObject.FindString(cleanWritten(text, false))
-	if body == "" {
+	body, ok := jsonObjectWith(cleanWritten(text, false), "tasks")
+	if !ok {
 		return nil, errors.New("no JSON in the answer")
 	}
 	var answer struct {
@@ -131,17 +139,23 @@ func parseChecklistTasks(text string, count int) ([]checklistTaskDraft, error) {
 			Description string `json:"description"`
 		} `json:"tasks"`
 	}
-	if err := json.Unmarshal([]byte(body), &answer); err != nil {
+	if err := json.Unmarshal(body, &answer); err != nil {
 		return nil, err
+	}
+	byPosition := len(answer.Tasks) == count
+	for _, task := range answer.Tasks {
+		if task.N != 0 {
+			byPosition = false
+		}
 	}
 	out := make([]checklistTaskDraft, count)
 	filled := make([]bool, count)
 	for i, task := range answer.Tasks {
 		at := task.N - 1
-		if at < 0 || at >= count || filled[at] {
+		if byPosition {
 			at = i
 		}
-		if at >= count || filled[at] {
+		if at < 0 || at >= count || filled[at] {
 			continue
 		}
 		draft := checklistTaskDraft{Title: cleanTaskTitle(task.Title), Description: cleanTaskDescription(task.Description)}
@@ -159,10 +173,26 @@ func parseChecklistTasks(text string, count int) ([]checklistTaskDraft, error) {
 	return nil, errors.New("no titles in the answer")
 }
 
+// htmlTag is an HTML tag in an answer; a task name or description is plain text.
+var htmlTag = regexp.MustCompile(`</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>`)
+
+// isEmoji is a picture character: the system prompt asks for none in a title.
+func isEmoji(r rune) bool {
+	return r >= 0x1F000 && r <= 0x1FAFF || r >= 0x2600 && r <= 0x27BF || r >= 0x2B1B && r <= 0x2B55 ||
+		r == 0x200D || r == 0x20E3 || r >= 0xFE00 && r <= 0xFE0F || r >= 0xE0020 && r <= 0xE007F
+}
+
 // cleanTaskTitle makes a model's title fit a task name: one line, no wrapping
-// quotes or Markdown, no closing full stop, and at most checklistTaskTitleMax
-// characters, cut at a word.
+// quotes or Markdown, no HTML tags or emoji, no closing full stop, and at most
+// checklistTaskTitleMax characters, cut at a word. A title of emoji only is
+// empty, so the item keeps its own words.
 func cleanTaskTitle(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if isEmoji(r) {
+			return -1
+		}
+		return r
+	}, htmlTag.ReplaceAllString(s, ""))
 	s = strings.Join(strings.Fields(s), " ")
 	for range 2 { // "Book it." and **Book it**. alike
 		s = strings.TrimRight(s, ". ")
@@ -173,7 +203,7 @@ func cleanTaskTitle(s string) string {
 }
 
 func cleanTaskDescription(s string) string {
-	s = strings.Join(strings.Fields(s), " ")
+	s = strings.Join(strings.Fields(htmlTag.ReplaceAllString(s, "")), " ")
 	return clipRunesAtWord(strings.TrimSpace(s), checklistTaskDescMax)
 }
 
@@ -229,6 +259,10 @@ func draftChecklistTasks(ctx context.Context, completer chat.Completer, req chec
 				return
 			}
 			drafts, err := parseChecklistTasks(reply.Content, len(part.Items))
+			if err != nil {
+				slog.Warn("checklist tasks: unreadable answer", "error", err)
+				err = errUnreadable
+			}
 			answers <- answer{start: start, drafts: drafts, err: err}
 		}(b[0])
 	}
@@ -278,13 +312,17 @@ func (s *Service) checklistTasks(c *echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(409, err.Error())
 	}
-	drafts, err := draftChecklistTasks(ctx, completer, req)
-	if errors.Is(err, context.DeadlineExceeded) {
+	_, model, _ := s.resolveModel(ctx, user(c), provider)
+	drafts, err := draftChecklistTasks(oneShot(ctx), completer, req)
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
 		return echo.NewHTTPError(504, "The AI took too long to name the tasks")
-	}
-	if err != nil {
+	case errors.Is(err, errUnreadable), errors.Is(err, chat.ErrOutputTooLong):
+		return echo.NewHTTPError(502, "The AI could not name the tasks. Try again")
+	case err != nil:
+		// The provider's own message ("... rejected the request (HTTP 401)"),
+		// which the apps read to say why the items kept their own words.
 		return echo.NewHTTPError(502, "The AI could not name the tasks: "+err.Error())
 	}
-	_, model, _ := s.resolveModel(ctx, user(c), provider)
 	return c.JSON(200, checklistTasksResponse{Items: drafts, Provider: provider, Model: model})
 }
