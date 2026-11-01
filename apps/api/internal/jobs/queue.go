@@ -199,7 +199,7 @@ const maxErrorBytes = 2000
 
 // unsavedError replaces a job's error when even the cleaned text cannot be
 // saved, so the job still leaves 'running'.
-const unsavedError = "the job failed with an error that could not be saved"
+const unsavedError = "Failed with an error that could not be saved."
 
 // Fail records the error and either schedules another attempt or, after the
 // last one, marks the job failed. The error usually quotes a provider, so it
@@ -374,5 +374,5 @@ func (q *Queue) RecoverStuck(olderThan time.Duration) error {
 		    last_error = CASE WHEN attempts >= max_attempts THEN @lost ELSE last_error END,
 		    locked_at = NULL, locked_by = NULL, updated_at = @now
 		WHERE status = 'running' AND locked_at IS NOT NULL AND locked_at < @cutoff
-	`, sql.Named("now", now), sql.Named("cutoff", now.Add(-olderThan)), sql.Named("lost", "the job stopped without finishing on every attempt")).Error
+	`, sql.Named("now", now), sql.Named("cutoff", now.Add(-olderThan)), sql.Named("lost", "Stopped before finishing, on every attempt.")).Error
 }

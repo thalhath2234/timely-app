@@ -147,13 +147,13 @@ func validateBackup(backup *Backup) error {
 // otherwise wipe the account and leave it unusable. Every export has them.
 func requireAccountBasics(backup *Backup) error {
 	if len(backup.Rows["configs"]) != 1 {
-		return errors.New("this backup has no account settings; restore a backup exported from Timely")
+		return errors.New("This backup has no account settings, so your account was not changed. Choose a backup exported from Timely.")
 	}
 	if len(backup.Rows["workspaces"]) == 0 {
-		return errors.New("this backup has no workspace; restore a backup exported from Timely")
+		return errors.New("This backup has no workspace, so your account was not changed. Choose a backup exported from Timely.")
 	}
 	if len(backup.Rows["statuses"]) == 0 {
-		return errors.New("this backup has no task statuses; restore a backup exported from Timely")
+		return errors.New("This backup has no task statuses, so your account was not changed. Choose a backup exported from Timely.")
 	}
 	return nil
 }
@@ -170,7 +170,7 @@ func checkAccountBasics(tx *gorm.DB, userID string) error {
 		return err
 	}
 	if configs != 1 || workspaces == 0 {
-		return errors.New("this backup would leave the account without its settings or a workspace; nothing was changed")
+		return errors.New("This backup would leave your account without its settings or a workspace, so your account was not changed. Choose a backup exported from Timely.")
 	}
 	return nil
 }

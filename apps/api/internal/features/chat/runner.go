@@ -194,7 +194,7 @@ const maxRunErrorBytes = 2000
 
 // runFailedUnsaved is the error a failed run shows when its own error could
 // not be saved.
-const runFailedUnsaved = "Something went wrong and the details could not be saved. Please try again; completed changes are kept"
+const runFailedUnsaved = "This request failed, and its error could not be shown. Please try again; completed changes are saved"
 
 // failPlainly marks a run failed with a fixed message, touching only the
 // status columns, for when the full failure checkpoint could not be saved.
