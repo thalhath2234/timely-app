@@ -305,7 +305,7 @@ func tooLong(text string) bool { return utf8.RuneCountInString(text) > maxExtrac
 
 // dateAssumed is the issue a receipt without a printed date gets, so the
 // person checks the date filled in for it.
-const dateAssumed = "No date is printed on the receipt, so today's date was used. Check it"
+const dateAssumed = "No date is printed on the receipt, so today's date was used. Check the date"
 
 // stillLeased reports whether the run still holds the conversation. A
 // discarded review or Stop clears the lease.

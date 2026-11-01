@@ -13,7 +13,12 @@ import TimelyLogo, {
   LogoSpinner,
   SPINNER_LOOP_SECONDS,
 } from "@/app/_components/_ui/timelyLogo";
-import { chatRequest, type Chat, type ChatContext } from "@/app/utils/api/chat";
+import {
+  chatRequest,
+  type Chat,
+  type ChatContext,
+  type ReceiptDraft,
+} from "@/app/utils/api/chat";
 import { chatKey, chatsKey, useChat } from "@/app/utils/hooks/chat";
 import { cn } from "@/app/utils/cn";
 import LoadError from "@/app/_components/_ui/loadError";
@@ -131,6 +136,9 @@ export default function Conversation({
   const input = useRef<HTMLTextAreaElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const receiptAnchor = useRef<HTMLDivElement>(null);
+  // The receipt form as the person left it, sent with a message typed
+  // during the review so unsaved edits are revised, not lost.
+  const receiptDraft = useRef<ReceiptDraft | null>(null);
   const lastRevision = useRef<number | null>(null);
   const busy = isBusy(chat?.status);
   const chips = chat?.context || context;
@@ -231,6 +239,7 @@ export default function Conversation({
       body: {
         content: draft.trim(),
         imageIds: uploads.images.map((i) => i.id),
+        ...unsavedReceipt(),
       },
     });
   }
@@ -238,9 +247,16 @@ export default function Conversation({
     if (!id || mutation.isPending || busy) return;
     mutation.mutate({
       action: "/messages",
-      body: { content, imageIds: [] },
+      body: { content, imageIds: [], ...unsavedReceipt() },
       keepDraft: true,
     });
+  }
+  function unsavedReceipt() {
+    return receiptDirty &&
+      receiptDraft.current &&
+      chat?.imageReview?.status === "review"
+      ? { receipt: receiptDraft.current }
+      : {};
   }
   function configure(nextContext: ChatContext[], nextSearch: boolean) {
     if (id)
@@ -455,6 +471,7 @@ export default function Conversation({
                   chat={chat}
                   pending={mutation.isPending}
                   onDirty={() => setReceiptDirty(true)}
+                  draftRef={receiptDraft}
                   act={act}
                 />
               )}
