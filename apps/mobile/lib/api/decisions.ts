@@ -10,7 +10,8 @@ export type DecisionSettings = {
   enabled: boolean;
   available: boolean;
   provider?: DecisionProvider;
-  typesafe: { keySet: boolean; keyHint?: string; rejected: boolean };
+  /** unreadable: a key is saved but the server can no longer decrypt it, so it must be entered again. */
+  typesafe: { keySet: boolean; keyHint?: string; rejected: boolean; unreadable?: boolean };
   openrouterKeySet: boolean;
   deepWorkTime?: "" | "morning" | "afternoon" | "evening";
 };
@@ -99,6 +100,8 @@ export const getImportFormat = (lines: string[]) =>
 export type TaskHints = {
   available: boolean;
   logId?: string;
+  /** Set when suggestions are on but the call failed. */
+  error?: string;
   statusId?: string;
   stageId?: string;
   fields?: { fieldId: string; type: string; optionIds?: string[]; value?: string }[];
@@ -122,7 +125,7 @@ export type StaleWork = {
   logId?: string;
   tasks: { id: string; name: string; idleDays: number; verdict?: StaleVerdict }[];
 };
-export const getStaleWork = () => api<StaleWork>("/suggestions/stale-work");
+export const getStaleWork = () => api<StaleWork>(`/suggestions/stale-work?timezone=${encodeURIComponent(deviceTimezone())}`);
 export const keepStaleTask = (id: string) =>
   api<void>(`/suggestions/stale-work/${encodeURIComponent(id)}/keep`, { method: "POST" });
 
@@ -277,6 +280,8 @@ export type HighlightGroup = { key: string; label: string; count: number; tasks:
 export type Highlights = {
   available: boolean;
   logId?: string;
+  /** Set when suggestions are on but a call failed. */
+  error?: string;
   highlights: { id: string; text: string }[];
   blockers: HighlightGroup[];
   missed: HighlightGroup[];

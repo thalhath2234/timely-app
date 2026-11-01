@@ -6,7 +6,8 @@ export type DecisionsView = {
   enabled: boolean;
   available: boolean;
   provider?: "typesafe" | "openrouter";
-  typesafe: { keySet: boolean; keyHint?: string; rejected: boolean };
+  /** unreadable: a key is saved but the server can no longer decrypt it, so it must be entered again. */
+  typesafe: { keySet: boolean; keyHint?: string; rejected: boolean; unreadable?: boolean };
   openrouterKeySet: boolean;
   deepWorkTime: DeepWorkTime;
 };
@@ -130,6 +131,8 @@ export const getClarifySuggestions = (inboxId: string) =>
 export type TaskHints = {
   available: boolean;
   logId?: string;
+  /** Set when suggestions are on but the call failed. */
+  error?: string;
   statusId?: string;
   stageId?: string;
   fields?: { fieldId: string; type: string; optionIds?: string[]; value?: string }[];
@@ -154,7 +157,8 @@ export type StaleWork = {
   logId?: string;
   tasks: { id: string; name: string; idleDays: number; verdict?: StaleVerdict }[];
 };
-export const getStaleWork = () => request<StaleWork>("/suggestions/stale-work");
+export const getStaleWork = () =>
+  request<StaleWork>(`/suggestions/stale-work?timezone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`);
 /** Records a review that keeps the task, which restarts its idle days. */
 export const keepStaleTask = (taskId: string) =>
   request<void>(`/suggestions/stale-work/${encodeURIComponent(taskId)}/keep`, "POST");
@@ -325,6 +329,8 @@ export type HighlightGroup = { key: string; label: string; count: number; tasks:
 export type Highlights = {
   available: boolean;
   logId?: string;
+  /** Set when suggestions are on but a call failed. */
+  error?: string;
   highlights: { id: string; text: string }[];
   blockers: HighlightGroup[];
   missed: HighlightGroup[];
