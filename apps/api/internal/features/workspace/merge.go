@@ -79,6 +79,24 @@ func checkNames(req mergeRequest, from string, saved map[string]string) error {
 	return nil
 }
 
+// checkShown refuses a merge whose items were renamed or deleted since the
+// person was shown them (checkNames), when the app sent the names; read
+// returns the saved names. The workspace is checked to be the person's
+// first, so a refusal never names another account's label, status or option.
+func (m *Merger) checkShown(userID, workspaceID string, req mergeRequest, from string, read func() (map[string]string, error)) error {
+	if strings.TrimSpace(req.FromName) == "" && strings.TrimSpace(req.IntoName) == "" {
+		return nil
+	}
+	if err := NewWorkspaceRepository(m.db).EnsureWorkspaceOwned(userID, workspaceID); err != nil {
+		return err
+	}
+	names, err := read()
+	if err != nil {
+		return err
+	}
+	return checkNames(req, from, names)
+}
+
 // savedNames reads the names of label or status rows in the workspace.
 func (m *Merger) savedNames(model any, workspaceID string, ids ...string) (map[string]string, error) {
 	var rows []struct{ ID, Name string }
@@ -132,11 +150,8 @@ func (m *Merger) handle(c *echo.Context, run func(userID string, req mergeReques
 func (m *Merger) mergeLabel(c *echo.Context) error {
 	return m.handle(c, func(uid string, req mergeRequest) (MergeResult, error) {
 		ws, from := c.Param("workspaceId"), c.Param("lableId")
-		names, err := m.savedNames(&models.Lable{}, ws, from, req.Into)
-		if err != nil {
-			return MergeResult{}, err
-		}
-		if err := checkNames(req, from, names); err != nil {
+		read := func() (map[string]string, error) { return m.savedNames(&models.Lable{}, ws, from, req.Into) }
+		if err := m.checkShown(uid, ws, req, from, read); err != nil {
 			return MergeResult{}, err
 		}
 		return m.MergeLabels(uid, ws, from, req.Into)
@@ -146,11 +161,8 @@ func (m *Merger) mergeLabel(c *echo.Context) error {
 func (m *Merger) mergeStatus(c *echo.Context) error {
 	return m.handle(c, func(uid string, req mergeRequest) (MergeResult, error) {
 		ws, from := c.Param("workspaceId"), c.Param("statusId")
-		names, err := m.savedNames(&models.Status{}, ws, from, req.Into)
-		if err != nil {
-			return MergeResult{}, err
-		}
-		if err := checkNames(req, from, names); err != nil {
+		read := func() (map[string]string, error) { return m.savedNames(&models.Status{}, ws, from, req.Into) }
+		if err := m.checkShown(uid, ws, req, from, read); err != nil {
 			return MergeResult{}, err
 		}
 		return m.MergeStatuses(uid, ws, from, req.Into)
@@ -163,14 +175,9 @@ func (m *Merger) mergeOption(c *echo.Context) error {
 			return MergeResult{}, errMergeSelf
 		}
 		ws, field := c.Param("workspaceId"), c.Param("customFieldId")
-		if req.FromName != "" || req.IntoName != "" {
-			names, err := m.savedOptionNames(ws, field)
-			if err != nil {
-				return MergeResult{}, err
-			}
-			if err := checkNames(req, req.From, names); err != nil {
-				return MergeResult{}, err
-			}
+		read := func() (map[string]string, error) { return m.savedOptionNames(ws, field) }
+		if err := m.checkShown(uid, ws, req, req.From, read); err != nil {
+			return MergeResult{}, err
 		}
 		return m.MergeOptions(uid, ws, field, req.From, req.Into)
 	})

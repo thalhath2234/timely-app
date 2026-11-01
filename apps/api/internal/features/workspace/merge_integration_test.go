@@ -2,9 +2,13 @@ package workspace
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
+	"gorm.io/gorm"
 	"timely-api/internal/models"
 )
 
@@ -107,5 +111,33 @@ func TestIntegrationMergeLabelsStatusesAndOptions(t *testing.T) {
 	}
 	if count(t, f.db, &models.Status{}, "id = ?", done.ID) != 1 {
 		t.Fatal("failed merge deleted the status")
+	}
+}
+
+// The names a merge was offered under are read only once the workspace is
+// found to be the person's: another account gets "not found", never a
+// refusal that names the owner's label.
+func TestIntegrationMergeNamesAreCheckedOnlyInYourOwnWorkspace(t *testing.T) {
+	f := newFixture(t)
+	m := NewMerger(f.db)
+	waiting, err := f.svc.CreateLabels(f.owner, &models.Lable{Name: "Waiting on client", Color: "#333333", WorkspaceID: f.ws})
+	must(t, err)
+	req := mergeRequest{Into: waiting.ID, FromName: "Bug", IntoName: "urgent"}
+	read := func() (map[string]string, error) { return m.savedNames(&models.Lable{}, f.ws, f.label, waiting.ID) }
+
+	err = m.checkShown(f.other, f.ws, req, f.label, read)
+	if !errors.Is(err, gorm.ErrRecordNotFound) || strings.Contains(fmt.Sprint(err), "Waiting on client") {
+		t.Fatalf("another account got %v, want not found without the owner's label name", err)
+	}
+
+	// The owner is told the label was renamed since the offer.
+	var renamed renamedError
+	if err := m.checkShown(f.owner, f.ws, req, f.label, read); !errors.As(err, &renamed) || renamed.now != "Waiting on client" {
+		t.Fatalf("owner got %v", err)
+	}
+	// Without names (an older app) nothing is read here; the merge's own
+	// checks apply.
+	if err := m.checkShown(f.other, f.ws, mergeRequest{Into: waiting.ID}, f.label, read); err != nil {
+		t.Fatalf("no names: %v", err)
 	}
 }
