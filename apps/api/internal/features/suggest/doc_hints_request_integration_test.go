@@ -3,6 +3,7 @@ package suggest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -99,6 +100,35 @@ func TestIntegrationDocHintsClipPropertiesAndHideSecrets(t *testing.T) {
 	// The doc's words are its body, not its properties again.
 	if text, _ := jev.requests[0].State["text"].(string); text != body {
 		t.Fatalf("text %q", text)
+	}
+}
+
+// A property key the person's other docs share is asked with their values
+// as options; a secret's values (a password kept in two docs) were sent too.
+func TestIntegrationDocHintsNeverOfferAnotherDocsSecret(t *testing.T) {
+	w := newWorld(t)
+	for i, fm := range []string{"area: home\npassword: swordfish\napiToken: sk-or-v1-0123456789", "area: work\npassword: swordfish\napiToken: sk-or-v1-0123456789"} {
+		must(t, w.db.Create(&models.Document{ID: fmt.Sprintf("doc_s%d", i), Title: "Box", WorkspaceID: w.ws, UserID: w.user, Content: docContent(frontmatter(fm))}).Error)
+	}
+	text := "How the home server is set up: the router, the backups and the media share."
+	doc := models.Document{ID: "doc_new", Title: "Server notes", WorkspaceID: w.ws, UserID: w.user, PlainText: text, Content: docContent(para(text))}
+	must(t, w.db.Create(&doc).Error)
+
+	jev := &jevStub{answers: map[string]any{}}
+	s := New(w.db, jev.service(t), nearby{})
+	_, err := s.DocHints(context.Background(), w.user, doc.ID, time.Now())
+	must(t, err)
+	if len(jev.requests) != 1 {
+		t.Fatalf("%d requests", len(jev.requests))
+	}
+	asked, _ := json.Marshal(jev.requests[0].Questions)
+	if !strings.Contains(string(asked), "“area”") {
+		t.Fatalf("a shared key is still asked: %s", asked)
+	}
+	for _, secret := range []string{"swordfish", "sk-or-v1-0123456789", "password", "apiToken"} {
+		if strings.Contains(string(asked), secret) {
+			t.Fatalf("asked with %q: %s", secret, asked)
+		}
 	}
 }
 

@@ -563,7 +563,9 @@ func (s *Service) usedKeys(ctx context.Context, userID, docID string, has map[st
 		seen := map[string]bool{}
 		for _, p := range richtext.ParseProperties(t) {
 			k := strings.ToLower(p.Key)
-			if has[k] || k == "title" || k == "aliases" || k == "alias" || k == "cssclasses" {
+			// A secret's values (another doc's apiToken) are never offered
+			// as options for this doc.
+			if has[k] || k == "title" || k == "aliases" || k == "alias" || k == "cssclasses" || secretKeys.MatchString(k) {
 				continue
 			}
 			e := byKey[k]
