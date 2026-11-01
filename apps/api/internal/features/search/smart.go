@@ -43,6 +43,19 @@ func NewSmart(search Service, indexer embed.Indexer, decisions Decider) *Smart {
 	return &Smart{search: search, indexer: indexer, decisions: decisions}
 }
 
+// available is false when smart suggestions are off for the account; a
+// Decider that cannot say (a test double) counts as on.
+func (s *Smart) available(ctx context.Context, userID string) bool {
+	status, ok := s.decisions.(interface {
+		Status(ctx context.Context, userID string) (bool, string)
+	})
+	if !ok {
+		return true
+	}
+	on, _ := status.Status(ctx, userID)
+	return on
+}
+
 // Create is a "make a budget sheet" reading of the query.
 type Create struct {
 	Kind  string `json:"kind"`
@@ -74,12 +87,14 @@ func (s *Smart) Search(ctx context.Context, userID, query string, kinds []string
 // saved views, anything else the web and desktop views.
 func (s *Smart) SearchFor(ctx context.Context, userID, query string, kinds []string, client string) (SmartResult, error) {
 	query = strings.TrimSpace(query)
+	// Nothing to add without smart suggestions: skip the search too, which
+	// would embed the query only to throw the hits away.
+	if s.decisions == nil || len([]rune(query)) < 2 || !s.available(ctx, userID) {
+		return SmartResult{}, nil
+	}
 	hits, err := s.search.SemanticSearch(ctx, userID, query, 20, kinds)
 	if err != nil {
 		return SmartResult{}, err
-	}
-	if s.decisions == nil || len([]rune(query)) < 2 {
-		return SmartResult{}, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, smartBudget)
 	defer cancel()
