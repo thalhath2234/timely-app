@@ -124,8 +124,9 @@ func assertReminderPing(before *models.Task, update TaskUpdate, updates map[stri
 
 // clearStaleTraits drops the effort and urgency smart suggestions read from a
 // task's words once its name or description changes, so filters and rankings
-// stop using them; the next read asks again from the new words (the stored
-// hash no longer matches them).
+// stop using them. The hash of the words they came from goes too, so the next
+// read asks again even when the words are changed back: a rename undone would
+// otherwise match the old hash and leave the traits blank for good.
 func clearStaleTraits(before *models.Task, updates map[string]any) {
 	name, nameSet := updates["name"].(string)
 	description, descriptionSet := updates["description"].(string)
@@ -136,6 +137,7 @@ func clearStaleTraits(before *models.Task, updates map[string]any) {
 	}
 	updates["effort_kind"] = ""
 	updates["urgency"] = nil
+	updates["traits_hash"] = ""
 }
 
 // assertNoDependencyCycle walks the blocked-by chain starting from the task

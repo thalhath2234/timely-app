@@ -145,6 +145,11 @@ func TestClearStaleTraits(t *testing.T) {
 	if _, ok := updates["urgency"]; !ok {
 		t.Fatal("urgency should be written as null")
 	}
+	// Renamed back to "Pay invoice" later, the words would match the stored
+	// hash again and never be read: the hash is cleared with the traits.
+	if hash, ok := updates["traits_hash"]; !ok || hash != "" {
+		t.Fatalf("a rename should clear the traits hash, got %v", updates)
+	}
 
 	updates = map[string]any{"description": "For April"}
 	clearStaleTraits(before, updates)
@@ -157,6 +162,9 @@ func TestClearStaleTraits(t *testing.T) {
 	clearStaleTraits(before, updates)
 	if _, ok := updates["effort_kind"]; ok {
 		t.Fatalf("unchanged words should keep the traits, got %v", updates)
+	}
+	if _, ok := updates["traits_hash"]; ok {
+		t.Fatalf("unchanged words should keep the traits hash, got %v", updates)
 	}
 	updates = map[string]any{"priority_level": "High"}
 	clearStaleTraits(before, updates)
