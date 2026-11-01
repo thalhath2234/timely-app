@@ -91,3 +91,12 @@ func TestProviderErrorsNeverRepeatAKey(t *testing.T) {
 		t.Fatalf("the rest of the message is kept: %v", err)
 	}
 }
+
+// The embedding model check's 409 repeated OpenRouter's text, and with it a
+// quoted key, to Settings.
+func TestHideKeys(t *testing.T) {
+	got := HideKeys("openrouter embed: bad key or-live-key-0001 (also sk-or-v1-abcdef0123456789)", "or-live-key-0001")
+	if strings.Contains(got, "or-live-key-0001") || strings.Contains(got, "sk-or-v1-abcdef0123456789") || !strings.Contains(got, "openrouter embed: bad key") {
+		t.Fatalf("got %q", got)
+	}
+}

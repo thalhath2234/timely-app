@@ -15,15 +15,15 @@ func readReply(res *http.Response, key string) ([]byte, error) {
 	if err != nil || res.StatusCode/100 == 2 {
 		return raw, err
 	}
-	return []byte(hideKeys(string(raw), key)), nil
+	return []byte(HideKeys(string(raw), key)), nil
 }
 
 // keyLike matches API keys and bearer tokens in outside text.
 var keyLike = regexp.MustCompile(`(?i)\b(?:sk|pk|rk)-[a-z0-9][a-z0-9_\-]{7,}|\bbearer\s+[a-z0-9._~+/\-]{8,}=*`)
 
-// hideKeys takes keys out of text: the one the call sent, whatever its
+// HideKeys takes keys out of text: the one the call sent, whatever its
 // shape, and anything that reads like a key or a bearer token.
-func hideKeys(text, key string) string {
+func HideKeys(text, key string) string {
 	if len(key) >= 8 {
 		text = strings.ReplaceAll(text, key, "…")
 	}
