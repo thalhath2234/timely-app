@@ -64,7 +64,6 @@ type targetPick struct {
 	others []string
 }
 
-// resolveTarget runs resolve_target. now and loc write dates in words.
 // maxTargetLookups bounds resolve_target in one run: each lookup costs an
 // embedding and up to two Jev calls.
 const maxTargetLookups = 5
@@ -100,6 +99,7 @@ func (l *targetLookups) resolve(args json.RawMessage, look func() (any, *targetP
 	return result, pick, err
 }
 
+// resolveTarget runs resolve_target. now and loc write dates in words.
 func (s *Service) resolveTarget(ctx context.Context, c *Conversation, catalog agent.Catalog, loc *time.Location, now time.Time, args json.RawMessage) (any, *targetPick, error) {
 	var in struct {
 		Kind string `json:"kind"`

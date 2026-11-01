@@ -47,3 +47,20 @@ func TestTargetLookupsAreReusedAndCapped(t *testing.T) {
 		t.Fatalf("over the cap: %v", err)
 	}
 }
+
+// A request paused after maxBatches keeps what is left, but the next run does
+// it only when the person asks: "thanks" must not start another paid batch.
+// A batch continuing on its own still goes straight on (GC18).
+func TestPausedRequestContinuesOnlyWhenAsked(t *testing.T) {
+	auto := continueNotice("Chapters 11 to 40", nil)
+	if !strings.Contains(auto, "Continue the same request with the next batch") {
+		t.Fatalf("automatic batch: %q", auto)
+	}
+	later := continueNotice("Chapters 11 to 40", []Message{message("user", "thanks")})
+	if strings.Contains(later, "Continue the same request") || !strings.Contains(later, "only if the person's newer message asks") || !strings.Contains(later, "Chapters 11 to 40") {
+		t.Fatalf("after the person wrote: %q", later)
+	}
+	if got := continueNotice("x", []Message{notice("Done")}); !strings.Contains(got, "Continue the same request") {
+		t.Fatalf("a notice is not the person writing: %q", got)
+	}
+}
