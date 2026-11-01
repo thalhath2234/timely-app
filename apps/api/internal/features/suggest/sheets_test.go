@@ -84,3 +84,32 @@ func TestColumnTypesAskOnlyWhereValuesAllowIt(t *testing.T) {
 		t.Fatal("suggestions off still typed a column")
 	}
 }
+
+// An imported file's amounts and account numbers went to Jev with no
+// routing preference, while cell-fit sends its masked values with zdr.
+func TestColumnTypesAskOnlyZeroRetentionEndpoints(t *testing.T) {
+	var sent map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &sent)
+		_ = json.NewEncoder(w).Encode(map[string]any{"answers": map[string]any{
+			"c1": map[string]any{"type": "choice", "choice": "currency", "confidence": 0.9},
+		}})
+	}))
+	defer srv.Close()
+	client := decide.NewClient(nil)
+	client.OpenRouterURL = srv.URL
+	d := decide.New(nil, func(context.Context, string) (decide.Keys, error) {
+		return decide.Keys{Enabled: true, OpenRouter: "sk-or-key"}, nil
+	}, client)
+	out, err := New(nil, d, nil).ColumnTypes(context.Background(), "u1", []ImportColumn{
+		{Name: "Amount", Values: []string{"1,234.56", "99.00", "12.50"}},
+	})
+	if err != nil || out.Columns[0] == nil {
+		t.Fatal(out, err)
+	}
+	provider, _ := sent["provider"].(map[string]any)
+	if provider["zdr"] != true {
+		t.Fatalf("column samples sent without zero data retention: provider = %v", sent["provider"])
+	}
+}
