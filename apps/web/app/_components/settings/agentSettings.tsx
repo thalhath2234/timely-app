@@ -263,6 +263,28 @@ export function Badge({
   );
 }
 
+/** Why "Use as default" did not take, shown under the button that failed.
+ * The server answers with the provider's own reason (a failed test call, a
+ * provider disconnected meanwhile). */
+function DefaultError({ error }: { error: unknown }) {
+  if (!error) return null;
+  return (
+    <p role="alert" className="flex items-start gap-1.5 text-xs leading-relaxed text-destructive">
+      <CircleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+      <span>{errorMessage(error, "Could not switch provider.")}</span>
+    </p>
+  );
+}
+
+/** The error of a patch, only while it is the default switch to `id`; a failed
+ * model save on the same mutation shows its own message in the picker. */
+function defaultSwitchError(
+  patch: ReturnType<typeof usePatchAgentProviders>,
+  id: ProviderId,
+) {
+  return patch.variables?.defaultProvider === id ? patch.error : null;
+}
+
 function ProviderCard({
   id,
   title,
@@ -272,6 +294,7 @@ function ProviderCard({
   ready,
   onMakeDefault,
   makingDefault,
+  defaultError,
   children,
 }: {
   id: ProviderId;
@@ -283,6 +306,7 @@ function ProviderCard({
   ready: boolean;
   onMakeDefault: () => void;
   makingDefault: boolean;
+  defaultError: unknown;
   children: React.ReactNode;
 }) {
   return (
@@ -323,6 +347,7 @@ function ProviderCard({
           </button>
         )}
       </div>
+      <DefaultError error={defaultError} />
       {children}
     </section>
   );
@@ -366,6 +391,7 @@ function OpenRouterCard({ data }: { data: AgentProviders }) {
       makingDefault={
         patch.isPending && patch.variables?.defaultProvider === "openrouter"
       }
+      defaultError={defaultSwitchError(patch, "openrouter")}
     >
       <div className="flex flex-col gap-2">
         <span className="text-xs text-muted-foreground">API key</span>
@@ -893,7 +919,7 @@ function ApiProviderRow({
             </p>
           )}
           {view.connected && (!isDefault || !data.defaultChosen) && (
-            <div>
+            <div className="flex flex-col items-start gap-2">
               <button
                 type="button"
                 onClick={() => patch.mutate({ defaultProvider: view.id })}
@@ -910,6 +936,7 @@ function ApiProviderRow({
                 {makingDefault ? <LogoSpinner size={14} label="Saving" /> : null}
                 {isDefault ? "Keep as default" : "Use as default"}
               </button>
+              <DefaultError error={defaultSwitchError(patch, view.id)} />
             </div>
           )}
         </div>
@@ -965,6 +992,7 @@ function CliCard({
       ready={view.ready}
       onMakeDefault={() => patch.mutate({ defaultProvider: id })}
       makingDefault={patch.isPending && patch.variables?.defaultProvider === id}
+      defaultError={defaultSwitchError(patch, id)}
     >
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
@@ -1555,7 +1583,6 @@ function DecisionPrefs({ data }: { data: DecisionsView }) {
 
 export default function AgentSettings() {
   const { data, isLoading, error, refetch } = useAgentProviders();
-  const patch = usePatchAgentProviders();
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">
@@ -1584,12 +1611,6 @@ export default function AgentSettings() {
           </button>
         </div>
       )}
-      {patch.error && (
-        <p className="text-sm text-destructive">
-          {errorMessage(patch.error, "Could not save.")}
-        </p>
-      )}
-
       {data && (
         <>
           <DefaultProviderGroup data={data} />
