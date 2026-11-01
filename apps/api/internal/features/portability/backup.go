@@ -414,8 +414,14 @@ func clearAccountData(tx *gorm.DB, userID string) error {
 		`DELETE FROM notifications WHERE user_id = ?`,
 		`DELETE FROM habits WHERE user_id = ?`,
 		`DELETE FROM goals WHERE user_id = ?`,
-		`DELETE FROM goal_task_tags WHERE user_id = ?`,
-		`DELETE FROM jobs WHERE user_id = ?`,
+		// Goal tags stay: each one holds hashes of the goals and the task's
+		// words, so it is used only while both still match, and dropping
+		// them made the next goal progress ask about every task again.
+		//
+		// Finished jobs stay too: they are the record of what was already
+		// done (today's digest, smart alerts, overdue alerts), which the sweep
+		// checks before queueing the same work again.
+		`DELETE FROM jobs WHERE user_id = ? AND status <> 'succeeded'`,
 		`DELETE FROM embeddings WHERE user_id = ?`,
 	}
 	for _, query := range queries {

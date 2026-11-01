@@ -825,6 +825,12 @@ func (s *Service) HandleDigest(ctx context.Context, job *models.Job) error {
 	if kind == "evening" && !settings.DigestEvening {
 		return nil
 	}
+	// A digest for an earlier day (retried, or run late) is stale: it would
+	// count today's work and brief it against that day's date.
+	loc := settings.Location(s.repo.WorkingHoursTimezone(job.UserID))
+	if day := job.Payload.String("date"); day != "" && day < time.Now().In(loc).Format("2006-01-02") {
+		return nil
+	}
 	tz := job.Payload.String("timezone")
 	today, err := s.calendar.Today(job.UserID, job.Payload.String("date"), tz)
 	if err != nil {
@@ -929,6 +935,11 @@ func (s *Service) HandleIndex(ctx context.Context, job *models.Job) error {
 	err := s.indexer.IndexEntity(ctx, job.UserID, job.Payload.String("kind"), job.Payload.String("entityId"))
 	if errors.Is(err, embed.ErrDisabled) {
 		return nil
+	}
+	if embed.Permanent(err) {
+		// A refused key, no credits or a refused text: trying again later
+		// would only be refused again.
+		return jobs.Permanent(err)
 	}
 	return err
 }

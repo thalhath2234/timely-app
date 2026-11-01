@@ -243,6 +243,24 @@ func (r *repository) RecentlyAlerted(userID string, since time.Time) (map[string
 	return out, nil
 }
 
+// OpenTasks is which of ids are the person's tasks that are not done.
+func (r *repository) OpenTasks(userID string, ids []string) (map[string]bool, error) {
+	open := map[string]bool{}
+	if len(ids) == 0 {
+		return open, nil
+	}
+	var found []string
+	if err := r.db.Model(&models.Task{}).
+		Where("user_id = ? AND id IN ? AND completed_at IS NULL", userID, ids).
+		Pluck("id", &found).Error; err != nil {
+		return nil, err
+	}
+	for _, id := range found {
+		open[id] = true
+	}
+	return open, nil
+}
+
 // CountByDedupePrefix counts a person's notifications whose dedupe key
 // starts with prefix.
 func (r *repository) CountByDedupePrefix(userID, prefix string) (int64, error) {
