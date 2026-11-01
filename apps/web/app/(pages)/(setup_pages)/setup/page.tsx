@@ -47,6 +47,7 @@ import {
   Toggle,
 } from "@/app/_components/settings/serverSettings";
 import PairingQr from "@/app/_components/settings/pairingQr";
+import { ChooseDefaultDialog } from "@/app/_components/settings/defaultChoice";
 
 const secondaryButton = buttonClass({ variant: "outline", size: "lg" });
 
@@ -150,14 +151,18 @@ function OpenRouterKeyForm({ data }: { data: AgentProviders }) {
   const [editing, setEditing] = useState(!data.openrouter.keySet);
   const [key, setKeyValue] = useState("");
   const [keyError, setKeyError] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
 
   const onSave = async (event: FormEvent) => {
     event.preventDefault();
     setKeyError(null);
     try {
-      await setKey.mutateAsync(key.trim());
+      const next = await setKey.mutateAsync(key.trim());
       setKeyValue("");
       setEditing(false);
+      // Nothing becomes the default on its own (ADR 0020): ask now, as
+      // Settings → Agent does after a key is saved.
+      if (!next.defaultChosen && next.openrouter.ready) setAsking(true);
     } catch (err) {
       setKeyError(errorMessage(err, "Could not save the key."));
     }
@@ -172,6 +177,9 @@ function OpenRouterKeyForm({ data }: { data: AgentProviders }) {
         <Button variant="ghost" onClick={() => setEditing(true)}>
           Replace
         </Button>
+        {asking && (
+          <ChooseDefaultDialog data={data} initial="openrouter" onClose={() => setAsking(false)} />
+        )}
       </div>
     );
   }
