@@ -138,15 +138,27 @@ func TestIntegrationTodayFocusGapGoalsAndTraits(t *testing.T) {
 		t.Fatal("the second call should be the Today call")
 	}
 
-	// Asked again with nothing changed: one Today call, no traits call.
+	// Asked again ten minutes later with nothing changed: the Today answer is
+	// reused (the state names the day and part of day, not the minute), and
+	// only t3 and t4, whose effort and urgency never came back, are read
+	// again instead of being stored as unknown.
 	before := len(jev.requests)
-	_, err = s.Today(context.Background(), w.user, "UTC", now.Add(10*time.Minute))
+	later := now.Add(10 * time.Minute)
+	_, err = s.Today(context.Background(), w.user, "UTC", later)
 	must(t, err)
-	if len(jev.requests) != before+1 {
-		t.Fatalf("expected only the Today call, got %d more", len(jev.requests)-before)
+	want := 1
+	if later.UTC().YearDay() != now.UTC().YearDay() || partOfDay(later.UTC()) != partOfDay(now.UTC()) {
+		want = 2 // the part of day changed in between: a new Today call
 	}
-	if _, ok := jev.asked(before)["effort_t1"]; ok {
-		t.Fatal("asked traits for unchanged tasks")
+	if len(jev.requests) != before+want {
+		t.Fatalf("expected %d calls, got %d", want, len(jev.requests)-before)
+	}
+	q := jev.asked(before)
+	if _, ok := q["effort_t3"]; !ok {
+		t.Fatal("a task whose traits did not come back was not asked again")
+	}
+	if _, ok := q["effort_t1"]; ok {
+		t.Fatal("asked traits for a task already read")
 	}
 
 	// An edited task is read again.
@@ -154,7 +166,7 @@ func TestIntegrationTodayFocusGapGoalsAndTraits(t *testing.T) {
 	before = len(jev.requests)
 	_, err = s.Today(context.Background(), w.user, "UTC", now.Add(20*time.Minute))
 	must(t, err)
-	q := jev.asked(before)
+	q = jev.asked(before)
 	if _, ok := q["effort_t1"]; !ok {
 		t.Fatal("the edited task was not read again")
 	}
