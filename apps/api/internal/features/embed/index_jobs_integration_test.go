@@ -118,7 +118,7 @@ func testIndexer(t *testing.T, db *gorm.DB) (*indexer, *jobs.Queue, *fakeEmbeddi
 // runIndexJob does what the worker does with the next index job.
 func runIndexJob(t *testing.T, ix *indexer, queue *jobs.Queue) *models.Job {
 	t.Helper()
-	job, err := queue.Claim(context.Background(), "test")
+	job, err := queue.Claim(context.Background(), "test", jobs.Lane{})
 	if err != nil || job == nil {
 		t.Fatalf("no index job to run: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestIntegrationIndexJobsIndexTheLatestText(t *testing.T) {
 	task.Name = "Call the insurance broker"
 	saveTask(t, db, task)
 	ix.IndexTask(task)
-	running, err := queue.Claim(context.Background(), "test")
+	running, err := queue.Claim(context.Background(), "test", jobs.Lane{})
 	if err != nil || running == nil {
 		t.Fatalf("claim: %v", err)
 	}

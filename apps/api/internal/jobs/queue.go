@@ -128,9 +128,26 @@ func indexKey(kind, entityID string) string {
 	return fmt.Sprintf("index:%s:%s", kind, entityID)
 }
 
-func (q *Queue) Claim(ctx context.Context, workerID string) (*models.Job, error) {
+// Lane limits the kinds a claim may take: only Kinds when it has any, and
+// never Exclude. The zero Lane takes any kind.
+type Lane struct {
+	Kinds   []string
+	Exclude []string
+}
+
+func (q *Queue) Claim(ctx context.Context, workerID string, lane Lane) (*models.Job, error) {
 	var job models.Job
 	now := q.now().UTC()
+	args := []any{sql.Named("now", now), sql.Named("worker", workerID)}
+	kinds := ""
+	if len(lane.Kinds) > 0 {
+		kinds += " AND kind IN @kinds"
+		args = append(args, sql.Named("kinds", lane.Kinds))
+	}
+	if len(lane.Exclude) > 0 {
+		kinds += " AND kind NOT IN @exclude"
+		args = append(args, sql.Named("exclude", lane.Exclude))
+	}
 	res := q.db.WithContext(ctx).Raw(`
 		UPDATE jobs
 		SET status = 'running',
@@ -141,13 +158,13 @@ func (q *Queue) Claim(ctx context.Context, workerID string) (*models.Job, error)
 		    updated_at = @now
 		WHERE id = (
 			SELECT id FROM jobs
-			WHERE status = 'pending' AND run_at <= @now
+			WHERE status = 'pending' AND run_at <= @now`+kinds+`
 			ORDER BY run_at
 			FOR UPDATE SKIP LOCKED
 			LIMIT 1
 		)
 		RETURNING *
-	`, sql.Named("now", now), sql.Named("worker", workerID)).Scan(&job)
+	`, args...).Scan(&job)
 	if res.Error != nil {
 		return nil, res.Error
 	}
@@ -155,6 +172,14 @@ func (q *Queue) Claim(ctx context.Context, workerID string) (*models.Job, error)
 		return nil, nil
 	}
 	return &job, nil
+}
+
+// Renew moves a running job's lock time forward, so RecoverStuck leaves a
+// job that is still being worked on alone.
+func (q *Queue) Renew(job *models.Job, workerID string) error {
+	return q.db.Model(&models.Job{}).
+		Where("id = ? AND status = ? AND locked_by = ?", job.ID, models.JobRunning, workerID).
+		Update("locked_at", q.now().UTC()).Error
 }
 
 func (q *Queue) Succeed(job *models.Job) error {
@@ -336,9 +361,10 @@ func (q *Queue) HasJob(dedupeKey string) bool {
 	return n > 0
 }
 
-// RecoverStuck puts back jobs locked longer than olderThan, whose worker
-// most likely stopped. A job that has used all its attempts is marked failed
-// instead, so a job that keeps losing its worker cannot run forever.
+// RecoverStuck puts back jobs whose lock was not renewed for olderThan: their
+// worker stopped (see Worker.dispatch). A job that has used all its attempts
+// is marked failed instead, so a job that keeps losing its worker cannot run
+// forever.
 func (q *Queue) RecoverStuck(olderThan time.Duration) error {
 	now := q.now().UTC()
 	return q.db.Exec(`

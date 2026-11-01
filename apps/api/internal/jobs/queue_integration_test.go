@@ -72,12 +72,12 @@ func TestIntegrationClaimUsesTheAPIClock(t *testing.T) {
 		}
 
 		q.now = func() time.Time { return at.Add(-time.Minute) }
-		if got, err := q.Claim(ctx, "w1"); err != nil || got != nil {
+		if got, err := q.Claim(ctx, "w1", Lane{}); err != nil || got != nil {
 			t.Fatalf("job due %s claimed a minute early: %+v, %v", at, got, err)
 		}
 
 		q.now = func() time.Time { return at.Add(time.Second) }
-		got, err := q.Claim(ctx, "w1")
+		got, err := q.Claim(ctx, "w1", Lane{})
 		if err != nil || got == nil || got.ID != job.ID {
 			t.Fatalf("job due %s not claimed once due: %+v, %v", at, got, err)
 		}
@@ -128,7 +128,7 @@ func TestIntegrationFailSavesUnstorableErrors(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		claimed, err := q.Claim(ctx, "w1")
+		claimed, err := q.Claim(ctx, "w1", Lane{})
 		if err != nil || claimed == nil || claimed.ID != job.ID {
 			t.Fatalf("claim: %+v %v", claimed, err)
 		}
@@ -185,5 +185,105 @@ func TestIntegrationRecoverStuckFailsAJobOutOfAttempts(t *testing.T) {
 	db.First(&row, "id = ?", job.ID)
 	if row.Status != models.JobFailed || row.LastError == nil || row.FinishedAt == nil {
 		t.Fatalf("job out of attempts: status %s error %v", row.Status, row.LastError)
+	}
+}
+
+// E6: one account's reindex, one slow request per item, used to hold every
+// other job for every account until it finished.
+func TestIntegrationReindexDoesNotHoldUpOtherJobs(t *testing.T) {
+	db := integrationDB(t)
+	q := NewQueue(db)
+	w := NewWorker(q)
+	w.interval = 20 * time.Millisecond
+	w.Separate(models.JobReindexUser)
+	w.Separate(models.JobIndexEntity)
+
+	release := make(chan struct{})
+	started := make(chan struct{}, 1)
+	ran := make(chan string, 8)
+	w.Handle(models.JobReindexUser, func(ctx context.Context, job *models.Job) error {
+		started <- struct{}{}
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return nil
+	})
+	for _, kind := range []string{models.JobIndexEntity, models.JobSendReminder} {
+		w.Handle(kind, func(ctx context.Context, job *models.Job) error {
+			ran <- job.Kind
+			return nil
+		})
+	}
+
+	if _, err := q.Enqueue(Enqueue{UserID: "user-a", Kind: models.JobReindexUser}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { w.Run(ctx); close(done) }()
+	defer func() { close(release); cancel(); <-done }()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("reindex never started")
+	}
+	for _, kind := range []string{models.JobIndexEntity, models.JobSendReminder} {
+		if _, err := q.Enqueue(Enqueue{UserID: "user-b", Kind: kind}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := map[string]bool{}
+	for len(got) < 2 {
+		select {
+		case kind := <-ran:
+			got[kind] = true
+		case <-time.After(5 * time.Second):
+			t.Fatalf("jobs waited behind the running reindex; ran only %v", got)
+		}
+	}
+}
+
+// Lanes claim only their own kinds.
+func TestIntegrationClaimKeepsToItsLane(t *testing.T) {
+	db := integrationDB(t)
+	q := NewQueue(db)
+	ctx := context.Background()
+	reindex, _ := q.Enqueue(Enqueue{UserID: "user-a", Kind: models.JobReindexUser})
+	push, _ := q.Enqueue(Enqueue{UserID: "user-a", Kind: models.JobSendPush})
+	if got, err := q.Claim(ctx, "w1", Lane{Exclude: []string{models.JobReindexUser}}); err != nil || got == nil || got.ID != push.ID {
+		t.Fatalf("main lane claimed %+v, %v", got, err)
+	}
+	if got, err := q.Claim(ctx, "w1", Lane{Exclude: []string{models.JobReindexUser}}); err != nil || got != nil {
+		t.Fatalf("main lane took a reindex: %+v, %v", got, err)
+	}
+	if got, err := q.Claim(ctx, "w1", Lane{Kinds: []string{models.JobReindexUser}}); err != nil || got == nil || got.ID != reindex.ID {
+		t.Fatalf("reindex lane claimed %+v, %v", got, err)
+	}
+}
+
+// A long job renews its lock, so RecoverStuck does not run it a second time.
+func TestIntegrationRenewKeepsALongJobRunning(t *testing.T) {
+	db := integrationDB(t)
+	q := NewQueue(db)
+	start := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+	q.now = func() time.Time { return start }
+	job, _ := q.Enqueue(Enqueue{UserID: "user-a", Kind: models.JobReindexUser, RunAt: start})
+	claimed, err := q.Claim(context.Background(), "w1", Lane{})
+	if err != nil || claimed == nil {
+		t.Fatalf("claim: %v", err)
+	}
+	q.now = func() time.Time { return start.Add(9 * time.Minute) }
+	if err := q.Renew(claimed, "w1"); err != nil {
+		t.Fatal(err)
+	}
+	q.now = func() time.Time { return start.Add(15 * time.Minute) }
+	if err := q.RecoverStuck(10 * time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	var row models.Job
+	db.First(&row, "id = ?", job.ID)
+	if row.Status != models.JobRunning {
+		t.Fatalf("a job renewed 6 minutes ago was recovered: %s", row.Status)
 	}
 }

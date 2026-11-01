@@ -47,6 +47,7 @@ import (
 	"timely-api/internal/jobs"
 	"timely-api/internal/lifeline"
 	"timely-api/internal/middleware"
+	"timely-api/internal/models"
 	"timely-api/internal/realtime"
 	"timely-api/internal/recurrence"
 	"timely-api/internal/routes"
@@ -134,6 +135,11 @@ func main() {
 	portabilityService := portability.NewService(db, jobQueue)
 	portabilityService.SetAfterRestore(indexer.Invalidate)
 	jobWorker := jobs.NewWorker(jobQueue)
+	// Embedding work waits on OpenRouter: a whole account's reindex makes one
+	// request per item, so it and per-item index jobs each get a lane of their
+	// own and never hold up reminders, pushes or each other.
+	jobWorker.Separate(models.JobReindexUser)
+	jobWorker.Separate(models.JobIndexEntity)
 	notifyService.Register(jobWorker)
 	portabilityService.Register(jobWorker)
 	var decisions *decide.Service // set below, once the provider keys exist
