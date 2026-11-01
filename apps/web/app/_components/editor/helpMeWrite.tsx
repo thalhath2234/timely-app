@@ -16,6 +16,7 @@ import {
   isWriteList,
   replaceFit,
   selectionTooLong,
+  shortenedNote,
   spotList,
   writeStarters,
   writtenContent,
@@ -533,6 +534,7 @@ export default function HelpMeWritePanel({
             </div>
           ) : result ? (
             <>
+              {result.shortened && <p className="text-xs leading-relaxed text-muted-foreground">{shortenedNote(context.kind)}</p>}
               <div
                 // The preview must take pointer events or the wheel, trackpad and
                 // scrollbar can't scroll it; only the links and checkboxes inside

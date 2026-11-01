@@ -2,6 +2,7 @@ package provider
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -300,6 +301,77 @@ func TestWriteSendsARichSelectionAsMarkdown(t *testing.T) {
 	plain := writeRequest{Action: "improve", Selection: "teh plan"}
 	if err := plain.validate(); err != nil || strings.Contains(writeMessages(plain)[1].Content, "@mention") {
 		t.Errorf("plain selection: %v", err)
+	}
+}
+
+// longDoc is a doc of two parts with n notes each, as Markdown blocks.
+func longDoc(n int) string {
+	parts := []string{"# Move plan"}
+	parts = append(parts, "## Part 1: Budget")
+	for i := 1; i <= n; i++ {
+		parts = append(parts, fmt.Sprintf("Budget note %d: set aside money for the boxes, the van and that floor section.", i))
+	}
+	parts = append(parts, "## Part 2: Move days")
+	for i := 1; i <= n; i++ {
+		parts = append(parts, fmt.Sprintf("Move note %d: carry the boxes down before noon and check that floor section.", i))
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// A summary reads the whole of a doc this size, not its last 12 KB starting
+// mid-sentence (W6).
+func TestWriteSummaryReadsTheWholeDoc(t *testing.T) {
+	doc := longDoc(80)
+	if len(doc) < 12000 {
+		t.Fatalf("doc too short for the test: %d", len(doc))
+	}
+	for _, action := range []string{"summarize", "describe"} {
+		req := writeRequest{Action: action, Kind: "doc", Text: doc}
+		if err := req.validate(); err != nil {
+			t.Fatal(err)
+		}
+		if req.Text != doc || req.shortened {
+			t.Errorf("%s: a %d-byte doc must be read whole, got %d bytes (shortened %v)", action, len(doc), len(req.Text), req.shortened)
+		}
+	}
+}
+
+// A doc too long to read whole keeps its start and its end, cut between
+// blocks, with a note where the middle is; the model and the person are told.
+func TestWriteLongDocKeepsStartAndEnd(t *testing.T) {
+	doc := longDoc(400)
+	req := writeRequest{Action: "summarize", Kind: "doc", Text: doc}
+	if err := req.validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !req.shortened || len(req.Text) > writeMaxWhole+100 {
+		t.Fatalf("want a shortened text of about %d bytes, got %d (shortened %v)", writeMaxWhole, len(req.Text), req.shortened)
+	}
+	if !strings.HasPrefix(req.Text, "# Move plan\n\n## Part 1: Budget\n\nBudget note 1:") {
+		t.Errorf("the start must be kept: %q", req.Text[:80])
+	}
+	if !strings.HasSuffix(req.Text, "Move note 400: carry the boxes down before noon and check that floor section.") {
+		t.Errorf("the end must be kept: %q", req.Text[len(req.Text)-80:])
+	}
+	marker := regexp.MustCompile(`\n\n\[… \d+ words left out here …\]\n\n(Budget|Move) note \d+: `)
+	if !marker.MatchString(req.Text) {
+		t.Errorf("the cut must fall between blocks, with a note")
+	}
+	if user := writeMessages(req)[1].Content; !strings.Contains(user, "its middle is left out") {
+		t.Errorf("the model must be told the middle is missing:\n%s", user[len(user)-300:])
+	}
+	// Continue writing keeps the end it carries on from, and the title.
+	cont := writeRequest{Action: "continue", Kind: "doc", Text: doc}
+	if err := cont.validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !cont.shortened || !strings.HasPrefix(cont.Text, "# Move plan") || !strings.HasSuffix(cont.Text, "floor section.") || len(cont.Text) > writeMaxText+100 {
+		t.Errorf("continue: %d bytes, shortened %v", len(cont.Text), cont.shortened)
+	}
+	// A selection's summary is about the selection; the doc is not cut for it.
+	sel := writeRequest{Action: "summarize", Kind: "doc", Text: doc, Selection: "Budget note 1"}
+	if err := sel.validate(); err != nil || sel.shortened {
+		t.Errorf("summary of a selection: shortened %v, %v", sel.shortened, err)
 	}
 }
 

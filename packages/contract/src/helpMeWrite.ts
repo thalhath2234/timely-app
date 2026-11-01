@@ -64,8 +64,13 @@ export type WriteList = "taskList" | "bulletList" | "orderedList";
 export const isWriteList = (type: unknown): type is WriteList =>
   type === "taskList" || type === "bulletList" || type === "orderedList";
 
-/** `text` is Markdown. */
-export type WriteResult = { text: string; provider: string; model: string };
+/** `text` is Markdown. `shortened`: the doc was too long to read whole, so
+ * a summary, description or continuation comes from its start and end. */
+export type WriteResult = { text: string; provider: string; model: string; shortened?: boolean };
+
+/** What the panel says above a draft from a shortened doc. */
+export const shortenedNote = (kind: WriteKind) =>
+  `This ${kind === "doc" ? "doc" : "description"} is long, so the AI read its start and end but not the middle.`;
 
 /** What the panel says while the AI works on each action. */
 export const WRITE_BUSY: Record<WriteAction, string> = {

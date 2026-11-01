@@ -8,6 +8,7 @@ import {
   WRITE_TOO_LONG,
   replaceFit,
   selectionTooLong,
+  shortenedNote,
   spotList,
   writeStarters,
   writtenContent,
@@ -191,6 +192,7 @@ export default function HelpMeWriteSheet({
         </View>
       ) : result ? (
         <View style={styles.gap}>
+          {result.shortened ? <Text style={styles.note}>{shortenedNote(context.kind)}</Text> : null}
           <ScrollView showsVerticalScrollIndicator={false}
             style={styles.preview}
             contentContainerStyle={styles.previewContent}

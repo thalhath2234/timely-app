@@ -11,7 +11,7 @@ register(
     ),
 );
 
-const { SELECTION_ACTIONS, writeStarters, writtenContent } = await import(
+const { SELECTION_ACTIONS, shortenedNote, writeStarters, writtenContent } = await import(
   "../packages/contract/src/helpMeWrite.ts"
 );
 
@@ -93,5 +93,12 @@ describe("writtenContent", () => {
   test("only a one-list answer joins a list", () => {
     assert.equal(writtenContent("## Spices\n\n- Cumin", "taskList").items, null);
     assert.equal(writtenContent("Just this line", "taskList").items, null);
+  });
+});
+
+describe("shortenedNote", () => {
+  test("says a long doc's middle was not read, in the editor's own words", () => {
+    assert.equal(shortenedNote("doc"), "This doc is long, so the AI read its start and end but not the middle.");
+    assert.match(shortenedNote("task"), /^This description is long/);
   });
 });

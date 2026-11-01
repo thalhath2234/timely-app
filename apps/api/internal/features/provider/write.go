@@ -56,6 +56,14 @@ var (
 const (
 	writeMaxText   = 12000
 	writeMaxPrompt = 2000
+	// writeMaxWhole is how much of a long doc a summary or description reads:
+	// all of most docs. A longer one is read from its start and its end, cut
+	// between blocks, and the answer says so (writeResponse.Shortened).
+	writeMaxWhole = 60000
+	// writeContinueHead is how much of the start Continue writing keeps of
+	// a long doc, for its title and voice; the rest of writeMaxText is the end
+	// it carries on from.
+	writeContinueHead = 2000
 	// writeMaxSelection is the most selected text (as Markdown) a rewrite
 	// takes, WRITE_MAX_SELECTION in packages/contract/src/helpMeWrite.ts. A
 	// longer selection is refused, never cut: Replace puts the answer over
@@ -86,12 +94,17 @@ type writeRequest struct {
 	cursor bool
 	// rich: Selection is Markdown read from SelectionDoc.
 	rich bool
+	// shortened: Text is a long doc's start and end, its middle left out.
+	shortened bool
 }
 
 type writeResponse struct {
 	Text     string `json:"text"`
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
+	// Shortened: the doc was too long to read whole, so the draft (a
+	// summary, description or continuation) comes from its start and end.
+	Shortened bool `json:"shortened,omitempty"`
 }
 
 func (r *writeRequest) validate() error {
@@ -129,7 +142,17 @@ func (r *writeRequest) validate() error {
 	if !keep {
 		r.Text = dropCursor(r.Text)
 	}
-	r.Text = clipAround(strings.TrimSpace(r.Text), writeCursor, writeMaxText)
+	// A summary or description is about the whole doc and Continue writing
+	// about its end, so a long doc keeps its start and end, cut between
+	// blocks, never a stretch starting mid-sentence.
+	switch {
+	case r.Selection == "" && (r.Action == "summarize" || r.Action == "describe"):
+		r.Text, r.shortened = clipEnds(strings.TrimSpace(r.Text), writeMaxWhole, writeMaxWhole/2)
+	case r.Action == "continue":
+		r.Text, r.shortened = clipEnds(strings.TrimSpace(r.Text), writeMaxText, writeContinueHead)
+	default:
+		r.Text = clipAround(strings.TrimSpace(r.Text), writeCursor, writeMaxText)
+	}
 	if r.cursor = strings.Contains(r.Text, writeCursor); r.cursor {
 		// A tag already in the doc's own text is not the spot.
 		r.Text = strings.ReplaceAll(strings.ReplaceAll(r.Text, cursorTag, "&lt;cursor/&gt;"), writeCursor, cursorTag)
@@ -177,6 +200,9 @@ func writeMessages(r writeRequest) []chat.WireMessage {
 	b.WriteString(".\n")
 	if r.Text != "" && !(r.Action == "summarize" && r.Selection != "") {
 		fmt.Fprintf(&b, "\n<current_text>\n%s\n</current_text>\n", r.Text)
+		if r.shortened {
+			b.WriteString("The current text is long, so its middle is left out where it says so. Work from the start and the end you have.\n")
+		}
 	}
 	if r.Selection != "" {
 		fmt.Fprintf(&b, "\n<selected_text>\n%s\n</selected_text>\n", r.Selection)
@@ -244,7 +270,33 @@ func clipAround(s, cursor string, n int) string {
 	return strings.ToValidUTF8(s[max(0, end-n):end], "")
 }
 
-// clipTail keeps the end of a long text, which is what "continue" needs.
+// clipEnds keeps a long text's first head bytes and its last n-head bytes,
+// each cut where a block (a blank line) or else a line starts, with a note
+// of how many words were left out between them. ok reports a cut.
+func clipEnds(s string, n, head int) (string, bool) {
+	if len(s) <= n {
+		return s, false
+	}
+	tail := n - head
+	front := s[:head]
+	if i := strings.LastIndex(front, "\n\n"); i > head/2 {
+		front = front[:i]
+	} else if i := strings.LastIndex(front, "\n"); i > head/2 {
+		front = front[:i]
+	}
+	back := s[len(s)-tail:]
+	if i := strings.Index(back, "\n\n"); i >= 0 && i < tail/2 {
+		back = back[i+2:]
+	} else if i := strings.Index(back, "\n"); i >= 0 && i < tail/2 {
+		back = back[i+1:]
+	}
+	words := len(strings.Fields(s[len(front) : len(s)-len(back)]))
+	front = strings.TrimSpace(strings.ToValidUTF8(front, ""))
+	back = strings.TrimSpace(strings.ToValidUTF8(back, ""))
+	return fmt.Sprintf("%s\n\n[… %d words left out here …]\n\n%s", front, words, back), true
+}
+
+// clipTail keeps the end of a long text.
 func clipTail(s string, n int) string {
 	if len(s) <= n {
 		return s
@@ -287,7 +339,7 @@ func (s *Service) write(c *echo.Context) error {
 		return echo.NewHTTPError(502, "The AI returned an empty answer. Try again")
 	}
 	_, model, _ := s.resolveModel(ctx, user(c), provider)
-	return c.JSON(200, writeResponse{Text: text, Provider: provider, Model: model})
+	return c.JSON(200, writeResponse{Text: text, Provider: provider, Model: model, Shortened: req.shortened})
 }
 
 // resolveModel reports the model a provider runs for this account.
