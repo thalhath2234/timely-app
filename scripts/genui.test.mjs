@@ -4,6 +4,7 @@ import test, { describe } from "node:test";
 import {
   choiceOptions,
   genuiId,
+  genuiOpenable,
   genuiParser,
   genuiPrompt,
   linkHost,
@@ -660,5 +661,11 @@ describe("reply card safety", () => {
   test("an Open id is one path segment", () => {
     assert.equal(genuiId("doc_3f2a-91"), "doc_3f2a-91");
     for (const bad of ["../settings?tab=agent", "doc_1/../../x", "", "a b", 7]) assert.equal(genuiId(bad), "", String(bad));
+    const open = (target, id) => ({ type: "element", typeName: "Open", props: { label: "Fix", target, id } });
+    assert.equal(genuiOpenable(open("doc", "../settings?tab=agent")), false);
+    assert.equal(genuiOpenable(open("doc", "doc_1")), true);
+    assert.equal(genuiOpenable(open("today")), true);
+    // A card whose only content is a link that goes nowhere is not drawn.
+    assert.deepEqual(replyBlocks([{ type: "element", typeName: "Card", props: { title: "x", rows: [], open: open("doc", "../x") } }]), []);
   });
 });

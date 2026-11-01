@@ -9,6 +9,7 @@ import {
   genuiColorHex,
   genuiId,
   genuiNodes,
+  genuiOpenable,
   type GenuiName,
   type GenuiProps,
 } from "@timely/contract/genui";
@@ -143,7 +144,7 @@ function Card({ props, renderNode }: KitProps<"Card">) {
       <CardTitle.Provider value={props.title ?? ""}>
         <RowGroup rows={rows} renderNode={renderNode} />
       </CardTitle.Provider>
-      {props.open ? <View style={styles.foot}>{renderNode(props.open)}</View> : null}
+      {genuiOpenable(props.open) ? <View style={styles.foot}>{renderNode(props.open)}</View> : null}
     </View>
   );
 }

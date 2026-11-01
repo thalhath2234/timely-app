@@ -107,6 +107,16 @@ export function genuiId(id: unknown): string {
   return typeof id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(id) ? id : "";
 }
 
+const ENTITY_TARGETS = new Set(["task", "project", "doc", "sheet"]);
+
+/** Whether an Open link goes anywhere: a screen, or a task, project, doc or sheet with a plain id. */
+export function genuiOpenable(open: unknown): boolean {
+  const node = open as GenuiNode | null | undefined;
+  if (!node || node.type !== "element") return false;
+  const target = String(node.props.target ?? "");
+  return (GENUI_TARGETS as readonly string[]).includes(target) && (!ENTITY_TARGETS.has(target) || genuiId(node.props.id) !== "");
+}
+
 /** Where an Open link goes; task, project, doc and sheet need an id. */
 /**
  * A bar's number in the little space over it: 1.2k, 25k, 3.4M; under a
@@ -438,7 +448,7 @@ export function genuiNodes(value: unknown): GenuiNode[] {
  */
 export function replyBlocks(blocks: unknown): GenuiNode[] {
   return genuiNodes(blocks).filter((block) => {
-    if (block.typeName === "Card") return genuiNodes(block.props.rows).length > 0 || Boolean(block.props.open);
+    if (block.typeName === "Card") return genuiNodes(block.props.rows).length > 0 || genuiOpenable(block.props.open);
     if (block.typeName === "BarChart") return Array.isArray(block.props.values) && block.props.values.length > 0;
     return true;
   });
