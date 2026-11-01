@@ -2,10 +2,13 @@ package suggest
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
 	"timely-api/internal/features/focus"
+	"timely-api/internal/features/notify"
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/models"
 )
@@ -193,15 +196,48 @@ func TestIntegrationTaskHintsSplitAndDeepTime(t *testing.T) {
 func TestIntegrationTriagePicksAStep(t *testing.T) {
 	w := newWorld(t)
 	task := w.task(t, "Send the invoice", func(task *models.Task) { task.Duration = 30 })
-	jev := &jevStub{answers: map[string]any{"next": choice("extend")}}
+	jev := &jevStub{answers: map[string]any{"next1": choice("extend")}}
 	s := New(w.db, jev.service(t), nil)
-	if got := s.Triage(context.Background(), w.user, &task, "overdue", 3); got != "extend" {
+	if got := s.Triage(context.Background(), w.user, []notify.TriageItem{{Task: &task, Kind: "overdue", OverdueDays: 3}}); len(got) != 1 || got[0] != "extend" {
 		t.Fatalf("overdue step %q", got)
 	}
-	if jev.requests[0].State["daysPastDeadline"] != float64(3) {
+	var state struct {
+		Tasks []map[string]any `json:"tasks"`
+	}
+	must(t, json.Unmarshal(mustJSON(t, jev.requests[0].State), &state))
+	if len(state.Tasks) != 1 || state.Tasks[0]["daysPastDeadline"] != float64(3) || state.Tasks[0]["task"] != "t1" {
 		t.Fatalf("state %+v", jev.requests[0].State)
 	}
-	if got := s.Triage(context.Background(), w.user, &task, "other", 0); got != "" {
+	if got := s.Triage(context.Background(), w.user, []notify.TriageItem{{Task: &task, Kind: "other"}}); len(got) != 1 || got[0] != "" {
 		t.Fatalf("unknown kind gave %q", got)
+	}
+}
+
+// A sweep's overdue and missed notifications cost one call per kind, not one
+// per task, and each pick lands on its own task.
+func TestIntegrationTriageAsksABatchInOneCall(t *testing.T) {
+	w := newWorld(t)
+	var items []notify.TriageItem
+	for i := 0; i < 10; i++ {
+		task := w.task(t, fmt.Sprintf("Overdue %d", i+1), nil)
+		items = append(items, notify.TriageItem{Task: &task, Kind: "overdue", OverdueDays: i + 1})
+	}
+	missed := w.task(t, "Write the report", func(task *models.Task) { task.Duration = 60 })
+	items = append(items, notify.TriageItem{Task: &missed, Kind: "missed"})
+	jev := &jevStub{answers: map[string]any{"next1": choice("lower"), "next10": choice("extend")}}
+	s := New(w.db, jev.service(t), nil)
+	got := s.Triage(context.Background(), w.user, items)
+	if len(jev.requests) != 2 {
+		t.Fatalf("%d calls for one batch", len(jev.requests))
+	}
+	// The missed task is t1 of its own call and gets "lower" too; the
+	// overdue ones in between have no confident answer.
+	if len(got) != 11 || got[0] != "lower" || got[9] != "extend" || got[1] != "" || got[10] != "lower" {
+		t.Fatalf("picks %q", got)
+	}
+	for _, r := range jev.requests {
+		if n := len(r.Questions); n != 10 && n != 1 {
+			t.Fatalf("a call asked %d questions", n)
+		}
 	}
 }

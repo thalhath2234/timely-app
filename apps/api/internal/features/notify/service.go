@@ -35,6 +35,14 @@ type Service struct {
 	briefing     Briefer // nil until SetBriefing
 	triageSlots  chan struct{}
 	triageWait   sync.WaitGroup
+	// triagePending holds each account's notifications waiting for a step;
+	// an account is listed while its runTriage runs.
+	triageMu      sync.Mutex
+	triagePending map[string][]triageWork
+	triageGather  time.Duration
+	// briefSlots are the morning briefing's own, so a triage backlog never
+	// holds a briefing back.
+	briefSlots chan struct{}
 
 	// Smart suggestions' status and feedback; nil until SetDecisions.
 	decisionsOn func(ctx context.Context, userID string) bool
@@ -61,6 +69,10 @@ func NewService(db *gorm.DB, queue *jobs.Queue, calendar calendar.Service, tasks
 		http:         &http.Client{Timeout: 15 * time.Second},
 		overdueSwept: map[string]time.Time{},
 		triageSlots:  make(chan struct{}, triageParallel),
+
+		triagePending: map[string][]triageWork{},
+		triageGather:  triageGather,
+		briefSlots:    make(chan struct{}, briefParallel),
 	}
 }
 

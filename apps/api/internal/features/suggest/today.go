@@ -4,14 +4,17 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
 	"timely-api/internal/features/decide"
 	"timely-api/internal/features/focus"
+	"timely-api/internal/features/notify"
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/task"
 	"timely-api/internal/models"
@@ -591,59 +594,98 @@ const (
 
 const triageBudget = 8 * time.Second
 
-// Triage picks the next step for Work whose block ended unfinished (kind
-// "missed") or that is past its deadline ("overdue", overdueDays from code).
-// It returns "" when suggestions are off or Jev is unsure.
-func (s *Service) Triage(ctx context.Context, userID string, t *models.Task, kind string, overdueDays int) string {
-	if t == nil {
-		return ""
-	}
+// Triage picks the next step for each piece of Work whose block ended
+// unfinished (kind "missed") or that is past its deadline ("overdue",
+// OverdueDays from code), in the order given: "" where suggestions are off
+// or Jev is unsure. A sweep's notifications come as one batch, so they cost
+// one call per kind rather than one each.
+func (s *Service) Triage(ctx context.Context, userID string, items []notify.TriageItem) []string {
+	out := make([]string, len(items))
 	ctx, cancel := context.WithTimeout(ctx, triageBudget)
 	defer cancel()
-	state := map[string]any{"title": clip(t.Name, 300), "priority": models.NormalizePriority(derefStr(t.PriorityLevel))}
-	if d := strings.TrimSpace(t.Description); d != "" {
-		state["description"] = clip(d, 1000)
+	// Each kind keeps its own call, so what the person kept of one kind
+	// never sets how sure the other must be (see decide's learned raise).
+	byKind := map[string][]int{}
+	for i, it := range items {
+		if it.Task != nil && (it.Kind == "overdue" || it.Kind == "missed") {
+			byKind[it.Kind] = append(byKind[it.Kind], i)
+		}
 	}
-	if t.Duration > 0 {
-		state["estimateMinutes"] = t.Duration
+	var wg sync.WaitGroup
+	for kind, idx := range byKind {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.triageKind(ctx, userID, kind, items, idx, out)
+		}()
 	}
-	if t.ActualMinutes > 0 {
-		state["minutesWorked"] = t.ActualMinutes
+	wg.Wait()
+	return out
+}
+
+// triageKind asks one call for the items at idx, all of one kind, and
+// writes each pick into out.
+func (s *Service) triageKind(ctx context.Context, userID, kind string, items []notify.TriageItem, idx []int, out []string) {
+	list := make([]map[string]any, 0, len(idx))
+	questions := map[string]decide.Question{}
+	for n, i := range idx {
+		t := items[i].Task
+		key := fmt.Sprintf("t%d", n+1)
+		item := map[string]any{"task": key, "title": clip(t.Name, 200), "priority": models.NormalizePriority(derefStr(t.PriorityLevel))}
+		if d := strings.TrimSpace(t.Description); d != "" {
+			item["description"] = clip(d, 400)
+		}
+		if t.Duration > 0 {
+			item["estimateMinutes"] = t.Duration
+		}
+		if t.ActualMinutes > 0 {
+			item["minutesWorked"] = t.ActualMinutes
+		}
+		if t.Urgency != nil && *t.Urgency >= 0 && *t.Urgency < len(urgencyLevels) {
+			item["urgency"] = urgencyLevels[*t.Urgency]
+		}
+		if kind == "overdue" {
+			item["daysPastDeadline"] = items[i].OverdueDays
+		}
+		list = append(list, item)
+		questions[fmt.Sprintf("next%d", n+1)] = triageQuestion(kind, key, t)
 	}
-	if t.Urgency != nil && *t.Urgency >= 0 && *t.Urgency < len(urgencyLevels) {
-		state["urgency"] = urgencyLevels[*t.Urgency]
+	state := map[string]any{"tasks": list}
+	// Ten titles and descriptions in a script of wide characters can outgrow
+	// what Jev takes; the titles and facts still say enough.
+	if raw, err := json.Marshal(state); err != nil || len(raw) > decide.MaxStateBytes {
+		for _, item := range list {
+			delete(item, "description")
+		}
 	}
-	var q decide.Question
-	switch kind {
-	case "overdue":
-		state["daysPastDeadline"] = overdueDays
-		q = decide.Choice("This task is past its deadline. Judging by what happens if it is late, which next step fits best?",
+	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "triage_" + kind, State: state, Questions: questions})
+	if err != nil {
+		return
+	}
+	for n, i := range idx {
+		if pick, _ := a.Choice(fmt.Sprintf("next%d", n+1), decide.Prefill); pick != "keep" {
+			out[i] = pick
+		}
+	}
+}
+
+// triageQuestion is the step question for task key.
+func triageQuestion(kind, key string, t *models.Task) decide.Question {
+	if kind == "overdue" {
+		return decide.Choice(fmt.Sprintf("Task %s is past its deadline. Judging by what happens if it is late, which next step fits it best?", key),
 			decide.Option{Name: TriageReschedule, Description: "Treat it as urgent and do it as soon as possible: lateness has real consequences"},
 			decide.Option{Name: TriageExtend, Description: "Move the deadline a week later: finishing a bit later is fine"},
 			decide.Option{Name: TriageLower, Description: "Lower its priority: it matters less than it looked"})
-	case "missed":
-		if t.IsRecurring() {
-			// Adding time or moving would change every occurrence, so a
-			// repeating task only weighs a lower priority.
-			q = decide.Choice("A time block for this repeating task ended and the task is still open. Which next step fits best?",
-				decide.Option{Name: "keep", Description: "Leave it as it is: the next occurrence is soon enough"},
-				decide.Option{Name: TriageLower, Description: "Lower its priority: other work matters more right now"})
-			break
-		}
-		q = decide.Choice("A time block for this task ended and the task is still open. Which next step fits best?",
-			decide.Option{Name: TriageAddTime, Description: "Give it more time: the work is bigger than its estimate"},
-			decide.Option{Name: TriageMove, Description: "Move the rest to the next free time: the estimate is fine, the block was just missed"},
+	}
+	if t.IsRecurring() {
+		// Adding time or moving would change every occurrence, so a
+		// repeating task only weighs a lower priority.
+		return decide.Choice(fmt.Sprintf("A time block for the repeating task %s ended and the task is still open. Which next step fits it best?", key),
+			decide.Option{Name: "keep", Description: "Leave it as it is: the next occurrence is soon enough"},
 			decide.Option{Name: TriageLower, Description: "Lower its priority: other work matters more right now"})
-	default:
-		return ""
 	}
-	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "triage_" + kind, State: state, Questions: map[string]decide.Question{"next": q}})
-	if err != nil {
-		return ""
-	}
-	pick, _ := a.Choice("next", decide.Prefill)
-	if pick == "keep" {
-		return ""
-	}
-	return pick
+	return decide.Choice(fmt.Sprintf("A time block for task %s ended and the task is still open. Which next step fits it best?", key),
+		decide.Option{Name: TriageAddTime, Description: "Give it more time: the work is bigger than its estimate"},
+		decide.Option{Name: TriageMove, Description: "Move the rest to the next free time: the estimate is fine, the block was just missed"},
+		decide.Option{Name: TriageLower, Description: "Lower its priority: other work matters more right now"})
 }
