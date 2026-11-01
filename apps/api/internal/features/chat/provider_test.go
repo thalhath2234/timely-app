@@ -136,7 +136,7 @@ func TestOpenRouterImagesUsePrivateMultimodalRouting(t *testing.T) {
 }
 
 // OpenRouter's refusals say what helps: a refused key or missing credit goes
-// to Settings → Agent, while a 403 (moderation flagged the input) is not
+// to Settings → Agent, while a 403 (a content filter flagged the input) is not
 // blamed on the key and can be tried again on another model.
 func TestOpenRouterRefusalsSayWhatHelps(t *testing.T) {
 	cases := []struct {
@@ -145,7 +145,7 @@ func TestOpenRouterRefusalsSayWhatHelps(t *testing.T) {
 	}{
 		{401, "didn't accept the API key (HTTP 401)", ActionSettings},
 		{402, "out of credit (HTTP 402)", ActionSettings},
-		{403, "moderation may have flagged it", ActionRetry},
+		{403, "content filter may have flagged it", ActionRetry},
 	}
 	for _, tc := range cases {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

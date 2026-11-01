@@ -250,10 +250,10 @@ func (p *OpenRouter) completeOnce(ctx context.Context, messages []WireMessage, t
 		case http.StatusUnauthorized:
 			return empty, NeedsSettings("OpenRouter didn't accept the API key (HTTP 401). Check the key in Settings → Agent")
 		case http.StatusForbidden:
-			// OpenRouter answers 403 when a model's moderation flags the
+			// OpenRouter answers 403 when a model's content filter flags the
 			// input, not for a bad key: another model in the chat's menu, then
 			// Try again, can help.
-			return empty, fmt.Errorf("OpenRouter refused this request (HTTP 403); the model's moderation may have flagged it. Reword the request, or pick another model in the model menu and try again")
+			return empty, fmt.Errorf("OpenRouter refused the request (HTTP 403); the model's content filter may have flagged it. Reword it, or pick another model in the model menu, then try again")
 		case http.StatusPaymentRequired:
 			return empty, NeedsSettings("OpenRouter says the account is out of credit (HTTP 402). Add credit on openrouter.ai, or pick another provider in Settings → Agent")
 		}
