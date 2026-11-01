@@ -19,7 +19,7 @@ import {
   useUpdateSheet,
   useUpdateSheetTemplate,
 } from "@/app/utils/hooks/sheets";
-import { readMarkdownFile } from "@/app/utils/importMarkdown";
+import { importErrorMessage, readMarkdownFile } from "@/app/utils/importMarkdown";
 import { importCsvGrid } from "@/app/utils/sheetCsv";
 import { fileHref } from "@/app/utils/fileRoutes";
 import { QueryFailure } from "@/app/_components/_ui/loadError";
@@ -99,22 +99,27 @@ export default function FilesHome() {
     );
   };
 
-  // A .csv becomes a sheet; anything else is read as Markdown into a doc.
+  // A .csv becomes a sheet; anything else is read as Markdown into a doc. A
+  // file that can't be imported (too many columns, say) says why.
   const handleImport = async (file: File) => {
-    if (/\.csv$/i.test(file.name) || file.type === "text/csv") {
-      const csv = await importCsvGrid(await file.text());
-      const title = file.name.replace(/\.csv$/i, "") || "Imported sheet";
-      const sheet = await createSheet.mutateAsync({ title, ...csv });
-      router.push(fileHref(sheet.id));
-      return;
+    try {
+      if (/\.csv$/i.test(file.name) || file.type === "text/csv") {
+        const csv = await importCsvGrid(await file.text());
+        const title = file.name.replace(/\.csv$/i, "") || "Imported sheet";
+        const sheet = await createSheet.mutateAsync({ title, ...csv });
+        router.push(fileHref(sheet.id));
+        return;
+      }
+      const imported = await readMarkdownFile(file);
+      const doc = await createDoc.mutateAsync({
+        title: imported.title,
+        content: imported.content,
+        plainText: imported.plainText,
+      });
+      router.push(fileHref(doc.id));
+    } catch (error) {
+      useToastStore.getState().show(importErrorMessage(file, error));
     }
-    const imported = await readMarkdownFile(file);
-    const doc = await createDoc.mutateAsync({
-      title: imported.title,
-      content: imported.content,
-      plainText: imported.plainText,
-    });
-    router.push(fileHref(doc.id));
   };
 
   const showError = (error: unknown) =>

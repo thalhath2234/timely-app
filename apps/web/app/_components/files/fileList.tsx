@@ -39,7 +39,7 @@ import { importCsvGrid } from "@/app/utils/sheetCsv";
 import { openDailyDoc } from "@/app/utils/api/docs";
 import { useToastStore } from "@/app/_store/toastStore";
 import { QueryFailure } from "@/app/_components/_ui/loadError";
-import { readMarkdownFile } from "@/app/utils/importMarkdown";
+import { importErrorMessage, readMarkdownFile } from "@/app/utils/importMarkdown";
 import { useCollapsedPanel } from "@/app/utils/hooks/useCollapsedPanel";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useDocContextMenu } from "@/app/utils/hooks/useDocContextMenu";
@@ -313,21 +313,26 @@ export default function FileList() {
     );
 
   const importFile = async (file: File) => {
-    // A .csv becomes a sheet; anything else is read as Markdown into a doc.
-    if (/\.csv$/i.test(file.name) || file.type === "text/csv") {
-      const grid = await importCsvGrid(await file.text());
-      const title = file.name.replace(/\.csv$/i, "") || "Imported sheet";
-      const sheet = await createSheet.mutateAsync({ title, ...grid });
-      router.push(fileHref(sheet.id));
-      return;
+    // A .csv becomes a sheet; anything else is read as Markdown into a doc. A
+    // file that can't be imported (too many columns, say) says why.
+    try {
+      if (/\.csv$/i.test(file.name) || file.type === "text/csv") {
+        const grid = await importCsvGrid(await file.text());
+        const title = file.name.replace(/\.csv$/i, "") || "Imported sheet";
+        const sheet = await createSheet.mutateAsync({ title, ...grid });
+        router.push(fileHref(sheet.id));
+        return;
+      }
+      const imported = await readMarkdownFile(file);
+      const doc = await createDoc.mutateAsync({
+        title: imported.title,
+        content: imported.content,
+        plainText: imported.plainText,
+      });
+      router.push(fileHref(doc.id));
+    } catch (error) {
+      useToastStore.getState().show(importErrorMessage(file, error));
     }
-    const imported = await readMarkdownFile(file);
-    const doc = await createDoc.mutateAsync({
-      title: imported.title,
-      content: imported.content,
-      plainText: imported.plainText,
-    });
-    router.push(fileHref(doc.id));
   };
 
   const queryClient = useQueryClient();
