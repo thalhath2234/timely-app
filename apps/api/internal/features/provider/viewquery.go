@@ -32,8 +32,12 @@ const (
 )
 
 // dateRuleFields hold days; their values must be a word the apps read
-// (resolveDateValue in packages/contract/src/taskQuery.ts).
-var dateRuleFields = map[string]bool{"deadline": true, "startDate": true, "planned": true, "createdAt": true, "updatedAt": true, "completedAt": true}
+// (resolveDateValue in packages/contract/src/taskQuery.ts). Each maps to
+// the name the "Left out" note uses for it.
+var dateRuleFields = map[string]string{
+	"deadline": "deadline", "startDate": "start date", "planned": "planned day",
+	"createdAt": "created date", "updatedAt": "updated date", "completedAt": "completed date",
+}
 
 var (
 	dateWords = map[string]bool{
@@ -357,8 +361,8 @@ func (v viewVocab) resolveRule(rule models.ViewRule) (models.ViewRule, string, b
 		}
 		return rule, "", true
 	}
-	if dateRuleFields[rule.Field] {
-		return checkDates(rule, rule.Field)
+	if name, ok := dateRuleFields[rule.Field]; ok {
+		return checkDates(rule, name)
 	}
 	if strings.HasPrefix(rule.Field, "cf:") {
 		field, ok := v.field(rule.Field)
@@ -395,7 +399,11 @@ func checkDates(rule models.ViewRule, name string) (models.ViewRule, string, boo
 	case "in", "notIn", "before", "onOrBefore", "after", "onOrAfter":
 		values = []json.RawMessage{rule.Value}
 	case "between":
-		values = []json.RawMessage{rule.Value, rule.To}
+		values = []json.RawMessage{rule.Value}
+		// With no end, the apps read "between" as the value's own days.
+		if to := strings.TrimSpace(string(rule.To)); to != "" && to != "null" {
+			values = append(values, rule.To)
+		}
 	}
 	for _, raw := range values {
 		if !validDateValue(raw) {

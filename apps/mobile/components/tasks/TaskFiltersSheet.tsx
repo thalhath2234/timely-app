@@ -3,7 +3,7 @@ import { Text, View } from "react-native";
 import { Check, ChevronRight, CornerDownLeft, Plus, Sparkles, Trash2, X } from "lucide-react-native";
 import { replaceRule } from "@timely/contract/ruleBuilder";
 import { isRuleGroup, normalizeRules } from "@timely/contract/taskQuery";
-import { aiDraftPatch, droppedNote, readingPatch, readViewQuery, ruleLabel, vocabularyFrom } from "@timely/contract/viewLanguage";
+import { VIEW_QUERY_MAX, aiDraftPatch, droppedNote, readingPatch, readViewQuery, ruleLabel, vocabularyFrom } from "@timely/contract/viewLanguage";
 import { todayInZone } from "@timely/contract/workStatus";
 import BottomSheet, { SheetOption } from "../ui/BottomSheet";
 import SegmentedControl from "../ui/SegmentedControl";
@@ -301,6 +301,7 @@ export default function TaskFiltersSheet({
                 onChangeText={(next) => setWords({ viewId: view.id, text: next })}
                 placeholder="Describe: urgent bugs due this week"
                 autoCapitalize="sentences"
+                maxLength={VIEW_QUERY_MAX}
               />
             </View>
             <Button

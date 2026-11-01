@@ -136,15 +136,17 @@ func TestResolveDraftDropsUnreadableValues(t *testing.T) {
 		{Field: "deadline", Op: "in", Value: raw(`"next:7"`)},
 		{Field: "createdAt", Op: "between", Value: raw(`"2026-10-01"`), To: raw(`"later"`)},
 		{Field: "updatedAt", Op: "before", Value: raw(`"-30"`)},
+		// No end: the apps read it as the start's own days.
+		{Field: "planned", Op: "between", Value: raw(`"thisWeek"`)},
 	}}
 	out, dropped, err := testVocab().resolveDraft(draft, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Rules) != 3 || string(out.Rules[0].Value) != `"High"` {
+	if len(out.Rules) != 4 || string(out.Rules[0].Value) != `"High"` {
 		t.Fatalf("rules kept: %+v", out.Rules)
 	}
-	want := []string{"unknown priority Hgh", `deadline "someday" is not a date`, `createdAt "later" is not a date`}
+	want := []string{"unknown priority Hgh", `deadline "someday" is not a date`, `created date "later" is not a date`}
 	if strings.Join(dropped, "|") != strings.Join(want, "|") {
 		t.Errorf("dropped %q, want %q", dropped, want)
 	}
