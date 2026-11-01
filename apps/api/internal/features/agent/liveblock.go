@@ -30,49 +30,40 @@ type addLiveBlockIn struct {
 	Block int    `json:"block,omitempty" jsonschema:"changes the doc's Nth live block (1 is the first) with these words instead of adding a new one"`
 }
 
+// liveProgram is a live block's program as the AI wrote it, with what it was
+// written from.
+type liveProgram struct {
+	// existing is the block's program the words change; "" for a new block.
+	existing, program string
+}
+
 func (s *Server) addLiveBlock(ctx context.Context, req *mcp.CallToolRequest, in addLiveBlockIn) (*mcp.CallToolResult, any, error) {
 	uid, err := userID(req)
 	if err != nil {
 		return fail(err)
 	}
-	words := strings.TrimSpace(in.Words)
-	if words == "" {
-		return fail(errors.New("words is empty: say what the block shows"))
+	written, err := s.writeLiveProgram(ctx, uid, in)
+	if err != nil {
+		return fail(err)
 	}
-	if len(words) > liveBlockMaxWords {
-		words = words[:liveBlockMaxWords]
+	// Stopped or abandoned while the AI answered: write nothing.
+	if err := ctx.Err(); err != nil {
+		return fail(err)
 	}
-	if s.LiveBlock == nil {
-		return fail(errors.New("live blocks are not available here"))
-	}
+	// The doc may have been edited while the AI answered, so the block goes
+	// into the doc as it is now, never into the copy read before.
 	current, err := s.Docs.GetByID(uid, in.DocID)
 	if err != nil {
 		return fail(err)
 	}
 	markdown := richtext.ToMarkdown(current.Content)
-	blocks := liveFenceRe.FindAllStringSubmatchIndex(markdown, -1)
-	switch {
-	case in.Block != 0 && len(blocks) == 0:
-		return fail(errors.New("the doc has no live blocks yet: leave block out to add one"))
-	case in.Block < 0 || in.Block > len(blocks):
-		return fail(fmt.Errorf("block must be from 1 to %d, the doc's live blocks in order", len(blocks)))
-	}
-	existing := ""
-	if in.Block > 0 {
-		at := blocks[in.Block-1]
-		existing = markdown[at[2]:at[3]]
-	}
-	today, err := s.today(ctx, uid, "")
-	if err != nil {
-		return fail(err)
-	}
-	program, err := s.LiveBlock(ctx, uid, words, existing, today.Date())
-	if err != nil {
-		return fail(err)
-	}
-	fence := "```openui-lang\n" + strings.TrimSpace(program) + "\n```"
+	fence := "```openui-lang\n" + strings.TrimSpace(written.program) + "\n```"
 	verb := "added"
 	if in.Block > 0 {
+		blocks := liveFenceRe.FindAllStringSubmatchIndex(markdown, -1)
+		if in.Block > len(blocks) || markdown[blocks[in.Block-1][2]:blocks[in.Block-1][3]] != written.existing {
+			return fail(fmt.Errorf("live block %d changed while its new version was being written, so nothing was saved: read the doc and try again", in.Block))
+		}
 		at := blocks[in.Block-1]
 		markdown = markdown[:at[0]] + fence + markdown[at[1]:]
 		verb = "changed"
@@ -88,4 +79,51 @@ func (s *Server) addLiveBlock(ctx context.Context, req *mcp.CallToolRequest, in 
 		return fail(err)
 	}
 	return reply(fmt.Sprintf("%s a live block in %s; it reads the person's data each time the doc opens", verb, d.Title), docPayload(d))
+}
+
+// writeLiveProgram has the AI write the program for in: a new block, or a
+// change to the doc's Nth block as it reads now.
+func (s *Server) writeLiveProgram(ctx context.Context, uid string, in addLiveBlockIn) (liveProgram, error) {
+	words := liveWords(in.Words)
+	if words == "" {
+		return liveProgram{}, errors.New("words is empty: say what the block shows")
+	}
+	if s.LiveBlock == nil {
+		return liveProgram{}, errors.New("live blocks are not available here")
+	}
+	current, err := s.Docs.GetByID(uid, in.DocID)
+	if err != nil {
+		return liveProgram{}, err
+	}
+	markdown := richtext.ToMarkdown(current.Content)
+	blocks := liveFenceRe.FindAllStringSubmatchIndex(markdown, -1)
+	switch {
+	case in.Block != 0 && len(blocks) == 0:
+		return liveProgram{}, errors.New("the doc has no live blocks yet: leave block out to add one")
+	case in.Block < 0 || in.Block > len(blocks):
+		return liveProgram{}, fmt.Errorf("block must be from 1 to %d, the doc's live blocks in order", len(blocks))
+	}
+	existing := ""
+	if in.Block > 0 {
+		at := blocks[in.Block-1]
+		existing = markdown[at[2]:at[3]]
+	}
+	today, err := s.today(ctx, uid, "")
+	if err != nil {
+		return liveProgram{}, err
+	}
+	program, err := s.LiveBlock(ctx, uid, words, existing, today.Date())
+	if err != nil {
+		return liveProgram{}, err
+	}
+	return liveProgram{existing: existing, program: program}, nil
+}
+
+// liveWords is the words as the AI gets them.
+func liveWords(words string) string {
+	words = strings.TrimSpace(words)
+	if len(words) > liveBlockMaxWords {
+		words = words[:liveBlockMaxWords]
+	}
+	return words
 }
