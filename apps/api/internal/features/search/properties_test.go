@@ -17,6 +17,19 @@ func TestSplitQuery(t *testing.T) {
 	}
 }
 
+// A search that leaves docs out keeps "key:value" as words: a task named
+// "Reply re:budget" is still searched for (it used to match nothing).
+func TestSplitForKinds(t *testing.T) {
+	if rest, filters := splitFor("Reply  re:budget", []string{"task"}); rest != "Reply re:budget" || filters != nil {
+		t.Fatalf("tasks only: %q %v", rest, filters)
+	}
+	for _, kinds := range [][]string{nil, {"doc"}, {"task", "doc"}} {
+		if rest, filters := splitFor("trip status:draft", kinds); rest != "trip" || len(filters) != 1 {
+			t.Fatalf("%v: %q %v", kinds, rest, filters)
+		}
+	}
+}
+
 func TestPropertyPattern(t *testing.T) {
 	text := "title: Trip plan\ntags: travel, 2026\naliases:\n  - Japan trip\n  - Spring\nstatus: draft"
 	cases := map[propertyFilter]bool{

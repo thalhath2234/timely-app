@@ -7,6 +7,7 @@ import type {
   UpdateTaskPayload,
 } from "@timely/contract/entities";
 import { apiFetch } from "./client";
+import { ApiError } from "./worksapce";
 
 export type {
   CreateTaskPayload,
@@ -245,7 +246,8 @@ export async function addTaskComment(
 
 async function unwrapTask(response: Response, fallback: string): Promise<Task> {
   if (!response.ok) {
-    throw new Error(await readError(response, fallback));
+    // The status lets callers tell a deleted task (404) from other failures.
+    throw new ApiError(await readError(response, fallback), response.status);
   }
   const data = await response.json();
   return data.task ?? data;

@@ -69,17 +69,13 @@ func (s *service) SemanticSearch(ctx context.Context, userID, query string, limi
 	if userID == "" {
 		return nil, errors.New("user not authenticated")
 	}
-	query, filters := splitQuery(strings.TrimSpace(query))
+	kinds = allowedKinds(kinds)
+	query, filters := splitFor(strings.TrimSpace(query), kinds)
 	if query == "" && len(filters) == 0 {
 		return []Hit{}, nil
 	}
 	limit = clampLimit(limit)
-	kinds = allowedKinds(kinds)
 	if len(filters) > 0 {
-		// Only docs have properties.
-		if len(kinds) > 0 && !contains(kinds, "doc") {
-			return []Hit{}, nil
-		}
 		kinds = []string{"doc"}
 	}
 

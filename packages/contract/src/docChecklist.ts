@@ -222,6 +222,9 @@ export async function draftChecklistTasks(
   doc: { title: string },
   ask: (body: ChecklistTasksRequest, signal: AbortSignal) => Promise<ChecklistTasksResult>,
   timeoutMs = CHECKLIST_TASKS_TIMEOUT_MS,
+  /** Told the error's message when the request failed (not when it was only
+   * slow), so the app can say why the items kept their own words. */
+  onFailed?: (message: string) => void,
 ): Promise<(ChecklistTaskDraft | null)[]> {
   const none = todos.map(() => null);
   const sent = todos.slice(0, MAX_DRAFTS);
@@ -247,11 +250,26 @@ export async function draftChecklistTasks(
       const description = typeof draft.description === "string" ? draft.description.replace(/\s+/g, " ").trim() : "";
       return { title, description };
     });
-  } catch {
+  } catch (error) {
+    if (!controller.signal.aborted) onFailed?.(error instanceof Error ? error.message : String(error));
     return none;
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** A note for the "Task added" toast when AI naming failed for a reason the
+ * person has to fix (a rejected key, no credit), from the API's message. A
+ * busy or slow provider says nothing: the next try may work. The API's
+ * catch-all text for an unexplained error ("check the model, key and
+ * credit, or retry") names credit too, so only the provider's own words
+ * for it count; a 403 that isn't about the key (a flagged request) neither. */
+export function namingFailedNote(message: string): string | null {
+  if (/HTTP 401\b|rejected the request \(HTTP 403\)/.test(message)) return "AI naming skipped: your AI key was rejected (Settings → Agent keys).";
+  if (/HTTP 402\b|credit balance|insufficient (?:credit|funds|balance)|exceeded your current quota/i.test(message)) {
+    return "AI naming skipped: your AI provider is out of credit.";
+  }
+  return null;
 }
 
 /** A task description that keeps the item's extra words and links back to

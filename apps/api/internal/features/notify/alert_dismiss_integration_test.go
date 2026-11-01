@@ -74,12 +74,12 @@ func TestIntegrationSmartAlertDismissals(t *testing.T) {
 	}
 
 	var muted []map[string]bool
-	svc.SetAlerts(func(_ context.Context, _ string, _ time.Time, _, m map[string]bool) []Alert {
+	svc.SetAlerts(func(_ context.Context, _ string, _ time.Time, _, m map[string]bool) ([]Alert, error) {
 		muted = append(muted, m)
 		one := func(kind, id string) Alert {
 			return Alert{Key: kind + ":" + id, Kind: kind, Title: "Work " + id, Action: AlertReview, Items: []AlertItem{{ID: id, Name: "Work " + id}}, LogID: "dec_today"}
 		}
-		return []Alert{one("stale", "tsk_a"), one("stale", "tsk_b"), one("due", "tsk_c")}
+		return []Alert{one("stale", "tsk_a"), one("stale", "tsk_b"), one("due", "tsk_c")}, nil
 	})
 	day := time.Now().Format("2006-01-02")
 	job := &models.Job{UserID: user, Kind: models.JobSmartAlerts, Payload: models.JobPayload{"date": day}}

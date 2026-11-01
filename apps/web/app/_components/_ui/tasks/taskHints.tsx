@@ -73,8 +73,9 @@ export default function TaskHints(props: Props) {
     let value = "";
     let next: Pick<CustomFieldValueInput, "stringValue" | "optionsValue">;
     if (field.type === "boolean") {
+      if (hint.value !== "true" && hint.value !== "false") continue;
       value = hint.value === "true" ? "Yes" : "No";
-      next = { stringValue: hint.value ?? "false" };
+      next = { stringValue: hint.value };
     } else {
       const picked = options.filter((o) => hint.optionIds?.includes(o.id));
       if (picked.length === 0) continue;
@@ -115,6 +116,8 @@ export default function TaskHints(props: Props) {
       text: <>Marked complete with {data.openChecklist} unchecked checklist item{data.openChecklist === 1 ? "" : "s"}.</>,
     });
   }
+  // A failed call is not "no hints": say why none came back.
+  if (data.error) rows.push({ key: "error", text: <>Suggestions could not load. {data.error}</> });
 
   const shown = rows.filter((row) => !hidden.has(row.key));
   if (shown.length === 0) return null;

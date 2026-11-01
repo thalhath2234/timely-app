@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useIsFetching } from "@tanstack/react-query";
 import { ScrollView, Text, TextInput, View } from "react-native";
 import { Check, ChevronDown, ChevronUp, Flame, Pencil, Plus, Target, Trash2 } from "lucide-react-native";
 import AnimatedPressable from "../ui/AnimatedPressable";
@@ -66,9 +67,12 @@ export default function HabitsGoalsCard({
   const goals = useGoalsQuery();
   const check = useCheckHabit(today);
   const goalList = goals.data ?? [];
+  // Today's suggestions tag tasks with goals too and the server keeps those
+  // tags, so progress waits for them rather than asking the same question.
+  const todayLoading = useIsFetching({ queryKey: ["today-suggestions"] }) > 0;
   const progress = useGoalProgressQuery(
     `${version}|${goalList.map((goal) => `${goal.id}:${goal.title}`).join(",")}`,
-    goalList.length > 0,
+    goalList.length > 0 && !todayLoading,
   );
   const [editing, setEditing] = useState<null | "habit" | "goal" | "all">(null);
   const [open, setOpen] = useState<string | null>(null);
