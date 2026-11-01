@@ -449,36 +449,71 @@ export function RunStatus({ chat }: { chat: Chat }) {
   );
 }
 
+/**
+ * A failed run and the one thing that helps: Agent settings for a key,
+ * credit or provider problem, no Try again for a failure that would repeat,
+ * and Discard for photos still waiting for review.
+ */
 export function FailureCard({
   chat,
   locked,
   onRetry,
+  onDiscardImages,
   onOpenSettings,
 }: {
   chat: Chat;
   locked: boolean;
   onRetry: () => void;
+  onDiscardImages: () => void;
   onOpenSettings: () => void;
 }) {
   const needsProvider = useNeedsProvider();
   if (!chat.error || chat.plan.length) return null;
+  const settings = needsProvider || chat.errorAction === "settings";
+  const stopped = ["failed", "stopped"].includes(chat.status);
+  const retry = stopped && !settings && chat.errorAction !== "none";
+  const photos =
+    stopped &&
+    !!chat.imageReview &&
+    !["confirmed", "discarded"].includes(chat.imageReview.status);
   return (
     <StatusCard
       tone="destructive"
       icon={AlertTriangle}
-      title={needsProvider ? "Connect an AI provider to chat" : "Something went wrong"}
+      title={
+        needsProvider
+          ? "Connect an AI provider to chat"
+          : settings
+            ? "Check your AI provider"
+            : chat.errorAction === "none"
+              ? "Couldn't finish this request"
+              : "Something went wrong"
+      }
       body={chat.error}
     >
-      {needsProvider ? (
-        <Action label="Open Agent settings" compact onPress={onOpenSettings} />
-      ) : ["failed", "stopped"].includes(chat.status) ? (
-        <Action
-          label="Try again"
-          icon={RefreshCw}
-          compact
-          disabled={locked}
-          onPress={onRetry}
-        />
+      {settings || retry || photos ? (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {settings ? (
+            <Action label="Open Agent settings" compact onPress={onOpenSettings} />
+          ) : null}
+          {retry ? (
+            <Action
+              label="Try again"
+              icon={RefreshCw}
+              compact
+              disabled={locked}
+              onPress={onRetry}
+            />
+          ) : null}
+          {photos ? (
+            <Action
+              label="Discard images"
+              compact
+              disabled={locked}
+              onPress={onDiscardImages}
+            />
+          ) : null}
+        </View>
       ) : null}
     </StatusCard>
   );

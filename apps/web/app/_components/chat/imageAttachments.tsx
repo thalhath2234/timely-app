@@ -57,7 +57,7 @@ export function ImagePreview({
     return (
       <div className="flex items-center gap-2 rounded-xl border border-dashed border-border p-3 text-xs text-muted-foreground">
         <ImageIcon className="size-4" />
-        Image removed · extracted details kept
+        Image removed
       </div>
     );
   return (

@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpRight,
@@ -23,6 +22,7 @@ import EmptyHero from "./emptyHero";
 import MessageList from "./messageList";
 import ProposalPanel from "./proposalPanel";
 import ReceiptReview from "./receiptReview";
+import FailureCard from "./failureCard";
 import { useImageUploads } from "./imageAttachments";
 import type { ModelChoice } from "./modelMenu";
 import { isBusy, phaseLabel, statusMeta } from "./chatMeta";
@@ -524,34 +524,12 @@ export default function Conversation({
               </div>
             )}
             {chat?.error && !chat.plan?.length && (
-              <div
-                role="alert"
-                className="mt-5 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm"
-              >
-                <p className="font-medium text-destructive">
-                  {needsProvider
-                    ? "Connect an AI provider to chat"
-                    : "Something went wrong"}
-                </p>
-                <p className="mt-1 text-sm leading-6">{chat.error}</p>
-                {needsProvider ? (
-                  <Link
-                    href="/settings?tab=agent"
-                    className={buttonClass({ size: "sm", className: "mt-3" })}
-                  >
-                    Open Agent settings
-                  </Link>
-                ) : ["failed", "stopped"].includes(chat.status) && (
-                  <button
-                    type="button"
-                    disabled={mutation.isPending}
-                    onClick={() => act("/retry")}
-                    className="mt-3 rounded-lg border border-border bg-card px-3.5 py-2 text-sm font-medium hover:border-primary/30 disabled:opacity-50"
-                  >
-                    Try again
-                  </button>
-                )}
-              </div>
+              <FailureCard
+                chat={chat}
+                needsProvider={needsProvider}
+                pending={mutation.isPending}
+                act={act}
+              />
             )}
             {chat?.error && !!chat.plan?.length && (
               <p role="alert" className="mt-3 text-sm text-destructive">

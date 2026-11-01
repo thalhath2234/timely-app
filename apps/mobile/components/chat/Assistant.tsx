@@ -1057,6 +1057,7 @@ export default function Assistant() {
                       chat={chat}
                       locked={locked}
                       onRetry={() => act("/retry")}
+                      onDiscardImages={() => act("/images/discard")}
                       onOpenSettings={() => assistant.openResult("/(app)/settings/agent")}
                     />
                   ) : null}
