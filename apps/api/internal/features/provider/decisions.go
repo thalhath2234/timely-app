@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"log"
 	"slices"
 	"strings"
 	"time"
@@ -22,7 +23,9 @@ func (s *Service) SetDecisions(d *decide.Service, check decide.Caller) {
 }
 
 // DecisionKeys is decide's KeySource: TypeSafe first, then the OpenRouter key
-// chat already uses. A rejected TypeSafe key is skipped until replaced.
+// chat already uses. A rejected TypeSafe key is skipped until replaced (or
+// until Settings → Test finds TypeSafe takes it again), and so is one that
+// cannot be decrypted; Keys says which, so screens can tell the person.
 func (s *Service) DecisionKeys(ctx context.Context, userID string) (decide.Keys, error) {
 	row, err := s.load(s.db.WithContext(ctx), userID)
 	if err != nil {
@@ -32,19 +35,60 @@ func (s *Service) DecisionKeys(ctx context.Context, userID string) (decide.Keys,
 	if !keys.Enabled {
 		return keys, nil
 	}
-	if !row.TypeSafeRejected {
-		if api, ok, err := s.apiRow(s.db.WithContext(ctx), userID, TypeSafe); err == nil && ok {
-			keys.TypeSafe, _ = s.decrypt(api.Key)
-		}
+	switch plain, state := s.typeSafeKey(ctx, userID); {
+	case state == keyUnreadable:
+		keys.TypeSafeUnreadable = true
+	case state == keySaved && row.TypeSafeRejected:
+		keys.TypeSafeRefused = true
+	case state == keySaved:
+		keys.TypeSafe = plain
 	}
 	keys.OpenRouter, _ = s.openRouterKey(row)
 	return keys, nil
 }
 
-// MarkTypeSafeRejected records that TypeSafe refused the account's key.
-func (s *Service) MarkTypeSafeRejected(userID string) {
+type savedKey int
+
+const (
+	keyNone savedKey = iota
+	keySaved
+	keyUnreadable // stored, but it cannot be decrypted (the server key changed)
+)
+
+// typeSafeKey is the account's saved TypeSafe key, decrypted.
+func (s *Service) typeSafeKey(ctx context.Context, userID string) (string, savedKey) {
+	api, ok, err := s.apiRow(s.db.WithContext(ctx), userID, TypeSafe)
+	if err != nil || !ok || api.Key == "" {
+		return "", keyNone
+	}
+	plain, err := s.decrypt(api.Key)
+	if err != nil || plain == "" {
+		return "", keyUnreadable
+	}
+	return plain, keySaved
+}
+
+// MarkTypeSafeRejected records that TypeSafe refused the account's key, the
+// key a call used. A refusal that arrives after the person saved a new key
+// is about the old one, so the new key is left alone. It runs inside the
+// settings row's lock, which saving a key also takes, so the two cannot
+// cross.
+func (s *Service) MarkTypeSafeRejected(userID, key string) {
 	_, _ = s.update(userID, func(row *Settings) error {
-		row.TypeSafeRejected = true
+		if current, state := s.typeSafeKey(context.Background(), userID); state == keySaved && current == key {
+			row.TypeSafeRejected = true
+		}
+		return nil
+	})
+}
+
+// clearTypeSafeRejected forgets a refusal once TypeSafe took key again,
+// unless the key changed meanwhile.
+func (s *Service) clearTypeSafeRejected(userID, key string) {
+	_, _ = s.update(userID, func(row *Settings) error {
+		if current, state := s.typeSafeKey(context.Background(), userID); state == keySaved && current == key {
+			row.TypeSafeRejected = false
+		}
 		return nil
 	})
 }
@@ -57,6 +101,9 @@ type decisionsView struct {
 		KeySet   bool   `json:"keySet"`
 		KeyHint  string `json:"keyHint,omitempty"`
 		Rejected bool   `json:"rejected"`
+		// Unreadable: a key is saved but cannot be decrypted (the server's
+		// encryption key changed), so it must be entered again.
+		Unreadable bool `json:"unreadable"`
 	} `json:"typesafe"`
 	OpenRouterKeySet bool `json:"openrouterKeySet"`
 	// DeepWorkTime is kept while suggestions are off. Goals live on Today
@@ -65,9 +112,13 @@ type decisionsView struct {
 }
 
 // keyUsable reports whether Jev has a key to run on: a TypeSafe key it has
-// not refused, or the OpenRouter key.
+// not refused and can read, or the OpenRouter key.
 func (v decisionsView) keyUsable() bool {
-	return (v.TypeSafe.KeySet && !v.TypeSafe.Rejected) || v.OpenRouterKeySet
+	return v.typeSafeUsable() || v.OpenRouterKeySet
+}
+
+func (v decisionsView) typeSafeUsable() bool {
+	return v.TypeSafe.KeySet && !v.TypeSafe.Rejected && !v.TypeSafe.Unreadable
 }
 
 // DeepWorkTimes are the times of day the person may prefer for deep work.
@@ -86,12 +137,16 @@ func (s *Service) decisionsView(ctx context.Context, userID string) (decisionsVi
 	out.Enabled = !row.DecisionsOff
 	out.TypeSafe.KeySet = ok && api.Key != ""
 	out.TypeSafe.KeyHint = api.KeyHint
-	out.TypeSafe.Rejected = out.TypeSafe.KeySet && row.TypeSafeRejected
+	if out.TypeSafe.KeySet {
+		_, state := s.typeSafeKey(ctx, userID)
+		out.TypeSafe.Unreadable = state == keyUnreadable
+		out.TypeSafe.Rejected = !out.TypeSafe.Unreadable && row.TypeSafeRejected
+	}
 	out.OpenRouterKeySet = row.OpenRouterKey != ""
 	out.DeepWorkTime = row.DeepWorkTime
 	if out.Enabled {
 		switch {
-		case out.TypeSafe.KeySet && !row.TypeSafeRejected:
+		case out.typeSafeUsable():
 			out.Available, out.Provider = true, decide.ProviderTypeSafe
 		case out.OpenRouterKeySet:
 			out.Available, out.Provider = true, decide.ProviderOpenRouter
@@ -126,7 +181,7 @@ func (s *Service) configureDecisions(c *echo.Context) error {
 			return err
 		}
 		if !v.keyUsable() {
-			return echo.NewHTTPError(409, "Add a TypeSafe or OpenRouter key to turn on smart suggestions")
+			return echo.NewHTTPError(409, noKeyMessage(v)+" to turn on smart suggestions")
 		}
 	}
 	if _, err := s.update(user(c), func(row *Settings) error {
@@ -157,10 +212,17 @@ func (s *Service) setTypeSafeKey(c *echo.Context) error {
 		return echo.NewHTTPError(400, "That does not look like a TypeSafe API key")
 	}
 	if s.decisionCheck != nil {
+		done, ok := s.oneCheck(user(c))
+		if !ok {
+			return echo.NewHTTPError(429, "A key check is already running. Wait for it to finish.")
+		}
+		defer done()
 		ctx, cancel := context.WithTimeout(c.Request().Context(), 20*time.Second)
 		defer cancel()
 		if err := decide.Check(ctx, s.decisionCheck, decide.Keys{TypeSafe: key}); err != nil {
-			return echo.NewHTTPError(409, "TypeSafe did not accept this key: "+err.Error())
+			// The raw error (it can name the endpoint) stays in the log.
+			log.Printf("provider: TypeSafe key check failed: %v", err)
+			return echo.NewHTTPError(409, decide.KeyCheckReason(err))
 		}
 	}
 	sealed, err := s.encrypt(key)
@@ -205,29 +267,76 @@ type decisionsTest struct {
 }
 
 // testDecisions makes one tiny live call with the keys suggestions would use,
-// in the same order, and says which provider answered or why none did.
+// in the same order, and says which provider answered or why none did. A
+// TypeSafe key TypeSafe refused earlier is asked again: if it is taken now,
+// suggestions use it again.
 func (s *Service) testDecisions(c *echo.Context) error {
+	uid := user(c)
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 20*time.Second)
 	defer cancel()
-	keys, err := s.DecisionKeys(ctx, user(c))
+	keys, err := s.DecisionKeys(ctx, uid)
 	if err != nil {
 		return err
 	}
+	retry := ""
+	if keys.Enabled && keys.TypeSafeRefused {
+		if plain, state := s.typeSafeKey(ctx, uid); state == keySaved {
+			keys.TypeSafe, retry = plain, plain
+		}
+	}
 	if !keys.Usable() {
-		return c.JSON(200, decisionsTest{Error: "Smart suggestions are off or no key is saved."})
+		msg := "Smart suggestions are off."
+		if keys.Enabled {
+			v, err := s.decisionsView(ctx, uid)
+			if err != nil {
+				return err
+			}
+			msg = noKeyMessage(v) + "."
+		}
+		return c.JSON(200, decisionsTest{Error: msg})
 	}
 	if s.decisionCheck == nil {
 		return c.JSON(200, decisionsTest{Error: "Smart suggestions are not set up on this server."})
 	}
+	done, ok := s.oneCheck(uid)
+	if !ok {
+		return c.JSON(200, decisionsTest{Error: "A test is already running."})
+	}
+	defer done()
 	started := time.Now()
-	provider, err := decide.CheckWith(context.WithValue(ctx, decide.UserKey, user(c)), s.decisionCheck, keys)
+	provider, err := decide.CheckWith(context.WithValue(ctx, decide.UserKey, uid), s.decisionCheck, keys)
 	out := decisionsTest{Provider: provider, LatencyMS: time.Since(started).Milliseconds()}
 	if err != nil {
-		out.Error = err.Error()
+		log.Printf("provider: smart suggestions test failed: %v", err)
+		out.Error = decide.SettingsReason(err)
 	} else {
 		out.OK = true
+		if retry != "" && provider == decide.ProviderTypeSafe {
+			s.clearTypeSafeRejected(uid, retry)
+		}
 	}
 	return c.JSON(200, out)
+}
+
+// noKeyMessage says what is missing when no key Jev can use is saved: a
+// refused or unreadable TypeSafe key is named rather than called missing.
+func noKeyMessage(v decisionsView) string {
+	switch {
+	case v.TypeSafe.Unreadable:
+		return "Timely can't read your saved TypeSafe key. Enter it again, or add an OpenRouter key,"
+	case v.TypeSafe.Rejected:
+		return "TypeSafe refused your saved key. Replace it, or add an OpenRouter key,"
+	}
+	return "Add a TypeSafe or OpenRouter key"
+}
+
+// oneCheck lets an account run one key check or Test at a time, so repeated
+// clicks or saves do not each make a call. done ends the check.
+func (s *Service) oneCheck(userID string) (done func(), ok bool) {
+	if _, busy := s.checking.LoadOrStore(userID, true); busy {
+		return nil, false
+	}
+	return func() { s.checking.Delete(userID) }, true
 }
 
 // decisionFeedback records whether the person kept a suggestion, for tuning.

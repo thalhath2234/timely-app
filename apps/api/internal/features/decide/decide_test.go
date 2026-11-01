@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // fakeJev plays one endpoint. answer builds the response from the request.
@@ -24,6 +25,9 @@ type fakeJev struct {
 	// bodies, when set, are sent as they are with a 200, one per call; the
 	// last one repeats.
 	bodies []string
+	// delay holds each answer back; header is added to every response.
+	delay  time.Duration
+	header map[string]string
 }
 
 func (f *fakeJev) server(t *testing.T) *httptest.Server {
@@ -34,6 +38,16 @@ func (f *fakeJev) server(t *testing.T) *httptest.Server {
 		f.raw, _ = io.ReadAll(r.Body)
 		f.last = map[string]any{}
 		_ = json.Unmarshal(f.raw, &f.last)
+		if f.delay > 0 {
+			select {
+			case <-time.After(f.delay):
+			case <-r.Context().Done():
+				return
+			}
+		}
+		for k, v := range f.header {
+			w.Header().Set(k, v)
+		}
 		if f.status != 0 && f.status != 200 {
 			w.WriteHeader(f.status)
 			_, _ = w.Write([]byte(`{"error":{"message":"nope"}}`))
@@ -139,7 +153,11 @@ func TestFallbackToOpenRouter(t *testing.T) {
 		ts, or := &fakeJev{status: code}, &fakeJev{answer: yesAnswer(0.2)}
 		s, c := newTest(t, Keys{Enabled: true, TypeSafe: "ts-key-123", OpenRouter: "or-key-123"}, ts, or)
 		var rejected string
-		c.Rejected = func(uid string) { rejected = uid }
+		c.Rejected = func(uid, key string) {
+			if key == "ts-key-123" {
+				rejected = uid
+			}
+		}
 		a, err := s.Ask(context.Background(), "u1", oneYesNo())
 		if err != nil {
 			t.Fatalf("%d: %v", code, err)
@@ -285,8 +303,8 @@ func TestScoreAndYesNoConfidence(t *testing.T) {
 	if l, ok := a.Level("effort", Prefill); !ok || l != 2 {
 		t.Fatalf("1.6 should round to level 2, got %d %v", l, ok)
 	}
-	if l, _ := a.Level("high", Prefill); l != 1 {
-		t.Fatalf("score past the top must clamp to the last level, got %d", l)
+	if _, ok := a.Level("high", 0); ok {
+		t.Fatal("a score far past the top level is not an answer")
 	}
 	if _, ok := a.Yes("unsure", Flag); ok {
 		t.Fatal("p=0.6 has confidence 0.2 and must not pass a 0.5 threshold")

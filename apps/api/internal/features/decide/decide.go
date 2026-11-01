@@ -17,6 +17,7 @@ import (
 	"math/rand/v2"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,10 +29,15 @@ import (
 var ErrOff = errors.New("suggestions are off")
 
 // Failed reports whether err is a call that went out and failed (a refused
-// key, a timeout, an answer with no answers), rather than suggestions being
-// off or the account busy. A background job can try the first again later.
+// key, a timeout, an answer with no answers), or one held back while the
+// provider recovers, rather than suggestions being off, the account busy or
+// a request the provider refuses every time. A background job can try the
+// first again later.
 func Failed(err error) bool {
-	return err != nil && err != ErrOff && errors.Is(err, ErrOff)
+	if err == nil || err == ErrOff || !errors.Is(err, ErrOff) {
+		return false
+	}
+	return !errors.Is(err, ErrBusy) && !errors.Is(err, ErrKeyRefused) && !errors.Is(err, ErrKeyUnreadable) && !permanent(err)
 }
 
 // MaxStateBytes is the largest JSON state Ask sends (about 8,000 tokens,
@@ -66,12 +72,19 @@ const (
 	typeScore  = "score"
 	typeNoul   = "noul"
 
-	maxOptions    = 255
+	maxOptions    = MaxOptions
 	maxLevels     = 10
 	maxStateBytes = MaxStateBytes
 	perUserCalls  = 4
 	cacheFor      = 10 * time.Minute
+	// coolFor is how long an account waits after the provider was rate
+	// limited or down when it gave no Retry-After; maxCool caps the wait.
+	coolFor = 30 * time.Second
+	maxCool = 2 * time.Minute
 )
+
+// MaxOptions is the most options one choice question can offer.
+const MaxOptions = 255
 
 // Option is one choice option or score level. Description may be empty when
 // the name says enough.
@@ -186,6 +199,24 @@ type Keys struct {
 	Enabled    bool
 	TypeSafe   string
 	OpenRouter string
+	// A saved TypeSafe key left out of TypeSafe because TypeSafe refused it,
+	// or because it cannot be decrypted, so Ask can say why nothing ran.
+	TypeSafeRefused    bool
+	TypeSafeUnreadable bool
+}
+
+// unusable is why a call cannot be made with these keys: ErrOff, or the
+// saved TypeSafe key that cannot be used when it was the only one.
+func (k Keys) unusable() error {
+	switch {
+	case !k.Enabled || k.OpenRouter != "":
+		return ErrOff
+	case k.TypeSafeUnreadable:
+		return ErrKeyUnreadable
+	case k.TypeSafeRefused:
+		return ErrKeyRefused
+	}
+	return ErrOff
 }
 
 // Usable reports whether a call can be made at all.
@@ -203,7 +234,13 @@ type Service struct {
 	mu    sync.Mutex
 	slots map[string]chan struct{}
 	cache map[string]cached
-	rand  func(int) []int
+	// flights holds calls in progress by cache key, so an identical request
+	// made meanwhile (a double submit) waits for that answer.
+	flights map[string]*flight
+	// cool holds, per account, until when calls wait after the provider was
+	// rate limited or down, and that failure.
+	cool map[string]cooling
+	rand func(int) []int
 	// learned holds each account's raise per feature for a while.
 	learned map[string]learnedRaise
 	// learnGen counts forget calls (see learned.go).
@@ -217,13 +254,25 @@ type cached struct {
 	until   time.Time
 }
 
+type flight struct {
+	done    chan struct{}
+	answers Answers
+	err     error
+}
+
+type cooling struct {
+	until time.Time
+	err   error
+}
+
 // New builds the service. A nil db skips the decision log; a nil client uses
 // the real TypeSafe and OpenRouter endpoints.
 func New(db *gorm.DB, keys KeySource, client Caller) *Service {
 	if client == nil {
 		client = NewClient(nil)
 	}
-	return &Service{db: db, keys: keys, client: client, slots: map[string]chan struct{}{}, cache: map[string]cached{}, rand: rand.Perm, learned: map[string]learnedRaise{}}
+	return &Service{db: db, keys: keys, client: client, slots: map[string]chan struct{}{}, cache: map[string]cached{},
+		flights: map[string]*flight{}, cool: map[string]cooling{}, rand: rand.Perm, learned: map[string]learnedRaise{}}
 }
 
 // Status reports whether suggestions are available for an account and which
@@ -249,8 +298,16 @@ func (s *Service) Ask(ctx context.Context, userID string, req Request) (Answers,
 		return Answers{}, ErrOff
 	}
 	keys, err := s.keys(ctx, userID)
-	if err != nil || !keys.Usable() {
+	if err != nil {
 		return Answers{}, ErrOff
+	}
+	if !keys.Usable() {
+		return Answers{}, keys.unusable()
+	}
+	// Work for a sensitive chat (a receipt photo) only goes out as private
+	// state, whichever helper asks, so none can forget to mark it.
+	if IsSensitive(ctx) {
+		req.Private = true
 	}
 	body, plan, err := s.build(req)
 	if err != nil {
@@ -263,9 +320,41 @@ func (s *Service) Ask(ctx context.Context, userID string, req Request) (Answers,
 		a.raise = s.raiseFor(userID, req.Feature)
 		return a, nil
 	}
+	if err := s.cooling(userID); err != nil {
+		return Answers{}, err
+	}
+	f, leader := s.join(cacheKey)
+	if !leader {
+		// The same question is already out: wait for its answer.
+		select {
+		case <-f.done:
+		case <-ctx.Done():
+			return Answers{}, errors.Join(ErrOff, ctx.Err())
+		}
+		if f.err != nil {
+			return Answers{}, f.err
+		}
+		a := f.answers
+		a.raise = s.raiseFor(userID, req.Feature)
+		return a, nil
+	}
+	answers, err := s.call(ctx, userID, req, keys, body, plan)
+	if err == nil {
+		s.store(cacheKey, answers)
+	}
+	s.land(cacheKey, f, answers, err)
+	if err != nil {
+		return Answers{}, err
+	}
+	answers.raise = s.raiseFor(userID, req.Feature)
+	return answers, nil
+}
+
+// call makes the network call for Ask once a slot is free.
+func (s *Service) call(ctx context.Context, userID string, req Request, keys Keys, body wire, plan plan) (Answers, error) {
 	release, ok := s.acquire(ctx, userID)
 	if !ok {
-		return Answers{}, ErrOff
+		return Answers{}, ErrBusy
 	}
 	defer release()
 
@@ -280,12 +369,69 @@ func (s *Service) Ask(ctx context.Context, userID string, req Request) (Answers,
 		// The answer is dropped, so the server log is the only place a broken
 		// key or endpoint shows up outside Settings → Agent → Test.
 		log.Printf("decide: %s via %s failed after %s: %v", req.Feature, provider, time.Since(started).Round(time.Millisecond), err)
+		s.coolAfter(userID, err)
 		return Answers{}, errors.Join(ErrOff, err)
 	}
 	answers.LogID = logID
-	s.store(cacheKey, answers)
-	answers.raise = s.raiseFor(userID, req.Feature)
 	return answers, nil
+}
+
+// join returns the call in progress for key, or starts one this caller
+// leads (leader true) and must land.
+func (s *Service) join(key string) (*flight, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if f, ok := s.flights[key]; ok {
+		return f, false
+	}
+	f := &flight{done: make(chan struct{})}
+	s.flights[key] = f
+	return f, true
+}
+
+// land hands the leader's result to everyone waiting on it.
+func (s *Service) land(key string, f *flight, a Answers, err error) {
+	s.mu.Lock()
+	delete(s.flights, key)
+	s.mu.Unlock()
+	f.answers, f.err = a, err
+	close(f.done)
+}
+
+// cooling returns the held-back error while the account waits after the
+// provider was rate limited or down.
+func (s *Service) cooling(userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.cool[userID]
+	if !ok {
+		return nil
+	}
+	if time.Now().After(c.until) {
+		delete(s.cool, userID)
+		return nil
+	}
+	return errors.Join(ErrOff, ErrCooling, c.err)
+}
+
+// coolAfter makes the account wait when the last provider tried was rate
+// limited (429) or down (5xx): for its Retry-After when it gave one, else
+// coolFor, at most maxCool. Reloading a screen then costs no call.
+func (s *Service) coolAfter(userID string, err error) {
+	var se *StatusError
+	if !errors.As(lastErr(err), &se) || (se.Code != 429 && se.Code < 500) {
+		return
+	}
+	wait := coolFor
+	if se.RetryAfter > 0 {
+		wait = min(se.RetryAfter, maxCool)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.cool) > 5000 {
+		s.cool = map[string]cooling{}
+	}
+	s.cool[userID] = cooling{until: time.Now().Add(wait), err: err}
 }
 
 // wire is the request body both endpoints accept.
@@ -329,9 +475,10 @@ func (o ordered) MarshalJSON() ([]byte, error) {
 
 // plan remembers how wire questions map back to the feature's questions.
 type plan struct {
-	kinds  map[string]string   // feature id -> kind
-	pairs  map[string][]string // feature id -> wire ids (two for Twice)
-	levels map[string]int      // feature id -> number of score levels
+	kinds   map[string]string   // feature id -> kind
+	pairs   map[string][]string // feature id -> wire ids (two for Twice)
+	levels  map[string]int      // feature id -> number of score levels
+	options map[string][]string // feature id -> choice option names
 }
 
 func (s *Service) build(req Request) (wire, plan, error) {
@@ -340,10 +487,10 @@ func (s *Service) build(req Request) (wire, plan, error) {
 		return wire{}, plan{}, err
 	}
 	if len(state) > maxStateBytes {
-		return wire{}, plan{}, fmt.Errorf("decide: state for %s is %d bytes; trim it below %d", req.Feature, len(state), maxStateBytes)
+		return wire{}, plan{}, &TooBigError{fmt.Sprintf("decide: state for %s is %d bytes; trim it below %d", req.Feature, len(state), maxStateBytes)}
 	}
 	w := wire{State: req.State, Questions: map[string]wireQuest{}, private: req.Private}
-	p := plan{kinds: map[string]string{}, pairs: map[string][]string{}, levels: map[string]int{}}
+	p := plan{kinds: map[string]string{}, pairs: map[string][]string{}, levels: map[string]int{}, options: map[string][]string{}}
 	ids := make([]string, 0, len(req.Questions))
 	for id := range req.Questions {
 		ids = append(ids, id)
@@ -354,8 +501,14 @@ func (s *Service) build(req Request) (wire, plan, error) {
 		p.kinds[id] = q.kind
 		switch q.kind {
 		case typeChoice:
-			if len(q.options) < 2 || len(q.options) > maxOptions {
+			if len(q.options) < 2 {
 				return wire{}, plan{}, fmt.Errorf("decide: %s needs 2 to %d options, got %d", id, maxOptions, len(q.options))
+			}
+			if len(q.options) > maxOptions {
+				return wire{}, plan{}, &TooBigError{fmt.Sprintf("decide: %s needs 2 to %d options, got %d", id, maxOptions, len(q.options))}
+			}
+			for _, o := range q.options {
+				p.options[id] = append(p.options[id], o.Name)
 			}
 			first := s.shuffle(q.options)
 			w.Questions[id] = wireQuest{Type: typeChoice, Instructions: q.instructions, Criteria: first}
@@ -410,24 +563,36 @@ type response struct {
 	} `json:"answers"`
 }
 
+// errUnreadable is an answer body that is not Jev's JSON.
+var errUnreadable = errors.New("decide: unreadable answer")
+
+// read maps the answers back to the questions. An answer that does not fit
+// its question is dropped as if Jev had not answered it: a type other than
+// the one asked, a confidence outside 0..1, a score off the levels, or a
+// choice that is not one of the options (matched ignoring case and spaces).
 func (p plan) read(raw []byte) (map[string]Answer, error) {
 	var r response
 	if err := json.Unmarshal(raw, &r); err != nil {
-		return nil, fmt.Errorf("decide: unreadable answer: %w", err)
+		return nil, fmt.Errorf("%w: %v", errUnreadable, err)
 	}
 	out := map[string]Answer{}
 	for id, kind := range p.kinds {
 		wires := p.pairs[id]
 		first, ok := r.Answers[wires[0]]
-		if !ok {
+		if !ok || (first.Type != "" && first.Type != kind) || !unit(first.Confidence) {
 			continue
 		}
 		switch kind {
 		case typeChoice:
-			a := Answer{Kind: kind, Choice: first.Choice, Confidence: first.Confidence}
+			choice, ok := p.option(id, first.Choice)
+			if !ok {
+				continue
+			}
+			a := Answer{Kind: kind, Choice: choice, Confidence: first.Confidence}
 			if len(wires) == 2 {
 				second, ok := r.Answers[wires[1]]
-				if !ok || second.Choice != first.Choice {
+				again, known := p.option(id, second.Choice)
+				if !ok || !known || again != choice || !unit(second.Confidence) {
 					a.Confidence = 0 // the two orders disagree: not reliable
 				} else {
 					a.Confidence = math.Min(first.Confidence, second.Confidence)
@@ -435,16 +600,16 @@ func (p plan) read(raw []byte) (map[string]Answer, error) {
 			}
 			out[id] = a
 		case typeScore:
-			level := int(math.Round(first.Score))
-			if n := p.levels[id]; level >= n {
-				level = n - 1
+			// Levels run 0..n-1; rounding to the nearest is fine, a score
+			// beyond half a level past either end is not an answer.
+			n := p.levels[id]
+			if first.Score < -0.5 || first.Score > float64(n)-0.5 || math.IsNaN(first.Score) {
+				continue
 			}
-			if level < 0 {
-				level = 0
-			}
+			level := min(max(int(math.Round(first.Score)), 0), n-1)
 			out[id] = Answer{Kind: kind, Level: level, Confidence: first.Confidence}
 		case typeNoul:
-			if first.Noul == nil {
+			if first.Noul == nil || !unit(*first.Noul) {
 				continue
 			}
 			y := *first.Noul
@@ -454,9 +619,34 @@ func (p plan) read(raw []byte) (map[string]Answer, error) {
 	// An answer to none of the questions asked is a failed call, not a
 	// decision: it is neither logged as one nor cached.
 	if len(out) == 0 {
-		return nil, errors.New("decide: the answer had none of the questions asked")
+		return nil, fmt.Errorf("decide: the answer had none of the questions asked: %w", errNoAnswers)
 	}
 	return out, nil
+}
+
+// unit reports whether v is a probability or confidence (0..1).
+func unit(v float64) bool { return v >= 0 && v <= 1 }
+
+// option is the name of the option a choice answer names: the exact name, or
+// the one name it matches ignoring case and surrounding spaces.
+func (p plan) option(id, choice string) (string, bool) {
+	names := p.options[id]
+	for _, n := range names {
+		if n == choice {
+			return n, true
+		}
+	}
+	want := strings.ToLower(strings.TrimSpace(choice))
+	found := ""
+	for _, n := range names {
+		if strings.ToLower(strings.TrimSpace(n)) == want {
+			if found != "" {
+				return "", false
+			}
+			found = n
+		}
+	}
+	return found, found != ""
 }
 
 // stableKey identifies a request for the cache, ignoring option order.
@@ -514,6 +704,11 @@ func (s *Service) acquire(ctx context.Context, userID string) (func(), bool) {
 	select {
 	case slot <- struct{}{}:
 		return func() { <-slot }, true
+	default:
+	}
+	select {
+	case slot <- struct{}{}:
+		return func() { <-slot }, true
 	case <-ctx.Done():
 		return nil, false
 	}
@@ -553,7 +748,7 @@ func (s *Service) Feedback(userID, logID string, accepted bool) error {
 		return nil
 	}
 	now := time.Now().UTC()
-	err := s.db.Model(&DecisionLog{}).Where("id = ? AND user_id = ?", logID, userID).
+	err := s.db.Model(&DecisionLog{}).Where("id = ? AND user_id = ?", logID, userID).Where(notReset).
 		Updates(map[string]any{"accepted": accepted, "decided_at": now}).Error
 	s.forget(userID)
 	return err
@@ -566,7 +761,7 @@ func (s *Service) Dismissed(userID, logID string) error {
 	if s == nil || s.db == nil || logID == "" {
 		return nil
 	}
-	err := s.db.Model(&DecisionLog{}).Where("id = ? AND user_id = ? AND accepted IS NULL", logID, userID).
+	err := s.db.Model(&DecisionLog{}).Where("id = ? AND user_id = ? AND accepted IS NULL AND decided_at IS NULL", logID, userID).
 		Updates(map[string]any{"accepted": false, "decided_at": time.Now().UTC()}).Error
 	s.forget(userID)
 	return err
