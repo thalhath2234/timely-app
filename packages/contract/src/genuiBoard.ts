@@ -670,6 +670,7 @@ const RULES = [
   "Give every List an empty text. An Open link goes where its rows come from: Tasks for tasks, Calendar for events, a doc or sheet by its docId or sheetId. Show nothing the words don't ask for.",
   "The title is a few words in the person's language, without the word card. Labels are in the person's language too.",
   "When the message holds the card's current program and a change, answer with the whole changed program, keeping the rest as it was.",
+  'When the person\'s data holds nothing the words could be about (no sheet, doc, project or other name like it, after looking it up when you can), answer with one line instead of a program: NO_DATA: and a short reason in the person\'s language, such as "NO_DATA: There is no CRM sheet yet." Never write a card that only says the data is missing or promises to fill in later: a card\'s text never changes.',
 ];
 
 const EXAMPLES = [
