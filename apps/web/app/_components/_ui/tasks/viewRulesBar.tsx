@@ -5,6 +5,7 @@ import { CircleAlert, ListFilter, Plus, Sparkles, X } from "lucide-react";
 import { newCondition, replaceRule } from "@timely/contract/ruleBuilder";
 import { isRuleGroup, normalizeRules } from "@timely/contract/taskQuery";
 import {
+  VIEW_QUERY_MAX,
   aiDraftPatch,
   describeView,
   droppedNote,
@@ -127,7 +128,9 @@ export function DescribeViewInput({
   vocab: ViewVocabulary;
   today: string;
   aiReady: boolean;
-  onPatch: (patch: Partial<TaskViewConfig>) => void;
+  /** `viewId`: the view the change is for, given when it lands late (Read
+   * with AI), so it goes to that view even if another tab is open by then. */
+  onPatch: (patch: Partial<TaskViewConfig>, viewId?: string) => void;
   className?: string;
   /** Sizes the text box alone, so a note beside it never squeezes it shut. */
   boxClassName?: string;
@@ -153,10 +156,11 @@ export function DescribeViewInput({
 
   const askAi = () => {
     const query = text.trim();
+    const viewId = view.id;
     setAi({ text: query, busy: true });
     readViewWithAi({ query, today, client: "web" })
       .then((result) => {
-        onPatch({ ...aiDraftPatch(result.view, vocab), prompt: query.slice(0, 300) });
+        onPatch({ ...aiDraftPatch(result.view, vocab), prompt: query.slice(0, 300) }, viewId);
         setAi({ text: query, done: true, dropped: result.dropped });
         setLeftover(null);
       })
@@ -177,6 +181,7 @@ export function DescribeViewInput({
         <input
           value={text}
           onChange={(event) => setText(event.target.value)}
+          maxLength={VIEW_QUERY_MAX}
           placeholder="Describe what to show"
           aria-label="Describe what this view shows"
           className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"

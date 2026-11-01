@@ -1761,6 +1761,10 @@ export function readingPatch(reading: ViewReading): Partial<TaskViewConfig> {
   return viewPatchFrom(reading.view, reading.parts);
 }
 
+/** The most characters a view description takes (viewQueryMaxText in the
+ * API, which counts characters the same way), so Read with AI reads all of it. */
+export const VIEW_QUERY_MAX = 500;
+
 /** What the AI's reading could not use (the API's `dropped`: a name that
  * does not exist, a rule it could not check), said next to the view so it
  * is clear the view shows more than was asked. Empty when nothing was left out. */
