@@ -139,7 +139,8 @@ function withoutImages(nodes: JSONContent[]): JSONContent[] {
       } catch {
         // no address to name
       }
-      return { type: "text", text: alt ? `[Image: ${alt}]` : from ? `[Image from ${from}]` : "[Image]" };
+      // In italics, so it reads as a stand-in rather than words of the draft.
+      return { type: "text", text: alt ? `[Image: ${alt}]` : from ? `[Image from ${from}]` : "[Image]", marks: [{ type: "italic" }] };
     }
     return node.content ? { ...node, content: withoutImages(node.content) } : node;
   });
