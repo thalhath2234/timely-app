@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { AtSign, Loader2, Sparkles } from "lucide-react";
 import { matchMention, sendDecisionFeedback, type MentionMatch, type MentionTarget } from "@/app/utils/api/decisions";
@@ -16,7 +16,11 @@ export default function MentionLinkButton({ editor, docId }: { editor: Editor; d
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<MentionMatch | null>(null);
+  const [failed, setFailed] = useState(false);
   const [range, setRange] = useState<{ from: number; to: number; text: string } | null>(null);
+  // The lookup the menu is for: an answer to an earlier selection that lands
+  // late is dropped, so its items never show under the newer phrase.
+  const latest = useRef(0);
   if (!settings?.available) return null;
 
   const run = async () => {
@@ -26,16 +30,19 @@ export default function MentionLinkButton({ editor, docId }: { editor: Editor; d
       useToastStore.getState().show("Select a phrase within one line to link it to an item");
       return;
     }
+    const ask = ++latest.current;
     setRange({ from, to, text: editor.state.doc.textBetween(from, to, " ") });
     setResult(null);
+    setFailed(false);
     setOpen(true);
     setLoading(true);
     try {
-      setResult(await matchMention(text, docId));
+      const answer = await matchMention(text, docId);
+      if (ask === latest.current) setResult(answer);
     } catch {
-      setResult({ available: true, options: [] });
+      if (ask === latest.current) setFailed(true);
     } finally {
-      setLoading(false);
+      if (ask === latest.current) setLoading(false);
     }
   };
 
@@ -98,6 +105,10 @@ export default function MentionLinkButton({ editor, docId }: { editor: Editor; d
             {loading ? (
               <p className="flex items-center gap-2 px-2 py-1.5 text-sm text-muted-foreground">
                 <Loader2 className="size-3.5 animate-spin" /> Finding a match…
+              </p>
+            ) : failed ? (
+              <p role="alert" className="px-2 py-1.5 text-sm text-muted-foreground">
+                Couldn’t look up matches. Try again.
               </p>
             ) : result?.match || others.length ? (
               <>

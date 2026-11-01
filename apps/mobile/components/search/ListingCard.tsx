@@ -68,9 +68,12 @@ export default function ListingCard({
 
   const askAi = () => {
     setAi({ query, busy: true });
+    // An answer for words since changed is dropped: it would end the newer
+    // read's busy state, and a second tap would ask for it again.
+    const settle = (next: NonNullable<typeof ai>) => setAi((current) => (current?.query === query ? next : current));
     readViewWithAi({ query, today, client: "phone" })
-      .then((result) => setAi({ query, view: viewFromAiDraft(result.view, "preview", vocab, { prompt: query }) }))
-      .catch((error: Error) => setAi({ query, error: error.message }));
+      .then((result) => settle({ query, view: viewFromAiDraft(result.view, "preview", vocab, { prompt: query }) }))
+      .catch((error: Error) => settle({ query, error: error.message }));
   };
 
   if (!view) {

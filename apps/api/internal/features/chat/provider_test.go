@@ -135,6 +135,30 @@ func TestOpenRouterImagesUsePrivateMultimodalRouting(t *testing.T) {
 	}
 }
 
+// GW29: an OpenRouter error says what OpenRouter said (a refused key or
+// missing credit has its own wording, below), and a model stopped at its
+// limit is the typed error each feature words for itself.
+func TestOpenRouterErrorsKeepTheProvidersMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.Header.Get("Authorization"), "broke") {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error":{"message":"Upstream provider is overloaded","code":503}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"cut"},"finish_reason":"length"}]}`))
+	}))
+	defer server.Close()
+	broke := OpenRouter{Key: "broke", Model: "m", URL: server.URL, Client: server.Client()}
+	_, err := broke.Complete(context.Background(), []WireMessage{{Role: "user", Content: "Hi"}}, nil, false)
+	if err == nil || !strings.Contains(err.Error(), "HTTP 503: Upstream provider is overloaded") {
+		t.Fatalf("err = %v", err)
+	}
+	long := OpenRouter{Key: "ok", Model: "m", URL: server.URL, Client: server.Client()}
+	if _, err := long.Complete(context.Background(), []WireMessage{{Role: "user", Content: "Hi"}}, nil, false); !errors.Is(err, ErrOutputTooLong) || failureAction(err) != ActionNone {
+		t.Fatalf("err = %v (action %q); a cut answer would be cut again", err, failureAction(err))
+	}
+}
+
 // OpenRouter's refusals say what helps: a refused key or missing credit goes
 // to Settings → Agent, while a 403 (a content filter flagged the input) is not
 // blamed on the key and can be tried again on another model.

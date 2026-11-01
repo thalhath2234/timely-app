@@ -2,6 +2,7 @@ package richtext
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -85,5 +86,23 @@ func TestSetChecklistItemTicksTheItemMeant(t *testing.T) {
 	}
 	if _, _, err := SetChecklistItem(doc, 0, "not an item", true); err == nil {
 		t.Fatal("tick boxes in code are not items")
+	}
+}
+
+func TestSetChecklistItemRefusesAGuess(t *testing.T) {
+	doc := checklistDoc(t)
+	// Milk is item 1 and item 6. A card drawn before an item was added on top
+	// still says item 2: which Milk it meant is unknown.
+	if _, changed, err := SetChecklistItem(doc, 2, "Milk", false); !errors.Is(err, ErrAmbiguousChecklistItem) || changed {
+		t.Fatalf("got %v, %v; want ErrAmbiguousChecklistItem", changed, err)
+	}
+	for _, item := range ChecklistItems(doc) {
+		if item.Text == "Milk" && item.Done != (item.Item == 1) {
+			t.Fatalf("a refused tick changed %+v", item)
+		}
+	}
+	// At its own place either one still ticks.
+	if got, _, err := SetChecklistItem(doc, 6, "Milk", true); err != nil || got.Item != 6 {
+		t.Fatalf("got %+v, %v", got, err)
 	}
 }

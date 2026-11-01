@@ -9,28 +9,28 @@ import (
 	"timely-api/internal/features/embed"
 )
 
-// countingIndexer fails the test if a private chat's search reaches it.
-type countingIndexer struct {
+// privateIndexer fails the test if a private chat's search reaches it.
+type privateIndexer struct {
 	embed.Indexer
 	calls int
 }
 
-func (c *countingIndexer) EnabledFor(string) bool { return true }
-func (c *countingIndexer) Count(context.Context, string) (int64, error) {
+func (c *privateIndexer) EnabledFor(string) bool { return true }
+func (c *privateIndexer) Count(context.Context, string) (int64, error) {
 	c.calls++
 	return 0, nil
 }
-func (c *countingIndexer) ReindexUser(context.Context, string) (int, error) {
+func (c *privateIndexer) ReindexUser(context.Context, string) (int, error) {
 	c.calls++
 	return 0, nil
 }
-func (c *countingIndexer) Query(context.Context, string, string, int, []string) ([]embed.Hit, error) {
+func (c *privateIndexer) Query(context.Context, string, string, int, []string) ([]embed.Hit, error) {
 	c.calls++
 	return nil, nil
 }
 
 func TestPrivateChatSearchesSkipEmbeddings(t *testing.T) {
-	idx := &countingIndexer{}
+	idx := &privateIndexer{}
 	s := &service{indexer: idx}
 	hits, err := s.vector(decide.WithSensitive(context.Background()), "user", "Dr. Alice Moore cardiology", 20, nil)
 	if !errors.Is(err, embed.ErrDisabled) || hits != nil {

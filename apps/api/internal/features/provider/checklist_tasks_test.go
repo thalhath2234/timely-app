@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -147,6 +150,120 @@ func TestDraftChecklistTasksUsesOneCallAndHonoursTheBudget(t *testing.T) {
 	}
 }
 
+// batchCompleter names each item it is sent "Do <item>", after wait; a batch
+// holding the item "stuck" never answers. Safe for calls side by side.
+type batchCompleter struct {
+	wait  time.Duration
+	mu    sync.Mutex
+	calls int
+	most  int
+}
+
+var itemsBlock = regexp.MustCompile(`(?s)<items>\n(.*)\n</items>`)
+
+func (f *batchCompleter) Complete(ctx context.Context, messages []chat.WireMessage, tools []any, search bool) (chat.WireMessage, error) {
+	var entries []struct {
+		N    int    `json:"n"`
+		Item string `json:"item"`
+	}
+	if err := json.Unmarshal([]byte(itemsBlock.FindStringSubmatch(messages[1].Content)[1]), &entries); err != nil {
+		return chat.WireMessage{}, err
+	}
+	f.mu.Lock()
+	f.calls++
+	f.most = max(f.most, len(entries))
+	f.mu.Unlock()
+	wait := f.wait
+	for _, e := range entries {
+		if e.Item == "stuck" {
+			wait = time.Hour
+		}
+	}
+	select {
+	case <-time.After(wait):
+	case <-ctx.Done():
+		return chat.WireMessage{}, ctx.Err()
+	}
+	var tasks []map[string]any
+	for _, e := range entries {
+		tasks = append(tasks, map[string]any{"n": e.N, "title": "Do " + e.Item})
+	}
+	raw, _ := json.Marshal(map[string]any{"tasks": tasks})
+	return chat.WireMessage{Role: "assistant", Content: string(raw)}, nil
+}
+
+func manyItems(n int) checklistTasksRequest {
+	req := checklistTasksRequest{DocTitle: "Move"}
+	for i := range n {
+		req.Items = append(req.Items, checklistTaskItem{Name: fmt.Sprintf("item %d", i+1)})
+	}
+	return req
+}
+
+func TestChecklistBatchesAreEven(t *testing.T) {
+	for n, want := range map[int][]int{1: {1}, 12: {12}, 13: {6, 7}, 25: {8, 8, 9}, 50: {10, 10, 10, 10, 10}} {
+		var sizes []int
+		next := 0
+		for _, b := range checklistBatches(n) {
+			if b[0] != next {
+				t.Fatalf("%d: batches leave a gap at %d", n, next)
+			}
+			sizes = append(sizes, b[1]-b[0])
+			next = b[1]
+		}
+		if fmt.Sprint(sizes) != fmt.Sprint(want) || next != n {
+			t.Errorf("%d items: batches %v, want %v", n, sizes, want)
+		}
+	}
+}
+
+// The client's maximum of 50 items is named in time: the batches run side by
+// side, so the wait is one batch's, not the sum of them (R5, W4).
+func TestDraftChecklistTasksNamesALongListInBatches(t *testing.T) {
+	saved := checklistTasksBudget
+	checklistTasksBudget = 400 * time.Millisecond
+	t.Cleanup(func() { checklistTasksBudget = saved })
+	fake := &batchCompleter{wait: 150 * time.Millisecond}
+	start := time.Now()
+	got, err := draftChecklistTasks(context.Background(), fake, manyItems(checklistTasksMax))
+	if err != nil {
+		t.Fatalf("a full list must be named, got %v after %s", err, time.Since(start))
+	}
+	if fake.calls != 5 || fake.most > checklistTasksBatch {
+		t.Fatalf("want 5 batches of at most %d, got %d calls, largest %d", checklistTasksBatch, fake.calls, fake.most)
+	}
+	for i, draft := range got {
+		if want := fmt.Sprintf("Do item %d", i+1); draft.Title != want {
+			t.Fatalf("item %d named %q, want %q", i+1, draft.Title, want)
+		}
+	}
+}
+
+// A batch that runs out of time loses only its own items; the answers that
+// came back are used, never thrown away.
+func TestDraftChecklistTasksKeepsTheBatchesThatAnswered(t *testing.T) {
+	saved := checklistTasksBudget
+	checklistTasksBudget = 300 * time.Millisecond
+	t.Cleanup(func() { checklistTasksBudget = saved })
+	req := manyItems(30)
+	req.Items[29].Name = "stuck"
+	got, err := draftChecklistTasks(context.Background(), &batchCompleter{wait: 20 * time.Millisecond}, req)
+	if err != nil {
+		t.Fatalf("the batches that answered must be kept, got %v", err)
+	}
+	last := checklistBatches(30)[2]
+	for i, draft := range got {
+		if inLast := i >= last[0]; inLast != (draft.Title == "") {
+			t.Fatalf("item %d: %q (the timed-out batch is %v)", i+1, draft.Title, last)
+		}
+	}
+	// Nothing answered at all: the deadline comes back, so the endpoint says 504.
+	all := checklistTasksRequest{Items: []checklistTaskItem{{Name: "stuck"}}}
+	if _, err := draftChecklistTasks(context.Background(), &batchCompleter{}, all); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("want the deadline error, got %v", err)
+	}
+}
+
 // The endpoint runs on the account's default provider and its chosen model,
 // and refuses (409) when no provider is ready so the client keeps the item's words.
 func TestIntegrationChecklistTasksUsesTheDefaultModel(t *testing.T) {
@@ -212,5 +329,54 @@ func TestIntegrationChecklistTasksUsesTheDefaultModel(t *testing.T) {
 	}
 	if code, _ := call(t, s, "user-a", http.MethodPost, "/agent/checklist-tasks", map[string]any{"items": []any{}}); code != 400 {
 		t.Fatalf("empty request: want 400, got %d", code)
+	}
+}
+
+// GW12: an answer without numbers that skips an item leaves the items
+// unplaced instead of shifting each later title onto the item before it.
+func TestParseChecklistTasksDoesNotShift(t *testing.T) {
+	got, err := parseChecklistTasks(`{"tasks":[{"title":"Book flights to Paris"},{"title":"Pay rent"}]}`, 3)
+	if err == nil {
+		t.Fatalf("two unnumbered titles for three items can't be placed: %+v", got)
+	}
+	// A duplicate number does not push the second title onto the next item.
+	got, err = parseChecklistTasks(`{"tasks":[{"n":1,"title":"A"},{"n":1,"title":"B"},{"n":3,"title":"C"}]}`, 3)
+	if err != nil || got[0].Title != "A" || got[1].Title != "" || got[2].Title != "C" {
+		t.Fatalf("duplicate n: %+v %v", got, err)
+	}
+}
+
+// W10: a brace after the JSON does not lose every title.
+func TestParseChecklistTasksIgnoresTextAfterTheJSON(t *testing.T) {
+	answer := "```json\n{\"tasks\":[{\"n\":1,\"title\":\"Call the plumber\"}]}\n```\nHope this helps! {not json}"
+	got, err := parseChecklistTasks(answer, 1)
+	if err != nil || got[0].Title != "Call the plumber" {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
+
+// W22: no emoji in a title and no HTML tags in a title or description; a
+// title of emoji only leaves the item its own words.
+func TestCleanTaskTitleDropsEmojiAndTags(t *testing.T) {
+	if got := cleanTaskTitle("🛒🥛🍞"); got != "" {
+		t.Errorf("emoji-only title = %q", got)
+	}
+	if got := cleanTaskTitle("Buy milk 🥛 and bread"); got != "Buy milk and bread" {
+		t.Errorf("got %q", got)
+	}
+	if got := cleanTaskTitle("Set oven to 180°"); got != "Set oven to 180°" {
+		t.Errorf("a degree sign is not an emoji: %q", got)
+	}
+	if got := cleanTaskDescription("Fix it <script>alert(1)</script> today."); got != "Fix it alert(1) today." {
+		t.Errorf("got %q", got)
+	}
+}
+
+// W19: an answer that can't be read gets a plain message, not a Go type dump.
+func TestDraftChecklistTasksHidesParseErrors(t *testing.T) {
+	model := &fakeCompleter{reply: `{"tasks": {"n":1,"title":"x"}}`}
+	_, err := draftChecklistTasks(context.Background(), model, checklistTasksRequest{Items: []checklistTaskItem{{Name: "x"}}})
+	if !errors.Is(err, errUnreadable) || strings.Contains(err.Error(), "struct") {
+		t.Fatalf("err = %v", err)
 	}
 }

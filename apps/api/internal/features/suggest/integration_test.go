@@ -254,7 +254,7 @@ func TestIntegrationStaleWorkSkipsRepeatingScheduledAndRecent(t *testing.T) {
 
 	jev := &jevStub{answers: map[string]any{"task1": choice("obsolete"), "task2": choice("actionable")}}
 	s := New(w.db, jev.service(t), nil)
-	out, err := s.StaleWork(context.Background(), w.user, now)
+	out, err := s.StaleWork(context.Background(), w.user, "", now)
 	must(t, err)
 	if len(out.Tasks) != 2 || out.Tasks[0].ID != older.ID || out.Tasks[1].ID != idle.ID {
 		t.Fatalf("%+v", out.Tasks)
@@ -298,7 +298,7 @@ func TestIntegrationProjectInsights(t *testing.T) {
 		"overlap1": yesNo(0.95), "move1": choice("Garden"),
 	}}
 	s := New(w.db, jev.service(t), nearby{hits: map[string][]search.Hit{"project": {{ID: kitchen.ID}, {ID: reno.ID}}}})
-	out, err := s.ProjectInsights(context.Background(), w.user, kitchen.ID, now)
+	out, err := s.ProjectInsights(context.Background(), w.user, kitchen.ID, "", now)
 	must(t, err)
 	f := out.Facts
 	if f.Open != 3 || f.Done != 1 || f.DoneRecent != 1 || f.Overdue != 1 || f.Blocked != 1 || f.DaysLeft == nil || *f.DaysLeft != 10 {
@@ -316,8 +316,96 @@ func TestIntegrationProjectInsights(t *testing.T) {
 	if len(out.Overlaps) != 1 || out.Overlaps[0].ID != reno.ID {
 		t.Fatalf("overlaps %+v", out.Overlaps)
 	}
-	if _, err := s.ProjectInsights(context.Background(), "usr_other", kitchen.ID, now); err == nil {
+	if _, err := s.ProjectInsights(context.Background(), "usr_other", kitchen.ID, "", now); err == nil {
 		t.Fatal("read another account's project")
+	}
+}
+
+// Overdue and days to the deadline are counted in the person's own day:
+// their saved hours' zone, else the client's. Kiritimati (UTC+14) is always
+// a day or two ahead of Pago Pago (UTC-11), so the same tasks read
+// differently in each.
+func TestIntegrationProjectFactsUseThePersonsDay(t *testing.T) {
+	w := newWorld(t)
+	must(t, w.db.AutoMigrate(&models.Config{}))
+	now := time.Now()
+	ahead, _ := time.LoadLocation("Pacific/Kiritimati")
+	behind, _ := time.LoadLocation("Pacific/Pago_Pago")
+	dayAhead, dayBehind := now.In(ahead).Format("2006-01-02"), now.In(behind).Format("2006-01-02")
+	project := models.Project{ID: "pr_trip", Title: "Osaka trip", WorkspaceID: &w.ws, Deadline: ptr(dayAhead),
+		CreatedAt: now.AddDate(0, 0, -30).UTC().Format(time.RFC3339)}
+	must(t, w.db.Create(&project).Error)
+	w.task(t, "Book the hotel", func(task *models.Task) { task.ProjectID = &project.ID; task.Deadline = ptr(dayBehind) })
+	jev := &jevStub{answers: map[string]any{"health": choice("progressing")}}
+	s := New(w.db, jev.service(t), nil)
+
+	// No saved hours: the client's zone. The task is due today there.
+	out, err := s.ProjectInsights(context.Background(), w.user, project.ID, "Pacific/Pago_Pago", now)
+	must(t, err)
+	gap := daysApart(t, dayBehind, dayAhead)
+	if out.Facts.Overdue != 0 || out.Facts.DaysLeft == nil || *out.Facts.DaysLeft != gap {
+		t.Fatalf("client zone: facts %+v, want 0 overdue and %d days left", out.Facts, gap)
+	}
+
+	// Saved hours win over the client's zone: there the task is past due and
+	// the project is due today, and Jev reads the same facts.
+	must(t, w.db.Create(&models.Config{ID: "cfg_" + w.user, UserID: w.user, WorkingHours: models.WorkingHours{Timezone: "Pacific/Kiritimati"}}).Error)
+	out, err = s.ProjectInsights(context.Background(), w.user, project.ID, "Pacific/Pago_Pago", now)
+	must(t, err)
+	if out.Facts.Overdue != 1 || out.Facts.DaysLeft == nil || *out.Facts.DaysLeft != 0 {
+		t.Fatalf("saved zone: facts %+v, want 1 overdue and due today", out.Facts)
+	}
+	var state struct {
+		Facts ProjectFacts `json:"facts"`
+	}
+	must(t, json.Unmarshal(mustJSON(t, jev.requests[len(jev.requests)-1].State), &state))
+	if state.Facts.Overdue != 1 || state.Facts.DaysLeft == nil || *state.Facts.DaysLeft != 0 {
+		t.Fatalf("Jev read %+v", state.Facts)
+	}
+}
+
+// daysApart counts the days from one YYYY-MM-DD date to another.
+func daysApart(t *testing.T, from, to string) int {
+	t.Helper()
+	a, err := time.Parse("2006-01-02", from)
+	must(t, err)
+	b, err := time.Parse("2006-01-02", to)
+	must(t, err)
+	return int(b.Sub(a).Hours() / 24)
+}
+
+// A project made today is not offered "stalled", and a stalled answer for it
+// is dropped; a month-old project can still read as stalled.
+func TestIntegrationNewProjectIsNotStalled(t *testing.T) {
+	w := newWorld(t)
+	now := time.Now()
+	fresh := models.Project{ID: "pr_new", Title: "Garage workshop setup", WorkspaceID: &w.ws}
+	old := models.Project{ID: "pr_old", Title: "Attic clear-out", WorkspaceID: &w.ws, CreatedAt: now.AddDate(0, 0, -30).UTC().Format(time.RFC3339)}
+	for _, p := range []*models.Project{&fresh, &old} {
+		must(t, w.db.Create(p).Error)
+		for i := 0; i < 3; i++ {
+			w.task(t, fmt.Sprintf("%s step %d", p.Title, i+1), func(task *models.Task) {
+				task.ProjectID = &p.ID
+				task.Deadline = ptr(now.AddDate(0, 0, i).Format("2006-01-02"))
+			})
+		}
+	}
+	jev := &jevStub{answers: map[string]any{"health": choice("stalled")}}
+	s := New(w.db, jev.service(t), nil)
+
+	out, err := s.ProjectInsights(context.Background(), w.user, fresh.ID, "", now)
+	must(t, err)
+	if out.Health != "" || out.Facts.AgeDays != 0 {
+		t.Fatalf("new project: health %q, age %d", out.Health, out.Facts.AgeDays)
+	}
+	if q := string(jev.asked(0)["health"]); q == "" || strings.Contains(q, "stalled") {
+		t.Fatalf("new project offered %s", q)
+	}
+
+	out, err = s.ProjectInsights(context.Background(), w.user, old.ID, "", now)
+	must(t, err)
+	if out.Health != "stalled" || out.Facts.AgeDays < 29 {
+		t.Fatalf("old project: health %q, age %d", out.Health, out.Facts.AgeDays)
 	}
 }
 

@@ -11,7 +11,7 @@ import BottomSheet, { SheetOption } from "../ui/BottomSheet";
 import ConfirmSheet from "../ui/ConfirmSheet";
 import EmptyState from "../ui/EmptyState";
 import RichTextEditor from "../editor/RichTextEditor";
-import { useCreateDoc, useDecisionsStatusQuery, useDeleteDoc, useDocBacklinksQuery, useDocQuery, useDocWatch, useDocsQuery, useUpdateDoc, useWorkspacesQuery } from "../../lib/hooks";
+import { useCreateDoc, useDecisionsStatusQuery, useDeleteDoc, useDocBacklinksQuery, useDocQuery, useDocWatch, useDocsQuery, useSettled, useUpdateDoc, useWorkspacesQuery } from "../../lib/hooks";
 import { saveStatusLabel, useAutosave, useUnsavedLeaveGuard } from "../../lib/autosave";
 import { showUndoToast } from "../../lib/toast";
 import { resolveDocContent } from "../../lib/markdown";
@@ -22,7 +22,7 @@ import type { DocContent } from "../../lib/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { hasUploadedImages, shareExport } from "../../lib/api/portability";
 import { getDocVersion, getDocVersions, restoreDocVersion, type DocVersion } from "../../lib/api/docs";
-import { DOC_VERSION_REASONS } from "@timely/contract/documents";
+import { DOC_HINTS_SETTLE_MS, DOC_VERSION_REASONS, countDocWords, docHintsVersion } from "@timely/contract/documents";
 import RichDoc from "./RichDoc";
 import RelatedList from "../search/RelatedList";
 import DocHintsCard, { ChecklistOffersOption } from "./DocHintsCard";
@@ -33,10 +33,6 @@ import { FILES_TAB, fileHref } from "../../lib/fileRoutes";
 import { useQueryClient } from "@tanstack/react-query";
 
 const ICON_CHOICES = ["📄", "📝", "📌", "📊", "🗂️", "💡", "🚀", "🎯", "🐛", "🧪", "📚", "🔧", "🔥", "✅", "⭐", "🧠"];
-
-function countWords(text: string) {
-  return text.trim().split(/\s+/).filter(Boolean).length;
-}
 
 function countDescendants(docs: { id: string; parentId: string | null }[], id: string): number {
   const children = docs.filter((doc) => doc.parentId === id);
@@ -116,7 +112,7 @@ function DocEditor({ docId }: { docId: string }) {
   const [title, setTitle] = useState(doc?.title ?? "");
   const [icon, setIcon] = useState(doc?.icon ?? "");
   const [favorite, setFavorite] = useState(Boolean(doc?.isFavorite));
-  const [wordCount, setWordCount] = useState(() => countWords(doc?.plainText ?? ""));
+  const [wordCount, setWordCount] = useState(() => countDocWords(doc?.plainText ?? ""));
   type Menu = "icon" | "parent" | "delete" | "backlinks" | "history" | "version";
   const [menu, setMenu] = useState<"more" | Menu | null>(null);
   const [nextMenu, setNextMenu] = useState<Menu | null>(null);
@@ -158,7 +154,7 @@ function DocEditor({ docId }: { docId: string }) {
     setTitle(doc.title);
     setIcon(doc.icon ?? "");
     setFavorite(Boolean(doc.isFavorite));
-    setWordCount(countWords(doc.plainText));
+    setWordCount(countDocWords(doc.plainText));
     const next = resolveDocContent(doc.content, doc.plainText);
     contentEmptyRef.current = isRichContentEmpty(next);
     setRemoteContent(next);
@@ -172,6 +168,11 @@ function DocEditor({ docId }: { docId: string }) {
     ...(selectedText ? [contextChip("selection", "Selected text", selectedText)] : []),
     ...(hasUnsavedChanges() ? [contextChip("draft", "Unsaved document", { title, plainText: assistantText })] : []),
   ] : []);
+  // From the saved copy, which the suggestions read, not the editor's words,
+  // once it has stopped changing: a title typed word by word saves at each
+  // pause. The first version of a doc that just loaded is used at once.
+  const savedVersion = useMemo(() => (doc ? docHintsVersion({ title: doc.title, plainText: doc.plainText }) : ""), [doc?.title, doc?.plainText]);
+  const hintsVersion = useSettled(savedVersion, DOC_HINTS_SETTLE_MS) || savedVersion;
   if (!doc) return null;
   const versionIsCurrent = Boolean(version && versions?.find((item) => item.id === version.id)?.current);
 
@@ -179,9 +180,6 @@ function DocEditor({ docId }: { docId: string }) {
   const descendantCount = countDescendants(docs, doc.id);
   const parents = docs.filter((d) => d.id !== docId && d.workspaceId === doc.workspaceId);
   const parentTitle = docs.find((d) => d.id === doc.parentId)?.title || "None";
-  // Suggestions are read again once an empty doc gets a title or text, then
-  // as it grows by about fifty words.
-  const hintsVersion = wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50));
 
   return (
     <Screen>
@@ -266,7 +264,7 @@ function DocEditor({ docId }: { docId: string }) {
           onApplyContent={(content, plainText) => {
             contentEmptyRef.current = isRichContentEmpty(content);
             setAssistantText(plainText);
-            setWordCount(countWords(plainText));
+            setWordCount(countDocWords(plainText));
             setRemoteContent(content);
             setEditorSync((value) => value + 1);
             schedule({ content, plainText });
@@ -297,7 +295,7 @@ function DocEditor({ docId }: { docId: string }) {
         onChange={({ content, plainText }) => {
           contentEmptyRef.current = isRichContentEmpty(content);
           setAssistantText(plainText);
-          setWordCount(countWords(plainText));
+          setWordCount(countDocWords(plainText));
           schedule({ content, plainText });
           clearTimeout(liveTimerRef.current);
           liveTimerRef.current = setTimeout(() => setLiveContent(content), 600);
@@ -356,7 +354,7 @@ function DocEditor({ docId }: { docId: string }) {
                 if (picked.canceled || !picked.assets?.[0]) return;
                 const source = await (await fetch(picked.assets[0].uri)).text();
                 const parsed = await parseImportedText(source, smartImport);
-                setWordCount(countWords(parsed.plainText));
+                setWordCount(countDocWords(parsed.plainText));
                 contentEmptyRef.current = isRichContentEmpty(parsed.content);
                 setRemoteContent(parsed.content);
                 setEditorSync((value) => value + 1);
@@ -484,7 +482,7 @@ function DocEditor({ docId }: { docId: string }) {
                   lastSavedAtRef.current = restored.updatedAt;
                   queryClient.setQueryData(["docs", docId], restored);
                   setTitle(restored.title);
-                  setWordCount(countWords(restored.plainText));
+                  setWordCount(countDocWords(restored.plainText));
                   setRemoteContent(resolveDocContent(restored.content, restored.plainText));
                   setEditorSync((value) => value + 1);
                   showUndoToast("Version restored. The doc as it was stays in the history.");

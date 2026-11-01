@@ -70,7 +70,7 @@ func TestIntegrationSnoozedReminderWaitsForItsTime(t *testing.T) {
 		t.Helper()
 		n := 0
 		for {
-			job, err := queue.Claim(ctx, "test")
+			job, err := queue.Claim(ctx, "test", jobs.Lane{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -133,7 +133,7 @@ func TestIntegrationSnoozedReminderWaitsForItsTime(t *testing.T) {
 	if got := len(reminderJobs()); got != 2 {
 		t.Fatalf("the sweep at the snoozed time queued a second job: %d reminder jobs", got)
 	}
-	job, err := queue.Claim(ctx, "test")
+	job, err := queue.Claim(ctx, "test", jobs.Lane{})
 	if err != nil {
 		t.Fatal(err)
 	}

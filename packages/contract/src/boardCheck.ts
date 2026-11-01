@@ -79,12 +79,27 @@ function idsFor(target: string, data: DashboardData): Set<string> | undefined {
   }
 }
 
-/** Open links to a task, project, doc or sheet that has no id, or one nothing has: they show nothing or open nothing. */
+/** Open links to a task, project, doc or sheet that has no id, or one nothing has: they show nothing or open nothing.
+ * TaskRow and CheckRow ids are checked the same way: a row written out by
+ * hand with an id nothing has shows words that aren't the person's. */
 function openProblems(root: GenuiNode, data: DashboardData): string[] {
   const problems: string[] = [];
   const walk = (value: unknown) => {
     if (Array.isArray(value)) return value.forEach(walk);
     if (!isNode(value)) return;
+    if (value.typeName === "TaskRow" || value.typeName === "CheckRow") {
+      const task = value.typeName === "TaskRow";
+      const { taskId, docId, title, text } = value.props as Record<string, unknown>;
+      const id = task ? taskId : docId;
+      const name = (task ? title : text) ?? value.typeName;
+      const known = idsFor(task ? "task" : "doc", data);
+      if (known && typeof id === "string" && id.trim() && !known.has(id))
+        problems.push(
+          task
+            ? `TaskRow “${String(name)}” names the task id “${id}”, which no task has: draw rows from @Data, or use an id a tool returned.`
+            : `CheckRow “${String(name)}” names the doc id “${id}”, which no doc has: draw rows from @Checklist and use its docId.`,
+        );
+    }
     if (value.typeName === "Open") {
       const { label, target, id } = value.props as { label?: unknown; target?: unknown; id?: unknown };
       const name = typeof label === "string" ? label : "Open";

@@ -89,28 +89,7 @@ func (s *Service) CleanupSuggestions(ctx context.Context, userID, workspaceID st
 		return out, nil
 	}
 	groups := s.taxonomy(ctx, userID, workspaceID)
-
-	type pair struct {
-		group int
-		a, b  CleanupItem
-	}
-	var close, rest []pair
-	for gi, g := range groups {
-		for i := 0; i < len(g.items); i++ {
-			for j := i + 1; j < len(g.items); j++ {
-				p := pair{gi, g.items[i], g.items[j]}
-				if similarNames(p.a.Name, p.b.Name) {
-					close = append(close, p)
-				} else if len(g.items) <= askAllBelow {
-					rest = append(rest, p)
-				}
-			}
-		}
-	}
-	pairs := append(close, rest...)
-	if len(pairs) > maxPairs {
-		pairs = pairs[:maxPairs]
-	}
+	pairs := cleanupPairs(groups)
 	if len(pairs) == 0 {
 		return out, nil
 	}
@@ -156,6 +135,60 @@ func (s *Service) CleanupSuggestions(ctx context.Context, userID, workspaceID st
 		}
 	}
 	return out, nil
+}
+
+type cleanupPair struct {
+	group int
+	a, b  CleanupItem
+}
+
+// cleanupPairs are the pairs worth asking about, at most maxPairs: names
+// equal but for case and spacing first, then close names taking turns across
+// labels, statuses and each field's options, then every other pair of a
+// short list. Close pairs used to go in group order, so 66 close labels left
+// no room for the options "Paid" and "paid ".
+func cleanupPairs(groups []taxonomyGroup) []cleanupPair {
+	var same, rest []cleanupPair
+	close := make([][]cleanupPair, len(groups))
+	for gi, g := range groups {
+		for i := 0; i < len(g.items); i++ {
+			for j := i + 1; j < len(g.items); j++ {
+				p := cleanupPair{gi, g.items[i], g.items[j]}
+				switch {
+				case sameName(p.a.Name, p.b.Name):
+					same = append(same, p)
+				case similarNames(p.a.Name, p.b.Name):
+					close[gi] = append(close[gi], p)
+				case len(g.items) <= askAllBelow:
+					rest = append(rest, p)
+				}
+			}
+		}
+	}
+	pairs := same
+	for turn := 0; len(pairs) < maxPairs; turn++ {
+		added := false
+		for _, c := range close {
+			if turn < len(c) {
+				pairs = append(pairs, c[turn])
+				added = true
+			}
+		}
+		if !added {
+			break
+		}
+	}
+	pairs = append(pairs, rest...)
+	if len(pairs) > maxPairs {
+		pairs = pairs[:maxPairs]
+	}
+	return pairs
+}
+
+// sameName: the two names differ only in case and spacing.
+func sameName(a, b string) bool {
+	norm := func(s string) string { return strings.ToLower(strings.Join(strings.Fields(s), " ")) }
+	return norm(a) != "" && norm(a) == norm(b)
 }
 
 // taxonomy loads the workspace's labels, statuses and select options with how

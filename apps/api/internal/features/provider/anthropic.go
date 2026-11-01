@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,8 +43,49 @@ func (p *Anthropic) label() string {
 	return "Anthropic"
 }
 
+type oneShotKey struct{}
+
+// oneShot marks a call a person waits on in a panel: Help me write, view
+// queries, checklist names and card descriptions. A provider that asks for a
+// long wait before the retry fails such a call at once instead (noLongWait).
+func oneShot(ctx context.Context) context.Context {
+	return context.WithValue(ctx, oneShotKey{}, true)
+}
+
+// oneShotMaxWait is the longest retry-after a one-shot call sits out.
+const oneShotMaxWait = 5 * time.Second
+
+// noLongWait stops the SDK's automatic retry of a one-shot call when the
+// answer asks to wait longer than oneShotMaxWait ("retry-after: 30"): the
+// person gets the busy message now, not after 30 s and a second request.
+func noLongWait(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+	res, err := next(req)
+	if err != nil || res == nil || req.Context().Value(oneShotKey{}) == nil {
+		return res, err
+	}
+	if wait, ok := retryAfter(res.Header); ok && wait > oneShotMaxWait {
+		res.Header.Set("x-should-retry", "false")
+	}
+	return res, err
+}
+
+// retryAfter reads retry-after-ms, or retry-after in seconds or as a date.
+func retryAfter(h http.Header) (time.Duration, bool) {
+	if ms, err := strconv.ParseFloat(h.Get("retry-after-ms"), 64); err == nil {
+		return time.Duration(ms * float64(time.Millisecond)), true
+	}
+	value := h.Get("retry-after")
+	if secs, err := strconv.ParseFloat(value, 64); err == nil {
+		return time.Duration(secs * float64(time.Second)), true
+	}
+	if at, err := time.Parse(time.RFC1123, value); err == nil {
+		return time.Until(at), true
+	}
+	return 0, false
+}
+
 func (p *Anthropic) client() anthropic.Client {
-	opts := []option.RequestOption{option.WithAPIKey(p.Key), option.WithMaxRetries(1), option.WithRequestTimeout(4 * time.Minute)}
+	opts := []option.RequestOption{option.WithAPIKey(p.Key), option.WithMaxRetries(1), option.WithRequestTimeout(4 * time.Minute), option.WithMiddleware(noLongWait)}
 	if p.Client != nil {
 		opts = append(opts, option.WithHTTPClient(p.Client))
 	}
@@ -121,7 +163,7 @@ func (p *Anthropic) completeOnce(ctx context.Context, messages []chat.WireMessag
 	}
 	switch res.StopReason {
 	case anthropic.StopReasonMaxTokens:
-		return empty, chat.Final("The proposal was too large; try a smaller request")
+		return empty, chat.ErrOutputTooLong
 	case anthropic.StopReasonRefusal:
 		return empty, chat.Final("The model declined this request")
 	}

@@ -22,6 +22,7 @@ import (
 	"timely-api/internal/features/placement"
 	"timely-api/internal/models"
 	"timely-api/internal/recurrence"
+	"timely-api/internal/utils"
 )
 
 const instruction = `You are Timely's in-app assistant. Help the signed-in person organize their own work.
@@ -154,17 +155,20 @@ func (s *Service) work(ctx context.Context) {
 		cancel()
 		<-leaseDone
 		if err != nil && ctx.Err() == nil {
+			// The error often quotes a provider: drop what Postgres refuses
+			// (invalid UTF-8, NUL) so the failure can be saved.
+			msg := utils.StorableText(err.Error(), maxRunErrorBytes)
 			// Use a fresh context for recording provider timeouts, never replay a write.
 			saveErr := s.checkpoint(ctx, &c, func(tx *gorm.DB, row *Conversation) error {
 				row.Status = "failed"
-				row.Error = err.Error()
+				row.Error = msg
 				row.ErrorAction = failureAction(err)
 				if row.Phase == "apply" {
 					// Name the step that stopped the run; retry resets it to pending.
 					for i := range row.Plan {
 						if row.Plan[i].Status != "done" {
 							row.Plan[i].Status = "failed"
-							row.Plan[i].Error = err.Error()
+							row.Plan[i].Error = msg
 							break
 						}
 					}
@@ -177,9 +181,48 @@ func (s *Service) work(ctx context.Context) {
 			})
 			if saveErr != nil && !errors.Is(saveErr, context.Canceled) {
 				log.Printf("chat failure checkpoint: %v", saveErr)
+				// A run left 'running' is claimed again when its lease ends and
+				// the provider is called again, so record the failure plainly.
+				if plainErr := s.failPlainly(ctx, &c); plainErr != nil {
+					log.Printf("chat failure fallback: %v", plainErr)
+				}
 			}
 		}
 	}
+}
+
+// maxRunErrorBytes bounds the error saved on a failed run.
+const maxRunErrorBytes = 2000
+
+// runFailedUnsaved is the error a failed run shows when its own error could
+// not be saved.
+const runFailedUnsaved = "This request failed, and its error could not be shown. Please try again; completed changes are saved"
+
+// failPlainly marks a run failed with a fixed message, touching only the
+// status columns, for when the full failure checkpoint could not be saved.
+func (s *Service) failPlainly(ctx context.Context, c *Conversation) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var latest Conversation
+		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), c.UserID, c.ID, &latest); err != nil {
+			return err
+		}
+		if latest.Lease != c.Lease || latest.Status != "running" {
+			return nil
+		}
+		latest.Status = "failed"
+		latest.Error = runFailedUnsaved
+		latest.Revision++
+		if err := notify(tx, &latest, tr(latest.Language, txtPushAttention)); err != nil {
+			return err
+		}
+		return tx.Model(&Conversation{}).Where("id = ? AND user_id = ?", latest.ID, latest.UserID).Updates(map[string]any{
+			"status":     latest.Status,
+			"error":      latest.Error,
+			"revision":   latest.Revision,
+			"unread":     latest.Unread,
+			"updated_at": time.Now().UTC(),
+		}).Error
+	})
 }
 
 // Renew without changing the conversation revision or racing with its in-memory
@@ -667,10 +710,14 @@ func (s *Service) apply(ctx context.Context, c *Conversation) error {
 		if c.Plan[i].Status == "done" || c.Plan[i].Status == "discarded" || (only && c.Plan[i].Status != stepApproved) {
 			continue
 		}
+		stepCtx, err := s.prepareStep(ctx, c, i)
+		if err != nil {
+			return err
+		}
 		// The new state is adopted only after the transaction commits, so a
 		// retried attempt starts again from the stored conversation.
 		var next Conversation
-		err := retrySerializable(ctx, func() error {
+		err = retrySerializable(ctx, func() error {
 			return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 				var row Conversation
 				if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), c.UserID, c.ID, &row); err != nil {
@@ -680,26 +727,23 @@ func (s *Service) apply(ctx context.Context, c *Conversation) error {
 					return context.Canceled
 				}
 				catalog := s.factory(tx)
-				for _, snap := range row.Snapshots {
-					value, err := readSnapshot(ctx, tx, catalog, row.UserID, snap.Tool, snap.Arguments)
-					if err != nil || hash(value) != snap.Hash {
-						archivePlan(&row)
-						row.ForceReview = true
-						refresh := message("system", tr(row.Language, txtDataChanged))
-						refresh.Kind = "notice"
-						row.Messages = append(row.Messages, refresh)
-						row.Phase = "plan"
-						if row.ImageReview != nil && row.ImageReview.Receipt != nil && row.ImageReview.Destination != nil {
-							row.Phase = "receipt_plan"
-						}
-						row.Status = "queued"
-						row.Revision++
-						if err := tx.Save(&row).Error; err != nil {
-							return err
-						}
-						next = row
-						return nil
+				if readsChanged(ctx, tx, catalog, &row) {
+					archivePlan(&row)
+					row.ForceReview = true
+					refresh := message("system", tr(row.Language, txtDataChanged))
+					refresh.Kind = "notice"
+					row.Messages = append(row.Messages, refresh)
+					row.Phase = "plan"
+					if row.ImageReview != nil && row.ImageReview.Receipt != nil && row.ImageReview.Destination != nil {
+						row.Phase = "receipt_plan"
 					}
+					row.Status = "queued"
+					row.Revision++
+					if err := tx.Save(&row).Error; err != nil {
+						return err
+					}
+					next = row
+					return nil
 				}
 				var value any
 				if err := json.Unmarshal(row.Plan[i].Arguments, &value); err != nil {
@@ -712,7 +756,7 @@ func (s *Service) apply(ctx context.Context, c *Conversation) error {
 				if !isWriteTool(row.Plan[i].Tool) {
 					return fmt.Errorf("Action not permitted")
 				}
-				result, err := catalog[row.Plan[i].Tool].Call(ctx, row.UserID, raw(value))
+				result, err := catalog[row.Plan[i].Tool].Call(stepCtx, row.UserID, raw(value))
 				if err != nil {
 					return err
 				}
@@ -784,6 +828,62 @@ func (s *Service) apply(ctx context.Context, c *Conversation) error {
 		row.Messages = append(row.Messages, notice(tr(row.Language, txtDone)))
 		return notify(tx, row, tr(row.Language, txtPushComplete))
 	})
+}
+
+// prepareStep runs the Prepare of step i's tool, when it has one, before the
+// step's transaction opens, and returns the context for its Call. A live
+// block's AI call then holds no lock on the conversation, so Stop answers at
+// once, and a retried transaction reuses the answer instead of asking again.
+func (s *Service) prepareStep(ctx context.Context, c *Conversation, i int) (context.Context, error) {
+	step := c.Plan[i]
+	if !isWriteTool(step.Tool) || !agent.Prepares(step.Tool) {
+		return ctx, nil
+	}
+	db := s.db.WithContext(ctx)
+	catalog := s.factory(db)
+	prepare := catalog[step.Tool].Prepare
+	if prepare == nil {
+		return ctx, nil
+	}
+	// The transaction's own checks, run first so the AI is never asked for
+	// nothing: a stopped run writes nothing, and a plan whose reads changed
+	// is planned again, so its answer would be thrown away.
+	var row Conversation
+	if err := s.find(db, c.UserID, c.ID, &row); err != nil {
+		return nil, err
+	}
+	if row.Status != "running" || row.Lease != c.Lease {
+		return nil, context.Canceled
+	}
+	if readsChanged(ctx, db, catalog, &row) {
+		return ctx, nil
+	}
+	var value any
+	if err := json.Unmarshal(step.Arguments, &value); err != nil {
+		return nil, err
+	}
+	value, err := resolve(value, c.Plan, i)
+	if err != nil {
+		return nil, err
+	}
+	prepared, err := prepare(ctx, c.UserID, raw(value))
+	if err != nil {
+		return nil, err
+	}
+	// Stopped while the AI answered: nothing is written.
+	return prepared, prepared.Err()
+}
+
+// readsChanged reports whether an object the plan was checked against has
+// changed since (or can no longer be read), so the plan must be made again.
+func readsChanged(ctx context.Context, db *gorm.DB, catalog agent.Catalog, row *Conversation) bool {
+	for _, snap := range row.Snapshots {
+		value, err := readSnapshot(ctx, db, catalog, row.UserID, snap.Tool, snap.Arguments)
+		if err != nil || hash(value) != snap.Hash {
+			return true
+		}
+	}
+	return false
 }
 
 // Serializable apply transactions can lose a race with another write by the

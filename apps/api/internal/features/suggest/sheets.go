@@ -287,7 +287,10 @@ func (s *Service) ColumnTypes(ctx context.Context, userID string, columns []Impo
 	if len(questions) == 0 {
 		return out, nil
 	}
-	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "sheet_column_types", State: map[string]any{"importedColumns": described}, Questions: questions})
+	// The examples are the file's own values (amounts, account numbers), so
+	// the call goes only to endpoints that keep no data, as cell-fit does.
+	// They stay unmasked: a number column is told from a code by its digits.
+	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "sheet_column_types", State: map[string]any{"importedColumns": described}, Questions: questions, Private: true})
 	if err != nil {
 		return out, nil
 	}

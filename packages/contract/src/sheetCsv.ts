@@ -2,6 +2,7 @@
 import { columnIndexToLetter } from "@timely/contract/sheetFormula";
 import { normalizeTypedCell } from "@timely/contract/sheetCell";
 import type { SheetColumn, SheetRow } from "./sheetTypes";
+import { MAX_GRID_COLUMNS, MAX_GRID_ROWS } from "@timely/contract/sheetOps";
 
 /** Id generators differ per platform, so callers supply them. */
 export interface SheetIdFactory {
@@ -123,16 +124,50 @@ export function csvToGrid(
   return { columns, rows };
 }
 
+/**
+ * Why a CSV can't become a sheet, in the person's words, or null when it can:
+ * a sheet holds at most 100 columns and 5,000 rows, as the server allows.
+ * Checked before anything is sent.
+ */
+export function csvImportProblem(grid: { columns: SheetColumn[]; rows: SheetRow[] }): string | null {
+  const count = (n: number) => n.toLocaleString("en-US");
+  if (grid.columns.length > MAX_GRID_COLUMNS) {
+    return `This file has ${count(grid.columns.length)} columns, and a sheet holds up to ${count(MAX_GRID_COLUMNS)}. Remove some columns, then import it again.`;
+  }
+  if (grid.rows.length > MAX_GRID_ROWS) {
+    return `This file has ${count(grid.rows.length)} rows, and a sheet holds up to ${count(MAX_GRID_ROWS)}. Split it into smaller files, then import each one.`;
+  }
+  return null;
+}
+
+/** Columns the server reads types for in one request, and the longest value it is sent. */
+export const COLUMN_TYPE_BATCH = 60;
+const SAMPLE_VALUE_CHARS = 60;
+
+/** A long value cut short. The "…" keeps it from reading as a number or date,
+ * and it is still too long to be a select option, as the whole value is. */
+function sampleValue(value: string): string {
+  return value.length > SAMPLE_VALUE_CHARS ? `${value.slice(0, SAMPLE_VALUE_CHARS)}…` : value;
+}
+
 /** An imported column as smart suggestions read it: its header and up to
- * `limit` values. */
+ * `limit` values, long ones cut short. */
 export function columnSamples(
   grid: { columns: SheetColumn[]; rows: SheetRow[] },
   limit = 200,
 ): { name: string; values: string[] }[] {
   return grid.columns.map((column) => ({
-    name: column.name,
-    values: grid.rows.slice(0, limit).map((row) => row.cells[column.id] ?? ""),
+    name: column.name.slice(0, SAMPLE_VALUE_CHARS),
+    values: grid.rows.slice(0, limit).map((row) => sampleValue(row.cells[column.id] ?? "")),
   }));
+}
+
+/** columnSamples in requests of at most COLUMN_TYPE_BATCH columns each, in column order. */
+export function columnSampleBatches(grid: { columns: SheetColumn[]; rows: SheetRow[] }): { name: string; values: string[] }[][] {
+  const samples = columnSamples(grid);
+  const batches: { name: string; values: string[] }[][] = [];
+  for (let start = 0; start < samples.length; start += COLUMN_TYPE_BATCH) batches.push(samples.slice(start, start + COLUMN_TYPE_BATCH));
+  return batches;
 }
 
 /** A suggested type for one imported column; null keeps it as text. */
@@ -204,4 +239,25 @@ export function applyColumnTypes<C extends SheetColumn, R extends SheetRow>(
     return { ...row, cells };
   });
   return { columns, rows };
+}
+
+/**
+ * Types an imported grid's columns from smart suggestions, asked in batches
+ * the server accepts (columnSampleBatches). A batch that fails, or answers
+ * with suggestions off, leaves its columns as text; applyColumnTypes checks
+ * every row before a type is kept.
+ */
+export async function typeImportedColumns<C extends SheetColumn, R extends SheetRow>(
+  grid: { columns: C[]; rows: R[] },
+  ask: (columns: { name: string; values: string[] }[]) => Promise<{ available: boolean; columns?: ColumnTypeSuggestion[] }>,
+): Promise<{ columns: C[]; rows: R[] }> {
+  const batches = columnSampleBatches(grid);
+  const answers = await Promise.allSettled(batches.map((batch) => ask(batch)));
+  let typed = false;
+  const suggestions = answers.flatMap((answer, index): ColumnTypeSuggestion[] => {
+    if (answer.status !== "fulfilled" || !answer.value.available) return batches[index].map(() => null);
+    typed = true;
+    return batches[index].map((_, column) => answer.value.columns?.[column] ?? null);
+  });
+  return typed ? applyColumnTypes(grid, suggestions) : grid;
 }

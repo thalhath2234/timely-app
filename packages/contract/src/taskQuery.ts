@@ -921,6 +921,24 @@ export function runView(
   return limit ? rows.slice(0, limit) : rows;
 }
 
+/** Fields only smart suggestions fill: no form edits them. */
+const SUGGESTED_FIELDS = new Set<string>(["effort", "urgency"]);
+
+/** Whether a view filters, groups or sorts by effort or urgency. With smart
+ * suggestions off those fields stay empty, so the view looks empty or puts
+ * every task in one group; the apps say why. */
+export function viewUsesSuggestedFields(
+  view: Pick<TaskViewConfig, "rules" | "groupFields" | "sortBy" | "thenSortBy">,
+): boolean {
+  const conditions = normalizeRules(view.rules ?? []).flatMap((rule) => (isRuleGroup(rule) ? rule.rules : [rule]));
+  return (
+    conditions.some((condition) => SUGGESTED_FIELDS.has(condition.field)) ||
+    (view.groupFields ?? []).some((field) => SUGGESTED_FIELDS.has(field)) ||
+    SUGGESTED_FIELDS.has(view.sortBy ?? "") ||
+    SUGGESTED_FIELDS.has(view.thenSortBy ?? "")
+  );
+}
+
 // ---- Grouping ----
 
 /** Group fields this file labels; the apps label the rest (workspace, project, ...). */

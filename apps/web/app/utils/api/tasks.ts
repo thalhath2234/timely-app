@@ -7,6 +7,7 @@ import type {
   UpdateTaskPayload,
 } from "@timely/contract/entities";
 import { apiFetch } from "./client";
+import { ApiError } from "./worksapce";
 
 export type {
   CreateTaskPayload,
@@ -178,7 +179,8 @@ export async function updateTask(
   });
 
   if (!response.ok) {
-    throw new Error(await readError(response, "Failed to update task"));
+    // The status tells autosave whether the server refused the change.
+    throw Object.assign(new Error(await readError(response, "Failed to update task")), { status: response.status });
   }
 
   const resData = await response.json();
@@ -245,7 +247,8 @@ export async function addTaskComment(
 
 async function unwrapTask(response: Response, fallback: string): Promise<Task> {
   if (!response.ok) {
-    throw new Error(await readError(response, fallback));
+    // The status lets callers tell a deleted task (404) from other failures.
+    throw new ApiError(await readError(response, fallback), response.status);
   }
   const data = await response.json();
   return data.task ?? data;

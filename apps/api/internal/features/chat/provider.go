@@ -10,8 +10,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
+
+// ErrOutputTooLong is a model stopping at its output limit, so the answer is
+// cut. Each feature words it for itself (a proposal, a draft); this text is
+// the chat agent's. It is Final: the same request would be cut again.
+var ErrOutputTooLong = Final("The proposal was too large; try a smaller request")
 
 type ToolCall struct {
 	ID       string `json:"id"`
@@ -157,8 +163,29 @@ func (p *OpenRouter) Complete(ctx context.Context, messages []WireMessage, tools
 	return RetryTransient(ctx, func() (WireMessage, error) { return p.completeOnce(ctx, messages, tools, search) })
 }
 
+// providerMessage is the message in an error body ({"error":{"message":...}}),
+// so the person reads the provider's reason ("Insufficient credits").
+func providerMessage(body io.Reader) string {
+	var data struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.NewDecoder(io.LimitReader(body, 16<<10)).Decode(&data) != nil {
+		return ""
+	}
+	msg := strings.Join(strings.Fields(data.Error.Message), " ")
+	if len(msg) > 300 {
+		msg = strings.ToValidUTF8(msg[:300], "") + "…"
+	}
+	return msg
+}
+
 // RetryTransient runs one model call and retries it once after a network
 // timeout or a cut-off body. Other errors and cancellation return at once.
+// A cut-off body may come after the provider counted the answer, so the
+// retry can cost a second answer; it is still kept, because without it the
+// person's next step is the same request again by hand.
 func RetryTransient(ctx context.Context, call func() (WireMessage, error)) (WireMessage, error) {
 	var result WireMessage
 	var err error
@@ -260,6 +287,9 @@ func (p *OpenRouter) completeOnce(ctx context.Context, messages []WireMessage, t
 		if sensitive {
 			return empty, fmt.Errorf("The zero-retention AI route is unavailable (HTTP %d). Try again; no fallback provider was used", res.StatusCode)
 		}
+		if msg := providerMessage(res.Body); msg != "" {
+			return empty, fmt.Errorf("OpenRouter returned HTTP %d: %s", res.StatusCode, msg)
+		}
 		return empty, fmt.Errorf("OpenRouter returned HTTP %d; check model access, credit, or retry", res.StatusCode)
 	}
 	var data struct {
@@ -278,7 +308,7 @@ func (p *OpenRouter) completeOnce(ctx context.Context, messages []WireMessage, t
 		return empty, fmt.Errorf("AI provider did not return a response")
 	}
 	if data.Choices[0].FinishReason == "length" {
-		return empty, Final("The proposal was too large; try a smaller request")
+		return empty, ErrOutputTooLong
 	}
 	return data.Choices[0].Message, nil
 }

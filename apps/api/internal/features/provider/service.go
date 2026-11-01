@@ -15,9 +15,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -28,6 +30,7 @@ import (
 	"timely-api/internal/features/embed"
 	"timely-api/internal/jobs"
 	"timely-api/internal/models"
+	"timely-api/internal/utils"
 )
 
 const (
@@ -42,9 +45,12 @@ const (
 // ReindexState is the progress of the account's semantic-search rebuild after
 // its key or embedding model changed.
 type ReindexState struct {
-	Status    string    `json:"status,omitempty"` // queued, running, done, failed
-	Done      int       `json:"done"`
-	Total     int       `json:"total"`
+	Status string `json:"status,omitempty"` // queued, running, done, failed
+	Done   int    `json:"done"`
+	Total  int    `json:"total"`
+	// Skipped counts the items OpenRouter refused to embed in a finished
+	// rebuild; they can be found by their words only.
+	Skipped   int       `json:"skipped,omitempty"`
 	Error     string    `json:"error,omitempty"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -89,6 +95,8 @@ type Service struct {
 
 	decisions     *decide.Service
 	decisionCheck decide.Caller
+	// checking holds the accounts with a key check in flight (oneCheck).
+	checking sync.Map
 
 	// readTools and boardData let the Describe AI read the person's data and
 	// draw its drafts from it (describe_tools.go); nil leaves Describe one-shot.
@@ -99,6 +107,9 @@ type Service struct {
 	openRouterKeyURL string // overridable for tests; checks a key without spending tokens
 	anthropicURL     string // overridable for tests
 	ollamaURL        string // OLLAMA_BASE_URL: the default Ollama address
+
+	// busy counts each account's one-shot AI requests in flight (oneShotLimit).
+	busy inFlight
 }
 
 func New(db *gorm.DB, indexer embed.Indexer, queue *jobs.Queue) *Service {
@@ -467,6 +478,71 @@ func (s *Service) enqueueReindex(userID string) error {
 	return err
 }
 
+// QueueReindex marks the account's search index as being rebuilt and queues
+// the rebuild, as after a restore. Accounts without embeddings are left alone.
+func (s *Service) QueueReindex(userID string) error {
+	if s.indexer == nil || s.queue == nil || !s.indexer.EnabledFor(userID) {
+		return nil
+	}
+	if _, err := s.update(userID, func(row *Settings) error {
+		row.Reindex = ReindexState{Status: "queued", UpdatedAt: time.Now().UTC()}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return s.enqueueReindex(userID)
+}
+
+// retryFailedReindexAfter is how long a failed rebuild is left alone before
+// a search or Settings may queue another one; Settings shows the failure
+// meanwhile.
+const retryFailedReindexAfter = 30 * time.Minute
+
+// EnsureIndex queues a rebuild for an account whose index is missing items
+// (see embed.Indexer.Missing), unless one is already on the way or one
+// failed recently.
+func (s *Service) EnsureIndex(userID string) {
+	if s.indexer == nil || s.queue == nil || !s.indexer.EnabledFor(userID) {
+		return
+	}
+	row, err := s.load(s.db, userID)
+	if err != nil {
+		log.Printf("ensure search index: %v", err)
+		return
+	}
+	switch st := row.Reindex; {
+	case st.Status == "queued" || st.Status == "running":
+		// The job may be gone (a restore deletes the account's jobs); the
+		// dedupe key makes this a no-op when it is still there.
+		if err := s.enqueueReindex(userID); err != nil {
+			log.Printf("ensure search index: %v", err)
+		}
+		return
+	case st.Status == "failed" && time.Since(st.UpdatedAt) < retryFailedReindexAfter:
+		return
+	case st.Status == "done" && st.Skipped > 0 && time.Since(st.UpdatedAt) < retryFailedReindexAfter:
+		// The items OpenRouter refused stay missing; asking again on every
+		// search would only repeat the refusal.
+		return
+	}
+	if err := s.QueueReindex(userID); err != nil {
+		log.Printf("ensure search index: %v", err)
+	}
+}
+
+// checkIndex keeps the Settings index status truthful: an index reported as
+// done that is missing items gets a rebuild, which Settings then shows.
+func (s *Service) checkIndex(ctx context.Context, userID string) {
+	if s.indexer == nil || !s.indexer.EnabledFor(userID) {
+		return
+	}
+	missing, err := s.indexer.Missing(ctx, userID)
+	if err != nil || missing == 0 {
+		return
+	}
+	s.EnsureIndex(userID)
+}
+
 func (s *Service) handleReindex(ctx context.Context, job *models.Job) error {
 	if s.indexer == nil {
 		return nil
@@ -478,23 +554,58 @@ func (s *Service) handleReindex(ctx context.Context, job *models.Job) error {
 			return nil
 		})
 	}
-	setState(func(st *ReindexState) { st.Status, st.Done, st.Error = "running", 0, "" })
+	setState(func(st *ReindexState) { st.Status, st.Done, st.Skipped, st.Error = "running", 0, 0, "" })
 	last := time.Now()
-	n, err := s.indexer.Reindex(ctx, job.UserID, func(done, total int) {
-		if time.Since(last) < 2*time.Second && done != total {
-			return
+	skipped := 0
+	run := func() (int, error) {
+		return s.indexer.Reindex(ctx, job.UserID, func(done, total, skip int) {
+			skipped = skip
+			if time.Since(last) < 2*time.Second && done != total {
+				return
+			}
+			last = time.Now()
+			setState(func(st *ReindexState) { st.Done, st.Total = done, total })
+		})
+	}
+	_, model := s.EmbedCredentials(job.UserID)
+	n, err := run()
+	// A model switched while this ran queued no rebuild of its own (this job
+	// holds the account's one), and the items done before the switch are on
+	// the old model: go over them again, a few times at most.
+	const maxPasses = 3
+	for pass := 1; err == nil && pass < maxPasses; pass++ {
+		_, now := s.EmbedCredentials(job.UserID)
+		if now == model {
+			break
 		}
-		last = time.Now()
-		setState(func(st *ReindexState) { st.Done, st.Total = done, total })
-	})
+		model = now
+		n, err = run()
+	}
 	if errors.Is(err, embed.ErrDisabled) {
 		setState(func(st *ReindexState) { st.Status, st.Error = "failed", "Semantic search is off: no OpenRouter key" })
 		return nil
 	}
 	if err != nil {
-		setState(func(st *ReindexState) { st.Status, st.Error = "failed", err.Error() })
+		permanent := embed.Permanent(err)
+		if !permanent && job.Attempts < job.MaxAttempts {
+			// The queue tries again after a pause, so the rebuild is still on
+			// its way: Settings says so rather than "failed" in between.
+			setState(func(st *ReindexState) { st.Status, st.Error = "queued", "" })
+			return err
+		}
+		// The error usually quotes OpenRouter. The state is jsonb, which
+		// refuses a NUL: an unsaved failure would leave the status "running",
+		// and EnsureIndex would queue a new rebuild on every look.
+		setState(func(st *ReindexState) {
+			st.Status, st.Error = "failed", utils.StorableText(utils.RedactSecrets(err.Error()), 500)
+		})
+		if permanent {
+			// Another attempt would get the same answer (a refused key, no
+			// credits): stop here instead of asking seven more times.
+			return jobs.Permanent(err)
+		}
 		return err
 	}
-	setState(func(st *ReindexState) { st.Status, st.Done, st.Total = "done", n, n })
+	setState(func(st *ReindexState) { st.Status, st.Done, st.Total, st.Skipped = "done", n, n, skipped })
 	return nil
 }

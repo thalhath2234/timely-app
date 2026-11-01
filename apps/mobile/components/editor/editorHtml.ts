@@ -2,6 +2,7 @@ import type { DocContent } from "../../lib/types";
 import { WRITE_CURSOR } from "@timely/contract/helpMeWrite";
 import { EMBED_PATTERNS } from "@timely/contract/markdown";
 import { DOC_EDITOR_HELPERS_JS } from "../../lib/docEditorJev";
+import { WRITE_RANGE_JS } from "../../lib/helpMeWriteRange";
 
 const BLANK: DocContent = { type: "doc", content: [{ type: "paragraph" }] };
 
@@ -320,6 +321,7 @@ export function buildEditorHtml(
     import CodeBlock from "https://esm.sh/@tiptap/extension-code-block@3.31.4";
     import { Placeholder } from "https://esm.sh/@tiptap/extensions@3.31.4";
     import { TextSelection, NodeSelection, Plugin, PluginKey } from "https://esm.sh/@tiptap/pm@3.31.4/state";
+    import { Fragment } from "https://esm.sh/@tiptap/pm@3.31.4/model";
     import { Decoration, DecorationSet } from "https://esm.sh/@tiptap/pm@3.31.4/view";
 
     const placeholder = ${embed(placeholder)};
@@ -2377,6 +2379,8 @@ export function buildEditorHtml(
 
     ${DOC_EDITOR_HELPERS_JS}
 
+    ${WRITE_RANGE_JS}
+
     function inTable() {
       return editor.isActive("table") || editor.isActive("tableCell") || editor.isActive("tableHeader");
     }
@@ -2715,21 +2719,6 @@ export function buildEditorHtml(
 
     const NEW_LINE_CMDS = { diagram: true, mathBlock: true, map: true, stl: true };
 
-    // A list answer for a line inside a list item replaces that item, so the
-    // new items sit beside it instead of nesting inside it.
-    function enclosingListItem(from, to) {
-      const doc = editor.state.doc;
-      const $from = doc.resolve(from);
-      if (!$from.sameParent(doc.resolve(to))) return null;
-      for (let depth = $from.depth; depth > 1; depth--) {
-        const name = $from.node(depth).type.name;
-        if (name === "listItem" || name === "taskItem") {
-          return { from: $from.before(depth), to: $from.after(depth), listType: $from.node(depth - 1).type.name };
-        }
-      }
-      return null;
-    }
-
     // Help me write: the list a draft at pos joins, as listSpot in the web's
     // helpMeWrite.tsx: the caret's list (after its item, or over it when it is
     // empty), the list above an empty line, or with end the list the doc ends
@@ -2774,14 +2763,21 @@ export function buildEditorHtml(
     // The doc as the AI reads it: the cursor typed where a draft at pos
     // goes, as a new item when it joins a list (cursorDoc on the web).
     const WRITE_CURSOR = ${embed(WRITE_CURSOR)};
-    function cursorDoc(pos) {
+    // A new cursor for each request (writeCursorMark in the contract), so a
+    // doc that holds the word WRITE_CURSOR keeps it.
+    function cursorMark() {
+      let letters = "";
+      for (let i = 0; i < 10; i++) letters += String.fromCharCode(65 + Math.floor(Math.random() * 26));
+      return WRITE_CURSOR + letters;
+    }
+    function cursorDoc(pos, mark) {
       const state = editor.state;
       const { tr, schema } = state;
       try {
         const spot = listSpot(state.doc, pos, false);
         if (spot) {
           const item = schema.nodes[spot.list === "taskList" ? "taskItem" : "listItem"];
-          const marked = item.create(null, schema.nodes.paragraph.create(null, schema.text(WRITE_CURSOR)));
+          const marked = item.create(null, schema.nodes.paragraph.create(null, schema.text(mark)));
           if (spot.drop && spot.drop.from === spot.at) tr.replaceWith(spot.drop.from, spot.drop.to, marked);
           else {
             if (spot.drop) tr.delete(spot.drop.from, spot.drop.to);
@@ -2791,8 +2787,8 @@ export function buildEditorHtml(
           const $pos = state.doc.resolve(Math.min(pos, state.doc.content.size));
           // Only an empty line of its own becomes the draft (insertWritten
           // does the same); in a table cell or callout it goes after the block.
-          if ($pos.depth === 1 && isEmptyLine($pos.parent)) tr.insertText(WRITE_CURSOR, $pos.pos);
-          else tr.insert($pos.depth > 0 ? $pos.after(1) : state.doc.content.size, schema.nodes.paragraph.create(null, schema.text(WRITE_CURSOR)));
+          if ($pos.depth === 1 && isEmptyLine($pos.parent)) tr.insertText(mark, $pos.pos);
+          else tr.insert($pos.depth > 0 ? $pos.after(1) : state.doc.content.size, schema.nodes.paragraph.create(null, schema.text(mark)));
         }
         return tr.doc.toJSON();
       } catch (_) {
@@ -2810,32 +2806,43 @@ export function buildEditorHtml(
       const from = Number(p.from);
       const to = Number(p.to);
       const selection = typeof p.selection === "string" ? p.selection : "";
-      if (selection && (!Number.isInteger(from) || !Number.isInteger(to) || to > size || doc.textBetween(from, to, "\\n").trim() !== selection)) {
+      if (selection && (!Number.isInteger(from) || !Number.isInteger(to) || to > size || writePlainBetween(doc, from, to) !== selection)) {
         send({ type: "writeStale" });
+        return;
+      }
+      if (selection) {
+        // Over the selection or right below it, never over more than was
+        // sent (WRITE_RANGE_JS).
+        const written = { blocks, inline, items: Array.isArray(p.items) ? p.items : null };
+        const tr = p.mode === "replace"
+          ? writePlaceReplace(editor.state, { from, to }, p.fit, written)
+          : writePlaceBelow(editor.state, { from, to }, p.below, written);
+        if (!tr) {
+          send({ type: "writeNoFit" });
+          return;
+        }
+        editor.view.dispatch(tr.scrollIntoView());
+        editor.commands.focus();
         return;
       }
       const chain = editor.chain().focus();
       // Items fitted to the list at the caret (or at the end) join it, when
       // that is still the list there.
-      const spot = selection ? null : listSpot(doc, from, p.mode === "end");
+      const spot = listSpot(doc, from, p.mode === "end");
       const items = Array.isArray(p.items) ? p.items : null;
       if (spot && items && spot.list === p.list) {
         if (spot.drop && spot.drop.from === spot.at) chain.insertContentAt(spot.drop, items).run();
         else if (spot.drop) chain.deleteRange(spot.drop).insertContentAt(spot.at, items).run();
         else chain.insertContentAt(spot.at, items).run();
-      } else if (selection && p.mode === "replace") {
-        const item = inline ? null : enclosingListItem(from, to);
-        if (item && blocks.length === 1 && blocks[0].type === item.listType) {
-          chain.insertContentAt({ from: item.from, to: item.to }, blocks[0].content || []).run();
-        } else {
-          chain.insertContentAt({ from, to }, inline || blocks).run();
-        }
       } else if (p.mode === "end") {
         chain.insertContentAt(size, blocks).run();
+      } else if (p.mode === "all") {
+        // A new description in place of the old one (Rewrite description).
+        chain.insertContentAt({ from: 0, to: size }, blocks).run();
       } else {
-        const at = doc.resolve(Math.min(selection ? to : Math.max(0, from || 0), size));
+        const at = doc.resolve(Math.min(Math.max(0, from || 0), size));
         const block = at.depth > 0 ? at.node(1) : null;
-        if (!selection && block && block.isTextblock && block.content.size === 0) {
+        if (block && block.isTextblock && block.content.size === 0) {
           chain.insertContentAt({ from: at.before(1), to: at.after(1) }, blocks).run();
         } else if (at.depth > 0) {
           chain.insertContentAt(at.after(1), blocks).run();
@@ -2936,23 +2943,29 @@ export function buildEditorHtml(
           }
           return;
         }
-        // Help me write: report the selection, the doc's text, the doc with
+        // Help me write: report the selection (as it is rewritten, with the
+        // same part as a doc and where it sits), the doc's text, the doc with
         // the cursor where the draft goes and the lists it would join at the
         // caret and at the end, then put the draft in. Mirrors the web's
         // helpMeWrite.tsx.
         if (name === "writeInfo") {
-          const { from, to } = editor.state.selection;
+          const captured = writeCapture(editor.state);
+          const { from, to } = captured;
           const doc = editor.state.doc;
-          const selection = from === to ? "" : doc.textBetween(from, to, "\\n").trim();
+          const selection = captured.text;
           const at = selection ? null : listSpot(doc, from, false);
           const end = selection ? null : listSpot(doc, doc.content.size, true);
+          const mark = cursorMark();
           send({
             type: "writeInfo",
             from,
             to,
             selection,
+            selectionDoc: selection ? captured.doc : undefined,
+            spot: selection ? captured.spot : undefined,
             text: editor.getText({ blockSeparator: "\\n", textSerializers: LIVE_TEXT }).trim(),
-            doc: selection ? editor.getJSON() : cursorDoc(from),
+            doc: selection ? editor.getJSON() : cursorDoc(from, mark),
+            cursorMark: mark,
             list: at ? at.list : null,
             endList: end ? end.list : null,
           });

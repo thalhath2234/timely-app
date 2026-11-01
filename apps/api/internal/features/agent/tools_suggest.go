@@ -58,7 +58,7 @@ func (s *Server) listStaleWork(ctx context.Context, req *mcp.CallToolRequest, _ 
 	if err != nil {
 		return fail(err)
 	}
-	out, err := svc.StaleWork(ctx, uid, time.Now())
+	out, err := svc.StaleWork(ctx, uid, "", time.Now())
 	if err != nil {
 		return fail(err)
 	}
