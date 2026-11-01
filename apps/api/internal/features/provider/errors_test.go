@@ -39,7 +39,7 @@ func TestProviderErrorsAreWordedForThePerson(t *testing.T) {
 			defer server.Close()
 			// Retries off keeps the 5xx cases to one request each.
 			ctx := chat.WithoutRetries(context.Background())
-			_, err := (&Anthropic{Key: "k", Model: "claude-haiku-5-5", Base: server.URL, Client: server.Client()}).Complete(ctx, []chat.WireMessage{{Role: "user", Content: "hi"}}, nil, false)
+			_, err := (&Anthropic{Key: "k", Model: "test-model", Base: server.URL, Client: server.Client()}).Complete(ctx, []chat.WireMessage{{Role: "user", Content: "hi"}}, nil, false)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error = %v, want %q", err, tc.want)
 			}
@@ -66,7 +66,7 @@ func TestCutOffAnswerIsNotCalledUnreachable(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"Hel`))
 	}))
 	defer server.Close()
-	_, err := (&Anthropic{Key: "k", Model: "claude-haiku-5-5", Base: server.URL, Client: server.Client()}).Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, nil, false)
+	_, err := (&Anthropic{Key: "k", Model: "test-model", Base: server.URL, Client: server.Client()}).Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, nil, false)
 	if err == nil || strings.Contains(err.Error(), "Could not reach") || !strings.Contains(err.Error(), "answer was cut off") {
 		t.Fatalf("%v", err)
 	}
@@ -83,7 +83,7 @@ func TestCallsWithoutRetriesAreSentOnce(t *testing.T) {
 		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`))
 	}))
 	defer server.Close()
-	p := &Anthropic{Key: "k", Model: "claude-haiku-5-5", Base: server.URL, Client: server.Client()}
+	p := &Anthropic{Key: "k", Model: "test-model", Base: server.URL, Client: server.Client()}
 	if _, err := p.Complete(chat.WithoutRetries(context.Background()), []chat.WireMessage{{Role: "user", Content: "hi"}}, nil, false); err == nil {
 		t.Fatal("529 accepted")
 	}
