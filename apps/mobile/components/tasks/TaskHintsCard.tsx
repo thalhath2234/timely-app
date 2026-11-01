@@ -7,8 +7,10 @@ import { useDecisionFeedback, useTaskHintsQuery } from "../../lib/hooks";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import type { UpdateTaskPayload } from "../../lib/api/tasks";
 import type { CustomField, CustomFieldValueInput, Task, Workspace } from "../../lib/types";
+import type { AutosaveOutcome } from "@timely/contract/autosaveQueue";
 
-type Row = { key: string; text: string; label?: string; apply?: () => void };
+/** key names the offer itself (a blocker's id, too), so hiding one leaves a newer offer showing. */
+type Row = { key: string; text: string; label?: string; apply?: () => Promise<AutosaveOutcome> };
 
 const TIME_OF_DAY: Record<string, string> = { morning: "mornings", afternoon: "afternoons", evening: "evenings" };
 
@@ -30,9 +32,10 @@ export default function TaskHintsCard({
   workspace?: Workspace;
   stages: { id: string; name: string }[];
   fieldValues: CustomFieldValueInput[];
-  onApply: (data: UpdateTaskPayload) => void;
-  onField: (field: CustomField, next: Pick<CustomFieldValueInput, "stringValue" | "optionsValue">) => void;
-  onPreferredWindow: (window: { start: string; end: string }) => void;
+  /** Each apply saves at once and resolves with what became of the change. */
+  onApply: (data: UpdateTaskPayload) => Promise<AutosaveOutcome>;
+  onField: (field: CustomField, next: Pick<CustomFieldValueInput, "stringValue" | "optionsValue">) => Promise<AutosaveOutcome>;
+  onPreferredWindow: (window: { start: string; end: string }) => Promise<AutosaveOutcome>;
 }) {
   // The same version as web: an edit, a new blocker or stage, or a new length
   // asks again.
@@ -42,6 +45,7 @@ export default function TaskHintsCard({
   const feedback = useDecisionFeedback();
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [sent, setSent] = useState<string>();
+  const [saving, setSaving] = useState<string>();
   if (!data?.available) return null;
 
   const statuses = workspace?.status ?? [];
@@ -50,11 +54,11 @@ export default function TaskHintsCard({
   const rows: Row[] = [];
   const status = statuses.find((s) => s.id === data.statusId);
   if (status && status.id !== task.statusId) {
-    rows.push({ key: "status", text: `The description reads like “${status.name}”.`, label: "Set status", apply: () => onApply({ statusId: status.id }) });
+    rows.push({ key: `status:${status.id}`, text: `The description reads like “${status.name}”.`, label: "Set status", apply: () => onApply({ statusId: status.id }) });
   }
   const stage = stages.find((s) => s.id === data.stageId);
   if (stage && !task.stageId) {
-    rows.push({ key: "stage", text: `Looks like part of the “${stage.name}” stage.`, label: "Set stage", apply: () => onApply({ stageId: stage.id }) });
+    rows.push({ key: `stage:${stage.id}`, text: `Looks like part of the “${stage.name}” stage.`, label: "Set stage", apply: () => onApply({ stageId: stage.id }) });
   }
   for (const hint of data.fields ?? []) {
     const field = fields.find((f) => f.id === hint.fieldId);
@@ -79,7 +83,7 @@ export default function TaskHintsCard({
   }
   if (data.blockedBy && !task.blockedById) {
     const blocker = data.blockedBy;
-    rows.push({ key: "blocker", text: `Seems to wait on “${blocker.name}”.`, label: "Set as blocker", apply: () => onApply({ blockedById: blocker.id }) });
+    rows.push({ key: `blocker:${blocker.id}`, text: `Seems to wait on “${blocker.name}”.`, label: "Set as blocker", apply: () => onApply({ blockedById: blocker.id }) });
   }
   if (data.oneSitting && !task.contiguous) {
     rows.push({
@@ -108,6 +112,19 @@ export default function TaskHintsCard({
   const shown = rows.filter((row) => !hidden.has(row.key));
   if (shown.length === 0) return null;
   const hide = (key: string) => setHidden((prev) => new Set(prev).add(key));
+  // The row goes, and counts as taken, only once the change is saved. A
+  // refused one (its blocker was deleted, say) goes too: the screen says why
+  // and reads the suggestions again. One not sent stays, to try again.
+  const apply = async (row: Row) => {
+    setSaving(row.key);
+    const outcome = await row.apply!();
+    setSaving(undefined);
+    if (outcome === "saved" && data.logId && sent !== data.logId) {
+      setSent(data.logId);
+      feedback.mutate({ logId: data.logId, accepted: true });
+    }
+    if (outcome !== "failed") hide(row.key);
+  };
 
   return (
     <View style={styles.card} testID="task-hints">
@@ -119,15 +136,9 @@ export default function TaskHintsCard({
             {row.apply ? (
               <AnimatedPressable
                 accessibilityRole="button"
-                onPress={() => {
-                  row.apply!();
-                  if (data.logId && sent !== data.logId) {
-                    setSent(data.logId);
-                    feedback.mutate({ logId: data.logId, accepted: true });
-                  }
-                  hide(row.key);
-                }}
-                style={styles.button}
+                disabled={saving === row.key}
+                onPress={() => void apply(row)}
+                style={[styles.button, saving === row.key && styles.busy]}
               >
                 <Text style={styles.buttonText}>{row.label}</Text>
               </AnimatedPressable>
@@ -149,5 +160,6 @@ const styles = createThemedStyleSheet((colors) => ({
   actions: { flexDirection: "row", alignItems: "center", gap: 4 },
   button: { minHeight: 32, borderRadius: 10, paddingHorizontal: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.secondary },
   buttonText: { color: colors.foreground, fontSize: 12, fontWeight: "600" },
+  busy: { opacity: 0.6 },
   dismiss: { padding: 4 },
 }));

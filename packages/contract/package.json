@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./account": "./src/account.ts",
+    "./autosaveQueue": "./src/autosaveQueue.ts",
     "./bulkEdit": "./src/bulkEdit.ts",
     "./calendar": "./src/calendar.ts",
     "./changeReview": "./src/changeReview.ts",

@@ -48,9 +48,11 @@ import {
 } from "@/app/_types/types";
 import { UpdateTaskPayload } from "@/app/utils/api/tasks";
 import { openTasksEntity } from "@/app/utils/entityDetail";
-import { useProjects, useUpdateProject } from "@/app/utils/hooks/projects";
+import { projectsKey, useProjects, useUpdateProject } from "@/app/utils/hooks/projects";
 import {
   patchTaskInCache,
+  taskKey,
+  tasksKey,
   useAddTaskComment,
   useDeleteTask,
   useDuplicateTask,
@@ -91,6 +93,7 @@ import {
 import { buttonClass } from "@/app/_components/_ui/button";
 import { PRIORITY_OPTIONS, normalizePriority, priorityColor } from "@/app/utils/priority";
 import { isOverdue } from "@timely/contract/workStatus";
+import { refusalMessage } from "@timely/contract/autosaveQueue";
 
 const DURATION_STEPS = [15, 30, 45, 60, 90, 120, 180, 240, 480];
 
@@ -264,6 +267,13 @@ function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
     [task.id, updateTask],
   );
 
+  // What a refused change pointed at may be gone (a blocker deleted in
+  // another tab), so the task, the lists and its suggestions are read again.
+  const onRejected = useCallback(() => {
+    for (const queryKey of [taskKey(task.id), tasksKey, ["task-hints", task.id], ["search-related"]])
+      void queryClient.invalidateQueries({ queryKey });
+  }, [queryClient, task.id]);
+
   const onLabelsChange = useCallback(
     (ids: string[]) => {
       const workspaceId = task.workspaceId ?? task.workspace?.id;
@@ -329,6 +339,7 @@ function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
     <DetailBody
       view={view}
       save={save}
+      onRejected={onRejected}
       onLabelsChange={onLabelsChange}
       onClose={onClose}
       onDelete={
@@ -372,6 +383,11 @@ function ProjectDetail({
 }) {
   const updateProject = useUpdateProject();
   const { data: tasks } = useTasks();
+  const queryClient = useQueryClient();
+  const onRejected = useCallback(
+    () => void queryClient.invalidateQueries({ queryKey: projectsKey }),
+    [queryClient],
+  );
 
   const save = useCallback(
     (patch: DetailPatch) => {
@@ -422,7 +438,7 @@ function ProjectDetail({
   };
 
   return (
-    <DetailBody view={view} save={save} onClose={onClose}>
+    <DetailBody view={view} save={save} onRejected={onRejected} onClose={onClose}>
       {projectTasks.length > 0 && (
         <section className="mt-8">
           <GroupLabel aside={String(projectTasks.length)}>Tasks in this project</GroupLabel>
@@ -466,6 +482,7 @@ function ProjectTaskLink({ task }: { task: Task }) {
 function DetailBody({
   view,
   save,
+  onRejected,
   onLabelsChange,
   onClose,
   onDelete,
@@ -475,6 +492,8 @@ function DetailBody({
 }: {
   view: DetailView;
   save: (patch: DetailPatch) => Promise<unknown>;
+  /** After the server refused a change: read the item again. */
+  onRejected?: () => void;
   onLabelsChange?: (ids: string[]) => void;
   onClose: () => void;
   onDelete?: () => Promise<void> | void;
@@ -497,7 +516,19 @@ function DetailBody({
   } | null>(null);
   const descriptionSavePromiseRef = useRef<Promise<void> | null>(null);
 
-  const { schedule, flush, status } = useAutosave<DetailPatch>(save);
+  // A change the server refuses is dropped, so later edits still save; the
+  // person is told why, and a refused name goes back to the saved one.
+  const savedTitleRef = useRef(view.title);
+  useEffect(() => {
+    savedTitleRef.current = view.title;
+  }, [view.title]);
+  const { schedule, saveNow, flush, status } = useAutosave<DetailPatch>(save, 800, {
+    onRejected: (error, patch) => {
+      useToastStore.getState().show(refusalMessage(error));
+      if (patch.title !== undefined) setTitle(savedTitleRef.current);
+      onRejected?.();
+    },
+  });
   const { data: projects } = useProjects();
   const typedWorkspaces = useMemo(
     () => (workspaces ?? []) as Workspace[],
@@ -698,10 +729,7 @@ function DetailBody({
 
   const defaultWorkspaceId = view.workspaceId || typedWorkspaces[0]?.id || "";
 
-  const commit = (patch: DetailPatch) => {
-    schedule(patch);
-    void flush();
-  };
+  const commit = (patch: DetailPatch) => saveNow(patch);
 
   const convertInboxToTask = (patch: DetailPatch = {}): DetailPatch | null => {
     const workspaceId = patch.workspaceId || defaultWorkspaceId;
@@ -863,7 +891,7 @@ function DetailBody({
               onStatus={(statusId) => {
                 const next = statusOptions.find((option) => option.id === statusId);
                 const completing = next ? isCompletedStatus(next) : false;
-                commit({
+                return commit({
                   statusId,
                   ...(completing && !view.completedAt
                     ? { completedAt: new Date().toISOString() }
@@ -873,9 +901,13 @@ function DetailBody({
                 });
               }}
               onStage={(stageId) => commit({ stageId })}
-              onField={(field, next) => {
-                changeCustomField(field, next);
-                void flush();
+              onField={async (field, next) => {
+                const before = customFieldValues;
+                const updated = withCustomFieldDraft(customFieldValues, field, next);
+                setCustomFieldValues(updated);
+                const outcome = await saveNow({ customFieldValues: updated });
+                if (outcome === "rejected") setCustomFieldValues(before);
+                return outcome;
               }}
               onBlocker={(blockedById) => commit({ blockedById })}
               contiguous={view.contiguous}

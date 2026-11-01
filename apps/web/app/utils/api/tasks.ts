@@ -178,7 +178,8 @@ export async function updateTask(
   });
 
   if (!response.ok) {
-    throw new Error(await readError(response, "Failed to update task"));
+    // The status tells autosave whether the server refused the change.
+    throw Object.assign(new Error(await readError(response, "Failed to update task")), { status: response.status });
   }
 
   const resData = await response.json();
