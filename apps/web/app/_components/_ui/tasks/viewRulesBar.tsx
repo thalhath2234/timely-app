@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ListFilter, Plus, Sparkles, X } from "lucide-react";
 import { newCondition, replaceRule } from "@timely/contract/ruleBuilder";
 import { isRuleGroup, normalizeRules } from "@timely/contract/taskQuery";
@@ -131,6 +131,8 @@ export function DescribeViewInput({
   const [words, setWords] = useState({ viewId: "", text: "" });
   const [ai, setAi] = useState<{ text: string; busy?: boolean; error?: string; done?: boolean } | null>(null);
   const [leftover, setLeftover] = useState<{ text: string; words: string[] } | null>(null);
+  // The words of the latest read with AI.
+  const lastAsked = useRef("");
   if (!view) return null;
   const text = words.viewId === view.id ? words.text : "";
   const setText = (next: string) => setWords({ viewId: view.id, text: next });
@@ -149,14 +151,20 @@ export function DescribeViewInput({
 
   const askAi = () => {
     const query = text.trim();
+    lastAsked.current = query;
     setAi({ text: query, busy: true });
+    // An answer for words asked before the latest read is dropped: it would
+    // change the view under the newer words and end that read's busy state.
     readViewWithAi({ query, today, client: "web" })
       .then((result) => {
+        if (lastAsked.current !== query) return;
         onPatch({ ...aiDraftPatch(result.view, vocab), prompt: query.slice(0, 300) });
         setAi({ text: query, done: true });
         setLeftover(null);
       })
-      .catch((error: Error) => setAi({ text: query, error: error.message }));
+      .catch((error: Error) => {
+        if (lastAsked.current === query) setAi({ text: query, error: error.message });
+      });
   };
   const aiState = ai?.text === text.trim() ? ai : null;
 
