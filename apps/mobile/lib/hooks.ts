@@ -4,6 +4,7 @@ import { getMe, listSessions, revokeOtherSessions, revokeSession } from "./api/a
 import { getTasks, getTask, updateTask, deleteTask, createTask, captureInbox, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks, duplicateTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, startFocus, pauseFocus, stopFocus, setTodayFocus, getFocusSessions } from "./api/tasks";
 import { getDocs, getDoc, getDocBacklinks, createDoc, updateDoc, deleteDoc, setChecklistItem, watchDoc, type DocWatchEvent } from "./api/docs";
 import { tickedContent, type ChecklistTickRequest } from "@timely/contract/docChecklist";
+import { relatedRefetchInterval, relatedStaleTime } from "@timely/contract/smartSearch";
 import type { CalendarRange, Doc, MentionEntityType, NotificationSettings, Project, Sheet, SheetTemplate, Task, TaskViewConfig, TodayResponse } from "./types";
 import { withOccurrenceDone, withTaskDone } from "@timely/contract/calendar";
 import { getSheets, getSheet, createSheet, updateSheet, deleteSheet, duplicateSheet, getSheetTemplates, createSheetTemplate, updateSheetTemplate, deleteSheetTemplate, materializeTemplateTab } from "./api/sheets";
@@ -488,15 +489,22 @@ export function useEstimateQuery(title: string, enabled = true) {
 }
 
 /** Items related to one task, project, doc or sheet; quiet while Smart suggestions are off. */
+/** Items related to one item, while smart suggestions are on. An empty list
+ * is asked again shortly: an item saved a moment ago is not indexed yet. */
 export function useRelatedQuery(kind: RelatedKind, id: string | undefined, enabled = true) {
   const status = useDecisionsStatusQuery(enabled && !!id);
-  return useQuery({
+  const on = status.data?.available === true;
+  const result = useQuery({
     queryKey: keys.related(kind, id ?? ""),
     queryFn: () => relatedItems(kind, id ?? ""),
-    enabled: enabled && !!id && status.data?.available === true,
-    staleTime: 10 * 60 * 1000,
+    enabled: enabled && !!id && on,
+    staleTime: (query) => relatedStaleTime(query.state),
+    refetchInterval: (query) => relatedRefetchInterval(query.state),
     retry: false,
   });
+  // A disabled query keeps its cached answer: one from before smart
+  // suggestions went off is not shown.
+  return on ? result : ({ ...result, data: undefined } as typeof result);
 }
 
 export function useApiKeysQuery() {

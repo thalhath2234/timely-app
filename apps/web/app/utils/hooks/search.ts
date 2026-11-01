@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { relatedItems, searchItems, smartSearch, type RelatedItem } from "@/app/utils/api/search";
+import { relatedRefetchInterval, relatedStaleTime } from "@timely/contract/smartSearch";
 import { useDecisions } from "@/app/utils/hooks/decisions";
 
 export function useSearch(query: string) {
@@ -52,16 +53,22 @@ export function useSmartSearch(query: string) {
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
-  return { ...result, query: trimmed };
+  // A disabled query keeps its cached answer: one from before smart
+  // suggestions went off is not shown.
+  return { ...result, data: on ? result.data : undefined, query: trimmed };
 }
 
+/** Items related to one item, while smart suggestions are on. An empty list
+ * is asked again shortly: an item saved a moment ago is not indexed yet. */
 export function useRelated(kind: RelatedItem["kind"], id: string | undefined) {
   const on = useDecisions().data?.available ?? false;
-  return useQuery({
+  const result = useQuery({
     queryKey: ["search-related", kind, id],
     queryFn: () => relatedItems(kind, id!),
     enabled: on && Boolean(id),
-    staleTime: 10 * 60 * 1000,
+    staleTime: (query) => relatedStaleTime(query.state),
+    refetchInterval: (query) => relatedRefetchInterval(query.state),
     retry: false,
   });
+  return on ? result : ({ ...result, data: undefined } as typeof result);
 }
