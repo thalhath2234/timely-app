@@ -63,7 +63,7 @@ type Indexer interface {
 	// is already indexed; the source item's own chunks come first in Source.
 	Related(ctx context.Context, userID, kind, entityID string, limit int, kinds []string) (Source, []Hit, error)
 	// Missing counts the account's items with a title that are not indexed
-	// and have no index job on the way.
+	// by the current embedding model and have no index job on the way.
 	Missing(ctx context.Context, userID string) (int64, error)
 	ReindexUser(ctx context.Context, userID string) (int, error)
 	Reindex(ctx context.Context, userID string, progress func(done, total, skipped int)) (int, error)

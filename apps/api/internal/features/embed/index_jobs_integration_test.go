@@ -441,6 +441,34 @@ func TestIntegrationMissingIgnoresTitlesOfWhiteSpace(t *testing.T) {
 	}
 }
 
+// E3 with the coverage check: searches leave out rows of an earlier
+// embedding model, so an item that still has only those rows is missing.
+// Counting it as covered left it out of semantic search for good once the
+// rebuild after a model change failed, since nothing queued another.
+func TestIntegrationMissingCountsRowsOfAnEarlierModel(t *testing.T) {
+	db := integrationDB(t)
+	ix, _, _ := testIndexer(t, db)
+	user := "user-a"
+	seedUser(t, db, user)
+	saveTask(t, db, &models.Task{ID: "tsk-old-model", UserID: &user, Name: "Schedule car service"})
+	if _, err := ix.Reindex(context.Background(), user, nil); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := ix.Missing(context.Background(), user); err != nil || n != 0 {
+		t.Fatalf("missing after a reindex = %d, %v", n, err)
+	}
+	ix.SetCredentials(func(string) (string, string) { return "test-key", "test-model-2" })
+	if n, err := ix.Missing(context.Background(), user); err != nil || n != 1 {
+		t.Fatalf("missing after the model changed = %d, %v; want the item embedded only by the old model", n, err)
+	}
+	if _, err := ix.Reindex(context.Background(), user, nil); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := ix.Missing(context.Background(), user); err != nil || n != 0 {
+		t.Fatalf("missing after the new model's reindex = %d, %v", n, err)
+	}
+}
+
 // GB10: accounts without embeddings queued an index job, with the item's
 // whole text, on every edit.
 func TestIntegrationNoIndexJobsWithoutEmbeddings(t *testing.T) {

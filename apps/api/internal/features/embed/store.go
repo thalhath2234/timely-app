@@ -175,29 +175,32 @@ func (i *indexer) loadChunks(ctx context.Context, userID string) ([]cachedChunk,
 const hasWords = `[^\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]`
 
 // missingQuery counts the account's items that have a title but no index rows
-// and no index job waiting or running for them. Counting coverage, rather
-// than whether any row exists, catches an index left partial by a restore,
-// an interrupted rebuild or a failed job.
+// made by the current model (@model) and no index job waiting or running for
+// them. Counting coverage, rather than whether any row exists, catches an
+// index left partial by a restore, an interrupted rebuild or a failed job.
+// Rows of an earlier model do not count: searches leave them out (see rank),
+// so a rebuild that failed after a model change is tried again later.
 const missingQuery = `SELECT
 	(SELECT count(*) FROM tasks x WHERE x.user_id = @user AND x.name ~ '` + hasWords + `'
-		AND NOT EXISTS (SELECT 1 FROM embeddings e WHERE e.user_id = @user AND e.entity_kind = 'task' AND e.entity_id = x.id)
+		AND NOT EXISTS (SELECT 1 FROM embeddings e WHERE e.user_id = @user AND e.entity_kind = 'task' AND e.entity_id = x.id AND e.model = @model)
 		AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.dedupe_key = 'index:task:' || x.id AND j.status IN ('pending', 'running')))
 	+ (SELECT count(*) FROM documents x WHERE x.user_id = @user AND x.title ~ '` + hasWords + `'
-		AND NOT EXISTS (SELECT 1 FROM embeddings e WHERE e.user_id = @user AND e.entity_kind = 'doc' AND e.entity_id = x.id)
+		AND NOT EXISTS (SELECT 1 FROM embeddings e WHERE e.user_id = @user AND e.entity_kind = 'doc' AND e.entity_id = x.id AND e.model = @model)
 		AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.dedupe_key = 'index:doc:' || x.id AND j.status IN ('pending', 'running')))
 	+ (SELECT count(*) FROM sheets x WHERE x.user_id = @user AND x.title ~ '` + hasWords + `'
-		AND NOT EXISTS (SELECT 1 FROM embeddings e WHERE e.user_id = @user AND e.entity_kind = 'sheet' AND e.entity_id = x.id)
+		AND NOT EXISTS (SELECT 1 FROM embeddings e WHERE e.user_id = @user AND e.entity_kind = 'sheet' AND e.entity_id = x.id AND e.model = @model)
 		AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.dedupe_key = 'index:sheet:' || x.id AND j.status IN ('pending', 'running')))
 	+ (SELECT count(*) FROM events x WHERE x.user_id = @user AND x.title ~ '` + hasWords + `'
-		AND NOT EXISTS (SELECT 1 FROM embeddings e WHERE e.user_id = @user AND e.entity_kind = 'event' AND e.entity_id = x.id)
+		AND NOT EXISTS (SELECT 1 FROM embeddings e WHERE e.user_id = @user AND e.entity_kind = 'event' AND e.entity_id = x.id AND e.model = @model)
 		AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.dedupe_key = 'index:event:' || x.id AND j.status IN ('pending', 'running')))
 	+ (SELECT count(*) FROM projects x JOIN workspaces w ON w.id = x.workspace_id WHERE w.user_id = @user AND x.title ~ '` + hasWords + `'
-		AND NOT EXISTS (SELECT 1 FROM embeddings e WHERE e.user_id = @user AND e.entity_kind = 'project' AND e.entity_id = x.id)
+		AND NOT EXISTS (SELECT 1 FROM embeddings e WHERE e.user_id = @user AND e.entity_kind = 'project' AND e.entity_id = x.id AND e.model = @model)
 		AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.dedupe_key = 'index:project:' || x.id AND j.status IN ('pending', 'running')))`
 
 func (i *indexer) Missing(ctx context.Context, userID string) (int64, error) {
+	_, model := i.credentials(userID)
 	var n int64
-	err := i.db.WithContext(ctx).Raw(missingQuery, sql.Named("user", userID)).Scan(&n).Error
+	err := i.db.WithContext(ctx).Raw(missingQuery, sql.Named("user", userID), sql.Named("model", model)).Scan(&n).Error
 	return n, err
 }
 
