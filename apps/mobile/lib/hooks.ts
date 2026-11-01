@@ -984,6 +984,11 @@ export function useSaveTask() {
     },
     onSuccess: (task, { data }) => {
       cacheTask(client, task);
+      // An Inbox item's suggestions are read from its words: a rename asks
+      // again, once the server has the new words (the cache changes earlier).
+      if (data.name !== undefined || data.description !== undefined) {
+        void client.resetQueries({ queryKey: keys.inboxSuggestions(task.id) });
+      }
       client.invalidateQueries({ queryKey: ["calendar"] });
       client.invalidateQueries({ queryKey: keys.freeTime });
       client.invalidateQueries({ queryKey: keys.today });

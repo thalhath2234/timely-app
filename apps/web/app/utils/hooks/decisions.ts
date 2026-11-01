@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { keepPreviousData, useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToastStore } from "@/app/_store/toastStore";
+import { useTaskWords } from "@/app/utils/hooks/tasks";
 import {
   getEstimate,
   getCellFit,
@@ -87,10 +88,12 @@ export const useRemoveTypeSafeKey = () =>
 
 /** Suggestions for one Inbox item. Off or unsure returns an empty answer, so
  * the form simply looks like it does today. Pass enabled=false while
- * suggestions are unavailable, so nothing is asked and no spinner shows. */
+ * suggestions are unavailable, so nothing is asked and no spinner shows.
+ * They are read from the item's words, so a rename asks again. */
 export function useClarifySuggestions(inboxId: string | undefined, enabled = true) {
+  const words = useTaskWords(inboxId);
   return useQuery({
-    queryKey: ["clarify-suggestions", inboxId],
+    queryKey: ["clarify-suggestions", inboxId, words],
     queryFn: () => getClarifySuggestions(inboxId!),
     enabled: Boolean(inboxId) && enabled,
     staleTime: 5 * 60 * 1000,

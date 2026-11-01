@@ -52,6 +52,25 @@ export function useTask(id: string | undefined) {
   });
 }
 
+type Words = { words: string; updatedAt: string };
+const wordsOf = (task: Task | undefined): Words | undefined =>
+  task && { words: `${task.name}\n${task.description ?? ""}`, updatedAt: task.updatedAt ?? "" };
+
+/** A task's name and notes as the app last saw them, from the Inbox list or
+ * the task's own copy, whichever is newer; "" when neither is loaded. Read
+ * from the cache only: nothing is fetched for it. */
+export function useTaskWords(id: string | undefined) {
+  const listed = useQuery({
+    queryKey: inboxKey,
+    queryFn: () => getTasks({ inbox: true }),
+    enabled: false,
+    select: (items: Task[]) => wordsOf(items.find((item) => item.id === id)),
+  }).data;
+  const own = useQuery({ queryKey: taskKey(id ?? ""), queryFn: () => getTask(id!), enabled: false, select: wordsOf }).data;
+  const newest = listed && own ? (own.updatedAt > listed.updatedAt ? own : listed) : (listed ?? own);
+  return newest?.words ?? "";
+}
+
 export function useCreateTask() {
   const queryClient = useQueryClient();
   return useMutation({
