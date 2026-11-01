@@ -75,7 +75,7 @@ func fallback(err error) bool {
 	if errors.As(err, &se) {
 		return se.Code != 400 && se.Code != 413 && se.Code != 422
 	}
-	return true // network error or timeout
+	return true // network error, timeout or an answer with no answers
 }
 
 func (c *Client) Call(ctx context.Context, keys Keys, body wire) ([]byte, string, error) {
@@ -142,12 +142,41 @@ func (c *Client) post(ctx context.Context, provider, url, key string, body any) 
 	if res.StatusCode/100 != 2 {
 		return nil, &StatusError{Provider: provider, Code: res.StatusCode, Message: errorMessage(raw)}
 	}
+	// A 200 can still carry an error and no answers (an upstream failure
+	// passed on). It is a failed call: OpenRouter may still answer it, and
+	// nothing is logged as a decision or cached.
+	if !hasAnswers(raw) {
+		if msg := messageField(raw); msg != "" {
+			return nil, fmt.Errorf("%s sent no answers: %s", provider, msg)
+		}
+		return nil, fmt.Errorf("%s sent no answers", provider)
+	}
 	return raw, nil
+}
+
+// hasAnswers reports whether a body holds at least one answer.
+func hasAnswers(raw []byte) bool {
+	var r struct {
+		Answers map[string]json.RawMessage `json:"answers"`
+	}
+	return json.Unmarshal(raw, &r) == nil && len(r.Answers) > 0
 }
 
 // errorMessage reads {"error": {"message": ...}} (OpenRouter), {"detail": ...}
 // or a plain body, never echoing more than a short line.
 func errorMessage(raw []byte) string {
+	msg := messageField(raw)
+	if msg == "" {
+		msg = string(raw)
+	}
+	if len(msg) > 200 {
+		msg = msg[:200]
+	}
+	return msg
+}
+
+// messageField is the error message a JSON body names, or "".
+func messageField(raw []byte) string {
 	var e struct {
 		Error   any    `json:"error"`
 		Detail  any    `json:"detail"`
@@ -178,9 +207,6 @@ func errorMessage(raw []byte) string {
 				}
 			}
 		}
-	}
-	if msg == "" {
-		msg = string(raw)
 	}
 	if len(msg) > 200 {
 		msg = msg[:200]

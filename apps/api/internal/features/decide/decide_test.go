@@ -21,6 +21,9 @@ type fakeJev struct {
 	raw    []byte
 	auth   string
 	answer func(req map[string]any) map[string]any
+	// bodies, when set, are sent as they are with a 200, one per call; the
+	// last one repeats.
+	bodies []string
 }
 
 func (f *fakeJev) server(t *testing.T) *httptest.Server {
@@ -34,6 +37,11 @@ func (f *fakeJev) server(t *testing.T) *httptest.Server {
 		if f.status != 0 && f.status != 200 {
 			w.WriteHeader(f.status)
 			_, _ = w.Write([]byte(`{"error":{"message":"nope"}}`))
+			return
+		}
+		if len(f.bodies) > 0 {
+			n := min(int(f.hits.Load()), len(f.bodies)) - 1
+			_, _ = w.Write([]byte(f.bodies[n]))
 			return
 		}
 		out := map[string]any{"model": "jev-1.13.0", "usage": map[string]int{"input_tokens": 10, "output_tokens": 0}}
@@ -160,6 +168,44 @@ func TestBadRequestDoesNotFallBack(t *testing.T) {
 		if or.hits.Load() != 0 {
 			t.Fatalf("a %d from TypeSafe went on to OpenRouter", code)
 		}
+	}
+}
+
+// A 200 with no answers is a failed call: OpenRouter is tried, and with no
+// other key the failure is neither logged as a decision nor cached, so the
+// next ask makes a new call.
+func TestEmptyAnswerIsAFailure(t *testing.T) {
+	errBody := `{"error":{"message":"upstream failed"}}`
+	ok := `{"answers":{"q":{"type":"noul","noul":0.9}}}`
+
+	ts, or := &fakeJev{bodies: []string{errBody}}, &fakeJev{answer: yesAnswer(0.1)}
+	s, _ := newTest(t, Keys{Enabled: true, TypeSafe: "ts-key-123", OpenRouter: "or-key-123"}, ts, or)
+	a, err := s.Ask(context.Background(), "u1", oneYesNo())
+	if err != nil || a.Provider != ProviderOpenRouter || or.hits.Load() != 1 {
+		t.Fatalf("want the OpenRouter answer, got %q %v (openrouter hits %d)", a.Provider, err, or.hits.Load())
+	}
+
+	for name, first := range map[string]string{
+		"error body":        errBody,
+		"empty answers":     `{"answers":{}}`,
+		"other answers":     `{"answers":{"other":{"type":"noul","noul":0.9}}}`,
+		"no yes/no reading": `{"answers":{"q":{"type":"noul"}}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			ts := &fakeJev{bodies: []string{first, ok}}
+			s, _ := newTest(t, Keys{Enabled: true, TypeSafe: "ts-key-123"}, ts, &fakeJev{})
+			a, err := s.Ask(context.Background(), "u1", oneYesNo())
+			if !errors.Is(err, ErrOff) || err == ErrOff || a.LogID != "" {
+				t.Fatalf("want a failed call, got %v (log %q)", err, a.LogID)
+			}
+			a, err = s.Ask(context.Background(), "u1", oneYesNo())
+			if err != nil || ts.hits.Load() != 2 {
+				t.Fatalf("the failure was cached: %v after %d calls", err, ts.hits.Load())
+			}
+			if yes, ok := a.Yes("q", Route); !ok || !yes {
+				t.Fatalf("want the second answer, got %v %v", yes, ok)
+			}
+		})
 	}
 }
 

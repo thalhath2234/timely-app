@@ -444,6 +444,11 @@ func (p plan) read(raw []byte) (map[string]Answer, error) {
 			out[id] = Answer{Kind: kind, Yes: y, Confidence: math.Abs(2*y - 1)}
 		}
 	}
+	// An answer to none of the questions asked is a failed call, not a
+	// decision: it is neither logged as one nor cached.
+	if len(out) == 0 {
+		return nil, errors.New("decide: the answer had none of the questions asked")
+	}
 	return out, nil
 }
 
