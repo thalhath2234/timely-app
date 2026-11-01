@@ -474,13 +474,29 @@ func (s *Service) handleReindex(ctx context.Context, job *models.Job) error {
 	}
 	setState(func(st *ReindexState) { st.Status, st.Done, st.Error = "running", 0, "" })
 	last := time.Now()
-	n, err := s.indexer.Reindex(ctx, job.UserID, func(done, total int) {
-		if time.Since(last) < 2*time.Second && done != total {
-			return
+	run := func() (int, error) {
+		return s.indexer.Reindex(ctx, job.UserID, func(done, total int) {
+			if time.Since(last) < 2*time.Second && done != total {
+				return
+			}
+			last = time.Now()
+			setState(func(st *ReindexState) { st.Done, st.Total = done, total })
+		})
+	}
+	_, model := s.EmbedCredentials(job.UserID)
+	n, err := run()
+	// A model switched while this ran queued no rebuild of its own (this job
+	// holds the account's one), and the items done before the switch are on
+	// the old model: go over them again, a few times at most.
+	const maxPasses = 3
+	for pass := 1; err == nil && pass < maxPasses; pass++ {
+		_, now := s.EmbedCredentials(job.UserID)
+		if now == model {
+			break
 		}
-		last = time.Now()
-		setState(func(st *ReindexState) { st.Done, st.Total = done, total })
-	})
+		model = now
+		n, err = run()
+	}
 	if errors.Is(err, embed.ErrDisabled) {
 		setState(func(st *ReindexState) { st.Status, st.Error = "failed", "Semantic search is off: no OpenRouter key" })
 		return nil
