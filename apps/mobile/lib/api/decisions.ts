@@ -178,12 +178,12 @@ export const mergeTaxonomy = (workspaceId: string, merge: CleanupMerge) => {
   if (merge.kind === "option")
     return api<MergeResult>(`/workspaces/${ws}/custom-field/${encodeURIComponent(merge.fieldId ?? "")}/options/merge`, {
       method: "POST",
-      body: { from: merge.from.id, into: merge.into.id },
+      body: { from: merge.from.id, into: merge.into.id, fromName: merge.from.name, intoName: merge.into.name },
     });
   const path = merge.kind === "label" ? "lable" : "status";
   return api<MergeResult>(`/workspaces/${ws}/${path}/${encodeURIComponent(merge.from.id)}/merge`, {
     method: "POST",
-    body: { into: merge.into.id },
+    body: { into: merge.into.id, fromName: merge.from.name, intoName: merge.into.name },
   });
 };
 
@@ -201,8 +201,10 @@ export type DocHints = {
   outdated?: boolean;
   /** Checklist items offered as tasks are turned off for this doc. */
   todosOff?: boolean;
+  /** Smart suggestions were busy or failed: the hints are missing, not empty. */
+  failed?: boolean;
 };
-export const getDocHints = (id: string) => api<DocHints>(`/suggestions/doc/${encodeURIComponent(id)}`);
+export const getDocHints = (id: string, signal?: AbortSignal) => api<DocHints>(`/suggestions/doc/${encodeURIComponent(id)}`, { signal });
 
 /** One kind of doc suggestion and what it offers: an id for a template,
  * project or page, the type, "key=value" for a property, the line for work,

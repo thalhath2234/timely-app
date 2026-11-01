@@ -45,6 +45,64 @@ func (m *Merger) Routes(g *echo.Group) {
 type mergeRequest struct {
 	From string `json:"from"` // option merges only
 	Into string `json:"into"`
+	// FromName and IntoName are the names the person was shown, when the app
+	// sends them: a merge offered before one was renamed elsewhere is refused
+	// instead of folding a label into one the text no longer names.
+	FromName string `json:"fromName"`
+	IntoName string `json:"intoName"`
+}
+
+// renamedError is a merge whose item has another name now than the one shown.
+type renamedError struct{ shown, now string }
+
+func (e renamedError) Error() string {
+	if e.now == "" {
+		return "“" + e.shown + "” was deleted, so nothing was merged."
+	}
+	return "“" + e.shown + "” is now called “" + e.now + "”, so nothing was merged."
+}
+
+// checkNames compares the names the person was shown with the saved ones;
+// saved maps each id to its name now. Case and outer spaces aside, so a
+// label only re-capitalised still merges.
+func checkNames(req mergeRequest, from string, saved map[string]string) error {
+	for _, pair := range [][2]string{{from, req.FromName}, {req.Into, req.IntoName}} {
+		shown := strings.TrimSpace(pair[1])
+		if shown == "" {
+			continue
+		}
+		now, ok := saved[pair[0]]
+		if !ok || !strings.EqualFold(strings.TrimSpace(now), shown) {
+			return renamedError{shown: shown, now: strings.TrimSpace(now)}
+		}
+	}
+	return nil
+}
+
+// savedNames reads the names of label or status rows in the workspace.
+func (m *Merger) savedNames(model any, workspaceID string, ids ...string) (map[string]string, error) {
+	var rows []struct{ ID, Name string }
+	if err := m.db.Model(model).Select("id", "name").Where("id IN ? AND workspace_id = ?", ids, workspaceID).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	names := map[string]string{}
+	for _, row := range rows {
+		names[row.ID] = row.Name
+	}
+	return names, nil
+}
+
+// savedOptionNames reads the names of a select field's options.
+func (m *Merger) savedOptionNames(workspaceID, fieldID string) (map[string]string, error) {
+	var field models.CustomField
+	if err := m.db.Where("id = ? AND workspace_id = ?", fieldID, workspaceID).First(&field).Error; err != nil {
+		return nil, err
+	}
+	names := map[string]string{}
+	for _, o := range field.Options.Options {
+		names[o.ID] = o.Value
+	}
+	return names, nil
 }
 
 func (m *Merger) handle(c *echo.Context, run func(userID string, req mergeRequest) (MergeResult, error)) error {
@@ -57,7 +115,10 @@ func (m *Merger) handle(c *echo.Context, run func(userID string, req mergeReques
 		return echo.NewHTTPError(http.StatusBadRequest, "into is required")
 	}
 	out, err := run(userID, req)
+	var renamed renamedError
 	switch {
+	case errors.As(err, &renamed):
+		return echo.NewHTTPError(http.StatusConflict, renamed.Error())
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		return echo.NewHTTPError(http.StatusNotFound, "not found in this workspace")
 	case errors.Is(err, errMergeSelf), errors.Is(err, errMergeDone):
@@ -70,13 +131,29 @@ func (m *Merger) handle(c *echo.Context, run func(userID string, req mergeReques
 
 func (m *Merger) mergeLabel(c *echo.Context) error {
 	return m.handle(c, func(uid string, req mergeRequest) (MergeResult, error) {
-		return m.MergeLabels(uid, c.Param("workspaceId"), c.Param("lableId"), req.Into)
+		ws, from := c.Param("workspaceId"), c.Param("lableId")
+		names, err := m.savedNames(&models.Lable{}, ws, from, req.Into)
+		if err != nil {
+			return MergeResult{}, err
+		}
+		if err := checkNames(req, from, names); err != nil {
+			return MergeResult{}, err
+		}
+		return m.MergeLabels(uid, ws, from, req.Into)
 	})
 }
 
 func (m *Merger) mergeStatus(c *echo.Context) error {
 	return m.handle(c, func(uid string, req mergeRequest) (MergeResult, error) {
-		return m.MergeStatuses(uid, c.Param("workspaceId"), c.Param("statusId"), req.Into)
+		ws, from := c.Param("workspaceId"), c.Param("statusId")
+		names, err := m.savedNames(&models.Status{}, ws, from, req.Into)
+		if err != nil {
+			return MergeResult{}, err
+		}
+		if err := checkNames(req, from, names); err != nil {
+			return MergeResult{}, err
+		}
+		return m.MergeStatuses(uid, ws, from, req.Into)
 	})
 }
 
@@ -85,7 +162,17 @@ func (m *Merger) mergeOption(c *echo.Context) error {
 		if req.From == "" {
 			return MergeResult{}, errMergeSelf
 		}
-		return m.MergeOptions(uid, c.Param("workspaceId"), c.Param("customFieldId"), req.From, req.Into)
+		ws, field := c.Param("workspaceId"), c.Param("customFieldId")
+		if req.FromName != "" || req.IntoName != "" {
+			names, err := m.savedOptionNames(ws, field)
+			if err != nil {
+				return MergeResult{}, err
+			}
+			if err := checkNames(req, req.From, names); err != nil {
+				return MergeResult{}, err
+			}
+		}
+		return m.MergeOptions(uid, ws, field, req.From, req.Into)
 	})
 }
 

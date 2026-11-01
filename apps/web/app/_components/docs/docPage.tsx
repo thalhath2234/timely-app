@@ -17,7 +17,8 @@ import { insertPageMention } from "@/app/_components/editor/mention";
 import TabStripActions from "@/app/_components/pageTabs/stripActions";
 import { hasUploadedImages } from "@/app/_components/editor/docImage";
 import { Doc } from "@/app/_types/types";
-import { countDocWords, docHintsVersion } from "@timely/contract/documents";
+import { countDocWords, DOC_HINTS_SETTLE_MS, docHintsVersion } from "@timely/contract/documents";
+import { useSettled } from "@/app/utils/hooks/useSettled";
 import { UpdateDocPayload } from "@/app/utils/api/docs";
 import type { RelatedItem } from "@/app/utils/api/search";
 import { useQueryClient } from "@tanstack/react-query";
@@ -275,8 +276,10 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
     [createDoc, doc.id, flush, router],
   );
 
-  // From the saved copy, which the suggestions read, not the editor's words.
-  const hintsVersion = useMemo(() => docHintsVersion({ title: doc.title, plainText: doc.plainText }), [doc.title, doc.plainText]);
+  // From the saved copy, which the suggestions read, not the editor's words,
+  // once it has stopped changing: a title typed word by word saves at each pause.
+  const savedVersion = useMemo(() => docHintsVersion({ title: doc.title, plainText: doc.plainText }), [doc.title, doc.plainText]);
+  const hintsVersion = useSettled(savedVersion, DOC_HINTS_SETTLE_MS);
 
   const handleDelete = async () => {
     await deleteDoc.mutateAsync(doc.id);

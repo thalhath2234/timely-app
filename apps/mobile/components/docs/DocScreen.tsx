@@ -11,7 +11,7 @@ import BottomSheet, { SheetOption } from "../ui/BottomSheet";
 import ConfirmSheet from "../ui/ConfirmSheet";
 import EmptyState from "../ui/EmptyState";
 import RichTextEditor from "../editor/RichTextEditor";
-import { useCreateDoc, useDecisionsStatusQuery, useDeleteDoc, useDocBacklinksQuery, useDocQuery, useDocWatch, useDocsQuery, useUpdateDoc, useWorkspacesQuery } from "../../lib/hooks";
+import { useCreateDoc, useDecisionsStatusQuery, useDeleteDoc, useDocBacklinksQuery, useDocQuery, useDocWatch, useDocsQuery, useSettled, useUpdateDoc, useWorkspacesQuery } from "../../lib/hooks";
 import { saveStatusLabel, useAutosave, useUnsavedLeaveGuard } from "../../lib/autosave";
 import { showUndoToast } from "../../lib/toast";
 import { resolveDocContent } from "../../lib/markdown";
@@ -22,7 +22,7 @@ import type { DocContent } from "../../lib/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { hasUploadedImages, shareExport } from "../../lib/api/portability";
 import { getDocVersion, getDocVersions, restoreDocVersion, type DocVersion } from "../../lib/api/docs";
-import { DOC_VERSION_REASONS, countDocWords, docHintsVersion } from "@timely/contract/documents";
+import { DOC_HINTS_SETTLE_MS, DOC_VERSION_REASONS, countDocWords, docHintsVersion } from "@timely/contract/documents";
 import RichDoc from "./RichDoc";
 import RelatedList from "../search/RelatedList";
 import DocHintsCard, { ChecklistOffersOption } from "./DocHintsCard";
@@ -168,8 +168,11 @@ function DocEditor({ docId }: { docId: string }) {
     ...(selectedText ? [contextChip("selection", "Selected text", selectedText)] : []),
     ...(hasUnsavedChanges() ? [contextChip("draft", "Unsaved document", { title, plainText: assistantText })] : []),
   ] : []);
-  // From the saved copy, which the suggestions read, not the editor's words.
-  const hintsVersion = useMemo(() => (doc ? docHintsVersion({ title: doc.title, plainText: doc.plainText }) : ""), [doc?.title, doc?.plainText]);
+  // From the saved copy, which the suggestions read, not the editor's words,
+  // once it has stopped changing: a title typed word by word saves at each
+  // pause. The first version of a doc that just loaded is used at once.
+  const savedVersion = useMemo(() => (doc ? docHintsVersion({ title: doc.title, plainText: doc.plainText }) : ""), [doc?.title, doc?.plainText]);
+  const hintsVersion = useSettled(savedVersion, DOC_HINTS_SETTLE_MS) || savedVersion;
   if (!doc) return null;
   const versionIsCurrent = Boolean(version && versions?.find((item) => item.id === version.id)?.current);
 

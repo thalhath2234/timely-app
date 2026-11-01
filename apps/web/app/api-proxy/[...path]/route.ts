@@ -39,6 +39,9 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
     headers,
     redirect: "manual",
     cache: "no-store",
+    // A request the page gives up on (a newer search, leaving the page) is
+    // dropped at the API too, so its model calls stop instead of running on.
+    signal: request.signal,
   };
   if (request.method !== "GET" && request.method !== "HEAD") {
     init.body = request.body;

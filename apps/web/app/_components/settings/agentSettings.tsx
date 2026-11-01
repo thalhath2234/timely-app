@@ -55,6 +55,7 @@ import {
   type ModelOption,
   type ProviderId,
 } from "@/app/utils/api/agentProviders";
+import { providerAfterRemoval } from "@timely/contract/providerFallback";
 import { controlClass } from "@/app/_components/_ui/field";
 import { buttonClass } from "@/app/_components/_ui/button";
 
@@ -581,6 +582,17 @@ export function MoreApiKeys({ data }: { data: AgentProviders }) {
 }
 
 /** One direct API provider inside More API keys: a single line until opened. */
+/** What the Disconnect confirm says. Removing the default provider moves chat
+ * to the next one set up, so the confirm names it rather than switching
+ * silently. */
+function disconnectNote(data: AgentProviders, id: ProviderId) {
+  const next = providerAfterRemoval(data, id);
+  if (next === data.defaultProvider) return "The saved key is deleted.";
+  if (!next)
+    return "The saved key is deleted. Chat and the writing tools won’t work until you set up another provider.";
+  return `The saved key is deleted. Chat and the writing tools will use ${PROVIDER_LABELS[next as ProviderId]} instead.`;
+}
+
 function ApiProviderRow({
   data,
   view,
@@ -691,7 +703,7 @@ function ApiProviderRow({
                 onClick={() => {
                   requestConfirm({
                     title: `Disconnect ${view.label}?`,
-                    description: "The saved key is deleted.",
+                    description: disconnectNote(data, view.id),
                     confirmLabel: "Disconnect",
                     onConfirm: () =>
                       removeKey.mutate(view.id, {
@@ -1483,7 +1495,7 @@ function DecisionPrefs({ data }: { data: DecisionsView }) {
 }
 
 export default function AgentSettings() {
-  const { data, isLoading, error, refetch } = useAgentProviders();
+  const { data, isLoading, error, refetch } = useAgentProviders({ watchReindex: true });
   const patch = usePatchAgentProviders();
 
   return (

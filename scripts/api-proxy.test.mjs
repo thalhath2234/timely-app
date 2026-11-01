@@ -22,8 +22,8 @@ async function fakeApi(name) {
   return { origin: `http://127.0.0.1:${server.address().port}`, seen, close: () => new Promise((resolve) => server.close(resolve)) };
 }
 
-function request(method, url, { headers = {}, body = null } = {}) {
-  return { method, nextUrl: new URL(url), headers: new Headers(headers), body };
+function request(method, url, { headers = {}, body = null, signal } = {}) {
+  return { method, nextUrl: new URL(url), headers: new Headers(headers), body, signal };
 }
 
 const params = (...path) => ({ params: Promise.resolve({ path }) });
@@ -96,4 +96,26 @@ test("an API that is not running answers 502, the gap the web client retries thr
   const response = await GET(request("GET", "http://web.test/api-proxy/health"), params("health"));
   assert.equal(response.status, 502);
   assert.match((await response.json()).message, /did not answer/);
+});
+
+test("a request the page gives up on is dropped at the API too", { timeout: 5000 }, async (t) => {
+  // The API stops a request's work (embeddings, smart suggestions) when its
+  // connection closes, so the proxy must close it when the browser does.
+  let closed;
+  const dropped = new Promise((resolve) => (closed = resolve));
+  const server = createServer((req, res) => {
+    res.on("close", () => closed(res.writableFinished ? "finished" : "dropped"));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const saved = process.env.API_ORIGIN;
+  t.after(() => (saved === undefined ? delete process.env.API_ORIGIN : (process.env.API_ORIGIN = saved)));
+  process.env.API_ORIGIN = `http://127.0.0.1:${server.address().port}`;
+
+  const browser = new AbortController();
+  const answer = GET(request("GET", "http://web.test/api-proxy/search/smart?q=x", { signal: browser.signal }), params("search", "smart"));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  browser.abort();
+  assert.equal(await dropped, "dropped");
+  assert.equal((await answer).status, 502);
 });

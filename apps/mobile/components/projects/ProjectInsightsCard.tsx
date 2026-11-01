@@ -5,7 +5,8 @@ import { Sparkles, X } from "lucide-react-native";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import { SectionLabel } from "../ui/primitives";
 import { useCreateTask, useDecisionFeedback, useProjectInsightsQuery, useSaveTask } from "../../lib/hooks";
-import { showUndoToast } from "../../lib/toast";
+import { showUndoToast, useToastStore } from "../../lib/toast";
+import { getProject } from "../../lib/api/projects";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import type { ProjectInsights } from "../../lib/api/decisions";
 import type { Project } from "../../lib/types";
@@ -67,8 +68,24 @@ export default function ProjectInsightsCard({ project }: { project: Project }) {
       ...(m.moveTo
         ? {
             label: "Move",
-            run: () => {
-              saveTask.mutate({ id: m.taskId, data: { projectId: m.moveTo, stageId: null } }, { onSuccess: () => void refetch() });
+            run: async () => {
+              // The suggestion may be older than the projects: the target is
+              // read again, and the toast waits for the move.
+              try {
+                const target = await getProject(m.moveTo!);
+                if (target.completedAt) {
+                  useToastStore.getState().show(`“${target.title}” is completed, so “${m.name}” wasn’t moved.`);
+                  void refetch();
+                  return;
+                }
+                await saveTask.mutateAsync({ id: m.taskId, data: { projectId: m.moveTo, stageId: null } });
+              } catch (error) {
+                const reason = error instanceof Error ? error.message.trim().replace(/\.$/, "") : "";
+                useToastStore.getState().show(`Couldn’t move “${m.name}”.${reason ? ` ${reason.charAt(0).toUpperCase()}${reason.slice(1)}.` : ""}`);
+                void refetch();
+                return;
+              }
+              void refetch();
               showUndoToast(`Moved to ${m.moveToTitle}`, () =>
                 saveTask.mutate({ id: m.taskId, data: { projectId: project.id, stageId: m.stageId ?? null } }, { onSuccess: () => void refetch() }),
               );

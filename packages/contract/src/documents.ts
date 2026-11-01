@@ -196,11 +196,17 @@ export function countDocWords(text: string): number {
   return count;
 }
 
+/** How long a doc's hints version must stay the same before its suggestions
+ * are read again, in ms. A title typed word by word is saved at each pause,
+ * and each partial title would otherwise be asked about. */
+export const DOC_HINTS_SETTLE_MS = 2000;
+
 /**
  * When a doc's suggestions are read again: once an empty doc gets a title or
  * text, then each time it grows by about fifty words. Pass the saved copy,
  * which is what the suggestions read. Counted from the editor instead, a doc
- * typed in one go asked before its first save landed and never again.
+ * typed in one go asked before its first save landed and never again. The
+ * apps pass a new version on once it has stayed for DOC_HINTS_SETTLE_MS.
  */
 export function docHintsVersion(saved: Pick<Doc, "title" | "plainText">): string {
   const words = countDocWords(saved.plainText);
