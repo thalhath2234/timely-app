@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -85,6 +86,9 @@ type describeTools struct {
 	// stop is set once a bound is reached or a call repeats: the model has
 	// what it will get, and the next turn answers.
 	stop bool
+	// owns reports whether the person has the task or doc with this id
+	// (kind "task" or "doc"); nil skips the check.
+	owns func(ctx context.Context, kind, id string) bool
 }
 
 // stopped reports whether the look-ups are over (see stop).
@@ -120,7 +124,53 @@ func (s *Service) tools(ctx context.Context, userID string) *describeTools {
 			zone = hours.Timezone
 		}
 	}
-	return newDescribeTools(userID, catalog, s.boardData, zone)
+	t := newDescribeTools(userID, catalog, s.boardData, zone)
+	t.owns = func(ctx context.Context, kind, id string) bool {
+		var model any = &models.Task{}
+		if kind == "doc" {
+			model = &models.Document{}
+		}
+		var n int64
+		err := s.db.WithContext(ctx).Model(model).Where("id = ? AND user_id = ?", id, userID).Count(&n).Error
+		return err != nil || n > 0 // a failed look-up is no reason to send the card back
+	}
+	return t
+}
+
+// Ids a program writes out itself: a TaskRow's or CheckRow's first argument
+// and an Open("…", "doc", id). Rows made with @Each take their ids from the
+// data (t.id), so a written-out id is one the model made up or copied.
+var (
+	writtenTaskRow  = regexp.MustCompile(`\bTaskRow\(\s*"([^"]+)"`)
+	writtenCheckRow = regexp.MustCompile(`\bCheckRow\(\s*"([^"]+)"`)
+	writtenOpenDoc  = regexp.MustCompile(`\bOpen\(\s*"(?:[^"\\]|\\.)*"\s*,\s*"doc"\s*,\s*"([^"]+)"`)
+)
+
+// unknownIDs is a problem for every task or doc id written in program that
+// the person does not have: check_block drew those rows as if they were
+// real, with a working tick box.
+func (t *describeTools) unknownIDs(ctx context.Context, program string) []string {
+	if t.owns == nil {
+		return nil
+	}
+	var problems []string
+	seen := map[string]bool{}
+	look := func(re *regexp.Regexp, kind, problem string) {
+		for _, match := range re.FindAllStringSubmatch(program, -1) {
+			id := match[1]
+			if seen[kind+id] {
+				continue
+			}
+			seen[kind+id] = true
+			if !t.owns(ctx, kind, id) {
+				problems = append(problems, fmt.Sprintf(problem, id))
+			}
+		}
+	}
+	look(writtenTaskRow, "task", "TaskRow names task %q, which the person does not have. Take tasks from @Data rows (TaskRow(t.id, ...) in @Each), never write a task id yourself.")
+	look(writtenCheckRow, "doc", "CheckRow names doc %q, which the person does not have. Take checklist items from @Checklist rows (i.docId).")
+	look(writtenOpenDoc, "doc", "Open names doc %q, which the person does not have. Use the doc's id from list_docs, or c.docId from @Checklist.")
+	return problems
 }
 
 // newDescribeTools lists the catalog's read tools, then check_block when
@@ -216,8 +266,8 @@ func (t *describeTools) check(ctx context.Context, program string) (boardCheck, 
 	if program == "" {
 		return boardCheck{}, errors.New("pass the whole program")
 	}
-	if len(program) > dashboardCardMaxProgram {
-		return boardCheck{}, errors.New("the program is too long")
+	if programLength(program) > dashboardCardMaxProgram {
+		return boardCheck{}, fmt.Errorf("the program is too long: a card holds at most %d characters", dashboardCardMaxProgram)
 	}
 	if done, ok := t.checked[program]; ok {
 		return done, nil
@@ -235,6 +285,7 @@ func (t *describeTools) check(ctx context.Context, program string) (boardCheck, 
 	if err != nil {
 		return boardCheck{}, err
 	}
+	done.Problems = append(done.Problems, t.unknownIDs(ctx, program)...)
 	if t.checked == nil {
 		t.checked = map[string]boardCheck{}
 	}

@@ -301,3 +301,34 @@ func TestDescribeAnswersWithTheLastCleanDraft(t *testing.T) {
 		t.Fatalf("program %q, err %v: a model that never writes the program out gets its last draft", program, err)
 	}
 }
+
+func TestCheckBlockFlagsIdsThePersonDoesNotHave(t *testing.T) {
+	loaded := 0
+	tools := testDescribeTools(&loaded)
+	tools.owns = func(_ context.Context, kind, id string) bool {
+		return (kind == "task" && id == "tsk_real") || (kind == "doc" && id == "doc_real")
+	}
+	program := `root = Panel("Mine", [list, open])
+list = List([TaskRow("task_fake", "X"), TaskRow("tsk_real", "Y")])
+open = Open("Open doc", "doc", "doc_fake")`
+	checked, err := tools.check(context.Background(), program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(checked.Problems, "\n")
+	if !strings.Contains(joined, `"task_fake"`) || !strings.Contains(joined, `"doc_fake"`) || strings.Contains(joined, `"tsk_real"`) {
+		t.Fatalf("written-out ids the person does not have must be problems: %q", checked.Problems)
+	}
+	// Rows from @Data name no id of their own.
+	clean, err := tools.check(context.Background(), `root = Panel("Late", [list])
+late = @Data({source: "tasks", overdue: true})
+list = List(@Each(late.rows, "t", TaskRow(t.id, t.title)))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, problem := range clean.Problems {
+		if strings.Contains(problem, "does not have") {
+			t.Fatalf("an @Each row was flagged: %q", problem)
+		}
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/labstack/echo/v5"
 	"timely-api/internal/features/chat"
@@ -126,8 +127,9 @@ func (s *Service) describeCard(ctx context.Context, userID string, req dashboard
 		return dashboardCardResponse{}, echo.NewHTTPError(400, "Say what the "+noun+" should show")
 	}
 	req.Current = strings.TrimSpace(req.Current)
-	if len(req.Current) > dashboardCardMaxProgram {
-		req.Current = ""
+	if programLength(req.Current) > dashboardCardMaxProgram {
+		// Dropping it would quietly write a new card in its place.
+		return dashboardCardResponse{}, echo.NewHTTPError(400, fmt.Sprintf("This %s is too large to change with AI. Describe a new %s instead", noun, noun))
 	}
 	if _, err := time.Parse("2006-01-02", req.Today); err != nil {
 		req.Today = time.Now().Format("2006-01-02")
@@ -158,6 +160,9 @@ func (s *Service) describeCard(ctx context.Context, userID string, req dashboard
 	program, err := describe(ctx, completer, messages, tools)
 	if errors.Is(err, errNotACard) {
 		return dashboardCardResponse{}, echo.NewHTTPError(502, "The AI's answer was not a "+noun+". Try again")
+	}
+	if errors.Is(err, errProgramTooLong) {
+		return dashboardCardResponse{}, echo.NewHTTPError(502, "The AI made a "+noun+" that is too large. Ask for fewer blocks or rows")
 	}
 	if err != nil {
 		return dashboardCardResponse{}, echo.NewHTTPError(502, err.Error())
@@ -239,10 +244,17 @@ func describe(ctx context.Context, completer chat.Completer, messages []chat.Wir
 					return draft, nil
 				}
 				if nudged || final {
+					if errors.Is(err, errProgramTooLong) {
+						return "", err
+					}
 					return "", errNotACard
 				}
 				nudged = true
-				messages = append(messages, reply, chat.WireMessage{Role: "user", Content: "Answer with the program only: the whole OpenUI Lang program from the root = Panel(...) line on."})
+				nudge := "Answer with the program only: the whole OpenUI Lang program from the root = Panel(...) line on."
+				if errors.Is(err, errProgramTooLong) {
+					nudge = fmt.Sprintf("That program is longer than a card may be (%d characters at most). Answer with a shorter whole program: fewer blocks, rows or words.", dashboardCardMaxProgram)
+				}
+				messages = append(messages, reply, chat.WireMessage{Role: "user", Content: nudge})
 				continue
 			}
 			if tools != nil && tools.load != nil && !sentBack && !final {
@@ -426,22 +438,71 @@ func dashboardCardMessages(req dashboardCardRequest, v viewVocab, sheets []sheet
 var (
 	programFence = regexp.MustCompile("(?s)```[\\w-]*[ \\t]*\\n(.*?)(?:\\n```|$)")
 	programRoot  = regexp.MustCompile(`(?m)^root\s*=\s*Panel\(`)
+	// programStatement starts a statement (`name = ...`); programPart starts
+	// the rest of one written over several lines (an indented line, a
+	// closing bracket, the next item of a list).
+	programStatement = regexp.MustCompile(`^[A-Za-z_$][\w$]*\s*=[^=]`)
+	programPart      = regexp.MustCompile(`^(\s|[\])},"\[@]|[A-Z]\w*\()`)
 )
 
-// boardProgram takes the program out of the model's answer: inside a code
-// fence when there is one, from the `root = Panel(` line on.
+// errProgramTooLong is a program over dashboardCardMaxProgram characters.
+var errProgramTooLong = errors.New("the program is too long")
+
+// programLength counts a program as the apps do (DESCRIBED_MAX_PROGRAM is a
+// JavaScript string length): Japanese takes one unit, not three bytes.
+func programLength(program string) int {
+	n := 0
+	for _, r := range program {
+		n += utf16.RuneLen(r)
+	}
+	return n
+}
+
+// boardProgram takes the program out of the model's answer: from the code
+// fence that holds `root = Panel(` when there is one, the root statement
+// first, then the statements after it up to any prose, then the ones
+// written above it.
 func boardProgram(answer string) (string, error) {
 	text := cleanWritten(answer, false)
-	if match := programFence.FindStringSubmatch(text); match != nil {
-		text = match[1]
+	for _, match := range programFence.FindAllStringSubmatch(text, -1) {
+		if programRoot.MatchString(match[1]) {
+			text = match[1]
+			break
+		}
 	}
 	loc := programRoot.FindStringIndex(text)
 	if loc == nil {
 		return "", errors.New("no Panel root in the answer")
 	}
-	program := strings.TrimSpace(text[loc[0]:])
-	if len(program) > dashboardCardMaxProgram {
-		return "", errors.New("the program is too long")
+	after := strings.Split(text[loc[0]:], "\n")
+	lines := after[:1]
+	for _, line := range after[1:] {
+		if !programLine(line) {
+			break // "This card shows your overdue tasks." is not the program's
+		}
+		lines = append(lines, line)
+	}
+	above := strings.Split(strings.TrimRight(text[:loc[0]], "\n"), "\n")
+	start := len(above)
+	for start > 0 && programLine(above[start-1]) {
+		start--
+	}
+	lines = append(lines, above[start:]...)
+	kept := lines[:0]
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			kept = append(kept, strings.TrimRight(line, " \t"))
+		}
+	}
+	program := strings.Join(kept, "\n")
+	if programLength(program) > dashboardCardMaxProgram {
+		return "", errProgramTooLong
 	}
 	return program, nil
+}
+
+// programLine reports whether a line belongs to a program: blank, a
+// statement, or part of one.
+func programLine(line string) bool {
+	return strings.TrimSpace(line) == "" || programStatement.MatchString(line) || programPart.MatchString(line)
 }
