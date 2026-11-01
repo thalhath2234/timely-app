@@ -504,6 +504,9 @@ export function useProviderModelsQuery(id: ProviderId, kind?: "embed", enabled =
     queryFn: () => listProviderModels(id, kind),
     enabled,
     staleTime: 10 * 60 * 1000,
+    // A failed list answers 409 with its reason: show it at once instead of
+    // asking the provider again. A dropped connection is still tried once more.
+    retry: (failures, error) => failures < 1 && !(error instanceof ApiError && error.status < 500),
   });
 }
 
