@@ -17,7 +17,9 @@ import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ConfirmSheet, {
   type ConfirmRequest,
 } from "../../../components/ui/ConfirmSheet";
-import { Field, PrimaryButton } from "../../../components/ui/primitives";
+import { Field, PrimaryButton, Select, type SelectOption } from "../../../components/ui/primitives";
+import { GroupHint, ListGroup } from "../../../components/settings/SettingsList";
+import { readyProviders } from "../../../components/chat/ModelSheet";
 import {
   useAgentProvidersQuery,
   useConnectProvider,
@@ -224,6 +226,7 @@ function ProviderCard({
 }) {
   const patch = usePatchAgentProviders();
   const isDefault = data.defaultProvider === id;
+  const auto = !data.defaultChosen;
   return (
     <View
       style={[styles.card, isDefault && styles.cardDefault]}
@@ -232,19 +235,21 @@ function ProviderCard({
       <View style={styles.row}>
         <Text style={styles.title}>{PROVIDER_LABELS[id]}</Text>
         {isDefault ? (
-          <Badge tone="primary">Default</Badge>
+          <Badge tone="primary">{auto ? "Automatic default" : "Default"}</Badge>
         ) : ready ? (
           <Badge tone="ok">Ready</Badge>
         ) : null}
       </View>
       <Text style={styles.meta}>{description}</Text>
       {children}
-      {!isDefault ? (
+      {!isDefault || auto ? (
         <PrimaryButton
           label={
             patch.isPending && patch.variables?.defaultProvider === id
               ? "Switching…"
-              : "Use as default"
+              : isDefault
+                ? "Keep as default"
+                : "Use as default"
           }
           disabled={!ready || patch.isPending}
           onPress={() => patch.mutate({ defaultProvider: id })}
@@ -443,25 +448,29 @@ function SmartSuggestionsCard({
   // The key form opens by itself only when there is no key at all, as on web.
   const editing = editingKey || (!typesafe.keySet && !data.openrouterKeySet);
   // Suggestions run on Jev, so they switch on only with a key it can use.
-  const hasKey = (typesafe.keySet && !typesafe.rejected) || data.openrouterKeySet;
+  const hasKey = (typesafe.keySet && !typesafe.rejected && !typesafe.unreadable) || data.openrouterKeySet;
   let source: string;
   if (!hasKey)
-    source = typesafe.rejected
-      ? "TypeSafe refused your key. Add a working TypeSafe or OpenRouter key to turn these on."
-      : "Add a TypeSafe or OpenRouter key to turn these on.";
+    source = typesafe.unreadable
+      ? "Timely can't read your saved TypeSafe key. Enter it again, or add an OpenRouter key, to turn these on."
+      : typesafe.rejected
+        ? "TypeSafe refused your key. Add a working TypeSafe or OpenRouter key to turn these on."
+        : "Add a TypeSafe or OpenRouter key to turn these on.";
   else if (!data.enabled) source = "Off. Timely works as it does without them.";
   else if (data.provider === "typesafe") source = "Using your TypeSafe key.";
   else if (data.provider === "openrouter")
-    source = typesafe.rejected
-      ? "TypeSafe refused your key, so your OpenRouter key is used for now."
-      : "Using your OpenRouter key. A TypeSafe key is used first when you add one.";
+    source = typesafe.unreadable
+      ? "Timely can't read your saved TypeSafe key, so your OpenRouter key is used for now."
+      : typesafe.rejected
+        ? "TypeSafe refused your key, so your OpenRouter key is used for now."
+        : "Using your OpenRouter key. A TypeSafe key is used first when you add one.";
   else source = "Add a TypeSafe or OpenRouter key to turn these on.";
 
   return (
     <View style={styles.card} testID="smart-suggestions">
       <View style={styles.row}>
         <Text style={styles.title}>Smart suggestions</Text>
-        <Badge tone={data.available ? "ok" : hasKey ? "muted" : "warn"}>{data.available ? "On" : hasKey ? "Off" : "Needs a key"}</Badge>
+        <Badge tone={data.available ? "ok" : hasKey ? "muted" : "warn"}>{data.available ? "On" : hasKey ? "Off" : typesafe.keySet ? "Key not working" : "Needs a key"}</Badge>
         <View style={{ flex: 1 }} />
         <Switch
           accessibilityLabel="Smart suggestions"
@@ -482,7 +491,9 @@ function SmartSuggestionsCard({
         are never sent. Runs on Jev, TypeSafe’s fast decision model.
       </Text>
       <Text style={styles.sourceLine} testID="decisions-source">{source}</Text>
-      {data.available ? (
+      {/* Test also asks TypeSafe again about a key it refused; if it takes
+          the key now, suggestions use it again. */}
+      {data.available || (data.enabled && typesafe.rejected) ? (
         <View style={[styles.row, { flexWrap: "wrap" }]} testID="decisions-test">
           <Pressable
             accessibilityRole="button"
@@ -516,9 +527,13 @@ function SmartSuggestionsCard({
         </Text>
       ) : null}
       <Text style={styles.label}>TypeSafe API key</Text>
-      {typesafe.rejected ? (
+      {typesafe.unreadable ? (
         <Text style={styles.warning}>
-          TypeSafe refused this key. Replace it to use TypeSafe again.
+          Timely can't read this key. Enter it again to use TypeSafe.
+        </Text>
+      ) : typesafe.rejected ? (
+        <Text style={styles.warning}>
+          TypeSafe refused this key. Replace it, or test it again, to use TypeSafe.
         </Text>
       ) : null}
       {removeKey.error ? (
@@ -529,8 +544,8 @@ function SmartSuggestionsCard({
       {!editing ? (
         <View style={[styles.row, { flexWrap: "wrap" }]}>
           {typesafe.keySet ? (
-            <Badge tone={typesafe.rejected ? "warn" : "ok"}>
-              Key saved {typesafe.keyHint}
+            <Badge tone={typesafe.rejected || typesafe.unreadable ? "warn" : "ok"}>
+              {typesafe.unreadable ? "Key can't be read" : "Key saved"} {typesafe.keyHint}
             </Badge>
           ) : (
             <Badge tone="muted">No key</Badge>
@@ -768,6 +783,66 @@ function LearnedDefaults() {
 
 const CUSTOM_ENDPOINT = "custom";
 
+const AUTOMATIC = "automatic";
+
+/** Which provider runs new chats and the writing tools. Automatic leaves the
+ * pick to the server: the first provider set up, OpenRouter last (ADR 0019).
+ * A chosen provider stays until it is removed or Automatic is picked again. */
+function DefaultProviderGroup({ data }: { data: AgentProviders }) {
+  const patch = usePatchAgentProviders();
+  const ready = readyProviders(data);
+  const chosen = data.defaultChosen ? data.defaultProvider : "";
+  const auto = data.autoProvider ? PROVIDER_LABELS[data.autoProvider] : "";
+  const options: SelectOption[] = [
+    { value: AUTOMATIC, label: auto ? `Automatic · ${auto}` : "Automatic" },
+    ...ready.map((p) => ({ value: p.id, label: PROVIDER_LABELS[p.id] })),
+  ];
+  // A chosen provider that is not ready right now (signed out) stays named.
+  if (chosen && !ready.some((p) => p.id === chosen))
+    options.push({ value: chosen, label: PROVIDER_LABELS[chosen] });
+  const saving = patch.isPending ? patch.variables?.defaultProvider : undefined;
+  const value = (saving ?? chosen) || AUTOMATIC;
+
+  let hint: string;
+  if (!chosen && !auto)
+    hint = "Add a key below. The first provider you set up runs new chats.";
+  else if (!chosen)
+    hint = "Picked automatically: the first provider you set up, OpenRouter last. Choose one to keep it.";
+  else if (auto && auto !== PROVIDER_LABELS[chosen])
+    hint = `Chosen by you. Automatic would pick ${auto}.`;
+  else hint = "Chosen by you. Automatic picks the first provider you set up.";
+
+  return (
+    <View testID="default-provider" style={{ gap: 6 }}>
+      <ListGroup>
+        <Select
+          trigger="row"
+          label="Default provider"
+          value={value}
+          onChange={(next) => {
+            if (patch.isPending || next === value) return;
+            patch.mutate({
+              defaultProvider: next === AUTOMATIC ? "" : (next as ProviderId),
+            });
+          }}
+          options={options}
+        />
+      </ListGroup>
+      {patch.error ? (
+        <Text style={[styles.error, { marginHorizontal: 4 }]}>
+          {errorMessage(patch.error, "Could not switch provider.")}
+        </Text>
+      ) : (
+        <GroupHint>
+          {saving !== undefined
+            ? "Switching…"
+            : `Runs new chats and Help me write. ${hint}`}
+        </GroupHint>
+      )}
+    </View>
+  );
+}
+
 /** The direct API providers folded into one dropdown, so OpenRouter and Smart
  * suggestions stay the two keys people see first. */
 function MoreApiKeys({
@@ -782,7 +857,7 @@ function MoreApiKeys({
   const connected = providers.filter((view) => view.connected);
   const defaultView = providers.find((view) => view.id === data.defaultProvider);
   const summary = defaultView
-    ? `${defaultView.label} runs new chats`
+    ? `${defaultView.label} runs new chats${data.defaultChosen ? "" : " · automatic"}`
     : connected.length > 0
       ? connected.map((view) => view.label).join(", ")
       : providers.length > 3
@@ -897,7 +972,9 @@ function ApiProviderRow({
           {view.label}
         </Text>
         {isDefault ? (
-          <Badge tone="primary">Default</Badge>
+          <Badge tone="primary">
+            {data.defaultChosen ? "Default" : "Automatic default"}
+          </Badge>
         ) : view.connected ? (
           <Badge tone="ok">{view.keySet ? "Key saved" : "Connected"}</Badge>
         ) : null}
@@ -1088,7 +1165,7 @@ function ApiProviderRow({
               answer without it.
             </Text>
           ) : null}
-          {view.connected && !isDefault ? (
+          {view.connected && (!isDefault || !data.defaultChosen) ? (
             <Pressable
               accessibilityRole="button"
               disabled={!view.ready || patch.isPending}
@@ -1098,7 +1175,9 @@ function ApiProviderRow({
               <Text style={styles.smallLink}>
                 {patch.isPending && patch.variables?.defaultProvider === view.id
                   ? "Switching…"
-                  : "Use as default"}
+                  : isDefault
+                    ? "Keep as default"
+                    : "Use as default"}
               </Text>
             </Pressable>
           ) : null}
@@ -1279,6 +1358,7 @@ export default function AgentSettings() {
         ) : null}
         {data ? (
           <>
+            <DefaultProviderGroup data={data} />
             <OpenRouterCard data={data} confirm={setConfirm} />
             {decisions.data ? (
               <SmartSuggestionsCard

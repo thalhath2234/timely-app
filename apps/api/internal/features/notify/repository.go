@@ -257,9 +257,12 @@ func (r *repository) SetBody(id, body string) error {
 }
 
 // SetSuggestion adds the suggested next step to a notification's data and
-// replaces its text with the one naming the step.
+// replaces its text with the one naming the step. A suggestion that comes
+// back after the person read, snoozed, dismissed or acted on the
+// notification is dropped: it would contradict what they just did.
 func (r *repository) SetSuggestion(id, step, body string) error {
-	return r.db.Exec(`UPDATE notifications SET body = ?, data = data || jsonb_build_object('suggest', ?::text) WHERE id = ?`, body, step, id).Error
+	return r.db.Exec(`UPDATE notifications SET body = ?, data = data || jsonb_build_object('suggest', ?::text)
+		WHERE id = ? AND read_at IS NULL AND dismissed_at IS NULL AND data->>'acted' IS NULL`, body, step, id).Error
 }
 
 func mustJSON(payload models.JobPayload) string {

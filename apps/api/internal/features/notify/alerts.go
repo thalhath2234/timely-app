@@ -68,8 +68,10 @@ type Alert struct {
 
 // Alerter returns today's smart alerts for a person; Work in skip was alerted
 // about in the last week and is left out, and so is every kind of alert in
-// muted (see mutedAlertKinds). Smart suggestions supply it.
-type Alerter func(ctx context.Context, userID string, now time.Time, skip, muted map[string]bool) []Alert
+// muted (see mutedAlertKinds). Smart suggestions supply it. An error means
+// the alerts could not be judged this time (the model call failed), so the
+// day's job is tried again later.
+type Alerter func(ctx context.Context, userID string, now time.Time, skip, muted map[string]bool) ([]Alert, error)
 
 // SetAlerts connects smart suggestions to the daily smart alerts.
 func (s *Service) SetAlerts(fn Alerter) { s.alerts = fn }
@@ -102,6 +104,8 @@ const (
 	alertMuteDays       = 14
 	// Dismissed alerts are kept this long to count.
 	dismissedKeepDays = 30
+	// An account whose smart suggestions are off is asked again after this.
+	smartOffRecheck = 10 * time.Minute
 )
 
 // sweepDismissed deletes an account's smart alerts dismissed more than
@@ -140,11 +144,24 @@ func (s *Service) sweepSmartAlerts(ctx context.Context, userID string, now time.
 	}
 	day := local.Format("2006-01-02")
 	key := "smart_alerts:" + userID + ":" + day
-	// The key check happens in the job, so an account with no key costs one
-	// queued job a day rather than a key lookup on every sweep.
 	if s.queue.HasJob(key) {
 		return nil
 	}
+	// A job queued while smart suggestions are off (no key saved yet, as on
+	// the sign-up day) would do nothing and still take the day's key, so the
+	// sweep waits until they are on. It asks at most every smartOffRecheck,
+	// so an account without a key costs few key lookups.
+	if until, ok := s.smartOffUntil[userID]; ok && now.Before(until) {
+		return nil
+	}
+	if !s.smartOn(ctx, userID) {
+		if s.smartOffUntil == nil {
+			s.smartOffUntil = map[string]time.Time{}
+		}
+		s.smartOffUntil[userID] = now.Add(smartOffRecheck)
+		return nil
+	}
+	delete(s.smartOffUntil, userID)
 	_, err = s.queue.Enqueue(jobs.Enqueue{UserID: userID, Kind: models.JobSmartAlerts, DedupeKey: key, Payload: models.JobPayload{"date": day}})
 	return err
 }
@@ -173,7 +190,13 @@ func (s *Service) HandleSmartAlerts(ctx context.Context, job *models.Job) error 
 	muted := mutedAlertKinds(outcomes, now)
 	ctx, cancel := context.WithTimeout(ctx, alertBudget)
 	defer cancel()
-	alerts := s.alerts(ctx, job.UserID, now, skip, muted)
+	alerts, err := s.alerts(ctx, job.UserID, now, skip, muted)
+	if err != nil {
+		// The job fails, so the queue tries again with a back-off; the
+		// day's dedupe key stays taken by this job, so the sweep adds no
+		// second one. Once its attempts run out it is listed as failed.
+		return fmt.Errorf("smart alerts could not run: %w", err)
+	}
 	day := job.Payload.String("date")
 	// A retried job counts what it already sent today against the cap.
 	sent, err := s.repo.CountByDedupePrefix(job.UserID, "suggestion:"+job.UserID+":"+day+":")

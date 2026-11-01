@@ -60,7 +60,7 @@ export default function ClarifyHints({
     if (!error) return null;
     return (
       <p className="mt-3 text-xs text-muted-foreground" data-testid="clarify-suggestions-error">
-        {error} Check Settings → Agent → Smart suggestions.
+        {error}
       </p>
     );
   }
@@ -68,7 +68,7 @@ export default function ClarifyHints({
   const notes: string[] = [];
   if (suggestions.looksLikeEvent)
     notes.push("This looks like an event at a fixed time. It may belong on the calendar.");
-  if (suggestions.dateRole)
+  if (suggestions.dateRole && DATE_FIELD[suggestions.dateRole])
     notes.push(
       dateFilled
         ? `The date in the name was used as ${DATE_FIELD[suggestions.dateRole]}. Check it in the fields on the right.`
@@ -78,7 +78,7 @@ export default function ClarifyHints({
     notes.push("This looks like more than one action. Consider splitting it.");
   if (suggestions.notReady)
     notes.push("This may not be ready to act on yet. It can stay in the Inbox.");
-  if (suggestions.missing) notes.push(MISSING[suggestions.missing]);
+  if (suggestions.missing && MISSING[suggestions.missing]) notes.push(MISSING[suggestions.missing]);
   const duplicates = suggestions.duplicates ?? [];
   if (!filled && notes.length === 0 && duplicates.length === 0) return null;
 

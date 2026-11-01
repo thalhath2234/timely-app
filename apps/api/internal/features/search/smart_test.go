@@ -210,6 +210,10 @@ func TestCreateTitle(t *testing.T) {
 		"crate a sheet for taxes":     "Taxes",
 		"white paper":                 "White paper",
 		"write doc":                   "",
+		// The kind's own word inside the phrase goes; other words stay.
+		"make a budget sheet for the wedding": "Budget for the wedding",
+		"make a budget table for the wedding": "Budget table for the wedding",
+		"budget sheet":                        "Budget",
 	}
 	for in, want := range cases {
 		if got := createTitle(in, "sheet"); got != want {

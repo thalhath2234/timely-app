@@ -3,13 +3,17 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"gorm.io/gorm"
+	"timely-api/internal/features/chat"
 	"timely-api/internal/features/decide"
+	"timely-api/internal/features/provider"
 	"timely-api/internal/features/suggest"
 	"timely-api/internal/models"
 )
@@ -219,5 +223,62 @@ func TestIntegrationAddLiveBlock(t *testing.T) {
 	raw, _ := json.Marshal(map[string]any{"docId": plan["id"], "words": "x", "block": 2})
 	if _, err := chatCatalog(db, nil, nil)["add_live_block"].Call(context.Background(), uid, raw); err == nil || !strings.Contains(err.Error(), "from 1 to 1") {
 		t.Fatalf("a block the doc doesn't have is refused: %v", err)
+	}
+}
+
+// modelMustNotRun stands in for a chat run's model and fails on any call.
+type modelMustNotRun struct{ t *testing.T }
+
+func (m modelMustNotRun) Complete(context.Context, []chat.WireMessage, []any, bool) (chat.WireMessage, error) {
+	m.t.Fatal("the rehearsal called the run's model")
+	return chat.WireMessage{}, nil
+}
+
+// A proposal is rehearsed in a rolled-back transaction and then applied; only
+// the apply asks the AI for the live block's program.
+func TestIntegrationProposedLiveBlockIsWrittenOnce(t *testing.T) {
+	db, uid := agentToolsDB(t)
+	var asked []string
+	liveBlockWriter = func(_ context.Context, _ string, words, current, _ string) (string, error) {
+		asked = append(asked, words)
+		return "root = Panel(\"Open work\", [list])\nlist = List([])", nil
+	}
+	var rehearse provider.Service
+	liveBlockRehearsal = rehearse.RehearseLiveBlock
+	t.Cleanup(func() { liveBlockWriter, liveBlockRehearsal = nil, nil })
+	call := agentToolCaller(t, db, uid)
+	ws := call("create_workspace", map[string]any{"name": "Personal"})
+	plan := call("create_doc", map[string]any{"title": "Plan", "markdown": "# Plan\n\nIntro.", "workspaceId": ws["id"]})
+	args, _ := json.Marshal(map[string]any{"docId": plan["id"], "words": "my open work"})
+	// The run's own model is on the context, as in a chat run.
+	ctx := chat.WithCompleter(context.Background(), modelMustNotRun{t})
+
+	rollback := errors.New("rehearsal rolled back")
+	err := db.Transaction(func(tx *gorm.DB) error {
+		out, err := rehearsalCatalog(tx, nil)["add_live_block"].Call(ctx, uid, args)
+		if err != nil {
+			return err
+		}
+		if raw, _ := json.Marshal(out); !strings.Contains(string(raw), "Plan") {
+			t.Fatalf("the rehearsal answers with the doc for later steps: %s", raw)
+		}
+		return rollback
+	})
+	if err != rollback {
+		t.Fatalf("rehearsal: %v", err)
+	}
+	if len(asked) != 0 {
+		t.Fatalf("the rehearsal asked the AI for the block: %q", asked)
+	}
+	if got := call("get_doc", map[string]any{"docId": plan["id"]})["markdown"].(string); strings.Contains(got, "openui-lang") {
+		t.Fatalf("the rehearsal's block was rolled back:\n%s", got)
+	}
+
+	if _, err := chatCatalog(db, nil, nil)["add_live_block"].Call(ctx, uid, args); err != nil {
+		t.Fatal(err)
+	}
+	got := call("get_doc", map[string]any{"docId": plan["id"]})["markdown"].(string)
+	if len(asked) != 1 || !strings.Contains(got, "Panel(\"Open work\"") || strings.Contains(got, "Live block") {
+		t.Fatalf("the apply writes the block once, with the AI's program: %q\n%s", asked, got)
 	}
 }

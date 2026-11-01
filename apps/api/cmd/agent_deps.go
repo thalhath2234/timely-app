@@ -51,11 +51,35 @@ var todaySuggestions *suggest.Service
 // the account's AI provider; nil makes add_live_block unavailable. Set in main.
 var liveBlockWriter func(ctx context.Context, userID, words, current, today string) (string, error)
 
+// liveBlockRehearsal stands in for liveBlockWriter while a proposal is
+// rehearsed, so each live block is written once, on apply. Set in main.
+var liveBlockRehearsal func(ctx context.Context, userID, words, current, today string) (string, error)
+
 // Bind all writes (including indexing jobs) to the same transaction as the
 // agent's execution checkpoint. Existing REST and Hermes behavior stays intact.
 // creds supplies each account's own embedding key, as for the REST indexer;
 // without it nothing the agent writes would be indexed.
 func chatCatalog(db *gorm.DB, live *realtime.Hub, creds embed.Credentials) agent.Catalog {
+	return catalogWith(db, live, creds, liveBlockWriter, false)
+}
+
+// rehearsalCatalog is the chat catalog for rehearsing a proposal in a
+// transaction that is rolled back: no live doc broadcasts, live blocks get
+// a stand-in program instead of a model call, and Auto-schedule previews
+// skip the traits hook, which would write outside the transaction before
+// the person approves anything.
+func rehearsalCatalog(db *gorm.DB, creds embed.Credentials) agent.Catalog {
+	return catalogWith(db, nil, creds, liveBlockRehearsal, true)
+}
+
+// rehearsedSchedule previews without the beforePreview hook (DryRun).
+type rehearsedSchedule struct{ schedule.Service }
+
+func (r rehearsedSchedule) Preview(userID string, req schedule.PlanRequest) (*schedule.PlanResponse, error) {
+	return r.DryRun(userID, req)
+}
+
+func catalogWith(db *gorm.DB, live *realtime.Hub, creds embed.Credentials, liveBlock func(ctx context.Context, userID, words, current, today string) (string, error), rehearsal bool) agent.Catalog {
 	tasks := task.NewTaskRepository(db)
 	projects := project.NewProjectRepository(db)
 	workspaces := workspace.NewWorkspaceRepository(db)
@@ -72,7 +96,10 @@ func chatCatalog(db *gorm.DB, live *realtime.Hub, creds embed.Credentials) agent
 	projectService := project.NewProjectService(projects, workspaces, indexer)
 	projectService.SetTaskCopier(taskService)
 	calendarService := calendar.NewService(tasks, events, sched.GetWorkingHours)
-	scheduleService := schedule.NewService(sched, tasks, events, place)
+	var scheduleService schedule.Service = schedule.NewService(sched, tasks, events, place)
+	if rehearsal {
+		scheduleService = rehearsedSchedule{scheduleService}
+	}
 	return agent.NewCatalog(agent.Deps{
 		Auth:  auth.NewAuthService(auth.NewUserRepository(db), workspaces, auth.NewSessionRepository(db)),
 		Tasks: taskService, Projects: projectService, Workspaces: workspace.NewWorkspaceService(workspaces),
@@ -88,7 +115,7 @@ func chatCatalog(db *gorm.DB, live *realtime.Hub, creds embed.Credentials) agent
 		Decisions: docDecisions,
 		Focus:     focus.NewStore(db),
 		Suggest:   todaySuggestions,
-		LiveBlock: liveBlockWriter,
+		LiveBlock: liveBlock,
 	})
 }
 

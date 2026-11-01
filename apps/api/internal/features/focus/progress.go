@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -226,9 +225,9 @@ func (s *Store) Progress(ctx context.Context, d Decider, userID string) (Progres
 			askCtx, cancel := context.WithTimeout(ctx, progressBudget)
 			picks, failed := TagTasks(askCtx, d, userID, goals, need, ProjectTitles(ctx, s.db, userID, need))
 			cancel()
-			if failed != nil {
-				out.Error = failure(askCtx, failed)
-			}
+			// The reason comes from the error itself: the budget's context
+			// is always done by now, so it cannot tell a timeout apart.
+			out.Error = decide.Reason(failed)
 			s.Remember(ctx, userID, goals, need, picks)
 			for id, i := range picks {
 				if i >= 0 {
@@ -284,8 +283,9 @@ func TagTasks(ctx context.Context, d Decider, userID string, goals []Goal, tasks
 				list = append(list, item)
 				questions["goal_"+key] = GoalQuestion("task "+key, opts)
 			}
-			a, err := d.Ask(ctx, userID, decide.Request{Feature: ProgressFeature,
-				State: map[string]any{"goals": titles, "tasks": list}, Questions: questions})
+			state := map[string]any{"goals": titles, "tasks": list}
+			decide.Fit(state, list, "description", "title", "project")
+			a, err := d.Ask(ctx, userID, decide.Request{Feature: ProgressFeature, State: state, Questions: questions})
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -294,29 +294,18 @@ func TagTasks(ctx context.Context, d Decider, userID string, goals []Goal, tasks
 				}
 				return
 			}
+			// Only questions that came back are kept: one left out of the
+			// answer is asked again next time rather than stored as "none".
 			for i, t := range batch {
-				picks[t.ID] = ReadGoal(a, fmt.Sprintf("goal_t%d", i+1), len(goals))
+				id := fmt.Sprintf("goal_t%d", i+1)
+				if _, answered := a.Raw(id); answered {
+					picks[t.ID] = ReadGoal(a, id, len(goals))
+				}
 			}
 		}()
 	}
 	wg.Wait()
 	return picks, first
-}
-
-// failure is the line shown when Jev could not answer; plain ErrOff (off,
-// no key or busy) shows nothing.
-func failure(ctx context.Context, err error) string {
-	switch {
-	case err == decide.ErrOff:
-		return ""
-	case ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded):
-		return "Smart suggestions took too long to answer."
-	}
-	msg := err.Error()
-	if i := strings.LastIndex(msg, "\n"); i >= 0 {
-		msg = msg[i+1:]
-	}
-	return "Smart suggestions could not run: " + msg
 }
 
 func clip(s string, n int) string {

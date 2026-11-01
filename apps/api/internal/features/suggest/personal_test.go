@@ -264,6 +264,16 @@ func TestIntegrationTipForScreenDismissAndLearnedRaise(t *testing.T) {
 		t.Fatalf("%+v", learned)
 	}
 	must(t, d.ResetLearned(w.user, "starter_labels"))
+	// Answers sent later for the rows Reset cleared do not count again.
+	var cleared []string
+	must(t, w.db.Model(&decide.DecisionLog{}).Where("user_id = ? AND feature = ?", w.user, "starter_labels").Pluck("id", &cleared).Error)
+	for _, id := range cleared {
+		must(t, d.Feedback(w.user, id, false))
+		must(t, d.Dismissed(w.user, id))
+	}
+	if learned, _ := d.LearnedFor(w.user); len(learned) != 1 || learned[0].Feature != "screen_tip" {
+		t.Fatalf("old rows counted again after reset: %+v", learned)
+	}
 	starter, err = s.Starter(ctx, w.user, w.ws)
 	must(t, err)
 	if len(starter.Labels) != 1 || starter.Labels[0].Name != "Urgent" {

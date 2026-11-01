@@ -74,14 +74,16 @@ var actionPhrasePlural = map[string]string{
 }
 
 // Alerts returns today's smart alerts, most worth it first. Kinds in muted
-// are ones the person keeps dismissing, and are left out.
-func (s *Service) Alerts(ctx context.Context, userID string, now time.Time, skip, muted map[string]bool) []notify.Alert {
+// are ones the person keeps dismissing, and are left out. A call to Jev that
+// went out and failed is returned, so the day's job can try again; with
+// suggestions off there is simply nothing.
+func (s *Service) Alerts(ctx context.Context, userID string, now time.Time, skip, muted map[string]bool) ([]notify.Alert, error) {
 	if on, _ := s.decide.Status(ctx, userID); !on {
-		return nil
+		return nil, nil
 	}
 	cands := s.alertCandidates(ctx, userID, now, skip, muted)
 	if len(cands) == 0 {
-		return nil
+		return nil, nil
 	}
 	list := make([]map[string]any, 0, len(cands))
 	questions := map[string]decide.Question{}
@@ -111,8 +113,11 @@ func (s *Service) Alerts(ctx context.Context, userID string, now time.Time, skip
 	}
 	state := map[string]any{"today": now.Format("Monday 2 January 2006"), "candidates": list}
 	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "smart_alerts", State: state, Questions: questions})
+	if decide.Failed(err) {
+		return nil, err
+	}
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	type picked struct {
 		i    int
@@ -214,7 +219,7 @@ func (s *Service) Alerts(ctx context.Context, userID string, now time.Time, skip
 		alert.Body = body + " Suggested: " + phrase + "."
 		out = append(out, alert)
 	}
-	return out
+	return out, nil
 }
 
 // alertCandidates finds what could deserve an alert, in code. Work alerted
