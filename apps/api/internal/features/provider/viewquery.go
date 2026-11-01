@@ -414,7 +414,10 @@ func (s *Service) viewQuery(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	provider := writeProvider(s.view(ctx, row, time.Minute))
+	provider, err := s.defaultProvider(ctx, row)
+	if err != nil {
+		return err
+	}
 	if provider == "" {
 		return echo.NewHTTPError(409, "Reading views with AI needs an AI provider. Add a key in Settings → Agent keys")
 	}

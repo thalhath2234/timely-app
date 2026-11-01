@@ -31,11 +31,11 @@ type ModelOption struct {
 var claudeModels = []ModelOption{
 	{ID: "fable", Name: "Fable (latest)", Vision: true, Note: "Most capable"},
 	{ID: "opus", Name: "Opus (latest)", Vision: true},
-	{ID: "sonnet", Name: "Sonnet (latest)", Vision: true, Default: true, Note: "Balanced"},
-	{ID: "haiku", Name: "Haiku (latest)", Vision: true, Note: "Fastest"},
+	{ID: "sonnet", Name: "Sonnet (latest)", Vision: true, Note: "Balanced"},
+	{ID: "haiku", Name: "Haiku (latest)", Vision: true, Default: true, Note: "Fastest"},
 }
 
-const defaultClaudeModel = "sonnet"
+const defaultClaudeModel = "haiku"
 
 type catalogue struct {
 	mu      sync.Mutex

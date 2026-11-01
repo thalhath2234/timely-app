@@ -221,35 +221,6 @@ func clipTail(s string, n int) string {
 	return strings.ToValidUTF8(s[len(s)-n:], "")
 }
 
-// writeProvider picks the account default when it is ready, otherwise the
-// first ready provider in the order the model menu lists them.
-func writeProvider(o overview) string {
-	ready := []string{}
-	if o.OpenRouter.Ready {
-		ready = append(ready, OpenRouter)
-	}
-	if o.LocalCLI && o.Claude.Ready {
-		ready = append(ready, ClaudeCLI)
-	}
-	if o.LocalCLI && o.Codex.Ready {
-		ready = append(ready, CodexCLI)
-	}
-	for _, api := range o.APIs {
-		if api.Ready {
-			ready = append(ready, api.ID)
-		}
-	}
-	for _, id := range ready {
-		if id == o.DefaultProvider {
-			return id
-		}
-	}
-	if len(ready) > 0 {
-		return ready[0]
-	}
-	return ""
-}
-
 func (s *Service) write(c *echo.Context) error {
 	var req writeRequest
 	if err := c.Bind(&req); err != nil {
@@ -263,7 +234,10 @@ func (s *Service) write(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	provider := writeProvider(s.view(ctx, row, time.Minute))
+	provider, err := s.defaultProvider(ctx, row)
+	if err != nil {
+		return err
+	}
 	if provider == "" {
 		return echo.NewHTTPError(409, "Help me write needs an AI provider. Add a key in Settings → Agent keys")
 	}

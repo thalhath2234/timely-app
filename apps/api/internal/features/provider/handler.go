@@ -54,7 +54,11 @@ type openRouterView struct {
 }
 
 type overview struct {
+	// DefaultProvider is the provider new runs and the writing features use:
+	// the person's choice when DefaultChosen, otherwise autoProvider's pick
+	// ("" when nothing is ready).
 	DefaultProvider string         `json:"defaultProvider"`
+	DefaultChosen   bool           `json:"defaultChosen"`
 	LocalCLI        bool           `json:"localCli"`
 	OpenRouter      openRouterView `json:"openrouter"`
 	Claude          cliView        `json:"claude"`
@@ -71,6 +75,7 @@ func (s *Service) view(ctx context.Context, row Settings, maxAge time.Duration) 
 		out.OpenRouter.EmbedModel = s.envEmbed
 	}
 	out.OpenRouter.Ready = out.OpenRouter.KeySet
+	// Runs read the rows again through autoPick, which returns this error.
 	rows, _ := s.apiRows(s.db.WithContext(ctx), row.UserID)
 	out.APIs = s.apiViews(rows)
 	if s.localCLI {
@@ -81,7 +86,39 @@ func (s *Service) view(ctx context.Context, row Settings, maxAge time.Duration) 
 		out.Codex = cliView{Enabled: true, Status: codex, Connected: row.CodexConnectedAt != nil, ConnectedAt: row.CodexConnectedAt, Model: s.chatModel(row, CodexCLI)}
 		out.Codex.Ready = out.Codex.Connected && codex.Found && codex.LoggedIn
 	}
+	out.DefaultChosen = out.DefaultProvider != ""
+	if !out.DefaultChosen {
+		out.DefaultProvider = autoProvider(row, rows, s.localCLI)
+	}
 	return out
+}
+
+// autoProvider picks the provider for an account that has not chosen one: the
+// first one the person set up, direct API keys first (registry order, so
+// Anthropic leads), then a connected CLI, and OpenRouter last. An OpenRouter
+// key is also what search embeddings and smart suggestions use, so saving one
+// for those never takes chat away from a provider the person added for it.
+//
+// It reads stored settings only, so a run never waits on a CLI check, and a
+// provider that is set up but not ready right now (signed out, no model) is
+// still picked: its run fails with its own error instead of moving to
+// OpenRouter.
+func autoProvider(row Settings, rows map[string]APIKey, localCLI bool) string {
+	for _, spec := range apiProviders {
+		if api, ok := rows[spec.ID]; ok && (api.Key != "" || spec.KeyOptional) {
+			return spec.ID
+		}
+	}
+	if localCLI && row.ClaudeConnectedAt != nil {
+		return ClaudeCLI
+	}
+	if localCLI && row.CodexConnectedAt != nil {
+		return CodexCLI
+	}
+	if row.OpenRouterKey != "" {
+		return OpenRouter
+	}
+	return ""
 }
 
 func (s *Service) overview(c *echo.Context) error {
@@ -235,7 +272,7 @@ func (s *Service) disconnect(c *echo.Context) error {
 			row.CodexConnectedAt = nil
 		}
 		if row.DefaultProvider == id {
-			row.DefaultProvider = OpenRouter
+			row.DefaultProvider = ""
 		}
 		return nil
 	})
@@ -245,8 +282,8 @@ func (s *Service) disconnect(c *echo.Context) error {
 	return c.JSON(200, s.view(c.Request().Context(), row, time.Minute))
 }
 
-// setKey validates the key with one tiny completion before storing it
-// encrypted. The response never includes the key.
+// setKey checks the key with OpenRouter's key endpoint, which spends no
+// tokens, before storing it encrypted. The response never includes the key.
 func (s *Service) setKey(c *echo.Context) error {
 	var in struct {
 		Key string `json:"key"`
@@ -259,24 +296,17 @@ func (s *Service) setKey(c *echo.Context) error {
 		return echo.NewHTTPError(400, "That does not look like an OpenRouter API key")
 	}
 	ctx := c.Request().Context()
-	row, err := s.load(s.db, user(c))
-	if err != nil {
-		return err
-	}
 	sealed, err := s.encrypt(key)
 	if err != nil {
 		return err
 	}
-	trial := row
-	trial.OpenRouterKey = sealed
-	completer, err := s.build(trial, OpenRouter, s.chatModel(trial, OpenRouter))
-	if err != nil {
+	// The key also drives embeddings and smart suggestions, so it is checked
+	// without a chat call; the chat model is tested when OpenRouter becomes the
+	// provider for runs.
+	if err := s.checkOpenRouterKey(ctx, key); err != nil {
 		return echo.NewHTTPError(409, err.Error())
 	}
-	if err := testCompleter(ctx, completer); err != nil {
-		return echo.NewHTTPError(409, "OpenRouter rejected this key: "+err.Error())
-	}
-	row, err = s.update(user(c), func(row *Settings) error {
+	row, err := s.update(user(c), func(row *Settings) error {
 		row.OpenRouterKey = sealed
 		row.OpenRouterKeyHint = hint(key)
 		row.Reindex = ReindexState{Status: "queued", UpdatedAt: time.Now().UTC()}
@@ -295,6 +325,9 @@ func (s *Service) removeKey(c *echo.Context) error {
 	row, err := s.update(user(c), func(row *Settings) error {
 		row.OpenRouterKey = ""
 		row.OpenRouterKeyHint = ""
+		if row.DefaultProvider == OpenRouter {
+			row.DefaultProvider = ""
+		}
 		return nil
 	})
 	if err != nil {
@@ -338,7 +371,8 @@ func (s *Service) configure(c *echo.Context) error {
 	}
 	if in.DefaultProvider != nil {
 		switch *in.DefaultProvider {
-		case OpenRouter, ClaudeCLI, CodexCLI:
+		case "", OpenRouter, ClaudeCLI, CodexCLI:
+			// "" hands the choice back to autoProvider.
 			trial.DefaultProvider = *in.DefaultProvider
 		default:
 			if apiProviderByID(*in.DefaultProvider) == nil {
@@ -378,6 +412,7 @@ func (s *Service) configure(c *echo.Context) error {
 		api.Model = model
 		apiChanges[id] = api
 	}
+	openRouterTested := false
 	for _, change := range []struct {
 		provider string
 		input    *string
@@ -406,6 +441,17 @@ func (s *Service) configure(c *echo.Context) error {
 		if (change.provider == ClaudeCLI && trial.ClaudeConnectedAt == nil) || (change.provider == CodexCLI && trial.CodexConnectedAt == nil) {
 			continue
 		}
+		// OpenRouter's chat model is only tested while OpenRouter runs chat; it
+		// is tested again when OpenRouter becomes the default.
+		if change.provider == OpenRouter {
+			runsChat, err := s.defaultProvider(ctx, trial)
+			if err != nil {
+				return err
+			}
+			if runsChat != OpenRouter {
+				continue
+			}
+		}
 		// Verify the chosen model actually answers before it becomes the default.
 		completer, err := s.build(trial, change.provider, s.chatModel(trial, change.provider))
 		if err != nil {
@@ -414,6 +460,7 @@ func (s *Service) configure(c *echo.Context) error {
 		if err := testCompleter(ctx, completer); err != nil {
 			return echo.NewHTTPError(409, err.Error())
 		}
+		openRouterTested = openRouterTested || change.provider == OpenRouter
 	}
 	if value, ok := clean(in.OpenRouterEmbedModel); in.OpenRouterEmbedModel != nil {
 		if !ok {
@@ -463,8 +510,18 @@ func (s *Service) configure(c *echo.Context) error {
 					return echo.NewHTTPError(409, err.Error())
 				}
 			}
-		} else if _, err := s.build(trial, trial.DefaultProvider, s.chatModel(trial, trial.DefaultProvider)); err != nil {
-			return echo.NewHTTPError(409, err.Error())
+		} else if trial.DefaultProvider != "" {
+			completer, err := s.build(trial, trial.DefaultProvider, s.chatModel(trial, trial.DefaultProvider))
+			if err != nil {
+				return echo.NewHTTPError(409, err.Error())
+			}
+			// Saving an OpenRouter key checks only the key, so choosing it for
+			// chat checks its chat model (CLIs answered a test call at Connect).
+			if trial.DefaultProvider == OpenRouter && !openRouterTested {
+				if err := testCompleter(ctx, completer); err != nil {
+					return echo.NewHTTPError(409, err.Error())
+				}
+			}
 		}
 	}
 	for _, api := range apiChanges {

@@ -108,21 +108,9 @@ func (s *Service) describeCard(ctx context.Context, userID string, req dashboard
 	if _, err := time.Parse("2006-01-02", req.Today); err != nil {
 		req.Today = time.Now().Format("2006-01-02")
 	}
-	row, err := s.load(s.db, userID)
+	completer, provider, err := s.describeCompleter(ctx, userID, req.Place)
 	if err != nil {
 		return dashboardCardResponse{}, err
-	}
-	provider := writeProvider(s.view(ctx, row, time.Minute))
-	if provider == "" {
-		need := "Describing cards needs"
-		if req.Place == "doc" {
-			need = "Live blocks need"
-		}
-		return dashboardCardResponse{}, echo.NewHTTPError(409, need+" an AI provider. Add a key in Settings → Agent keys")
-	}
-	completer, err := s.Completer(ctx, userID, provider, "")
-	if err != nil {
-		return dashboardCardResponse{}, echo.NewHTTPError(409, err.Error())
 	}
 	vocab, err := s.loadViewVocab(ctx, userID)
 	if err != nil {
@@ -150,8 +138,41 @@ func (s *Service) describeCard(ctx context.Context, userID string, req dashboard
 	if err != nil {
 		return dashboardCardResponse{}, echo.NewHTTPError(502, err.Error())
 	}
-	_, model, _ := s.resolveModel(ctx, userID, provider)
+	model := ""
+	if provider != "" {
+		_, model, _ = s.resolveModel(ctx, userID, provider)
+	}
 	return dashboardCardResponse{Program: program, Provider: provider, Model: model}, nil
+}
+
+// describeCompleter picks the model that describes a card or block. Inside an
+// Agent chat run it is that run's own client, so a chat pinned to one model
+// never spends another provider's tokens; provider is then "". Elsewhere it is
+// the account's writing provider.
+func (s *Service) describeCompleter(ctx context.Context, userID, place string) (chat.Completer, string, error) {
+	if completer := chat.CompleterFrom(ctx); completer != nil {
+		return completer, "", nil
+	}
+	row, err := s.load(s.db, userID)
+	if err != nil {
+		return nil, "", err
+	}
+	provider, err := s.defaultProvider(ctx, row)
+	if err != nil {
+		return nil, "", err
+	}
+	if provider == "" {
+		need := "Describing cards needs"
+		if place == "doc" {
+			need = "Live blocks need"
+		}
+		return nil, "", echo.NewHTTPError(409, need+" an AI provider. Add a key in Settings → Agent keys")
+	}
+	completer, err := s.Completer(ctx, userID, provider, "")
+	if err != nil {
+		return nil, "", echo.NewHTTPError(409, err.Error())
+	}
+	return completer, provider, nil
 }
 
 var errNotACard = errors.New("the answer holds no program")
