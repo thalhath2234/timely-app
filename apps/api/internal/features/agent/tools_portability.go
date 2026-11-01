@@ -243,12 +243,17 @@ func (s *Server) deleteBackup(ctx context.Context, req *mcp.CallToolRequest, in 
 
 type restoreIn struct {
 	Confirm bool           `json:"confirm"`
+	Mode    string         `json:"mode" jsonschema:"must be replace: the backup replaces all of this account's data"`
 	Backup  map[string]any `json:"backup"`
 }
 
 func (s *Server) restoreAccount(ctx context.Context, req *mcp.CallToolRequest, in restoreIn) (*mcp.CallToolResult, any, error) {
 	if err := confirmOrFail(in.Confirm, "replace this account with the backup"); err != nil {
 		return fail(err)
+	}
+	// The same explicit replace step as POST /restore?mode=replace.
+	if in.Mode != "replace" {
+		return fail(errors.New(`set mode="replace" to replace all of this account's data with the backup`))
 	}
 	uid, err := userID(req)
 	if err != nil {

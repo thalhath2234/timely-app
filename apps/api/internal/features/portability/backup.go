@@ -135,7 +135,44 @@ func validateBackup(backup *Backup) error {
 			}
 		}
 	}
+	if err := requireAccountBasics(backup); err != nil {
+		return err
+	}
 	return rejectNestedTaskBackup(backup)
+}
+
+// requireAccountBasics refuses a backup that would leave the account without
+// what every account has: its settings, a workspace and task statuses. A
+// restore replaces everything, so an empty or hand-built backup would
+// otherwise wipe the account and leave it unusable. Every export has them.
+func requireAccountBasics(backup *Backup) error {
+	if len(backup.Rows["configs"]) != 1 {
+		return errors.New("this backup has no account settings; restore a backup exported from Timely")
+	}
+	if len(backup.Rows["workspaces"]) == 0 {
+		return errors.New("this backup has no workspace; restore a backup exported from Timely")
+	}
+	if len(backup.Rows["statuses"]) == 0 {
+		return errors.New("this backup has no task statuses; restore a backup exported from Timely")
+	}
+	return nil
+}
+
+// checkAccountBasics runs inside the restore, after the rows are written: if
+// the backup's rows did not give the account its settings and a workspace,
+// the restore is rolled back and the account keeps its data.
+func checkAccountBasics(tx *gorm.DB, userID string) error {
+	var configs, workspaces int64
+	if err := tx.Raw(`SELECT count(*) FROM configs WHERE user_id = ?`, userID).Scan(&configs).Error; err != nil {
+		return err
+	}
+	if err := tx.Raw(`SELECT count(*) FROM workspaces WHERE user_id = ?`, userID).Scan(&workspaces).Error; err != nil {
+		return err
+	}
+	if configs != 1 || workspaces == 0 {
+		return errors.New("this backup would leave the account without its settings or a workspace; nothing was changed")
+	}
+	return nil
 }
 
 func rejectNestedTaskBackup(backup *Backup) error {
@@ -218,7 +255,7 @@ func (s *Service) Restore(userID string, backup *Backup) (*RestoreResult, error)
 				return fmt.Errorf("restore relationship %s.%s: %w", ref.table, ref.column, err)
 			}
 		}
-		return nil
+		return checkAccountBasics(tx, userID)
 	})
 	if err != nil {
 		return nil, err
