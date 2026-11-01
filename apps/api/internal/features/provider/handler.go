@@ -122,6 +122,7 @@ func autoProvider(row Settings, rows map[string]APIKey, localCLI bool) string {
 }
 
 func (s *Service) overview(c *echo.Context) error {
+	s.checkIndex(c.Request().Context(), user(c))
 	row, err := s.load(s.db, user(c))
 	if err != nil {
 		return err

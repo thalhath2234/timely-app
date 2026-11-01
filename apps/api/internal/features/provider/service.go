@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -459,6 +460,67 @@ func (s *Service) enqueueReindex(userID string) error {
 	}
 	_, err := s.queue.Enqueue(jobs.Enqueue{UserID: userID, Kind: models.JobReindexUser, DedupeKey: "reindex:" + userID, RunAt: time.Now().UTC()})
 	return err
+}
+
+// QueueReindex marks the account's search index as being rebuilt and queues
+// the rebuild, as after a restore. Accounts without embeddings are left alone.
+func (s *Service) QueueReindex(userID string) error {
+	if s.indexer == nil || s.queue == nil || !s.indexer.EnabledFor(userID) {
+		return nil
+	}
+	if _, err := s.update(userID, func(row *Settings) error {
+		row.Reindex = ReindexState{Status: "queued", UpdatedAt: time.Now().UTC()}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return s.enqueueReindex(userID)
+}
+
+// retryFailedReindexAfter is how long a failed rebuild is left alone before
+// a search or Settings may queue another one; Settings shows the failure
+// meanwhile.
+const retryFailedReindexAfter = 30 * time.Minute
+
+// EnsureIndex queues a rebuild for an account whose index is missing items
+// (see embed.Indexer.Missing), unless one is already on the way or one
+// failed recently.
+func (s *Service) EnsureIndex(userID string) {
+	if s.indexer == nil || s.queue == nil || !s.indexer.EnabledFor(userID) {
+		return
+	}
+	row, err := s.load(s.db, userID)
+	if err != nil {
+		log.Printf("ensure search index: %v", err)
+		return
+	}
+	switch st := row.Reindex; {
+	case st.Status == "queued" || st.Status == "running":
+		// The job may be gone (a restore deletes the account's jobs); the
+		// dedupe key makes this a no-op when it is still there.
+		if err := s.enqueueReindex(userID); err != nil {
+			log.Printf("ensure search index: %v", err)
+		}
+		return
+	case st.Status == "failed" && time.Since(st.UpdatedAt) < retryFailedReindexAfter:
+		return
+	}
+	if err := s.QueueReindex(userID); err != nil {
+		log.Printf("ensure search index: %v", err)
+	}
+}
+
+// checkIndex keeps the Settings index status truthful: an index reported as
+// done that is missing items gets a rebuild, which Settings then shows.
+func (s *Service) checkIndex(ctx context.Context, userID string) {
+	if s.indexer == nil || !s.indexer.EnabledFor(userID) {
+		return
+	}
+	missing, err := s.indexer.Missing(ctx, userID)
+	if err != nil || missing == 0 {
+		return
+	}
+	s.EnsureIndex(userID)
 }
 
 func (s *Service) handleReindex(ctx context.Context, job *models.Job) error {

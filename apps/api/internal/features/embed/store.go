@@ -2,6 +2,7 @@ package embed
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"timely-api/internal/models"
 	"timely-api/internal/utils"
@@ -147,9 +148,30 @@ func (i *indexer) loadChunks(ctx context.Context, userID string) ([]cachedChunk,
 	return chunks, nil
 }
 
-func (i *indexer) Count(ctx context.Context, userID string) (int64, error) {
+// missingQuery counts the account's items that have a title but no index rows
+// and no index job waiting or running for them. Counting coverage, rather
+// than whether any row exists, catches an index left partial by a restore,
+// an interrupted rebuild or a failed job.
+const missingQuery = `SELECT
+	(SELECT count(*) FROM tasks x WHERE x.user_id = @user AND btrim(x.name) <> ''
+		AND NOT EXISTS (SELECT 1 FROM embeddings e WHERE e.user_id = @user AND e.entity_kind = 'task' AND e.entity_id = x.id)
+		AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.dedupe_key = 'index:task:' || x.id AND j.status IN ('pending', 'running')))
+	+ (SELECT count(*) FROM documents x WHERE x.user_id = @user AND btrim(x.title) <> ''
+		AND NOT EXISTS (SELECT 1 FROM embeddings e WHERE e.user_id = @user AND e.entity_kind = 'doc' AND e.entity_id = x.id)
+		AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.dedupe_key = 'index:doc:' || x.id AND j.status IN ('pending', 'running')))
+	+ (SELECT count(*) FROM sheets x WHERE x.user_id = @user AND btrim(x.title) <> ''
+		AND NOT EXISTS (SELECT 1 FROM embeddings e WHERE e.user_id = @user AND e.entity_kind = 'sheet' AND e.entity_id = x.id)
+		AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.dedupe_key = 'index:sheet:' || x.id AND j.status IN ('pending', 'running')))
+	+ (SELECT count(*) FROM events x WHERE x.user_id = @user AND btrim(x.title) <> ''
+		AND NOT EXISTS (SELECT 1 FROM embeddings e WHERE e.user_id = @user AND e.entity_kind = 'event' AND e.entity_id = x.id)
+		AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.dedupe_key = 'index:event:' || x.id AND j.status IN ('pending', 'running')))
+	+ (SELECT count(*) FROM projects x JOIN workspaces w ON w.id = x.workspace_id WHERE w.user_id = @user AND btrim(x.title) <> ''
+		AND NOT EXISTS (SELECT 1 FROM embeddings e WHERE e.user_id = @user AND e.entity_kind = 'project' AND e.entity_id = x.id)
+		AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.dedupe_key = 'index:project:' || x.id AND j.status IN ('pending', 'running')))`
+
+func (i *indexer) Missing(ctx context.Context, userID string) (int64, error) {
 	var n int64
-	err := i.db.WithContext(ctx).Model(&models.Embedding{}).Where("user_id = ?", userID).Count(&n).Error
+	err := i.db.WithContext(ctx).Raw(missingQuery, sql.Named("user", userID)).Scan(&n).Error
 	return n, err
 }
 

@@ -296,3 +296,43 @@ func TestIntegrationNoIndexJobsWithoutEmbeddings(t *testing.T) {
 		t.Fatalf("queued %d index jobs for an account without embeddings", len(rows))
 	}
 }
+
+// GB2 and GB16: the lazy rebuild looked only at whether any row existed, so
+// one indexed item hid fifteen missing ones. Missing counts coverage: items
+// with a title, no rows and no index job on the way.
+func TestIntegrationMissingCountsUnindexedItems(t *testing.T) {
+	db := integrationDB(t)
+	ix, queue, _ := testIndexer(t, db)
+	user := "user-a"
+	seedUser(t, db, user)
+	if err := db.Create(&models.Workspace{ID: "ws-1", Name: "Home", UserID: &user}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range []*models.Task{
+		{ID: "tsk-indexed", UserID: &user, Name: "Renamed after the restore"},
+		{ID: "tsk-missing", UserID: &user, Name: "Plan the garden"},
+		{ID: "tsk-queued", UserID: &user, Name: "Book piano lessons"},
+		{ID: "tsk-blank", UserID: &user, Name: "  "},
+	} {
+		saveTask(t, db, task)
+	}
+	if err := db.Exec(`INSERT INTO projects (id, title, description, workspace_id, updated_at) VALUES ('pr-1', 'Kitchen', '', 'ws-1', now())`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.IndexEntity(context.Background(), user, KindTask, "tsk-indexed"); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.EnqueueIndex(user, KindTask, "tsk-queued"); err != nil {
+		t.Fatal(err)
+	}
+	// tsk-missing and the project are missing; the blank task never indexes.
+	if n, err := ix.Missing(context.Background(), user); err != nil || n != 2 {
+		t.Fatalf("missing = %d, %v; want 2", n, err)
+	}
+	if _, err := ix.Reindex(context.Background(), user, nil); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := ix.Missing(context.Background(), user); err != nil || n != 0 {
+		t.Fatalf("missing after a reindex = %d, %v", n, err)
+	}
+}

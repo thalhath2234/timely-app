@@ -51,6 +51,17 @@ var todaySuggestions *suggest.Service
 // the account's AI provider; nil makes add_live_block unavailable. Set in main.
 var liveBlockWriter func(ctx context.Context, userID, words, current, today string) (string, error)
 
+// indexRebuild queues a background rebuild of an account's search index when
+// a semantic search finds items missing from it; nil does nothing. Set in main.
+var indexRebuild func(userID string)
+
+// rebuildIndex is the search services' hook into indexRebuild.
+func rebuildIndex(userID string) {
+	if indexRebuild != nil {
+		indexRebuild(userID)
+	}
+}
+
 // Bind all writes (including indexing jobs) to the same transaction as the
 // agent's execution checkpoint. Existing REST and Hermes behavior stays intact.
 // creds supplies each account's own embedding key, as for the REST indexer;
@@ -81,7 +92,7 @@ func chatCatalog(db *gorm.DB, live *realtime.Hub, creds embed.Credentials) agent
 		// Notifications, snooze and mark-read run in the same transaction too.
 		Notify: notify.NewService(db, jobs.NewQueue(db), calendarService, taskService, scheduleService, indexer),
 		Docs:   doc.NewDocumentService(doc.NewDocumentRepository(db), indexer, live), Sheets: sheet.NewSheetService(sheet.NewSheetRepository(db), indexer, live),
-		Search:    search.NewService(db, indexer),
+		Search:    search.NewService(db, indexer, rebuildIndex),
 		Estimate:  workEstimate,
 		Rerank:    searchRerank,
 		Pick:      taskPick,
