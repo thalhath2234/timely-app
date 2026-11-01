@@ -146,6 +146,9 @@ func TestResolveDraftDropsUnreadableValues(t *testing.T) {
 	if len(out.Rules) != 4 || string(out.Rules[0].Value) != `"High"` {
 		t.Fatalf("rules kept: %+v", out.Rules)
 	}
+	if open := out.Rules[3]; open.Field != "planned" || open.Op != "in" || open.To != nil {
+		t.Errorf("an open-ended between should read as in: %+v", open)
+	}
 	want := []string{"unknown priority Hgh", `deadline "someday" is not a date`, `created date "later" is not a date`}
 	if strings.Join(dropped, "|") != strings.Join(want, "|") {
 		t.Errorf("dropped %q, want %q", dropped, want)

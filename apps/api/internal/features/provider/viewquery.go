@@ -400,9 +400,13 @@ func checkDates(rule models.ViewRule, name string) (models.ViewRule, string, boo
 		values = []json.RawMessage{rule.Value}
 	case "between":
 		values = []json.RawMessage{rule.Value}
-		// With no end, the apps read "between" as the value's own days.
 		if to := strings.TrimSpace(string(rule.To)); to != "" && to != "null" {
 			values = append(values, rule.To)
+		} else {
+			// With no end, the apps read "between" as the value's own days,
+			// which is "in": its chip then reads "Planned this week", not
+			// "Planned this week –".
+			rule.Op, rule.To = "in", nil
 		}
 	}
 	for _, raw := range values {
