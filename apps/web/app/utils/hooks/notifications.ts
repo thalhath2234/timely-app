@@ -135,7 +135,8 @@ export function useRetryJob() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: retryJob,
-    onSuccess: () => {
+    // A refused retry (a newer run is waiting) changes the counts too.
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: jobsKey });
       queryClient.invalidateQueries({ queryKey: jobHealthKey });
     },
