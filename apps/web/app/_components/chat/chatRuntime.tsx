@@ -112,7 +112,9 @@ export default function ChatRuntime() {
           value: `${calendar.activeView}: ${calendar.selectedDate.toLocaleDateString("en-CA")}`,
         });
       }
-      openNew(chips);
+      // A long page or task title fits the server's 200-character label
+      // limit (slice counts UTF-16 units, never more characters than that).
+      openNew(chips.map((chip) => ({ ...chip, label: chip.label.slice(0, 200) })));
     }
     window.addEventListener("keydown", open);
     return () => window.removeEventListener("keydown", open);

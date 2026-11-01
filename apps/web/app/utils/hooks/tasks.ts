@@ -50,7 +50,9 @@ export function useTask(id: string | undefined, { retry }: { retry?: boolean } =
     queryKey: taskKey(id ?? ""),
     queryFn: () => getTask(id!),
     enabled: Boolean(id),
-    ...(retry === false ? { retry: false } : {}),
+    // A task that isn't there (deleted, or an id a reply card made up) stays
+    // missing: asking again three times only adds requests.
+    retry: retry === false ? false : (count, error) => (error as { status?: number }).status !== 404 && count < 3,
   });
 }
 

@@ -51,6 +51,12 @@ export type Chat = {
   revision: number;
   unread: boolean;
   error: string;
+  /**
+   * What the person can do about `error`: "settings" for a key, credit or
+   * provider problem, "none" when the same request would fail again, and
+   * "" (Try again) otherwise.
+   */
+  errorAction?: "" | "settings" | "none";
   updatedAt: string;
   createdAt: string;
 };

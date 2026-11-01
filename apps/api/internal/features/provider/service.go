@@ -361,7 +361,13 @@ func (s *Service) build(row Settings, provider, model string) (chat.Completer, e
 		if key == "" {
 			return nil, fmt.Errorf("Add an OpenRouter API key in Settings → Agent")
 		}
-		return &chat.OpenRouter{Key: key, Model: model, URL: s.openRouterURL, Client: &http.Client{Timeout: 4 * time.Minute}}, nil
+		return &chat.OpenRouter{Key: key, Model: model, URL: s.openRouterURL, Client: &http.Client{Timeout: 4 * time.Minute}, Vision: func(ctx context.Context, model string) (bool, bool) {
+			list, err := s.models.OpenRouterChatModels(ctx, s.envChat)
+			if err != nil {
+				return false, false
+			}
+			return visionOf(list, model)
+		}}, nil
 	case ClaudeCLI:
 		if !s.localCLI {
 			return nil, fmt.Errorf("Local CLIs are turned off on this server (CHAT_LOCAL_CLI=off)")

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -250,25 +251,44 @@ func fetchCompatModels(ctx context.Context, client *http.Client, spec *apiProvid
 // ---- errors ----
 
 // statusError turns a non-200 answer into a message that names the provider
-// and quotes its own explanation, so a bad key or model is fixable from the UI.
+// and says what to do (see httpFailure).
 func statusError(label string, res *http.Response) error {
 	raw, _ := io.ReadAll(io.LimitReader(res.Body, 64<<10))
-	msg := errorText(raw)
-	switch {
-	case res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden:
-		if msg == "" {
-			msg = "check the API key"
-		}
-		return fmt.Errorf("%s rejected the request (HTTP %d): %s", label, res.StatusCode, msg)
-	case res.StatusCode == http.StatusTooManyRequests:
-		if msg == "" {
-			msg = "rate limit or quota reached"
-		}
-		return fmt.Errorf("%s is rate limiting this key (HTTP 429): %s", label, msg)
-	case msg != "":
-		return fmt.Errorf("%s returned HTTP %d: %s", label, res.StatusCode, msg)
+	return httpFailure(label, res.StatusCode, raw)
+}
+
+// keyLike matches API keys and tokens a provider may echo in its error text.
+var keyLike = regexp.MustCompile(`(?i)\b(?:sk|pk|rk|key|token|bearer)[-_ ][A-Za-z0-9._-]{6,}`)
+
+// httpFailure words a provider's HTTP error for the person. A refused key or
+// missing credit is fixed in Settings → Agent, a busy or failing service is
+// worth trying again, and only a provider's own JSON explanation of another
+// refusal is quoted, with anything key-like hidden. An HTML error page or a
+// bare body is never shown.
+func httpFailure(label string, status int, raw []byte) error {
+	msg := ""
+	if json.Valid(bytes.TrimSpace(raw)) {
+		msg = keyLike.ReplaceAllString(errorText(raw), "[hidden]")
 	}
-	return fmt.Errorf("%s returned HTTP %d; check the model, key and credit, or retry", label, res.StatusCode)
+	switch {
+	case status == http.StatusUnauthorized:
+		return chat.NeedsSettings(fmt.Sprintf("%s didn't accept the API key (HTTP 401). Check the key in Settings → Agent", label))
+	case status == http.StatusForbidden && msg != "":
+		// A key without access to the model, a region the provider doesn't
+		// serve, or a flagged request: the provider's own words say which.
+		return chat.NeedsSettings(fmt.Sprintf("%s refused the request (HTTP 403): %s. Check the key and model in Settings → Agent", label, strings.TrimRight(msg, ". ")))
+	case status == http.StatusForbidden:
+		return chat.NeedsSettings(fmt.Sprintf("%s refused the request (HTTP 403). Check the key and model in Settings → Agent", label))
+	case status == http.StatusPaymentRequired:
+		return chat.NeedsSettings(fmt.Sprintf("%s says the account is out of credit (HTTP 402). Add credit with %s, or pick another provider in Settings → Agent", label, label))
+	case status == http.StatusTooManyRequests:
+		return fmt.Errorf("%s is rate limiting this key (HTTP 429). Wait a minute, then try again", label)
+	case status >= 500:
+		return fmt.Errorf("%s is unavailable right now (HTTP %d). Try again in a minute", label, status)
+	case msg != "":
+		return fmt.Errorf("%s refused the request (HTTP %d): %s", label, status, msg)
+	}
+	return fmt.Errorf("%s refused the request (HTTP %d). Check the model in Settings → Agent, or try again", label, status)
 }
 
 // errorText pulls the human message out of the error shapes providers use:

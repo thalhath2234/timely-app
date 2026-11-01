@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpRight,
@@ -14,7 +13,12 @@ import TimelyLogo, {
   LogoSpinner,
   SPINNER_LOOP_SECONDS,
 } from "@/app/_components/_ui/timelyLogo";
-import { chatRequest, type Chat, type ChatContext } from "@/app/utils/api/chat";
+import {
+  chatRequest,
+  type Chat,
+  type ChatContext,
+  type ReceiptDraft,
+} from "@/app/utils/api/chat";
 import { chatKey, chatsKey, useChat } from "@/app/utils/hooks/chat";
 import { cn } from "@/app/utils/cn";
 import LoadError from "@/app/_components/_ui/loadError";
@@ -23,6 +27,7 @@ import EmptyHero from "./emptyHero";
 import MessageList from "./messageList";
 import ProposalPanel from "./proposalPanel";
 import ReceiptReview from "./receiptReview";
+import FailureCard from "./failureCard";
 import { useImageUploads } from "./imageAttachments";
 import type { ModelChoice } from "./modelMenu";
 import { isBusy, phaseLabel, statusMeta } from "./chatMeta";
@@ -131,6 +136,9 @@ export default function Conversation({
   const input = useRef<HTMLTextAreaElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const receiptAnchor = useRef<HTMLDivElement>(null);
+  // The receipt form as the person left it, sent with a message typed
+  // during the review so unsaved edits are revised, not lost.
+  const receiptDraft = useRef<ReceiptDraft | null>(null);
   const lastRevision = useRef<number | null>(null);
   const busy = isBusy(chat?.status);
   const chips = chat?.context || context;
@@ -231,6 +239,7 @@ export default function Conversation({
       body: {
         content: draft.trim(),
         imageIds: uploads.images.map((i) => i.id),
+        ...unsavedReceipt(),
       },
     });
   }
@@ -238,9 +247,16 @@ export default function Conversation({
     if (!id || mutation.isPending || busy) return;
     mutation.mutate({
       action: "/messages",
-      body: { content, imageIds: [] },
+      body: { content, imageIds: [], ...unsavedReceipt() },
       keepDraft: true,
     });
+  }
+  function unsavedReceipt() {
+    return receiptDirty &&
+      receiptDraft.current &&
+      chat?.imageReview?.status === "review"
+      ? { receipt: receiptDraft.current }
+      : {};
   }
   function configure(nextContext: ChatContext[], nextSearch: boolean) {
     if (id)
@@ -455,6 +471,7 @@ export default function Conversation({
                   chat={chat}
                   pending={mutation.isPending}
                   onDirty={() => setReceiptDirty(true)}
+                  draftRef={receiptDraft}
                   act={act}
                 />
               )}
@@ -524,34 +541,12 @@ export default function Conversation({
               </div>
             )}
             {chat?.error && !chat.plan?.length && (
-              <div
-                role="alert"
-                className="mt-5 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm"
-              >
-                <p className="font-medium text-destructive">
-                  {needsProvider
-                    ? "Connect an AI provider to chat"
-                    : "Something went wrong"}
-                </p>
-                <p className="mt-1 text-sm leading-6">{chat.error}</p>
-                {needsProvider ? (
-                  <Link
-                    href="/settings?tab=agent"
-                    className={buttonClass({ size: "sm", className: "mt-3" })}
-                  >
-                    Open Agent settings
-                  </Link>
-                ) : ["failed", "stopped"].includes(chat.status) && (
-                  <button
-                    type="button"
-                    disabled={mutation.isPending}
-                    onClick={() => act("/retry")}
-                    className="mt-3 rounded-lg border border-border bg-card px-3.5 py-2 text-sm font-medium hover:border-primary/30 disabled:opacity-50"
-                  >
-                    Try again
-                  </button>
-                )}
-              </div>
+              <FailureCard
+                chat={chat}
+                needsProvider={needsProvider}
+                pending={mutation.isPending}
+                act={act}
+              />
             )}
             {chat?.error && !!chat.plan?.length && (
               <p role="alert" className="mt-3 text-sm text-destructive">

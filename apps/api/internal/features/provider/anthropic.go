@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"sort"
 	"strconv"
@@ -151,7 +153,11 @@ func (p *Anthropic) completeOnce(ctx context.Context, messages []chat.WireMessag
 		params.OutputConfig = anthropic.OutputConfigParam{Effort: anthropic.OutputConfigEffortLow}
 	}
 	client := p.client()
-	res, err := client.Messages.New(ctx, params)
+	var once []option.RequestOption
+	if chat.RetriesOff(ctx) {
+		once = append(once, option.WithMaxRetries(0))
+	}
+	res, err := client.Messages.New(ctx, params, once...)
 	if err != nil {
 		return empty, err
 	}
@@ -159,7 +165,7 @@ func (p *Anthropic) completeOnce(ctx context.Context, messages []chat.WireMessag
 	case anthropic.StopReasonMaxTokens:
 		return empty, chat.ErrOutputTooLong
 	case anthropic.StopReasonRefusal:
-		return empty, fmt.Errorf("The model declined this request")
+		return empty, chat.Final("The model declined this request")
 	}
 	out := chat.WireMessage{Role: "assistant"}
 	var text strings.Builder
@@ -312,20 +318,16 @@ func anthropicTool(spec any) (anthropic.ToolParam, bool) {
 func anthropicError(label string, err error) error {
 	var apiErr *anthropic.Error
 	if errors.As(err, &apiErr) {
-		msg := errorText([]byte(apiErr.RawJSON()))
-		if msg == "" {
-			msg = http.StatusText(apiErr.StatusCode)
-		}
-		switch apiErr.StatusCode {
-		case http.StatusUnauthorized, http.StatusForbidden:
-			return fmt.Errorf("%s rejected the request (HTTP %d): %s", label, apiErr.StatusCode, msg)
-		case http.StatusTooManyRequests:
-			return fmt.Errorf("%s is rate limiting this key (HTTP 429): %s", label, msg)
-		}
-		return fmt.Errorf("%s returned HTTP %d: %s", label, apiErr.StatusCode, msg)
+		return httpFailure(label, apiErr.StatusCode, []byte(apiErr.RawJSON()))
 	}
 	if strings.HasPrefix(err.Error(), "The ") {
 		return err // already a Timely message
+	}
+	var netErr net.Error
+	var syntax *json.SyntaxError
+	if !errors.As(err, &netErr) && (errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &syntax)) {
+		// The host answered, but the answer was cut off or garbled.
+		return fmt.Errorf("%s's answer was cut off. Try again", label)
 	}
 	return fmt.Errorf("Could not reach %s: %w", label, err)
 }
