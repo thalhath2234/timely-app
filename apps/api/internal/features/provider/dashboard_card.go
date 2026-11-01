@@ -214,7 +214,12 @@ func describe(ctx context.Context, completer chat.Completer, messages []chat.Wir
 	deadline, timed := ctx.Deadline()
 	sentBack, nudged, told := false, false, false
 	for turn := 0; turn < dashboardCardTurns; turn++ {
-		last := turn == dashboardCardTurns-1 || (timed && time.Until(deadline) < dashboardCardAnswer) || tools.stopped()
+		// final: no turn (or no time) is left after this one. last: no more
+		// look-ups either, which is also the case once the tools stopped them;
+		// a turn may still follow then, to fix an answer that drew with
+		// problems or was not a program.
+		final := turn == dashboardCardTurns-1 || (timed && time.Until(deadline) < dashboardCardAnswer)
+		last := final || tools.stopped()
 		if last && len(specs) > 0 && turn > 0 && !told {
 			// The tools stay listed: some providers refuse a transcript with
 			// tool calls in it once the tools are gone.
@@ -230,17 +235,17 @@ func describe(ctx context.Context, completer chat.Completer, messages []chat.Wir
 		if len(reply.ToolCalls) == 0 || tools == nil {
 			program, err := boardProgram(reply.Content)
 			if err != nil {
-				if draft := tools.fallback(); draft != "" && (nudged || last) {
+				if draft := tools.fallback(); draft != "" && (nudged || final) {
 					return draft, nil
 				}
-				if nudged || last {
+				if nudged || final {
 					return "", errNotACard
 				}
 				nudged = true
 				messages = append(messages, reply, chat.WireMessage{Role: "user", Content: "Answer with the program only: the whole OpenUI Lang program from the root = Panel(...) line on."})
 				continue
 			}
-			if tools != nil && tools.load != nil && !sentBack && !last {
+			if tools != nil && tools.load != nil && !sentBack && !final {
 				if checked, err := tools.check(ctx, program); err == nil && len(checked.Problems) > 0 {
 					sentBack = true
 					messages = append(messages, reply, chat.WireMessage{Role: "user", Content: "Timely drew this program from the person's data and found problems:\n- " + strings.Join(checked.Problems, "\n- ") + "\nFix them and answer with the whole program again. When one can't be fixed, leave that part out."})

@@ -182,6 +182,28 @@ func TestDescribeStopsWhenACallRepeats(t *testing.T) {
 	}
 }
 
+// Stopping the look-ups leaves turns: the answer is still drawn, and one
+// with problems goes back once, as on any turn but the final one.
+func TestDescribeChecksTheAnswerAfterLookUpsStop(t *testing.T) {
+	loaded := 0
+	model := &scriptedDescribe{replies: []chat.WireMessage{
+		toolCall("c1", "list_projects", map[string]any{}),
+		toolCall("c2", "list_projects", map[string]any{}),
+		{Role: "assistant", Content: wrongProject},
+		{Role: "assistant", Content: rightProject},
+	}}
+	program, err := describe(context.Background(), model, []chat.WireMessage{{Role: "user", Content: "Words: late"}}, testDescribeTools(&loaded))
+	if err != nil || program != rightProject {
+		t.Fatalf("program %q, err %v", program, err)
+	}
+	if len(model.sent) != 4 {
+		t.Fatalf("calls = %d: the look-up, its repeat, the answer, the fix", len(model.sent))
+	}
+	if got := model.sent[3][len(model.sent[3])-1].Content; !strings.Contains(got, "found problems") || !strings.Contains(got, "Clients work") {
+		t.Errorf("the answer with problems goes back once: %q", got)
+	}
+}
+
 func TestDescribeBoundsLookUps(t *testing.T) {
 	// More calls in one turn than one Describe may run.
 	var calls []chat.ToolCall
