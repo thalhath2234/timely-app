@@ -303,10 +303,11 @@ func (s *Service) setAPIKey(c *echo.Context) error {
 		return echo.NewHTTPError(400, "Invalid request")
 	}
 	ctx := c.Request().Context()
-	row, _, err := s.apiRow(s.db, user(c), id)
+	row, found, err := s.apiRow(s.db, user(c), id)
 	if err != nil {
 		return err
 	}
+	savedKey := row.Key
 	key := strings.TrimSpace(in.Key)
 	if key != "" && (len(key) < 8 || len(key) > 400 || strings.ContainsAny(key, " \n\t")) {
 		return echo.NewHTTPError(400, "That does not look like a "+spec.Label+" API key")
@@ -349,6 +350,19 @@ func (s *Service) setAPIKey(c *echo.Context) error {
 	}
 	if row.Key == "" {
 		row.KeyHint = ""
+	}
+	if found && in.Key == "" && savedKey != "" {
+		// The saved key was reused: write onto that same row only, so a
+		// disconnect from another tab meanwhile is not undone.
+		res := s.db.Model(&APIKey{}).Where("user_id = ? AND provider = ? AND api_key = ?", row.UserID, id, savedKey).
+			Updates(map[string]any{"api_key": row.Key, "key_hint": row.KeyHint, "base_url": row.BaseURL, "model": row.Model, "updated_at": time.Now().UTC()})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return changedMeanwhile(spec.Label)
+		}
+		return s.respond(c)
 	}
 	if err := s.saveAPIRow(&row); err != nil {
 		return err

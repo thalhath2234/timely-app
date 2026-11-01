@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"timely-api/internal/features/embed"
 )
 
@@ -528,21 +530,50 @@ func (s *Service) configure(c *echo.Context) error {
 			}
 		}
 	}
-	for _, api := range apiChanges {
-		if err := s.saveAPIRow(&api); err != nil {
+	// The test calls above take seconds, and another tab or device may
+	// disconnect a provider meanwhile. So the save runs under the settings row
+	// lock and writes only what this request changed: a tested model only onto
+	// the connection it was tested with, and a new default only while that
+	// provider is still connected. A removed key stays removed.
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		current, err := s.load(tx.Clauses(clause.Locking{Strength: "UPDATE"}), user(c))
+		if err != nil {
 			return err
 		}
-	}
-	row, err = s.update(user(c), func(row *Settings) error {
-		row.DefaultProvider = trial.DefaultProvider
-		row.OpenRouterChatModel = trial.OpenRouterChatModel
-		row.OpenRouterEmbedModel = trial.OpenRouterEmbedModel
-		row.ClaudeModel = trial.ClaudeModel
-		row.CodexModel = trial.CodexModel
-		if reindex {
-			row.Reindex = ReindexState{Status: "queued", UpdatedAt: time.Now().UTC()}
+		for id, api := range apiChanges {
+			res := tx.Model(&APIKey{}).Where("user_id = ? AND provider = ? AND api_key = ? AND base_url = ?", api.UserID, id, api.Key, api.BaseURL).
+				Updates(map[string]any{"model": api.Model, "updated_at": time.Now().UTC()})
+			if res.Error != nil {
+				return res.Error
+			}
+			if res.RowsAffected == 0 {
+				return changedMeanwhile(apiProviderByID(id).Label)
+			}
 		}
-		return nil
+		if trial.DefaultProvider != row.DefaultProvider {
+			if err := s.stillConnected(tx, current, trial.DefaultProvider); err != nil {
+				return err
+			}
+			current.DefaultProvider = trial.DefaultProvider
+		}
+		for _, field := range []struct {
+			was, now string
+			target   *string
+		}{
+			{row.OpenRouterChatModel, trial.OpenRouterChatModel, &current.OpenRouterChatModel},
+			{row.OpenRouterEmbedModel, trial.OpenRouterEmbedModel, &current.OpenRouterEmbedModel},
+			{row.ClaudeModel, trial.ClaudeModel, &current.ClaudeModel},
+			{row.CodexModel, trial.CodexModel, &current.CodexModel},
+		} {
+			if field.now != field.was {
+				*field.target = field.now
+			}
+		}
+		if reindex {
+			current.Reindex = ReindexState{Status: "queued", UpdatedAt: time.Now().UTC()}
+		}
+		row = current
+		return s.save(tx, &current)
 	})
 	if err != nil {
 		return err
@@ -553,4 +584,46 @@ func (s *Service) configure(c *echo.Context) error {
 		}
 	}
 	return c.JSON(200, s.view(ctx, row, time.Minute))
+}
+
+// changedMeanwhile answers a change whose provider was disconnected or given
+// another key (from another tab or device) while the change was checked.
+func changedMeanwhile(label string) error {
+	return echo.NewHTTPError(409, label+" changed in another tab or device during the check, so nothing was saved. Try again")
+}
+
+// stillConnected checks, inside the saving transaction, that the provider
+// about to become the default was not disconnected after it was tested. The
+// key row is share-locked, so a disconnect waits for this save and then
+// resets the default as usual.
+func (s *Service) stillConnected(tx *gorm.DB, row Settings, provider string) error {
+	switch provider {
+	case "":
+		return nil
+	case OpenRouter:
+		if row.OpenRouterKey == "" {
+			return changedMeanwhile("OpenRouter")
+		}
+	case ClaudeCLI:
+		if row.ClaudeConnectedAt == nil {
+			return changedMeanwhile("Claude Code")
+		}
+	case CodexCLI:
+		if row.CodexConnectedAt == nil {
+			return changedMeanwhile("Codex")
+		}
+	default:
+		spec := apiProviderByID(provider)
+		if spec == nil {
+			return echo.NewHTTPError(400, "Unknown provider")
+		}
+		api, found, err := s.apiRow(tx.Clauses(clause.Locking{Strength: "SHARE"}), row.UserID, provider)
+		if err != nil {
+			return err
+		}
+		if !found || (api.Key == "" && !spec.KeyOptional) {
+			return changedMeanwhile(spec.Label)
+		}
+	}
+	return nil
 }
