@@ -1,12 +1,17 @@
 package provider
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
+	"github.com/labstack/echo/v5"
+	"timely-api/internal/features/chat"
 	"timely-api/internal/models"
 )
 
@@ -140,7 +145,7 @@ func TestDropCursor(t *testing.T) {
 		"Pick " + writeCursor + "here":                      "Pick here",
 	}
 	for in, want := range cases {
-		if got := dropCursor(in); got != want {
+		if got := dropCursor(in, writeCursor); got != want {
 			t.Errorf("dropCursor(%q) = %q, want %q", in, got, want)
 		}
 	}
@@ -403,4 +408,216 @@ func TestAutoProviderPutsOpenRouterLast(t *testing.T) {
 	if got := autoProvider(Settings{}, nil, true); got != "" {
 		t.Errorf("nothing set up: got %q", got)
 	}
+}
+
+// GW7: a code answer stays code; only a Markdown or plain fence around the
+// whole answer is taken off.
+func TestCleanWrittenKeepsCodeBlocks(t *testing.T) {
+	bash := "```bash\n#!/usr/bin/env bash\n# backup-notes.sh\nrsync -a ~/notes /backup\n```"
+	if got := cleanWritten(bash, false); got != bash {
+		t.Errorf("a bash block lost its fence: %q", got)
+	}
+	two := "```bash\nrsync -a ~/notes /backup\n```\n\nTo run it every night, add this line:\n\n```\n0 2 * * * ~/backup.sh\n```"
+	if got := cleanWritten(two, false); got != two {
+		t.Errorf("two blocks with prose between were stripped: %q", got)
+	}
+	cpp := "```c++\nint main() {}\n```"
+	if got := cleanWritten(cpp, false); got != cpp {
+		t.Errorf("c++ block changed: %q", got)
+	}
+	for _, lang := range []string{"", "markdown", "md", "text"} {
+		if got := cleanWritten("```"+lang+"\n# Plan\n- one\n```", false); got != "# Plan\n- one" {
+			t.Errorf("%q fence not removed: %q", lang, got)
+		}
+	}
+}
+
+// W9: a chatty opening and closing offer around the text, a fence after a
+// preamble and CRLF line ends are taken off; the answer itself is kept.
+func TestCleanWrittenDropsPreambleAndClosing(t *testing.T) {
+	chatty := "Sure! Here is your packing list:\n\n```markdown\n- [ ] Passport\n- [ ] Charger\n```\n\nLet me know if you want more items!"
+	if got := cleanWritten(chatty, false); got != "- [ ] Passport\n- [ ] Charger" {
+		t.Errorf("chatty fenced answer: %q", got)
+	}
+	plain := "Here's a draft:\n\n- [ ] Passport\n- [ ] Charger\n\nI hope this helps."
+	if got := cleanWritten(plain, false); got != "- [ ] Passport\n- [ ] Charger" {
+		t.Errorf("chatty plain answer: %q", got)
+	}
+	crlf := "```markdown\r\n# Plan\r\n- one\r\n```"
+	if got := cleanWritten(crlf, false); got != "# Plan\n- one" {
+		t.Errorf("CRLF fence: %q", got)
+	}
+	// An email that ends with "Let me know" and has no chatty opening keeps it.
+	email := "Hi Sam,\n\nThe van is booked for Friday.\n\nLet me know if that works."
+	if got := cleanWritten(email, false); got != email {
+		t.Errorf("the draft's own last line was dropped: %q", got)
+	}
+	// "Sure, I can make it Friday." is the draft, not a preamble.
+	reply := "Sure, I can make it Friday.\n\nSee you then."
+	if got := cleanWritten(reply, false); got != reply {
+		t.Errorf("draft opening dropped: %q", got)
+	}
+}
+
+// W22: a cursor tag inside a line leaves one space, not two.
+func TestCleanWrittenInlineCursorKeepsOneSpace(t *testing.T) {
+	if got := cleanWritten("Pack light <cursor/> and bring a jacket.", true); got != "Pack light and bring a jacket." {
+		t.Errorf("got %q", got)
+	}
+	if got := cleanWritten("Pack light<cursor/> and go", true); got != "Pack light and go" {
+		t.Errorf("got %q", got)
+	}
+}
+
+// W9: an answer that starts by repeating the line before the cursor drops it.
+func TestDropRepeatedLead(t *testing.T) {
+	text := "Trip notes\n\n<cursor/>"
+	if got := dropRepeatedLead("Trip notes\n## Packing\n- [ ] Passport", text); got != "## Packing\n- [ ] Passport" {
+		t.Errorf("got %q", got)
+	}
+	if got := dropRepeatedLead("## Packing\n- [ ] Passport", text); got != "## Packing\n- [ ] Passport" {
+		t.Errorf("a new first line must stay: %q", got)
+	}
+}
+
+// GW17: a refusal comes back as a refusal, not as the draft.
+func TestDeclined(t *testing.T) {
+	for _, text := range []string{"I can't help with that.", "I’m sorry, but I cannot help with this request.", "CANNOT_WRITE: That would be a fake doctor's note."} {
+		if _, ok := declined(text); !ok {
+			t.Errorf("%q: want declined", text)
+		}
+	}
+	if reason, _ := declined("CANNOT_WRITE: Not that one."); reason != "Not that one." {
+		t.Errorf("reason = %q", reason)
+	}
+	for _, text := range []string{"I can't make it on Friday, sorry.", "I can't help with that move, but Sam can.\n\nCall him on Monday.", "- [ ] Passport"} {
+		if _, ok := declined(text); ok {
+			t.Errorf("%q: a draft, not a refusal", text)
+		}
+	}
+	if !strings.Contains(writeSystem, writeDeclined) {
+		t.Error("the system prompt must name the refusal marker")
+	}
+}
+
+// GW18: a link into Timely the request never held is plain words, not a
+// mention chip to nothing; the ones it held are kept.
+func TestKeepKnownLinks(t *testing.T) {
+	sent := "See [@Alice onboarding](timely://task/tsk_42) and [spec](https://example.com)."
+	answer := "Ask [@Alice onboarding](timely://task/tsk_42) and [@Ghost](timely://task/00000000-0000-0000-0000-000000000000) about [spec](https://example.com)."
+	want := "Ask [@Alice onboarding](timely://task/tsk_42) and @Ghost about [spec](https://example.com)."
+	if got := keepKnownLinks(answer, sent); got != want {
+		t.Errorf("got %q", got)
+	}
+}
+
+// GW19: with the editor's own cursor mark, a doc that holds the word
+// TIMELYWRITECURSOR keeps it, and the real spot is still found.
+func TestWriteCursorMarkLeavesTheWordAlone(t *testing.T) {
+	mark := writeCursor + "QXZJKWPA"
+	doc := models.JSONMap{"type": "doc", "content": []any{
+		map[string]any{"type": "paragraph", "content": []any{map[string]any{"type": "text", "text": "Rename " + writeCursor + " later"}}},
+		map[string]any{"type": "paragraph", "content": []any{map[string]any{"type": "text", "text": mark}}},
+	}}
+	req := writeRequest{Action: "write", Prompt: "a list", Kind: "doc", Doc: doc, CursorMark: mark}
+	if err := req.validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !req.cursor || !strings.Contains(req.Text, "Rename "+writeCursor+" later") || !strings.HasSuffix(req.Text, cursorTag) {
+		t.Errorf("text %q, cursor %v", req.Text, req.cursor)
+	}
+	// Without a cursor in the doc, the word is not taken for one.
+	plain := writeRequest{Action: "write", Prompt: "a list", Kind: "doc", Doc: doc, CursorMark: writeCursor + "ZZZZZZZZ"}
+	if err := plain.validate(); err != nil || plain.cursor || !strings.Contains(plain.Text, "Rename "+writeCursor+" later") {
+		t.Errorf("text %q, cursor %v, %v", plain.Text, plain.cursor, err)
+	}
+	// A mark that isn't one of ours is ignored.
+	bad := writeRequest{Action: "write", Prompt: "a list", Kind: "doc", Doc: doc, CursorMark: "Rename"}
+	if err := bad.validate(); err != nil || strings.Contains(bad.Text, "<cursor/> ") {
+		t.Errorf("bad mark: %q %v", bad.Text, err)
+	}
+}
+
+// GW20: the prompt and title are cut by characters, as the apps count them.
+func TestWriteCutsPromptByCharacters(t *testing.T) {
+	malayalam := strings.Repeat("മ", writeMaxPrompt)
+	req := writeRequest{Action: "write", Prompt: malayalam, Title: strings.Repeat("ത", writeMaxTitle)}
+	if err := req.validate(); err != nil {
+		t.Fatal(err)
+	}
+	if req.Prompt != malayalam || utf8.RuneCountInString(req.Title) != writeMaxTitle {
+		t.Errorf("prompt %d chars, title %d chars", utf8.RuneCountInString(req.Prompt), utf8.RuneCountInString(req.Title))
+	}
+	if got := clipRunes("abcdef", 3); got != "abc" {
+		t.Errorf("clipRunes = %q", got)
+	}
+}
+
+// GW22: the model is told today's date and zone.
+func TestWriteMessagesSayToday(t *testing.T) {
+	user := writeMessages(writeRequest{Action: "write", Prompt: "Meeting notes for next Tuesday", today: "Sunday 2026-11-01 (Europe/Lisbon)"})[1].Content
+	if !strings.HasPrefix(user, "Today is Sunday 2026-11-01 (Europe/Lisbon).\n") {
+		t.Errorf("user turn: %s", user)
+	}
+}
+
+// W13: Describe and Continue are told not to make things up.
+func TestDescribeAndContinueDoNotInvent(t *testing.T) {
+	for _, action := range []string{"describe", "continue"} {
+		if !strings.Contains(writeActions[action], "do not invent facts") {
+			t.Errorf("%s: %q", action, writeActions[action])
+		}
+	}
+	if strings.Contains(writeActions["describe"], "why it matters") {
+		t.Error("describe still asks for why it matters, which invites made-up reasons")
+	}
+}
+
+// W15: a rewrite sends the selection and only the text around it.
+func TestWriteRewriteSendsOnlyTheTextAround(t *testing.T) {
+	doc := strings.Repeat("Early line about the kitchen plan.\n", 200) + "Fix teh tiles.\n" + strings.Repeat("Later line about the budget.\n", 200)
+	req := writeRequest{Action: "fix", Selection: "Fix teh tiles.", Kind: "doc", Text: doc}
+	if err := req.validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !req.around || len(req.Text) > 2*writeRewriteContext+100 || !strings.Contains(req.Text, writeSelectionMark) || strings.Contains(req.Text, "teh") {
+		t.Fatalf("around %v, %d bytes: %q", req.around, len(req.Text), req.Text)
+	}
+	user := writeMessages(req)[1].Content
+	if strings.Count(user, "Fix teh tiles.") != 1 || !strings.Contains(user, "marks where the selected text sits") {
+		t.Errorf("user turn: %s", user)
+	}
+	// Not found in the doc: no doc at all rather than all of it.
+	missing := writeRequest{Action: "improve", Selection: "Not in the doc", Kind: "doc", Text: doc}
+	if err := missing.validate(); err != nil || missing.Text != "" {
+		t.Errorf("missing selection: %d bytes, %v", len(missing.Text), err)
+	}
+}
+
+// RV-hmw-1: a too-long Summarize says summarize, not rewrite.
+func TestWriteTooLongSaysWhatItDoes(t *testing.T) {
+	long := strings.Repeat("word ", writeMaxSelection/4)
+	sum := writeRequest{Action: "summarize", Selection: long}
+	if err := sum.validate(); err == nil || err.Error() != writeTooLongSummary {
+		t.Errorf("summarize: %v", err)
+	}
+	fix := writeRequest{Action: "fix", Selection: long}
+	if err := fix.validate(); err == nil || err.Error() != writeTooLong {
+		t.Errorf("fix: %v", err)
+	}
+}
+
+// W11, W16: a timeout and an answer cut at the model's limit get words for
+// the feature, not Go errors or the agent's proposal wording.
+func TestOneShotError(t *testing.T) {
+	check := func(err error, code int, want string) {
+		t.Helper()
+		var he *echo.HTTPError
+		if !errors.As(oneShotError(err, "The draft was too long to finish."), &he) || he.Code != code || fmt.Sprint(he.Message) != want {
+			t.Errorf("%v: got %v", err, he)
+		}
+	}
+	check(context.DeadlineExceeded, 504, "The AI took too long to answer. Try again")
+	check(chat.ErrOutputTooLong, 502, "The draft was too long to finish.")
+	check(errors.New("Anthropic returned HTTP 529: Overloaded"), 502, "Anthropic returned HTTP 529: Overloaded")
 }
