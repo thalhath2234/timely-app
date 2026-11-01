@@ -3,6 +3,7 @@ package embed
 import (
 	"context"
 	"strings"
+	"timely-api/internal/features/decide"
 	"timely-api/internal/models"
 	"timely-api/internal/utils"
 
@@ -154,7 +155,9 @@ func (i *indexer) Count(ctx context.Context, userID string) (int64, error) {
 }
 
 func (i *indexer) Query(ctx context.Context, userID, query string, limit int, kinds []string) ([]Hit, error) {
-	if !i.EnabledFor(userID) {
+	// A private chat's query can quote its photo, and embedding calls have
+	// no zero-data-retention routing, so it is never sent.
+	if !i.EnabledFor(userID) || decide.IsSensitive(ctx) {
 		return nil, ErrDisabled
 	}
 	query = strings.TrimSpace(query)

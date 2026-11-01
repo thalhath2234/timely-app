@@ -7,6 +7,7 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"timely-api/internal/features/decide"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/models"
 	"timely-api/internal/richtext"
@@ -140,7 +141,9 @@ func contains(list []string, item string) bool {
 }
 
 func (s *service) vector(ctx context.Context, userID, query string, limit int, kinds []string) ([]Hit, error) {
-	if s.indexer == nil || !s.indexer.EnabledFor(userID) {
+	// A private chat (a photo) never sends its searches out to be embedded:
+	// they can quote the photo. Keyword results still come back.
+	if s.indexer == nil || !s.indexer.EnabledFor(userID) || decide.IsSensitive(ctx) {
 		return nil, embed.ErrDisabled
 	}
 	n, err := s.indexer.Count(ctx, userID)
