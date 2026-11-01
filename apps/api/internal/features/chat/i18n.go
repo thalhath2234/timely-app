@@ -35,6 +35,7 @@ const (
 	txtNoteMissing          = "noteMissing"
 	txtPushChoose           = "pushChoose"
 	txtReceiptNotCorrection = "receiptNotCorrection"
+	txtReceiptUnchanged     = "receiptUnchanged"
 	txtHintCategory         = "hintCategory"
 	txtHintCategoryFit      = "hintCategoryFit"
 	txtHintRefund           = "hintRefund"
@@ -74,6 +75,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "Something you asked for may be missing from these changes.",
 		txtPushChoose:           "You already have a chat about this. Choose where to continue.",
 		txtReceiptNotCorrection: "That doesn't look like a change to the receipt, so the draft is unchanged. Edit the fields below, or say what to change, for example “the total is 12.40”.",
+		txtReceiptUnchanged:     "The receipt draft is unchanged. Edit the fields below, or say what to change, for example “the total is 12.40”.",
 		txtHintCategory:         "Category set to “%s”, one you already use. Change it if it's wrong.",
 		txtHintCategoryFit:      "“%s” may not be the right category for this receipt.",
 		txtHintRefund:           "This looks like a refund or return. Check that the amounts have the right sign.",
@@ -111,6 +113,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "依頼した内容の一部が、これらの変更に含まれていない可能性があります。",
 		txtPushChoose:           "この件についてのチャットがすでにあります。どこで続けるか選んでください。",
 		txtReceiptNotCorrection: "レシートの変更ではないようなので、下書きはそのままです。下の項目を編集するか、「合計は12.40」のように変更内容を伝えてください。",
+		txtReceiptUnchanged:     "レシートの下書きは変わっていません。下の項目を編集するか、「合計は12.40」のように変更内容を伝えてください。",
 		txtHintCategory:         "カテゴリをすでに使っている「%s」にしました。違う場合は変更してください。",
 		txtHintCategoryFit:      "「%s」はこのレシートに合うカテゴリではないかもしれません。",
 		txtHintRefund:           "返金または返品のようです。金額の符号を確認してください。",
@@ -148,6 +151,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "您要求的部分内容可能不在这些更改中。",
 		txtPushChoose:           "您已经有一个关于此事的聊天。请选择在哪里继续。",
 		txtReceiptNotCorrection: "这看起来不是对收据的修改，因此草稿保持不变。请编辑下方字段，或说明要改什么，例如“总额是 12.40”。",
+		txtReceiptUnchanged:     "收据草稿没有变化。请编辑下方字段，或说明要改什么，例如“总额是 12.40”。",
 		txtHintCategory:         "类别已设为您已在使用的“%s”。如有误请修改。",
 		txtHintCategoryFit:      "“%s”可能不是这张收据的合适类别。",
 		txtHintRefund:           "这看起来是退款或退货。请检查金额的正负号。",
@@ -185,6 +189,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "요청하신 내용 중 일부가 이 변경 사항에 빠져 있을 수 있습니다.",
 		txtPushChoose:           "이 내용에 대한 채팅이 이미 있습니다. 어디에서 계속할지 선택하세요.",
 		txtReceiptNotCorrection: "영수증 변경 요청이 아닌 것 같아 초안을 그대로 두었습니다. 아래 항목을 수정하거나 “합계는 12.40”처럼 바꿀 내용을 알려 주세요.",
+		txtReceiptUnchanged:     "영수증 초안은 바뀌지 않았습니다. 아래 항목을 수정하거나 “합계는 12.40”처럼 바꿀 내용을 알려 주세요.",
 		txtHintCategory:         "이미 사용 중인 “%s” 카테고리로 설정했습니다. 틀리면 바꿔 주세요.",
 		txtHintCategoryFit:      "“%s”은(는) 이 영수증에 맞는 카테고리가 아닐 수 있습니다.",
 		txtHintRefund:           "환불 또는 반품으로 보입니다. 금액의 부호를 확인하세요.",
@@ -222,6 +227,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "Puede que falte algo de lo que pediste en estos cambios.",
 		txtPushChoose:           "Ya tienes un chat sobre esto. Elige dónde continuar.",
 		txtReceiptNotCorrection: "Eso no parece un cambio en el recibo, así que el borrador sigue igual. Edita los campos de abajo o di qué cambiar, por ejemplo “el total es 12.40”.",
+		txtReceiptUnchanged:     "El borrador del recibo no ha cambiado. Edita los campos de abajo o di qué cambiar, por ejemplo “el total es 12.40”.",
 		txtHintCategory:         "Categoría establecida en “%s”, una que ya usas. Cámbiala si no es correcta.",
 		txtHintCategoryFit:      "“%s” quizá no sea la categoría adecuada para este recibo.",
 		txtHintRefund:           "Parece un reembolso o una devolución. Comprueba que los importes tengan el signo correcto.",
@@ -259,6 +265,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "Une partie de votre demande manque peut-être dans ces modifications.",
 		txtPushChoose:           "Vous avez déjà une conversation à ce sujet. Choisissez où continuer.",
 		txtReceiptNotCorrection: "Cela ne ressemble pas à une modification du reçu, le brouillon est donc inchangé. Modifiez les champs ci-dessous ou dites quoi changer, par exemple « le total est 12.40 ».",
+		txtReceiptUnchanged:     "Le brouillon du reçu est inchangé. Modifiez les champs ci-dessous ou dites quoi changer, par exemple « le total est 12.40 ».",
 		txtHintCategory:         "Catégorie définie sur « %s », que vous utilisez déjà. Changez-la si elle est fausse.",
 		txtHintCategoryFit:      "« %s » n'est peut-être pas la bonne catégorie pour ce reçu.",
 		txtHintRefund:           "Cela ressemble à un remboursement ou un retour. Vérifiez le signe des montants.",
@@ -296,6 +303,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "Etwas, worum du gebeten hast, fehlt möglicherweise in diesen Änderungen.",
 		txtPushChoose:           "Du hast schon einen Chat dazu. Wähle, wo es weitergehen soll.",
 		txtReceiptNotCorrection: "Das sieht nicht nach einer Änderung am Beleg aus, daher bleibt der Entwurf unverändert. Bearbeite die Felder unten oder sag, was sich ändern soll, z. B. „die Summe ist 12.40“.",
+		txtReceiptUnchanged:     "Der Belegentwurf ist unverändert. Bearbeite die Felder unten oder sag, was sich ändern soll, z. B. „die Summe ist 12.40“.",
 		txtHintCategory:         "Kategorie auf „%s“ gesetzt, die du schon nutzt. Ändere sie, falls sie nicht stimmt.",
 		txtHintCategoryFit:      "„%s“ ist vielleicht nicht die richtige Kategorie für diesen Beleg.",
 		txtHintRefund:           "Das sieht nach einer Erstattung oder Rückgabe aus. Prüfe das Vorzeichen der Beträge.",
@@ -333,6 +341,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "Algo que você pediu pode estar faltando nestas alterações.",
 		txtPushChoose:           "Você já tem um chat sobre isso. Escolha onde continuar.",
 		txtReceiptNotCorrection: "Isso não parece uma alteração no recibo, então o rascunho ficou igual. Edite os campos abaixo ou diga o que mudar, por exemplo “o total é 12.40”.",
+		txtReceiptUnchanged:     "O rascunho do recibo não mudou. Edite os campos abaixo ou diga o que mudar, por exemplo “o total é 12.40”.",
 		txtHintCategory:         "Categoria definida como “%s”, que você já usa. Altere se estiver errada.",
 		txtHintCategoryFit:      "“%s” talvez não seja a categoria certa para este recibo.",
 		txtHintRefund:           "Parece um reembolso ou devolução. Verifique se os valores têm o sinal certo.",
@@ -370,6 +379,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "Qualcosa che hai chiesto potrebbe mancare in queste modifiche.",
 		txtPushChoose:           "Hai già una chat su questo. Scegli dove continuare.",
 		txtReceiptNotCorrection: "Non sembra una modifica allo scontrino, quindi la bozza resta invariata. Modifica i campi qui sotto o di' cosa cambiare, per esempio “il totale è 12.40”.",
+		txtReceiptUnchanged:     "La bozza dello scontrino è invariata. Modifica i campi qui sotto o di' cosa cambiare, per esempio “il totale è 12.40”.",
 		txtHintCategory:         "Categoria impostata su “%s”, che usi già. Cambiala se è sbagliata.",
 		txtHintCategoryFit:      "“%s” potrebbe non essere la categoria giusta per questo scontrino.",
 		txtHintRefund:           "Sembra un rimborso o un reso. Controlla il segno degli importi.",
@@ -407,6 +417,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "Возможно, в этих изменениях не хватает чего-то из того, что вы просили.",
 		txtPushChoose:           "У вас уже есть чат об этом. Выберите, где продолжить.",
 		txtReceiptNotCorrection: "Это не похоже на изменение чека, поэтому черновик не изменён. Отредактируйте поля ниже или напишите, что изменить, например «итого 12.40».",
+		txtReceiptUnchanged:     "Черновик чека не изменился. Отредактируйте поля ниже или напишите, что изменить, например «итого 12.40».",
 		txtHintCategory:         "Категория установлена как «%s», которую вы уже используете. Измените, если она неверна.",
 		txtHintCategoryFit:      "«%s», возможно, не подходит как категория для этого чека.",
 		txtHintRefund:           "Похоже на возврат. Проверьте знак сумм.",
@@ -444,6 +455,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "قد يكون شيء مما طلبته غير موجود في هذه التغييرات.",
 		txtPushChoose:           "لديك بالفعل محادثة حول هذا. اختر أين تتابع.",
 		txtReceiptNotCorrection: "لا يبدو هذا تعديلاً على الإيصال، لذا بقيت المسودة كما هي. عدّل الحقول أدناه أو اذكر ما تريد تغييره، مثل «الإجمالي 12.40».",
+		txtReceiptUnchanged:     "لم تتغير مسودة الإيصال. عدّل الحقول أدناه أو اذكر ما تريد تغييره، مثل «الإجمالي 12.40».",
 		txtHintCategory:         "تم ضبط الفئة على «%s» التي تستخدمها بالفعل. غيّرها إن كانت خاطئة.",
 		txtHintCategoryFit:      "قد لا تكون «%s» الفئة المناسبة لهذا الإيصال.",
 		txtHintRefund:           "يبدو هذا استرداداً أو إرجاعاً. تحقق من إشارة المبالغ.",
@@ -481,6 +493,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "आपने जो माँगा था उसमें से कुछ इन बदलावों में छूट गया हो सकता है।",
 		txtPushChoose:           "इस बारे में आपकी पहले से एक चैट है। चुनें कि कहाँ जारी रखना है।",
 		txtReceiptNotCorrection: "यह रसीद में बदलाव जैसा नहीं लगता, इसलिए ड्राफ़्ट वैसा ही है। नीचे के फ़ील्ड बदलें या बताएँ क्या बदलना है, जैसे “कुल 12.40 है”।",
+		txtReceiptUnchanged:     "रसीद का ड्राफ़्ट नहीं बदला। नीचे के फ़ील्ड बदलें या बताएँ क्या बदलना है, जैसे “कुल 12.40 है”।",
 		txtHintCategory:         "श्रेणी “%s” रखी गई है, जिसे आप पहले से इस्तेमाल करते हैं। गलत हो तो बदलें।",
 		txtHintCategoryFit:      "“%s” शायद इस रसीद के लिए सही श्रेणी नहीं है।",
 		txtHintRefund:           "यह रिफ़ंड या वापसी लगती है। राशियों का चिह्न जाँचें।",

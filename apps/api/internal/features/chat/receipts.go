@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math/big"
 	"regexp"
@@ -627,11 +626,14 @@ func (s *Service) editReceipt(ctx context.Context, c *Conversation) error {
 	if err != nil {
 		return err
 	}
-	var draft ReceiptDraft
-	if err = json.Unmarshal([]byte(strings.TrimSpace(result.Content)), &draft); err != nil {
-		return fmt.Errorf("Couldn't revise this receipt. Edit the fields directly or try again")
+	var current ReceiptDraft
+	if c.ImageReview.Receipt != nil {
+		current = *c.ImageReview.Receipt
 	}
-	normalizeReceipt(&draft)
+	draft, changed, err := reviseDraft(current, result.Content)
+	if err != nil {
+		return err
+	}
 	if len(draft.Items) > 300 {
 		return fmt.Errorf("A receipt can contain at most 300 items")
 	}
@@ -647,9 +649,13 @@ func (s *Service) editReceipt(ctx context.Context, c *Conversation) error {
 		row.ImageReview.Duplicates = s.findReceiptDuplicates(tx, row.UserID, draft)
 		row.Status = "idle"
 		row.Phase = "review"
-		m := message("assistant", tr(row.Language, txtReceiptRevised))
+		text, push := txtReceiptRevised, txtPushReceiptRevised
+		if !changed {
+			text, push = txtReceiptUnchanged, txtReceiptUnchanged
+		}
+		m := message("assistant", tr(row.Language, text))
 		m.Receipt = &draft
 		row.Messages = append(row.Messages, m)
-		return notify(tx, row, tr(row.Language, txtPushReceiptRevised))
+		return notify(tx, row, tr(row.Language, push))
 	})
 }

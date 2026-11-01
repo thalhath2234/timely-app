@@ -348,12 +348,10 @@ func (s *Service) readReceipt(ctx context.Context, messages []WireMessage) (imag
 		return imageExtraction{}, err
 	}
 	var extracted imageExtraction
-	content := strings.TrimSpace(result.Content)
-	content = strings.TrimPrefix(content, "```json")
-	content = strings.TrimPrefix(content, "```")
-	content = strings.TrimSuffix(content, "```")
-	if err = json.Unmarshal([]byte(content), &extracted); err != nil {
-		return imageExtraction{}, fmt.Errorf("The image extraction was incomplete. Try again or use a clearer photo")
+	object := firstJSONObject(result.Content)
+	if object == nil || json.Unmarshal(object, &extracted) != nil {
+		// The answer, not the photo, is at fault: a retry asks again.
+		return imageExtraction{}, fmt.Errorf("Couldn't process the result of reading these photos. Try again")
 	}
 	return extracted, nil
 }
