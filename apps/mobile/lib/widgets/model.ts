@@ -511,7 +511,7 @@ function customModel(card: DashboardCard, input: WidgetInput, title: string): Wi
   const uri = link(input.scheme, "dashboard");
   if (!card.query) return { title, uri, empty: "This card has no query yet." };
   // A described card draws its own program; its query is only the fallback for apps that can't.
-  if (card.query.described?.program) return describedModel(card.query.described.program, input, title);
+  if (card.query.described?.program) return describedModel(card.query.described.program, input, title, card.query.described.names);
   // Card workshop cards read picked sheet cells or a doc, not task lists.
   if (card.query.sheet) return sheetModel(card.query.sheet, input, title, card.id);
   if (card.query.doc) return docModel(card.query.doc, input, title, card.id);

@@ -5,9 +5,9 @@ import "../genui/setup";
 import { Fragment, useMemo, useState } from "react";
 import { TriangleAlert } from "lucide-react";
 import { createLibrary, Renderer, type ComponentRenderProps, type ComponentRenderer } from "@openuidev/react-lang";
-import type { DashboardData } from "@timely/contract/dashboard";
+import type { DashboardData, DescribedNames } from "@timely/contract/dashboard";
 import { genuiNodes, replyBlocks } from "@timely/contract/genui";
-import { BOARD_ROOT, boardFunctions, blockProblems, withBoardRenderers, type BoardName, type BoardProps } from "@timely/contract/genuiBoard";
+import { BOARD_ROOT, boardFunctions, drawProblems, withBoardRenderers, type BoardName, type BoardProps } from "@timely/contract/genuiBoard";
 import { kit, RowGroup, Surface } from "../genui/kit";
 
 type Props<N extends BoardName> = ComponentRenderProps<BoardProps<N>>;
@@ -52,12 +52,15 @@ const components = withBoardRenderers(renderers);
 
 export default function DescribedCardView({
   program,
+  names,
   data,
   timeZone,
   now,
   layout = "card",
 }: {
   program: string;
+  /** The ids the program's names meant when the card was made, so it follows a rename. */
+  names?: DescribedNames;
   data: DashboardData;
   timeZone?: string;
   now: Date;
@@ -66,11 +69,12 @@ export default function DescribedCardView({
 }) {
   // New data gives new functions, so the program is read again with it.
   const library = useMemo(
-    () => createLibrary({ components, functions: boardFunctions(data, { now, timeZone }), root: BOARD_ROOT }),
-    [data, now, timeZone],
+    () => createLibrary({ components, functions: boardFunctions(data, { now, timeZone }, names), root: BOARD_ROOT }),
+    [data, now, timeZone, names],
   );
-  // A sheet, tab, column or doc renamed after the program was written draws empty; this says why.
-  const problem = useMemo(() => blockProblems(program, data)[0], [program, data]);
+  // A name that fits nothing (a project deleted), or a sheet, tab, column or
+  // doc renamed after the program was written, draws empty; this says why.
+  const problem = useMemo(() => drawProblems(program, data, names)[0], [program, data, names]);
   const [failed, setFailed] = useState(false);
   if (failed)
     return (

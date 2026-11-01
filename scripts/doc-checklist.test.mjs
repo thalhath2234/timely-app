@@ -11,6 +11,7 @@ import {
   workLineKey,
   workLineTask,
 } from "../packages/contract/src/docChecklist.ts";
+import { countDocWords, docHintsVersion } from "../packages/contract/src/documents.ts";
 
 const para = (...content) => ({ type: "paragraph", content: content.map((c) => (typeof c === "string" ? { type: "text", text: c } : c)) });
 const item = (checked, ...content) => ({ type: "taskItem", attrs: { checked }, content });
@@ -228,5 +229,33 @@ describe("naming failures (GW15)", () => {
     assert.equal(namingFailedNote("The AI could not name the tasks: Mistral returned HTTP 500; check the model, key and credit, or retry"), null);
     // OpenRouter answers 403 for a request its moderation flagged, not for a key.
     assert.equal(namingFailedNote("The AI could not name the tasks: OpenRouter returned HTTP 403: Your input was flagged"), null);
+  });
+});
+
+describe("docHintsVersion", () => {
+  const typed =
+    "We are redoing the kitchen this winter. Get three quotes from contractors, pick the new cabinets and countertops, " +
+    "book the plumber to move the sink, and repaint the walls before the family visits for the holidays in late December.";
+
+  test("a doc typed in one go asks again when its words are saved", () => {
+    // What the server holds after each save; the suggestions read this copy.
+    const created = docHintsVersion({ title: "", plainText: "" });
+    const titled = docHintsVersion({ title: "Kitchen renovation", plainText: "" });
+    const written = docHintsVersion({ title: "Kitchen renovation", plainText: typed });
+    assert.equal(countDocWords(typed), 39);
+    assert.notEqual(titled, created);
+    assert.notEqual(written, titled);
+    assert.equal(written, "0");
+  });
+
+  test("asks again about every fifty words, not on each one", () => {
+    const more = (n) => `${typed} ${"word ".repeat(n)}`;
+    assert.equal(docHintsVersion({ title: "Kitchen renovation", plainText: more(5) }), "0");
+    assert.equal(docHintsVersion({ title: "Kitchen renovation", plainText: more(11) }), "1");
+  });
+
+  test("counts words split by any space", () => {
+    assert.equal(countDocWords(""), 0);
+    assert.equal(countDocWords("  one\ttwo\nthree four　five  "), 5);
   });
 });

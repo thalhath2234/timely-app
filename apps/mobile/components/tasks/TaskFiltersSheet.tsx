@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Text, View } from "react-native";
 import { Check, ChevronRight, CornerDownLeft, Plus, Sparkles, Trash2, X } from "lucide-react-native";
 import { replaceRule } from "@timely/contract/ruleBuilder";
@@ -154,6 +154,8 @@ export default function TaskFiltersSheet({
   const [words, setWords] = useState({ viewId: "", text: "" });
   const [leftover, setLeftover] = useState<{ text: string; words: string[] } | null>(null);
   const [ai, setAi] = useState<{ text: string; busy?: boolean; error?: string; done?: boolean; dropped?: string[] } | null>(null);
+  // The words of the latest read with AI.
+  const lastAsked = useRef("");
   const providers = useAgentProvidersQuery().data;
   const aiReady = readyProviders(providers).length > 0;
   const timeZone = useWorkingHoursZone();
@@ -175,14 +177,20 @@ export default function TaskFiltersSheet({
   }
 
   function askAi() {
+    lastAsked.current = query;
     setAi({ text: query, busy: true });
+    // An answer for words asked before the latest read is dropped: it would
+    // change the view under the newer words and end that read's busy state.
     readViewWithAi({ query, today: todayInZone(timeZone), client: "phone" })
       .then((result) => {
+        if (lastAsked.current !== query) return;
         onPatch({ ...aiDraftPatch(result.view, vocab), prompt: query.slice(0, 300) });
         setAi({ text: query, done: true, dropped: result.dropped });
         setLeftover(null);
       })
-      .catch((error: Error) => setAi({ text: query, error: error.message }));
+      .catch((error: Error) => {
+        if (lastAsked.current === query) setAi({ text: query, error: error.message });
+      });
   }
 
   const workspaceId = view.selectedWorkspaceIds?.[0] ?? "";

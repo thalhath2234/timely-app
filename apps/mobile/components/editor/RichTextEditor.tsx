@@ -386,7 +386,7 @@ export default function RichTextEditor({
   );
   const saveTask = useSaveTask();
   const setChecklistItem = useSetChecklistItem();
-  const [linkPick, setLinkPick] = useState<{ from: number; to: number; text: string; result: MentionMatch | null } | null>(null);
+  const [linkPick, setLinkPick] = useState<{ from: number; to: number; text: string; result: MentionMatch | null; failed?: boolean } | null>(null);
 
   useEffect(() => {
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
@@ -864,13 +864,16 @@ export default function RichTextEditor({
   async function findLinkTargets(range: { from: number; to: number; text: string }) {
     setLinkPick({ ...range, result: null });
     let result: MentionMatch;
+    let failed = false;
     try {
       result = await matchMention(range.text.trim(), linkDocId);
     } catch {
+      // Said as a failed lookup, not as "nothing matches".
       result = { available: true, options: [] };
+      failed = true;
     }
     // A later selection replaces this one; its answer wins.
-    setLinkPick((current) => (current && current.from === range.from && current.to === range.to && current.text === range.text ? { ...current, result } : current));
+    setLinkPick((current) => (current && current.from === range.from && current.to === range.to && current.text === range.text ? { ...current, result, failed } : current));
   }
 
   function pickLinkTarget(target: MentionTarget) {
@@ -1166,6 +1169,7 @@ export default function RichTextEditor({
           <Text style={styles.empty}>Finding a match…</Text>
         ) : (
           (() => {
+            if (linkPick?.failed) return <Text style={styles.empty}>Couldn’t look up matches. Try again.</Text>;
             const rows = mentionChoices(linkPick?.result);
             if (!rows.length) return <Text style={styles.empty}>Nothing in your work matches that phrase.</Text>;
             const hasBest = rows[0].best;

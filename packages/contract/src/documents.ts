@@ -174,3 +174,41 @@ const DOC_TYPE_PHRASES: Record<string, string> = {
 export function docTypePhrase(docType: string): string {
   return DOC_TYPE_PHRASES[docType] ?? `a ${docType}`;
 }
+
+/**
+ * Words in a doc's plain text. Editors count on every keystroke, so it counts
+ * in place instead of splitting the text: a doc holding a large 3D model or
+ * map has hundreds of thousands of "words", and building that array each time
+ * stalled typing.
+ */
+export function countDocWords(text: string): number {
+  let count = 0;
+  let inWord = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    const space = code === 32 || (code >= 9 && code <= 13) || code === 160 || code === 0x2028 || code === 0x2029 || code === 0xfeff || (code >= 0x2000 && code <= 0x200a) || code === 0x1680 || code === 0x202f || code === 0x205f || code === 0x3000;
+    if (space) inWord = false;
+    else if (!inWord) {
+      inWord = true;
+      count += 1;
+    }
+  }
+  return count;
+}
+
+/** How long a doc's hints version must stay the same before its suggestions
+ * are read again, in ms. A title typed word by word is saved at each pause,
+ * and each partial title would otherwise be asked about. */
+export const DOC_HINTS_SETTLE_MS = 2000;
+
+/**
+ * When a doc's suggestions are read again: once an empty doc gets a title or
+ * text, then each time it grows by about fifty words. Pass the saved copy,
+ * which is what the suggestions read. Counted from the editor instead, a doc
+ * typed in one go asked before its first save landed and never again. The
+ * apps pass a new version on once it has stayed for DOC_HINTS_SETTLE_MS.
+ */
+export function docHintsVersion(saved: Pick<Doc, "title" | "plainText">): string {
+  const words = countDocWords(saved.plainText);
+  return words < 8 ? `empty:${saved.title.trim()}` : String(Math.floor(words / 50));
+}

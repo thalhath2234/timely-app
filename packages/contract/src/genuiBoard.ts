@@ -20,6 +20,8 @@ import {
   type CardSource,
   type DashboardCard,
   type DashboardData,
+  type DescribedNameKind,
+  type DescribedNames,
   type EngineContext,
 } from "./dashboard";
 import { formatLike } from "./dashboardFiles";
@@ -185,12 +187,31 @@ const DATEY_SORTS = new Set<string>(["completedAt", "createdAt", "updatedAt"]);
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-/** Ids for a name in a lookup; a name that matches nothing keeps the filter, so nothing matches. */
-function idsFor(names: Map<string, string>, name: string | undefined): string[] | undefined {
+const NO_MATCH = "__no_match__";
+
+/**
+ * Ids for a name in a lookup. A name that fits nothing falls back to the ids
+ * it fitted when the card was made (`saved`, from DescribedPick.names) that
+ * are still there, so a renamed project keeps its card; otherwise the filter
+ * stays, so nothing matches.
+ */
+function idsFor(names: Map<string, string>, name: string | undefined, saved?: Record<string, string[]>): string[] | undefined {
   const wanted = name?.trim().toLowerCase();
   if (!wanted) return undefined;
   const ids = [...names].filter(([, value]) => value.trim().toLowerCase() === wanted).map(([id]) => id);
-  return ids.length ? ids : ["__no_match__"];
+  if (ids.length) return ids;
+  const kept = (saved?.[wanted] ?? []).filter((id) => names.has(id));
+  return kept.length ? kept : [NO_MATCH];
+}
+
+/** Each name a query filters by, with its kind and the lookup it is read in. */
+function namedFilters(query: DataQuery, lookups: ReturnType<typeof buildLookups>) {
+  return [
+    { kind: "project", key: "projectIds", names: lookups.projects, name: query.project },
+    { kind: "workspace", key: "workspaceIds", names: lookups.workspaces, name: query.workspace },
+    { kind: "label", key: "labelIds", names: lookups.labels, name: query.label },
+    { kind: "status", key: "statusIds", names: lookups.statuses, name: query.status },
+  ] satisfies { kind: DescribedNameKind; key: keyof CardFilters; names: Map<string, string>; name?: string }[];
 }
 
 /** The date a range reads when the program names a range but no date. */
@@ -212,8 +233,8 @@ function dateFor(query: DataQuery): CardDateField | undefined {
   }
 }
 
-/** The plain card query an `@Data` call reads. */
-export function dataCardQuery(query: DataQuery, data: DashboardData): CardQuery {
+/** The plain card query an `@Data` call reads; `saved` are the card's DescribedPick.names. */
+export function dataCardQuery(query: DataQuery, data: DashboardData, saved?: DescribedNames): CardQuery {
   const base = defaultQuery(query.source);
   const lookups = buildLookups(data);
   const filters: CardFilters = { ...base.filters };
@@ -222,14 +243,8 @@ export function dataCardQuery(query: DataQuery, data: DashboardData): CardQuery 
   if (query.hasDeadline !== undefined) filters.hasDeadline = query.hasDeadline;
   if (query.priority) filters.priorities = [query.priority];
   if (query.text?.trim()) filters.text = query.text.trim();
-  const named: [keyof CardFilters, Map<string, string>, string | undefined][] = [
-    ["projectIds", lookups.projects, query.project],
-    ["workspaceIds", lookups.workspaces, query.workspace],
-    ["labelIds", lookups.labels, query.label],
-    ["statusIds", lookups.statuses, query.status],
-  ];
-  for (const [key, names, name] of named) {
-    const ids = idsFor(names, name);
+  for (const { kind, key, names, name } of namedFilters(query, lookups)) {
+    const ids = idsFor(names, name, saved?.[kind]);
     if (ids) (filters as Record<string, unknown>)[key] = ids;
   }
   const sortField = query.sort ?? base.sort?.field ?? "name";
@@ -290,8 +305,8 @@ function dataRow(row: CardRow, today: string, timeZone?: string) {
 }
 
 /** Answers one `@Data` call from the dashboard's data. */
-export function runData(query: DataQuery, data: DashboardData, ctx: EngineContext): DataResult {
-  const card = dataCardQuery(query, data);
+export function runData(query: DataQuery, data: DashboardData, ctx: EngineContext, saved?: DescribedNames): DataResult {
+  const card = dataCardQuery(query, data, saved);
   const today = todayInZone(ctx.timeZone, ctx.now);
   const result = emptyResult();
 
@@ -609,8 +624,9 @@ export function runChecklist(query: ChecklistQuery, data: DashboardData): Checkl
 /**
  * The board's functions over one copy of the data. Programs repeat the same
  * call in several props, so answers are kept for as long as this data is.
+ * `saved` are the card's DescribedPick.names.
  */
-export function boardFunctions(data: DashboardData, ctx: EngineContext) {
+export function boardFunctions(data: DashboardData, ctx: EngineContext, saved?: DescribedNames) {
   const answers = new Map<string, DataResult>();
   const cells = new Map<string, CellsResult>();
   const checklists = new Map<string, ChecklistResult>();
@@ -621,7 +637,7 @@ export function boardFunctions(data: DashboardData, ctx: EngineContext) {
         const key = JSON.stringify(query);
         let answer = answers.get(key);
         if (!answer) {
-          answer = runData(query, data, ctx);
+          answer = runData(query, data, ctx, saved);
           answers.set(key, answer);
         }
         return answer;
@@ -731,12 +747,12 @@ export function boardParser() {
  * Panel root. The web's Renderer does this itself; the phone draws the root
  * on its own (the package's Renderer draws DOM elements), so it reads it here.
  */
-export function drawBoard(program: string, data: DashboardData, ctx: EngineContext): GenuiNode | null {
+export function drawBoard(program: string, data: DashboardData, ctx: EngineContext, saved?: DescribedNames): GenuiNode | null {
   const library = promptLibrary();
   const schema = library.toJSONSchema();
   const result = createParser(schema, BOARD_ROOT).parse(program);
   if (!result.root) return null;
-  const [data$, cells$, checklist$] = boardFunctions(data, ctx);
+  const [data$, cells$, checklist$] = boardFunctions(data, ctx, saved);
   const functions = {
     Data: { ...schema.functions!.Data, fn: data$.fn },
     Cells: { ...schema.functions!.Cells, fn: cells$.fn },
@@ -928,26 +944,48 @@ export function blockProblems(program: string, data: DashboardData): string[] {
 /**
  * The project, workspace, label and status names a program's `@Data` calls
  * use that fit nothing in the person's data, which leave their blocks empty,
- * one sentence each with the closest name when there is one.
+ * one sentence each with the closest name when there is one. A name whose
+ * saved ids (`saved`) are still there fits. With `loadedOnly`, a kind with
+ * nothing loaded yet is skipped, so a card drawn while its data loads says
+ * nothing.
  */
-export function dataProblems(program: string, data: DashboardData): string[] {
+export function dataProblems(program: string, data: DashboardData, saved?: DescribedNames, loadedOnly = false): string[] {
   if (!/@Data\s*\(/.test(program)) return [];
   const lookups = buildLookups(data);
   const problems = new Set<string>();
   for (const query of dataCalls(boardParser().parse(program).root)) {
-    const named: [string, Map<string, string>, string | undefined][] = [
-      ["project", lookups.projects, query.project],
-      ["workspace", lookups.workspaces, query.workspace],
-      ["label", lookups.labels, query.label],
-      ["status", lookups.statuses, query.status],
-    ];
-    for (const [what, names, name] of named) {
-      if (!name?.trim() || idsFor(names, name)?.[0] !== "__no_match__") continue;
+    for (const { kind, names, name } of namedFilters(query, lookups)) {
+      if (loadedOnly && names.size === 0) continue;
+      if (!name?.trim() || idsFor(names, name, saved?.[kind])?.[0] !== NO_MATCH) continue;
       const near = closestValue([...new Set(names.values())], name);
-      problems.add(`No ${what} is called “${name.trim()}”.${near ? ` The closest is “${near}”.` : ""}`);
+      problems.add(`No ${kind} is called “${name.trim()}”.${near ? ` The closest is “${near}”.` : ""}`);
     }
   }
   return [...problems];
+}
+
+/**
+ * What a drawn card or live block reads that isn't there, for the note over
+ * it: names that fit nothing (a project deleted, or renamed on a card made
+ * before cards kept ids), then sheets and docs it can't find.
+ */
+export function drawProblems(program: string, data: DashboardData, saved?: DescribedNames): string[] {
+  return [...dataProblems(program, data, saved, true), ...blockProblems(program, data)];
+}
+
+/** What each name in a program's `@Data` calls fits now, to keep with the card (DescribedPick.names). */
+export function describedNames(program: string, data: DashboardData): DescribedNames | undefined {
+  const lookups = buildLookups(data);
+  const out: DescribedNames = {};
+  for (const query of dataCalls(boardParser().parse(program).root)) {
+    for (const { kind, names, name } of namedFilters(query, lookups)) {
+      const wanted = name?.trim().toLowerCase();
+      const ids = idsFor(names, wanted);
+      if (!wanted || !ids || ids[0] === NO_MATCH) continue;
+      (out[kind] ??= {})[wanted] = ids;
+    }
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 // ---- Live blocks ----
@@ -977,16 +1015,21 @@ export function liveBlockCards(programs: string[]): DashboardCard[] {
     }));
 }
 
-/** The dashboard card for a described program, or null when it can't be read. */
+/**
+ * The dashboard card for a described program, or null when it can't be read.
+ * With the data, it keeps the ids the program's names fit, so the card
+ * follows a project or label through a rename.
+ */
 export function describedCard(id: string, prompt: string, program: string, data?: DashboardData): DashboardCard | null {
   const read = readBoardProgram(program, data);
   if (!read) return null;
+  const names = data ? describedNames(program, data) : undefined;
   return {
     id,
     type: "custom",
     title: read.title || prompt.slice(0, 60),
     w: read.size.w,
     h: read.size.h,
-    query: { ...read.fallback, described: { prompt: prompt.trim(), program } },
+    query: { ...read.fallback, described: { prompt: prompt.trim(), program, ...(names ? { names } : {}) } },
   };
 }

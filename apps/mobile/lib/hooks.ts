@@ -6,6 +6,8 @@ import { getDocs, getDoc, getDocBacklinks, createDoc, updateDoc, deleteDoc, setC
 import { tickedContent, type ChecklistTickRequest } from "@timely/contract/docChecklist";
 import type { CalendarRange, Doc, MentionEntityType, NotificationSettings, Project, Sheet, SheetTemplate, Task, TaskViewConfig, TodayResponse } from "./types";
 import { withOccurrenceDone, withTaskDone } from "@timely/contract/calendar";
+import { SEARCH_DEBOUNCE_MS, SEARCH_SETTLE_MS, searchQueryText } from "@timely/contract/searchQuery";
+import { reindexPollInterval } from "@timely/contract/reindexPoll";
 import { getSheets, getSheet, createSheet, updateSheet, deleteSheet, duplicateSheet, getSheetTemplates, createSheetTemplate, updateSheetTemplate, deleteSheetTemplate, materializeTemplateTab } from "./api/sheets";
 import { getProjects, getProject, createProject, updateProject, deleteProject, createStage, updateStage, deleteStage, reorderStages, duplicateProject, getProjectActivity } from "./api/projects";
 import { getWorkspaces, getConfig, updateConfig, updateTaskViewsConfig } from "./api/workspaces";
@@ -420,36 +422,66 @@ export function useMentionItems(): MentionItem[] {
   }, [docs, sheets, tasks, projects, workspaces]);
 }
 
-export function useSearchQuery(query: string) {
-  const [debounced, setDebounced] = useState(query);
-
+/** `value` once it has stayed the same for `ms`; the first value at once. */
+export function useSettled<T>(value: T, ms: number): T {
+  const [settled, setSettled] = useState(value);
   useEffect(() => {
-    const timer = setTimeout(() => setDebounced(query), 250);
+    const timer = setTimeout(() => setSettled(value), ms);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [value, ms]);
+  return settled;
+}
 
-  const trimmed = debounced.trim();
-  const result = useQuery({
-    queryKey: keys.search(trimmed),
-    queryFn: () => searchItems(trimmed),
-    enabled: trimmed.length > 0,
+/** `query` is the typed words; `settled` the same words once they have
+ * stopped changing (searchQuery.ts), for the searches that cost a model call. */
+export function useSearchQuery(query: string) {
+  const trimmed = searchQueryText(useSettled(query, SEARCH_DEBOUNCE_MS));
+  const settled = searchQueryText(useSettled(query, SEARCH_SETTLE_MS));
+  const enabled = trimmed.length > 0;
+  const semanticNow = enabled && settled === trimmed;
+  // Keyword hits are ready in milliseconds; the semantic ones wait on an
+  // embedding (up to a few seconds when the provider is slow), so they are
+  // asked once the typing settles, and a newer search drops an older one.
+  // Keyword hits show first and the semantic answer replaces them.
+  const semantic = useQuery({
+    queryKey: keys.search(settled),
+    queryFn: ({ signal }) => searchItems(settled, true, signal),
+    enabled: semanticNow,
   });
-  return { ...result, query: trimmed };
+  const keyword = useQuery({
+    queryKey: [...keys.search(trimmed), "keyword"],
+    queryFn: () => searchItems(trimmed, false),
+    enabled,
+  });
+  const semanticData = semanticNow ? semantic.data : undefined;
+  const data = semanticData ?? keyword.data;
+  // No keyword hits is not "no results" while the semantic ones may still find some.
+  const waitingForSemantic = enabled && !semanticData && (!semanticNow || semantic.isFetching) && !keyword.data?.length;
+  return {
+    data,
+    // Fetching with nothing to show yet.
+    isFetching: (!data && (semantic.isFetching || keyword.isFetching)) || waitingForSemantic,
+    isError: semanticNow && semantic.isError && keyword.isError,
+    refetch: () => Promise.all([semantic.refetch(), keyword.refetch()]),
+    query: trimmed,
+    settled,
+  };
 }
 
 /**
- * Smart suggestions' take on a search. Pass the `query` useSearchQuery
- * returns (already debounced and trimmed) so both run on the same text.
- * Nothing is requested while Smart suggestions are off.
+ * Smart suggestions' take on a search. Pass the `settled` text useSearchQuery
+ * returns, so Smart suggestions are asked once the typing stops, not at each
+ * pause. Nothing is requested while Smart suggestions are off. An answer
+ * without their order (they did not answer) is asked again next time.
  */
 export function useSmartSearchQuery(debouncedQuery: string, enabled = true) {
   const query = debouncedQuery.trim();
   const status = useDecisionsStatusQuery(enabled && query.length >= 2);
   const result = useQuery({
     queryKey: keys.smartSearch(query),
-    queryFn: () => smartSearch(query),
+    queryFn: ({ signal }) => smartSearch(query, signal),
     enabled: enabled && query.length >= 2 && status.data?.available === true,
-    staleTime: 5 * 60 * 1000,
+    staleTime: (q) => (q.state.data?.hits ? 5 * 60 * 1000 : 0),
     retry: false,
   });
   return { ...result, query };
@@ -484,15 +516,22 @@ export function useApiKeysQuery() {
   return useQuery({ queryKey: keys.apiKeys, queryFn: listApiKeys });
 }
 
-export function useAgentProvidersQuery() {
+/** The provider overview. Only Settings passes `watchReindex`, so the count
+ * of a running semantic-search rebuild moves there (reindexPollInterval);
+ * every other screen reads the overview once. */
+export function useAgentProvidersQuery({ watchReindex = false }: { watchReindex?: boolean } = {}) {
+  const since = useRef<number | null>(null);
   return useQuery({
     queryKey: keys.agentProviders,
     queryFn: getAgentProviders,
-    // Poll while the semantic-search rebuild runs so the count moves.
-    refetchInterval: (query) => {
-      const status = query.state.data?.reindex?.status;
-      return status === "queued" || status === "running" ? 2000 : false;
-    },
+    refetchInterval: watchReindex
+      ? (query) => {
+          const status = query.state.data?.reindex?.status;
+          if (status !== "queued" && status !== "running") since.current = null;
+          else since.current ??= Date.now();
+          return reindexPollInterval(status, since.current === null ? 0 : Date.now() - since.current);
+        }
+      : false,
   });
 }
 
@@ -542,7 +581,13 @@ function useDecisionSettingsMutation<TVars>(fn: (vars: TVars) => Promise<Decisio
   return useMutation({
     mutationFn: fn,
     onSuccess: (data) => client.setQueryData(keys.decisionSettings, data),
-    onSettled: () => client.invalidateQueries({ queryKey: keys.decisions }),
+    onSettled: () => {
+      client.invalidateQueries({ queryKey: keys.decisions });
+      // Highlights say whether suggestions are on; a search answered while
+      // they were on keeps its order and hidden hits only while they stay on.
+      client.invalidateQueries({ queryKey: ["highlights"] });
+      client.removeQueries({ queryKey: ["smart-search"] });
+    },
   });
 }
 
@@ -626,11 +671,12 @@ export function useDocHintsQuery(id: string | undefined, version: string, enable
   const status = useDecisionsStatusQuery(!!id && enabled);
   return useQuery({
     queryKey: keys.docHints(id ?? "", version),
-    queryFn: () => getDocHints(id!),
+    queryFn: ({ signal }) => getDocHints(id!, signal),
     enabled: !!id && enabled && status.data?.available === true,
     placeholderData: keepPreviousData,
     retry: false,
-    staleTime: 5 * 60 * 1000,
+    // A read that failed is asked again when the doc is opened next.
+    staleTime: (query) => (query.state.data?.failed ? 0 : 5 * 60 * 1000),
   });
 }
 
@@ -775,12 +821,36 @@ export function useTodaySuggestionsQuery(timezone: string, version: string, enab
   });
 }
 
-/** Dashboard Highlights for the facts the card worked out. */
-export function useHighlightsQuery(facts: { id: string; text: string }[], enabled = true) {
-  const factsKey = facts.map((fact) => fact.text).join("\n");
+type HighlightFact = { id: string; text: string };
+
+/** How often Highlights are asked again while the facts keep changing
+ * (a task ticked off changes them). */
+const HIGHLIGHTS_EVERY_MS = 3 * 60 * 1000;
+
+/** The facts to ask about. Until the card first asks (`enabled`, once its
+ * data has loaded) they are passed on as they are, so the first ask reads the
+ * loaded data, not the empty week drawn while it loaded. After that a change
+ * is passed on HIGHLIGHTS_EVERY_MS after the last one at the soonest, with
+ * the facts as they are then. */
+function useThrottledFacts(facts: HighlightFact[], enabled: boolean) {
+  const key = facts.map((fact) => fact.text).join("\n");
+  const [passed, setPassed] = useState<{ facts: HighlightFact[]; key: string; at: number } | null>(null);
+  useEffect(() => {
+    if (!enabled || passed?.key === key) return;
+    const wait = passed ? Math.max(0, passed.at + HIGHLIGHTS_EVERY_MS - Date.now()) : 0;
+    const timer = setTimeout(() => setPassed({ facts, key, at: Date.now() }), wait);
+    return () => clearTimeout(timer);
+  }, [enabled, facts, key, passed]);
+  return enabled && passed ? passed : { facts, key };
+}
+
+/** Dashboard Highlights for the facts the card worked out; asked again when
+ * the facts change, at most every few minutes. */
+export function useHighlightsQuery(facts: HighlightFact[], enabled = true) {
+  const asked = useThrottledFacts(facts, enabled);
   return useQuery({
-    queryKey: keys.highlights(factsKey),
-    queryFn: () => getHighlights(facts),
+    queryKey: keys.highlights(asked.key),
+    queryFn: () => getHighlights(asked.facts),
     enabled,
     placeholderData: keepPreviousData,
     retry: false,
@@ -876,7 +946,8 @@ export function useMergeTaxonomy(workspaceId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (merge: CleanupMerge) => mergeTaxonomy(workspaceId, merge),
-    onSuccess: () => {
+    // A merge refused for a rename made elsewhere refreshes them too.
+    onSettled: () => {
       void invalidate();
       // Saved views live in config.
       void client.invalidateQueries({ queryKey: keys.config });
@@ -989,6 +1060,11 @@ export function useSaveTask() {
     },
     onSuccess: (task, { data }) => {
       cacheTask(client, task);
+      // An Inbox item's suggestions are read from its words: a rename asks
+      // again, once the server has the new words (the cache changes earlier).
+      if (data.name !== undefined || data.description !== undefined) {
+        void client.resetQueries({ queryKey: keys.inboxSuggestions(task.id) });
+      }
       client.invalidateQueries({ queryKey: ["calendar"] });
       client.invalidateQueries({ queryKey: keys.freeTime });
       client.invalidateQueries({ queryKey: keys.today });

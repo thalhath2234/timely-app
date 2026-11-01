@@ -8,8 +8,9 @@ import { useSearch, useSmartSearch } from "@/app/utils/hooks/search";
 import { useConfig, useWorkingHoursZone, useWorkspaces } from "@/app/utils/hooks/workspaces";
 import type { Config, Project, Task, TaskViewConfig, Workspace } from "@/app/_types/types";
 import { matchViewByName } from "@timely/contract/viewSearch";
+import { searchQueryText } from "@timely/contract/searchQuery";
 import { describeView, readingIsListing, readViewQuery, viewFromAiDraft, viewFromReading, viewNoun, vocabularyFrom } from "@timely/contract/viewLanguage";
-import { runView } from "@timely/contract/taskQuery";
+import { runView, viewUsesSuggestedFields } from "@timely/contract/taskQuery";
 import { todayInZone } from "@timely/contract/workStatus";
 import { useTasks } from "@/app/utils/hooks/tasks";
 import { useProjects } from "@/app/utils/hooks/projects";
@@ -93,15 +94,17 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
   // The highlighted row, pinned by id once the person moves it, so results
   // that arrive or reorder later never move the highlight to another item.
   const [selection, setSelection] = useState<{ index: number; id?: string }>({ index: 0 });
-  const trimmed = query.trim();
+  // A pasted page is searched for its first part (searchQueryText).
+  const trimmed = searchQueryText(query);
   const search = useSearch(query);
   // Never show cached results for the previous query during the debounce window.
   const matchesCurrentQuery = search.query === trimmed;
   const hits = trimmed && matchesCurrentQuery ? search.data ?? [] : [];
   // Smart suggestions reorder the results, set clear misses aside and may
   // read the query as a command. Plain results show first; this applies when
-  // Jev answers, and only for the query on screen.
-  const smart = useSmartSearch(search.query);
+  // they answer, and only for the query on screen. They are asked once the
+  // typing settles, not at every pause between words.
+  const smart = useSmartSearch(search.settled);
   const smartData = trimmed && smart.query === trimmed && matchesCurrentQuery ? smart.data : undefined;
   const [showHidden, setShowHidden] = useState(false);
   // Counted per tab: a weak doc match is not one of the Sheets tab's results.
@@ -167,9 +170,18 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
   }] : [];
   // A search that names a saved view ("show my deadline") opens it straight
   // away, with or without Smart suggestions; one that reads as "show me what
-  // needs attention" gets Smart suggestions' pick.
-  const namedView = trimmed ? matchViewByName(trimmed, savedViews) : undefined;
-  const viewPick = namedView ?? smartData?.view;
+  // needs attention" gets Smart suggestions' pick. A named view that filters
+  // on effort or urgency and lists nothing is not offered: smart suggestions
+  // fill those fields, so it would open empty.
+  const named = trimmed ? matchViewByName(trimmed, savedViews) : undefined;
+  const namedShows = useViewHasTasks(named);
+  const namedView = named && (namedShows || !viewUsesSuggestedFields(named)) ? named : undefined;
+  // Smart suggestions' pick is offered only while the view is still saved and
+  // has tasks to show: one that filters on effort or urgency nobody has read
+  // yet would open empty.
+  const smartView = useMemo(() => savedViews.find((view) => view.id === smartData?.view?.id), [savedViews, smartData?.view?.id]);
+  const smartViewShows = useViewHasTasks(smartView);
+  const viewPick = namedView ?? (smartView && smartViewShows ? smartData?.view : undefined);
   const viewItems: PaletteItem[] = viewPick && (category === "all" || category === "task") ? [{
     id: `view-${viewPick.id}`, title: `Open view “${viewPick.name}”`, description: namedView ? "Your saved view in Tasks" : "Your saved view for this", kind: "view", icon: ListFilter, section: "suggested",
     run: () => {
@@ -279,6 +291,13 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** Whether a saved view lists any task now. */
+function useViewHasTasks(view: TaskViewConfig | undefined) {
+  const { data: tasks } = useTasks();
+  const timeZone = useWorkingHoursZone();
+  return useMemo(() => (view ? runView((tasks ?? []) as Task[], view, { timeZone }).length > 0 : false), [view, tasks, timeZone]);
+}
+
 /**
  * Search words read as a list of tasks [natural-language views]: "show task
  * deadline" lists tasks with a deadline instead of keyword hits. The reading
@@ -313,9 +332,12 @@ function useListing(query: string, config: Config | undefined) {
   const aiState = ai?.query === query ? ai : undefined;
   const askAi = () => {
     setAi({ query, busy: true });
+    // An answer for words since changed is dropped: it would end the newer
+    // read's busy state, and a second click would ask for it again.
+    const settle = (next: NonNullable<typeof ai>) => setAi((current) => (current?.query === query ? next : current));
     readViewWithAi({ query, today, client: "web" })
-      .then((result) => setAi({ query, view: viewFromAiDraft(result.view, "preview", vocab, { prompt: query }), dropped: result.dropped }))
-      .catch((error: Error) => setAi({ query, error: error.message }));
+      .then((result) => settle({ query, view: viewFromAiDraft(result.view, "preview", vocab, { prompt: query }), dropped: result.dropped }))
+      .catch((error: Error) => settle({ query, error: error.message }));
   };
   if (!view) {
     // Words the plain reading can't place ("stuff I keep putting off") can

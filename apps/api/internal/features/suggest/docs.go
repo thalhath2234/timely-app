@@ -90,6 +90,10 @@ type DocHints struct {
 	// TodosOff: the person turned off checklist items offered as tasks for
 	// this doc (DocChecklist), so its switch shows off.
 	TodosOff bool `json:"todosOff,omitempty"`
+	// Failed: smart suggestions were busy or did not answer, so the hints
+	// are missing, not empty; the apps ask again the next time the doc is
+	// opened.
+	Failed bool `json:"failed,omitempty"`
 }
 
 func (s *Service) docHints(c *echo.Context) error {
@@ -227,6 +231,9 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 	}
 	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "doc_hints", State: state, Questions: questions})
 	if err != nil {
+		// Busy or failed: nothing to offer this time, and the apps ask again
+		// instead of keeping the empty answer.
+		out.Failed = true
 		return out, nil
 	}
 	out.LogID = a.LogID

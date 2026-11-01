@@ -7,10 +7,10 @@
  * bars, shares become meters and text becomes the note. Pure, so
  * `make test-mobile-widgets` runs it under Node.
  */
-import { fitQuery, type DashboardData } from "@timely/contract/dashboard";
+import { fitQuery, type DashboardData, type DescribedNames } from "@timely/contract/dashboard";
 import { checklistItems, findChecklistItem, type DocChecklistItem } from "@timely/contract/docChecklist";
 import { genuiColorHex, genuiNodes, replyBlocks, type GenuiNode } from "@timely/contract/genui";
-import { blockProblems, chartQueries, dataCardQuery, drawBoard, type ChartQuery } from "@timely/contract/genuiBoard";
+import { chartQueries, dataCardQuery, drawBoard, drawProblems, type ChartQuery } from "@timely/contract/genuiBoard";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
 import type { WidgetModel, WidgetRow, WidgetTone } from "./model";
 
@@ -53,12 +53,12 @@ const TIME_GROUPS = new Set(["day", "week", "month"]);
  * today in this month by day. A sheet's latest entries keep their last rows.
  * Anything else, such as a chart sorted largest first, keeps its first bars.
  */
-function barsStart(query: ChartQuery | undefined, count: number, today: string, source: DashboardData): number {
+function barsStart(query: ChartQuery | undefined, count: number, today: string, source: DashboardData, names?: DescribedNames): number {
   if (count <= BARS) return 0;
   const latest = count - BARS;
   // The bars come from the query @Data runs (runData), which can regroup a time the
   // range can't hold or turn "next" into "last" for dates that are only ever past.
-  const series = query?.data?.by ? fitQuery({ ...dataCardQuery(query.data, source), display: "bar", groupBy: query.data.by }) : undefined;
+  const series = query?.data?.by ? fitQuery({ ...dataCardQuery(query.data, source, names), display: "bar", groupBy: query.data.by }) : undefined;
   if (series && TIME_GROUPS.has(series.groupBy)) {
     const range = series.range.preset;
     if (range.startsWith("next")) return 0;
@@ -74,11 +74,12 @@ function blocksOf(root: GenuiNode): GenuiNode[] {
   return replyBlocks(root.props.blocks).flatMap((block) => (block.typeName === "Columns" ? genuiNodes(block.props.cards) : [block]));
 }
 
-export function describedModel(program: string, input: Input, title: string): WidgetModel {
+/** `names` are the card's DescribedPick.names, so it follows a rename as on the Dashboard. */
+export function describedModel(program: string, input: Input, title: string, names?: DescribedNames): WidgetModel {
   const link = (path: string) => `${input.scheme}://${path}`;
   let root: GenuiNode | null = null;
   try {
-    root = drawBoard(program, input.data, { now: input.now, timeZone: input.timeZone });
+    root = drawBoard(program, input.data, { now: input.now, timeZone: input.timeZone }, names);
   } catch {
     root = null;
   }
@@ -91,7 +92,8 @@ export function describedModel(program: string, input: Input, title: string): Wi
   const checklist = (docId: string) => {
     if (!checklists.has(docId)) {
       const doc = input.data.docs?.find((entry) => entry.id === docId);
-      checklists.set(docId, doc ? checklistItems(doc.content) : undefined);
+      // An archived doc offers no ticks (the API refuses them).
+      checklists.set(docId, doc ? (doc.archivedAt ? [] : checklistItems(doc.content)) : undefined);
     }
     return checklists.get(docId);
   };
@@ -205,7 +207,7 @@ export function describedModel(program: string, input: Input, title: string): Wi
         } catch {
           query = undefined;
         }
-        const start = barsStart(query, all.length, today, input.data);
+        const start = barsStart(query, all.length, today, input.data, names);
         const values = all.slice(start, start + BARS);
         const max = Math.max(...values, 0);
         const highlight = text(p.highlight);
@@ -233,11 +235,11 @@ export function describedModel(program: string, input: Input, title: string): Wi
   if (meters.length) model.meters = meters.slice(0, METERS);
   if (notes.length && !rows.length) model.note = notes.join("\n");
   if (model.bars && !model.bars.length) delete model.bars;
-  // A doc or sheet the program names but can't find says so, as on the Dashboard,
-  // instead of reading as an empty list ("Everything is ticked off").
+  // A name, doc or sheet the program names but can't find says so, as on the
+  // Dashboard, instead of reading as an empty list ("Everything is ticked off").
   let problem = "";
   try {
-    problem = blockProblems(program, input.data)[0] ?? "";
+    problem = drawProblems(program, input.data, names)[0] ?? "";
   } catch {
     problem = "";
   }

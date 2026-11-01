@@ -24,7 +24,7 @@ export default function SaveStatusBadge({
         >
           <span
             className={`size-1.5 rounded-full ${
-              status === "error"
+              status === "error" || status === "rejected"
                 ? "bg-destructive"
                 : status === "saving" || status === "unsaved"
                   ? "bg-warning"

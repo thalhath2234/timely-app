@@ -260,10 +260,16 @@ function CheckRow({ props }: KitProps<"CheckRow">) {
   const doc = useLiveDoc(props.docId);
   const tick = useSetChecklistItem();
   const link = useContext(Link);
-  const items = useMemo(() => checklistItems(doc?.content), [doc?.content]);
+  // An archived doc offers no ticks, as @Checklist leaves it out (the API
+  // refuses them too).
+  const archived = Boolean(doc?.archivedAt);
+  const items = useMemo(() => (archived ? [] : checklistItems(doc?.content)), [archived, doc?.content]);
   const item = findChecklistItem(items, props.text, props.item);
   const text = item?.text ?? props.text;
   const done = Boolean(item?.done);
+  // Say why a loaded doc's item can't be ticked here: it was archived, or its
+  // words now match no item or more than one.
+  const blocked = archived ? "Doc archived" : doc && !item ? "Open the doc to tick" : undefined;
   const toggle = () => {
     if (!item) return;
     tick.mutate(
@@ -276,7 +282,7 @@ function CheckRow({ props }: KitProps<"CheckRow">) {
   };
   return (
     <Row
-      meta={props.note}
+      meta={blocked ?? props.note}
       lead={
         <TaskCheck
           checked={done}

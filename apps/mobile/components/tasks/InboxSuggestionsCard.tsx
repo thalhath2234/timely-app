@@ -229,6 +229,8 @@ export default function InboxSuggestionsCard({
           ))}
         </View>
       ) : null}
+      {/* Said even when the item's own words filled a date: the rest was not read. */}
+      {data?.error ? <Text style={styles.hint}>{data.error}</Text> : null}
       <View style={styles.actions}>
         {plan.update ? (
           <AnimatedPressable

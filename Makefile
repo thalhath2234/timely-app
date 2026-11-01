@@ -209,7 +209,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-change-review test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-inbox test-starter-labels test-view-search test-view-language test-dashboard test-genui test-mobile-live-block test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-web-api-proxy test-chat-stream test-project-delete test-bulk-edit test-mobile-event-occurrence test-calendar-occurrence-done test-mobile-meeting-url test-mobile-back-fallback ## Run all tests
+test: test-api test-markdown-parity test-change-review test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-inbox test-starter-labels test-view-search test-view-language test-dashboard test-genui test-mobile-live-block test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-web-api-proxy test-chat-stream test-project-delete test-bulk-edit test-autosave test-client-calls test-mobile-event-occurrence test-calendar-occurrence-done test-mobile-meeting-url test-mobile-back-fallback ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -315,6 +315,14 @@ format-sheet-formulas: ## Format shared sheet logic and tests
 test-markdown-parity: ## Test that the web/mobile Markdown importer reads the API's export back into the same doc
 	@node --experimental-strip-types --test scripts/markdown-parity.test.mjs
 
+.PHONY: test-autosave
+test-autosave: ## Test the shared autosave queue: a change the server refuses is dropped and later edits still save
+	@node --experimental-strip-types --test scripts/autosave-queue.test.mjs
+
+.PHONY: test-client-calls
+test-client-calls: ## Test when the apps ask for searches and suggestions that cost a model call: settled typing, clipped queries, rebuild polling
+	@node --experimental-strip-types --test scripts/client-calls.test.mjs
+
 .PHONY: test-bulk-edit
 test-bulk-edit: ## Test that bulk task edits undo per task and that Set label adds the label by name per workspace
 	@node --experimental-strip-types --test scripts/bulk-edit.test.mjs
@@ -324,7 +332,7 @@ test-change-review: ## Test how an Agent proposal is grouped for review: one ite
 	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/change-review.test.mjs
 
 .PHONY: test-doc-checklist
-test-doc-checklist: ## Test which doc checklist items are offered as tasks, and the task name and description they get
+test-doc-checklist: ## Test which doc checklist items are offered as tasks, the task name and description they get, and when a doc's suggestions are read again
 	@node --experimental-strip-types --test scripts/doc-checklist.test.mjs
 
 .PHONY: test-work-status
