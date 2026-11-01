@@ -8,6 +8,7 @@ import { createLibrary, Renderer, type ComponentRenderer } from "@openuidev/reac
 import {
   GENUI_ROOT,
   replyBlocks,
+  replyDraws,
   splitReply,
   spokenTime,
   withRenderers,
@@ -101,8 +102,8 @@ function Cards({ code }: { code: string }) {
       response={code}
       library={library}
       publishObservability={false}
-      // Reply cards arrive whole, so no result is a block that did not parse.
-      onParseResult={(result) => setEmpty(!result?.root)}
+      // Reply cards arrive whole, so a program that draws nothing did not parse.
+      onParseResult={(result) => setEmpty(!replyDraws(result?.root))}
     />
   );
 }

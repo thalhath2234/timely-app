@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test, { describe } from "node:test";
-import { genuiParser, genuiPrompt, replyBlocks, replyText, splitReply } from "../packages/contract/src/genui.ts";
+import { genuiParser, genuiPrompt, replyBlocks, replyDraws, replyText, splitReply } from "../packages/contract/src/genui.ts";
 
 const prompt = genuiPrompt();
 
@@ -66,6 +66,14 @@ describe("parser", () => {
     assert.deepEqual(replyBlocks(cut.root.props.blocks).map((block) => block.props.title), ["Today"]);
     const linked = genuiParser().parse('root = Reply([c])\nc = Card("Tasks", [], "0", open)\nopen = Open("Open Tasks", "tasks")');
     assert.equal(replyBlocks(linked.root.props.blocks).length, 1, "an empty card with a link still shows");
+  });
+
+  test("a program that draws nothing shows the fallback, not an empty space", () => {
+    const draws = (code) => replyDraws(genuiParser().parse(code).root);
+    assert.equal(draws('root = Reply([c])\nc = Card("Broken", [Broken('), false, "every card cut off");
+    assert.equal(draws("root = Foo()"), false, "no root");
+    assert.equal(draws("root = Reply([])"), false, "no cards");
+    assert.equal(draws('root = Reply([a, b])\na = Card("Today", [r])\nr = TaskRow("tsk_1", "Plan")\nb = Card("Broken", [x, y]'), true, "one card left");
   });
 
   test("flags components outside the list", () => {
