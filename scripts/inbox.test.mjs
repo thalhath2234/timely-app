@@ -159,4 +159,21 @@ describe("inboxSuggestionWords", () => {
   test("is empty before either copy is loaded", () => {
     assert.equal(inboxSuggestionWords(undefined, undefined), "");
   });
+
+  test("orders saves within one second by time, not by text", () => {
+    // The server drops trailing zeros: .1 is later than .09, and a whole
+    // second earlier than any fraction of it.
+    const at = (name, updatedAt) => ({ name, description: "", updatedAt });
+    assert.equal(inboxSuggestionWords(at("old", "2026-11-01T02:33:05.09Z"), at("new", "2026-11-01T02:33:05.1Z")), "new\n");
+    assert.equal(inboxSuggestionWords(at("new", "2026-11-01T02:33:05.1Z"), at("old", "2026-11-01T02:33:05.09Z")), "new\n");
+    assert.equal(inboxSuggestionWords(at("old", "2026-11-01T02:33:05Z"), at("new", "2026-11-01T02:33:05.5Z")), "new\n");
+    assert.equal(
+      inboxSuggestionWords(at("old", "2026-11-01T02:33:05.123456Z"), at("new", "2026-11-01T02:33:05.1234567Z")),
+      "new\n",
+    );
+    // Another zone written out is still the same moment.
+    assert.equal(inboxSuggestionWords(at("new", "2026-11-01T08:03:06+05:30"), at("old", "2026-11-01T02:33:05.9Z")), "new\n");
+    // Equal times keep the list's copy, as before.
+    assert.equal(inboxSuggestionWords(at("listed", "2026-11-01T02:33:05.5Z"), at("own", "2026-11-01T02:33:05.50Z")), "listed\n");
+  });
 });

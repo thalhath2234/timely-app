@@ -131,3 +131,36 @@ func TestAssertNoDependencyCycle(t *testing.T) {
 		t.Fatal("self reference should be rejected")
 	}
 }
+
+func TestClearStaleTraits(t *testing.T) {
+	level := 3
+	before := &models.Task{Name: "Pay invoice", Description: "For March", EffortKind: "admin", Urgency: &level}
+
+	// The tester's rename: "Pay invoice" became "Design new logo".
+	updates := map[string]any{"name": "Design new logo"}
+	clearStaleTraits(before, updates)
+	if updates["effort_kind"] != "" || updates["urgency"] != nil {
+		t.Fatalf("a rename should clear effort and urgency, got %v", updates)
+	}
+	if _, ok := updates["urgency"]; !ok {
+		t.Fatal("urgency should be written as null")
+	}
+
+	updates = map[string]any{"description": "For April"}
+	clearStaleTraits(before, updates)
+	if _, ok := updates["effort_kind"]; !ok {
+		t.Fatal("a new description should clear effort and urgency")
+	}
+
+	// Autosave sends the same words with other edits: the traits stay.
+	updates = map[string]any{"name": "Pay invoice", "description": "For March", "priority_level": "High"}
+	clearStaleTraits(before, updates)
+	if _, ok := updates["effort_kind"]; ok {
+		t.Fatalf("unchanged words should keep the traits, got %v", updates)
+	}
+	updates = map[string]any{"priority_level": "High"}
+	clearStaleTraits(before, updates)
+	if _, ok := updates["urgency"]; ok {
+		t.Fatalf("an edit without words should keep the traits, got %v", updates)
+	}
+}
