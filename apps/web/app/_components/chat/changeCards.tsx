@@ -610,9 +610,9 @@ function EventRows({
 function FieldRows({ fields }: { fields: ReviewField[] }) {
   return (
     <dl className="divide-y divide-border border-t border-border">
-      {fields.map((field) => (
+      {fields.map((field, i) => (
         <div
-          key={field.label}
+          key={`${i}:${field.label}`}
           className={cn(
             "flex min-h-10 gap-4 px-4 py-2 text-[13px]",
             field.blocks ? "flex-col gap-1.5" : "items-center justify-between",

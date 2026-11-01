@@ -524,7 +524,7 @@ function FieldRows({ fields }: { fields: ReviewField[] }) {
     <View style={styles.section}>
       {fields.map((field, i) => (
         <View
-          key={field.label}
+          key={`${i}:${field.label}`}
           style={[
             field.blocks ? styles.fieldBlock : styles.field,
             i > 0 && styles.rowLine,
