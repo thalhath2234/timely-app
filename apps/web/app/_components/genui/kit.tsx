@@ -67,11 +67,12 @@ export function RowGroup({ rows, renderNode }: { rows: unknown; renderNode: (nod
   const timed = nodes.some((row) => TIMED.has(row.typeName) && row.props.time);
   // Share bars line up when the value column fits the longest value, such as an amount of money.
   const longest = Math.max(0, ...nodes.filter((row) => row.typeName === "ShareRow").map((row) => String(row.props.value ?? "").length));
-  // The time column fits the longest time ("Due Tue 3 Nov", not only "17:00") up to a cap, past which it truncates.
+  // The time column fits the longest time ("Due Tue 3 Nov", not only "17:00") up to a cap, past which it truncates;
+  // on a narrow card the cap is 40% of the row, so the titles keep most of it.
   const longestTime = Math.max(0, ...nodes.filter((row) => TIMED.has(row.typeName)).map((row) => String(row.props.time ?? row.props.from ?? "").length));
   const columns = {
     ...(longest ? { "--share-value": `max(84px, ${longest + 1}ch)` } : {}),
-    ...(longestTime > 5 ? { "--time-column": `min(${longestTime + 1}ch, 7.5rem)` } : {}),
+    ...(longestTime > 5 ? { "--time-column": `min(${longestTime + 1}ch, 7.5rem, 40%)` } : {}),
   } as CSSProperties;
   return (
     <Place.Provider value="card">
@@ -258,7 +259,7 @@ function TaskRow({ props }: KitProps<"TaskRow">) {
           onToggle={toggle}
           disabled={!task}
           label={done ? `Reopen ${title}` : `Complete ${title}`}
-          className={cn(missing && "opacity-40")}
+          className={cn(missing && "opacity-50")}
         />
       }
     >

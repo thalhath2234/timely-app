@@ -234,7 +234,7 @@ function TaskRow({ props }: KitProps<"TaskRow">) {
           disabled={!task}
           size={20}
           label={done ? `Reopen ${title}` : `Complete ${title}`}
-          style={missing ? { opacity: 0.4 } : undefined}
+          style={missing ? { opacity: 0.5 } : undefined}
         />
       }
     >
