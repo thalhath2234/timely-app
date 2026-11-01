@@ -65,6 +65,9 @@ type overview struct {
 	Codex           cliView        `json:"codex"`
 	APIs            []apiView      `json:"apiProviders"`
 	Reindex         ReindexState   `json:"reindex"`
+	// AutoProvider is what an empty default picks, also while another
+	// provider is chosen, so the apps can name it beside Automatic.
+	AutoProvider string `json:"autoProvider"`
 }
 
 func (s *Service) view(ctx context.Context, row Settings, maxAge time.Duration) overview {
@@ -86,9 +89,10 @@ func (s *Service) view(ctx context.Context, row Settings, maxAge time.Duration) 
 		out.Codex = cliView{Enabled: true, Status: codex, Connected: row.CodexConnectedAt != nil, ConnectedAt: row.CodexConnectedAt, Model: s.chatModel(row, CodexCLI)}
 		out.Codex.Ready = out.Codex.Connected && codex.Found && codex.LoggedIn
 	}
+	out.AutoProvider = autoProvider(row, rows, s.localCLI)
 	out.DefaultChosen = out.DefaultProvider != ""
 	if !out.DefaultChosen {
-		out.DefaultProvider = autoProvider(row, rows, s.localCLI)
+		out.DefaultProvider = out.AutoProvider
 	}
 	return out
 }

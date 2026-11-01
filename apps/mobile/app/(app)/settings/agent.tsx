@@ -17,7 +17,9 @@ import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ConfirmSheet, {
   type ConfirmRequest,
 } from "../../../components/ui/ConfirmSheet";
-import { Field, PrimaryButton } from "../../../components/ui/primitives";
+import { Field, PrimaryButton, Select, type SelectOption } from "../../../components/ui/primitives";
+import { GroupHint, ListGroup } from "../../../components/settings/SettingsList";
+import { readyProviders } from "../../../components/chat/ModelSheet";
 import {
   useAgentProvidersQuery,
   useConnectProvider,
@@ -224,6 +226,7 @@ function ProviderCard({
 }) {
   const patch = usePatchAgentProviders();
   const isDefault = data.defaultProvider === id;
+  const auto = !data.defaultChosen;
   return (
     <View
       style={[styles.card, isDefault && styles.cardDefault]}
@@ -232,19 +235,21 @@ function ProviderCard({
       <View style={styles.row}>
         <Text style={styles.title}>{PROVIDER_LABELS[id]}</Text>
         {isDefault ? (
-          <Badge tone="primary">Default</Badge>
+          <Badge tone="primary">{auto ? "Automatic default" : "Default"}</Badge>
         ) : ready ? (
           <Badge tone="ok">Ready</Badge>
         ) : null}
       </View>
       <Text style={styles.meta}>{description}</Text>
       {children}
-      {!isDefault ? (
+      {!isDefault || auto ? (
         <PrimaryButton
           label={
             patch.isPending && patch.variables?.defaultProvider === id
               ? "Switching…"
-              : "Use as default"
+              : isDefault
+                ? "Keep as default"
+                : "Use as default"
           }
           disabled={!ready || patch.isPending}
           onPress={() => patch.mutate({ defaultProvider: id })}
@@ -768,6 +773,66 @@ function LearnedDefaults() {
 
 const CUSTOM_ENDPOINT = "custom";
 
+const AUTOMATIC = "automatic";
+
+/** Which provider runs new chats and the writing tools. Automatic leaves the
+ * pick to the server: the first provider set up, OpenRouter last (ADR 0019).
+ * A chosen provider stays until it is removed or Automatic is picked again. */
+function DefaultProviderGroup({ data }: { data: AgentProviders }) {
+  const patch = usePatchAgentProviders();
+  const ready = readyProviders(data);
+  const chosen = data.defaultChosen ? data.defaultProvider : "";
+  const auto = data.autoProvider ? PROVIDER_LABELS[data.autoProvider] : "";
+  const options: SelectOption[] = [
+    { value: AUTOMATIC, label: auto ? `Automatic · ${auto}` : "Automatic" },
+    ...ready.map((p) => ({ value: p.id, label: PROVIDER_LABELS[p.id] })),
+  ];
+  // A chosen provider that is not ready right now (signed out) stays named.
+  if (chosen && !ready.some((p) => p.id === chosen))
+    options.push({ value: chosen, label: PROVIDER_LABELS[chosen] });
+  const saving = patch.isPending ? patch.variables?.defaultProvider : undefined;
+  const value = (saving ?? chosen) || AUTOMATIC;
+
+  let hint: string;
+  if (!chosen && !auto)
+    hint = "Add a key below. The first provider you set up runs new chats.";
+  else if (!chosen)
+    hint = "Picked automatically: the first provider you set up, OpenRouter last. Choose one to keep it.";
+  else if (auto && auto !== PROVIDER_LABELS[chosen])
+    hint = `Chosen by you. Automatic would pick ${auto}.`;
+  else hint = "Chosen by you. Automatic picks the first provider you set up.";
+
+  return (
+    <View testID="default-provider" style={{ gap: 6 }}>
+      <ListGroup>
+        <Select
+          trigger="row"
+          label="Default provider"
+          value={value}
+          onChange={(next) => {
+            if (patch.isPending || next === value) return;
+            patch.mutate({
+              defaultProvider: next === AUTOMATIC ? "" : (next as ProviderId),
+            });
+          }}
+          options={options}
+        />
+      </ListGroup>
+      {patch.error ? (
+        <Text style={[styles.error, { marginHorizontal: 4 }]}>
+          {errorMessage(patch.error, "Could not switch provider.")}
+        </Text>
+      ) : (
+        <GroupHint>
+          {saving !== undefined
+            ? "Switching…"
+            : `Runs new chats and Help me write. ${hint}`}
+        </GroupHint>
+      )}
+    </View>
+  );
+}
+
 /** The direct API providers folded into one dropdown, so OpenRouter and Smart
  * suggestions stay the two keys people see first. */
 function MoreApiKeys({
@@ -782,7 +847,7 @@ function MoreApiKeys({
   const connected = providers.filter((view) => view.connected);
   const defaultView = providers.find((view) => view.id === data.defaultProvider);
   const summary = defaultView
-    ? `${defaultView.label} runs new chats`
+    ? `${defaultView.label} runs new chats${data.defaultChosen ? "" : " · automatic"}`
     : connected.length > 0
       ? connected.map((view) => view.label).join(", ")
       : providers.length > 3
@@ -897,7 +962,9 @@ function ApiProviderRow({
           {view.label}
         </Text>
         {isDefault ? (
-          <Badge tone="primary">Default</Badge>
+          <Badge tone="primary">
+            {data.defaultChosen ? "Default" : "Automatic default"}
+          </Badge>
         ) : view.connected ? (
           <Badge tone="ok">{view.keySet ? "Key saved" : "Connected"}</Badge>
         ) : null}
@@ -1088,7 +1155,7 @@ function ApiProviderRow({
               answer without it.
             </Text>
           ) : null}
-          {view.connected && !isDefault ? (
+          {view.connected && (!isDefault || !data.defaultChosen) ? (
             <Pressable
               accessibilityRole="button"
               disabled={!view.ready || patch.isPending}
@@ -1098,7 +1165,9 @@ function ApiProviderRow({
               <Text style={styles.smallLink}>
                 {patch.isPending && patch.variables?.defaultProvider === view.id
                   ? "Switching…"
-                  : "Use as default"}
+                  : isDefault
+                    ? "Keep as default"
+                    : "Use as default"}
               </Text>
             </Pressable>
           ) : null}
@@ -1279,6 +1348,7 @@ export default function AgentSettings() {
         ) : null}
         {data ? (
           <>
+            <DefaultProviderGroup data={data} />
             <OpenRouterCard data={data} confirm={setConfirm} />
             {decisions.data ? (
               <SmartSuggestionsCard

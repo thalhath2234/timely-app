@@ -83,13 +83,36 @@ func (s *Service) dashboardCard(c *echo.Context) error {
 func (s *Service) LiveBlock(ctx context.Context, userID, words, current, today string) (string, error) {
 	answer, err := s.describeCard(ctx, userID, dashboardCardRequest{Prompt: words, Current: current, Place: "doc", Today: today})
 	if err != nil {
-		var he *echo.HTTPError
-		if errors.As(err, &he) {
-			return "", errors.New(fmt.Sprint(he.Message))
-		}
-		return "", err
+		return "", toolError(err)
 	}
 	return answer.Program, nil
+}
+
+// liveBlockStandIn is the program a rehearsed new live block gets.
+const liveBlockStandIn = `root = Panel("Live block", [])`
+
+// RehearseLiveBlock takes LiveBlock's place while an Agent proposal is
+// rehearsed. That doc is rolled back and the review shows the person's words,
+// never the program, so asking the model there would write every block twice:
+// once for nothing, then again on apply. It still refuses when no provider can
+// write the block, and a changed block keeps its current program.
+func (s *Service) RehearseLiveBlock(ctx context.Context, userID, words, current, today string) (string, error) {
+	if _, _, err := s.describeCompleter(ctx, userID, "doc"); err != nil {
+		return "", toolError(err)
+	}
+	if current = strings.TrimSpace(current); current != "" {
+		return current, nil
+	}
+	return liveBlockStandIn, nil
+}
+
+// toolError gives an agent tool the message of an HTTP error.
+func toolError(err error) error {
+	var he *echo.HTTPError
+	if errors.As(err, &he) {
+		return errors.New(fmt.Sprint(he.Message))
+	}
+	return err
 }
 
 func (s *Service) describeCard(ctx context.Context, userID string, req dashboardCardRequest) (dashboardCardResponse, error) {
