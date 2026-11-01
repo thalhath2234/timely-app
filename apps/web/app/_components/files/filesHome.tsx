@@ -19,7 +19,7 @@ import {
   useUpdateSheet,
   useUpdateSheetTemplate,
 } from "@/app/utils/hooks/sheets";
-import { importErrorMessage, readMarkdownFile } from "@/app/utils/importMarkdown";
+import { IMPORT_ERROR_MS, importErrorMessage, readMarkdownFile } from "@/app/utils/importMarkdown";
 import { importCsvGrid } from "@/app/utils/sheetCsv";
 import { fileHref } from "@/app/utils/fileRoutes";
 import { QueryFailure } from "@/app/_components/_ui/loadError";
@@ -118,7 +118,7 @@ export default function FilesHome() {
       });
       router.push(fileHref(doc.id));
     } catch (error) {
-      useToastStore.getState().show(importErrorMessage(file, error));
+      useToastStore.getState().show(importErrorMessage(file, error), undefined, IMPORT_ERROR_MS);
     }
   };
 

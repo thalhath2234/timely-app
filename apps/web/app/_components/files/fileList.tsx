@@ -39,7 +39,7 @@ import { importCsvGrid } from "@/app/utils/sheetCsv";
 import { openDailyDoc } from "@/app/utils/api/docs";
 import { useToastStore } from "@/app/_store/toastStore";
 import { QueryFailure } from "@/app/_components/_ui/loadError";
-import { importErrorMessage, readMarkdownFile } from "@/app/utils/importMarkdown";
+import { IMPORT_ERROR_MS, importErrorMessage, readMarkdownFile } from "@/app/utils/importMarkdown";
 import { useCollapsedPanel } from "@/app/utils/hooks/useCollapsedPanel";
 import { useContextMenu } from "@/app/_components/_ui/contextMenu";
 import { useDocContextMenu } from "@/app/utils/hooks/useDocContextMenu";
@@ -331,7 +331,7 @@ export default function FileList() {
       });
       router.push(fileHref(doc.id));
     } catch (error) {
-      useToastStore.getState().show(importErrorMessage(file, error));
+      useToastStore.getState().show(importErrorMessage(file, error), undefined, IMPORT_ERROR_MS);
     }
   };
 
