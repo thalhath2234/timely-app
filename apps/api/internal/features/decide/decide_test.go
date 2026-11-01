@@ -125,7 +125,9 @@ func TestTypeSafeFirst(t *testing.T) {
 }
 
 func TestFallbackToOpenRouter(t *testing.T) {
-	for _, code := range []int{401, 429, 500, 529} {
+	// Out of credit (402), forbidden (403), not found and timed out (408) are
+	// about the TypeSafe account or service, so the OpenRouter key is tried.
+	for _, code := range []int{401, 402, 403, 404, 408, 429, 500, 529} {
 		ts, or := &fakeJev{status: code}, &fakeJev{answer: yesAnswer(0.2)}
 		s, c := newTest(t, Keys{Enabled: true, TypeSafe: "ts-key-123", OpenRouter: "or-key-123"}, ts, or)
 		var rejected string
@@ -147,13 +149,17 @@ func TestFallbackToOpenRouter(t *testing.T) {
 }
 
 func TestBadRequestDoesNotFallBack(t *testing.T) {
-	ts, or := &fakeJev{status: 422}, &fakeJev{answer: yesAnswer(0.2)}
-	s, _ := newTest(t, Keys{Enabled: true, TypeSafe: "ts-key-123", OpenRouter: "or-key-123"}, ts, or)
-	if _, err := s.Ask(context.Background(), "u1", oneYesNo()); !errors.Is(err, ErrOff) {
-		t.Fatalf("want ErrOff, got %v", err)
-	}
-	if or.hits.Load() != 0 {
-		t.Fatal("a 422 from TypeSafe went on to OpenRouter")
+	// OpenRouter gets the same body, so a request TypeSafe could not take
+	// stays with TypeSafe.
+	for _, code := range []int{400, 413, 422} {
+		ts, or := &fakeJev{status: code}, &fakeJev{answer: yesAnswer(0.2)}
+		s, _ := newTest(t, Keys{Enabled: true, TypeSafe: "ts-key-123", OpenRouter: "or-key-123"}, ts, or)
+		if _, err := s.Ask(context.Background(), "u1", oneYesNo()); !errors.Is(err, ErrOff) {
+			t.Fatalf("%d: want ErrOff, got %v", code, err)
+		}
+		if or.hits.Load() != 0 {
+			t.Fatalf("a %d from TypeSafe went on to OpenRouter", code)
+		}
 	}
 }
 

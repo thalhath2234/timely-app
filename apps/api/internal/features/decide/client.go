@@ -65,13 +65,15 @@ func (e *StatusError) Error() string {
 }
 
 // fallback reports whether a TypeSafe failure should move the call to
-// OpenRouter: timeouts, rate limits, overload and server errors. A refused
-// key (401) also falls back, since the person may have only an OpenRouter
-// key that works.
+// OpenRouter. Only a request TypeSafe could not take (400, 413, 422) stays
+// there: OpenRouter gets the same body and would refuse it too. Anything
+// about the TypeSafe account or service (a refused key, no credit, forbidden,
+// a timeout, rate limits, overload, server errors) may still work on the
+// person's OpenRouter key.
 func fallback(err error) bool {
 	var se *StatusError
 	if errors.As(err, &se) {
-		return se.Code == 401 || se.Code == 429 || se.Code == 529 || se.Code >= 500
+		return se.Code != 400 && se.Code != 413 && se.Code != 422
 	}
 	return true // network error or timeout
 }
