@@ -356,6 +356,19 @@ func partOfDay(t time.Time) string {
 	}
 }
 
+// gapState is the free gap as Today's state names it: "now" for a gap that
+// starts within ten minutes, and its length rounded down to the quarter
+// hour. A gap that starts now moves with the clock (it starts at the next
+// five-minute mark), so its exact time would make every reload a new call;
+// the tasks offered for it were already checked to fit, in code.
+func gapState(gap *FreeGap, now time.Time, loc *time.Location) map[string]any {
+	starts := gap.Start.In(loc).Format("15:04")
+	if gap.Start.Sub(now) <= 10*time.Minute {
+		starts = "now"
+	}
+	return map[string]any{"starts": starts, "minutes": max(minGapMinutes, gap.Minutes/15*15), "partOfDay": partOfDay(gap.Start.In(loc))}
+}
+
 // FocusPick is open Work suggested for today's focus list [29].
 type FocusPick struct {
 	TaskID string `json:"taskId"`
@@ -518,7 +531,7 @@ func (s *Service) Today(ctx context.Context, userID, timezone string, now time.T
 			}
 			opts = append(opts, decide.Option{Name: fmt.Sprintf("t%d", i+1), Description: desc})
 		}
-		state["freeGap"] = map[string]any{"starts": gap.Start.In(loc).Format("15:04"), "minutes": gap.Minutes, "partOfDay": partOfDay(gap.Start.In(loc))}
+		state["freeGap"] = gapState(gap, day.Now(), loc)
 		questions["gap"] = decide.Choice("The person has the free gap in freeGap. Which task is the best use of it, given its length, the kind of effort each task takes and the time of day?", opts...)
 	}
 	// Titles and descriptions full of "&" or "<" take six bytes a character

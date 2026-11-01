@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"timely-api/internal/features/decide"
 	"timely-api/internal/models"
@@ -100,5 +101,30 @@ func TestReasonsDropUnknownThemes(t *testing.T) {
 	}
 	if m := groupBy(askedMissed, "m", a, missedLabels); len(m) != 0 {
 		t.Fatalf("missed %+v", m)
+	}
+}
+
+// A free gap that starts now moves to the next five-minute mark as the clock
+// runs, so Today's state names it "now" with its length to the quarter hour:
+// reloads a few minutes apart send the same state and reuse the answer.
+func TestGapStateHoldsWhileTheGapMoves(t *testing.T) {
+	loc := time.UTC
+	end := time.Date(2026, 11, 2, 15, 0, 0, 0, loc)
+	at := func(now time.Time) map[string]any {
+		start := now.Truncate(5 * time.Minute).Add(5 * time.Minute)
+		return gapState(&FreeGap{Start: start, End: end, Minutes: int(end.Sub(start).Minutes())}, now, loc)
+	}
+	first := at(time.Date(2026, 11, 2, 13, 2, 0, 0, loc))
+	if first["starts"] != "now" || first["minutes"] != 105 || first["partOfDay"] != "afternoon" {
+		t.Fatalf("gap state %v", first)
+	}
+	for _, m := range []int{7, 12} {
+		if got := at(time.Date(2026, 11, 2, 13, m, 0, 0, loc)); got["starts"] != first["starts"] || got["minutes"] != first["minutes"] {
+			t.Fatalf("13:%02d reads %v, 13:02 read %v", m, got, first)
+		}
+	}
+	later := gapState(&FreeGap{Start: end, End: end.Add(25 * time.Minute), Minutes: 25}, time.Date(2026, 11, 2, 13, 2, 0, 0, loc), loc)
+	if later["starts"] != "15:00" || later["minutes"] != minGapMinutes {
+		t.Fatalf("a later gap keeps its time and never reads shorter than a gap can be: %v", later)
 	}
 }
