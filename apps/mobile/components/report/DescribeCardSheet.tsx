@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Check, Sparkles } from "lucide-react-native";
 import { DESCRIBED_MAX_PROMPT, defaultQuery, fitQuery, type DashboardCard } from "@timely/contract/dashboard";
@@ -221,21 +221,25 @@ export default function DescribeCardSheet({
             onPress={() => void build(words)}
           />
         )}
-        {error ? (
+        {/* Not chosen is a step to take, not a failure: a neutral notice
+            with the way to take it, as in Help me write. */}
+        {error && needsChoice ? (
+          <View accessibilityRole="alert" style={styles.notice}>
+            <Text style={styles.noticeText}>{error}</Text>
+            <Button
+              label="Choose provider"
+              variant="outline"
+              size="sm"
+              onPress={() => {
+                onClose();
+                router.push("/(app)/settings/agent");
+              }}
+            />
+          </View>
+        ) : error ? (
           <Text accessibilityRole="alert" style={styles.error}>
             {error}
           </Text>
-        ) : null}
-        {error && needsChoice ? (
-          <Button
-            label="Choose provider"
-            variant="outline"
-            size="sm"
-            onPress={() => {
-              onClose();
-              router.push("/(app)/settings/agent");
-            }}
-          />
         ) : null}
       </View>
 
@@ -314,4 +318,14 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   busyText: { flex: 1, color: colors.mutedForeground, fontSize: 15 },
   error: { color: colors.destructive, fontSize: 14 },
+  notice: {
+    gap: 8,
+    alignItems: "flex-start",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    backgroundColor: colors.muted,
+    borderRadius: controlRadius,
+    padding: 10,
+  },
+  noticeText: { color: colors.foreground, fontSize: 13, lineHeight: 18 },
 }));

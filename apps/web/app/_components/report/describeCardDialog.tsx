@@ -218,11 +218,20 @@ export default function DescribeCardDialog({
                         {busy ? `Building your ${noun}…` : ""}
                       </span>
                     </div>
-                    {error ? <p className="text-sm text-destructive">{error}</p> : null}
-                    {needsChoice ? (
-                      <Link href="/settings?tab=agent" className={buttonClass({ size: "sm", variant: "outline", className: "self-start" })}>
-                        Choose provider
-                      </Link>
+                    {/* Not chosen is a step to take, not a failure: a neutral
+                        notice with the way to take it, as in Help me write. */}
+                    {error && needsChoice ? (
+                      <div
+                        role="status"
+                        className="flex flex-col items-start gap-2 rounded-md border border-border bg-muted/60 px-2.5 py-2 text-sm text-foreground"
+                      >
+                        <p>{error}</p>
+                        <Link href="/settings?tab=agent" className={buttonClass({ size: "sm", variant: "outline" })}>
+                          Choose provider
+                        </Link>
+                      </div>
+                    ) : error ? (
+                      <p className="text-sm text-destructive">{error}</p>
                     ) : null}
                   </form>
                 </Section>
