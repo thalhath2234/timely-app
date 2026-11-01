@@ -181,7 +181,7 @@ func (s *Service) configureDecisions(c *echo.Context) error {
 			return err
 		}
 		if !v.keyUsable() {
-			return echo.NewHTTPError(409, noKeyMessage(v)+" to turn on smart suggestions")
+			return echo.NewHTTPError(409, noKeyMessage(v, " to turn on smart suggestions"))
 		}
 	}
 	if _, err := s.update(user(c), func(row *Settings) error {
@@ -291,7 +291,7 @@ func (s *Service) testDecisions(c *echo.Context) error {
 			if err != nil {
 				return err
 			}
-			msg = noKeyMessage(v) + "."
+			msg = noKeyMessage(v, "") + "."
 		}
 		return c.JSON(200, decisionsTest{Error: msg})
 	}
@@ -320,14 +320,21 @@ func (s *Service) testDecisions(c *echo.Context) error {
 
 // noKeyMessage says what is missing when no key Jev can use is saved: a
 // refused or unreadable TypeSafe key is named rather than called missing.
-func noKeyMessage(v decisionsView) string {
+// goal, when given, ends the sentence (" to turn on smart suggestions").
+func noKeyMessage(v decisionsView, goal string) string {
+	var fix string
 	switch {
 	case v.TypeSafe.Unreadable:
-		return "Timely can't read your saved TypeSafe key. Enter it again, or add an OpenRouter key,"
+		fix = "Timely can't read your saved TypeSafe key. Enter it again, or add an OpenRouter key"
 	case v.TypeSafe.Rejected:
-		return "TypeSafe refused your saved key. Replace it, or add an OpenRouter key,"
+		fix = "TypeSafe refused your saved key. Replace it, or add an OpenRouter key"
+	default:
+		return "Add a TypeSafe or OpenRouter key" + goal
 	}
-	return "Add a TypeSafe or OpenRouter key"
+	if goal != "" {
+		return fix + "," + goal
+	}
+	return fix
 }
 
 // oneCheck lets an account run one key check or Test at a time, so repeated

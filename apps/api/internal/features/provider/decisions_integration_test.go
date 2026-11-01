@@ -223,10 +223,10 @@ func TestIntegrationTypeSafeRefusalFollowsTheKey(t *testing.T) {
 		t.Fatalf("ask with an unreadable key: %v", err)
 	}
 	code, body = call(t, s, "user-a", http.MethodPost, "/agent/decisions/test", nil)
-	if code != 200 || body["ok"] != false || !strings.Contains(mustJSON(body), "can't read your saved TypeSafe key") {
+	if code != 200 || body["ok"] != false || body["error"] != "Timely can't read your saved TypeSafe key. Enter it again, or add an OpenRouter key." {
 		t.Fatalf("test of an unreadable key: %d %v", code, body)
 	}
-	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/decisions", map[string]bool{"enabled": true}); code != 409 || !strings.Contains(mustJSON(body), "can't read") {
+	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/decisions", map[string]bool{"enabled": true}); code != 409 || !strings.Contains(mustJSON(body), "can't read your saved TypeSafe key. Enter it again, or add an OpenRouter key, to turn on smart suggestions") {
 		t.Fatalf("switch on with an unreadable key: %d %v", code, body)
 	}
 }
