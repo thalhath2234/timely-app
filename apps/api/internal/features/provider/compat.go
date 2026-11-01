@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"timely-api/internal/features/chat"
+	"timely-api/internal/utils"
 )
 
 // Compat talks to an OpenAI-compatible /chat/completions endpoint with an
@@ -92,7 +93,7 @@ func (p *Compat) completeOnce(ctx context.Context, messages []chat.WireMessage, 
 	}
 	choice := data.Choices[0]
 	if choice.FinishReason == "length" {
-		return empty, fmt.Errorf("The proposal was too large; try a smaller request")
+		return empty, chat.ErrOutputTooLong
 	}
 	out := chat.WireMessage{Role: "assistant", Content: contentText(choice.Message.Content), ToolCalls: choice.Message.ToolCalls}
 	if p.Spec.EchoReasoning {
@@ -308,12 +309,9 @@ func errorText(raw []byte) string {
 	return clip(string(raw))
 }
 
+// clip shortens a provider's message without cutting a character in half.
 func clip(s string) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if len(s) > 300 {
-		s = s[:300] + "…"
-	}
-	return s
+	return utils.ClipUTF8(strings.Join(strings.Fields(s), " "), 300)
 }
 
 func joinURL(base, path string) string {

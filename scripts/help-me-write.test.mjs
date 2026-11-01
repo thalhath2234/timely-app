@@ -11,7 +11,7 @@ register(
     ),
 );
 
-const { SELECTION_ACTIONS, writeStarters, writtenContent } = await import(
+const { SELECTION_ACTIONS, shortenedNote, writeStarters, writtenContent } = await import(
   "../packages/contract/src/helpMeWrite.ts"
 );
 
@@ -93,5 +93,41 @@ describe("writtenContent", () => {
   test("only a one-list answer joins a list", () => {
     assert.equal(writtenContent("## Spices\n\n- Cumin", "taskList").items, null);
     assert.equal(writtenContent("Just this line", "taskList").items, null);
+  });
+});
+
+describe("shortenedNote", () => {
+  test("says a long doc's middle was not read, in the editor's own words", () => {
+    assert.equal(shortenedNote("doc"), "This doc is long, so the AI read its start and end but not the middle.");
+    assert.match(shortenedNote("task"), /^This description is long/);
+  });
+});
+
+const { WRITE_CURSOR, WRITE_TOO_LONG, replacesAll, writeCursorMark, writeTooLong } = await import("../packages/contract/src/helpMeWrite.ts");
+
+describe("writeTooLong (RV-hmw-1)", () => {
+  test("Summarize says summarize; a rewrite keeps its words", () => {
+    assert.match(writeTooLong("summarize"), /too much text to summarize/);
+    assert.equal(writeTooLong("improve"), WRITE_TOO_LONG);
+  });
+});
+
+describe("writeCursorMark (GW19)", () => {
+  test("is WRITE_CURSOR with capital letters after it, new each time", () => {
+    const mark = writeCursorMark();
+    assert.match(mark, new RegExp(`^${WRITE_CURSOR}[A-Z]{10}$`));
+    assert.notEqual(writeCursorMark(), mark);
+  });
+});
+
+describe("replacesAll (GW8)", () => {
+  test("Rewrite description replaces a description that has text", () => {
+    assert.equal(replacesAll("task", "describe", true), true);
+    assert.equal(replacesAll("project", "describe", true), true);
+  });
+  test("an empty description, a doc or another action is inserted as before", () => {
+    assert.equal(replacesAll("task", "describe", false), false);
+    assert.equal(replacesAll("doc", "describe", true), false);
+    assert.equal(replacesAll("task", "write", true), false);
   });
 });

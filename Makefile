@@ -340,8 +340,8 @@ test-work-status: ## Test the shared Overdue and Unscheduled work status logic
 	@node --experimental-strip-types --test scripts/work-status.test.mjs
 
 .PHONY: test-help-me-write
-test-help-me-write: ## Test the shared Help me write starters and how answers become editor content
-	@node --experimental-strip-types --test scripts/help-me-write.test.mjs
+test-help-me-write: ## Test the shared Help me write starters, how answers become editor content, and what Replace may take on web and phone
+	@node --experimental-strip-types --test scripts/help-me-write.test.mjs scripts/help-me-write-range.test.mjs
 
 .PHONY: test-inbox
 test-inbox: ## Test the shared Inbox order (Up next, skips) and waiting-time labels

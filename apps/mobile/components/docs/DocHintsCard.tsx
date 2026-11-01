@@ -1,5 +1,5 @@
 import { docTypePhrase } from "@timely/contract/documents";
-import { checklistTask, docWorkLines, draftChecklistTasks, openChecklistItems, workLineKey, workLineTask, type ChecklistTodo } from "@timely/contract/docChecklist";
+import { checklistTask, docWorkLines, draftChecklistTasks, namingFailedNote, openChecklistItems, workLineKey, workLineTask, type ChecklistTodo } from "@timely/contract/docChecklist";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
@@ -271,7 +271,13 @@ export default function DocHintsCard({
     // One request for all the checklist items, a few seconds at most;
     // without a provider, or on any error, the tasks keep the items' own
     // words. A line that reads like a task keeps its words as they are.
-    const drafts = aiReady && todoList.length ? await draftChecklistTasks(todoList, doc, (body) => checklistTaskDrafts(body)) : todoList.map(() => null);
+    // A rejected key or no credit is said in the message, so it is not
+    // missed; the tasks are still made, from the items' own words.
+    let namingNote: string | null = null;
+    const drafts =
+      aiReady && todoList.length
+        ? await draftChecklistTasks(todoList, doc, (body) => checklistTaskDrafts(body), undefined, (failure) => { namingNote = namingFailedNote(failure); })
+        : todoList.map(() => null);
     const made: { task: Task; offer: Offer; place: Place }[] = [];
     for (const offer of list) {
       const place = placeOf(offer);
@@ -305,8 +311,9 @@ export default function DocHintsCard({
     const places = new Set(made.map(({ place }) => place.title));
     const [place] = places;
     const where = places.size === 1 && place ? ` to ${place}` : "";
-    const message =
+    const added =
       made.length === 1 ? `Task added${where}: ${made[0].task.name}` : `${made.length} tasks added${where}${made.length < list.length ? `, ${list.length - made.length} failed` : ""}`;
+    const message = namingNote ? `${added}. ${namingNote}` : added;
     showUndoToast(message, () => {
       for (const { task } of made) deleteTask.mutate(task.id);
       setHidden((prev) => {

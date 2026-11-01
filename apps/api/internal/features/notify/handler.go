@@ -33,6 +33,9 @@ func notifyError(err error) error {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return echo.NewHTTPError(http.StatusNotFound, "not found")
 	}
+	if errors.Is(err, jobs.ErrNewerRun) {
+		return echo.NewHTTPError(http.StatusConflict, err.Error())
+	}
 	return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 }
 

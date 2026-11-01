@@ -130,13 +130,18 @@ func (s *Service) LearnedFor(userID string) ([]Learned, error) {
 }
 
 // ResetLearned forgets the person's answers for one feature, so it asks
-// with the usual certainty again.
+// with the usual certainty again. A reset row keeps decided_at with no
+// answer (a pair nothing else writes), so a screen still holding its log id
+// cannot answer it again and bring the old raise back.
 func (s *Service) ResetLearned(userID, feature string) error {
 	if s == nil || s.db == nil {
 		return nil
 	}
 	err := s.db.Model(&DecisionLog{}).Where("user_id = ? AND feature = ?", userID, feature).
-		Updates(map[string]any{"accepted": nil, "decided_at": nil}).Error
+		Updates(map[string]any{"accepted": nil, "decided_at": time.Now().UTC()}).Error
 	s.forget(userID)
 	return err
 }
+
+// notReset leaves out rows a Reset cleared.
+const notReset = "NOT (accepted IS NULL AND decided_at IS NOT NULL)"

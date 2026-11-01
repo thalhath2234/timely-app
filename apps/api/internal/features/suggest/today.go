@@ -4,14 +4,17 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
 	"timely-api/internal/features/decide"
 	"timely-api/internal/features/focus"
+	"timely-api/internal/features/notify"
 	"timely-api/internal/features/schedule"
 	"timely-api/internal/features/task"
 	"timely-api/internal/models"
@@ -43,8 +46,9 @@ func (s *Service) SetSchedule(sched schedule.Service) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), traitsBudget)
 		defer cancel()
-		s.fillTopTraits(ctx, userID, "")
-		if ctx.Err() != nil {
+		// A slow or failed call pauses the hook, so a failing provider does
+		// not cost every Preview a call (or two, with the fallback).
+		if err := s.fillTopTraits(ctx, userID, ""); err != nil || ctx.Err() != nil {
 			s.traitsPause.Store(userID, time.Now().Add(traitsPauseFor))
 		}
 	})
@@ -84,8 +88,14 @@ func traitQuestions(questions map[string]decide.Question, key, which string) {
 }
 
 // readTraits stores what Jev was sure of. An unsure answer is stored as
-// unknown with the hash, so the same words are not asked about again.
+// unknown with the hash, so the same words are not asked about again; a task
+// whose questions did not come back at all is left to be asked next time.
 func (s *Service) readTraits(ctx context.Context, a decide.Answers, key string, t *models.Task) {
+	_, effort := a.Raw("effort_" + key)
+	_, urgency := a.Raw("urgency_" + key)
+	if !effort && !urgency {
+		return
+	}
 	t.EffortKind, t.Urgency = "", nil
 	if kind, ok := a.Choice("effort_"+key, decide.Prefill); ok {
 		t.EffortKind = kind
@@ -110,6 +120,12 @@ func derefStr(v *string) string {
 // [34]. Nothing is asked when every task is current. It returns the tasks
 // with their traits.
 func (s *Service) FillTraits(ctx context.Context, userID string, tasks []models.Task) []models.Task {
+	out, _ := s.fillTraits(ctx, userID, tasks)
+	return out
+}
+
+// fillTraits is FillTraits that also returns why the call failed.
+func (s *Service) fillTraits(ctx context.Context, userID string, tasks []models.Task) ([]models.Task, error) {
 	if len(tasks) > maxTraitTasks {
 		tasks = tasks[:maxTraitTasks]
 	}
@@ -121,7 +137,7 @@ func (s *Service) FillTraits(ctx context.Context, userID string, tasks []models.
 		}
 	}
 	if !stale {
-		return tasks
+		return tasks, nil
 	}
 	list := make([]map[string]any, 0, len(tasks))
 	questions := map[string]decide.Question{}
@@ -145,9 +161,11 @@ func (s *Service) FillTraits(ctx context.Context, userID string, tasks []models.
 			questions["group_"+key] = decide.Choice(fmt.Sprintf("Which other task shares a topic, place, person or tool with task %s, so doing them back to back saves effort?", key), opts...)
 		}
 	}
-	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "traits", State: map[string]any{"tasks": list}, Questions: questions})
+	state := map[string]any{"tasks": list}
+	decide.Fit(state, list, "description", "title")
+	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "traits", State: state, Questions: questions})
 	if err != nil {
-		return tasks
+		return tasks, err
 	}
 	out := append([]models.Task(nil), tasks...)
 	parent := make([]int, len(out))
@@ -216,20 +234,21 @@ func (s *Service) FillTraits(ctx context.Context, userID string, tasks []models.
 				UpdateColumn("group_key", key)
 		}
 	}
-	return out
+	return out, nil
 }
 
-// fillTopTraits fills the traits of the Work Auto-schedule ranks highest.
-func (s *Service) fillTopTraits(ctx context.Context, userID, timezone string) {
+// fillTopTraits fills the traits of the Work Auto-schedule ranks highest,
+// and returns the error when the call failed.
+func (s *Service) fillTopTraits(ctx context.Context, userID, timezone string) error {
 	if s.schedule == nil {
-		return
+		return nil
 	}
 	if ok, _ := s.decide.Status(ctx, userID); !ok {
-		return
+		return nil
 	}
 	ranked, err := s.schedule.Rank(userID, timezone)
 	if err != nil {
-		return
+		return nil
 	}
 	tasks := make([]models.Task, 0, maxTraitTasks)
 	for _, r := range ranked {
@@ -240,7 +259,11 @@ func (s *Service) fillTopTraits(ctx context.Context, userID, timezone string) {
 			tasks = append(tasks, r.Task)
 		}
 	}
-	s.FillTraits(ctx, userID, tasks)
+	_, err = s.fillTraits(ctx, userID, tasks)
+	if err == decide.ErrOff {
+		return nil
+	}
+	return err
 }
 
 // Prefs is what the person told suggestions to weigh: their goals (on Today,
@@ -331,6 +354,19 @@ func partOfDay(t time.Time) string {
 	default:
 		return "evening"
 	}
+}
+
+// gapState is the free gap as Today's state names it: "now" for a gap that
+// starts within ten minutes, and its length rounded down to the quarter
+// hour. A gap that starts now moves with the clock (it starts at the next
+// five-minute mark), so its exact time would make every reload a new call;
+// the tasks offered for it were already checked to fit, in code.
+func gapState(gap *FreeGap, now time.Time, loc *time.Location) map[string]any {
+	starts := gap.Start.In(loc).Format("15:04")
+	if gap.Start.Sub(now) <= 10*time.Minute {
+		starts = "now"
+	}
+	return map[string]any{"starts": starts, "minutes": max(minGapMinutes, gap.Minutes/15*15), "partOfDay": partOfDay(gap.Start.In(loc))}
 }
 
 // FocusPick is open Work suggested for today's focus list [29].
@@ -477,7 +513,9 @@ func (s *Service) Today(ctx context.Context, userID, timezone string, now time.T
 			gapCands = append(gapCands, i)
 		}
 	}
-	state := map[string]any{"today": day.Now().Format("Monday 2 January, 15:04"), "tasks": list}
+	// The day and part of day, not the minute: the same tasks read the same
+	// way all morning, so a reload within ten minutes uses the cached answer.
+	state := map[string]any{"today": day.Now().Format("Monday 2 January") + ", " + partOfDay(day.Now()), "tasks": list}
 	if len(prefs.Goals) > 0 {
 		state["goals"] = prefs.Goals
 	}
@@ -493,12 +531,15 @@ func (s *Service) Today(ctx context.Context, userID, timezone string, now time.T
 			}
 			opts = append(opts, decide.Option{Name: fmt.Sprintf("t%d", i+1), Description: desc})
 		}
-		state["freeGap"] = map[string]any{"starts": gap.Start.In(loc).Format("15:04"), "minutes": gap.Minutes, "partOfDay": partOfDay(gap.Start.In(loc))}
+		state["freeGap"] = gapState(gap, day.Now(), loc)
 		questions["gap"] = decide.Choice("The person has the free gap in freeGap. Which task is the best use of it, given its length, the kind of effort each task takes and the time of day?", opts...)
 	}
+	// Titles and descriptions full of "&" or "<" take six bytes a character
+	// as JSON; they are cut until the state fits rather than dropping the call.
+	decide.Fit(state, list, "description", "title", "project")
 	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "today", State: state, Questions: questions})
 	if err != nil {
-		out.Error = failure(ctx, err)
+		out.Error = failure(err)
 		return out, nil
 	}
 	out.LogID = a.LogID
@@ -513,7 +554,9 @@ func (s *Service) Today(ctx context.Context, userID, timezone string, now time.T
 	tags := map[string]int{}
 	for i, t := range cands {
 		key := fmt.Sprintf("t%d", i+1)
-		if goalOpts != nil {
+		if _, answered := a.Raw("goal_" + key); goalOpts != nil && answered {
+			// A question left out of the answer is not stored as "no goal":
+			// goal progress asks it again.
 			n := focus.ReadGoal(a, "goal_"+key, len(prefs.Goals))
 			tags[t.ID] = n
 			if n >= 0 {
@@ -591,59 +634,98 @@ const (
 
 const triageBudget = 8 * time.Second
 
-// Triage picks the next step for Work whose block ended unfinished (kind
-// "missed") or that is past its deadline ("overdue", overdueDays from code).
-// It returns "" when suggestions are off or Jev is unsure.
-func (s *Service) Triage(ctx context.Context, userID string, t *models.Task, kind string, overdueDays int) string {
-	if t == nil {
-		return ""
-	}
+// Triage picks the next step for each piece of Work whose block ended
+// unfinished (kind "missed") or that is past its deadline ("overdue",
+// OverdueDays from code), in the order given: "" where suggestions are off
+// or Jev is unsure. A sweep's notifications come as one batch, so they cost
+// one call per kind rather than one each.
+func (s *Service) Triage(ctx context.Context, userID string, items []notify.TriageItem) []string {
+	out := make([]string, len(items))
 	ctx, cancel := context.WithTimeout(ctx, triageBudget)
 	defer cancel()
-	state := map[string]any{"title": clip(t.Name, 300), "priority": models.NormalizePriority(derefStr(t.PriorityLevel))}
-	if d := strings.TrimSpace(t.Description); d != "" {
-		state["description"] = clip(d, 1000)
+	// Each kind keeps its own call, so what the person kept of one kind
+	// never sets how sure the other must be (see decide's learned raise).
+	byKind := map[string][]int{}
+	for i, it := range items {
+		if it.Task != nil && (it.Kind == "overdue" || it.Kind == "missed") {
+			byKind[it.Kind] = append(byKind[it.Kind], i)
+		}
 	}
-	if t.Duration > 0 {
-		state["estimateMinutes"] = t.Duration
+	var wg sync.WaitGroup
+	for kind, idx := range byKind {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.triageKind(ctx, userID, kind, items, idx, out)
+		}()
 	}
-	if t.ActualMinutes > 0 {
-		state["minutesWorked"] = t.ActualMinutes
+	wg.Wait()
+	return out
+}
+
+// triageKind asks one call for the items at idx, all of one kind, and
+// writes each pick into out.
+func (s *Service) triageKind(ctx context.Context, userID, kind string, items []notify.TriageItem, idx []int, out []string) {
+	list := make([]map[string]any, 0, len(idx))
+	questions := map[string]decide.Question{}
+	for n, i := range idx {
+		t := items[i].Task
+		key := fmt.Sprintf("t%d", n+1)
+		item := map[string]any{"task": key, "title": clip(t.Name, 200), "priority": models.NormalizePriority(derefStr(t.PriorityLevel))}
+		if d := strings.TrimSpace(t.Description); d != "" {
+			item["description"] = clip(d, 400)
+		}
+		if t.Duration > 0 {
+			item["estimateMinutes"] = t.Duration
+		}
+		if t.ActualMinutes > 0 {
+			item["minutesWorked"] = t.ActualMinutes
+		}
+		if t.Urgency != nil && *t.Urgency >= 0 && *t.Urgency < len(urgencyLevels) {
+			item["urgency"] = urgencyLevels[*t.Urgency]
+		}
+		if kind == "overdue" {
+			item["daysPastDeadline"] = items[i].OverdueDays
+		}
+		list = append(list, item)
+		questions[fmt.Sprintf("next%d", n+1)] = triageQuestion(kind, key, t)
 	}
-	if t.Urgency != nil && *t.Urgency >= 0 && *t.Urgency < len(urgencyLevels) {
-		state["urgency"] = urgencyLevels[*t.Urgency]
+	state := map[string]any{"tasks": list}
+	// Ten titles and descriptions in a script of wide characters can outgrow
+	// what Jev takes; the titles and facts still say enough.
+	if raw, err := json.Marshal(state); err != nil || len(raw) > decide.MaxStateBytes {
+		for _, item := range list {
+			delete(item, "description")
+		}
 	}
-	var q decide.Question
-	switch kind {
-	case "overdue":
-		state["daysPastDeadline"] = overdueDays
-		q = decide.Choice("This task is past its deadline. Judging by what happens if it is late, which next step fits best?",
+	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "triage_" + kind, State: state, Questions: questions})
+	if err != nil {
+		return
+	}
+	for n, i := range idx {
+		if pick, _ := a.Choice(fmt.Sprintf("next%d", n+1), decide.Prefill); pick != "keep" {
+			out[i] = pick
+		}
+	}
+}
+
+// triageQuestion is the step question for task key.
+func triageQuestion(kind, key string, t *models.Task) decide.Question {
+	if kind == "overdue" {
+		return decide.Choice(fmt.Sprintf("Task %s is past its deadline. Judging by what happens if it is late, which next step fits it best?", key),
 			decide.Option{Name: TriageReschedule, Description: "Treat it as urgent and do it as soon as possible: lateness has real consequences"},
 			decide.Option{Name: TriageExtend, Description: "Move the deadline a week later: finishing a bit later is fine"},
 			decide.Option{Name: TriageLower, Description: "Lower its priority: it matters less than it looked"})
-	case "missed":
-		if t.IsRecurring() {
-			// Adding time or moving would change every occurrence, so a
-			// repeating task only weighs a lower priority.
-			q = decide.Choice("A time block for this repeating task ended and the task is still open. Which next step fits best?",
-				decide.Option{Name: "keep", Description: "Leave it as it is: the next occurrence is soon enough"},
-				decide.Option{Name: TriageLower, Description: "Lower its priority: other work matters more right now"})
-			break
-		}
-		q = decide.Choice("A time block for this task ended and the task is still open. Which next step fits best?",
-			decide.Option{Name: TriageAddTime, Description: "Give it more time: the work is bigger than its estimate"},
-			decide.Option{Name: TriageMove, Description: "Move the rest to the next free time: the estimate is fine, the block was just missed"},
+	}
+	if t.IsRecurring() {
+		// Adding time or moving would change every occurrence, so a
+		// repeating task only weighs a lower priority.
+		return decide.Choice(fmt.Sprintf("A time block for the repeating task %s ended and the task is still open. Which next step fits it best?", key),
+			decide.Option{Name: "keep", Description: "Leave it as it is: the next occurrence is soon enough"},
 			decide.Option{Name: TriageLower, Description: "Lower its priority: other work matters more right now"})
-	default:
-		return ""
 	}
-	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "triage_" + kind, State: state, Questions: map[string]decide.Question{"next": q}})
-	if err != nil {
-		return ""
-	}
-	pick, _ := a.Choice("next", decide.Prefill)
-	if pick == "keep" {
-		return ""
-	}
-	return pick
+	return decide.Choice(fmt.Sprintf("A time block for task %s ended and the task is still open. Which next step fits it best?", key),
+		decide.Option{Name: TriageAddTime, Description: "Give it more time: the work is bigger than its estimate"},
+		decide.Option{Name: TriageMove, Description: "Move the rest to the next free time: the estimate is fine, the block was just missed"},
+		decide.Option{Name: TriageLower, Description: "Lower its priority: other work matters more right now"})
 }

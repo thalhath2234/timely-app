@@ -32,6 +32,17 @@ export async function checklistTaskDrafts(body: ChecklistTasksRequest, signal?: 
     body: JSON.stringify(body),
     signal,
   });
-  if (!res.ok) throw new Error(`Could not name the tasks (${res.status})`);
+  if (!res.ok) {
+    // The API's message says why (a rejected key, no credit), which the
+    // "Task added" toast passes on (namingFailedNote).
+    let message = `Could not name the tasks (${res.status})`;
+    try {
+      const data = await res.json();
+      if (typeof data?.message === "string") message = data.message;
+    } catch {
+      // keep the fallback message
+    }
+    throw new Error(message);
+  }
   return res.json();
 }

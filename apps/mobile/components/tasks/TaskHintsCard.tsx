@@ -64,11 +64,13 @@ export default function TaskHintsCard({
     const field = fields.find((f) => f.id === hint.fieldId);
     if (!field || filled.has(field.id)) continue;
     if (field.type === "boolean") {
+      const value = hint.value;
+      if (value !== "true" && value !== "false") continue;
       rows.push({
         key: `field:${field.id}`,
-        text: `${field.name}: ${hint.value === "true" ? "Yes" : "No"}, from the description.`,
+        text: `${field.name}: ${value === "true" ? "Yes" : "No"}, from the description.`,
         label: "Fill in",
-        apply: () => onField(field, { stringValue: hint.value ?? "false" }),
+        apply: () => onField(field, { stringValue: value }),
       });
       continue;
     }
@@ -109,6 +111,8 @@ export default function TaskHintsCard({
   if (data.openChecklist) {
     rows.push({ key: "open", text: `Marked complete with ${data.openChecklist} unchecked checklist item${data.openChecklist === 1 ? "" : "s"}.` });
   }
+  // A failed call is not "no hints": say why none came back.
+  if (data.error) rows.push({ key: "error", text: `Suggestions could not load. ${data.error}` });
   const shown = rows.filter((row) => !hidden.has(row.key));
   if (shown.length === 0) return null;
   const hide = (key: string) => setHidden((prev) => new Set(prev).add(key));

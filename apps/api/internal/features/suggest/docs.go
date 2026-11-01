@@ -787,7 +787,7 @@ func (s *Service) ImportFormat(ctx context.Context, userID string, lines []strin
 	if !on || len(lines) < 2 {
 		return out
 	}
-	list := []map[string]string{}
+	list := []map[string]any{}
 	questions := map[string]decide.Question{}
 	for i, l := range lines {
 		l = strings.TrimSpace(l)
@@ -795,13 +795,17 @@ func (s *Service) ImportFormat(ctx context.Context, userID string, lines []strin
 			continue
 		}
 		key := fmt.Sprintf("l%d", i+1)
-		list = append(list, map[string]string{"line": key, "text": clip(l, 200)})
+		list = append(list, map[string]any{"line": key, "text": clip(l, 200)})
 		questions[key] = decide.Choice(fmt.Sprintf("What is line %s in this imported note?", key), lineKinds...)
 	}
 	if len(questions) == 0 {
 		return out
 	}
-	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "import_format", State: map[string]any{"lines": list}, Questions: questions})
+	// Eighty long lines in a wide script outgrow the state: each line's
+	// start still shows whether it is a heading or a list item.
+	state := map[string]any{"lines": list}
+	decide.Fit(state, list, "text")
+	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "import_format", State: state, Questions: questions})
 	if err != nil {
 		return out
 	}

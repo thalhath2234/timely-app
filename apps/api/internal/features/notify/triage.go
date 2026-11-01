@@ -12,10 +12,19 @@ import (
 	"timely-api/internal/models"
 )
 
-// Triager picks the next step for Work whose block ended unfinished ("missed")
-// or that is past its deadline ("overdue"); "" when it has no suggestion.
-// Smart suggestions supply it; without it notifications read as before.
-type Triager func(ctx context.Context, userID string, t *models.Task, kind string, overdueDays int) string
+// TriageItem is one notification's Work for the Triager: Kind is "missed"
+// (its block ended unfinished) or "overdue" (past its deadline by
+// OverdueDays).
+type TriageItem struct {
+	Task        *models.Task
+	Kind        string
+	OverdueDays int
+}
+
+// Triager picks the next step for each item, in order; "" where it has no
+// suggestion. One call takes a whole batch. Smart suggestions supply it;
+// without it notifications read as before.
+type Triager func(ctx context.Context, userID string, items []TriageItem) []string
 
 // SetTriage connects smart suggestions to missed and overdue notifications.
 func (s *Service) SetTriage(fn Triager) { s.triage = fn }
@@ -43,32 +52,83 @@ var triageBody = map[string]map[string]string{
 	},
 }
 
-// triageParallel caps how many suggestions are asked at once, so a sweep of
-// many overdue tasks never queues a burst of model calls.
-const triageParallel = 2
+const (
+	// triageParallel caps how many triage calls run at once across the
+	// server. Each account asks one at a time, so one account's backlog holds
+	// at most one of them.
+	triageParallel = 2
+	// triageBatch is how many notifications one call covers.
+	triageBatch = 10
+	// triageGather is how long an account's first new notification waits
+	// for the rest of the sweep before its call, so they share one batch.
+	triageGather = 2 * time.Second
+)
+
+// triageWork is a new notification waiting for its suggested step.
+type triageWork struct {
+	notificationID, category string
+	item                     TriageItem
+}
 
 // suggestLater asks the Triager for a new notification's next step in the
 // background and adds it to the notification's text and data. The job (and
 // the push) never waits on the model, so reminders behind it stay on time.
+// An account's notifications are asked about in batches (see runTriage).
 func (s *Service) suggestLater(notificationID, userID string, item *models.Task, category, kind string, overdueDays int) {
 	if s.triage == nil {
 		return
 	}
-	s.triageWait.Add(1)
-	go func() {
-		defer s.triageWait.Done()
-		s.triageSlots <- struct{}{}
-		defer func() { <-s.triageSlots }()
-		step := s.triage(context.Background(), userID, item, kind, overdueDays)
-		if !triageFits(category, step, item) {
+	work := triageWork{notificationID: notificationID, category: category, item: TriageItem{Task: item, Kind: kind, OverdueDays: overdueDays}}
+	s.triageMu.Lock()
+	pending, running := s.triagePending[userID]
+	s.triagePending[userID] = append(pending, work)
+	if !running {
+		s.triageWait.Add(1)
+	}
+	s.triageMu.Unlock()
+	if !running {
+		go s.runTriage(userID)
+	}
+}
+
+// runTriage asks for one account's waiting steps, a batch per call and one
+// call at a time, until none are left. Asking one at a time is what keeps a
+// backlog of one account (hundreds of imported overdue tasks) from taking
+// every slot from other accounts.
+func (s *Service) runTriage(userID string) {
+	defer s.triageWait.Done()
+	time.Sleep(s.triageGather)
+	for {
+		s.triageMu.Lock()
+		pending := s.triagePending[userID]
+		if len(pending) == 0 {
+			delete(s.triagePending, userID)
+			s.triageMu.Unlock()
 			return
 		}
-		if body, ok := triageBody[category][step]; ok {
-			if err := s.repo.SetSuggestion(notificationID, step, body); err != nil {
-				log.Printf("notify: save suggested step: %v", err)
+		n := min(len(pending), triageBatch)
+		batch := pending[:n:n]
+		s.triagePending[userID] = pending[n:]
+		s.triageMu.Unlock()
+
+		items := make([]TriageItem, len(batch))
+		for i, w := range batch {
+			items[i] = w.item
+		}
+		s.triageSlots <- struct{}{}
+		steps := s.triage(context.Background(), userID, items)
+		<-s.triageSlots
+		for i, w := range batch {
+			if i >= len(steps) || !triageFits(w.category, steps[i], w.item.Task) {
+				continue
+			}
+			if body, ok := triageBody[w.category][steps[i]]; ok {
+				if err := s.repo.SetSuggestion(w.notificationID, steps[i], body); err != nil {
+					log.Printf("notify: save suggested step: %v", err)
+				}
 			}
 		}
-	}()
+	}
 }
 
 // triageFits reports whether step can run on the notification's task. A

@@ -18,7 +18,7 @@ import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
 import { readyProviders } from "@/app/_components/chat/modelMenu";
 import { readViewWithAi } from "@/app/utils/api/viewQuery";
 import { useViewPreviewStore } from "@/app/_store/viewPreviewStore";
-import { ViewChips } from "@/app/_components/_ui/tasks/viewRulesBar";
+import { DroppedNote, ViewChips } from "@/app/_components/_ui/tasks/viewRulesBar";
 import Button from "@/app/_components/_ui/button";
 import type { SearchHit } from "@/app/utils/api/search";
 import { sendDecisionFeedback } from "@/app/utils/api/decisions";
@@ -382,7 +382,12 @@ function useListing(query: string, config: Config | undefined) {
         kind: "view",
         icon: aiView ? Sparkles : ListFilter,
         section: "suggested",
-        detail: <ViewChips chips={chips} className="my-1" />,
+        detail: (
+          <>
+            <ViewChips chips={chips} className="my-1" />
+            {aiView ? <DroppedNote dropped={aiState?.dropped} className="mb-1" /> : null}
+          </>
+        ),
         actions: (
           <span className="flex shrink-0 items-center gap-1">
             {aiReady && reading.leftover.length > 0 && !aiView ? (

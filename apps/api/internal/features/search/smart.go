@@ -43,6 +43,19 @@ func NewSmart(search Service, indexer embed.Indexer, decisions Decider) *Smart {
 	return &Smart{search: search, indexer: indexer, decisions: decisions}
 }
 
+// available is false when smart suggestions are off for the account; a
+// Decider that cannot say (a test double) counts as on.
+func (s *Smart) available(ctx context.Context, userID string) bool {
+	status, ok := s.decisions.(interface {
+		Status(ctx context.Context, userID string) (bool, string)
+	})
+	if !ok {
+		return true
+	}
+	on, _ := status.Status(ctx, userID)
+	return on
+}
+
 // Create is a "make a budget sheet" reading of the query.
 type Create struct {
 	Kind  string `json:"kind"`
@@ -74,12 +87,14 @@ func (s *Smart) Search(ctx context.Context, userID, query string, kinds []string
 // saved views, anything else the web and desktop views.
 func (s *Smart) SearchFor(ctx context.Context, userID, query string, kinds []string, client string) (SmartResult, error) {
 	query = strings.TrimSpace(query)
+	// Nothing to add without smart suggestions: skip the search too, which
+	// would embed the query only to throw the hits away.
+	if s.decisions == nil || len([]rune(query)) < 2 || !s.available(ctx, userID) {
+		return SmartResult{}, nil
+	}
 	hits, err := s.search.SemanticSearch(ctx, userID, query, 20, kinds)
 	if err != nil {
 		return SmartResult{}, err
-	}
-	if s.decisions == nil || len([]rune(query)) < 2 {
-		return SmartResult{}, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, smartBudget)
 	defer cancel()
@@ -333,6 +348,12 @@ var (
 	createVerbs = map[string]bool{"make": true, "create": true, "new": true, "add": true, "start": true, "write": true, "draft": true, "plan": true, "set": true, "up": true, "schedule": true, "book": true}
 	fillers     = map[string]bool{"a": true, "an": true, "the": true, "my": true, "me": true, "for": true, "to": true, "please": true, "called": true, "named": true}
 	kindNouns   = map[string]bool{"sheet": true, "spreadsheet": true, "table": true, "doc": true, "document": true, "note": true, "notes": true, "page": true, "task": true, "todo": true, "to-do": true, "project": true, "event": true}
+	// kindWords name each kind outright. Words like "notes" or "table" are
+	// left out: inside a title ("meeting notes for Monday") they are part of it.
+	kindWords = map[string]map[string]bool{
+		"sheet": {"sheet": true, "spreadsheet": true}, "doc": {"doc": true, "document": true},
+		"task": {"task": true, "todo": true, "to-do": true}, "project": {"project": true}, "event": {"event": true},
+	}
 )
 
 // createTitle turns a command-like query into the new item's title.
@@ -350,7 +371,13 @@ func createTitle(query, kind string) string {
 	for start < end && (kindNouns[strings.ToLower(words[start])] || fillers[strings.ToLower(words[start])]) {
 		start++
 	}
-	title := strings.TrimSpace(strings.Join(words[start:end], " "))
+	kept := words[start:end]
+	// "a budget sheet for the wedding": the word naming the kind sits right
+	// after the first word of the title.
+	if len(kept) > 2 && kindWords[kind][strings.ToLower(kept[1])] {
+		kept = append([]string{kept[0]}, kept[2:]...)
+	}
+	title := strings.TrimSpace(strings.Join(kept, " "))
 	if title == "" {
 		return ""
 	}

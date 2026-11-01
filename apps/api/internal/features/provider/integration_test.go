@@ -518,7 +518,8 @@ func TestIntegrationOpenRouterKeyNeverTakesChat(t *testing.T) {
 	}
 	mu.Unlock()
 	// Choosing OpenRouter for chat is the moment its chat model is tested.
-	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/providers", map[string]string{"defaultProvider": OpenRouter}); code != 200 || body["defaultChosen"] != true {
+	// The apps still learn what Automatic would pick while another is chosen.
+	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/providers", map[string]string{"defaultProvider": OpenRouter}); code != 200 || body["defaultChosen"] != true || body["defaultProvider"] != OpenRouter || body["autoProvider"] != "anthropic" {
 		t.Fatalf("%d %v", code, body)
 	}
 	mu.Lock()
@@ -596,5 +597,17 @@ func TestIntegrationMigrationMovesUnchosenOpusToHaiku(t *testing.T) {
 	var stored Settings
 	if err := db.First(&stored, "user_id = ?", "user-a").Error; err != nil || stored.DefaultProvider != "" {
 		t.Errorf("user-a's default must be emptied: %q %v", stored.DefaultProvider, err)
+	}
+}
+
+func TestIntegrationRehearsedLiveBlockNeedsAProvider(t *testing.T) {
+	db := integrationDB(t)
+	t.Setenv("JWT_SECRET", "integration-secret")
+	t.Setenv("CHAT_LOCAL_CLI", "off")
+	s := New(db, nil, nil)
+	// Outside a chat run the account's own provider is checked, and an
+	// account with none set up hears so before the person reviews anything.
+	if _, err := s.RehearseLiveBlock(context.Background(), "user-a", "my open work", "", "2026-10-31"); err == nil || !strings.Contains(err.Error(), "Live blocks need an AI provider") {
+		t.Fatalf("an account with no provider is refused: %v", err)
 	}
 }

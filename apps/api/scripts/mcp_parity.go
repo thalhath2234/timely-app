@@ -492,7 +492,7 @@ func (r *runner) exercise(email string) {
 	r.call("download_backup", map[string]any{"backupId": backupID})
 	r.call("delete_backup", map[string]any{"backupId": backupID, "confirm": true})
 	if exported != nil {
-		r.call("restore_account", map[string]any{"confirm": true, "backup": exported["backup"]})
+		r.call("restore_account", map[string]any{"confirm": true, "mode": "replace", "backup": exported["backup"]})
 	} else {
 		r.fail("restore_account", "export_account did not return a backup")
 	}

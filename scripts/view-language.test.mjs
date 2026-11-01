@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
-import { describeView, readViewQuery, readingIsListing, viewNoun } from "../packages/contract/src/viewLanguage.ts";
+import { describeView, droppedNote, readViewQuery, readingIsListing, viewNoun } from "../packages/contract/src/viewLanguage.ts";
 
 const TODAY = "2026-10-14"; // a Wednesday
 const vocab = {
@@ -180,5 +180,17 @@ describe("readViewQuery", () => {
     assert.deepEqual(chips("show me tasks for tomorrow"), ["Due or planned tomorrow", "Open only", "Soonest deadline first"]);
     assert.ok(chips("urgent bugs in Home").includes("Workspace: Home"));
     assert.ok(chips("urgent bugs in Home").includes("Label bug"));
+  });
+});
+
+describe("droppedNote", () => {
+  test("says which parts of an AI reading were left out (W7)", () => {
+    assert.equal(droppedNote(["no project named Atlantis"]), "Left out: no project named Atlantis");
+    assert.equal(droppedNote(["no project named Atlantis", " no stage named Ship "]), "Left out: no project named Atlantis; no stage named Ship");
+  });
+  test("is empty when nothing was left out", () => {
+    assert.equal(droppedNote(undefined), "");
+    assert.equal(droppedNote([]), "");
+    assert.equal(droppedNote(["  "]), "");
   });
 });

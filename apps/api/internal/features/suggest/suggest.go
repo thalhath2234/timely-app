@@ -136,11 +136,11 @@ func (s *Service) EstimateMany(ctx context.Context, userID string, names, descri
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			items := make([]map[string]string, 0, end-start)
+			items := make([]map[string]any, 0, end-start)
 			questions := map[string]decide.Question{}
 			for i := start; i < end; i++ {
 				n := i - start + 1
-				item := map[string]string{"number": fmt.Sprint(n), "title": clip(names[i], 200)}
+				item := map[string]any{"number": fmt.Sprint(n), "title": clip(names[i], 200)}
 				if i < len(descriptions) {
 					if d := strings.TrimSpace(descriptions[i]); d != "" {
 						item["description"] = clip(d, 400)
@@ -150,7 +150,11 @@ func (s *Service) EstimateMany(ctx context.Context, userID string, names, descri
 				questions[fmt.Sprintf("effort%d", n)] = decide.Score(
 					fmt.Sprintf("How much focused effort does finishing item number %d take?", n), effortLevels...)
 			}
-			a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "estimate", State: map[string]any{"items": items}, Questions: questions})
+			state := map[string]any{"items": items}
+			// Ten items full of "&" or "<" can outgrow the state; they are cut
+			// rather than every step falling back to 30 minutes.
+			decide.Fit(state, items, "description", "title")
+			a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "estimate", State: state, Questions: questions})
 			if err != nil {
 				return
 			}
@@ -165,21 +169,9 @@ func (s *Service) EstimateMany(ctx context.Context, userID string, names, descri
 	return out
 }
 
-// failure turns a failed Ask into a short line for the form, or "" when
-// suggestions were simply off.
-func failure(ctx context.Context, err error) string {
-	switch {
-	case err == decide.ErrOff: // plain ErrOff: off, no key or busy
-		return ""
-	case ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded):
-		return "Smart suggestions took too long to answer."
-	}
-	msg := err.Error()
-	if i := strings.LastIndex(msg, "\n"); i >= 0 {
-		msg = msg[i+1:] // errors.Join: the last provider tried
-	}
-	return "Smart suggestions could not run: " + msg
-}
+// failure turns a failed Ask into a short line for the screen, or "" when
+// suggestions were simply off. The provider's own text stays in the log.
+func failure(err error) string { return decide.Reason(err) }
 
 func clip(s string, n int) string {
 	r := []rune(s)
@@ -351,7 +343,12 @@ func (s *Service) Clarify(ctx context.Context, userID, inboxID string) (ClarifyS
 	if len(workspaces) > 1 {
 		opts := make([]decide.Option, 0, len(workspaces))
 		for _, w := range workspaces {
-			name := uniqueName(w.Name, wsByName)
+			// A choice takes at most decide.MaxOptions; the oldest
+			// workspaces, usually the main ones, are offered.
+			if len(opts) == decide.MaxOptions {
+				break
+			}
+			name := uniqueName(clip(w.Name, maxOptionRunes), wsByName)
 			wsByName[name] = w.ID
 			opts = append(opts, decide.Option{Name: name})
 		}
@@ -360,14 +357,21 @@ func (s *Service) Clarify(ctx context.Context, userID, inboxID string) (ClarifyS
 	projByName := map[string]namedProject{}
 	if len(projects) > 0 {
 		opts := []decide.Option{{Name: "none", Description: "It does not belong to any of these projects."}}
+		// Option names are sent twice (both orders) and do not count toward
+		// the state limit, so long titles are cut and the most recently
+		// touched projects are offered until the names reach a budget.
+		budget := maxOptionBytes
 		for _, p := range projects {
-			label := p.Title
+			label := clip(p.Title, maxOptionRunes)
 			if len(workspaces) > 1 {
-				label = fmt.Sprintf("%s (%s)", p.Title, p.Workspace)
+				label = fmt.Sprintf("%s (%s)", label, clip(p.Workspace, 60))
 			}
-			label = uniqueName(label, nil)
+			label = notSentinel(uniqueName(label, nil), "project", "none")
 			if _, taken := projByName[label]; taken {
 				continue
+			}
+			if budget -= len(label); budget < 0 || len(opts) == decide.MaxOptions {
+				break
 			}
 			projByName[label] = p
 			opts = append(opts, decide.Option{Name: label})
@@ -389,7 +393,7 @@ func (s *Service) Clarify(ctx context.Context, userID, inboxID string) (ClarifyS
 	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "clarify", State: state, Questions: questions})
 	if err != nil {
 		// Off or busy: no suggestions. A failed call: no suggestions, and why.
-		return ClarifySuggestions{Error: failure(ctx, err)}, nil
+		return ClarifySuggestions{Error: failure(err)}, nil
 	}
 	out := ClarifySuggestions{Available: true, LogID: a.LogID}
 	// Work is the form's default, so only a sure answer on a clear thought
@@ -681,6 +685,25 @@ func shortlistLabels(labels []models.Lable, text string, uses map[string]int) []
 	}
 	sort.SliceStable(ranked, func(i, j int) bool { return ranked[i].Name < ranked[j].Name })
 	return ranked
+}
+
+// Option names a person chose (projects, stages, field values) are kept to
+// maxOptionRunes, and one question's names to about maxOptionBytes.
+const (
+	maxOptionRunes = 120
+	maxOptionBytes = 12000
+)
+
+// notSentinel renames an option named like the question's own "none" or
+// "unknown" option, so a project called "none" stays a project and the two
+// never share a name. what says what the option is.
+func notSentinel(name, what string, sentinels ...string) string {
+	for _, s := range sentinels {
+		if strings.EqualFold(strings.TrimSpace(name), s) {
+			return fmt.Sprintf("%s (%s)", name, what)
+		}
+	}
+	return name
 }
 
 // uniqueName returns name, or name with a number when it is already taken.

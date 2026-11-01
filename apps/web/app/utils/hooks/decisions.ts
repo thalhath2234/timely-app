@@ -104,8 +104,8 @@ export function useClarifySuggestions(inboxId: string | undefined, enabled = tru
   });
 }
 
-/** One live call with the saved keys. A refused TypeSafe key falls back to
- * OpenRouter and is flagged on the server, so the card is read again. */
+/** Test also asks TypeSafe again about a key it refused, so the card reloads
+ * afterwards: a key TypeSafe takes again is in use again. */
 export function useTestDecisions() {
   const queryClient = useQueryClient();
   return useMutation({
