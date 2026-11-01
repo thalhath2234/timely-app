@@ -92,7 +92,7 @@ import TimelyLogo from "../ui/TimelyLogo";
 import FindBar from "./FindBar";
 import BlockSheet, { type BlockInfo } from "./BlockSheet";
 import HelpMeWriteSheet, { useHelpMeWriteAvailable, writeList, type WriteContext, type WriteInfo } from "./HelpMeWriteSheet";
-import { isWriteList, writtenContent } from "@timely/contract/helpMeWrite";
+import { belowFit, isWriteList, replaceFit, writtenContent, type WriteSpot } from "@timely/contract/helpMeWrite";
 import type { LineHints } from "../docs/lineHints";
 import DescribeCardSheet, { type DescribedDraft } from "../report/DescribeCardSheet";
 import LiveBlocks from "./LiveBlocks";
@@ -526,6 +526,9 @@ export default function RichTextEditor({
         doc?: DocContent;
         list?: string | null;
         endList?: string | null;
+        selectionDoc?: DocContent;
+        spot?: WriteSpot | null;
+        cursorMark?: string;
       };
       if (msg.type === "lineHint" && msg.key && (msg.action === "toggle" || msg.action === "make" || msg.action === "dismiss" || msg.action === "goesTo")) {
         lineHintsRef.current?.act(msg.key, msg.action);
@@ -543,14 +546,20 @@ export default function RichTextEditor({
           from: msg.from ?? 0,
           to: msg.to ?? 0,
           selection: msg.selection ?? "",
+          selectionDoc: msg.selectionDoc,
+          spot: msg.spot ?? null,
           text: msg.text ?? "",
           doc: msg.doc,
+          cursorMark: typeof msg.cursorMark === "string" ? msg.cursorMark : undefined,
           list: isWriteList(msg.list) ? msg.list : null,
           endList: isWriteList(msg.endList) ? msg.endList : null,
         });
       }
       if (msg.type === "writeStale") {
         useToastStore.getState().show("The text changed while writing. Select it again.");
+      }
+      if (msg.type === "writeNoFit") {
+        useToastStore.getState().show("This draft can't take the place of your selection. Use Below.");
       }
       if (msg.type === "linkStale") {
         linkFeedback.current = null;
@@ -1190,8 +1199,13 @@ export default function RichTextEditor({
             setWriteInfo(null);
             if (!info) return;
             const list = writeList(info, mode, action);
-            const { blocks, inline, items } = writtenContent(markdown, list);
-            run("insertWritten", { blocks, inline, items, list, from: info.from, to: info.to, selection: info.selection, mode });
+            const written = writtenContent(markdown, list);
+            const { blocks, inline, items } = written;
+            // How a selection's draft goes in: over exactly what was sent, or
+            // right below it (the editor runs it, WRITE_RANGE_JS).
+            const fit = info.spot ? replaceFit(info.spot, written) : null;
+            const below = info.spot ? belowFit(info.spot, written) : null;
+            run("insertWritten", { blocks, inline, items, list, from: info.from, to: info.to, selection: info.selection, mode, fit, below });
           }}
         />
       ) : null}

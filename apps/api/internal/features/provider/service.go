@@ -102,6 +102,9 @@ type Service struct {
 	openRouterKeyURL string // overridable for tests; checks a key without spending tokens
 	anthropicURL     string // overridable for tests
 	ollamaURL        string // OLLAMA_BASE_URL: the default Ollama address
+
+	// busy counts each account's one-shot AI requests in flight (oneShotLimit).
+	busy inFlight
 }
 
 func New(db *gorm.DB, indexer embed.Indexer, queue *jobs.Queue) *Service {

@@ -3,7 +3,7 @@ import { Text, View } from "react-native";
 import { Check, ChevronRight, CornerDownLeft, Plus, Sparkles, Trash2, X } from "lucide-react-native";
 import { replaceRule } from "@timely/contract/ruleBuilder";
 import { isRuleGroup, normalizeRules } from "@timely/contract/taskQuery";
-import { aiDraftPatch, readingPatch, readViewQuery, ruleLabel, vocabularyFrom } from "@timely/contract/viewLanguage";
+import { VIEW_QUERY_MAX, aiDraftPatch, droppedNote, readingPatch, readViewQuery, ruleLabel, vocabularyFrom } from "@timely/contract/viewLanguage";
 import { todayInZone } from "@timely/contract/workStatus";
 import BottomSheet, { SheetOption } from "../ui/BottomSheet";
 import SegmentedControl from "../ui/SegmentedControl";
@@ -153,7 +153,7 @@ export default function TaskFiltersSheet({
   const [editing, setEditing] = useState<{ index: number | null } | null>(null);
   const [words, setWords] = useState({ viewId: "", text: "" });
   const [leftover, setLeftover] = useState<{ text: string; words: string[] } | null>(null);
-  const [ai, setAi] = useState<{ text: string; busy?: boolean; error?: string; done?: boolean } | null>(null);
+  const [ai, setAi] = useState<{ text: string; busy?: boolean; error?: string; done?: boolean; dropped?: string[] } | null>(null);
   const providers = useAgentProvidersQuery().data;
   const aiReady = readyProviders(providers).length > 0;
   const timeZone = useWorkingHoursZone();
@@ -179,7 +179,7 @@ export default function TaskFiltersSheet({
     readViewWithAi({ query, today: todayInZone(timeZone), client: "phone" })
       .then((result) => {
         onPatch({ ...aiDraftPatch(result.view, vocab), prompt: query.slice(0, 300) });
-        setAi({ text: query, done: true });
+        setAi({ text: query, done: true, dropped: result.dropped });
         setLeftover(null);
       })
       .catch((error: Error) => setAi({ text: query, error: error.message }));
@@ -301,6 +301,7 @@ export default function TaskFiltersSheet({
                 onChangeText={(next) => setWords({ viewId: view.id, text: next })}
                 placeholder="Describe: urgent bugs due this week"
                 autoCapitalize="sentences"
+                maxLength={VIEW_QUERY_MAX}
               />
             </View>
             <Button
@@ -323,6 +324,11 @@ export default function TaskFiltersSheet({
             />
           ) : null}
           {aiState?.error ? <Text style={styles.error}>{aiState.error}</Text> : null}
+          {aiState?.done && droppedNote(aiState.dropped) ? (
+            <Text accessibilityRole="text" style={styles.dropped}>
+              {droppedNote(aiState.dropped)}
+            </Text>
+          ) : null}
           {rules.map((rule, index) => {
             const { label } = ruleLabel(rule, vocab);
             const group = isRuleGroup(rule);
@@ -758,6 +764,7 @@ const styles = createThemedStyleSheet((colors) => ({
   reset: { paddingHorizontal: 12, paddingVertical: 12 },
   resetText: { color: colors.primary, fontWeight: "600" },
   error: { color: colors.destructive, fontSize: 12 },
+  dropped: { color: colors.mutedForeground, fontSize: 12, lineHeight: 17 },
   describeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   ruleRow: { minHeight: 42, borderRadius: 10, backgroundColor: colors.muted, flexDirection: "row", alignItems: "center", paddingLeft: 12, paddingRight: 4 },
   ruleBody: { flex: 1, minHeight: 42, justifyContent: "center", paddingVertical: 6 },
