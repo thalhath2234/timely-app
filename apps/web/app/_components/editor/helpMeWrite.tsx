@@ -8,6 +8,7 @@ import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { ArrowUp, RotateCcw, Sparkles, X } from "lucide-react";
 import {
+  PROVIDER_NOT_CHOSEN,
   SELECTION_ACTIONS,
   WRITE_BUSY,
   WRITE_CURSOR,
@@ -20,12 +21,14 @@ import {
   type WriteList,
   type WriteResult,
 } from "@timely/contract/helpMeWrite";
-import Button from "@/app/_components/_ui/button";
+import Link from "next/link";
+import Button, { buttonClass } from "@/app/_components/_ui/button";
 import { Input, Textarea, popoverSurface } from "@/app/_components/_ui/field";
 import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import { readyProviders } from "@/app/_components/chat/modelMenu";
 import { useToastStore } from "@/app/_store/toastStore";
 import { helpMeWrite } from "@/app/utils/api/write";
+import { errorCode } from "@/app/utils/api/codedError";
 import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
 import { cn } from "@/app/utils/cn";
 
@@ -275,6 +278,8 @@ export default function HelpMeWritePanel({
   const [refine, setRefine] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
+  // The account has providers but none is chosen (ADR 0020): offer the fix.
+  const [needsChoice, setNeedsChoice] = useState(false);
   // `list`: the list the draft joins, so the preview shows it as that list.
   const [result, setResult] = useState<(WriteResult & { run: Run; list?: WriteList }) | null>(null);
   const abort = useRef<AbortController | null>(null);
@@ -369,6 +374,7 @@ export default function HelpMeWritePanel({
     abort.current = controller;
     setBusy(run.label ?? WRITE_BUSY[run.action]);
     setError("");
+    setNeedsChoice(false);
     try {
       const out = await helpMeWrite(
         {
@@ -387,6 +393,7 @@ export default function HelpMeWritePanel({
     } catch (err) {
       if (controller.signal.aborted) return;
       setError(err instanceof Error ? err.message : "Could not write that. Try again.");
+      setNeedsChoice(errorCode(err) === PROVIDER_NOT_CHOSEN);
     } finally {
       if (abort.current === controller) setBusy(null);
     }
@@ -611,9 +618,20 @@ export default function HelpMeWritePanel({
           )}
 
           {error && (
-            <p role="alert" className="rounded-md bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
-              {error}
-            </p>
+            <div
+              role="alert"
+              className={cn(
+                "flex flex-col items-start gap-2 rounded-md px-2.5 py-2 text-xs",
+                needsChoice ? "border border-border bg-muted/60 text-foreground" : "bg-destructive/10 text-destructive",
+              )}
+            >
+              <p>{error}</p>
+              {needsChoice && (
+                <Link href="/settings?tab=agent" className={buttonClass({ size: "sm", variant: "outline" })}>
+                  Choose provider
+                </Link>
+              )}
+            </div>
           )}
         </div>
 

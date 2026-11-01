@@ -83,7 +83,8 @@ export type ApiProviderView = {
 };
 
 export type ReindexState = {
-  status?: "queued" | "running" | "done" | "failed" | "";
+  /** "retrying": an attempt failed and the server will try again. */
+  status?: "queued" | "running" | "retrying" | "done" | "failed" | "";
   done: number;
   total: number;
   error?: string;
@@ -91,12 +92,10 @@ export type ReindexState = {
 };
 
 export type AgentProviders = {
-  /** Runs new chats and the writing tools: the person's choice when
-   * defaultChosen, otherwise autoProvider ("" with nothing set up). */
+  /** Runs new chats and the writing tools: the person's choice, "" until
+   * they choose one; those features wait meanwhile (ADR 0020). */
   defaultProvider: ProviderId | "";
   defaultChosen: boolean;
-  /** What Automatic picks: the first provider set up, OpenRouter last. */
-  autoProvider: ProviderId | "";
   localCli: boolean;
   openrouter: OpenRouterView;
   claude: CliProviderView;
@@ -114,7 +113,6 @@ export type ModelOption = {
 };
 
 export type ProviderPatch = {
-  /** "" hands the choice back to Automatic. */
   defaultProvider?: ProviderId | "";
   openrouterChatModel?: string;
   openrouterEmbedModel?: string;

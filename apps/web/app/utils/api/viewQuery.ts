@@ -1,5 +1,6 @@
 import type { AiViewDraft } from "@timely/contract/viewLanguage";
 import { apiFetch } from "./client";
+import { codedError } from "./codedError";
 
 export type ViewQueryResult = { view: AiViewDraft; dropped?: string[]; provider: string; model: string };
 
@@ -14,15 +15,6 @@ export async function readViewWithAi(
     body: JSON.stringify(body),
     signal,
   });
-  if (!res.ok) {
-    let message = "Could not read that. Try again.";
-    try {
-      const data = await res.json();
-      if (typeof data?.message === "string") message = data.message;
-    } catch {
-      // keep the fallback message
-    }
-    throw new Error(message);
-  }
+  if (!res.ok) throw await codedError(res, "Could not read that. Try again.");
   return res.json();
 }

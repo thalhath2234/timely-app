@@ -47,6 +47,11 @@ export const isWriteList = (type: unknown): type is WriteList =>
 /** `text` is Markdown. */
 export type WriteResult = { text: string; provider: string; model: string };
 
+/** The error code (409 body `code`, a failed chat's `errorCode`) of a feature
+ * that runs on the default provider while the person has not chosen one in
+ * Settings → Agent. The apps answer it with a way to choose. */
+export const PROVIDER_NOT_CHOSEN = "provider_not_chosen";
+
 /** What the panel says while the AI works on each action. */
 export const WRITE_BUSY: Record<WriteAction, string> = {
   write: "Writing",

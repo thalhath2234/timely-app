@@ -22,10 +22,12 @@ export function useAgentProviders() {
   return useQuery({
     queryKey: agentProvidersKey,
     queryFn: getAgentProviders,
-    // Poll while a semantic-search rebuild is running so the count moves.
+    // Poll while a semantic-search rebuild is running so the count moves,
+    // and more slowly while a failed attempt waits to be tried again.
     refetchInterval: (query) => {
       const status = query.state.data?.reindex?.status;
-      return status === "queued" || status === "running" ? 2000 : false;
+      if (status === "queued" || status === "running") return 2000;
+      return status === "retrying" ? 5000 : false;
     },
   });
 }

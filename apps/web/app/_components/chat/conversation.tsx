@@ -33,6 +33,7 @@ import {
 import { buttonClass } from "@/app/_components/_ui/button";
 import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
 import { readyProviders } from "./modelMenu";
+import { PROVIDER_NOT_CHOSEN } from "@timely/contract/helpMeWrite";
 
 const iconButton =
   "rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
@@ -118,6 +119,8 @@ export default function Conversation({
   const needsProvider = Boolean(providers.data) && readyProviders(providers.data).length === 0;
   const cache = useQueryClient();
   const chat = query.data;
+  // The run waited for the person to choose a default provider (ADR 0020).
+  const notChosen = chat?.errorCode === PROVIDER_NOT_CHOSEN;
   const [draft, setDraft] = useState("");
   const [receiptDirty, setReceiptDirty] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -531,26 +534,29 @@ export default function Conversation({
                 <p className="font-medium text-destructive">
                   {needsProvider
                     ? "Connect an AI provider to chat"
-                    : "Something went wrong"}
+                    : notChosen
+                      ? "Choose a provider for chats"
+                      : "Something went wrong"}
                 </p>
                 <p className="mt-1 text-sm leading-6">{chat.error}</p>
-                {needsProvider ? (
-                  <Link
-                    href="/settings?tab=agent"
-                    className={buttonClass({ size: "sm", className: "mt-3" })}
-                  >
-                    Open Agent settings
-                  </Link>
-                ) : ["failed", "stopped"].includes(chat.status) && (
-                  <button
-                    type="button"
-                    disabled={mutation.isPending}
-                    onClick={() => act("/retry")}
-                    className="mt-3 rounded-lg border border-border bg-card px-3.5 py-2 text-sm font-medium hover:border-primary/30 disabled:opacity-50"
-                  >
-                    Try again
-                  </button>
-                )}
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {needsProvider || notChosen ? (
+                    <Link href="/settings?tab=agent" className={buttonClass({})}>
+                      {notChosen ? "Choose provider" : "Open Agent settings"}
+                    </Link>
+                  ) : null}
+                  {/* Once a provider is chosen, the waiting chat can run. */}
+                  {!needsProvider && ["failed", "stopped"].includes(chat.status) && (
+                    <button
+                      type="button"
+                      disabled={mutation.isPending}
+                      onClick={() => act("/retry")}
+                      className={buttonClass({ variant: "outline" })}
+                    >
+                      Try again
+                    </button>
+                  )}
+                </div>
               </div>
             )}
             {chat?.error && !!chat.plan?.length && (
