@@ -67,6 +67,19 @@ func TestBoardProgramKeepsTheWholeProgramAndNothingElse(t *testing.T) {
 	if got, err := boardProgram(multi + "\nThat's it."); err != nil || got != multi {
 		t.Errorf("a root over several lines: %q %v", got, err)
 	}
+	// Comments are the program's (the parser skips them), and so is every
+	// line inside an open bracket, however it starts.
+	commented := root + "\n// the rows\n" + list + "\n# where they come from\n" + late
+	if got, err := boardProgram(commented + "\n\nThis card shows your overdue tasks."); err != nil || got != commented {
+		t.Errorf("a comment ended the program: %q %v", got, err)
+	}
+	unindented := "root = Panel(\"Late\", [nums,\nlist], \"medium\")\nnums = Stats([Stat(\"Late\",\nlate.text)])\n" + list + "\n" + late
+	if got, err := boardProgram(unindented + "\nDone (a short card)."); err != nil || got != unindented {
+		t.Errorf("a line inside brackets was cut: %q %v", got, err)
+	}
+	if got, err := boardProgram("Here it is :)\n" + late + "\nlist = List(@Each(late.rows, \"t\",\nTaskRow(t.id, t.title)))\n" + root); err != nil || got != root+"\n"+late+"\nlist = List(@Each(late.rows, \"t\",\nTaskRow(t.id, t.title)))" {
+		t.Errorf("statements above the root: %q %v", got, err)
+	}
 }
 
 // The apps count a program's length in JavaScript string units, so a

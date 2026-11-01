@@ -440,9 +440,10 @@ var (
 	programRoot  = regexp.MustCompile(`(?m)^root\s*=\s*Panel\(`)
 	// programStatement starts a statement (`name = ...`); programPart starts
 	// the rest of one written over several lines (an indented line, a
-	// closing bracket, the next item of a list).
+	// closing bracket, the next item of a list) or is a comment (`//` and
+	// `#`, which the parser skips).
 	programStatement = regexp.MustCompile(`^[A-Za-z_$][\w$]*\s*=[^=]`)
-	programPart      = regexp.MustCompile(`^(\s|[\])},"\[@]|[A-Z]\w*\()`)
+	programPart      = regexp.MustCompile(`^(\s|[\])},"\[@#]|//|[A-Z]\w*\()`)
 )
 
 // errProgramTooLong is a program over dashboardCardMaxProgram characters.
@@ -474,21 +475,37 @@ func boardProgram(answer string) (string, error) {
 	if loc == nil {
 		return "", errors.New("no Panel root in the answer")
 	}
+	// A line inside an open bracket is part of its statement, whatever it
+	// starts with; between statements, a line that is not a program's ends
+	// the program ("This card shows your overdue tasks.").
 	after := strings.Split(text[loc[0]:], "\n")
-	lines := after[:1]
+	lines := []string{after[0]}
+	depth := bracketDepth(0, after[0])
 	for _, line := range after[1:] {
-		if !programLine(line) {
-			break // "This card shows your overdue tasks." is not the program's
+		if depth == 0 && !programLine(line) {
+			break
 		}
 		lines = append(lines, line)
+		depth = bracketDepth(depth, line)
 	}
+	// Above the root, the program is the run of lines after the last one
+	// that is not a program's.
 	above := strings.Split(strings.TrimRight(text[:loc[0]], "\n"), "\n")
-	start := len(above)
-	for start > 0 && programLine(above[start-1]) {
-		start--
+	start, depth := -1, 0
+	for i, line := range above {
+		if depth == 0 {
+			if !programLine(line) {
+				start = -1
+			} else if start < 0 {
+				start = i
+			}
+		}
+		depth = bracketDepth(depth, line)
 	}
-	lines = append(lines, above[start:]...)
-	kept := lines[:0]
+	if start >= 0 && depth == 0 {
+		lines = append(lines, above[start:]...)
+	}
+	var kept []string
 	for _, line := range lines {
 		if strings.TrimSpace(line) != "" {
 			kept = append(kept, strings.TrimRight(line, " \t"))
@@ -505,4 +522,37 @@ func boardProgram(answer string) (string, error) {
 // statement, or part of one.
 func programLine(line string) bool {
 	return strings.TrimSpace(line) == "" || programStatement.MatchString(line) || programPart.MatchString(line)
+}
+
+// bracketDepth is how many brackets are open after line, given depth open
+// before it: brackets in strings and comments don't count, and a line
+// that closes more than is open leaves none open.
+func bracketDepth(depth int, line string) int {
+	var quote rune
+	escaped, slash := false, false
+	for _, r := range line {
+		if quote != 0 {
+			if escaped {
+				escaped = false
+			} else if r == '\\' {
+				escaped = true
+			} else if r == quote {
+				quote = 0
+			}
+			continue
+		}
+		if r == '#' || (r == '/' && slash) {
+			break
+		}
+		slash = r == '/'
+		switch r {
+		case '"', '\'':
+			quote = r
+		case '(', '[', '{':
+			depth++
+		case ')', ']', '}':
+			depth = max(0, depth-1)
+		}
+	}
+	return depth
 }
