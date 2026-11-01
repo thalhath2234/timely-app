@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -110,13 +111,75 @@ func canSearch(ctx context.Context) bool {
 }
 
 func (s *Service) complete(ctx context.Context, messages []WireMessage, tools []any, search bool) (WireMessage, error) {
+	var reply WireMessage
+	var err error
 	if c, ok := ctx.Value(completerKey{}).(Completer); ok && c != nil {
-		return c.Complete(ctx, messages, tools, search)
-	}
-	if s.provider == nil {
+		reply, err = c.Complete(ctx, messages, tools, search)
+	} else if s.provider == nil {
 		return WireMessage{}, fmt.Errorf("No AI provider is set up. Open Settings → Agent to connect one")
+	} else {
+		reply, err = s.provider.Complete(ctx, messages, tools, search)
 	}
-	return s.provider.Complete(ctx, messages, tools, search)
+	if err != nil {
+		return reply, err
+	}
+	return withoutNUL(reply), nil
+}
+
+// withoutNUL drops NUL characters from a model's reply. Postgres can't
+// store them in text or JSON, so one NUL in an answer failed the run with a
+// database error after the answer was paid for.
+func withoutNUL(m WireMessage) WireMessage {
+	m.Content = dropNUL(m.Content)
+	m.ReasoningContent = dropNUL(m.ReasoningContent)
+	if len(m.ToolCalls) > 0 {
+		m.ToolCalls = append([]ToolCall(nil), m.ToolCalls...)
+		for i := range m.ToolCalls {
+			m.ToolCalls[i].Function.Arguments = nulFreeJSON(m.ToolCalls[i].Function.Arguments)
+		}
+	}
+	return m
+}
+
+func dropNUL(s string) string {
+	if !strings.ContainsRune(s, 0) {
+		return s
+	}
+	return strings.ReplaceAll(s, "\x00", "")
+}
+
+// nulFreeJSON drops NULs (written \u0000) from the strings of a JSON text.
+func nulFreeJSON(text string) string {
+	if !strings.Contains(text, `\u0000`) && !strings.ContainsRune(text, 0) {
+		return text
+	}
+	var value any
+	if json.Unmarshal([]byte(text), &value) != nil {
+		return dropNUL(text)
+	}
+	cleaned, err := json.Marshal(dropNULs(value))
+	if err != nil {
+		return text
+	}
+	return string(cleaned)
+}
+
+func dropNULs(value any) any {
+	switch v := value.(type) {
+	case string:
+		return dropNUL(v)
+	case []any:
+		for i := range v {
+			v[i] = dropNULs(v[i])
+		}
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for key, item := range v {
+			out[dropNUL(key)] = dropNULs(item)
+		}
+		return out
+	}
+	return value
 }
 
 type OpenRouter struct {

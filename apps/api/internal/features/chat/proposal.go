@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 	"timely-api/internal/features/agent"
@@ -156,7 +157,7 @@ func (s *Service) prepareProposal(ctx context.Context, catalog agent.Catalog, ui
 	if len(p.Steps) == 30 && strings.TrimSpace(p.Remaining) == "" {
 		return p, nil, fmt.Errorf("This proposal has the maximum 30 changes. Set remaining to what is still left of the request, or to \"none\" if these 30 changes complete it")
 	}
-	p.Reply, p.Remaining = blankIfNone(p.Reply), blankIfNone(p.Remaining)
+	p.Reply, p.Remaining = blankIfNone(p.Reply), remainingWork(p.Remaining)
 	if strings.TrimSpace(p.Summary) == "" {
 		// Never show an empty proposal message; the step summaries are required.
 		parts := []string{}
@@ -368,4 +369,22 @@ func blankIfNone(text string) string {
 		return ""
 	}
 	return strings.TrimSpace(text)
+}
+
+// nothingLeftWords starts a remaining that says in words that nothing is
+// left: "No further changes needed.", "Nothing else.", "All done".
+var nothingLeftWords = regexp.MustCompile(`^(no|nothing|none|n/a|all done|done|complete|completed|this completes)\b`)
+
+// remainingWork is what a proposal's remaining leaves for the next batch:
+// empty when it only says that nothing is left. Each batch costs another
+// model run, so "No further changes needed." must not start one. Work left
+// is described with what it is, and usually how many: a short sentence with
+// no number that starts with no, nothing or done describes none.
+func remainingWork(text string) string {
+	text = blankIfNone(text)
+	words := strings.ToLower(strings.Trim(text, " .!"))
+	if len(strings.Fields(words)) <= 8 && !strings.ContainsAny(words, "0123456789") && nothingLeftWords.MatchString(words) {
+		return ""
+	}
+	return text
 }

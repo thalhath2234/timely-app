@@ -556,6 +556,20 @@ func TestFullProposalMustSayWhatRemains(t *testing.T) {
 	}
 }
 
+// A remaining that only says nothing is left must not start another paid run.
+func TestRemainingInWordsThatNothingIsLeftIsDone(t *testing.T) {
+	for _, done := range []string{"No further changes needed.", "Nothing else remains", "None – this completes the request.", "No more changes.", "All done!", "N/A", "Complete."} {
+		if got := remainingWork(done); got != "" {
+			t.Errorf("%q read as work left: %q", done, got)
+		}
+	}
+	for _, left := range []string{"Workout days 31-35", "Create the other tasks from the list", "No due dates were given for the other 12 tasks: add them", "Nothing is scheduled yet for Tuesday through Friday; add those blocks and the reminders"} {
+		if got := remainingWork(left); got != left {
+			t.Errorf("%q dropped: %q", left, got)
+		}
+	}
+}
+
 // With no saved Working hours and no device zone, the run carries no timezone,
 // so tools fall through to the server-local fallback of task.DayLocation
 // instead of an explicit UTC.
