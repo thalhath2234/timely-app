@@ -98,12 +98,13 @@ func fallback(err error) bool {
 }
 
 // outage reports whether a failure is about the service rather than the
-// request or the key: rate limits, overload, server errors, timeouts and
-// network errors. The same call a moment later is likely to fail too.
+// request or the key: an account out of credit, rate limits, overload,
+// server errors, timeouts and network errors. The same call a moment later
+// is likely to fail too.
 func outage(err error) bool {
 	var se *StatusError
 	if errors.As(err, &se) {
-		return se.Code == 408 || se.Code == 429 || se.Code >= 500
+		return se.Code == 402 || se.Code == 408 || se.Code == 429 || se.Code >= 500
 	}
 	return !errors.Is(err, errNoAnswers)
 }
@@ -134,7 +135,9 @@ func (c *Client) Call(ctx context.Context, keys Keys, body wire) ([]byte, string
 		if errors.As(err, &se) && se.Code == 401 && c.Rejected != nil && uid != "" {
 			c.Rejected(uid, keys.TypeSafe)
 		}
-		if outage(err) {
+		// A call the caller gave up on (the screen closed) says nothing
+		// about TypeSafe, so it does not make TypeSafe rest.
+		if outage(err) && ctx.Err() == nil {
 			c.rest(uid, typeSafeRest)
 		}
 		if !fallback(err) || keys.OpenRouter == "" || ctx.Err() != nil {

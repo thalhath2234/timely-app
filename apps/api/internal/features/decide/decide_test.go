@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 type fakeJev struct {
 	status int
 	hits   atomic.Int32
+	mu     sync.Mutex
 	last   map[string]any
 	raw    []byte
 	auth   string
@@ -34,10 +36,15 @@ func (f *fakeJev) server(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.hits.Add(1)
-		f.auth = r.Header.Get("Authorization")
-		f.raw, _ = io.ReadAll(r.Body)
-		f.last = map[string]any{}
-		_ = json.Unmarshal(f.raw, &f.last)
+		// Calls can overlap (the busy and single-flight tests), so each
+		// answer is built from its own request and the last one is kept
+		// under a lock.
+		raw, _ := io.ReadAll(r.Body)
+		req := map[string]any{}
+		_ = json.Unmarshal(raw, &req)
+		f.mu.Lock()
+		f.auth, f.raw, f.last = r.Header.Get("Authorization"), raw, req
+		f.mu.Unlock()
 		if f.delay > 0 {
 			select {
 			case <-time.After(f.delay):
@@ -60,7 +67,7 @@ func (f *fakeJev) server(t *testing.T) *httptest.Server {
 		}
 		out := map[string]any{"model": "jev-1.13.0", "usage": map[string]int{"input_tokens": 10, "output_tokens": 0}}
 		if f.answer != nil {
-			out["answers"] = f.answer(f.last)
+			out["answers"] = f.answer(req)
 		} else {
 			out["answers"] = map[string]any{}
 		}

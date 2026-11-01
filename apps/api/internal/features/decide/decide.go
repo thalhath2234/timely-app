@@ -77,8 +77,9 @@ const (
 	maxStateBytes = MaxStateBytes
 	perUserCalls  = 4
 	cacheFor      = 10 * time.Minute
-	// coolFor is how long an account waits after the provider was rate
-	// limited or down when it gave no Retry-After; maxCool caps the wait.
+	// coolFor is how long an account waits after the provider was out of
+	// credit, rate limited or down and gave no Retry-After; maxCool caps the
+	// wait.
 	coolFor = 30 * time.Second
 	maxCool = 2 * time.Minute
 )
@@ -238,7 +239,7 @@ type Service struct {
 	// made meanwhile (a double submit) waits for that answer.
 	flights map[string]*flight
 	// cool holds, per account, until when calls wait after the provider was
-	// rate limited or down, and that failure.
+	// out of credit, rate limited or down, and that failure.
 	cool map[string]cooling
 	rand func(int) []int
 	// learned holds each account's raise per feature for a while.
@@ -399,7 +400,7 @@ func (s *Service) land(key string, f *flight, a Answers, err error) {
 }
 
 // cooling returns the held-back error while the account waits after the
-// provider was rate limited or down.
+// provider was out of credit, rate limited or down.
 func (s *Service) cooling(userID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -414,12 +415,13 @@ func (s *Service) cooling(userID string) error {
 	return errors.Join(ErrOff, ErrCooling, c.err)
 }
 
-// coolAfter makes the account wait when the last provider tried was rate
-// limited (429) or down (5xx): for its Retry-After when it gave one, else
-// coolFor, at most maxCool. Reloading a screen then costs no call.
+// coolAfter makes the account wait when the last provider tried was out of
+// credit (402), rate limited (429) or down (5xx): for its Retry-After when
+// it gave one, else coolFor, at most maxCool. Reloading a screen then costs
+// no call.
 func (s *Service) coolAfter(userID string, err error) {
 	var se *StatusError
-	if !errors.As(lastErr(err), &se) || (se.Code != 429 && se.Code < 500) {
+	if !errors.As(lastErr(err), &se) || (se.Code != 402 && se.Code != 429 && se.Code < 500) {
 		return
 	}
 	wait := coolFor

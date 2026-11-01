@@ -18,8 +18,9 @@ var (
 	// ErrKeyUnreadable: the saved TypeSafe key cannot be decrypted (the
 	// server's encryption key changed) and no other key is set.
 	ErrKeyUnreadable = wrapOff("the saved TypeSafe key cannot be read")
-	// ErrCooling: the provider was rate limited or down a moment ago, so the
-	// account waits before asking again. It is joined with that failure.
+	// ErrCooling: the provider was out of credit, rate limited or down a
+	// moment ago, so the account waits before asking again. It is joined
+	// with that failure.
 	ErrCooling = errors.New("decide: waiting after a provider error")
 )
 

@@ -277,3 +277,58 @@ func TestFailedSkipsPermanentRefusals(t *testing.T) {
 		}
 	}
 }
+
+// An account out of credit is not asked again on every load: with only a
+// TypeSafe key the account waits as after a 429, and with an OpenRouter key
+// TypeSafe rests, so each suggestion costs one call instead of two.
+func TestOutOfCreditWaits(t *testing.T) {
+	ts := &fakeJev{status: 402}
+	s, _ := newTest(t, Keys{Enabled: true, TypeSafe: "ts-key-123"}, ts, &fakeJev{})
+	if _, err := s.Ask(context.Background(), "u1", oneYesNo()); !Failed(err) {
+		t.Fatalf("want a failed call, got %v", err)
+	}
+	req := oneYesNo()
+	req.State = "Reloaded"
+	_, err := s.Ask(context.Background(), "u1", req)
+	if ts.hits.Load() != 1 || !strings.Contains(Reason(err), "out of credit") {
+		t.Fatalf("a reload while out of credit called again (%d calls) or lost the reason: %q", ts.hits.Load(), Reason(err))
+	}
+
+	ts, or := &fakeJev{status: 402}, &fakeJev{answer: yesAnswer(0.9)}
+	s, _ = newTest(t, Keys{Enabled: true, TypeSafe: "ts-key-123", OpenRouter: "or-key-123"}, ts, or)
+	for i, state := range []string{"a", "b", "c"} {
+		req := oneYesNo()
+		req.State = state
+		if _, err := s.Ask(context.Background(), "u1", req); err != nil {
+			t.Fatalf("%d: %v", i, err)
+		}
+	}
+	if ts.hits.Load() != 1 || or.hits.Load() != 3 {
+		t.Fatalf("TypeSafe out of credit should rest: ts=%d or=%d", ts.hits.Load(), or.hits.Load())
+	}
+}
+
+// A call the caller gave up on (the screen closed) says nothing about
+// TypeSafe, so the next call still asks it first.
+func TestGivingUpDoesNotRestTypeSafe(t *testing.T) {
+	ts, or := &fakeJev{delay: 300 * time.Millisecond, answer: yesAnswer(0.9)}, &fakeJev{answer: yesAnswer(0.9)}
+	s, _ := newTest(t, Keys{Enabled: true, TypeSafe: "ts-key-123", OpenRouter: "or-key-123"}, ts, or)
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		for ts.hits.Load() == 0 {
+			time.Sleep(5 * time.Millisecond)
+		}
+		cancel()
+	}()
+	if _, err := s.Ask(ctx, "u1", oneYesNo()); err == nil {
+		t.Fatal("a call the caller gave up on should fail")
+	}
+	req := oneYesNo()
+	req.State = "Opened again"
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel2()
+	a, err := s.Ask(ctx2, "u1", req)
+	if err != nil || a.Provider != ProviderTypeSafe || ts.hits.Load() != 2 || or.hits.Load() != 0 {
+		t.Fatalf("TypeSafe should still be asked first: %q %v ts=%d or=%d", a.Provider, err, ts.hits.Load(), or.hits.Load())
+	}
+}
