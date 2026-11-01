@@ -137,13 +137,13 @@ func (s *Service) tools(ctx context.Context, userID string) *describeTools {
 	return t
 }
 
-// Ids a program writes out itself: a TaskRow's or CheckRow's first argument
-// and an Open("…", "doc", id). Rows made with @Each take their ids from the
-// data (t.id), so a written-out id is one the model made up or copied.
+// Ids a program writes out itself: a TaskRow's or CheckRow's first
+// argument. Rows made with @Each take their ids from the data (t.id), so a
+// written-out id is one the model made up or copied. (The board check
+// already flags an Open whose id is not in the person's data.)
 var (
 	writtenTaskRow  = regexp.MustCompile(`\bTaskRow\(\s*"([^"]+)"`)
 	writtenCheckRow = regexp.MustCompile(`\bCheckRow\(\s*"([^"]+)"`)
-	writtenOpenDoc  = regexp.MustCompile(`\bOpen\(\s*"(?:[^"\\]|\\.)*"\s*,\s*"doc"\s*,\s*"([^"]+)"`)
 )
 
 // unknownIDs is a problem for every task or doc id written in program that
@@ -169,7 +169,6 @@ func (t *describeTools) unknownIDs(ctx context.Context, program string) []string
 	}
 	look(writtenTaskRow, "task", "TaskRow names task %q, which the person does not have. Take tasks from @Data rows (TaskRow(t.id, ...) in @Each), never write a task id yourself.")
 	look(writtenCheckRow, "doc", "CheckRow names doc %q, which the person does not have. Take checklist items from @Checklist rows (i.docId).")
-	look(writtenOpenDoc, "doc", "Open names doc %q, which the person does not have. Use the doc's id from list_docs, or c.docId from @Checklist.")
 	return problems
 }
 

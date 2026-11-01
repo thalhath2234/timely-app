@@ -316,8 +316,11 @@ open = Open("Open doc", "doc", "doc_fake")`
 		t.Fatal(err)
 	}
 	joined := strings.Join(checked.Problems, "\n")
-	if !strings.Contains(joined, `"task_fake"`) || !strings.Contains(joined, `"doc_fake"`) || strings.Contains(joined, `"tsk_real"`) {
+	if !strings.Contains(joined, `"task_fake"`) || strings.Contains(joined, `"tsk_real"`) {
 		t.Fatalf("written-out ids the person does not have must be problems: %q", checked.Problems)
+	}
+	if strings.Count(joined, "doc_fake") > 1 {
+		t.Fatalf("an Open to a missing doc is flagged once, by the board check: %q", checked.Problems)
 	}
 	// Rows from @Data name no id of their own.
 	clean, err := tools.check(context.Background(), `root = Panel("Late", [list])
