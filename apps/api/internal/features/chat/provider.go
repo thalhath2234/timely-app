@@ -93,6 +93,14 @@ func CompleterFrom(ctx context.Context) Completer {
 	return nil
 }
 
+// unusable stands in for a run's provider that could not be set up: every
+// call fails with the reason, so nothing switches to another provider.
+type unusable struct{ err error }
+
+func (u unusable) Complete(context.Context, []WireMessage, []any, bool) (WireMessage, error) {
+	return WireMessage{}, u.err
+}
+
 // canSearch reports whether the run's provider can answer web searches.
 func canSearch(ctx context.Context) bool {
 	if c, ok := ctx.Value(completerKey{}).(Searcher); ok && c != nil {

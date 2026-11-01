@@ -545,9 +545,9 @@ func (s *Service) similar(c *echo.Context) error {
 			target.Client = row.Client
 			target.RichUI = row.RichUI
 		}
-		if row.ChosenProvider != "" {
-			target.ChosenProvider, target.ChosenModel = row.ChosenProvider, row.ChosenModel
-		}
+		// Default (no choice) too: the earlier chat's own pick must not
+		// carry a request written on Default to another provider.
+		target.ChosenProvider, target.ChosenModel = row.ChosenProvider, row.ChosenModel
 		target.Status, target.Phase = "queued", "plan"
 		target.Error, target.Unread = "", false
 		target.Revision++

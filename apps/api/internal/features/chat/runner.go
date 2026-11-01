@@ -141,6 +141,14 @@ func (s *Service) work(ctx context.Context) {
 				runCtx = WithCompleter(runCtx, completer)
 			}
 		}
+		if providerErr != nil && c.Phase == "apply" {
+			// Applying approved changes asks no model, so an unusable
+			// provider must not stop it. A step that does need one (a live
+			// block's program) gets this provider's error, never another
+			// provider in its place.
+			runCtx = WithCompleter(runCtx, unusable{providerErr})
+			providerErr = nil
+		}
 		leaseDone := make(chan struct{})
 		go func(uid, cid, lease string) {
 			defer close(leaseDone)
