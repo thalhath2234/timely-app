@@ -2763,14 +2763,21 @@ export function buildEditorHtml(
     // The doc as the AI reads it: the cursor typed where a draft at pos
     // goes, as a new item when it joins a list (cursorDoc on the web).
     const WRITE_CURSOR = ${embed(WRITE_CURSOR)};
-    function cursorDoc(pos) {
+    // A new cursor for each request (writeCursorMark in the contract), so a
+    // doc that holds the word WRITE_CURSOR keeps it.
+    function cursorMark() {
+      let letters = "";
+      for (let i = 0; i < 10; i++) letters += String.fromCharCode(65 + Math.floor(Math.random() * 26));
+      return WRITE_CURSOR + letters;
+    }
+    function cursorDoc(pos, mark) {
       const state = editor.state;
       const { tr, schema } = state;
       try {
         const spot = listSpot(state.doc, pos, false);
         if (spot) {
           const item = schema.nodes[spot.list === "taskList" ? "taskItem" : "listItem"];
-          const marked = item.create(null, schema.nodes.paragraph.create(null, schema.text(WRITE_CURSOR)));
+          const marked = item.create(null, schema.nodes.paragraph.create(null, schema.text(mark)));
           if (spot.drop && spot.drop.from === spot.at) tr.replaceWith(spot.drop.from, spot.drop.to, marked);
           else {
             if (spot.drop) tr.delete(spot.drop.from, spot.drop.to);
@@ -2780,8 +2787,8 @@ export function buildEditorHtml(
           const $pos = state.doc.resolve(Math.min(pos, state.doc.content.size));
           // Only an empty line of its own becomes the draft (insertWritten
           // does the same); in a table cell or callout it goes after the block.
-          if ($pos.depth === 1 && isEmptyLine($pos.parent)) tr.insertText(WRITE_CURSOR, $pos.pos);
-          else tr.insert($pos.depth > 0 ? $pos.after(1) : state.doc.content.size, schema.nodes.paragraph.create(null, schema.text(WRITE_CURSOR)));
+          if ($pos.depth === 1 && isEmptyLine($pos.parent)) tr.insertText(mark, $pos.pos);
+          else tr.insert($pos.depth > 0 ? $pos.after(1) : state.doc.content.size, schema.nodes.paragraph.create(null, schema.text(mark)));
         }
         return tr.doc.toJSON();
       } catch (_) {
@@ -2829,6 +2836,9 @@ export function buildEditorHtml(
         else chain.insertContentAt(spot.at, items).run();
       } else if (p.mode === "end") {
         chain.insertContentAt(size, blocks).run();
+      } else if (p.mode === "all") {
+        // A new description in place of the old one (Rewrite description).
+        chain.insertContentAt({ from: 0, to: size }, blocks).run();
       } else {
         const at = doc.resolve(Math.min(Math.max(0, from || 0), size));
         const block = at.depth > 0 ? at.node(1) : null;
@@ -2945,6 +2955,7 @@ export function buildEditorHtml(
           const selection = captured.text;
           const at = selection ? null : listSpot(doc, from, false);
           const end = selection ? null : listSpot(doc, doc.content.size, true);
+          const mark = cursorMark();
           send({
             type: "writeInfo",
             from,
@@ -2953,7 +2964,8 @@ export function buildEditorHtml(
             selectionDoc: selection ? captured.doc : undefined,
             spot: selection ? captured.spot : undefined,
             text: editor.getText({ blockSeparator: "\\n", textSerializers: LIVE_TEXT }).trim(),
-            doc: selection ? editor.getJSON() : cursorDoc(from),
+            doc: selection ? editor.getJSON() : cursorDoc(from, mark),
+            cursorMark: mark,
             list: at ? at.list : null,
             endList: end ? end.list : null,
           });

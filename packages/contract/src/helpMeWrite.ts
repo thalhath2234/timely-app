@@ -37,11 +37,36 @@ export type WriteRequest = {
    * API reads it as Markdown, so the model sees the checklists, lists and
    * headings around that spot, not just the words. */
   doc?: DocContent;
+  /** The cursor typed into `doc` for this request (writeCursorMark), so a
+   * doc that holds the word WRITE_CURSOR keeps it. */
+  cursorMark?: string;
 };
 
 /** Typed into a copy of the doc where the draft goes; the API shows it to
  * the model as <cursor/>. Letters only, so Markdown leaves it alone. */
 export const WRITE_CURSOR = "TIMELYWRITECURSOR";
+
+/** WRITE_CURSOR with random capital letters after it, new for each request:
+ * a doc that mentions WRITE_CURSOR itself can't be taken for the cursor. */
+export function writeCursorMark(random: () => number = Math.random): string {
+  let letters = "";
+  for (let i = 0; i < 10; i++) letters += String.fromCharCode(65 + Math.floor(random() * 26));
+  return WRITE_CURSOR + letters;
+}
+
+/** The most characters the prompt box takes (writeMaxPrompt in the API, which
+ * counts characters the same way), so nothing typed is cut without a word. */
+export const WRITE_MAX_PROMPT = 2000;
+
+/** What the panel says when an answer has nothing in it to insert, such as
+ * a lone "- [ ]" (the API says the same for an empty one). */
+export const WRITE_EMPTY = "The AI returned an empty answer. Try again.";
+
+/** Whether an answer for a task or project description takes the place of
+ * the whole description: "Rewrite description" (describe, with text there)
+ * writes a new one, which Insert would put inside the old one. */
+export const replacesAll = (kind: WriteKind, action: WriteAction, hasText: boolean) =>
+  kind !== "doc" && action === "describe" && hasText;
 
 /** The most selected text a rewrite takes, in UTF-8 bytes of Markdown
  * (writeMaxSelection in apps/api/internal/features/provider/write.go). A
@@ -52,6 +77,12 @@ export const WRITE_MAX_SELECTION = 20_000;
 /** What the panel and the API say about a longer selection. */
 export const WRITE_TOO_LONG =
   "That's too much text to rewrite at once. Select up to about 3,000 words and try again.";
+
+/** WRITE_TOO_LONG in the words of the action: Summarize doesn't rewrite. */
+export const writeTooLong = (action: WriteAction) =>
+  action === "summarize"
+    ? "That's too much text to summarize at once. Select up to about 3,000 words and try again."
+    : WRITE_TOO_LONG;
 
 /** Whether selected text is over WRITE_MAX_SELECTION. The API measures the
  * Markdown, which links and @mentions make a little longer than this text,

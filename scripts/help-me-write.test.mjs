@@ -102,3 +102,32 @@ describe("shortenedNote", () => {
     assert.match(shortenedNote("task"), /^This description is long/);
   });
 });
+
+const { WRITE_CURSOR, WRITE_TOO_LONG, replacesAll, writeCursorMark, writeTooLong } = await import("../packages/contract/src/helpMeWrite.ts");
+
+describe("writeTooLong (RV-hmw-1)", () => {
+  test("Summarize says summarize; a rewrite keeps its words", () => {
+    assert.match(writeTooLong("summarize"), /too much text to summarize/);
+    assert.equal(writeTooLong("improve"), WRITE_TOO_LONG);
+  });
+});
+
+describe("writeCursorMark (GW19)", () => {
+  test("is WRITE_CURSOR with capital letters after it, new each time", () => {
+    const mark = writeCursorMark();
+    assert.match(mark, new RegExp(`^${WRITE_CURSOR}[A-Z]{10}$`));
+    assert.notEqual(writeCursorMark(), mark);
+  });
+});
+
+describe("replacesAll (GW8)", () => {
+  test("Rewrite description replaces a description that has text", () => {
+    assert.equal(replacesAll("task", "describe", true), true);
+    assert.equal(replacesAll("project", "describe", true), true);
+  });
+  test("an empty description, a doc or another action is inserted as before", () => {
+    assert.equal(replacesAll("task", "describe", false), false);
+    assert.equal(replacesAll("doc", "describe", true), false);
+    assert.equal(replacesAll("task", "write", true), false);
+  });
+});

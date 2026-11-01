@@ -528,6 +528,7 @@ export default function RichTextEditor({
         endList?: string | null;
         selectionDoc?: DocContent;
         spot?: WriteSpot | null;
+        cursorMark?: string;
       };
       if (msg.type === "lineHint" && msg.key && (msg.action === "toggle" || msg.action === "make" || msg.action === "dismiss" || msg.action === "goesTo")) {
         lineHintsRef.current?.act(msg.key, msg.action);
@@ -549,6 +550,7 @@ export default function RichTextEditor({
           spot: msg.spot ?? null,
           text: msg.text ?? "",
           doc: msg.doc,
+          cursorMark: typeof msg.cursorMark === "string" ? msg.cursorMark : undefined,
           list: isWriteList(msg.list) ? msg.list : null,
           endList: isWriteList(msg.endList) ? msg.endList : null,
         });

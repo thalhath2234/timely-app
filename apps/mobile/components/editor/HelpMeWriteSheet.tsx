@@ -5,12 +5,15 @@ import type { DocContent } from "@timely/contract/documents";
 import {
   SELECTION_ACTIONS,
   WRITE_BUSY,
-  WRITE_TOO_LONG,
+  WRITE_EMPTY,
+  WRITE_MAX_PROMPT,
   replaceFit,
+  replacesAll,
   selectionTooLong,
   shortenedNote,
   spotList,
   writeStarters,
+  writeTooLong,
   writtenContent,
   type WriteAction,
   type WriteKind,
@@ -43,14 +46,16 @@ export type WriteInfo = {
   spot?: WriteSpot | null;
   text: string;
   doc?: DocContent;
+  /** The cursor typed into `doc` for this request (writeCursorMark). */
+  cursorMark?: string;
   list?: WriteList | null;
   endList?: WriteList | null;
 };
 
-/** How the draft goes in: over the selection, after it or at the caret, or at
- * the end of the text ("Continue writing"), and the action whose spot it
- * takes. */
-export type WriteInsert = { markdown: string; mode: "replace" | "below" | "insert" | "end"; action: WriteAction };
+/** How the draft goes in: over the selection, after it or at the caret, at
+ * the end of the text ("Continue writing"), or in place of all of it (a
+ * rewritten description), and the action whose spot it takes. */
+export type WriteInsert = { markdown: string; mode: "replace" | "below" | "insert" | "end" | "all"; action: WriteAction };
 
 /** `place`: the action whose spot the draft takes, when it is not `action`.
  * Ask for changes rewrites a draft as "write", but a refined summary still
@@ -113,7 +118,7 @@ export default function HelpMeWriteSheet({
     // Rewriting only part of a long selection would let Replace delete the
     // rest, so it is refused before anything is sent (the API refuses it too).
     if (!run.selection && info.selection && selectionTooLong(info.selection)) {
-      setError(WRITE_TOO_LONG);
+      setError(writeTooLong(run.action));
       return;
     }
     const id = ++attempt.current;
@@ -130,8 +135,16 @@ export default function HelpMeWriteSheet({
         title: context.title,
         text: info.text,
         doc: info.doc,
+        cursorMark: info.cursorMark,
       });
       if (id !== attempt.current) return;
+      // An answer with nothing to insert ("- [ ]" alone) is an empty answer,
+      // not a blank draft whose Insert does nothing.
+      const place = run.place ?? run.action;
+      if (!writtenContent(out.text, writeList(info, insertMode("replace", place), place)).blocks.length) {
+        setError(WRITE_EMPTY);
+        return;
+      }
       setResult({ ...out, run });
       setRefine("");
     } catch (err) {
@@ -142,8 +155,15 @@ export default function HelpMeWriteSheet({
     }
   };
 
-  const insertMode = (mode: "replace" | "below", action: WriteAction): WriteInsert["mode"] =>
-    hasSelection ? mode : action === "continue" ? "end" : "insert";
+  // "Rewrite description" writes a whole new one: it replaces the old one,
+  // or goes below it, instead of landing inside it at the caret.
+  const wholeDescription = (action: WriteAction) => !hasSelection && replacesAll(context.kind, action, Boolean(info?.text));
+
+  function insertMode(mode: "replace" | "below", action: WriteAction): WriteInsert["mode"] {
+    if (hasSelection) return mode;
+    if (wholeDescription(action)) return mode === "replace" ? "all" : "end";
+    return action === "continue" ? "end" : "insert";
+  }
 
   const insert = (mode: "replace" | "below") => {
     if (!result) return;
@@ -154,13 +174,14 @@ export default function HelpMeWriteSheet({
   // How the draft can replace the selection; null: only Below.
   const fit = result && info?.spot ? replaceFit(info.spot, writtenContent(result.text, spotList(info.spot))) : null;
 
+  const whole = result ? wholeDescription(placeOf(result.run)) : false;
   const footer = result && !busy ? (
     <View style={styles.footer}>
       <Button label="Try again" variant="ghost" size="sm" icon={<RotateCcw size={16} color={colors.mutedForeground} />} onPress={() => void start(result.run)} />
       <Button label="Discard" variant="destructive-ghost" size="sm" onPress={() => setResult(null)} />
       <View style={{ flex: 1 }} />
-      {hasSelection ? <Button label="Below" accessibilityLabel="Insert below" variant={fit ? "outline" : "primary"} size="sm" onPress={() => insert("below")} /> : null}
-      {!hasSelection || fit ? <Button label={hasSelection ? "Replace" : "Insert"} size="sm" onPress={() => insert("replace")} /> : null}
+      {hasSelection || whole ? <Button label="Below" accessibilityLabel="Insert below" variant={fit || whole ? "outline" : "primary"} size="sm" onPress={() => insert("below")} /> : null}
+      {!hasSelection || fit ? <Button label={hasSelection || whole ? "Replace" : "Insert"} size="sm" onPress={() => insert("replace")} /> : null}
     </View>
   ) : undefined;
 
@@ -234,6 +255,7 @@ export default function HelpMeWriteSheet({
             label={hasSelection ? "Or say how to change it" : "Or say what to write"}
             value={prompt}
             onChangeText={setPrompt}
+            maxLength={WRITE_MAX_PROMPT}
             multiline
             autoCapitalize="sentences"
             placeholder={

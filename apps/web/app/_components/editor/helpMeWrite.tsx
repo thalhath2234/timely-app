@@ -10,15 +10,18 @@ import { ArrowUp, RotateCcw, Sparkles, X } from "lucide-react";
 import {
   SELECTION_ACTIONS,
   WRITE_BUSY,
-  WRITE_CURSOR,
-  WRITE_TOO_LONG,
+  WRITE_EMPTY,
+  WRITE_MAX_PROMPT,
   belowFit,
   isWriteList,
   replaceFit,
+  replacesAll,
   selectionTooLong,
   shortenedNote,
   spotList,
+  writeCursorMark,
   writeStarters,
+  writeTooLong,
   writtenContent,
   type WriteAction,
   type WriteChoice,
@@ -95,15 +98,15 @@ function listSpot(doc: PMNode, pos: number, end: boolean): ListSpot | null {
   return null;
 }
 
-/** The doc as the AI reads it: WRITE_CURSOR typed where a draft written at
- * `pos` goes, as a new item when it joins a list. */
-function cursorDoc(state: EditorState, pos: number): JSONContent {
+/** The doc as the AI reads it: `mark` (writeCursorMark) typed where a draft
+ * written at `pos` goes, as a new item when it joins a list. */
+function cursorDoc(state: EditorState, pos: number, mark: string): JSONContent {
   const { tr, schema } = state;
   try {
     const spot = listSpot(state.doc, pos, false);
     if (spot) {
       const item = schema.nodes[spot.list === "taskList" ? "taskItem" : "listItem"];
-      const marked = item.create(null, schema.nodes.paragraph.create(null, schema.text(WRITE_CURSOR)));
+      const marked = item.create(null, schema.nodes.paragraph.create(null, schema.text(mark)));
       if (spot.drop && spot.drop.from === spot.at) tr.replaceWith(spot.drop.from, spot.drop.to, marked);
       else {
         if (spot.drop) tr.delete(spot.drop.from, spot.drop.to);
@@ -113,14 +116,33 @@ function cursorDoc(state: EditorState, pos: number): JSONContent {
       const $pos = state.doc.resolve(Math.min(pos, state.doc.content.size));
       // Only an empty line of its own becomes the draft (insert does the
       // same); in a table cell or callout the draft goes after the block.
-      if ($pos.depth === 1 && isEmptyLine($pos.parent)) tr.insertText(WRITE_CURSOR, $pos.pos);
-      else tr.insert($pos.depth > 0 ? $pos.after(1) : state.doc.content.size, schema.nodes.paragraph.create(null, schema.text(WRITE_CURSOR)));
+      if ($pos.depth === 1 && isEmptyLine($pos.parent)) tr.insertText(mark, $pos.pos);
+      else tr.insert($pos.depth > 0 ? $pos.after(1) : state.doc.content.size, schema.nodes.paragraph.create(null, schema.text(mark)));
     }
     return tr.doc.toJSON();
   } catch {
     // Where the cursor cannot go, the AI reads the doc without it.
     return state.doc.toJSON();
   }
+}
+
+/** The draft's pictures as words in the preview: a picture loads only once
+ * the draft is inserted, so a draft can't make the browser call an address
+ * it names just by being shown. */
+function withoutImages(nodes: JSONContent[]): JSONContent[] {
+  return nodes.map((node) => {
+    if (node.type === "image") {
+      const alt = typeof node.attrs?.alt === "string" ? node.attrs.alt.trim() : "";
+      let from = "";
+      try {
+        from = new URL(String(node.attrs?.src ?? ""), window.location.href).host;
+      } catch {
+        // no address to name
+      }
+      return { type: "text", text: alt ? `[Image: ${alt}]` : from ? `[Image from ${from}]` : "[Image]" };
+    }
+    return node.content ? { ...node, content: withoutImages(node.content) } : node;
+  });
 }
 
 /** Help me write needs a generative AI provider (Settings → Agent keys);
@@ -327,9 +349,12 @@ export default function HelpMeWritePanel({
       observer.disconnect();
     };
   }, [editor, dock, shown]);
+  // Docked beside a line low on the page, the draft's buttons would sit
+  // below the fold: bring the whole panel into view when it opens and when a
+  // draft or an error arrives.
   useEffect(() => {
     if (docked && shown) panel.current?.scrollIntoView({ block: "nearest" });
-  }, [docked, shown]);
+  }, [docked, shown, result, error]);
 
   // Escape closes the popover from anywhere; the docked panel only when the
   // key is pressed inside it, so Escape in the doc leaves it be.
@@ -358,9 +383,10 @@ export default function HelpMeWritePanel({
     // rest, so it is refused here before anything is sent (the API refuses
     // it too).
     if (!run.selection && hasSelection && selectionTooLong(captured.text)) {
-      setError(WRITE_TOO_LONG);
+      setError(writeTooLong(run.action));
       return;
     }
+    const mark = writeCursorMark();
     const controller = new AbortController();
     abort.current = controller;
     setBusy(run.label ?? WRITE_BUSY[run.action]);
@@ -376,11 +402,19 @@ export default function HelpMeWritePanel({
           kind: context.kind,
           title: context.title,
           text: docText(),
-          doc: hasSelection || run.action !== "write" ? editor.getJSON() : cursorDoc(editor.state, caret()),
+          doc: hasSelection || run.action !== "write" ? editor.getJSON() : cursorDoc(editor.state, caret(), mark),
+          cursorMark: mark,
         },
         controller.signal,
       );
-      setResult({ ...out, run, list: hasSelection ? spotList(captured.spot) ?? undefined : spotFor(placeOf(run))?.list });
+      const list = hasSelection ? spotList(captured.spot) ?? undefined : spotFor(placeOf(run))?.list;
+      // An answer with nothing to insert ("- [ ]" alone) is an empty answer,
+      // not a blank draft whose Insert does nothing.
+      if (!toNodes(out.text, list).blocks.length) {
+        setError(WRITE_EMPTY);
+        return;
+      }
+      setResult({ ...out, run, list });
       setRefine("");
     } catch (err) {
       if (controller.signal.aborted) return;
@@ -408,18 +442,31 @@ export default function HelpMeWritePanel({
     try {
       // Links and checkboxes in the preview are for looking at, so they are
       // left out of the tab order as well as out of reach of the pointer.
-      return generateHTML({ type: "doc", content: blocks }, editor.extensionManager.extensions)
+      return generateHTML({ type: "doc", content: withoutImages(blocks) }, editor.extensionManager.extensions)
         .replace(/<(a|input)\b/g, '<$1 tabindex="-1"');
     } catch {
       return "";
     }
   }, [editor, result]);
 
-  // How the draft can replace the selection; null: only Insert below.
+  // How the draft can replace the selection; null: only Insert below. The
+  // doc's own rules have the last word (a details summary line or a code
+  // block takes no formatting), so Replace is only offered where it would go.
   const fit = useMemo(() => {
     if (!result || !hasSelection || !captured.spot) return null;
-    return replaceFit(captured.spot, toNodes(result.text, spotList(captured.spot)));
-  }, [result, hasSelection, captured]);
+    const written = toNodes(result.text, spotList(captured.spot));
+    const how = replaceFit(captured.spot, written);
+    if (!how) return null;
+    const mapped = targetKey.getState(editor.state);
+    try {
+      return placeReplace(editor.state, { from: mapped?.from ?? captured.from, to: mapped?.to ?? captured.to }, how, written) ? how : null;
+    } catch {
+      return null;
+    }
+  }, [editor, result, hasSelection, captured]);
+  // "Rewrite description" writes a whole new one: it replaces the old one,
+  // or goes below it, instead of landing inside it at the caret.
+  const wholeDescription = Boolean(result && !hasSelection && replacesAll(context.kind, placeOf(result.run), hasText));
 
   /** The selected text's draft goes over the selection or below it, never
    * over more than was sent. */
@@ -458,6 +505,8 @@ export default function HelpMeWritePanel({
         useToastStore.getState().show("This draft can't take the place of your selection. Use Insert below.");
         return;
       }
+    } else if (wholeDescription) {
+      chain.insertContentAt(mode === "replace" ? { from: 0, to: size } : size, blocks).run();
     } else if (spot && items) {
       // The items join the list, after the caret's item or in place of the
       // empty item or line the caret is on.
@@ -599,6 +648,7 @@ export default function HelpMeWritePanel({
                     id="help-me-write-prompt"
                     autoFocus
                     rows={2}
+                    maxLength={WRITE_MAX_PROMPT}
                     value={prompt}
                     onChange={(event) => setPrompt(event.target.value)}
                     onKeyDown={(event) => {
@@ -647,14 +697,14 @@ export default function HelpMeWritePanel({
               Discard
             </Button>
             <span className="flex-1" />
-            {hasSelection && (
-              <Button variant={fit ? "outline" : "primary"} size="sm" onClick={() => insert("below")}>
+            {(hasSelection || wholeDescription) && (
+              <Button variant={fit || wholeDescription ? "outline" : "primary"} size="sm" onClick={() => insert("below")}>
                 Insert below
               </Button>
             )}
             {(!hasSelection || fit) && (
               <Button size="sm" onClick={() => insert("replace")}>
-                {hasSelection ? "Replace" : "Insert"}
+                {hasSelection || wholeDescription ? "Replace" : "Insert"}
               </Button>
             )}
           </div>
