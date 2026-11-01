@@ -32,8 +32,9 @@ const (
 	dashboardCardMaxProgram = 8000
 	// dashboardCardBudget covers the look-ups, checks and the answer.
 	dashboardCardBudget = 3 * time.Minute
-	// dashboardCardTurns caps the model's calls in one Describe.
-	dashboardCardTurns = 10
+	// dashboardCardTurns caps the model's calls in one Describe (a card
+	// takes two or three; describeCallMax bounds the look-ups among them).
+	dashboardCardTurns = 8
 	// dashboardCardAnswer is the time kept for the answer: with less left,
 	// the model is told to answer now.
 	dashboardCardAnswer = 45 * time.Second
@@ -213,14 +214,16 @@ func describe(ctx context.Context, completer chat.Completer, messages []chat.Wir
 	deadline, timed := ctx.Deadline()
 	sentBack, nudged, told := false, false, false
 	for turn := 0; turn < dashboardCardTurns; turn++ {
-		last := turn == dashboardCardTurns-1 || (timed && time.Until(deadline) < dashboardCardAnswer)
+		last := turn == dashboardCardTurns-1 || (timed && time.Until(deadline) < dashboardCardAnswer) || tools.stopped()
 		if last && len(specs) > 0 && turn > 0 && !told {
 			// The tools stay listed: some providers refuse a transcript with
 			// tool calls in it once the tools are gone.
 			messages = append(messages, chat.WireMessage{Role: "user", Content: "Time is up for look-ups: answer now with the whole program and no tool calls."})
 			told = true
 		}
-		reply, err := completer.Complete(ctx, messages, specs, false)
+		// Each turn resends the whole Describe so far: cached, the next turn
+		// reads it back instead of paying for it again.
+		reply, err := completer.Complete(ctx, chat.CacheTail(messages), specs, false)
 		if err != nil {
 			return "", err
 		}
@@ -411,7 +414,8 @@ func dashboardCardMessages(req dashboardCardRequest, v viewVocab, sheets []sheet
 	} else {
 		fmt.Fprintf(&b, "\nWords: %s\n", req.Prompt)
 	}
-	return []chat.WireMessage{{Role: "system", Content: boardPrompt}, {Role: "user", Content: b.String()}}
+	// The board prompt (with the tools) is the same for every card: cached.
+	return []chat.WireMessage{{Role: "system", Content: boardPrompt, Cache: true}, {Role: "user", Content: b.String()}}
 }
 
 var (
