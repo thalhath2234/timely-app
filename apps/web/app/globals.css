@@ -755,9 +755,14 @@ html.reduce-motion .lift:hover {
   gap: 0.5rem;
 }
 
+/* The box sits in a box one line tall, centred on the row's first line
+   whatever the text size, instead of on the label's own text baseline. */
 .doc-editor-content ul[data-type="taskList"] li > label {
+  align-items: center;
+  display: flex;
   flex-shrink: 0;
-  margin-top: 0.35rem;
+  height: 1lh;
+  position: relative;
   user-select: none;
 }
 
@@ -766,11 +771,45 @@ html.reduce-motion .lift:hover {
   min-width: 0;
 }
 
+/* Drawn as the app's square TaskCheck, not the browser's own grey box. */
 .doc-editor-content ul[data-type="taskList"] input[type="checkbox"] {
-  accent-color: var(--primary);
+  appearance: none;
+  background: transparent;
+  border: 1.5px solid color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+  border-radius: 0.3rem;
   cursor: pointer;
-  height: 0.95rem;
-  width: 0.95rem;
+  flex-shrink: 0;
+  height: 1rem;
+  margin: 0;
+  transition: background-color 120ms ease, border-color 120ms ease;
+  width: 1rem;
+}
+
+.doc-editor-content ul[data-type="taskList"] input[type="checkbox"]:hover {
+  border-color: var(--primary);
+}
+
+.doc-editor-content ul[data-type="taskList"] input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.doc-editor-content ul[data-type="taskList"] input[type="checkbox"]:checked {
+  background-color: var(--primary);
+  border-color: var(--primary);
+}
+
+/* The tick, in the colour that reads on the accent (light or dark). */
+.doc-editor-content ul[data-type="taskList"] li[data-checked="true"] > label::after {
+  background: var(--primary-foreground);
+  content: "";
+  height: 1rem;
+  left: 0;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 8.5l2.5 2.5L12 5.5'/%3E%3C/svg%3E") center / 100% no-repeat;
+  pointer-events: none;
+  position: absolute;
+  top: calc(50% - 0.5rem);
+  width: 1rem;
 }
 
 .doc-editor-content ul[data-type="taskList"] li[data-checked="true"] > div {

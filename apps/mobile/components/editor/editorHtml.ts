@@ -3,6 +3,7 @@ import { WRITE_CURSOR } from "@timely/contract/helpMeWrite";
 import { EMBED_PATTERNS } from "@timely/contract/markdown";
 import { DOC_EDITOR_HELPERS_JS } from "../../lib/docEditorJev";
 import { WRITE_RANGE_JS } from "../../lib/helpMeWriteRange";
+import { BLOCK_TURN_JS } from "../../lib/blockTurn";
 
 const BLANK: DocContent = { type: "doc", content: [{ type: "paragraph" }] };
 
@@ -196,8 +197,9 @@ export function buildEditorHtml(
        is as wide as the row and not only as its words. */
     .tiptap ul[data-type="taskList"] li > div { flex: 1; min-width: 0; }
     /* A checklist row's box is its label (DocTaskItem): the native checkbox
-       and Tiptap's hidden label text inside it stay out of layout. */
-    .tiptap ul[data-type="taskList"] li > label { position: relative; flex: none; box-sizing: border-box; width: 16px; height: 16px; margin-top: 4px; border: 1.5px solid ${t.mutedForeground}; border-radius: 4px; }
+       and Tiptap's hidden label text inside it stay out of layout. The box is
+       centred on the row's first line (1lh is that line's height). */
+    .tiptap ul[data-type="taskList"] li > label { position: relative; flex: none; box-sizing: border-box; width: 16px; height: 16px; margin-top: calc((1lh - 16px) / 2); border: 1.5px solid ${t.mutedForeground}; border-radius: 4px; }
     .tiptap ul[data-type="taskList"] li > label > * { display: none; }
     .tiptap ul[data-type="taskList"] li > label::before { content: ""; position: absolute; inset: -12px -8px -12px -14px; }
     .tiptap ul[data-type="taskList"] li[data-checked="true"] > label { background: ${t.primary}; border-color: ${t.primary}; }
@@ -239,7 +241,13 @@ export function buildEditorHtml(
     .hint-btn { min-height: 44px; padding: 0 14px; border: 0; border-radius: 10px; background: none; color: ${t.mutedForeground}; font: inherit; font-size: 14px; font-weight: 500; -webkit-tap-highlight-color: transparent; }
     .hint-btn.hint-primary { background: ${t.primary}; color: ${onPrimary}; font-weight: 600; }
     .hint-btn:disabled { opacity: 0.6; }
-    .ProseMirror .block-picked { background: rgba(59, 130, 246, 0.16); border-radius: 6px; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16); }
+    /* The block the Block menu is about: a tint drawn a little outside it on
+       every side, so a to-do's box and words sit in its middle. A to-do row
+       (a flex box) holds its last line's gap below; the tint stops above it.
+       Nothing moves when a block is picked. */
+    .ProseMirror .block-picked { position: relative; }
+    .ProseMirror .block-picked::after { content: ""; position: absolute; inset: -6px -10px; border-radius: 10px; background: rgba(59, 130, 246, 0.16); pointer-events: none; }
+    .ProseMirror ul[data-type="taskList"] > li.block-picked::after { bottom: calc(0.75em - 6px); }
     .props-list { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; padding: 8px 12px 10px; font-size: 13px; }
     .props-key { color: ${t.mutedForeground}; }
     .props-values { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
@@ -2621,6 +2629,8 @@ export function buildEditorHtml(
       const light = "html, body { background: #fff !important; color: #111 !important; } body { padding: 0 !important; } .tiptap { padding: 0 !important; color: #111; } .tiptap pre, .tiptap code, .block-head, .callout, .props-chip { background: #f3f3f5 !important; color: #111 !important; } .tiptap a, .mention, .wiki-link { color: #3730a3 !important; } .print-title { font-family: -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif; font-size: 28px; font-weight: 700; margin: 0 0 16px; } .code-wrap pre { padding-top: 12px !important; max-height: none !important; -webkit-mask-image: none !important; mask-image: none !important; } .doc-bookmark { border-color: #ddd !important; } .live-wrap { --lv-fg: #111; --lv-muted-fg: #555; --lv-border: #ddd; --lv-card: #fff; --lv-fill: #eee; --lv-check: #fff; } pre, table, img, svg, .callout, .live-wrap { break-inside: avoid; } @page { margin: 18mm 16mm; }";
       send({ type: "exportHtml", html: "<!doctype html><html><head><meta charset=\\"utf-8\\">" + links + "<style>" + styles + "</style><style>" + light + "</style></head><body>" + heading.outerHTML + body.outerHTML + "</body></html>" });
     }
+    ${BLOCK_TURN_JS}
+
     // The Block menu (BlockSheet.tsx) works on the caret's block: the
     // innermost list item, a block in a column, or else the top-level block.
     function caretBlock(state) {
@@ -2661,12 +2671,14 @@ export function buildEditorHtml(
       addImage(block.node);
       block.node.descendants(addImage);
       const kind = block.node.type.name;
+      const turn = turnSpot(state.doc, block);
       send({
         type: "blockInfo",
         block: {
           kind: kind,
           level: kind === "heading" ? block.node.attrs.level : 0,
-          textual: (kind === "paragraph" || kind === "heading") && images.length === 0,
+          // What Turn into offers (BLOCK_TURN_JS), or null when it does not apply.
+          turn: turn ? { current: turn.current, toggle: turn.toggle } : null,
           canUp: Boolean(prev) && prev.type.name !== "frontmatter",
           canDown: index < $pos.parent.childCount - 1,
           topLevel: $pos.depth === 0,
@@ -2677,9 +2689,17 @@ export function buildEditorHtml(
       });
     }
 
+    // The block the open Block menu is about (marked by blockInfo), so a pick
+    // acts on it even if the page's caret moved while the menu was open.
+    function pickedBlock(state) {
+      const picked = blockPickKey.getState(state);
+      const node = picked && state.doc.nodeAt(picked.from);
+      return node && picked.from + node.nodeSize === picked.to ? { from: picked.from, to: picked.to, node: node } : caretBlock(state);
+    }
+
     function blockAction(action) {
       const state = editor.state;
-      const block = caretBlock(state);
+      const block = pickedBlock(state);
       markBlock(null);
       if (!block) return;
       const view = editor.view;
@@ -2701,7 +2721,7 @@ export function buildEditorHtml(
       const sibling = $pos.parent.child(index);
       if (sibling.type.name === "frontmatter") return;
       // The caret moves with its block.
-      const offset = state.selection.from - block.from;
+      const offset = Math.max(0, Math.min(state.selection.from - block.from, block.to - block.from - 1));
       const tr = state.tr;
       let start;
       if (action === "up") {
@@ -2953,6 +2973,14 @@ export function buildEditorHtml(
         }
         if (name === "blockAction") {
           blockAction(payload && payload.action);
+          requestAnimationFrame(scrollCaret);
+          return;
+        }
+        if (name === "turnInto") {
+          const block = pickedBlock(editor.state);
+          markBlock(null);
+          const tr = block && turnBlocks(editor.state, block, payload && payload.kind);
+          if (tr) editor.view.dispatch(tr.scrollIntoView());
           requestAnimationFrame(scrollCaret);
           return;
         }
