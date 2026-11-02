@@ -2770,9 +2770,12 @@ export function buildEditorHtml(
       for (let i = 0; i < 10; i++) letters += String.fromCharCode(65 + Math.floor(Math.random() * 26));
       return WRITE_CURSOR + letters;
     }
+    // added: the index of the line the cursor went on when that line is new
+    // (liveBlockIndex in the contract maps the AI's block numbers back).
     function cursorDoc(pos, mark) {
       const state = editor.state;
       const { tr, schema } = state;
+      let added = null;
       try {
         const spot = listSpot(state.doc, pos, false);
         if (spot) {
@@ -2788,19 +2791,61 @@ export function buildEditorHtml(
           // Only an empty line of its own becomes the draft (insertWritten
           // does the same); in a table cell or callout it goes after the block.
           if ($pos.depth === 1 && isEmptyLine($pos.parent)) tr.insertText(mark, $pos.pos);
-          else tr.insert($pos.depth > 0 ? $pos.after(1) : state.doc.content.size, schema.nodes.paragraph.create(null, schema.text(mark)));
+          else {
+            added = $pos.depth > 0 ? $pos.index(0) + 1 : state.doc.childCount;
+            tr.insert($pos.depth > 0 ? $pos.after(1) : state.doc.content.size, schema.nodes.paragraph.create(null, schema.text(mark)));
+          }
         }
-        return tr.doc.toJSON();
+        return { doc: tr.doc.toJSON(), added };
       } catch (_) {
         // Where the cursor cannot go, the AI reads the doc without it.
-        return state.doc.toJSON();
+        return { doc: state.doc.toJSON(), added: null };
       }
     }
+
+    // Whether only empty lines follow the top-level block pos is in
+    // (caretAtEnd on the web): a draft for the end then goes at the caret.
+    function caretAtEnd(doc, pos) {
+      const $pos = doc.resolve(Math.min(Math.max(0, pos || 0), doc.content.size));
+      for (let i = $pos.depth > 0 ? $pos.index(0) + 1 : doc.childCount; i < doc.childCount; i++) {
+        if (!isEmptyLine(doc.child(i))) return false;
+      }
+      return true;
+    }
+
+    // The doc when Help me write last opened, by its cursor mark: blocks
+    // the AI chose to replace are taken from it and found again by content
+    // (writeFindBlocks), so a draft never replaces text the AI did not see.
+    let writeSnap = null;
 
     function insertWritten(p) {
       const blocks = Array.isArray(p.blocks) ? p.blocks : [];
       const inline = Array.isArray(p.inline) ? p.inline : null;
       if (!blocks.length) return;
+      // Whole blocks the AI chose: over them ("blocks") or below them.
+      if (p.mode === "blocks" || p.mode === "blocksBelow") {
+        const index = Number(p.index);
+        const count = Number(p.count);
+        const snap = writeSnap && writeSnap.mark === p.mark ? writeSnap.doc : null;
+        const nodes = [];
+        if (snap && Number.isInteger(index) && Number.isInteger(count) && index >= 0 && count > 0 && index + count <= snap.childCount) {
+          for (let i = index; i < index + count; i++) nodes.push(snap.child(i));
+        }
+        const range = nodes.length ? writeFindBlocks(editor.state.doc, nodes, index) : null;
+        if (!range) {
+          send({ type: "writeStale" });
+          return;
+        }
+        const tr = writePlaceBlocks(editor.state, p.mode === "blocks" ? range : { from: range.to, to: range.to }, blocks);
+        if (!tr) {
+          send({ type: "writeNoFit" });
+          return;
+        }
+        editor.view.dispatch(tr.scrollIntoView());
+        editor.commands.focus();
+        if (p.mode === "blocks") send({ type: "writeReplaced" });
+        return;
+      }
       const doc = editor.state.doc;
       const size = doc.content.size;
       const from = Number(p.from);
@@ -2956,6 +3001,8 @@ export function buildEditorHtml(
           const at = selection ? null : listSpot(doc, from, false);
           const end = selection ? null : listSpot(doc, doc.content.size, true);
           const mark = cursorMark();
+          const sent = selection ? { doc: editor.getJSON(), added: null } : cursorDoc(from, mark);
+          writeSnap = { mark, doc };
           send({
             type: "writeInfo",
             from,
@@ -2964,7 +3011,9 @@ export function buildEditorHtml(
             selectionDoc: selection ? captured.doc : undefined,
             spot: selection ? captured.spot : undefined,
             text: editor.getText({ blockSeparator: "\\n", textSerializers: LIVE_TEXT }).trim(),
-            doc: selection ? editor.getJSON() : cursorDoc(from, mark),
+            doc: sent.doc,
+            added: sent.added,
+            atEnd: caretAtEnd(doc, from),
             cursorMark: mark,
             list: at ? at.list : null,
             endList: end ? end.list : null,
@@ -2974,6 +3023,11 @@ export function buildEditorHtml(
         if (name === "insertWritten") {
           insertWritten(payload || {});
           requestAnimationFrame(scrollCaret);
+          return;
+        }
+        // Undo from a toast (a replaced draft), without opening the keyboard.
+        if (name === "undo") {
+          editor.commands.undo();
           return;
         }
         // "Link to an item": report the selected phrase, then swap it for

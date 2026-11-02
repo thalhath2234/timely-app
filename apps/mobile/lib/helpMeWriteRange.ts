@@ -16,6 +16,9 @@
  * - writePlaceReplace(state, target, fit, written) and
  *   writePlaceBelow(state, target, below, written): the transaction, or
  *   null when the doc there does not allow it.
+ * - writeFindBlocks(doc, nodes, index) and writePlaceBlocks(state, range,
+ *   blocks): whole blocks the AI chose to replace (findBlocks and
+ *   placeBlocks on the web).
  */
 export const WRITE_RANGE_JS = String.raw`
 const writeLeafText = (node) =>
@@ -150,5 +153,44 @@ function writePlaceBelow(state, target, below, written) {
   const $to = state.doc.resolve(target.to);
   const at = $to.depth > 0 ? $to.after(1) : target.to;
   return writeReplaceExactly(state, at, at, written.blocks);
+}
+
+function writeFindBlocks(doc, nodes, index) {
+  if (!nodes || !nodes.length) return null;
+  let best = -1;
+  for (let i = 0; i + nodes.length <= doc.childCount; i++) {
+    if (!nodes.every((node, j) => doc.child(i + j).eq(node))) continue;
+    if (best < 0 || Math.abs(i - index) < Math.abs(best - index)) best = i;
+  }
+  if (best < 0) return null;
+  let from = 0;
+  for (let i = 0; i < best; i++) from += doc.child(i).nodeSize;
+  let to = from;
+  for (let j = 0; j < nodes.length; j++) to += doc.child(best + j).nodeSize;
+  return { from, to, index: best };
+}
+
+function writeJoinLists(tr, pos) {
+  const $pos = tr.doc.resolve(pos);
+  const before = $pos.nodeBefore;
+  const after = $pos.nodeAfter;
+  if (before && after && before.type === after.type && WRITE_ITEM_LISTS[before.type.name]) tr.join(pos);
+}
+
+function writePlaceBlocks(state, range, blocks) {
+  if (!blocks || !blocks.length) return null;
+  try {
+    const $a = state.doc.resolve(range.from);
+    const $b = state.doc.resolve(range.to);
+    if ($a.depth !== 0 || $b.depth !== 0) return null;
+    const fragment = Fragment.fromArray(blocks.map((node) => state.schema.nodeFromJSON(node)));
+    if (!state.doc.canReplace($a.index(), $b.index(), fragment)) return null;
+    const tr = state.tr.replaceWith(range.from, range.to, fragment);
+    writeJoinLists(tr, range.from + fragment.size);
+    writeJoinLists(tr, range.from);
+    return tr;
+  } catch (_) {
+    return null;
+  }
 }
 `;

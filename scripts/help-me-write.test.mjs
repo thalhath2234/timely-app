@@ -11,7 +11,7 @@ register(
     ),
 );
 
-const { SELECTION_ACTIONS, shortenedNote, writeStarters, writtenContent } = await import(
+const { SELECTION_ACTIONS, blocksSummary, firstLine, liveBlockIndex, shortenedNote, withoutMark, writeStarters, writtenContent } = await import(
   "../packages/contract/src/helpMeWrite.ts"
 );
 
@@ -129,5 +129,30 @@ describe("replacesAll (GW8)", () => {
     assert.equal(replacesAll("task", "describe", false), false);
     assert.equal(replacesAll("doc", "describe", true), false);
     assert.equal(replacesAll("task", "write", true), false);
+  });
+});
+
+describe("blocks a draft replaces", () => {
+  const para = (text) => ({ type: "paragraph", content: [{ type: "text", text }] });
+  const list = (type, ...texts) => ({ type, content: texts.map((text) => ({ type: type === "taskList" ? "taskItem" : "listItem", content: [para(text)] })) });
+  test("say what they are in words", () => {
+    assert.equal(blocksSummary([list("bulletList", "a", "b", "c")]), "3 bullet points");
+    assert.equal(blocksSummary([list("taskList", "a")]), "1 checklist item");
+    assert.equal(blocksSummary([list("orderedList", "a", "b"), list("orderedList", "c")]), "3 numbered items");
+    assert.equal(blocksSummary([para("a"), para("b")]), "2 paragraphs");
+    assert.equal(blocksSummary([{ type: "heading", content: [{ type: "text", text: "Plan" }] }, list("bulletList", "a", "b")]), "3 lines");
+    assert.equal(firstLine([list("bulletList", "Chicken, 1 kg", "Rice")]), "Chicken, 1 kg");
+  });
+  test("leave out the cursor typed into them", () => {
+    const mark = "TIMELYWRITECURSORABCDEFGHIJ";
+    const nodes = withoutMark([list("bulletList", "a", mark, "b"), para(mark)], mark);
+    assert.equal(blocksSummary(nodes), "2 bullet points");
+    assert.equal(withoutMark([list("bulletList", mark)], mark).length, 0);
+  });
+  test("are found in the editor past the line the cursor added", () => {
+    // The cursor went on a new line at index 2 of the doc the AI read.
+    assert.equal(liveBlockIndex(1, 2), 1);
+    assert.equal(liveBlockIndex(3, 2), 2);
+    assert.equal(liveBlockIndex(3, null), 3);
   });
 });

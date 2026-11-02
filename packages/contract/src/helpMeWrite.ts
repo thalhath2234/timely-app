@@ -40,7 +40,28 @@ export type WriteRequest = {
   /** The cursor typed into `doc` for this request (writeCursorMark), so a
    * doc that holds the word WRITE_CURSOR keeps it. */
   cursorMark?: string;
+  /** The person typed what to do: the AI also says where its answer goes
+   * (WriteResult.place), so "turn these bullets into a checklist" replaces
+   * the bullets instead of adding a copy below them. */
+  place?: boolean;
 };
+
+/**
+ * Where a draft goes, as the AI says for a typed request (writePlace in
+ * apps/api/internal/features/provider/write.go):
+ * - "replace" with `from` and `to`: in place of the doc's top-level blocks
+ *   `from` to `to`, their indices in the doc as sent (see liveBlockIndex);
+ * - "replace" alone: in place of the selection; "below": below it;
+ * - "cursor": where the cursor was; "end": at the end of the text.
+ */
+export type WritePlace = { mode: "replace" | "below" | "cursor" | "end"; from?: number; to?: number };
+
+/** The index in the editor of block `index` of the doc as sent, where
+ * `added` is the index of the line the cursor was typed on as a new block
+ * (cursorDoc), or null when the cursor went into a line already there. The
+ * AI never names that line itself. */
+export const liveBlockIndex = (index: number, added: number | null | undefined) =>
+  added != null && index > added ? index - 1 : index;
 
 /** Typed into a copy of the doc where the draft goes; the API shows it to
  * the model as <cursor/>. Letters only, so Markdown leaves it alone. */
@@ -97,7 +118,7 @@ export const isWriteList = (type: unknown): type is WriteList =>
 
 /** `text` is Markdown. `shortened`: the doc was too long to read whole, so
  * a summary, description or continuation comes from its start and end. */
-export type WriteResult = { text: string; provider: string; model: string; shortened?: boolean };
+export type WriteResult = { text: string; provider: string; model: string; shortened?: boolean; place?: WritePlace };
 
 /** What the panel says above a draft from a shortened doc. */
 export const shortenedNote = (kind: WriteKind) =>
@@ -294,4 +315,59 @@ export function belowFit(spot: WriteSpot, answer: Written): WriteBelow {
   if (spot.kind === "items") return answer.items ? "afterItems" : "afterBlock";
   if (spot.in === "cell" && hasTable(answer.blocks)) return "afterBlock";
   return "afterBlocks";
+}
+
+type TextNode = DocContent & { text?: string };
+
+const plainText = (node: TextNode): string =>
+  node.type === "text" ? (node.text ?? "") : ((node.content ?? []) as TextNode[]).map(plainText).join("");
+
+/** `nodes` without the line or list item the cursor `mark` was typed on, so
+ * blocks read from the doc as sent count as they are in the editor. */
+export function withoutMark(nodes: DocContent[], mark?: string): DocContent[] {
+  if (!mark) return nodes;
+  return nodes.flatMap((node): DocContent[] => {
+    if ((node.type === "paragraph" || node.type === "listItem" || node.type === "taskItem") && plainText(node).trim() === mark) return [];
+    if (!node.content) return [node];
+    const content = withoutMark(node.content as DocContent[], mark);
+    return isWriteList(node.type) && !content.length ? [] : [{ ...node, content }];
+  });
+}
+
+/** What a draft that replaces whole blocks takes the place of, in words:
+ * "15 bullet points", "6 checklist items", "2 paragraphs", or "9 lines". */
+export function blocksSummary(nodes: DocContent[]): string {
+  const list = nodes[0]?.type;
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  if (isWriteList(list) && nodes.every((node) => node.type === list)) {
+    const items = nodes.reduce((sum, node) => sum + (node.content?.length ?? 0), 0);
+    if (list === "taskList") return plural(items, "checklist item", "checklist items");
+    if (list === "orderedList") return plural(items, "numbered item", "numbered items");
+    return plural(items, "bullet point", "bullet points");
+  }
+  if (nodes.every((node) => node.type === "paragraph")) return plural(nodes.length, "paragraph", "paragraphs");
+  let lines = 0;
+  const count = (node: DocContent) => {
+    const children = (node.content ?? []) as DocContent[];
+    if (node.type === "text" || children.some((child) => child.type === "text")) lines += 1;
+    else children.forEach(count);
+  };
+  nodes.forEach(count);
+  return plural(Math.max(lines, nodes.length), "line", "lines");
+}
+
+/** The first line of text in `nodes`, for a short quote of what a draft
+ * replaces. */
+export function firstLine(nodes: DocContent[]): string {
+  for (const node of nodes) {
+    const children = (node.content ?? []) as TextNode[];
+    if (children.some((child) => child.type === "text")) {
+      const text = plainText(node).trim();
+      if (text) return text;
+    } else {
+      const inner = firstLine(children);
+      if (inner) return inner;
+    }
+  }
+  return "";
 }
