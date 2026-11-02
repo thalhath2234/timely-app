@@ -21,13 +21,15 @@ import {
   Repeat2,
   Trash2,
   Type,
+  type LucideIcon,
 } from "lucide-react";
 import { openContextMenu, tidyEntries, type ContextMenuEntry } from "@/app/_store/contextMenuStore";
 import { useToastStore } from "@/app/_store/toastStore";
 import { imageSrc } from "./docImage";
 import { openBlockTransfer } from "./blockTransfer";
 import { openImageViewer } from "./imageViewer";
-import { deleteBlocks, duplicateBlocks, moveBlocks, rangeBlocks, setBlockRange, type BlockRange } from "./blockSelection";
+import { blockSelectionKey, deleteBlocks, duplicateBlocks, moveBlocks, rangeBlocks, setBlockRange, type BlockRange } from "./blockSelection";
+import { turnBlocks, turnSpot, type TurnKind } from "./turnInto";
 
 /**
  * The menu for selected blocks, from the block grip or a right-click: turn
@@ -100,14 +102,12 @@ export async function downloadImages(images: { src: string; alt: string }[]) {
   }
 }
 
-type Chain = ReturnType<Editor["chain"]>;
-
-/** Runs `run` over the blocks' text, the way the slash menu does for one. */
-function turnInto(editor: Editor, range: BlockRange, plain: boolean, run: (chain: Chain) => Chain) {
+/** Turns the blocks into `kind` as one change, with the caret at the end of the first line. */
+function turnRange(editor: Editor, range: BlockRange, kind: TurnKind) {
+  const tr = turnBlocks(editor.state, range, kind);
   setBlockRange(editor.view, null);
-  const chain = editor.chain().focus().setTextSelection({ from: range.from + 1, to: range.to - 1 });
-  // Lists and wrappers start from plain paragraphs, so headings become list text.
-  run(plain ? chain : chain.setNode("paragraph")).run();
+  if (tr) editor.view.dispatch(tr.setMeta(blockSelectionKey, null).scrollIntoView());
+  editor.view.focus();
 }
 
 export function openBlockMenu(editor: Editor, range: BlockRange, x: number, y: number) {
@@ -123,30 +123,27 @@ export function openBlockMenu(editor: Editor, range: BlockRange, x: number, y: n
     if (range.to <= doc.content.size && doc.slice(range.from, range.to).eq(snapshot)) fn();
   };
 
-  const textual = nodes.every((node) => node.type.name === "paragraph" || node.type.name === "heading") && imagesIn(nodes).length === 0;
-  const plain = nodes.every((node) => node.type.name === "paragraph");
-  const levels = new Set(nodes.map((node) => (node.type.name === "heading" ? node.attrs.level : 0)));
-  const level = levels.size === 1 ? [...levels][0] : -1;
-  const turn = (fn: (chain: Chain) => Chain) => run(() => turnInto(editor, range, plain, fn));
-
+  // Text, lists, to-dos, code, quotes, callouts and toggles turn into one another.
+  const spot = turnSpot(state.doc, range);
+  const turn = (kind: TurnKind) => run(() => turnRange(editor, range, kind));
+  const option = (label: string, icon: LucideIcon, kind: TurnKind): ContextMenuEntry => ({
+    kind: "action",
+    label,
+    icon,
+    checked: spot?.current === kind,
+    onSelect: turn(kind),
+  });
   const turnIntoItems: ContextMenuEntry[] = tidyEntries([
-    { kind: "action", label: "Text", icon: Type, checked: level === 0, onSelect: turn((c) => c) },
-    ...([1, 2, 3] as const).map(
-      (l): ContextMenuEntry => ({
-        kind: "action",
-        label: `Heading ${l}`,
-        icon: [Heading1, Heading2, Heading3][l - 1],
-        checked: level === l,
-        onSelect: turn((c) => c.setNode("heading", { level: l })),
-      }),
-    ),
-    { kind: "action", label: "Bulleted list", icon: List, onSelect: turn((c) => c.toggleBulletList()) },
-    { kind: "action", label: "Numbered list", icon: ListOrdered, onSelect: turn((c) => c.toggleOrderedList()) },
-    { kind: "action", label: "To-do list", icon: CheckSquare, onSelect: turn((c) => c.toggleTaskList()) },
-    // A toggle's title is one line.
-    single && { kind: "action", label: "Toggle", icon: ListCollapse, onSelect: turn((c) => c.toggleDetails()) },
-    { kind: "action", label: "Callout", icon: Info, onSelect: turn((c) => c.setCallout({ kind: "note" })) },
-    { kind: "action", label: "Code block", icon: Code2, onSelect: turn((c) => c.setCodeBlock()) },
+    option("Text", Type, "paragraph"),
+    option("Heading 1", Heading1, "h1"),
+    option("Heading 2", Heading2, "h2"),
+    option("Heading 3", Heading3, "h3"),
+    option("Bulleted list", List, "bullet"),
+    option("Numbered list", ListOrdered, "ordered"),
+    option("To-do list", CheckSquare, "task"),
+    spot?.toggle && option("Toggle", ListCollapse, "toggle"),
+    option("Callout", Info, "callout"),
+    option("Code block", Code2, "code"),
   ]);
 
   const images = imagesIn(nodes);
@@ -157,7 +154,7 @@ export function openBlockMenu(editor: Editor, range: BlockRange, x: number, y: n
     y,
     title: single ? blockName(single) : `${nodes.length} blocks`,
     items: tidyEntries([
-      textual && { kind: "submenu", label: "Turn into", icon: Repeat2, items: turnIntoItems },
+      spot && { kind: "submenu", label: "Turn into", icon: Repeat2, items: turnIntoItems },
       images.length === 1 && {
         kind: "action",
         label: "View full size",
