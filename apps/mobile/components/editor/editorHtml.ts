@@ -241,7 +241,13 @@ export function buildEditorHtml(
     .hint-btn { min-height: 44px; padding: 0 14px; border: 0; border-radius: 10px; background: none; color: ${t.mutedForeground}; font: inherit; font-size: 14px; font-weight: 500; -webkit-tap-highlight-color: transparent; }
     .hint-btn.hint-primary { background: ${t.primary}; color: ${onPrimary}; font-weight: 600; }
     .hint-btn:disabled { opacity: 0.6; }
-    .ProseMirror .block-picked { background: rgba(59, 130, 246, 0.16); border-radius: 6px; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16); }
+    /* The block the Block menu is about: a tint drawn a little outside it on
+       every side, so a to-do's box and words sit in its middle. A to-do row
+       (a flex box) holds its last line's gap below; the tint stops above it.
+       Nothing moves when a block is picked. */
+    .ProseMirror .block-picked { position: relative; }
+    .ProseMirror .block-picked::after { content: ""; position: absolute; inset: -6px -10px; border-radius: 10px; background: rgba(59, 130, 246, 0.16); pointer-events: none; }
+    .ProseMirror ul[data-type="taskList"] > li.block-picked::after { bottom: calc(0.75em - 6px); }
     .props-list { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; padding: 8px 12px 10px; font-size: 13px; }
     .props-key { color: ${t.mutedForeground}; }
     .props-values { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
