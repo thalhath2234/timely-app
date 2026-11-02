@@ -25,7 +25,7 @@ const web = await import("../apps/web/app/_components/editor/writeRange.ts");
 const { WRITE_RANGE_JS } = await import("../apps/mobile/lib/helpMeWriteRange.ts");
 const phone = new Function(
   "Fragment",
-  `${WRITE_RANGE_JS}; return { captureSelection: writeCapture, plainBetween: writePlainBetween, placeReplace: writePlaceReplace, placeBelow: writePlaceBelow };`,
+  `${WRITE_RANGE_JS}; return { captureSelection: writeCapture, plainBetween: writePlainBetween, placeReplace: writePlaceReplace, placeBelow: writePlaceBelow, findBlocks: writeFindBlocks, placeBlocks: writePlaceBlocks };`,
 )(Fragment);
 
 const cell = { content: "block+", attrs: { colspan: { default: 1 }, rowspan: { default: 1 }, colwidth: { default: null } } };
@@ -234,6 +234,70 @@ for (const [name, impl] of [
       const state = stateWith([p("One"), p("Two"), p("Three")], "One", "Two");
       const after = apply(impl, state, "- Summary", "below");
       assert.deepEqual(after.map((b) => b.type), ["paragraph", "paragraph", "bulletList", "paragraph"]);
+    });
+  });
+}
+
+// Blocks the AI chose to replace for a typed request with nothing selected
+// ("make the bullets a checklist"): found by what they held, never by
+// position alone, and joined to a list of the same kind beside them.
+const bullets = (...items) => ({ type: "bulletList", content: items.map((text) => ({ type: "listItem", content: [p(text)] })) });
+const docOf = (content) => schema.nodeFromJSON({ type: "doc", content });
+const empty = { type: "paragraph" };
+const shopping = () => [tasks(task(true, p("Onion")), task(true, p("Milk"))), bullets("Chicken", "Rice"), empty];
+
+for (const [name, impl] of [
+  ["web", web],
+  ["phone", phone],
+]) {
+  describe(`${name}: blocks the AI replaces`, () => {
+    test("bullets made a checklist take the bullets' place and join the checklist above (the duplicate list bug)", () => {
+      const read = docOf(shopping());
+      const state = EditorState.create({ doc: docOf(shopping()) });
+      const range = impl.findBlocks(state.doc, [read.child(1)], 1);
+      assert.ok(range);
+      const tr = impl.placeBlocks(state, range, writtenContent("- [ ] Chicken\n- [ ] Rice").blocks);
+      const after = tr.doc.toJSON().content;
+      assert.deepEqual(after.map((b) => b.type), ["taskList", "paragraph"]);
+      assert.deepEqual(after[0].content.map((i) => [i.attrs.checked, i.content[0].content[0].text]), [
+        [true, "Onion"],
+        [true, "Milk"],
+        [false, "Chicken"],
+        [false, "Rice"],
+      ]);
+    });
+
+    test("blocks edited while the AI wrote are not found, so nothing is replaced", () => {
+      const read = docOf(shopping());
+      const now = docOf([tasks(task(true, p("Onion")), task(true, p("Milk"))), bullets("Chicken thighs", "Rice"), empty]);
+      assert.equal(impl.findBlocks(now, [read.child(1)], 1), null);
+    });
+
+    test("blocks that moved are found where they are now, the nearest copy first", () => {
+      const read = docOf(shopping());
+      const now = docOf([p("New intro"), bullets("Chicken", "Rice"), p("Between"), tasks(task(true, p("Onion")), task(true, p("Milk"))), bullets("Chicken", "Rice")]);
+      assert.equal(impl.findBlocks(now, [read.child(1)], 1).index, 1);
+      assert.equal(impl.findBlocks(now, [read.child(1)], 4).index, 4);
+      const both = impl.findBlocks(now, [read.child(0), read.child(1)], 0);
+      assert.equal(both.index, 3);
+      assert.equal(both.to, now.content.size);
+    });
+
+    test("Insert below puts the draft right after the blocks and leaves them", () => {
+      const read = docOf(shopping());
+      const state = EditorState.create({ doc: docOf(shopping()) });
+      const range = impl.findBlocks(state.doc, [read.child(1)], 1);
+      const tr = impl.placeBlocks(state, { from: range.to, to: range.to }, writtenContent("- [ ] Chicken\n- [ ] Rice").blocks);
+      assert.deepEqual(tr.doc.toJSON().content.map((b) => b.type), ["taskList", "bulletList", "taskList", "paragraph"]);
+    });
+
+    test("a draft of several blocks over several blocks keeps what is around them", () => {
+      const content = [p("Intro"), p("Teh first"), p("Teh second"), p("Outro")];
+      const read = docOf(content);
+      const state = EditorState.create({ doc: docOf(content) });
+      const range = impl.findBlocks(state.doc, [read.child(1), read.child(2)], 1);
+      const tr = impl.placeBlocks(state, range, writtenContent("The first\n\nThe second").blocks);
+      assert.equal(plain(tr.doc.toJSON().content), "Intro\nThe first\nThe second\nOutro");
     });
   });
 }

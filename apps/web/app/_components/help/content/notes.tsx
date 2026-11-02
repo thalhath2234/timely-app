@@ -210,6 +210,12 @@ export const notes: HelpSection = {
                   <strong>Discard</strong> it. Choose <strong>Insert</strong>, or <strong>Replace</strong> and{" "}
                   <strong>Insert below</strong> for selected text. Undo takes it back in one step.
                 </li>
+                <li>
+                  When you say what to do, Help me write works out where the draft goes. Asking to change text that is
+                  already there, like &ldquo;make the bullet points a checklist&rdquo;, marks those lines and says what it{" "}
+                  <strong>Replaces</strong>, so the draft takes their place instead of adding a copy. New text goes at the
+                  cursor or, when you ask for it, at the end, and a summary of selected text goes below it.
+                </li>
                 <li>A long draft scrolls inside its preview, so you can read all of it before you choose.</li>
                 <li>
                   On a wide doc page, Help me write opens in the right margin, level with the line it writes into, and

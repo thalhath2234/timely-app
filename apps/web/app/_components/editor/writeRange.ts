@@ -181,3 +181,59 @@ export function placeBelow(state: EditorState, target: { from: number; to: numbe
     }
   }
 }
+
+/**
+ * Help me write on whole blocks the AI chose (a typed request with nothing
+ * selected, WritePlace "replace" with from/to): where they are now, and the
+ * answer in their place or below them. The phone runs the same steps
+ * (writeFindBlocks and writePlaceBlocks in WRITE_RANGE_JS).
+ */
+
+/** Where the blocks the AI read sit now: the run of the doc's top-level
+ * blocks equal to `nodes` nearest `index` (where they were), as positions
+ * and that index. null when the doc no longer holds them as they were, so a
+ * draft never takes the place of text the AI did not see. */
+export function findBlocks(doc: PMNode, nodes: readonly PMNode[], index: number): { from: number; to: number; index: number } | null {
+  if (!nodes.length) return null;
+  let best = -1;
+  for (let i = 0; i + nodes.length <= doc.childCount; i++) {
+    if (!nodes.every((node, j) => doc.child(i + j).eq(node))) continue;
+    if (best < 0 || Math.abs(i - index) < Math.abs(best - index)) best = i;
+  }
+  if (best < 0) return null;
+  let from = 0;
+  for (let i = 0; i < best; i++) from += doc.child(i).nodeSize;
+  let to = from;
+  for (let j = 0; j < nodes.length; j++) to += doc.child(best + j).nodeSize;
+  return { from, to, index: best };
+}
+
+/** A list right before `pos` and one of the same kind right after it become
+ * one list. */
+function joinLists(tr: Transaction, pos: number) {
+  const $pos = tr.doc.resolve(pos);
+  const before = $pos.nodeBefore;
+  const after = $pos.nodeAfter;
+  if (before && after && before.type === after.type && isWriteList(before.type.name)) tr.join(pos);
+}
+
+/** The answer's blocks over [from, to) of the doc's top level (findBlocks;
+ * from === to puts them there), joined to a list of the same kind right
+ * above or below it, so bullets made a checklist under a checklist read as
+ * one list. */
+export function placeBlocks(state: EditorState, range: { from: number; to: number }, blocks: JSONContent[]): Transaction | null {
+  if (!blocks.length) return null;
+  try {
+    const $a = state.doc.resolve(range.from);
+    const $b = state.doc.resolve(range.to);
+    if ($a.depth !== 0 || $b.depth !== 0) return null;
+    const fragment = Fragment.fromArray(blocks.map((node) => state.schema.nodeFromJSON(node)));
+    if (!state.doc.canReplace($a.index(), $b.index(), fragment)) return null;
+    const tr = state.tr.replaceWith(range.from, range.to, fragment);
+    joinLists(tr, range.from + fragment.size);
+    joinLists(tr, range.from);
+    return tr;
+  } catch {
+    return null;
+  }
+}

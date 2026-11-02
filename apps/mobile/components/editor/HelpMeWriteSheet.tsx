@@ -9,6 +9,9 @@ import {
   WRITE_BUSY,
   WRITE_EMPTY,
   WRITE_MAX_PROMPT,
+  blocksSummary,
+  firstLine,
+  liveBlockIndex,
   replaceFit,
   replacesAll,
   selectionTooLong,
@@ -16,10 +19,12 @@ import {
   spotList,
   writeStarters,
   writeTooLong,
+  withoutMark,
   writtenContent,
   type WriteAction,
   type WriteKind,
   type WriteList,
+  type WritePlace,
   type WriteResult,
   type WriteSpot,
 } from "@timely/contract/helpMeWrite";
@@ -32,6 +37,7 @@ import { Button, Chip, Field } from "../ui/primitives";
 import { LogoSpinner } from "../ui/TimelyLogo";
 import RichDoc from "../docs/RichDoc";
 import { readyProviders } from "../chat/ModelSheet";
+import { ListGroup, ListRow } from "../settings/SettingsList";
 
 /** What the editor holds, so the draft fits it. */
 export type WriteContext = { kind: WriteKind; title?: string };
@@ -51,21 +57,63 @@ export type WriteInfo = {
   doc?: DocContent;
   /** The cursor typed into `doc` for this request (writeCursorMark). */
   cursorMark?: string;
+  /** The index in `doc` of the line the cursor went on when that line is new
+   * (liveBlockIndex). */
+  added?: number | null;
+  /** Only empty lines follow the caret's block. */
+  atEnd?: boolean;
   list?: WriteList | null;
   endList?: WriteList | null;
 };
 
 /** How the draft goes in: over the selection, after it or at the caret, at
- * the end of the text ("Continue writing"), or in place of all of it (a
- * rewritten description), and the action whose spot it takes. */
-export type WriteInsert = { markdown: string; mode: "replace" | "below" | "insert" | "end" | "all"; action: WriteAction };
+ * the end of the text ("Continue writing"), in place of all of it (a
+ * rewritten description), or over or below the blocks the AI chose
+ * ("blocks", "blocksBelow": `count` blocks from `index` in the editor), and
+ * the action whose spot it takes. `summary` says what a replace took. */
+export type WriteInsert = {
+  markdown: string;
+  mode: "replace" | "below" | "insert" | "end" | "all" | "blocks" | "blocksBelow";
+  action: WriteAction;
+  index?: number;
+  count?: number;
+  summary?: string;
+};
 
 /** `place`: the action whose spot the draft takes, when it is not `action`.
  * Ask for changes rewrites a draft as "write", but a refined summary still
  * goes where a summary goes, and refined Continue writing still goes at the
  * end. */
-type Run = { action: WriteAction; place?: WriteAction; prompt?: string; selection?: string; label?: string };
+type Run = {
+  action: WriteAction;
+  place?: WriteAction;
+  prompt?: string;
+  selection?: string;
+  label?: string;
+  /** A typed request: the AI also says where the draft goes. */
+  ask?: boolean;
+  /** Where the draft being changed goes (Ask for changes keeps it). */
+  where?: Where;
+};
 const placeOf = (run: Run) => run.place ?? run.action;
+
+/** Where the AI said a draft goes. `blocks`: the editor's top-level blocks it
+ * replaces (`count` from `index`), with what they hold for the sheet to show. */
+type Where = { mode: WritePlace["mode"]; blocks?: { index: number; count: number; summary: string; first: string } };
+
+/** The AI's place for an answer, read against the doc the editor sent. */
+function whereOf(place: WritePlace | undefined, info: WriteInfo): Where | undefined {
+  if (!place) return undefined;
+  if (info.selection) return place.mode === "replace" || place.mode === "below" ? { mode: place.mode } : undefined;
+  if (place.mode === "cursor" || place.mode === "end") return { mode: place.mode };
+  const sent = (info.doc?.content ?? []) as DocContent[];
+  if (place.mode !== "replace" || place.from == null || place.to == null || place.to < place.from || place.to >= sent.length) return undefined;
+  const index = liveBlockIndex(place.from, info.added);
+  const count = liveBlockIndex(place.to, info.added) - index + 1;
+  const nodes = withoutMark(sent.slice(place.from, place.to + 1), info.cursorMark);
+  if (count < 1 || !nodes.length) return undefined;
+  return { mode: "replace", blocks: { index, count, summary: blocksSummary(nodes), first: firstLine(nodes) } };
+}
 
 /** The list a draft inserted this way joins, if any: for a selection, the
  * list it sits in. A summary or description is not more items of the list
@@ -102,7 +150,7 @@ export default function HelpMeWriteSheet({
   // The account has providers but none is chosen (ADR 0020): offer the fix.
   const [needsChoice, setNeedsChoice] = useState(false);
   const router = useRouter();
-  const [result, setResult] = useState<(WriteResult & { run: Run }) | null>(null);
+  const [result, setResult] = useState<(WriteResult & { run: Run; where?: Where }) | null>(null);
   // The phone client cannot abort a request; Stop and Close drop its answer.
   const attempt = useRef(0);
 
@@ -144,16 +192,17 @@ export default function HelpMeWriteSheet({
         text: info.text,
         doc: info.doc,
         cursorMark: info.cursorMark,
+        place: run.ask || undefined,
       });
       if (id !== attempt.current) return;
+      const where = run.where ?? (run.ask ? whereOf(out.place, info) : undefined);
       // An answer with nothing to insert ("- [ ]" alone) is an empty answer,
       // not a blank draft whose Insert does nothing.
-      const place = run.place ?? run.action;
-      if (!writtenContent(out.text, writeList(info, insertMode("replace", place), place)).blocks.length) {
+      if (!writtenContent(out.text, listFor(run, where)).blocks.length) {
         setError(WRITE_EMPTY);
         return;
       }
-      setResult({ ...out, run });
+      setResult({ ...out, run, where });
       setRefine("");
     } catch (err) {
       if (id !== attempt.current) return;
@@ -168,29 +217,98 @@ export default function HelpMeWriteSheet({
   // or goes below it, instead of landing inside it at the caret.
   const wholeDescription = (action: WriteAction) => !hasSelection && replacesAll(context.kind, action, Boolean(info?.text));
 
-  function insertMode(mode: "replace" | "below", action: WriteAction): WriteInsert["mode"] {
+  function insertMode(mode: "replace" | "below", action: WriteAction, where?: Where): WriteInsert["mode"] {
     if (hasSelection) return mode;
+    if (where?.blocks) return mode === "replace" ? "blocks" : "blocksBelow";
     if (wholeDescription(action)) return mode === "replace" ? "all" : "end";
-    return action === "continue" ? "end" : "insert";
+    return action === "continue" || where?.mode === "end" ? "end" : "insert";
   }
 
-  const insert = (mode: "replace" | "below") => {
+  // The list the draft is read into: none for blocks it replaces (it is
+  // their new version), else the list it joins.
+  function listFor(run: Run, where?: Where) {
+    if (!info || where?.blocks) return null;
+    const place = placeOf(run);
+    return writeList(info, insertMode("replace", place, where), place);
+  }
+
+  /** "replace" and "below" are the main and second buttons; "cursor" and
+   * "end" put a draft the AI meant for the end at the caret or the end. */
+  const insert = (mode: "replace" | "below" | "cursor" | "end") => {
     if (!result) return;
     const place = placeOf(result.run);
-    onInsert({ markdown: result.text, mode: insertMode(mode, place), action: place });
+    const blocks = hasSelection ? undefined : result.where?.blocks;
+    if (mode === "cursor" || mode === "end") {
+      onInsert({ markdown: result.text, mode: mode === "end" ? "end" : "insert", action: mode === "end" ? "continue" : "write" });
+      return;
+    }
+    onInsert({
+      markdown: result.text,
+      mode: insertMode(mode, place, result.where),
+      action: place,
+      index: blocks?.index,
+      count: blocks?.count,
+      summary: blocks?.summary,
+    });
   };
 
   // How the draft can replace the selection; null: only Below.
   const fit = result && info?.spot ? replaceFit(info.spot, writtenContent(result.text, spotList(info.spot))) : null;
 
   const whole = result ? wholeDescription(placeOf(result.run)) : false;
+  const blocksTarget = result && !hasSelection ? result.where?.blocks : undefined;
+  const belowFirst = hasSelection && (result?.where?.mode === "below" || !fit);
+  // A draft for the end can still go at the caret, unless the caret is at
+  // the end already.
+  const endChoice = Boolean(result?.where?.mode === "end" && !hasSelection && !whole && !info?.atEnd);
+  // Where the AI put the draft, in words: the sheet covers the doc, so a
+  // replace also quotes its first line.
+  const placeRow = !result?.where
+    ? null
+    : blocksTarget
+      ? { title: "Replaces", value: blocksTarget.summary, meta: blocksTarget.first ? `“${blocksTarget.first}”` : undefined }
+      : hasSelection
+        ? belowFirst
+          ? { title: "Adds", value: "Below your selection" }
+          : { title: "Replaces", value: "Your selection" }
+        : result.where.mode === "end"
+          ? { title: "Adds", value: context.kind === "doc" ? "At the end of the doc" : "At the end" }
+          : { title: "Adds", value: "At the cursor" };
   const footer = result && !busy ? (
     <View style={styles.footer}>
-      <Button label="Try again" variant="ghost" size="sm" icon={<RotateCcw size={16} color={colors.mutedForeground} />} onPress={() => void start(result.run)} />
+      {/* "At cursor" and "Add at end" leave no room for "Try again" in words. */}
+      <Button
+        label="Try again"
+        variant="ghost"
+        size="sm"
+        iconOnly={endChoice}
+        icon={<RotateCcw size={16} color={colors.mutedForeground} />}
+        onPress={() => void start(result.run)}
+      />
       <Button label="Discard" variant="destructive-ghost" size="sm" onPress={() => setResult(null)} />
       <View style={{ flex: 1 }} />
-      {hasSelection || whole ? <Button label="Below" accessibilityLabel="Insert below" variant={fit || whole ? "outline" : "primary"} size="sm" onPress={() => insert("below")} /> : null}
-      {!hasSelection || fit ? <Button label={hasSelection || whole ? "Replace" : "Insert"} size="sm" onPress={() => insert("replace")} /> : null}
+      {belowFirst ? (
+        <>
+          {fit ? <Button label="Replace" variant="outline" size="sm" onPress={() => insert("replace")} /> : null}
+          <Button label="Below" accessibilityLabel="Insert below" size="sm" onPress={() => insert("below")} />
+        </>
+      ) : endChoice ? (
+        <>
+          <Button label="At cursor" variant="outline" size="sm" onPress={() => insert("cursor")} />
+          <Button label="Add at end" size="sm" onPress={() => insert("end")} />
+        </>
+      ) : (
+        <>
+          {hasSelection || whole || blocksTarget ? <Button label="Below" accessibilityLabel="Insert below" variant="outline" size="sm" onPress={() => insert("below")} /> : null}
+          {/* A draft for the end, with the caret at the end already, takes the
+              caret's empty line like any draft there. */}
+          <Button
+            label={hasSelection || whole || blocksTarget ? "Replace" : "Insert"}
+            size="sm"
+            onPress={() => insert(result.where?.mode === "end" && !hasSelection && !whole ? "cursor" : "replace")}
+          />
+        </>
+      )}
     </View>
   ) : undefined;
 
@@ -223,6 +341,11 @@ export default function HelpMeWriteSheet({
       ) : result ? (
         <View style={styles.gap}>
           {result.shortened ? <Text style={styles.note}>{shortenedNote(context.kind)}</Text> : null}
+          {placeRow ? (
+            <ListGroup>
+              <ListRow title={placeRow.title} trailing={placeRow.value} meta={placeRow.meta} />
+            </ListGroup>
+          ) : null}
           <ScrollView showsVerticalScrollIndicator={false}
             style={styles.preview}
             contentContainerStyle={styles.previewContent}
@@ -232,11 +355,11 @@ export default function HelpMeWriteSheet({
             <RichDoc
               content={{
                 type: "doc",
-                content: info ? writtenContent(result.text, writeList(info, insertMode("replace", placeOf(result.run)), placeOf(result.run))).blocks : [],
+                content: info ? writtenContent(result.text, listFor(result.run, result.where)).blocks : [],
               }}
             />
           </ScrollView>
-          {hasSelection && !fit ? (
+          {hasSelection && !fit && result.where?.mode !== "below" ? (
             <Text style={styles.note}>This draft can’t take the place of your selection, so it goes below it.</Text>
           ) : null}
           <View style={styles.row}>
@@ -248,7 +371,14 @@ export default function HelpMeWriteSheet({
               variant="secondary"
               disabled={!refine.trim()}
               onPress={() =>
-                void start({ action: "write", place: placeOf(result.run), prompt: refine.trim(), selection: result.text, label: "Updating the draft" })
+                void start({
+                  action: "write",
+                  place: placeOf(result.run),
+                  prompt: refine.trim(),
+                  selection: result.text,
+                  label: "Updating the draft",
+                  where: result.where,
+                })
               }
             />
           </View>
@@ -275,7 +405,7 @@ export default function HelpMeWriteSheet({
                   : "What done looks like, and who to ask…"
             }
           />
-          <Button label="Write" size="lg" stretch disabled={!prompt.trim()} onPress={() => void start({ action: "write", prompt: prompt.trim() })} />
+          <Button label="Write" size="lg" stretch disabled={!prompt.trim()} onPress={() => void start({ action: "write", prompt: prompt.trim(), ask: true })} />
         </View>
       )}
 
