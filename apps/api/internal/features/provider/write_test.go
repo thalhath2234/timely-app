@@ -487,6 +487,12 @@ func TestDropRepeatedLead(t *testing.T) {
 	if got := dropRepeatedLead("## Packing\n- [ ] Passport", text); got != "## Packing\n- [ ] Passport" {
 		t.Errorf("a new first line must stay: %q", got)
 	}
+	// A placed draft reads the doc as numbered blocks: the line before the
+	// cursor is the block's last line, not its closing tag.
+	blocks := "<block n=\"1\">\nTrip notes\n</block>\n\n<cursor/>"
+	if got := dropRepeatedLead("Trip notes\n## Packing\n- [ ] Passport", blocks); got != "## Packing\n- [ ] Passport" {
+		t.Errorf("numbered blocks: got %q", got)
+	}
 }
 
 // GW17: a refusal comes back as a refusal, not as the draft.

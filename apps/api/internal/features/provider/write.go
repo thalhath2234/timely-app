@@ -452,7 +452,9 @@ func dropRepeatedLead(answer, text string) string {
 	if at < 0 {
 		return answer
 	}
-	before := strings.Split(strings.TrimRight(text[:at], " \t\n"), "\n")
+	// In numbered blocks (numberedBlocks) the line before is the block's
+	// last line, not its closing tag.
+	before := strings.Split(strings.TrimRight(blockTagLine.ReplaceAllString(text[:at], ""), " \t\n"), "\n")
 	last := strings.TrimSpace(before[len(before)-1])
 	first, rest, ok := strings.Cut(answer, "\n")
 	if !ok || last == "" || strings.TrimSpace(first) != last {
