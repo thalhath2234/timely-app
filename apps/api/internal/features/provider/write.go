@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -119,6 +120,12 @@ type writeRequest struct {
 	// CursorMark is the cursor the editor typed into Doc for this request;
 	// apps from before it type writeCursor itself.
 	CursorMark string `json:"cursorMark"`
+	// Place: the person typed what to do, so the model also says where its
+	// answer goes (writePlace): over the blocks it rewrites, at the cursor or
+	// at the end, or with a selection over it or below it. A request to
+	// change text already there ("make these bullets a checklist") then
+	// replaces that text instead of adding a second copy.
+	Place bool `json:"place"`
 	// cursor: Text shows where the draft goes, as cursorTag.
 	cursor bool
 	// around: Text is the doc around the selection, with writeSelectionMark
@@ -130,6 +137,14 @@ type writeRequest struct {
 	rich bool
 	// shortened: Text is a long doc's start and end, its middle left out.
 	shortened bool
+	// blocks: Text is the doc as numbered blocks (numberedBlocks), and the
+	// model is asked where its answer goes; targets are the blocks it may
+	// name, by their index in Doc.
+	blocks  bool
+	targets blockTargets
+	// placeSelection: the model is asked whether its answer replaces the
+	// selection or goes below it.
+	placeSelection bool
 }
 
 type writeResponse struct {
@@ -139,6 +154,23 @@ type writeResponse struct {
 	// Shortened: the doc was too long to read whole, so the draft (a
 	// summary, description or continuation) comes from its start and end.
 	Shortened bool `json:"shortened,omitempty"`
+	// Place is where the model says the draft goes, for a request with
+	// Place set; absent when it did not say, and the draft goes where it
+	// would have without it.
+	Place *writePlace `json:"place,omitempty"`
+}
+
+// writePlace is where a draft goes (WritePlace in
+// packages/contract/src/helpMeWrite.ts):
+//   - "replace" with From and To: in place of the doc's top-level blocks
+//     From to To, their indices in the doc as sent (cursor line included);
+//   - "replace" alone: in place of the selection;
+//   - "below": below the selection, which stays;
+//   - "cursor": where the cursor was typed; "end": at the end of the text.
+type writePlace struct {
+	Mode string `json:"mode"`
+	From *int   `json:"from,omitempty"`
+	To   *int   `json:"to,omitempty"`
 }
 
 func (r *writeRequest) validate() error {
@@ -169,7 +201,12 @@ func (r *writeRequest) validate() error {
 	}
 	r.Title = clipRunes(strings.TrimSpace(r.Title), writeMaxTitle)
 	fromDoc := r.Doc != nil
-	if fromDoc {
+	r.blocks = fromDoc && r.Place && r.Action == "write" && r.Prompt != "" && r.Selection == ""
+	r.placeSelection = r.Place && r.Action == "write" && r.Prompt != "" && r.Selection != ""
+	if r.blocks {
+		r.Text, r.targets = numberedBlocks(r.Doc, mark, writeMaxText)
+		r.Doc = nil
+	} else if fromDoc {
 		r.Text = richtext.ToMarkdown(r.Doc)
 		r.Doc = nil
 	}
@@ -194,6 +231,9 @@ func (r *writeRequest) validate() error {
 	case r.Selection != "" && isRewrite(r.Action):
 		// A rewrite sends its selection; of the doc only the text around it.
 		r.Text, r.around = aroundSelection(strings.TrimSpace(r.Text), r.Selection, writeRewriteContext)
+	case r.blocks:
+		// numberedBlocks kept whole blocks around the cursor already.
+		r.Text = strings.TrimSpace(r.Text)
 	default:
 		r.Text = clipAround(strings.TrimSpace(r.Text), mark, writeMaxText)
 	}
@@ -268,15 +308,43 @@ func writeMessages(r writeRequest) []chat.WireMessage {
 			b.WriteString("\n")
 		}
 	}
-	if r.cursor {
+	switch {
+	case r.blocks:
+		b.WriteString(writePlaceBlocks)
+		if r.cursor {
+			b.WriteString("When your answer goes at " + cursorTag + " and " + cursorTag + " is a list item, answer with only items of that same kind of list, one per line, with no heading or intro: \"- [ ] item\" for a checklist, \"- item\" for bullets, \"1. item\" for a numbered list.\n")
+		}
+	case r.cursor:
 		b.WriteString("\n" + cursorTag + " in the current text marks where your answer goes; fit it to that spot and do not write the tag. ")
 		b.WriteString("When " + cursorTag + " is a list item, answer with only items of that same kind of list, one per line, with no heading or intro: \"- [ ] item\" for a checklist, \"- item\" for bullets, \"1. item\" for a numbered list.\n")
+	case r.placeSelection:
+		b.WriteString(writePlaceSelection)
 	}
 	if r.Prompt != "" {
 		fmt.Fprintf(&b, "\n<request>\n%s\n</request>\n", r.Prompt)
 	}
 	return []chat.WireMessage{{Role: "system", Content: writeSystem}, {Role: "user", Content: b.String()}}
 }
+
+// writePlaceBlocks asks a draft written from a typed request where it goes,
+// as the first line of the answer (takePlace reads it).
+const writePlaceBlocks = `
+The current text is split into numbered blocks, <block n="1"> and so on, and ` + cursorTag + ` marks where the user's cursor is.
+Decide where your answer goes, and start your reply with one tag on a line of its own:
+- <place>replace N</place>, or <place>replace N-M</place> for blocks N to M in a row, when the request changes text that is already there: convert, reformat, rewrite, reorder, sort, translate, fix, or tick or untick items. Your answer takes the place of those blocks, so write their whole new version: anything in them that you leave out is deleted. Keep every item, tick box, link and detail the request does not ask to change. Name only the blocks the request is about.
+- <place>cursor</place> when the request asks for new text: it goes at ` + cursorTag + `.
+- <place>end</place> when the request asks for new text at the end of the text.
+After the tag, write only the text, without block tags or ` + cursorTag + `.
+`
+
+// writePlaceSelection asks a draft for a selection whether it rewrites the
+// selection or adds to it.
+const writePlaceSelection = `
+Decide where your answer goes, and start your reply with one tag on a line of its own:
+- <place>replace</place> when your answer is a new version of the selected text: it takes the selection's place.
+- <place>below</place> when your answer is something new about it, such as a summary, a reply, an example or more items: it goes below the selected text, which stays.
+After the tag, write only the text.
+`
 
 func isRewrite(action string) bool {
 	return action == "improve" || action == "shorter" || action == "longer" || action == "fix" || action == "steps"
@@ -384,7 +452,9 @@ func dropRepeatedLead(answer, text string) string {
 	if at < 0 {
 		return answer
 	}
-	before := strings.Split(strings.TrimRight(text[:at], " \t\n"), "\n")
+	// In numbered blocks (numberedBlocks) the line before is the block's
+	// last line, not its closing tag.
+	before := strings.Split(strings.TrimRight(blockTagLine.ReplaceAllString(text[:at], ""), " \t\n"), "\n")
 	last := strings.TrimSpace(before[len(before)-1])
 	first, rest, ok := strings.Cut(answer, "\n")
 	if !ok || last == "" || strings.TrimSpace(first) != last {
@@ -441,6 +511,178 @@ func aroundSelection(text, selection string, n int) (string, bool) {
 		after = strings.ToValidUTF8(after, "") + "\n…"
 	}
 	return before + writeSelectionMark + after, true
+}
+
+// blockTargets are the doc's top-level blocks a placed draft may replace,
+// by index in the doc as sent: lo to hi is the stretch shown to the model,
+// numbered the blocks it read whole. A range is allowed only inside that
+// stretch, starting and ending on numbered blocks and holding no block the
+// model saw cut short.
+type blockTargets struct {
+	lo, hi   int
+	numbered map[int]bool
+	cut      map[int]bool
+}
+
+// allows reports whether blocks from to to (indices) may be replaced.
+func (t blockTargets) allows(from, to int) bool {
+	if from > to || from < t.lo || to > t.hi || !t.numbered[from] || !t.numbered[to] {
+		return false
+	}
+	for i := from; i <= to; i++ {
+		if t.cut[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// blockTag is a block tag or place tag written into a doc's own text: it is
+// escaped so the model can't take it for the real ones.
+var blockTag = regexp.MustCompile(`(?i)<(/?(?:block|place)\b)`)
+
+// numberedBlocks is the doc as a draft that says where it goes reads it:
+// each top-level block in <block n="i"> tags, i its index in the doc plus
+// one, so the answer can name the blocks it takes the place of. The line
+// that holds only the cursor sits between them as the cursor, unnumbered,
+// as do the doc's properties; empty lines are left out. A long doc keeps
+// whole blocks around the cursor, up to n bytes, three quarters of them
+// before it; a block longer than half that is cut and not numbered, so a
+// draft never replaces text the model did not read.
+func numberedBlocks(doc models.JSONMap, mark string, n int) (string, blockTargets) {
+	type part struct {
+		index int
+		text  string
+	}
+	targets := blockTargets{numbered: map[int]bool{}, cut: map[int]bool{}}
+	var parts []part
+	at := -1
+	for i, raw := range asList(doc["content"]) {
+		node, _ := raw.(map[string]any)
+		md := strings.TrimSpace(richtext.ToMarkdown(models.JSONMap{"type": "doc", "content": []any{raw}}))
+		if md == "" {
+			continue
+		}
+		if strings.Contains(md, mark) {
+			at = len(parts)
+		}
+		switch {
+		case md == mark:
+			parts = append(parts, part{i, mark})
+		case node != nil && node["type"] == "frontmatter":
+			parts = append(parts, part{i, md})
+		case len(md) > n/2:
+			// Cut to half the room, so it can still show beside the cursor.
+			targets.cut[i] = true
+			parts = append(parts, part{i, strings.ToValidUTF8(md[:n/2], "") + "\n[… the rest of this block is left out …]"})
+		default:
+			targets.numbered[i] = true
+			parts = append(parts, part{i, fmt.Sprintf("<block n=\"%d\">\n%s\n</block>", i+1, blockTag.ReplaceAllString(md, "&lt;$1"))})
+		}
+	}
+	if len(parts) == 0 {
+		return "", targets
+	}
+	if at < 0 {
+		at = len(parts) - 1
+	}
+	// The cursor's block, then blocks before it up to three quarters of n,
+	// then after it up to the rest.
+	first, last := at, at
+	used := len(parts[at].text)
+	for first > 0 && used+len(parts[first-1].text) <= n*3/4 {
+		first--
+		used += len(parts[first].text)
+	}
+	for last < len(parts)-1 && used+len(parts[last+1].text) <= n {
+		last++
+		used += len(parts[last].text)
+	}
+	for first > 0 && used+len(parts[first-1].text) <= n {
+		first--
+		used += len(parts[first].text)
+	}
+	texts := make([]string, 0, last-first+3)
+	if first > 0 {
+		texts = append(texts, fmt.Sprintf("[… %d blocks before this are left out …]", first))
+	}
+	for _, p := range parts[first : last+1] {
+		texts = append(texts, p.text)
+	}
+	if last < len(parts)-1 {
+		texts = append(texts, fmt.Sprintf("[… %d blocks after this are left out …]", len(parts)-1-last))
+	}
+	targets.lo, targets.hi = parts[first].index, parts[last].index
+	for i := range targets.numbered {
+		if i < targets.lo || i > targets.hi {
+			delete(targets.numbered, i)
+		}
+	}
+	return strings.Join(texts, "\n\n"), targets
+}
+
+func asList(v any) []any {
+	list, _ := v.([]any)
+	return list
+}
+
+var (
+	// placeLine is the tag a placed draft opens with: <place>replace 3-5</place>.
+	placeLine = regexp.MustCompile(`(?im)^[ \t]*<place>[ \t]*(replace|cursor|end|below)(?:[ \t]+(\d+)(?:[ \t]*[-–][ \t]*(\d+))?)?[ \t]*</place>[ \t]*(?:\n|$)`)
+	// blockTagLine is a block tag the model copied from the doc onto its own line.
+	blockTagLine = regexp.MustCompile(`(?im)^[ \t]*</?block(?:[ \t]+n="?\d+"?)?[ \t]*>[ \t]*(?:\n|$)`)
+)
+
+// takePlace reads where the model says the draft goes and drops the tag
+// (and any block tags it copied). The place is nil when it said nothing the
+// request allows: a range of blocks it was not shown whole, "replace" with
+// no blocks for a doc, a cursor or end for a selection.
+func takePlace(text string, r writeRequest) (string, *writePlace) {
+	if !r.blocks && !r.placeSelection {
+		return text, nil
+	}
+	if r.blocks {
+		text = blockTagLine.ReplaceAllString(text, "")
+	}
+	m := placeLine.FindStringSubmatchIndex(text)
+	if m == nil {
+		return text, nil
+	}
+	group := func(i int) string {
+		if m[2*i] < 0 {
+			return ""
+		}
+		return text[m[2*i]:m[2*i+1]]
+	}
+	mode, from, to := strings.ToLower(group(1)), group(2), group(3)
+	text = text[:m[0]] + text[m[1]:]
+	if r.placeSelection {
+		if mode == "replace" || mode == "below" {
+			return text, &writePlace{Mode: mode}
+		}
+		return text, nil
+	}
+	switch mode {
+	case "cursor", "end":
+		return text, &writePlace{Mode: mode}
+	case "replace":
+		a, err := strconv.Atoi(from)
+		if err != nil {
+			return text, nil
+		}
+		b := a
+		if to != "" {
+			if b, err = strconv.Atoi(to); err != nil {
+				return text, nil
+			}
+		}
+		a, b = a-1, b-1
+		if !r.targets.allows(a, b) {
+			return text, nil
+		}
+		return text, &writePlace{Mode: "replace", From: &a, To: &b}
+	}
+	return text, nil
 }
 
 // clipAround keeps n bytes of a long text around the cursor, most of them
@@ -528,7 +770,8 @@ func (s *Service) write(c *echo.Context) error {
 	if err != nil {
 		return oneShotError(err, "The draft was too long to finish. Ask for something shorter, or split it into parts.")
 	}
-	text := cleanWritten(reply.Content, req.cursor)
+	text, place := takePlace(strings.ReplaceAll(reply.Content, "\r\n", "\n"), req)
+	text = cleanWritten(text, req.cursor)
 	if reason, ok := declined(text); ok {
 		if reason == "" {
 			reason = "Try asking another way."
@@ -536,13 +779,15 @@ func (s *Service) write(c *echo.Context) error {
 		return echo.NewHTTPError(422, "The AI declined to write this. "+reason)
 	}
 	text = keepKnownLinks(text, req.Selection+"\n"+req.Text)
-	if req.cursor {
+	// A new version of blocks may start with the line the cursor follows:
+	// it takes that line's place, so it is not a repeat.
+	if req.cursor && (place == nil || place.Mode == "cursor") {
 		text = dropRepeatedLead(text, req.Text)
 	}
 	if text == "" {
 		return echo.NewHTTPError(502, "The AI returned an empty answer. Try again")
 	}
-	return c.JSON(200, writeResponse{Text: text, Provider: provider, Model: model, Shortened: req.shortened})
+	return c.JSON(200, writeResponse{Text: text, Provider: provider, Model: model, Shortened: req.shortened, Place: place})
 }
 
 // writeBudget is how long Help me write waits for the model. A long draft on

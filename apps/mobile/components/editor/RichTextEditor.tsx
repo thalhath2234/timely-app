@@ -87,7 +87,7 @@ import { getLinkPreview, uploadDocFile } from "../../lib/api/docs";
 import { sharePdfFromHtml } from "../../lib/api/portability";
 import { isEmbedUrl } from "@timely/contract/markdown";
 import { LIVE_BLOCK_LANGUAGE } from "@timely/contract/genuiBoard";
-import { useToastStore } from "../../lib/toast";
+import { showUndoToast, useToastStore } from "../../lib/toast";
 import TimelyLogo from "../ui/TimelyLogo";
 import FindBar from "./FindBar";
 import BlockSheet, { type BlockInfo } from "./BlockSheet";
@@ -374,6 +374,9 @@ export default function RichTextEditor({
   const [hasSelection, setHasSelection] = useState(false);
   const writeOn = useHelpMeWriteAvailable(Boolean(writeContext));
   const [writeInfo, setWriteInfo] = useState<WriteInfo | null>(null);
+  // The last Help me write draft put over or below blocks the AI chose, and
+  // what a replace took, for the editor's answer.
+  const writeBlocks = useRef<{ summary: string } | null>(null);
   // Live blocks: the page reports the doc's programs and the app draws them
   // (LiveBlocks); adding one or changing one opens the Describe sheet.
   const liveOn = writeOn && writeContext?.kind === "doc";
@@ -529,6 +532,8 @@ export default function RichTextEditor({
         selectionDoc?: DocContent;
         spot?: WriteSpot | null;
         cursorMark?: string;
+        added?: number | null;
+        atEnd?: boolean;
       };
       if (msg.type === "lineHint" && msg.key && (msg.action === "toggle" || msg.action === "make" || msg.action === "dismiss" || msg.action === "goesTo")) {
         lineHintsRef.current?.act(msg.key, msg.action);
@@ -551,15 +556,22 @@ export default function RichTextEditor({
           text: msg.text ?? "",
           doc: msg.doc,
           cursorMark: typeof msg.cursorMark === "string" ? msg.cursorMark : undefined,
+          added: typeof msg.added === "number" ? msg.added : null,
+          atEnd: msg.atEnd !== false,
           list: isWriteList(msg.list) ? msg.list : null,
           endList: isWriteList(msg.endList) ? msg.endList : null,
         });
       }
       if (msg.type === "writeStale") {
-        useToastStore.getState().show("The text changed while writing. Select it again.");
+        useToastStore.getState().show(writeBlocks.current ? "Those lines changed while the AI was writing. Try again." : "The text changed while writing. Select it again.");
       }
       if (msg.type === "writeNoFit") {
-        useToastStore.getState().show("This draft can't take the place of your selection. Use Below.");
+        useToastStore.getState().show(writeBlocks.current ? "This draft can't go there. Try again." : "This draft can't take the place of your selection. Use Below.");
+      }
+      if (msg.type === "writeReplaced") {
+        // One undo takes the draft out and the replaced lines back.
+        const summary = writeBlocks.current?.summary;
+        showUndoToast(summary ? `Replaced ${summary}` : "Replaced", () => run("undo"));
       }
       if (msg.type === "linkStale") {
         linkFeedback.current = null;
@@ -1198,10 +1210,17 @@ export default function RichTextEditor({
           info={writeInfo}
           context={writeContext}
           onClose={() => setWriteInfo(null)}
-          onInsert={({ markdown, mode, action }) => {
+          onInsert={({ markdown, mode, action, index, count, summary }) => {
             const info = writeInfo;
             setWriteInfo(null);
             if (!info) return;
+            writeBlocks.current = mode === "blocks" || mode === "blocksBelow" ? { summary: summary ?? "" } : null;
+            if (mode === "blocks" || mode === "blocksBelow") {
+              // The blocks the AI chose, found again in the editor by what they
+              // held when Help me write opened (writeFindBlocks).
+              run("insertWritten", { blocks: writtenContent(markdown, null).blocks, mode, index, count, mark: info.cursorMark });
+              return;
+            }
             const list = writeList(info, mode, action);
             const written = writtenContent(markdown, list);
             const { blocks, inline, items } = written;

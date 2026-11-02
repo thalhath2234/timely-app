@@ -14,7 +14,9 @@ import {
   WRITE_EMPTY,
   WRITE_MAX_PROMPT,
   belowFit,
+  blocksSummary,
   isWriteList,
+  liveBlockIndex,
   replaceFit,
   replacesAll,
   selectionTooLong,
@@ -28,19 +30,21 @@ import {
   type WriteChoice,
   type WriteKind,
   type WriteList,
+  type WritePlace,
   type WriteResult,
 } from "@timely/contract/helpMeWrite";
 import Link from "next/link";
 import Button, { buttonClass } from "@/app/_components/_ui/button";
 import { Input, Textarea, popoverSurface } from "@/app/_components/_ui/field";
+import { ListGroup, ListRow } from "@/app/_components/_ui/groupedList";
 import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import { readyProviders } from "@/app/_components/chat/modelMenu";
-import { useToastStore } from "@/app/_store/toastStore";
+import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import { helpMeWrite } from "@/app/utils/api/write";
 import { errorCode } from "@/app/utils/api/codedError";
 import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
 import { cn } from "@/app/utils/cn";
-import { captureSelection, placeBelow, placeReplace, plainBetween, type Captured } from "./writeRange";
+import { captureSelection, findBlocks, placeBelow, placeBlocks, placeReplace, plainBetween, type Captured } from "./writeRange";
 
 /** What the editor holds, so the draft fits it. */
 export type WriteContext = { kind: WriteKind; title?: string };
@@ -57,6 +61,16 @@ const toNodes = (markdown: string, into?: WriteList | null) =>
 type ListSpot = { list: WriteList; at: number; drop?: { from: number; to: number } };
 
 const isEmptyLine = (node: PMNode | null | undefined) => Boolean(node?.isTextblock && node.content.size === 0);
+
+/** Whether only empty lines follow the top-level block `pos` is in. The
+ * phone editor's writeInfo works out the same (atEnd). */
+function caretAtEnd(doc: PMNode, pos: number) {
+  const $pos = doc.resolve(Math.min(pos, doc.content.size));
+  for (let i = $pos.depth > 0 ? $pos.index(0) + 1 : doc.childCount; i < doc.childCount; i++) {
+    if (!isEmptyLine(doc.child(i))) return false;
+  }
+  return true;
+}
 
 /** Drafts that add to the text where they go: written at the caret, or
  * Continue writing at the end. */
@@ -102,9 +116,13 @@ function listSpot(doc: PMNode, pos: number, end: boolean): ListSpot | null {
 }
 
 /** The doc as the AI reads it: `mark` (writeCursorMark) typed where a draft
- * written at `pos` goes, as a new item when it joins a list. */
-function cursorDoc(state: EditorState, pos: number, mark: string): JSONContent {
+ * written at `pos` goes, as a new item when it joins a list. `added` is the
+ * index of the line the cursor went on when that line is new, so blocks the
+ * AI names by their index in this doc are found in the editor
+ * (liveBlockIndex). */
+function cursorDoc(state: EditorState, pos: number, mark: string): { doc: JSONContent; added: number | null } {
   const { tr, schema } = state;
+  let added: number | null = null;
   try {
     const spot = listSpot(state.doc, pos, false);
     if (spot) {
@@ -120,12 +138,15 @@ function cursorDoc(state: EditorState, pos: number, mark: string): JSONContent {
       // Only an empty line of its own becomes the draft (insert does the
       // same); in a table cell or callout the draft goes after the block.
       if ($pos.depth === 1 && isEmptyLine($pos.parent)) tr.insertText(mark, $pos.pos);
-      else tr.insert($pos.depth > 0 ? $pos.after(1) : state.doc.content.size, schema.nodes.paragraph.create(null, schema.text(mark)));
+      else {
+        added = $pos.depth > 0 ? $pos.index(0) + 1 : state.doc.childCount;
+        tr.insert($pos.depth > 0 ? $pos.after(1) : state.doc.content.size, schema.nodes.paragraph.create(null, schema.text(mark)));
+      }
     }
-    return tr.doc.toJSON();
+    return { doc: tr.doc.toJSON(), added };
   } catch {
     // Where the cursor cannot go, the AI reads the doc without it.
-    return state.doc.toJSON();
+    return { doc: state.doc.toJSON(), added: null };
   }
 }
 
@@ -215,12 +236,46 @@ export function HelpMeWriteButton({
  * Ask for changes rewrites a draft as "write", but a refined summary still
  * goes where a summary goes, and refined Continue writing still goes at the
  * end. */
-type Run = { action: WriteAction; place?: WriteAction; prompt?: string; selection?: string; label?: string };
+type Run = {
+  action: WriteAction;
+  place?: WriteAction;
+  prompt?: string;
+  selection?: string;
+  label?: string;
+  /** A typed request: the AI also says where the draft goes. */
+  ask?: boolean;
+  /** Where the draft being changed goes (Ask for changes keeps it). */
+  where?: Where;
+};
 const placeOf = (run: Run) => run.place ?? run.action;
 
+/** Where the AI said a draft goes. `blocks`: the doc's top-level blocks it
+ * replaces, as the AI read them, and the index they were at. */
+type Where = { mode: WritePlace["mode"]; blocks?: { nodes: PMNode[]; index: number } };
+
+/** The AI's place for an answer, read against the doc it was written from
+ * (`sent`, with the cursor line `added`). Blocks it names that the doc did
+ * not hold are no place. */
+function whereOf(place: WritePlace | undefined, doc: PMNode, added: number | null, hasSelection: boolean): Where | undefined {
+  if (!place) return undefined;
+  if (hasSelection) return place.mode === "replace" || place.mode === "below" ? { mode: place.mode } : undefined;
+  if (place.mode === "cursor" || place.mode === "end") return { mode: place.mode };
+  if (place.mode !== "replace" || place.from == null || place.to == null) return undefined;
+  const from = liveBlockIndex(place.from, added);
+  const to = liveBlockIndex(place.to, added);
+  if (from < 0 || to < from || to >= doc.childCount) return undefined;
+  const nodes: PMNode[] = [];
+  for (let i = from; i <= to; i++) nodes.push(doc.child(i));
+  return { mode: "replace", blocks: { nodes, index: from } };
+}
+
 /** Where the draft will go, kept in step with edits made while the panel
- * stays open, and the lines there marked while it shows. */
-type Target = { from: number; to: number; show: boolean };
+ * stays open, and the lines there marked while it shows. `replace`: the
+ * blocks a draft will take the place of, when the AI chose them; they are
+ * marked instead of the caret's line. */
+type Range = { from: number; to: number };
+type Target = Range & { show: boolean; replace?: Range | null };
+type TargetMeta = { show?: boolean; replace?: Range | null };
 const targetKey = new PluginKey<Target>("helpMeWriteTarget");
 const targetPlugin = (start: Target) =>
   new Plugin<Target>({
@@ -228,12 +283,16 @@ const targetPlugin = (start: Target) =>
     state: {
       init: () => start,
       apply: (tr, value) => {
-        const show = tr.getMeta(targetKey) as boolean | undefined;
-        let next = show === undefined ? value : { ...value, show };
+        const meta = tr.getMeta(targetKey) as TargetMeta | undefined;
+        let next = meta ? { ...value, ...meta } : value;
         if (tr.docChanged) {
           const caret = next.from === next.to;
           const from = tr.mapping.map(next.from, caret ? -1 : 1);
           next = { ...next, from, to: caret ? from : Math.max(from, tr.mapping.map(next.to, -1)) };
+          if (next.replace) {
+            const start = tr.mapping.map(next.replace.from, 1);
+            next.replace = { from: start, to: Math.max(start, tr.mapping.map(next.replace.to, -1)) };
+          }
         }
         return next;
       },
@@ -244,6 +303,14 @@ const targetPlugin = (start: Target) =>
         if (!target?.show) return null;
         const size = state.doc.content.size;
         const marks: Decoration[] = [];
+        if (target.replace && target.replace.to > target.replace.from) {
+          // Whole blocks, each marked as one.
+          state.doc.nodesBetween(Math.min(target.replace.from, size), Math.min(target.replace.to, size), (node, pos) => {
+            if (marks.length < 40 && node.content.size > 0) marks.push(Decoration.node(pos, pos + node.nodeSize, { class: "doc-line-hinted" }));
+            return false;
+          });
+          return DecorationSet.create(state.doc, marks);
+        }
         state.doc.nodesBetween(Math.min(target.from, size), Math.min(Math.max(target.to, target.from + 1), size), (node, pos) => {
           if (!node.isTextblock) return true;
           if (marks.length < 40) marks.push(Decoration.node(pos, pos + node.nodeSize, { class: "doc-line-hinted" }));
@@ -292,8 +359,9 @@ export default function HelpMeWritePanel({
   const [error, setError] = useState("");
   // The account has providers but none is chosen (ADR 0020): offer the fix.
   const [needsChoice, setNeedsChoice] = useState(false);
-  // `list`: the list the draft joins, so the preview shows it as that list.
-  const [result, setResult] = useState<(WriteResult & { run: Run; list?: WriteList }) | null>(null);
+  // `list`: the list the draft joins, so the preview shows it as that list;
+  // `where`: where the AI said it goes.
+  const [result, setResult] = useState<(WriteResult & { run: Run; list?: WriteList; where?: Where }) | null>(null);
   const abort = useRef<AbortController | null>(null);
   const panel = useRef<HTMLDivElement>(null);
   const [top, setTop] = useState(anchor.top);
@@ -315,8 +383,15 @@ export default function HelpMeWritePanel({
   }, [editor, captured]);
   useEffect(() => {
     if (editor.isDestroyed || !targetKey.getState(editor.state)) return;
-    editor.view.dispatch(editor.state.tr.setMeta(targetKey, shown).setMeta("addToHistory", false));
+    editor.view.dispatch(editor.state.tr.setMeta(targetKey, { show: shown } satisfies TargetMeta).setMeta("addToHistory", false));
   }, [editor, shown]);
+
+  // The blocks a discarded draft would have replaced are no longer marked.
+  const replacing = Boolean(result?.where?.blocks);
+  useEffect(() => {
+    if (replacing || editor.isDestroyed || !targetKey.getState(editor.state)?.replace) return;
+    editor.view.dispatch(editor.state.tr.setMeta(targetKey, { replace: null } satisfies TargetMeta).setMeta("addToHistory", false));
+  }, [editor, replacing]);
 
   // A draft still being written finishes while the panel is hidden; only
   // leaving the editor stops it.
@@ -337,7 +412,8 @@ export default function HelpMeWritePanel({
     const place = () => {
       const target = targetKey.getState(editor.state);
       if (!target || editor.isDestroyed) return;
-      const line = editor.view.coordsAtPos(Math.min(target.from, editor.state.doc.content.size));
+      const at = target.replace ? target.replace.from + 1 : target.from;
+      const line = editor.view.coordsAtPos(Math.min(at, editor.state.doc.content.size));
       setTop(Math.max(0, Math.round(line.top - dock.getBoundingClientRect().top - 10)));
     };
     const soon = () => {
@@ -354,7 +430,7 @@ export default function HelpMeWritePanel({
       editor.off("update", soon);
       observer.disconnect();
     };
-  }, [editor, dock, shown]);
+  }, [editor, dock, shown, result]);
   // Docked beside a line low on the page, the draft's buttons would sit
   // below the fold: bring the whole panel into view when it opens and when a
   // draft or an error arrives.
@@ -382,6 +458,13 @@ export default function HelpMeWritePanel({
   // or description is not more items of the list the caret is in.
   const spotFor = (action: WriteAction) =>
     hasSelection || !joinsList(action) ? null : listSpot(editor.state.doc, caret(), action === "continue");
+  // The action whose spot a draft takes: the end, where the AI put it there,
+  // goes where Continue writing goes.
+  const spotAction = (run: Run, where?: Where) => (where?.mode === "end" ? "continue" : placeOf(run));
+  // The list the draft is read into: the selection's, none for blocks it
+  // replaces (it is their new version), else the list it joins.
+  const listFor = (run: Run, where?: Where) =>
+    hasSelection ? spotList(captured.spot) ?? undefined : where?.blocks ? undefined : spotFor(spotAction(run, where))?.list;
 
   const start = async (run: Run) => {
     abort.current?.abort();
@@ -398,6 +481,9 @@ export default function HelpMeWritePanel({
     setBusy(run.label ?? WRITE_BUSY[run.action]);
     setError("");
     setNeedsChoice(false);
+    // The doc as it is now: blocks the AI names are taken from it.
+    const before = editor.state.doc;
+    const sent = hasSelection || run.action !== "write" ? { doc: editor.getJSON(), added: null } : cursorDoc(editor.state, caret(), mark);
     try {
       const out = await helpMeWrite(
         {
@@ -409,19 +495,27 @@ export default function HelpMeWritePanel({
           kind: context.kind,
           title: context.title,
           text: docText(),
-          doc: hasSelection || run.action !== "write" ? editor.getJSON() : cursorDoc(editor.state, caret(), mark),
+          doc: sent.doc,
           cursorMark: mark,
+          place: run.ask || undefined,
         },
         controller.signal,
       );
-      const list = hasSelection ? spotList(captured.spot) ?? undefined : spotFor(placeOf(run))?.list;
+      const where = run.where ?? (run.ask ? whereOf(out.place, before, sent.added, hasSelection) : undefined);
+      const list = listFor(run, where);
       // An answer with nothing to insert ("- [ ]" alone) is an empty answer,
       // not a blank draft whose Insert does nothing.
       if (!toNodes(out.text, list).blocks.length) {
         setError(WRITE_EMPTY);
         return;
       }
-      setResult({ ...out, run, list });
+      // The blocks it replaces are marked in the doc, and a docked panel
+      // moves level with them.
+      const found = where?.blocks ? findBlocks(editor.state.doc, where.blocks.nodes, where.blocks.index) : null;
+      editor.view.dispatch(
+        editor.state.tr.setMeta(targetKey, { replace: found ? { from: found.from, to: found.to } : null } satisfies TargetMeta).setMeta("addToHistory", false),
+      );
+      setResult({ ...out, run, list, where: where?.blocks && !found ? undefined : where });
       setRefine("");
     } catch (err) {
       if (controller.signal.aborted) return;
@@ -434,14 +528,15 @@ export default function HelpMeWritePanel({
 
   const submitPrompt = () => {
     const text = prompt.trim();
-    if (text) void start({ action: "write", prompt: text });
+    if (text) void start({ action: "write", prompt: text, ask: true });
   };
 
-  // "Ask for changes" rewrites the draft itself.
+  // "Ask for changes" rewrites the draft itself, which still goes where the
+  // first one was going.
   const submitRefine = () => {
     const text = refine.trim();
     if (!text || !result) return;
-    void start({ action: "write", place: placeOf(result.run), prompt: text, selection: result.text, label: "Updating the draft" });
+    void start({ action: "write", place: placeOf(result.run), prompt: text, selection: result.text, label: "Updating the draft", where: result.where });
   };
 
   const preview = useMemo(() => {
@@ -492,9 +587,42 @@ export default function HelpMeWritePanel({
     return true;
   };
 
-  const insert = (mode: "replace" | "below") => {
+  /** A draft the AI said takes the place of whole blocks goes over them, or
+   * below them, only while they are as it read them. */
+  const insertForBlocks = (mode: "replace" | "below", target: NonNullable<Where["blocks"]>) => {
     if (!result) return;
-    const place = placeOf(result.run);
+    const range = findBlocks(editor.state.doc, target.nodes, target.index);
+    if (!range) {
+      useToastStore.getState().show("Those lines changed while the AI was writing. Try again.");
+      return;
+    }
+    const tr = placeBlocks(editor.state, mode === "replace" ? range : { from: range.to, to: range.to }, toNodes(result.text).blocks);
+    if (!tr) {
+      useToastStore.getState().show("This draft can't go there. Try again.");
+      return;
+    }
+    editor.view.dispatch(tr.scrollIntoView());
+    editor.commands.focus();
+    if (mode === "replace") {
+      showUndoToast(`Replaced ${blocksSummary(target.nodes.map((node) => node.toJSON()))}`, () => {
+        if (!editor.isDestroyed) editor.commands.undo();
+      });
+    }
+    onDone();
+  };
+
+  /** "replace" and "below" are the panel's main and second buttons for a
+   * selection, blocks or a whole description, and "replace" is Insert
+   * otherwise; "cursor" and "end" put a draft the AI meant for the end at
+   * the caret or at the end. */
+  const insert = (mode: "replace" | "below" | "cursor" | "end") => {
+    if (!result) return;
+    const blocksTarget = hasSelection ? undefined : result.where?.blocks;
+    if (blocksTarget && (mode === "replace" || mode === "below")) {
+      insertForBlocks(mode, blocksTarget);
+      return;
+    }
+    const place = mode === "end" ? "continue" : mode === "cursor" ? "write" : spotAction(result.run, result.where);
     const spot = spotFor(place);
     const { blocks, items } = toNodes(result.text, spot?.list);
     if (blocks.length === 0) return;
@@ -509,7 +637,7 @@ export default function HelpMeWritePanel({
       return;
     }
     if (hasSelection) {
-      if (!insertForSelection(mode, target)) {
+      if (!insertForSelection(mode === "below" ? "below" : "replace", target)) {
         useToastStore.getState().show("This draft can't take the place of your selection. Use Insert below.");
         return;
       }
@@ -539,7 +667,29 @@ export default function HelpMeWritePanel({
     onDone();
   };
 
-  const where = hasSelection ? "Rewrite the selected text" : context.kind === "doc" ? "Draft into this doc" : "Draft the description";
+  const subtitle = hasSelection ? "Rewrite the selected text" : context.kind === "doc" ? "Draft into this doc" : "Draft the description";
+
+  // Where the AI put the draft, in words, above it.
+  const blocksTarget = result && !hasSelection ? result.where?.blocks : undefined;
+  const belowFirst = hasSelection && (result?.where?.mode === "below" || !fit);
+  const placeRow = !result?.where
+    ? null
+    : blocksTarget
+      ? { label: "Replaces", value: blocksSummary(blocksTarget.nodes.map((node) => node.toJSON())) }
+      : hasSelection
+        ? belowFirst
+          ? { label: "Adds", value: "Below your selection" }
+          : { label: "Replaces", value: "Your selection" }
+        : result.where.mode === "end"
+          ? { label: "Adds", value: context.kind === "doc" ? "At the end of the doc" : "At the end" }
+          : { label: "Adds", value: "At the cursor" };
+  // A draft for the end can still go at the caret, unless the caret is at
+  // the end already (only empty lines after its block).
+  const endChoice = Boolean(result?.where?.mode === "end" && !hasSelection && !wholeDescription && !caretAtEnd(editor.state.doc, caret()));
+  // Two buttons on the right leave no room for "Try again" in words in the
+  // docked panel, which is as narrow as the doc's margin.
+  const twoActions = belowFirst ? Boolean(fit) : endChoice || Boolean(hasSelection || wholeDescription || blocksTarget);
+  const compactFooter = docked && twoActions;
   const left = Math.max(8, Math.min(anchor.left, window.innerWidth - PANEL_WIDTH - 8));
 
   if (!shown) return null;
@@ -567,7 +717,7 @@ export default function HelpMeWritePanel({
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold leading-tight">Help me write</p>
-            <p className="truncate text-xs text-muted-foreground">{where}</p>
+            <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
           </div>
           <Button variant="ghost" size="sm" icon aria-label="Close" onClick={hide}>
             <X />
@@ -592,6 +742,13 @@ export default function HelpMeWritePanel({
           ) : result ? (
             <>
               {result.shortened && <p className="text-xs leading-relaxed text-muted-foreground">{shortenedNote(context.kind)}</p>}
+              {placeRow && (
+                <ListGroup>
+                  <ListRow label={placeRow.label}>
+                    <span className="truncate text-[13px] font-medium text-muted-foreground">{placeRow.value}</span>
+                  </ListRow>
+                </ListGroup>
+              )}
               <div
                 // The preview must take pointer events or the wheel, trackpad and
                 // scrollbar can't scroll it; only the links and checkboxes inside
@@ -603,7 +760,7 @@ export default function HelpMeWritePanel({
                 // generateHTML serialises through the editor schema, which escapes text.
                 dangerouslySetInnerHTML={{ __html: preview }}
               />
-              {hasSelection && !fit && (
+              {hasSelection && !fit && result.where?.mode !== "below" && (
                 <p className="text-xs leading-relaxed text-muted-foreground">
                   This draft can&rsquo;t take the place of your selection, so it goes below it.
                 </p>
@@ -709,22 +866,52 @@ export default function HelpMeWritePanel({
 
         {result && !busy && (
           <div className="flex items-center gap-1.5 border-t border-border px-3 py-2">
-            <Button variant="ghost" size="sm" leading={<RotateCcw />} onClick={() => void start(result.run)}>
-              Try again
-            </Button>
+            {compactFooter ? (
+              <Button variant="ghost" size="sm" icon aria-label="Try again" title="Try again" onClick={() => void start(result.run)}>
+                <RotateCcw />
+              </Button>
+            ) : (
+              <Button variant="ghost" size="sm" leading={<RotateCcw />} onClick={() => void start(result.run)}>
+                Try again
+              </Button>
+            )}
             <Button variant="destructive-ghost" size="sm" onClick={() => setResult(null)}>
               Discard
             </Button>
             <span className="flex-1" />
-            {(hasSelection || wholeDescription) && (
-              <Button variant={fit || wholeDescription ? "outline" : "primary"} size="sm" onClick={() => insert("below")}>
-                Insert below
-              </Button>
-            )}
-            {(!hasSelection || fit) && (
-              <Button size="sm" onClick={() => insert("replace")}>
-                {hasSelection || wholeDescription ? "Replace" : "Insert"}
-              </Button>
+            {hasSelection && belowFirst ? (
+              <>
+                {fit && (
+                  <Button variant="outline" size="sm" onClick={() => insert("replace")}>
+                    Replace
+                  </Button>
+                )}
+                <Button size="sm" onClick={() => insert("below")}>
+                  Insert below
+                </Button>
+              </>
+            ) : endChoice ? (
+              <>
+                <Button variant="outline" size="sm" onClick={() => insert("cursor")}>
+                  At cursor
+                </Button>
+                <Button size="sm" onClick={() => insert("end")}>
+                  Add at end
+                </Button>
+              </>
+            ) : (
+              <>
+                {(hasSelection || wholeDescription || blocksTarget) && (
+                  <Button variant="outline" size="sm" onClick={() => insert("below")}>
+                    Insert below
+                  </Button>
+                )}
+                {/* A draft for the end, with the caret at the end already,
+                    takes the caret's empty line like any draft there. */}
+                <Button size="sm" onClick={() => insert(result.where?.mode === "end" && !wholeDescription ? "cursor" : "replace")}>
+                  {hasSelection || wholeDescription || blocksTarget ? "Replace" : "Insert"}
+                </Button>
+              </>
             )}
           </div>
         )}
