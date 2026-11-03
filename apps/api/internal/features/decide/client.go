@@ -20,10 +20,12 @@ const (
 
 	typeSafeURL = "https://api.typesafe.ai/v1/systemone"
 	// OpenRouter's Decisions API takes the same body. Its model ids differ
-	// from TypeSafe's: there is no plain "typesafe/jev-latest".
+	// from TypeSafe's: there is no plain "typesafe/jev-latest", only the
+	// "~" alias, which follows TypeSafe's newest Jev as TypeSafe's own
+	// "jev-latest" does.
 	openRouterURL = "https://openrouter.ai/api/alpha/decisions"
 	typeSafeModel = "jev-latest"
-	routerModel   = "typesafe/jev-1.13"
+	routerModel   = "~typesafe/jev-latest"
 
 	// typeSafeRest is how long an account skips TypeSafe after it was down,
 	// overloaded or too slow, while its OpenRouter key can answer instead.
