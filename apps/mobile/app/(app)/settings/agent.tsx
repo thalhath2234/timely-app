@@ -59,6 +59,15 @@ import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { LogoSpinner } from "../../../components/ui/TimelyLogo";
 import { FocusGroup, FocusGroupScrollView } from "../../../components/ui/FocusGroup";
 
+/** A model row's second line: its id when the name differs, and any note. */
+function modelDetail(option: ModelOption) {
+  const parts = [
+    option.name && option.id !== option.name ? option.id : "",
+    option.note ?? "",
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : undefined;
+}
+
 function errorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback;
 }
@@ -189,23 +198,22 @@ function ModelPicker({
         {loadError ? <Text style={styles.error}>{loadError}</Text> : null}
         {custom ? (
           <SheetOption onSelect={() => void save(query.trim())}>
-            Use “{query.trim()}”
+            {`Use “${query.trim()}”`}
           </SheetOption>
         ) : null}
         {filtered.map((option) => (
           <SheetOption
             key={option.id}
             selected={option.id === value}
-            leading={
+            trailing={
               option.vision ? (
-                <Eye size={14} color={colors.mutedForeground} />
+                <Eye size={16} color={colors.mutedForeground} />
               ) : undefined
             }
+            detail={modelDetail(option)}
             onSelect={() => void save(option.id)}
           >
-            {option.name}
-            {option.id !== option.name ? `  ·  ${option.id}` : ""}
-            {option.note ? `  ·  ${option.note}` : ""}
+            {option.name || option.id}
           </SheetOption>
         ))}
         {!loading && !loadError && filtered.length === 0 && !custom ? (
