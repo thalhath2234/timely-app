@@ -97,15 +97,15 @@ export default function ModelSheet({
       <SheetOption
         selected={!value.provider}
         onSelect={() => pick({ provider: "", model: "" })}
-      >
-        <Text style={styles.name}>Default</Text>
-        <Text numberOfLines={1} style={styles.sub}>
-          {defaultId
+        detail={
+          defaultId
             ? `${label(defaultId)}${defaultModel ? ` · ${defaultModel}` : ""}`
             : unchosen
               ? "Not chosen. Choose one in Settings → Agent"
-              : "Set in Settings → Agent"}
-        </Text>
+              : "Set in Settings → Agent"
+        }
+      >
+        Default
       </SheetOption>
       {providers.isLoading ? (
         <Text style={styles.hint}>Loading providers…</Text>
@@ -167,20 +167,14 @@ export default function ModelSheet({
                 key={m.id}
                 selected={value.provider === shown && value.model === m.id}
                 onSelect={() => pick({ provider: shown, model: m.id })}
-                leading={
+                trailing={
                   m.vision ? (
                     <Eye size={16} color={colors.mutedForeground} />
                   ) : undefined
                 }
+                detail={m.name && m.name !== m.id ? m.id : undefined}
               >
-                <Text numberOfLines={1} style={styles.name}>
-                  {m.name}
-                </Text>
-                {m.name !== m.id ? (
-                  <Text numberOfLines={1} style={styles.sub}>
-                    {m.id}
-                  </Text>
-                ) : null}
+                {m.name || m.id}
               </SheetOption>
             ))
           )}
@@ -197,8 +191,6 @@ const styles = createThemedStyleSheet(() => ({
     lineHeight: 19,
     paddingVertical: 8,
   },
-  name: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
-  sub: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
   tabs: { gap: 6, paddingVertical: 10 },
   tab: {
     height: 32,
