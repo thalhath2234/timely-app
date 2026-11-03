@@ -172,7 +172,7 @@ func TestFallbackToOpenRouter(t *testing.T) {
 		if a.Provider != ProviderOpenRouter || or.auth != "Bearer or-key-123" || or.last["model"] != routerModel {
 			t.Fatalf("%d: provider %q auth %q model %v", code, a.Provider, or.auth, or.last["model"])
 		}
-		if or.last["model"] != "typesafe/jev-1.13" || or.last["state"] == nil || or.last["questions"] == nil {
+		if or.last["model"] != "~typesafe/jev-latest" || or.last["state"] == nil || or.last["questions"] == nil {
 			t.Fatalf("%d: OpenRouter body must match its Decisions API: %v", code, or.last)
 		}
 		if (code == 401) != (rejected == "u1") {
