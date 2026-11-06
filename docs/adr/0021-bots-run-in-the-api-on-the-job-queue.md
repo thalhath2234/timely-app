@@ -30,15 +30,18 @@ was seen.
 **Watches are plain web requests.** A page watch keeps the readable text, one
 part picked by a CSS selector, or the price the page publishes in its product
 data. A feed watch reads RSS, Atom and JSON Feed. A price watch reads a symbol
-from a free source (Yahoo's chart endpoint, CoinGecko) into a compact series
-kept for a year, separate from the check log. Every request goes through a bot
-fetcher built on the link preview address guard: public addresses only, ports
-80 and 443, checked again on every redirect, so a Bot can't probe the person's
-network or Tailscale devices. Timely identifies itself, honours robots.txt and
-Retry-After, waits at least 15 minutes between checks of a page or feed, 5
-minutes for a price while its market is open and 6 hours for a shop product,
-and spaces requests to one site 10 seconds apart across all Bots on the
-Bots. It never solves captchas, fakes a user agent or rotates proxies.
+from a free source into a compact series kept for a year, separate from the
+check log. Every request goes through a bot fetcher built on the link preview
+address guard: public addresses only, ports 80 and 443, checked again on every
+redirect, so a Bot can't probe the person's network or Tailscale devices.
+Timely identifies itself, honours robots.txt and Retry-After, waits at least 15
+minutes between checks of a page or feed, 5 minutes for a price while its
+market is open and 6 hours for a shop product, and spaces requests to one site
+10 seconds apart across all Bots on the Bots. It never solves captchas, fakes a
+user agent or rotates proxies. robots.txt binds price sources too (owner,
+2026-11-06): Yahoo's chart endpoint and CoinGecko's API ask automated tools not
+to read them, so crypto comes from Coinbase's spot price with no key, and
+stocks from Finnhub with an optional free key the person pastes once.
 
 **Rules spot a change; the AI only judges it.** Each check is plain code that
 compares the new reading with the last one against the Bot's rules (a line
