@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"strings"
 	"sync"
@@ -30,9 +31,10 @@ type Service struct {
 	indexer      embed.Indexer
 	http         *http.Client
 	overdueSwept map[string]time.Time
-	triage       Triager // nil until SetTriage
-	alerts       Alerter // nil until SetAlerts
-	briefing     Briefer // nil until SetBriefing
+	triage       Triager   // nil until SetTriage
+	alerts       Alerter   // nil until SetAlerts
+	briefing     Briefer   // nil until SetBriefing
+	botDigest    BotDigest // nil until SetBotDigest
 	triageSlots  chan struct{}
 	triageWait   sync.WaitGroup
 	// triagePending holds each account's notifications waiting for a step;
@@ -852,18 +854,39 @@ func (s *Service) HandleDigest(ctx context.Context, job *models.Job) error {
 		return err
 	}
 	title, body, category := digestCopy(kind, today)
+	data := job.Payload
+	var botsDone func() error
+	if kind == "morning" && s.botDigest != nil {
+		// A Bot failure never holds the digest back; it goes out without them.
+		if lines, done, err := s.botDigest(ctx, job.UserID, time.Now()); err != nil {
+			log.Printf("notify: bot digest: %v", err)
+		} else if len(lines) > 0 {
+			data = maps.Clone(job.Payload)
+			if data == nil {
+				data = models.JobPayload{}
+			}
+			data["bots"] = lines
+			body += "\n\nFrom your bots:\n• " + strings.Join(lines, "\n• ")
+			botsDone = done
+		}
+	}
 	key := job.DedupeKey
 	row := &models.Notification{
 		UserID:    job.UserID,
 		Category:  category,
 		Title:     title,
 		Body:      body,
-		Data:      job.Payload,
+		Data:      data,
 		DedupeKey: key,
 	}
 	ntf, err := s.repo.Upsert(row)
 	if err != nil {
 		return err
+	}
+	if botsDone != nil && ntf.ID == row.ID {
+		if err := botsDone(); err != nil {
+			log.Printf("notify: mark bot findings digested: %v", err)
+		}
 	}
 	if kind == "morning" && ntf.ID == row.ID && s.briefLater(ctx, ntf, today, settings) {
 		return nil // sent once the briefing names the day's top items

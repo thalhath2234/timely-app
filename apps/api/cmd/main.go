@@ -175,6 +175,7 @@ func main() {
 	notifyService.SetTriage(suggestions.Triage)
 	notifyService.SetAlerts(suggestions.Alerts)
 	notifyService.SetBriefing(suggestions.Brief)
+	notifyService.SetBotDigest(botService.DigestLines)
 	notifyService.SetDecisions(func(ctx context.Context, userID string) bool {
 		on, _ := decisions.Status(ctx, userID)
 		return on
