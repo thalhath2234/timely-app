@@ -165,7 +165,7 @@ _Avoid_: endpoint, API URL (in copy), base URL
 
 **Pair**:
 Giving the phone a Desktop host's Server addresses by scanning the QR code in Settings → Server or pasting one address. Pairing checks the address with a health call; it does not sign in.
-_Avoid_: connect (reserved for Agent providers), link, sync (sync is what happens after Pair)
+_Avoid_: connect (reserved for Agent providers and Connected services), link, sync (sync is what happens after Pair)
 
 **Tailscale access**:
 The Settings → Server switch that lets the API listen on the host's Tailscale addresses in addition to loopback. Off means loopback only; there is no LAN or public option.
@@ -174,7 +174,7 @@ _Avoid_: remote access, expose, port forwarding
 ### Bots
 
 **Bot**:
-A named helper the person makes that checks one or more Watches on its own schedule, with nobody watching, and sends a Bot alert when something worth knowing changed. It runs in the API on the job queue and stops while the API is off (ADR 0021). It never buys, posts, deletes or signs in on its own.
+A named helper the person makes that checks one or more Watches on its own schedule, with nobody watching, and sends a Bot alert when something worth knowing changed. It runs in the API on the job queue and stops while the API is off (ADR 0021). It never buys, posts or deletes anything. It signs in only with a Sign-in the person attached to it, and on its own only where that Sign-in's "Sign in on its own" is on (ADR 0022).
 _Avoid_: agent (that is the chat agent), automation, monitor, Jev (in copy)
 
 **Watch**:
@@ -202,27 +202,31 @@ A typed note a Bot writes after a Check, kept on the findings board for other Bo
 _Avoid_: result, message (Bots never send each other free text)
 
 **Brief**:
-A Bot that gathers other Bots' Findings into one summary at a time the person picks. The 08:00 morning digest is not a Brief; it gets its own "From your bots" section.
-_Avoid_: digest (that is the morning digest), report
+A Bot that gathers other Bots' Findings into one summary at a time the person picks. The morning digest is not a Brief; it gets its own "From your bots" section.
+_Avoid_: digest (that is the morning digest), briefing (the morning digest's picks), report
 
 **Pass to**:
 A link from one Bot to another that hands over a Finding of a fixed type, so the next Bot checks it. Chains are at most 3 Bots deep.
 _Avoid_: delegate, forward, message
 
 **Secure Store**:
-The sealed table of saved logins the agent signs in with. Timely types the saved password into the page; the AI never sees it and holds only a ticket (ADR 0022).
+The sealed store, under TIMELY_VAULT_KEY, of saved website logins and Connected service secrets. Timely types a saved password into the page or attaches a token itself; the AI never sees either and holds only a ticket (ADR 0022, ADR 0023).
 _Avoid_: password manager, vault (in copy), keychain
 
 **Sign-in**:
-A saved login in the Secure Store, or a session the person signed in to themselves in a real window, that a Bot or chat run uses on one site. Signed-in pages are private and read-only.
+A saved login in the Secure Store, or a session the person signed in to themselves in a real window, that a Bot or chat run uses on one website. Signed-in pages are private and read-only. A Connected service's OAuth sign-in is not a Sign-in; call it the service's sign-in (ADR 0023).
 _Avoid_: account (an account is the person's Timely account), credentials (in copy)
+
+**Local model**:
+A model Ollama serves at a loopback address on this PC, answering now, that can use tools and isn't an Ollama cloud model. Remote Ollama, API providers, OpenRouter, Claude Code and Codex never count. "Only local AI" keeps a site's or service's data on one.
+_Avoid_: offline AI, on-device (in copy)
 
 **Take control**:
 The person driving a run's browser page themselves. The agent pauses and reads nothing until Give back.
 _Avoid_: manual mode, override
 
 **Connected service**:
-Another app's MCP server added under Settings → Integrations ("Apps Timely can use"), with its own token or sign-in. Timely is the MCP client (ADR 0023).
+Another app's MCP server added under Settings → Integrations ("Apps Timely can use"), with its own token or sign-in. Timely is the MCP client (ADR 0023). Adding one is not Connect (Connect verifies a CLI Agent provider).
 _Avoid_: integration (alone; the tab also lists apps that use Timely), connector, plugin
 
 **Tool choice**:
