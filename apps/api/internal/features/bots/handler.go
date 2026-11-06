@@ -22,6 +22,7 @@ func (s *Service) Routes(g *echo.Group) {
 	g.POST("/bots/:id/pause", s.pause)
 	g.POST("/bots/:id/resume", s.resume)
 	g.POST("/bots/:id/snooze", s.snooze)
+	g.POST("/bots/:id/run", s.run)
 }
 
 func user(c *echo.Context) string { v, _ := c.Get("userID").(string); return v }
@@ -105,6 +106,15 @@ func (s *Service) resume(c *echo.Context) error {
 		return httpError(err)
 	}
 	return c.JSON(http.StatusOK, v)
+}
+
+// run serves Run now: 202 with when the check runs, or 409 while paused.
+func (s *Service) run(c *echo.Context) error {
+	res, err := s.RunNow(c.Request().Context(), user(c), c.Param("id"), OriginApp)
+	if err != nil {
+		return httpError(err)
+	}
+	return c.JSON(http.StatusAccepted, res)
 }
 
 // snooze takes {"for":"day"|"week"}, {"until": RFC 3339} or {"until": null}.
