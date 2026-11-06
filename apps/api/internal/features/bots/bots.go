@@ -5,6 +5,7 @@
 package bots
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
@@ -60,11 +61,33 @@ const (
 	ReadProductPrice = "product_price"
 )
 
-// Watch is one thing a Bot reads: a page, a feed or a price.
-type Watch struct {
-	Kind     string `json:"kind"`
-	ReadMode string `json:"read"`
-}
+// Origin is where a Bot was made or changed from. Bots made over MCP start
+// paused, and MCP can never turn one on (ADR 0021).
+type Origin string
+
+const (
+	OriginApp  Origin = "app"
+	OriginChat Origin = "chat"
+	OriginMCP  Origin = "mcp"
+)
+
+// Bot statuses and pause reasons.
+const (
+	StatusActive = "active"
+	StatusPaused = "paused"
+
+	PausePerson  = "person"
+	PauseStrikes = "strikes"
+	PauseMCP     = "mcp"
+
+	JudgeRules = "rules"
+	HealthNew  = "new"
+)
+
+var (
+	ErrNotFound = errors.New("not found")
+	ErrPaused   = errors.New("This bot is paused. Turn it on in Timely first.")
+)
 
 // InputError is a request the person can fix; its text is shown as is.
 type InputError struct{ Message string }
