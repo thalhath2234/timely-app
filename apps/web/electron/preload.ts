@@ -11,6 +11,12 @@ contextBridge.exposeInMainWorld("timelyDesktop", {
     ipcRenderer.on("chat:open", handler);
     return () => ipcRenderer.removeListener("chat:open", handler);
   },
+  notifyAlert: (payload: { id: string; title: string; body: string }) => ipcRenderer.send("alert:notify", payload),
+  onOpenAlert: (callback: (id: string) => void) => {
+    const handler = (_event: unknown, id: string) => callback(id);
+    ipcRenderer.on("alert:open", handler);
+    return () => ipcRenderer.removeListener("alert:open", handler);
+  },
   /** Saves the page, as laid out for print, to a PDF the user picks. */
   savePdf: (title: string): Promise<{ ok: boolean; canceled?: boolean; filePath?: string }> => ipcRenderer.invoke("doc:savePdf", title),
   /** Moves the mouse pointer to a point in the page (CSS pixels); no-op where the OS forbids it. */

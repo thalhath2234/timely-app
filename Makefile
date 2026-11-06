@@ -499,7 +499,7 @@ audit-mobile-offline: ## Check the mobile offline mutation path with the app's o
 test-mobile-offline: ## Test the mobile offline queue: durable enqueue, restart, account scope, replay
 	@node --experimental-strip-types --test scripts/mobile-offline-queue.test.mjs
 
-test-electron-guards: ## Test the desktop shell's window-open origin policy
+test-electron-guards: ## Test the desktop shell's window-open origin policy and Bot alert payloads
 	@node --experimental-strip-types --test scripts/electron-guards.test.mjs
 
 .PHONY: test-electron-supervisor test-mobile-server-config test-desktop-instance test-web-api-proxy test-chat-stream
