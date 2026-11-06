@@ -1,5 +1,6 @@
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref, type RefObject } from "react";
 import {
+  Animated,
   Dimensions,
   PanResponder,
   PixelRatio,
@@ -12,7 +13,6 @@ import {
   type LayoutChangeEvent,
   type PanResponderGestureState,
 } from "react-native";
-import Animated, { useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import {
   AlignCenter,
   AlignLeft,
@@ -39,6 +39,7 @@ import {
   WrapText,
 } from "lucide-react-native";
 import BottomSheet, { SheetOption } from "../ui/BottomSheet";
+import SheetPinLayer from "./SheetPinLayer";
 import { colors, createThemedStyleSheet, hexToRgb } from "../../lib/theme";
 import { columnIndexToLetter, createSheetEvaluator, shiftFormula } from "@timely/contract/sheetFormula";
 import { closeOpenParens, formulaAcceptsAnotherRange, insertFormulaRange, type FormulaRefSpan } from "@timely/contract/sheetFormulaInput";
@@ -79,7 +80,7 @@ import {
 } from "../../lib/sheet";
 import { growGridTo, isPastGrid } from "../../lib/sheetGrow";
 import { cellFitEdit } from "../../lib/sheetCellFit";
-import { indexAtScreen, pinnedColumnWidths, pinnedRowCount, screenStart, type PinnedAxis } from "../../lib/sheetFreeze";
+import { createScrollRest, indexAtScreen, pinnedColumnWidths, pinnedRowCount, screenStart, type PinnedAxis } from "../../lib/sheetFreeze";
 import { useCellFit, useDecisionFeedback, type CellFitEdit } from "../../lib/hooks";
 import type { SheetCellFormat, SheetColumn, SheetColumnType, SheetConditionalFormat, SheetMerge, SheetRow, SheetTab } from "../../lib/types";
 
@@ -232,21 +233,27 @@ export default function SheetGrid({
   const cellFit = useCellFit(fitEdit);
   const fitFeedback = useDecisionFeedback();
 
-  // The grid's scroll offsets, tracked on the UI thread. Pinned layers slide
-  // by the same amount in the same frame, so they never trail the grid.
-  const scrollX = useSharedValue(0);
-  const scrollY = useSharedValue(0);
-  const onScrollX = useAnimatedScrollHandler((event) => {
-    scrollX.value = event.contentOffset.x;
+  // The grid's scroll offsets. Pinned layers slide back by them on the native
+  // animation driver: Android moves a layer while it handles the scroll event,
+  // in the same frame as the scroll. (Reanimated styles went through React's
+  // tree instead and waited out every React render, so on a phone the pinned
+  // rows and columns rode along with the scroll and then snapped back.)
+  const [scroll] = useState(() => {
+    const x = new Animated.Value(0);
+    const y = new Animated.Value(0);
+    const rest = createScrollRest();
+    const fromZero = { inputRange: [0, 1], outputRange: [0, 1], extrapolateLeft: "clamp" as const };
+    const listener = (axis: "x" | "y") => (event: { nativeEvent: { contentOffset: { x: number; y: number } } }) =>
+      rest.scrolled(axis, event.nativeEvent.contentOffset[axis]);
+    return {
+      rest,
+      shiftX: x.interpolate(fromZero),
+      shiftY: y.interpolate(fromZero),
+      onScrollX: Animated.event([{ nativeEvent: { contentOffset: { x } } }], { useNativeDriver: true, listener: listener("x") }),
+      onScrollY: Animated.event([{ nativeEvent: { contentOffset: { y } } }], { useNativeDriver: true, listener: listener("y") }),
+    };
   });
-  const onScrollY = useAnimatedScrollHandler((event) => {
-    scrollY.value = event.contentOffset.y;
-  });
-  const pinX = useAnimatedStyle(() => ({ transform: [{ translateX: Math.max(0, scrollX.value) }] }));
-  const pinY = useAnimatedStyle(() => ({ transform: [{ translateY: Math.max(0, scrollY.value) }] }));
-  const pinXY = useAnimatedStyle(() => ({
-    transform: [{ translateX: Math.max(0, scrollX.value) }, { translateY: Math.max(0, scrollY.value) }],
-  }));
+  useEffect(() => () => scroll.rest.dispose(), [scroll]);
 
   const selected = activeCellInRange(range, merges);
   const bounds = normalizedRange(range);
@@ -374,9 +381,9 @@ export default function SheetGrid({
         lead: ROW_HEAD,
         sizeAt: (index) => (columns[index] ? colWidth(columns[index]) : GHOST_COL_W),
         pinned: pinCols,
-        scroll: Math.max(0, scrollX.value),
+        scroll: scroll.rest.live().x,
       },
-      y: { lead: HEADER_H, sizeAt: () => CELL_H, pinned: pinRows, scroll: Math.max(0, scrollY.value) },
+      y: { lead: HEADER_H, sizeAt: () => CELL_H, pinned: pinRows, scroll: scroll.rest.live().y },
     };
   }
 
@@ -1682,7 +1689,7 @@ export default function SheetGrid({
             bounces={false}
             scrollEnabled={!gridLocked && !formulaEditActive}
             canCancelContentTouches={!gridLocked && !formulaEditActive}
-            onScroll={onScrollY}
+            onScroll={scroll.onScrollY}
             scrollEventThrottle={16}
           >
             <Animated.ScrollView showsHorizontalScrollIndicator={false}
@@ -1693,7 +1700,7 @@ export default function SheetGrid({
               bounces={false}
               scrollEnabled={!gridLocked && !formulaEditActive}
               canCancelContentTouches={!gridLocked && !formulaEditActive}
-              onScroll={onScrollX}
+              onScroll={scroll.onScrollX}
               scrollEventThrottle={16}
             >
               {/* Four layers share the content's top-left corner. The body
@@ -1706,14 +1713,14 @@ export default function SheetGrid({
                   {ghostRowIndexes.map((rowIndex) => renderGhostRow(rowIndex, pinCols, displayCols))}
                   {selectionLayer === "body" ? selectionDecor : null}
                 </View>
-                <Animated.View collapsable={false} pointerEvents="box-none" style={[styles.pinLayer, styles.pinLeft, pinX]}>
+                <SheetPinLayer shiftX={scroll.shiftX} rest={scroll.rest} style={[styles.pinLayer, styles.pinLeft]}>
                   <View pointerEvents="none" style={{ width: pinWidth, height: pinHeight }} />
                   {scrolledRowIndexes.map((rowIndex) => renderDataRow(rowIndex, 0, pinCols))}
                   {ghostRowIndexes.map((rowIndex) => renderGhostRow(rowIndex, 0, pinCols))}
                   {pinCols > 0 ? <View pointerEvents="none" style={[styles.freezeEdgeCol, { left: pinWidth - 2 }]} /> : null}
                   {selectionLayer === "left" ? selectionDecor : null}
-                </Animated.View>
-                <Animated.View collapsable={false} pointerEvents="box-none" style={[styles.pinLayer, styles.pinTop, pinY]}>
+                </SheetPinLayer>
+                <SheetPinLayer shiftY={scroll.shiftY} rest={scroll.rest} style={[styles.pinLayer, styles.pinTop]}>
                   <View style={styles.tr} collapsable={false}>
                     <View pointerEvents="none" style={{ width: pinWidth, height: HEADER_H }} />
                     {renderHeaderCells(pinCols, displayCols)}
@@ -1721,8 +1728,8 @@ export default function SheetGrid({
                   {pinnedRowIndexes.map((rowIndex) => renderDataRow(rowIndex, pinCols, displayCols))}
                   {pinRows > 0 ? <View pointerEvents="none" style={[styles.freezeEdgeRow, { top: pinHeight - 2 }]} /> : null}
                   {selectionLayer === "top" ? selectionDecor : null}
-                </Animated.View>
-                <Animated.View collapsable={false} pointerEvents="box-none" style={[styles.pinLayer, styles.pinCorner, pinXY]}>
+                </SheetPinLayer>
+                <SheetPinLayer shiftX={scroll.shiftX} shiftY={scroll.shiftY} rest={scroll.rest} style={[styles.pinLayer, styles.pinCorner]}>
                   <View style={styles.tr} collapsable={false}>
                     <View style={[styles.rowHead, styles.headCell]} />
                     {renderHeaderCells(0, pinCols)}
@@ -1731,7 +1738,7 @@ export default function SheetGrid({
                   {pinCols > 0 ? <View pointerEvents="none" style={[styles.freezeEdgeCol, { left: pinWidth - 2 }]} /> : null}
                   {pinRows > 0 ? <View pointerEvents="none" style={[styles.freezeEdgeRow, { top: pinHeight - 2 }]} /> : null}
                   {selectionLayer === "corner" ? selectionDecor : null}
-                </Animated.View>
+                </SheetPinLayer>
               </View>
             </Animated.ScrollView>
           </Animated.ScrollView>
