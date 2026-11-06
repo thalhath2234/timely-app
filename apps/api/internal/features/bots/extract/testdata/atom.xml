@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Imitates a code host's releases Atom feed: tag ids, alternate links,
+     an html-typed title and only <updated> dates. -->
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en-US">
+  <id>tag:code.example,2008:https://code.example/acme/widget/releases</id>
+  <link type="text/html" rel="alternate" href="https://code.example/acme/widget/releases"/>
+  <link type="application/atom+xml" rel="self" href="https://code.example/acme/widget/releases.atom"/>
+  <title>Release notes from widget</title>
+  <updated>2026-11-04T12:00:00Z</updated>
+  <entry>
+    <id>tag:code.example,2008:Repository/42/v2.1.0</id>
+    <updated>2026-11-04T12:00:00Z</updated>
+    <link rel="self" href="https://code.example/acme/widget/releases/v2.1.0.atom"/>
+    <link rel="alternate" type="text/html" href="https://code.example/acme/widget/releases/tag/v2.1.0"/>
+    <title type="html">v2.1.0 &lt;em&gt;stable&lt;/em&gt;</title>
+    <content type="html">&lt;p&gt;Faster sync.&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <id>tag:code.example,2008:Repository/42/v2.0.0</id>
+    <updated>2026-10-01T09:30:00+02:00</updated>
+    <link href="https://code.example/acme/widget/releases/tag/v2.0.0"/>
+    <title type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">v2.0.0 <b>major</b> release</div></title>
+  </entry>
+</feed>

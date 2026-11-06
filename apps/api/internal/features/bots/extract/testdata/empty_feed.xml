@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Imitates a brand new podcast feed: a channel with no items yet. -->
+<rss version="2.0"><channel><title>Coming soon</title><link>https://pod.example/</link></channel></rss>

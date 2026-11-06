@@ -1,0 +1,19 @@
+<!doctype html>
+<!-- Imitates a WooCommerce shop with an SEO plugin: one JSON-LD @graph holding
+     the WebPage, a BreadcrumbList and a variable Product whose offers is an
+     AggregateOffer (lowPrice and highPrice) linked by @id. -->
+<html>
+<head>
+<meta charset="utf-8">
+<title>Merino Hoodie – Wool &amp; Co</title>
+<script type="application/ld+json" class="yoast-schema-graph">
+{"@context":"https://schema.org","@graph":[
+ {"@type":"WebPage","@id":"https://wool.example/hoodie/","name":"Merino Hoodie","mainEntity":{"@id":"https://wool.example/hoodie/#product"}},
+ {"@type":"BreadcrumbList","@id":"https://wool.example/hoodie/#breadcrumb","itemListElement":[{"@type":"ListItem","position":1,"name":"Home"}]},
+ {"@type":"Product","@id":"https://wool.example/hoodie/#product","name":"Merino Hoodie","offers":[{"@id":"https://wool.example/hoodie/#offer"}]},
+ {"@type":"AggregateOffer","@id":"https://wool.example/hoodie/#offer","lowPrice":"89.00","highPrice":"119.00","offerCount":4,"priceCurrency":"GBP"}
+]}
+</script>
+</head>
+<body><h1>Merino Hoodie</h1><p class="price">£89.00 – £119.00</p></body>
+</html>

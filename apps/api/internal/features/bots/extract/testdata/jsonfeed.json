@@ -1,0 +1,11 @@
+{
+  "version": "https://jsonfeed.org/version/1.1",
+  "_fixture": "Imitates a personal blog's JSON Feed 1.1: string and number ids, one item with only content_text, one with only external_url.",
+  "title": "Notes from Ana",
+  "home_page_url": "https://ana.example/",
+  "items": [
+    {"id": "https://ana.example/2026/11/rust", "url": "https://ana.example/2026/11/rust", "title": "Learning Rust, week 3", "date_published": "2026-11-05T19:00:00-05:00"},
+    {"id": 1042, "content_text": "A short note with no title.", "date_modified": "2026-11-03T10:00:00Z"},
+    {"external_url": "https://other.example/great-read", "title": "A great read elsewhere"}
+  ]
+}

@@ -1,0 +1,12 @@
+<!doctype html>
+<!-- Imitates a product page with the price loaded later by script: a
+     JSON-LD Product with no offers, no price meta and no itemprop price. -->
+<html>
+<head>
+<meta charset="utf-8">
+<title>Desk Lamp</title>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"Desk Lamp","brand":{"@type":"Brand","name":"Lumo"}}</script>
+<meta property="og:type" content="product">
+</head>
+<body><h1>Desk Lamp</h1><div id="price-root"></div><script>loadPrice()</script></body>
+</html>

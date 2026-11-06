@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Imitates a deals site's RSS 2.0 feed: double-escaped and HTML-only
+     entities in titles, guids that are not permalinks, an atom:link, and one
+     item with no guid. -->
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+<channel>
+  <title>Frontpage Deals &amp; Steals</title>
+  <link>https://deals.example/</link>
+  <atom:link href="https://deals.example/rss" rel="self" type="application/rss+xml"/>
+  <item>
+    <title>Noise-cancelling Headphones &amp;#8211; $199 &amp; free shipping</title>
+    <link>https://deals.example/d/101-headphones</link>
+    <guid isPermaLink="false">deal-101</guid>
+    <pubDate>Fri, 06 Nov 2026 08:30:00 +0000</pubDate>
+  </item>
+  <item>
+    <title><![CDATA[Chef’s Knife <b>40% off</b>]]></title>
+    <link>https://deals.example/d/102-knife</link>
+    <guid isPermaLink="false">deal-102</guid>
+    <pubDate>Thu, 5 Nov 2026 21:05:00 GMT</pubDate>
+  </item>
+  <item>
+    <title>Kids&rsquo; Bike Helmet</title>
+    <link>https://deals.example/d/103-helmet</link>
+    <dc:date>2026-11-05T18:00:00Z</dc:date>
+  </item>
+  <item>
+    <title>Noise-cancelling Headphones (repeat)</title>
+    <guid isPermaLink="false">deal-101</guid>
+  </item>
+</channel>
+</rss>

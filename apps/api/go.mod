@@ -3,6 +3,7 @@ module timely-api
 go 1.25.7
 
 require (
+	github.com/andybalholm/cascadia v1.3.5
 	github.com/anthropics/anthropic-sdk-go v1.78.0
 	github.com/dop251/goja v0.0.0-20261010124532-447a94be0917
 	github.com/golang-jwt/jwt/v5 v5.3.1
