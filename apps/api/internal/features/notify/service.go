@@ -938,6 +938,18 @@ func (s *Service) HandlePush(ctx context.Context, job *models.Job) error {
 			return err
 		}
 	}
+	if ntf.Category == models.NotifyBot {
+		// A Bot alert that is read or kept off the phone sends nothing; an
+		// urgent one ignores quiet hours (WriteAlert).
+		if ntf.ReadAt != nil || !dataBool(ntf.Data, "phone", true) {
+			return s.repo.MarkDelivered(ntf.ID)
+		}
+		now := time.Now().In(settings.Location(s.repo.WorkingHoursTimezone(job.UserID)))
+		if !dataBool(ntf.Data, "urgent", false) && settings.InQuietHours(now) {
+			_, err := s.queue.Enqueue(jobs.Enqueue{UserID: ntf.UserID, Kind: models.JobSendPush, DedupeKey: fmt.Sprintf("push:%s:quiet:%d", ntf.ID, settings.QuietEnd(now).Unix()), RunAt: settings.QuietEnd(now), Payload: models.JobPayload{"notificationId": ntf.ID}})
+			return err
+		}
+	}
 	return s.sendPush(ctx, ntf, settings)
 }
 
@@ -1022,6 +1034,7 @@ func notificationPushMessage(ntf *models.Notification, token string) expoMessage
 			"entityId":       ntf.EntityID,
 			"kind":           ntf.Data.String("kind"),
 			"projectId":      ntf.Data.String("projectId"),
+			"botId":          ntf.Data.String("botId"),
 			// A smart alert about several tasks opens the first one.
 			"taskIds": ntf.Data["taskIds"],
 		},
