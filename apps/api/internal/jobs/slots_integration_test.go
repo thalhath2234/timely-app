@@ -10,9 +10,8 @@ import (
 	"timely-api/internal/models"
 )
 
-// slotKind stands in for bot_check, the kind multi-slot lanes were added for
-// (ADR 0021). The test table has no CHECK on kind.
-const slotKind = "bot_check"
+// slotKind is the kind multi-slot lanes were added for (ADR 0021).
+const slotKind = models.JobBotCheck
 
 // waitFor polls cond until it holds or five seconds pass.
 func waitFor(t *testing.T, what string, cond func() bool) {
