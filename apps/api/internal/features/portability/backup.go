@@ -68,6 +68,17 @@ var exportTables = []tableSpec{
 	{"habits", `SELECT to_jsonb(x) FROM habits x WHERE x.user_id = ? ORDER BY x.position, x.id`},
 	{"habit_checks", `SELECT to_jsonb(x) || jsonb_build_object('id', x.habit_id || ':' || x.day::text) FROM habit_checks x WHERE x.user_id = ? ORDER BY x.habit_id, x.day`},
 	{"goals", `SELECT to_jsonb(x) FROM goals x WHERE x.user_id = ? ORDER BY x.position, x.id`},
+	// Bots (ADR 0021). Watches come back with baseline_pending, so the first
+	// check after a restore records a quiet baseline instead of alerting on
+	// what changed since the backup. A price day is named by watch and day.
+	// Left out on purpose: bot_checks (a 30-day log), and bot_sites and
+	// bot_robots (shared caches with no owner).
+	{"bots", `SELECT to_jsonb(x) FROM bots x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
+	{"bot_watches", `SELECT to_jsonb(x) || jsonb_build_object('baseline_pending', true) FROM bot_watches x WHERE x.user_id = ? ORDER BY x.bot_id, x.position, x.id`},
+	{"bot_alerts", `SELECT to_jsonb(x) FROM bot_alerts x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
+	{"bot_lessons", `SELECT to_jsonb(x) FROM bot_lessons x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
+	{"bot_findings", `SELECT to_jsonb(x) FROM bot_findings x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
+	{"bot_price_days", `SELECT to_jsonb(x) || jsonb_build_object('id', x.watch_id || ':' || x.day::text) FROM bot_price_days x WHERE x.user_id = ? ORDER BY x.watch_id, x.day`},
 }
 
 func (s *Service) Export(userID string) (*Backup, error) {
@@ -299,6 +310,12 @@ var restoreParents = map[string][]parentRef{
 	"sheets":                {{"workspace_id", "workspaces", false}, {"project_id", "projects", false}},
 	"recurrence_exceptions": {{"rule_id", "recurrence_rules", true}},
 	"habit_checks":          {{"habit_id", "habits", true}},
+	// bot_checks is never restored, so check_id always comes back NULL.
+	"bot_watches":    {{"bot_id", "bots", true}},
+	"bot_alerts":     {{"bot_id", "bots", true}, {"check_id", "bot_checks", false}},
+	"bot_lessons":    {{"bot_id", "bots", true}, {"alert_id", "bot_alerts", false}},
+	"bot_findings":   {{"bot_id", "bots", true}, {"check_id", "bot_checks", false}, {"watch_id", "bot_watches", false}},
+	"bot_price_days": {{"watch_id", "bot_watches", true}, {"bot_id", "bots", true}},
 }
 
 // checkRestoreParents vets a row's parents against rows restored earlier from
@@ -337,6 +354,9 @@ var ownedQueries = map[string]string{
 	"documents":        `SELECT count(*) FROM documents WHERE id = ? AND user_id = ?`,
 	"recurrence_rules": `SELECT count(*) FROM recurrence_rules WHERE id = ? AND user_id = ?`,
 	"habits":           `SELECT count(*) FROM habits WHERE id = ? AND user_id = ?`,
+	"bots":             `SELECT count(*) FROM bots WHERE id = ? AND user_id = ?`,
+	"bot_watches":      `SELECT count(*) FROM bot_watches WHERE id = ? AND user_id = ?`,
+	"bot_alerts":       `SELECT count(*) FROM bot_alerts WHERE id = ? AND user_id = ?`,
 }
 
 type restoreOwnership struct {
@@ -414,6 +434,8 @@ func clearAccountData(tx *gorm.DB, userID string) error {
 		`DELETE FROM notifications WHERE user_id = ?`,
 		`DELETE FROM habits WHERE user_id = ?`,
 		`DELETE FROM goals WHERE user_id = ?`,
+		// Cascades to every bot_* table that has an owner.
+		`DELETE FROM bots WHERE user_id = ?`,
 		// Goal tags stay: each one holds hashes of the goals and the task's
 		// words, so it is used only while both still match, and dropping
 		// them made the next goal progress ask about every task again.
