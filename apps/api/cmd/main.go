@@ -215,6 +215,7 @@ func main() {
 		Focus:      focus.NewStore(db),
 		Suggest:    suggestions,
 		LiveBlock:  providerService.LiveBlock,
+		Bots:       botService,
 		DecisionsOn: func(ctx context.Context, userID string) bool {
 			on, _ := decisions.Status(ctx, userID)
 			return on

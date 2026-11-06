@@ -9,6 +9,7 @@ import (
 	"time"
 	"timely-api/internal/buildinfo"
 	"timely-api/internal/features/auth"
+	"timely-api/internal/features/bots"
 	"timely-api/internal/features/calendar"
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/event"
@@ -71,6 +72,9 @@ type Deps struct {
 	// current one (provider.Service.LiveBlock); nil makes add_live_block
 	// answer that it is not available.
 	LiveBlock func(ctx context.Context, userID, words, current, today string) (string, error)
+	// Bots watches pages, feeds and prices (tools_bots.go); nil makes those
+	// tools answer that they are not available.
+	Bots *bots.Service
 }
 
 type Server struct {
@@ -129,11 +133,12 @@ func newServer(deps Deps, extra string) *mcp.Server {
 		SetCacheable: func(_ context.Context, _ mcp.Request, c *mcp.Cacheable) { c.CacheScope = "private" },
 		Instructions: `Timely personal productivity MCP. Call get_context first.
 
-IDs: usr_, ws_, pr_, tsk_, evt_, doc_, sht_, tst_ (status), lbl_, stg_, cf_, blk_, rr_, view_, ntf_, job_.
+IDs: usr_, ws_, pr_, tsk_, evt_, doc_, sht_, tst_ (status), lbl_, stg_, cf_, blk_, rr_, view_, ntf_, job_, bot_.
 Dates are ISO-8601. Recurrence is an RFC 5545 RRULE (FREQ, INTERVAL, COUNT, UNTIL, BYDAY, BYMONTHDAY, BYMONTH).
 Recurring tasks expand on the calendar; complete an occurrence with edit_task_occurrence, not complete_task.
 Docs and descriptions accept markdown: CommonMark + GFM (tables, task lists), ==highlight==, $inline math$ and $$ display math $$ blocks, > [!NOTE]/[!TIP]/[!IMPORTANT]/[!WARNING]/[!CAUTION] callouts (optional title after the marker), [^1] footnotes with [^1]: definitions, --- frontmatter at the top (key: value lines, shown as page properties), [[Page title]] and [[Page title|alias]] links to other docs by title, toggles written as <details open><summary>Plain title</summary> then a blank line, the folded blocks, a blank line and </details> (drop "open" to start folded), embeds written as an image of a YouTube, Vimeo, Loom, Spotify, Figma or CodePen page on its own line (![](https://www.youtube.com/watch?v=...)), bookmarks (link cards) written as [Page title](https://url "Short description")<!-- bookmark --> on its own line, columns (2 to 4 side by side) written as <!-- columns -->, the first column's blocks, <!-- column --> before each next column, and <!-- /columns -->, each marker on its own line between blank lines, and fenced blocks that render: mermaid (diagrams), geojson/topojson (maps), stl (3D models; build them with add_3d_model, and an STL "solid <name> #rrggbb" line colors that part), and openui-lang (live blocks: cards drawn from the person's live data each time the doc opens; add or change them with add_live_block and never write or edit their programs by hand). get_doc returns the same syntax, so edit what it gives back; big data blocks (3D models, maps, very long code) come back as one [kept doc_id#hash ...] line inside their fence, and writing that line back keeps the block unchanged. Mentions: [@Label](timely://task/<id>) (also project, doc, sheet); subpage links: [Title](timely://doc/<id>).
 Reminders fire as server jobs even when the UI is closed. snooze_reminder moves the underlying reminder. Quiet hours still write the in-app row and delay push. Failed jobs are listed with list_jobs and recovered with retry_job.
+Bots made here start paused; the person turns them on and sets alerts in Timely.
 
 Projects can have ordered stages (stg_). Move cards with move_task_to_stage (empty stageId = Unstaged) or move_task_to_status for kanban.
 When the user asks to create Work, ask which workspace to use unless the user specified one in that request. Do not infer the workspace from get_context or previous tasks. Work tasks default to 30 minutes when the user does not specify a duration; use the user's duration when supplied. Use capture_inbox_item only when the user asks to capture a thought for Inbox. Reminders use kind=reminder and a ping time; list them with list_tasks reminders=true. Inbox items are not auto-scheduled until clarify_inbox_item.
@@ -340,6 +345,7 @@ func (s *Server) register(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "restore_account", Description: "Replace all of this account's data with a timely-backup JSON object exported from Timely (it must hold the account settings and a workspace). Requires confirm=true and mode=\"replace\", the same guard as POST /restore?mode=replace."}, mcpOnly.destroys(), s.restoreAccount)
 	s.registerFocus(server)
 	s.registerSuggest(server)
+	s.registerBots(server)
 }
 
 func userID(req *mcp.CallToolRequest) (string, error) {

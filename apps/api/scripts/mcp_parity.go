@@ -481,6 +481,17 @@ func (r *runner) exercise(email string) {
 	r.call("set_goal", map[string]any{"action": "remove", "goal": "Ship the parity run"})
 	r.call("update_habit", map[string]any{"habit": "Stretch daily", "action": "remove"})
 
+	// Bots made over MCP start paused, so Run now is refused and nothing is fetched.
+	bot := r.call("create_bot", map[string]any{"name": "Parity BTC", "description": "parity run", "watches": []any{
+		map[string]any{"kind": "price", "source": "coinbase", "symbol": "BTC", "currency": "USD", "rules": []any{map[string]any{"kind": "below", "threshold": 25000}}},
+	}})
+	botID := str(bot, "id")
+	r.call("list_bots", nil)
+	r.call("update_bot", map[string]any{"bot": "Parity BTC", "name": "Parity BTC dip", "intervalMinutes": 30})
+	r.call("list_bot_findings", map[string]any{"bot": botID, "limit": 10})
+	r.callAllow("run_bot_now", map[string]any{"bot": botID}, "paused")
+	r.call("pause_bot", map[string]any{"bot": botID})
+
 	r.call("get_backup_settings", nil)
 	r.call("update_backup_settings", map[string]any{"enabled": true, "intervalDays": 7, "retentionCount": 3})
 	r.call("export_tasks_csv", nil)
@@ -778,6 +789,14 @@ var workerTables = map[string]string{
 	"decision_log":            "decide.Ask from triage, briefing and smart alerts; decide.Prune in the sweep",
 	"push_devices":            "push jobs drop tokens Expo rejects",
 	"agent_provider_settings": "reindex jobs record their progress; a background decide call marks a rejected key",
+	"bots":                    "bot_check jobs and the bots sweep",
+	"bot_watches":             "bot_check jobs and the bots sweep",
+	"bot_checks":              "bot_check jobs and the bots sweep",
+	"bot_alerts":              "bot_check jobs and the bots sweep",
+	"bot_findings":            "bot_check jobs and the bots sweep",
+	"bot_price_days":          "bot_check jobs and the bots sweep",
+	"bot_sites":               "bot_check jobs and the bots sweep",
+	"bot_robots":              "bot_check jobs and the bots sweep",
 }
 
 type tableSum struct{ rows, hash int64 }

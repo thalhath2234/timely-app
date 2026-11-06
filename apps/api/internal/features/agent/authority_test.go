@@ -64,6 +64,8 @@ var expectedAuthority = []struct {
 	{Read, Applies, `list_goals list_habits get_goal_progress list_focus_sessions`},
 	{Write, Applies, `add_habit check_habit`},
 	{Write, ReviewedWhen, `set_goal update_habit`},
+	// Bots (tools_bots.go): MCP-only until chat has a proposal card for them.
+	{MCPOnly, Applies, `list_bots list_bot_findings create_bot update_bot pause_bot run_bot_now`},
 }
 
 func TestEveryToolDeclaresAuthority(t *testing.T) {
@@ -151,7 +153,8 @@ func TestToolAnnotations(t *testing.T) {
 	}
 	readOnly := map[string]bool{}
 	for _, name := range strings.Fields(`get_profile get_config list_jobs get_job_health list_project_activity
-	list_task_activity export_account export_calendar export_doc export_tasks_csv get_backup_settings list_backups download_backup`) {
+	list_task_activity export_account export_calendar export_doc export_tasks_csv get_backup_settings list_backups download_backup
+	list_bots list_bot_findings`) {
 		readOnly[name] = true
 	}
 	destructive := map[string]bool{}
