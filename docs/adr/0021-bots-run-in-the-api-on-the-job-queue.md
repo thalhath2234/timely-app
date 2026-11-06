@@ -37,7 +37,7 @@ fetcher built on the link preview address guard: public addresses only, ports
 network or Tailscale devices. Timely identifies itself, honours robots.txt and
 Retry-After, waits at least 15 minutes between checks of a page or feed, 5
 minutes for a price while its market is open and 6 hours for a shop product,
-and spaces requests to one site 10 seconds apart across all of an account's
+and spaces requests to one site 10 seconds apart across all Bots on the
 Bots. It never solves captchas, fakes a user agent or rotates proxies.
 
 **Rules spot a change; the AI only judges it.** Each check is plain code that
