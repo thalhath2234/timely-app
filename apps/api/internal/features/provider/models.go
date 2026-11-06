@@ -31,11 +31,11 @@ type ModelOption struct {
 var claudeModels = []ModelOption{
 	{ID: "fable", Name: "Fable (latest)", Vision: true, Note: "Most capable"},
 	{ID: "opus", Name: "Opus (latest)", Vision: true},
-	{ID: "sonnet", Name: "Sonnet (latest)", Vision: true, Default: true, Note: "Balanced"},
-	{ID: "haiku", Name: "Haiku (latest)", Vision: true, Note: "Fastest"},
+	{ID: "sonnet", Name: "Sonnet (latest)", Vision: true, Note: "Balanced"},
+	{ID: "haiku", Name: "Haiku (latest)", Vision: true, Default: true, Note: "Fastest"},
 }
 
-const defaultClaudeModel = "sonnet"
+const defaultClaudeModel = "haiku"
 
 type catalogue struct {
 	mu      sync.Mutex
@@ -47,6 +47,26 @@ type catalogue struct {
 
 func newCatalogue() *catalogue {
 	return &catalogue{fetched: map[string]time.Time{}, cached: map[string][]ModelOption{}, effort: map[string]bool{}, client: &http.Client{Timeout: 20 * time.Second}}
+}
+
+// effortOf reports whether a listed Anthropic model accepts effort; known is
+// false when no list read so far named it. A dated id and its undated name
+// (claude-haiku-5-5-20261001, claude-haiku-5-5) are the same model.
+func (c *catalogue) effortOf(model string) (ok, known bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if ok, known := c.effort[model]; known {
+		return ok, true
+	}
+	for id, ok := range c.effort {
+		if rest, cut := strings.CutPrefix(model, id); cut && modelVersion.MatchString(rest) {
+			return ok, true
+		}
+		if rest, cut := strings.CutPrefix(id, model); cut && modelVersion.MatchString(rest) {
+			return ok, true
+		}
+	}
+	return false, false
 }
 
 func (c *catalogue) get(key string, maxAge time.Duration, load func() ([]ModelOption, error)) ([]ModelOption, error) {
@@ -107,6 +127,17 @@ func (c *catalogue) fetchOpenRouter(ctx context.Context, url string) ([]openRout
 		return nil, fmt.Errorf("OpenRouter model list could not be read: %w", err)
 	}
 	return body.Data, nil
+}
+
+// visionOf says whether model takes images, by the model list; known is
+// false for a model the list does not have.
+func visionOf(list []ModelOption, model string) (reads, known bool) {
+	for _, m := range list {
+		if m.ID == model {
+			return m.Vision, true
+		}
+	}
+	return false, false
 }
 
 // OpenRouterChatModels lists tool-calling models; the agent cannot run on a

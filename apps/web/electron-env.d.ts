@@ -36,14 +36,23 @@ export type DesktopInstance = {
     ipv4?: string;
     ipv6?: string;
     hostname?: string;
+    /** MagicDNS name (host.tailnet.ts.net); needed for HTTPS. */
+    dnsName?: string;
+    /** Tailscale Serve: https://<dnsName>/ proxied to the API. */
+    https: {
+      status: "off" | "starting" | "on" | "error";
+      url?: string;
+      error?: string;
+    };
   };
   settings: {
     tailscaleEnabled: boolean;
+    tailscaleHttps: boolean;
     allowRegistration: boolean;
     setupDone: boolean;
   };
   /** What the Settings → Server QR encodes; see "Pairing payload" in the contract. */
-  pairing: { v: 1; name: string; urls: string[] };
+  pairing: { v: 1; name: string; id?: string; urls: string[]; code?: string };
   update: {
     status: "idle" | "checking" | "available" | "downloading" | "ready" | "upToDate" | "error" | "managed";
     version?: string;
@@ -51,7 +60,7 @@ export type DesktopInstance = {
   };
 };
 
-export type DesktopSettingKey = "tailscaleEnabled" | "allowRegistration" | "setupDone";
+export type DesktopSettingKey = "tailscaleEnabled" | "tailscaleHttps" | "allowRegistration" | "setupDone";
 
 export type DesktopAction =
   | "restartApi"

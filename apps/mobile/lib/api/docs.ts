@@ -2,6 +2,7 @@ import { File as ExpoFile } from "expo-file-system";
 import type { Doc, DocContent } from "../types";
 import type { CreateDocPayload, DailyDocPayload, DocBacklink, DocVersion, UpdateDocPayload as WireUpdateDocPayload } from "@timely/contract/documents";
 import type { LinkPreview } from "@timely/contract/embeds";
+import type { ChecklistTickRequest } from "@timely/contract/docChecklist";
 import { isRichContentEmpty } from "../richText";
 import { api, unwrap } from "./client";
 import { watchStream, type WatchEvent } from "./watch";
@@ -39,6 +40,12 @@ export async function updateDoc(id: string, data: UpdateDocPayload) {
     throw new Error("Document body was not persisted");
   }
   return saved;
+}
+
+/** Ticks or unticks one checklist item in the doc as the server holds it (a card's CheckRow). */
+export async function setChecklistItem(id: string, tick: ChecklistTickRequest) {
+  const res = await api<Doc | { document: Doc }>(`/docs/${id}/checklist`, { method: "PUT", body: tick });
+  return unwrap(res, "document");
 }
 
 /** SSE stream with cookie-less Bearer auth. Falls back to polling if the body is not readable. */

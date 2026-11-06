@@ -2,24 +2,33 @@
 
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, KeyRound, X } from "lucide-react";
 import type { DesktopInstance } from "@/electron-env";
-import { pairingPayload, pairingUrls, primaryAddress } from "@/app/utils/desktopInstance";
+import { codeTimeLeft, pairingPayload, pairingUrls, primaryAddress } from "@/app/utils/desktopInstance";
+import { createPairingCode, type PairingCode } from "@/app/utils/api/instance";
 import { useDesktopBridge } from "@/app/utils/hooks/desktop";
 import { buttonClass } from "@/app/_components/_ui/button";
+import { cn } from "@/app/utils/cn";
 
 const QR_SIZE = 220;
 
 const secondaryButton = buttonClass({ variant: "outline" });
 
 /** The QR code the phone scans, plus the first address for typing by hand.
- * Encodes `JSON.stringify(instance.pairing)` exactly (docs/desktop/README.md). */
+ * Encodes `JSON.stringify(instance.pairing)` exactly (docs/desktop/README.md),
+ * plus a one-time sign-in `code` while the person has asked for one. */
 export default function PairingQr({ instance }: { instance: DesktopInstance }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const bridge = useDesktopBridge();
   const [renderError, setRenderError] = useState<string | null>(null);
   const [copied, setCopied] = useState<"done" | "failed" | null>(null);
-  const payload = pairingPayload(instance);
+  const [signIn, setSignIn] = useState<PairingCode | null>(null);
+  const [signInPending, setSignInPending] = useState(false);
+  const [signInError, setSignInError] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const timeLeft = signIn ? codeTimeLeft(signIn.expiresAt, now) : null;
+  const code = timeLeft ? signIn?.code : undefined;
+  const payload = pairingPayload(instance, code);
   const address = primaryAddress(instance);
   const urls = pairingUrls(instance);
 
@@ -44,6 +53,30 @@ export default function PairingQr({ instance }: { instance: DesktopInstance }) {
       cancelled = true;
     };
   }, [payload]);
+
+  useEffect(() => {
+    if (!signIn) return;
+    const timer = window.setInterval(() => {
+      const at = Date.now();
+      setNow(at);
+      if (!codeTimeLeft(signIn.expiresAt, at)) setSignIn(null);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [signIn]);
+
+  const addSignIn = async () => {
+    setSignInPending(true);
+    setSignInError(null);
+    try {
+      const next = await createPairingCode();
+      setNow(Date.now());
+      setSignIn(next);
+    } catch (err) {
+      setSignInError(err instanceof Error ? err.message : "Could not create a sign-in code.");
+    } finally {
+      setSignInPending(false);
+    }
+  };
 
   useEffect(() => {
     if (!copied) return;
@@ -101,6 +134,46 @@ export default function PairingQr({ instance }: { instance: DesktopInstance }) {
             {copied === "done" && "Address copied to the clipboard."}
             {copied === "failed" && "Could not copy. Select the address and copy it by hand."}
           </span>
+        </div>
+        <div className="flex flex-col gap-1 rounded-lg border border-border p-3 text-left" data-testid="pairing-sign-in">
+          {code ? (
+            <>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-medium text-foreground">
+                  Signs the phone in as you · <span className="tabular-nums">{timeLeft}</span> left
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setSignIn(null)}
+                  className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                  aria-label="Remove the sign-in code"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                The first phone to scan this code is signed in without a password. Don&apos;t share
+                your screen while it shows.
+              </p>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => void addSignIn()}
+                disabled={signInPending}
+                className={cn(secondaryButton, "self-start")}
+              >
+                <KeyRound className="size-3.5" />
+                {signInPending ? "Creating code…" : "Sign the phone in too"}
+              </button>
+              <p className="text-[11px] text-muted-foreground">
+                Adds a one-time code to the QR for 5 minutes, so you don&apos;t type your password on the
+                phone.
+              </p>
+            </>
+          )}
+          {signInError && <p className="text-xs text-destructive">{signInError}</p>}
         </div>
         {renderError && <p className="text-xs text-destructive">{renderError}</p>}
       </div>

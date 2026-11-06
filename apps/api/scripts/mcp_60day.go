@@ -2223,7 +2223,7 @@ func (s *sim) restoreRoundTrip(d day) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.call("restore_account", map[string]any{"confirm": true, "backup": export.at("backup")}); err != nil {
+	if _, err := s.call("restore_account", map[string]any{"confirm": true, "mode": "replace", "backup": export.at("backup")}); err != nil {
 		return err
 	}
 	failures := len(s.failures)

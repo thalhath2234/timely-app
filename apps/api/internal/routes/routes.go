@@ -136,6 +136,7 @@ func setupPublicRoutes(e *echo.Echo, authHandler *auth.Handler, limiter *middlew
 	e.POST("/login", authHandler.Login, limiter.Middleware(true))
 	e.POST("/logout", authHandler.Logout)
 	e.POST("/auth/refresh", authHandler.Refresh, limiter.Middleware(true))
+	e.POST("/auth/pair", authHandler.Pair, limiter.Middleware(false))
 }
 
 // setupAuthRoutes defines all protected auth endpoints
@@ -145,6 +146,7 @@ func setupAuthRoutes(g *echo.Group, authHandler *auth.Handler, limiter *middlewa
 	// Rate limited like sign-in, since it checks the password.
 	g.DELETE("/me", authHandler.DeleteMe, limiter.Middleware(false))
 	g.GET("/sessions", authHandler.ListSessions)
+	g.POST("/pairing-codes", authHandler.CreatePairingCode)
 	g.DELETE("/sessions/others", authHandler.RevokeOtherSessions)
 	g.DELETE("/sessions/:id", authHandler.RevokeSession)
 }
@@ -275,6 +277,7 @@ func setupDocumentRoutes(g *echo.Group, documentHandler *doc.Handler) {
 	g.GET("/docs/:id/versions/:versionId", documentHandler.GetVersion)
 	g.POST("/docs/:id/versions/:versionId/restore", documentHandler.RestoreVersion)
 	g.PUT("/docs/:id", documentHandler.Update)
+	g.PUT("/docs/:id/checklist", documentHandler.SetChecklistItem)
 	g.DELETE("/docs/:id", documentHandler.Delete)
 }
 

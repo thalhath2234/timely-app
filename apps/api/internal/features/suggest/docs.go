@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -12,6 +13,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"gorm.io/gorm"
 	"timely-api/internal/features/decide"
+	"timely-api/internal/features/schedule"
+	"timely-api/internal/features/task"
 	"timely-api/internal/models"
 	"timely-api/internal/richtext"
 )
@@ -55,6 +58,8 @@ func (s *Service) docRoutes(g *echo.Group) {
 	g.GET("/suggestions/doc/:id", s.docHints)
 	g.POST("/suggestions/doc/:id/checklist", s.docChecklist)
 	g.POST("/suggestions/doc/:id/dismiss", s.docDismiss)
+	g.DELETE("/suggestions/doc/:id/dismiss", s.docDismiss)
+	g.PUT("/suggestions/doc/:id/goes-to", s.docGoesTo)
 	g.POST("/suggestions/mention", s.mention)
 	g.POST("/suggestions/import-format", s.importFormat)
 	g.GET("/suggestions/doc-template", s.docTemplate)
@@ -85,10 +90,13 @@ type DocHints struct {
 	Properties []PropertyHint `json:"properties,omitempty"` // [52]
 	Template   *DocRef        `json:"template,omitempty"`   // [52] for a near-empty doc
 	Outdated   bool           `json:"outdated,omitempty"`   // [57]
-	// KeptLists are the items (lower case) of checklists kept in the doc to
-	// tick off there, like groceries or packing, not worked as tasks; the
-	// clients offer none of a list's items as tasks (docChecklist).
-	KeptLists []string `json:"keptLists,omitempty"`
+	// TodosOff: the person turned off checklist items offered as tasks for
+	// this doc (DocChecklist), so its switch shows off.
+	TodosOff bool `json:"todosOff,omitempty"`
+	// Failed: smart suggestions were busy or did not answer, so the hints
+	// are missing, not empty; the apps ask again the next time the doc is
+	// opened.
+	Failed bool `json:"failed,omitempty"`
 }
 
 func (s *Service) docHints(c *echo.Context) error {
@@ -114,7 +122,7 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 	if !on || doc.ArchivedAt != nil || doc.IsTemplate {
 		return out, nil
 	}
-	text := strings.TrimSpace(doc.PlainText)
+	text := docText(doc)
 	props := richtext.ParseProperties(richtext.Frontmatter(doc.Content))
 	has := map[string]bool{}
 	for _, p := range props {
@@ -122,6 +130,7 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 	}
 	daily := doc.DailyDate != nil && *doc.DailyDate != ""
 	dismissed := s.docDismissed(ctx, userID, doc.ID)
+	out.TodosOff = dismissed[docHintKey("todos", "")]
 
 	state := map[string]any{"title": clip(doc.Title, 200)}
 	questions := map[string]decide.Question{}
@@ -132,11 +141,12 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 	var templates []models.Document
 	byType := false
 
-	if len([]rune(text)) < docMinText {
+	// A doc's properties count toward its length; text leaves them out.
+	if len([]rune(strings.TrimSpace(doc.PlainText))) < docMinText {
 		// A near-empty doc: only which template it could start from.
 		// A new doc is titled "Untitled" until the person names it.
 		if t := strings.TrimSpace(doc.Title); t != "" && !strings.EqualFold(t, "untitled") && !daily {
-			templates = s.docTemplates(ctx, userID, doc.ID)
+			templates = undismissed(templates[:0], s.docTemplates(ctx, userID, doc.ID), dismissed, "template", func(d models.Document) string { return d.ID })
 			if len(templates) > 0 {
 				opts := []decide.Option{{Name: "none", Description: "Start blank; no template fits"}}
 				for i, t := range templates {
@@ -152,11 +162,11 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 	} else {
 		state["text"] = clip(text, docTextLimit)
 		if len(props) > 0 {
-			state["properties"] = richtext.DescribeProperties(props)
+			state["properties"] = docProperties(props)
 		}
 		if !daily {
 			if doc.ProjectID == nil || *doc.ProjectID == "" {
-				projects = s.docProjects(ctx, userID, doc.WorkspaceID)
+				projects = undismissed(projects[:0], s.docProjects(ctx, userID, doc.WorkspaceID), dismissed, "project", func(p models.Project) string { return p.ID })
 				if len(projects) > 0 {
 					opts := []decide.Option{{Name: "none", Description: "The doc is not part of any of these projects"}}
 					for i, p := range projects {
@@ -166,11 +176,14 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 						}
 						opts = append(opts, decide.Option{Name: fmt.Sprintf("p%d", i+1), Description: desc})
 					}
-					questions["project"] = decide.Choice("Is this doc written for one of the person's projects? If so, which one?", opts...)
+					// Asked in both option orders (Twice): a pick that flips with
+					// the order, as one steered by the doc's own words can, is
+					// not offered.
+					questions["project"] = decide.Choice("Is this doc written for one of the person's projects? If so, which one?", opts...).Twice()
 				}
 			}
 			if doc.ParentID == nil || *doc.ParentID == "" {
-				parents = s.docParents(ctx, userID, doc)
+				parents = undismissed(parents[:0], s.docParents(ctx, userID, doc), dismissed, "parent", func(d models.Document) string { return d.ID })
 				if len(parents) > 0 {
 					opts := []decide.Option{{Name: "none", Description: "None: the doc stands on its own"}}
 					for i, p := range parents {
@@ -180,17 +193,20 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 						}
 						opts = append(opts, decide.Option{Name: fmt.Sprintf("d%d", i+1), Description: desc})
 					}
-					questions["parent"] = decide.Choice("Does this doc belong under one of these pages, as a part, a detail or a section of what that page covers? If so, which one?", opts...)
+					questions["parent"] = decide.Choice("Does this doc belong under one of these pages, as a part, a detail or a section of what that page covers? If so, which one?", opts...).Twice()
 				}
 			}
-			keys = s.usedKeys(ctx, userID, doc.ID, has)
-			for _, k := range keys {
+			for _, k := range s.usedKeys(ctx, userID, doc.ID, has) {
 				if strings.EqualFold(k.key, "type") {
 					byType = true
 				}
+				k.values = undismissed(nil, k.values, dismissed, "prop", func(v string) string { return k.key + "=" + v })
+				if len(k.values) > 0 {
+					keys = append(keys, k)
+				}
 			}
-			if !has["type"] && !byType {
-				questions["type"] = decide.Choice("What kind of doc is this?", docTypes...)
+			if types := undismissed(nil, docTypes, dismissed, "type", func(o decide.Option) string { return o.Name }); !has["type"] && !byType && len(types) > 1 {
+				questions["type"] = decide.Choice("What kind of doc is this?", types...)
 			}
 			for i, k := range keys {
 				opts := []decide.Option{{Name: "none", Description: "None of these values fits this doc"}}
@@ -201,9 +217,11 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 					fmt.Sprintf("The person's other docs have a “%s” property. Which value of it fits this doc?", clip(k.key, 40)), opts...)
 			}
 			// A doc edited this month is current by definition.
-			if edited := parseWhen(doc.UpdatedAt); !edited.IsZero() && now.Sub(edited) >= outdatedAfter {
+			if edited := parseWhen(doc.UpdatedAt); !edited.IsZero() && now.Sub(edited) >= outdatedAfter && !dismissed[docHintKey("outdated", "")] {
 				state["lastEdited"] = idleLabel(edited, now)
-				state["today"] = now.Format("Monday 2 January 2006")
+				// The person's date, which can be a day ahead of or behind
+				// the server's.
+				state["today"] = s.personNow(ctx, userID, now).Format("Monday 2 January 2006")
 				questions["outdated"] = decide.YesNo("Does this doc look outdated or superseded: it plans for dates or events that have already passed, or it says something newer replaced it?",
 					"Yes, it looks outdated or superseded.", "No, it still looks current.")
 			}
@@ -220,33 +238,14 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 			state["lines"] = list
 		}
 	}
-	// An unchecked item says it is a to-do, but not every list is work: a
-	// grocery or packing list is ticked off in the doc. Jev judges each list
-	// whole, by its heading and items, even in a short doc.
-	lists := checklists(doc.Content)
-	if len(lists) > 0 {
-		described := make([]map[string]any, len(lists))
-		for i, l := range lists {
-			key := fmt.Sprintf("c%d", i+1)
-			items := l.items
-			if len(items) > maxListItems {
-				items = items[:maxListItems]
-			}
-			shown := make([]string, len(items))
-			for j, it := range items {
-				shown[j] = clip(it, 120)
-			}
-			described[i] = map[string]any{"list": key, "heading": clip(l.heading, 120), "items": shown}
-			questions[key] = decide.YesNo(fmt.Sprintf("Is checklist %s a list of things the person has to get done, each worth tracking as its own task (work, errands, calls, follow-ups), rather than a list kept in the doc to tick off there, such as groceries, a shopping or packing list, ingredients, or things to read or watch?", key),
-				"Yes, its items are tasks to get done.", "No, it is a list kept in the doc.")
-		}
-		state["checklists"] = described
-	}
 	if len(questions) == 0 {
 		return out, nil
 	}
 	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "doc_hints", State: state, Questions: questions})
 	if err != nil {
+		// Busy or failed: nothing to offer this time, and the apps ask again
+		// instead of keeping the empty answer.
+		out.Failed = true
 		return out, nil
 	}
 	out.LogID = a.LogID
@@ -291,15 +290,67 @@ func (s *Service) DocHints(ctx context.Context, userID, docID string, now time.T
 			}
 		}
 	}
-	// Hiding suggestions is unprompted, so it waits for a confident "no".
-	for i, l := range lists {
-		if yes, ok := a.Yes(fmt.Sprintf("c%d", i+1), decide.Route); ok && !yes {
-			for _, it := range l.items {
-				out.KeptLists = append(out.KeptLists, strings.ToLower(it))
+	return out, nil
+}
+
+// docText is a doc's words without its properties block, which a doc's
+// suggestions send on their own (docProperties).
+func docText(doc models.Document) string {
+	text := strings.TrimSpace(doc.PlainText)
+	if fm := strings.TrimSpace(richtext.Frontmatter(doc.Content)); fm != "" {
+		text = strings.TrimSpace(strings.TrimPrefix(text, fm))
+	}
+	return text
+}
+
+// secretKeys name property keys whose values are secrets (apiToken,
+// client_secret, password).
+var secretKeys = regexp.MustCompile(`(?i)token|secret|passw(or)?d|api[_-]?key|private[_-]?key|credential`)
+
+const (
+	maxPropertyValue = 120
+	maxProperties    = 1000
+)
+
+// docProperties writes a doc's properties for Jev as one line, the way search
+// reads them, with each value and the whole line cut short (a pasted value of
+// 33,000 characters used to push the request past Jev's limit, so no
+// suggestion came) and a secret's value left out.
+func docProperties(props []richtext.Property) string {
+	shown := make([]richtext.Property, 0, len(props))
+	for _, p := range props {
+		q := richtext.Property{Key: clip(p.Key, 40)}
+		for _, v := range p.Values {
+			if secretKeys.MatchString(p.Key) {
+				q.Values = []string{"(hidden)"}
+				break
 			}
+			q.Values = append(q.Values, clip(v, maxPropertyValue))
+		}
+		shown = append(shown, q)
+	}
+	return clip(richtext.DescribeProperties(shown), maxProperties)
+}
+
+// undismissed appends to out the items whose suggestion the person has not
+// dismissed on this doc, so a dismissed one is not asked about again.
+func undismissed[T any](out, items []T, dismissed map[string]bool, kind string, value func(T) string) []T {
+	for _, item := range items {
+		if !dismissed[docHintKey(kind, value(item))] {
+			out = append(out, item)
 		}
 	}
-	return out, nil
+	return out
+}
+
+// personNow is now on the person's clock: their saved hours' zone, else the
+// server's.
+func (s *Service) personNow(ctx context.Context, userID string, now time.Time) time.Time {
+	hours, err := schedule.NewRepository(s.db.WithContext(ctx)).GetWorkingHours(userID)
+	if err != nil {
+		hours = models.WorkingHours{}
+	}
+	return task.TodayFor(hours, "", now).Now()
 }
 
 // checklist is one checklist in a doc: the heading above it and the words of
@@ -431,7 +482,7 @@ func (s *Service) docParents(ctx context.Context, userID string, doc models.Docu
 	if s.search == nil {
 		return nil
 	}
-	query := doc.Title + "\n" + clip(strings.TrimSpace(doc.PlainText), 300)
+	query := doc.Title + "\n" + clip(docText(doc), 300)
 	sctx, cancel := context.WithTimeout(ctx, searchBudget)
 	hits, _ := s.search.SemanticSearch(sctx, userID, query, maxDocParents+4, []string{"doc"})
 	cancel()
@@ -519,7 +570,9 @@ func (s *Service) usedKeys(ctx context.Context, userID, docID string, has map[st
 		seen := map[string]bool{}
 		for _, p := range richtext.ParseProperties(t) {
 			k := strings.ToLower(p.Key)
-			if has[k] || k == "title" || k == "aliases" || k == "alias" || k == "cssclasses" {
+			// A secret's values (another doc's apiToken) are never offered
+			// as options for this doc.
+			if has[k] || k == "title" || k == "aliases" || k == "alias" || k == "cssclasses" || secretKeys.MatchString(k) {
 				continue
 			}
 			e := byKey[k]
@@ -808,7 +861,7 @@ func (s *Service) ImportFormat(ctx context.Context, userID string, lines []strin
 	if !on || len(lines) < 2 {
 		return out
 	}
-	list := []map[string]string{}
+	list := []map[string]any{}
 	questions := map[string]decide.Question{}
 	for i, l := range lines {
 		l = strings.TrimSpace(l)
@@ -816,13 +869,17 @@ func (s *Service) ImportFormat(ctx context.Context, userID string, lines []strin
 			continue
 		}
 		key := fmt.Sprintf("l%d", i+1)
-		list = append(list, map[string]string{"line": key, "text": clip(l, 200)})
+		list = append(list, map[string]any{"line": key, "text": clip(l, 200)})
 		questions[key] = decide.Choice(fmt.Sprintf("What is line %s in this imported note?", key), lineKinds...)
 	}
 	if len(questions) == 0 {
 		return out
 	}
-	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "import_format", State: map[string]any{"lines": list}, Questions: questions})
+	// Eighty long lines in a wide script outgrow the state: each line's
+	// start still shows whether it is a heading or a list item.
+	state := map[string]any{"lines": list}
+	decide.Fit(state, list, "text")
+	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "import_format", State: state, Questions: questions})
 	if err != nil {
 		return out
 	}

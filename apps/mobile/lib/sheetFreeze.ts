@@ -64,3 +64,66 @@ export function indexAtScreen(axis: PinnedAxis, point: number, maxIndex: number)
   }
   return index;
 }
+
+export type ScrollOffset = { x: number; y: number };
+
+/**
+ * The grid's scroll offsets, for the pinned layers. On a phone the layers
+ * slide on the native animation driver, which React never hears about, so
+ * `live` keeps the latest offset (for mapping touches, and for moving the
+ * layers on the web, which has no native driver) and `rest` is where the grid
+ * last came to a stop: once the scroll has been quiet for `quietMs`,
+ * subscribers hear about it and hand the offset to React too.
+ */
+export function createScrollRest(
+  quietMs = 80,
+  timers: { set: (run: () => void, ms: number) => unknown; clear: (handle: unknown) => void } = {
+    set: (run, ms) => setTimeout(run, ms),
+    clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+  },
+) {
+  let live: ScrollOffset = { x: 0, y: 0 };
+  let rest: ScrollOffset = live;
+  let timer: unknown = null;
+  const listeners = new Set<() => void>();
+  const watchers = new Set<() => void>();
+  const settle = () => {
+    timer = null;
+    if (live.x === rest.x && live.y === rest.y) return;
+    rest = live;
+    for (const listener of listeners) listener();
+  };
+  return {
+    live: () => live,
+    rest: () => rest,
+    /** Records a scroll event's offset; overscroll past the start counts as 0. */
+    scrolled(axis: keyof ScrollOffset, offset: number) {
+      const next = Math.max(0, offset);
+      if (next === live[axis]) return;
+      live = { ...live, [axis]: next };
+      for (const watcher of watchers) watcher();
+      if (timer != null) timers.clear(timer);
+      timer = timers.set(settle, quietMs);
+    },
+    /** Hears every scroll event, while it is being handled. */
+    watch(watcher: () => void) {
+      watchers.add(watcher);
+      return () => {
+        watchers.delete(watcher);
+      };
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    /** Drops a pending stop, for when the grid goes away. */
+    dispose() {
+      if (timer != null) timers.clear(timer);
+      timer = null;
+    },
+  };
+}
+
+export type ScrollRest = ReturnType<typeof createScrollRest>;

@@ -16,6 +16,7 @@ type Handler struct {
 	userRepo          UserRepository
 	allowRegistration bool
 	afterDelete       func(userID string)
+	pairing           *PairingCodes
 }
 
 // RegistrationClosedMessage is returned when ALLOW_REGISTRATION=false and an

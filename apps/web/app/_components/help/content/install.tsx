@@ -219,24 +219,58 @@ EOF`}</Code>
     {
       slug: "arch",
       title: "Install on Arch Linux",
-      summary: "Install the timely-bin package from the AUR and update it with pacman.",
-      keywords: ["arch", "aur", "pacman", "yay", "paru", "makepkg", "manjaro", "endeavouros", "timely-bin"],
+      summary: "Install the Arch package from the release with pacman, or timely-bin from the AUR.",
+      keywords: [
+        "arch",
+        "aur",
+        "pacman",
+        "pacman -U",
+        "pkg",
+        "yay",
+        "paru",
+        "makepkg",
+        "manjaro",
+        "endeavouros",
+        "timely-bin",
+      ],
       lead: (
         <>
           <p>
-            On Arch Linux and its derivatives, install Timely from the AUR package <code>timely-bin</code>. It
-            unpacks the official AppImage into <code>/opt/timely-bin</code>, adds a <code>timely</code> command and an
-            app menu entry, and is updated by your package manager.
+            On Arch Linux and its derivatives you can install Timely two ways. The Arch package from the release is
+            installed with pacman and updates itself from inside Timely. The AUR package <code>timely-bin</code> is
+            updated by your AUR helper. Pick one: installing either replaces the other, and your data stays.
           </p>
           <p>
-            <DownloadLink href={AUR_URL}>timely-bin on the AUR</DownloadLink>
+            <DownloadLink href={LATEST_RELEASE_URL}>Latest release on GitHub</DownloadLink>
           </p>
         </>
       ),
       sections: [
         {
+          id: "pacman",
+          title: "From the release with pacman",
+          body: (
+            <>
+              <Steps>
+                <p>
+                  Open the <a href={LATEST_RELEASE_URL}>latest release</a> and, under <strong>Assets</strong>,
+                  download <code>Timely-x.y.z-linux-x64.pacman</code>.
+                </p>
+                <div>
+                  <p>Install it. pacman asks for your password and pulls in the few libraries Timely needs:</p>
+                  <Code>sudo pacman -U ~/Downloads/Timely-*-linux-x64.pacman</Code>
+                </div>
+              </Steps>
+              <p>
+                Timely goes into <code>/opt/Timely</code> and onto your app menu. If <code>timely-bin</code> is
+                installed, pacman asks to remove it first; answer yes.
+              </p>
+            </>
+          ),
+        },
+        {
           id: "aur-helper",
-          title: "With an AUR helper",
+          title: "From the AUR with yay or paru",
           body: (
             <>
               <p>With yay:</p>
@@ -248,11 +282,12 @@ EOF`}</Code>
         },
         {
           id: "makepkg",
-          title: "Without a helper",
+          title: "From the AUR with makepkg",
           body: (
             <>
               <p>
                 Build it yourself with <code>makepkg</code>. You need <code>base-devel</code> and <code>git</code>.
+                The package page is <a href={AUR_URL}>timely-bin on the AUR</a>.
               </p>
               <Code>{`git clone https://aur.archlinux.org/timely-bin.git
 cd timely-bin
@@ -265,7 +300,8 @@ makepkg -si`}</Code>
           title: "Start Timely",
           body: (
             <p>
-              Open <strong>Timely</strong> from your app menu, or run <code>timely</code>. The first launch creates the
+              Open <strong>Timely</strong> from your app menu. From a terminal, run <code>Timely</code> for the package
+              from the release or <code>timely</code> for <code>timely-bin</code>. The first launch creates the
               database in <code>~/.config/Timely</code>; then <Link href="/help/start/first-week">create your
               account</Link>.
             </p>
@@ -277,9 +313,15 @@ makepkg -si`}</Code>
           body: (
             <>
               <p>
-                Update with your AUR helper (<code>yay -Syu</code>), or pull and run <code>makepkg -si</code> again.
-                The in-app updater is off for this install; <Path>Settings &gt; Server</Path> says{" "}
-                <em>Updated by your package manager</em>.
+                <strong>The package from the release</strong> updates itself. Choose <strong>Check for updates</strong>{" "}
+                in <Path>Settings &gt; Server</Path>; Timely downloads the new package while it runs. Choose{" "}
+                <strong>Install and restart</strong>, or keep working and it installs the next time you quit Timely.
+                Either way it asks for your password, because pacman installs it.
+              </p>
+              <p>
+                <strong>timely-bin</strong> is updated by your AUR helper (<code>yay -Syu</code>), or pull and run{" "}
+                <code>makepkg -si</code> again. The in-app updater is off for this install;{" "}
+                <Path>Settings &gt; Server</Path> says <em>Updated by your package manager</em>.
               </p>
               <p>
                 If Timely is still running in the tray during an upgrade, it notices the new files within a minute.
@@ -453,7 +495,7 @@ makepkg -si`}</Code>
                     </td>
                   </tr>
                   <tr>
-                    <td>Linux (AppImage and AUR)</td>
+                    <td>Linux (AppImage, Arch package and AUR)</td>
                     <td>
                       <code>~/.config/Timely</code>
                     </td>
@@ -477,13 +519,13 @@ makepkg -si`}</Code>
           body: (
             <ul>
               <li>
-                <strong>Windows and the AppImage</strong> update from GitHub Releases. Choose{" "}
-                <strong>Check for updates</strong> in <Path>Settings &gt; Server</Path>; Timely downloads the new
-                version while it runs. Then choose <strong>Install and restart</strong>, or the update installs the
-                next time you quit Timely.
+                <strong>Windows, the AppImage and the Arch package from the release</strong> update from GitHub
+                Releases. Choose <strong>Check for updates</strong> in <Path>Settings &gt; Server</Path>; Timely
+                downloads the new version while it runs. Then choose <strong>Install and restart</strong>, or the
+                update installs the next time you quit Timely. The Arch package asks for your password to install.
               </li>
               <li>
-                <strong>Arch (AUR)</strong> is updated by pacman or your AUR helper. See{" "}
+                <strong>timely-bin from the AUR</strong> is updated by pacman or your AUR helper. See{" "}
                 <Link href="/help/install/arch">Install on Arch Linux</Link>.
               </li>
               <li>

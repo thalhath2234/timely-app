@@ -20,7 +20,12 @@ import {
   ReceiptText,
   WifiOff,
 } from "lucide-react-native";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useMutationState,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as DocumentPicker from "expo-document-picker";
@@ -34,6 +39,11 @@ import {
 } from "../../lib/api/chat";
 import { isOffline, subscribeOffline } from "../../lib/networkState";
 import { contextProjectId, mergeContext } from "../../lib/chat/context";
+import {
+  changed,
+  settingsOf,
+  type ChatSettings,
+} from "../../lib/chat/settings";
 import { removeLocalImage, retainImage } from "../../lib/chat/storage";
 import type { Chat, ChatStep, PendingImage } from "../../lib/chat/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
@@ -49,6 +59,7 @@ import HistoryPage from "./HistoryPage";
 import ProposalPage from "./ProposalPage";
 import ReceiptReview from "./ReceiptReview";
 import Thread, { FailureCard, RunStatus, StatusCard, Welcome } from "./Thread";
+import { planGroups } from "@timely/contract/changeReview";
 import { isBusy, phaseLabel, sharedTarget } from "./chatMeta";
 import { Action, IconButton } from "./shared";
 import TimelyLogo from "../ui/TimelyLogo";
@@ -77,6 +88,7 @@ export default function Assistant() {
   const scroll = useRef<ScrollView>(null);
   const runningAction = useRef(false);
   const detailKey = ["chat", uid, id];
+  const settingsKey = ["chat-settings", uid, id];
   const listKey = ["chats", uid];
   useEffect(() => subscribeOffline(setOfflineState), []);
   const query = useQuery({
@@ -120,11 +132,21 @@ export default function Assistant() {
         chat?.imageReview?.receipt,
         chat?.imageReview?.destination,
       ]);
-  const context = chat?.context ?? draft.context;
-  const search = chat?.webSearch ?? draft.webSearch;
-  const model: ModelChoice = chat
-    ? { provider: chat.chosenProvider ?? "", model: chat.chosenModel ?? "" }
-    : { provider: draft.provider ?? "", model: draft.model ?? "" };
+  const unsavedSettings = useMutationState({
+    filters: { mutationKey: settingsKey, status: "pending" },
+    select: (m) => m.state.variables as Partial<ChatSettings>,
+  });
+  const {
+    context,
+    webSearch: search,
+    model,
+  }: ChatSettings = chat
+    ? Object.assign(settingsOf(chat), ...unsavedSettings)
+    : {
+        context: draft.context,
+        webSearch: draft.webSearch,
+        model: { provider: draft.provider ?? "", model: draft.model ?? "" },
+      };
   const lastRevision = useRef<number | undefined>(undefined);
   const openedReceipt = useRef("");
   const unreadCount = (list.data ?? []).filter(
@@ -205,7 +227,9 @@ export default function Assistant() {
     if (page === "chat") scroll.current?.scrollToEnd({ animated: true });
   }, [chat?.messages?.length, chat?.status]);
 
+  const scope = { id: `chat:${id}` };
   const mutation = useMutation({
+    scope,
     mutationFn: ({
       action,
       body,
@@ -214,10 +238,12 @@ export default function Assistant() {
       action: string;
       body?: unknown;
       target?: string | null;
+      /** Text sent from a reply card leaves the draft and its images alone. */
+      fromCard?: boolean;
     }) =>
       chatRequest<Chat>(
         target ? `/${encodeURIComponent(target)}${action}` : "",
-        target ? (action === "" ? "PATCH" : "POST") : "POST",
+        "POST",
         body,
       ),
     onSuccess: (next, variables) => {
@@ -233,7 +259,8 @@ export default function Assistant() {
               : cache.draft,
           conversations: { ...cache.conversations, [next.id]: next },
         }));
-        draft.images.forEach((image) => void removeLocalImage(image.uri));
+        if (!variables.fromCard)
+          draft.images.forEach((image) => void removeLocalImage(image.uri));
         assistant.acceptSend(variables.target ?? id, next.id);
       }
       if (
@@ -261,7 +288,12 @@ export default function Assistant() {
         setReviewSteps(null);
         setPage("proposal");
       }
+      // Applying one card keeps the review open for the rest.
+      const partial =
+        variables.action === "/approve" &&
+        Array.isArray((variables.body as { steps?: unknown } | undefined)?.steps);
       if (
+        !partial &&
         [
           "/images/discard",
           "/images/confirm",
@@ -272,7 +304,11 @@ export default function Assistant() {
       )
         setPage("chat");
       if (variables.action === "/reject")
-        toast("Proposal discarded. Nothing was changed.");
+        toast(
+          next.plan?.some((step) => step.status === "done")
+            ? "Discarded the rest. Applied changes are kept."
+            : "Proposal discarded. Nothing was changed.",
+        );
       setError("");
     },
     onError: (reason) => {
@@ -280,9 +316,56 @@ export default function Assistant() {
       void query.refetch();
     },
   });
+  const settingsMutation = useMutation({
+    mutationKey: settingsKey,
+    scope,
+    mutationFn: ({ model, ...fields }: Partial<ChatSettings>) =>
+      chatRequest<Chat>(`/${encodeURIComponent(id ?? "")}`, "PATCH", {
+        ...fields,
+        ...model,
+      }),
+    onSuccess: async (next) => {
+      await queryClient.cancelQueries({ queryKey: detailKey, exact: true });
+      queryClient.setQueryData<Chat>(
+        detailKey,
+        (cached) =>
+          cached && {
+            ...cached,
+            context: next.context,
+            webSearch: next.webSearch,
+            chosenProvider: next.chosenProvider,
+            chosenModel: next.chosenModel,
+          },
+      );
+    },
+    onError: (reason) => {
+      setError(reason.message);
+      void queryClient.invalidateQueries({ queryKey: detailKey, exact: true });
+    },
+  });
   const pending = mutation.isPending || uploading;
   function act(action: string, body?: unknown) {
     if (!pending && !offline) mutation.mutate({ action, body });
+  }
+  // The receipt form as the person left it, so a message typed during the
+  // review revises their edits instead of dropping them.
+  function unsavedReceipt() {
+    return receiptDirty && reviewEdit && chat?.imageReview?.status === "review"
+      ? { receipt: reviewEdit.draft }
+      : {};
+  }
+  function ask(content: string) {
+    if (runningAction.current || pending || busy || offline || !id) return;
+    mutation.mutate({
+      action: "/messages",
+      body: {
+        content,
+        imageIds: [],
+        requestId: `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`,
+        ...unsavedReceipt(),
+      },
+      fromCard: true,
+    });
   }
   function chooseSimilar(action: "move" | "stay") {
     if (action === "stay") return act("/similar", { action });
@@ -318,6 +401,10 @@ export default function Assistant() {
       requestId: undefined,
     }));
   }
+  function saveSettings(next: Partial<ChatSettings>) {
+    const fields = chat && changed(next, { context, webSearch: search, model });
+    if (fields) settingsMutation.mutate(fields);
+  }
   const canConfigure = !busy && !pending && !(offline && !!id);
   function configure(nextContext = context, webSearch = search) {
     if (!canConfigure) {
@@ -325,7 +412,7 @@ export default function Assistant() {
         setError("Reconnect to change this conversation's context.");
       return;
     }
-    if (id) act("", { context: nextContext, webSearch });
+    if (id) saveSettings({ context: nextContext, webSearch });
     else
       assistant.setDraft((value) => ({
         ...value,
@@ -338,7 +425,7 @@ export default function Assistant() {
   const canPickModel = !pending && !(offline && !!id);
   function chooseModel(next: ModelChoice) {
     if (!canPickModel) return;
-    if (id) act("", next);
+    if (id) saveSettings({ model: next });
     else
       assistant.setDraft((value) => ({
         ...value,
@@ -364,7 +451,7 @@ export default function Assistant() {
     )
       return;
     runningAction.current = true;
-    setUploading(true);
+    if (draft.images.length) setUploading(true);
     setError("");
     const requestId =
       draft.requestId ||
@@ -397,6 +484,7 @@ export default function Assistant() {
           imageIds,
           requestId,
           ...(!id ? { context, webSearch: search, ...model } : {}),
+          ...unsavedReceipt(),
         },
       });
     } catch (reason) {
@@ -638,7 +726,7 @@ export default function Assistant() {
       if (task) assistant.openResult(`/(app)/tasks/${task[1]}`);
       else if (legacyFile) assistant.openResult(legacyFile);
       else if (
-        /^\/(tasks|projects|files|events|calendar|today|settings)(\/|\?|$)/.test(
+        /^\/(tasks|projects|files|events|calendar|today|inbox|dashboard|settings)(\/|\?|$)/.test(
           href,
         )
       )
@@ -884,6 +972,7 @@ export default function Assistant() {
                       }}
                       pending={pending}
                       onSimilar={chooseSimilar}
+                      onAsk={pending || busy || offline ? undefined : ask}
                     />
                   ) : null}
                   {savedReceipt && review?.receipt ? (
@@ -977,6 +1066,7 @@ export default function Assistant() {
                       chat={chat}
                       locked={locked}
                       onRetry={() => act("/retry")}
+                      onDiscardImages={() => act("/images/discard")}
                       onOpenSettings={() => assistant.openResult("/(app)/settings/agent")}
                     />
                   ) : null}
@@ -1069,8 +1159,15 @@ function PlanSummary({
   onOpen: () => void;
   onLink: (href: string) => void;
 }) {
-  const done = chat.plan.filter((step) => step.status === "done").length;
-  const total = chat.plan.length;
+  // Counted as the review page draws them: 30 entries for one sheet are one change.
+  const groups = planGroups(chat.plan);
+  const done = groups.filter((group) =>
+    group.steps.every((i) => chat.plan[i].status === "done"),
+  ).length;
+  const discarded = groups.filter((group) =>
+    group.steps.every((i) => chat.plan[i].status === "discarded"),
+  ).length;
+  const total = groups.length;
   const approval = chat.status === "approval";
   const failed = chat.status === "failed";
   const applying = isBusy(chat.status) && chat.phase === "apply";
@@ -1102,7 +1199,7 @@ function PlanSummary({
                   ? "Changes applied"
                   : "Your changes"
       }
-      body={`${done} of ${total} ${total === 1 ? "change" : "changes"} applied`}
+      body={`${done} of ${total} ${total === 1 ? "change" : "changes"} applied${discarded ? ` · ${discarded} discarded` : ""}`}
     >
       <View style={styles.planActions}>
         {target ? (

@@ -3,12 +3,16 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"timely-api/internal/features/chat"
 	"timely-api/internal/jobs"
@@ -87,6 +91,13 @@ func integrationDB(t *testing.T) *gorm.DB {
 	if err = db.Exec(prefs).Error; err != nil {
 		t.Fatal(err)
 	}
+	auto, err := os.ReadFile("../../../migrations/20261031170000_default_provider_auto.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Exec(strings.Split(string(auto), "-- +goose Down")[0]).Error; err != nil {
+		t.Fatal(err)
+	}
 	for _, uid := range []string{"user-a", "user-b"} {
 		if err = db.Exec("INSERT INTO users (id, name, email, password) VALUES (?, ?, ?, ?)", uid, uid, uid+"@example.com", "x").Error; err != nil {
 			t.Fatal(err)
@@ -130,11 +141,17 @@ func TestIntegrationProviderSettingsFlow(t *testing.T) {
 
 	// A fake OpenRouter accepts only one key so the stored secret is exercised end to end.
 	var seenModel string
+	chatCalls := 0
 	openrouter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer sk-or-v1-goodkey" {
 			w.WriteHeader(401)
 			return
 		}
+		if r.URL.Path == "/key" {
+			_, _ = w.Write([]byte(`{"data":{"usage":0}}`))
+			return
+		}
+		chatCalls++
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		seenModel, _ = body["model"].(string)
@@ -151,10 +168,14 @@ esac`)
 
 	s := New(db, nil, jobs.NewQueue(db))
 	s.openRouterURL = openrouter.URL
+	s.openRouterKeyURL = openrouter.URL + "/key"
 
 	// No key anywhere: runs must fail loudly, never fall back.
-	if _, err := s.Completer(context.Background(), "user-a", "", ""); err == nil || !strings.Contains(err.Error(), "OpenRouter API key") {
+	if _, err := s.Completer(context.Background(), "user-a", "", ""); err == nil || !strings.Contains(err.Error(), "No AI provider is set up") {
 		t.Fatalf("missing key must be explained: %v", err)
+	}
+	if _, _, err := s.Resolve(context.Background(), "user-a"); err == nil {
+		t.Fatal("a run with no provider must fail")
 	}
 	if _, body := call(t, s, "user-a", http.MethodGet, "/agent/providers", nil); body["openrouter"].(map[string]any)["ready"] != false {
 		t.Fatal("a server env key must not make OpenRouter ready")
@@ -172,6 +193,24 @@ esac`)
 	or := body["openrouter"].(map[string]any)
 	if or["keySet"] != true || or["keyHint"] != "…dkey" || or["ready"] != true {
 		t.Fatalf("key view wrong: %v", or)
+	}
+	if chatCalls != 0 {
+		t.Fatalf("saving a key must not run a chat model, got %d chat calls", chatCalls)
+	}
+	// Saving a key chooses nothing, even for the only provider: runs wait for
+	// the person's pick with the typed error, and a chat that picked its own
+	// provider still runs (ADR 0020).
+	if body["defaultProvider"] != "" || body["defaultChosen"] != false {
+		t.Fatalf("a saved key must not become the default: %v %v", body["defaultProvider"], body["defaultChosen"])
+	}
+	if _, _, err := s.Resolve(context.Background(), "user-a"); !errors.Is(err, errNotChosen) {
+		t.Fatalf("an unchosen default must wait: %v", err)
+	}
+	if _, err := s.Completer(context.Background(), "user-a", "", ""); !errors.Is(err, errNotChosen) {
+		t.Fatalf("an unchosen default must wait: %v", err)
+	}
+	if _, err := s.Completer(context.Background(), "user-a", OpenRouter, ""); err != nil {
+		t.Fatalf("a chat that picked OpenRouter keeps working: %v", err)
 	}
 	if raw, _ := json.Marshal(body); strings.Contains(string(raw), "goodkey") {
 		t.Fatal("the key must never be returned")
@@ -194,6 +233,9 @@ esac`)
 	// Model choice is verified by a test call.
 	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/providers", map[string]string{"openrouterChatModel": "bad model"}); code != 400 {
 		t.Fatalf("%d %v", code, body)
+	}
+	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/providers", map[string]string{"defaultProvider": OpenRouter}); code != 200 || chatCalls != 1 || body["defaultChosen"] != true {
+		t.Fatalf("choosing OpenRouter must test its chat model once: %d %d %v", code, chatCalls, body)
 	}
 	if code, _ := call(t, s, "user-a", http.MethodPatch, "/agent/providers", map[string]string{"openrouterChatModel": "openai/gpt-5.5"}); code != 200 || seenModel != "openai/gpt-5.5" {
 		t.Fatalf("model must be test-called: %d %q", code, seenModel)
@@ -247,8 +289,9 @@ esac`)
 	if _, err := s.Completer(context.Background(), "user-a", OpenRouter, ""); err == nil {
 		t.Fatal("removed key must not keep working")
 	}
-	// Disconnecting the default provider falls back to OpenRouter as the default choice.
-	if _, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/claude/disconnect", nil); body["defaultProvider"] != OpenRouter {
+	// Disconnecting the chosen default hands the choice back; with no other
+	// provider ready, nothing runs chat (never a silent switch to OpenRouter).
+	if _, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/claude/disconnect", nil); body["defaultProvider"] != "" || body["defaultChosen"] != false {
 		t.Fatalf("%v", body)
 	}
 	if _, err := s.Completer(context.Background(), "user-a", ClaudeCLI, "opus"); err == nil || !strings.Contains(err.Error(), "not connected") {
@@ -290,6 +333,7 @@ func TestIntegrationDirectAPIProviders(t *testing.T) {
 	}))
 	defer ollama.Close()
 	// A fake Anthropic that accepts one key.
+	var testedModels []string
 	anthropicAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Header.Get("X-Api-Key") != "sk-ant-goodkey" {
@@ -297,7 +341,14 @@ func TestIntegrationDirectAPIProviders(t *testing.T) {
 			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"data":[{"type":"model","id":"claude-haiku-4-5","display_name":"Claude Haiku 4.5","created_at":"2025-10-01T00:00:00Z"},{"type":"model","id":"claude-opus-5-5","display_name":"Claude Opus 5.5","created_at":"2026-09-01T00:00:00Z"}],"has_more":false}`))
+		if strings.HasSuffix(r.URL.Path, "/messages") {
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			testedModels = append(testedModels, fmt.Sprint(body["model"]))
+			_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","model":"m","stop_reason":"end_turn","content":[{"type":"text","text":"OK"}],"usage":{"input_tokens":1,"output_tokens":1}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"type":"model","id":"claude-haiku-4-5","display_name":"Claude Haiku 4.5","created_at":"2025-10-01T00:00:00Z"},{"type":"model","id":"claude-haiku-5-5","display_name":"Claude Haiku 5.5","created_at":"2026-09-01T00:00:00Z"},{"type":"model","id":"claude-opus-5-5","display_name":"Claude Opus 5.5","created_at":"2026-09-01T00:00:00Z"}],"has_more":false}`))
 	}))
 	defer anthropicAPI.Close()
 
@@ -357,15 +408,15 @@ func TestIntegrationDirectAPIProviders(t *testing.T) {
 		t.Fatalf("models without a key: %d", code)
 	}
 
-	// Anthropic: a bad key is rejected with Anthropic's own message; a good one is stored encrypted.
-	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": "sk-ant-badkey"}); code != 409 || !strings.Contains(body["message"].(string), "invalid x-api-key") {
+	// Anthropic: a bad key is rejected in plain words; a good one is stored encrypted.
+	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": "sk-ant-badkey"}); code != 409 || !strings.Contains(body["message"].(string), "didn't accept the API key (HTTP 401)") {
 		t.Fatalf("bad key: %d %v", code, body)
 	}
 	code, body = call(t, s, "user-a", http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": "sk-ant-goodkey"})
 	if code != 200 {
 		t.Fatalf("%d %v", code, body)
 	}
-	if view := apiView(body, "anthropic"); view["keyHint"] != "…dkey" || view["model"] != "claude-opus-5-5" || view["search"] != true {
+	if view := apiView(body, "anthropic"); view["keyHint"] != "…dkey" || view["model"] != "claude-haiku-5-5" || view["search"] != true {
 		t.Fatalf("anthropic view wrong: %v", view)
 	}
 	if raw, _ := json.Marshal(body); strings.Contains(string(raw), "goodkey") {
@@ -385,11 +436,232 @@ func TestIntegrationDirectAPIProviders(t *testing.T) {
 		t.Fatal("api keys must be account-scoped")
 	}
 
-	// Disconnecting the default resets it to OpenRouter and the provider stops working.
-	if _, body := call(t, s, "user-a", http.MethodDelete, "/agent/providers/ollama/key", nil); body["defaultProvider"] != OpenRouter {
+	// Removing the chosen default through the API empties it: nothing moves
+	// to the Anthropic key on its own, and runs wait for a pick (ADR 0020).
+	if _, body := call(t, s, "user-a", http.MethodDelete, "/agent/providers/ollama/key", nil); body["defaultProvider"] != "" || body["defaultChosen"] != false {
 		t.Fatalf("%v", body)
+	}
+	if _, _, err := s.Resolve(context.Background(), "user-a"); !errors.Is(err, errNotChosen) {
+		t.Fatalf("an emptied default must wait: %v", err)
+	}
+	// Picking Anthropic (what the apps ask right after the removal) tests the
+	// saved model, which is Haiku.
+	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/providers", map[string]any{"defaultProvider": "anthropic"}); code != 200 || len(testedModels) != 1 || testedModels[0] != "claude-haiku-5-5" {
+		t.Fatalf("choosing Anthropic: %d %v %v", code, body["message"], testedModels)
+	}
+	if provider, model, err := s.Resolve(context.Background(), "user-a"); err != nil || provider != "anthropic" || model != "claude-haiku-5-5" {
+		t.Fatalf("%s %s %v", provider, model, err)
 	}
 	if _, err := s.Completer(context.Background(), "user-a", "ollama", "qwen3:8b"); err == nil || !strings.Contains(err.Error(), "not connected") {
 		t.Fatalf("disconnected provider must refuse: %v", err)
+	}
+}
+
+// An OpenRouter key saved for search and smart suggestions never takes chat
+// or the writing features away from Anthropic, never runs a chat model unless
+// OpenRouter is chosen for chat, and a new Anthropic key starts on Haiku.
+func TestIntegrationOpenRouterKeyNeverTakesChat(t *testing.T) {
+	db := integrationDB(t)
+	t.Setenv("JWT_SECRET", "integration-secret")
+	t.Setenv("CHAT_LOCAL_CLI", "off")
+
+	var mu sync.Mutex
+	chatModels := []string{}
+	openrouter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer sk-or-v1-goodkey" {
+			w.WriteHeader(401)
+			return
+		}
+		if r.URL.Path == "/key" {
+			_, _ = w.Write([]byte(`{"data":{"usage":0}}`))
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		mu.Lock()
+		chatModels = append(chatModels, fmt.Sprint(body["model"]))
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}]}`))
+	}))
+	defer openrouter.Close()
+	listed := `{"type":"model","id":"claude-haiku-5-5","display_name":"Claude Haiku 5.5","created_at":"2026-09-01T00:00:00Z"}`
+	anthropicModels := []string{}
+	anthropicAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Header.Get("X-Api-Key") != "sk-ant-goodkey" {
+			w.WriteHeader(401)
+			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`))
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/messages") {
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			mu.Lock()
+			anthropicModels = append(anthropicModels, fmt.Sprint(body["model"]))
+			mu.Unlock()
+			_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","model":"m","stop_reason":"end_turn","content":[{"type":"text","text":"OK"}],"usage":{"input_tokens":1,"output_tokens":1}}`))
+			return
+		}
+		mu.Lock()
+		list := listed
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"data":[` + list + `,{"type":"model","id":"claude-opus-5-5","display_name":"Claude Opus 5.5","created_at":"2026-09-01T00:00:00Z"}],"has_more":false}`))
+	}))
+	defer anthropicAPI.Close()
+
+	s := New(db, nil, jobs.NewQueue(db))
+	s.openRouterURL = openrouter.URL
+	s.openRouterKeyURL = openrouter.URL + "/key"
+	s.anthropicURL = anthropicAPI.URL
+
+	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/openrouter/key", map[string]string{"key": "sk-or-v1-goodkey"}); code != 200 {
+		t.Fatalf("%d %v", code, body)
+	}
+	code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": "sk-ant-goodkey"})
+	if code != 200 || body["defaultProvider"] != "" || body["defaultChosen"] != false {
+		t.Fatalf("a saved Anthropic key must not become the default on its own: %d %v %v", code, body["defaultProvider"], body["defaultChosen"])
+	}
+	// Until the person picks, Help me write waits with the typed error.
+	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/write", map[string]string{"action": "write", "prompt": "two ideas", "kind": "doc"}); code != 409 || body["code"] != "provider_not_chosen" || !strings.Contains(fmt.Sprint(body["message"]), "Settings → Agent") {
+		t.Fatalf("Help me write before a pick: %d %v", code, body)
+	}
+	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/providers", map[string]string{"defaultProvider": "anthropic"}); code != 200 || body["defaultChosen"] != true {
+		t.Fatalf("%d %v", code, body)
+	}
+	provider, model, err := s.Resolve(context.Background(), "user-a")
+	if err != nil || provider != "anthropic" || model != "claude-haiku-5-5" {
+		t.Fatalf("chat runs: %s %s %v", provider, model, err)
+	}
+	// The writing features run on the same provider and model, through the handler.
+	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/write", map[string]string{"action": "write", "prompt": "two ideas for a rainy Sunday", "kind": "doc", "title": "Weekend"}); code != 200 || body["provider"] != "anthropic" || body["model"] != "claude-haiku-5-5" {
+		t.Fatalf("Help me write: %d %v", code, body)
+	}
+	// Changing OpenRouter's chat model while Anthropic runs chat sends nothing.
+	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/providers", map[string]string{"openrouterChatModel": "openai/gpt-5.5"}); code != 200 {
+		t.Fatalf("%d %v", code, body)
+	}
+	// Replacing the key when the list names Haiku with a date keeps Haiku.
+	mu.Lock()
+	listed = `{"type":"model","id":"claude-haiku-5-5-20261001","display_name":"Claude Haiku 5.5","created_at":"2026-09-01T00:00:00Z"}`
+	mu.Unlock()
+	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": "sk-ant-goodkey"}); code != 200 {
+		t.Fatalf("%d %v", code, body)
+	}
+	if _, model, _ := s.Resolve(context.Background(), "user-a"); model != "claude-haiku-5-5-20261001" {
+		t.Fatalf("re-key must keep Haiku, got %q", model)
+	}
+	mu.Lock()
+	if len(chatModels) != 0 {
+		t.Fatalf("no OpenRouter chat call may happen while Anthropic runs chat: %v", chatModels)
+	}
+	mu.Unlock()
+	// Choosing OpenRouter for chat is the moment its chat model is tested.
+	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/providers", map[string]string{"defaultProvider": OpenRouter}); code != 200 || body["defaultChosen"] != true || body["defaultProvider"] != OpenRouter {
+		t.Fatalf("%d %v", code, body)
+	}
+	if _, ok := body["autoProvider"]; ok {
+		t.Fatal("the overview no longer names an automatic pick")
+	}
+	mu.Lock()
+	if len(chatModels) != 1 || chatModels[0] != "openai/gpt-5.5" {
+		t.Fatalf("choosing OpenRouter must test its chat model once: %v", chatModels)
+	}
+	mu.Unlock()
+	if provider, _, _ := s.Resolve(context.Background(), "user-a"); provider != OpenRouter {
+		t.Fatalf("a chosen OpenRouter default is kept: %q", provider)
+	}
+	// Removing the OpenRouter key through the API empties the default; nothing
+	// moves to Anthropic on its own (the apps ask which to use instead).
+	if code, body := call(t, s, "user-a", http.MethodDelete, "/agent/providers/openrouter/key", nil); code != 200 || body["defaultProvider"] != "" || body["defaultChosen"] != false {
+		t.Fatalf("%d %v %v", code, body["defaultProvider"], body["defaultChosen"])
+	}
+	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/openrouter/key", map[string]string{"key": "sk-or-v1-goodkey"}); code != 200 || body["defaultProvider"] != "" {
+		t.Fatalf("%d %v", code, body)
+	}
+	// Choosing Anthropic again tests it once: the replaced key and its dated
+	// model have not answered a test call yet.
+	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/providers", map[string]string{"defaultProvider": "anthropic"}); code != 200 || body["defaultChosen"] != true {
+		t.Fatalf("%d %v", code, body)
+	}
+	// Choosing it once more within the hour sends no second test call.
+	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/providers", map[string]string{"defaultProvider": ""}); code != 200 || body["defaultProvider"] != "" || body["defaultChosen"] != false {
+		t.Fatalf("%d %v", code, body)
+	}
+	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/providers", map[string]string{"defaultProvider": "anthropic"}); code != 200 || body["defaultChosen"] != true {
+		t.Fatalf("%d %v", code, body)
+	}
+	// Removing the Anthropic key leaves OpenRouter set up but not chosen.
+	if code, body := call(t, s, "user-a", http.MethodDelete, "/agent/providers/anthropic/key", nil); code != 200 || body["defaultProvider"] != "" || body["defaultChosen"] != false {
+		t.Fatalf("%d %v", code, body)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(chatModels) != 1 {
+		t.Fatalf("only choosing OpenRouter may send it a chat call: %v", chatModels)
+	}
+	// Choosing Anthropic, Help me write, and choosing the re-keyed model
+	// sent one call each; choosing it again within the hour sent none.
+	if len(anthropicModels) != 3 {
+		t.Fatalf("expected 3 Anthropic calls, got %v", anthropicModels)
+	}
+	for _, m := range anthropicModels {
+		if !strings.Contains(m, "haiku") {
+			t.Fatalf("an Anthropic call ran %q, not Haiku", m)
+		}
+	}
+}
+
+func TestIntegrationMigrationMovesUnchosenOpusToHaiku(t *testing.T) {
+	db := integrationDB(t)
+	// Before the migration: user-a never chose a provider (stored as
+	// 'openrouter' by the old column default) and saved an Anthropic key that
+	// was given Opus; user-b chose Anthropic and runs Opus on purpose.
+	for _, row := range []Settings{{UserID: "user-a", DefaultProvider: OpenRouter, OpenRouterKey: "enc"}, {UserID: "user-b", DefaultProvider: "anthropic"}} {
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, uid := range []string{"user-a", "user-b"} {
+		if err := db.Create(&APIKey{UserID: uid, Provider: "anthropic", Key: "enc", Model: "claude-opus-5-5", CreatedAt: time.Now(), UpdatedAt: time.Now()}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	auto, err := os.ReadFile("../../../migrations/20261031170000_default_provider_auto.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Exec(strings.Split(string(auto), "-- +goose Down")[0]).Error; err != nil {
+		t.Fatal(err)
+	}
+	s := New(db, nil, jobs.NewQueue(db))
+	for uid, want := range map[string]string{"user-a": "claude-haiku-5-5", "user-b": "claude-opus-5-5"} {
+		var key APIKey
+		if err := db.First(&key, "user_id = ? AND provider = ?", uid, "anthropic").Error; err != nil || key.Model != want {
+			t.Errorf("%s: got %q %v, want %s", uid, key.Model, err, want)
+		}
+	}
+	// user-b chose Anthropic; user-a never chose, so runs wait for a pick
+	// (ADR 0020), and picking Anthropic then runs Haiku.
+	if provider, model, err := s.Resolve(context.Background(), "user-b"); err != nil || provider != "anthropic" || model != "claude-opus-5-5" {
+		t.Errorf("user-b: %s %s %v", provider, model, err)
+	}
+	if _, _, err := s.Resolve(context.Background(), "user-a"); !errors.Is(err, errNotChosen) {
+		t.Errorf("user-a must be asked: %v", err)
+	}
+	var stored Settings
+	if err := db.First(&stored, "user_id = ?", "user-a").Error; err != nil || stored.DefaultProvider != "" {
+		t.Errorf("user-a's default must be emptied: %q %v", stored.DefaultProvider, err)
+	}
+}
+
+func TestIntegrationRehearsedLiveBlockNeedsAProvider(t *testing.T) {
+	db := integrationDB(t)
+	t.Setenv("JWT_SECRET", "integration-secret")
+	t.Setenv("CHAT_LOCAL_CLI", "off")
+	s := New(db, nil, nil)
+	// Outside a chat run the account's own provider is checked, and an
+	// account with none set up hears so before the person reviews anything.
+	if _, err := s.RehearseLiveBlock(context.Background(), "user-a", "my open work", "", "2026-10-31"); err == nil || !strings.Contains(err.Error(), "Live blocks need an AI provider") {
+		t.Fatalf("an account with no provider is refused: %v", err)
 	}
 }

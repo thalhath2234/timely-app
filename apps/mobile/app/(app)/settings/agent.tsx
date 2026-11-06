@@ -17,7 +17,13 @@ import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ConfirmSheet, {
   type ConfirmRequest,
 } from "../../../components/ui/ConfirmSheet";
-import { Field, PrimaryButton } from "../../../components/ui/primitives";
+import { Field, PrimaryButton, Select, type SelectOption } from "../../../components/ui/primitives";
+import { GroupHint, ListGroup } from "../../../components/settings/SettingsList";
+import {
+  ProviderSheet,
+  readyIds,
+  type ProviderRequest,
+} from "../../../components/settings/DefaultChoice";
 import {
   useAgentProvidersQuery,
   useConnectProvider,
@@ -48,9 +54,19 @@ import {
   type ModelOption,
   type ProviderId,
 } from "../../../lib/api/agentProviders";
+import { providerAfterRemoval } from "@timely/contract/providerFallback";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { LogoSpinner } from "../../../components/ui/TimelyLogo";
 import { FocusGroup, FocusGroupScrollView } from "../../../components/ui/FocusGroup";
+
+/** A model row's second line: its id when the name differs, and any note. */
+function modelDetail(option: ModelOption) {
+  const parts = [
+    option.name && option.id !== option.name ? option.id : "",
+    option.note ?? "",
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : undefined;
+}
 
 function errorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback;
@@ -182,23 +198,22 @@ function ModelPicker({
         {loadError ? <Text style={styles.error}>{loadError}</Text> : null}
         {custom ? (
           <SheetOption onSelect={() => void save(query.trim())}>
-            Use “{query.trim()}”
+            {`Use “${query.trim()}”`}
           </SheetOption>
         ) : null}
         {filtered.map((option) => (
           <SheetOption
             key={option.id}
             selected={option.id === value}
-            leading={
+            trailing={
               option.vision ? (
-                <Eye size={14} color={colors.mutedForeground} />
+                <Eye size={16} color={colors.mutedForeground} />
               ) : undefined
             }
+            detail={modelDetail(option)}
             onSelect={() => void save(option.id)}
           >
-            {option.name}
-            {option.id !== option.name ? `  ·  ${option.id}` : ""}
-            {option.note ? `  ·  ${option.note}` : ""}
+            {option.name || option.id}
           </SheetOption>
         ))}
         {!loading && !loadError && filtered.length === 0 && !custom ? (
@@ -261,10 +276,10 @@ function ProviderCard({
 
 function OpenRouterCard({
   data,
-  confirm,
+  ask,
 }: {
   data: AgentProviders;
-  confirm: (req: ConfirmRequest) => void;
+  ask: (req: ProviderRequest) => void;
 }) {
   const patch = usePatchAgentProviders();
   const setKey = useSetOpenRouterKey();
@@ -310,11 +325,13 @@ function OpenRouterCard({
             <Pressable
               accessibilityRole="button"
               onPress={() =>
-                confirm({
+                ask({
+                  kind: "remove",
+                  id: "openrouter",
                   title: "Remove your OpenRouter key?",
                   message: "OpenRouter chats and semantic search stop until you add one again, and so do smart suggestions unless you have a TypeSafe key.",
                   confirmLabel: "Remove",
-                  onConfirm: () => removeKey.mutate(),
+                  onRemove: () => removeKey.mutateAsync(),
                 })
               }
             >
@@ -341,9 +358,12 @@ function OpenRouterCard({
             onPress={() => {
               setKeyError(null);
               setKey.mutate(key.trim(), {
-                onSuccess: () => {
+                onSuccess: (next) => {
                   setKeyValue("");
                   setEditing(false);
+                  // Nothing becomes the default on its own (ADR 0020): ask now.
+                  if (!next.defaultChosen && next.openrouter.ready)
+                    ask({ kind: "choose", initial: "openrouter" });
                 },
                 onError: (err) =>
                   setKeyError(errorMessage(err, "Could not save the key.")),
@@ -401,14 +421,22 @@ function OpenRouterCard({
           <View style={styles.row}>
             <LogoSpinner size={16} color={colors.mutedForeground} />
             <Text style={styles.meta}>
-              Rebuilding search index… {reindex.done}
-              {reindex.total ? ` / ${reindex.total}` : ""}
+              Rebuilding search index…
+              {reindex.total ? ` ${reindex.done} / ${reindex.total}` : ""}
             </Text>
           </View>
         ) : null}
         {reindex.status === "done" ? (
           <Text style={styles.meta}>
             Search index up to date ({reindex.total} items).
+            {reindex.skipped
+              ? ` ${reindex.skipped === 1 ? "1 item was" : `${reindex.skipped} items were`} skipped because your AI provider refused ${reindex.skipped === 1 ? "it" : "them"}.`
+              : ""}
+          </Text>
+        ) : null}
+        {reindex.status === "retrying" ? (
+          <Text style={styles.warn} testID="reindex-retrying">
+            Index rebuild failed and will try again soon ({reindex.error}).
           </Text>
         ) : null}
         {reindex.status === "failed" ? (
@@ -442,25 +470,36 @@ function SmartSuggestionsCard({
   const [keyError, setKeyError] = useState<string | null>(null);
   // The key form opens by itself only when there is no key at all, as on web.
   const editing = editingKey || (!typesafe.keySet && !data.openrouterKeySet);
+  // Suggestions run on Jev, so they switch on only with a key it can use.
+  const hasKey = (typesafe.keySet && !typesafe.rejected && !typesafe.unreadable) || data.openrouterKeySet;
   let source: string;
-  if (!data.enabled) source = "Off. Timely works as it does without them.";
+  if (!hasKey)
+    source = typesafe.unreadable
+      ? "Timely can't read your saved TypeSafe key. Enter it again, or add an OpenRouter key, to turn these on."
+      : typesafe.rejected
+        ? "TypeSafe refused your key. Add a working TypeSafe or OpenRouter key to turn these on."
+        : "Add a TypeSafe or OpenRouter key to turn these on.";
+  else if (!data.enabled) source = "Off. Timely works as it does without them.";
   else if (data.provider === "typesafe") source = "Using your TypeSafe key.";
   else if (data.provider === "openrouter")
-    source = typesafe.rejected
-      ? "TypeSafe refused your key, so your OpenRouter key is used for now."
-      : "Using your OpenRouter key. A TypeSafe key is used first when you add one.";
+    source = typesafe.unreadable
+      ? "Timely can't read your saved TypeSafe key, so your OpenRouter key is used for now."
+      : typesafe.rejected
+        ? "TypeSafe refused your key, so your OpenRouter key is used for now."
+        : "Using your OpenRouter key. A TypeSafe key is used first when you add one.";
   else source = "Add a TypeSafe or OpenRouter key to turn these on.";
 
   return (
     <View style={styles.card} testID="smart-suggestions">
       <View style={styles.row}>
         <Text style={styles.title}>Smart suggestions</Text>
-        <Badge tone={data.available ? "ok" : "muted"}>{data.available ? "On" : "Off"}</Badge>
+        <Badge tone={data.available ? "ok" : hasKey ? "muted" : "warn"}>{data.available ? "On" : hasKey ? "Off" : typesafe.keySet ? "Key not working" : "Needs a key"}</Badge>
         <View style={{ flex: 1 }} />
         <Switch
           accessibilityLabel="Smart suggestions"
-          value={data.enabled}
-          disabled={patch.isPending}
+          accessibilityHint={hasKey ? undefined : "Add a TypeSafe or OpenRouter key first"}
+          value={data.available}
+          disabled={patch.isPending || !hasKey}
           onValueChange={(enabled) => patch.mutate(enabled)}
           trackColor={{ true: colors.primary }}
           thumbColor={colors.background}
@@ -475,7 +514,9 @@ function SmartSuggestionsCard({
         are never sent. Runs on Jev, TypeSafe’s fast decision model.
       </Text>
       <Text style={styles.sourceLine} testID="decisions-source">{source}</Text>
-      {data.available ? (
+      {/* Test also asks TypeSafe again about a key it refused; if it takes
+          the key now, suggestions use it again. */}
+      {data.available || (data.enabled && typesafe.rejected) ? (
         <View style={[styles.row, { flexWrap: "wrap" }]} testID="decisions-test">
           <Pressable
             accessibilityRole="button"
@@ -509,9 +550,13 @@ function SmartSuggestionsCard({
         </Text>
       ) : null}
       <Text style={styles.label}>TypeSafe API key</Text>
-      {typesafe.rejected ? (
+      {typesafe.unreadable ? (
         <Text style={styles.warning}>
-          TypeSafe refused this key. Replace it to use TypeSafe again.
+          Timely can't read this key. Enter it again to use TypeSafe.
+        </Text>
+      ) : typesafe.rejected ? (
+        <Text style={styles.warning}>
+          TypeSafe refused this key. Replace it, or test it again, to use TypeSafe.
         </Text>
       ) : null}
       {removeKey.error ? (
@@ -522,8 +567,8 @@ function SmartSuggestionsCard({
       {!editing ? (
         <View style={[styles.row, { flexWrap: "wrap" }]}>
           {typesafe.keySet ? (
-            <Badge tone={typesafe.rejected ? "warn" : "ok"}>
-              Key saved {typesafe.keyHint}
+            <Badge tone={typesafe.rejected || typesafe.unreadable ? "warn" : "ok"}>
+              {typesafe.unreadable ? "Key can't be read" : "Key saved"} {typesafe.keyHint}
             </Badge>
           ) : (
             <Badge tone="muted">No key</Badge>
@@ -761,14 +806,61 @@ function LearnedDefaults() {
 
 const CUSTOM_ENDPOINT = "custom";
 
+/** Which provider runs new chats and the writing tools. Nothing is picked on
+ * the person's behalf: until they choose, those features wait (ADR 0020). */
+function DefaultProviderGroup({ data }: { data: AgentProviders }) {
+  const patch = usePatchAgentProviders();
+  const ready = readyIds(data);
+  const chosen = data.defaultChosen ? data.defaultProvider : "";
+  const options: SelectOption[] = ready.map((id) => ({ value: id, label: PROVIDER_LABELS[id] }));
+  // A chosen provider that is not ready right now (signed out) stays named.
+  if (chosen && !ready.includes(chosen))
+    options.push({ value: chosen, label: PROVIDER_LABELS[chosen] });
+  const saving = patch.isPending ? patch.variables?.defaultProvider : undefined;
+  const value = saving ?? chosen;
+
+  const hint = chosen
+    ? "Runs new chats and Help me write."
+    : ready.length
+      ? "Chats and Help me write wait until you choose one."
+      : "Add a key below, then choose it here.";
+
+  return (
+    <View testID="default-provider" style={{ gap: 6 }}>
+      <ListGroup>
+        <Select
+          trigger="row"
+          label="Default provider"
+          placeholder="Not chosen"
+          value={value}
+          onChange={(next) => {
+            if (patch.isPending || next === value) return;
+            patch.mutate({ defaultProvider: next as ProviderId });
+          }}
+          options={options}
+        />
+      </ListGroup>
+      {patch.error ? (
+        <Text style={[styles.error, { marginHorizontal: 4 }]}>
+          {errorMessage(patch.error, "Could not switch provider.")}
+        </Text>
+      ) : (
+        <GroupHint>
+          {saving !== undefined ? "Switching…" : hint}
+        </GroupHint>
+      )}
+    </View>
+  );
+}
+
 /** The direct API providers folded into one dropdown, so OpenRouter and Smart
  * suggestions stay the two keys people see first. */
 function MoreApiKeys({
   data,
-  confirm,
+  ask,
 }: {
   data: AgentProviders;
-  confirm: (req: ConfirmRequest) => void;
+  ask: (req: ProviderRequest) => void;
 }) {
   const [open, setOpen] = useState(false);
   const providers = data.apiProviders;
@@ -827,7 +919,7 @@ function MoreApiKeys({
               key={view.id}
               data={data}
               view={view}
-              confirm={confirm}
+              ask={ask}
               first={index === 0}
             />
           ))}
@@ -837,16 +929,27 @@ function MoreApiKeys({
   );
 }
 
+/** What the Disconnect confirm says. Removing the default provider moves chat
+ * to the next one set up, so the confirm names it rather than switching
+ * silently. */
+function disconnectNote(data: AgentProviders, id: ProviderId) {
+  const next = providerAfterRemoval(data, id);
+  if (next === data.defaultProvider) return "The saved key is deleted.";
+  if (!next)
+    return "The saved key is deleted. Chat and the writing tools won’t work until you set up another provider.";
+  return `The saved key is deleted. Chat and the writing tools will use ${PROVIDER_LABELS[next as ProviderId]} instead.`;
+}
+
 /** One direct API provider inside More API keys: a single line until opened. */
 function ApiProviderRow({
   data,
   view,
-  confirm,
+  ask,
   first,
 }: {
   data: AgentProviders;
   view: ApiProviderView;
-  confirm: (req: ConfirmRequest) => void;
+  ask: (req: ProviderRequest) => void;
   first: boolean;
 }) {
   const patch = usePatchAgentProviders();
@@ -935,17 +1038,17 @@ function ApiProviderRow({
               <Pressable
                 accessibilityRole="button"
                 onPress={() =>
-                  confirm({
+                  ask({
+                    kind: "remove",
+                    id: view.id,
                     title: `Disconnect ${view.label}?`,
-                    message: "The saved key is deleted.",
+                    message: disconnectNote(data, view.id),
                     confirmLabel: "Disconnect",
-                    onConfirm: () =>
-                      removeKey.mutate(view.id, {
-                        onSuccess: () => {
-                          setOpen(false);
-                          setEditing(true);
-                        },
-                      }),
+                    onRemove: async () => {
+                      await removeKey.mutateAsync(view.id);
+                      setOpen(false);
+                      setEditing(true);
+                    },
                   })
                 }
               >
@@ -1024,12 +1127,15 @@ function ApiProviderRow({
                       setKey.mutate(
                         { id: view.id, key: key.trim(), baseUrl },
                         {
-                          onSuccess: () => {
+                          onSuccess: (next) => {
                             // Blur first: unmounting a focused input on Android
                             // moves focus to another field.
                             Keyboard.dismiss();
                             setKeyValue("");
                             setEditing(false);
+                            // Nothing becomes the default on its own (ADR 0020).
+                            if (!next.defaultChosen && readyIds(next).includes(view.id))
+                              ask({ kind: "choose", initial: view.id });
                           },
                           onError: (err) =>
                             setKeyError(
@@ -1110,10 +1216,12 @@ function CliCard({
   id,
   data,
   view,
+  ask,
 }: {
   id: "claude" | "codex";
   data: AgentProviders;
   view: CliProviderView;
+  ask: (req: ProviderRequest) => void;
 }) {
   const patch = usePatchAgentProviders();
   const connect = useConnectProvider();
@@ -1181,6 +1289,11 @@ function CliCard({
           onPress={() => {
             setConnectError(null);
             connect.mutate(id, {
+              // Nothing becomes the default on its own (ADR 0020): ask now.
+              onSuccess: (next) => {
+                if (!next.defaultChosen && readyIds(next).includes(id))
+                  ask({ kind: "choose", initial: id });
+              },
               onError: (err) =>
                 setConnectError(errorMessage(err, "Could not connect.")),
             });
@@ -1198,7 +1311,19 @@ function CliCard({
           <Pressable
             accessibilityRole="button"
             disabled={disconnect.isPending}
-            onPress={() => disconnect.mutate(id)}
+            onPress={() =>
+              // The default asks which provider takes its place.
+              data.defaultChosen && data.defaultProvider === id
+                ? ask({
+                    kind: "remove",
+                    id,
+                    title: `Disconnect ${PROVIDER_LABELS[id]}?`,
+                    message: "Timely stops using its sign-in on the server.",
+                    confirmLabel: "Disconnect",
+                    onRemove: () => disconnect.mutateAsync(id),
+                  })
+                : disconnect.mutate(id)
+            }
           >
             <Text style={styles.danger}>Disconnect</Text>
           </Pressable>
@@ -1233,9 +1358,11 @@ function CliCard({
 
 export default function AgentSettings() {
   const insets = useSafeAreaInsets();
-  const providers = useAgentProvidersQuery();
+  const providers = useAgentProvidersQuery({ watchReindex: true });
   const decisions = useDecisionSettingsQuery();
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+  // Choosing the default after a setup, or its replacement on removal.
+  const [providerRequest, setProviderRequest] = useState<ProviderRequest | null>(null);
   const data = providers.data;
 
   return (
@@ -1272,18 +1399,19 @@ export default function AgentSettings() {
         ) : null}
         {data ? (
           <>
-            <OpenRouterCard data={data} confirm={setConfirm} />
+            <DefaultProviderGroup data={data} />
+            <OpenRouterCard data={data} ask={setProviderRequest} />
             {decisions.data ? (
               <SmartSuggestionsCard
                 data={decisions.data}
                 confirm={setConfirm}
               />
             ) : null}
-            <MoreApiKeys data={data} confirm={setConfirm} />
+            <MoreApiKeys data={data} ask={setProviderRequest} />
             {data.localCli ? (
               <>
-                <CliCard id="claude" data={data} view={data.claude} />
-                <CliCard id="codex" data={data} view={data.codex} />
+                <CliCard id="claude" data={data} view={data.claude} ask={setProviderRequest} />
+                <CliCard id="codex" data={data} view={data.codex} ask={setProviderRequest} />
               </>
             ) : (
               <Text style={styles.meta}>
@@ -1314,6 +1442,13 @@ export default function AgentSettings() {
         confirmLabel={confirm?.confirmLabel}
         onConfirm={() => confirm?.onConfirm()}
       />
+      {data ? (
+        <ProviderSheet
+          data={data}
+          request={providerRequest}
+          onClose={() => setProviderRequest(null)}
+        />
+      ) : null}
     </Screen>
   );
 }
@@ -1339,6 +1474,7 @@ const styles = createThemedStyleSheet((colors) => ({
   meta: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
   sourceLine: { color: colors.foreground, fontSize: 13, lineHeight: 18 },
   error: { color: colors.destructive, fontSize: 13 },
+  warn: { color: colors.warning, fontSize: 13, lineHeight: 18 },
   warning: { color: colors.warning, fontSize: 13 },
   link: {
     color: colors.primary,

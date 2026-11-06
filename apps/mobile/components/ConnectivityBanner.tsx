@@ -6,16 +6,23 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { flushOfflineQueue } from "../lib/api/client";
 import { queuedMutationCount, subscribeQueuedMutations } from "../lib/offlineQueue";
 import { setOffline } from "../lib/networkState";
+import { useServer } from "../lib/server/ServerProvider";
 import { createThemedStyleSheet } from "../lib/theme";
 
 export default function ConnectivityBanner() {
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
-  const [offline, setOfflineView] = useState(false);
+  const server = useServer();
+  const [networkOffline, setNetworkOffline] = useState(false);
+  // An unreachable desktop counts as offline too: changes queue instead of
+  // failing, and queries wait instead of spinning until the server answers.
+  const serverDown = server.status === "offline";
+  const offline = networkOffline || serverDown;
   const [queued, setQueued] = useState(queuedMutationCount());
   const [syncing, setSyncing] = useState(false);
   const wasOffline = useRef(false);
   const replaying = useRef(false);
+  const mountedRef = useRef(true);
 
   useEffect(() => subscribeQueuedMutations(setQueued), []);
 
@@ -45,36 +52,52 @@ export default function ConnectivityBanner() {
 
   useEffect(() => {
     let mounted = true;
-    const apply = async (state: Network.NetworkState) => {
-      const nextOffline = state.isConnected === false;
-      setOffline(nextOffline);
-      onlineManager.setOnline(!nextOffline);
-      if (mounted) setOfflineView(nextOffline);
-      if (nextOffline) {
-        wasOffline.current = true;
-        return;
-      }
-      if (!wasOffline.current) return;
-      wasOffline.current = false;
-      setSyncing(true);
-      try {
-        await flushOfflineQueue();
-        await queryClient.invalidateQueries();
-      } finally {
-        if (mounted) setSyncing(false);
-      }
+    const apply = (state: Network.NetworkState) => {
+      if (mounted) setNetworkOffline(state.isConnected === false);
     };
     void Network.getNetworkStateAsync().then(apply);
-    const subscription = Network.addNetworkStateListener((state) => void apply(state));
+    const subscription = Network.addNetworkStateListener(apply);
     return () => {
       mounted = false;
       subscription.remove();
     };
-  }, [queryClient]);
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    setOffline(offline);
+    onlineManager.setOnline(!offline);
+    if (offline) {
+      wasOffline.current = true;
+      return;
+    }
+    if (!wasOffline.current) return;
+    wasOffline.current = false;
+    setSyncing(true);
+    void (async () => {
+      try {
+        await flushOfflineQueue();
+        await queryClient.invalidateQueries();
+      } finally {
+        if (mountedRef.current) setSyncing(false);
+      }
+    })();
+  }, [offline, queryClient]);
 
   if (!offline && !syncing && queued === 0) return null;
-  const label = offline
-    ? `Offline · saved data may be out of date${queued ? ` · ${queued} change${queued === 1 ? "" : "s"} waiting` : ""}`
+  const waiting = queued ? ` · ${queued} change${queued === 1 ? "" : "s"} waiting` : "";
+  const label = networkOffline
+    ? `Offline · saved data may be out of date${waiting}`
+    : serverDown
+      ? server.wrongServer.length > 0
+        ? `${server.name || "Your desktop"}'s address answers as a different server · pair again in Settings`
+        : `Can't reach ${server.name || "your desktop"} · is Tailscale on?${waiting}`
     : syncing
       ? "Back online · syncing changes…"
       : `${queued} change${queued === 1 ? "" : "s"} waiting to sync`;

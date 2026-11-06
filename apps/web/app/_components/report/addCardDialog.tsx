@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
-import { FileText, Plus, Sheet as SheetIcon, Wrench, X } from "lucide-react";
+import { FileText, Plus, Sheet as SheetIcon, Sparkles, Wrench, X } from "lucide-react";
 import { CARD_TEMPLATES, catalogCards, type BuiltinCardType, type CardTemplate } from "@timely/contract/dashboard";
 import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 import { cn } from "@/app/utils/cn";
@@ -16,6 +16,7 @@ export default function AddCardDialog({
   onAddBuiltin,
   onAddTemplate,
   onOpenWorkshop,
+  onDescribe,
   onClose,
   present,
 }: {
@@ -23,6 +24,8 @@ export default function AddCardDialog({
   onAddTemplate: (template: CardTemplate) => void;
   /** Opens the workshop, on a sheet or a doc for the "from a file" entries. */
   onOpenWorkshop: (source?: "sheets" | "docs") => void;
+  /** Opens Describe a card, where the AI builds a card from the person's words. */
+  onDescribe: () => void;
   onClose: () => void;
   /** Built-in types already on the board, marked so a second copy is a choice. */
   present: Set<string>;
@@ -63,9 +66,15 @@ export default function AddCardDialog({
             </button>
           </header>
 
-          <div className="grid gap-2 px-5 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
+          <div className="grid gap-2 px-5 sm:grid-cols-2">
             <WorkshopEntry
               primary
+              icon={<Sparkles className="size-4" />}
+              title="Describe a card"
+              description="Say what it should show. The AI builds a live card from your data."
+              onClick={onDescribe}
+            />
+            <WorkshopEntry
               icon={<Wrench className="size-4" />}
               title="Build a custom card"
               description="Choose the data, filters, grouping, time range and chart."

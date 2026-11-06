@@ -665,7 +665,9 @@ export function planCard(model: WidgetModel, size: Size): CardPlan {
     return plan;
   }
   if (wide) {
-    const room = innerH - HEADER_H;
+    // A note takes a line under the figure and its rows or chart.
+    if (model.note) plan.noteLines = 1;
+    const room = innerH - HEADER_H - (model.note ? NOTE_LINE_H + 2 : 0);
     if (buttons) plan.buttonH = 36;
     stat(room - (buttons ? plan.buttonH + GAP : 0), 112, false, 34);
     plan.rows = Math.min(rowsWanted, Math.max(1, Math.floor(room / ROW_H)));
@@ -701,20 +703,24 @@ export function planCard(model: WidgetModel, size: Size): CardPlan {
     plan.meters = Math.min(model.meters.length, Math.max(0, Math.floor(left / METER_H)));
     left -= plan.meters * METER_H;
   }
-  if (showBars && left >= BAR_LABEL_H + 12) {
-    plan.bars = Math.min(140, left - BAR_LABEL_H - 2);
-    left = 0;
+  // A card that also lists rows or has a note (a described card) keeps room under its chart
+  // for up to three rows, giving rows up before the chart, or for a line of its note.
+  let keep = rowsWanted ? Math.min(rowsWanted, 3) * ROW_H : model.note ? NOTE_LINE_H + 2 : 0;
+  while (rowsWanted && keep && left - keep < BAR_LABEL_H + 12) keep -= ROW_H;
+  if (showBars && left - keep >= BAR_LABEL_H + 12) {
+    plan.bars = Math.min(140, left - keep - BAR_LABEL_H - 2);
+    left = keep ? left - plan.bars - BAR_LABEL_H - 2 : 0;
   }
   if (!plan.bars && rowsWanted && model.columns?.length && left >= COLUMN_HEAD_H + ROW_H) {
     plan.columnHead = true;
     left -= COLUMN_HEAD_H;
   }
-  if (!plan.bars && model.scroll && rowsWanted * ROW_H > left && left >= ROW_H) {
+  if (model.scroll && rowsWanted * ROW_H > left && left >= ROW_H) {
     // More rows than room: they all go in a list that scrolls inside the widget.
     plan.list = left;
     plan.rows = rowsWanted;
     left = 0;
-  } else if (!plan.bars) {
+  } else {
     plan.rows = Math.min(rowsWanted, Math.max(0, Math.floor(left / ROW_H)));
     if (plan.rows && plan.rows === rowsWanted && !buttons) plan.rowH = Math.max(ROW_H, Math.min(40, Math.floor(left / plan.rows)));
     left -= plan.rows * plan.rowH;

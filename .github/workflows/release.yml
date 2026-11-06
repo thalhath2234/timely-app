@@ -1,7 +1,7 @@
 # Desktop installers + Android APK for a tagged release.
 #
 # Push a tag `v<version>` that matches apps/web/package.json → one GitHub
-# Release with AppImage, nsis exe, their latest*.yml update manifests
+# Release with AppImage, Arch .pacman, nsis exe, their latest*.yml update manifests
 # (electron-updater) and the APK. workflow_dispatch builds the same artifacts
 # as workflow artifacts only (nothing is published).
 #
@@ -87,6 +87,9 @@ jobs:
           # One desktop job per OS keeps runner.os unique.
           key: zonky-postgres-${{ runner.os }}-${{ hashFiles('apps/web/electron/targets.mjs') }}
       - run: pnpm install --frozen-lockfile
+      # fpm writes the pacman package's .MTREE with bsdtar.
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libarchive-tools
       - name: Build and package (${{ matrix.target }})
         shell: bash
         working-directory: apps/web
@@ -108,6 +111,7 @@ jobs:
           if-no-files-found: error
           path: |
             apps/web/release/*.AppImage
+            apps/web/release/*.pacman
             apps/web/release/*.exe
             apps/web/release/*.yml
             apps/web/release/*.blockmap

@@ -1,17 +1,19 @@
 import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View, type GestureResponderEvent } from "react-native";
+import { Bell } from "lucide-react-native";
 import Animated, { useReducedMotion } from "react-native-reanimated";
 import { listEntering, listLayout } from "../../lib/motion";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CalendarItem } from "../../lib/types";
 import { HOURS, formatHour } from "../../lib/types";
-import { isSameDay, startOfDay } from "../../lib/format";
-import { isItemDone, itemColor } from "./CalendarItemRow";
+import { dayKey, formatTime, isSameDay, startOfDay } from "../../lib/format";
+import { isItemDone, isReminderItem, itemColor } from "./CalendarItemRow";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import { floatingTabBarInset } from "../ui/FloatingTabBar";
 
 const HOUR_PX = 64;
+const REMINDER_PX = 26;
 
 function minuteFromPress(event: GestureResponderEvent) {
   const quarter = Math.floor((event.nativeEvent.locationY / HOUR_PX) * 4);
@@ -43,6 +45,22 @@ function layout(items: CalendarItem[]) {
   return placed;
 }
 
+/** A reminder has no length, so it is a pill centred on its time; pills at
+ * the same time stack, and one over a block keeps to the right so the
+ * block's title stays readable (as on the web calendar). */
+function placeReminders(reminders: CalendarItem[], blocks: CalendarItem[], dayStart: number) {
+  let bottom = -Infinity;
+  return [...reminders]
+    .sort((a, b) => a.start.localeCompare(b.start))
+    .map((item) => {
+      const at = new Date(item.start).getTime();
+      const top = Math.max(((at - dayStart) / 3_600_000) * HOUR_PX - REMINDER_PX / 2, bottom + 2, 0);
+      bottom = top + REMINDER_PX;
+      const overBlock = blocks.some((block) => new Date(block.start).getTime() <= at && new Date(block.end).getTime() > at);
+      return { item, top, overBlock };
+    });
+}
+
 export default function MobileDay({
   date,
   items,
@@ -54,21 +72,29 @@ export default function MobileDay({
   onOpen: (item: CalendarItem) => void;
   onEmptySlot?: (start: Date) => void;
 }) {
-  // Blocks present at first render sit still; ones auto-schedule adds later
-  // arrive at their slot in turn (motion catalogue 7).
-  const [firstIds] = useState(() => new Set(items.map((item) => item.id)));
   const reduceMotion = useReducedMotion();
   const insets = useSafeAreaInsets();
   const dayStart = startOfDay(date).getTime();
   const isToday = isSameDay(date, new Date());
   const nowY = ((Date.now() - dayStart) / 3_600_000) * HOUR_PX;
+  // Fixed for each day the view shows. Blocks already there sit still; ones
+  // auto-schedule adds later arrive at their slot in turn (motion catalogue 7).
+  // The scroll position opens at now (today) or 7 AM, and must not change on a
+  // re-render: the native scroller scrolls whenever `contentOffset` changes.
+  const day = dayKey(date);
+  const shownDay = () => ({ day, ids: new Set(items.map((item) => item.id)), openAt: { x: 0, y: isToday ? Math.max(0, nowY - 160) : 7 * HOUR_PX } });
+  const [shown, setShown] = useState(shownDay);
+  if (shown.day !== day) setShown(shownDay());
+  const firstIds = shown.ids;
   const allDay = items.filter((i) => i.allDay);
-  const timed = layout(items.filter((i) => !i.allDay));
+  const blocks = items.filter((i) => !i.allDay && !isReminderItem(i));
+  const timed = layout(blocks);
+  const reminders = placeReminders(items.filter((i) => !i.allDay && isReminderItem(i)), blocks, dayStart);
 
   return (
     <ScrollView showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
-      contentOffset={{ x: 0, y: isToday ? Math.max(0, nowY - 160) : 7 * HOUR_PX }}
+      contentOffset={shown.openAt}
       contentContainerStyle={{ paddingBottom: floatingTabBarInset(insets.bottom) }}
     >
       {allDay.length ? (
@@ -144,6 +170,30 @@ export default function MobileDay({
               </Animated.View>
             );
           })}
+          {reminders.map(({ item, top, overBlock }) => {
+            const done = isItemDone(item);
+            return (
+              <AnimatedPressable
+                key={item.id}
+                onPress={() => onOpen(item)}
+                hitSlop={{ top: 9, bottom: 9 }}
+                accessibilityRole="button"
+                accessibilityLabel={`${item.title}, reminder at ${formatTime(item.start)}${done ? ", done" : ""}`}
+                style={[
+                  styles.reminder,
+                  overBlock ? styles.reminderOverBlock : styles.reminderFull,
+                  { top, borderColor: itemColor(item) + "8C" },
+                ]}
+              >
+                <View style={[StyleSheet.absoluteFill, { backgroundColor: itemColor(item) + (done ? "1A" : "38") }]} pointerEvents="none" />
+                <Bell size={12} color={colors.mutedForeground} />
+                <Text numberOfLines={1} style={[styles.reminderTitle, done && styles.done]}>
+                  {item.title}
+                </Text>
+                <Text style={styles.reminderTime}>{formatTime(item.start)}</Text>
+              </AnimatedPressable>
+            );
+          })}
           {isToday ? <View style={[styles.now, { top: nowY }]}><View style={styles.nowDot} /></View> : null}
         </View>
       </View>
@@ -180,6 +230,23 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   blockTitleCompact: { fontSize: 10, lineHeight: 12, fontWeight: "600" },
   done: { color: colors.mutedForeground, textDecorationLine: "line-through" },
+  reminder: {
+    position: "absolute",
+    zIndex: 3,
+    height: REMINDER_PX,
+    overflow: "hidden",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    borderRadius: REMINDER_PX / 2,
+    borderWidth: 1,
+    backgroundColor: colors.card,
+  },
+  reminderFull: { left: 4, right: 4 },
+  reminderOverBlock: { right: 4, width: "58%" },
+  reminderTitle: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 12, fontWeight: "600", includeFontPadding: false },
+  reminderTime: { color: colors.mutedForeground, fontSize: 11, fontVariant: ["tabular-nums"], includeFontPadding: false },
   now: { position: "absolute", left: 0, right: 0, height: 2, backgroundColor: colors.destructive },
   nowDot: { position: "absolute", left: -5, top: -4, width: 10, height: 10, borderRadius: 5, backgroundColor: colors.destructive, shadowColor: colors.destructive, shadowOpacity: 0.8, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } },
 }));

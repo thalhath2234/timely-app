@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test, { describe } from "node:test";
-import { indexAtScreen, pinnedColumnWidths, pinnedRowCount, screenStart } from "../apps/mobile/lib/sheetFreeze.ts";
+import { createScrollRest, indexAtScreen, pinnedColumnWidths, pinnedRowCount, screenStart } from "../apps/mobile/lib/sheetFreeze.ts";
 
 describe("pinnedColumnWidths", () => {
   test("keeps widths that already fit", () => {
@@ -68,4 +69,91 @@ describe("touch mapping with pinned cells", () => {
   test("stops at the last index", () => {
     assert.equal(indexAtScreen(axis(0), 5000, 6), 6);
   });
+});
+
+describe("where the grid comes to rest", () => {
+  // A hand-wound clock: `run()` fires whatever timer is pending.
+  const clock = () => {
+    let pending = null;
+    return {
+      timers: { set: (fn) => (pending = fn), clear: () => (pending = null) },
+      run: () => {
+        const fn = pending;
+        pending = null;
+        fn?.();
+      },
+      waiting: () => pending != null,
+    };
+  };
+
+  test("tracks every offset live but only rests once the scroll goes quiet", () => {
+    const time = clock();
+    const rest = createScrollRest(80, time.timers);
+    let heard = 0;
+    rest.subscribe(() => (heard += 1));
+    rest.scrolled("y", 120);
+    rest.scrolled("y", 260);
+    rest.scrolled("x", 90);
+    assert.deepEqual(rest.live(), { x: 90, y: 260 });
+    assert.deepEqual(rest.rest(), { x: 0, y: 0 });
+    assert.equal(heard, 0);
+    time.run();
+    assert.deepEqual(rest.rest(), { x: 90, y: 260 });
+    assert.equal(heard, 1);
+  });
+
+  test("each scroll event pushes the stop back", () => {
+    const time = clock();
+    const rest = createScrollRest(80, time.timers);
+    rest.scrolled("y", 40);
+    rest.scrolled("y", 80);
+    // Only one timer is ever pending: the earlier one was cleared.
+    assert.equal(time.waiting(), true);
+    time.run();
+    assert.equal(time.waiting(), false);
+    assert.equal(rest.rest().y, 80);
+  });
+
+  test("overscroll past the start counts as no scroll", () => {
+    const time = clock();
+    const rest = createScrollRest(80, time.timers);
+    rest.scrolled("x", -24);
+    assert.equal(rest.live().x, 0);
+    assert.equal(time.waiting(), false);
+  });
+
+  test("keeps the same snapshot while nothing moves, so React doesn't re-render", () => {
+    const time = clock();
+    const rest = createScrollRest(80, time.timers);
+    rest.scrolled("y", 64);
+    time.run();
+    const first = rest.rest();
+    rest.scrolled("y", 64);
+    assert.equal(time.waiting(), false);
+    assert.equal(rest.rest(), first);
+  });
+
+  test("a stop that lands back where it was tells nobody", () => {
+    const time = clock();
+    const rest = createScrollRest(80, time.timers);
+    let heard = 0;
+    rest.subscribe(() => (heard += 1));
+    rest.scrolled("y", 64);
+    rest.scrolled("y", 0);
+    time.run();
+    assert.equal(heard, 0);
+  });
+});
+
+// The pinned layers must move on the native driver. Reanimated styles reach
+// the screen through a commit of React's tree, and Reanimated holds those
+// commits while React's own commit is in flight (every tap on a cell starts
+// one), so the pinned rows and columns rode along with the scroll and then
+// snapped back: the flicker reported on Android.
+test("the phone grid slides its pinned layers on the native driver", () => {
+  const grid = readFileSync(new URL("../apps/mobile/components/sheets/SheetGrid.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(grid, /react-native-reanimated/);
+  assert.equal(grid.match(/Animated\.event\(\[\{ nativeEvent: \{ contentOffset: \{ [xy] \} \} \}\], \{ useNativeDriver: true/g)?.length, 2);
+  assert.equal(grid.match(/onScroll=\{scroll\.onScroll[XY]\}/g)?.length, 2);
+  assert.equal(grid.match(/<SheetPinLayer /g)?.length, 3);
 });

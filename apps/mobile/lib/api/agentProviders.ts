@@ -82,14 +82,20 @@ export type ApiProviderView = {
 };
 
 export type ReindexState = {
-  status?: "queued" | "running" | "done" | "failed" | "";
+  /** "retrying": a rebuild failed and the queue will try it again. */
+  status?: "queued" | "running" | "retrying" | "done" | "failed" | "";
   done: number;
   total: number;
+  /** Items the provider refused in a finished rebuild. */
+  skipped?: number;
   error?: string;
 };
 
 export type AgentProviders = {
-  defaultProvider: ProviderId;
+  /** Runs new chats and the writing tools: the person's choice, or "" until
+   * they make one (ADR 0020). */
+  defaultProvider: ProviderId | "";
+  defaultChosen: boolean;
   localCli: boolean;
   openrouter: OpenRouterView;
   claude: CliProviderView;
@@ -107,7 +113,8 @@ export type ModelOption = {
 };
 
 export type ProviderPatch = {
-  defaultProvider?: ProviderId;
+  /** "" clears the choice; chats and the writing tools then wait for one. */
+  defaultProvider?: ProviderId | "";
   openrouterChatModel?: string;
   openrouterEmbedModel?: string;
   claudeModel?: string;

@@ -49,6 +49,12 @@ func main() {
 plain
 ```
 
+```openui-lang
+root = Panel("Client work", [list])
+late = @Data({source: "tasks", project: "Client work", overdue: true})
+list = List(@Each(late.rows, "t", TaskRow(t.id, t.title, t.day)), "Nothing overdue")
+```
+
 ---
 
 #### Table

@@ -6,6 +6,7 @@ import {
   normalizeDashboard,
   sourcesUsed,
   weekStart,
+  type CardSource,
   type DashboardCard,
   type DashboardData,
   type DashboardLayout,
@@ -184,7 +185,27 @@ export function useDashboardData(cards: DashboardCard[]) {
     used.has("events") && events.isError && "calendar events",
   ].filter((entry): entry is string => Boolean(entry));
 
-  return { data, today, failures, loading: tasks.isLoading, eventsLoading: used.has("events") && events.isLoading, timeZone };
+  // Sources that failed with no copy to show: a card reading one would draw
+  // an empty list as "Nothing overdue", so it says it could not load instead.
+  const unread: Partial<Record<CardSource, boolean>> = {
+    tasks: tasks.isError && !tasks.data,
+    events: events.isError && !events.data,
+    docs: docs.isError && !docs.data,
+    sheets: sheets.isError && !sheets.data,
+    inbox: inbox.isError && !inbox.data,
+    reminders: reminders.isError && !reminders.data,
+  };
+
+  return {
+    data,
+    today,
+    failures,
+    unread,
+    loading: tasks.isLoading,
+    eventsLoading: used.has("events") && events.isLoading,
+    sheetsLoading: used.has("sheets") && sheets.isLoading,
+    timeZone,
+  };
 }
 
 /** A clock for cards that read the time. */

@@ -15,20 +15,26 @@ import {
   RotateCcw,
   Scaling,
   SlidersHorizontal,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import {
   builtinInfo,
   cardTitle,
   defaultDashboard,
+  describedSources,
+  sourcesUsed,
+  SOURCE_LABELS,
   minCardSize,
   newCardId,
   DASHBOARD_MAX_CARDS,
   type BuiltinCardType,
   type CardRow,
+  type CardSource,
   type CardTemplate,
   type DashboardCard,
 } from "@timely/contract/dashboard";
+import { describedCard } from "@timely/contract/genuiBoard";
 import type { CalendarItem, Doc, Project, Sheet, Task } from "@/app/_types/types";
 import { mentionHref } from "@/app/_components/editor/mention";
 import LoadError, { LoadErrorBanner } from "@/app/_components/_ui/loadError";
@@ -53,6 +59,8 @@ import AddCardDialog from "./addCardDialog";
 import CardWorkshop, { DISPLAY_ICON, type WorkshopResult } from "./cardWorkshop";
 import CustomCardView, { useCardResult } from "./customCardView";
 import FileCardView, { FILE_ICON, isFileQuery, useFileWatches } from "./fileCards";
+import DescribedCardView from "./describedCard";
+import DescribeCardDialog, { type DescribedResult } from "./describeCardDialog";
 import DashboardGrid from "./dashboardGrid";
 import PomodoroCard from "./pomodoroCard";
 import HighlightsCard from "./highlightsCard";
@@ -97,12 +105,14 @@ export default function ReportDashboard() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const { layout, isLoading, error, retry, update, updateCard, saveState } = useDashboardLayout();
   const cards = useMemo(() => layout?.cards ?? [], [layout]);
-  const { data, today, failures, loading, timeZone } = useDashboardData(cards);
+  const { data, today, failures, loading, unread, timeZone } = useDashboardData(cards);
   useFileWatches(cards);
   const configQuery = useConfig();
   const now = useNow(30_000);
   const [adding, setAdding] = useState(false);
   const [workshop, setWorkshop] = useState<WorkshopTarget>(null);
+  /** Describe a card: a new one ({}) or the described card being changed. */
+  const [describing, setDescribing] = useState<{ cardId?: string } | null>(null);
   const openTask = useEntityDetailStore((state) => state.openTask);
   const openProject = useEntityDetailStore((state) => state.openProject);
   const setSelectedDate = useCalendarStore((state) => state.setSelectedDate);
@@ -237,6 +247,19 @@ export default function ReportDashboard() {
     addCards([{ id: newCardId(), type: "custom", title: result.title || undefined, query: result.query, w: result.w, h: result.h }]);
   };
 
+  const saveDescribed = (result: DescribedResult) => {
+    const target = describing;
+    setDescribing(null);
+    const card = describedCard(target?.cardId ?? newCardId(), result.prompt, result.program, data);
+    if (!card) return;
+    const sized = { ...card, title: result.title || card.title, w: result.w, h: result.h };
+    if (target?.cardId) updateCard(target.cardId, { title: sized.title, query: sized.query, w: sized.w, h: sized.h });
+    else addCards([sized]);
+  };
+
+  /** A described card reopens Describe; the rest open the workshop. */
+  const editCard = (card: DashboardCard) => (card.query?.described ? setDescribing({ cardId: card.id }) : setWorkshop({ cardId: card.id }));
+
   const removeCard = (card: DashboardCard) => {
     const index = cards.findIndex((entry) => entry.id === card.id);
     if (card.type === "pomodoro") forgetPomodoro(card.id);
@@ -268,7 +291,7 @@ export default function ReportDashboard() {
     const index = cards.findIndex((entry) => entry.id === card.id);
     const min = minCardSize(card);
     const items: ContextMenuEntry[] = tidyEntries([
-      card.type === "custom" && { kind: "action", label: "Edit card…", icon: SlidersHorizontal, onSelect: () => setWorkshop({ cardId: card.id }) },
+      card.type === "custom" && { kind: "action", label: card.query?.described ? "Change card…" : "Edit card…", icon: card.query?.described ? Sparkles : SlidersHorizontal, onSelect: () => editCard(card) },
       {
         kind: "action",
         label: "Rename",
@@ -318,6 +341,7 @@ export default function ReportDashboard() {
       y: rect.bottom + 4,
       items: [
         { kind: "action", label: "Add card…", icon: Plus, onSelect: () => setAdding(true) },
+        { kind: "action", label: "Describe a card…", icon: Sparkles, onSelect: () => setDescribing({}) },
         { kind: "action", label: "Build a custom card…", icon: SlidersHorizontal, onSelect: () => setWorkshop({}) },
         { kind: "separator" },
         {
@@ -342,7 +366,13 @@ export default function ReportDashboard() {
 
   const renderIcon = (card: DashboardCard) => {
     if (card.type === "custom") {
-      const Icon = card.query?.sheet ? FILE_ICON[card.query.sheet.view] : card.query?.doc ? FILE_ICON[card.query.doc.view] : DISPLAY_ICON[card.query?.display ?? "number"];
+      const Icon = card.query?.described
+        ? Sparkles
+        : card.query?.sheet
+          ? FILE_ICON[card.query.sheet.view]
+          : card.query?.doc
+            ? FILE_ICON[card.query.doc.view]
+            : DISPLAY_ICON[card.query?.display ?? "number"];
       return <Icon className="size-3.5" />;
     }
     return <BuiltinIcon type={card.type} className="size-3.5" />;
@@ -351,6 +381,16 @@ export default function ReportDashboard() {
   const renderCard = (card: DashboardCard) => {
     const settings = card.settings ?? {};
     const setSettings = (next: Record<string, unknown>) => updateCard(card.id, (current) => ({ ...current, settings: { ...current.settings, ...next } }));
+    // A source that failed with nothing loaded would read as zero here.
+    const missing = [...sourcesUsed([card])].filter((source): source is CardSource => source !== "today" && Boolean(unread[source]));
+    if (missing.length) {
+      return (
+        <p className="text-xs text-muted-foreground" data-testid="card-load-failed">
+          Couldn’t load {missing.map((source) => SOURCE_LABELS[source].toLowerCase()).join(" or ")}. Use Retry at the
+          top of the page.
+        </p>
+      );
+    }
     switch (card.type) {
       case "custom":
         return (
@@ -359,7 +399,11 @@ export default function ReportDashboard() {
             data={data}
             timeZone={timeZone}
             now={now}
-            loading={loading[card.query?.source ?? "tasks"]}
+            loading={
+              card.query?.described
+                ? describedSources(card.query.described.program).some((source) => loading[source])
+                : loading[card.query?.source ?? "tasks"]
+            }
             onOpen={openRow}
             onRowContextMenu={rowMenu}
           />
@@ -436,6 +480,7 @@ export default function ReportDashboard() {
   };
 
   const editing = workshop?.cardId ? cards.find((card) => card.id === workshop.cardId) : undefined;
+  const described = describing?.cardId ? cards.find((card) => card.id === describing.cardId && card.query?.described) : undefined;
   const present = useMemo(() => new Set(cards.map((card) => card.type)), [cards]);
 
   if (isLoading && !layout) {
@@ -471,7 +516,7 @@ export default function ReportDashboard() {
         {failures.length > 0 ? (
           <div className="mb-4 flex flex-col gap-2">
             {failures.map(({ what, query }) => (
-              <LoadErrorBanner key={what} what={what} error={query.error} onRetry={() => query.refetch()} retrying={query.isFetching} />
+              <LoadErrorBanner key={what} what={what} error={query.error} hasCopy={query.data !== undefined} onRetry={() => query.refetch()} retrying={query.isFetching} />
             ))}
           </div>
         ) : null}
@@ -510,6 +555,7 @@ export default function ReportDashboard() {
               })
             }
             onResize={(id, size) => updateCard(id, size)}
+            onEdit={editCard}
             onMenu={cardMenu}
             onRename={(card, title) => updateCard(card.id, { title: title || undefined })}
           />
@@ -526,6 +572,19 @@ export default function ReportDashboard() {
             setAdding(false);
             setWorkshop({ source });
           }}
+          onDescribe={() => {
+            setAdding(false);
+            setDescribing({});
+          }}
+        />
+      ) : null}
+
+      {describing ? (
+        <DescribeCardDialog
+          key={describing.cardId ?? "new"}
+          initial={described ? { title: described.title ?? "", prompt: described.query?.described?.prompt ?? "", program: described.query!.described!.program, w: described.w, h: described.h } : undefined}
+          onClose={() => setDescribing(null)}
+          onSave={saveDescribed}
         />
       ) : null}
 
@@ -566,6 +625,10 @@ function CustomCardSlot({
   if (isFileQuery(card.query)) {
     if (loading) return <SkeletonLines lines={3} className="p-4" />;
     return <FileCardView query={card.query} data={data} />;
+  }
+  if (card.query.described) {
+    if (loading) return <SkeletonLines lines={3} className="p-4" />;
+    return <DescribedCardView program={card.query.described.program} names={card.query.described.names} data={data} timeZone={timeZone} now={now} />;
   }
   if (!result) return null;
   if (loading) return <SkeletonLines lines={3} className="p-4" />;

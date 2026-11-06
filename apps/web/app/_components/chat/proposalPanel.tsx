@@ -9,6 +9,7 @@ import {
   Square,
   Trash2,
 } from "lucide-react";
+import { planGroups } from "@timely/contract/changeReview";
 import type { Chat } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
 import ChangeCards from "./changeCards";
@@ -36,10 +37,42 @@ export default function ProposalPanel({
   const steps = chat.plan;
   const notes = reviewNotes(chat);
   const done = steps.filter((s) => s.status === "done").length;
+  // Counted as the review draws them: 30 entries for one sheet are one change.
+  const groups = planGroups(steps);
+  const groupsDone = groups.filter((group) =>
+    group.steps.every((i) => steps[i].status === "done"),
+  ).length;
+  const groupsDiscarded = groups.filter((group) =>
+    group.steps.every((i) => steps[i].status === "discarded"),
+  ).length;
+  const groupsLeft = groups.length - groupsDone - groupsDiscarded;
+  // A receipt is saved as a whole; anything else can be applied card by card.
+  const receipt = Boolean(
+    chat.imageReview && chat.imageReview.status !== "discarded",
+  );
+  const review =
+    chat.status === "approval" && !receipt && groups.length > 1
+      ? {
+          apply: (picked: number[]) =>
+            act("/approve", { revision: chat.revision, steps: picked }),
+          discard: (picked: number[], keep: boolean) =>
+            act("/steps/discard", {
+              revision: chat.revision,
+              steps: picked,
+              keep,
+            }),
+          disabled: pending,
+        }
+      : undefined;
   const busy = isBusy(chat.status);
   const applying = busy && chat.phase === "apply";
+  // A partial approval applies its "approved" changes; otherwise every
+  // change not yet done or set aside runs in order.
+  const approved = steps.findIndex((s) => s.status === "approved");
   const activeIndex = applying
-    ? steps.findIndex((s) => s.status !== "done")
+    ? approved >= 0
+      ? approved
+      : steps.findIndex((s) => s.status !== "done" && s.status !== "discarded")
     : -1;
   const complete = done === steps.length;
   // When everything applied changed one page, offer it from the header.
@@ -99,8 +132,9 @@ export default function ProposalPanel({
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-semibold leading-5">{heading}</h2>
           <p className="text-xs text-muted-foreground">
-            {done} of {steps.length} {steps.length === 1 ? "change" : "changes"}{" "}
-            applied
+            {groupsDone} of {groups.length}{" "}
+            {groups.length === 1 ? "change" : "changes"} applied
+            {groupsDiscarded ? ` · ${groupsDiscarded} discarded` : ""}
           </p>
         </div>
         {target && (
@@ -158,7 +192,7 @@ export default function ProposalPanel({
         </div>
       </div>
       <div className="p-4">
-        <ChangeCards steps={steps} activeIndex={activeIndex} />
+        <ChangeCards steps={steps} activeIndex={activeIndex} review={review} />
       </div>
       {(hint ||
         chat.status === "approval" ||
@@ -177,7 +211,7 @@ export default function ProposalPanel({
                   className={secondary}
                 >
                   <Trash2 className="size-3.5" />
-                  Discard
+                  {review ? "Discard all" : "Discard"}
                 </button>
                 <button
                   type="button"
@@ -186,7 +220,11 @@ export default function ProposalPanel({
                   className={primary}
                 >
                   <Check className="size-4" />
-                  Apply changes
+                  {review
+                    ? groupsLeft === groups.length
+                      ? "Apply all"
+                      : `Apply ${groupsLeft} left`
+                    : "Apply changes"}
                 </button>
               </>
             )}

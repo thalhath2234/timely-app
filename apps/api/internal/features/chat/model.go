@@ -68,6 +68,7 @@ type Conversation struct {
 	WebSearch      bool              `json:"webSearch"`
 	Timezone       string            `json:"timezone"` // device IANA zone from the latest message
 	Client         string            `json:"client"`   // "phone" or "web": the app of the latest message
+	RichUI         bool              `json:"richUi"`   // the app of the latest message draws reply cards (genui.go)
 	Language       string            `json:"language"` // see i18n.go; empty means English`
 	Provider       string            `json:"provider"`
 	Model          string            `json:"model"`
@@ -81,10 +82,26 @@ type Conversation struct {
 	Revision       int               `json:"revision"`
 	Unread         bool              `json:"unread"`
 	Error          string            `json:"error"`
-	Lease          string            `json:"-"`
-	LeaseUntil     *time.Time        `json:"-"`
-	CreatedAt      time.Time         `json:"createdAt"`
-	UpdatedAt      time.Time         `json:"updatedAt"`
+	// ErrorAction says what the person can do about Error (failure.go).
+	ErrorAction string     `json:"errorAction,omitempty"`
+	Lease       string     `json:"-"`
+	LeaseUntil  *time.Time `json:"-"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
 func (Conversation) TableName() string { return "agent_conversations" }
+
+// MarshalJSON adds errorCode, a stable name for a failure the apps answer
+// with their own action: "provider_not_chosen" opens Settings → Agent.
+func (c Conversation) MarshalJSON() ([]byte, error) {
+	type plain Conversation
+	out := struct {
+		plain
+		ErrorCode string `json:"errorCode,omitempty"`
+	}{plain: plain(c)}
+	if c.Error == NotChosenMessage {
+		out.ErrorCode = ErrorCodeNotChosen
+	}
+	return json.Marshal(out)
+}

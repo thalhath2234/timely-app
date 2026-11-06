@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"timely-api/internal/features/sheet"
 	"timely-api/internal/jobs"
 	"timely-api/internal/models"
+	"timely-api/internal/realtime"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -28,6 +30,7 @@ type Service struct {
 	completers Completers
 	decisions  Decider
 	estimates  func(ctx context.Context, userID string, names, descriptions []string) []int
+	live       *realtime.Hub
 	wg         sync.WaitGroup
 }
 
@@ -60,11 +63,13 @@ func (s *Service) Routes(g *echo.Group) {
 	g.POST("/chats/:id/images/discard", s.discardReview)
 	g.POST("/chats/:id/images/confirm", s.confirmImageReview)
 	g.GET("/chats", s.list)
+	g.GET("/chats/watch", s.watch)
 	g.POST("/chats", s.create)
 	g.GET("/chats/:id", s.get)
 	g.POST("/chats/:id/messages", s.send)
 	g.POST("/chats/:id/approve", s.approve)
 	g.POST("/chats/:id/reject", s.reject)
+	g.POST("/chats/:id/steps/discard", s.discardSteps)
 	g.DELETE("/chats/:id", s.remove)
 	g.POST("/chats/:id/stop", s.stop)
 	g.POST("/chats/:id/retry", s.retry)
@@ -112,14 +117,52 @@ type sendInput struct {
 	// Client is the app that sent the message: "phone" or "web" (anything
 	// else is the web). The agent's saved-view tools act on that app's views.
 	Client string `json:"client"`
+	// UI is "openui-1" from apps that draw reply cards; the agent may then
+	// add them to its replies.
+	UI string `json:"ui"`
 	// Provider and Model pick the model for a new conversation; empty follows
 	// the account default.
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
+	// Receipt is the receipt review form as the person left it, sent with a
+	// message typed during the review so unsaved edits are revised, not lost.
+	Receipt *ReceiptDraft `json:"receipt"`
 }
 
-// validChoice checks the shape of a model picked in the chat menu. Whether the
-// provider is connected is checked when a run starts, like the default.
+// ProviderIDs is implemented by Completers that can tell a provider id they
+// serve from a typo; a choice they don't know is refused when it is made
+// instead of failing the run later.
+type ProviderIDs interface {
+	KnownProvider(id string) bool
+}
+
+// pickProvider is the provider id of a model picked in the chat menu, lower
+// case ("Anthropic" is "anthropic"); an id the server has no provider for
+// is refused. Whether the provider is connected is checked when a run
+// starts, like the default.
+func (s *Service) pickProvider(provider string) (string, error) {
+	provider = strings.ToLower(provider)
+	if known, ok := s.completers.(ProviderIDs); ok && provider != "" && !known.KnownProvider(provider) {
+		return "", echo.NewHTTPError(400, fmt.Sprintf("Unknown AI provider %q. Pick one in the chat's model menu", provider))
+	}
+	return provider, nil
+}
+
+// cleanInput drops NUL characters, which Postgres can't store: a message
+// with one failed with HTTP 500.
+func cleanInput(in *sendInput) {
+	in.Content = dropNUL(in.Content)
+	in.Context = cleanChips(in.Context)
+}
+
+func cleanChips(chips []ContextChip) []ContextChip {
+	for i := range chips {
+		chips[i] = ContextChip{Kind: dropNUL(chips[i].Kind), Label: dropNUL(chips[i].Label), Value: dropNUL(chips[i].Value)}
+	}
+	return chips
+}
+
+// validChoice checks the shape of a model picked in the chat menu.
 func validChoice(provider, model string) error {
 	if len(provider) > 40 || len(model) > 200 || strings.ContainsAny(provider+model, " \n\t") {
 		return echo.NewHTTPError(400, "Invalid model choice")
@@ -147,9 +190,14 @@ func validateInput(in sendInput) error {
 		return err
 	}
 	for _, c := range in.Context {
-		if len(c.Value) > 12000 || len(c.Label) > 200 || len(c.Kind) > 30 {
+		// Counted in characters, as the apps clip them: a chip of Japanese
+		// text is three bytes a character.
+		if utf8.RuneCountInString(c.Value) > 12000 || utf8.RuneCountInString(c.Label) > 200 || len(c.Kind) > 30 {
 			return echo.NewHTTPError(400, "Context attachment is too large")
 		}
+	}
+	if in.Receipt != nil && len(in.Receipt.Items) > 300 {
+		return echo.NewHTTPError(400, "A receipt can contain at most 300 items")
 	}
 	return nil
 }
@@ -158,9 +206,15 @@ func (s *Service) create(c *echo.Context) error {
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(400, "Invalid message")
 	}
+	cleanInput(&in)
 	if err := validateInput(in); err != nil {
 		return err
 	}
+	provider, err := s.pickProvider(in.Provider)
+	if err != nil {
+		return err
+	}
+	in.Provider = provider
 	if in.Context == nil {
 		in.Context = []ContextChip{}
 	}
@@ -177,7 +231,7 @@ func (s *Service) create(c *echo.Context) error {
 	}
 	firstMessage := message("user", in.Content)
 	firstMessage.RequestID = in.RequestID
-	row := Conversation{ID: cid, UserID: user(c), Title: string(title), Status: "queued", Phase: "plan", WebSearch: in.WebSearch, ChosenProvider: in.Provider, ChosenModel: in.Model, Timezone: validTimezone(in.Timezone), Client: agent.NormalizeClient(in.Client), Context: in.Context, Messages: []Message{firstMessage}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+	row := Conversation{ID: cid, UserID: user(c), Title: string(title), Status: "queued", Phase: "plan", WebSearch: in.WebSearch, ChosenProvider: in.Provider, ChosenModel: in.Model, Timezone: validTimezone(in.Timezone), Client: agent.NormalizeClient(in.Client), RichUI: in.UI == genuiCapability, Context: in.Context, Messages: []Message{firstMessage}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
 	noteLanguage(&row, in.Content)
 	if err := s.db.Transaction(func(tx *gorm.DB) error {
 		result := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).Create(&row)
@@ -207,6 +261,16 @@ func (s *Service) create(c *echo.Context) error {
 var errAlreadySent = errors.New("message already accepted")
 
 func (s *Service) change(c *echo.Context, fn func(*gorm.DB, *Conversation) error) error {
+	return s.save(c, func(tx *gorm.DB, row *Conversation) error {
+		if err := fn(tx, row); err != nil {
+			return err
+		}
+		row.Revision++
+		return nil
+	})
+}
+
+func (s *Service) save(c *echo.Context, fn func(*gorm.DB, *Conversation) error) error {
 	var row Conversation
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), user(c), c.Param("id"), &row); err != nil {
@@ -218,7 +282,6 @@ func (s *Service) change(c *echo.Context, fn func(*gorm.DB, *Conversation) error
 			}
 			return err
 		}
-		row.Revision++
 		return tx.Save(&row).Error
 	})
 	if err != nil {
@@ -253,6 +316,7 @@ func (s *Service) send(c *echo.Context) error {
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(400, "Invalid message")
 	}
+	cleanInput(&in)
 	if err := validateInput(in); err != nil {
 		return err
 	}
@@ -286,6 +350,7 @@ func (s *Service) send(c *echo.Context) error {
 			row.Timezone = zone
 		}
 		row.Client = agent.NormalizeClient(in.Client)
+		row.RichUI = in.UI == genuiCapability
 		noteLanguage(row, in.Content)
 		row.ForceReview = row.Status == "approval" || row.Sensitive
 		archivePlan(row)
@@ -298,15 +363,26 @@ func (s *Service) send(c *echo.Context) error {
 			row.Phase = "extract"
 		} else if len(in.ImageIDs) == 0 && row.ImageReview != nil && row.ImageReview.Receipt != nil && row.ImageReview.Status == "review" {
 			row.Phase = "receipt_edit"
+			if in.Receipt != nil {
+				// The person's unsaved form edits are the draft to revise.
+				draft := *in.Receipt
+				normalizeReceipt(&draft)
+				row.ImageReview.Receipt = &draft
+			}
 		}
 		row.Error = ""
 		row.Unread = false
 		return attachImages(tx, row, in.ImageIDs)
 	})
 }
+
+// approve applies the proposal. With steps (plan indexes, as the review
+// groups them), only those changes and the earlier changes they build on are
+// applied now; the rest stay for review.
 func (s *Service) approve(c *echo.Context) error {
 	var in struct {
-		Revision int `json:"revision"`
+		Revision int   `json:"revision"`
+		Steps    []int `json:"steps"`
 	}
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(400, "Invalid approval")
@@ -315,7 +391,33 @@ func (s *Service) approve(c *echo.Context) error {
 		if row.Status != "approval" || row.Revision != in.Revision {
 			return echo.NewHTTPError(409, "This proposal changed. Review the latest version before applying")
 		}
-		if row.ImageReview != nil && row.ImageReview.Status != "discarded" {
+		receipt := row.ImageReview != nil && row.ImageReview.Status != "discarded"
+		if len(in.Steps) > 0 && receipt {
+			return echo.NewHTTPError(409, "A receipt is saved as a whole. Apply all of its changes or discard them")
+		}
+		for i := range row.Plan {
+			if row.Plan[i].Status == stepApproved {
+				row.Plan[i].Status = "pending"
+			}
+		}
+		if len(in.Steps) > 0 {
+			chosen, err := planSelection(row.Plan, in.Steps)
+			if err != nil {
+				return err
+			}
+			for _, i := range withDependencies(row.Plan, chosen) {
+				if row.Plan[i].Status != "done" && row.Plan[i].Status != "discarded" {
+					row.Plan[i].Status = stepApproved
+				}
+			}
+		}
+		if len(row.Plan) > 0 && !hasPending(row.Plan) {
+			return echo.NewHTTPError(409, "Every change here is applied or discarded")
+		}
+		if receipt && row.ImageReview.Status != "confirmed" {
+			// Said once, when the receipt is confirmed: approving again after
+			// a failed apply, or a later proposal in the same chat, adds no
+			// second confirmation.
 			if err := eraseImages(tx, row.UserID, row.ImageReview.ImageIDs); err != nil {
 				return err
 			}
@@ -345,6 +447,66 @@ func (s *Service) stop(c *echo.Context) error {
 	})
 }
 
+// discardSteps sets changes of a proposal aside before applying it (keep
+// false), or brings them back (keep true). A change built on a discarded one
+// ("$2.task.id") is set aside with it, and one brought back brings back what
+// it builds on. When nothing is left to apply, the proposal ends: as applied
+// when part of it was, else as discarded.
+func (s *Service) discardSteps(c *echo.Context) error {
+	var in struct {
+		Revision int   `json:"revision"`
+		Steps    []int `json:"steps"`
+		Keep     bool  `json:"keep"`
+	}
+	if err := c.Bind(&in); err != nil || len(in.Steps) == 0 {
+		return echo.NewHTTPError(400, "Invalid request")
+	}
+	return s.change(c, func(tx *gorm.DB, row *Conversation) error {
+		if row.Status != "approval" {
+			return echo.NewHTTPError(409, "There is no proposal waiting for approval")
+		}
+		if row.Revision != in.Revision {
+			return echo.NewHTTPError(409, "This proposal changed. Review the latest version first")
+		}
+		if row.ImageReview != nil && row.ImageReview.Status != "discarded" {
+			return echo.NewHTTPError(409, "A receipt is saved as a whole. Apply all of its changes or discard them")
+		}
+		chosen, err := planSelection(row.Plan, in.Steps)
+		if err != nil {
+			return err
+		}
+		if in.Keep {
+			for _, i := range withDependencies(row.Plan, chosen) {
+				if row.Plan[i].Status == "discarded" {
+					row.Plan[i].Status = "pending"
+				}
+			}
+			return nil
+		}
+		for _, i := range withDependents(row.Plan, chosen) {
+			if row.Plan[i].Status == "pending" || row.Plan[i].Status == stepApproved {
+				row.Plan[i].Status = "discarded"
+			}
+		}
+		if hasPending(row.Plan) {
+			return nil
+		}
+		row.Phase = "plan"
+		row.Error = ""
+		row.Unread = false
+		row.Status = "idle"
+		for _, step := range row.Plan {
+			if step.Status == "done" {
+				row.Messages = append(row.Messages, notice(tr(row.Language, txtDone)))
+				return nil
+			}
+		}
+		archivePlanAs(row, tr(row.Language, txtDiscardedChanges), "discarded")
+		row.Messages = append(row.Messages, notice(tr(row.Language, txtDiscarded)))
+		return nil
+	})
+}
+
 // Rejecting a proposal keeps the conversation so the person can ask for a
 // different plan; nothing in the plan has been written yet.
 func (s *Service) reject(c *echo.Context) error {
@@ -360,6 +522,21 @@ func (s *Service) reject(c *echo.Context) error {
 		}
 		if in.Revision != 0 && row.Revision != in.Revision {
 			return echo.NewHTTPError(409, "This proposal changed. Review the latest version first")
+		}
+		if slices.ContainsFunc(row.Plan, func(step Step) bool { return step.Status == "done" }) {
+			// Some cards were applied one by one: those stay, the rest is set
+			// aside, and the plan stays on screen as a finished one would.
+			for i := range row.Plan {
+				if row.Plan[i].Status != "done" {
+					row.Plan[i].Status = "discarded"
+				}
+			}
+			row.Status = "idle"
+			row.Phase = "plan"
+			row.Error = ""
+			row.Unread = false
+			row.Messages = append(row.Messages, notice(tr(row.Language, txtDone)))
+			return nil
 		}
 		archivePlanAs(row, tr(row.Language, txtDiscardedChanges), "discarded")
 		row.Status = "idle"
@@ -397,16 +574,38 @@ func (s *Service) remove(c *echo.Context) error {
 	return c.NoContent(204)
 }
 func (s *Service) retry(c *echo.Context) error {
+	// The app that retries says where it is, as a new message does: a run
+	// retried on the computer after the phone left off uses the computer's
+	// zone and views.
+	var in struct {
+		Timezone string `json:"timezone"`
+		Client   string `json:"client"`
+		UI       string `json:"ui"`
+	}
+	if err := c.Bind(&in); err != nil {
+		return echo.NewHTTPError(400, "Invalid request")
+	}
 	return s.change(c, func(tx *gorm.DB, row *Conversation) error {
 		if row.Status != "failed" && row.Status != "stopped" {
 			return echo.NewHTTPError(409, "This run cannot be retried")
 		}
+		if in.Client != "" {
+			if zone := validTimezone(in.Timezone); zone != "" {
+				row.Timezone = zone
+			}
+			row.Client = agent.NormalizeClient(in.Client)
+			row.RichUI = in.UI == genuiCapability
+		}
 		row.Error = ""
 		row.Unread = false
-		if row.Phase == "apply" && len(row.Plan) > 0 {
+		if row.Phase == "apply" && len(row.Plan) > 0 && !hasPending(row.Plan) {
+			// Stopped after the last change was saved: finish the apply, which
+			// continues with the next batch or says the request is done.
+			row.Status = "queued"
+		} else if row.Phase == "apply" && len(row.Plan) > 0 {
 			row.Status = "approval"
 			for i := range row.Plan {
-				if row.Plan[i].Status != "done" {
+				if row.Plan[i].Status != "done" && row.Plan[i].Status != "discarded" {
 					row.Plan[i].Status = "pending"
 					row.Plan[i].Error = ""
 				}
@@ -465,22 +664,28 @@ func (s *Service) configure(c *echo.Context) error {
 		if err := validChoice(*in.Provider, model); err != nil {
 			return err
 		}
+		provider, err := s.pickProvider(*in.Provider)
+		if err != nil {
+			return err
+		}
+		in.Provider = &provider
 	} else if in.Model != nil {
 		return echo.NewHTTPError(400, "Choose a provider for this model")
 	}
 	if in.Context != nil {
+		*in.Context = cleanChips(*in.Context)
 		if err := validateInput(sendInput{Content: "context", Context: *in.Context}); err != nil {
 			return err
 		}
 	}
 	title := ""
 	if in.Title != nil {
-		title = strings.TrimSpace(*in.Title)
+		title = strings.TrimSpace(dropNUL(*in.Title))
 		if title == "" || len([]rune(title)) > 120 {
 			return echo.NewHTTPError(400, "Title must be between 1 and 120 characters")
 		}
 	}
-	return s.change(c, func(tx *gorm.DB, row *Conversation) error {
+	return s.save(c, func(tx *gorm.DB, row *Conversation) error {
 		if (in.Context != nil || in.WebSearch != nil) && busy(row) {
 			return echo.NewHTTPError(409, "Wait or stop before changing context")
 		}

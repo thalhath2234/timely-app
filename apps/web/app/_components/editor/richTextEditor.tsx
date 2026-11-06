@@ -94,12 +94,15 @@ import {
   MAP_SAMPLE,
   MODEL_SAMPLE,
   OPEN_HELP_ME_WRITE_EVENT,
+  OPEN_LIVE_BLOCK_EVENT,
   OPEN_LINK_EDITOR_EVENT,
   createSlashItems,
   createSlashRenderer,
   filterSlashItems,
 } from "./slashMenu";
 import HelpMeWritePanel, { HelpMeWriteButton, useHelpMeWriteAvailable, type WriteContext } from "./helpMeWrite";
+import { insertLiveBlock, LIVE_BLOCK_TEXT, LiveBlockKeys } from "./liveBlock";
+import DescribeCardDialog from "@/app/_components/report/describeCardDialog";
 import { fileHref } from "@/app/utils/fileRoutes";
 import { controlClass } from "@/app/_components/_ui/field";
 
@@ -340,6 +343,10 @@ export default function RichTextEditor({
   const writeAvailable = useHelpMeWriteAvailable();
   const writeOn = Boolean(writeContext) && writeAvailable && editable;
   const [writeBox] = useState(() => createHandlerBox(writeOn));
+  // Live blocks are for docs; the "/" entry reads its availability the same way.
+  const liveOn = writeOn && writeContext?.kind === "doc";
+  const [liveBox] = useState(() => createHandlerBox(liveOn));
+  const [liveInsert, setLiveInsert] = useState<number | null>(null);
   // Help me write stays mounted while it holds a prompt or a draft, hidden
   // when closed, so opening it again carries on; `key` starts a fresh one.
   const [write, setWrite] = useState<{ key: number; anchor: FloatingPosition; shown: boolean } | null>(null);
@@ -351,6 +358,9 @@ export default function RichTextEditor({
   useEffect(() => {
     writeBox.set(writeOn);
   }, [writeBox, writeOn]);
+  useEffect(() => {
+    liveBox.set(liveOn);
+  }, [liveBox, liveOn]);
 
   const openLinkEditor = useCallback(() => {
     const editor = editorRef.current;
@@ -397,6 +407,7 @@ export default function RichTextEditor({
         },
       }).configure({ HTMLAttributes: { class: "doc-code-block" } }),
       CodeHighlight,
+      LiveBlockKeys,
       AutoCapitalize,
       Placeholder.configure({
         includeChildren: true,
@@ -464,6 +475,7 @@ export default function RichTextEditor({
               filterSlashItems(
                 createSlashItems({
                   helpMeWrite: writeBox.get(),
+                  liveBlock: liveBox.get(),
                   onCreateSubpage: hasCreateSubpage
                     ? (props) => {
                         void subpageBox.get()?.(props);
@@ -493,7 +505,7 @@ export default function RichTextEditor({
 
     return list;
     // The mention list is read through the stable box, so it must not rebuild here.
-  }, [enableMentions, enableSlashCommands, hasCreateSubpage, placeholder, variant, mentionBox, subpageBox, writeBox]);
+  }, [enableMentions, enableSlashCommands, hasCreateSubpage, placeholder, variant, mentionBox, subpageBox, writeBox, liveBox]);
 
   const editor = useEditor({
     // The editor is rendered inside a client page, and Tiptap requires this
@@ -528,7 +540,7 @@ export default function RichTextEditor({
     onUpdate: ({ editor: updatedEditor }) => {
       onChangeRef.current({
         content: updatedEditor.getJSON() as DocContent,
-        plainText: updatedEditor.getText(),
+        plainText: updatedEditor.getText({ textSerializers: LIVE_BLOCK_TEXT }),
       });
     },
   });
@@ -684,6 +696,15 @@ export default function RichTextEditor({
     element.addEventListener(OPEN_HELP_ME_WRITE_EVENT, handleOpen);
     return () => element.removeEventListener(OPEN_HELP_ME_WRITE_EVENT, handleOpen);
   }, [editor, openWrite]);
+
+  // The "/" menu describes a new live block for the caret's line.
+  useEffect(() => {
+    if (!editor) return;
+    const element = editor.view.dom;
+    const handleOpen = () => setLiveInsert(editor.state.selection.from);
+    element.addEventListener(OPEN_LIVE_BLOCK_EVENT, handleOpen);
+    return () => element.removeEventListener(OPEN_LIVE_BLOCK_EVENT, handleOpen);
+  }, [editor]);
 
   // Track the selection so the formatting and table toolbars can follow it.
   useEffect(() => {
@@ -1300,6 +1321,20 @@ export default function RichTextEditor({
             <Trash2 className="size-4" />
           </button>
         </div>
+      )}
+
+      {liveInsert !== null && (
+        <DescribeCardDialog
+          place="doc"
+          onSave={(result) => {
+            setLiveInsert(null);
+            insertLiveBlock(editor, liveInsert, result.program);
+          }}
+          onClose={() => {
+            setLiveInsert(null);
+            editor.commands.focus();
+          }}
+        />
       )}
 
       {write && writeContext && (

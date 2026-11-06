@@ -216,8 +216,10 @@ matching entry, or add anyway. Receipt writes always require Apply. Editing a dr
 blocks Apply until its proposal is rebuilt. Concurrent sheet changes trigger a fresh
 receipt proposal and renewed approval; committed create steps are not repeated.
 
-Images are temporary, account-scoped files outside the database. Uploads are decoded
-and re-encoded to remove embedded metadata; only attachment metadata and extracted
+Images are temporary, account-scoped files outside the database. Uploads are decoded,
+turned upright by their EXIF orientation, shrunk to at most 2576 px on the long edge
+(the most the image model reads; Anthropic refuses sides over 8000 px) and re-encoded to remove
+embedded metadata, at most 5 MB of base64 each; only attachment metadata and extracted
 text/receipt data enter chat storage. Images are served through authenticated,
 no-store routes and removed when the person confirms, discards, or after 24 hours.
 A startup/periodic sweep handles abandoned files. An expired image needs re-uploading
@@ -226,7 +228,9 @@ confirmation even if a later sheet write fails; retries use the reviewed draft.
 
 Vision and subsequent private-image conversation requests enforce OpenRouter
 `provider.zdr=true`, with no non-ZDR fallback. Image conversations cannot invoke web
-search. This is a provider routing policy, not a claim that deleting Timely's copy
+search. Their searches match exact words only and are never sent to the embedding
+service, which has no zero-retention routing; a search that finds nothing tells the
+model to search again with one or two distinctive words. This is a provider routing policy, not a claim that deleting Timely's copy
 recalls transmitted data. See [OpenRouter ZDR](https://openrouter.ai/docs/guides/features/zdr).
 
 Verification includes provider payload/privacy tests, account isolation, image
@@ -349,7 +353,9 @@ Backend additions:
   agent notifications in one transaction, for the owning account only.
 - `PATCH /chats/:id` accepts `title` (1–120 characters) and now leaves omitted
   fields unchanged. Renaming works during a run; context and web search still
-  wait for it.
+  wait for it. Settings changes (title, web search, context, provider and model)
+  keep the conversation's `revision`, so a proposal or image review read before
+  them can still be applied.
 - A failed apply names the step that stopped the run (`status: "failed"` plus
   `error`); retry resets it to pending. Message `kind` distinguishes normal turns
   from `notice` run events (stopped, done, data changed, discarded) and `archive`

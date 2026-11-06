@@ -55,6 +55,8 @@ type SelectProps = {
   values?: string[];
   /** Under the options inside the menu (a "New label" composer). */
   footer?: ReactNode;
+  /** The menu's least width in px, for options longer than the trigger. */
+  menuMinWidth?: number;
   "aria-label"?: string;
 };
 
@@ -92,6 +94,7 @@ export default function Select({
   active,
   values,
   footer,
+  menuMinWidth,
   "aria-label": ariaLabel,
 }: SelectProps) {
   const listId = useId();
@@ -237,6 +240,18 @@ export default function Select({
     triggerRef.current?.focus();
   };
 
+  // At least as wide as the trigger. A panel wider than a row's value, or than
+  // a trigger near the window's right edge, lines up with the trigger's right
+  // edge instead, and stays 8px inside the window either way.
+  const panelWidth = pos ? Math.max(pos.width, menuMinWidth ?? (variant === "chip" ? 200 : 160)) : 0;
+  const overflows = Boolean(
+    pos && typeof window !== "undefined" && (variant === "row" || pos.left + panelWidth > window.innerWidth - 8),
+  );
+  const panelLeft = !pos
+    ? 0
+    : overflows
+      ? Math.max(8, Math.min(pos.left + pos.width - panelWidth, window.innerWidth - panelWidth - 8))
+      : pos.left;
   const menu =
     mounted &&
     createPortal(
@@ -246,8 +261,8 @@ export default function Select({
             className="fixed z-[100]"
             style={{
               top: pos.top,
-              left: pos.left,
-              width: Math.max(pos.width, variant === "chip" ? 200 : 160),
+              left: panelLeft,
+              width: panelWidth,
               transform: pos.openUp ? "translateY(-100%)" : undefined,
             }}
           >

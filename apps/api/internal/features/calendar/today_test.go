@@ -69,3 +69,45 @@ func TestTodayNeverNamesTheServerZoneLocal(t *testing.T) {
 		t.Fatalf("timezone = %q (err %v), want an IANA name or none", got.Timezone, err)
 	}
 }
+
+// Ticking off today's occurrence of a repeating reminder counts it in Done
+// without marking the series itself done.
+func TestTodayCountsTickedOccurrenceAsDone(t *testing.T) {
+	zone := "Asia/Tokyo"
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().In(loc)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 6, 0, 0, 0, loc)
+	ticked := today.Add(time.Hour)
+	trash := models.Task{
+		ID:   "tsk_trash",
+		Name: "Throw away trash",
+		Kind: models.KindReminder,
+		Recurrence: &models.RecurrenceRule{
+			ID:         "rr_trash",
+			RRule:      "FREQ=DAILY",
+			Dtstart:    today.AddDate(0, 0, -2),
+			Timezone:   zone,
+			Exceptions: []models.RecurrenceException{{OriginalStart: today, CompletedAt: &ticked}},
+		},
+	}
+
+	svc := NewService(todayTasks{tasks: []models.Task{trash}}, noEvents{}, func(string) (models.WorkingHours, error) {
+		return models.DefaultWorkingHours(zone), nil
+	})
+	got, err := svc.Today("usr_1", "", zone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.CompletedToday) != 1 || got.CompletedToday[0].ID != "tsk_trash" {
+		t.Fatalf("completedToday = %v, want the ticked reminder once", got.CompletedToday)
+	}
+	if got.CompletedToday[0].IsCompleted() {
+		t.Fatal("the series came back done; only today's occurrence was ticked")
+	}
+	if len(got.Items) != 1 || got.Items[0].CompletedAt == nil {
+		t.Fatalf("items = %v, want today's occurrence marked done", got.Items)
+	}
+}

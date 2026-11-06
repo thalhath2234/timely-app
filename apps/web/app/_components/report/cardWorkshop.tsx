@@ -676,7 +676,7 @@ function matchSummary(result: ReturnType<typeof computeCard>) {
 const inputClass =
   controlClass("md", "w-full");
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section>
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</h3>
@@ -685,7 +685,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+export function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex min-w-0 flex-col gap-1" role="group" aria-label={label}>
       <span className="text-xs text-muted-foreground">{label}</span>
@@ -813,7 +813,7 @@ function NumberInput({ value, min, max, onChange }: { value: number; min: number
   );
 }
 
-function Stepper({ value, min, max, onChange, label }: { value: number; min: number; max: number; onChange: (value: number) => void; label: string }) {
+export function Stepper({ value, min, max, onChange, label }: { value: number; min: number; max: number; onChange: (value: number) => void; label: string }) {
   return (
     <span className="flex items-center rounded-lg border border-border" aria-label={label}>
       <button type="button" onClick={() => onChange(Math.max(min, value - 1))} disabled={value <= min} className="p-1 disabled:opacity-30" aria-label={`Smaller ${label.toLowerCase()}`}>

@@ -488,3 +488,198 @@ func TestIntegrationChosenModelOverridesDefault(t *testing.T) {
 		t.Fatal("retry not claimed")
 	}
 }
+
+// brokenCompleters is an account whose provider can't be used: its key
+// was removed after the proposal was made.
+type brokenCompleters struct{}
+
+func (brokenCompleters) Resolve(context.Context, string) (string, string, error) {
+	return "anthropic", "", nil
+}
+func (brokenCompleters) Completer(context.Context, string, string, string) (Completer, error) {
+	return nil, fmt.Errorf("Anthropic API is not connected. Add its key in Settings → Agent")
+}
+
+func TestIntegrationApprovedChangesApplyWithoutAProvider(t *testing.T) {
+	db := integrationDB(t)
+	s := New(db, nil, nil)
+	s.SetCompleters(brokenCompleters{})
+	var modelErr error
+	s.factory = func(tx *gorm.DB) agent.Catalog {
+		return agent.Catalog{
+			"create_task": {Call: func(context.Context, string, json.RawMessage) (any, error) {
+				return map[string]string{"id": "tsk_1"}, nil
+			}},
+			// A step that needs a model gets the run's provider error.
+			"add_live_block": {Call: func(ctx context.Context, _ string, _ json.RawMessage) (any, error) {
+				_, modelErr = CompleterFrom(ctx).Complete(ctx, nil, nil, false)
+				return map[string]string{"id": "doc_1"}, nil
+			}},
+		}
+	}
+	c := runFixture(t, db, []Step{
+		{Tool: "create_task", Summary: "A", Arguments: raw(map[string]string{"name": "A"}), Status: "pending"},
+		{Tool: "create_task", Summary: "B", Arguments: raw(map[string]string{"name": "B"}), Status: "pending"},
+		{Tool: "add_live_block", Summary: "Block", Arguments: raw(map[string]string{"words": "Overdue tasks"}), Status: "pending"},
+	})
+	c.Status, c.Lease = "queued", ""
+	db.Save(&c)
+	ctx, cancel := context.WithCancel(context.Background())
+	go s.work(ctx)
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		db.First(&c, "id = ?", c.ID)
+		if c.Status != "queued" && c.Status != "running" {
+			break
+		}
+	}
+	cancel()
+	if c.Status == "failed" || c.Plan[0].Status != "done" || c.Plan[1].Status != "done" {
+		t.Fatalf("approved changes must apply without the model: %s %q %+v", c.Status, c.Error, c.Plan)
+	}
+	if modelErr == nil || !strings.Contains(modelErr.Error(), "not connected") {
+		t.Fatalf("a step that needs a model must get the provider's error, got %v", modelErr)
+	}
+}
+
+func TestIntegrationSettingsKeepRevision(t *testing.T) {
+	db := integrationDB(t)
+	s := New(db, nil, nil)
+	e := echo.New()
+	g := e.Group("")
+	g.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error { c.Set("userID", "user-a"); return next(c) }
+	})
+	s.Routes(g)
+	call := func(method, path, body string) (int, Conversation) {
+		t.Helper()
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		e.ServeHTTP(w, r)
+		var row Conversation
+		_ = json.Unmarshal(w.Body.Bytes(), &row)
+		return w.Code, row
+	}
+
+	c := runFixture(t, db, []Step{})
+	c.Status, c.Phase, c.Lease, c.Revision = "approval", "apply", "", 4
+	db.Save(&c)
+	for _, body := range []string{
+		`{"webSearch":true}`,
+		`{"context":[{"kind":"object","label":"Task","value":"tasks/a"}]}`,
+		`{"provider":"anthropic","model":"claude-opus-5-5"}`,
+		`{"title":"Renamed"}`,
+	} {
+		if code, row := call("PATCH", "/chats/"+c.ID, body); code != 200 || row.Revision != 4 {
+			t.Fatalf("PATCH %s: %d revision %d", body, code, row.Revision)
+		}
+	}
+	db.First(&c, "id = ?", c.ID)
+	if c.Revision != 4 || !c.WebSearch || len(c.Context) != 1 || c.ChosenModel != "claude-opus-5-5" || c.Title != "Renamed" {
+		t.Fatalf("settings not saved or revision moved: %+v", c)
+	}
+	if code, row := call("POST", "/chats/"+c.ID+"/approve", `{"revision":4}`); code != 200 || row.Status != "queued" || row.Revision != 5 {
+		t.Fatalf("approve after settings change: %d %s %d", code, row.Status, row.Revision)
+	}
+}
+
+// Each change of a proposal can be applied or set aside on its own: the rest
+// stays for review, set-aside changes can come back, and the proposal ends
+// when nothing is left to apply.
+func TestIntegrationApplyAndDiscardPerChange(t *testing.T) {
+	db := integrationDB(t)
+	s := New(db, nil, nil)
+	s.factory = func(tx *gorm.DB) agent.Catalog {
+		return agent.Catalog{"create_workspace": {Call: func(ctx context.Context, uid string, args json.RawMessage) (any, error) {
+			item := testItem{ID: id("item_"), Value: string(args)}
+			if err := tx.Create(&item).Error; err != nil {
+				return nil, err
+			}
+			return map[string]string{"id": item.ID}, nil
+		}}}
+	}
+	step := func(name string, args map[string]string) Step {
+		args["name"] = name
+		return Step{Tool: "create_workspace", Summary: name, Arguments: raw(args), Status: "pending"}
+	}
+	c := runFixture(t, db, []Step{step("first", map[string]string{}), step("second", map[string]string{"after": "$0.id"}), step("third", map[string]string{}), step("fourth", map[string]string{})})
+	db.Model(&Conversation{}).Where("id = ?", c.ID).Updates(map[string]any{"status": "approval", "phase": "plan", "lease": "", "revision": 1})
+
+	e := echo.New()
+	g := e.Group("")
+	g.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error { c.Set("userID", "user-a"); return next(c) }
+	})
+	s.Routes(g)
+	post := func(path, body string) (int, Conversation) {
+		t.Helper()
+		request := httptest.NewRequest("POST", "/chats/"+c.ID+path, strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		recorder := httptest.NewRecorder()
+		e.ServeHTTP(recorder, request)
+		var row Conversation
+		db.First(&row, "id = ?", c.ID)
+		return recorder.Code, row
+	}
+	statuses := func(row Conversation) string {
+		out := []string{}
+		for _, step := range row.Plan {
+			out = append(out, step.Status)
+		}
+		return strings.Join(out, ",")
+	}
+
+	// Setting aside the first takes the second, which builds on it.
+	code, row := post("/steps/discard", `{"revision":1,"steps":[0]}`)
+	if code != 200 || statuses(row) != "discarded,discarded,pending,pending" || row.Status != "approval" {
+		t.Fatalf("discard: %d %s %s", code, statuses(row), row.Status)
+	}
+	// Keeping the second brings back the first.
+	code, row = post("/steps/discard", fmt.Sprintf(`{"revision":%d,"steps":[1],"keep":true}`, row.Revision))
+	if code != 200 || statuses(row) != "pending,pending,pending,pending" {
+		t.Fatalf("keep: %d %s", code, statuses(row))
+	}
+	// Applying the second alone applies the first with it, and nothing else.
+	code, row = post("/approve", fmt.Sprintf(`{"revision":%d,"steps":[1]}`, row.Revision))
+	if code != 200 || statuses(row) != "approved,approved,pending,pending" || row.Status != "queued" {
+		t.Fatalf("approve: %d %s %s", code, statuses(row), row.Status)
+	}
+	db.Model(&Conversation{}).Where("id = ?", c.ID).Updates(map[string]any{"status": "running", "lease": "test-lease"})
+	db.First(&row, "id = ?", c.ID)
+	if err := s.apply(context.Background(), &row); err != nil {
+		t.Fatal(err)
+	}
+	var count int64
+	db.Model(&testItem{}).Count(&count)
+	if count != 2 || statuses(row) != "done,done,pending,pending" || row.Status != "approval" {
+		t.Fatalf("partial apply: %d writes, %s %s", count, statuses(row), row.Status)
+	}
+	// An applied change cannot be set aside or applied again.
+	if code, _ = post("/approve", fmt.Sprintf(`{"revision":%d,"steps":[9]}`, row.Revision)); code != 400 {
+		t.Fatalf("approve outside the plan: %d", code)
+	}
+	code, row = post("/steps/discard", fmt.Sprintf(`{"revision":%d,"steps":[0,2]}`, row.Revision))
+	if code != 200 || statuses(row) != "done,done,discarded,pending" || row.Status != "approval" {
+		t.Fatalf("discard after apply: %d %s %s", code, statuses(row), row.Status)
+	}
+	// Setting aside the last one ends the proposal as applied.
+	code, row = post("/steps/discard", fmt.Sprintf(`{"revision":%d,"steps":[3]}`, row.Revision))
+	if code != 200 || statuses(row) != "done,done,discarded,discarded" || row.Status != "idle" || row.Messages[len(row.Messages)-1].Content != tr(row.Language, txtDone) {
+		t.Fatalf("last discard: %d %s %s", code, statuses(row), row.Status)
+	}
+	if code, _ = post("/approve", fmt.Sprintf(`{"revision":%d}`, row.Revision)); code != 409 {
+		t.Fatalf("approve after the end: %d", code)
+	}
+	// Discard all after applying some keeps what was applied and says so,
+	// rather than "nothing was changed".
+	row.Plan[2].Status, row.Plan[3].Status = "pending", "pending"
+	row.Status = "approval"
+	if err := db.Save(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	before := len(row.Messages)
+	code, row = post("/reject", fmt.Sprintf(`{"revision":%d}`, row.Revision))
+	if code != 200 || statuses(row) != "done,done,discarded,discarded" || row.Status != "idle" || len(row.Messages) != before+1 || row.Messages[before].Content != tr(row.Language, txtDone) {
+		t.Fatalf("discard all after apply: %d %s %s", code, statuses(row), row.Status)
+	}
+}

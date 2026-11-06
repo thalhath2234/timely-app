@@ -6,7 +6,8 @@ export type DecisionsView = {
   enabled: boolean;
   available: boolean;
   provider?: "typesafe" | "openrouter";
-  typesafe: { keySet: boolean; keyHint?: string; rejected: boolean };
+  /** unreadable: a key is saved but the server can no longer decrypt it, so it must be entered again. */
+  typesafe: { keySet: boolean; keyHint?: string; rejected: boolean; unreadable?: boolean };
   openrouterKeySet: boolean;
   deepWorkTime: DeepWorkTime;
 };
@@ -50,11 +51,14 @@ async function request<T>(
   path: string,
   method = "GET",
   body?: unknown,
+  /** Drops the request, and the model call behind it, once nothing waits for the answer. */
+  signal?: AbortSignal,
 ): Promise<T> {
   const res = await apiFetch(path, {
     method,
     headers: { "Content-Type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    signal,
   });
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
@@ -64,7 +68,7 @@ async function request<T>(
     } catch {
       // keep the fallback message
     }
-    throw new Error(message);
+    throw Object.assign(new Error(message), { status: res.status });
   }
   return res.status === 204 ? (undefined as T) : res.json();
 }
@@ -130,6 +134,8 @@ export const getClarifySuggestions = (inboxId: string) =>
 export type TaskHints = {
   available: boolean;
   logId?: string;
+  /** Set when suggestions are on but the call failed. */
+  error?: string;
   statusId?: string;
   stageId?: string;
   fields?: { fieldId: string; type: string; optionIds?: string[]; value?: string }[];
@@ -154,7 +160,8 @@ export type StaleWork = {
   logId?: string;
   tasks: { id: string; name: string; idleDays: number; verdict?: StaleVerdict }[];
 };
-export const getStaleWork = () => request<StaleWork>("/suggestions/stale-work");
+export const getStaleWork = () =>
+  request<StaleWork>(`/suggestions/stale-work?timezone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`);
 /** Records a review that keeps the task, which restarts its idle days. */
 export const keepStaleTask = (taskId: string) =>
   request<void>(`/suggestions/stale-work/${encodeURIComponent(taskId)}/keep`, "POST");
@@ -179,8 +186,12 @@ export type ProjectInsights = {
   misfiled?: { taskId: string; name: string; moveTo?: string; moveToTitle?: string; stageId?: string }[];
   overlaps?: { id: string; title: string }[];
 };
+/** Overdue and days left are counted in the person's own day, so the
+ * browser's zone goes along for an account with no saved working hours. */
 export const getProjectInsights = (projectId: string) =>
-  request<ProjectInsights>(`/suggestions/project/${encodeURIComponent(projectId)}`);
+  request<ProjectInsights>(
+    `/suggestions/project/${encodeURIComponent(projectId)}?timezone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`,
+  );
 
 export type ProjectStart = {
   available: boolean;
@@ -218,11 +229,14 @@ export const mergeTaxonomy = (workspaceId: string, merge: CleanupMerge) => {
     return request<MergeResult>(
       `/workspaces/${ws}/custom-field/${encodeURIComponent(merge.fieldId ?? "")}/options/merge`,
       "POST",
-      { from: merge.from.id, into: merge.into.id },
+      { from: merge.from.id, into: merge.into.id, fromName: merge.from.name, intoName: merge.into.name },
     );
   const path = merge.kind === "label" ? "lable" : "status";
   return request<MergeResult>(`/workspaces/${ws}/${path}/${encodeURIComponent(merge.from.id)}/merge`, "POST", {
     into: merge.into.id,
+    // The names shown: a merge offered before a rename elsewhere is refused.
+    fromName: merge.from.name,
+    intoName: merge.into.name,
   });
 };
 
@@ -239,29 +253,54 @@ export type DocHints = {
   properties?: { key: string; value: string }[];
   template?: { id: string; title: string };
   outdated?: boolean;
-  /** Items (lower case) of checklists kept in the doc, not worked as tasks. */
-  keptLists?: string[];
+  /** Checklist items offered as tasks are turned off for this doc. */
+  todosOff?: boolean;
+  /** Smart suggestions were busy or failed: the hints are missing, not empty. */
+  failed?: boolean;
 };
 
-export const getDocHints = (docId: string) => request<DocHints>(`/suggestions/doc/${encodeURIComponent(docId)}`);
+export const getDocHints = (docId: string, signal?: AbortSignal) =>
+  request<DocHints>(`/suggestions/doc/${encodeURIComponent(docId)}`, "GET", undefined, signal);
 
 /** One kind of doc suggestion and what it offers: an id for a template,
- * project or page, the type, "key=value" for a property, the line for work. */
-export type DocHintKind = "template" | "project" | "parent" | "type" | "prop" | "work" | "outdated";
+ * project or page, the type, "key=value" for a property, the line for work,
+ * the item's name for a checklist item offered as a task. "todos" is all of
+ * the doc's checklist items: its task offers switched off. */
+export type DocHintKind = "template" | "project" | "parent" | "type" | "prop" | "work" | "outdated" | "todo" | "todos";
 
 /** Remembers a dismissed suggestion for the doc, on every device. */
 export const dismissDocHint = (docId: string, kind: DocHintKind, value = "") =>
   request<void>(`/suggestions/doc/${encodeURIComponent(docId)}/dismiss`, "POST", { kind, value });
 
-/** Which of a doc's checklist task names are already tasks, and the project
- * new ones go to. Plain code on the server: it answers with no keys. */
+/** Takes a dismissal back: an undo, or the doc's task offers on again. */
+export const restoreDocHint = (docId: string, kind: DocHintKind, value = "") =>
+  request<void>(`/suggestions/doc/${encodeURIComponent(docId)}/dismiss`, "DELETE", { kind, value });
+
+/** Which of a doc's checklist task names are already tasks, which Jev offers
+ * as tasks (only while smart suggestions are on), and the project new ones
+ * go to. */
 export type DocChecklist = {
   existing: { name: string; taskId: string }[];
   project?: { id: string; title: string; workspaceId: string };
+  /** Where the person said tasks from this doc go ("inbox" or the project's
+   * id), while it still applies; without it the place is automatic. */
+  picked?: string;
+  /** Smart suggestions are on, so items can be offered at all. */
+  available?: boolean;
+  /** Task offers are turned off for this doc. */
+  off?: boolean;
+  /** Names, as sent, that read as things to get done and are not tasks yet. */
+  offer?: string[];
+  logId?: string;
 };
 
 export const getDocChecklist = (docId: string, names: string[], projectId?: string) =>
   request<DocChecklist>(`/suggestions/doc/${encodeURIComponent(docId)}/checklist`, "POST", { names, projectId: projectId ?? "" });
+
+/** Where every task made from the doc's offers goes: "inbox", a project's
+ * id, or "" for the automatic place again. */
+export const setDocGoesTo = (docId: string, target: string) =>
+  request<void>(`/suggestions/doc/${encodeURIComponent(docId)}/goes-to`, "PUT", { target });
 
 export type MentionTarget = { kind: "task" | "project" | "doc" | "sheet"; id: string; title: string };
 /** What a selected phrase may refer to: Jev's match when sure, and the
@@ -299,6 +338,8 @@ export type HighlightGroup = { key: string; label: string; count: number; tasks:
 export type Highlights = {
   available: boolean;
   logId?: string;
+  /** Set when suggestions are on but a call failed. */
+  error?: string;
   highlights: { id: string; text: string }[];
   blockers: HighlightGroup[];
   missed: HighlightGroup[];
@@ -350,5 +391,5 @@ export const getLearned = () => request<{ features: LearnedFeature[] }>("/agent/
 export const resetLearned = (feature: string) => request<void>("/agent/decisions/learned/reset", "POST", { feature });
 
 /** The work length smart suggestions would offer for a new title; offered, never set. */
-export const getEstimate = (name: string, description = "") =>
-  request<{ available: boolean; minutes?: number }>("/suggestions/estimate", "POST", { name, description });
+export const getEstimate = (name: string, description = "", signal?: AbortSignal) =>
+  request<{ available: boolean; minutes?: number }>("/suggestions/estimate", "POST", { name, description }, signal);

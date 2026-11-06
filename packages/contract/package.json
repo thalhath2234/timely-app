@@ -6,8 +6,10 @@
   "exports": {
     ".": "./src/index.ts",
     "./account": "./src/account.ts",
+    "./autosaveQueue": "./src/autosaveQueue.ts",
     "./bulkEdit": "./src/bulkEdit.ts",
     "./calendar": "./src/calendar.ts",
+    "./changeReview": "./src/changeReview.ts",
     "./config": "./src/config.ts",
     "./dashboard": "./src/dashboard.ts",
     "./dashboardFiles": "./src/dashboardFiles.ts",
@@ -15,6 +17,8 @@
     "./docChecklist": "./src/docChecklist.ts",
     "./documents": "./src/documents.ts",
     "./embeds": "./src/embeds.ts",
+    "./genui": "./src/genui.ts",
+    "./genuiBoard": "./src/genuiBoard.ts",
     "./entities": "./src/entities.ts",
     "./helpMeWrite": "./src/helpMeWrite.ts",
     "./importFormat": "./src/importFormat.ts",
@@ -23,8 +27,11 @@
     "./notifications": "./src/notifications.ts",
     "./projectDelete": "./src/projectDelete.ts",
     "./properties": "./src/properties.ts",
+    "./providerFallback": "./src/providerFallback.ts",
+    "./reindexPoll": "./src/reindexPoll.ts",
     "./ruleBuilder": "./src/ruleBuilder.ts",
     "./schedule": "./src/schedule.ts",
+    "./searchQuery": "./src/searchQuery.ts",
     "./sheet": "./src/sheet.ts",
     "./sheetCell": "./src/sheetCell.ts",
     "./sheetCsv": "./src/sheetCsv.ts",
@@ -38,6 +45,7 @@
     "./sheetTemplates": "./src/sheetTemplates.ts",
     "./sheetTypes": "./src/sheetTypes.ts",
     "./sheetValues": "./src/sheetValues.ts",
+    "./smartSearch": "./src/smartSearch.ts",
     "./starterLabels": "./src/starterLabels.ts",
     "./taskQuery": "./src/taskQuery.ts",
     "./templates": "./src/templates.ts",
@@ -46,6 +54,8 @@
     "./workStatus": "./src/workStatus.ts"
   },
   "dependencies": {
-    "marked": "^18.1.0"
+    "@openuidev/lang-core": "1.0.1",
+    "marked": "^18.1.0",
+    "zod": "^4.4.3"
   }
 }

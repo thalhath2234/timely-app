@@ -134,7 +134,7 @@ func TestCompatQuotesTheProvidersError(t *testing.T) {
 	defer server.Close()
 	p := &Compat{Spec: apiProviderByID("gemini"), Base: server.URL, Key: "k", Model: "gemini-9", Client: server.Client()}
 	_, err := p.Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, nil, false)
-	if err == nil || !strings.Contains(err.Error(), "Google Gemini returned HTTP 400: Model gemini-9 is not found") {
+	if err == nil || !strings.Contains(err.Error(), "Google Gemini refused the request (HTTP 400): Model gemini-9 is not found") {
 		t.Fatalf("%v", err)
 	}
 }
@@ -166,8 +166,8 @@ func TestCompatModelListsFilterAndNormalise(t *testing.T) {
 	}))
 	defer server.Close()
 	spec := &apiProvider{ID: "t", Label: "Test", ModelsPath: "models", Skip: nonChat}
-	if _, err := fetchCompatModels(context.Background(), server.Client(), spec, server.URL, "bad"); err == nil || !strings.Contains(err.Error(), "Incorrect API key provided") {
-		t.Fatalf("a bad key must fail with the provider's message: %v", err)
+	if _, err := fetchCompatModels(context.Background(), server.Client(), spec, server.URL, "bad"); err == nil || !strings.Contains(err.Error(), "Test didn't accept the API key (HTTP 401)") {
+		t.Fatalf("a bad key must fail naming the provider: %v", err)
 	}
 	list, err := fetchCompatModels(context.Background(), server.Client(), spec, server.URL, "good")
 	if err != nil {
@@ -247,6 +247,92 @@ func TestAnthropicMapsTheTranscriptToMessages(t *testing.T) {
 	}
 }
 
+// cacheMarks lists where a Messages request carries cache_control: "system N"
+// or "message M block B".
+func cacheMarks(body map[string]any) []string {
+	var marks []string
+	system, _ := body["system"].([]any)
+	for i, block := range system {
+		if cc, ok := block.(map[string]any)["cache_control"].(map[string]any); ok && cc["type"] == "ephemeral" {
+			marks = append(marks, fmt.Sprintf("system %d", i))
+		}
+	}
+	for i, message := range body["messages"].([]any) {
+		for j, block := range message.(map[string]any)["content"].([]any) {
+			if cc, ok := block.(map[string]any)["cache_control"].(map[string]any); ok && cc["type"] == "ephemeral" {
+				marks = append(marks, fmt.Sprintf("message %d block %d", i, j))
+			}
+		}
+	}
+	return marks
+}
+
+func TestAnthropicCachesTheMarkedPrefixes(t *testing.T) {
+	var bodies []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		bodies = append(bodies, body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","model":"claude-haiku-5-5","stop_reason":"end_turn","content":[{"type":"text","text":"Done."}],"usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":900}}`))
+	}))
+	defer server.Close()
+	call := chat.ToolCall{ID: "call_1", Type: "function"}
+	call.Function.Name, call.Function.Arguments = "list_tasks", `{}`
+	// A chat turn: the system prompt and the stored conversation are marked,
+	// and CacheTail marks the newest tool result.
+	transcript := []chat.WireMessage{
+		{Role: "system", Content: "Stable rules and write schemas.", Cache: true},
+		{Role: "user", Content: "Earlier question"},
+		{Role: "assistant", Content: "Earlier answer"},
+		{Role: "user", Content: "New question", Cache: true},
+		{Role: "user", Content: "System notice (not written by the user): the clock"},
+		{Role: "assistant", ToolCalls: []chat.ToolCall{call}},
+		{Role: "tool", ToolCallID: "call_1", Content: `{"tasks":[]}`},
+	}
+	messages := chat.CacheTail(transcript)
+	cached := &Anthropic{Key: "sk-ant-test", Model: "claude-haiku-5-5", Base: server.URL, Cache: true, Client: server.Client()}
+	if _, err := cached.Complete(context.Background(), messages, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	// Another server on the same protocol (OpenCode) gets no cache_control.
+	plain := &Anthropic{Key: "sk-ant-test", Model: "claude-haiku-5-5", Base: server.URL, Client: server.Client()}
+	if _, err := plain.Complete(context.Background(), messages, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	// The stored question shares a user turn with the clock notice after it:
+	// the mark sits on the question's block, so the notice stays outside.
+	want := "system 0,message 2 block 0,message 4 block 0"
+	if got := strings.Join(cacheMarks(bodies[0]), ","); got != want {
+		t.Fatalf("cache_control on %s, want %s", got, want)
+	}
+	if got := cacheMarks(bodies[1]); len(got) != 0 {
+		t.Fatalf("no cache_control without prompt caching: %v", got)
+	}
+	if transcript[len(transcript)-1].Cache {
+		t.Fatal("CacheTail marks a copy: marks from earlier turns must not pile up in the transcript")
+	}
+}
+
+func TestAnthropicKeepsAtMostFourCacheMarks(t *testing.T) {
+	messages := []chat.WireMessage{{Role: "system", Content: "Rules", Cache: true}}
+	for i := 0; i < 6; i++ {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		messages = append(messages, chat.WireMessage{Role: role, Content: fmt.Sprintf("turn %d", i), Cache: true})
+	}
+	system, out := anthropicMessages(messages, true, true, nil)
+	raw, _ := json.Marshal(map[string]any{"system": system, "messages": out})
+	var body map[string]any
+	_ = json.Unmarshal(raw, &body)
+	// The system prompt and the latest three turns keep theirs.
+	if got := strings.Join(cacheMarks(body), ","); got != "system 0,message 3 block 0,message 4 block 0,message 5 block 0" {
+		t.Fatalf("cache_control on %s", got)
+	}
+}
+
 func TestAnthropicQuotesErrorsAndListsModels(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -260,12 +346,95 @@ func TestAnthropicQuotesErrorsAndListsModels(t *testing.T) {
 	}))
 	defer server.Close()
 	_, err := (&Anthropic{Key: "bad", Model: "x", Base: server.URL, Client: server.Client()}).Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, nil, false)
-	if err == nil || !strings.Contains(err.Error(), "invalid x-api-key") {
+	var failure *chat.Failure
+	if !errors.As(err, &failure) || failure.Action != chat.ActionSettings || !strings.Contains(err.Error(), "didn't accept the API key") {
 		t.Fatalf("%v", err)
 	}
 	list, effort, err := anthropicModels(context.Background(), &Anthropic{Key: "good", Base: server.URL, Client: server.Client()})
 	if err != nil || len(list) != 2 || !list[1].Vision || !effort["claude-opus-5-5"] || effort["claude-haiku-4-5"] {
 		t.Fatalf("%v %v %v", list, effort, err)
+	}
+}
+
+func TestAnthropicFailsAtOnceOnAFifteenMinuteRetryAfter(t *testing.T) {
+	calls, wait := 0, "900"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", wait)
+		if calls > 1 && r.Header.Get("X-Stainless-Retry-Count") == "1" {
+			_, _ = w.Write([]byte(`{"id":"m","type":"message","role":"assistant","model":"x","content":[{"type":"text","text":"Back"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+			return
+		}
+		w.WriteHeader(429)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"rate_limit_error","message":"Number of requests has exceeded your rate limit"}}`))
+	}))
+	defer server.Close()
+	p := &Anthropic{Key: "k", Model: "x", Base: server.URL, Client: server.Client()}
+	started := time.Now()
+	_, err := p.Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, nil, false)
+	if err == nil || calls != 1 || time.Since(started) > 5*time.Second {
+		t.Fatalf("a 15-minute retry-after must fail at once: %v after %d calls, %s", err, calls, time.Since(started))
+	}
+	if !strings.Contains(err.Error(), "rate limiting this key (HTTP 429)") || !strings.Contains(err.Error(), "Try again in about 15 minutes") {
+		t.Fatalf("the error must say it is a rate limit and when to retry: %v", err)
+	}
+	// A short hint is still waited out and retried once.
+	calls, wait = 0, "0"
+	if got, err := p.Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, nil, false); err != nil || got.Content != "Back" || calls != 2 {
+		t.Fatalf("a short retry-after should be retried: %q %v (%d calls)", got.Content, err, calls)
+	}
+}
+
+func TestAnthropicStopReasons(t *testing.T) {
+	var replies []string
+	var bodies []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		bodies = append(bodies, body)
+		w.Header().Set("Content-Type", "application/json")
+		reply := replies[0]
+		replies = replies[1:]
+		_, _ = w.Write([]byte(reply))
+	}))
+	defer server.Close()
+	answer := func(stop, content string) string {
+		return `{"id":"m","type":"message","role":"assistant","model":"x","content":[` + content + `],"stop_reason":"` + stop + `","usage":{"input_tokens":1,"output_tokens":1}}`
+	}
+	text := func(s string) string { return `{"type":"text","text":"` + s + `"}` }
+	p := &Anthropic{Key: "k", Model: "x", Base: server.URL, Client: server.Client(), Search: true}
+	ask := func(search bool, script ...string) (chat.WireMessage, error) {
+		replies, bodies = script, nil
+		return p.Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "Write me a long weekly review"}}, nil, search)
+	}
+	for stop, want := range map[string]string{
+		"max_tokens":                    "length limit",
+		"model_context_window_exceeded": "more text than the model can read",
+		"something_new":                 "stopped before finishing",
+	} {
+		if got, err := ask(false, answer(stop, text("Partial answ"))); err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "Could not reach") {
+			t.Errorf("%s: a partial answer must fail with %q, got %q %v", stop, want, got.Content, err)
+		}
+	}
+	if _, err := ask(false, answer("max_tokens", `{"type":"tool_use","id":"t1","name":"propose_changes","input":{}}`)); err == nil || !strings.Contains(err.Error(), "proposal was too large") {
+		t.Errorf("a cut-off proposal keeps its own message: %v", err)
+	}
+	// pause_turn continues the turn with what it has so far.
+	got, err := ask(true, answer("pause_turn", text("Opening hours: ")), answer("end_turn", text("10:00 to 18:00.")))
+	if err != nil || got.Content != "Opening hours: 10:00 to 18:00." || len(bodies) != 2 {
+		t.Fatalf("pause_turn must continue: %q %v (%d calls)", got.Content, err, len(bodies))
+	}
+	if messages := bodies[1]["messages"].([]any); len(messages) != 2 || messages[1].(map[string]any)["role"] != "assistant" {
+		t.Fatalf("the paused turn must be sent back: %v", messages)
+	}
+	// A turn that keeps pausing fails instead of answering half.
+	pauses := make([]string, 0, maxContinues+1)
+	for range maxContinues + 1 {
+		pauses = append(pauses, answer("pause_turn", text("a")))
+	}
+	if _, err := ask(true, pauses...); err == nil || len(bodies) != 1+maxContinues {
+		t.Fatalf("an unfinished turn must fail after %d continuations: %v (%d calls)", maxContinues, err, len(bodies))
 	}
 }
 
@@ -392,7 +561,7 @@ func TestResponsesReportsTruncation(t *testing.T) {
 	}))
 	defer server.Close()
 	p := &Responses{Spec: apiProviderByID("openai"), Base: server.URL, Key: "k", Model: "m", Client: server.Client()}
-	if _, err := p.Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, nil, false); err == nil || !strings.Contains(err.Error(), "too large") {
+	if _, err := p.Complete(context.Background(), []chat.WireMessage{{Role: "user", Content: "hi"}}, nil, false); !errors.Is(err, chat.ErrAnswerTooLong) {
 		t.Fatalf("%v", err)
 	}
 }

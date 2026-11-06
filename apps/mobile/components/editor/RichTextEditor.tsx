@@ -11,7 +11,7 @@ import {
   Dimensions,
   useWindowDimensions,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, type Href } from "expo-router";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
@@ -36,6 +36,7 @@ import {
   Heading2,
   Heading3,
   Highlighter,
+  LayoutDashboard,
   ClipboardPaste,
   Image as ImageIcon,
   Info,
@@ -65,7 +66,14 @@ import {
   Type,
 } from "lucide-react-native";
 import type { DocContent, MentionEntityType } from "../../lib/types";
-import { useDecisionFeedback, useDecisionsStatusQuery, useMentionItems, useSearchQuery } from "../../lib/hooks";
+import {
+  useDecisionFeedback,
+  useDecisionsStatusQuery,
+  useMentionItems,
+  useSaveTask,
+  useSearchQuery,
+  useSetChecklistItem,
+} from "../../lib/hooks";
 import { matchMention, type MentionMatch, type MentionTarget } from "../../lib/api/decisions";
 import { mentionChoices } from "../../lib/docEditorJev";
 import { colors, createThemedStyleSheet, editorThemeVars, getThemeMode, resolvedAccentHex } from "../../lib/theme";
@@ -78,13 +86,16 @@ import { hrefFor } from "../../lib/searchRoutes";
 import { getLinkPreview, uploadDocFile } from "../../lib/api/docs";
 import { sharePdfFromHtml } from "../../lib/api/portability";
 import { isEmbedUrl } from "@timely/contract/markdown";
-import { useToastStore } from "../../lib/toast";
+import { LIVE_BLOCK_LANGUAGE } from "@timely/contract/genuiBoard";
+import { showUndoToast, useToastStore } from "../../lib/toast";
 import TimelyLogo from "../ui/TimelyLogo";
 import FindBar from "./FindBar";
 import BlockSheet, { type BlockInfo } from "./BlockSheet";
-import HelpMeWriteSheet, { useHelpMeWriteAvailable, type WriteContext, type WriteInfo } from "./HelpMeWriteSheet";
-import { writtenContent } from "@timely/contract/helpMeWrite";
+import HelpMeWriteSheet, { useHelpMeWriteAvailable, writeList, type WriteContext, type WriteInfo } from "./HelpMeWriteSheet";
+import { belowFit, isWriteList, replaceFit, writtenContent, type WriteSpot } from "@timely/contract/helpMeWrite";
 import type { LineHints } from "../docs/lineHints";
+import DescribeCardSheet, { type DescribedDraft } from "../report/DescribeCardSheet";
+import LiveBlocks from "./LiveBlocks";
 
 /** The five GitHub callout kinds, coloured as in the editor (editorHtml.ts). */
 const CALLOUT_KINDS: { kind: string; label: string; Icon: typeof Info; color?: string }[] = [
@@ -134,6 +145,7 @@ const SLASH: {
   { title: "Mention", description: "Reference a doc, sheet, task or project", cmd: "mentionChar", Icon: AtSign, shortcut: "@", keywords: ["@", "mention"] },
   { title: "Page", description: "Create a nested subpage", cmd: "page", Icon: FileText, keywords: ["subpage", "child", "nested"] },
   { title: "Help me write", description: "Draft or rewrite text with AI", cmd: "helpMeWrite", Icon: Sparkles, keywords: ["ai", "write", "draft", "generate", "rewrite", "assistant", "summarize"] },
+  { title: "Live block", description: "A card from your data, kept current", cmd: "liveBlock", Icon: LayoutDashboard, keywords: ["live", "card", "dashboard", "chart", "widget", "data", "tasks", "ai", "openui"] },
 ];
 
 const FORMAT_TOOLS = [
@@ -298,8 +310,8 @@ export default function RichTextEditor({
   propertyRequest?: { key: string; value: string } | null;
   /** Adds a mention of this item at the end of the doc (Related "Add link"). */
   mentionRequest?: { id: string; label: string; entityType: string } | null;
-  /** Suggestions for checklist rows: a marker at each row's end and a card
-   * under the open one (DocHintsCard). */
+  /** Lines offered as tasks: a marker at each line's end and a card under
+   * the open one (DocHintsCard). */
   lineHints?: LineHints | null;
   /** Turns on Help me write (dock button and "/" entry), shown only while an
    * AI provider is set up. */
@@ -362,7 +374,22 @@ export default function RichTextEditor({
   const [hasSelection, setHasSelection] = useState(false);
   const writeOn = useHelpMeWriteAvailable(Boolean(writeContext));
   const [writeInfo, setWriteInfo] = useState<WriteInfo | null>(null);
-  const [linkPick, setLinkPick] = useState<{ from: number; to: number; text: string; result: MentionMatch | null } | null>(null);
+  // The last Help me write draft put over or below blocks the AI chose, and
+  // what a replace took, for the editor's answer.
+  const writeBlocks = useRef<{ summary: string } | null>(null);
+  // Live blocks: the page reports the doc's programs and the app draws them
+  // (LiveBlocks); adding one or changing one opens the Describe sheet.
+  const liveOn = writeOn && writeContext?.kind === "doc";
+  const [livePrograms, setLivePrograms] = useState<string[]>([]);
+  const [liveEdit, setLiveEdit] = useState<{ pos?: number; program: string; title: string } | null>(null);
+  const [liveSheet, setLiveSheet] = useState(false);
+  const liveInitial = useMemo<DescribedDraft | undefined>(
+    () => (liveEdit?.program.trim() ? { title: liveEdit.title, prompt: "", program: liveEdit.program } : undefined),
+    [liveEdit],
+  );
+  const saveTask = useSaveTask();
+  const setChecklistItem = useSetChecklistItem();
+  const [linkPick, setLinkPick] = useState<{ from: number; to: number; text: string; result: MentionMatch | null; failed?: boolean } | null>(null);
 
   useEffect(() => {
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
@@ -404,7 +431,7 @@ export default function RichTextEditor({
     lineHintsRef.current = lineHints;
   });
   const lineHintsPayload = lineHints
-    ? JSON.stringify({ hints: lineHints.hints, open: lineHints.open, busy: lineHints.busy, target: lineHints.target, writing: lineHints.writing })
+    ? JSON.stringify({ hints: lineHints.hints, open: lineHints.open, busy: lineHints.busy, writing: lineHints.writing, reveal: lineHints.reveal })
     : "null";
   useEffect(() => {
     if (!ready) return;
@@ -494,8 +521,21 @@ export default function RichTextEditor({
         images?: { data: string; mime?: string; name?: string }[];
         key?: string;
         action?: string;
+        programs?: string[];
+        program?: string;
+        title?: string;
+        done?: boolean;
+        item?: number;
+        doc?: DocContent;
+        list?: string | null;
+        endList?: string | null;
+        selectionDoc?: DocContent;
+        spot?: WriteSpot | null;
+        cursorMark?: string;
+        added?: number | null;
+        atEnd?: boolean;
       };
-      if (msg.type === "lineHint" && msg.key && (msg.action === "toggle" || msg.action === "make" || msg.action === "dismiss")) {
+      if (msg.type === "lineHint" && msg.key && (msg.action === "toggle" || msg.action === "make" || msg.action === "dismiss" || msg.action === "goesTo")) {
         lineHintsRef.current?.act(msg.key, msg.action);
       }
       if (msg.type === "linkSelection") {
@@ -507,10 +547,31 @@ export default function RichTextEditor({
       }
       if (msg.type === "writeInfo") {
         setPicker(null);
-        setWriteInfo({ from: msg.from ?? 0, to: msg.to ?? 0, selection: msg.selection ?? "", text: msg.text ?? "" });
+        setWriteInfo({
+          from: msg.from ?? 0,
+          to: msg.to ?? 0,
+          selection: msg.selection ?? "",
+          selectionDoc: msg.selectionDoc,
+          spot: msg.spot ?? null,
+          text: msg.text ?? "",
+          doc: msg.doc,
+          cursorMark: typeof msg.cursorMark === "string" ? msg.cursorMark : undefined,
+          added: typeof msg.added === "number" ? msg.added : null,
+          atEnd: msg.atEnd !== false,
+          list: isWriteList(msg.list) ? msg.list : null,
+          endList: isWriteList(msg.endList) ? msg.endList : null,
+        });
       }
       if (msg.type === "writeStale") {
-        useToastStore.getState().show("The text changed while writing. Select it again.");
+        useToastStore.getState().show(writeBlocks.current ? "Those lines changed while the AI was writing. Try again." : "The text changed while writing. Select it again.");
+      }
+      if (msg.type === "writeNoFit") {
+        useToastStore.getState().show(writeBlocks.current ? "This draft can't go there. Try again." : "This draft can't take the place of your selection. Use Below.");
+      }
+      if (msg.type === "writeReplaced") {
+        // One undo takes the draft out and the replaced lines back.
+        const summary = writeBlocks.current?.summary;
+        showUndoToast(summary ? `Replaced ${summary}` : "Replaced", () => run("undo"));
       }
       if (msg.type === "linkStale") {
         linkFeedback.current = null;
@@ -569,6 +630,31 @@ export default function RichTextEditor({
         if (msg.active) setActive(msg.active);
       }
       if (msg.type === "pasteImages" && Array.isArray(msg.images)) void uploadImageData(msg.images);
+      if (msg.type === "livePrograms" && Array.isArray(msg.programs)) setLivePrograms(msg.programs.map(String));
+      if (msg.type === "liveTick" && msg.id) {
+        saveTask.mutate(
+          { id: msg.id, data: { completedAt: msg.done ? "" : new Date().toISOString() } },
+          {
+            onError: (error) =>
+              useToastStore.getState().show(error instanceof Error ? error.message : "Could not update the task"),
+          },
+        );
+      }
+      if (msg.type === "liveCheck" && msg.id && msg.text && typeof msg.done === "boolean") {
+        setChecklistItem.mutate(
+          { id: msg.id, item: typeof msg.item === "number" ? msg.item : -1, text: msg.text, done: msg.done },
+          {
+            onError: (error) =>
+              useToastStore.getState().show(error instanceof Error ? error.message : "Could not tick the item"),
+          },
+        );
+      }
+      if (msg.type === "liveOpen" && msg.href) openLiveLink(msg.href);
+      if (msg.type === "liveChange" && typeof msg.pos === "number") {
+        Keyboard.dismiss();
+        setLiveSheet(true);
+        setLiveEdit({ pos: msg.pos, program: msg.program ?? "", title: msg.title ?? "" });
+      }
       if (msg.type === "ready") setReady(true);
       if (msg.type === "hidePickers") setPicker(null);
     } catch {
@@ -580,6 +666,7 @@ export default function RichTextEditor({
   const slashHits = SLASH.filter((item) => {
     if (item.cmd === "page" && !onCreateSubpage) return false;
     if (item.cmd === "helpMeWrite" && !writeOn) return false;
+    if (item.cmd === "liveBlock" && !liveOn) return false;
     if (!slashQuery) return true;
     return item.title.toLowerCase().includes(slashQuery) || item.keywords.some((k) => k.includes(slashQuery));
   });
@@ -649,6 +736,13 @@ export default function RichTextEditor({
       run("writeInfo");
       return;
     }
+    if (item.cmd === "liveBlock") {
+      if (range) run("deleteRange", range);
+      Keyboard.dismiss();
+      setLiveSheet(true);
+      setLiveEdit({ program: "", title: "" });
+      return;
+    }
     if (item.cmd === "page") {
       if (!onCreateSubpage) return;
       const page = await onCreateSubpage();
@@ -665,6 +759,31 @@ export default function RichTextEditor({
       return;
     }
     run(item.cmd, range ?? {});
+  }
+
+  // Links in a live block: screens by path, items as timely://kind/id, as on the Dashboard.
+  function openLiveLink(href: string) {
+    Keyboard.dismiss();
+    const item = /^timely:\/\/(task|project|doc|sheet|event)\/([^/?#]+)/.exec(href);
+    if (item) {
+      router.push(hrefFor(item[1] as "task", decodeURIComponent(item[2])));
+      return;
+    }
+    if (href.startsWith("/")) router.push(`/(app)${href}` as Href);
+  }
+
+  /** The Describe sheet's block: in place of the one being changed, or at the caret. */
+  function saveLiveBlock(draft: DescribedDraft) {
+    const edit = liveEdit;
+    setLiveEdit(null);
+    if (!edit || !draft.program.trim()) return;
+    if (typeof edit.pos === "number") {
+      run("setLiveBlock", { pos: edit.pos, was: edit.program, program: draft.program });
+      return;
+    }
+    run("linkBlock", {
+      node: { type: "codeBlock", attrs: { language: LIVE_BLOCK_LANGUAGE }, content: [{ type: "text", text: draft.program }] },
+    });
   }
 
   /** Picks photos, uploads them and puts them at the caret. Photos are
@@ -757,13 +876,16 @@ export default function RichTextEditor({
   async function findLinkTargets(range: { from: number; to: number; text: string }) {
     setLinkPick({ ...range, result: null });
     let result: MentionMatch;
+    let failed = false;
     try {
       result = await matchMention(range.text.trim(), linkDocId);
     } catch {
+      // Said as a failed lookup, not as "nothing matches".
       result = { available: true, options: [] };
+      failed = true;
     }
     // A later selection replaces this one; its answer wins.
-    setLinkPick((current) => (current && current.from === range.from && current.to === range.to && current.text === range.text ? { ...current, result } : current));
+    setLinkPick((current) => (current && current.from === range.from && current.to === range.to && current.text === range.text ? { ...current, result, failed } : current));
   }
 
   function pickLinkTarget(target: MentionTarget) {
@@ -1059,6 +1181,7 @@ export default function RichTextEditor({
           <Text style={styles.empty}>Finding a match…</Text>
         ) : (
           (() => {
+            if (linkPick?.failed) return <Text style={styles.empty}>Couldn’t look up matches. Try again.</Text>;
             const rows = mentionChoices(linkPick?.result);
             if (!rows.length) return <Text style={styles.empty}>Nothing in your work matches that phrase.</Text>;
             const hasBest = rows[0].best;
@@ -1087,13 +1210,40 @@ export default function RichTextEditor({
           info={writeInfo}
           context={writeContext}
           onClose={() => setWriteInfo(null)}
-          onInsert={({ markdown, mode }) => {
+          onInsert={({ markdown, mode, action, index, count, summary }) => {
             const info = writeInfo;
             setWriteInfo(null);
             if (!info) return;
-            const { blocks, inline } = writtenContent(markdown);
-            run("insertWritten", { blocks, inline, from: info.from, to: info.to, selection: info.selection, mode });
+            writeBlocks.current = mode === "blocks" || mode === "blocksBelow" ? { summary: summary ?? "" } : null;
+            if (mode === "blocks" || mode === "blocksBelow") {
+              // The blocks the AI chose, found again in the editor by what they
+              // held when Help me write opened (writeFindBlocks).
+              run("insertWritten", { blocks: writtenContent(markdown, null).blocks, mode, index, count, mark: info.cursorMark });
+              return;
+            }
+            const list = writeList(info, mode, action);
+            const written = writtenContent(markdown, list);
+            const { blocks, inline, items } = written;
+            // How a selection's draft goes in: over exactly what was sent, or
+            // right below it (the editor runs it, WRITE_RANGE_JS).
+            const fit = info.spot ? replaceFit(info.spot, written) : null;
+            const below = info.spot ? belowFit(info.spot, written) : null;
+            run("insertWritten", { blocks, inline, items, list, from: info.from, to: info.to, selection: info.selection, mode, fit, below });
           }}
+        />
+      ) : null}
+
+      {ready && livePrograms.length ? <LiveBlocks programs={livePrograms} onDrawn={(blocks) => run("liveHtml", { blocks })} /> : null}
+
+      {/* Mounted from the first use on, so it opens and closes with its animation. */}
+      {liveSheet ? (
+        <DescribeCardSheet
+          place="doc"
+          open={liveEdit !== null}
+          initial={liveInitial}
+          onClose={() => setLiveEdit(null)}
+          onSave={saveLiveBlock}
+          onLink={openLiveLink}
         />
       ) : null}
 

@@ -59,11 +59,12 @@ type fakeIndexer struct {
 	enabled bool
 	hits    []embed.Hit
 	queried string
+	missing int64
 }
 
 func (f *fakeIndexer) EnabledFor(string) bool { return f.enabled }
-func (f *fakeIndexer) Count(context.Context, string) (int64, error) {
-	return int64(len(f.hits)) + 1, nil
+func (f *fakeIndexer) Missing(context.Context, string) (int64, error) {
+	return f.missing, nil
 }
 func (f *fakeIndexer) Query(_ context.Context, _ string, q string, _ int, _ []string) ([]embed.Hit, error) {
 	f.queried = q
@@ -102,7 +103,7 @@ func TestIntegrationKeywordRanksByTier(t *testing.T) {
 	db := integrationDB(t)
 	user := uuid.NewString()
 	seed(t, db, user)
-	svc := NewService(db, &fakeIndexer{enabled: false})
+	svc := NewService(db, &fakeIndexer{enabled: false}, nil)
 
 	hits, err := svc.Search(user, "pay rent", 20)
 	if err != nil {
@@ -141,7 +142,7 @@ func TestIntegrationKeywordEscapesLikeWildcards(t *testing.T) {
 	db := integrationDB(t)
 	user := uuid.NewString()
 	seed(t, db, user)
-	svc := NewService(db, nil)
+	svc := NewService(db, nil, nil)
 
 	hits, err := svc.Search(user, "100%", 20)
 	if err != nil {
@@ -160,7 +161,7 @@ func TestIntegrationHybridFallsBackWhenDisabled(t *testing.T) {
 	db := integrationDB(t)
 	user := uuid.NewString()
 	seed(t, db, user)
-	svc := NewService(db, &fakeIndexer{enabled: false})
+	svc := NewService(db, &fakeIndexer{enabled: false}, nil)
 
 	hits, err := svc.SemanticSearch(context.Background(), user, "pay rent", 20, nil)
 	if err != nil {
@@ -188,7 +189,8 @@ func TestIntegrationHybridFusesVectorAndKeyword(t *testing.T) {
 		{Kind: "task", EntityID: "t-body", Title: "Groceries", Content: "pay rent money back", Score: 0.85},
 		{Kind: "event", EntityID: "e-body", Title: "Landlord call", Content: "discuss rent increase", Score: 0.80},
 	}}
-	svc := NewService(db, idx)
+	rebuilt := 0
+	svc := NewService(db, idx, func(string) { rebuilt++ })
 
 	hits, err := svc.SemanticSearch(context.Background(), user, "pay rent", 20, nil)
 	if err != nil {
@@ -196,6 +198,9 @@ func TestIntegrationHybridFusesVectorAndKeyword(t *testing.T) {
 	}
 	if idx.queried != "pay rent" {
 		t.Fatalf("vector query not issued: %q", idx.queried)
+	}
+	if rebuilt != 0 {
+		t.Fatal("a complete index was rebuilt")
 	}
 	got := ids(hits)
 	if got[0] != "t-exact" {
@@ -222,11 +227,36 @@ func TestIntegrationHybridFusesVectorAndKeyword(t *testing.T) {
 	}
 }
 
+// GB2 and GB16: the lazy rebuild ran only when the index was empty, inside
+// the request, so one indexed edit after a restore, or a request cancelled
+// halfway, left a partial index for good. Missing items now queue a
+// background rebuild, and the search never runs one itself.
+func TestIntegrationPartialIndexQueuesABackgroundRebuild(t *testing.T) {
+	db := integrationDB(t)
+	user := uuid.NewString()
+	seed(t, db, user)
+	idx := &fakeIndexer{enabled: true, missing: 5, hits: []embed.Hit{
+		{Kind: "doc", EntityID: "d-body", Title: "Lease", Content: "the rent is due on the first", Score: 0.91},
+	}}
+	var rebuilt []string
+	svc := NewService(db, idx, func(uid string) { rebuilt = append(rebuilt, uid) })
+	hits, err := svc.SemanticSearch(context.Background(), user, "pay rent", 20, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rebuilt) != 1 || rebuilt[0] != user {
+		t.Fatalf("rebuild queued for %v, want once for the account", rebuilt)
+	}
+	if idx.queried != "pay rent" || len(hits) == 0 {
+		t.Fatalf("search did not answer from the partial index: queried %q, %d hits", idx.queried, len(hits))
+	}
+}
+
 func TestIntegrationExistingDropsGoneItems(t *testing.T) {
 	db := integrationDB(t)
 	user, other := uuid.NewString(), uuid.NewString()
 	seed(t, db, user)
-	svc := NewService(db, nil)
+	svc := NewService(db, nil, nil)
 	got := svc.Existing(user, []embed.Hit{
 		{Kind: "task", EntityID: "t-exact"},
 		{Kind: "doc", EntityID: "d-deleted"}, // its embeddings outlived it
@@ -261,7 +291,7 @@ func TestIntegrationRelatableDropsInboxAndOwnTasks(t *testing.T) {
 	if err := db.Exec(`UPDATE tasks SET project_id = ? WHERE id = ?`, "p-title", "t-prefix").Error; err != nil {
 		t.Fatal(err)
 	}
-	svc := NewService(db, nil)
+	svc := NewService(db, nil, nil)
 	hits := []embed.Hit{
 		{Kind: "task", EntityID: "t-exact"},
 		{Kind: "task", EntityID: "t-inbox"},

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"timely-api/internal/features/agent"
@@ -156,7 +158,7 @@ func (s *Service) prepareProposal(ctx context.Context, catalog agent.Catalog, ui
 	if len(p.Steps) == 30 && strings.TrimSpace(p.Remaining) == "" {
 		return p, nil, fmt.Errorf("This proposal has the maximum 30 changes. Set remaining to what is still left of the request, or to \"none\" if these 30 changes complete it")
 	}
-	p.Reply, p.Remaining = blankIfNone(p.Reply), blankIfNone(p.Remaining)
+	p.Reply, p.Remaining = blankIfNone(p.Reply), remainingWork(p.Remaining)
 	if strings.TrimSpace(p.Summary) == "" {
 		// Never show an empty proposal message; the step summaries are required.
 		parts := []string{}
@@ -223,6 +225,10 @@ func (s *Service) prepareProposal(ctx context.Context, catalog agent.Catalog, ui
 		step.Before = nil
 		step.Error = ""
 	}
+	origins := identityOrigins(len(p.Steps))
+	if catalog["add_sheet_entries"].Call != nil {
+		p.Steps, origins = mergeSheetEntries(p.Steps)
+	}
 	s.estimateWork(ctx, uid, p.Steps)
 	snapshots, err := s.snapshots(ctx, s.db, catalog, uid, p.Steps)
 	if err != nil {
@@ -233,7 +239,7 @@ func (s *Service) prepareProposal(ctx context.Context, catalog agent.Catalog, ui
 			return p, nil, fmt.Errorf("The object read with %s %s changed after you read it (it was edited meanwhile). Call %s again and rebuild the complete proposal from the current data so the newer edit is kept", snap.Tool, string(snap.Arguments), snap.Tool)
 		}
 	}
-	if err := s.rehearse(ctx, uid, p.Steps); err != nil {
+	if err := s.rehearseAs(ctx, uid, p.Steps, origins); err != nil {
 		return p, nil, err
 	}
 	return p, snapshots, nil
@@ -243,6 +249,28 @@ func (s *Service) prepareProposal(ctx context.Context, catalog agent.Catalog, ui
 // suggestions); a 0 means no estimate for that item.
 func (s *Service) SetEstimates(fn func(ctx context.Context, userID string, names, descriptions []string) []int) {
 	s.estimates = fn
+}
+
+// literalName resolves a "$N.task.name" (or "$N.name") reference to the name
+// an earlier create_task step gives in its own arguments, or returns ref when
+// it names anything else.
+func literalName(steps []Step, index int, ref string) string {
+	parts := strings.Split(strings.TrimPrefix(ref, "$"), ".")
+	if len(parts) < 2 || parts[len(parts)-1] != "name" || len(parts) > 3 || (len(parts) == 3 && parts[1] != "task") {
+		return ref
+	}
+	n, err := strconv.Atoi(parts[0])
+	if err != nil || n < 0 || n >= index || steps[n].Tool != "create_task" {
+		return ref
+	}
+	var in map[string]any
+	if json.Unmarshal(steps[n].Arguments, &in) != nil {
+		return ref
+	}
+	if name, ok := in["name"].(string); ok && !strings.HasPrefix(name, "$") {
+		return name
+	}
+	return ref
 }
 
 // estimateWork writes a length into every create_task step for Work that has
@@ -269,6 +297,11 @@ func (s *Service) estimateWork(ctx context.Context, uid string, steps []Step) {
 			continue
 		}
 		name, _ := in["name"].(string)
+		if strings.HasPrefix(name, "$") {
+			// "$0.task.name" names an earlier create_task's literal name, so
+			// it joins the batch instead of estimating alone in the rehearsal.
+			name = literalName(steps, i, name)
+		}
 		if strings.TrimSpace(name) == "" || strings.HasPrefix(name, "$") {
 			continue
 		}
@@ -301,6 +334,12 @@ var errRehearsal = errors.New("rehearsal rolled back")
 // earlier step consumes, a missing confirm flag) reach the model before the
 // person reviews the proposal instead of failing halfway through applying it.
 func (s *Service) rehearse(ctx context.Context, uid string, steps []Step) error {
+	return s.rehearseAs(ctx, uid, steps, identityOrigins(len(steps)))
+}
+
+// rehearseAs rehearses a plan whose steps may merge several of the model's
+// (mergeSheetEntries); errors name the steps as the model numbered them.
+func (s *Service) rehearseAs(ctx context.Context, uid string, steps []Step, origins stepOrigins) error {
 	if s.rehearsal == nil {
 		return nil
 	}
@@ -315,16 +354,16 @@ func (s *Service) rehearse(ctx context.Context, uid string, steps []Step) error 
 			}
 			value, err := resolve(value, trial, i)
 			if err != nil {
-				return fmt.Errorf("Step %d (%s) has an invalid reference: %w", i+1, trial[i].Tool, err)
+				return fmt.Errorf("%s (%s) has an invalid reference: %w", origins.label(i), trial[i].Tool, err)
 			}
 			result, err := catalog[trial[i].Tool].Call(ctx, uid, raw(value))
 			if err != nil {
-				return fmt.Errorf("Step %d (%s) would fail: %w", i+1, trial[i].Tool, err)
+				return fmt.Errorf("%s (%s) would fail: %w", origins.label(i), trial[i].Tool, err)
 			}
 			trial[i].Result = raw(result)
 			trial[i].Status = "done"
 			if _, err := s.snapshots(ctx, tx, catalog, uid, trial); err != nil {
-				return fmt.Errorf("After step %d (%s) runs, %w. If an earlier step replaces or removes that object, reference its result instead (for example \"$%d.task.id\")", i+1, trial[i].Tool, err, i)
+				return fmt.Errorf("After %s (%s) runs, %w. If an earlier step replaces or removes that object, reference its result instead (for example \"$%d.task.id\")", strings.ToLower(origins.label(i)[:1])+origins.label(i)[1:], trial[i].Tool, err, origins.first(i))
 			}
 		}
 		return errRehearsal
@@ -358,4 +397,55 @@ func blankIfNone(text string) string {
 		return ""
 	}
 	return strings.TrimSpace(text)
+}
+
+var (
+	// remainingClause splits a remaining into its clauses: "None – this
+	// completes the request." is two.
+	remainingClause = regexp.MustCompile(`\s*(?:[,;:]|\s[-–—]\s)\s*`)
+	// requestDone is a clause that says the request is finished.
+	requestDone = regexp.MustCompile(`^(?:(?:all )?(?:done|complete|completed|finished)|that'?s (?:all|everything)|that is (?:all|everything)|(?:this|these|that)(?: (?:proposal|batch|plan|changes?))? (?:completes?|finish(?:es)?|covers?) (?:the|this|your)(?: (?:whole|entire|full))? (?:request|task|job|plan|list)|(?:the |your )?(?:request|task|job|work|plan) is (?:now )?(?:done|complete|completed|finished))$`)
+)
+
+// nothingLeftWords are the words that may follow no, nothing or none in a
+// clause that says nothing is left ("No further changes needed", "Nothing
+// else remains"). A clause with any other word names work.
+var nothingLeftWords = map[string]bool{
+	"more": true, "further": true, "other": true, "additional": true, "else": true,
+	"change": true, "changes": true, "step": true, "steps": true, "work": true, "task": true, "tasks": true,
+	"item": true, "items": true, "action": true, "actions": true, "update": true, "updates": true, "edits": true,
+	"is": true, "are": true, "left": true, "needed": true, "required": true, "remain": true, "remains": true, "remaining": true,
+	"pending": true, "necessary": true, "to": true, "do": true, "make": true, "apply": true, "be": true, "made": true, "applied": true,
+}
+
+// remainingWork is what a proposal's remaining leaves for the next batch:
+// empty when it only says that nothing is left. Each batch costs another
+// model run, so "No further changes needed." must not start one; but work
+// that is left must never be dropped, so every clause has to say nothing is
+// left ("Complete the remaining renames" and "None of the Friday tasks are
+// moved yet" name work).
+func remainingWork(text string) string {
+	text = blankIfNone(text)
+	for _, clause := range remainingClause.Split(strings.ToLower(strings.Trim(text, " .!")), -1) {
+		if !saysNothingLeft(clause) {
+			return text
+		}
+	}
+	return ""
+}
+
+func saysNothingLeft(clause string) bool {
+	if requestDone.MatchString(clause) {
+		return true
+	}
+	words := strings.Fields(clause)
+	if len(words) == 0 || (words[0] != "no" && words[0] != "nothing" && words[0] != "none") {
+		return false
+	}
+	for _, word := range words[1:] {
+		if !nothingLeftWords[word] {
+			return false
+		}
+	}
+	return true
 }

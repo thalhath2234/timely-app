@@ -8,7 +8,7 @@ import { colors } from "./theme";
 
 /**
  * Android's back swipe. The top screen stays put until the finger is past the
- * back threshold (16dp from where it touched down, see TimelyBack), then slides
+ * back threshold (32dp from where it touched down, see TimelyBack), then slides
  * fully away from the edge the swipe started at, and the screen you're going
  * back to shows, live, behind it. Letting go there goes back. Only bringing the
  * finger back inside the threshold slides the screen back in, and letting go

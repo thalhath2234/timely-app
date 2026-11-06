@@ -1,15 +1,18 @@
 import type { NextRequest } from "next/server";
 
 /**
- * Runtime API proxy for the packaged desktop app.
+ * Runtime API proxy for every build: `next dev`, `next start`, Docker and the
+ * packaged desktop app.
  *
- * `next.config.ts` rewrites `/api-proxy/*` to `API_ORIGIN` for `next dev`,
- * Docker and plain `next start`, but a rewrite is baked into the standalone
- * output at build time. The desktop app only learns its API port when the
- * supervisor allocates it (docs/desktop/README.md), so Electron builds leave
- * the rewrite out and this handler forwards each request using the
- * `API_ORIGIN` the supervisor passes to the Next sidecar. Streams (document
- * watch, agent runs) pass through untouched; cookies are forwarded both ways.
+ * Each request is forwarded to `API_ORIGIN` as it is set when the server runs:
+ * the root `.env` (loaded by `next.config.ts`), the container's environment,
+ * or the port the desktop supervisor allocates and passes to the Next sidecar
+ * (docs/desktop/README.md). A `next.config.ts` rewrite would be baked in at
+ * `next build` instead, so one image could only ever reach one address.
+ * Streams (document watch, agent runs) pass through untouched; cookies are
+ * forwarded both ways. When the browser goes away (Stop, a new request,
+ * leaving the page) the upstream request is cancelled too, so the API stops
+ * the AI call it was making for it.
  */
 
 export const dynamic = "force-dynamic";
@@ -27,7 +30,10 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
 
   const headers = new Headers(request.headers);
   for (const name of HOP_BY_HOP) headers.delete(name);
-  // The API sees the app's loopback origin, never the renderer's.
+  // The API sees the app's loopback origin, never the renderer's. It marks
+  // session cookies Secure for an https page, so keep that one fact for a
+  // TLS proxy in front that does not set X-Forwarded-Proto itself.
+  if (request.headers.get("origin")?.startsWith("https://")) headers.set("x-forwarded-proto", "https");
   headers.delete("origin");
 
   const init: RequestInit & { duplex?: "half" } = {
@@ -35,6 +41,9 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
     headers,
     redirect: "manual",
     cache: "no-store",
+    // Aborts when the client disconnects before the answer is finished
+    // (never after a whole answer), which closes the API's request context.
+    signal: request.signal,
   };
   if (request.method !== "GET" && request.method !== "HEAD") {
     init.body = request.body;
@@ -45,6 +54,8 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   try {
     upstream = await fetch(target, init);
   } catch (error) {
+    // Nobody is waiting for an answer any more.
+    if (request.signal.aborted) return new Response(null, { status: 499 });
     const detail = error instanceof Error ? error.message : String(error);
     return Response.json({ message: `The Timely server did not answer (${detail})` }, { status: 502 });
   }

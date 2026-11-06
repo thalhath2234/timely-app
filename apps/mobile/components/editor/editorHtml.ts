@@ -1,6 +1,9 @@
 import type { DocContent } from "../../lib/types";
+import { WRITE_CURSOR } from "@timely/contract/helpMeWrite";
 import { EMBED_PATTERNS } from "@timely/contract/markdown";
 import { DOC_EDITOR_HELPERS_JS } from "../../lib/docEditorJev";
+import { WRITE_RANGE_JS } from "../../lib/helpMeWriteRange";
+import { BLOCK_TURN_JS } from "../../lib/blockTurn";
 
 const BLANK: DocContent = { type: "doc", content: [{ type: "paragraph" }] };
 
@@ -22,6 +25,14 @@ export function buildEditorHtml(
     accent: string;
     accentForeground: string;
     border: string;
+    /** For live blocks; older callers fall back to the page colours. */
+    card?: string;
+    /** Text on the accent, and the hairline of a control; older callers fall
+     * back to the page colours. */
+    primaryForeground?: string;
+    input?: string;
+    success?: string;
+    warning?: string;
   },
   /** The server address; uploaded images are stored as "/files/<id>". */
   apiBase = "",
@@ -42,6 +53,9 @@ export function buildEditorHtml(
     accentForeground: "#d4cff5",
     border: "rgba(255,255,255,0.09)",
   };
+  const live = { card: t.card ?? t.background, success: t.success ?? "#2fa36b", warning: t.warning ?? "#d29922" };
+  const onPrimary = t.primaryForeground ?? t.background;
+  const hairline = t.input ?? t.border;
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -81,6 +95,91 @@ export function buildEditorHtml(
     .tiptap p code { background: ${t.muted}; color: ${t.accentForeground}; padding: 0.1em 0.35em; border-radius: 4px; }
     .code-delete { position: absolute; top: 8px; right: 8px; display: flex; align-items: center; justify-content: center; width: 26px; height: 23px; padding: 0; background: ${t.muted}; color: ${t.mutedForeground}; border: 1px solid ${t.border}; border-radius: 6px; }
     .code-copy { position: absolute; top: 8px; right: 40px; background: ${t.muted}; color: ${t.mutedForeground}; border: 1px solid ${t.border}; border-radius: 6px; font-size: 11px; font-weight: 600; padding: 4px 8px; }
+    /* Live blocks: a described card drawn from the person's data, the
+       phone kit's rows as markup (liveBlockHtml.ts). The program stays
+       hidden unless asked for or the caret is in it. */
+    .live-wrap { --lv-fg: ${t.foreground}; --lv-muted-fg: ${t.mutedForeground}; --lv-border: ${t.border}; --lv-card: ${live.card}; --lv-fill: ${t.muted}; --lv-primary: ${t.primary}; --lv-success: ${live.success}; --lv-warning: ${live.warning}; --lv-check: ${t.background};
+      background: var(--lv-card); border: 1px solid var(--lv-border); border-radius: 12px; overflow: clip; margin: 0 0 0.75em; color: var(--lv-fg); font-size: 15px; line-height: 1.35; }
+    .live-wrap.is-selected { outline: 2px solid var(--lv-primary); outline-offset: 2px; }
+    .live-head, .live-body { -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+    .live-head { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 2px 0 14px; border-bottom: 1px solid var(--lv-border); }
+    .live-icon { display: flex; flex: none; color: var(--lv-muted-fg); }
+    .live-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
+    .live-mark { display: inline-flex; align-items: center; gap: 5px; flex: none; color: var(--lv-muted-fg); font-size: 12px; font-weight: 500; }
+    .live-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--lv-success); box-shadow: 0 0 0 3px color-mix(in oklab, var(--lv-success) 18%, transparent); }
+    .live-actions { display: flex; align-items: center; flex: none; margin-left: auto; }
+    .live-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 40px; height: 40px; padding: 0 9px; background: transparent; border: 0; border-radius: 10px; color: var(--lv-muted-fg); font: inherit; font-size: 13px; font-weight: 600; -webkit-tap-highlight-color: transparent; }
+    .live-actions button:active { background: var(--lv-fill); }
+    .live-actions button[aria-pressed="true"] { color: var(--lv-primary); }
+    .tiptap .live-wrap pre.live-code { margin: 0; padding: 12px; border: 0; border-top: 1px solid var(--lv-border); border-radius: 0; background: var(--lv-fill); color: var(--lv-fg); }
+    .tiptap .live-wrap pre.live-code.is-hidden { display: none; }
+    .live-loading { padding: 14px; display: grid; gap: 10px; }
+    .live-loading span { display: block; height: 12px; border-radius: 6px; background: var(--lv-fill); }
+    .live-loading span:nth-child(2) { width: 70%; }
+    .live-loading span:nth-child(3) { width: 45%; }
+    .lv-sec + .lv-sec, .lv-item + .lv-item, .lv-foot { border-top: 1px solid var(--lv-border); }
+    .lv-head { display: flex; align-items: center; gap: 10px; padding: 11px 14px 7px; }
+    .lv-eyebrow, .lv-head-title, .lv-head-meta, .lv-title, .lv-meta, .lv-value, .lv-time, .lv-stat-label, .lv-bar-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lv-eyebrow { color: var(--lv-muted-fg); font-size: 11px; font-weight: 600; letter-spacing: 0.8px; }
+    .lv-head-title { font-size: 14px; font-weight: 600; }
+    .lv-head-meta { margin-left: auto; flex-shrink: 4; color: var(--lv-muted-fg); font-size: 13px; font-weight: 500; }
+    .lv-foot { padding: 11px 14px; }
+    .lv-row { box-sizing: border-box; min-height: 48px; display: flex; align-items: center; gap: 10px; padding: 6px 14px; }
+    .lv-row.is-warning { background: color-mix(in oklab, var(--lv-warning) 9%, transparent); }
+    .lv-time { width: 48px; flex: none; color: var(--lv-muted-fg); font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+    .lv-lead { width: 20px; flex: none; align-self: stretch; display: flex; align-items: center; justify-content: center; }
+    .lv-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .lv-title { display: block; color: var(--lv-fg); font-size: 15px; }
+    .lv-title.is-done { color: var(--lv-muted-fg); text-decoration: line-through; }
+    .lv-title-btn { display: block; min-width: 0; max-width: 100%; padding: 0; background: none; border: 0; font: inherit; color: inherit; text-align: left; -webkit-tap-highlight-color: transparent; }
+    .lv-meta { color: var(--lv-muted-fg); font-size: 12px; font-weight: 500; line-height: 16px; margin-top: 1px; }
+    .lv-row.is-warning .lv-meta, .lv-row.is-warning .lv-value { color: var(--lv-warning); }
+    .lv-row.is-success .lv-value { color: var(--lv-success); }
+    .lv-note { margin-top: 1px; }
+    .lv-check { position: relative; box-sizing: border-box; width: 20px; height: 20px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 999px; border: 1.5px solid var(--lv-muted-fg); background: transparent; color: transparent; -webkit-tap-highlight-color: transparent; }
+    .lv-check::after { content: ""; position: absolute; inset: -12px; }
+    .lv-check.is-done { background: var(--lv-success); border-color: var(--lv-success); color: var(--lv-check); }
+    .lv-check:active { transform: scale(0.88); }
+    .lv-check:disabled { opacity: 0.5; }
+    .lv-event-bar { width: 3px; flex: 1; margin: 9px 0; border-radius: 2px; }
+    .lv-line { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .lv-label { flex: 1; }
+    .lv-value { flex-shrink: 0; color: var(--lv-muted-fg); font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+    .lv-dot { width: 8px; height: 8px; flex: none; border-radius: 4px; }
+    .lv-share { display: flex; flex-direction: column; gap: 8px; padding: 11px 14px; }
+    .lv-fill { display: block; height: 6px; margin-left: 18px; border-radius: 3px; background: var(--lv-fill); overflow: hidden; }
+    .lv-fill span { display: block; height: 100%; border-radius: 3px; }
+    .lv-stats { display: grid; }
+    .lv-stat { padding: 12px 14px; min-width: 0; }
+    .lv-stat.is-left { border-left: 1px solid var(--lv-border); }
+    .lv-stat.is-top { border-top: 1px solid var(--lv-border); }
+    .lv-stat-value { color: var(--lv-fg); font-size: 20px; font-weight: 600; letter-spacing: -0.4px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .lv-stat-total { color: var(--lv-muted-fg); font-size: 13px; font-weight: 500; letter-spacing: 0; }
+    .lv-stat-label { color: var(--lv-muted-fg); font-size: 12px; font-weight: 500; }
+    .lv-stat-hint { color: var(--lv-muted-fg); font-size: 12px; line-height: 16px; }
+    .lv-chart { padding: 4px 14px 12px; }
+    .lv-chart-title { color: var(--lv-muted-fg); font-size: 12px; font-weight: 500; margin: 6px 0 4px; }
+    .lv-bars { display: flex; align-items: flex-end; gap: 8px; height: 108px; }
+    .lv-bar-col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 5px; }
+    .lv-bar { width: 100%; max-width: 30px; border-radius: 5px 5px 2px 2px; background: var(--lv-fill); }
+    .lv-bar.is-high { background: var(--lv-primary); }
+    .lv-bar-text { color: var(--lv-muted-fg); font-size: 11px; font-variant-numeric: tabular-nums; }
+    .lv-bar-label { max-width: 100%; font-weight: 500; }
+    .lv-strip-wrap { padding: 4px 14px 10px; }
+    .lv-strip { position: relative; height: 32px; border-radius: 8px; background: var(--lv-fill); overflow: hidden; }
+    .lv-slot { position: absolute; top: 5px; bottom: 5px; box-sizing: border-box; display: flex; align-items: center; padding: 0 6px; border-radius: 5px; overflow: hidden; color: #fff; font-size: 11px; font-weight: 600; white-space: nowrap; }
+    .lv-slot.is-task { background: var(--lv-primary); }
+    .lv-slot.is-free { background: var(--lv-card); border: 1px dashed var(--lv-border); color: var(--lv-muted-fg); }
+    .lv-slot span { overflow: hidden; text-overflow: ellipsis; }
+    .lv-ticks { position: relative; height: 16px; margin-top: 4px; color: var(--lv-muted-fg); font-size: 11px; font-variant-numeric: tabular-nums; }
+    .lv-ticks span { position: absolute; top: 0; transform: translateX(-50%); }
+    .lv-ticks span.is-start { transform: none; }
+    .lv-ticks span.is-end { transform: translateX(-100%); }
+    .lv-text { margin: 0; padding: 10px 14px; color: var(--lv-muted-fg); font-size: 14px; line-height: 20px; }
+    .lv-empty { margin: 0; padding: 12px 14px; color: var(--lv-muted-fg); font-size: 14px; }
+    .lv-problem { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--lv-border); color: var(--lv-muted-fg); font-size: 13px; line-height: 18px; }
+    .lv-problem svg { flex: none; margin-top: 2px; color: var(--lv-warning); }
+    .lv-open { display: inline-flex; align-items: center; gap: 2px; padding: 0; background: none; border: 0; color: var(--lv-primary); font: inherit; font-size: 14px; font-weight: 600; -webkit-tap-highlight-color: transparent; }
     .tok-keyword { color: #569cd6; }
     .tok-string { color: #ce9178; }
     .tok-comment { color: #6a9955; }
@@ -94,32 +193,61 @@ export function buildEditorHtml(
     .tiptap th { background: ${t.muted}; font-weight: 600; }
     .tiptap ul[data-type="taskList"] { list-style: none; padding-left: 0; }
     .tiptap ul[data-type="taskList"] li { display: flex; gap: 8px; align-items: flex-start; }
-    .tiptap ul[data-type="taskList"] input { margin: 4px 0 0; }
+    /* The row's words take the rest of the row, so a card opened under them
+       is as wide as the row and not only as its words. */
+    .tiptap ul[data-type="taskList"] li > div { flex: 1; min-width: 0; }
+    /* A checklist row's box is its label (DocTaskItem): the native checkbox
+       and Tiptap's hidden label text inside it stay out of layout. The box is
+       centred on the row's first line (1lh is that line's height). */
+    .tiptap ul[data-type="taskList"] li > label { position: relative; flex: none; box-sizing: border-box; width: 16px; height: 16px; margin-top: calc((1lh - 16px) / 2); border: 1.5px solid ${t.mutedForeground}; border-radius: 4px; }
+    .tiptap ul[data-type="taskList"] li > label > * { display: none; }
+    .tiptap ul[data-type="taskList"] li > label::before { content: ""; position: absolute; inset: -12px -8px -12px -14px; }
+    .tiptap ul[data-type="taskList"] li[data-checked="true"] > label { background: ${t.primary}; border-color: ${t.primary}; }
+    .tiptap ul[data-type="taskList"] li[data-checked="true"] > label::after { content: ""; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
     .mention { color: ${t.primary}; font-weight: 600; background: ${t.accent}; border-radius: 6px; padding: 0 4px; }
     .math-inline { border-radius: 4px; padding: 0 2px; }
     .math-inline.ProseMirror-selectednode, .wiki-link.ProseMirror-selectednode, .footnote-ref.ProseMirror-selectednode { background: ${t.accent}; }
     .math-empty { color: ${t.mutedForeground}; font-style: italic; font-size: 13px; }
     .math-block, .frontmatter { border: 1px solid ${t.border}; border-radius: 10px; margin: 0 0 0.75em; overflow: hidden; }
     .frontmatter { border-style: dashed; }
-    /* Suggestions for checklist rows: a marker at the row's end, and under
-       the open one a card with its actions (lineHints below). */
-    .tiptap ul[data-type="taskList"] li.has-hint { position: relative; padding-right: 30px; }
-    .tiptap li.hint-open { background: color-mix(in oklab, ${t.primary} 10%, transparent); border-radius: 8px; box-shadow: 0 0 0 4px color-mix(in oklab, ${t.primary} 10%, transparent); }
-    .hint-mark { position: absolute; top: -10px; right: -10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; background: none; color: ${t.mutedForeground}; opacity: 0.75; -webkit-tap-highlight-color: transparent; }
-    .hint-mark svg { width: 15px; height: 15px; }
-    .hint-mark.is-open { color: ${t.primary}; opacity: 1; }
+    /* Lines offered as tasks (checklist rows, and lines that read like
+       tasks): a disc at the line's right edge, drawn as the desktop's, and
+       under the open one a card with its actions (lineHints below). The open
+       line keeps room below its tint so the next line does not touch it. */
+    .tiptap .has-hint { position: relative; padding-right: 34px; }
+    .tiptap .hint-open { background: color-mix(in oklab, ${t.primary} 10%, transparent); border-radius: 8px; box-shadow: 0 0 0 4px color-mix(in oklab, ${t.primary} 10%, transparent); padding-bottom: 4px; margin-bottom: 12px; }
+    /* A 44px tap area around a 26px disc, centred on the line's first row. */
+    .hint-mark { position: absolute; top: -10px; right: -10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; background: none; -webkit-tap-highlight-color: transparent; }
+    .hint-disc { box-sizing: border-box; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; border-radius: 999px; border: 1px solid ${hairline}; background: ${live.card}; color: ${t.mutedForeground}; }
+    .hint-disc svg { width: 13px; height: 13px; }
+    .hint-mark.is-task .hint-disc { color: ${t.primary}; }
+    .hint-mark.is-open .hint-disc { border-color: ${t.primary}; background: ${t.primary}; color: ${onPrimary}; }
     .hint-mark.is-open svg { fill: currentColor; }
-    .hint-card { margin: 8px -22px 4px 0; padding: 12px; border: 1px solid color-mix(in oklab, ${t.primary} 35%, transparent); border-radius: 12px; background: ${t.background}; font-size: 14px; line-height: 1.4; user-select: none; -webkit-user-select: none; }
-    .hint-label { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: ${t.primary}; }
+    .hint-card { margin: 8px -22px 4px 0; padding: 12px; border: 1px solid color-mix(in oklab, ${t.primary} 35%, transparent); border-radius: 12px; background: ${live.card}; font-size: 14px; line-height: 1.4; font-style: normal; font-weight: 400; user-select: none; -webkit-user-select: none; }
+    .hint-label { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: ${t.mutedForeground}; }
+    .hint-label svg { flex: none; width: 11px; height: 11px; color: ${t.primary}; fill: currentColor; }
     .hint-title { margin-top: 4px; font-weight: 600; color: ${t.foreground}; }
     .hint-details { margin-top: 2px; font-size: 13px; color: ${t.mutedForeground}; }
+    /* A button: tapped, the app opens the Goes to page for this task alone. */
+    .hint-goes { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 44px; margin-top: 10px; padding: 0; border: 0; border-top: 1px solid ${t.border}; background: none; color: ${t.mutedForeground}; font: inherit; font-size: 14px; text-align: left; -webkit-tap-highlight-color: transparent; }
+    .hint-goes .hint-chevron { flex: none; width: 14px; height: 14px; color: ${t.mutedForeground}; }
+    .hint-dot { flex: none; width: 8px; height: 8px; border-radius: 999px; }
+    .hint-place { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: ${t.foreground}; font-weight: 500; }
+    .hint-place svg { flex: none; width: 14px; height: 14px; }
+    .hint-place span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .hint-row { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
-    .hint-target { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: ${t.mutedForeground}; padding: 6px 10px; border-radius: 8px; background: ${t.muted}; }
+    .hint-goes + .hint-row { margin-top: 0; }
     .hint-gap { flex: 1; }
     .hint-btn { min-height: 44px; padding: 0 14px; border: 0; border-radius: 10px; background: none; color: ${t.mutedForeground}; font: inherit; font-size: 14px; font-weight: 500; -webkit-tap-highlight-color: transparent; }
-    .hint-btn.hint-primary { background: ${t.primary}; color: ${t.background}; font-weight: 600; }
+    .hint-btn.hint-primary { background: ${t.primary}; color: ${onPrimary}; font-weight: 600; }
     .hint-btn:disabled { opacity: 0.6; }
-    .ProseMirror .block-picked { background: rgba(59, 130, 246, 0.16); border-radius: 6px; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16); }
+    /* The block the Block menu is about: a tint drawn a little outside it on
+       every side, so a to-do's box and words sit in its middle. A to-do row
+       (a flex box) holds its last line's gap below; the tint stops above it.
+       Nothing moves when a block is picked. */
+    .ProseMirror .block-picked { position: relative; }
+    .ProseMirror .block-picked::after { content: ""; position: absolute; inset: -6px -10px; border-radius: 10px; background: rgba(59, 130, 246, 0.16); pointer-events: none; }
+    .ProseMirror ul[data-type="taskList"] > li.block-picked::after { bottom: calc(0.75em - 6px); }
     .props-list { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; padding: 8px 12px 10px; font-size: 13px; }
     .props-key { color: ${t.mutedForeground}; }
     .props-values { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
@@ -201,6 +329,7 @@ export function buildEditorHtml(
     import CodeBlock from "https://esm.sh/@tiptap/extension-code-block@3.31.4";
     import { Placeholder } from "https://esm.sh/@tiptap/extensions@3.31.4";
     import { TextSelection, NodeSelection, Plugin, PluginKey } from "https://esm.sh/@tiptap/pm@3.31.4/state";
+    import { Fragment } from "https://esm.sh/@tiptap/pm@3.31.4/model";
     import { Decoration, DecorationSet } from "https://esm.sh/@tiptap/pm@3.31.4/view";
 
     const placeholder = ${embed(placeholder)};
@@ -248,6 +377,93 @@ export function buildEditorHtml(
                 });
                 return true;
               },
+            },
+          }),
+        ];
+      },
+    });
+    // A checklist row's box is drawn by its label (CSS above), with Tiptap's
+    // checkbox and its hidden "Task item checkbox for …" text out of layout.
+    // Android keyboards read the page as plain text, and both counted as text
+    // inside the row's locked label: Backspace after Select all then started
+    // its delete in that label, where the WebView refuses to edit, so nothing
+    // went. The label stands in for the checkbox for screen readers.
+    const DocTaskItem = TaskItem.extend({
+      addNodeView() {
+        const render = this.parent?.();
+        return (props) => {
+          const view = render(props);
+          const label = view.dom.querySelector("label");
+          const input = label.querySelector("input");
+          const mirror = () => {
+            label.setAttribute("aria-checked", input.checked ? "true" : "false");
+            label.setAttribute("aria-label", input.getAttribute("aria-label") || "");
+          };
+          label.setAttribute("role", "checkbox");
+          mirror();
+          input.addEventListener("change", mirror);
+          return {
+            ...view,
+            update(node) {
+              const kept = view.update(node);
+              if (kept) mirror();
+              return kept;
+            },
+          };
+        };
+      },
+    });
+    // Deletes the phone keyboard makes across lines. Android keyboards delete
+    // through the WebView, which edits the page itself and leaves ProseMirror
+    // to read the result back. When that delete moves blocks around (the
+    // rest of the last line joining the first), ProseMirror reads it as Enter
+    // and splits the line instead, so the delete is made here from the range
+    // the WebView announced. A delete that empties the doc leaves a blank
+    // page, as Backspace does with Select all on a computer: the WebView's own
+    // keeps the first block's shell (a ticked checklist row) and an empty line.
+    let wideDelete = null;
+    const KeyboardDelete = Extension.create({
+      name: "keyboardDelete",
+      // Ahead of the Enter key handlers.
+      priority: 1000,
+      addProseMirrorPlugins() {
+        return [
+          new Plugin({
+            props: {
+              handleDOMEvents: {
+                beforeinput(view, event) {
+                  const range = event.inputType.startsWith("delete") && event.getTargetRanges()[0];
+                  if (!range) return false;
+                  try {
+                    const { doc } = view.state;
+                    const $from = doc.resolve(view.posAtDOM(range.startContainer, range.startOffset));
+                    const $to = doc.resolve(view.posAtDOM(range.endContainer, range.endOffset));
+                    if (!$from.sameParent($to)) wideDelete = { from: $from.pos, to: $to.pos, doc, at: Date.now() };
+                  } catch (_) {}
+                  return false;
+                },
+              },
+              // ProseMirror's stand-in Enter for a DOM change it took for one.
+              handleKeyDown(view, event) {
+                if (event.isTrusted || event.keyCode !== 13 || !wideDelete) return false;
+                const { from, to, doc, at } = wideDelete;
+                if (Date.now() - at > 300 || view.state.doc !== doc) return false;
+                view.dispatch(view.state.tr.setSelection(TextSelection.between(doc.resolve(from), doc.resolve(to))).deleteSelection().scrollIntoView());
+                return true;
+              },
+            },
+            appendTransaction(transactions, _old, state) {
+              if (!wideDelete || Date.now() - wideDelete.at > 300 || !transactions.some((tr) => tr.docChanged)) return null;
+              const { doc, schema } = state;
+              let bare = !doc.textContent;
+              doc.descendants((node) => {
+                if (node.isLeaf && !node.isText) bare = false;
+                return bare;
+              });
+              if (!bare || (doc.childCount === 1 && doc.firstChild.type === schema.nodes.paragraph)) return null;
+              wideDelete = null;
+              const tr = state.tr.replaceWith(0, doc.content.size, schema.nodes.paragraph.create());
+              return tr.setSelection(TextSelection.create(tr.doc, 1));
             },
           }),
         ];
@@ -311,9 +527,11 @@ export function buildEditorHtml(
       },
     });
 
-    // Suggestions for checklist rows, sent by the app (setLineHints): a
-    // marker at the end of each row they are about and, under the open one, a
-    // card with its actions. Taps go back to the app as lineHint messages.
+    // Lines offered as tasks, sent by the app (setLineHints): a marker at the
+    // end of each line they are about and, under the open one, a card with its
+    // actions. A checklist row is found by its words; a line that reads like a
+    // task by its words in lower case, as the app reads the doc's plain lines
+    // (lineHints.ts, docLines). Taps go back to the app as lineHint messages.
     const lineHintKey = new PluginKey("lineHints");
     // A row's words as the app reads them from the saved content: the text of
     // its own paragraphs, spaces collapsed.
@@ -330,8 +548,23 @@ export function buildEditorHtml(
       });
       return parts.join(" ").replace(/\\s+/g, " ").trim();
     }
+    // A plain line's words, lower case with spaces collapsed.
+    function hintWorkText(node) {
+      let text = "";
+      node.descendants((inner) => {
+        if (inner.isText) text += inner.text;
+        return true;
+      });
+      return text.replace(/\\s+/g, " ").trim().toLowerCase();
+    }
+    // Blocks whose lines are never offered as lines of their own; a
+    // checklist row is offered as a checklist item.
+    const HINT_NOT_WORK = new Set(["frontmatter", "codeBlock", "heading", "table", "mermaid", "details", "taskItem"]);
     const HINT_SPARK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg>';
     const HINT_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+    const HINT_FOLDER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>';
+    const HINT_CHEVRON = '<svg class="hint-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
+    const HINT_INBOX = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>';
     function hintEl(tag, cls, text) {
       const el = document.createElement(tag);
       if (cls) el.className = cls;
@@ -377,65 +610,132 @@ export function buildEditorHtml(
       });
       return button;
     }
+    // One offered line: its row (a checklist row, a bullet, or the line
+    // itself) is marked, the disc sits at the row's right edge level with its
+    // first line, and the open line's card goes under the line's words, in
+    // flow (cardAt).
+    function addLineHint(decorations, config, hint, row, lineEnd, cardAt) {
+      const open = config.open === hint.key && hint.kind !== "task";
+      const busy = config.busy === hint.key;
+      decorations.push(Decoration.node(row.from, row.to, { class: open ? "has-hint hint-open" : "has-hint" }));
+      decorations.push(
+        Decoration.widget(
+          lineEnd,
+          () => {
+            const task = hint.kind === "task";
+            const label = task ? "Already a task. Open it" : open ? "Hide suggestion" : "Show suggestion";
+            const mark = hintButton("hint-mark" + (task ? " is-task" : "") + (open ? " is-open" : ""), label, hint.key, "toggle", task);
+            mark.contentEditable = "false";
+            const disc = hintEl("span", "hint-disc");
+            disc.innerHTML = task ? HINT_CHECK : HINT_SPARK;
+            mark.appendChild(disc);
+            return mark;
+          },
+          { key: "mark:" + hint.key + (open ? ":open" : ""), side: 1, ignoreSelection: true, stopEvent: () => true },
+        ),
+      );
+      if (!open) return;
+      decorations.push(
+        Decoration.widget(
+          cardAt,
+          () => {
+            const card = hintEl("div", "hint-card");
+            card.contentEditable = "false";
+            const eyebrow = hintEl("div", "hint-label");
+            eyebrow.innerHTML = HINT_SPARK;
+            eyebrow.appendChild(document.createTextNode(hint.kind === "work" ? "Reads like a task" : "Checklist item"));
+            card.appendChild(eyebrow);
+            card.appendChild(hintEl("div", "hint-title", hint.name));
+            if (hint.details) card.appendChild(hintEl("div", "hint-details", hint.details));
+            // Always drawn: it is the only way to pick a place for this task
+            // alone. The Inbox is told by the flag, not the name, so a
+            // project called "Inbox" keeps its dot.
+            const where = hint.target || (hint.targetInbox ? "Inbox" : "Project");
+            const goes = hintButton("hint-goes", "Goes to, " + where + ". Changes only this task", hint.key, "goesTo", true);
+            goes.appendChild(hintEl("span", "", "Goes to"));
+            const place = hintEl("span", "hint-place");
+            if (hint.targetInbox) place.innerHTML = HINT_INBOX;
+            else if (hint.targetColor) {
+              const dot = hintEl("span", "hint-dot");
+              dot.style.background = hint.targetColor;
+              place.appendChild(dot);
+            } else place.innerHTML = HINT_FOLDER;
+            place.appendChild(hintEl("span", "", where));
+            place.insertAdjacentHTML("beforeend", HINT_CHEVRON);
+            goes.appendChild(place);
+            card.appendChild(goes);
+            const actions = hintEl("div", "hint-row");
+            actions.appendChild(hintEl("span", "hint-gap"));
+            const dismiss = hintButton("hint-btn", "Dismiss", hint.key, "dismiss");
+            dismiss.textContent = "Dismiss";
+            const make = hintButton("hint-btn hint-primary", "Make task", hint.key, "make");
+            // Only a checklist item's title is written by the AI.
+            make.textContent = busy ? (config.writing && hint.kind === "todo" ? "Writing…" : "Adding…") : "Make task";
+            make.disabled = Boolean(config.busy);
+            actions.appendChild(dismiss);
+            actions.appendChild(make);
+            card.appendChild(actions);
+            return card;
+          },
+          // After the disc when both sit at the end of the same line.
+          { key: "card:" + hint.key + ":" + (config.busy || "") + ":" + (hint.target || "") + ":" + (hint.targetInbox ? "inbox" : "") + ":" + (hint.targetColor || ""), side: 2, ignoreSelection: true, stopEvent: () => true },
+        ),
+      );
+    }
+    // Where a row's card goes: after the row's own words (its leading
+    // paragraphs), so it sits under them and above any nested list.
+    function hintCardAt(node, pos) {
+      let at = pos + 1;
+      for (let i = 0; i < node.childCount && node.child(i).type.name === "paragraph"; i++) at += node.child(i).nodeSize;
+      return at;
+    }
     function hintDecorations(doc, config) {
       if (!config || !config.hints || !config.hints.length) return DecorationSet.empty;
-      const byText = new Map();
-      for (const hint of config.hints) if (hint.text && !byText.has(hint.text)) byText.set(hint.text, hint);
+      const rows = new Map();
+      const lines = new Map();
+      for (const hint of config.hints) {
+        const byText = hint.kind === "work" ? lines : rows;
+        if (hint.text && !byText.has(hint.text)) byText.set(hint.text, hint);
+      }
       const used = new Set();
       const decorations = [];
-      doc.descendants((node, pos) => {
-        if (node.type.name !== "taskItem") return true;
-        const hint = byText.get(hintLineText(node));
-        if (!hint || used.has(hint.key)) return true;
-        used.add(hint.key);
-        const open = config.open === hint.key && hint.kind === "todo";
-        const busy = config.busy === hint.key;
-        decorations.push(Decoration.node(pos, pos + node.nodeSize, { class: open ? "has-hint hint-open" : "has-hint" }));
-        const first = node.firstChild;
-        // The end of the row's first line, inside its paragraph.
-        const lineEnd = pos + 1 + (first ? Math.max(0, first.nodeSize - 1) : 0);
-        decorations.push(
-          Decoration.widget(
-            lineEnd,
-            () => {
-              const label = hint.kind === "task" ? "Already a task. Open it" : open ? "Hide suggestion" : "Show suggestion";
-              const mark = hintButton("hint-mark" + (open ? " is-open" : ""), label, hint.key, "toggle", hint.kind === "task");
-              mark.contentEditable = "false";
-              mark.innerHTML = hint.kind === "task" ? HINT_CHECK : HINT_SPARK;
-              return mark;
-            },
-            { key: "mark:" + hint.key + (open ? ":open" : ""), side: 1, ignoreSelection: true, stopEvent: () => true },
-          ),
-        );
-        if (open) {
-          decorations.push(
-            Decoration.widget(
-              pos + node.nodeSize - 1,
-              () => {
-                const card = hintEl("div", "hint-card");
-                card.contentEditable = "false";
-                card.appendChild(hintEl("div", "hint-label", "Checklist item"));
-                card.appendChild(hintEl("div", "hint-title", hint.name));
-                if (hint.details) card.appendChild(hintEl("div", "hint-details", hint.details));
-                const row = hintEl("div", "hint-row");
-                if (config.target) row.appendChild(hintEl("span", "hint-target", config.target));
-                row.appendChild(hintEl("span", "hint-gap"));
-                const dismiss = hintButton("hint-btn", "Dismiss", hint.key, "dismiss");
-                dismiss.textContent = "Dismiss";
-                const make = hintButton("hint-btn hint-primary", "Make task", hint.key, "make");
-                make.textContent = busy ? (config.writing ? "Writing…" : "Adding…") : "Make task";
-                make.disabled = Boolean(config.busy);
-                row.appendChild(dismiss);
-                row.appendChild(make);
-                card.appendChild(row);
-                return card;
-              },
-              { key: "card:" + hint.key + ":" + (config.busy || "") + ":" + (config.target || ""), side: 1, ignoreSelection: true, stopEvent: () => true },
-            ),
-          );
-        }
-        return true;
-      });
+      if (rows.size) {
+        doc.descendants((node, pos) => {
+          if (node.type.name !== "taskItem") return true;
+          const hint = rows.get(hintLineText(node));
+          if (!hint || used.has(hint.key)) return true;
+          used.add(hint.key);
+          const first = node.firstChild;
+          // The end of the row's first line, inside its paragraph.
+          const lineEnd = pos + 1 + (first ? Math.max(0, first.nodeSize - 1) : 0);
+          addLineHint(decorations, config, hint, { from: pos, to: pos + node.nodeSize }, lineEnd, hintCardAt(node, pos));
+          return true;
+        });
+      }
+      if (lines.size) {
+        // A bullet's first line marks the whole bullet, so its card sits
+        // under the bullet as a checklist row's does; any other line marks
+        // itself.
+        const walk = (parent, parentPos) => {
+          parent.forEach((child, offset, index) => {
+            const at = parentPos + 1 + offset;
+            const type = child.type.name;
+            if (HINT_NOT_WORK.has(type)) return;
+            if (type === "paragraph") {
+              const hint = lines.get(hintWorkText(child));
+              if (!hint || used.has(hint.key)) return;
+              used.add(hint.key);
+              const bullet = parent.type.name === "listItem" && index === 0;
+              const row = bullet ? { from: parentPos, to: parentPos + parent.nodeSize } : { from: at, to: at + child.nodeSize };
+              const lineEnd = at + child.nodeSize - 1;
+              addLineHint(decorations, config, hint, row, lineEnd, bullet ? hintCardAt(parent, parentPos) : lineEnd);
+              return;
+            }
+            if (child.isBlock && !child.isAtom) walk(child, at);
+          });
+        };
+        walk(doc, -1);
+      }
       return DecorationSet.create(doc, decorations);
     }
     const LineHints = Extension.create({
@@ -1754,11 +2054,242 @@ export function buildEditorHtml(
       }, 400);
     }
 
+    // Live blocks (an openui-lang code block): a described card drawn from
+    // the person's data. The page reports the doc's programs (livePrograms),
+    // the app draws each one (liveBlockHtml.ts) and sends it back with
+    // liveHtml; ticks, links and Change go to the app, which does them.
+    const LIVE_LANG = "openui-lang";
+    const isLiveNode = (node) => Boolean(node) && node.type.name === "codeBlock" && node.attrs.language === LIVE_LANG;
+    // For getText: a block's program is code for the app, not words to count or search.
+    const LIVE_TEXT = { codeBlock: ({ node }) => (isLiveNode(node) ? "" : node.textContent) };
+    const liveDrawn = new Map();
+    const liveViews = new Set();
+    let liveReported = null;
+    function reportLivePrograms(doc) {
+      const programs = [];
+      doc.descendants((node) => {
+        if (!isLiveNode(node)) return true;
+        programs.push(node.textContent);
+        return false;
+      });
+      const key = JSON.stringify(programs);
+      if (key === liveReported) return;
+      liveReported = key;
+      send({ type: "livePrograms", programs });
+    }
+    const svg = (paths, size) => '<svg width="' + (size || 15) + '" height="' + (size || 15) + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + paths + "</svg>";
+    const LIVE_ICON = svg('<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>', 16);
+    const SPARKLES_ICON = svg('<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/>');
+    const CODE_ICON = svg('<path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/>');
+    const TRASH_ICON = svg('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>');
+    function liveView(node, getPos, editor) {
+      const dom = document.createElement("div");
+      dom.className = "live-wrap";
+      dom.setAttribute("role", "group");
+      const head = document.createElement("div");
+      head.className = "live-head";
+      head.setAttribute("contenteditable", "false");
+      const icon = document.createElement("span");
+      icon.className = "live-icon";
+      icon.innerHTML = LIVE_ICON;
+      const title = document.createElement("span");
+      title.className = "live-title";
+      const mark = document.createElement("span");
+      mark.className = "live-mark";
+      mark.title = "Reads your data each time the doc opens";
+      mark.innerHTML = '<span class="live-dot"></span>Live';
+      const actions = document.createElement("span");
+      actions.className = "live-actions";
+      const button = (label, html, onTap) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.setAttribute("aria-label", label);
+        btn.innerHTML = html;
+        btn.addEventListener("click", (event) => {
+          event.preventDefault();
+          onTap();
+        });
+        return btn;
+      };
+      let current = node;
+      let codeOpen = false;
+      let shown = null;
+      const change = button("Change live block", SPARKLES_ICON + "<span>Change</span>", () => {
+        const pos = getPos();
+        if (typeof pos === "number") send({ type: "liveChange", pos, program: current.textContent, title: title.textContent });
+      });
+      const codeBtn = button("Show the block's code", CODE_ICON, () => {
+        codeOpen = !codeOpen;
+        paintCode();
+      });
+      const del = button("Delete live block", TRASH_ICON, () => {
+        const pos = getPos();
+        if (typeof pos !== "number") return;
+        editor.view.dispatch(editor.state.tr.delete(pos, pos + current.nodeSize));
+      });
+      if (editor.isEditable) actions.append(change, codeBtn, del);
+      else actions.append(codeBtn);
+      head.append(icon, title, mark, actions);
+      const body = document.createElement("div");
+      body.className = "live-body";
+      body.setAttribute("contenteditable", "false");
+      const pre = document.createElement("pre");
+      pre.className = "live-code";
+      const code = document.createElement("code");
+      code.className = "language-" + LIVE_LANG;
+      pre.appendChild(code);
+      dom.append(head, body, pre);
+      const paintCode = () => {
+        const pos = getPos();
+        const { from, to } = editor.state.selection;
+        const inside = typeof pos === "number" && editor.isFocused && from > pos && to < pos + current.nodeSize;
+        const empty = !current.textContent.trim();
+        const open = empty || codeOpen || inside;
+        pre.classList.toggle("is-hidden", !open);
+        codeBtn.style.display = empty ? "none" : "";
+        codeBtn.setAttribute("aria-pressed", String(open));
+        codeBtn.setAttribute("aria-label", open ? "Hide the block's code" : "Show the block's code");
+      };
+      const paint = () => {
+        const program = current.textContent.trim();
+        const entry = liveDrawn.get(program);
+        const name = (entry && entry.title) || (program ? title.textContent || "Live block" : "Live block");
+        title.textContent = name;
+        dom.setAttribute("aria-label", "Live block: " + name);
+        change.lastChild.textContent = program ? "Change" : "Describe";
+        let html = null;
+        if (!program) html = '<p class="lv-empty">Describe what this block should show, or write its program below.</p>';
+        else if (entry) html = entry.html || '<p class="lv-empty">This block could not be drawn. Change it to build it again.</p>';
+        // Until the app draws it; a changed program keeps its last drawing meanwhile.
+        else if (shown === null) html = '<div class="live-loading" aria-label="Loading"><span></span><span></span><span></span></div>';
+        if (html !== null && html !== shown) {
+          body.innerHTML = html;
+          shown = html;
+        }
+        paintCode();
+      };
+      // A press on the drawn card is the card's own: the caret never moves
+      // into the hidden program and no selection starts. Buttons still work.
+      const guard = (event) => {
+        if (!event.target.closest("button")) event.preventDefault();
+      };
+      head.addEventListener("mousedown", guard);
+      body.addEventListener("mousedown", guard);
+      body.addEventListener("click", (event) => {
+        const tick = event.target.closest("[data-live-tick], [data-live-check]");
+        if (tick) {
+          event.preventDefault();
+          const done = tick.getAttribute("data-done") === "1";
+          if (tick.hasAttribute("data-live-check")) {
+            // An item on a doc's checklist, ticked in that doc by the app.
+            send({
+              type: "liveCheck",
+              id: tick.getAttribute("data-live-check"),
+              item: Number(tick.getAttribute("data-item")),
+              text: tick.getAttribute("data-text"),
+              done: !done,
+            });
+          } else {
+            send({ type: "liveTick", id: tick.getAttribute("data-live-tick"), done });
+          }
+          // Shown at once; the app's redraw follows with the saved state.
+          tick.classList.toggle("is-done", !done);
+          tick.setAttribute("data-done", done ? "0" : "1");
+          tick.setAttribute("aria-checked", String(!done));
+          const row = tick.closest(".lv-row");
+          const name = row && row.querySelector(".lv-title");
+          if (name) name.classList.toggle("is-done", !done);
+          return;
+        }
+        const link = event.target.closest("[data-live-open]");
+        if (link) {
+          event.preventDefault();
+          send({ type: "liveOpen", href: link.getAttribute("data-live-open") });
+        }
+      });
+      const view = {
+        dom,
+        contentDOM: code,
+        paint,
+        paintCode,
+        update(next) {
+          if (next.type !== current.type || !isLiveNode(next)) return false;
+          current = next;
+          paint();
+          return true;
+        },
+        selectNode() { dom.classList.add("is-selected"); },
+        deselectNode() { dom.classList.remove("is-selected"); },
+        // Only the program is the editor's; the card handles its own presses.
+        stopEvent(event) { return !code.contains(event.target); },
+        ignoreMutation(mutation) {
+          if (mutation.type === "selection") return false;
+          return !code.contains(mutation.target);
+        },
+        destroy() { liveViews.delete(view); },
+      };
+      liveViews.add(view);
+      paint();
+      return view;
+    }
+    // Backspace at the start of the line after a live block, or Delete at
+    // the end of the line before one, selects the block (an empty line
+    // goes) instead of joining the text into its hidden program.
+    function liveStep(view, dir) {
+      const { selection } = view.state;
+      if (!selection.empty) return false;
+      const $from = selection.$from;
+      if (!$from.parent.isTextblock || $from.depth === 0) return false;
+      if (dir < 0 ? $from.parentOffset !== 0 : $from.parentOffset !== $from.parent.content.size) return false;
+      const container = $from.node($from.depth - 1);
+      const index = $from.index($from.depth - 1) + dir;
+      if (index < 0 || index >= container.childCount) return false;
+      const block = container.child(index);
+      if (!isLiveNode(block)) return false;
+      const lineStart = $from.before();
+      let at = dir < 0 ? lineStart - block.nodeSize : $from.after();
+      const tr = view.state.tr;
+      if ($from.parent.content.size === 0) {
+        tr.delete(lineStart, $from.after());
+        if (dir > 0) at = lineStart;
+      }
+      view.dispatch(tr.setSelection(NodeSelection.create(tr.doc, at)).scrollIntoView());
+      return true;
+    }
+    const LiveBlockKeys = Extension.create({
+      name: "liveBlockKeys",
+      // Ahead of the editor's own Backspace, which would join the line into the block.
+      priority: 1001,
+      addProseMirrorPlugins() {
+        return [
+          new Plugin({
+            props: {
+              handleKeyDown(view, event) {
+                if (event.key === "Backspace") return liveStep(view, -1);
+                if (event.key === "Delete") return liveStep(view, 1);
+                return false;
+              },
+              handleDOMEvents: {
+                // Phone keyboards delete through beforeinput, not key presses.
+                beforeinput(view, event) {
+                  const dir = event.inputType === "deleteContentBackward" ? -1 : event.inputType === "deleteContentForward" ? 1 : 0;
+                  if (!dir || !liveStep(view, dir)) return false;
+                  event.preventDefault();
+                  return true;
+                },
+              },
+            },
+          }),
+        ];
+      },
+    });
+
     // Code blocks get a wrapper so a mermaid diagram can sit under the
     // source without ProseMirror removing it as unknown DOM.
     const DiagramCodeBlock = CodeBlock.extend({
       addNodeView() {
         return ({ node, getPos, editor }) => {
+          if (isLiveNode(node)) return liveView(node, getPos, editor);
           const dom = document.createElement("div");
           dom.className = "code-wrap";
           const pre = document.createElement("pre");
@@ -1836,7 +2367,8 @@ export function buildEditorHtml(
             dom,
             contentDOM: code,
             update(next) {
-              if (next.type !== node.type) return false;
+              // Turning into a live block takes the live block's view.
+              if (next.type !== node.type || isLiveNode(next)) return false;
               apply(next);
               return true;
             },
@@ -1854,6 +2386,8 @@ export function buildEditorHtml(
     }
 
     ${DOC_EDITOR_HELPERS_JS}
+
+    ${WRITE_RANGE_JS}
 
     function inTable() {
       return editor.isActive("table") || editor.isActive("tableCell") || editor.isActive("tableHeader");
@@ -1943,10 +2477,11 @@ export function buildEditorHtml(
           },
         }),
         TaskList,
-        TaskItem.configure({ nested: true }),
+        DocTaskItem.configure({ nested: true }),
         Highlight,
         DocImage.configure({ inline: true }),
         DiagramCodeBlock,
+        LiveBlockKeys,
         TableKit.configure({ table: { resizable: false } }),
         Mention,
         MathInline,
@@ -1961,6 +2496,7 @@ export function buildEditorHtml(
         FindReplace,
         BlockPick,
         LineHints,
+        KeyboardDelete,
         FootnoteRef,
         Footnote,
         Frontmatter,
@@ -1977,6 +2513,7 @@ export function buildEditorHtml(
         send({ type: "ready" });
         reportSelection();
         enhanceCodeBlocks();
+        reportLivePrograms(editor.state.doc);
         editor.view.dom.addEventListener("click", (event) => {
           const ref = event.target.closest && event.target.closest("sup[data-footnote-ref]");
           if (ref) {
@@ -1996,13 +2533,23 @@ export function buildEditorHtml(
         }, true);
       },
       onUpdate({ editor }) {
-        send({ type: "change", content: editor.getJSON(), plainText: editor.getText() });
+        send({ type: "change", content: editor.getJSON(), plainText: editor.getText({ textSerializers: LIVE_TEXT }) });
         reportSelection();
         enhanceCodeBlocks();
+        reportLivePrograms(editor.state.doc);
       },
-      onSelectionUpdate() { reportSelection(); },
-      onFocus() { send({ type: "focus" }); },
-      onBlur() { send({ type: "blur" }); },
+      onSelectionUpdate() {
+        reportSelection();
+        liveViews.forEach((view) => view.paintCode());
+      },
+      onFocus() {
+        send({ type: "focus" });
+        liveViews.forEach((view) => view.paintCode());
+      },
+      onBlur() {
+        send({ type: "blur" });
+        liveViews.forEach((view) => view.paintCode());
+      },
     });
 
     const TABLE_CMDS = {
@@ -2071,15 +2618,19 @@ export function buildEditorHtml(
       body.querySelectorAll(".details").forEach((el) => el.setAttribute("data-open", ""));
       body.querySelectorAll("[contenteditable]").forEach((el) => el.removeAttribute("contenteditable"));
       body.querySelectorAll(".code-wrap > .block-head").forEach((el) => el.remove());
+      // A live block prints as drawn, without its buttons or hidden program.
+      body.querySelectorAll(".live-actions, .live-code.is-hidden").forEach((el) => el.remove());
       body.querySelectorAll(".block-head button").forEach((el) => el.remove());
       const styles = Array.from(document.querySelectorAll("style")).map((el) => el.textContent).join("\\n");
       const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).map((el) => '<link rel="stylesheet" href="' + el.href + '">').join("");
       const heading = document.createElement("h1");
       heading.className = "print-title";
       heading.textContent = title || "Untitled";
-      const light = "html, body { background: #fff !important; color: #111 !important; } body { padding: 0 !important; } .tiptap { padding: 0 !important; color: #111; } .tiptap pre, .tiptap code, .block-head, .callout, .props-chip { background: #f3f3f5 !important; color: #111 !important; } .tiptap a, .mention, .wiki-link { color: #3730a3 !important; } .print-title { font-family: -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif; font-size: 28px; font-weight: 700; margin: 0 0 16px; } .code-wrap pre { padding-top: 12px !important; max-height: none !important; -webkit-mask-image: none !important; mask-image: none !important; } .doc-bookmark { border-color: #ddd !important; } pre, table, img, svg, .callout { break-inside: avoid; } @page { margin: 18mm 16mm; }";
+      const light = "html, body { background: #fff !important; color: #111 !important; } body { padding: 0 !important; } .tiptap { padding: 0 !important; color: #111; } .tiptap pre, .tiptap code, .block-head, .callout, .props-chip { background: #f3f3f5 !important; color: #111 !important; } .tiptap a, .mention, .wiki-link { color: #3730a3 !important; } .print-title { font-family: -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif; font-size: 28px; font-weight: 700; margin: 0 0 16px; } .code-wrap pre { padding-top: 12px !important; max-height: none !important; -webkit-mask-image: none !important; mask-image: none !important; } .doc-bookmark { border-color: #ddd !important; } .live-wrap { --lv-fg: #111; --lv-muted-fg: #555; --lv-border: #ddd; --lv-card: #fff; --lv-fill: #eee; --lv-check: #fff; } pre, table, img, svg, .callout, .live-wrap { break-inside: avoid; } @page { margin: 18mm 16mm; }";
       send({ type: "exportHtml", html: "<!doctype html><html><head><meta charset=\\"utf-8\\">" + links + "<style>" + styles + "</style><style>" + light + "</style></head><body>" + heading.outerHTML + body.outerHTML + "</body></html>" });
     }
+    ${BLOCK_TURN_JS}
+
     // The Block menu (BlockSheet.tsx) works on the caret's block: the
     // innermost list item, a block in a column, or else the top-level block.
     function caretBlock(state) {
@@ -2120,12 +2671,14 @@ export function buildEditorHtml(
       addImage(block.node);
       block.node.descendants(addImage);
       const kind = block.node.type.name;
+      const turn = turnSpot(state.doc, block);
       send({
         type: "blockInfo",
         block: {
           kind: kind,
           level: kind === "heading" ? block.node.attrs.level : 0,
-          textual: (kind === "paragraph" || kind === "heading") && images.length === 0,
+          // What Turn into offers (BLOCK_TURN_JS), or null when it does not apply.
+          turn: turn ? { current: turn.current, toggle: turn.toggle } : null,
           canUp: Boolean(prev) && prev.type.name !== "frontmatter",
           canDown: index < $pos.parent.childCount - 1,
           topLevel: $pos.depth === 0,
@@ -2136,9 +2689,17 @@ export function buildEditorHtml(
       });
     }
 
+    // The block the open Block menu is about (marked by blockInfo), so a pick
+    // acts on it even if the page's caret moved while the menu was open.
+    function pickedBlock(state) {
+      const picked = blockPickKey.getState(state);
+      const node = picked && state.doc.nodeAt(picked.from);
+      return node && picked.from + node.nodeSize === picked.to ? { from: picked.from, to: picked.to, node: node } : caretBlock(state);
+    }
+
     function blockAction(action) {
       const state = editor.state;
-      const block = caretBlock(state);
+      const block = pickedBlock(state);
       markBlock(null);
       if (!block) return;
       const view = editor.view;
@@ -2160,7 +2721,7 @@ export function buildEditorHtml(
       const sibling = $pos.parent.child(index);
       if (sibling.type.name === "frontmatter") return;
       // The caret moves with its block.
-      const offset = state.selection.from - block.from;
+      const offset = Math.max(0, Math.min(state.selection.from - block.from, block.to - block.from - 1));
       const tr = state.tr;
       let start;
       if (action === "up") {
@@ -2178,48 +2739,175 @@ export function buildEditorHtml(
 
     const NEW_LINE_CMDS = { diagram: true, mathBlock: true, map: true, stl: true };
 
-    // A list answer for a line inside a list item replaces that item, so the
-    // new items sit beside it instead of nesting inside it.
-    function enclosingListItem(from, to) {
-      const doc = editor.state.doc;
-      const $from = doc.resolve(from);
-      if (!$from.sameParent(doc.resolve(to))) return null;
-      for (let depth = $from.depth; depth > 1; depth--) {
-        const name = $from.node(depth).type.name;
-        if (name === "listItem" || name === "taskItem") {
-          return { from: $from.before(depth), to: $from.after(depth), listType: $from.node(depth - 1).type.name };
+    // Help me write: the list a draft at pos joins, as listSpot in the web's
+    // helpMeWrite.tsx: the caret's list (after its item, or over it when it is
+    // empty), the list above an empty line, or with end the list the doc ends
+    // with. at is where the items go; drop is the empty item or line they
+    // replace, never before at.
+    const WRITE_LISTS = { taskList: true, bulletList: true, orderedList: true };
+    const isEmptyLine = (node) => Boolean(node && node.isTextblock && node.content.size === 0);
+    function listSpot(doc, pos, end) {
+      if (end) {
+        let index = doc.childCount - 1;
+        let at = doc.content.size;
+        let drop;
+        if (index > 0 && isEmptyLine(doc.child(index))) {
+          drop = { from: at - doc.child(index).nodeSize, to: at };
+          at = drop.from;
+          index -= 1;
+        }
+        const last = doc.child(index);
+        return WRITE_LISTS[last.type.name] ? { list: last.type.name, at: at - 1, drop } : null;
+      }
+      const $pos = doc.resolve(Math.min(Math.max(0, pos || 0), doc.content.size));
+      for (let depth = $pos.depth; depth > 1; depth--) {
+        const item = $pos.node(depth);
+        const list = $pos.node(depth - 1).type.name;
+        if ((item.type.name === "taskItem" || item.type.name === "listItem") && WRITE_LISTS[list]) {
+          if (item.childCount === 1 && isEmptyLine(item.firstChild)) {
+            return { list, at: $pos.before(depth), drop: { from: $pos.before(depth), to: $pos.after(depth) } };
+          }
+          return { list, at: $pos.after(depth) };
+        }
+      }
+      if ($pos.depth > 0 && isEmptyLine($pos.parent)) {
+        const index = $pos.index($pos.depth - 1);
+        const above = index > 0 ? $pos.node($pos.depth - 1).child(index - 1) : null;
+        if (above && WRITE_LISTS[above.type.name]) {
+          return { list: above.type.name, at: $pos.before() - 1, drop: { from: $pos.before(), to: $pos.after() } };
         }
       }
       return null;
     }
 
+    // The doc as the AI reads it: the cursor typed where a draft at pos
+    // goes, as a new item when it joins a list (cursorDoc on the web).
+    const WRITE_CURSOR = ${embed(WRITE_CURSOR)};
+    // A new cursor for each request (writeCursorMark in the contract), so a
+    // doc that holds the word WRITE_CURSOR keeps it.
+    function cursorMark() {
+      let letters = "";
+      for (let i = 0; i < 10; i++) letters += String.fromCharCode(65 + Math.floor(Math.random() * 26));
+      return WRITE_CURSOR + letters;
+    }
+    // added: the index of the line the cursor went on when that line is new
+    // (liveBlockIndex in the contract maps the AI's block numbers back).
+    function cursorDoc(pos, mark) {
+      const state = editor.state;
+      const { tr, schema } = state;
+      let added = null;
+      try {
+        const spot = listSpot(state.doc, pos, false);
+        if (spot) {
+          const item = schema.nodes[spot.list === "taskList" ? "taskItem" : "listItem"];
+          const marked = item.create(null, schema.nodes.paragraph.create(null, schema.text(mark)));
+          if (spot.drop && spot.drop.from === spot.at) tr.replaceWith(spot.drop.from, spot.drop.to, marked);
+          else {
+            if (spot.drop) tr.delete(spot.drop.from, spot.drop.to);
+            tr.insert(spot.at, marked);
+          }
+        } else {
+          const $pos = state.doc.resolve(Math.min(pos, state.doc.content.size));
+          // Only an empty line of its own becomes the draft (insertWritten
+          // does the same); in a table cell or callout it goes after the block.
+          if ($pos.depth === 1 && isEmptyLine($pos.parent)) tr.insertText(mark, $pos.pos);
+          else {
+            added = $pos.depth > 0 ? $pos.index(0) + 1 : state.doc.childCount;
+            tr.insert($pos.depth > 0 ? $pos.after(1) : state.doc.content.size, schema.nodes.paragraph.create(null, schema.text(mark)));
+          }
+        }
+        return { doc: tr.doc.toJSON(), added };
+      } catch (_) {
+        // Where the cursor cannot go, the AI reads the doc without it.
+        return { doc: state.doc.toJSON(), added: null };
+      }
+    }
+
+    // Whether only empty lines follow the top-level block pos is in
+    // (caretAtEnd on the web): a draft for the end then goes at the caret.
+    function caretAtEnd(doc, pos) {
+      const $pos = doc.resolve(Math.min(Math.max(0, pos || 0), doc.content.size));
+      for (let i = $pos.depth > 0 ? $pos.index(0) + 1 : doc.childCount; i < doc.childCount; i++) {
+        if (!isEmptyLine(doc.child(i))) return false;
+      }
+      return true;
+    }
+
+    // The doc when Help me write last opened, by its cursor mark: blocks
+    // the AI chose to replace are taken from it and found again by content
+    // (writeFindBlocks), so a draft never replaces text the AI did not see.
+    let writeSnap = null;
+
     function insertWritten(p) {
       const blocks = Array.isArray(p.blocks) ? p.blocks : [];
       const inline = Array.isArray(p.inline) ? p.inline : null;
       if (!blocks.length) return;
+      // Whole blocks the AI chose: over them ("blocks") or below them.
+      if (p.mode === "blocks" || p.mode === "blocksBelow") {
+        const index = Number(p.index);
+        const count = Number(p.count);
+        const snap = writeSnap && writeSnap.mark === p.mark ? writeSnap.doc : null;
+        const nodes = [];
+        if (snap && Number.isInteger(index) && Number.isInteger(count) && index >= 0 && count > 0 && index + count <= snap.childCount) {
+          for (let i = index; i < index + count; i++) nodes.push(snap.child(i));
+        }
+        const range = nodes.length ? writeFindBlocks(editor.state.doc, nodes, index) : null;
+        if (!range) {
+          send({ type: "writeStale" });
+          return;
+        }
+        const tr = writePlaceBlocks(editor.state, p.mode === "blocks" ? range : { from: range.to, to: range.to }, blocks);
+        if (!tr) {
+          send({ type: "writeNoFit" });
+          return;
+        }
+        editor.view.dispatch(tr.scrollIntoView());
+        editor.commands.focus();
+        if (p.mode === "blocks") send({ type: "writeReplaced" });
+        return;
+      }
       const doc = editor.state.doc;
       const size = doc.content.size;
       const from = Number(p.from);
       const to = Number(p.to);
       const selection = typeof p.selection === "string" ? p.selection : "";
-      if (selection && (!Number.isInteger(from) || !Number.isInteger(to) || to > size || doc.textBetween(from, to, "\\n").trim() !== selection)) {
+      if (selection && (!Number.isInteger(from) || !Number.isInteger(to) || to > size || writePlainBetween(doc, from, to) !== selection)) {
         send({ type: "writeStale" });
         return;
       }
-      const chain = editor.chain().focus();
-      if (selection && p.mode === "replace") {
-        const item = inline ? null : enclosingListItem(from, to);
-        if (item && blocks.length === 1 && blocks[0].type === item.listType) {
-          chain.insertContentAt({ from: item.from, to: item.to }, blocks[0].content || []).run();
-        } else {
-          chain.insertContentAt({ from, to }, inline || blocks).run();
+      if (selection) {
+        // Over the selection or right below it, never over more than was
+        // sent (WRITE_RANGE_JS).
+        const written = { blocks, inline, items: Array.isArray(p.items) ? p.items : null };
+        const tr = p.mode === "replace"
+          ? writePlaceReplace(editor.state, { from, to }, p.fit, written)
+          : writePlaceBelow(editor.state, { from, to }, p.below, written);
+        if (!tr) {
+          send({ type: "writeNoFit" });
+          return;
         }
+        editor.view.dispatch(tr.scrollIntoView());
+        editor.commands.focus();
+        return;
+      }
+      const chain = editor.chain().focus();
+      // Items fitted to the list at the caret (or at the end) join it, when
+      // that is still the list there.
+      const spot = listSpot(doc, from, p.mode === "end");
+      const items = Array.isArray(p.items) ? p.items : null;
+      if (spot && items && spot.list === p.list) {
+        if (spot.drop && spot.drop.from === spot.at) chain.insertContentAt(spot.drop, items).run();
+        else if (spot.drop) chain.deleteRange(spot.drop).insertContentAt(spot.at, items).run();
+        else chain.insertContentAt(spot.at, items).run();
       } else if (p.mode === "end") {
         chain.insertContentAt(size, blocks).run();
+      } else if (p.mode === "all") {
+        // A new description in place of the old one (Rewrite description).
+        chain.insertContentAt({ from: 0, to: size }, blocks).run();
       } else {
-        const at = doc.resolve(Math.min(selection ? to : Math.max(0, from || 0), size));
+        const at = doc.resolve(Math.min(Math.max(0, from || 0), size));
         const block = at.depth > 0 ? at.node(1) : null;
-        if (!selection && block && block.isTextblock && block.content.size === 0) {
+        if (block && block.isTextblock && block.content.size === 0) {
           chain.insertContentAt({ from: at.before(1), to: at.after(1) }, blocks).run();
         } else if (at.depth > 0) {
           chain.insertContentAt(at.after(1), blocks).run();
@@ -2288,6 +2976,14 @@ export function buildEditorHtml(
           requestAnimationFrame(scrollCaret);
           return;
         }
+        if (name === "turnInto") {
+          const block = pickedBlock(editor.state);
+          markBlock(null);
+          const tr = block && turnBlocks(editor.state, block, payload && payload.kind);
+          if (tr) editor.view.dispatch(tr.scrollIntoView());
+          requestAnimationFrame(scrollCaret);
+          return;
+        }
         // Sets one doc property from a suggestion without moving the caret
         // or opening the keyboard.
         if (name === "setProperty") {
@@ -2320,17 +3016,46 @@ export function buildEditorHtml(
           }
           return;
         }
-        // Help me write: report the selection and the doc's text, then put
-        // the draft in. Mirrors insert() in the web's helpMeWrite.tsx.
+        // Help me write: report the selection (as it is rewritten, with the
+        // same part as a doc and where it sits), the doc's text, the doc with
+        // the cursor where the draft goes and the lists it would join at the
+        // caret and at the end, then put the draft in. Mirrors the web's
+        // helpMeWrite.tsx.
         if (name === "writeInfo") {
-          const { from, to } = editor.state.selection;
-          const selection = from === to ? "" : editor.state.doc.textBetween(from, to, "\\n").trim();
-          send({ type: "writeInfo", from, to, selection, text: editor.getText({ blockSeparator: "\\n" }).trim() });
+          const captured = writeCapture(editor.state);
+          const { from, to } = captured;
+          const doc = editor.state.doc;
+          const selection = captured.text;
+          const at = selection ? null : listSpot(doc, from, false);
+          const end = selection ? null : listSpot(doc, doc.content.size, true);
+          const mark = cursorMark();
+          const sent = selection ? { doc: editor.getJSON(), added: null } : cursorDoc(from, mark);
+          writeSnap = { mark, doc };
+          send({
+            type: "writeInfo",
+            from,
+            to,
+            selection,
+            selectionDoc: selection ? captured.doc : undefined,
+            spot: selection ? captured.spot : undefined,
+            text: editor.getText({ blockSeparator: "\\n", textSerializers: LIVE_TEXT }).trim(),
+            doc: sent.doc,
+            added: sent.added,
+            atEnd: caretAtEnd(doc, from),
+            cursorMark: mark,
+            list: at ? at.list : null,
+            endList: end ? end.list : null,
+          });
           return;
         }
         if (name === "insertWritten") {
           insertWritten(payload || {});
           requestAnimationFrame(scrollCaret);
+          return;
+        }
+        // Undo from a toast (a replaced draft), without opening the keyboard.
+        if (name === "undo") {
+          editor.commands.undo();
           return;
         }
         // "Link to an item": report the selected phrase, then swap it for
@@ -2368,13 +3093,48 @@ export function buildEditorHtml(
         if (name === "setLineHints") {
           const before = lineHintKey.getState(editor.state).config;
           editor.view.dispatch(editor.state.tr.setMeta(lineHintKey, payload || null).setMeta("addToHistory", false));
-          // A card that just opened below the fold scrolls up into view.
-          if (payload && payload.open && (!before || before.open !== payload.open)) {
+          // A card that just opened, or a line asked for from the
+          // suggestions sheet, scrolls into view: just enough when the line
+          // shows already, to the middle when it is off screen.
+          if (payload && payload.open && (!before || before.open !== payload.open || before.reveal !== payload.reveal)) {
             requestAnimationFrame(() => {
-              const card = document.querySelector(".hint-card");
-              if (card) card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+              const row = document.querySelector(".hint-open");
+              if (!row) return;
+              const box = row.getBoundingClientRect();
+              const height = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+              const away = box.bottom < 0 || box.top > height;
+              row.scrollIntoView({ block: away && box.height < height ? "center" : "nearest", behavior: "smooth" });
             });
           }
+          return;
+        }
+        // The app's drawings of the doc's live blocks, by program.
+        if (name === "liveHtml") {
+          liveDrawn.clear();
+          ((payload && payload.blocks) || []).forEach((block) => {
+            liveDrawn.set(String(block.program || "").trim(), { html: String(block.html || ""), title: String(block.title || "") });
+          });
+          liveViews.forEach((view) => view.paint());
+          return;
+        }
+        // A block changed in the app's Describe sheet: the block at pos, or
+        // the one with the program it was opened on if the doc moved since.
+        if (name === "setLiveBlock") {
+          const { state } = editor;
+          const program = String((payload && payload.program) || "");
+          const was = String((payload && payload.was) || "");
+          let pos = Number(payload && payload.pos);
+          const at = Number.isInteger(pos) && pos >= 0 && pos < state.doc.content.size ? state.doc.nodeAt(pos) : null;
+          if (!isLiveNode(at) || at.textContent !== was) {
+            pos = -1;
+            state.doc.descendants((node, p) => {
+              if (pos < 0 && isLiveNode(node) && node.textContent === was) pos = p;
+              return pos < 0;
+            });
+          }
+          const target = pos >= 0 ? state.doc.nodeAt(pos) : null;
+          if (!program.trim() || !isLiveNode(target)) return;
+          editor.view.dispatch(state.tr.replaceWith(pos + 1, pos + target.nodeSize - 1, state.schema.text(program)));
           return;
         }
         // Picked in the app's callout sheet; no focus, so the keyboard

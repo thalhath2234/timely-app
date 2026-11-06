@@ -32,6 +32,16 @@ func splitQuery(query string) (string, []propertyFilter) {
 	return strings.Join(strings.Fields(rest), " "), filters
 }
 
+// splitFor is splitQuery for a search over kinds (none means all). Only docs
+// have properties, so a search that leaves docs out reads "re:budget" in a
+// task title as words rather than as a filter that matches nothing.
+func splitFor(query string, kinds []string) (string, []propertyFilter) {
+	if len(kinds) > 0 && !contains(kinds, "doc") {
+		return strings.Join(strings.Fields(query), " "), nil
+	}
+	return splitQuery(query)
+}
+
 // frontmatterText is the properties block's text: the first node of a doc
 // when it is a frontmatter node.
 const frontmatterText = "(CASE WHEN content->'content'->0->>'type' = 'frontmatter' THEN content->'content'->0->'content'->0->>'text' END)"

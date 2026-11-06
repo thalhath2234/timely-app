@@ -3,7 +3,8 @@
  * agents read the same values the apps show. `make gen-sheet-engine` bundles
  * this file into apps/api/internal/features/sheet/engine/sheet-engine.js.
  */
-import type { SheetColumn, SheetTab } from "./sheet";
+import type { Sheet, SheetColumn, SheetTab } from "./sheet";
+import { cellsBrief } from "./sheetCells";
 import { createSheetEvaluator, createWorkbookEvaluators } from "./sheetFormula";
 import { adjustTabForStructure, applyStructureChange, type StructureChange } from "./sheetOps";
 import { serialToIso, type CellResult } from "./sheetValues";
@@ -100,4 +101,18 @@ export function restructure(json: string): string {
     );
   }
   return JSON.stringify({ tabs });
+}
+
+interface BriefRequest {
+  sheets: Pick<Sheet, "id" | "title" | "tabs">[];
+}
+
+/**
+ * Each sheet's tabs with the column names a described card's `@Cells` call
+ * can use and which hold numbers (sheetCells.ts), for the model's instructions.
+ */
+export function cellsBriefs(json: string): string {
+  const request = JSON.parse(json) as BriefRequest;
+  const sheets = (request.sheets ?? []).map((sheet) => cellsBrief({ ...sheet, columns: [], rows: [] } as unknown as Sheet));
+  return JSON.stringify({ sheets });
 }

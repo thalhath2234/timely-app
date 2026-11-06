@@ -8,6 +8,7 @@ import {
   Square,
   Trash2,
 } from "lucide-react-native";
+import { planGroups } from "@timely/contract/changeReview";
 import type { Chat, ChatStep } from "../../lib/chat/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import ChangeCards from "./ChangeCards";
@@ -48,13 +49,45 @@ export default function ProposalPage({
   const notes = archived ? [] : reviewNotes(chat);
   const busy = isBusy(chat.status);
   const applying = !archived && busy && chat.phase === "apply";
+  // A partial approval applies its "approved" changes; otherwise every
+  // change not yet done or set aside runs in order.
+  const approvedAt = steps.findIndex((s) => s.status === "approved");
   const activeIndex = applying
-    ? steps.findIndex((s) => s.status !== "done")
+    ? approvedAt >= 0
+      ? approvedAt
+      : steps.findIndex((s) => s.status !== "done" && s.status !== "discarded")
     : -1;
   const complete = steps.length > 0 && done === steps.length;
   const failed = !archived && chat.status === "failed";
   const stopped = !archived && chat.status === "stopped";
   const approval = !archived && chat.status === "approval";
+  // Counted as the review draws them: 30 entries for one sheet are one change.
+  const groups = planGroups(steps);
+  const groupsDone = groups.filter((group) =>
+    group.steps.every((i) => steps[i].status === "done"),
+  ).length;
+  const groupsDiscarded = groups.filter((group) =>
+    group.steps.every((i) => steps[i].status === "discarded"),
+  ).length;
+  const groupsLeft = groups.length - groupsDone - groupsDiscarded;
+  // A receipt is saved as a whole; anything else can be applied card by card.
+  const review =
+    approval &&
+    !receiptConfirmation &&
+    !(chat.imageReview && chat.imageReview.status !== "discarded") &&
+    groups.length > 1
+      ? {
+          apply: (picked: number[]) =>
+            act("/approve", { revision: chat.revision, steps: picked }),
+          discard: (picked: number[], keep: boolean) =>
+            act("/steps/discard", {
+              revision: chat.revision,
+              steps: picked,
+              keep,
+            }),
+          disabled: locked,
+        }
+      : undefined;
   // When everything applied changed one screen, offer it from the summary.
   const target =
     approval || applying || (!archived && isBusy(chat.status))
@@ -109,8 +142,9 @@ export default function ProposalPage({
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.heading}>{heading}</Text>
             <Text style={common.muted}>
-              {done} of {steps.length}{" "}
-              {steps.length === 1 ? "change" : "changes"} applied
+              {groupsDone} of {groups.length}{" "}
+              {groups.length === 1 ? "change" : "changes"} applied
+              {groupsDiscarded ? ` · ${groupsDiscarded} discarded` : ""}
               {applying ? ` · ${phaseLabel(chat.phase)}` : ""}
             </Text>
           </View>
@@ -175,7 +209,15 @@ export default function ProposalPage({
       {approval ? (
         <View style={{ gap: 10 }}>
           <Action
-            label={receiptConfirmation ? "Save receipt" : "Apply changes"}
+            label={
+              receiptConfirmation
+                ? "Save receipt"
+                : review
+                  ? groupsLeft === groups.length
+                    ? "Apply all"
+                    : `Apply ${groupsLeft} left`
+                  : "Apply changes"
+            }
             icon={Check}
             primary
             disabled={locked || receiptDirty}
@@ -194,7 +236,7 @@ export default function ProposalPage({
             ) : null}
             <View style={{ flex: 1 }}>
               <Action
-                label="Discard proposal"
+                label={review ? "Discard all" : "Discard proposal"}
                 icon={Trash2}
                 tone="destructive"
                 compact
@@ -227,6 +269,7 @@ export default function ProposalPage({
         onLink={onLink}
         activeIndex={activeIndex}
         muted={archived}
+        review={review}
       />
     </View>
   );

@@ -2,20 +2,32 @@ package suggest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 	"gorm.io/gorm"
+	"timely-api/internal/features/decide"
 	"timely-api/internal/models"
 )
 
-// A doc's unchecked checklist items are to-dos by their own say-so, so the
-// clients offer each one as a task without asking Jev, and with no keys at
-// all. The clients read the items from the open editor; this says which are
-// already tasks and which project new ones go to.
+// A doc's unchecked checklist items are offered as tasks only while smart
+// suggestions are on, and only the ones Jev reads as something to get done
+// (an errand, a call), not a thing kept in the doc to tick off there (milk,
+// an ingredient). The clients read the items from the open editor; this
+// says which are already tasks, which to offer, and which project new ones
+// go to.
 
-const maxChecklistNames = 50
+const (
+	maxChecklistNames = 200
+	// Most items Jev reads at once. Items already tasks or dismissed do not
+	// count. In a longer list, the items Jev already read as kept in the doc
+	// go after the rest (checklistRead), so every item is read in time.
+	maxChecklistAsk = 50
+)
 
 type ChecklistTask struct {
 	Name   string `json:"name"`
@@ -31,10 +43,22 @@ type ChecklistProject struct {
 type DocChecklist struct {
 	// Existing are the names that are already a task, in the order sent.
 	Existing []ChecklistTask `json:"existing"`
-	// Project is where new tasks go: the doc's own project, else the one the
-	// client proposed (a suggested or related project). Nil: the doc's
-	// workspace, with no project.
+	// Project is where new tasks go: the place picked for the doc's offers
+	// (Goes to), else the doc's own project, else the one the client
+	// proposed (a suggested or related project). Nil: the doc's workspace,
+	// with no project.
 	Project *ChecklistProject `json:"project,omitempty"`
+	// Picked is the doc's Goes to, "inbox" or the project's id, while it
+	// still applies. Empty: the place is automatic.
+	Picked string `json:"picked,omitempty"`
+	// Available: smart suggestions are on, so items can be offered at all.
+	Available bool `json:"available"`
+	// Off: the person turned task offers off for this doc.
+	Off bool `json:"off,omitempty"`
+	// Offer are the names, as sent, to offer as tasks: Jev reads them as
+	// things to get done, and they are not tasks yet or dismissed.
+	Offer []string `json:"offer"`
+	LogID string   `json:"logId,omitempty"`
 }
 
 func (s *Service) docChecklist(c *echo.Context) error {
@@ -60,26 +84,36 @@ func (s *Service) docChecklist(c *echo.Context) error {
 
 func (s *Service) DocChecklist(ctx context.Context, userID, docID string, names []string, projectID string) (DocChecklist, error) {
 	var doc models.Document
-	if err := s.db.WithContext(ctx).Select("id", "project_id", "workspace_id", "created_at").
+	if err := s.db.WithContext(ctx).Select("id", "title", "content", "project_id", "workspace_id", "created_at").
 		Where("id = ? AND user_id = ?", docID, userID).First(&doc).Error; err != nil {
 		return DocChecklist{}, err
 	}
-	out := DocChecklist{Existing: []ChecklistTask{}}
+	out := DocChecklist{Existing: []ChecklistTask{}, Offer: []string{}}
+	// A picked place wins. A picked project finished or deleted since is no
+	// place for new tasks, so the automatic one applies again.
+	picked, err := s.docOfferTarget(ctx, userID, doc.ID)
+	if err != nil {
+		return DocChecklist{}, err
+	}
+	if picked == offerTargetInbox {
+		out.Picked = picked
+	} else if picked != "" {
+		p, err := s.openProject(ctx, userID, picked)
+		if err == nil {
+			out.Project, out.Picked = &p, picked
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return DocChecklist{}, err
+		}
+	}
 	candidates := []string{}
-	if doc.ProjectID != nil && *doc.ProjectID != "" {
+	if out.Picked == "" && doc.ProjectID != nil && *doc.ProjectID != "" {
 		candidates = append(candidates, *doc.ProjectID)
 	}
-	if projectID = strings.TrimSpace(projectID); projectID != "" {
+	if projectID = strings.TrimSpace(projectID); out.Picked == "" && projectID != "" {
 		candidates = append(candidates, projectID)
 	}
 	for _, id := range candidates {
-		var p ChecklistProject
-		err := s.db.WithContext(ctx).Table("projects").
-			Select("projects.id", "projects.title", "projects.workspace_id").
-			Joins("JOIN workspaces ON workspaces.id = projects.workspace_id").
-			Where("projects.id = ? AND workspaces.user_id = ? AND projects.completed_at IS NULL", id, userID).
-			Take(&p).Error
-		if err == nil {
+		if p, err := s.openProject(ctx, userID, id); err == nil {
 			out.Project = &p
 			break
 		}
@@ -95,6 +129,9 @@ func (s *Service) DocChecklist(ctx context.Context, userID, docID string, names 
 		}
 		byLower[l] = n
 		order = append(order, l)
+		if len(order) == maxChecklistNames {
+			break
+		}
 	}
 	if len(order) == 0 {
 		return out, nil
@@ -170,7 +207,122 @@ func (s *Service) DocChecklist(ctx context.Context, userID, docID string, names 
 			out.Existing = append(out.Existing, ChecklistTask{Name: byLower[l], TaskID: id})
 		}
 	}
+
+	out.Available, _ = s.decide.Status(ctx, userID)
+	dismissed := s.docDismissed(ctx, userID, doc.ID)
+	out.Off = dismissed[docHintKey("todos", "")]
+	if !out.Available || out.Off {
+		return out, nil
+	}
+	var ask, read []string
+	seen := checklistRead(userID, doc.ID)
+	for _, l := range order {
+		if _, ok := found[l]; ok || dismissed[docHintKey("todo", l)] {
+			continue
+		}
+		if seen[l] {
+			read = append(read, byLower[l])
+		} else {
+			ask = append(ask, byLower[l])
+		}
+	}
+	ask = append(ask, read...)
+	more := len(ask) > maxChecklistAsk
+	if more {
+		ask = ask[:maxChecklistAsk]
+	}
+	if len(ask) > 0 {
+		var kept []string
+		out.Offer, kept, out.LogID = s.checklistOffers(ctx, userID, doc, ask)
+		if more || len(seen) > 0 {
+			rememberChecklistRead(userID, doc.ID, kept)
+		}
+	}
 	return out, nil
+}
+
+// checklistNo holds, per doc, the checklist items Jev read as kept in the
+// doc (see checklistRead).
+var checklistNo sync.Map
+
+// checklistRead are the items, lower-cased, that Jev read as kept in the doc
+// in an earlier read of a list too long for one call. A later read asks the
+// items it has not read first: the 51st item of a list used to wait forever
+// behind fifty that Jev had said no to.
+func checklistRead(userID, docID string) map[string]bool {
+	if v, ok := checklistNo.Load(userID + "/" + docID); ok {
+		return v.(map[string]bool)
+	}
+	return nil
+}
+
+// rememberChecklistRead adds items Jev read as kept in the doc. Only lists
+// longer than one call are remembered, and a doc's memory starts over once it
+// holds more names than two lists can send.
+func rememberChecklistRead(userID, docID string, kept []string) {
+	next := map[string]bool{}
+	if old := checklistRead(userID, docID); len(old)+len(kept) <= 2*maxChecklistNames {
+		for l := range old {
+			next[l] = true
+		}
+	}
+	for _, name := range kept {
+		next[strings.ToLower(name)] = true
+	}
+	checklistNo.Store(userID+"/"+docID, next)
+}
+
+// checklistOffers are the items Jev reads as things to get done, each worth
+// its own task, rather than things kept in the doc to tick off there. An
+// offer is unprompted, so only a confident yes counts; no answer offers none.
+func (s *Service) checklistOffers(ctx context.Context, userID string, doc models.Document, names []string) (offer, kept []string, logID string) {
+	ctx, cancel := context.WithTimeout(ctx, docBudget)
+	defer cancel()
+	items := make([]map[string]string, len(names))
+	questions := map[string]decide.Question{}
+	for i, name := range names {
+		key := fmt.Sprintf("i%d", i+1)
+		items[i] = map[string]string{"item": key, "text": clip(name, 120)}
+		questions[key] = decide.YesNo(fmt.Sprintf("Is checklist item %s something the person has to get done, worth tracking as its own task (an action, errand, call or follow-up), rather than something kept in the doc to tick off there, such as a thing to buy or pack, an ingredient, or something to read or watch?", key),
+			"Yes, it is a task to get done.", "No, it is kept in the doc.")
+	}
+	state := map[string]any{"title": clip(doc.Title, 200), "items": items}
+	// The lists the items sit in, with their headings, say what kind of list
+	// it is ("Groceries", "Before the trip").
+	if lists := checklists(doc.Content); len(lists) > 0 {
+		described := make([]map[string]any, len(lists))
+		for i, l := range lists {
+			shown := l.items
+			if len(shown) > maxListItems {
+				shown = shown[:maxListItems]
+			}
+			clipped := make([]string, len(shown))
+			for j, it := range shown {
+				clipped[j] = clip(it, 120)
+			}
+			described[i] = map[string]any{"heading": clip(l.heading, 120), "items": clipped}
+		}
+		state["checklists"] = described
+		// Long lists in a script of wide characters can outgrow what Jev
+		// takes; the items alone still say enough.
+		if raw, err := json.Marshal(state); err != nil || len(raw) > decide.MaxStateBytes {
+			delete(state, "checklists")
+		}
+	}
+	a, err := s.decide.Ask(ctx, userID, decide.Request{Feature: "doc_checklist", State: state, Questions: questions})
+	if err != nil {
+		return []string{}, nil, ""
+	}
+	offer = []string{}
+	for i, name := range names {
+		id := fmt.Sprintf("i%d", i+1)
+		if yes, ok := a.Yes(id, decide.Route); ok && yes {
+			offer = append(offer, name)
+		} else if _, answered := a.Raw(id); answered {
+			kept = append(kept, name)
+		}
+	}
+	return offer, kept, a.LogID
 }
 
 // quotesItem reports whether a task description quotes the checklist item

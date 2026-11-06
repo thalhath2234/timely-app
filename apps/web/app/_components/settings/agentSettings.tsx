@@ -46,7 +46,8 @@ import {
 } from "@/app/utils/hooks/decisions";
 import { useDesktopBridge } from "@/app/utils/hooks/desktop";
 import type { DecisionsView, DeepWorkTime } from "@/app/utils/api/decisions";
-import Select from "@/app/_components/_ui/select";
+import Select, { type SelectOption } from "@/app/_components/_ui/select";
+import { GroupHint, ListGroup, ListRow } from "@/app/_components/_ui/groupedList";
 import {
   PROVIDER_LABELS,
   type AgentProviders,
@@ -56,6 +57,7 @@ import {
   type ProviderId,
 } from "@/app/utils/api/agentProviders";
 import { controlClass } from "@/app/_components/_ui/field";
+import { ChooseDefaultDialog, RemoveProviderDialog, readyIds } from "@/app/_components/settings/defaultChoice";
 import { buttonClass } from "@/app/_components/_ui/button";
 
 export const CLI_INSTALL_URLS = {
@@ -261,6 +263,28 @@ export function Badge({
   );
 }
 
+/** Why "Use as default" did not take, shown under the button that failed.
+ * The server answers with the provider's own reason (a failed test call, a
+ * provider disconnected meanwhile). */
+function DefaultError({ error }: { error: unknown }) {
+  if (!error) return null;
+  return (
+    <p role="alert" className="flex items-start gap-1.5 text-xs leading-relaxed text-destructive">
+      <CircleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+      <span>{errorMessage(error, "Could not switch provider.")}</span>
+    </p>
+  );
+}
+
+/** The error of a patch, only while it is the default switch to `id`; a failed
+ * model save on the same mutation shows its own message in the picker. */
+function defaultSwitchError(
+  patch: ReturnType<typeof usePatchAgentProviders>,
+  id: ProviderId,
+) {
+  return patch.variables?.defaultProvider === id ? patch.error : null;
+}
+
 function ProviderCard({
   id,
   title,
@@ -269,6 +293,7 @@ function ProviderCard({
   ready,
   onMakeDefault,
   makingDefault,
+  defaultError,
   children,
 }: {
   id: ProviderId;
@@ -278,6 +303,7 @@ function ProviderCard({
   ready: boolean;
   onMakeDefault: () => void;
   makingDefault: boolean;
+  defaultError: unknown;
   children: React.ReactNode;
 }) {
   return (
@@ -302,11 +328,7 @@ function ProviderCard({
             type="button"
             onClick={onMakeDefault}
             disabled={!ready || makingDefault}
-            title={
-              ready
-                ? "Use this provider for new chats"
-                : "Connect this provider first"
-            }
+            title={ready ? "Use this provider for new chats" : "Connect this provider first"}
             className={secondaryButton}
           >
             {makingDefault ? <LogoSpinner size={14} label="Saving" /> : null}
@@ -314,6 +336,7 @@ function ProviderCard({
           </button>
         )}
       </div>
+      <DefaultError error={defaultError} />
       {children}
     </section>
   );
@@ -328,14 +351,18 @@ function OpenRouterCard({ data }: { data: AgentProviders }) {
   const [editingKey, setEditingKey] = useState(!data.openrouter.keySet);
   const [key, setKeyValue] = useState("");
   const [keyError, setKeyError] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [removing, setRemoving] = useState(false);
 
   const onSaveKey = async (event: FormEvent) => {
     event.preventDefault();
     setKeyError(null);
     try {
-      await setKey.mutateAsync(key.trim());
+      const next = await setKey.mutateAsync(key.trim());
       setKeyValue("");
       setEditingKey(false);
+      // Nothing becomes the default on its own (ADR 0020): ask now.
+      if (!next.defaultChosen && next.openrouter.ready) setAsking(true);
     } catch (err) {
       setKeyError(errorMessage(err, "Could not save the key."));
     }
@@ -356,6 +383,7 @@ function OpenRouterCard({ data }: { data: AgentProviders }) {
       makingDefault={
         patch.isPending && patch.variables?.defaultProvider === "openrouter"
       }
+      defaultError={defaultSwitchError(patch, "openrouter")}
     >
       <div className="flex flex-col gap-2">
         <span className="text-xs text-muted-foreground">API key</span>
@@ -381,14 +409,7 @@ function OpenRouterCard({ data }: { data: AgentProviders }) {
             {data.openrouter.keySet && (
               <button
                 type="button"
-                onClick={() =>
-                  requestConfirm({
-                    title: "Remove your OpenRouter key?",
-                    description: "OpenRouter chats and semantic search stop until you add one again.",
-                    confirmLabel: "Remove key",
-                    onConfirm: () => removeKey.mutate(),
-                  })
-                }
+                onClick={() => setRemoving(true)}
                 disabled={removeKey.isPending}
                 className="inline-flex h-9 items-center rounded-lg px-2 text-sm text-destructive hover:bg-destructive/10"
               >
@@ -486,13 +507,21 @@ function OpenRouterCard({ data }: { data: AgentProviders }) {
             data-testid="reindex-progress"
           >
             <LogoSpinner size={14} label="Rebuilding" />
-            Rebuilding search index… {reindex.done}
-            {reindex.total ? ` / ${reindex.total}` : ""}
+            Rebuilding search index…
+            {reindex.total ? ` ${reindex.done} / ${reindex.total}` : ""}
           </div>
         )}
         {reindex.status === "done" && (
           <p className="text-xs text-muted-foreground">
             Search index up to date ({reindex.total} items).
+            {reindex.skipped
+              ? ` ${reindex.skipped === 1 ? "1 item was" : `${reindex.skipped} items were`} skipped because your AI provider refused ${reindex.skipped === 1 ? "it" : "them"}.`
+              : ""}
+          </p>
+        )}
+        {reindex.status === "retrying" && (
+          <p className="text-xs text-amber-700 dark:text-amber-300" data-testid="reindex-retrying">
+            Index rebuild failed and will try again soon ({reindex.error}).
           </p>
         )}
         {reindex.status === "failed" && (
@@ -501,7 +530,63 @@ function OpenRouterCard({ data }: { data: AgentProviders }) {
           </p>
         )}
       </div>
+      {asking && <ChooseDefaultDialog data={data} initial="openrouter" onClose={() => setAsking(false)} />}
+      {removing && (
+        <RemoveProviderDialog
+          data={data}
+          id="openrouter"
+          title="Remove your OpenRouter key?"
+          description="OpenRouter chats and semantic search stop until you add one again."
+          confirmLabel="Remove key"
+          onRemove={() => removeKey.mutateAsync()}
+          onClose={() => setRemoving(false)}
+        />
+      )}
     </ProviderCard>
+  );
+}
+
+/** Which provider runs new chats and the writing tools. Nothing is picked
+ * for the person: until they choose, those features wait (ADR 0020). */
+function DefaultProviderGroup({ data }: { data: AgentProviders }) {
+  const patch = usePatchAgentProviders();
+  const ready = readyIds(data);
+  const chosen = data.defaultChosen ? data.defaultProvider : "";
+  const options: SelectOption[] = ready.map((id) => ({ value: id, label: PROVIDER_LABELS[id] }));
+  // A chosen provider that is not ready right now (signed out) stays named.
+  if (chosen && !ready.includes(chosen))
+    options.push({ value: chosen, label: PROVIDER_LABELS[chosen], disabled: true });
+  const saving = patch.isPending ? patch.variables?.defaultProvider : undefined;
+
+  return (
+    <div data-testid="default-provider">
+      <ListGroup>
+        <ListRow label="Default provider" meta="Runs new chats and Help me write">
+          {saving !== undefined && <LogoSpinner size={14} label="Saving" />}
+          <Select
+            variant="row"
+            aria-label="Default provider"
+            value={saving ?? chosen}
+            placeholder="Not chosen"
+            onChange={(next) => patch.mutate({ defaultProvider: next as ProviderId })}
+            disabled={patch.isPending || options.length === 0}
+            options={options}
+            menuMinWidth={240}
+          />
+        </ListRow>
+      </ListGroup>
+      {patch.error ? (
+        <div className="mt-1.5 px-1">
+          <DefaultError error={patch.error} />
+        </div>
+      ) : !chosen ? (
+        <GroupHint>
+          {ready.length
+            ? "Chats and Help me write wait until you choose one."
+            : "Add a key below, then choose it here."}
+        </GroupHint>
+      ) : null}
+    </div>
   );
 }
 
@@ -603,6 +688,8 @@ function ApiProviderRow({
   );
   const [customUrl, setCustomUrl] = useState(matched ? "" : view.baseUrl);
   const [keyError, setKeyError] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const isDefault = data.defaultProvider === view.id;
   const makingDefault =
     patch.isPending && patch.variables?.defaultProvider === view.id;
@@ -622,9 +709,11 @@ function ApiProviderRow({
     event.preventDefault();
     setKeyError(null);
     try {
-      await setKey.mutateAsync({ id: view.id, key: key.trim(), baseUrl });
+      const next = await setKey.mutateAsync({ id: view.id, key: key.trim(), baseUrl });
       setKeyValue("");
       setEditingKey(false);
+      // Nothing becomes the default on its own (ADR 0020): ask now.
+      if (!next.defaultChosen && readyIds(next).includes(view.id)) setAsking(true);
     } catch (err) {
       setKeyError(errorMessage(err, "Could not save the key."));
     }
@@ -688,20 +777,7 @@ function ApiProviderRow({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  requestConfirm({
-                    title: `Disconnect ${view.label}?`,
-                    description: "The saved key is deleted.",
-                    confirmLabel: "Disconnect",
-                    onConfirm: () =>
-                      removeKey.mutate(view.id, {
-                        onSuccess: () => {
-                          setOpen(false);
-                          setEditingKey(true);
-                        },
-                      }),
-                  });
-                }}
+                onClick={() => setRemoving(true)}
                 disabled={removeKey.isPending}
                 className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-destructive hover:bg-destructive/10"
               >
@@ -825,24 +901,37 @@ function ApiProviderRow({
             </p>
           )}
           {view.connected && !isDefault && (
-            <div>
+            <div className="flex flex-col items-start gap-2">
               <button
                 type="button"
                 onClick={() => patch.mutate({ defaultProvider: view.id })}
                 disabled={!view.ready || makingDefault}
-                title={
-                  view.ready
-                    ? "Use this provider for new chats"
-                    : "Pick a chat model first"
-                }
+                title={view.ready ? "Use this provider for new chats" : "Pick a chat model first"}
                 className={compactButton}
               >
                 {makingDefault ? <LogoSpinner size={14} label="Saving" /> : null}
                 Use as default
               </button>
+              <DefaultError error={defaultSwitchError(patch, view.id)} />
             </div>
           )}
         </div>
+      )}
+      {asking && <ChooseDefaultDialog data={data} initial={view.id} onClose={() => setAsking(false)} />}
+      {removing && (
+        <RemoveProviderDialog
+          data={data}
+          id={view.id}
+          title={`Disconnect ${view.label}?`}
+          description="The saved key is deleted."
+          confirmLabel="Disconnect"
+          onRemove={async () => {
+            await removeKey.mutateAsync(view.id);
+            setOpen(false);
+            setEditingKey(true);
+          }}
+          onClose={() => setRemoving(false)}
+        />
       )}
     </div>
   );
@@ -868,6 +957,9 @@ function CliCard({
     view.connected || view.status.found,
   );
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const isDefault = data.defaultProvider === id;
   const status = view.status;
   const loginCommand = id === "claude" ? "claude auth login" : "codex login";
   const host = desktop ? "this computer" : "the server";
@@ -875,7 +967,9 @@ function CliCard({
   const onConnect = async () => {
     setConnectError(null);
     try {
-      await connect.mutateAsync(id);
+      const next = await connect.mutateAsync(id);
+      // Nothing becomes the default on its own (ADR 0020): ask now.
+      if (!next.defaultChosen && readyIds(next).includes(id)) setAsking(true);
     } catch (err) {
       setConnectError(errorMessage(err, "Could not connect."));
     }
@@ -890,10 +984,11 @@ function CliCard({
           ? `Uses the Claude Code CLI and its sign-in on ${host}. Runs with every built-in tool disabled.`
           : `Uses the Codex CLI and its sign-in on ${host}. Runs in a read-only sandbox with the shell disabled.`
       }
-      isDefault={data.defaultProvider === id}
+      isDefault={isDefault}
       ready={view.ready}
       onMakeDefault={() => patch.mutate({ defaultProvider: id })}
       makingDefault={patch.isPending && patch.variables?.defaultProvider === id}
+      defaultError={defaultSwitchError(patch, id)}
     >
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
@@ -996,7 +1091,7 @@ function CliCard({
           {view.connected && (
             <button
               type="button"
-              onClick={() => disconnect.mutate(id)}
+              onClick={() => (isDefault ? setRemoving(true) : disconnect.mutate(id))}
               disabled={disconnect.isPending}
               className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-sm text-destructive hover:bg-destructive/10"
             >
@@ -1050,6 +1145,18 @@ function CliCard({
             : "Search models…"
         }
       />
+      {asking && <ChooseDefaultDialog data={data} initial={id} onClose={() => setAsking(false)} />}
+      {removing && (
+        <RemoveProviderDialog
+          data={data}
+          id={id}
+          title={`Disconnect ${PROVIDER_LABELS[id]}?`}
+          description={`Timely stops using its sign-in on ${host}.`}
+          confirmLabel="Disconnect"
+          onRemove={() => disconnect.mutateAsync(id)}
+          onClose={() => setRemoving(false)}
+        />
+      )}
     </ProviderCard>
   );
 }
@@ -1092,13 +1199,23 @@ function DecisionsCard() {
 
   const ts = data.typesafe;
   const showForm = editingKey || (!ts.keySet && !data.openrouterKeySet);
+  // Suggestions run on Jev, so they switch on only with a key it can use.
+  const hasKey = (ts.keySet && !ts.rejected && !ts.unreadable) || data.openrouterKeySet;
   let source: string;
-  if (!data.enabled) source = "Off. Timely works as it does without them.";
+  if (!hasKey)
+    source = ts.unreadable
+      ? "Timely can't read your saved TypeSafe key. Enter it again, or add an OpenRouter key, to turn these on."
+      : ts.rejected
+        ? "TypeSafe refused your key. Add a working TypeSafe or OpenRouter key to turn these on."
+        : "Add a TypeSafe or OpenRouter key to turn these on.";
+  else if (!data.enabled) source = "Off. Timely works as it does without them.";
   else if (data.provider === "typesafe") source = "Using your TypeSafe key.";
   else if (data.provider === "openrouter")
-    source = ts.rejected
-      ? "TypeSafe refused your key, so your OpenRouter key is used for now."
-      : "Using your OpenRouter key. A TypeSafe key is used first when you add one.";
+    source = ts.unreadable
+      ? "Timely can't read your saved TypeSafe key, so your OpenRouter key is used for now."
+      : ts.rejected
+        ? "TypeSafe refused your key, so your OpenRouter key is used for now."
+        : "Using your OpenRouter key. A TypeSafe key is used first when you add one.";
   else source = "Add a TypeSafe or OpenRouter key to turn these on.";
 
   return (
@@ -1114,8 +1231,8 @@ function DecisionsCard() {
             </h3>
             {data.available ? (
               <Badge tone="ok">On</Badge>
-            ) : data.enabled ? (
-              <Badge tone="warn">Needs a key</Badge>
+            ) : !hasKey ? (
+              <Badge tone="warn">{ts.keySet ? "Key not working" : "Needs a key"}</Badge>
             ) : (
               <Badge tone="muted">Off</Badge>
             )}
@@ -1132,7 +1249,7 @@ function DecisionsCard() {
             description, lists work idle for three weeks, reads how a project
             is going and spots labels or statuses that mean the same. In docs
             it suggests where a doc belongs, its type, properties and a
-            template, lines that could be tasks, a link for selected text and
+            template, lines and checklist items that could be tasks, a link for selected text and
             headings for a plain-text import, and notes a doc that looks out
             of date. On Today it picks work worth focusing on and the best
             task for your next free gap; it reads how urgent each task sounds
@@ -1142,10 +1259,17 @@ function DecisionsCard() {
             fast decision model.
             Suggestions never change anything until you save or apply.
           </p>
-          <p className="mt-1 text-xs text-foreground" data-testid="decisions-source">
+          <p id="decisions-source" className="mt-1 text-xs text-foreground" data-testid="decisions-source">
             {source}
           </p>
-          {data.available && (
+          {setEnabled.error && (
+            <p className="mt-1 text-xs text-destructive">
+              {errorMessage(setEnabled.error, "Could not change smart suggestions.")}
+            </p>
+          )}
+          {/* Test also asks TypeSafe again about a key it refused; if it takes
+              the key now, suggestions use it again. */}
+          {(data.available || (data.enabled && ts.rejected)) && (
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -1178,24 +1302,26 @@ function DecisionsCard() {
           )}
         </div>
         <label
+          title={hasKey ? undefined : "Add a TypeSafe or OpenRouter key first"}
           className={cn(
             "relative inline-flex shrink-0 items-center",
-            setEnabled.isPending ? "cursor-not-allowed" : "cursor-pointer",
+            setEnabled.isPending || !hasKey ? "cursor-not-allowed" : "cursor-pointer",
           )}
         >
           <input
             type="checkbox"
             role="switch"
-            aria-checked={data.enabled}
+            aria-checked={data.available}
             aria-labelledby="decisions-title"
+            aria-describedby="decisions-source"
             className="peer sr-only"
-            checked={data.enabled}
-            disabled={setEnabled.isPending}
+            checked={data.available}
+            disabled={setEnabled.isPending || !hasKey}
             onChange={(event) => setEnabled.mutate(event.target.checked)}
           />
           <span
             aria-hidden="true"
-            className="relative block h-5 w-9 rounded-full bg-muted transition-colors peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-ring/60 peer-disabled:opacity-50 peer-checked:[&>span]:translate-x-4"
+            className="relative block h-5 w-9 rounded-full bg-muted-foreground/25 transition-colors peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-ring/60 peer-disabled:opacity-50 peer-checked:[&>span]:translate-x-4"
           >
             <span className="absolute left-0.5 top-0.5 block size-4 rounded-full bg-background shadow transition-transform" />
           </span>
@@ -1207,7 +1333,11 @@ function DecisionsCard() {
         {!showForm ? (
           <div className="flex flex-wrap items-center gap-2">
             {ts.keySet ? (
-              ts.rejected ? (
+              ts.unreadable ? (
+                <Badge tone="danger">
+                  <CircleAlert className="size-3" /> Key can&apos;t be read {ts.keyHint}
+                </Badge>
+              ) : ts.rejected ? (
                 <Badge tone="danger">
                   <CircleAlert className="size-3" /> Key refused {ts.keyHint}
                 </Badge>
@@ -1473,8 +1603,7 @@ function DecisionPrefs({ data }: { data: DecisionsView }) {
 }
 
 export default function AgentSettings() {
-  const { data, isLoading, error, refetch } = useAgentProviders();
-  const patch = usePatchAgentProviders();
+  const { data, isLoading, error, refetch } = useAgentProviders({ watchReindex: true });
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">
@@ -1503,14 +1632,9 @@ export default function AgentSettings() {
           </button>
         </div>
       )}
-      {patch.error && (
-        <p className="text-sm text-destructive">
-          {errorMessage(patch.error, "Could not save.")}
-        </p>
-      )}
-
       {data && (
         <>
+          <DefaultProviderGroup data={data} />
           <OpenRouterCard data={data} />
           <DecisionsCard />
           <MoreApiKeys data={data} />

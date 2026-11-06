@@ -23,14 +23,111 @@ export type WriteKind = "doc" | "task" | "project";
 export type WriteRequest = {
   action: WriteAction;
   prompt?: string;
+  /** The selected text, plain, for an API from before `selectionDoc`. */
   selection?: string;
+  /** The selected part of the doc as a doc (see WriteSpot for its shape).
+   * The API reads it as Markdown, so links, @mentions, tick boxes and tables
+   * reach the model and come back in its answer. */
+  selectionDoc?: DocContent;
   kind: WriteKind;
   title?: string;
+  /** Plain text, for an API from before `doc`. */
   text?: string;
+  /** The editor's content with WRITE_CURSOR typed where the draft goes. The
+   * API reads it as Markdown, so the model sees the checklists, lists and
+   * headings around that spot, not just the words. */
+  doc?: DocContent;
+  /** The cursor typed into `doc` for this request (writeCursorMark), so a
+   * doc that holds the word WRITE_CURSOR keeps it. */
+  cursorMark?: string;
+  /** The person typed what to do: the AI also says where its answer goes
+   * (WriteResult.place), so "turn these bullets into a checklist" replaces
+   * the bullets instead of adding a copy below them. */
+  place?: boolean;
 };
 
-/** `text` is Markdown. */
-export type WriteResult = { text: string; provider: string; model: string };
+/**
+ * Where a draft goes, as the AI says for a typed request (writePlace in
+ * apps/api/internal/features/provider/write.go):
+ * - "replace" with `from` and `to`: in place of the doc's top-level blocks
+ *   `from` to `to`, their indices in the doc as sent (see liveBlockIndex);
+ * - "replace" alone: in place of the selection; "below": below it;
+ * - "cursor": where the cursor was; "end": at the end of the text.
+ */
+export type WritePlace = { mode: "replace" | "below" | "cursor" | "end"; from?: number; to?: number };
+
+/** The index in the editor of block `index` of the doc as sent, where
+ * `added` is the index of the line the cursor was typed on as a new block
+ * (cursorDoc), or null when the cursor went into a line already there. The
+ * AI never names that line itself. */
+export const liveBlockIndex = (index: number, added: number | null | undefined) =>
+  added != null && index > added ? index - 1 : index;
+
+/** Typed into a copy of the doc where the draft goes; the API shows it to
+ * the model as <cursor/>. Letters only, so Markdown leaves it alone. */
+export const WRITE_CURSOR = "TIMELYWRITECURSOR";
+
+/** WRITE_CURSOR with random capital letters after it, new for each request:
+ * a doc that mentions WRITE_CURSOR itself can't be taken for the cursor. */
+export function writeCursorMark(random: () => number = Math.random): string {
+  let letters = "";
+  for (let i = 0; i < 10; i++) letters += String.fromCharCode(65 + Math.floor(random() * 26));
+  return WRITE_CURSOR + letters;
+}
+
+/** The most characters the prompt box takes (writeMaxPrompt in the API, which
+ * counts characters the same way), so nothing typed is cut without a word. */
+export const WRITE_MAX_PROMPT = 2000;
+
+/** What the panel says when an answer has nothing in it to insert, such as
+ * a lone "- [ ]" (the API says the same for an empty one). */
+export const WRITE_EMPTY = "The AI returned an empty answer. Try again.";
+
+/** Whether an answer for a task or project description takes the place of
+ * the whole description: "Rewrite description" (describe, with text there)
+ * writes a new one, which Insert would put inside the old one. */
+export const replacesAll = (kind: WriteKind, action: WriteAction, hasText: boolean) =>
+  kind !== "doc" && action === "describe" && hasText;
+
+/** The most selected text a rewrite takes, in UTF-8 bytes of Markdown
+ * (writeMaxSelection in apps/api/internal/features/provider/write.go). A
+ * longer selection is refused, never cut, because Replace puts the answer
+ * over all of it. */
+export const WRITE_MAX_SELECTION = 20_000;
+
+/** What the panel and the API say about a longer selection. */
+export const WRITE_TOO_LONG =
+  "That's too much text to rewrite at once. Select up to about 3,000 words and try again.";
+
+/** WRITE_TOO_LONG in the words of the action: Summarize doesn't rewrite. */
+export const writeTooLong = (action: WriteAction) =>
+  action === "summarize"
+    ? "That's too much text to summarize at once. Select up to about 3,000 words and try again."
+    : WRITE_TOO_LONG;
+
+/** Whether selected text is over WRITE_MAX_SELECTION. The API measures the
+ * Markdown, which links and @mentions make a little longer than this text,
+ * so it can still refuse a selection just under the limit. */
+export const selectionTooLong = (text: string) => new TextEncoder().encode(text).length > WRITE_MAX_SELECTION;
+
+/** The lists a draft can join as more items. */
+export type WriteList = "taskList" | "bulletList" | "orderedList";
+
+export const isWriteList = (type: unknown): type is WriteList =>
+  type === "taskList" || type === "bulletList" || type === "orderedList";
+
+/** `text` is Markdown. `shortened`: the doc was too long to read whole, so
+ * a summary, description or continuation comes from its start and end. */
+export type WriteResult = { text: string; provider: string; model: string; shortened?: boolean; place?: WritePlace };
+
+/** What the panel says above a draft from a shortened doc. */
+export const shortenedNote = (kind: WriteKind) =>
+  `This ${kind === "doc" ? "doc" : "description"} is long, so the AI read its start and end but not the middle.`;
+
+/** The error code (409 body `code`, a failed chat's `errorCode`) of a feature
+ * that runs on the default provider while the person has not chosen one in
+ * Settings → Agent. The apps answer it with a way to choose. */
+export const PROVIDER_NOT_CHOSEN = "provider_not_chosen";
 
 /** What the panel says while the AI works on each action. */
 export const WRITE_BUSY: Record<WriteAction, string> = {
@@ -75,12 +172,202 @@ export function writeStarters(kind: WriteKind, hasText: boolean): WriteChoice[] 
   ];
 }
 
+type Node = DocContent & { attrs?: Record<string, unknown>; text?: string };
+
+/** A checkbox the Markdown parser left as text: "[ ] ", "[x] " or "[] "
+ * opening the first line of an item in a list that was not all checklist
+ * items, or standing alone as an item with no text. */
+const BOX_TEXT = /^\[( |x|X)?\](?: |$)/;
+
+/** A list where some items have a tick box becomes a checklist: models mix
+ * "- [ ]" and "-" lines, and the boxes would otherwise show as "[ ]" text.
+ * fromMarkdown already makes such a list a checklist, but a box Markdown
+ * does not read as one ("[] ", or "[ ]" with nothing after it) is still text
+ * there. A box with nothing after it is no item at all. Code blocks are left
+ * as they are. */
+function tidyLists(nodes: Node[]): Node[] {
+  return nodes.flatMap((node) => {
+    const content = node.content ? tidyLists(node.content as Node[]) : undefined;
+    const next = content ? { ...node, content } : node;
+    if (next.type !== "bulletList" && next.type !== "orderedList" && next.type !== "taskList") return [next];
+    const items = (content ?? []) as Node[];
+    const box = (item: Node) => BOX_TEXT.exec(((item.content?.[0] as Node | undefined)?.content?.[0] as Node | undefined)?.text ?? "");
+    if (!items.some(box)) return [next];
+    const tasks = items.flatMap((item): Node[] => {
+      const found = box(item);
+      if (!found) return [item.type === "taskItem" ? item : { ...item, type: "taskItem", attrs: { checked: false } }];
+      const [line, ...below] = item.content as Node[];
+      const [first, ...inline] = line.content as Node[];
+      const left = (first.text ?? "").slice(found[0].length);
+      if (!left && !inline.length && !below.length) return [];
+      return [{
+        type: "taskItem",
+        attrs: { checked: found[1] === "x" || found[1] === "X" },
+        content: [{ ...line, content: left ? [{ ...first, text: left }, ...inline] : inline }, ...below],
+      }];
+    });
+    return tasks.length ? [{ type: "taskList", content: tasks }] : [];
+  });
+}
+
+/** The items of a list answer, made into items of the list they join: a
+ * bulleted or numbered answer joins a checklist as unticked items. A
+ * checklist answer does not join a plain list, which would drop its boxes. */
+function joinItems(list: Node, into: WriteList): Node[] | null {
+  const items = (list.content ?? []) as Node[];
+  if (list.type === into) return items;
+  if (into !== "taskList") return list.type === "taskList" ? null : items;
+  const toTask = (item: Node): Node => ({
+    type: "taskItem",
+    attrs: { checked: false },
+    content: ((item.content ?? []) as Node[]).map((child) =>
+      child.type === "bulletList" || child.type === "orderedList"
+        ? { type: "taskList", content: ((child.content ?? []) as Node[]).map(toTask) }
+        : child,
+    ),
+  });
+  return items.map(toTask);
+}
+
 /** Turns a Markdown answer into blocks to insert. A one-paragraph answer comes
- * back as inline content so it can replace words inside a line. */
-export function writtenContent(markdown: string): { blocks: DocContent[]; inline: DocContent[] | null } {
+ * back as inline content so it can replace words inside a line. With `into`,
+ * the list at the spot the draft goes, a one-list answer also comes back as
+ * `items` of that list's kind to join it, and `blocks` shows them that way. */
+export function writtenContent(
+  markdown: string,
+  into?: WriteList | null,
+): { blocks: DocContent[]; inline: DocContent[] | null; items: DocContent[] | null } {
+  // "- []" is a checkbox to the eye but not to Markdown: tidyLists reads it.
   const doc = fromMarkdown(markdown.trim(), { breaks: true }).content;
-  const blocks = (doc.content ?? []) as DocContent[];
+  let blocks = tidyLists((doc.content ?? []) as Node[]);
   const only = blocks.length === 1 ? blocks[0] : null;
+  const items = into && only && isWriteList(only.type) ? joinItems(only, into) : null;
+  if (items && into) blocks = [{ type: into, content: items }];
   const inline = only?.type === "paragraph" ? ((only.content ?? []) as DocContent[]) : null;
-  return { blocks, inline };
+  return { blocks, inline, items };
+}
+
+/**
+ * Where the selected text sits, as the editor reads it when Help me write
+ * opens (captureSelection in the web's helpMeWrite.tsx, writeInfo in the
+ * phone's editorHtml.ts). Replace only ever puts the answer over exactly
+ * what was sent, so a selection is one of:
+ * - "line": words inside one line (a paragraph, heading, list item's line or
+ *   table cell's line). `whole` when they are the line's whole text; `in`
+ *   says what holds the line, with the item's `list` and whether the line is
+ *   the item's only content (`alone`, no sub-items).
+ * - "items": whole items of one list (`list`), with their sub-items. A
+ *   selection across items grows to them.
+ * - "blocks": whole blocks of the doc, a callout, a column or a table cell
+ *   (`in`). A selection across lines grows to the blocks it touches; across
+ *   table cells it grows to the whole table.
+ */
+export type WriteSpot =
+  | { kind: "line"; whole: boolean; in: "block" | "item" | "cell"; list?: WriteList | null; alone?: boolean }
+  | { kind: "items"; list: WriteList }
+  | { kind: "blocks"; in: "block" | "cell" };
+
+/** How an answer replaces the selection:
+ * - "inline": a one-paragraph answer goes over the selected words;
+ * - "line": the answer's blocks take the place of the selected line;
+ * - "item": the answer's items take the place of the line's list item;
+ * - "items" / "blocks": the answer's items or blocks take the place of the
+ *   selected items or blocks.
+ * null: the answer does not fit there (a list for a few words of a line, a
+ * table in a table cell), so Replace is not offered; Insert below still is. */
+export type WriteFit = "inline" | "line" | "item" | "items" | "blocks" | null;
+
+/** The list an answer for this selection is read into (writtenContent's
+ * `into`), so items come back as items of the selected list. */
+export const spotList = (spot: WriteSpot | null | undefined): WriteList | null =>
+  spot && (spot.kind === "items" || (spot.kind === "line" && spot.in === "item")) ? (spot.list ?? null) : null;
+
+type Written = ReturnType<typeof writtenContent>;
+
+const hasTable = (blocks: DocContent[]) => blocks.some((block) => block.type === "table");
+
+/** Whether and how `answer` (writtenContent(text, spotList(spot))) can
+ * replace the selection. It never reaches past the selection: a list answer
+ * for some words of a list item does not take the whole item, and nothing
+ * nests a list in a line or a table in a table. */
+export function replaceFit(spot: WriteSpot, answer: Written): WriteFit {
+  if (!answer.blocks.length) return null;
+  if (spot.kind === "line") {
+    if (answer.inline) return "inline";
+    if (!spot.whole) return null;
+    if (spot.in === "block") return "line";
+    if (spot.in === "item" && spot.alone && answer.items) return "item";
+    return null;
+  }
+  if (spot.kind === "items") return answer.items ? "items" : null;
+  if (spot.in === "cell" && hasTable(answer.blocks)) return null;
+  return "blocks";
+}
+
+/** Where Insert below puts `answer`:
+ * - "afterItem": its items join the list right after the line's item;
+ * - "afterItems" / "afterBlocks": right after the selected items or blocks;
+ * - "afterBlock": after the doc's top-level block the selection ends in. */
+export type WriteBelow = "afterItem" | "afterItems" | "afterBlocks" | "afterBlock";
+
+export function belowFit(spot: WriteSpot, answer: Written): WriteBelow {
+  if (spot.kind === "line") return spot.in === "item" && answer.items ? "afterItem" : "afterBlock";
+  if (spot.kind === "items") return answer.items ? "afterItems" : "afterBlock";
+  if (spot.in === "cell" && hasTable(answer.blocks)) return "afterBlock";
+  return "afterBlocks";
+}
+
+type TextNode = DocContent & { text?: string };
+
+const plainText = (node: TextNode): string =>
+  node.type === "text" ? (node.text ?? "") : ((node.content ?? []) as TextNode[]).map(plainText).join("");
+
+/** `nodes` without the line or list item the cursor `mark` was typed on, so
+ * blocks read from the doc as sent count as they are in the editor. */
+export function withoutMark(nodes: DocContent[], mark?: string): DocContent[] {
+  if (!mark) return nodes;
+  return nodes.flatMap((node): DocContent[] => {
+    if ((node.type === "paragraph" || node.type === "listItem" || node.type === "taskItem") && plainText(node).trim() === mark) return [];
+    if (!node.content) return [node];
+    const content = withoutMark(node.content as DocContent[], mark);
+    return isWriteList(node.type) && !content.length ? [] : [{ ...node, content }];
+  });
+}
+
+/** What a draft that replaces whole blocks takes the place of, in words:
+ * "15 bullet points", "6 checklist items", "2 paragraphs", or "9 lines". */
+export function blocksSummary(nodes: DocContent[]): string {
+  const list = nodes[0]?.type;
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  if (isWriteList(list) && nodes.every((node) => node.type === list)) {
+    const items = nodes.reduce((sum, node) => sum + (node.content?.length ?? 0), 0);
+    if (list === "taskList") return plural(items, "checklist item", "checklist items");
+    if (list === "orderedList") return plural(items, "numbered item", "numbered items");
+    return plural(items, "bullet point", "bullet points");
+  }
+  if (nodes.every((node) => node.type === "paragraph")) return plural(nodes.length, "paragraph", "paragraphs");
+  let lines = 0;
+  const count = (node: DocContent) => {
+    const children = (node.content ?? []) as DocContent[];
+    if (node.type === "text" || children.some((child) => child.type === "text")) lines += 1;
+    else children.forEach(count);
+  };
+  nodes.forEach(count);
+  return plural(Math.max(lines, nodes.length), "line", "lines");
+}
+
+/** The first line of text in `nodes`, for a short quote of what a draft
+ * replaces. */
+export function firstLine(nodes: DocContent[]): string {
+  for (const node of nodes) {
+    const children = (node.content ?? []) as TextNode[];
+    if (children.some((child) => child.type === "text")) {
+      const text = plainText(node).trim();
+      if (text) return text;
+    } else {
+      const inner = firstLine(children);
+      if (inner) return inner;
+    }
+  }
+  return "";
 }

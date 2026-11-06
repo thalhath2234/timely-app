@@ -38,8 +38,15 @@ const (
 
 var (
 	expenseWord = regexp.MustCompile(`(?i)\bexpenses?\b`)
-	anyNumber   = regexp.MustCompile(`\d+(?:[.,]\d+)*`)
+	// Digits of any script (１２, ١٢) with the decimal marks they use.
+	anyNumber = regexp.MustCompile(`\p{Nd}+(?:[.,٫٬．，]\p{Nd}+)*`)
+	// An amount in a name: digits with a decimal or thousands mark ("Coffee
+	// 4.50"). Plain numbers stay, so "7-Eleven" and "Store 12" keep their names.
+	nameAmount = regexp.MustCompile(`\p{Nd}+(?:[.,٫٬．，]\p{Nd}+)+`)
 )
+
+// maskName hides amounts written into a shop or item name.
+func maskName(name string) string { return nameAmount.ReplaceAllString(name, "#") }
 
 // receiptTab is a tab a receipt could be recorded in.
 type receiptTab struct {
@@ -238,11 +245,11 @@ func receiptFacts(r ReceiptDraft) map[string]any {
 		if len(items) == 20 {
 			break
 		}
-		if d := clip(item.Description, 80); d != "" {
+		if d := maskName(clip(item.Description, 80)); d != "" {
 			items = append(items, d)
 		}
 	}
-	facts := map[string]any{"merchant": clip(r.Merchant, 100), "items": items}
+	facts := map[string]any{"merchant": maskName(clip(r.Merchant, 100)), "items": items}
 	if currencyPattern.MatchString(r.Currency) {
 		facts["currency"] = r.Currency
 	}
@@ -344,7 +351,8 @@ func (s *Service) receiptHints(ctx context.Context, c *Conversation, r *ReceiptD
 		return nil, nil
 	}
 	hints := []string{}
-	if choice, ok := a.Choice("category", decide.Prefill); ok && choice != "none" {
+	// Only a category that was offered is used; any other answer is dropped.
+	if choice, ok := a.Choice("category", decide.Prefill); ok && choice != "none" && offered(book.categories, choice) {
 		before := normal(r.Category)
 		for i := range r.Items {
 			if item := normal(r.Items[i].Category); item == "" || item == before {
@@ -385,6 +393,16 @@ func (s *Service) receiptHints(ctx context.Context, c *Conversation, r *ReceiptD
 		}
 	}
 	return hints, suggested
+}
+
+// offered reports whether choice is one of the options, as written.
+func offered(options []string, choice string) bool {
+	for _, option := range options {
+		if option == choice {
+			return true
+		}
+	}
+	return false
 }
 
 // includedHints spots a reconciliation that works once tax or the discount

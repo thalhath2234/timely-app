@@ -54,6 +54,8 @@ export default function ModelSheet({
   const ready = readyProviders(providers.data);
   const defaultId = providers.data?.defaultProvider;
   const defaultModel = ready.find((p) => p.id === defaultId)?.model ?? "";
+  // Set up but not chosen: a chat without its own model waits (ADR 0020).
+  const unchosen = !defaultId && ready.length > 0;
   const [browsing, setBrowsing] = useState("");
   const [query, setQuery] = useState("");
   const shown =
@@ -95,13 +97,15 @@ export default function ModelSheet({
       <SheetOption
         selected={!value.provider}
         onSelect={() => pick({ provider: "", model: "" })}
-      >
-        <Text style={styles.name}>Default</Text>
-        <Text numberOfLines={1} style={styles.sub}>
-          {defaultId
+        detail={
+          defaultId
             ? `${label(defaultId)}${defaultModel ? ` · ${defaultModel}` : ""}`
-            : "Set in Settings → Agent"}
-        </Text>
+            : unchosen
+              ? "Not chosen. Choose one in Settings → Agent"
+              : "Set in Settings → Agent"
+        }
+      >
+        Default
       </SheetOption>
       {providers.isLoading ? (
         <Text style={styles.hint}>Loading providers…</Text>
@@ -163,20 +167,14 @@ export default function ModelSheet({
                 key={m.id}
                 selected={value.provider === shown && value.model === m.id}
                 onSelect={() => pick({ provider: shown, model: m.id })}
-                leading={
+                trailing={
                   m.vision ? (
                     <Eye size={16} color={colors.mutedForeground} />
                   ) : undefined
                 }
+                detail={m.name && m.name !== m.id ? m.id : undefined}
               >
-                <Text numberOfLines={1} style={styles.name}>
-                  {m.name}
-                </Text>
-                {m.name !== m.id ? (
-                  <Text numberOfLines={1} style={styles.sub}>
-                    {m.id}
-                  </Text>
-                ) : null}
+                {m.name || m.id}
               </SheetOption>
             ))
           )}
@@ -193,8 +191,6 @@ const styles = createThemedStyleSheet(() => ({
     lineHeight: 19,
     paddingVertical: 8,
   },
-  name: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
-  sub: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
   tabs: { gap: 6, paddingVertical: 10 },
   tab: {
     height: 32,

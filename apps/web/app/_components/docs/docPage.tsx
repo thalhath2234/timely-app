@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Editor, Range } from "@tiptap/react";
@@ -12,11 +12,13 @@ import DocOutline from "@/app/_components/docs/docOutline";
 import RelatedItems from "@/app/_components/_ui/relatedItems";
 import Backlinks from "@/app/_components/docs/backlinks";
 import DocHistory from "@/app/_components/docs/docHistory";
-import DocHints from "@/app/_components/docs/docHints";
+import DocHints, { ChecklistOffersSwitch } from "@/app/_components/docs/docHints";
 import { insertPageMention } from "@/app/_components/editor/mention";
 import TabStripActions from "@/app/_components/pageTabs/stripActions";
 import { hasUploadedImages } from "@/app/_components/editor/docImage";
 import { Doc } from "@/app/_types/types";
+import { countDocWords, DOC_HINTS_SETTLE_MS, docHintsVersion } from "@timely/contract/documents";
+import { useSettled } from "@/app/utils/hooks/useSettled";
 import { UpdateDocPayload } from "@/app/utils/api/docs";
 import type { RelatedItem } from "@/app/utils/api/search";
 import { useQueryClient } from "@tanstack/react-query";
@@ -38,9 +40,9 @@ import { readMarkdownFile } from "@/app/utils/importMarkdown";
 import { fileHref, FILES_PATH } from "@/app/utils/fileRoutes";
 import { buttonClass } from "@/app/_components/_ui/button";
 
-/** Page width (px) from which the doc gets the toolbar rail, the outline
- * card and margin suggestions: room for the rail, the doc and an 18rem
- * right column. */
+/** Page width (px) from which the doc gets the toolbar rail and a right
+ * column of the outline, offers and suggestions cards: room for the rail,
+ * the doc and an 18rem right column. */
 const MARGIN_LAYOUT_WIDTH = 1024;
 
 /** Whether an element is at least `width` px wide, following resizes. */
@@ -55,28 +57,36 @@ function useWiderThan(element: HTMLElement | null, width: number) {
   return wider;
 }
 
+/** A wide page's right column: one sticky stack that scrolls inside when it
+ * is taller than the window, its foot fading while more of it is below. */
+function RailStack({ children }: { children: ReactNode }) {
+  const [box, setBox] = useState<HTMLDivElement | null>(null);
+  const [more, setMore] = useState(false);
+  useEffect(() => {
+    if (!box) return;
+    const read = () => setMore(box.scrollHeight - box.scrollTop - box.clientHeight > 1);
+    // The box keeps its height once it is capped, so the cards are watched
+    // too; the observer also reads it once to start.
+    const observer = new ResizeObserver(read);
+    observer.observe(box);
+    if (box.firstElementChild) observer.observe(box.firstElementChild);
+    box.addEventListener("scroll", read, { passive: true });
+    return () => {
+      observer.disconnect();
+      box.removeEventListener("scroll", read);
+    };
+  }, [box]);
+  return (
+    <div ref={setBox} className="doc-rail-stack sticky top-4 z-10 max-h-[calc(100dvh-4.25rem)] overflow-y-auto [scrollbar-width:none]" data-more={more || undefined}>
+      <div className="flex flex-col gap-4">{children}</div>
+    </div>
+  );
+}
+
 const ICON_CHOICES = [
   "📄", "📝", "📌", "📊", "🗂️", "💡", "🚀", "🎯",
   "🐛", "🧪", "📚", "🔧", "🔥", "✅", "⭐", "🧠",
 ];
-
-// Runs on every keystroke, so it counts in place instead of splitting the
-// text: a doc holding a large 3D model or map has hundreds of thousands of
-// "words", and building that array each time stalled typing.
-function countWords(text: string) {
-  let count = 0;
-  let inWord = false;
-  for (let i = 0; i < text.length; i += 1) {
-    const code = text.charCodeAt(i);
-    const space = code === 32 || (code >= 9 && code <= 13) || code === 160 || code === 0x2028 || code === 0x2029 || code === 0xfeff || (code >= 0x2000 && code <= 0x200a) || code === 0x1680 || code === 0x202f || code === 0x205f || code === 0x3000;
-    if (space) inWord = false;
-    else if (!inWord) {
-      inWord = true;
-      count += 1;
-    }
-  }
-  return count;
-}
 
 function buildBreadcrumb(docs: Doc[], docId: string) {
   const byId = new Map(docs.map((doc) => [doc.id, doc]));
@@ -144,7 +154,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const deleteDoc = useDeleteDoc();
 
   const [title, setTitle] = useState(doc.title);
-  const [wordCount, setWordCount] = useState(() => countWords(doc.plainText));
+  const [wordCount, setWordCount] = useState(() => countDocWords(doc.plainText));
   const [isIconPickerOpen, setIsIconPickerOpen] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -160,8 +170,8 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const [marginHost, setMarginHost] = useState<HTMLElement | null>(null);
   const [scrollBox, setScrollBox] = useState<HTMLDivElement | null>(null);
   // A wide page puts the toolbar in a rail left of the doc and the
-  // suggestions in the margin beside their lines; a narrow one keeps the
-  // toolbar row under the tabs and the suggestions above the text.
+  // suggestions in a column right of it; a narrow one keeps the toolbar row
+  // under the tabs and the suggestions above the text.
   const wide = useWiderThan(scrollBox, MARGIN_LAYOUT_WIDTH);
   const lastSavedAtRef = useRef<string | null>(doc.updatedAt);
   // The editor is seeded once per document; later remote updates arrive via
@@ -185,7 +195,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
     onRemote: (remote) => {
       const next = remote ?? queryClient.getQueryData<Doc>(docKey(doc.id)) ?? doc;
       setTitle(next.title);
-      setWordCount(countWords(next.plainText));
+      setWordCount(countDocWords(next.plainText));
       setRemoteContent(resolveDocContent(next.content, next.plainText));
       setRemoteEpoch((epoch) => epoch + 1);
     },
@@ -210,7 +220,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const handleEditorChange = useCallback(
     ({ content, plainText }: { content: Doc["content"]; plainText: string }) => {
       window.clearTimeout(wordTimerRef.current);
-      wordTimerRef.current = window.setTimeout(() => setWordCount(countWords(plainText)), 300);
+      wordTimerRef.current = window.setTimeout(() => setWordCount(countDocWords(plainText)), 300);
       schedule({ content, plainText });
     },
     [schedule],
@@ -220,7 +230,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
   const applyContent = useCallback(
     (content: Doc["content"], plainText: string) => {
       editorRef.current?.commands.setContent(content as Parameters<Editor["commands"]["setContent"]>[0]);
-      setWordCount(countWords(plainText));
+      setWordCount(countDocWords(plainText));
       schedule({ content, plainText });
       // Suggestions read the saved copy, so they are asked again once it is in.
       void flush().then(() => queryClient.invalidateQueries({ queryKey: ["doc-hints", doc.id] }));
@@ -265,6 +275,11 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
     },
     [createDoc, doc.id, flush, router],
   );
+
+  // From the saved copy, which the suggestions read, not the editor's words,
+  // once it has stopped changing: a title typed word by word saves at each pause.
+  const savedVersion = useMemo(() => docHintsVersion({ title: doc.title, plainText: doc.plainText }), [doc.title, doc.plainText]);
+  const hintsVersion = useSettled(savedVersion, DOC_HINTS_SETTLE_MS);
 
   const handleDelete = async () => {
     await deleteDoc.mutateAsync(doc.id);
@@ -536,25 +551,36 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
               )}
               <Backlinks docId={doc.id} />
               <RelatedItems kind="doc" id={doc.id} onLink={linkRelated} />
+              {!wide && <ChecklistOffersSwitch doc={doc} editor={editor} version={hintsVersion} />}
             </div>
           </div>
 
-          {/* On a wide page the outline card, then the suggestions beside their lines; above the text otherwise (globals.css). */}
+          {/* On a wide page one sticky stack of the outline, the offers and the
+              suggestions, which scrolls inside when taller than the window;
+              the offers open beside their rows. Above the text otherwise (globals.css). */}
           <aside ref={setMarginHost} className="doc-page-rail" aria-label="Suggestions">
-            {wide && (
-              <div className="sticky top-4 z-10 mb-4">
+            {wide ? (
+              <RailStack>
                 <DocOutline editor={editor} wordCount={wordCount} updatedAt={doc.updatedAt} subpages={descendantCount} />
-              </div>
+                <DocHints
+                  doc={doc}
+                  editor={editor}
+                  nearEmpty={wordCount < 8}
+                  version={hintsVersion}
+                  onApplyContent={applyContent}
+                  layout="margin"
+                />
+              </RailStack>
+            ) : (
+              <DocHints
+                doc={doc}
+                editor={editor}
+                nearEmpty={wordCount < 8}
+                version={hintsVersion}
+                onApplyContent={applyContent}
+                layout="card"
+              />
             )}
-            {/* Rechecks once an empty doc gets a title or text, then as it grows by about fifty words. */}
-            <DocHints
-              doc={doc}
-              editor={editor}
-              nearEmpty={wordCount < 8}
-              version={wordCount < 8 ? `empty:${doc.title.trim()}` : String(Math.floor(wordCount / 50))}
-              onApplyContent={applyContent}
-              layout={wide ? "margin" : "card"}
-            />
           </aside>
 
           <div className="doc-page-body">
@@ -586,7 +612,7 @@ function DocView({ doc, allDocs }: { doc: Doc; allDocs: Doc[] }) {
             lastSavedAtRef.current = restored.updatedAt;
             queryClient.setQueryData(docKey(doc.id), restored);
             setTitle(restored.title);
-            setWordCount(countWords(restored.plainText));
+            setWordCount(countDocWords(restored.plainText));
             setRemoteContent(resolveDocContent(restored.content, restored.plainText));
             setRemoteEpoch((epoch) => epoch + 1);
           }}

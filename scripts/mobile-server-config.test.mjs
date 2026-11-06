@@ -8,7 +8,9 @@ import {
   parseHealthPayload,
   parsePairingInput,
   pickReachable,
+  pinnedProbe,
   SERVER_CONFIG_KEY,
+  WrongServerError,
 } from "../apps/mobile/lib/server/config.ts";
 
 // Phase 4 of issue #61: the phone learns its server at runtime. These tests
@@ -216,4 +218,49 @@ test("plain http is flagged only outside loopback and Tailscale", () => {
   for (const url of ["http://192.168.1.20:8080", "http://100.128.0.1:8080", "http://timely.example.com", "http://[2001:db8::1]:80"]) {
     assert.equal(isInsecureServerUrl(url), true, url);
   }
+});
+
+test("parsePairingInput keeps the instance id and the one-time sign-in code", () => {
+  const text = JSON.stringify({
+    v: 1,
+    name: "my-laptop",
+    id: " inst-1 ",
+    urls: ["https://my-laptop.tail.ts.net", "http://100.101.102.103:48080"],
+    code: "pair_abc",
+  });
+  assert.deepEqual(parsePairingInput(text), {
+    urls: ["https://my-laptop.tail.ts.net", "http://100.101.102.103:48080"],
+    name: "my-laptop",
+    id: "inst-1",
+    code: "pair_abc",
+  });
+  assert.equal(parsePairingInput(JSON.stringify({ urls: ["http://1.2.3.4"], id: 5, code: "" })).id, undefined);
+});
+
+test("the stored config keeps the pinned id, never a sign-in code", () => {
+  assert.deepEqual(normalizeServerConfig({ urls: ["http://a"], id: "inst-1", code: "pair_abc" }), { urls: ["http://a"], id: "inst-1" });
+});
+
+test("parseHealthPayload reads the instance id", () => {
+  assert.equal(parseHealthPayload({ status: "ok", instanceId: "inst-1" }).instanceId, "inst-1");
+  assert.equal(parseHealthPayload({ status: "ok", instanceId: "" }).instanceId, undefined);
+});
+
+test("a pinned probe skips a different server and keeps looking", async () => {
+  const answers = {
+    "http://first": { status: "ok", instanceId: "someone-else" },
+    "http://second": { status: "ok" },
+    "http://third": { status: "ok", instanceId: "inst-1" },
+  };
+  const wrong = [];
+  const probe = pinnedProbe(async (url) => answers[url], "inst-1", (url) => wrong.push(url));
+  const found = await pickReachable(["http://first", "http://second", "http://third"], probe);
+  assert.equal(found.url, "http://third");
+  // A server too old to report an id is not trusted with the session either.
+  assert.deepEqual(wrong.sort(), ["http://first", "http://second"]);
+  await assert.rejects(probe("http://first", new AbortController().signal), WrongServerError);
+
+  // Without a pinned id every Timely answer counts (the caller pins it).
+  const open = pinnedProbe(async (url) => answers[url], undefined);
+  assert.equal((await pickReachable(["http://first"], open)).url, "http://first");
 });

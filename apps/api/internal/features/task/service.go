@@ -578,6 +578,7 @@ func (s *taskService) Update(userID string, taskID string, update TaskUpdate) (*
 	if err := assertReminderPing(before, update, updates); err != nil {
 		return nil, err
 	}
+	clearStaleTraits(before, updates)
 
 	workspaceID := before.WorkspaceID
 	if update.WorkspaceID != nil && *update.WorkspaceID != "" {

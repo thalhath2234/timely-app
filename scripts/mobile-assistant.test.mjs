@@ -215,3 +215,57 @@ test("summary-only receipts and incomplete items have useful review feedback", (
     "Enter the amount for item 1.",
   ]);
 });
+const { settingsOf, changed } = await import(
+  "../apps/mobile/lib/chat/settings.ts"
+);
+const shown = {
+  context: screenA,
+  webSearch: false,
+  model: { provider: "anthropic", model: "claude-opus-5-5" },
+};
+test("a chat's settings default to no context, no search and the account model", () => {
+  assert.deepEqual(settingsOf({ id: "chat-a", revision: 1 }), {
+    context: [],
+    webSearch: false,
+    model: { provider: "", model: "" },
+  });
+  assert.deepEqual(
+    settingsOf({
+      context: screenA,
+      webSearch: true,
+      chosenProvider: "openrouter",
+      chosenModel: "m",
+    }),
+    {
+      context: screenA,
+      webSearch: true,
+      model: { provider: "openrouter", model: "m" },
+    },
+  );
+});
+test("a settings tap saves only what differs from what the composer shows", () => {
+  assert.equal(changed({}, shown), undefined);
+  assert.equal(
+    changed(
+      { context: [...screenA], webSearch: false, model: { ...shown.model } },
+      shown,
+    ),
+    undefined,
+  );
+  assert.deepEqual(changed({ context: screenA, webSearch: true }, shown), {
+    webSearch: true,
+  });
+  assert.deepEqual(changed({ context: screenA.slice(1) }, shown), {
+    context: screenA.slice(1),
+  });
+  assert.deepEqual(changed({ context: [...screenA].reverse() }, shown), {
+    context: [...screenA].reverse(),
+  });
+  assert.deepEqual(
+    changed({ model: { provider: "anthropic", model: "other" } }, shown),
+    { model: { provider: "anthropic", model: "other" } },
+  );
+  assert.deepEqual(changed({ model: { provider: "", model: "" } }, shown), {
+    model: { provider: "", model: "" },
+  });
+});

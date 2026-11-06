@@ -65,6 +65,12 @@ var argumentCases = map[string][]struct {
 		{`{"title":"Lunch"}`, false}, {`{}`, false}, {`{"recurrence":{"rrule":"FREQ=WEEKLY"}}`, true}, {`{"recurrence":null}`, true},
 		{`{"clearRecurrence":true}`, true}, {`{"clearRecurrence":false}`, true},
 	},
+	// One entry applies like add_sheet_row; several are a bulk edit (as several
+	// add_sheet_row steps were).
+	"add_sheet_entries": {
+		{`{"entries":[{"cells":{"Item":"Rice"}}]}`, false}, {`{"entries":[{"cells":{}},{"cells":{}}]}`, true},
+		{`{"entries":[]}`, true}, {`{}`, true}, {`null`, true}, {``, true}, {`{"entries":{"cells":{}}}`, true},
+	},
 	"mark_notification_read": {
 		{`{"id":"ntf"}`, false}, {`{"id":""}`, true}, {`{}`, true}, {`null`, true}, {``, true}, {`{"id":5}`, true},
 	},

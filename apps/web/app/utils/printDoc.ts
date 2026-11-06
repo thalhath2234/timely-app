@@ -64,8 +64,11 @@ export async function exportDocPdf(title: string, editorDom: HTMLElement) {
   // in full, and no editing controls.
   body.querySelectorAll(".doc-details").forEach((details) => details.setAttribute("data-open", ""));
   body.querySelectorAll(".is-folded").forEach((element) => element.classList.remove("is-folded"));
+  body.querySelectorAll(".doc-line-hinted").forEach((element) => element.classList.remove("doc-line-hinted"));
   body
-    .querySelectorAll(".doc-code-bar, .doc-code-fold, .doc-details-toggle, .doc-link-form, .ProseMirror-gapcursor, .ProseMirror-trailingBreak")
+    .querySelectorAll(
+      ".doc-code-bar, .doc-code-fold, .doc-details-toggle, .doc-link-form, .doc-offer-anchor, .doc-offer-card-host, .ProseMirror-gapcursor, .ProseMirror-trailingBreak",
+    )
     .forEach((element) => element.remove());
   body.querySelectorAll("[contenteditable]").forEach((element) => element.removeAttribute("contenteditable"));
 

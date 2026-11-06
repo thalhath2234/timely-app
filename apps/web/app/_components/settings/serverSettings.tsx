@@ -23,6 +23,7 @@ import {
   canToggleTailscale,
   describeSidecar,
   describeTailscale,
+  describeHttps,
   describeUpdate,
   type StatusSummary,
 } from "@/app/utils/desktopInstance";
@@ -333,6 +334,7 @@ export default function ServerSettings() {
   const web = describeSidecar(instance.web);
   const update = describeUpdate(instance.update);
   const tailscaleReady = canToggleTailscale(instance);
+  const https = describeHttps(instance);
   const actionResult = actions.result;
 
   return (
@@ -420,6 +422,30 @@ export default function ServerSettings() {
           busy={setting.pending === "tailscaleEnabled"}
           onChange={(next) => void setting.set("tailscaleEnabled", next).catch(() => undefined)}
         />
+        {instance.settings.tailscaleEnabled && (
+          <div className="flex flex-col gap-1.5">
+            <Toggle
+              name="tailscaleHttps"
+              label="HTTPS with Tailscale Serve"
+              description={`Serves Timely at https://${instance.tailscale.dnsName ?? "<this computer>.ts.net"} with a real certificate, using \`tailscale serve\` on port 443. Needs MagicDNS and HTTPS certificates turned on for your tailnet.`}
+              checked={instance.settings.tailscaleHttps}
+              disabled={!instance.tailscale.running}
+              hint={!instance.tailscale.running ? "Connect Tailscale on this computer first." : undefined}
+              busy={setting.pending === "tailscaleHttps" || (instance.settings.tailscaleHttps && instance.tailscale.https.status === "starting")}
+              onChange={(next) => void setting.set("tailscaleHttps", next).catch(() => undefined)}
+            />
+            {instance.settings.tailscaleHttps && https.tone !== "muted" && (
+              <div className="flex flex-wrap items-center gap-2 px-1 text-xs" data-testid="https-status">
+                <StatusBadge summary={https} />
+                {https.detail && (
+                  <span className={https.tone === "danger" ? "text-destructive" : "text-muted-foreground"}>
+                    {https.detail}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <Toggle
           name="allowRegistration"
           label="Allow new accounts"

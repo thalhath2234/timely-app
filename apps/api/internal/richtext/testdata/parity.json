@@ -472,6 +472,18 @@
    ]
   },
   {
+   "type": "codeBlock",
+   "attrs": {
+    "language": "openui-lang"
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "root = Panel(\"Client work\", [list])\nlate = @Data({source: \"tasks\", project: \"Client work\", overdue: true})\nlist = List(@Each(late.rows, \"t\", TaskRow(t.id, t.title, t.day)), \"Nothing overdue\")"
+    }
+   ]
+  },
+  {
    "type": "horizontalRule"
   },
   {

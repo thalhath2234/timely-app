@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "motion/react";
-import { GripVertical, MoreHorizontal } from "lucide-react";
+import { GripVertical, MoreHorizontal, SlidersHorizontal } from "lucide-react";
 import { DASHBOARD_COLUMNS, DASHBOARD_MAX_ROWS, cardTitle, minCardSize, type DashboardCard } from "@timely/contract/dashboard";
 import { revealProps, springSnappy } from "@/app/_components/_ui/motion";
 import { cn } from "@/app/utils/cn";
@@ -67,6 +67,7 @@ export default function DashboardGrid({
   onReorder,
   onResize,
   onMenu,
+  onEdit,
   onRename,
   renaming,
   onRenaming: setRenaming,
@@ -78,6 +79,8 @@ export default function DashboardGrid({
   onReorder: (order: string[]) => void;
   onResize: (id: string, size: { w: number; h: number }) => void;
   onMenu: (card: DashboardCard, at: { x: number; y: number }) => void;
+  /** Opens the workshop on a card you made; the header shows its button on hover. */
+  onEdit: (card: DashboardCard) => void;
   onRename: (card: DashboardCard, title: string) => void;
   /** The card whose title is being edited in place. */
   renaming: string | null;
@@ -334,6 +337,17 @@ export default function DashboardGrid({
                     {cardTitle(card)}
                   </h2>
                 )}
+                {card.type === "custom" && card.query ? (
+                  <button
+                    type="button"
+                    onClick={() => onEdit(card)}
+                    className="rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/card:opacity-100"
+                    aria-label={`Edit ${cardTitle(card)}`}
+                    title="Edit card"
+                  >
+                    <SlidersHorizontal className="size-4" />
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={(event) => {

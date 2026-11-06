@@ -22,10 +22,42 @@ import (
 // here, and every rule is checked before it goes back.
 
 const (
-	viewQueryMaxText  = 500
-	viewQueryMaxNames = 60
-	viewQueryBudget   = 90 * time.Second
+	// viewQueryMaxText is characters, as the describe box counts them.
+	viewQueryMaxText = 500
+	// viewQueryMaxNames caps each list of names, and each custom field's
+	// options, the model is told; viewQueryMaxFields the custom fields.
+	viewQueryMaxNames  = 60
+	viewQueryMaxFields = 20
+	viewQueryBudget    = 90 * time.Second
 )
+
+// dateRuleFields hold days; their values must be a word the apps read
+// (resolveDateValue in packages/contract/src/taskQuery.ts). Each maps to
+// the name the "Left out" note uses for it.
+var dateRuleFields = map[string]string{
+	"deadline": "deadline", "startDate": "start date", "planned": "planned day",
+	"createdAt": "created date", "updatedAt": "updated date", "completedAt": "completed date",
+}
+
+var (
+	dateWords = map[string]bool{
+		"today": true, "tomorrow": true, "yesterday": true, "thisWeek": true, "nextWeek": true, "lastWeek": true,
+		"thisWeekend": true, "thisMonth": true, "nextMonth": true, "lastMonth": true, "thisYear": true,
+	}
+	dateForm = regexp.MustCompile(`^(?:\d{4}-\d{2}-\d{2}(?:T.*)?|[+-]\d{1,4}|(?:next|last):\d{1,4})$`)
+)
+
+// validDateValue is a value the apps can turn into days. Anything else
+// matches every task there, so a chip would claim a filter that filters
+// nothing.
+func validDateValue(raw json.RawMessage) bool {
+	var value string
+	if json.Unmarshal(raw, &value) != nil {
+		return false
+	}
+	value = strings.TrimSpace(value)
+	return dateWords[value] || dateForm.MatchString(value)
+}
 
 type viewQueryRequest struct {
 	Query string `json:"query"`
@@ -157,10 +189,13 @@ func viewQueryMessages(req viewQueryRequest, v viewVocab) []chat.WireMessage {
 	if day, err := time.Parse("2006-01-02", req.Today); err == nil {
 		weekday = day.Weekday().String()
 	}
-	fmt.Fprintf(&b, "Today is %s %s.\n\nThe person's names:\n", weekday, req.Today)
+	fmt.Fprintf(&b, "Today is %s %s.\n\nThe person's names, each list a JSON array:\n", weekday, req.Today)
+	// Names go in as JSON, so a name with a comma in it ("Red, Blue") stays
+	// one name.
 	list := func(title string, rows []vocabRow) {
 		if names := uniqueNames(rows); len(names) > 0 {
-			fmt.Fprintf(&b, "- %s: %s\n", title, strings.Join(names, ", "))
+			raw, _ := json.Marshal(names)
+			fmt.Fprintf(&b, "- %s: %s\n", title, raw)
 		}
 	}
 	list("Workspaces", v.workspaces)
@@ -169,16 +204,23 @@ func viewQueryMessages(req viewQueryRequest, v viewVocab) []chat.WireMessage {
 	list("Stages", v.stages)
 	list("Labels", v.labels)
 	for i, field := range v.fields {
-		if i == 20 {
+		if i == viewQueryMaxFields {
 			break
 		}
 		options := []string{}
 		for _, option := range field.Options.Options {
+			if len(options) == viewQueryMaxNames {
+				break
+			}
 			options = append(options, option.Value)
 		}
 		line := fmt.Sprintf("- Custom field %q (%s)", field.Name, field.Type)
 		if len(options) > 0 {
-			line += ": " + strings.Join(options, ", ")
+			raw, _ := json.Marshal(options)
+			line += ": " + string(raw)
+			if more := len(field.Options.Options) - len(options); more > 0 {
+				line += fmt.Sprintf(" and %d more", more)
+			}
 		}
 		b.WriteString(line + "\n")
 	}
@@ -189,16 +231,37 @@ func viewQueryMessages(req viewQueryRequest, v viewVocab) []chat.WireMessage {
 	return []chat.WireMessage{{Role: "system", Content: viewQuerySystem}, {Role: "user", Content: b.String()}}
 }
 
-var jsonObject = regexp.MustCompile(`(?s)\{.*\}`)
+// jsonObjectWith finds the first whole JSON object in a model's answer that
+// holds one of keys. A code fence, a sentence, a stray {"field": ...} in a
+// note before it or a brace after it are passed over.
+func jsonObjectWith(text string, keys ...string) (json.RawMessage, bool) {
+	for i, tries := strings.IndexByte(text, '{'), 0; i >= 0 && tries < 64; tries++ {
+		var fields map[string]json.RawMessage
+		var raw json.RawMessage
+		if json.NewDecoder(strings.NewReader(text[i:])).Decode(&raw) == nil && json.Unmarshal(raw, &fields) == nil {
+			for _, key := range keys {
+				if _, ok := fields[key]; ok {
+					return raw, true
+				}
+			}
+		}
+		next := strings.IndexByte(text[i+1:], '{')
+		if next < 0 {
+			break
+		}
+		i += next + 1
+	}
+	return nil, false
+}
 
 // parseViewDraft reads the model's JSON, allowing a code fence or a sentence around it.
 func parseViewDraft(text string) (viewQueryDraft, error) {
 	var draft viewQueryDraft
-	body := jsonObject.FindString(cleanWritten(text))
-	if body == "" {
+	body, ok := jsonObjectWith(cleanWritten(text, false), "rules", "name", "sortBy", "groupFields", "dataMode", "renderMode")
+	if !ok {
 		return draft, errors.New("no JSON in the answer")
 	}
-	if err := json.Unmarshal([]byte(body), &draft); err != nil {
+	if err := json.Unmarshal(body, &draft); err != nil {
 		return draft, err
 	}
 	return draft, nil
@@ -287,12 +350,29 @@ func (v viewVocab) resolveRule(rule models.ViewRule) (models.ViewRule, string, b
 		rule.Value, _ = json.Marshal(levels)
 		return rule, "", true
 	}
+	if rule.Field == "priority" && (rule.Op == "gte" || rule.Op == "lte") {
+		// "High or above": a level the apps don't know would match every task.
+		var level string
+		_ = json.Unmarshal(rule.Value, &level)
+		if normal := models.NormalizePriority(level); normal == "" || !models.ValidatePriority(normal) {
+			return rule, "unknown priority " + strings.TrimSpace(level), false
+		} else {
+			rule.Value, _ = json.Marshal(normal)
+		}
+		return rule, "", true
+	}
+	if name, ok := dateRuleFields[rule.Field]; ok {
+		return checkDates(rule, name)
+	}
 	if strings.HasPrefix(rule.Field, "cf:") {
 		field, ok := v.field(rule.Field)
 		if !ok {
 			return rule, "no custom field " + strings.TrimPrefix(rule.Field, "cf:"), false
 		}
 		rule.Field = "cf:" + field.ID
+		if field.Type == string(models.CustomFieldTypeDate) {
+			return checkDates(rule, field.Name)
+		}
 		if needsValue {
 			ids := []string{}
 			for _, ref := range stringList(rule.Value) {
@@ -311,11 +391,66 @@ func (v viewVocab) resolveRule(rule models.ViewRule) (models.ViewRule, string, b
 	return rule, "", true
 }
 
+// checkDates drops a date condition whose value (or "to", for between) the
+// apps can't read as days; name is the field as the person knows it.
+func checkDates(rule models.ViewRule, name string) (models.ViewRule, string, bool) {
+	var values []json.RawMessage
+	switch rule.Op {
+	case "in", "notIn", "before", "onOrBefore", "after", "onOrAfter":
+		values = []json.RawMessage{rule.Value}
+	case "between":
+		values = []json.RawMessage{rule.Value}
+		if to := strings.TrimSpace(string(rule.To)); to != "" && to != "null" {
+			values = append(values, rule.To)
+		} else {
+			// With no end, the apps read "between" as the value's own days,
+			// which is "in": its chip then reads "Planned this week", not
+			// "Planned this week –".
+			rule.Op, rule.To = "in", nil
+		}
+	}
+	for _, raw := range values {
+		if !validDateValue(raw) {
+			var shown string
+			if json.Unmarshal(raw, &shown) != nil {
+				shown = string(raw)
+			}
+			return rule, fmt.Sprintf("%s %q is not a date", name, strings.TrimSpace(shown)), false
+		}
+	}
+	return rule, "", true
+}
+
+// trimRules keeps the first models.MaxViewRules conditions; why says how
+// many more there were, for the dropped list.
+func trimRules(rules []models.ViewRule) ([]models.ViewRule, string) {
+	if len(rules) <= models.MaxViewRules {
+		return rules, ""
+	}
+	more := len(rules) - models.MaxViewRules
+	noun := "conditions"
+	if more == 1 {
+		noun = "condition"
+	}
+	return rules[:models.MaxViewRules], fmt.Sprintf("%d more %s (a view holds %d)", more, noun, models.MaxViewRules)
+}
+
 // resolveDraft maps names to ids, fixes what it can and checks the rest.
 func (v viewVocab) resolveDraft(draft viewQueryDraft, phone bool) (viewQueryDraft, []string, error) {
 	var dropped []string
 	rules := []models.ViewRule{}
-	for _, rule := range draft.Rules {
+	// A view holds 30 conditions (and a group 30): the rest are left out
+	// and named, not the whole reading refused.
+	asked, why := trimRules(draft.Rules)
+	if why != "" {
+		dropped = append(dropped, why)
+	}
+	for _, rule := range asked {
+		if len(rule.Rules) > 0 {
+			if rule.Rules, why = trimRules(rule.Rules); why != "" {
+				dropped = append(dropped, why)
+			}
+		}
 		if err := models.ValidateRules([]models.ViewRule{rule}, ""); err != nil {
 			dropped = append(dropped, err.Error())
 			continue
@@ -397,12 +532,22 @@ func (v viewVocab) resolveDraft(draft viewQueryDraft, phone bool) (viewQueryDraf
 	return draft, dropped, nil
 }
 
+// nothingLeft refuses a draft whose every filter was dropped: with no rules
+// left the view would show every task, the opposite of what was asked. The
+// person is told what could not be used instead (422).
+func nothingLeft(asked int, draft viewQueryDraft, dropped []string) error {
+	if asked == 0 || len(draft.Rules) > 0 || len(dropped) == 0 {
+		return nil
+	}
+	return echo.NewHTTPError(422, "Couldn't make this view: "+strings.Join(dropped, "; ")+". Check the names and try again.")
+}
+
 func (s *Service) viewQuery(c *echo.Context) error {
 	var req viewQueryRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(400, "Invalid request")
 	}
-	req.Query = clipHead(strings.TrimSpace(req.Query), viewQueryMaxText)
+	req.Query = clipRunes(strings.TrimSpace(req.Query), viewQueryMaxText)
 	if req.Query == "" {
 		return echo.NewHTTPError(400, "Say what the view should show")
 	}
@@ -414,7 +559,10 @@ func (s *Service) viewQuery(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	provider := writeProvider(s.view(ctx, row, time.Minute))
+	provider, err := s.defaultProvider(ctx, row)
+	if err != nil {
+		return err
+	}
 	if provider == "" {
 		return echo.NewHTTPError(409, "Reading views with AI needs an AI provider. Add a key in Settings → Agent keys")
 	}
@@ -422,24 +570,29 @@ func (s *Service) viewQuery(c *echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(409, err.Error())
 	}
+	// Read with the client, so a key removed during the call keeps the name.
+	_, model, _ := s.resolveModel(ctx, user(c), provider)
 	vocab, err := s.loadViewVocab(ctx, user(c))
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(ctx, viewQueryBudget)
+	ctx, cancel := context.WithTimeout(oneShot(ctx), viewQueryBudget)
 	defer cancel()
 	reply, err := completer.Complete(ctx, viewQueryMessages(req, vocab), nil, false)
 	if err != nil {
-		return echo.NewHTTPError(502, err.Error())
+		return oneShotError(err, "The view was too long to finish. Try fewer words.")
 	}
 	draft, err := parseViewDraft(reply.Content)
 	if err != nil {
 		return echo.NewHTTPError(502, "The AI's answer was not a view. Try again")
 	}
+	asked := len(draft.Rules)
 	draft, dropped, err := vocab.resolveDraft(draft, req.Client == "phone")
 	if err != nil {
 		return echo.NewHTTPError(502, "The AI's view was not valid: "+err.Error())
 	}
-	_, model, _ := s.resolveModel(ctx, user(c), provider)
+	if err := nothingLeft(asked, draft, dropped); err != nil {
+		return err
+	}
 	return c.JSON(200, viewQueryResponse{View: draft, Dropped: dropped, Provider: provider, Model: model})
 }

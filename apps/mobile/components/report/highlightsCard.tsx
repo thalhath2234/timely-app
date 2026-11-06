@@ -32,6 +32,8 @@ export default function HighlightsCard({
   if (query.isError) return <Text style={styles.muted}>Highlights could not load.</Text>;
   if (!result?.available) return <Text style={styles.muted}>Turn on smart suggestions in Settings → Agent to see highlights.</Text>;
   if (!result.highlights.length && !result.blockers.length && !result.missed.length && !result.tips.length) {
+    // A failed call is not an empty week: say why nothing came back.
+    if (result.error) return <Text style={styles.muted}>Highlights could not load. {result.error}</Text>;
     return <Text style={styles.muted}>Nothing stands out this week.</Text>;
   }
   return (

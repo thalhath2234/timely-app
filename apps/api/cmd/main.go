@@ -47,6 +47,7 @@ import (
 	"timely-api/internal/jobs"
 	"timely-api/internal/lifeline"
 	"timely-api/internal/middleware"
+	"timely-api/internal/models"
 	"timely-api/internal/realtime"
 	"timely-api/internal/recurrence"
 	"timely-api/internal/routes"
@@ -129,11 +130,15 @@ func main() {
 	eventService := event.NewEventService(eventRepo, recurrenceStore, place, indexer)
 	calendarService := calendar.NewService(taskRepo, eventRepo, scheduleRepo.GetWorkingHours)
 	scheduleService := schedule.NewService(scheduleRepo, taskRepo, eventRepo, place)
-	searchService := search.NewService(db, indexer)
+	searchService := search.NewService(db, indexer, rebuildIndex)
 	notifyService := notify.NewService(db, jobQueue, calendarService, taskService, scheduleService, indexer)
 	portabilityService := portability.NewService(db, jobQueue)
-	portabilityService.SetAfterRestore(indexer.Invalidate)
 	jobWorker := jobs.NewWorker(jobQueue)
+	// Embedding work waits on OpenRouter: a whole account's reindex makes one
+	// request per item, so it and per-item index jobs each get a lane of their
+	// own and never hold up reminders, pushes or each other.
+	jobWorker.Separate(models.JobReindexUser)
+	jobWorker.Separate(models.JobIndexEntity)
 	notifyService.Register(jobWorker)
 	portabilityService.Register(jobWorker)
 	var decisions *decide.Service // set below, once the provider keys exist
@@ -148,6 +153,15 @@ func main() {
 	})
 	providerService := provider.New(db, indexer, jobQueue)
 	providerService.Register(jobWorker)
+	indexRebuild = providerService.EnsureIndex
+	// A restore replaces every row and drops the search index with them, so
+	// it queues a rebuild, which Settings shows while it runs.
+	portabilityService.SetAfterRestore(func(userID string) {
+		indexer.Invalidate(userID)
+		if err := providerService.QueueReindex(userID); err != nil {
+			log.Printf("restore: queue search reindex: %v", err)
+		}
+	})
 	// Smart suggestions (Jev): TypeSafe key first, then the OpenRouter key;
 	// with neither, decide answers ErrOff and nothing changes.
 	jev := decide.NewClient(nil)
@@ -171,6 +185,12 @@ func main() {
 	taskPick = smartSearch.Pick
 	docDecisions = decisions
 	todaySuggestions = suggestions
+	liveBlockWriter = providerService.LiveBlock
+	liveBlockRehearsal = providerService.RehearseLiveBlock
+	// Describe (dashboard cards, live blocks) reads through the chat agent's
+	// read tools and draws its drafts from the account's data.
+	providerService.SetReadTools(func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, live, providerService.EmbedCredentials) })
+	providerService.SetBoardData(boardData(db))
 	mcpServer := agent.New(agent.Deps{
 		Auth:       authService,
 		Tasks:      taskService,
@@ -191,6 +211,7 @@ func main() {
 		Decisions:  decisions,
 		Focus:      focus.NewStore(db),
 		Suggest:    suggestions,
+		LiveBlock:  providerService.LiveBlock,
 		DecisionsOn: func(ctx context.Context, userID string) bool {
 			on, _ := decisions.Status(ctx, userID)
 			return on
@@ -198,13 +219,16 @@ func main() {
 	})
 
 	chatService := chat.New(db, func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, live, providerService.EmbedCredentials) }, chat.NewOpenRouter())
-	// Proposals are rehearsed in a rolled-back transaction; no live doc broadcasts.
-	chatService.SetRehearsal(func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, nil, providerService.EmbedCredentials) })
+	// Proposals are rehearsed in a rolled-back transaction: no live doc
+	// broadcasts, and live blocks are written by the model only on apply.
+	chatService.SetRehearsal(func(tx *gorm.DB) agent.Catalog { return rehearsalCatalog(tx, providerService.EmbedCredentials) })
 	chatService.SetCompleters(providerService)
+	chatService.SetLive(live)
 	chatService.SetDecisions(decisions)
 	chatService.SetEstimates(suggestions.EstimateMany)
 
 	authHandler := auth.NewHandler(authService, userRepo)
+	authHandler.SetPairingCodes(auth.NewPairingCodes(db))
 	// Chat images need no step here: the image sweep removes every upload
 	// file within 24 hours of its upload.
 	authHandler.SetAfterDelete(func(userID string) {
@@ -313,6 +337,10 @@ func main() {
 		log.Fatalf("could not bind the API on any of %v port %d", bind, port)
 	}
 	instanceHandler.SetListening(listening)
+	// Watch streams never end on their own, so Shutdown would wait them out.
+	for _, srv := range servers {
+		srv.RegisterOnShutdown(live.Close)
+	}
 
 	<-ctx.Done()
 	log.Println("Shutting down")
@@ -352,7 +380,7 @@ func listenConfig() (int, []string) {
 		portText = strings.TrimSpace(os.Getenv("PORT"))
 	}
 	if portText == "" {
-		portText = "8080"
+		portText = "8087"
 	}
 	port, err := strconv.Atoi(portText)
 	if err != nil || port < 0 || port > 65535 {

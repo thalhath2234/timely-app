@@ -41,7 +41,9 @@ import { Field } from "../ui/primitives";
 export type BlockInfo = {
   kind: string;
   level: number;
-  textual: boolean;
+  /** Turn into (BLOCK_TURN_JS): the kind the block is now, and whether it can
+   * be a toggle; null when it holds something that is not text. */
+  turn: { current: TurnKind | null; toggle: boolean } | null;
   canUp: boolean;
   canDown: boolean;
   topLevel: boolean;
@@ -75,18 +77,20 @@ function blockName(block: BlockInfo) {
   return NAMES[block.kind] ?? "Block";
 }
 
-/** The editor commands that turn the caret's block into another kind. */
-const TURN_INTO = [
-  { label: "Text", Icon: Type, cmd: "paragraph", level: 0 },
-  { label: "Heading 1", Icon: Heading1, cmd: "h1", level: 1 },
-  { label: "Heading 2", Icon: Heading2, cmd: "h2", level: 2 },
-  { label: "Heading 3", Icon: Heading3, cmd: "h3", level: 3 },
-  { label: "Bulleted list", Icon: List, cmd: "bullet" },
-  { label: "Numbered list", Icon: ListOrdered, cmd: "ordered" },
-  { label: "To-do list", Icon: CheckSquare, cmd: "task" },
-  { label: "Toggle", Icon: ListCollapse, cmd: "toggle" },
-  { label: "Callout", Icon: Info, cmd: "callout" },
-  { label: "Code block", Icon: Code2, cmd: "code" },
+type TurnKind = "paragraph" | "h1" | "h2" | "h3" | "bullet" | "ordered" | "task" | "toggle" | "callout" | "code";
+
+/** The kinds the caret's block can turn into, as the web's block menu. */
+const TURN_INTO: { label: string; Icon: typeof Type; kind: TurnKind }[] = [
+  { label: "Text", Icon: Type, kind: "paragraph" },
+  { label: "Heading 1", Icon: Heading1, kind: "h1" },
+  { label: "Heading 2", Icon: Heading2, kind: "h2" },
+  { label: "Heading 3", Icon: Heading3, kind: "h3" },
+  { label: "Bulleted list", Icon: List, kind: "bullet" },
+  { label: "Numbered list", Icon: ListOrdered, kind: "ordered" },
+  { label: "To-do list", Icon: CheckSquare, kind: "task" },
+  { label: "Toggle", Icon: ListCollapse, kind: "toggle" },
+  { label: "Callout", Icon: Info, kind: "callout" },
+  { label: "Code block", Icon: Code2, kind: "code" },
 ];
 
 type Step = "menu" | "turn" | "copy" | "move";
@@ -169,16 +173,13 @@ export default function BlockSheet({
   return (
     <BottomSheet open={block !== null} onClose={close} title={title}>
       {!block ? null : step === "turn" ? (
-        TURN_INTO.map((item) => (
+        TURN_INTO.filter((item) => item.kind !== "toggle" || block.turn?.toggle).map((item) => (
           <SheetOption
-            key={item.cmd}
-            selected={item.level !== undefined && (block.kind === "heading" ? block.level === item.level : item.level === 0 && block.kind === "paragraph")}
+            key={item.kind}
+            selected={block.turn?.current === item.kind}
             leading={icon(item.Icon)}
             onSelect={() => {
-              // Lists and wrappers start from a plain paragraph.
-              if (block.kind === "heading" && item.level === undefined) run("paragraph");
-              run(item.cmd);
-              run("blockDone");
+              run("turnInto", { kind: item.kind });
               close();
             }}
           >
@@ -219,7 +220,7 @@ export default function BlockSheet({
         </View>
       ) : (
         <>
-          {block.textual ? (
+          {block.turn ? (
             <SheetOption leading={icon(Repeat2)} onSelect={() => setStep("turn")}>
               <View style={styles.row}>
                 <Text style={[styles.label, styles.grow]}>Turn into</Text>

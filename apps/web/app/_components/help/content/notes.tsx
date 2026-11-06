@@ -93,7 +93,8 @@ export const notes: HelpSection = {
                 <li>
                   When the doc has room, as in a wide window, the toolbar moves into a column on the left of the doc.
                   Pictures, embeds, diagrams, maths and the other blocks are then under its <strong>Insert</strong>{" "}
-                  button. Suggestions move into the right margin, each one level with the line it is about.
+                  button. The outline and the doc&apos;s suggestions stay in view on the right as you scroll, and each line
+                  offered as a task has a mark in the margin, level with it.
                 </li>
                 <li>A minimap of headings on the right jumps through long docs.</li>
               </ul>
@@ -209,6 +210,12 @@ export const notes: HelpSection = {
                   <strong>Discard</strong> it. Choose <strong>Insert</strong>, or <strong>Replace</strong> and{" "}
                   <strong>Insert below</strong> for selected text. Undo takes it back in one step.
                 </li>
+                <li>
+                  When you say what to do, Help me write works out where the draft goes. Asking to change text that is
+                  already there, like &ldquo;make the bullet points a checklist&rdquo;, marks those lines and says what it{" "}
+                  <strong>Replaces</strong>, so the draft takes their place instead of adding a copy. New text goes at the
+                  cursor or, when you ask for it, at the end, and a summary of selected text goes below it.
+                </li>
                 <li>A long draft scrolls inside its preview, so you can read all of it before you choose.</li>
                 <li>
                   On a wide doc page, Help me write opens in the right margin, level with the line it writes into, and
@@ -230,14 +237,28 @@ export const notes: HelpSection = {
           body: (
             <>
               <p>
-                Unticked checklist items that are not tasks yet are offered as tasks, with or without smart
-                suggestions or an AI provider. A card says how many there are and which project the tasks go to: the
-                doc&apos;s project, else the one it seems to belong to.
+                With <Link href="/help/assistant/smart-suggestions">smart suggestions</Link> on, unticked checklist
+                items that read like something to get done, and are not tasks yet, are offered as tasks. Jev reads
+                each item with its list and heading: &ldquo;Call the plumber&rdquo; is offered, &ldquo;Milk&rdquo; on
+                a shopping list is not. The <strong>Not tasks yet</strong> card says how many there are and which
+                project the tasks go to: the doc&apos;s project, else the one it seems to belong to.
               </p>
               <ul>
                 <li>
+                  On a wide page each offered item has a mark in the margin beside it. Click the mark, or the item in
+                  the card, to see where its task goes, with <strong>Make task</strong> and <strong>Dismiss</strong>;
+                  the arrows step through the doc&apos;s other offers. On a narrow page the card sits above the doc and
+                  the item opens under its row.
+                </li>
+                <li>
                   <strong>Make task</strong> turns one item into a task, and <strong>Make all</strong> (or{" "}
                   <strong>Make 3 tasks</strong>) turns them all. Undo in the message takes them back.
+                </li>
+                <li>
+                  <strong>Goes to</strong> under <strong>Not tasks yet</strong> picks where tasks from this doc go,
+                  the Inbox or any project, for every offer in it, on every device. <strong>Automatic</strong> puts
+                  them back in the doc&apos;s project, else the suggested one. The <strong>Goes to</strong> row of
+                  one offer changes only that task.
                 </li>
                 <li>
                   The item&apos;s first sentence becomes the task&apos;s name and the rest its description, with a link
@@ -245,16 +266,17 @@ export const notes: HelpSection = {
                   instead.
                 </li>
                 <li>
-                  Items that are tasks already are listed with a link to the task, not offered again. This holds after
-                  you reword the item.
+                  Items that are tasks already have a tick in the margin that opens the task, and are not offered
+                  again. This holds after you reword the item.
                 </li>
                 <li>
-                  Only items that read like something to do are offered. A lone word such as a name or a label is
-                  left alone, unless it is an action or a chore like <em>Call</em> or <em>Laundry</em>.
+                  Dismiss an item with its <strong>×</strong> and it is not offered again in that doc, on any device.
                 </li>
                 <li>
-                  With smart suggestions on, a checklist meant to stay in the doc, such as groceries or packing, offers
-                  no tasks.
+                  Turning off <strong>Offer tasks from checklists</strong> at the foot of the card stops the offers
+                  for that doc. Turn them back on with the same switch beside a wide page, <strong>Task offers
+                  off</strong> under the title of a narrow one, or the doc&apos;s <strong>More</strong> menu on the
+                  phone.
                 </li>
               </ul>
               <p>
@@ -277,8 +299,8 @@ export const notes: HelpSection = {
               </p>
               <ul>
                 <li>
-                  <strong>Create task</strong> (<strong>Make task</strong> beside the line) makes a task named after
-                  the line. Its description says <strong>From</strong> with a link to the doc, and quotes the line.
+                  <strong>Make task</strong>, from the line&apos;s mark or the <strong>Not tasks yet</strong> card,
+                  makes a task named after the line. Its description says <strong>From</strong> with a link to the doc, and quotes the line.
                 </li>
                 <li>
                   A line is not offered again once it is a task, even after you or Help me write reword the line or
@@ -289,8 +311,7 @@ export const notes: HelpSection = {
                   is left out.
                 </li>
                 <li>
-                  Dismiss a suggestion with its <strong>×</strong> and it stays gone for that doc on every device. A
-                  dismissed checklist item comes back later, as it is still a to-do.
+                  Dismiss a suggestion with its <strong>×</strong> and it stays gone for that doc on every device.
                 </li>
               </ul>
               <p>

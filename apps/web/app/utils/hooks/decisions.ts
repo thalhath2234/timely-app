@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useToastStore } from "@/app/_store/toastStore";
+import { useTaskWords } from "@/app/utils/hooks/tasks";
 import {
   getEstimate,
   getCellFit,
@@ -8,7 +10,11 @@ import {
   getDocHints,
   getDocChecklist,
   dismissDocHint,
+  restoreDocHint,
+  setDocGoesTo,
+  type DocChecklist,
   type DocHintKind,
+  type DocHints,
   getClarifySuggestions,
   getProjectInsights,
   getStaleWork,
@@ -65,8 +71,11 @@ function useDecisionsMutation<TVars>(
     onSuccess: (data) => queryClient.setQueryData(decisionsKey, data),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: decisionsKey, exact: true });
-      for (const key of ["clarify-suggestions", "task-hints", "stale-work", "project-insights", "cleanup-suggestions", "doc-hints", "today-suggestions", "goal-progress"])
+      for (const key of ["clarify-suggestions", "task-hints", "stale-work", "project-insights", "cleanup-suggestions", "doc-hints", "today-suggestions", "goal-progress", "highlights"])
         queryClient.invalidateQueries({ queryKey: [key] });
+      // A search answered with smart suggestions on keeps its order and
+      // hidden hits only while they stay on: it is asked again when needed.
+      queryClient.removeQueries({ queryKey: ["search-smart"] });
     },
   });
 }
@@ -82,10 +91,12 @@ export const useRemoveTypeSafeKey = () =>
 
 /** Suggestions for one Inbox item. Off or unsure returns an empty answer, so
  * the form simply looks like it does today. Pass enabled=false while
- * suggestions are unavailable, so nothing is asked and no spinner shows. */
+ * suggestions are unavailable, so nothing is asked and no spinner shows.
+ * They are read from the item's words, so a rename asks again. */
 export function useClarifySuggestions(inboxId: string | undefined, enabled = true) {
+  const words = useTaskWords(inboxId);
   return useQuery({
-    queryKey: ["clarify-suggestions", inboxId],
+    queryKey: ["clarify-suggestions", inboxId, words],
     queryFn: () => getClarifySuggestions(inboxId!),
     enabled: Boolean(inboxId) && enabled,
     staleTime: 5 * 60 * 1000,
@@ -93,8 +104,14 @@ export function useClarifySuggestions(inboxId: string | undefined, enabled = tru
   });
 }
 
+/** Test also asks TypeSafe again about a key it refused, so the card reloads
+ * afterwards: a key TypeSafe takes again is in use again. */
 export function useTestDecisions() {
-  return useMutation({ mutationFn: testDecisions });
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: testDecisions,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: decisionsKey, exact: true }),
+  });
 }
 
 export function useDecisionFeedback() {
@@ -161,53 +178,158 @@ export function useCleanupSuggestions(workspaceId: string | undefined) {
   }));
 }
 
-/** Merges, then refreshes everything that shows labels, statuses or fields. */
+/** Merges, then refreshes everything that shows labels, statuses or fields;
+ * a merge refused for a rename made elsewhere refreshes them too. */
 export function useMergeTaxonomy(workspaceId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (merge: CleanupMerge) => mergeTaxonomy(workspaceId, merge),
-    onSuccess: () => {
+    onSettled: () => {
       for (const key of ["workspaces", "tasks", "today", "projects", "config", "cleanup-suggestions"])
         queryClient.invalidateQueries({ queryKey: [key] });
     },
   });
 }
 
-/** Suggestions for a doc; `version` refetches after the text settles. */
+/** Suggestions for a doc; `version` refetches after the text settles. A read
+ * that failed is asked again when the doc is opened next, and one still
+ * running when the doc is left is dropped. */
 export function useDocHints(docId: string | undefined, version = "", enabled = true) {
   const on = useSmartOn();
   return whenOn(on, useQuery({
     queryKey: ["doc-hints", docId, version],
-    queryFn: () => getDocHints(docId!),
+    queryFn: ({ signal }) => getDocHints(docId!, signal),
     enabled: on && Boolean(docId) && enabled,
     // Keeps the card up while a newer read loads.
     placeholderData: keepPreviousData,
-    staleTime: 5 * 60 * 1000,
+    staleTime: (query) => (query.state.data?.failed ? 0 : 5 * 60 * 1000),
     retry: false,
   }));
 }
 
-/** Dismisses a doc suggestion for good. The doc's cached suggestions are
- * read again afterwards, so the row stays gone when the doc reopens. */
+type DocHintChange = { kind: DocHintKind; value?: string; restore?: boolean };
+
+const docHintChangeKey = (docId: string) => ["doc-hint-change", docId] as const;
+
+/** Dismisses a doc suggestion for good, or with `restore` takes a dismissal
+ * back. The doc's cached suggestions and checklist offers are read again
+ * afterwards, so the row stays gone when the doc reopens. The doc's task
+ * offers switch ("todos") flips at once everywhere it shows
+ * (useDocOffersOff), and flips back with a message if it could not be saved. */
 export function useDismissDocHint(docId: string) {
   const client = useQueryClient();
+  const reads = [["doc-hints", docId], ["doc-checklist", docId]];
+  // A read under way may have started before the change was saved.
+  const cancelReads = () => Promise.all(reads.map((queryKey) => client.cancelQueries({ queryKey })));
   return useMutation({
-    mutationFn: ({ kind, value }: { kind: DocHintKind; value?: string }) => dismissDocHint(docId, kind, value),
-    onSettled: () => client.invalidateQueries({ queryKey: ["doc-hints", docId] }),
+    mutationKey: docHintChangeKey(docId),
+    // One at a time per doc, so the last change made is the one kept.
+    scope: { id: `doc-hint-change:${docId}` },
+    mutationFn: ({ kind, value, restore }: DocHintChange) => (restore ? restoreDocHint : dismissDocHint)(docId, kind, value),
+    onMutate: async ({ kind, restore }) => {
+      if (kind !== "todos") return;
+      await cancelReads();
+      const before = reads.flatMap((queryKey) => client.getQueriesData({ queryKey }));
+      client.setQueriesData<DocHints>({ queryKey: ["doc-hints", docId] }, (old) => old && { ...old, todosOff: !restore });
+      client.setQueriesData<DocChecklist>({ queryKey: ["doc-checklist", docId] }, (old) => old && { ...old, off: !restore });
+      return before;
+    },
+    onError: (error, { kind }, before) => {
+      for (const [queryKey, data] of before ?? []) client.setQueryData(queryKey, data);
+      if (kind === "todos") useToastStore.getState().show("Couldn’t change task offers for this doc. Try again.");
+      // The doc keeps too many dismissals: this one will show again.
+      else if ((error as { status?: number }).status === 409) useToastStore.getState().show(error.message);
+    },
+    onSettled: async (_data, error, { kind }) => {
+      if (kind === "todos") await cancelReads();
+      const reread = Promise.all(reads.map((queryKey) => client.invalidateQueries({ queryKey })));
+      // Saved: the change shows as pending until the new read is in. Not
+      // saved: the old answer is back already, and offline the read waits.
+      if (!error) await reread;
+    },
   });
 }
 
-/** Which unchecked checklist items of a doc are already tasks, and where new
- * ones go. Runs with suggestions off too: a checklist item needs no model. */
-export function useDocChecklist(docId: string | undefined, names: string[], projectId?: string) {
+/** Whether the doc's task offers are off: a change still being saved wins
+ * over `saved`, the cached answer, which may have been read before it. */
+export function useDocOffersOff(docId: string, saved: boolean | undefined) {
+  const pending = useMutationState({
+    filters: {
+      mutationKey: docHintChangeKey(docId),
+      status: "pending",
+      predicate: (mutation) => (mutation.state.variables as DocHintChange | undefined)?.kind === "todos",
+    },
+    select: (mutation) => !(mutation.state.variables as DocHintChange).restore,
+  });
+  return pending.length > 0 ? pending[pending.length - 1] : Boolean(saved);
+}
+
+/** Which unchecked checklist items of a doc are already tasks, which to offer
+ * as tasks and where new ones go. Offers need smart suggestions on: Jev reads
+ * which items are things to get done. */
+export function useDocChecklist(docId: string | undefined, names: string[], projectId?: string, withoutNames = false) {
+  // Asked again when suggestions go on or off, so offers come and go with them;
+  // not before they are known, or the first read is made twice.
+  const status = useDecisions();
+  const on = status.data?.available === true;
   return useQuery({
-    queryKey: ["doc-checklist", docId, names, projectId ?? ""],
+    queryKey: ["doc-checklist", docId, names, projectId ?? "", on],
     // names says which items an answer covers while a newer one loads.
     queryFn: async () => ({ ...(await getDocChecklist(docId!, names, projectId)), names }),
-    enabled: Boolean(docId) && names.length > 0,
+    // withoutNames: asked for the doc's places alone, when its offers are
+    // all lines that read like a task.
+    enabled: Boolean(docId) && (names.length > 0 || withoutNames) && status.isFetched,
     placeholderData: keepPreviousData,
     staleTime: 60 * 1000,
     retry: false,
+  });
+}
+
+type DocGoesTo = { target: string; project?: NonNullable<DocChecklist["project"]> };
+
+/** Keeps where every task made from the doc's offers goes: "inbox", a
+ * project's id (with the project, so the place shows at once), or "" for the
+ * automatic place. The checklist answer is read again once the last pick in a
+ * row is saved; a pick that could not be saved goes back, with a message. */
+export function useSetDocGoesTo(docId: string) {
+  const client = useQueryClient();
+  const queryKey = ["doc-checklist", docId];
+  const mutationKey = ["doc-goes-to", docId];
+  type Place = Pick<DocChecklist, "picked" | "project">;
+  return useMutation({
+    mutationKey,
+    // One at a time per doc, so the last pick made is the one kept.
+    scope: { id: `doc-goes-to:${docId}` },
+    mutationFn: ({ target }: DocGoesTo) => setDocGoesTo(docId, target),
+    onMutate: async ({ target, project }) => {
+      await client.cancelQueries({ queryKey });
+      // Only the place is put back on an error, and only while it is still
+      // this pick's: a later pick's place stays.
+      const undo: { key: readonly unknown[]; before: Place; shown: Place }[] = [];
+      for (const [key, old] of client.getQueriesData<DocChecklist>({ queryKey })) {
+        if (!old) continue;
+        // Back to automatic: the place shown stays until the new read says
+        // what automatic is now.
+        const shown: Place = {
+          picked: target || undefined,
+          project: target === "inbox" ? undefined : target ? (project ?? old.project) : old.project,
+        };
+        undo.push({ key, before: { picked: old.picked, project: old.project }, shown });
+        client.setQueryData<DocChecklist>(key, { ...old, ...shown });
+      }
+      return undo;
+    },
+    onError: (_error, _vars, undo) => {
+      for (const { key, before, shown } of undo ?? []) {
+        client.setQueryData<DocChecklist>(key, (now) =>
+          now && now.picked === shown.picked && now.project?.id === shown.project?.id ? { ...now, ...before } : now,
+        );
+      }
+      useToastStore.getState().show("Couldn’t change where tasks from this doc go. Try again.");
+    },
+    // Read again only after the last pick waiting: an earlier pick's answer
+    // would put that pick back over a newer one still on its way.
+    onSettled: () => (client.isMutating({ mutationKey }) > 1 ? undefined : client.invalidateQueries({ queryKey })),
   });
 }
 
@@ -225,13 +347,38 @@ export function useTodaySuggestions(timezone: string, version = "", enabled = tr
   }));
 }
 
+type HighlightFact = { id: string; text: string };
+
+/** How often Highlights are asked again while the facts keep changing
+ * (a task ticked off changes them). */
+const HIGHLIGHTS_EVERY_MS = 3 * 60 * 1000;
+
+const factsKey = (facts: HighlightFact[]) => facts.map((fact) => fact.text).join("\n");
+
+/** The facts to ask about. Until the card first asks (`enabled`, once its
+ * data has loaded) they are passed on as they are, so the first ask reads the
+ * loaded data, not the empty week drawn while it loaded. After that a change
+ * is passed on HIGHLIGHTS_EVERY_MS after the last one at the soonest, with
+ * the facts as they are then. */
+function useThrottledFacts(facts: HighlightFact[], enabled: boolean) {
+  const key = factsKey(facts);
+  const [passed, setPassed] = useState<{ facts: HighlightFact[]; key: string; at: number } | null>(null);
+  useEffect(() => {
+    if (!enabled || passed?.key === key) return;
+    const wait = passed ? Math.max(0, passed.at + HIGHLIGHTS_EVERY_MS - Date.now()) : 0;
+    const timer = setTimeout(() => setPassed({ facts, key, at: Date.now() }), wait);
+    return () => clearTimeout(timer);
+  }, [enabled, facts, key, passed]);
+  return enabled && passed ? passed : { facts, key };
+}
+
 /** Dashboard Highlights for the facts the card worked out; asked again when
- * the facts change, at most every ten minutes otherwise. */
-export function useHighlights(facts: { id: string; text: string }[], enabled = true) {
-  const key = facts.map((fact) => fact.text).join("\n");
+ * the facts change, at most every few minutes, and every ten otherwise. */
+export function useHighlights(facts: HighlightFact[], enabled = true) {
+  const asked = useThrottledFacts(facts, enabled);
   return useQuery({
-    queryKey: ["highlights", key],
-    queryFn: () => getHighlights(facts),
+    queryKey: ["highlights", asked.key],
+    queryFn: () => getHighlights(asked.facts),
     enabled,
     staleTime: 10 * 60 * 1000,
     placeholderData: keepPreviousData,
@@ -321,24 +468,30 @@ export function useSaveUseCase() {
   });
 }
 
-/** A suggested length for new Work with this title, asked a moment after the
- * title stops changing; undefined while suggestions are off or unsure. */
+/** How long a new task's title must stay the same before its length is
+ * asked: longer than the pause between words, so a title typed word by word
+ * is asked about once. */
+const ESTIMATE_SETTLE_MS = 1500;
+
+/** A suggested length for new Work with this title, asked once the title
+ * stops changing; undefined while suggestions are off or unsure. A newer
+ * title drops the request for an older one. */
 export function useSuggestedDuration(title: string, enabled: boolean) {
   const on = useSmartOn() && enabled;
   const [answer, setAnswer] = useState<{ title: string; minutes: number }>();
   useEffect(() => {
     const name = title.trim();
     if (!on || name.length < 3) return;
-    let stale = false;
+    const request = new AbortController();
     const timer = setTimeout(() => {
-      getEstimate(name)
+      getEstimate(name, "", request.signal)
         .then((next) => {
-          if (!stale && next.available && next.minutes) setAnswer({ title: name, minutes: next.minutes });
+          if (!request.signal.aborted && next.available && next.minutes) setAnswer({ title: name, minutes: next.minutes });
         })
         .catch(() => {});
-    }, 800);
+    }, ESTIMATE_SETTLE_MS);
     return () => {
-      stale = true;
+      request.abort();
       clearTimeout(timer);
     };
   }, [title, on]);

@@ -22,7 +22,7 @@ import InboxSuggestionsCard from "../../../components/tasks/InboxSuggestionsCard
 import TaskHintsCard from "../../../components/tasks/TaskHintsCard";
 import RelatedList from "../../../components/search/RelatedList";
 import { toCustomFieldDrafts, withCustomFieldDraft } from "../../../lib/customFields";
-import type { CustomFieldValueInput, DocContent } from "../../../lib/types";
+import type { CustomFieldValueInput, DocContent, Task } from "../../../lib/types";
 import {
   useAddBlock,
   useAddChecklistItem,
@@ -58,6 +58,8 @@ import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { useDraftText } from "../../../lib/draftText";
 import { useToastStore } from "../../../lib/toast";
 import { useAutosave } from "../../../lib/autosave";
+import { isRejection, refusalMessage, type AutosaveOutcome } from "@timely/contract/autosaveQueue";
+import { useQueryClient } from "@tanstack/react-query";
 import type { UpdateTaskPayload } from "../../../lib/api/tasks";
 
 type Picker = "status" | "priority" | "project" | "workspace" | "stage" | "due" | "start" | "schedule" | "duration" | "earliest" | "blocked" | "scope" | "preferStart" | "preferEnd" | null;
@@ -120,6 +122,14 @@ export default function TaskDetailScreen() {
   const workingHoursZone = useWorkingHoursZone();
   const save = useSaveTask();
   const metaRef = useRef({ taskWorkspaceId: "", metaWorkspaceId: "" });
+  const queryClient = useQueryClient();
+  // What a refused change pointed at may be gone (a blocker deleted on
+  // another device): say why and read the task and its suggestions again.
+  const onRefused = (error: unknown) => {
+    useToastStore.getState().show(refusalMessage(error));
+    for (const queryKey of [["task", id], ["tasks"], ["task-hints", id], ["related"]])
+      void queryClient.invalidateQueries({ queryKey });
+  };
   const { schedule: scheduleSave, flush: flushSave } = useAutosave<UpdateTaskPayload>(async (data) => {
     if (!id) return;
     const assigningMeta = Boolean(data.labelIds || data.customFieldValues);
@@ -132,6 +142,17 @@ export default function TaskDetailScreen() {
           : {}),
       },
     });
+  }, undefined, {
+    onRejected: (error, patch) => {
+      onRefused(error);
+      // A refused name goes back to the saved one, unless more was typed
+      // since. The save's own rollback has put the saved copy back by now.
+      if (patch.name === undefined || !id) return;
+      const saved =
+        queryClient.getQueryData<Task>(["task", id])?.name ??
+        queryClient.getQueryData<Task[]>(["tasks"])?.find((item) => item.id === id)?.name;
+      if (saved !== undefined) setName((current) => (current === patch.name ? saved : current));
+    },
   });
   const remove = useDeleteTask();
   const addBlock = useAddBlock();
@@ -244,15 +265,26 @@ export default function TaskDetailScreen() {
     </View>
   ));
 
-  function persist(data: Parameters<typeof save.mutate>[0]["data"]) {
+  /** Saves at once (shown before the server answers); resolves with what
+   * became of the change. A refused one goes back, with the reason. */
+  function persist(data: Parameters<typeof save.mutate>[0]["data"]): Promise<AutosaveOutcome> {
     const assigningMeta = Boolean(data.labelIds || data.customFieldValues);
-    save.mutate({
-      id: task!.id,
-      data: {
-        ...data,
-        ...(!task!.workspaceId && !data.workspaceId && assigningMeta && metaWorkspaceId ? { workspaceId: metaWorkspaceId } : {}),
-      },
-    });
+    return save
+      .mutateAsync({
+        id: task!.id,
+        data: {
+          ...data,
+          ...(!task!.workspaceId && !data.workspaceId && assigningMeta && metaWorkspaceId ? { workspaceId: metaWorkspaceId } : {}),
+        },
+      })
+      .then(
+        () => "saved" as const,
+        (error: unknown) => {
+          if (!isRejection(error)) return "failed" as const;
+          onRefused(error);
+          return "rejected" as const;
+        },
+      );
   }
 
   return (
@@ -311,15 +343,18 @@ export default function TaskDetailScreen() {
             stages={stages}
             fieldValues={customFieldValues}
             onApply={persist}
-            onField={(field, value) => {
+            onField={async (field, value) => {
+              const before = customFieldValues;
               const next = withCustomFieldDraft(customFieldValues, field, value);
               setCustomFieldValues(next);
-              persist({ customFieldValues: next });
+              const outcome = await persist({ customFieldValues: next });
+              if (outcome === "rejected") setCustomFieldValues(before);
+              return outcome;
             }}
             onPreferredWindow={(window) => {
               setPreferStart(window.start);
               setPreferEnd(window.end);
-              persist({ preferredWindows: [window] });
+              return persist({ preferredWindows: [window] });
             }}
           />
         ) : null}

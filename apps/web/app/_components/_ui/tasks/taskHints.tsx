@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Sparkles, X } from "lucide-react";
 import type { CustomField, CustomFieldValueInput, Status } from "@/app/_types/types";
 import { useDecisionFeedback, useTaskHints } from "@/app/utils/hooks/decisions";
+import type { AutosaveOutcome } from "@/app/utils/hooks/useAutosave";
 
 type Stage = { id: string; name: string };
 
@@ -19,19 +20,21 @@ type Props = {
   customFields: CustomField[];
   /** Fields that already hold a value; their hints are never shown. */
   filledFieldIds: Set<string>;
-  onStatus: (statusId: string) => void;
-  onStage: (stageId: string) => void;
-  onField: (field: CustomField, next: Pick<CustomFieldValueInput, "stringValue" | "optionsValue">) => void;
-  onBlocker: (taskId: string) => void;
+  /** Each apply saves at once and resolves with what became of the change. */
+  onStatus: (statusId: string) => Promise<AutosaveOutcome>;
+  onStage: (stageId: string) => Promise<AutosaveOutcome>;
+  onField: (field: CustomField, next: Pick<CustomFieldValueInput, "stringValue" | "optionsValue">) => Promise<AutosaveOutcome>;
+  onBlocker: (taskId: string) => Promise<AutosaveOutcome>;
   contiguous?: boolean;
   hasPreferredWindows: boolean;
-  onOneSitting: () => void;
-  onPreferredWindow: (window: { start: string; end: string }) => void;
+  onOneSitting: () => Promise<AutosaveOutcome>;
+  onPreferredWindow: (window: { start: string; end: string }) => Promise<AutosaveOutcome>;
 };
 
 const TIME_OF_DAY: Record<string, string> = { morning: "mornings", afternoon: "afternoons", evening: "evenings" };
 
-type Row = { key: string; text: React.ReactNode; action?: { label: string; run: () => void } };
+/** key names the offer itself (a blocker's id, too), so hiding one leaves a newer offer showing. */
+type Row = { key: string; text: React.ReactNode; action?: { label: string; run: () => Promise<AutosaveOutcome> } };
 
 /** Hints a task's own words suggest (smart suggestions): a status, stage,
  * custom field values or blocker to apply, one sitting for long work that
@@ -42,6 +45,7 @@ export default function TaskHints(props: Props) {
   const feedback = useDecisionFeedback();
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [sentFor, setSentFor] = useState<string>();
+  const [saving, setSaving] = useState<string>();
   if (!data?.available) return null;
 
   const accept = () => {
@@ -50,21 +54,27 @@ export default function TaskHints(props: Props) {
       feedback.mutate({ logId: data.logId, accepted: true });
     }
   };
-  const apply = (key: string, run: () => void) => () => {
-    run();
-    accept();
-    setHidden((prev) => new Set(prev).add(key));
+  const hide = (key: string) => setHidden((prev) => new Set(prev).add(key));
+  // The row goes, and counts as taken, only once the change is saved. A
+  // refused one (its blocker was deleted, say) goes too: the panel says why
+  // and reads the suggestions again. One not sent yet stays, to try again.
+  const apply = (key: string, run: () => Promise<AutosaveOutcome>) => async () => {
+    setSaving(key);
+    const outcome = await run();
+    setSaving(undefined);
+    if (outcome === "saved") accept();
+    if (outcome !== "failed") hide(key);
   };
   const strong = (text: string) => <strong className="font-medium text-foreground">{text}</strong>;
 
   const rows: Row[] = [];
   const status = props.statusOptions.find((s) => s.id === data.statusId);
   if (status && status.id !== props.statusId) {
-    rows.push({ key: "status", text: <>The description reads like {strong(status.name)}.</>, action: { label: "Set status", run: () => props.onStatus(status.id) } });
+    rows.push({ key: `status:${status.id}`, text: <>The description reads like {strong(status.name)}.</>, action: { label: "Set status", run: () => props.onStatus(status.id) } });
   }
   const stage = props.stageOptions.find((s) => s.id === data.stageId);
   if (stage && !props.stageId) {
-    rows.push({ key: "stage", text: <>Looks like part of the {strong(stage.name)} stage.</>, action: { label: "Set stage", run: () => props.onStage(stage.id) } });
+    rows.push({ key: `stage:${stage.id}`, text: <>Looks like part of the {strong(stage.name)} stage.</>, action: { label: "Set stage", run: () => props.onStage(stage.id) } });
   }
   for (const hint of data.fields ?? []) {
     const field = props.customFields.find((f) => f.id === hint.fieldId);
@@ -73,8 +83,9 @@ export default function TaskHints(props: Props) {
     let value = "";
     let next: Pick<CustomFieldValueInput, "stringValue" | "optionsValue">;
     if (field.type === "boolean") {
+      if (hint.value !== "true" && hint.value !== "false") continue;
       value = hint.value === "true" ? "Yes" : "No";
-      next = { stringValue: hint.value ?? "false" };
+      next = { stringValue: hint.value };
     } else {
       const picked = options.filter((o) => hint.optionIds?.includes(o.id));
       if (picked.length === 0) continue;
@@ -89,7 +100,7 @@ export default function TaskHints(props: Props) {
   }
   if (data.blockedBy && !props.blockedById) {
     const blocker = data.blockedBy;
-    rows.push({ key: "blocker", text: <>Seems to wait on {strong(blocker.name)}.</>, action: { label: "Set as blocker", run: () => props.onBlocker(blocker.id) } });
+    rows.push({ key: `blocker:${blocker.id}`, text: <>Seems to wait on {strong(blocker.name)}.</>, action: { label: "Set as blocker", run: () => props.onBlocker(blocker.id) } });
   }
   if (data.oneSitting && !props.contiguous) {
     rows.push({
@@ -115,6 +126,8 @@ export default function TaskHints(props: Props) {
       text: <>Marked complete with {data.openChecklist} unchecked checklist item{data.openChecklist === 1 ? "" : "s"}.</>,
     });
   }
+  // A failed call is not "no hints": say why none came back.
+  if (data.error) rows.push({ key: "error", text: <>Suggestions could not load. {data.error}</> });
 
   const shown = rows.filter((row) => !hidden.has(row.key));
   if (shown.length === 0) return null;
@@ -132,7 +145,8 @@ export default function TaskHints(props: Props) {
               <button
                 type="button"
                 onClick={apply(row.key, row.action.run)}
-                className="shrink-0 rounded-md border border-border bg-background px-2 py-0.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+                disabled={saving === row.key}
+                className="shrink-0 rounded-md border border-border bg-background px-2 py-0.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-60"
               >
                 {row.action.label}
               </button>
@@ -140,7 +154,7 @@ export default function TaskHints(props: Props) {
             <button
               type="button"
               aria-label="Dismiss"
-              onClick={() => setHidden((prev) => new Set(prev).add(row.key))}
+              onClick={() => hide(row.key)}
               className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               <X className="size-3.5" />

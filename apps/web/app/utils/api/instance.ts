@@ -4,6 +4,8 @@ import { getAgentProviders, type AgentProviders } from "./agentProviders";
 /** `GET /health` (public). Contract: docs/desktop/README.md. */
 export type Health = {
   status: "ok" | "degraded";
+  /** This server's id; phones pin it when they pair. Missing when the database is down. */
+  instanceId?: string;
   version: string;
   /** "ok" or the database error text. */
   db: string;
@@ -14,6 +16,7 @@ export type Health = {
 
 /** `GET /instance` (authenticated). Contract: docs/desktop/README.md. */
 export type Instance = {
+  instanceId?: string;
   version: string;
   platform: string;
   startedAt: string;
@@ -55,6 +58,18 @@ export async function getInstance(): Promise<Instance> {
   const res = await apiFetch("/instance");
   if (!res.ok) {
     throw new Error(await readMessage(res, `Could not read server details (${res.status})`));
+  }
+  return res.json();
+}
+
+/** `POST /pairing-codes`: a one-time code (5 minutes) that signs in the phone
+ * which scans the pairing QR, as the person signed in here. */
+export type PairingCode = { code: string; expiresAt: string };
+
+export async function createPairingCode(): Promise<PairingCode> {
+  const res = await apiFetch("/pairing-codes", { method: "POST" });
+  if (!res.ok) {
+    throw new Error(await readMessage(res, `Could not create a sign-in code (${res.status})`));
   }
   return res.json();
 }

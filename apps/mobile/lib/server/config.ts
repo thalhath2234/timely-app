@@ -4,8 +4,10 @@
  * `lib/server/ServerProvider.tsx` drives it at runtime.
  *
  * The desktop app shows a QR code (docs/desktop/README.md, "Pairing payload"):
- *   { "v": 1, "name": "my-laptop", "urls": ["http://100.x.y.z:48080", "http://127.0.0.1:48080"] }
- * The phone also accepts a bare http(s) URL pasted by hand.
+ *   { "v": 1, "name": "my-laptop", "id": "<instance id>", "urls": ["https://my-laptop.tail1234.ts.net", "http://100.x.y.z:48080", "http://127.0.0.1:48080"], "code": "pair_…" }
+ * `id` is the server's instance id, which the phone pins; `code` (optional)
+ * signs the phone in once. The phone also accepts a bare http(s) URL pasted
+ * by hand, and pins the id of the server that answers it.
  */
 
 export type ServerConfig = {
@@ -15,13 +17,16 @@ export type ServerConfig = {
   active?: string;
   /** Hostname of the desktop that produced the pairing payload. */
   name?: string;
+  /** The server's instance id (GET /health "instanceId"); only a server that answers with it gets requests. */
+  id?: string;
 };
 
-export type PairingInput = { urls: string[]; name?: string };
+export type PairingInput = { urls: string[]; name?: string; id?: string; code?: string };
 
 /** `GET /health` on the API. 200 answers "ok"; 503 answers "degraded" with the DB error in `db`. */
 export type ServerHealth = {
   status: string;
+  instanceId?: string;
   version?: string;
   db?: string;
   migrations?: { version: number; pending: number };
@@ -53,7 +58,7 @@ function normalizeUrls(values: unknown): string[] {
   return urls;
 }
 
-function cleanName(value: unknown): string | undefined {
+function cleanString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const name = value.trim();
   return name ? name : undefined;
@@ -103,11 +108,17 @@ export function parsePairingInput(text: string): PairingInput | null {
       return null;
     }
     if (!payload || typeof payload !== "object") return null;
-    const { urls, name } = payload as { urls?: unknown; name?: unknown };
+    const { urls, name, id, code } = payload as { urls?: unknown; name?: unknown; id?: unknown; code?: unknown };
     const normalized = normalizeUrls(urls);
     if (normalized.length === 0) return null;
-    const cleaned = cleanName(name);
-    return cleaned ? { urls: normalized, name: cleaned } : { urls: normalized };
+    const input: PairingInput = { urls: normalized };
+    const cleanedName = cleanString(name);
+    if (cleanedName) input.name = cleanedName;
+    const cleanedId = cleanString(id);
+    if (cleanedId) input.id = cleanedId;
+    const cleanedCode = cleanString(code);
+    if (cleanedCode) input.code = cleanedCode;
+    return input;
   }
 
   const url = normalizeServerUrl(raw);
@@ -117,14 +128,16 @@ export function parsePairingInput(text: string): PairingInput | null {
 /** Validates a stored or incoming config. `active` is kept only when it is one of `urls`. */
 export function normalizeServerConfig(value: unknown): ServerConfig | null {
   if (!value || typeof value !== "object") return null;
-  const { urls, active, name } = value as { urls?: unknown; active?: unknown; name?: unknown };
+  const { urls, active, name, id } = value as { urls?: unknown; active?: unknown; name?: unknown; id?: unknown };
   const normalizedUrls = normalizeUrls(urls);
   if (normalizedUrls.length === 0) return null;
   const config: ServerConfig = { urls: normalizedUrls };
   const normalizedActive = normalizeServerUrl(active);
   if (normalizedActive && normalizedUrls.includes(normalizedActive)) config.active = normalizedActive;
-  const cleaned = cleanName(name);
+  const cleaned = cleanString(name);
   if (cleaned) config.name = cleaned;
+  const cleanedId = cleanString(id);
+  if (cleanedId) config.id = cleanedId;
   return config;
 }
 
@@ -196,12 +209,48 @@ export async function pickReachable<T>(
   return null;
 }
 
+/** A Timely server answered, but not the one the phone paired with. */
+export class WrongServerError extends Error {
+  url: string;
+  instanceId?: string;
+
+  constructor(url: string, instanceId?: string) {
+    super(`${url} answers as a different Timely server than the one this phone paired with`);
+    this.name = "WrongServerError";
+    this.url = url;
+    if (instanceId) this.instanceId = instanceId;
+  }
+}
+
+/**
+ * Wraps a health probe so only the server with `expectedId` counts as an
+ * answer; a different id (or none, from a server too old to report one)
+ * rejects with WrongServerError and is reported to `onWrong`. Without an
+ * expected id every Timely answer counts (the id is pinned from it).
+ */
+export function pinnedProbe<T extends { instanceId?: string }>(
+  probe: Probe<T>,
+  expectedId: string | undefined,
+  onWrong?: (url: string) => void,
+): Probe<T> {
+  if (!expectedId) return probe;
+  return async (url, signal) => {
+    const result = await probe(url, signal);
+    if (result.instanceId !== expectedId) {
+      onWrong?.(url);
+      throw new WrongServerError(url, result.instanceId);
+    }
+    return result;
+  };
+}
+
 /** Shape check for the `/health` payload; anything else is not a Timely server. */
 export function parseHealthPayload(value: unknown): ServerHealth | null {
   if (!value || typeof value !== "object") return null;
   const body = value as Record<string, unknown>;
   if (typeof body.status !== "string") return null;
   const health: ServerHealth = { status: body.status };
+  if (typeof body.instanceId === "string" && body.instanceId) health.instanceId = body.instanceId;
   if (typeof body.version === "string") health.version = body.version;
   if (typeof body.db === "string") health.db = body.db;
   if (typeof body.registrationOpen === "boolean") health.registrationOpen = body.registrationOpen;

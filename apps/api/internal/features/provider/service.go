@@ -11,20 +11,27 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"timely-api/internal/features/agent"
+	"timely-api/internal/features/auth"
 	"timely-api/internal/features/chat"
 	"timely-api/internal/features/decide"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/jobs"
 	"timely-api/internal/models"
+	"timely-api/internal/utils"
 )
 
 const (
@@ -39,9 +46,12 @@ const (
 // ReindexState is the progress of the account's semantic-search rebuild after
 // its key or embedding model changed.
 type ReindexState struct {
-	Status    string    `json:"status,omitempty"` // queued, running, done, failed
-	Done      int       `json:"done"`
-	Total     int       `json:"total"`
+	Status string `json:"status,omitempty"` // queued, running, retrying (a try failed, another follows), done, failed
+	Done   int    `json:"done"`
+	Total  int    `json:"total"`
+	// Skipped counts the items OpenRouter refused to embed in a finished
+	// rebuild; they can be found by their words only.
+	Skipped   int       `json:"skipped,omitempty"`
 	Error     string    `json:"error,omitempty"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -86,10 +96,29 @@ type Service struct {
 
 	decisions     *decide.Service
 	decisionCheck decide.Caller
+	// checking holds the accounts with a key check in flight (oneCheck).
+	checking sync.Map
 
-	openRouterURL string // overridable for tests
-	anthropicURL  string // overridable for tests
-	ollamaURL     string // OLLAMA_BASE_URL: the default Ollama address
+	// readTools and boardData let the Describe AI read the person's data and
+	// draw its drafts from it (describe_tools.go); nil leaves Describe one-shot.
+	readTools func(*gorm.DB) agent.Catalog
+	boardData BoardData
+
+	openRouterURL    string // overridable for tests
+	openRouterKeyURL string // overridable for tests; checks a key without spending tokens
+	anthropicURL     string // overridable for tests
+	ollamaURL        string // OLLAMA_BASE_URL: the default Ollama address
+
+	// busy counts each account's one-shot AI requests in flight (oneShotLimit).
+	busy inFlight
+
+	// privateOllama lets a typed Ollama address point at this server or its
+	// private network: only while the server is closed to sign-ups
+	// (ALLOW_REGISTRATION off, the default), when every account was let in by
+	// whoever runs it. The listed addresses work either way.
+	privateOllama bool
+
+	verified verifiedChecks // recent passed test calls (handler.go)
 }
 
 func New(db *gorm.DB, indexer embed.Indexer, queue *jobs.Queue) *Service {
@@ -113,8 +142,10 @@ func New(db *gorm.DB, indexer embed.Indexer, queue *jobs.Queue) *Service {
 		envChat:  chatModel, envEmbed: embedModel,
 		key: sha256.Sum256([]byte("timely-agent-provider:" + secret)),
 
-		openRouterURL: "https://openrouter.ai/api/v1/chat/completions",
-		ollamaURL:     strings.TrimRight(strings.TrimSpace(os.Getenv("OLLAMA_BASE_URL")), "/"),
+		openRouterURL:    "https://openrouter.ai/api/v1/chat/completions",
+		openRouterKeyURL: "https://openrouter.ai/api/v1/key",
+		ollamaURL:        strings.TrimRight(strings.TrimSpace(os.Getenv("OLLAMA_BASE_URL")), "/"),
+		privateOllama:    !auth.AllowRegistrationFromEnv(),
 	}
 	if indexer != nil {
 		indexer.SetCredentials(s.EmbedCredentials)
@@ -131,14 +162,13 @@ func (s *Service) LocalCLI() bool { return s.localCLI }
 
 // ---- storage ----
 
+// An empty DefaultProvider means the person has not picked one: runs and the
+// writing features then wait for the pick (errNotChosen, ADR 0020).
 func (s *Service) load(db *gorm.DB, userID string) (Settings, error) {
 	var row Settings
 	err := db.Where("user_id = ?", userID).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return Settings{UserID: userID, DefaultProvider: OpenRouter}, nil
-	}
-	if row.DefaultProvider == "" {
-		row.DefaultProvider = OpenRouter
+		return Settings{UserID: userID}, nil
 	}
 	return row, err
 }
@@ -256,12 +286,54 @@ func (s *Service) chatModel(row Settings, provider string) string {
 	}
 }
 
+// errNoProvider is the answer when no provider is chosen and none is set up.
+var errNoProvider = errors.New("No AI provider is set up. Add an API key or connect one in Settings → Agent")
+
+// notChosenError is the answer while providers are set up but the person has
+// not chosen which one runs chats and the writing features. Its JSON body
+// carries a stable code the apps answer with a button to Settings → Agent.
+type notChosenError struct{}
+
+func (notChosenError) Error() string   { return chat.NotChosenMessage }
+func (notChosenError) StatusCode() int { return http.StatusConflict }
+func (notChosenError) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]string{"message": chat.NotChosenMessage, "code": chat.ErrorCodeNotChosen})
+}
+
+var errNotChosen error = notChosenError{}
+
+// defaultProvider is the provider new chat runs and the writing features
+// (Help me write, checklist task offers, view queries, dashboard cards and
+// live blocks) use: the person's choice. With none chosen it is "" and
+// errNotChosen when a provider is set up (no provider is picked for the
+// person, ADR 0020), or "" and nil when nothing is set up. Both read it here
+// so they never move to different providers.
+func (s *Service) defaultProvider(ctx context.Context, row Settings) (string, error) {
+	if row.DefaultProvider != "" {
+		return row.DefaultProvider, nil
+	}
+	rows, err := s.apiRows(s.db.WithContext(ctx), row.UserID)
+	if err != nil {
+		return "", err
+	}
+	if firstSetUp(row, rows, s.localCLI) != "" {
+		return "", errNotChosen
+	}
+	return "", nil
+}
+
 func (s *Service) Resolve(ctx context.Context, userID string) (string, string, error) {
 	row, err := s.load(s.db.WithContext(ctx), userID)
 	if err != nil {
 		return "", "", err
 	}
-	provider := row.DefaultProvider
+	provider, err := s.defaultProvider(ctx, row)
+	if err != nil {
+		return "", "", err
+	}
+	if provider == "" {
+		return "", "", errNoProvider
+	}
 	if (provider == ClaudeCLI || provider == CodexCLI) && !s.localCLI {
 		return provider, "", fmt.Errorf("Local CLIs are turned off on this server (CHAT_LOCAL_CLI=off). Pick another provider in Settings → Agent")
 	}
@@ -275,13 +347,28 @@ func (s *Service) Resolve(ctx context.Context, userID string) (string, string, e
 	return provider, s.chatModel(row, provider), nil
 }
 
+// KnownProvider reports whether id names a provider this server can run, so
+// a chat's model menu choice is checked when it is made (chat.ProviderIDs).
+func (s *Service) KnownProvider(id string) bool {
+	switch id {
+	case OpenRouter, ClaudeCLI, CodexCLI:
+		return true
+	}
+	return apiProviderByID(id) != nil
+}
+
 func (s *Service) Completer(ctx context.Context, userID, provider, model string) (chat.Completer, error) {
 	row, err := s.load(s.db.WithContext(ctx), userID)
 	if err != nil {
 		return nil, err
 	}
 	if provider == "" {
-		provider = row.DefaultProvider
+		if provider, err = s.defaultProvider(ctx, row); err != nil {
+			return nil, err
+		}
+		if provider == "" {
+			return nil, errNoProvider
+		}
 	}
 	if spec := apiProviderByID(provider); spec != nil {
 		api, found, err := s.apiRow(s.db.WithContext(ctx), userID, provider)
@@ -312,7 +399,13 @@ func (s *Service) build(row Settings, provider, model string) (chat.Completer, e
 		if key == "" {
 			return nil, fmt.Errorf("Add an OpenRouter API key in Settings → Agent")
 		}
-		return &chat.OpenRouter{Key: key, Model: model, URL: s.openRouterURL, Client: &http.Client{Timeout: 4 * time.Minute}}, nil
+		return &chat.OpenRouter{Key: key, Model: model, URL: s.openRouterURL, Client: &http.Client{Timeout: 4 * time.Minute}, Vision: func(ctx context.Context, model string) (bool, bool) {
+			list, err := s.models.OpenRouterChatModels(ctx, s.envChat)
+			if err != nil {
+				return false, false
+			}
+			return visionOf(list, model)
+		}}, nil
 	case ClaudeCLI:
 		if !s.localCLI {
 			return nil, fmt.Errorf("Local CLIs are turned off on this server (CHAT_LOCAL_CLI=off)")
@@ -361,11 +454,52 @@ func (s *Service) EmbedCredentials(userID string) (string, string) {
 	return key, model
 }
 
+// checkOpenRouterKey asks OpenRouter whether a key is valid. The key endpoint
+// spends no tokens and sends no chat, so a key saved only for embeddings and
+// smart suggestions never runs a chat model.
+func (s *Service) checkOpenRouterKey(ctx context.Context, key string) error {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.openRouterKeyURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	res, err := s.models.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("Could not reach OpenRouter to check this key. Try again")
+	}
+	defer res.Body.Close()
+	var body struct {
+		Data struct {
+			// LimitRemaining is null for a key with no spending limit.
+			LimitRemaining *float64 `json:"limit_remaining"`
+		} `json:"data"`
+	}
+	raw, _ := io.ReadAll(io.LimitReader(res.Body, 1<<16))
+	switch {
+	case res.StatusCode/100 == 2:
+		// A key whose own limit is spent still reads as valid here, but every
+		// embedding and Jev call would fail with it.
+		if json.Unmarshal(raw, &body) == nil && body.Data.LimitRemaining != nil && *body.Data.LimitRemaining <= 0 {
+			return errors.New("This OpenRouter key has used up its credit limit. Raise the limit on openrouter.ai or use another key")
+		}
+		return nil
+	case res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden:
+		return errors.New("OpenRouter rejected this key")
+	default:
+		return fmt.Errorf("OpenRouter could not check this key (HTTP %d). Try again", res.StatusCode)
+	}
+}
+
 // testCompleter sends one tiny request so a saved model or key is known to work.
 func testCompleter(ctx context.Context, c chat.Completer) error {
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	reply, err := c.Complete(ctx, []chat.WireMessage{{Role: "system", Content: "You are a connectivity check."}, {Role: "user", Content: "Reply with the single word OK."}}, nil, false)
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() != nil {
+		return errors.New("The provider did not answer the test request within 90 seconds. Try again, or choose another model")
+	}
 	if err != nil {
 		return err
 	}
@@ -385,6 +519,71 @@ func (s *Service) enqueueReindex(userID string) error {
 	return err
 }
 
+// QueueReindex marks the account's search index as being rebuilt and queues
+// the rebuild, as after a restore. Accounts without embeddings are left alone.
+func (s *Service) QueueReindex(userID string) error {
+	if s.indexer == nil || s.queue == nil || !s.indexer.EnabledFor(userID) {
+		return nil
+	}
+	if _, err := s.update(userID, func(row *Settings) error {
+		row.Reindex = ReindexState{Status: "queued", UpdatedAt: time.Now().UTC()}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return s.enqueueReindex(userID)
+}
+
+// retryFailedReindexAfter is how long a failed rebuild is left alone before
+// a search or Settings may queue another one; Settings shows the failure
+// meanwhile.
+const retryFailedReindexAfter = 30 * time.Minute
+
+// EnsureIndex queues a rebuild for an account whose index is missing items
+// (see embed.Indexer.Missing), unless one is already on the way or one
+// failed recently.
+func (s *Service) EnsureIndex(userID string) {
+	if s.indexer == nil || s.queue == nil || !s.indexer.EnabledFor(userID) {
+		return
+	}
+	row, err := s.load(s.db, userID)
+	if err != nil {
+		log.Printf("ensure search index: %v", err)
+		return
+	}
+	switch st := row.Reindex; {
+	case st.Status == "queued" || st.Status == "running":
+		// The job may be gone (a restore deletes the account's jobs); the
+		// dedupe key makes this a no-op when it is still there.
+		if err := s.enqueueReindex(userID); err != nil {
+			log.Printf("ensure search index: %v", err)
+		}
+		return
+	case st.Status == "failed" && time.Since(st.UpdatedAt) < retryFailedReindexAfter:
+		return
+	case st.Status == "done" && st.Skipped > 0 && time.Since(st.UpdatedAt) < retryFailedReindexAfter:
+		// The items OpenRouter refused stay missing; asking again on every
+		// search would only repeat the refusal.
+		return
+	}
+	if err := s.QueueReindex(userID); err != nil {
+		log.Printf("ensure search index: %v", err)
+	}
+}
+
+// checkIndex keeps the Settings index status truthful: an index reported as
+// done that is missing items gets a rebuild, which Settings then shows.
+func (s *Service) checkIndex(ctx context.Context, userID string) {
+	if s.indexer == nil || !s.indexer.EnabledFor(userID) {
+		return
+	}
+	missing, err := s.indexer.Missing(ctx, userID)
+	if err != nil || missing == 0 {
+		return
+	}
+	s.EnsureIndex(userID)
+}
+
 func (s *Service) handleReindex(ctx context.Context, job *models.Job) error {
 	if s.indexer == nil {
 		return nil
@@ -396,23 +595,59 @@ func (s *Service) handleReindex(ctx context.Context, job *models.Job) error {
 			return nil
 		})
 	}
-	setState(func(st *ReindexState) { st.Status, st.Done, st.Error = "running", 0, "" })
+	setState(func(st *ReindexState) { st.Status, st.Done, st.Skipped, st.Error = "running", 0, 0, "" })
 	last := time.Now()
-	n, err := s.indexer.Reindex(ctx, job.UserID, func(done, total int) {
-		if time.Since(last) < 2*time.Second && done != total {
-			return
+	skipped := 0
+	run := func() (int, error) {
+		return s.indexer.Reindex(ctx, job.UserID, func(done, total, skip int) {
+			skipped = skip
+			if time.Since(last) < 2*time.Second && done != total {
+				return
+			}
+			last = time.Now()
+			setState(func(st *ReindexState) { st.Done, st.Total = done, total })
+		})
+	}
+	_, model := s.EmbedCredentials(job.UserID)
+	n, err := run()
+	// A model switched while this ran queued no rebuild of its own (this job
+	// holds the account's one), and the items done before the switch are on
+	// the old model: go over them again, a few times at most.
+	const maxPasses = 3
+	for pass := 1; err == nil && pass < maxPasses; pass++ {
+		_, now := s.EmbedCredentials(job.UserID)
+		if now == model {
+			break
 		}
-		last = time.Now()
-		setState(func(st *ReindexState) { st.Done, st.Total = done, total })
-	})
+		model = now
+		n, err = run()
+	}
 	if errors.Is(err, embed.ErrDisabled) {
 		setState(func(st *ReindexState) { st.Status, st.Error = "failed", "Semantic search is off: no OpenRouter key" })
 		return nil
 	}
 	if err != nil {
-		setState(func(st *ReindexState) { st.Status, st.Error = "failed", err.Error() })
+		// The queue tries a failed job again (jobs.Queue.Fail) until its
+		// attempts run out, so until then the rebuild is "retrying", which the
+		// apps keep following, and only the last failure reads "failed". A
+		// refused key or no credits is permanent: another attempt would get
+		// the same answer, so it fails now instead of asking seven more times.
+		permanent := embed.Permanent(err)
+		status := "failed"
+		if !permanent && job.Attempts < job.MaxAttempts {
+			status = "retrying"
+		}
+		// The error usually quotes OpenRouter. The state is jsonb, which
+		// refuses a NUL: an unsaved failure would leave the status "running",
+		// and EnsureIndex would queue a new rebuild on every look.
+		setState(func(st *ReindexState) {
+			st.Status, st.Error = status, utils.StorableText(utils.RedactSecrets(err.Error()), 500)
+		})
+		if permanent {
+			return jobs.Permanent(err)
+		}
 		return err
 	}
-	setState(func(st *ReindexState) { st.Status, st.Done, st.Total = "done", n, n })
+	setState(func(st *ReindexState) { st.Status, st.Done, st.Total, st.Skipped = "done", n, n, skipped })
 	return nil
 }

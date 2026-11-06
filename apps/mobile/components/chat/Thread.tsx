@@ -30,10 +30,13 @@ import { colors, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import ListEnter from "../ui/ListEnter";
 import LoopImage from "../ui/LoopImage";
+import { planGroups } from "@timely/contract/changeReview";
+import { PROVIDER_NOT_CHOSEN } from "@timely/contract/helpMeWrite";
 import ChangeCards from "./ChangeCards";
 import ImagePreview from "./ImagePreview";
 import { dayLabel, isBusy, phaseLabel, timeOfDay } from "./chatMeta";
 import { Action, ChatText, styles as common } from "./shared";
+import ReplyBody from "./ReplyCards";
 import { LogoSpinner } from "../ui/TimelyLogo";
 import { useAgentProvidersQuery, useChatPromptsQuery, useDecisionFeedback } from "../../lib/hooks";
 import { readyProviders } from "./ModelSheet";
@@ -42,6 +45,12 @@ import { readyProviders } from "./ModelSheet";
 function useNeedsProvider() {
   const { data } = useAgentProvidersQuery();
   return Boolean(data) && readyProviders(data).length === 0;
+}
+
+/** Set up but not chosen: new chats wait for the person's pick (ADR 0020). */
+function useNeedsChoice() {
+  const { data } = useAgentProvidersQuery();
+  return Boolean(data) && readyProviders(data).length > 0 && !data?.defaultChosen;
 }
 
 const suggestions: { icon: LucideIcon; title: string; text: string }[] = [
@@ -91,6 +100,7 @@ export function Welcome({
   onOpenSettings: () => void;
 }) {
   const needsProvider = useNeedsProvider();
+  const needsChoice = useNeedsChoice();
   // With smart suggestions on, the examples fit the project on screen, or
   // else the one the person worked on most recently; otherwise the fixed
   // ones show.
@@ -129,6 +139,19 @@ export function Welcome({
             </Text>
           </View>
           <Action label="Settings" primary compact onPress={onOpenSettings} />
+        </AnimatedPressable>
+      ) : needsChoice ? (
+        <AnimatedPressable accessibilityRole="button" accessibilityLabel="Choose a provider for chats in Agent settings" onPress={onOpenSettings} style={styles.providerBar} testID="chat-needs-choice">
+          <View style={styles.providerIcon}>
+            <KeyRound size={16} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text numberOfLines={1} style={styles.providerTitle}>Choose a provider for chats</Text>
+            <Text numberOfLines={2} style={common.muted}>
+              Chats and Help me write wait until you choose one.
+            </Text>
+          </View>
+          <Action label="Choose" primary compact onPress={onOpenSettings} />
         </AnimatedPressable>
       ) : null}
       <Text style={styles.promptsLabel} testID={project ? "chat-prompts-project" : undefined}>
@@ -179,19 +202,22 @@ function Archive({
   onReview: (steps: ChatStep[]) => void;
 }) {
   const steps = message.steps ?? [];
-  const done = steps.filter((s) => s.status === "done").length;
+  const groups = planGroups(steps);
+  const done = groups.filter((group) =>
+    group.steps.every((i) => steps[i].status === "done"),
+  ).length;
   const discarded = message.content.toLowerCase().includes("discard");
   return (
     <AnimatedPressable
       accessibilityRole="button"
-      accessibilityLabel={`${discarded ? "Discarded" : "Earlier"} proposal, ${steps.length} changes`}
+      accessibilityLabel={`${discarded ? "Discarded" : "Earlier"} proposal, ${groups.length} changes`}
       onPress={() => onReview(steps)}
       style={styles.archive}
     >
       <History size={16} color={colors.mutedForeground} />
       <Text numberOfLines={1} style={[common.muted, { flex: 1 }]}>
-        {discarded ? "Discarded proposal" : "Earlier proposal"} · {steps.length}{" "}
-        {steps.length === 1 ? "change" : "changes"}
+        {discarded ? "Discarded proposal" : "Earlier proposal"} ·{" "}
+        {groups.length} {groups.length === 1 ? "change" : "changes"}
         {done ? `, ${done} applied` : ""}
       </Text>
       <ChevronRight size={16} color={colors.mutedForeground} />
@@ -242,6 +268,7 @@ export default function Thread({
   onReviewArchive,
   pending,
   onSimilar,
+  onAsk,
 }: {
   chat: Chat;
   onLink: (href: string) => void;
@@ -249,9 +276,15 @@ export default function Thread({
   onReviewArchive: (steps: ChatStep[]) => void;
   pending: boolean;
   onSimilar: (action: "move" | "stay") => void;
+  /** Sends a reply card's text as a message; unset while the chat can't take one. */
+  onAsk?: (text: string) => void;
 }) {
   let lastDay = "";
   const last = chat.messages[chat.messages.length - 1];
+  // Only the newest reply, with nothing the person said after it, keeps live answer chips.
+  const newest = chat.messages.findLast(
+    (m) => (m.role === "user" && !m.kind) || (m.role === "assistant" && !m.kind),
+  );
   return (
     <View style={{ gap: 18 }}>
       {chat.messages.map((message) => {
@@ -353,7 +386,12 @@ export default function Thread({
                       {timeOfDay(message.createdAt)}
                     </Text>
                   </View>
-                  <ChatText text={message.content} onLink={onLink} />
+                  <ReplyBody
+                    content={message.content}
+                    onLink={onLink}
+                    ask={onAsk}
+                    newest={message === newest}
+                  />
                   {images.length ? (
                     <View style={styles.imageRow}>
                       {images.map((image) => (
@@ -432,36 +470,80 @@ export function RunStatus({ chat }: { chat: Chat }) {
   );
 }
 
+/**
+ * A failed run and the one thing that helps: Agent settings for a key,
+ * credit or provider problem, no Try again for a failure that would repeat,
+ * and Discard for photos still waiting for review.
+ */
 export function FailureCard({
   chat,
   locked,
   onRetry,
+  onDiscardImages,
   onOpenSettings,
 }: {
   chat: Chat;
   locked: boolean;
   onRetry: () => void;
+  onDiscardImages: () => void;
   onOpenSettings: () => void;
 }) {
   const needsProvider = useNeedsProvider();
+  // The run waited for the person to choose a default provider (ADR 0020).
+  const notChosen = chat.errorCode === PROVIDER_NOT_CHOSEN;
   if (!chat.error || chat.plan.length) return null;
+  const settings = needsProvider || notChosen || chat.errorAction === "settings";
+  const stopped = ["failed", "stopped"].includes(chat.status);
+  // Once a provider is chosen, the waiting chat can run.
+  const retry = stopped && !needsProvider && (notChosen || (!settings && chat.errorAction !== "none"));
+  // Photos that failed before their review opened; an open review has its
+  // own Discard images button.
+  const photos = stopped && chat.imageReview?.status === "extracting";
   return (
     <StatusCard
       tone="destructive"
       icon={AlertTriangle}
-      title={needsProvider ? "Connect an AI provider to chat" : "Something went wrong"}
+      title={
+        needsProvider
+          ? "Connect an AI provider to chat"
+          : notChosen
+            ? "Choose a provider for chats"
+            : settings
+              ? "Check your AI provider"
+              : chat.errorAction === "none"
+                ? "Couldn't finish this request"
+                : "Something went wrong"
+      }
       body={chat.error}
     >
-      {needsProvider ? (
-        <Action label="Open Agent settings" compact onPress={onOpenSettings} />
-      ) : ["failed", "stopped"].includes(chat.status) ? (
-        <Action
-          label="Try again"
-          icon={RefreshCw}
-          compact
-          disabled={locked}
-          onPress={onRetry}
-        />
+      {settings || retry || photos ? (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {settings ? (
+            <Action
+              label={notChosen ? "Choose provider" : "Open Agent settings"}
+              primary={notChosen}
+              compact
+              onPress={onOpenSettings}
+            />
+          ) : null}
+          {retry ? (
+            <Action
+              label="Try again"
+              icon={RefreshCw}
+              compact
+              disabled={locked}
+              onPress={onRetry}
+            />
+          ) : null}
+          {photos ? (
+            <Action
+              label="Discard images"
+              compact
+              disabled={locked}
+              onPress={onDiscardImages}
+            />
+          ) : null}
+        </View>
       ) : null}
     </StatusCard>
   );
@@ -469,6 +551,7 @@ export function FailureCard({
 
 const styles = createThemedStyleSheet(() => ({
   welcome: { gap: 12, paddingTop: 12 },
+  failureActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   badge: {
     alignSelf: "flex-start",
     flexDirection: "row",

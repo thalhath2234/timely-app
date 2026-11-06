@@ -14,7 +14,7 @@ import { computeSheetCard, setPickCell, toggleDocCheck } from "@timely/contract/
 import type { DocContent } from "@timely/contract/documents";
 import type { Sheet as ContractSheet } from "@timely/contract/sheet";
 import { todayInZone } from "@timely/contract/workStatus";
-import { getDoc, updateDoc } from "../api/docs";
+import { getDoc, setChecklistItem, updateDoc } from "../api/docs";
 import { getSheet, updateSheet, type UpdateSheetPayload } from "../api/sheets";
 import { editTaskOccurrence, updateTask } from "../api/tasks";
 import { getConfig, updateConfig } from "../api/workspaces";
@@ -162,5 +162,8 @@ async function run(action: WidgetAction, context: ActionContext) {
       await updateDoc(pick.docId, { content: toggleDocCheck(content, action.index, action.checked) });
       break;
     }
+    case "checkItem":
+      await setChecklistItem(action.docId, { item: action.item, text: action.text, done: action.done });
+      break;
   }
 }

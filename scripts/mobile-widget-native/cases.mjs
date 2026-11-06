@@ -186,6 +186,18 @@ for (const view of ["checklist", "page"]) {
   add("Doc cards", `Trip ${view}`, cardWidgetModel(custom(`Trip ${view}`, { doc: { docId: "d1", view } }), base), ["2x2", "4x2", "4x4"]);
   add("Doc cards", `Empty doc ${view}`, cardWidgetModel(custom(`Empty ${view}`, { doc: { docId: "d2", view } }), base), ["2x2"]);
 }
+// Described cards (Describe a card) draw their own program, as the Dashboard does.
+const shopping = { id: "doc_shop", title: "Shopping list", updatedAt: day(0), content: { type: "doc", content: [{ type: "taskList", content: ["Onion", "Milk", "Pasta optional", "Potato", "Tomato", "Cereal"].map((text, i) => item(text, i === 1)) }] } };
+const described = (title, program) => custom(title, { source: "docs", described: { prompt: title, program } });
+const withDocs = { ...base, data: { ...full, docs: [shopping, { id: "doc_bugs", title: "Timely Bugs Found", updatedAt: day(1), content: { type: "doc", content: [] } }] } };
+add("Described cards", "Shopping list checklist", cardWidgetModel(described("Shopping list", `root = Panel("Shopping list", [nums, list], "tall")
+shop = @Checklist({doc: "Shopping list"})
+nums = Stats([Stat("Left", shop.left), Stat("Done", shop.ratio)])
+list = List(@Each(shop.rows, "i", CheckRow(i.docId, i.text, i.note, i.item)), "Nothing on the list", Open("Open doc", "doc", shop.docId))`), withDocs), ["2x2", "4x2", "4x4"]);
+add("Described cards", "Overdue with a chart", cardWidgetModel(described("Overdue work", `root = Panel("Overdue work", [nums, list])
+late = @Data({source: "tasks", overdue: true, sort: "deadline", limit: 5})
+nums = Stats([Stat("Overdue", late.text)])
+list = List(@Each(late.rows, "t", TaskRow(t.id, t.title, t.day, t.note)), "Nothing overdue", Open("Open Tasks", "tasks"))`), base), ["2x2", "4x2", "4x4"]);
 const qa = [
   { label: "Task", glyph: "task", uri: "timelymobile://shortcut/new-task" }, { label: "Capture", glyph: "capture", uri: "timelymobile://shortcut/capture" },
   { label: "Ask", glyph: "ask", uri: "timelymobile://shortcut/ask" }, { label: "Search", glyph: "search", uri: "timelymobile://shortcut/search" }];

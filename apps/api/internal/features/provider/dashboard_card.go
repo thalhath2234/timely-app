@@ -1,0 +1,590 @@
+package provider
+
+import (
+	"context"
+	_ "embed"
+	"errors"
+	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+	"unicode/utf16"
+
+	"github.com/labstack/echo/v5"
+	"timely-api/internal/features/chat"
+	"timely-api/internal/features/sheet"
+	"timely-api/internal/models"
+	"timely-api/internal/richtext"
+)
+
+// Described dashboard cards: "overdue client work and what's due this week"
+// becomes an OpenUI Lang program the apps draw on the dashboard
+// (packages/contract/src/genuiBoard.ts). The model writes the layout once;
+// the program's @Data calls read the person's data in the app each time the
+// dashboard shows, so the card never comes back here to stay current. Like
+// Help me write it runs on the account's generative provider.
+
+//go:embed board_prompt.txt
+var boardPrompt string
+
+const (
+	dashboardCardMaxText    = 500
+	dashboardCardMaxProgram = 8000
+	// dashboardCardBudget covers the look-ups, checks and the answer.
+	dashboardCardBudget = 3 * time.Minute
+	// dashboardCardTurns caps the model's calls in one Describe (a card
+	// takes two or three; describeCallMax bounds the look-ups among them).
+	dashboardCardTurns = 8
+	// dashboardCardAnswer is the time kept for the answer: with less left,
+	// the model is told to answer now.
+	dashboardCardAnswer = 45 * time.Second
+	// dashboardCardSheets is how many sheets, latest edited first, the model
+	// is told the tabs and columns of.
+	dashboardCardSheets = 12
+	// dashboardCardChecklists is how many docs with a checklist, latest
+	// edited first, the model is told the items of, out of the latest
+	// dashboardCardDocs docs, and dashboardCardItems how many items of each.
+	dashboardCardChecklists = 12
+	dashboardCardDocs       = 60
+	dashboardCardItems      = 12
+)
+
+type dashboardCardRequest struct {
+	// Prompt is the person's words: what the card shows, or the change to make.
+	Prompt string `json:"prompt"`
+	// Today is the date in the Working hours timezone (YYYY-MM-DD).
+	Today string `json:"today"`
+	// Current is the card's program when the words change an existing card.
+	Current string `json:"current"`
+	// Place is "doc" for a live block in a doc; anything else is a dashboard card.
+	Place string `json:"place"`
+}
+
+type dashboardCardResponse struct {
+	Program  string `json:"program"`
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+}
+
+func (s *Service) dashboardCard(c *echo.Context) error {
+	var req dashboardCardRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(400, "Invalid request")
+	}
+	answer, err := s.describeCard(c.Request().Context(), user(c), req)
+	if err != nil {
+		return err
+	}
+	return c.JSON(200, answer)
+}
+
+// LiveBlock writes a live block's program for a doc from the person's words,
+// or changes the current one, as the apps' Describe dialog does; the agent's
+// add_live_block tool calls it. today is YYYY-MM-DD in the person's zone.
+func (s *Service) LiveBlock(ctx context.Context, userID, words, current, today string) (string, error) {
+	answer, err := s.describeCard(ctx, userID, dashboardCardRequest{Prompt: words, Current: current, Place: "doc", Today: today})
+	if err != nil {
+		return "", toolError(err)
+	}
+	return answer.Program, nil
+}
+
+// liveBlockStandIn is the program a rehearsed new live block gets.
+const liveBlockStandIn = `root = Panel("Live block", [])`
+
+// RehearseLiveBlock takes LiveBlock's place while an Agent proposal is
+// rehearsed. That doc is rolled back and the review shows the person's words,
+// never the program, so asking the model there would write every block twice:
+// once for nothing, then again on apply. It still refuses when no provider can
+// write the block, and a changed block keeps its current program.
+func (s *Service) RehearseLiveBlock(ctx context.Context, userID, words, current, today string) (string, error) {
+	if _, _, err := s.describeCompleter(ctx, userID, "doc"); err != nil {
+		return "", toolError(err)
+	}
+	if current = strings.TrimSpace(current); current != "" {
+		return current, nil
+	}
+	return liveBlockStandIn, nil
+}
+
+// toolError gives an agent tool the message of an HTTP error.
+func toolError(err error) error {
+	var he *echo.HTTPError
+	if errors.As(err, &he) {
+		return errors.New(fmt.Sprint(he.Message))
+	}
+	return err
+}
+
+func (s *Service) describeCard(ctx context.Context, userID string, req dashboardCardRequest) (dashboardCardResponse, error) {
+	noun := "card"
+	if req.Place == "doc" {
+		noun = "block"
+	}
+	req.Prompt = clipRunes(strings.TrimSpace(req.Prompt), dashboardCardMaxText)
+	if req.Prompt == "" {
+		return dashboardCardResponse{}, echo.NewHTTPError(400, "Say what the "+noun+" should show")
+	}
+	req.Current = strings.TrimSpace(req.Current)
+	if programLength(req.Current) > dashboardCardMaxProgram {
+		// Dropping it would quietly write a new card in its place.
+		return dashboardCardResponse{}, echo.NewHTTPError(400, fmt.Sprintf("This %s is too large to change with AI. Describe a new %s instead", noun, noun))
+	}
+	if _, err := time.Parse("2006-01-02", req.Today); err != nil {
+		req.Today = time.Now().Format("2006-01-02")
+	}
+	completer, provider, err := s.describeCompleter(ctx, userID, req.Place)
+	if err != nil {
+		return dashboardCardResponse{}, err
+	}
+	// Read with the client, so a key removed during the call keeps the name.
+	model := ""
+	if provider != "" {
+		_, model, _ = s.resolveModel(ctx, userID, provider)
+	}
+	vocab, err := s.loadViewVocab(ctx, userID)
+	if err != nil {
+		return dashboardCardResponse{}, err
+	}
+	sheets, err := s.sheetBriefs(ctx, userID)
+	if err != nil {
+		return dashboardCardResponse{}, err
+	}
+	checklists, err := s.checklistBriefs(ctx, userID)
+	if err != nil {
+		return dashboardCardResponse{}, err
+	}
+	ctx, cancel := context.WithTimeout(oneShot(ctx), dashboardCardBudget)
+	defer cancel()
+	messages := dashboardCardMessages(req, vocab, sheets, checklists)
+	tools := s.tools(ctx, userID)
+	if tools != nil {
+		messages[0].Content += describeToolsNote
+	}
+	program, err := describe(ctx, completer, messages, tools)
+	var nothing noDataError
+	switch {
+	case errors.Is(err, errNotACard):
+		return dashboardCardResponse{}, echo.NewHTTPError(502, "The AI's answer was not a "+noun+". Try again")
+	case errors.As(err, &nothing):
+		return dashboardCardResponse{}, echo.NewHTTPError(422, "Couldn't make this "+noun+". "+nothing.reason)
+	case errors.Is(err, errProgramTooLong):
+		return dashboardCardResponse{}, echo.NewHTTPError(502, "The AI made a "+noun+" that is too large. Ask for fewer blocks or rows")
+	case err != nil:
+		return dashboardCardResponse{}, oneShotError(err, "The "+noun+" was too long to finish. Ask for fewer things on it.")
+	}
+	return dashboardCardResponse{Program: program, Provider: provider, Model: model}, nil
+}
+
+// describeCompleter picks the model that describes a card or block. Inside an
+// Agent chat run it is that run's own client, so a chat pinned to one model
+// never spends another provider's tokens; provider is then "". Elsewhere it is
+// the account's writing provider.
+func (s *Service) describeCompleter(ctx context.Context, userID, place string) (chat.Completer, string, error) {
+	if completer := chat.CompleterFrom(ctx); completer != nil {
+		return completer, "", nil
+	}
+	row, err := s.load(s.db, userID)
+	if err != nil {
+		return nil, "", err
+	}
+	provider, err := s.defaultProvider(ctx, row)
+	if err != nil {
+		return nil, "", err
+	}
+	if provider == "" {
+		need := "Describing cards needs"
+		if place == "doc" {
+			need = "Live blocks need"
+		}
+		return nil, "", echo.NewHTTPError(409, need+" an AI provider. Add a key in Settings → Agent keys")
+	}
+	completer, err := s.Completer(ctx, userID, provider, "")
+	if err != nil {
+		return nil, "", echo.NewHTTPError(409, err.Error())
+	}
+	return completer, provider, nil
+}
+
+var errNotACard = errors.New("the answer holds no program")
+
+// noDataMark opens an answer that says the person's data holds nothing to
+// build the card from (board_prompt.txt), instead of a card that only says
+// so and promises to fill in later, which a fixed program never does.
+const noDataMark = "NO_DATA:"
+
+type noDataError struct{ reason string }
+
+func (e noDataError) Error() string { return "nothing to build from: " + e.reason }
+
+// noData reads a noDataMark answer's reason.
+func noData(answer string) (noDataError, bool) {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(cleanWritten(answer, false)), noDataMark)
+	if !ok {
+		return noDataError{}, false
+	}
+	reason := strings.TrimSpace(rest)
+	if reason == "" {
+		reason = "There is no data like that yet."
+	}
+	return noDataError{reason: clipRunes(reason, 200)}, true
+}
+
+// describe asks the model for the program. With tools it may read the
+// person's data and check drafts first; its answer is drawn once more, and
+// one with problems goes back to the model a single time to be fixed. A
+// model that runs out of turns, or never writes the program out, gets the
+// last draft it checked; a provider error after a draft drew clean gets that
+// draft.
+func describe(ctx context.Context, completer chat.Completer, messages []chat.WireMessage, tools *describeTools) (string, error) {
+	var specs []any
+	if tools != nil {
+		specs = tools.specs
+	}
+	deadline, timed := ctx.Deadline()
+	sentBack, nudged, told := false, false, false
+	for turn := 0; turn < dashboardCardTurns; turn++ {
+		// final: no turn (or no time) is left after this one. last: no more
+		// look-ups either, which is also the case once the tools stopped them;
+		// a turn may still follow then, to fix an answer that drew with
+		// problems or was not a program.
+		final := turn == dashboardCardTurns-1 || (timed && time.Until(deadline) < dashboardCardAnswer)
+		last := final || tools.stopped()
+		if last && len(specs) > 0 && turn > 0 && !told {
+			// The tools stay listed: some providers refuse a transcript with
+			// tool calls in it once the tools are gone.
+			messages = append(messages, chat.WireMessage{Role: "user", Content: "Time is up for look-ups: answer now with the whole program and no tool calls."})
+			told = true
+		}
+		// Each turn resends the whole Describe so far: cached, the next turn
+		// reads it back instead of paying for it again.
+		reply, err := completer.Complete(ctx, chat.CacheTail(messages), specs, false)
+		if err != nil {
+			if tools != nil && tools.clean != "" {
+				return tools.clean, nil
+			}
+			return "", err
+		}
+		if len(reply.ToolCalls) == 0 || tools == nil {
+			if nothing, ok := noData(reply.Content); ok {
+				return "", nothing
+			}
+			program, err := boardProgram(reply.Content)
+			if err != nil {
+				if draft := tools.fallback(); draft != "" && (nudged || final) {
+					return draft, nil
+				}
+				if nudged || final {
+					if errors.Is(err, errProgramTooLong) {
+						return "", err
+					}
+					return "", errNotACard
+				}
+				nudged = true
+				nudge := "Answer with the program only: the whole OpenUI Lang program from the root = Panel(...) line on."
+				if errors.Is(err, errProgramTooLong) {
+					nudge = fmt.Sprintf("That program is longer than a card may be (%d characters at most). Answer with a shorter whole program: fewer blocks, rows or words.", dashboardCardMaxProgram)
+				}
+				messages = append(messages, reply, chat.WireMessage{Role: "user", Content: nudge})
+				continue
+			}
+			if tools != nil && tools.load != nil && !sentBack && !final {
+				if checked, err := tools.check(ctx, program); err == nil && len(checked.Problems) > 0 {
+					sentBack = true
+					messages = append(messages, reply, chat.WireMessage{Role: "user", Content: "Timely drew this program from the person's data and found problems:\n- " + strings.Join(checked.Problems, "\n- ") + "\nFix them and answer with the whole program again. When one can't be fixed, leave that part out."})
+					continue
+				}
+			}
+			return program, nil
+		}
+		if last {
+			break
+		}
+		messages = append(messages, reply)
+		for _, call := range reply.ToolCalls {
+			messages = append(messages, chat.WireMessage{Role: "tool", ToolCallID: call.ID, Content: tools.call(ctx, call)})
+		}
+	}
+	if draft := tools.fallback(); draft != "" {
+		return draft, nil
+	}
+	return "", errors.New("The AI took too many steps. Try again, or say more exactly what to show")
+}
+
+// sheetBrief is one sheet as the model sees it for @Cells.
+type sheetBrief struct {
+	Title string
+	Tabs  []sheet.CellsTab
+}
+
+// sheetBriefs reads the person's latest edited sheets and works out, with the
+// apps' own engine, the column names their @Cells calls find.
+func (s *Service) sheetBriefs(ctx context.Context, userID string) ([]sheetBrief, error) {
+	var sheets []models.Sheet
+	err := s.db.WithContext(ctx).Where("user_id = ? AND archived_at IS NULL", userID).Order("updated_at DESC").Limit(dashboardCardSheets).Find(&sheets).Error
+	if err != nil || len(sheets) == 0 {
+		return nil, err
+	}
+	tabs, err := sheet.CellsBriefs(sheets)
+	if err != nil {
+		// A workbook the engine can't read costs the model its sheets, not the card.
+		return nil, nil
+	}
+	briefs := make([]sheetBrief, 0, len(sheets))
+	for i, each := range sheets {
+		if i < len(tabs) {
+			briefs = append(briefs, sheetBrief{Title: each.Title, Tabs: tabs[i]})
+		}
+	}
+	return briefs, nil
+}
+
+// writeSheets lists sheets for @Cells: each tab with its columns, numbers
+// marked, and the values of columns that hold a few, which `is` must match.
+func writeSheets(b *strings.Builder, sheets []sheetBrief) {
+	wrote := false
+	for _, sh := range sheets {
+		title := strings.TrimSpace(sh.Title)
+		if title == "" {
+			continue
+		}
+		var tabs []string
+		for _, tab := range sh.Tabs {
+			if tab.Rows == 0 || len(tab.Columns) == 0 {
+				continue
+			}
+			columns := make([]string, len(tab.Columns))
+			for i, column := range tab.Columns {
+				columns[i] = column.Name
+				if column.Numbers {
+					columns[i] += " #"
+				} else if len(column.Values) > 0 {
+					values := make([]string, len(column.Values))
+					for j, value := range column.Values {
+						values[j] = strconv.Quote(value)
+					}
+					columns[i] += " [" + strings.Join(values, ", ") + "]"
+				}
+			}
+			tabs = append(tabs, fmt.Sprintf("  - tab %q, %d rows: %s", tab.Name, tab.Rows, strings.Join(columns, ", ")))
+		}
+		if len(tabs) == 0 {
+			continue
+		}
+		if !wrote {
+			b.WriteString("\nThe person's sheets, for @Cells (each tab with its columns; # marks columns of numbers; [...] lists the values a column of text holds, written as is must write them):\n")
+			wrote = true
+		}
+		fmt.Fprintf(b, "- %q\n%s\n", title, strings.Join(tabs, "\n"))
+	}
+}
+
+// checklistBrief is one doc's checklist as the model sees it for @Checklist.
+type checklistBrief struct {
+	Title string
+	Items []richtext.ChecklistItem
+}
+
+// checklistBriefs reads the checklists of the person's latest edited docs,
+// numbered as the apps' @Checklist reads them.
+func (s *Service) checklistBriefs(ctx context.Context, userID string) ([]checklistBrief, error) {
+	var docs []models.Document
+	err := s.db.WithContext(ctx).Select("title", "content").Where("user_id = ? AND archived_at IS NULL", userID).Order("updated_at DESC").Limit(dashboardCardDocs).Find(&docs).Error
+	if err != nil {
+		return nil, err
+	}
+	var briefs []checklistBrief
+	for _, doc := range docs {
+		items := richtext.ChecklistItems(doc.Content)
+		if len(items) == 0 || strings.TrimSpace(doc.Title) == "" {
+			continue
+		}
+		briefs = append(briefs, checklistBrief{Title: strings.TrimSpace(doc.Title), Items: items})
+		if len(briefs) == dashboardCardChecklists {
+			break
+		}
+	}
+	return briefs, nil
+}
+
+// writeChecklists lists docs for @Checklist: each with how many items it
+// holds and the first ones, ticked ones marked.
+func writeChecklists(b *strings.Builder, checklists []checklistBrief) {
+	for i, list := range checklists {
+		if i == 0 {
+			b.WriteString("\nThe person's checklists, for @Checklist (each doc with its tick-box items; [x] marks a ticked one):\n")
+		}
+		done := 0
+		shown := make([]string, 0, min(len(list.Items), dashboardCardItems))
+		for j, item := range list.Items {
+			if item.Done {
+				done++
+			}
+			if j < dashboardCardItems {
+				mark := ""
+				if item.Done {
+					mark = "[x] "
+				}
+				shown = append(shown, mark+strconv.Quote(clipHead(item.Text, 60)))
+			}
+		}
+		more := ""
+		if len(list.Items) > dashboardCardItems {
+			more = fmt.Sprintf(", … %d more", len(list.Items)-dashboardCardItems)
+		}
+		fmt.Fprintf(b, "- %q, %d items, %d ticked: %s%s\n", list.Title, len(list.Items), done, strings.Join(shown, ", "), more)
+	}
+}
+
+func dashboardCardMessages(req dashboardCardRequest, v viewVocab, sheets []sheetBrief, checklists []checklistBrief) []chat.WireMessage {
+	var b strings.Builder
+	weekday := ""
+	if day, err := time.Parse("2006-01-02", req.Today); err == nil {
+		weekday = day.Weekday().String()
+	}
+	fmt.Fprintf(&b, "Today is %s %s.\n\nThe person's names:\n", weekday, req.Today)
+	list := func(title string, rows []vocabRow) {
+		if names := uniqueNames(rows); len(names) > 0 {
+			fmt.Fprintf(&b, "- %s: %s\n", title, strings.Join(names, ", "))
+		}
+	}
+	list("Workspaces", v.workspaces)
+	list("Projects", v.projects)
+	list("Statuses", v.statuses)
+	list("Labels", v.labels)
+	writeSheets(&b, sheets)
+	writeChecklists(&b, checklists)
+	if req.Place == "doc" {
+		b.WriteString("\nThis card is a live block in a doc: it takes the doc's width and as much height as it needs, so leave the size out. Up to ten rows fit.\n")
+	}
+	if req.Current != "" {
+		fmt.Fprintf(&b, "\nThe card now:\n<program>\n%s\n</program>\n\nChange it: %s\n", req.Current, req.Prompt)
+	} else {
+		fmt.Fprintf(&b, "\nWords: %s\n", req.Prompt)
+	}
+	// The board prompt (with the tools) is the same for every card: cached.
+	return []chat.WireMessage{{Role: "system", Content: boardPrompt, Cache: true}, {Role: "user", Content: b.String()}}
+}
+
+var (
+	programFence = regexp.MustCompile("(?s)```[\\w-]*[ \\t]*\\n(.*?)(?:\\n```|$)")
+	programRoot  = regexp.MustCompile(`(?m)^root\s*=\s*Panel\(`)
+	// programStatement starts a statement (`name = ...`); programPart starts
+	// the rest of one written over several lines (an indented line, a
+	// closing bracket, the next item of a list) or is a comment (`//` and
+	// `#`, which the parser skips).
+	programStatement = regexp.MustCompile(`^[A-Za-z_$][\w$]*\s*=[^=]`)
+	programPart      = regexp.MustCompile(`^(\s|[\])},"\[@#]|//|[A-Z]\w*\()`)
+)
+
+// errProgramTooLong is a program over dashboardCardMaxProgram characters.
+var errProgramTooLong = errors.New("the program is too long")
+
+// programLength counts a program as the apps do (DESCRIBED_MAX_PROGRAM is a
+// JavaScript string length): Japanese takes one unit, not three bytes.
+func programLength(program string) int {
+	n := 0
+	for _, r := range program {
+		n += utf16.RuneLen(r)
+	}
+	return n
+}
+
+// boardProgram takes the program out of the model's answer: from the code
+// fence that holds `root = Panel(` when there is one, the root statement
+// first, then the statements after it up to any prose, then the ones
+// written above it.
+func boardProgram(answer string) (string, error) {
+	text := cleanWritten(answer, false)
+	for _, match := range programFence.FindAllStringSubmatch(text, -1) {
+		if programRoot.MatchString(match[1]) {
+			text = match[1]
+			break
+		}
+	}
+	loc := programRoot.FindStringIndex(text)
+	if loc == nil {
+		return "", errors.New("no Panel root in the answer")
+	}
+	// A line inside an open bracket is part of its statement, whatever it
+	// starts with; between statements, a line that is not a program's ends
+	// the program ("This card shows your overdue tasks.").
+	after := strings.Split(text[loc[0]:], "\n")
+	lines := []string{after[0]}
+	depth := bracketDepth(0, after[0])
+	for _, line := range after[1:] {
+		if depth == 0 && !programLine(line) {
+			break
+		}
+		lines = append(lines, line)
+		depth = bracketDepth(depth, line)
+	}
+	// Above the root, the program is the run of lines after the last one
+	// that is not a program's.
+	above := strings.Split(strings.TrimRight(text[:loc[0]], "\n"), "\n")
+	start, depth := -1, 0
+	for i, line := range above {
+		if depth == 0 {
+			if !programLine(line) {
+				start = -1
+			} else if start < 0 {
+				start = i
+			}
+		}
+		depth = bracketDepth(depth, line)
+	}
+	if start >= 0 && depth == 0 {
+		lines = append(lines, above[start:]...)
+	}
+	var kept []string
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			kept = append(kept, strings.TrimRight(line, " \t"))
+		}
+	}
+	program := strings.Join(kept, "\n")
+	if programLength(program) > dashboardCardMaxProgram {
+		return "", errProgramTooLong
+	}
+	return program, nil
+}
+
+// programLine reports whether a line belongs to a program: blank, a
+// statement, or part of one.
+func programLine(line string) bool {
+	return strings.TrimSpace(line) == "" || programStatement.MatchString(line) || programPart.MatchString(line)
+}
+
+// bracketDepth is how many brackets are open after line, given depth open
+// before it: brackets in strings and comments don't count, and a line
+// that closes more than is open leaves none open.
+func bracketDepth(depth int, line string) int {
+	var quote rune
+	escaped, slash := false, false
+	for _, r := range line {
+		if quote != 0 {
+			if escaped {
+				escaped = false
+			} else if r == '\\' {
+				escaped = true
+			} else if r == quote {
+				quote = 0
+			}
+			continue
+		}
+		if r == '#' || (r == '/' && slash) {
+			break
+		}
+		slash = r == '/'
+		switch r {
+		case '"', '\'':
+			quote = r
+		case '(', '[', '{':
+			depth++
+		case ')', ']', '}':
+			depth = max(0, depth-1)
+		}
+	}
+	return depth
+}

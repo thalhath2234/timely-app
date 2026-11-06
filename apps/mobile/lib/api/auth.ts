@@ -18,6 +18,11 @@ export function login(email: string, password: string) {
   return api<AuthSession>("/login", { method: "POST", body: { email, password }, auth: false });
 }
 
+/** Trades the one-time code from the desktop's pairing QR for a session. */
+export function pair(code: string) {
+  return api<AuthSession>("/auth/pair", { method: "POST", body: { code }, auth: false });
+}
+
 export function register(name: string, email: string, password: string) {
   return api<AuthSession>("/register", { method: "POST", body: { name, email, password }, auth: false });
 }

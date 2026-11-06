@@ -361,6 +361,8 @@ func (r *runner) exercise(email string) {
 	r.call("add_3d_model", map[string]any{"docId": docID, "name": "crate", "parts": []map[string]any{
 		{"shape": "box", "center": []float64{0, 0, 0.5}, "size": []float64{1, 1, 1}, "color": "#8B5A2B"},
 	}})
+	// A fresh account has no AI provider to write the block's program.
+	r.callAllow("add_live_block", map[string]any{"docId": docID, "words": "open tasks with a chart by day"}, "need an AI provider")
 	if older := olderVersion(r.call("list_doc_versions", map[string]any{"docId": docID})); older != "" {
 		r.call("restore_doc_version", map[string]any{"docId": docID, "versionId": older})
 	} else {
@@ -490,7 +492,7 @@ func (r *runner) exercise(email string) {
 	r.call("download_backup", map[string]any{"backupId": backupID})
 	r.call("delete_backup", map[string]any{"backupId": backupID, "confirm": true})
 	if exported != nil {
-		r.call("restore_account", map[string]any{"confirm": true, "backup": exported["backup"]})
+		r.call("restore_account", map[string]any{"confirm": true, "mode": "replace", "backup": exported["backup"]})
 	} else {
 		r.fail("restore_account", "export_account did not return a backup")
 	}

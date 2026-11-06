@@ -10,7 +10,8 @@ export type DecisionSettings = {
   enabled: boolean;
   available: boolean;
   provider?: DecisionProvider;
-  typesafe: { keySet: boolean; keyHint?: string; rejected: boolean };
+  /** unreadable: a key is saved but the server can no longer decrypt it, so it must be entered again. */
+  typesafe: { keySet: boolean; keyHint?: string; rejected: boolean; unreadable?: boolean };
   openrouterKeySet: boolean;
   deepWorkTime?: "" | "morning" | "afternoon" | "evening";
 };
@@ -99,6 +100,8 @@ export const getImportFormat = (lines: string[]) =>
 export type TaskHints = {
   available: boolean;
   logId?: string;
+  /** Set when suggestions are on but the call failed. */
+  error?: string;
   statusId?: string;
   stageId?: string;
   fields?: { fieldId: string; type: string; optionIds?: string[]; value?: string }[];
@@ -122,7 +125,7 @@ export type StaleWork = {
   logId?: string;
   tasks: { id: string; name: string; idleDays: number; verdict?: StaleVerdict }[];
 };
-export const getStaleWork = () => api<StaleWork>("/suggestions/stale-work");
+export const getStaleWork = () => api<StaleWork>(`/suggestions/stale-work?timezone=${encodeURIComponent(deviceTimezone())}`);
 export const keepStaleTask = (id: string) =>
   api<void>(`/suggestions/stale-work/${encodeURIComponent(id)}/keep`, { method: "POST" });
 
@@ -138,8 +141,10 @@ export type ProjectInsights = {
   misfiled?: { taskId: string; name: string; moveTo?: string; moveToTitle?: string; stageId?: string }[];
   overlaps?: { id: string; title: string }[];
 };
+/** Overdue and days left are counted in the person's own day, so the
+ * device's zone goes along for an account with no saved working hours. */
 export const getProjectInsights = (id: string) =>
-  api<ProjectInsights>(`/suggestions/project/${encodeURIComponent(id)}`);
+  api<ProjectInsights>(`/suggestions/project/${encodeURIComponent(id)}?timezone=${encodeURIComponent(deviceTimezone())}`);
 
 /** What a new project's title suggests starting from: an earlier project to
  * copy, a doc template and a sheet template. */
@@ -178,12 +183,12 @@ export const mergeTaxonomy = (workspaceId: string, merge: CleanupMerge) => {
   if (merge.kind === "option")
     return api<MergeResult>(`/workspaces/${ws}/custom-field/${encodeURIComponent(merge.fieldId ?? "")}/options/merge`, {
       method: "POST",
-      body: { from: merge.from.id, into: merge.into.id },
+      body: { from: merge.from.id, into: merge.into.id, fromName: merge.from.name, intoName: merge.into.name },
     });
   const path = merge.kind === "label" ? "lable" : "status";
   return api<MergeResult>(`/workspaces/${ws}/${path}/${encodeURIComponent(merge.from.id)}/merge`, {
     method: "POST",
-    body: { into: merge.into.id },
+    body: { into: merge.into.id, fromName: merge.from.name, intoName: merge.into.name },
   });
 };
 
@@ -199,27 +204,51 @@ export type DocHints = {
   properties?: { key: string; value: string }[];
   template?: { id: string; title: string };
   outdated?: boolean;
-  /** Items (lower case) of checklists kept in the doc, not worked as tasks. */
-  keptLists?: string[];
+  /** Checklist items offered as tasks are turned off for this doc. */
+  todosOff?: boolean;
+  /** Smart suggestions were busy or failed: the hints are missing, not empty. */
+  failed?: boolean;
 };
-export const getDocHints = (id: string) => api<DocHints>(`/suggestions/doc/${encodeURIComponent(id)}`);
+export const getDocHints = (id: string, signal?: AbortSignal) => api<DocHints>(`/suggestions/doc/${encodeURIComponent(id)}`, { signal });
 
 /** One kind of doc suggestion and what it offers: an id for a template,
- * project or page, the type, "key=value" for a property, the line for work. */
-export type DocHintKind = "template" | "project" | "parent" | "type" | "prop" | "work" | "outdated";
+ * project or page, the type, "key=value" for a property, the line for work,
+ * the item's name for a checklist item offered as a task. "todos" is all of
+ * the doc's checklist items: its task offers switched off. */
+export type DocHintKind = "template" | "project" | "parent" | "type" | "prop" | "work" | "outdated" | "todo" | "todos";
 
 /** Remembers a dismissed suggestion for the doc, on every device. */
 export const dismissDocHint = (id: string, kind: DocHintKind, value = "") =>
   api<void>(`/suggestions/doc/${encodeURIComponent(id)}/dismiss`, { method: "POST", body: { kind, value } });
 
-/** Which of a doc's checklist task names are already tasks, and the project
- * new ones go to. Plain code on the server: it answers with no keys. */
+/** Takes a dismissal back: an undo, or the doc's task offers on again. */
+export const restoreDocHint = (id: string, kind: DocHintKind, value = "") =>
+  api<void>(`/suggestions/doc/${encodeURIComponent(id)}/dismiss`, { method: "DELETE", body: { kind, value } });
+
+/** Which of a doc's checklist task names are already tasks, which Jev offers
+ * as tasks (only while smart suggestions are on), and the project new ones
+ * go to. */
 export type DocChecklist = {
   existing: { name: string; taskId: string }[];
   project?: { id: string; title: string; workspaceId: string };
+  /** Where the person said tasks from this doc go ("inbox" or the project's
+   * id), while it still applies; without it the place is automatic. */
+  picked?: string;
+  /** Smart suggestions are on, so items can be offered at all. */
+  available?: boolean;
+  /** Task offers are turned off for this doc. */
+  off?: boolean;
+  /** Names, as sent, that read as things to get done and are not tasks yet. */
+  offer?: string[];
+  logId?: string;
 };
 export const getDocChecklist = (id: string, names: string[], projectId?: string) =>
   api<DocChecklist>(`/suggestions/doc/${encodeURIComponent(id)}/checklist`, { method: "POST", body: { names, projectId: projectId ?? "" } });
+
+/** Where every task made from the doc's offers goes: "inbox", a project's
+ * id, or "" for the automatic place again. */
+export const setDocGoesTo = (id: string, target: string) =>
+  api<void>(`/suggestions/doc/${encodeURIComponent(id)}/goes-to`, { method: "PUT", body: { target } });
 
 export type MentionTarget = { kind: "task" | "project" | "doc" | "sheet"; id: string; title: string };
 /** What a selected phrase may refer to: Jev's match when sure, and up to six
@@ -253,6 +282,8 @@ export type HighlightGroup = { key: string; label: string; count: number; tasks:
 export type Highlights = {
   available: boolean;
   logId?: string;
+  /** Set when suggestions are on but a call failed. */
+  error?: string;
   highlights: { id: string; text: string }[];
   blockers: HighlightGroup[];
   missed: HighlightGroup[];

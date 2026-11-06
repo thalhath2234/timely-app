@@ -7,7 +7,7 @@ import Conversation from "./conversation";
 import { useChatStore } from "@/app/_store/chatStore";
 import { useEntityDetailStore } from "@/app/_store/entityDetailStore";
 import { useCalendarStore } from "@/app/_store/calendarStore";
-import { useChats } from "@/app/utils/hooks/chat";
+import { useChats, useChatStream } from "@/app/utils/hooks/chat";
 import type { ChatContext } from "@/app/utils/api/chat";
 import { fileIdFromPath, fileKind } from "@/app/utils/fileRoutes";
 import { cn } from "@/app/utils/cn";
@@ -31,6 +31,7 @@ export default function ChatRuntime() {
   const pathname = usePathname();
   const router = useRouter();
   const { data: chats } = useChats();
+  useChatStream();
   const seen = useRef<Map<string, string> | null>(null);
   useEffect(() => {
     function open(event: KeyboardEvent) {
@@ -111,7 +112,9 @@ export default function ChatRuntime() {
           value: `${calendar.activeView}: ${calendar.selectedDate.toLocaleDateString("en-CA")}`,
         });
       }
-      openNew(chips);
+      // A long page or task title fits the server's 200-character label
+      // limit (slice counts UTF-16 units, never more characters than that).
+      openNew(chips.map((chip) => ({ ...chip, label: chip.label.slice(0, 200) })));
     }
     window.addEventListener("keydown", open);
     return () => window.removeEventListener("keydown", open);

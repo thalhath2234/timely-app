@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -829,6 +830,80 @@ func (s *Server) addSheetRow(ctx context.Context, req *mcp.CallToolRequest, in a
 	if warning := monthMismatch(tab, cells); warning != "" {
 		payload["warning"] = warning
 		summary += ". " + warning
+	}
+	return reply(summary, payload)
+}
+
+type addEntriesIn struct {
+	SheetID string            `json:"sheetId"`
+	TabID   string            `json:"tabId,omitempty" jsonschema:"tab id from get_sheet, or the tab's name such as \"October\"; required when the sheet has several tabs"`
+	Entries []addEntryCellsIn `json:"entries" jsonschema:"the entries in the order they go into the tab, at most 200"`
+}
+
+type addEntryCellsIn struct {
+	Cells map[string]string `json:"cells" jsonschema:"one entry: column name, A1 letter or id to value, e.g. {\"Item\": \"Rice 5kg\", \"Qty\": \"2\"}. Columns left out keep the row's own formulas or stay blank."`
+}
+
+// maxSheetEntries bounds one add_sheet_entries call; a tab holds far fewer
+// entries than this in a month.
+const maxSheetEntries = 200
+
+// addSheetEntries adds several entries to one tab in one change, each the
+// way add_sheet_row adds one: one save, one review item, one undo.
+func (s *Server) addSheetEntries(ctx context.Context, req *mcp.CallToolRequest, in addEntriesIn) (*mcp.CallToolResult, any, error) {
+	uid, err := userID(req)
+	if err != nil {
+		return fail(err)
+	}
+	if len(in.Entries) == 0 {
+		return fail(fmt.Errorf("entries is required"))
+	}
+	if len(in.Entries) > maxSheetEntries {
+		return fail(fmt.Errorf("at most %d entries per call; split them into several add_sheet_entries steps", maxSheetEntries))
+	}
+	keys := []string{}
+	for i, entry := range in.Entries {
+		if len(entry.Cells) == 0 {
+			return fail(fmt.Errorf("entry %d has no cells", i+1))
+		}
+		for key := range entry.Cells {
+			keys = append(keys, key)
+		}
+	}
+	current, tabID, err := s.sheetTab(uid, in.SheetID, in.TabID, keys...)
+	if err != nil {
+		return fail(err)
+	}
+	tab, _ := tabByID(current, tabID)
+	entries := make([]map[string]string, len(in.Entries))
+	var warnings []string
+	for i, entry := range in.Entries {
+		cells, err := columnKeys(tab.Columns, entry.Cells)
+		if err != nil {
+			return fail(fmt.Errorf("entry %d: %w", i+1, err))
+		}
+		entries[i] = cells
+		if warning := monthMismatch(tab, cells); warning != "" {
+			warnings = append(warnings, fmt.Sprintf("Entry %d: %s", i+1, warning))
+		}
+	}
+	sh, indexes, err := s.Sheets.AddEntries(uid, in.SheetID, tabID, entries)
+	if err != nil {
+		return fail(err)
+	}
+	payload := sheetResult(sh, tabID)
+	rows := make([]int, len(indexes))
+	values := make([]map[string]any, len(indexes))
+	for i, index := range indexes {
+		rows[i] = index + 1
+		values[i] = rowValues(sh, tabID, index)
+	}
+	payload["rows"] = rows
+	payload["values"] = values
+	summary := fmt.Sprintf("added %d entries to %s, rows %d to %d", len(rows), tab.Name, slices.Min(rows), slices.Max(rows))
+	if len(warnings) > 0 {
+		payload["warnings"] = warnings
+		summary += ". " + strings.Join(warnings, ". ")
 	}
 	return reply(summary, payload)
 }

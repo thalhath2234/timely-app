@@ -12,6 +12,9 @@ import { DEFAULT_PROBE_TIMEOUT_MS, parseHealthPayload, serverStore, type ServerH
 /** `ApiError.code` when no server has been paired yet (release builds only). */
 export const NO_SERVER_CODE = "no-server";
 export const NO_SERVER_MESSAGE = "Pair with your Timely desktop first";
+/** `ApiError.code` while the known address answers as a different Timely server. */
+export const WRONG_SERVER_CODE = "wrong-server";
+export const WRONG_SERVER_MESSAGE = "Your Timely desktop's address now answers as a different server. Pair again from Settings → Server.";
 
 export class ApiError extends Error {
   status: number;
@@ -44,13 +47,19 @@ export function devApiUrl(): string {
 
 let activeApiUrl: string | null = null;
 let resolvingApiUrl: Promise<string> | null = null;
+let apiGate: Promise<unknown> | null = null;
+let wrongServer = false;
 
 /**
  * The address every request goes to. Memoized; the ServerProvider sets it on
  * launch and whenever a different known address answers. Before the provider
- * runs, the remembered address from SecureStore is used.
+ * runs, the remembered address from SecureStore is used. While the provider's
+ * launch probe checks the server's identity, requests wait for it, so a
+ * session token never goes to a different server at a remembered address.
  */
 export async function getApiUrl(): Promise<string> {
+  if (apiGate) await apiGate.catch(() => undefined);
+  if (wrongServer) throw new ApiError(WRONG_SERVER_MESSAGE, 0, WRONG_SERVER_CODE);
   if (activeApiUrl) return activeApiUrl;
   if (!resolvingApiUrl) {
     resolvingApiUrl = (async () => {
@@ -76,6 +85,19 @@ export function getApiUrlSync(): string {
 export function setActiveApiUrl(url: string | null) {
   activeApiUrl = url ? url.replace(/\/+$/, "") : null;
   resolvingApiUrl = null;
+  wrongServer = false;
+}
+
+/** Requests wait for `gate` (the launch identity probe) before they go out; null lifts it. */
+export function setApiGate(gate: Promise<unknown> | null) {
+  apiGate = gate;
+}
+
+/** Stops every request: the known addresses answer as a different server. `setActiveApiUrl` lifts it. */
+export function blockWrongServer() {
+  activeApiUrl = null;
+  resolvingApiUrl = null;
+  wrongServer = true;
 }
 
 /** Ngrok's free tier serves an interstitial unless every request opts out. */
@@ -114,11 +136,20 @@ export async function apiHealth(
 }
 
 export async function readError(response: Response, fallback: string) {
+  return (await readErrorBody(response, fallback)).message;
+}
+
+/** The error's words and, when the server sends one, its code (such as
+ * "provider_not_chosen"), so a screen can offer the fix. */
+async function readErrorBody(response: Response, fallback: string) {
   try {
-    const body = (await response.json()) as { message?: string; error?: string };
-    return body.message || body.error || fallback;
+    const body = (await response.json()) as { message?: string; error?: string; code?: unknown };
+    return {
+      message: body.message || body.error || fallback,
+      code: typeof body.code === "string" ? body.code : undefined,
+    };
   } catch {
-    return fallback;
+    return { message: fallback, code: undefined };
   }
 }
 
@@ -129,6 +160,8 @@ type RequestOptions = {
   headers?: Record<string, string>;
   queueIfOffline?: boolean;
   response?: boolean;
+  /** Drops the request (and the server's work on it) when the screen gives up on it. */
+  signal?: AbortSignal;
 };
 
 let refreshInFlight: Promise<boolean> | null = null;
@@ -182,6 +215,7 @@ export async function api<T>(path: string, options: RequestOptions = {}, retried
       method,
       headers,
       body: body === undefined ? undefined : multipart ? body : JSON.stringify(body),
+      signal: options.signal,
     });
   } catch (error) {
     if (queueIfOffline && getOfflineQueueUser()) {
@@ -201,7 +235,8 @@ export async function api<T>(path: string, options: RequestOptions = {}, retried
   }
 
   if (!response.ok) {
-    throw new ApiError(await readError(response, `${method} ${path} failed`), response.status);
+    const failure = await readErrorBody(response, `${method} ${path} failed`);
+    throw new ApiError(failure.message, response.status, failure.code);
   }
 
   if (options.response) return response as T;

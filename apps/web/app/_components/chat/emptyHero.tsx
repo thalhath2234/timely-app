@@ -90,6 +90,8 @@ export default function EmptyHero({
   // Chat needs a provider; the rest of Timely does not. Say so before a
   // message is sent rather than after it fails.
   const needsProvider = Boolean(providers.data) && readyProviders(providers.data).length === 0;
+  // Set up but not chosen: new chats wait for the person's pick (ADR 0020).
+  const needsChoice = Boolean(providers.data) && !needsProvider && !providers.data?.defaultChosen;
   const fitted = prompts.data?.prompts?.length ? prompts.data : null;
   const shown = fitted
     ? fitted.prompts.map((prompt) => ({ icon: PROMPT_ICONS[prompt.key] ?? Sparkles, title: prompt.title, text: prompt.text }))
@@ -131,6 +133,22 @@ export default function EmptyHero({
           </div>
           <Link href="/settings?tab=agent" className={buttonClass({ size: "sm" })}>
             Settings
+          </Link>
+        </div>
+      ) : needsChoice ? (
+        <div
+          data-testid="chat-needs-choice"
+          className={cn("mt-5 flex items-center gap-3 rounded-[12px] border border-primary/25 bg-primary/[0.06] px-3.5 py-2.5", compact && "mt-4")}
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-[8px] bg-primary/12 text-primary">
+            <KeyRound className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">Choose a provider for chats</p>
+            <p className="truncate text-xs text-muted-foreground">Chats and Help me write wait until you choose one.</p>
+          </div>
+          <Link href="/settings?tab=agent" className={buttonClass({ size: "sm" })}>
+            Choose provider
           </Link>
         </div>
       ) : null}

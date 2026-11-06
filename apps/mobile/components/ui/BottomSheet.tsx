@@ -18,6 +18,7 @@ import { easeOut, overlayDuration, pageDuration, sheetExitDuration } from "../..
 import AnimatedPressable from "./AnimatedPressable";
 import { FocusGroupScrollView } from "./FocusGroup";
 import { useKeyboardCover } from "./useKeyboardCover";
+import { isPlainText } from "../../lib/plainText";
 
 type SheetContent = {
   title?: string;
@@ -366,17 +367,26 @@ function SheetHeader({
   );
 }
 
+/** One row of a picker sheet. Plain-text children (one string or several,
+ * such as `{name}{" · "}{id}`) are drawn as the row's label; `detail` adds a
+ * muted second line, as the model pickers use for a model's id. `trailing`
+ * sits before the selected tick, so labels stay in one column. */
 export function SheetOption({
   selected,
   onSelect,
   children,
   leading,
+  trailing,
+  detail,
 }: {
   selected?: boolean;
   onSelect: () => void;
   children: ReactNode;
   leading?: ReactNode;
+  trailing?: ReactNode;
+  detail?: string;
 }) {
+  const on = selected && { color: colors.accentForeground };
   return (
     <AnimatedPressable
       accessibilityRole="button"
@@ -386,11 +396,17 @@ export function SheetOption({
       style={[styles.option, selected && styles.optionOn]}
     >
       {leading}
-      {typeof children === "string" ? (
-        <Text style={[styles.optionText, selected && { color: colors.accentForeground }]}>{children}</Text>
-      ) : (
+      {!isPlainText(children) ? (
         <View style={{ flex: 1 }}>{children}</View>
+      ) : detail ? (
+        <View style={styles.optionBody}>
+          <Text style={[styles.optionName, on]} numberOfLines={1}>{children}</Text>
+          <Text style={styles.optionDetail} numberOfLines={1}>{detail}</Text>
+        </View>
+      ) : (
+        <Text style={[styles.optionText, on]}>{children}</Text>
       )}
+      {trailing}
       {selected ? <Check size={18} color={colors.primary} strokeWidth={2.5} /> : null}
     </AnimatedPressable>
   );
@@ -450,4 +466,7 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   optionOn: { backgroundColor: colors.accent },
   optionText: { flex: 1, color: colors.foreground, fontSize: 15, fontWeight: "600" },
+  optionBody: { flex: 1, minWidth: 0, paddingVertical: 8 },
+  optionName: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
+  optionDetail: { color: colors.mutedForeground, fontSize: 12, marginTop: 2 },
 }));

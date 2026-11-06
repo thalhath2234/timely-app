@@ -20,6 +20,10 @@ export type DesktopConfig = {
   apiPort: number;
   webPort: number;
   tailscaleEnabled: boolean;
+  /** Serve the API at https://<MagicDNS name>/ with Tailscale Serve (needs tailscaleEnabled). */
+  tailscaleHttps: boolean;
+  /** The Serve target Timely last set up, so a moved API port can replace it. */
+  tailscaleServeTarget?: string;
   allowRegistration: boolean;
   setupDone: boolean;
   /** Sealed values; see Sealer. */
@@ -84,6 +88,7 @@ export function defaultConfig(version: string, ports: Ports = DEFAULT_PORTS): De
     apiPort: ports.apiPort,
     webPort: ports.webPort,
     tailscaleEnabled: false,
+    tailscaleHttps: false,
     allowRegistration: false,
     setupDone: false,
     secrets: {},
@@ -128,6 +133,8 @@ export function loadConfig(file: string, fallbackVersion: string, ports: Ports =
       apiPort: isPort(data.apiPort) ? data.apiPort : defaults.apiPort,
       webPort: isPort(data.webPort) ? data.webPort : defaults.webPort,
       tailscaleEnabled: data.tailscaleEnabled === true,
+      tailscaleHttps: data.tailscaleHttps === true,
+      tailscaleServeTarget: typeof data.tailscaleServeTarget === "string" && data.tailscaleServeTarget ? data.tailscaleServeTarget : undefined,
       allowRegistration: data.allowRegistration === true,
       setupDone: data.setupDone === true,
       secrets,

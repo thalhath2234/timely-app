@@ -177,12 +177,24 @@ func AuthorityOf(name string) (Authority, bool) {
 	return t.Authority, ok
 }
 
+// Prepares reports whether a tool has a Prepare step (see Tool.Prepare).
+func Prepares(name string) bool {
+	return authorities()[name].Prepare != nil
+}
+
 // Argument rules for the ReviewedWhen tools (ADR 0007).
 
 // A single clear cell edit executes immediately; several cells are a bulk edit.
 func otherThanOneCell(args map[string]any) bool {
 	cells, _ := args["cells"].(map[string]any)
 	return len(cells) != 1
+}
+
+// One entry applies directly like add_sheet_row; several are a bulk edit,
+// reviewed as several add_sheet_row steps would be.
+func severalEntries(args map[string]any) bool {
+	entries, _ := args["entries"].([]any)
+	return len(entries) != 1
 }
 
 // A sheet created from a template arrives populated.

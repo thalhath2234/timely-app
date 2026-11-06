@@ -37,6 +37,8 @@ import { needsNetworkCopy } from "../../../lib/queryCopy";
 import { showUndoToast } from "../../../lib/toast";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import type { CalendarItem, Task } from "../../../lib/types";
+import { calendarItemDone } from "@timely/contract/calendar";
+import { useTickCalendarItem } from "../../../lib/calendarTick";
 import { taskEntityColor } from "../../../lib/entityColor";
 import { normalizePriority } from "../../../lib/priority";
 import { eventHref } from "../../../lib/eventOccurrence";
@@ -234,6 +236,7 @@ export default function HomeScreen() {
   const pauseFocus = usePauseFocus();
   const setFocus = useSetTodayFocus();
   const save = useSaveTask();
+  const completeItem = useTickCalendarItem();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerSelected, setPickerSelected] = useState<string[]>([]);
   const [now, setNow] = useState(() => Date.now());
@@ -593,8 +596,8 @@ export default function HomeScreen() {
                       accent={item.task ? taskEntityColor(item.task) : (item.color ?? colors.mutedForeground)}
                       active={isFocusing}
                       reminder={item.reminder}
-                      done={Boolean(item.completedAt || item.task?.completedAt)}
-                      onComplete={item.task ? () => completeTask(item.task!) : undefined}
+                      done={calendarItemDone(item)}
+                      onComplete={item.task ? () => completeItem(item) : undefined}
                     >
                       {meet ? (
                         <AnimatedPressable

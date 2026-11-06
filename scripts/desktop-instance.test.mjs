@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   canToggleTailscale,
+  codeTimeLeft,
+  describeHttps,
   describeSidecar,
   describeTailscale,
   describeUpdate,
@@ -79,4 +81,27 @@ test("onboarding goes to the wizard once inside the desktop app, otherwise to th
   assert.equal(routeAfterOnboarding(null), "/calendar");
   assert.equal(routeAfterOnboarding({ settings: { tailscaleEnabled: false, allowRegistration: true, setupDone: false } }), "/setup");
   assert.equal(routeAfterOnboarding({ settings: { tailscaleEnabled: false, allowRegistration: true, setupDone: true } }), "/calendar");
+});
+
+test("a sign-in code rides along in the QR only while it is valid", () => {
+  const withCode = JSON.parse(pairingPayload(instance, "pair_abc"));
+  assert.equal(withCode.code, "pair_abc");
+  assert.deepEqual(withCode.urls, instance.pairing.urls);
+  assert.equal(JSON.parse(pairingPayload(instance)).code, undefined);
+  const now = Date.parse("2026-10-30T10:00:00Z");
+  assert.equal(codeTimeLeft("2026-10-30T10:05:00Z", now), "5:00");
+  assert.equal(codeTimeLeft("2026-10-30T10:00:01.200Z", now), "0:02");
+  assert.equal(codeTimeLeft("2026-10-30T10:00:00Z", now), null);
+  assert.equal(codeTimeLeft("not a date", now), null);
+});
+
+test("HTTPS status follows both switches and the Serve state", () => {
+  const at = (settings, https) => describeHttps({ settings: { ...instance.settings, ...settings }, tailscale: { ...instance.tailscale, https } });
+  assert.equal(at({ tailscaleHttps: false }, { status: "on", url: "https://x" }).label, "Off");
+  assert.equal(at({ tailscaleEnabled: false, tailscaleHttps: true }, { status: "on" }).label, "Off");
+  assert.equal(at({ tailscaleHttps: true }, { status: "on", url: "https://x.ts.net" }).tone, "ok");
+  assert.equal(at({ tailscaleHttps: true }, { status: "starting" }).tone, "warn");
+  const failed = at({ tailscaleHttps: true }, { status: "error", error: "Turn on HTTPS" });
+  assert.equal(failed.tone, "danger");
+  assert.equal(failed.detail, "Turn on HTTPS");
 });

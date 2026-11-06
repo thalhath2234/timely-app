@@ -4,10 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
+
+	"timely-api/internal/utils"
 )
 
 const embedURL = "https://openrouter.ai/api/v1/embeddings"
@@ -24,7 +29,75 @@ type embedResponse struct {
 	} `json:"data"`
 	Error *struct {
 		Message string `json:"message"`
+		Code    any    `json:"code"`
 	} `json:"error"`
+}
+
+// ProviderError is OpenRouter refusing an embeddings request, with the HTTP
+// status it gave (or the code in its error body).
+type ProviderError struct {
+	Status  int
+	Message string
+}
+
+func (e *ProviderError) Error() string { return e.Message }
+
+// dimsError is a model whose vectors do not fit the index.
+type dimsError struct{ msg string }
+
+func (e *dimsError) Error() string { return e.msg }
+
+// Rejected reports that the provider refused this input itself (a bad
+// request, flagged or too long), so other texts may still embed.
+func Rejected(err error) bool {
+	var pe *ProviderError
+	if !errors.As(err, &pe) {
+		return false
+	}
+	switch pe.Status {
+	case http.StatusBadRequest, http.StatusForbidden, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity:
+		return true
+	}
+	return false
+}
+
+// Permanent reports an error that another attempt would repeat: a rejected
+// input, a refused key, no credits left, an unknown model or one whose
+// vectors do not fit. Timeouts, rate limits and server errors are not.
+func Permanent(err error) bool {
+	if Rejected(err) {
+		return true
+	}
+	var de *dimsError
+	if errors.As(err, &de) {
+		return true
+	}
+	var pe *ProviderError
+	if !errors.As(err, &pe) {
+		return false
+	}
+	switch pe.Status {
+	case http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusNotFound:
+		return true
+	}
+	return false
+}
+
+// providerText is a provider's message as Timely keeps it: keys it quotes
+// hidden, at most a few hundred bytes.
+func providerText(s string) string {
+	return utils.ClipUTF8(strings.TrimSpace(utils.RedactSecrets(s)), 300)
+}
+
+func errorCode(code any) int {
+	switch v := code.(type) {
+	case float64:
+		return int(v)
+	case string:
+		n, _ := strconv.Atoi(v)
+		return n
+	}
+	return 0
 }
 
 func (i *indexer) embedTexts(ctx context.Context, userID string, texts []string) ([][]float32, error) {
@@ -77,14 +150,24 @@ func embedWith(ctx context.Context, client *http.Client, key, model string, text
 	}
 
 	var parsed embedResponse
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return nil, fmt.Errorf("openrouter embed: invalid json (%s): %w", res.Status, err)
-	}
-	if parsed.Error != nil && parsed.Error.Message != "" {
-		return nil, fmt.Errorf("openrouter embed: %s", parsed.Error.Message)
+	jsonErr := json.Unmarshal(raw, &parsed)
+	if jsonErr == nil && parsed.Error != nil && parsed.Error.Message != "" {
+		status := res.StatusCode
+		if status < 300 {
+			status = errorCode(parsed.Error.Code)
+		}
+		return nil, &ProviderError{Status: status, Message: "openrouter embed: " + providerText(parsed.Error.Message)}
 	}
 	if res.StatusCode >= 300 {
-		return nil, fmt.Errorf("openrouter embed: HTTP %s: %s", res.Status, truncate(string(raw), 300))
+		msg := "openrouter embed: HTTP " + res.Status
+		// A JSON or plain-text body may say why; an HTML error page is noise.
+		if body := strings.TrimSpace(string(raw)); body != "" && !strings.HasPrefix(body, "<") {
+			msg += ": " + providerText(body)
+		}
+		return nil, &ProviderError{Status: res.StatusCode, Message: msg}
+	}
+	if jsonErr != nil {
+		return nil, fmt.Errorf("openrouter embed: invalid json (%s): %w", res.Status, jsonErr)
 	}
 	if len(parsed.Data) != len(texts) {
 		return nil, fmt.Errorf("openrouter embed: expected %d vectors, got %d", len(texts), len(parsed.Data))
@@ -112,17 +195,10 @@ func VectorDims() int { return vectorDims }
 func CheckDims(vectors [][]float32) error {
 	for _, vec := range vectors {
 		if len(vec) != vectorDims {
-			return fmt.Errorf("openrouter embed: expected %d dims, got %d", vectorDims, len(vec))
+			return &dimsError{fmt.Sprintf("openrouter embed: expected %d dims, got %d", vectorDims, len(vec))}
 		}
 	}
 	return nil
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
 }
 
 func defaultHTTPClient() *http.Client {

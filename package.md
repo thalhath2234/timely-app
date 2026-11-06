@@ -13,7 +13,7 @@ Pushing a tag `vX.Y.Z` produces one GitHub Release named `Timely vX.Y.Z` with:
 | Platform | File | Built on |
 | --- | --- | --- |
 | Windows | `Timely-X.Y.Z-win-x64.exe` (NSIS installer, per-user) + `latest.yml` | `windows-latest` |
-| Linux | `Timely-X.Y.Z-linux-x86_64.AppImage` + `latest-linux.yml` | `ubuntu-latest` |
+| Linux | `Timely-X.Y.Z-linux-x86_64.AppImage`, `Timely-X.Y.Z-linux-x64.pacman` (Arch Linux) + `latest-linux.yml` | `ubuntu-latest` |
 | Android | `Timely-X.Y.Z-android-arm64.apk` | `ubuntu-latest` |
 
 The `latest*.yml` manifests and `.blockmap` files are what the desktop app's
@@ -95,7 +95,7 @@ own machine, for the current OS only (no cross-OS installers).
 
 | Command | Output |
 | --- | --- |
-| `make dist-desktop` | Installer for this OS in `apps/web/release/` (`.exe` on Windows, `.AppImage` on Linux, `.dmg`/`.zip` on macOS) |
+| `make dist-desktop` | Installer for this OS in `apps/web/release/` (`.exe` on Windows, `.AppImage` and `.pacman` on Linux, `.dmg`/`.zip` on macOS) |
 | `make build-desktop` | Unpacked app in `apps/web/release/<platform>-unpacked/`, quicker to test |
 | `make build-apk` | Android release APK at `apps/mobile/timely-release-arm64.apk` (Linux, needs the Android SDK and JDK 17; never run Gradle directly) |
 | `make install-apk` | Same APK, installed on a USB-connected phone |
@@ -103,8 +103,9 @@ own machine, for the current OS only (no cross-OS installers).
 The desktop build runs `next build`, compiles the Electron main process, then
 stages the Go API (`electron/stage-api.mjs`) and PostgreSQL 17
 (`electron/stage-postgres.mjs`) as sidecars before electron-builder packages
-everything. It needs Node 22+, pnpm, and Go 1.25.7+; Postgres binaries are
-downloaded and cached in `apps/web/.cache/postgres/`. Set
+everything. It needs Node 22+, pnpm, and Go 1.25.7+, plus `bsdtar` for the
+`.pacman` on Linux (Arch has it; Debian/Ubuntu need `libarchive-tools`).
+Postgres binaries are downloaded and cached in `apps/web/.cache/postgres/`. Set
 `TIMELY_SKIP_NEXT=1` to reuse the last Next build while iterating on packaging.
 
 ## Signing

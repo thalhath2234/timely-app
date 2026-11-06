@@ -1,9 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { AppState } from "react-native";
+import * as Network from "expo-network";
 import StartupLoader from "../../components/ui/StartupLoader";
-import { apiHealth, devApiUrl, setActiveApiUrl } from "../api/client";
+import { apiHealth, blockWrongServer, devApiUrl, setActiveApiUrl, setApiGate } from "../api/client";
 import {
   orderCandidates,
   pickReachable,
+  pinnedProbe,
   serverStore,
   type PairingInput,
   type ServerConfig,
@@ -36,6 +39,8 @@ type ServerState = {
   config: ServerConfig | null;
   health: ServerHealth | null;
   lastCheckedAt: number | null;
+  /** Known addresses that answered as a different Timely server on the last check. */
+  wrongServer: string[];
 };
 
 export type ServerContextValue = Omit<ServerState, "loaded"> & {
@@ -59,7 +64,12 @@ const ServerContext = createContext<ServerContextValue | null>(null);
 
 const probe = (url: string, signal: AbortSignal) => apiHealth(url, { signal });
 
-const initialState: ServerState = { loaded: false, status: "checking", config: null, health: null, lastCheckedAt: null };
+/** Coming back to the app re-checks unless a check finished this recently. */
+const FOREGROUND_RECHECK_MS = 10_000;
+/** While nothing answers, try again this often (only while the app is open). */
+const OFFLINE_RETRY_MS = 15_000;
+
+const initialState: ServerState = { loaded: false, status: "checking", config: null, health: null, lastCheckedAt: null, wrongServer: [] };
 
 export function ServerProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<ServerState>(initialState);
@@ -68,26 +78,37 @@ export function ServerProvider({ children }: { children: ReactNode }) {
   // such a config is never written back to SecureStore.
   const persistedRef = useRef(false);
   const checkInFlight = useRef<Promise<boolean> | null>(null);
+  const lastCheckedRef = useRef(0);
 
-  const runCheck = useCallback(async (config: ServerConfig) => {
+  /**
+   * Probes the known addresses for the pinned server. `quiet` keeps the
+   * current status on screen while it runs (background re-checks), instead
+   * of showing "checking".
+   */
+  const runCheck = useCallback(async (config: ServerConfig, quiet = false) => {
     if (checkInFlight.current) return checkInFlight.current;
     checkInFlight.current = (async () => {
-      setState((prev) => ({ ...prev, status: "checking" }));
-      const found = await pickReachable(orderCandidates(config), probe);
+      if (!quiet) setState((prev) => ({ ...prev, status: "checking" }));
+      const wrong: string[] = [];
+      const found = await pickReachable(orderCandidates(config), pinnedProbe(probe, config.id, (url) => wrong.push(url)));
+      lastCheckedRef.current = Date.now();
       // The person may have connected elsewhere while this probe ran.
       if (configRef.current !== config) return found !== null;
       if (!found) {
-        setState((prev) => ({ ...prev, status: "offline", health: null, lastCheckedAt: Date.now() }));
+        // Nothing to send requests to: every address that answered is someone else.
+        if (wrong.length > 0) blockWrongServer();
+        setState((prev) => ({ ...prev, status: "offline", health: null, lastCheckedAt: Date.now(), wrongServer: wrong }));
         return false;
       }
       let next: ServerConfig = config;
-      if (config.active !== found.url) {
-        next = { ...config, active: found.url };
+      const pinId = !config.id && found.result.instanceId ? found.result.instanceId : undefined;
+      if (config.active !== found.url || pinId) {
+        next = { ...config, active: found.url, ...(pinId ? { id: pinId } : {}) };
         if (persistedRef.current) next = await serverStore.save(next);
         configRef.current = next;
       }
       setActiveApiUrl(found.url);
-      setState({ loaded: true, status: "online", config: next, health: found.result, lastCheckedAt: Date.now() });
+      setState({ loaded: true, status: "online", config: next, health: found.result, lastCheckedAt: Date.now(), wrongServer: wrong });
       return true;
     })().finally(() => {
       checkInFlight.current = null;
@@ -108,20 +129,53 @@ export function ServerProvider({ children }: { children: ReactNode }) {
       if (!config) {
         configRef.current = null;
         setActiveApiUrl(null);
-        setState({ loaded: true, status: "unconfigured", config: null, health: null, lastCheckedAt: null });
+        setState({ ...initialState, loaded: true, status: "unconfigured" });
         return;
       }
       configRef.current = config;
-      // Requests can start right away against the remembered address; the
-      // probe below only switches if a different known address answers.
       setActiveApiUrl(config.active ?? config.urls[0]);
-      setState({ loaded: true, status: "checking", config, health: null, lastCheckedAt: null });
-      await runCheck(config);
+      setState({ ...initialState, loaded: true, status: "checking", config });
+      // Requests wait for this first probe: the remembered address may now
+      // belong to a different server, which must not see the session token.
+      const first = runCheck(config);
+      setApiGate(first);
+      await first.finally(() => setApiGate(null));
     })();
     return () => {
       cancelled = true;
     };
   }, [runCheck]);
+
+  // Phones suspend apps and drop VPNs (HyperOS kills Tailscale): re-check when
+  // the app comes back, when the network changes, and every so often while
+  // nothing answers.
+  useEffect(() => {
+    const recheck = (minAgeMs: number) => {
+      const config = configRef.current;
+      if (!config || AppState.currentState !== "active") return;
+      if (Date.now() - lastCheckedRef.current < minAgeMs) return;
+      void runCheck(config, true);
+    };
+    const appState = AppState.addEventListener("change", (next) => {
+      if (next === "active") recheck(FOREGROUND_RECHECK_MS);
+    });
+    const network = Network.addNetworkStateListener((next) => {
+      if (next.isConnected !== false) recheck(0);
+    });
+    return () => {
+      appState.remove();
+      network.remove();
+    };
+  }, [runCheck]);
+
+  useEffect(() => {
+    if (state.status !== "offline") return;
+    const timer = setInterval(() => {
+      const config = configRef.current;
+      if (config && AppState.currentState === "active") void runCheck(config, true);
+    }, OFFLINE_RETRY_MS);
+    return () => clearInterval(timer);
+  }, [state.status, runCheck]);
 
   const check = useCallback(async () => {
     const config = configRef.current;
@@ -130,16 +184,25 @@ export function ServerProvider({ children }: { children: ReactNode }) {
   }, [runCheck]);
 
   const connect = useCallback<ServerContextValue["connect"]>(async (input, options = {}) => {
-    const found = await pickReachable(input.urls, probe);
-    if (!found) throw new ServerUnreachableError(input.urls);
+    const wrong: string[] = [];
+    const found = await pickReachable(input.urls, pinnedProbe(probe, input.id, (url) => wrong.push(url)));
+    if (!found) {
+      if (wrong.length > 0) {
+        throw new Error(`${wrong.join(", ")} answered as a different Timely server than the one in the QR code. Check the address and scan again.`);
+      }
+      throw new ServerUnreachableError(input.urls);
+    }
     if (options.beforeApply) await options.beforeApply();
     const next: ServerConfig = { urls: input.urls, active: found.url };
     if (input.name) next.name = input.name;
+    const id = input.id ?? found.result.instanceId;
+    if (id) next.id = id;
     const saved = await serverStore.save(next);
     persistedRef.current = true;
     configRef.current = saved;
+    lastCheckedRef.current = Date.now();
     setActiveApiUrl(found.url);
-    setState({ loaded: true, status: "online", config: saved, health: found.result, lastCheckedAt: Date.now() });
+    setState({ loaded: true, status: "online", config: saved, health: found.result, lastCheckedAt: Date.now(), wrongServer: [] });
     return { url: found.url, health: found.result };
   }, []);
 
@@ -148,7 +211,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     persistedRef.current = false;
     configRef.current = null;
     setActiveApiUrl(null);
-    setState({ loaded: true, status: "unconfigured", config: null, health: null, lastCheckedAt: null });
+    setState({ ...initialState, loaded: true, status: "unconfigured" });
   }, []);
 
   const value = useMemo<ServerContextValue>(
@@ -157,6 +220,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
       config: state.config,
       health: state.health,
       lastCheckedAt: state.lastCheckedAt,
+      wrongServer: state.wrongServer,
       activeUrl: state.config?.active ?? state.config?.urls[0] ?? "",
       name: state.config?.name ?? "",
       check,

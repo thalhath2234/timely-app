@@ -7,7 +7,10 @@ import {
 import * as cell from "../packages/contract/src/sheetCell.ts";
 import {
   applyColumnTypes,
+  columnSampleBatches,
+  typeImportedColumns,
   columnSamples,
+  csvImportProblem,
   csvToGrid,
   parseCsvLine,
   sheetToCsv,
@@ -179,6 +182,53 @@ describe("sheet CSV", () => {
     const csv = sheetToCsv(columns, rows, () => 'x,"y"');
     const parsed = csvToGrid(csv, ids());
     assert.equal(Object.values(parsed.rows[0].cells)[0], 'x,"y"');
+  });
+});
+
+describe("wide and long imports", () => {
+  const wide = (columns, rows, value = "x") =>
+    csvToGrid(
+      [Array.from({ length: columns }, (_, i) => `Col ${i + 1}`).join(","), ...Array.from({ length: rows }, () => Array(columns).fill(value).join(","))].join("\n"),
+      ids(),
+    );
+
+  test("a file over the sheet's 100 columns or 5,000 rows is named before anything is sent", () => {
+    assert.equal(csvImportProblem(wide(120, 2)), "This file has 120 columns, and a sheet holds up to 100. Remove some columns, then import it again.");
+    assert.equal(csvImportProblem(wide(2, 5001)), "This file has 5,001 rows, and a sheet holds up to 5,000. Split it into smaller files, then import each one.");
+    assert.equal(csvImportProblem(wide(100, 5000)), null);
+  });
+
+  test("column samples go in requests of at most 60 columns, long values cut short", () => {
+    const grid = wide(100, 300, "y".repeat(500));
+    const batches = columnSampleBatches(grid);
+    assert.deepEqual(batches.map((batch) => batch.length), [60, 40]);
+    assert.equal(batches[1][0].name, "Col 61");
+    const values = batches[0][0].values;
+    assert.equal(values.length, 200);
+    assert.equal(values[0], `${"y".repeat(60)}…`);
+    const size = JSON.stringify({ columns: batches[0] }).length;
+    assert.ok(size < 800_000, `a request is ${size} bytes`);
+  });
+
+  test("a 61 to 100 column file is typed in two requests; a failed one leaves its columns text", async () => {
+    const grid = wide(70, 3, "12");
+    const asked = [];
+    const typed = await typeImportedColumns(grid, async (columns) => {
+      asked.push(columns.length);
+      if (asked.length === 2) throw new Error("offline");
+      return { available: true, columns: columns.map(() => ({ type: "number" })) };
+    });
+    assert.deepEqual(asked, [60, 10]);
+    assert.deepEqual([typed.columns[0].type, typed.columns[59].type, typed.columns[60].type], ["number", "number", "text"]);
+    const off = await typeImportedColumns(grid, async (columns) => ({ available: false, columns: columns.map(() => null) }));
+    assert.equal(off, grid, "suggestions off: the grid as read");
+  });
+
+  test("a cut value never reads as a number or date the whole value is not", () => {
+    const grid = csvToGrid(`When\n2026-01-01 ${"and some notes ".repeat(10)}\n`, ids());
+    const [sample] = columnSamples(grid);
+    assert.ok(sample.values[0].endsWith("…"));
+    assert.equal(applyColumnTypes(grid, [{ type: "date" }]).columns[0].type, "text");
   });
 });
 

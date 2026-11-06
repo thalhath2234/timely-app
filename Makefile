@@ -209,7 +209,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-inbox test-starter-labels test-view-search test-view-language test-dashboard test-mobile-clearable test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-project-delete test-bulk-edit test-mobile-event-occurrence test-mobile-meeting-url test-mobile-back-fallback ## Run all tests
+test: test-api test-markdown-parity test-change-review test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-block-turn test-inbox test-starter-labels test-view-search test-smart-search test-view-language test-dashboard test-genui test-mobile-live-block test-mobile-clearable test-mobile-plain-text test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-web-api-proxy test-chat-stream test-project-delete test-bulk-edit test-autosave test-client-calls test-mobile-event-occurrence test-calendar-occurrence-done test-mobile-meeting-url test-mobile-back-fallback ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -315,12 +315,24 @@ format-sheet-formulas: ## Format shared sheet logic and tests
 test-markdown-parity: ## Test that the web/mobile Markdown importer reads the API's export back into the same doc
 	@node --experimental-strip-types --test scripts/markdown-parity.test.mjs
 
+.PHONY: test-autosave
+test-autosave: ## Test the shared autosave queue: a change the server refuses is dropped and later edits still save
+	@node --experimental-strip-types --test scripts/autosave-queue.test.mjs
+
+.PHONY: test-client-calls
+test-client-calls: ## Test when the apps ask for searches and suggestions that cost a model call: settled typing, clipped queries, rebuild polling
+	@node --experimental-strip-types --test scripts/client-calls.test.mjs
+
 .PHONY: test-bulk-edit
 test-bulk-edit: ## Test that bulk task edits undo per task and that Set label adds the label by name per workspace
 	@node --experimental-strip-types --test scripts/bulk-edit.test.mjs
 
+.PHONY: test-change-review
+test-change-review: ## Test how an Agent proposal is grouped for review: one item per sheet, tasks together, docs with real tick boxes
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/change-review.test.mjs
+
 .PHONY: test-doc-checklist
-test-doc-checklist: ## Test which doc checklist items are offered as tasks, and the task name and description they get
+test-doc-checklist: ## Test which doc checklist items are offered as tasks, the task name and description they get, and when a doc's suggestions are read again
 	@node --experimental-strip-types --test scripts/doc-checklist.test.mjs
 
 .PHONY: test-work-status
@@ -328,8 +340,12 @@ test-work-status: ## Test the shared Overdue and Unscheduled work status logic
 	@node --experimental-strip-types --test scripts/work-status.test.mjs
 
 .PHONY: test-help-me-write
-test-help-me-write: ## Test the shared Help me write starters and how answers become editor content
-	@node --experimental-strip-types --test scripts/help-me-write.test.mjs
+test-help-me-write: ## Test the shared Help me write starters, how answers become editor content, and what Replace may take on web and phone
+	@node --experimental-strip-types --test scripts/help-me-write.test.mjs scripts/help-me-write-range.test.mjs
+
+.PHONY: test-block-turn
+test-block-turn: ## Test the doc block menu's Turn into on web and phone: which blocks it offers and what each kind makes of them
+	@node --experimental-strip-types --test scripts/block-turn.test.mjs
 
 .PHONY: test-inbox
 test-inbox: ## Test the shared Inbox order (Up next, skips) and waiting-time labels
@@ -343,6 +359,10 @@ test-starter-labels: ## Test how onboarding splits starter labels across the wor
 test-view-search: ## Test how search finds a saved task view by its name ("show my deadline")
 	@node --experimental-strip-types --test scripts/view-search.test.mjs
 
+.PHONY: test-smart-search
+test-smart-search: ## Test what smart search offers to make, how long a Related list is kept, and import line kinds the apps do not know
+	@node --experimental-strip-types --test scripts/smart-search.test.mjs
+
 .PHONY: test-view-language
 test-view-language: ## Test how plain words become a task view ("overdue bugs in Home by project"), the shared filter, sort and group engine, and the rule builder
 	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/view-language.test.mjs scripts/task-query.test.mjs scripts/rule-builder.test.mjs
@@ -350,6 +370,18 @@ test-view-language: ## Test how plain words become a task view ("overdue bugs in
 .PHONY: test-project-delete
 test-project-delete: ## Test the confirm that names the tasks a project delete takes with it
 	@node --experimental-strip-types --test scripts/project-delete.test.mjs
+
+.PHONY: test-genui gen-genui-prompt gen-board-check
+test-genui: ## Test reply and described cards: the OpenUI prompts, their examples, splitting replies and @Data
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/genui.test.mjs
+gen-genui-prompt: ## Write the reply- and described-card instructions for the API from packages/contract/src/genui*.ts
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs scripts/gen-genui-prompt.mjs
+gen-board-check: ## Bundle the described-card check for the API (its Describe AI draws draft cards with it)
+	@node scripts/gen-board-check.mjs
+
+.PHONY: test-mobile-live-block
+test-mobile-live-block: ## Test the HTML the phone draws a doc's live blocks with in its editor page
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/mobile-live-block.test.mjs
 
 .PHONY: test-dashboard
 test-dashboard: ## Test the shared Report dashboard engine (card queries, layouts, built-in cards)
@@ -359,6 +391,10 @@ test-dashboard: ## Test the shared Report dashboard engine (card queries, layout
 test-mobile-clearable: ## Test how mobile update bodies turn null into a server-side clear
 	@node --experimental-strip-types --test scripts/mobile-clearable.test.mjs
 
+.PHONY: test-mobile-plain-text
+test-mobile-plain-text: ## Test which phone sheet rows are drawn as text (model names in Settings → Agent)
+	@node --experimental-strip-types --test scripts/mobile-plain-text.test.mjs
+
 .PHONY: test-mobile-next-free-slot
 test-mobile-next-free-slot: ## Test how mobile picks its next free slot from the server's free time
 	@node --experimental-strip-types --test scripts/mobile-next-free-slot.test.mjs
@@ -366,6 +402,10 @@ test-mobile-next-free-slot: ## Test how mobile picks its next free slot from the
 .PHONY: test-mobile-event-occurrence
 test-mobile-event-occurrence: ## Test how the phone opens, edits and ends one occurrence of a repeating event
 	@node --experimental-strip-types --test scripts/mobile-event-occurrence.test.mjs
+
+.PHONY: test-calendar-occurrence-done
+test-calendar-occurrence-done: ## Test that Today and the calendar agree on which days of a repeating task are done
+	@node --experimental-strip-types --test scripts/calendar-occurrence-done.test.mjs
 
 .PHONY: test-mobile-picker-seed
 test-mobile-picker-seed: ## Test when a date-time picker adopts a value that arrives while it is open
@@ -462,7 +502,7 @@ test-mobile-offline: ## Test the mobile offline queue: durable enqueue, restart,
 test-electron-guards: ## Test the desktop shell's window-open origin policy
 	@node --experimental-strip-types --test scripts/electron-guards.test.mjs
 
-.PHONY: test-electron-supervisor test-mobile-server-config test-desktop-instance
+.PHONY: test-electron-supervisor test-mobile-server-config test-desktop-instance test-web-api-proxy test-chat-stream
 test-electron-supervisor: ## Test the desktop supervisor: config/secrets, ports, Tailscale detection, backoff, stale pid, sidecar lifetime
 	@node --experimental-strip-types --test scripts/electron-supervisor.test.mjs scripts/electron-lifetime.test.mjs
 
@@ -471,6 +511,12 @@ test-mobile-server-config: ## Test mobile pairing: QR payload parsing, server or
 
 test-desktop-instance: ## Test the web Settings → Server helpers (pairing payload, status copy, MCP address) and the retry through a server restart
 	@node --experimental-strip-types --test scripts/desktop-instance.test.mjs scripts/mcp-url.test.mjs scripts/api-retry.test.mjs
+
+test-web-api-proxy: ## Test that the web /api-proxy route reaches API_ORIGIN as set at run time, not at build time
+	@node --experimental-strip-types --test scripts/api-proxy.test.mjs
+
+test-chat-stream: ## Test the web app's live chat stream: one tab holds it for the others, and it reconnects
+	@node --experimental-strip-types --test scripts/chat-stream.test.mjs
 
 format-qa: ## Format the 2026-10-01 QA scripts and evidence
 	@pnpm exec prettier --write 'docs/qa/2026-10-01*/**/*.{mjs,json,md}'

@@ -35,6 +35,7 @@ const (
 	txtNoteMissing          = "noteMissing"
 	txtPushChoose           = "pushChoose"
 	txtReceiptNotCorrection = "receiptNotCorrection"
+	txtReceiptUnchanged     = "receiptUnchanged"
 	txtHintCategory         = "hintCategory"
 	txtHintCategoryFit      = "hintCategoryFit"
 	txtHintRefund           = "hintRefund"
@@ -44,6 +45,8 @@ const (
 	txtNoteSheetChange      = "noteSheetChange"
 	txtNoteDraftMisses      = "noteDraftMisses"
 	txtNoteContradiction    = "noteContradiction"
+	txtPaused               = "paused"
+	txtReceiptDuplicate     = "receiptDuplicate"
 )
 
 var texts = map[string]map[string]string{
@@ -74,6 +77,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "Something you asked for may be missing from these changes.",
 		txtPushChoose:           "You already have a chat about this. Choose where to continue.",
 		txtReceiptNotCorrection: "That doesn't look like a change to the receipt, so the draft is unchanged. Edit the fields below, or say what to change, for example “the total is 12.40”.",
+		txtReceiptUnchanged:     "The receipt draft is unchanged. Edit the fields below, or say what to change, for example “the total is 12.40”.",
 		txtHintCategory:         "Category set to “%s”, one you already use. Change it if it's wrong.",
 		txtHintCategoryFit:      "“%s” may not be the right category for this receipt.",
 		txtHintRefund:           "This looks like a refund or return. Check that the amounts have the right sign.",
@@ -83,6 +87,8 @@ var texts = map[string]map[string]string{
 		txtNoteSheetChange:      "This sheet change may not match what you asked:",
 		txtNoteDraftMisses:      "This doc draft may leave out something you asked for or miss one of your instructions:",
 		txtNoteContradiction:    "This edit may contradict what the doc already says:",
+		txtPaused:               "Paused after %d parts. Say “continue” to do the rest.",
+		txtReceiptDuplicate:     "This receipt may already be saved. Choose what to do below.",
 	},
 	"ja": {
 		txtDone:                 "完了しました。変更は保存されています。",
@@ -111,6 +117,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "依頼した内容の一部が、これらの変更に含まれていない可能性があります。",
 		txtPushChoose:           "この件についてのチャットがすでにあります。どこで続けるか選んでください。",
 		txtReceiptNotCorrection: "レシートの変更ではないようなので、下書きはそのままです。下の項目を編集するか、「合計は12.40」のように変更内容を伝えてください。",
+		txtReceiptUnchanged:     "レシートの下書きは変わっていません。下の項目を編集するか、「合計は12.40」のように変更内容を伝えてください。",
 		txtHintCategory:         "カテゴリをすでに使っている「%s」にしました。違う場合は変更してください。",
 		txtHintCategoryFit:      "「%s」はこのレシートに合うカテゴリではないかもしれません。",
 		txtHintRefund:           "返金または返品のようです。金額の符号を確認してください。",
@@ -120,6 +127,8 @@ var texts = map[string]map[string]string{
 		txtNoteSheetChange:      "このシートの変更は依頼と合っていない可能性があります:",
 		txtNoteDraftMisses:      "このドキュメントの下書きは、依頼した内容や指示の一部を満たしていない可能性があります:",
 		txtNoteContradiction:    "この編集はドキュメントの既存の内容と矛盾している可能性があります:",
+		txtPaused:               "%d回分で一時停止しました。残りは「続けて」と送ってください。",
+		txtReceiptDuplicate:     "このレシートは保存済みの可能性があります。下で対応を選んでください。",
 	},
 	"zh": {
 		txtDone:                 "完成——您的更改已保存。",
@@ -148,6 +157,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "您要求的部分内容可能不在这些更改中。",
 		txtPushChoose:           "您已经有一个关于此事的聊天。请选择在哪里继续。",
 		txtReceiptNotCorrection: "这看起来不是对收据的修改，因此草稿保持不变。请编辑下方字段，或说明要改什么，例如“总额是 12.40”。",
+		txtReceiptUnchanged:     "收据草稿没有变化。请编辑下方字段，或说明要改什么，例如“总额是 12.40”。",
 		txtHintCategory:         "类别已设为您已在使用的“%s”。如有误请修改。",
 		txtHintCategoryFit:      "“%s”可能不是这张收据的合适类别。",
 		txtHintRefund:           "这看起来是退款或退货。请检查金额的正负号。",
@@ -157,6 +167,8 @@ var texts = map[string]map[string]string{
 		txtNoteSheetChange:      "此表格更改可能与您的要求不符:",
 		txtNoteDraftMisses:      "此文档草稿可能遗漏了您要求的内容或未遵循您的某项要求:",
 		txtNoteContradiction:    "此修改可能与文档中已有的内容相矛盾:",
+		txtPaused:               "已在 %d 部分后暂停。发送“继续”来完成剩余部分。",
+		txtReceiptDuplicate:     "这张收据可能已经保存过。请在下方选择处理方式。",
 	},
 	"ko": {
 		txtDone:                 "완료되었습니다. 변경 사항이 저장되었습니다.",
@@ -185,6 +197,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "요청하신 내용 중 일부가 이 변경 사항에 빠져 있을 수 있습니다.",
 		txtPushChoose:           "이 내용에 대한 채팅이 이미 있습니다. 어디에서 계속할지 선택하세요.",
 		txtReceiptNotCorrection: "영수증 변경 요청이 아닌 것 같아 초안을 그대로 두었습니다. 아래 항목을 수정하거나 “합계는 12.40”처럼 바꿀 내용을 알려 주세요.",
+		txtReceiptUnchanged:     "영수증 초안은 바뀌지 않았습니다. 아래 항목을 수정하거나 “합계는 12.40”처럼 바꿀 내용을 알려 주세요.",
 		txtHintCategory:         "이미 사용 중인 “%s” 카테고리로 설정했습니다. 틀리면 바꿔 주세요.",
 		txtHintCategoryFit:      "“%s”은(는) 이 영수증에 맞는 카테고리가 아닐 수 있습니다.",
 		txtHintRefund:           "환불 또는 반품으로 보입니다. 금액의 부호를 확인하세요.",
@@ -194,6 +207,8 @@ var texts = map[string]map[string]string{
 		txtNoteSheetChange:      "이 시트 변경이 요청과 다를 수 있습니다:",
 		txtNoteDraftMisses:      "이 문서 초안은 요청한 내용이나 지시 사항 일부를 빠뜨렸을 수 있습니다:",
 		txtNoteContradiction:    "이 수정은 문서에 이미 있는 내용과 모순될 수 있습니다:",
+		txtPaused:               "%d개 부분 후 일시 중지했습니다. 나머지는 “계속”이라고 보내세요.",
+		txtReceiptDuplicate:     "이 영수증은 이미 저장되었을 수 있습니다. 아래에서 처리 방법을 선택하세요.",
 	},
 	"es": {
 		txtDone:                 "Listo: tus cambios están guardados.",
@@ -222,6 +237,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "Puede que falte algo de lo que pediste en estos cambios.",
 		txtPushChoose:           "Ya tienes un chat sobre esto. Elige dónde continuar.",
 		txtReceiptNotCorrection: "Eso no parece un cambio en el recibo, así que el borrador sigue igual. Edita los campos de abajo o di qué cambiar, por ejemplo “el total es 12.40”.",
+		txtReceiptUnchanged:     "El borrador del recibo no ha cambiado. Edita los campos de abajo o di qué cambiar, por ejemplo “el total es 12.40”.",
 		txtHintCategory:         "Categoría establecida en “%s”, una que ya usas. Cámbiala si no es correcta.",
 		txtHintCategoryFit:      "“%s” quizá no sea la categoría adecuada para este recibo.",
 		txtHintRefund:           "Parece un reembolso o una devolución. Comprueba que los importes tengan el signo correcto.",
@@ -231,6 +247,8 @@ var texts = map[string]map[string]string{
 		txtNoteSheetChange:      "Este cambio en la hoja puede no coincidir con lo que pediste:",
 		txtNoteDraftMisses:      "Este borrador del documento puede omitir algo que pediste o no seguir alguna de tus indicaciones:",
 		txtNoteContradiction:    "Esta edición puede contradecir lo que ya dice el documento:",
+		txtPaused:               "En pausa tras %d partes. Escribe “continúa” para hacer el resto.",
+		txtReceiptDuplicate:     "Puede que este recibo ya esté guardado. Elige abajo qué hacer.",
 	},
 	"fr": {
 		txtDone:                 "Terminé — vos modifications sont enregistrées.",
@@ -259,6 +277,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "Une partie de votre demande manque peut-être dans ces modifications.",
 		txtPushChoose:           "Vous avez déjà une conversation à ce sujet. Choisissez où continuer.",
 		txtReceiptNotCorrection: "Cela ne ressemble pas à une modification du reçu, le brouillon est donc inchangé. Modifiez les champs ci-dessous ou dites quoi changer, par exemple « le total est 12.40 ».",
+		txtReceiptUnchanged:     "Le brouillon du reçu est inchangé. Modifiez les champs ci-dessous ou dites quoi changer, par exemple « le total est 12.40 ».",
 		txtHintCategory:         "Catégorie définie sur « %s », que vous utilisez déjà. Changez-la si elle est fausse.",
 		txtHintCategoryFit:      "« %s » n'est peut-être pas la bonne catégorie pour ce reçu.",
 		txtHintRefund:           "Cela ressemble à un remboursement ou un retour. Vérifiez le signe des montants.",
@@ -268,6 +287,8 @@ var texts = map[string]map[string]string{
 		txtNoteSheetChange:      "Cette modification de la feuille ne correspond peut-être pas à votre demande :",
 		txtNoteDraftMisses:      "Ce brouillon de document oublie peut-être une partie de votre demande ou l’une de vos consignes :",
 		txtNoteContradiction:    "Cette modification contredit peut-être ce que le document dit déjà :",
+		txtPaused:               "En pause après %d parties. Écrivez « continue » pour faire le reste.",
+		txtReceiptDuplicate:     "Ce reçu est peut-être déjà enregistré. Choisissez quoi faire ci-dessous.",
 	},
 	"de": {
 		txtDone:                 "Fertig – deine Änderungen sind gespeichert.",
@@ -296,6 +317,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "Etwas, worum du gebeten hast, fehlt möglicherweise in diesen Änderungen.",
 		txtPushChoose:           "Du hast schon einen Chat dazu. Wähle, wo es weitergehen soll.",
 		txtReceiptNotCorrection: "Das sieht nicht nach einer Änderung am Beleg aus, daher bleibt der Entwurf unverändert. Bearbeite die Felder unten oder sag, was sich ändern soll, z. B. „die Summe ist 12.40“.",
+		txtReceiptUnchanged:     "Der Belegentwurf ist unverändert. Bearbeite die Felder unten oder sag, was sich ändern soll, z. B. „die Summe ist 12.40“.",
 		txtHintCategory:         "Kategorie auf „%s“ gesetzt, die du schon nutzt. Ändere sie, falls sie nicht stimmt.",
 		txtHintCategoryFit:      "„%s“ ist vielleicht nicht die richtige Kategorie für diesen Beleg.",
 		txtHintRefund:           "Das sieht nach einer Erstattung oder Rückgabe aus. Prüfe das Vorzeichen der Beträge.",
@@ -305,6 +327,8 @@ var texts = map[string]map[string]string{
 		txtNoteSheetChange:      "Diese Tabellenänderung passt vielleicht nicht zu deiner Anfrage:",
 		txtNoteDraftMisses:      "Dieser Dokumententwurf lässt vielleicht etwas aus, das du wolltest, oder hält eine deiner Vorgaben nicht ein:",
 		txtNoteContradiction:    "Diese Änderung widerspricht vielleicht dem, was schon im Dokument steht:",
+		txtPaused:               "Nach %d Teilen pausiert. Schreibe „weiter“, um den Rest zu erledigen.",
+		txtReceiptDuplicate:     "Dieser Beleg ist vielleicht schon gespeichert. Wähle unten, was passieren soll.",
 	},
 	"pt": {
 		txtDone:                 "Pronto — suas alterações foram salvas.",
@@ -333,6 +357,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "Algo que você pediu pode estar faltando nestas alterações.",
 		txtPushChoose:           "Você já tem um chat sobre isso. Escolha onde continuar.",
 		txtReceiptNotCorrection: "Isso não parece uma alteração no recibo, então o rascunho ficou igual. Edite os campos abaixo ou diga o que mudar, por exemplo “o total é 12.40”.",
+		txtReceiptUnchanged:     "O rascunho do recibo não mudou. Edite os campos abaixo ou diga o que mudar, por exemplo “o total é 12.40”.",
 		txtHintCategory:         "Categoria definida como “%s”, que você já usa. Altere se estiver errada.",
 		txtHintCategoryFit:      "“%s” talvez não seja a categoria certa para este recibo.",
 		txtHintRefund:           "Parece um reembolso ou devolução. Verifique se os valores têm o sinal certo.",
@@ -342,6 +367,8 @@ var texts = map[string]map[string]string{
 		txtNoteSheetChange:      "Esta alteração na planilha pode não corresponder ao que você pediu:",
 		txtNoteDraftMisses:      "Este rascunho do documento pode deixar de fora algo que você pediu ou não seguir uma das suas instruções:",
 		txtNoteContradiction:    "Esta edição pode contradizer o que o documento já diz:",
+		txtPaused:               "Pausado após %d partes. Escreva “continue” para fazer o resto.",
+		txtReceiptDuplicate:     "Este recibo pode já estar salvo. Escolha abaixo o que fazer.",
 	},
 	"it": {
 		txtDone:                 "Fatto: le modifiche sono salvate.",
@@ -370,6 +397,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "Qualcosa che hai chiesto potrebbe mancare in queste modifiche.",
 		txtPushChoose:           "Hai già una chat su questo. Scegli dove continuare.",
 		txtReceiptNotCorrection: "Non sembra una modifica allo scontrino, quindi la bozza resta invariata. Modifica i campi qui sotto o di' cosa cambiare, per esempio “il totale è 12.40”.",
+		txtReceiptUnchanged:     "La bozza dello scontrino è invariata. Modifica i campi qui sotto o di' cosa cambiare, per esempio “il totale è 12.40”.",
 		txtHintCategory:         "Categoria impostata su “%s”, che usi già. Cambiala se è sbagliata.",
 		txtHintCategoryFit:      "“%s” potrebbe non essere la categoria giusta per questo scontrino.",
 		txtHintRefund:           "Sembra un rimborso o un reso. Controlla il segno degli importi.",
@@ -379,6 +407,8 @@ var texts = map[string]map[string]string{
 		txtNoteSheetChange:      "Questa modifica al foglio potrebbe non corrispondere alla tua richiesta:",
 		txtNoteDraftMisses:      "Questa bozza del documento potrebbe tralasciare qualcosa che hai chiesto o non seguire una delle tue indicazioni:",
 		txtNoteContradiction:    "Questa modifica potrebbe contraddire ciò che il documento dice già:",
+		txtPaused:               "In pausa dopo %d parti. Scrivi «continua» per fare il resto.",
+		txtReceiptDuplicate:     "Questo scontrino potrebbe essere già salvato. Scegli qui sotto cosa fare.",
 	},
 	"ru": {
 		txtDone:                 "Готово — изменения сохранены.",
@@ -407,6 +437,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "Возможно, в этих изменениях не хватает чего-то из того, что вы просили.",
 		txtPushChoose:           "У вас уже есть чат об этом. Выберите, где продолжить.",
 		txtReceiptNotCorrection: "Это не похоже на изменение чека, поэтому черновик не изменён. Отредактируйте поля ниже или напишите, что изменить, например «итого 12.40».",
+		txtReceiptUnchanged:     "Черновик чека не изменился. Отредактируйте поля ниже или напишите, что изменить, например «итого 12.40».",
 		txtHintCategory:         "Категория установлена как «%s», которую вы уже используете. Измените, если она неверна.",
 		txtHintCategoryFit:      "«%s», возможно, не подходит как категория для этого чека.",
 		txtHintRefund:           "Похоже на возврат. Проверьте знак сумм.",
@@ -416,6 +447,8 @@ var texts = map[string]map[string]string{
 		txtNoteSheetChange:      "Это изменение таблицы может не соответствовать вашей просьбе:",
 		txtNoteDraftMisses:      "Этот черновик документа, возможно, упускает что-то из вашей просьбы или не следует одному из ваших указаний:",
 		txtNoteContradiction:    "Эта правка, возможно, противоречит тому, что уже сказано в документе:",
+		txtPaused:               "Пауза после %d частей. Напишите «продолжай», чтобы сделать остальное.",
+		txtReceiptDuplicate:     "Возможно, этот чек уже сохранён. Выберите ниже, что сделать.",
 	},
 	"ar": {
 		txtDone:                 "تم — حُفظت تغييراتك.",
@@ -444,6 +477,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "قد يكون شيء مما طلبته غير موجود في هذه التغييرات.",
 		txtPushChoose:           "لديك بالفعل محادثة حول هذا. اختر أين تتابع.",
 		txtReceiptNotCorrection: "لا يبدو هذا تعديلاً على الإيصال، لذا بقيت المسودة كما هي. عدّل الحقول أدناه أو اذكر ما تريد تغييره، مثل «الإجمالي 12.40».",
+		txtReceiptUnchanged:     "لم تتغير مسودة الإيصال. عدّل الحقول أدناه أو اذكر ما تريد تغييره، مثل «الإجمالي 12.40».",
 		txtHintCategory:         "تم ضبط الفئة على «%s» التي تستخدمها بالفعل. غيّرها إن كانت خاطئة.",
 		txtHintCategoryFit:      "قد لا تكون «%s» الفئة المناسبة لهذا الإيصال.",
 		txtHintRefund:           "يبدو هذا استرداداً أو إرجاعاً. تحقق من إشارة المبالغ.",
@@ -453,6 +487,8 @@ var texts = map[string]map[string]string{
 		txtNoteSheetChange:      "قد لا يطابق هذا التغيير في الجدول ما طلبته:",
 		txtNoteDraftMisses:      "قد تُغفل مسودة المستند هذه شيئًا طلبته أو لا تتبع أحد تعليماتك:",
 		txtNoteContradiction:    "قد يتعارض هذا التعديل مع ما يقوله المستند بالفعل:",
+		txtPaused:               "توقّف مؤقتًا بعد %d أجزاء. اكتب «تابع» لإكمال الباقي.",
+		txtReceiptDuplicate:     "ربما يكون هذا الإيصال محفوظًا بالفعل. اختر أدناه ما تريد فعله.",
 	},
 	"hi": {
 		txtDone:                 "हो गया — आपके बदलाव सहेज दिए गए हैं।",
@@ -481,6 +517,7 @@ var texts = map[string]map[string]string{
 		txtNoteMissing:          "आपने जो माँगा था उसमें से कुछ इन बदलावों में छूट गया हो सकता है।",
 		txtPushChoose:           "इस बारे में आपकी पहले से एक चैट है। चुनें कि कहाँ जारी रखना है।",
 		txtReceiptNotCorrection: "यह रसीद में बदलाव जैसा नहीं लगता, इसलिए ड्राफ़्ट वैसा ही है। नीचे के फ़ील्ड बदलें या बताएँ क्या बदलना है, जैसे “कुल 12.40 है”।",
+		txtReceiptUnchanged:     "रसीद का ड्राफ़्ट नहीं बदला। नीचे के फ़ील्ड बदलें या बताएँ क्या बदलना है, जैसे “कुल 12.40 है”।",
 		txtHintCategory:         "श्रेणी “%s” रखी गई है, जिसे आप पहले से इस्तेमाल करते हैं। गलत हो तो बदलें।",
 		txtHintCategoryFit:      "“%s” शायद इस रसीद के लिए सही श्रेणी नहीं है।",
 		txtHintRefund:           "यह रिफ़ंड या वापसी लगती है। राशियों का चिह्न जाँचें।",
@@ -490,6 +527,8 @@ var texts = map[string]map[string]string{
 		txtNoteSheetChange:      "यह शीट बदलाव शायद आपके अनुरोध से मेल नहीं खाता:",
 		txtNoteDraftMisses:      "यह दस्तावेज़ ड्राफ़्ट शायद आपकी माँगी गई कोई चीज़ छोड़ देता है या आपके किसी निर्देश का पालन नहीं करता:",
 		txtNoteContradiction:    "यह बदलाव शायद दस्तावेज़ में पहले से लिखी बात के विपरीत है:",
+		txtPaused:               "%d हिस्सों के बाद रोका गया। बाकी के लिए “जारी रखें” लिखें।",
+		txtReceiptDuplicate:     "यह रसीद शायद पहले से सहेजी गई है। नीचे चुनें कि क्या करना है।",
 	},
 }
 

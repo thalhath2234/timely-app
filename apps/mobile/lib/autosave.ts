@@ -1,15 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigation } from "expo-router";
 import { usePreventRemove } from "expo-router/react-navigation";
+import { createAutosaveQueue } from "@timely/contract/autosaveQueue";
 
-export type SaveStatus = "idle" | "unsaved" | "saving" | "saved" | "error";
+/** "error": a write failed on the way and is retried on the next flush.
+ * "rejected": the server refused a change, which was dropped. */
+export type SaveStatus = "idle" | "unsaved" | "saving" | "saved" | "error" | "rejected";
 
+/**
+ * Coalesces edits into one debounced write. A write that fails on the way
+ * keeps its edits for the next flush; a change the server refuses (a 4xx) is
+ * dropped instead, so later edits still save (autosaveQueue.ts).
+ */
 export function useAutosave<T extends object>(
   save: (patch: Partial<T>) => Promise<unknown>,
   delay = 2000,
+  options: { onRejected?: (error: unknown, patch: Partial<T>) => void } = {},
 ) {
   const saveRef = useRef(save);
-  const pendingRef = useRef<Partial<T> | null>(null);
+  const onRejectedRef = useRef(options.onRejected);
+  const [queue] = useState(() => createAutosaveQueue<T>());
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlightRef = useRef(false);
   const flushRef = useRef<() => void>(() => {});
@@ -24,66 +34,59 @@ export function useAutosave<T extends object>(
 
     if (inFlightPromiseRef.current) {
       const ok = await inFlightPromiseRef.current;
-      if (!pendingRef.current) return ok;
+      if (!queue.pending()) return ok;
     }
 
-    if (!pendingRef.current) {
+    if (!queue.pending()) {
       return true;
     }
 
     const work = (async (): Promise<boolean> => {
+      inFlightRef.current = true;
+      setStatus("saving");
       try {
-        while (pendingRef.current) {
-          const patch = pendingRef.current;
-          pendingRef.current = null;
-          inFlightRef.current = true;
-          setStatus("saving");
-          try {
-            await saveRef.current(patch);
-            inFlightRef.current = false;
-            setStatus(pendingRef.current ? "unsaved" : "saved");
-          } catch {
-            pendingRef.current = { ...patch, ...(pendingRef.current ?? {}) };
-            inFlightRef.current = false;
-            setStatus("error");
-            return false;
-          }
-        }
-        return true;
+        const result = await queue.send(
+          (patch) => saveRef.current(patch),
+          (error, patch) => onRejectedRef.current?.(error, patch),
+        );
+        setStatus(result.ok ? "saved" : result.error !== undefined ? "error" : "rejected");
+        return result.ok;
       } finally {
+        inFlightRef.current = false;
         inFlightPromiseRef.current = null;
       }
     })();
 
     inFlightPromiseRef.current = work;
     return work;
-  }, []);
+  }, [queue]);
 
   useEffect(() => {
     saveRef.current = save;
+    onRejectedRef.current = options.onRejected;
     flushRef.current = () => void flush();
   });
 
   const schedule = useCallback(
     (patch: Partial<T>) => {
-      pendingRef.current = { ...(pendingRef.current ?? {}), ...patch };
+      queue.add(patch);
       setStatus("unsaved");
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => flushRef.current(), delay);
     },
-    [delay],
+    [delay, queue],
   );
 
   useEffect(() => {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
-      if (pendingRef.current) flushRef.current();
+      if (queue.pending()) flushRef.current();
     };
-  }, []);
+  }, [queue]);
 
   const hasUnsavedChanges = useCallback(
-    () => pendingRef.current !== null || inFlightRef.current,
-    [],
+    () => queue.pending() || inFlightRef.current,
+    [queue],
   );
 
   return { schedule, flush, retry: flush, status, hasUnsavedChanges };
@@ -99,6 +102,8 @@ export function saveStatusLabel(status: SaveStatus) {
       return "Saved";
     case "error":
       return "Save failed";
+    case "rejected":
+      return "Change not saved";
     default:
       return "";
   }

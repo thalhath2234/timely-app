@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   connectProvider,
@@ -15,18 +16,26 @@ import {
   type ProviderPatch,
 } from "@/app/utils/api/agentProviders";
 import { rescanProviders } from "@/app/utils/api/instance";
+import { reindexActive, reindexPollInterval } from "@timely/contract/reindexPoll";
 
 export const agentProvidersKey = ["agent-providers"] as const;
 
-export function useAgentProviders() {
+/** The provider overview. Only Settings passes `watchReindex`, so the count
+ * of a running semantic-search rebuild moves there (reindexPollInterval);
+ * every other screen reads the overview once. */
+export function useAgentProviders({ watchReindex = false }: { watchReindex?: boolean } = {}) {
+  const since = useRef<number | null>(null);
   return useQuery({
     queryKey: agentProvidersKey,
     queryFn: getAgentProviders,
-    // Poll while a semantic-search rebuild is running so the count moves.
-    refetchInterval: (query) => {
-      const status = query.state.data?.reindex?.status;
-      return status === "queued" || status === "running" ? 2000 : false;
-    },
+    refetchInterval: watchReindex
+      ? (query) => {
+          const status = query.state.data?.reindex?.status;
+          if (!reindexActive(status)) since.current = null;
+          else since.current ??= Date.now();
+          return reindexPollInterval(status, since.current === null ? 0 : Date.now() - since.current);
+        }
+      : false,
   });
 }
 
@@ -40,6 +49,10 @@ export function useProviderModels(
     queryFn: () => listProviderModels(id, kind),
     enabled,
     staleTime: 10 * 60 * 1000,
+    // A failed list answers 409 with its reason: show it at once instead of
+    // asking the provider three more times. apiFetch already rides out an
+    // API restart for a GET.
+    retry: false,
   });
 }
 

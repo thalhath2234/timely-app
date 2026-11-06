@@ -9,36 +9,65 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // fakeJev plays one endpoint. answer builds the response from the request.
 type fakeJev struct {
 	status int
 	hits   atomic.Int32
+	mu     sync.Mutex
 	last   map[string]any
 	raw    []byte
 	auth   string
 	answer func(req map[string]any) map[string]any
+	// bodies, when set, are sent as they are with a 200, one per call; the
+	// last one repeats.
+	bodies []string
+	// delay holds each answer back; header is added to every response.
+	delay  time.Duration
+	header map[string]string
 }
 
 func (f *fakeJev) server(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.hits.Add(1)
-		f.auth = r.Header.Get("Authorization")
-		f.raw, _ = io.ReadAll(r.Body)
-		f.last = map[string]any{}
-		_ = json.Unmarshal(f.raw, &f.last)
+		// Calls can overlap (the busy and single-flight tests), so each
+		// answer is built from its own request and the last one is kept
+		// under a lock.
+		raw, _ := io.ReadAll(r.Body)
+		req := map[string]any{}
+		_ = json.Unmarshal(raw, &req)
+		f.mu.Lock()
+		f.auth, f.raw, f.last = r.Header.Get("Authorization"), raw, req
+		f.mu.Unlock()
+		if f.delay > 0 {
+			select {
+			case <-time.After(f.delay):
+			case <-r.Context().Done():
+				return
+			}
+		}
+		for k, v := range f.header {
+			w.Header().Set(k, v)
+		}
 		if f.status != 0 && f.status != 200 {
 			w.WriteHeader(f.status)
 			_, _ = w.Write([]byte(`{"error":{"message":"nope"}}`))
 			return
 		}
+		if len(f.bodies) > 0 {
+			n := min(int(f.hits.Load()), len(f.bodies)) - 1
+			_, _ = w.Write([]byte(f.bodies[n]))
+			return
+		}
 		out := map[string]any{"model": "jev-1.13.0", "usage": map[string]int{"input_tokens": 10, "output_tokens": 0}}
 		if f.answer != nil {
-			out["answers"] = f.answer(f.last)
+			out["answers"] = f.answer(req)
 		} else {
 			out["answers"] = map[string]any{}
 		}
@@ -125,11 +154,17 @@ func TestTypeSafeFirst(t *testing.T) {
 }
 
 func TestFallbackToOpenRouter(t *testing.T) {
-	for _, code := range []int{401, 429, 500, 529} {
+	// Out of credit (402), forbidden (403), not found and timed out (408) are
+	// about the TypeSafe account or service, so the OpenRouter key is tried.
+	for _, code := range []int{401, 402, 403, 404, 408, 429, 500, 529} {
 		ts, or := &fakeJev{status: code}, &fakeJev{answer: yesAnswer(0.2)}
 		s, c := newTest(t, Keys{Enabled: true, TypeSafe: "ts-key-123", OpenRouter: "or-key-123"}, ts, or)
 		var rejected string
-		c.Rejected = func(uid string) { rejected = uid }
+		c.Rejected = func(uid, key string) {
+			if key == "ts-key-123" {
+				rejected = uid
+			}
+		}
 		a, err := s.Ask(context.Background(), "u1", oneYesNo())
 		if err != nil {
 			t.Fatalf("%d: %v", code, err)
@@ -137,7 +172,7 @@ func TestFallbackToOpenRouter(t *testing.T) {
 		if a.Provider != ProviderOpenRouter || or.auth != "Bearer or-key-123" || or.last["model"] != routerModel {
 			t.Fatalf("%d: provider %q auth %q model %v", code, a.Provider, or.auth, or.last["model"])
 		}
-		if or.last["model"] != "typesafe/jev-1.13" || or.last["state"] == nil || or.last["questions"] == nil {
+		if or.last["model"] != "~typesafe/jev-latest" || or.last["state"] == nil || or.last["questions"] == nil {
 			t.Fatalf("%d: OpenRouter body must match its Decisions API: %v", code, or.last)
 		}
 		if (code == 401) != (rejected == "u1") {
@@ -147,13 +182,55 @@ func TestFallbackToOpenRouter(t *testing.T) {
 }
 
 func TestBadRequestDoesNotFallBack(t *testing.T) {
-	ts, or := &fakeJev{status: 422}, &fakeJev{answer: yesAnswer(0.2)}
-	s, _ := newTest(t, Keys{Enabled: true, TypeSafe: "ts-key-123", OpenRouter: "or-key-123"}, ts, or)
-	if _, err := s.Ask(context.Background(), "u1", oneYesNo()); !errors.Is(err, ErrOff) {
-		t.Fatalf("want ErrOff, got %v", err)
+	// OpenRouter gets the same body, so a request TypeSafe could not take
+	// stays with TypeSafe.
+	for _, code := range []int{400, 413, 422} {
+		ts, or := &fakeJev{status: code}, &fakeJev{answer: yesAnswer(0.2)}
+		s, _ := newTest(t, Keys{Enabled: true, TypeSafe: "ts-key-123", OpenRouter: "or-key-123"}, ts, or)
+		if _, err := s.Ask(context.Background(), "u1", oneYesNo()); !errors.Is(err, ErrOff) {
+			t.Fatalf("%d: want ErrOff, got %v", code, err)
+		}
+		if or.hits.Load() != 0 {
+			t.Fatalf("a %d from TypeSafe went on to OpenRouter", code)
+		}
 	}
-	if or.hits.Load() != 0 {
-		t.Fatal("a 422 from TypeSafe went on to OpenRouter")
+}
+
+// A 200 with no answers is a failed call: OpenRouter is tried, and with no
+// other key the failure is neither logged as a decision nor cached, so the
+// next ask makes a new call.
+func TestEmptyAnswerIsAFailure(t *testing.T) {
+	errBody := `{"error":{"message":"upstream failed"}}`
+	ok := `{"answers":{"q":{"type":"noul","noul":0.9}}}`
+
+	ts, or := &fakeJev{bodies: []string{errBody}}, &fakeJev{answer: yesAnswer(0.1)}
+	s, _ := newTest(t, Keys{Enabled: true, TypeSafe: "ts-key-123", OpenRouter: "or-key-123"}, ts, or)
+	a, err := s.Ask(context.Background(), "u1", oneYesNo())
+	if err != nil || a.Provider != ProviderOpenRouter || or.hits.Load() != 1 {
+		t.Fatalf("want the OpenRouter answer, got %q %v (openrouter hits %d)", a.Provider, err, or.hits.Load())
+	}
+
+	for name, first := range map[string]string{
+		"error body":        errBody,
+		"empty answers":     `{"answers":{}}`,
+		"other answers":     `{"answers":{"other":{"type":"noul","noul":0.9}}}`,
+		"no yes/no reading": `{"answers":{"q":{"type":"noul"}}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			ts := &fakeJev{bodies: []string{first, ok}}
+			s, _ := newTest(t, Keys{Enabled: true, TypeSafe: "ts-key-123"}, ts, &fakeJev{})
+			a, err := s.Ask(context.Background(), "u1", oneYesNo())
+			if !errors.Is(err, ErrOff) || err == ErrOff || a.LogID != "" {
+				t.Fatalf("want a failed call, got %v (log %q)", err, a.LogID)
+			}
+			a, err = s.Ask(context.Background(), "u1", oneYesNo())
+			if err != nil || ts.hits.Load() != 2 {
+				t.Fatalf("the failure was cached: %v after %d calls", err, ts.hits.Load())
+			}
+			if yes, ok := a.Yes("q", Route); !ok || !yes {
+				t.Fatalf("want the second answer, got %v %v", yes, ok)
+			}
+		})
 	}
 }
 
@@ -233,8 +310,8 @@ func TestScoreAndYesNoConfidence(t *testing.T) {
 	if l, ok := a.Level("effort", Prefill); !ok || l != 2 {
 		t.Fatalf("1.6 should round to level 2, got %d %v", l, ok)
 	}
-	if l, _ := a.Level("high", Prefill); l != 1 {
-		t.Fatalf("score past the top must clamp to the last level, got %d", l)
+	if _, ok := a.Level("high", 0); ok {
+		t.Fatal("a score far past the top level is not an answer")
 	}
 	if _, ok := a.Yes("unsure", Flag); ok {
 		t.Fatal("p=0.6 has confidence 0.2 and must not pass a 0.5 threshold")

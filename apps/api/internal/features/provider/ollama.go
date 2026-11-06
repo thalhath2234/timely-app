@@ -4,14 +4,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
+	"time"
 
 	"timely-api/internal/features/chat"
 )
@@ -33,6 +38,9 @@ type Ollama struct {
 	Key    string
 	Model  string
 	Client *http.Client
+	// Typed marks an address the person typed (not one the server lists):
+	// its answers are never quoted back (see typedFailure).
+	Typed bool
 }
 
 func (p *Ollama) CanSearch() bool { return false }
@@ -101,10 +109,16 @@ func (p *Ollama) completeOnce(ctx context.Context, messages []chat.WireMessage, 
 	req.Header.Set("Content-Type", "application/json")
 	res, err := p.Client.Do(req)
 	if err != nil {
+		if p.Typed {
+			return empty, typedFailure(p.Spec.Label, p.Base, 0, err)
+		}
 		return empty, fmt.Errorf("Could not reach %s at %s: %w", p.Spec.Label, p.Base, err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
+		if p.Typed {
+			return empty, typedFailure(p.Spec.Label, p.Base, res.StatusCode, nil)
+		}
 		return empty, statusError(p.Spec.Label, res)
 	}
 	var data struct {
@@ -116,13 +130,19 @@ func (p *Ollama) completeOnce(ctx context.Context, messages []chat.WireMessage, 
 		Error      string `json:"error"`
 	}
 	if err = json.NewDecoder(io.LimitReader(res.Body, 2<<20)).Decode(&data); err != nil {
+		if p.Typed {
+			return empty, typedUnreadable(p.Spec.Label, p.Base, err)
+		}
 		return empty, fmt.Errorf("%s answer could not be read: %w", p.Spec.Label, err)
 	}
 	if data.Error != "" {
+		if p.Typed {
+			return empty, typedFailure(p.Spec.Label, p.Base, 0, nil)
+		}
 		return empty, fmt.Errorf("%s: %s", p.Spec.Label, clip(data.Error))
 	}
 	if data.DoneReason == "length" {
-		return empty, fmt.Errorf("The proposal was too large; try a smaller request")
+		return empty, chat.ErrAnswerTooLong
 	}
 	out := chat.WireMessage{Role: "assistant", Content: data.Message.Content}
 	for i, call := range data.Message.ToolCalls {
@@ -150,6 +170,12 @@ func (p *Ollama) completeOnce(ctx context.Context, messages []chat.WireMessage, 
 // those whose /api/show capabilities include tools; vision is read from the
 // same capabilities.
 func ollamaModels(ctx context.Context, client *http.Client, spec *apiProvider, base, key string) ([]ModelOption, error) {
+	return listOllamaModels(ctx, client, spec, base, key, false)
+}
+
+// listOllamaModels is ollamaModels; typed marks an address the person typed,
+// whose answers are never quoted back.
+func listOllamaModels(ctx context.Context, client *http.Client, spec *apiProvider, base, key string, typed bool) ([]ModelOption, error) {
 	get := func(method, path string, body any, out any) error {
 		var reader io.Reader
 		if body != nil {
@@ -164,13 +190,23 @@ func ollamaModels(ctx context.Context, client *http.Client, spec *apiProvider, b
 		req.Header.Set("Content-Type", "application/json")
 		res, err := client.Do(req)
 		if err != nil {
+			if typed {
+				return typedFailure(spec.Label, base, 0, err)
+			}
 			return fmt.Errorf("Could not reach %s at %s: %w", spec.Label, base, err)
 		}
 		defer res.Body.Close()
 		if res.StatusCode != http.StatusOK {
+			if typed {
+				return typedFailure(spec.Label, base, res.StatusCode, nil)
+			}
 			return statusError(spec.Label, res)
 		}
-		return json.NewDecoder(io.LimitReader(res.Body, 16<<20)).Decode(out)
+		err = json.NewDecoder(io.LimitReader(res.Body, 16<<20)).Decode(out)
+		if err != nil && typed {
+			return typedUnreadable(spec.Label, base, err)
+		}
+		return err
 	}
 	var tags struct {
 		Models []struct {
@@ -217,4 +253,128 @@ func ollamaModels(ctx context.Context, client *http.Client, spec *apiProvider, b
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
 	return list, nil
+}
+
+// ---- typed addresses ----
+
+// errPrivateAddress refuses a typed Ollama address that points at this
+// server or its private network while the server is open to sign-ups, where
+// any stranger's account could use it to reach services that are not theirs.
+var errPrivateAddress = errors.New("Anyone can sign up on this server, so Ollama can't use a local or private address. Choose “This server” or “Ollama Cloud” as the endpoint, or enter a public address")
+
+// typedError shows its own words but keeps the cause for errors.Is and
+// RetryTransient.
+type typedError struct {
+	msg string
+	err error
+}
+
+func (e *typedError) Error() string { return e.msg }
+func (e *typedError) Unwrap() error { return e.err }
+
+// typedFailure is what a person sees when an Ollama address they typed
+// fails. It never quotes the answer or the network error: the address may
+// not be Ollama at all, and what it says is not for Timely to repeat.
+func typedFailure(label, base string, status int, err error) error {
+	var msg string
+	switch {
+	case errors.Is(err, errPrivateAddress):
+		msg = errPrivateAddress.Error()
+	case err != nil:
+		msg = fmt.Sprintf("Could not reach %s at %s. Check the address and that %s is running there", label, base, label)
+	case status == http.StatusNotFound:
+		msg = fmt.Sprintf("%s returned HTTP 404. Check the address and that the model is installed there", base)
+	case status != 0:
+		msg = fmt.Sprintf("%s returned HTTP %d. Check that this address is an %s server", base, status, label)
+	default:
+		msg = fmt.Sprintf("%s did not answer like an %s server. Check the address", base, label)
+	}
+	return &typedError{msg: msg, err: err}
+}
+
+// typedUnreadable is typedFailure for an answer that could not be read. It
+// keeps the decode error, so an answer cut off on the way (io.ErrUnexpectedEOF)
+// is sent again by RetryTransient like any other dropped connection.
+func typedUnreadable(label, base string, err error) error {
+	return &typedError{msg: fmt.Sprintf("%s did not answer like an %s server. Check the address", base, label), err: err}
+}
+
+// publicAddr reports whether ip is on the public internet: not this machine,
+// not a private, shared (CGNAT), link-local or reserved range, and not an
+// IPv6 form that wraps one of those.
+func publicAddr(ip netip.Addr) bool {
+	ip = ip.Unmap()
+	if !ip.IsValid() || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsInterfaceLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
+		return false
+	}
+	for _, p := range nonPublic {
+		if p.Contains(ip) {
+			return false
+		}
+	}
+	return true
+}
+
+var nonPublic = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),      // "this network"
+	netip.MustParsePrefix("100.64.0.0/10"),  // shared address space (CGNAT, Tailscale)
+	netip.MustParsePrefix("192.0.0.0/24"),   // IETF protocol assignments
+	netip.MustParsePrefix("198.18.0.0/15"),  // benchmarking
+	netip.MustParsePrefix("240.0.0.0/4"),    // reserved and broadcast
+	netip.MustParsePrefix("64:ff9b::/96"),   // NAT64 wraps IPv4
+	netip.MustParsePrefix("64:ff9b:1::/48"), // local NAT64
+	netip.MustParsePrefix("2002::/16"),      // 6to4 wraps IPv4
+	netip.MustParsePrefix("2001::/32"),      // Teredo wraps IPv4
+}
+
+// publicOnly is a dialer check run on every connection, after DNS, so a name
+// that resolves (or later re-resolves) to a private address is refused too.
+func publicOnly(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return errPrivateAddress
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil || !publicAddr(ip) {
+		return errPrivateAddress
+	}
+	return nil
+}
+
+// publicTransport connects only to public addresses, and never through a
+// proxy, which would connect for it past the check.
+var publicTransport = func() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.Proxy = nil
+	t.DialContext = (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second, Control: publicOnly}).DialContext
+	return t
+}()
+
+func noRedirects(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
+// typedClient is the HTTP client for an Ollama address the person typed. It
+// never follows a redirect, which could lead anywhere, and while the server
+// is open to sign-ups it reaches only public addresses.
+func (s *Service) typedClient(timeout time.Duration) *http.Client {
+	client := &http.Client{Timeout: timeout, CheckRedirect: noRedirects}
+	if !s.privateOllama {
+		client.Transport = publicTransport
+	}
+	return client
+}
+
+// typedBase reports whether base is an address the person typed rather than
+// one the server lists (the provider's endpoints and OLLAMA_BASE_URL).
+func (s *Service) typedBase(spec *apiProvider, base string) bool {
+	if !spec.CustomURL {
+		return false
+	}
+	base = strings.TrimRight(base, "/")
+	for _, e := range spec.Endpoints {
+		if base == strings.TrimRight(e.BaseURL, "/") {
+			return false
+		}
+	}
+	return base != strings.TrimRight(s.defaultBase(spec), "/")
 }

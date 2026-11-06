@@ -28,6 +28,9 @@ importers:
 
   apps/mobile:
     dependencies:
+      '@openuidev/react-lang':
+        specifier: 1.0.1
+        version: 1.0.1(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(zod@4.4.3)
       '@tanstack/react-query':
         specifier: ^5.102.8
         version: 5.102.8(react@19.2.3)
@@ -145,6 +148,9 @@ importers:
       react-native-worklets:
         specifier: 0.10.1
         version: 0.10.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1)
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
       zustand:
         specifier: ^5.0.15
         version: 5.0.15(@types/react@19.2.18)(react@19.2.3)(use-sync-external-store@1.6.0(react@19.2.3))
@@ -164,6 +170,9 @@ importers:
       '@hookform/resolvers':
         specifier: ^5.4.0
         version: 5.9.1(@sinclair/typebox@0.27.12)(ajv@8.20.0)(react-hook-form@7.82.0(react@19.2.4))(zod@4.4.3)
+      '@openuidev/react-lang':
+        specifier: 1.0.1
+        version: 1.0.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(zod@4.4.3)
       '@remotion/google-fonts':
         specifier: 4.0.536
         version: 4.0.536(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -324,9 +333,15 @@ importers:
 
   packages/contract:
     dependencies:
+      '@openuidev/lang-core':
+        specifier: 1.0.1
+        version: 1.0.1(zod@4.4.3)
       marked:
         specifier: ^18.1.0
         version: 18.1.0
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
 packages:
 
@@ -1895,6 +1910,42 @@ packages:
   '@nolyfill/is-core-module@1.0.39':
     resolution: {integrity: sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA==}
     engines: {node: '>=12.4.0'}
+
+  '@openuidev/devtools@0.3.0':
+    resolution: {integrity: sha512-eT6+IUWNBL4k5JANAgKC03tQwutafBdTrAwTfVhhTherllk0R+5W/E4j64j1oBnNSlReRDwETyrGwyhHAwiMfA==}
+    peerDependencies:
+      '@openuidev/observability': '>=0.0.4 <0.1.0'
+      '@openuidev/react-lang': '>=1.0.0 <2.0.0'
+      react: ^18.3.1 || ^19.0.0
+      react-dom: ^18.0.0 || ^19.0.0
+    peerDependenciesMeta:
+      '@openuidev/react-lang':
+        optional: true
+
+  '@openuidev/lang-core@1.0.1':
+    resolution: {integrity: sha512-4vBa7FRM6C4v4aCvBAmAtTgFWiEQiNTazG9h4Xy9fC6P/p6+9kZu4RdTyLToBEvdxrYn/gDy/PakEH8PU3lUcw==}
+    peerDependencies:
+      '@modelcontextprotocol/sdk': '>=1.0.0'
+      zod: ^3.25.0 || ^4.0.0
+    peerDependenciesMeta:
+      '@modelcontextprotocol/sdk':
+        optional: true
+
+  '@openuidev/observability@0.0.4':
+    resolution: {integrity: sha512-4fjIrWu3TqTlfDE/m7cG10CH1vV7wQk5GPwMOmXeF9vJtkg92dg4Bdk3AjKgud7H7Xypwwjgt52VcLGZCE2CJQ==}
+
+  '@openuidev/react-lang@1.0.1':
+    resolution: {integrity: sha512-jt5AKWyKe73BjD+bRC2kKerHCeAurI/D9KMQvbi736963D2lehpPGAvVGoxAN4MG6sM/7OOlfWvErQBPPPx30A==}
+    peerDependencies:
+      '@modelcontextprotocol/sdk': '>=1.0.0'
+      react: '*'
+      react-dom: '*'
+      zod: ^3.25.0 || ^4.0.0
+    peerDependenciesMeta:
+      '@modelcontextprotocol/sdk':
+        optional: true
+      react-dom:
+        optional: true
 
   '@peculiar/asn1-schema@2.9.4':
     resolution: {integrity: sha512-GjzePcT9Iw8NzeOPf73iNS9xM+TBhd/FilAfP+RQGkTMQJTVWtytN3JHJACCjf/ABNau5S7mS3g+DcuxmRgYEg==}
@@ -5631,6 +5682,11 @@ packages:
       react-native: '*'
       react-native-svg: ^12.0.0 || ^13.0.0 || ^14.0.0 || ^15.0.0
 
+  lucide-react@0.575.0:
+    resolution: {integrity: sha512-VuXgKZrk0uiDlWjGGXmKV6MSk9Yy4l10qgVvzGn2AWBx1Ylt0iBexKOAoA6I7JO3m+M9oeovJd3yYENfkUbOeg==}
+    peerDependencies:
+      react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
   lucide-react@1.25.0:
     resolution: {integrity: sha512-/mdJTRbiwcLOQ1NZZK1amZF9rIZyvO18D6r9TngE6TG1NmqHgFuT4eE7Xrkm9UsXMbBJD1NlfwHVltCDWHrOTw==}
     peerDependencies:
@@ -9220,6 +9276,51 @@ snapshots:
 
   '@nolyfill/is-core-module@1.0.39': {}
 
+  '@openuidev/devtools@0.3.0(@openuidev/observability@0.0.4)(@openuidev/react-lang@1.0.1(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(zod@4.4.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+    dependencies:
+      '@openuidev/observability': 0.0.4
+      lucide-react: 0.575.0(react@19.2.3)
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
+    optionalDependencies:
+      '@openuidev/react-lang': 1.0.1(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(zod@4.4.3)
+
+  '@openuidev/devtools@0.3.0(@openuidev/observability@0.0.4)(@openuidev/react-lang@1.0.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(zod@4.4.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@openuidev/observability': 0.0.4
+      lucide-react: 0.575.0(react@19.2.4)
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
+    optionalDependencies:
+      '@openuidev/react-lang': 1.0.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(zod@4.4.3)
+
+  '@openuidev/lang-core@1.0.1(zod@4.4.3)':
+    dependencies:
+      ci-info: 4.4.0
+      zod: 4.4.3
+
+  '@openuidev/observability@0.0.4': {}
+
+  '@openuidev/react-lang@1.0.1(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(zod@4.4.3)':
+    dependencies:
+      '@openuidev/devtools': 0.3.0(@openuidev/observability@0.0.4)(@openuidev/react-lang@1.0.1(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(zod@4.4.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@openuidev/lang-core': 1.0.1(zod@4.4.3)
+      '@openuidev/observability': 0.0.4
+      react: 19.2.3
+      zod: 4.4.3
+    optionalDependencies:
+      react-dom: 19.2.3(react@19.2.3)
+
+  '@openuidev/react-lang@1.0.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(zod@4.4.3)':
+    dependencies:
+      '@openuidev/devtools': 0.3.0(@openuidev/observability@0.0.4)(@openuidev/react-lang@1.0.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(zod@4.4.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@openuidev/lang-core': 1.0.1(zod@4.4.3)
+      '@openuidev/observability': 0.0.4
+      react: 19.2.4
+      zod: 4.4.3
+    optionalDependencies:
+      react-dom: 19.2.4(react@19.2.4)
+
   '@peculiar/asn1-schema@2.9.4':
     dependencies:
       '@peculiar/utils': 2.0.3
@@ -12269,8 +12370,8 @@ snapshots:
       '@babel/parser': 7.29.8
       eslint: 9.39.5(jiti@2.7.0)(supports-color@8.1.1)
       hermes-parser: 0.25.1
-      zod: 4.4.3
-      zod-validation-error: 4.0.2(zod@4.4.3)
+      zod: 4.5.4
+      zod-validation-error: 4.0.2(zod@4.5.4)
     transitivePeerDependencies:
       - supports-color
 
@@ -13594,6 +13695,14 @@ snapshots:
       react: 19.2.3
       react-native: 0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1)
       react-native-svg: 15.15.4(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)
+
+  lucide-react@0.575.0(react@19.2.3):
+    dependencies:
+      react: 19.2.3
+
+  lucide-react@0.575.0(react@19.2.4):
+    dependencies:
+      react: 19.2.4
 
   lucide-react@1.25.0(react@19.2.4):
     dependencies:
@@ -15900,9 +16009,9 @@ snapshots:
 
   yocto-queue@0.1.0: {}
 
-  zod-validation-error@4.0.2(zod@4.4.3):
+  zod-validation-error@4.0.2(zod@4.5.4):
     dependencies:
-      zod: 4.4.3
+      zod: 4.5.4
 
   zod@3.25.76: {}
 

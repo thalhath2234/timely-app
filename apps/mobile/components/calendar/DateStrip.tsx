@@ -1,8 +1,57 @@
-import { useEffect, useRef, useState } from "react";
-import { Dimensions, NativeScrollEvent, NativeSyntheticEvent, ScrollView, Text, View } from "react-native";
-import { addDays, dayKey, isSameDay, startOfDay } from "../../lib/format";
+import { memo, useCallback, useState } from "react";
+import { Dimensions, Text, View } from "react-native";
+import { addDays, dayKey, isSameDay, startOfWeek } from "../../lib/format";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "../ui/AnimatedPressable";
+import PeriodPager from "./PeriodPager";
+
+/** Weeks either side of the first one shown that a swipe can reach. */
+const SPAN = 520;
+const WEEK_MS = 7 * 86_400_000;
+
+function weeksBetween(from: Date, to: Date) {
+  return Math.round((startOfWeek(to).getTime() - from.getTime()) / WEEK_MS);
+}
+
+const WeekRow = memo(function WeekRow({
+  weekStart,
+  selected,
+  onSelect,
+  busyDays,
+  width,
+}: {
+  weekStart: number;
+  /** The selected day when it falls in this week, so the other weeks skip the re-render. */
+  selected: Date | null;
+  onSelect: (d: Date) => void;
+  busyDays: Set<string>;
+  width: number;
+}) {
+  const today = new Date();
+  return (
+    <View style={[styles.week, { width }]}>
+      {Array.from({ length: 7 }, (_, i) => addDays(new Date(weekStart), i)).map((d) => {
+        const on = selected !== null && isSameDay(d, selected);
+        const isToday = isSameDay(d, today);
+        return (
+          <AnimatedPressable key={d.toISOString()} onPress={() => onSelect(d)} style={styles.day}>
+            <Text style={[styles.wd, on && styles.onText]}>{d.toLocaleDateString(undefined, { weekday: "narrow" })}</Text>
+            <View style={[styles.numWrap, on && styles.on]}>
+              <Text style={[styles.num, on && styles.numOnText, isToday && !on && { color: colors.primary }]}>
+                {d.getDate()}
+              </Text>
+            </View>
+            {busyDays.has(dayKey(d)) ? (
+              <View style={[styles.dot, on && { backgroundColor: colors.primary }]} />
+            ) : (
+              <View style={styles.dotSpacer} />
+            )}
+          </AnimatedPressable>
+        );
+      })}
+    </View>
+  );
+});
 
 export default function DateStrip({
   selected,
@@ -13,98 +62,52 @@ export default function DateStrip({
   onSelect: (d: Date) => void;
   busyDays: Set<string>;
 }) {
-  const scrollRef = useRef<ScrollView>(null);
-  const ignoreScroll = useRef(true);
-  const skipMomentum = useRef(false);
   const [pageWidth, setPageWidth] = useState(Dimensions.get("window").width);
-  const today = new Date();
-  const selectedWeekStart = addDays(startOfDay(selected), -selected.getDay());
-  const [weekStart, setWeekStart] = useState(selectedWeekStart);
-  const days = Array.from({ length: 21 }, (_, i) => addDays(weekStart, i - 7));
-
-  useEffect(() => {
-    setWeekStart((current) =>
-      current.getTime() === selectedWeekStart.getTime() ? current : selectedWeekStart,
-    );
-  }, [selectedWeekStart.getTime()]);
-
-  useEffect(() => {
-    ignoreScroll.current = true;
-    scrollRef.current?.scrollTo({ x: pageWidth, animated: false });
-    const id = requestAnimationFrame(() => {
-      ignoreScroll.current = false;
-    });
-    return () => cancelAnimationFrame(id);
-  }, [weekStart.getTime(), pageWidth]);
-
-  function onPage(event: NativeSyntheticEvent<NativeScrollEvent>) {
-    if (ignoreScroll.current || pageWidth <= 0) return;
-    const page = Math.round(event.nativeEvent.contentOffset.x / pageWidth);
-    if (page === 1) return;
-    setWeekStart((current) => addDays(current, (page - 1) * 7));
+  const [anchor, setAnchor] = useState(() => startOfWeek(selected));
+  let selectedIndex = weeksBetween(anchor, selected) + SPAN;
+  if (selectedIndex < 0 || selectedIndex > SPAN * 2) {
+    setAnchor(startOfWeek(selected));
+    selectedIndex = SPAN;
   }
+  // A swipe only browses: the strip shows that week until a day in another
+  // week is picked, which brings it back to the selected day's week.
+  const [browse, setBrowse] = useState<{ from: number; index: number } | null>(null);
+  const index = browse?.from === selectedIndex ? browse.index : selectedIndex;
 
-  function onDragEnd(event: NativeSyntheticEvent<NativeScrollEvent>) {
-    const velocity = event.nativeEvent.velocity?.x ?? 0;
-    if (Math.abs(velocity) > 0.05) return;
-    skipMomentum.current = true;
-    onPage(event);
-  }
-
-  function onMomentumEnd(event: NativeSyntheticEvent<NativeScrollEvent>) {
-    if (skipMomentum.current) {
-      skipMomentum.current = false;
-      return;
-    }
-    onPage(event);
-  }
+  const renderPage = useCallback(
+    (page: number) => {
+      const weekStart = addDays(anchor, (page - SPAN) * 7);
+      const inWeek = page === selectedIndex;
+      return <WeekRow weekStart={weekStart.getTime()} selected={inWeek ? selected : null} onSelect={onSelect} busyDays={busyDays} width={pageWidth} />;
+    },
+    [anchor, selected, selectedIndex, onSelect, busyDays, pageWidth],
+  );
 
   return (
-    <ScrollView
-      keyboardShouldPersistTaps="handled"
-      ref={scrollRef}
+    <View
       style={styles.strip}
-      horizontal
-      pagingEnabled
-      decelerationRate="fast"
-      showsHorizontalScrollIndicator={false}
-      onMomentumScrollEnd={onMomentumEnd}
-      onScrollEndDrag={onDragEnd}
       onLayout={(event) => {
         const width = event.nativeEvent.layout.width;
         if (width > 0 && width !== pageWidth) setPageWidth(width);
       }}
     >
-      {[0, 1, 2].map((week) => (
-        <View key={`${weekStart.getTime()}-${week}`} style={[styles.week, { width: pageWidth }]}>
-          {days.slice(week * 7, week * 7 + 7).map((d) => {
-            const on = isSameDay(d, selected);
-            const isToday = isSameDay(d, today);
-            return (
-              <AnimatedPressable key={d.toISOString()} onPress={() => onSelect(d)} style={styles.day}>
-                <Text style={[styles.wd, on && styles.onText]}>{d.toLocaleDateString(undefined, { weekday: "narrow" })}</Text>
-                <View style={[styles.numWrap, on && styles.on]}>
-                  <Text style={[styles.num, on && styles.numOnText, isToday && !on && { color: colors.primary }]}>
-                    {d.getDate()}
-                  </Text>
-                </View>
-                {busyDays.has(dayKey(d)) ? (
-                  <View style={[styles.dot, on && { backgroundColor: colors.primary }]} />
-                ) : (
-                  <View style={styles.dotSpacer} />
-                )}
-              </AnimatedPressable>
-            );
-          })}
-        </View>
-      ))}
-    </ScrollView>
+      <PeriodPager
+        key={anchor.getTime()}
+        index={index}
+        count={SPAN * 2 + 1}
+        width={pageWidth}
+        extraData={renderPage}
+        renderPage={renderPage}
+        onIndexChange={(page) => setBrowse({ from: selectedIndex, index: page })}
+      />
+    </View>
   );
 }
 
 const styles = createThemedStyleSheet((colors) => ({
-  strip: { height: 66, flexGrow: 0 },
+  strip: { height: 66 },
   week: {
+    height: 66,
     flexDirection: "row",
     justifyContent: "space-between",
     paddingHorizontal: 16,

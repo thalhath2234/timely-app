@@ -1,4 +1,6 @@
 const { chromium, expect } = require("@playwright/test");
+// A plan of several changes applies them all from the footer, or one by one.
+const APPLY_ALL = /^Apply (all|changes)$/;
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 (async () => {
@@ -383,13 +385,16 @@ const fs = require("node:fs");
     .getByRole("button", { name: "Open Build a project budget" })
     .click();
   await page.waitForURL(/\/chat\?id=chat_audit/);
-  await page.getByRole("button", { name: "Apply changes" }).waitFor();
+  await page.getByRole("button", { name: APPLY_ALL }).waitFor();
   await page.waitForTimeout(450);
   await page.screenshot({
     path: "/tmp/timely-chat-proposal.png",
     fullPage: true,
   });
-  await page.getByText("Review details", { exact: true }).nth(1).click();
+  // One card is open at a time; the second shows the rows it adds as a table.
+  await page
+    .getByRole("button", { name: /Add Item, Quantity, Unit price/ })
+    .click();
   await page.getByRole("cell", { name: "Hosting", exact: true }).waitFor();
   await page.getByRole("button", { name: "Web search", exact: true }).click();
   await page.waitForTimeout(200);
@@ -398,9 +403,7 @@ const fs = require("node:fs");
     "search toggle was not saved",
   );
   const approvalRevision = chat.revision;
-  await page
-    .getByRole("button", { name: "Apply changes", exact: true })
-    .click();
+  await page.getByRole("button", { name: APPLY_ALL }).click();
   await page.waitForTimeout(200);
   assert(
     requests.some(
@@ -423,7 +426,7 @@ const fs = require("node:fs");
     .getByText("Sheet name already exists")
     .first()
     .waitFor();
-  await page.getByLabel("Failed", { exact: true }).waitFor();
+  await page.getByText("Failed", { exact: true }).first().waitFor();
   await page
     .getByRole("button", { name: "Review unfinished changes" })
     .waitFor();
@@ -434,19 +437,17 @@ const fs = require("node:fs");
   // Discarding a proposal archives it and keeps the conversation usable.
   await page.reload();
   const rejectRevision = chat.revision;
-  await page.getByRole("button", { name: "Discard", exact: true }).click();
+  await page.getByRole("button", { name: "Discard all", exact: true }).click();
   await page.getByText("Proposal discarded. Nothing was changed.").waitFor();
   await page.getByRole("button", { name: /Discarded proposal/ }).click();
-  await page.getByLabel("Discarded", { exact: true }).first().waitFor();
+  await page.getByText("Discarded", { exact: true }).first().waitFor();
   assert(
     requests.some(
       (r) => r.path.endsWith("/reject") && r.body.revision === rejectRevision,
     ),
     "discard did not bind to the displayed revision",
   );
-  await expect(
-    page.getByRole("button", { name: "Apply changes", exact: true }),
-  ).toHaveCount(0);
+  await expect(page.getByRole("button", { name: APPLY_ALL })).toHaveCount(0);
   await page.screenshot({
     path: "/tmp/timely-chat-discarded.png",
     fullPage: true,
@@ -488,13 +489,13 @@ const fs = require("node:fs");
   chat.status = "approval";
   chat.revision = 2;
   await page.goto("http://localhost:4002/chat?id=chat_audit");
-  await page.getByRole("button", { name: "Apply changes" }).waitFor();
+  await page.getByRole("button", { name: APPLY_ALL }).waitFor();
   // Motion on, so the island's morph and bounce run (Reduce motion defaults on).
   await page.evaluate(() =>
     localStorage.setItem("timely.reducedMotion", "false"),
   );
   await page.reload();
-  await page.getByRole("button", { name: "Apply changes" }).waitFor();
+  await page.getByRole("button", { name: APPLY_ALL }).waitFor();
   await page.keyboard.press("Control+Shift+J");
   const overlay = page.getByRole("dialog", { name: "Chat with Timely" });
   await overlay.waitFor();
@@ -653,7 +654,7 @@ const fs = require("node:fs");
   themeMode = "dark";
   await page.setViewportSize({ width: 1000, height: 760 });
   await page.reload();
-  await page.getByRole("button", { name: "Apply changes" }).waitFor();
+  await page.getByRole("button", { name: APPLY_ALL }).waitFor();
   await page.waitForTimeout(450);
   await page.screenshot({ path: "/tmp/timely-chat-dark.png", fullPage: true });
   await page.locator("[data-activity-island]").click();
