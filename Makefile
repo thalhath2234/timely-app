@@ -265,7 +265,7 @@ test-providers-live: ## Call real agent provider APIs (tool round trip + image) 
 
 .PHONY: test-chat-integration lint-chat
 test-chat-integration: ## Test agent transactions and approvals in an isolated temporary PostgreSQL schema
-	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" go test ./internal/features/chat ./internal/features/sheet ./internal/features/provider ./internal/features/search ./internal/features/workspace ./internal/features/placement ./internal/features/task ./internal/features/notify ./internal/features/schedule ./internal/features/suggest ./cmd -run TestIntegration -count=1
+	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" go test ./internal/jobs ./internal/features/chat ./internal/features/sheet ./internal/features/provider ./internal/features/search ./internal/features/workspace ./internal/features/placement ./internal/features/task ./internal/features/notify ./internal/features/schedule ./internal/features/suggest ./cmd -run TestIntegration -count=1
 
 .PHONY: mcp-60day
 mcp-60day: ## Play 60 days of one person through MCP against a running API and check reads against a ledger (TIMELY_API, default :8081; ARGS=-seed N -out DIR)
