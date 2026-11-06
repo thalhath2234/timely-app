@@ -286,6 +286,42 @@ func TestRedirects(t *testing.T) {
 	}
 }
 
+func TestExtraHeaders(t *testing.T) {
+	const api = "https://api.example/v1/quote"
+	n := newNet(map[string]reply{
+		api:                              {status: 200, header: http.Header{"Content-Type": {"application/json"}}, body: `{}`},
+		"https://api.example/v1/moved":   {status: 302, header: http.Header{"Location": {"https://other.example/v1/quote"}}},
+		"https://other.example/v1/quote": {status: 200, header: http.Header{"Content-Type": {"application/json"}}, body: `{}`},
+	})
+	f := newFetcher(n, Config{})
+	extra := http.Header{"X-Api-Token": {"secret"}, "User-Agent": {"spoof"}, "Accept-Encoding": {"br"}}
+	if _, err := f.Get(context.Background(), Request{URL: api, Want: WantJSON, Header: extra}); err != nil {
+		t.Fatal(err)
+	}
+	r := n.last(api)
+	if r.Header.Get("X-Api-Token") != "secret" {
+		t.Errorf("extra header not sent: %v", r.Header)
+	}
+	if !strings.HasPrefix(r.Header.Get("User-Agent"), "Timely/") || r.Header.Get("Accept-Encoding") != "" {
+		t.Errorf("extra headers overrode the fetcher's own: %v", r.Header)
+	}
+	if got := n.last("https://api.example/robots.txt").Header.Get("X-Api-Token"); got != "" {
+		t.Errorf("robots.txt got the extra header %q", got)
+	}
+	if _, err := f.Get(context.Background(), Request{URL: "https://api.example/v1/moved", Want: WantJSON, Header: extra}); err != nil {
+		t.Fatal(err)
+	}
+	if got := n.last("https://other.example/v1/quote").Header.Get("X-Api-Token"); got != "" {
+		t.Errorf("the redirect target got the extra header %q", got)
+	}
+	if n.last("https://api.example/v1/moved").Header.Get("X-Api-Token") != "secret" {
+		t.Error("the first hop lost the extra header")
+	}
+	if extra.Get("X-Api-Token") != "secret" {
+		t.Error("the caller's header map was changed")
+	}
+}
+
 func TestRefusedAddresses(t *testing.T) {
 	f := newFetcher(newNet(nil), Config{})
 	for _, raw := range []string{"ftp://shop.example/", "http://shop.example:8080/", "http://user:pw@shop.example/", "://"} {

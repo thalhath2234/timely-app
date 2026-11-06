@@ -44,6 +44,10 @@ type Request struct {
 	// IgnoreRobots skips robots.txt. It is false everywhere; only a
 	// price.Source registry entry may set it.
 	IgnoreRobots bool
+	// Header holds extra request headers, such as a price source's API key.
+	// They go only to URL itself: never to robots.txt, and never on to a
+	// redirect target. The fetcher's own headers win over them.
+	Header http.Header
 }
 
 type Response struct {
@@ -198,8 +202,14 @@ func (f *Fetcher) Get(ctx context.Context, r Request) (*Response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBlockedAddress, err)
 	}
+	for k, vs := range r.Header {
+		for _, v := range vs {
+			req.Header.Add(k, v)
+		}
+	}
 	// No Accept-Encoding: the transport then asks for gzip itself and
 	// decodes it, so the size cap counts decoded bytes.
+	req.Header.Del("Accept-Encoding")
 	req.Header.Set("User-Agent", f.userAgent())
 	req.Header.Set("Accept", accept)
 	if r.ValidatorsURL == r.URL {
@@ -210,7 +220,7 @@ func (f *Fetcher) Get(ctx context.Context, r Request) (*Response, error) {
 			req.Header.Set("If-Modified-Since", r.LastModified)
 		}
 	}
-	res, err := f.cfg.Client.Do(req)
+	res, err := f.client(r.Header).Do(req)
 	if err != nil {
 		if res != nil && ctx.Err() == nil && !errors.Is(err, netguard.ErrBlocked) {
 			// A redirect the client would not follow (too many, or not http).
@@ -280,6 +290,29 @@ func (f *Fetcher) wait(ctx context.Context, site string, gap time.Duration) erro
 		}
 	}
 	return nil
+}
+
+// client is the configured client, or for a request with extra headers a
+// copy that strips them before any redirect is followed.
+func (f *Fetcher) client(extra http.Header) *http.Client {
+	if len(extra) == 0 {
+		return f.cfg.Client
+	}
+	c := *f.cfg.Client
+	next := c.CheckRedirect
+	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		for k := range extra {
+			req.Header.Del(k)
+		}
+		if next != nil {
+			return next(req, via)
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
+	return &c
 }
 
 func (f *Fetcher) userAgent() string {
