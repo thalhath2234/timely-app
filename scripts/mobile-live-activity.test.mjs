@@ -130,6 +130,7 @@ describe("notification quick actions", () => {
 
   test("unknown categories get no buttons", () => {
     assert.equal(categoryFor({ category: "something" }), null);
+    assert.equal(categoryFor({ category: "bot", data: { botId: "bot_a", url: "https://example.com" } }), null);
     assert.equal(categoryFor({ category: "suggestion", data: { action: "nope" } }), null);
   });
 
@@ -163,6 +164,31 @@ describe("server alerts fetched by the phone", () => {
     assert.deepEqual(
       fresh.map((x) => x.id),
       ["d"],
+    );
+  });
+
+  test("an alert quiet hours held shows once it is released", () => {
+    // Written at 23:00, held until 07:00; the phone last looked at 23:30.
+    const held = item("a", 8 * 60, { category: "bot", snoozedUntil: new Date(NOW - 5 * 60_000).toISOString() });
+    const seen = { since: new Date(NOW - 7.5 * 60 * 60_000).toISOString(), ids: [] };
+    assert.deepEqual(
+      freshAlerts([held], seen, NOW).map((x) => x.id),
+      ["a"],
+    );
+    assert.equal(freshAlerts([{ ...held, snoozedUntil: new Date(NOW + 60_000).toISOString() }], seen, NOW).length, 0);
+    // Once shown it stays shown, even though its release is after the last look.
+    assert.equal(freshAlerts([held], { since: new Date(NOW - 10 * 60_000).toISOString(), ids: ["a"] }, NOW).length, 0);
+  });
+
+  test("skips Bot alerts turned off for the phone", () => {
+    const fresh = freshAlerts(
+      [item("a", 5, { category: "bot", data: { phone: false } }), item("b", 5, { category: "bot", data: { phone: true } }), item("c", 5, { data: null })],
+      { since: null, ids: [] },
+      NOW,
+    );
+    assert.deepEqual(
+      fresh.map((x) => x.id),
+      ["b", "c"],
     );
   });
 

@@ -1,4 +1,4 @@
-export { routeForNotification } from "./notificationRoute";
+export { NOTIFICATIONS_ROUTE, routeForNotification } from "./notificationRoute";
 import { PermissionsAndroid, Platform } from "react-native";
 import Constants from "expo-constants";
 import type { CalendarItem } from "./types";
@@ -93,6 +93,7 @@ export async function ensureReminderChannel() {
   if (!N) return;
   if (Platform.OS === "android") {
     await N.setNotificationChannelAsync("agent", { name: "Assistant", importance: N.AndroidImportance.DEFAULT, sound: "default" });
+    await N.setNotificationChannelAsync("bots", { name: "Bot alerts", importance: N.AndroidImportance.DEFAULT, sound: "default" });
     await N.setNotificationChannelAsync(CHANNEL, {
       name: "Reminders",
       importance: N.AndroidImportance.HIGH,
