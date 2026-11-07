@@ -78,8 +78,8 @@ type PanelErrors = EditorErrors & { head?: ReactNode };
 /** Which group a sentence from draftErrors (or the API) belongs under. */
 function errorGroup(message: string): keyof PanelErrors {
   if (/name|description/i.test(message)) return "head";
-  // Pass to links: "A bot can pass to up to 4 bots", "…in a circle", "A chain can be…".
-  if (/pass|circle|chain/i.test(message)) return "links";
+  // Pass to links: "A bot can pass to up to 4 bots", "…in a circle", "A chain can be…", "Up to 5 filter words".
+  if (/pass|circle|chain|filter words/i.test(message)) return "links";
   if (/brief|sum up/i.test(message)) return "brief";
   if (/checked every|at least once a week/i.test(message)) return "schedule";
   if (

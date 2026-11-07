@@ -184,7 +184,10 @@ export type WatchView = {
   selector: string;
   source: string;
   symbol: string;
+  /** A price's pair, or a page's currency hint (from the address or what was sent); checks never change it. */
   currency: string;
+  /** The last reading's currency, "" before the first read. For a page it wins over the hint. */
+  readingCurrency: string;
   rules: Rule[];
   health: Health;
   lastReadingAt: string | null;
@@ -812,9 +815,18 @@ export function signedPct(p: number): string {
   return `${p < 0 && s !== "0.0" ? "−" : "+"}${s}%`;
 }
 
-/** The currency of a watch: its own, else the one its last reading was shown in. */
-export function watchCurrency(w: Pick<WatchView, "currency" | "summary">): string {
+/**
+ * The currency of a watch. A page shows its last reading's once it has one,
+ * else its hint; a price its own pair. Either falls back to the other, then
+ * to the one its summary was shown in.
+ */
+export function watchCurrency(
+  w: Pick<WatchView, "currency" | "summary"> & Partial<Pick<WatchView, "kind" | "readingCurrency">>,
+): string {
+  const reading = w.readingCurrency ?? "";
+  if (w.kind === "page" && reading) return reading;
   if (w.currency) return w.currency;
+  if (reading) return reading;
   const s = w.summary ?? "";
   for (const [code, sym] of Object.entries(MONEY_SYMBOLS)) {
     if (s.startsWith(sym) || s.startsWith(`-${sym}`)) return code;
@@ -2664,6 +2676,7 @@ export function previewCard(args: BotInput, preview?: PreviewResult | null, now:
       source: w.source ?? "",
       symbol: w.symbol ?? "",
       currency: w.currency || p?.currency || "",
+      readingCurrency: p?.ok ? p.currency : "",
       rules: (w.rules ?? []).map(fieldsOf),
       health: p && !p.ok && p.health ? p.health : { code: "new", line: "" },
       lastReadingAt: p?.ok ? p.at : null,

@@ -91,6 +91,7 @@ import {
   valueText,
   watchKindIcon,
   watchKindLine,
+  watchCurrency,
   watchTitle,
   wideSpan,
 } from "../packages/contract/src/bots.ts";
@@ -113,6 +114,7 @@ function watch(over) {
     source: "",
     symbol: "",
     currency: "",
+    readingCurrency: "",
     rules: [],
     health: ok,
     lastReadingAt: ago(10),
@@ -809,6 +811,21 @@ describe("money", () => {
     test(`${v} ${cur}`, () => assert.equal(formatMoney(v, cur), want));
   }
   test("not a number", () => assert.equal(formatMoney(Number.NaN, "USD"), ""));
+});
+
+describe("watchCurrency", () => {
+  test("a page's hint shows before its first read, then the reading's wins", () => {
+    assert.equal(watchCurrency(watch({ read: "product_price", currency: "INR" })), "INR");
+    assert.equal(watchCurrency(watch({ read: "product_price", currency: "INR", readingCurrency: "USD" })), "USD");
+  });
+  test("a price keeps its own pair, else the reading's", () => {
+    assert.equal(watchCurrency(watch({ kind: "price", currency: "EUR", readingCurrency: "USD" })), "EUR");
+    assert.equal(watchCurrency(watch({ kind: "price", readingCurrency: "USD" })), "USD");
+  });
+  test("with neither, the summary's symbol", () => {
+    assert.equal(watchCurrency(watch({ summary: "₹27,499" })), "INR");
+    assert.equal(watchCurrency(watch({})), "");
+  });
 });
 
 describe("rules", () => {
