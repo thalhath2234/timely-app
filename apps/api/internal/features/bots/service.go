@@ -86,7 +86,7 @@ func (s *Service) Delete(ctx context.Context, userID, id string) error {
 	return s.store.Delete(ctx, userID, id)
 }
 
-func (s *Service) List(ctx context.Context, userID string) ([]View, error) {
+func (s *Service) List(ctx context.Context, userID string) (BotList, error) {
 	return s.store.List(ctx, userID, s.now())
 }
 

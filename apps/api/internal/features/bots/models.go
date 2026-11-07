@@ -15,6 +15,7 @@ type Bot struct {
 	Name            string     `gorm:"type:text;not null" json:"name"`
 	Description     string     `gorm:"type:text;not null" json:"description"`
 	Origin          Origin     `gorm:"type:text;not null" json:"origin"`
+	OriginClient    string     `gorm:"type:text;not null" json:"originClient"` // the API key's name, origin mcp only
 	Status          string     `gorm:"type:text;not null" json:"status"`
 	PauseReason     *string    `gorm:"type:text" json:"pauseReason"`
 	JudgeMode       string     `gorm:"type:text;not null" json:"judgeMode"`
@@ -61,6 +62,7 @@ type Watch struct {
 	RuleState       jsonMap[string, RuleState] `gorm:"column:rule_state;type:jsonb;not null" json:"ruleState"`
 	LastReading     *Reading                   `gorm:"serializer:json;type:jsonb" json:"lastReading"`
 	LastReadingAt   *time.Time                 `json:"lastReadingAt"`
+	LastChangedAt   *time.Time                 `json:"lastChangedAt"` // the last check whose reading moved, or a baseline
 	BaselinePending bool                       `gorm:"not null" json:"baselinePending"`
 	ConfigVersion   int                        `gorm:"not null" json:"configVersion"`
 	ETag            string                     `gorm:"column:etag;type:text;not null" json:"-"`

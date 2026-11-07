@@ -46,6 +46,10 @@ type Input struct {
 	Desktop         *bool        `json:"desktop"`
 	Phone           *bool        `json:"phone"`
 	Watches         []WatchInput `json:"watches"`
+	// OriginClient names the outside app a Bot made over MCP came from: the
+	// name the person gave its API key. It is kept only for OriginMCP and
+	// never read from a request body.
+	OriginClient string `json:"-"`
 }
 
 // Patch is an edit; nil fields are left as they are. Watches, when set, is
@@ -70,6 +74,29 @@ func cleanName(raw string) (string, error) {
 		return "", invalid("Keep the bot's name under %d characters", MaxNameLen)
 	}
 	return name, nil
+}
+
+// maxOriginClient bounds bots.origin_client, in characters.
+const maxOriginClient = 60
+
+// cleanOriginClient keeps an outside app's name printable: control and
+// format characters are dropped, spaces collapsed, and it is clipped to
+// maxOriginClient characters.
+func cleanOriginClient(raw string) string {
+	s := strings.Map(func(r rune) rune {
+		switch {
+		case unicode.IsSpace(r):
+			return ' '
+		case r == utf8.RuneError || unicode.IsControl(r) || unicode.Is(unicode.Cf, r):
+			return -1
+		}
+		return r
+	}, raw)
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > maxOriginClient {
+		s = strings.TrimSpace(string(r[:maxOriginClient]))
+	}
+	return s
 }
 
 func cleanDescription(raw string) (string, error) {

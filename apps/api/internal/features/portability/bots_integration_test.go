@@ -250,3 +250,36 @@ func TestIntegrationRestoreVetsBots(t *testing.T) {
 		t.Fatalf("%d paused bots still scheduled (%v)", next, err)
 	}
 }
+
+// A backup made before Bots named their outside app has no origin_client;
+// it restores with the column's default instead of failing on NULL.
+func TestIntegrationRestoreBotWithoutOriginClient(t *testing.T) {
+	db := migratedDB(t)
+	const uid = "usr_portability_bot_origin"
+	if err := db.Create(&models.User{ID: uid, Email: "origin@example.invalid", Password: "not-a-real-hash"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	seedAccountBasics(t, db, uid, true)
+	if err := db.Exec(`INSERT INTO bots (id, user_id, name, origin, origin_client, status, pause_reason, interval_seconds)
+		VALUES ('bot_old', ?, 'Old one', 'mcp', 'Claude Code', 'paused', 'mcp', 900)`, uid).Error; err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(db, nil)
+	backup, err := service.Export(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row map[string]any
+	if err := json.Unmarshal(backup.Rows["bots"][0], &row); err != nil || row["origin_client"] != "Claude Code" {
+		t.Fatalf("export: %s", backup.Rows["bots"][0])
+	}
+	delete(row, "origin_client")
+	backup.Rows["bots"][0], _ = json.Marshal(row)
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatalf("restore of an older backup: %v", err)
+	}
+	var n int64
+	if err := db.Raw(`SELECT count(*) FROM bots WHERE id = 'bot_old' AND user_id = ? AND origin_client = ''`, uid).Scan(&n).Error; err != nil || n != 1 {
+		t.Fatalf("restored bot: %d (%v)", n, err)
+	}
+}

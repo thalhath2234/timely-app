@@ -300,6 +300,7 @@ var restoreDefaults = map[string]map[string]any{
 	"lables":        {"position": 0},
 	"custom_fields": {"position": 0},
 	"configs":       {"mobile_task_views": []any{}, "mobile_active_task_view_id": ""},
+	"bots":          {"origin_client": ""},
 }
 
 type parentRef struct {

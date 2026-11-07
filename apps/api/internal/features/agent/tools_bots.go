@@ -96,11 +96,110 @@ func (s *Server) listBots(ctx context.Context, req *mcp.CallToolRequest, _ empty
 	if err != nil {
 		return fail(err)
 	}
-	views, err := svc.List(ctx, uid)
+	list, err := svc.List(ctx, uid)
 	if err != nil {
 		return fail(err)
 	}
-	return reply(fmt.Sprintf("%d bots", len(views)), map[string]any{"bots": views})
+	out := make([]botOut, len(list.Bots))
+	for i, v := range list.Bots {
+		out[i] = botReply(v)
+	}
+	return reply(fmt.Sprintf("%d bots", len(out)), map[string]any{"bots": out, "summary": list.Summary})
+}
+
+// botOut is a Bot as the tools give it: a bots.View without the text it read
+// from third-party pages and feeds (excerpts, items, page titles, alert
+// bodies) and without the sparkline. Page text reaches the model only where
+// it is marked as outside data.
+type botOut struct {
+	ID              string        `json:"id"`
+	Name            string        `json:"name"`
+	Description     string        `json:"description"`
+	Status          string        `json:"status"`
+	PauseReason     *string       `json:"pauseReason"`
+	Origin          bots.Origin   `json:"origin"`
+	OriginClient    string        `json:"originClient"`
+	JudgeMode       string        `json:"judgeMode"`
+	IntervalMinutes int           `json:"intervalMinutes"`
+	Urgent          bool          `json:"urgent"`
+	Desktop         bool          `json:"desktop"`
+	Phone           bool          `json:"phone"`
+	SnoozedUntil    *time.Time    `json:"snoozedUntil"`
+	NextCheckAt     *time.Time    `json:"nextCheckAt"`
+	LastCheckAt     *time.Time    `json:"lastCheckAt"`
+	LastOkAt        *time.Time    `json:"lastOkAt"`
+	Checking        bool          `json:"checking"`
+	RunNowAt        *time.Time    `json:"runNowAt"`
+	FloorLine       string        `json:"floorLine"`
+	Strikes         int           `json:"strikes"`
+	Health          bots.Health   `json:"health"`
+	Strip           string        `json:"strip"`
+	AlertsToday     int           `json:"alertsToday"`
+	ItemsToday      int           `json:"itemsToday"`
+	LatestAlert     *botAlertOut  `json:"latestAlert"`
+	Watches         []botWatchOut `json:"watches"`
+	CreatedAt       time.Time     `json:"createdAt"`
+	UpdatedAt       time.Time     `json:"updatedAt"`
+}
+
+// botAlertOut is the newest alert, by its code-made title only.
+type botAlertOut struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Held      string    `json:"held"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type botWatchOut struct {
+	ID            string      `json:"id"`
+	Kind          string      `json:"kind"`
+	URL           string      `json:"url"`
+	Read          string      `json:"read"`
+	Selector      string      `json:"selector"`
+	Source        string      `json:"source"`
+	Symbol        string      `json:"symbol"`
+	Currency      string      `json:"currency"`
+	Rules         []bots.Rule `json:"rules"`
+	Health        bots.Health `json:"health"`
+	Site          string      `json:"site"`
+	LastReadingAt *time.Time  `json:"lastReadingAt"`
+	Summary       string      `json:"summary"`
+	Value         *float64    `json:"value"`
+	DayChangePct  *float64    `json:"dayChangePct"`
+	LastChangedAt *time.Time  `json:"lastChangedAt"`
+}
+
+func botReply(v bots.View) botOut {
+	out := botOut{
+		ID: v.ID, Name: v.Name, Description: v.Description, Status: v.Status, PauseReason: v.PauseReason,
+		Origin: v.Origin, OriginClient: v.OriginClient, JudgeMode: v.JudgeMode, IntervalMinutes: v.IntervalMinutes,
+		Urgent: v.Urgent, Desktop: v.Desktop, Phone: v.Phone, SnoozedUntil: v.SnoozedUntil, NextCheckAt: v.NextCheckAt,
+		LastCheckAt: v.LastCheckAt, LastOkAt: v.LastOkAt, Checking: v.Checking, RunNowAt: v.RunNowAt, FloorLine: v.FloorLine,
+		Strikes: v.Strikes, Health: v.Health, Strip: v.Strip, AlertsToday: v.AlertsToday, ItemsToday: v.ItemsToday,
+		Watches: make([]botWatchOut, len(v.Watches)), CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt,
+	}
+	if a := v.LatestAlert; a != nil {
+		out.LatestAlert = &botAlertOut{ID: a.ID, Title: a.Title, Held: a.Held, CreatedAt: a.CreatedAt}
+	}
+	for i, w := range v.Watches {
+		out.Watches[i] = botWatchOut{
+			ID: w.ID, Kind: w.Kind, URL: w.URL, Read: w.Read, Selector: w.Selector, Source: w.Source, Symbol: w.Symbol,
+			Currency: w.Currency, Rules: w.Rules, Health: w.Health, Site: w.Site, LastReadingAt: w.LastReadingAt,
+			Summary: w.Summary, Value: w.Value, DayChangePct: w.DayChangePct, LastChangedAt: w.LastChangedAt,
+		}
+	}
+	return out
+}
+
+// apiKeyName is the name the person gave the API key this MCP call signed in
+// with, or "". The MCP server is stateless, so the client's own name never
+// arrives, and catalog calls from chat carry no key at all.
+func apiKeyName(req *mcp.CallToolRequest) string {
+	if req == nil || req.Extra == nil || req.Extra.TokenInfo == nil || req.Extra.TokenInfo.Extra == nil {
+		return ""
+	}
+	name, _ := req.Extra.TokenInfo.Extra["keyName"].(string)
+	return name
 }
 
 type listBotFindingsIn struct {
@@ -147,11 +246,14 @@ func (s *Server) createBot(ctx context.Context, req *mcp.CallToolRequest, in cre
 	if err != nil {
 		return fail(err)
 	}
-	v, err := svc.Create(ctx, uid, bots.Input{Name: in.Name, Description: in.Description, IntervalMinutes: in.IntervalMinutes, Watches: watchInputs(in.Watches)}, bots.OriginMCP)
+	v, err := svc.Create(ctx, uid, bots.Input{
+		Name: in.Name, Description: in.Description, IntervalMinutes: in.IntervalMinutes, Watches: watchInputs(in.Watches),
+		OriginClient: apiKeyName(req),
+	}, bots.OriginMCP)
 	if err != nil {
 		return fail(err)
 	}
-	return reply(fmt.Sprintf("Created %s. It starts paused; the person turns it on in Timely.", v.Name), v)
+	return reply(fmt.Sprintf("Created %s. It starts paused; the person turns it on in Timely.", v.Name), botReply(v))
 }
 
 type updateBotIn struct {
@@ -190,7 +292,7 @@ func (s *Server) updateBot(ctx context.Context, req *mcp.CallToolRequest, in upd
 	if wasActive && v.Status == bots.StatusPaused {
 		text += " Changing what it watches paused it; the person turns it on in Timely."
 	}
-	return reply(text, v)
+	return reply(text, botReply(v))
 }
 
 type botIn struct {
@@ -210,7 +312,7 @@ func (s *Server) pauseBot(ctx context.Context, req *mcp.CallToolRequest, in botI
 	if err != nil {
 		return fail(botErr(err, in.Bot))
 	}
-	return reply("Paused "+v.Name+". Only the person can turn it back on, in Timely.", v)
+	return reply("Paused "+v.Name+". Only the person can turn it back on, in Timely.", botReply(v))
 }
 
 func (s *Server) runBotNow(ctx context.Context, req *mcp.CallToolRequest, in botIn) (*mcp.CallToolResult, any, error) {

@@ -46,11 +46,11 @@ func httpError(err error) error {
 func badRequest() error { return echo.NewHTTPError(http.StatusBadRequest, "Invalid request") }
 
 func (s *Service) list(c *echo.Context) error {
-	views, err := s.List(c.Request().Context(), user(c))
+	list, err := s.List(c.Request().Context(), user(c))
 	if err != nil {
 		return httpError(err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"bots": views})
+	return c.JSON(http.StatusOK, list)
 }
 
 func (s *Service) create(c *echo.Context) error {

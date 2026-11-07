@@ -78,7 +78,11 @@ type Reading struct {
 	Currency string             `json:"currency,omitempty"`
 	Items    []extract.FeedItem `json:"items,omitempty"` // newest MaxItems
 	Seen     []string           `json:"seen,omitempty"`  // newest MaxSeen ids
-	At       time.Time          `json:"at"`
+	// Title is a page's own name (extract.PageTitle), for showing the watch.
+	// It is not part of Hash or of any rule, so a new title never fires or
+	// rebaselines anything.
+	Title string    `json:"title,omitempty"`
+	At    time.Time `json:"at"`
 }
 
 // Event is one rule firing. Evaluate leaves WatchID for the caller.

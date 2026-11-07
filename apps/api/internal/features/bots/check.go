@@ -229,6 +229,9 @@ func (s *Service) readWatch(ctx context.Context, b Bot, w Watch, now time.Time) 
 		return r
 	}
 	r.reading, r.err = extractReading(w, res, now)
+	if r.err == nil && w.Kind == WatchPage {
+		r.reading.Title = extract.PageTitle(res.Body, res.ContentType)
+	}
 	return r
 }
 
@@ -562,6 +565,12 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 				baseline, cw.Outcome = true, outBaseline
 				readings[w.ID] = reading
 				set["baseline_pending"] = false
+				// A first reading starts the clock; a baseline asked for again
+				// (Turn on, a rules edit, a restore) moves it only if the
+				// reading did.
+				if w.LastReading == nil || w.LastChangedAt == nil || watchChanged(*w.LastReading, reading) {
+					set["last_changed_at"] = done
+				}
 			case r.notMod:
 				notMod++
 				cw.Outcome = outNotModified
@@ -581,6 +590,7 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 				cw.Outcome = outUnchanged
 				if watchChanged(prev, reading) {
 					moved, cw.Outcome = true, outChanged
+					set["last_changed_at"] = done
 				}
 				if len(fired) > before {
 					cw.Outcome = outFired
@@ -606,7 +616,9 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 			if err := tx.Model(&Watch{}).Where("id = ?", w.ID).Updates(set).Error; err != nil {
 				return err
 			}
-			if w.Kind == WatchPrice && reading.Price != nil {
+			// Shop prices on a page keep a price series too. A 304 carries
+			// the old reading and its old time, so it adds no point.
+			if !r.notMod && reading.Kind == ReadingPrice && reading.Price != nil {
 				if err := addPricePoint(tx, w, reading); err != nil {
 					return err
 				}
