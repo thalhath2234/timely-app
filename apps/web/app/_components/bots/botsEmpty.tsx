@@ -194,7 +194,7 @@ export function BotsEmpty({
               stacked ? "w-full" : "w-[360px]",
             )}
           >
-            <LoopPlayer id="capture" />
+            <LoopPlayer id="bots" />
           </div>
           <div className="flex min-w-0 flex-1 flex-col items-start gap-3.5">
             <h2 className="text-lg font-semibold leading-6 tracking-[-0.01em] text-foreground">

@@ -81,8 +81,8 @@ film-studio: ## Open the landing-page film (Remotion Studio) for editing
 film-render: ## Render the landing-page film to apps/web/out/timely-film.mp4
 	@pnpm --filter @timely/web film:render
 
-film-render-loops: ## Render the empty-state loops to apps/mobile/assets/loops/*.webp (needs ffmpeg with libwebp)
-	@pnpm --filter @timely/web film:render-loops
+film-render-loops: ## Render the empty-state loops to apps/mobile/assets/loops/*.webp (ONLY=<id> for one; needs ffmpeg with libwebp)
+	@pnpm --filter @timely/web film:render-loops $(if $(ONLY),--only $(ONLY))
 
 film-render-stills: ## Render the help-centre stills to apps/web/public/help/film/*.webp (needs ffmpeg with libwebp)
 	@pnpm --filter @timely/web film:render-stills
