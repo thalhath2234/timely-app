@@ -2,12 +2,13 @@ import { useEffect, useState } from "react";
 import { Tabs, usePathname } from "expo-router";
 import { useReducedMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Calendar, FileText, Home, LayoutDashboard, ListTodo, Plus, Search } from "lucide-react-native";
+import { Bot, Calendar, FileText, Home, LayoutDashboard, ListTodo, Plus, Search } from "lucide-react-native";
 import QuickAddSheet from "../../../components/ui/QuickAddSheet";
 import AutoScheduleBanner from "../../../components/ui/AutoScheduleBanner";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import FloatingTabBar, { floatingTabBarInset } from "../../../components/ui/FloatingTabBar";
 import { subscribeQuickAdd, type QuickAddPreset } from "../../../lib/quickAddIntent";
+import { useBotsNeedYouCount } from "../../../lib/hooks";
 import { colors, createThemedStyleSheet, radius } from "../../../lib/theme";
 import { tabAnimation } from "../../../lib/motion";
 
@@ -17,8 +18,10 @@ export default function TabLayout() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
-  // Dashboard's header has its own Add card +; a second + would compete.
-  const hideFab = pathname.endsWith("/more") || pathname.endsWith("/search") || pathname.endsWith("/dashboard");
+  const needs = useBotsNeedYouCount();
+  // Dashboard's header has its own Add card +, and Bots its own New bot +; a second + would compete.
+  const hideFab =
+    pathname.endsWith("/more") || pathname.endsWith("/search") || pathname.endsWith("/dashboard") || pathname.endsWith("/bots");
   const tabOffset = floatingTabBarInset(insets.bottom);
 
   useEffect(() => {
@@ -63,6 +66,15 @@ export default function TabLayout() {
         <Tabs.Screen
           name="tasks"
           options={{ title: "Tasks", tabBarIcon: ({ color, size }) => <ListTodo size={size} color={color} /> }}
+        />
+        <Tabs.Screen
+          name="bots"
+          options={{
+            title: "Bots",
+            tabBarIcon: ({ color, size }) => <Bot size={size} color={color} />,
+            tabBarBadge: needs || undefined,
+            tabBarAccessibilityLabel: needs ? `Bots, ${needs} need you` : "Bots",
+          }}
         />
         <Tabs.Screen
           name="search"

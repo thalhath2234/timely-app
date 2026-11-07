@@ -62,7 +62,7 @@ Switching views or modes (List/Kanban, Day/Week/Month, All/Docs/Sheets, System/L
 
 Web `app/_components/_ui/pageHeader.tsx`: 26px semibold title at −0.02em, optional `PageBadge` count, actions on the right as `md` buttons with the primary last, `px-6 pt-5 pb-4`. A description is for a line that carries data (a date, a count); a sentence that only describes the page is left out, and what the page just did goes in a state line at the bottom of the page instead.
 
-Phone `MobileHeader`: tab roots (Today, Tasks, Calendar, Search, Files) use the large 28px title; every pushed screen (`back`) uses the compact 17px title. `large` defaults to `!back`.
+Phone `MobileHeader`: tab roots (Today, Tasks, Calendar, Bots, Search, Files) use the large 28px title; every pushed screen (`back`) uses the compact 17px title. `large` defaults to `!back`.
 
 ## Page with rail
 

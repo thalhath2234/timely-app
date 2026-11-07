@@ -31,7 +31,7 @@ GOOSE_MIGRATIONS := goose -dir $(API)/migrations postgres $(GOOSE_DBSTRING)
 GOOSE_SEEDS      := goose -dir $(API)/migrations/seeds postgres $(GOOSE_DBSTRING)
 
 .PHONY: help setup setup-env install tools install-air install-goose \
-        dev dev-api dev-web film-studio film-render film-render-loops film-render-stills dev-mobile dev-mobile-device dev-desktop launch-electron \
+        dev dev-api dev-web film-studio film-render film-render-loops film-render-stills dev-mobile dev-mobile-web dev-mobile-device dev-desktop launch-electron \
         dev-worktree dev-worktree-api dev-worktree-web \
         build build-api build-web build-desktop dist-desktop stage-desktop dev-desktop-hosted build-apk install-apk apk-status \
         emu-start emu-stop emu-status \
@@ -116,6 +116,9 @@ MOBILE_METRO_FLAGS ?=
 
 dev-mobile: setup-env ## Start the Expo dev server (Metro on :8082; leave :8081 for the worktree API)
 	@pnpm --filter @timely/mobile exec expo start --lan --port 8082 --go $(MOBILE_METRO_FLAGS)
+
+dev-mobile-web: setup-env ## Run the phone app in a browser (Metro on :8082) against the worktree API on :8081
+	@EXPO_PUBLIC_API_URL=http://localhost:8081 pnpm --filter @timely/mobile exec expo start --web --port 8082
 
 dev-mobile-device: setup-env ## Metro + Expo Go on a USB phone (adb reverse :8082)
 	@ANDROID_HOME=$${ANDROID_HOME:-$${ANDROID_SDK_ROOT:-/home/thalhath/.local/android-sdk}}; \

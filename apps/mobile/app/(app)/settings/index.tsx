@@ -1,7 +1,7 @@
 import { ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Bell, Bot, ChevronRight, Clock, Database, FolderKanban, Inbox, KeyRound, Server, Tag } from "lucide-react-native";
+import { Bell, ChevronRight, Clock, Database, FolderKanban, Inbox, KeyRound, Server, Sparkles, Tag } from "lucide-react-native";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import { SectionLabel } from "../../../components/ui/primitives";
@@ -98,7 +98,7 @@ export default function SettingsIndex() {
           <Row icon={Bell} title="Notification settings" meta="Push, quiet hours, and failed jobs" onPress={() => router.push("/(app)/settings/notifications")} />
           <Row icon={Clock} title="Working hours" meta="When the scheduler can place tasks" onPress={() => router.push("/(app)/settings/schedule")} />
           <Row icon={Database} title="Data & backups" meta="Export, restore, and encrypted backups" onPress={() => router.push("/(app)/settings/data")} />
-          <Row icon={Bot} title="Agent" meta="AI provider and default model" onPress={() => router.push("/(app)/settings/agent")} />
+          <Row icon={Sparkles} title="Agent" meta="AI provider and default model" onPress={() => router.push("/(app)/settings/agent")} />
           <Row icon={KeyRound} title="API keys" meta="Connect scripts and automations" onPress={() => router.push("/(app)/settings/api-keys")} />
         </View>
         <SectionLabel>Assistant help</SectionLabel>

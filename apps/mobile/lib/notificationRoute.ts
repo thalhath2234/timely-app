@@ -10,6 +10,7 @@ function dataString(data: Record<string, unknown>, key: string) {
 }
 
 export const NOTIFICATIONS_ROUTE = "/(app)/notifications";
+export const BOTS_ROUTE = "/(app)/(tabs)/bots";
 
 export function routeForNotification(data: Record<string, unknown>): string {
   const chatId =
@@ -18,8 +19,17 @@ export function routeForNotification(data: Record<string, unknown>): string {
       ? dataString(data, "entityId")
       : null);
   if (chatId) return `/(app)/assistant?chatId=${encodeURIComponent(chatId)}`;
-  // Bot alerts open the Notifications screen until the Bots screen exists.
-  if (dataString(data, "category") === "bot") return NOTIFICATIONS_ROUTE;
+  // A Bot alert opens its bot's sheet on the Bots tab (the board when it names no bot).
+  if (dataString(data, "category") === "bot") {
+    const botId =
+      dataString(data, "botId") ??
+      (dataString(data, "entityType") === "bot"
+        ? dataString(data, "entityId")
+        : null);
+    return botId
+      ? `${BOTS_ROUTE}?bot=${encodeURIComponent(botId)}`
+      : BOTS_ROUTE;
+  }
   // A smart alert about waiting Inbox items opens the Inbox, not one item.
   if (dataString(data, "category") === "suggestion" && dataString(data, "kind") === "inbox") return "/(app)/inbox";
   const taskId = dataString(data, "taskId");

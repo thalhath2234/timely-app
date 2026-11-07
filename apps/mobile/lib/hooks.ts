@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { AppState } from "react-native";
 import { keepPreviousData, useMutation, useMutationState, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { getMe, listSessions, revokeOtherSessions, revokeSession } from "./api/auth";
 import { getTasks, getTask, updateTask, deleteTask, createTask, captureInbox, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks, duplicateTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, startFocus, pauseFocus, stopFocus, setTodayFocus, getFocusSessions } from "./api/tasks";
@@ -38,6 +39,29 @@ import { deviceTimezone } from "./format";
 import { createEvent, deleteEvent, editEventOccurrence, getEvent, splitEventSeries, updateEvent } from "./api/events";
 import { relatedItems, searchItems, smartSearch, type RelatedKind } from "./api/search";
 import { listApiKeys, createApiKey, revokeApiKey } from "./api/apiKeys";
+import { needsYouCount, type BotInput, type BotPatch, type BotSettings, type FeedbackInput, type PreviewInput } from "@timely/contract/bots";
+import {
+  botIcons,
+  createBot,
+  deleteBot,
+  forgetLesson,
+  getBot,
+  getBotDefaults,
+  listBots,
+  listSourceKeys,
+  pauseBot,
+  previewBot,
+  rateAlert,
+  removeSourceKey,
+  resumeBot,
+  runBot,
+  setBotDefaults,
+  setSourceKey,
+  snoozeBot,
+  updateBot,
+  type SnoozeBody,
+} from "./api/bots";
+import { isBotStreaming, watchBots } from "./api/botStream";
 import {
   connectProvider,
   disconnectProvider,
@@ -181,7 +205,25 @@ export const keys = {
   sessions: ["sessions"] as const,
   projectActivity: (id: string) => ["project-activity", id] as const,
   jobHealth: ["jobs", "health"] as const,
+  // A bot's detail sits under the list, so invalidating `bots` refreshes both.
+  bots: ["bots"] as const,
+  bot: (id: string) => ["bots", id] as const,
+  botIcons: (sites: string[]) => ["bot-icons", ...[...sites].sort()] as const,
+  botPreview: (input: PreviewInput | null | undefined) => ["bot-preview", stableHash(input)] as const,
+  sourceKeys: ["bot-source-keys"] as const,
+  botDefaults: ["bot-defaults"] as const,
 };
+
+/** JSON with object keys sorted, so the same input always makes the same key. */
+export function stableHash(value: unknown): string {
+  return (
+    JSON.stringify(value, (_key, v: unknown) =>
+      v && typeof v === "object" && !Array.isArray(v)
+        ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+        : v,
+    ) ?? ""
+  );
+}
 
 function cacheTask(client: QueryClient, task: Task | undefined) {
   if (!task?.id) return;
@@ -1945,4 +1987,215 @@ export function useCellFit(edit: CellFitEdit | null) {
     };
   }, [edit, on]);
   return on ? answer : undefined;
+}
+
+// ── Bots ──
+
+// The bots stream (useBotStream) says when a check finishes or an alert
+// fires. While it is down the bots queries poll every 30 s; while it is up
+// they do not poll at all, since every change arrives on the stream.
+const BOTS_IDLE_POLL = 30_000;
+const botsPoll = () => (isBotStreaming() ? false : BOTS_IDLE_POLL);
+
+export function useBotsQuery() {
+  return useQuery({ queryKey: keys.bots, queryFn: listBots, refetchInterval: botsPoll, staleTime: 5000 });
+}
+
+export function useBotQuery(id?: string | null) {
+  return useQuery({
+    queryKey: keys.bot(id || ""),
+    queryFn: () => getBot(id || ""),
+    enabled: !!id,
+    refetchInterval: botsPoll,
+    staleTime: 5000,
+  });
+}
+
+/** How many bots need the person: the Bots tab's badge. */
+export function useBotsNeedYouCount(): number {
+  const { data } = useBotsQuery();
+  return needsYouCount(data?.bots);
+}
+
+/** Site logos as data URIs. Logos change rarely, so a day's cache is fine. */
+export function useBotIcons(sites: string[]) {
+  return useQuery({
+    queryKey: keys.botIcons(sites),
+    queryFn: () => botIcons([...sites].sort()),
+    enabled: sites.length > 0,
+    staleTime: 24 * 60 * 60_000,
+  });
+}
+
+/**
+ * One reading of the watches, saved nowhere. The server keeps a reading for
+ * 10 minutes too, so the same input never reads the site twice in that time.
+ */
+export function useBotPreview(input: PreviewInput | null | undefined, enabled = true) {
+  return useQuery({
+    queryKey: keys.botPreview(input),
+    queryFn: () => previewBot(input as PreviewInput),
+    enabled: enabled && !!input,
+    staleTime: 10 * 60_000,
+    retry: false,
+  });
+}
+
+export function useSourceKeysQuery() {
+  return useQuery({ queryKey: keys.sourceKeys, queryFn: listSourceKeys, staleTime: 30_000 });
+}
+
+export function useBotDefaultsQuery() {
+  return useQuery({ queryKey: keys.botDefaults, queryFn: getBotDefaults, staleTime: 60_000 });
+}
+
+function useInvalidateBots() {
+  const client = useQueryClient();
+  return () => void client.invalidateQueries({ queryKey: keys.bots });
+}
+
+export function useCreateBot() {
+  const invalidate = useInvalidateBots();
+  return useMutation({ mutationFn: (input: BotInput) => createBot(input), onSuccess: invalidate });
+}
+
+export function useUpdateBot() {
+  const invalidate = useInvalidateBots();
+  return useMutation({ mutationFn: ({ id, patch }: { id: string; patch: BotPatch }) => updateBot(id, patch), onSuccess: invalidate });
+}
+
+export function useDeleteBot() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteBot(id),
+    onSuccess: (_, id) => {
+      client.removeQueries({ queryKey: keys.bot(id) });
+      void client.invalidateQueries({ queryKey: keys.bots });
+      void client.invalidateQueries({ queryKey: keys.notifications });
+    },
+  });
+}
+
+export function usePauseBot() {
+  const invalidate = useInvalidateBots();
+  return useMutation({ mutationFn: (id: string) => pauseBot(id), onSuccess: invalidate });
+}
+
+/** Resume, and "Turn on" for a bot an outside app made. */
+export function useResumeBot() {
+  const invalidate = useInvalidateBots();
+  return useMutation({ mutationFn: (id: string) => resumeBot(id), onSuccess: invalidate });
+}
+
+export function useSnoozeBot() {
+  const invalidate = useInvalidateBots();
+  return useMutation({ mutationFn: ({ id, body }: { id: string; body: SnoozeBody }) => snoozeBot(id, body), onSuccess: invalidate });
+}
+
+export function useRunBot() {
+  const invalidate = useInvalidateBots();
+  return useMutation({ mutationFn: (id: string) => runBot(id), onSuccess: invalidate });
+}
+
+export function useRateAlert() {
+  const invalidate = useInvalidateBots();
+  return useMutation({
+    mutationFn: ({ botId, alertId, body }: { botId: string; alertId: string; body: FeedbackInput }) => rateAlert(botId, alertId, body),
+    onSuccess: invalidate,
+  });
+}
+
+export function useForgetLesson() {
+  const invalidate = useInvalidateBots();
+  return useMutation({
+    mutationFn: ({ botId, lessonId }: { botId: string; lessonId: string }) => forgetLesson(botId, lessonId),
+    onSuccess: invalidate,
+  });
+}
+
+/** A saved or removed key changes which stock bots can read, so bots refetch too. */
+export function useSetSourceKey() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ source, key }: { source: string; key: string }) => setSourceKey(source, key),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.sourceKeys });
+      void client.invalidateQueries({ queryKey: keys.bots });
+    },
+  });
+}
+
+export function useRemoveSourceKey() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (source: string) => removeSourceKey(source),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.sourceKeys });
+      void client.invalidateQueries({ queryKey: keys.bots });
+    },
+  });
+}
+
+export function useSetBotDefaults() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (settings: BotSettings) => setBotDefaults(settings),
+    onSuccess: (saved) => client.setQueryData(keys.botDefaults, saved),
+  });
+}
+
+/**
+ * Keeps bots current from `GET /bots/watch` while the app is in front;
+ * mounted once, in the signed-in layout. A check writes its row, its alert
+ * and the bot in a row, so changes are batched for 250 ms into one refetch.
+ */
+export function useBotStream() {
+  const client = useQueryClient();
+  useEffect(() => {
+    const changed = new Set<string>();
+    let all = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let controller: AbortController | null = null;
+
+    const flush = () => {
+      timer = undefined;
+      // `all`: the stream came up or went down, so every bots query refetches
+      // (catching up on a gap) and re-times its poll.
+      void client.invalidateQueries({ queryKey: keys.bots, exact: !all });
+      if (!all) for (const id of changed) void client.invalidateQueries({ queryKey: keys.bot(id) });
+      // An alert is also a notification.
+      void client.invalidateQueries({ queryKey: keys.notifications });
+      changed.clear();
+      all = false;
+    };
+    const start = () => {
+      if (controller) return;
+      controller = new AbortController();
+      watchBots((message) => {
+        if (message.type === "live") all = true;
+        else changed.add(message.id);
+        timer ??= setTimeout(flush, 250);
+      }, controller.signal);
+    };
+    const stop = () => {
+      controller?.abort();
+      controller = null;
+    };
+
+    if (AppState.currentState !== "background") start();
+    // The phone drops a held connection in the background; open it again on
+    // return, and refetch at once in case it stays down (the polls restart).
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active" && !controller) {
+        start();
+        all = true;
+        timer ??= setTimeout(flush, 250);
+      } else if (state === "background") stop();
+    });
+    return () => {
+      subscription.remove();
+      stop();
+      clearTimeout(timer);
+    };
+  }, [client]);
 }

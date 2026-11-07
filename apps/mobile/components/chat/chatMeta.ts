@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   Ban,
   Bell,
+  Bot,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -24,8 +25,17 @@ import {
   Undo2,
   type LucideIcon,
 } from "lucide-react-native";
-import type { Chat, ChatStep } from "../../lib/chat/types";
+import type { Chat } from "../../lib/chat/types";
 import type { ThemeColors } from "../../lib/theme";
+import { isRemoval, stepIconKind, type StepIconKind } from "./stepTarget";
+
+export {
+  isRemoval,
+  sharedTarget,
+  stepIconKind,
+  stepTarget,
+  type StepTarget,
+} from "./stepTarget";
 
 const chipIcons: Record<string, LucideIcon> = {
   location: MapPin,
@@ -40,6 +50,7 @@ const chipIcons: Record<string, LucideIcon> = {
   tasks: ListChecks,
   "task-view": ListChecks,
   draft: FileText,
+  bot: Bot,
 };
 export function chipIcon(kind: string): LucideIcon {
   return chipIcons[kind] || MapPin;
@@ -134,10 +145,6 @@ export function stepMeta(
     };
   return { label: "Pending", icon: Circle, tone: "muted" };
 }
-/** Deletions and clearing blocks remove data; their review cards say so. */
-export function isRemoval(tool: string) {
-  return tool.startsWith("delete_") || tool === "clear_task_blocks";
-}
 /** Review label for a step's "before" data. */
 export function beforeLabel(tool: string) {
   if (isRemoval(tool)) return "What will be removed";
@@ -162,114 +169,22 @@ export function readableTimestamp(value: string): string | null {
   });
 }
 
+const stepIcons: Record<StepIconKind, LucideIcon> = {
+  remove: Trash2,
+  bot: Bot,
+  notification: Bell,
+  "task-view": ListFilter,
+  today: Sun,
+  focus: Timer,
+  undo: Undo2,
+  sheet: Table2,
+  doc: FileText,
+  calendar: CalendarDays,
+  workspace: Layers,
+  other: FolderKanban,
+};
 export function stepIcon(tool: string): LucideIcon {
-  if (isRemoval(tool)) return Trash2;
-  if (tool.includes("notification") || tool === "snooze_reminder") return Bell;
-  if (tool.includes("task_view")) return ListFilter;
-  if (tool === "set_today_focus") return Sun;
-  if (tool.includes("focus")) return Timer;
-  if (tool === "undo_schedule") return Undo2;
-  if (tool.includes("sheet")) return Table2;
-  if (tool.includes("doc") || tool.includes("3d_model")) return FileText;
-  if (tool.includes("event") || tool.includes("schedule")) return CalendarDays;
-  if (tool.includes("workspace")) return Layers;
-  return FolderKanban;
-}
-/**
- * Where each ID prefix opens. Server IDs are `<prefix>_<uuid>`, so the kind of
- * object comes from the ID itself, not from guessing at the tool's name.
- * Prefixes without a screen (checklist items, stages, rows) are skipped so the
- * parent's ID is used instead.
- */
-const targetKinds: [
-  prefix: string,
-  noun: string,
-  href: (id: string) => string,
-][] = [
-  ["shtpl_", "template", (id) => `/files/${id}`],
-  ["sht_", "sheet", (id) => `/files/${id}`],
-  ["doc_", "doc", (id) => `/files/${id}`],
-  ["tsk_", "task", (id) => `/tasks/${id}`],
-  ["pr_", "project", (id) => `/projects/${id}`],
-  ["evt_", "event", (id) => `/events/${id}`],
-  ["blk_", "calendar", () => "/calendar"],
-  ["ws_", "workspace", () => "/settings/workspaces"],
-  ["lbl_", "workspace", () => "/settings/workspaces"],
-  ["tst_", "workspace", () => "/settings/workspaces"],
-  ["cf_", "workspace", () => "/settings/workspaces"],
-];
-
-const partPrefixes = ["blk_", "lbl_", "tst_", "cf_"];
-
-// Nested result objects first (the object a write returns), then the step's
-// own ID fields, then the parents it names.
-const nestedKeys = ["sheet", "task", "project", "doc", "event", "workspace"];
-const idKeys = [
-  "id",
-  "docId",
-  "sheetId",
-  "taskId",
-  "projectId",
-  "eventId",
-  "workspaceId",
-];
-
-/** `title` is the object's own name when the step returned it. */
-export type StepTarget = { href: string; title?: string; noun: string };
-
-/**
- * The screen that shows what a finished step changed, from its stored result
- * or, failing that, its arguments. Null when nothing it touched has a screen.
- */
-export function stepTarget(step: ChatStep): StepTarget | null {
-  const result = step.result ?? {};
-  // A saved view opens Tasks with it active, on the app whose views it is
-  // (viewsOn); a web and desktop view has nothing to open here.
-  const view = result.view as Record<string, unknown> | undefined;
-  if (view && typeof view === "object" && typeof view.id === "string" && result.viewsOn) {
-    if (result.viewsOn !== "phone") return null;
-    return {
-      href: `/tasks?view=${encodeURIComponent(view.id)}`,
-      title: typeof view.name === "string" ? view.name : undefined,
-      noun: "view",
-    };
-  }
-  const sources: Record<string, unknown>[] = [];
-  for (const key of nestedKeys) {
-    const item = result[key];
-    if (item && typeof item === "object")
-      sources.push(item as Record<string, unknown>);
-  }
-  sources.push(result, step.arguments ?? {});
-  for (const source of sources) {
-    for (const key of idKeys) {
-      const id = source[key];
-      if (typeof id !== "string") continue;
-      const kind = targetKinds.find(([prefix]) => id.startsWith(prefix));
-      if (!kind) continue;
-      const [, noun, href] = kind;
-      // A title only names the object when it came from the same record, and
-      // not for parts shown on another page (a label opens its workspace).
-      const named =
-        key === "id" && !partPrefixes.includes(kind[0])
-          ? source.title || source.name
-          : "";
-      return {
-        href: href(encodeURIComponent(id)),
-        title: named ? String(named) : undefined,
-        noun,
-      };
-    }
-  }
-  return null;
-}
-
-/** One target when every finished step changed the same screen, else null. */
-export function sharedTarget(steps: ChatStep[]): StepTarget | null {
-  const targets = steps.filter((s) => s.status === "done").map(stepTarget);
-  const first = targets[0];
-  if (!first || targets.some((t) => t?.href !== first.href)) return null;
-  return targets.find((t) => t?.title) ?? first;
+  return stepIcons[stepIconKind(tool)];
 }
 
 export function relativeTime(iso: string, now = Date.now()) {

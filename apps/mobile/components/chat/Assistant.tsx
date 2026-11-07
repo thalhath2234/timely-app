@@ -708,6 +708,12 @@ export default function Assistant() {
     }
   }
   function openLink(href: string) {
+    // A bot opens its sheet on the Bots tab.
+    const bot = href.match(/^timely:\/\/bot\/([^/?#]+)/);
+    if (bot) {
+      assistant.openResult(`/(app)/(tabs)/bots?bot=${encodeURIComponent(bot[1])}`);
+      return;
+    }
     const timely = href.match(
       /^timely:\/\/(task|project|doc|sheet|event)\/([^/?#]+)/,
     );
@@ -726,7 +732,7 @@ export default function Assistant() {
       if (task) assistant.openResult(`/(app)/tasks/${task[1]}`);
       else if (legacyFile) assistant.openResult(legacyFile);
       else if (
-        /^\/(tasks|projects|files|events|calendar|today|inbox|dashboard|settings)(\/|\?|$)/.test(
+        /^\/(tasks|projects|files|events|calendar|today|inbox|dashboard|settings|bots)(\/|\?|$)/.test(
           href,
         )
       )
