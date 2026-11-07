@@ -211,9 +211,14 @@ func cleanWatch(in WatchInput, old *Watch, hasKey hasKeyFunc) (Watch, error) {
 		case selector != "":
 			return Watch{}, invalid("Only a page read with a selector takes a CSS selector")
 		}
-		if priceSet {
-			return Watch{}, invalid("A page watch takes no price source, symbol or currency")
+		switch {
+		case strings.TrimSpace(in.Source) != "" || strings.TrimSpace(in.Symbol) != "":
+			return Watch{}, invalid("A page watch takes no price source or symbol")
+		case strings.TrimSpace(in.Currency) != "" && read != ReadProductPrice && read != ReadSelectorPrice:
+			return Watch{}, invalid("A page watch takes no currency")
 		}
+		// A page's price comes with the currency the page shows; one sent
+		// along (as a chat often does) is left out, not refused.
 	case WatchFeed:
 		if w.URL, err = cleanURL(in.URL, "feed"); err != nil {
 			return Watch{}, err

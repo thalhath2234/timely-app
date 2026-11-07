@@ -47,7 +47,7 @@ You can read working hours and notification settings but cannot change them, nor
 Use auto_schedule_preview before proposing auto_schedule_apply; include the placement changes in the summary. Before creating or moving a timed event or block, check get_calendar for that time and name any overlaps in the summary. Reminders keep a workspace only for their labels or custom fields; give one when those need it.
 When a tool result has a text field, take dates and times from it instead of re-reading timestamps. Count and total from tool data, not estimates; page long lists with limit and offset. Never predict recalculated formula results in summaries; the apps evaluate formulas.
 Web search is only available when enabled. Call web_search with a public query when useful; do not put private account content into a query without an explicit request. Cite returned sources, never fabricate sources.
-Bots watch public pages, feeds and prices on a schedule and alert the person when a rule comes true; making or changing one is in scope, and reading a public page for a bot is not scraping. To make a bot, first call preview_bot with the watches you plan and check that it reads what the person means; then propose create_bot alone, with a short name, the person's own words as description, the watches and their rules, and intervalMinutes 0 unless they gave one. In the reply, say in one sentence what it reads, how often, and when it tells them, and that they can say "That's not it" if the reading is wrong. When they say it is wrong, read the page again with preview_bot and propose the corrected bot; a price they pick from the page's other prices uses read selector_price with that price's selector. To change a bot, read it with get_bot and propose update_bot. You cannot delete a bot, turn one on, pause it or set its alerts: the person does that on the Bots page.
+Bots watch public pages, feeds and prices on a schedule and alert the person when a rule comes true; making or changing one is in scope, and reading a public page for a bot is not scraping. To make a bot, first call preview_bot with the watches you plan and check that it reads what the person means; then propose create_bot alone, with a short name, the person's own words as description, the watches and their rules, and intervalMinutes 0 unless they gave one. In the reply, say in one sentence what it reads, how often, and when it tells them, and that they can say "That's not it" if the reading is wrong. When they say it is wrong, read the page again with preview_bot and propose the corrected bot; a price they pick from the page's other prices uses read selector_price with that price's selector. To change a bot, read it with get_bot and propose update_bot. An approved bot starts checking at once. You cannot delete, pause or resume a bot or change its alerts: the person does that on the Bots page.
 After tools finish, provide a concise answer or clarification. Do not expose internal tool names, IDs, or JSON in normal prose.`
 
 // webSearchOn joins the system prompt when web_search is offered: without it
@@ -497,7 +497,7 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 				}
 				notes := s.reviewNotes(ctx, c, proposal)
 				s.targetFeedback(c.UserID, picks, proposal.Steps)
-				s.previewSteps(ctx, catalog, c.UserID, proposal.Steps)
+				s.previewSteps(ctx, catalog, c.UserID, proposal.Steps, s.fetchGuard(ctx, c))
 
 				return s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error {
 					if run.outside {
@@ -569,6 +569,8 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 				if pick != nil {
 					picks = append(picks, pick)
 				}
+			} else if name == "preview_bot" && !s.fetchGuard(ctx, c).allows(previewWatches(args)) {
+				err = fmt.Errorf("%s", fetchRefusal)
 			} else if name == "ask_bot" && run.asks >= maxAsks {
 				err = fmt.Errorf("That is as many bots as one request may ask (%d). Answer from what they said above", maxAsks)
 			} else if isReadTool(name) && catalog[name].Call != nil {
@@ -659,8 +661,10 @@ const previewBudget = 25 * time.Second
 // that sets watches) reads right now, through the catalog's preview_bot, for
 // the review card's "Right now it reads". The model's own preview_bot of
 // the same watches a moment ago makes this free (the preview memo). A failed
-// read is kept as {"error": ...}; the proposal stands either way.
-func (s *Service) previewSteps(ctx context.Context, catalog agent.Catalog, uid string, steps []Step) {
+// read is kept as {"error": ...}; the proposal stands either way. An
+// address the person did not give (guard) is not read before approval: the
+// card says the bot reads it once approved.
+func (s *Service) previewSteps(ctx context.Context, catalog agent.Catalog, uid string, steps []Step, guard *fetchGuard) {
 	tool, ok := catalog["preview_bot"]
 	if !ok || tool.Call == nil {
 		return
@@ -675,6 +679,10 @@ func (s *Service) previewSteps(ctx context.Context, catalog agent.Catalog, uid s
 			Watches json.RawMessage `json:"watches"`
 		}
 		if json.Unmarshal(steps[i].Arguments, &in) != nil || len(in.Watches) == 0 || string(in.Watches) == "null" {
+			continue
+		}
+		if !guard.allows(in.Watches) {
+			steps[i].Preview = raw(map[string]string{"error": "Timely reads this page once you approve the bot"})
 			continue
 		}
 		result, err := tool.Call(ctx, uid, raw(map[string]json.RawMessage{"watches": in.Watches}))

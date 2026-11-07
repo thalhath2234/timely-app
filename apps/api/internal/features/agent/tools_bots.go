@@ -77,7 +77,7 @@ func botErr(err error, bot string) error {
 
 // botRuleIn mirrors bots.Rule without its id, every field optional but kind.
 type botRuleIn struct {
-	Kind         string   `json:"kind" jsonschema:"any_change, above, below, move_pct (prices); words_appear, words_disappear (page text); new_item (feeds)"`
+	Kind         string   `json:"kind" jsonschema:"any_change, above, below, move_pct (any price: price watches and pages read as product_price or selector_price); words_appear, words_disappear (page text); new_item (feeds)"`
 	Threshold    *float64 `json:"threshold,omitempty" jsonschema:"the price for above and below"`
 	Percent      *float64 `json:"percent,omitempty" jsonschema:"the move in percent for move_pct"`
 	Direction    string   `json:"direction,omitempty" jsonschema:"up, down or any (move_pct)"`
@@ -94,7 +94,7 @@ type botWatchIn struct {
 	Selector string      `json:"selector,omitempty" jsonschema:"page with read=selector or selector_price: a CSS selector"`
 	Source   string      `json:"source,omitempty" jsonschema:"price: stock (US tickers like NVDA, read from Finnhub; needs the person's free Finnhub key) or crypto (Coinbase)"`
 	Symbol   string      `json:"symbol,omitempty" jsonschema:"price: the ticker or coin, like AAPL or BTC"`
-	Currency string      `json:"currency,omitempty" jsonschema:"price: the quote currency, like USD"`
+	Currency string      `json:"currency,omitempty" jsonschema:"price watches only: the quote currency, like USD. Leave it out for a page; its currency is read from the page"`
 	Rules    []botRuleIn `json:"rules,omitempty" jsonschema:"when to alert; left out gets a default"`
 }
 

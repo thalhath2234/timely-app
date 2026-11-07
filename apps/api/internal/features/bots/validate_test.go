@@ -182,6 +182,7 @@ func TestCleanWatches(t *testing.T) {
 		{[]WatchInput{{Kind: "page", URL: "https://e.com", Read: "selector", Selector: "div[["}}, "The CSS selector is not valid"},
 		{[]WatchInput{{Kind: "page", URL: "https://e.com", Selector: ".price"}}, "Only a page read with a selector"},
 		{[]WatchInput{{Kind: "page", URL: "https://e.com", Symbol: "AAPL"}}, "A page watch takes no price source"},
+		{[]WatchInput{{Kind: "page", URL: "https://e.com", Currency: "USD"}}, "A page watch takes no currency"},
 		{[]WatchInput{{Kind: "feed", URL: "https://e.com", Read: "text"}}, "A feed is read whole"},
 		{[]WatchInput{{Kind: "price", URL: "https://e.com", Source: "stock", Symbol: "AAPL"}}, "A price watch takes a source and a symbol"},
 		{[]WatchInput{{Kind: "page", URL: "https://e.com", Rules: []Rule{{Kind: RuleNewItem}}}}, "does not fit this watch"},
@@ -191,6 +192,13 @@ func TestCleanWatches(t *testing.T) {
 		if msg := inputMsg(t, second(cleanWatches(c.in, nil, nil))); !strings.Contains(msg, c.want) {
 			t.Errorf("%v: %q, want %q", c.in, msg, c.want)
 		}
+	}
+	// A page price read keeps the page's own currency; one sent along is
+	// left out rather than refused.
+	gbp, err := cleanWatches([]WatchInput{{Kind: "page", URL: "https://e.com", Read: "selector_price", Selector: "p.price_color", Currency: "GBP",
+		Rules: []Rule{{Kind: RuleBelow, Threshold: f64(40)}}}}, nil, nil)
+	if err != nil || gbp[0].Currency != "" || gbp[0].Rules[0].Kind != RuleBelow {
+		t.Fatalf("a page price with a currency: %+v %v", gbp, err)
 	}
 	sel, err := cleanWatches([]WatchInput{{Kind: "page", URL: "https://e.com", Read: "selector", Selector: " .price "}}, nil, nil)
 	if err != nil || sel[0].Selector != ".price" {

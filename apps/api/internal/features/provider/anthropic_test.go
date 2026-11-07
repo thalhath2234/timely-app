@@ -224,3 +224,24 @@ func TestEffortForReadsTheListWhenItHasNotSeenTheModel(t *testing.T) {
 		t.Fatal("an unlisted model gets no effort")
 	}
 }
+
+// Turns of one role join into one message, and a text turn after text
+// starts on a line of its own, so the person's last word (often a URL)
+// does not run into the notice after it.
+func TestAnthropicJoinsTurnsOnTheirOwnLine(t *testing.T) {
+	_, out := anthropicMessages([]chat.WireMessage{
+		{Role: "user", Content: "Watch https://books.example/a"},
+		{Role: "user", Content: "System notice (not written by the user): it is Saturday"},
+		{Role: "user", Content: "\nAlready on its own line"},
+	}, false, false, nil)
+	if len(out) != 1 || len(out[0].Content) != 3 {
+		t.Fatalf("got %d messages", len(out))
+	}
+	var texts []string
+	for _, b := range out[0].Content {
+		texts = append(texts, b.OfText.Text)
+	}
+	if strings.Join(texts, "") != "Watch https://books.example/a\n\nSystem notice (not written by the user): it is Saturday\nAlready on its own line" {
+		t.Errorf("joined text %q", texts)
+	}
+}
