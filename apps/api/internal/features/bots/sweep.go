@@ -97,8 +97,8 @@ func (s *Service) Sweep(ctx context.Context) error {
 
 // prune applies retention in small batches: the check log keeps 30 days and
 // the newest 500 per Bot, findings 30 days, alerts a year, price days 366
-// days, and the shared site and robots caches 30 days past their use. All
-// times come from Go.
+// days, the shared site and robots caches 30 days past their use, and site
+// logos 60 days after anyone last asked for them. All times come from Go.
 func (s *Service) prune(ctx context.Context, now time.Time) error {
 	day := 24 * time.Hour
 	steps := []struct {
@@ -114,6 +114,7 @@ func (s *Service) prune(ctx context.Context, now time.Time) error {
 		{`DELETE FROM bot_price_days WHERE ctid IN (SELECT ctid FROM bot_price_days WHERE day < CAST(? AS date) LIMIT ?)`, []any{now.AddDate(0, 0, -PriceKeepDays).Format(dayLayout)}},
 		{`DELETE FROM bot_sites WHERE ctid IN (SELECT ctid FROM bot_sites WHERE used_at < ? LIMIT ?)`, []any{now.Add(-SiteKeepDays * day)}},
 		{`DELETE FROM bot_robots WHERE ctid IN (SELECT ctid FROM bot_robots WHERE expires_at < ? LIMIT ?)`, []any{now.Add(-SiteKeepDays * day)}},
+		{`DELETE FROM bot_site_icons WHERE ctid IN (SELECT ctid FROM bot_site_icons WHERE used_at < ? LIMIT ?)`, []any{now.Add(-IconKeepDays * day)}},
 	}
 	db := s.db.WithContext(ctx)
 	for _, st := range steps {

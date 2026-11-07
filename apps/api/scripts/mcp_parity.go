@@ -802,6 +802,7 @@ var workerTables = map[string]string{
 	"bot_sites":               "bot_check jobs and the bots sweep",
 	"bot_robots":              "bot_check jobs and the bots sweep",
 	"bot_source_keys":         "bot_check jobs mark a key the source refused",
+	"bot_site_icons":          "bot_icon jobs",
 }
 
 type tableSum struct{ rows, hash int64 }

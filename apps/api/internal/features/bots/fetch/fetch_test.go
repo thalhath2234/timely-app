@@ -169,6 +169,37 @@ func TestBodyCap(t *testing.T) {
 	}
 }
 
+func TestIcon(t *testing.T) {
+	const icon = "https://shop.example/favicon.ico"
+	n := newNet(map[string]reply{
+		icon:                                 {status: 200, header: http.Header{"Content-Type": {"image/x-icon"}}, body: "\x00\x00\x01\x00"},
+		"https://shop.example/logo.svg":      {status: 200, header: http.Header{"Content-Type": {"image/svg+xml"}}, body: "<svg/>"},
+		"https://shop.example/big.png":       {status: 200, header: http.Header{"Content-Type": {"image/png"}}, body: strings.Repeat("x", 64<<10+1)},
+		"https://shop.example/robots.txt":    {status: 200, header: http.Header{"Content-Type": {"text/plain"}}, body: "User-agent: *\nDisallow: /private/\n"},
+		"https://shop.example/private/a.png": {status: 200, header: http.Header{"Content-Type": {"image/png"}}, body: "\x89PNG\r\n\x1a\n"},
+	})
+	f := newFetcher(n, Config{})
+	res, err := f.Get(context.Background(), Request{URL: icon, Want: WantIcon})
+	if err != nil || string(res.Body) != "\x00\x00\x01\x00" {
+		t.Fatalf("icon: %v %+v", err, res)
+	}
+	if acc := n.last(icon).Header.Get("Accept"); !strings.HasPrefix(acc, "image/png") || strings.Contains(acc, "svg") || strings.Contains(acc, "text/html") {
+		t.Errorf("Accept = %q", acc)
+	}
+	if _, err := f.Get(context.Background(), Request{URL: "https://shop.example/logo.svg", Want: WantIcon}); !errors.Is(err, ErrUnsupported) {
+		t.Errorf("SVG: got %v, want ErrUnsupported", err)
+	}
+	if _, err := f.Get(context.Background(), Request{URL: "https://shop.example/big.png", Want: WantIcon}); !errors.Is(err, ErrTooBig) {
+		t.Errorf("over 64 KiB: got %v, want ErrTooBig", err)
+	}
+	if _, err := f.Get(context.Background(), Request{URL: "https://shop.example/private/a.png", Want: WantIcon}); !errors.Is(err, ErrRobots) {
+		t.Errorf("robots.txt: got %v, want ErrRobots", err)
+	}
+	if MaxBody(WantIcon) != 64<<10 {
+		t.Error("MaxBody(WantIcon) changed")
+	}
+}
+
 func TestStatuses(t *testing.T) {
 	robotCheck, err := os.ReadFile("testdata/amazon_robot_check.html")
 	if err != nil {
@@ -259,6 +290,16 @@ func TestTypeSniffing(t *testing.T) {
 		{WantJSON, "text/plain", ` [1,2]`, true},
 		{WantJSON, "text/html", "<html><body>Sorry</body></html>", false},
 		{"other", "text/html", "<html>", false},
+		{WantIcon, "image/png", "\x89PNG\r\n\x1a\n", true},
+		{WantIcon, "image/vnd.microsoft.icon", "\x00\x00\x01\x00", true},
+		{WantIcon, "image/webp", "", true},
+		{WantIcon, "application/octet-stream", "\x00\x00\x01\x00\x01\x00", true},
+		{WantIcon, "", "GIF89a", true},
+		{WantIcon, "text/plain", "RIFF\x00\x00\x00\x00WEBPVP8 ", true},
+		{WantIcon, "image/svg+xml", `<svg xmlns="http://www.w3.org/2000/svg"/>`, false},
+		{WantIcon, "application/octet-stream", `<svg xmlns="http://www.w3.org/2000/svg"/>`, false},
+		{WantIcon, "text/html", "\x89PNG\r\n\x1a\n", false},
+		{WantIcon, "image/bmp", "BM", false},
 	} {
 		if got := wanted(c.want, c.ct, []byte(c.body)); got != c.ok {
 			t.Errorf("wanted(%s, %q, %.30q) = %v, want %v", c.want, c.ct, c.body, got, c.ok)

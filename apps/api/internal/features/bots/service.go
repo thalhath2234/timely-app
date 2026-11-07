@@ -80,16 +80,34 @@ func (s *Service) SetFetcher(f *fetch.Fetcher) {
 	}
 }
 
-// Register adds the check handler. The sweep is joined into the worker's
-// one sweep in main.go, never set here.
-func (s *Service) Register(w *jobs.Worker) { w.Handle(models.JobBotCheck, s.HandleCheck) }
-
-func (s *Service) Create(ctx context.Context, userID string, in Input, o Origin) (View, error) {
-	return s.store.Create(ctx, userID, in, o, s.now())
+// Register adds the check and site logo handlers. The sweep is joined into
+// the worker's one sweep in main.go, never set here.
+func (s *Service) Register(w *jobs.Worker) {
+	w.Handle(models.JobBotCheck, s.HandleCheck)
+	w.Handle(models.JobBotIcon, s.HandleIcon)
 }
 
+// Create saves a Bot, and asks for the logos of sites new to Timely, so
+// the board shows them before the first check. A save over MCP asks for
+// none: that Bot starts paused and nothing may be fetched for an outside
+// app's say-so (create_bot promises it), so its logo comes with the first
+// clean check after the person turns it on.
+func (s *Service) Create(ctx context.Context, userID string, in Input, o Origin) (View, error) {
+	v, err := s.store.Create(ctx, userID, in, o, s.now())
+	if err == nil && o != OriginMCP {
+		s.askIcons(ctx, userID, viewWatches(v))
+	}
+	return v, err
+}
+
+// Update edits a Bot, and asks for the logos of sites new to Timely; over
+// MCP it asks for none, as Create.
 func (s *Service) Update(ctx context.Context, userID, idOrName string, p Patch, o Origin) (View, error) {
-	return s.store.Update(ctx, userID, idOrName, p, o, s.now())
+	v, err := s.store.Update(ctx, userID, idOrName, p, o, s.now())
+	if err == nil && o != OriginMCP {
+		s.askIcons(ctx, userID, viewWatches(v))
+	}
+	return v, err
 }
 
 func (s *Service) Pause(ctx context.Context, userID, idOrName, reason string) (View, error) {

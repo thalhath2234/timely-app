@@ -62,7 +62,7 @@ func TestIntegrationBackupKeepsBots(t *testing.T) {
 			t.Fatalf("export %s: %d rows, want %d", table, got, want)
 		}
 	}
-	for _, table := range []string{"bot_checks", "bot_sites", "bot_robots", "bot_source_keys"} {
+	for _, table := range []string{"bot_checks", "bot_sites", "bot_robots", "bot_site_icons", "bot_source_keys"} {
 		if _, ok := backup.Rows[table]; ok {
 			t.Fatalf("export carries %s", table)
 		}

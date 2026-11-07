@@ -34,6 +34,9 @@ const (
 	WantPage Want = "page"
 	WantFeed Want = "feed"
 	WantJSON Want = "json"
+	// WantIcon is a site's logo: PNG, ICO, JPEG, GIF or WebP. SVG is
+	// refused, since it can carry script and needs a renderer to redraw.
+	WantIcon Want = "icon"
 )
 
 type Request struct {
@@ -131,6 +134,9 @@ func UserAgent() string {
 // one of them.
 const accept = "text/html,application/xhtml+xml,application/rss+xml,application/atom+xml,application/feed+json,application/json;q=0.9,*/*;q=0.1"
 
+// acceptIcon lists the logo types Timely redraws, and leaves SVG out.
+const acceptIcon = "image/png,image/x-icon,image/vnd.microsoft.icon,image/jpeg,image/gif,image/webp;q=0.9,*/*;q=0.1"
+
 // MaxBody is the most Get reads for w, counted after decompression.
 func MaxBody(w Want) int64 {
 	switch w {
@@ -138,6 +144,8 @@ func MaxBody(w Want) int64 {
 		return 5 << 20
 	case WantFeed:
 		return 2 << 20
+	case WantIcon:
+		return 64 << 10
 	}
 	return 1 << 20
 }
@@ -179,7 +187,7 @@ func ParseRetryAfter(v string, now time.Time) time.Duration {
 // Get reads r.URL. Every failure is one of the errors in errors.go, the
 // caller's ctx error, or an error from the Spacer or RobotsCache.
 func (f *Fetcher) Get(ctx context.Context, r Request) (*Response, error) {
-	if r.Want != WantPage && r.Want != WantFeed && r.Want != WantJSON {
+	if r.Want != WantPage && r.Want != WantFeed && r.Want != WantJSON && r.Want != WantIcon {
 		return nil, ErrUnsupported
 	}
 	u, err := url.Parse(r.URL)
@@ -218,7 +226,11 @@ func (f *Fetcher) Get(ctx context.Context, r Request) (*Response, error) {
 	// decodes it, so the size cap counts decoded bytes.
 	req.Header.Del("Accept-Encoding")
 	req.Header.Set("User-Agent", f.userAgent())
-	req.Header.Set("Accept", accept)
+	if r.Want == WantIcon {
+		req.Header.Set("Accept", acceptIcon)
+	} else {
+		req.Header.Set("Accept", accept)
+	}
 	if r.ValidatorsURL == r.URL {
 		if r.ETag != "" {
 			req.Header.Set("If-None-Match", r.ETag)
@@ -429,6 +441,16 @@ func sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
+// imageMagic reports whether body starts like a PNG, ICO, JPEG, GIF or WebP.
+func imageMagic(body []byte) bool {
+	for _, m := range [][]byte{[]byte("\x89PNG\r\n\x1a\n"), {0, 0, 1, 0}, {0xff, 0xd8, 0xff}, []byte("GIF87a"), []byte("GIF89a")} {
+		if bytes.HasPrefix(body, m) {
+			return true
+		}
+	}
+	return len(body) >= 12 && string(body[:4]) == "RIFF" && string(body[8:12]) == "WEBP"
+}
+
 var jsonFeedVersion = regexp.MustCompile(`"version"\s*:\s*"https://jsonfeed\.org`)
 
 // sniff names what the first 512 bytes look like: page, feed, json or "".
@@ -481,6 +503,16 @@ func wanted(w Want, contentType string, body []byte) bool {
 		if mt == "application/json" || mt == "text/json" || strings.HasSuffix(mt, "+json") {
 			return true
 		}
+	case WantIcon:
+		// A named image type decides; anything else (octet-stream, a
+		// missing type) must start like one of the images Timely reads.
+		switch mt {
+		case "image/png", "image/x-icon", "image/vnd.microsoft.icon", "image/jpeg", "image/gif", "image/webp":
+			return true
+		case "image/svg+xml":
+			return false
+		}
+		return mt != "text/html" && imageMagic(body)
 	default:
 		return false
 	}

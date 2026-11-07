@@ -150,6 +150,9 @@ func main() {
 	jobWorker.Separate(models.JobReindexUser)
 	jobWorker.Separate(models.JobIndexEntity)
 	jobWorker.SeparateN(bots.Slots, models.JobBotCheck)
+	// A site logo can wait on robots.txt, a home page and the logo itself,
+	// each behind its site's spacing, so logos keep to a lane of their own.
+	jobWorker.Separate(models.JobBotIcon)
 	botService.Register(jobWorker)
 	notifyService.Register(jobWorker)
 	portabilityService.Register(jobWorker)

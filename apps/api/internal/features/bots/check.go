@@ -96,12 +96,23 @@ func (s *Service) HandleCheck(ctx context.Context, job *models.Job) error {
 	case p != nil:
 		err = s.saveProblem(ctx, c, p)
 	default:
-		err = s.saveOK(ctx, c)
+		if err = s.saveOK(ctx, c); err == nil {
+			// Outside the transaction: a logo never holds up a check.
+			s.askIcons(ctx, b.UserID, readWatches(reads))
+		}
 	}
 	if err != nil {
 		return jobs.RetryAfter(err, time.Minute)
 	}
 	return nil
+}
+
+func readWatches(reads []watchRead) []Watch {
+	ws := make([]Watch, len(reads))
+	for i, r := range reads {
+		ws[i] = r.w
+	}
+	return ws
 }
 
 // checkRun is one claimed check on its way to being saved.
