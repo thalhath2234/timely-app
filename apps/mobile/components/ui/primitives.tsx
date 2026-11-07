@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Text, TextInput, View } from "react-native";
+import { Platform, Text, TextInput, View } from "react-native";
 import { Check, ChevronDown, ChevronRight } from "lucide-react-native";
 import { colors, controlRadius, createThemedStyleSheet, radius } from "../../lib/theme";
 import { LogoSpinner } from "./TimelyLogo";
@@ -182,6 +182,9 @@ export function Field({
       onContentSizeChange={autoGrow ? (event) => {
         // The web build reports the box's own height, which includes the 2px
         // added below; small changes are ignored so it doesn't grow forever.
+        // A field hidden behind a nested page measures 0 wide on the web:
+        // keep its height rather than shrink to one line until it is typed in.
+        if (Platform.OS === "web" && event.nativeEvent.contentSize.width === 0) return;
         const next = Math.ceil(event.nativeEvent.contentSize.height);
         setContentHeight((prev) => (Math.abs(next - prev) <= 2 ? prev : next));
       } : undefined}

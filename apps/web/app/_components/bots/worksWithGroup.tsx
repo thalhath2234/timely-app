@@ -153,7 +153,7 @@ export function WorksWithGroup({
         <ListRow
           key={`from-${g.link.id}`}
           label={g.name}
-          meta={`${filterLine(g.link.filter)} · Passed today ${g.link.passedToday} of ${BOT_LIMITS.linkPerDay}`}
+          meta={`${filterLine(g.link.filter)} · Passed today ${g.link.passedToday}\u00a0of\u00a0${BOT_LIMITS.linkPerDay}`}
         >
           <ListSwitch
             label={`Get items from ${g.name}`}

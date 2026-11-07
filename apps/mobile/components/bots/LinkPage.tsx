@@ -108,9 +108,8 @@ export function LinkPage({
             />
             <FieldRow
               title="Only when it mentions"
-              meta="Words, with commas between"
               value={text}
-              placeholder="2TB NVMe"
+              placeholder="e.g. 2TB NVMe"
               autoCapitalize="none"
               width={140}
               onChangeText={(next) => {

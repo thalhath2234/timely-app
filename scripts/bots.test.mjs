@@ -1731,7 +1731,7 @@ describe("AI, links and briefs over the seed", () => {
     const gpu = worksWith(seed.gpu, links, all);
     assert.deepEqual(
       gpu.passesTo.map((p) => [p.link.id, p.name, p.filterLine, p.passedLine]),
-      [["blk_gpu_nvme", "Price check · NVMe", "mentions 2TB NVMe", "Passed today 6 of 20"]],
+      [["blk_gpu_nvme", "Price check · NVMe", "mentions 2TB NVMe", "Passed today 6\u00a0of\u00a020"]],
     );
     assert.deepEqual(gpu.getsFrom, []);
     assert.deepEqual(

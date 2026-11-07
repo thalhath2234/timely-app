@@ -126,7 +126,7 @@ export function LinkEditor({
             <RowInput
               aria-label="Only when it mentions"
               value={text}
-              placeholder="2TB NVMe"
+              placeholder="e.g. 2TB NVMe"
               invalid={words.length > BOT_LIMITS.maxFilterWords}
               onChange={setText}
             />

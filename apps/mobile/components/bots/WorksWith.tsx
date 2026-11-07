@@ -83,6 +83,8 @@ export function WorksWith({
         meta={`${filterLine(l.filter)} · ${view ? view.passedLine : "Saving…"}`}
         accessibilityLabel={`Edit pass to ${name}`}
         onPress={() => setEditing({ index, link: l })}
+        // The whole row opens the link page; a chevron would sit before the switch.
+        chevron={false}
         action={
           <ListSwitch
             label={`Pass to ${name}`}
@@ -107,7 +109,7 @@ export function WorksWith({
         <ListRow
           key={`from-${g.link.id}`}
           title={g.name}
-          meta={`${filterLine(g.link.filter)} · Passed today ${g.link.passedToday} of ${BOT_LIMITS.linkPerDay}`}
+          meta={`${filterLine(g.link.filter)} · Passed today ${g.link.passedToday}\u00a0of\u00a0${BOT_LIMITS.linkPerDay}`}
           trailing={<ListSwitch label={`Get items from ${g.name}`} value={g.link.enabled} disabled={busy(g.link)} onChange={(next) => toggle(g.link, next)} />}
         />,
       );

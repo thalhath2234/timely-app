@@ -212,7 +212,11 @@ function Attention({ bot, now, actions, onOpen }: { bot: BotView; now: Date; act
     const alert = bot.latestAlert;
     const link = alertLink(bot, alert);
     const { title, meta } = alertHeadline(alert, bot.name);
-    const line = [meta, agoLabel(alert.createdAt, now)].filter(Boolean).join(" · ");
+    const ago = agoLabel(alert.createdAt, now);
+    // A brief's body runs to several lines: its first one gets the clamp, and
+    // the time a line of its own so the clamp never cuts it off.
+    const brief = alert.kind === "brief";
+    const line = brief ? (meta ?? "").split("\n")[0].trim() : [meta, ago].filter(Boolean).join(" · ");
     const box = (
       <>
         <Text numberOfLines={3} style={styles.alertTitle}>
@@ -221,6 +225,11 @@ function Attention({ bot, now, actions, onOpen }: { bot: BotView; now: Date; act
         {line ? (
           <Text numberOfLines={2} style={styles.meta}>
             {line}
+          </Text>
+        ) : null}
+        {brief ? (
+          <Text numberOfLines={1} style={styles.meta}>
+            {ago}
           </Text>
         ) : null}
         <AlertAiLine alert={alert} variant="compact" />

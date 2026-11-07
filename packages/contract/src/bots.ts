@@ -2092,7 +2092,8 @@ export function worksWith(
       link,
       name: linkName(bots, link.toBotId),
       filterLine: filterLine(link.filter),
-      passedLine: `Passed today ${link.passedToday} of ${BOT_LIMITS.linkPerDay}`,
+      // "6 of 20" never breaks across lines.
+      passedLine: `Passed today ${link.passedToday}\u00a0of\u00a0${BOT_LIMITS.linkPerDay}`,
     }));
   const getsFrom = all.filter((l) => l.kind === "pass" && l.toBotId === bot.id).map((link) => ({ link, name: linkName(bots, link.fromBotId) }));
   const inBriefs = all.filter((l) => l.kind === "brief" && l.fromBotId === bot.id).map((link) => ({ link, name: linkName(bots, link.toBotId) }));
