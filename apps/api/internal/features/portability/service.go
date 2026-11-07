@@ -31,7 +31,13 @@ type Service struct {
 	dir          string
 	key          [32]byte
 	afterRestore func(userID string)
+	vetRestore   RestoreVet
 }
+
+// RestoreVet checks restored rows inside the restore's transaction; an
+// error undoes the restore. fromMCP is true for a restore an outside app
+// asked for, which must not be able to do more than its own tools can.
+type RestoreVet func(tx *gorm.DB, userID string, fromMCP bool) error
 
 // BackupDir is TIMELY_BACKUP_DIR, else <TIMELY_DATA_DIR>/backups, else
 // data/backups under the working directory.
@@ -58,6 +64,9 @@ func (s *Service) Dir() string { return s.dir }
 // SetAfterRestore runs fn once a restore has replaced the account's rows,
 // e.g. to drop the account's cached search vectors.
 func (s *Service) SetAfterRestore(fn func(userID string)) { s.afterRestore = fn }
+
+// SetRestoreVet runs fn on every restore, before it commits.
+func (s *Service) SetRestoreVet(fn RestoreVet) { s.vetRestore = fn }
 
 func defaultSettings(userID string) models.BackupSettings {
 	now := time.Now().UTC()

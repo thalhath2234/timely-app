@@ -10,20 +10,21 @@ package linkpreview
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"html"
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strings"
-	"syscall"
 	"time"
 	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
+
+	"timely-api/internal/netguard"
 )
 
 const (
@@ -47,73 +48,24 @@ func (s *Service) Routes(protected *echo.Group) {
 	protected.GET("/docs/link-preview", s.preview)
 }
 
-var errBlocked = errors.New("this address is not on the public internet")
-
 // publicIP reports whether ip is a public unicast address.
 func publicIP(ip net.IP) bool {
-	if ip4 := ip.To4(); ip4 != nil {
-		ip = ip4
-		// 100.64.0.0/10 is carrier-grade NAT, which Tailscale uses.
-		if ip[0] == 100 && ip[1]&0xc0 == 64 {
-			return false
-		}
-		if ip[0] == 0 || ip[0] >= 224 {
-			return false
-		}
-	}
-	return ip.IsGlobalUnicast() && !ip.IsPrivate() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast()
+	a, ok := netip.AddrFromSlice(ip)
+	return ok && netguard.PublicAddr(a)
 }
 
 func newClient() *http.Client {
-	dialer := &net.Dialer{
-		Timeout: 5 * time.Second,
-		// Runs after DNS for each address actually dialled.
-		Control: func(_, address string, _ syscall.RawConn) error {
-			host, port, err := net.SplitHostPort(address)
-			if err != nil {
-				return err
-			}
-			if port != "80" && port != "443" {
-				return errBlocked
-			}
-			if ip := net.ParseIP(host); ip == nil || !publicIP(ip) {
-				return errBlocked
-			}
-			return nil
-		},
-	}
-	transport := &http.Transport{
-		Proxy:                 nil,
-		DialContext:           dialer.DialContext,
-		TLSHandshakeTimeout:   5 * time.Second,
-		ResponseHeaderTimeout: 6 * time.Second,
-		MaxIdleConns:          4,
-		IdleConnTimeout:       30 * time.Second,
-	}
-	return &http.Client{
-		Transport: transport,
-		Timeout:   fetchTimeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= maxRedirects {
-				return errors.New("too many redirects")
-			}
-			return checkURL(req.URL)
-		},
-	}
+	return netguard.NewClient(netguard.Options{
+		Timeout:       fetchTimeout,
+		DialTimeout:   5 * time.Second,
+		HeaderTimeout: 6 * time.Second,
+		MaxRedirects:  maxRedirects,
+		MaxIdleConns:  4,
+		Ports:         []string{"80", "443"},
+	})
 }
 
-func checkURL(u *url.URL) error {
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return errors.New("use an http or https link")
-	}
-	if u.User != nil || u.Hostname() == "" {
-		return errors.New("use a plain web link")
-	}
-	if p := u.Port(); p != "" && p != "80" && p != "443" {
-		return errBlocked
-	}
-	return nil
-}
+func checkURL(u *url.URL) error { return netguard.CheckURL(u) }
 
 func (s *Service) preview(c *echo.Context) error {
 	raw := strings.TrimSpace(c.QueryParam("url"))

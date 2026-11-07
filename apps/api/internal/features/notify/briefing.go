@@ -28,6 +28,13 @@ type Briefer func(ctx context.Context, userID string, items []BriefItem) []int
 // SetBriefing connects smart suggestions to the morning briefing.
 func (s *Service) SetBriefing(fn Briefer) { s.briefing = fn }
 
+// BotDigest lists lines for the morning digest's "From your bots" section.
+// done marks them as sent; HandleDigest calls it once the digest is saved.
+type BotDigest func(ctx context.Context, userID string, now time.Time) (lines []string, done func() error, err error)
+
+// SetBotDigest connects Bots to the morning digest. notify never imports bots.
+func (s *Service) SetBotDigest(fn BotDigest) { s.botDigest = fn }
+
 const (
 	maxBriefItems     = 12
 	maxBriefNamed     = 3

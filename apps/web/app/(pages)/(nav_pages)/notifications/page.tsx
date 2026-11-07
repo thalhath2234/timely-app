@@ -38,6 +38,8 @@ function dataString(item: AppNotification, key: string) {
 }
 
 function targetFor(item: AppNotification): NotificationTarget {
+  // Bot alerts stay here until the Bots page exists.
+  if (item.category === "bot") return { kind: "route", href: "/notifications" };
   const fromData = item.data?.taskId;
   if (typeof fromData === "string" && fromData) return { kind: "task", id: fromData };
   if (item.entityType === "task" && item.entityId) return { kind: "task", id: item.entityId };
@@ -223,7 +225,7 @@ export default function NotificationsPage() {
                               onClick={() => {
                                 if (unread) void markRead.mutateAsync(item.id);
                                 if (target.kind === "task") openTask(target.id);
-                                else router.push(target.href);
+                                else if (target.href !== "/notifications") router.push(target.href);
                               }}
                             >
                               <span className={cn("truncate text-sm", unread ? "font-semibold text-foreground" : "font-medium text-foreground")}>

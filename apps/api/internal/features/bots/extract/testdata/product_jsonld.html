@@ -1,0 +1,31 @@
+<!doctype html>
+<!-- Imitates an Indian electronics store's product page: a JSON-LD Product
+     whose offers is an array, the price as a formatted string in INR. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Galaxy Tab S9 FE (128 GB, Wi-Fi) | ShopKart</title>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Organization","name":"ShopKart","url":"https://shop.example/"}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Product",
+  "name": "Galaxy Tab S9 FE (128 GB, Wi-Fi)",
+  "sku": "SM-X510",
+  "description": "10.9 inch display,
+    S Pen included",
+  "offers": [
+    {"@type": "Offer", "price": "27,499.00", "priceCurrency": "INR", "availability": "https://schema.org/InStock"},
+    {"@type": "Offer", "price": "29,999.00", "priceCurrency": "INR", "availability": "https://schema.org/InStock"}
+  ]
+}
+</script>
+</head>
+<body>
+<nav><a href="/">Home</a> › <a href="/tablets">Tablets</a></nav>
+<h1>Galaxy Tab S9 FE (128 GB, Wi-Fi)</h1>
+<div class="price">₹27,499</div>
+</body>
+</html>

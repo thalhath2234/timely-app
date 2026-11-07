@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -32,6 +33,8 @@ type Enqueue struct {
 	DedupeKey string
 	Payload   models.JobPayload
 	RunAt     time.Time
+	// MaxAttempts caps the job's attempts; 0 means 8.
+	MaxAttempts int
 }
 
 func (q *Queue) Enqueue(job Enqueue) (*models.Job, error) {
@@ -63,7 +66,7 @@ func (q *Queue) Enqueue(job Enqueue) (*models.Job, error) {
 		Status:      models.JobPending,
 		Payload:     job.Payload,
 		RunAt:       job.RunAt.UTC(),
-		MaxAttempts: 8,
+		MaxAttempts: cmp.Or(job.MaxAttempts, 8),
 		CreatedAt:   time.Now().UTC(),
 		UpdatedAt:   time.Now().UTC(),
 	}
@@ -252,24 +255,61 @@ type permanentError struct{ error }
 
 func (e permanentError) Unwrap() error { return e.error }
 
+// RetryAfter asks Fail to try again after d instead of Backoff, clamped to
+// [Backoff(attempts), maxRetryAfter]. Permanent still wins, and the last
+// attempt is still final.
+func RetryAfter(err error, d time.Duration) error {
+	if err == nil {
+		return nil
+	}
+	return retryAfterError{err, d}
+}
+
+type retryAfterError struct {
+	error
+	after time.Duration
+}
+
+func (e retryAfterError) Unwrap() error { return e.error }
+
+// maxRetryAfter bounds how far a RetryAfter can push a job out.
+const maxRetryAfter = 6 * time.Hour
+
+// retryDelay is how long a failed attempt waits before the next one.
+func retryDelay(attempts int, cause error) time.Duration {
+	d := Backoff(attempts)
+	var after retryAfterError
+	if errors.As(cause, &after) {
+		return min(max(after.after, d), maxRetryAfter)
+	}
+	return d
+}
+
+// finalAttempt reports whether a failure ends the job: its attempts are used
+// up, or the error is Permanent.
+func finalAttempt(attempts, maxAttempts int, cause error) bool {
+	var permanent permanentError
+	return attempts >= maxAttempts || errors.As(cause, &permanent)
+}
+
 // Fail records the error and either schedules another attempt or, after the
 // last one or a Permanent error, marks the job failed. The error usually
 // quotes a provider, so it is cleaned first: keys it echoes are hidden, and
 // Postgres refuses invalid UTF-8 and NUL, and a refused update would leave
 // the job 'running' for RecoverStuck to run again.
 func (q *Queue) Fail(job *models.Job, cause error) error {
-	var permanent permanentError
-	final := job.Attempts >= job.MaxAttempts || errors.As(cause, &permanent)
-	err := q.fail(job, utils.StorableText(utils.RedactSecrets(cause.Error()), maxErrorBytes), final)
+	final := finalAttempt(job.Attempts, job.MaxAttempts, cause)
+	delay := retryDelay(job.Attempts, cause)
+	err := q.fail(job, utils.StorableText(utils.RedactSecrets(cause.Error()), maxErrorBytes), final, delay)
 	if err != nil {
-		if again := q.fail(job, unsavedError, final); again == nil {
+		if again := q.fail(job, unsavedError, final, delay); again == nil {
 			return nil
 		}
 	}
 	return err
 }
 
-func (q *Queue) fail(job *models.Job, msg string, final bool) error {
+func (q *Queue) fail(job *models.Job, msg string, final bool, delay time.Duration) error {
 	now := time.Now().UTC()
 	if final {
 		return q.db.Model(job).Updates(map[string]any{
@@ -283,7 +323,7 @@ func (q *Queue) fail(job *models.Job, msg string, final bool) error {
 	}
 	return q.db.Model(job).Updates(map[string]any{
 		"status":     models.JobPending,
-		"run_at":     now.Add(Backoff(job.Attempts)),
+		"run_at":     now.Add(delay),
 		"last_error": msg,
 		"locked_at":  nil,
 		"locked_by":  nil,
@@ -304,6 +344,21 @@ func Backoff(attempts int) time.Duration {
 		return 15 * time.Minute
 	}
 	return d
+}
+
+// Expedite pulls a waiting job forward to runAt (never later than it already
+// was) and merges keys into its payload. Run now uses it to turn a queued
+// scheduled check into a run_now one. A job that is no longer pending is left
+// alone.
+func (q *Queue) Expedite(id string, runAt time.Time, merge models.JobPayload) error {
+	if merge == nil {
+		merge = models.JobPayload{}
+	}
+	return q.db.Exec(`
+		UPDATE jobs
+		SET run_at = LEAST(run_at, @run_at), payload = payload || CAST(@merge AS jsonb), updated_at = @now
+		WHERE id = @id AND status = 'pending'
+	`, sql.Named("run_at", runAt.UTC()), sql.Named("merge", merge), sql.Named("now", q.now().UTC()), sql.Named("id", id)).Error
 }
 
 // ErrNewerRun refuses a Retry while a newer run of the same work is waiting

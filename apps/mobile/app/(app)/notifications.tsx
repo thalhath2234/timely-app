@@ -26,7 +26,7 @@ import type { AlertStep, TriageStep } from "../../lib/api/decisions";
 import type { AppNotification } from "../../lib/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { needsNetworkCopy } from "../../lib/queryCopy";
-import { routeForNotification } from "../../lib/notifications";
+import { NOTIFICATIONS_ROUTE, routeForNotification } from "../../lib/notifications";
 import { useToastStore } from "../../lib/toast";
 
 function routeFor(item: AppNotification) {
@@ -193,7 +193,8 @@ export default function NotificationsScreen() {
                     style={styles.headText}
                     onPress={() => {
                       if (!item.readAt) void markRead.mutateAsync(item.id);
-                      router.push(href as never);
+                      // A Bot alert routes here; don't stack a second copy of this screen.
+                      if (href !== NOTIFICATIONS_ROUTE) router.push(href as never);
                     }}
                   >
                     <Text numberOfLines={1} style={[styles.title, !item.readAt && styles.titleUnread]}>{item.title}</Text>

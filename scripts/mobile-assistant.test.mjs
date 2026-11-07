@@ -54,6 +54,21 @@ test("a smart alert about several tasks opens the first, a project or Inbox aler
     "/(app)/inbox",
   );
 });
+test("a Bot alert opens the Notifications screen", () => {
+  // The shape the server push and the phone's own poll both send.
+  assert.equal(
+    routeForNotification({
+      category: "bot",
+      entityType: "bot",
+      entityId: "bot_a",
+      botId: "bot_a",
+      taskId: "",
+      url: "https://example.com/item",
+    }),
+    "/(app)/notifications",
+  );
+});
+
 test("adding a new screen preserves original context and deduplicates references", () => {
   const original = routeContext(
     "/docs/doc-a",

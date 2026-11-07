@@ -77,6 +77,10 @@ export type TimelyDesktop = {
   platform: NodeJS.Platform;
   notifyChat: (payload: { id: string; title: string; body: string; revision: number }) => void;
   onOpenChat: (callback: (id: string) => void) => () => void;
+  /** Pops a Bot alert as a native notification (once per id, only when the window is not focused). */
+  notifyAlert?: (payload: { id: string; title: string; body: string }) => void;
+  /** Called with the notification id when a Bot alert pop-up is clicked. */
+  onOpenAlert?: (callback: (id: string) => void) => () => void;
   /** Saves the page, as laid out for print, to a PDF the user picks. */
   savePdf?: (title: string) => Promise<{ ok: boolean; canceled?: boolean; filePath?: string }>;
   /** Moves the mouse pointer to a point in the page (CSS pixels); no-op where the OS forbids it (Wayland). */

@@ -15,6 +15,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   suggestion: "Smart alerts",
   overdue: "Overdue",
   missed: "Missed blocks",
+  bot: "Bot alerts",
 };
 
 function categoryLabel(category: string) {

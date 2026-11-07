@@ -23,6 +23,7 @@ import (
 	"timely-api/internal/features/agent"
 	"timely-api/internal/features/apikey"
 	"timely-api/internal/features/auth"
+	"timely-api/internal/features/bots"
 	"timely-api/internal/features/calendar"
 	"timely-api/internal/features/chat"
 	"timely-api/internal/features/decide"
@@ -133,31 +134,35 @@ func main() {
 	searchService := search.NewService(db, indexer, rebuildIndex)
 	notifyService := notify.NewService(db, jobQueue, calendarService, taskService, scheduleService, indexer)
 	portabilityService := portability.NewService(db, jobQueue)
+	// Bots (ADR 0021): bots.next_check_at is the schedule; the sweep queues
+	// due Bots and checks run four at a time on a lane of their own.
+	botService := bots.New(db, jobQueue)
 	jobWorker := jobs.NewWorker(jobQueue)
 	// Embedding work waits on OpenRouter: a whole account's reindex makes one
 	// request per item, so it and per-item index jobs each get a lane of their
 	// own and never hold up reminders, pushes or each other.
 	jobWorker.Separate(models.JobReindexUser)
 	jobWorker.Separate(models.JobIndexEntity)
+	jobWorker.SeparateN(bots.Slots, models.JobBotCheck)
+	botService.Register(jobWorker)
 	notifyService.Register(jobWorker)
 	portabilityService.Register(jobWorker)
 	var decisions *decide.Service // set below, once the provider keys exist
+	// Every sweep runs each tick: an error in one no longer skips the rest.
 	jobWorker.SetSweep(func(ctx context.Context) error {
-		if err := notifyService.Sweep(ctx); err != nil {
-			return err
-		}
-		if err := decisions.Prune(); err != nil {
-			return err
-		}
-		return portabilityService.Sweep(ctx)
+		return errors.Join(botService.Sweep(ctx), notifyService.Sweep(ctx), decisions.Prune(), portabilityService.Sweep(ctx))
 	})
 	providerService := provider.New(db, indexer, jobQueue)
 	providerService.Register(jobWorker)
 	indexRebuild = providerService.EnsureIndex
 	// A restore replaces every row and drops the search index with them, so
 	// it queues a rebuild, which Settings shows while it runs.
+	// Restored Bots get the checks a save makes, and stay off when an
+	// outside app restored them.
+	portabilityService.SetRestoreVet(botService.VetRestore)
 	portabilityService.SetAfterRestore(func(userID string) {
 		indexer.Invalidate(userID)
+		botService.AfterRestore(userID)
 		if err := providerService.QueueReindex(userID); err != nil {
 			log.Printf("restore: queue search reindex: %v", err)
 		}
@@ -173,6 +178,7 @@ func main() {
 	notifyService.SetTriage(suggestions.Triage)
 	notifyService.SetAlerts(suggestions.Alerts)
 	notifyService.SetBriefing(suggestions.Brief)
+	notifyService.SetBotDigest(botService.DigestLines)
 	notifyService.SetDecisions(func(ctx context.Context, userID string) bool {
 		on, _ := decisions.Status(ctx, userID)
 		return on
@@ -212,6 +218,7 @@ func main() {
 		Focus:      focus.NewStore(db),
 		Suggest:    suggestions,
 		LiveBlock:  providerService.LiveBlock,
+		Bots:       botService,
 		DecisionsOn: func(ctx context.Context, userID string) bool {
 			on, _ := decisions.Status(ctx, userID)
 			return on
@@ -267,6 +274,7 @@ func main() {
 		Search:    searchHandler(searchService, smartSearch),
 		Suggest:   suggestions,
 		Focus:     focus.New(db, decisions),
+		Bots:      botService,
 		Merge:     workspace.NewMerger(db),
 		Notify:    notify.NewHandler(notifyService, jobQueue),
 		Portable:  portability.NewHandler(portabilityService),

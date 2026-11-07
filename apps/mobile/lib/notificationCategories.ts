@@ -121,12 +121,21 @@ export type Seen = { since: string | null; ids: string[] };
 
 const FIRST_LOOK_MS = 2 * 60 * 60_000;
 
-type AlertLike = { id: string; category?: string; createdAt: string; snoozedUntil?: string | null };
+type AlertLike = {
+  id: string;
+  category?: string;
+  createdAt: string;
+  snoozedUntil?: string | null;
+  data?: Record<string, unknown> | null;
+};
 
 /**
  * Which unread server alerts the phone hasn't shown yet: newer than the last
  * look (or the last two hours, the first time), not snoozed, and not
  * reminders, which the phone schedules itself to the minute (lib/notifications.ts).
+ * An alert quiet hours held counts from when it is released, so one held
+ * overnight still shows in the morning. Bot alerts the person turned off for
+ * the phone (`data.phone === false`) never show.
  */
 export function freshAlerts<T extends AlertLike>(items: T[], seen: Seen, now: number): T[] {
   const since = seen.since ? new Date(seen.since).getTime() - 60_000 : now - FIRST_LOOK_MS;
@@ -134,8 +143,11 @@ export function freshAlerts<T extends AlertLike>(items: T[], seen: Seen, now: nu
   return items.filter((item) => {
     if (known.has(item.id)) return false;
     if (item.category === "reminder") return false;
-    if (item.snoozedUntil && new Date(item.snoozedUntil).getTime() > now) return false;
+    if (item.data?.phone === false) return false;
+    const snoozed = item.snoozedUntil ? new Date(item.snoozedUntil).getTime() : Number.NaN;
+    if (snoozed > now) return false;
     const created = new Date(item.createdAt).getTime();
-    return Number.isFinite(created) && created >= since;
+    if (!Number.isFinite(created)) return false;
+    return Math.max(created, Number.isFinite(snoozed) ? snoozed : 0) >= since;
   });
 }
