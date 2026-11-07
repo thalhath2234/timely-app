@@ -104,7 +104,11 @@ func (s *Service) judgeInto(ctx context.Context, p *checkPlan, b Bot, chainID st
 		p.aiNote = s.offNote(ctx, b.UserID)
 	default:
 		p.aiNote = noteLater
-		raw, merr := json.Marshal(JudgeJob{ChainID: chainID, Input: in})
+		// The re-judge reads the person's words and the doc or sheet again
+		// from the Bot as it is then, so none of them is kept here.
+		kept := in
+		kept.Description, kept.Lessons, kept.Knowledge = "", nil, nil
+		raw, merr := json.Marshal(JudgeJob{ChainID: chainID, Input: kept})
 		if merr != nil {
 			return merr
 		}

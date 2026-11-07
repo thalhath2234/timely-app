@@ -217,8 +217,9 @@ func TestIntegrationBotKnowledgeReachesTheJudge(t *testing.T) {
 		t.Fatalf("long sheet: %d runes", utf8.RuneCountInString(k.Text))
 	}
 
-	// An unavailable judge keeps the input, knowledge inside it, only for
-	// the re-judge. (A new day: the Bot has sent its 3 alerts for today.)
+	// An unavailable judge keeps the input for the re-judge, without the
+	// person's words or the knowledge: the re-judge reads both again from
+	// the Bot as it is then. (A new day: the Bot has sent its 3 alerts.)
 	e.now = e.now.Add(24 * time.Hour)
 	fj.set(Verdict{}, errors.New("timeout"))
 	amount = "130.00"
@@ -228,10 +229,18 @@ func TestIntegrationBotKnowledgeReachesTheJudge(t *testing.T) {
 	if err := json.Unmarshal(a.AIInput, &job); err != nil {
 		t.Fatalf("alert %+v: %v", a, err)
 	}
-	if job.Input.Knowledge == nil || !strings.HasPrefix(job.Input.Knowledge.Text, "Item\tPrice") {
-		t.Fatalf("stored input %+v", job.Input.Knowledge)
+	if job.Input.Knowledge != nil || job.Input.Description != "" || job.Input.Lessons != nil || len(job.Input.Changes) == 0 {
+		t.Fatalf("stored input %+v", job.Input)
 	}
+	// Edited and its sheet put in the bin meanwhile: the re-judge sends the
+	// new words and no sheet.
+	must(t, e.db.Exec(`UPDATE bots SET description = 'Only real bargains now' WHERE id = ?`, v.ID).Error)
+	must(t, e.db.Exec(`UPDATE sheets SET archived_at = now() WHERE id = 'sht_long'`).Error)
 	fj.set(Verdict{Alert: true, Title: "x", Why: "y", Urgency: UrgencyNormal}, nil)
+	must(t, e.s.HandleRejudge(context.Background(), e.rejudgeJob(a.ID)))
+	if in := fj.calls()[len(fj.calls())-1]; in.Knowledge != nil || in.Description != "Only real bargains now" || len(in.Changes) == 0 {
+		t.Fatalf("re-judge input %+v", in)
+	}
 
 	// Rewritten by SQL to another account's doc, it is not read, and the
 	// Bot shows it missing.

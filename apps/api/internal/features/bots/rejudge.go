@@ -89,7 +89,12 @@ func (s *Service) rejudge(ctx context.Context, db *gorm.DB, job *models.Job, ale
 	case err != nil:
 		return s.rejudgeFailed(job, err, stop)
 	}
-	v, err := s.callJudge(ctx, b.UserID, jj.Input, JudgeTimeout)
+	in, err := s.rejudgeInput(ctx, db, b, jj.Input)
+	if err != nil {
+		s.markAI(callID, false, false)
+		return jobs.RetryAfter(err, time.Minute)
+	}
+	v, err := s.callJudge(ctx, b.UserID, in, JudgeTimeout)
 	s.markAI(callID, err == nil, !errors.Is(err, ErrJudgeOff))
 	switch {
 	case errors.Is(err, ErrJudgeOff):
@@ -122,6 +127,26 @@ func (s *Service) rejudge(ctx context.Context, db *gorm.DB, job *models.Job, ale
 		}
 		return err
 	})
+}
+
+// rejudgeInput is the stored input with the person's side read again from
+// the Bot as it is now: its name, description and newest lessons, and its
+// doc or sheet through readKnowledge (which checks the row is still the
+// person's and out of the bin). An edit, a forgotten lesson or removed
+// knowledge since the alert is respected.
+func (s *Service) rejudgeInput(ctx context.Context, db *gorm.DB, b Bot, stored JudgeInput) (JudgeInput, error) {
+	var lessons []string
+	if err := db.Model(&Lesson{}).Where("bot_id = ? AND user_id = ?", b.ID, b.UserID).
+		Order("created_at DESC, id DESC").Limit(judgeLessons).Pluck("text", &lessons).Error; err != nil {
+		return JudgeInput{}, err
+	}
+	in := stored
+	in.Bot, in.Description, in.Lessons, in.Knowledge = b.Name, clipRunes(b.Description, judgeDescription), nil, nil
+	for _, l := range lessons {
+		in.Lessons = append(in.Lessons, clipRunes(l, MaxLessonLen))
+	}
+	in.Knowledge = s.readKnowledge(ctx, b)
+	return clipJudgeInput(in, judgeMaxInput), nil
 }
 
 // rejudgeFailed retries a failed re-judge later, and after the last try
