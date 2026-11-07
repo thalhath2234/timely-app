@@ -2001,13 +2001,16 @@ export function useBotsQuery() {
   return useQuery({ queryKey: keys.bots, queryFn: listBots, refetchInterval: botsPoll, staleTime: 5000 });
 }
 
-export function useBotQuery(id?: string | null) {
+/** One bot in full; `enabled` false (its sheet is closed) keeps what is cached without asking again. */
+export function useBotQuery(id?: string | null, enabled = true) {
   return useQuery({
     queryKey: keys.bot(id || ""),
     queryFn: () => getBot(id || ""),
-    enabled: !!id,
+    enabled: !!id && enabled,
     refetchInterval: botsPoll,
     staleTime: 5000,
+    // A deleted bot stays missing: asking again only adds a request.
+    retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 1,
   });
 }
 

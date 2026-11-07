@@ -25,6 +25,7 @@ export function Button({
   disabled,
   stretch,
   iconOnly,
+  dense,
   testID,
   accessibilityLabel,
 }: {
@@ -41,6 +42,8 @@ export function Button({
   stretch?: boolean;
   /** Square button showing only `icon`; `label` becomes the accessibility label. */
   iconOnly?: boolean;
+  /** Tighter sides and 14px words, for three buttons side by side in a sheet footer. */
+  dense?: boolean;
   testID?: string;
   accessibilityLabel?: string;
 }) {
@@ -59,12 +62,13 @@ export function Button({
         styles.button,
         size === "sm" ? styles.buttonSm : size === "lg" ? styles.buttonLg : null,
         iconOnly ? { width: size === "sm" ? 36 : size === "lg" ? 48 : 44, paddingHorizontal: 0 } : null,
+        dense ? styles.buttonDense : null,
         { backgroundColor: tone.background, borderColor: tone.border },
         disabled && !loading ? styles.buttonDisabled : null,
       ]}
     >
       {loading ? <LogoSpinner size={16} color={tone.text} /> : icon}
-      {iconOnly ? null : <Text numberOfLines={1} style={[styles.buttonText, size === "sm" && styles.buttonTextSm, { color: tone.text }]}>
+      {iconOnly ? null : <Text numberOfLines={1} style={[styles.buttonText, size === "sm" && styles.buttonTextSm, dense && styles.buttonTextDense, { color: tone.text }]}>
         {label}
       </Text>}
     </AnimatedPressable>
@@ -446,9 +450,11 @@ const styles = createThemedStyleSheet((colors) => ({
   },
   buttonSm: { minHeight: 36, paddingHorizontal: 12, borderRadius: controlRadius },
   buttonLg: { minHeight: 48 },
+  buttonDense: { paddingHorizontal: 10, gap: 6 },
   buttonDisabled: { opacity: 0.5 },
   buttonText: { fontSize: 15, fontWeight: "600" },
   buttonTextSm: { fontSize: 13 },
+  buttonTextDense: { fontSize: 14, flexShrink: 1 },
   fieldWrap: { gap: 6 },
   fieldLabel: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500", marginLeft: 2 },
   fieldHint: { color: colors.mutedForeground, fontSize: 12, marginLeft: 2 },

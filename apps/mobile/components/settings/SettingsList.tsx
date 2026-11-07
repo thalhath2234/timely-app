@@ -84,6 +84,20 @@ export function ListRow({
   );
 }
 
+/**
+ * A quiet sub-heading inside a group (a watch's name over its rules when a
+ * bot has two or more watches): 12/500 muted, 32 tall, not pressable.
+ */
+export function ListSubLabel({ children }: { children: string }) {
+  return (
+    <View style={styles.subLabel} accessibilityRole="header">
+      <Text numberOfLines={1} style={styles.subLabelText}>
+        {children}
+      </Text>
+    </View>
+  );
+}
+
 /** A small heading above a group, with an optional count or action on the right. */
 export function GroupLabel({ children, aside }: { children: string; aside?: ReactNode }) {
   return (
@@ -207,6 +221,8 @@ const styles = createThemedStyleSheet((colors) => ({
   titleStrong: { fontWeight: "600" },
   meta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2, lineHeight: 16 },
   value: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500", maxWidth: 150 },
+  subLabel: { height: 32, justifyContent: "center", paddingHorizontal: 14 },
+  subLabelText: { color: colors.mutedForeground, fontSize: 12, fontWeight: "500" },
   labelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 10, marginBottom: 2, marginHorizontal: 4 },
   label: { color: colors.foreground, fontSize: 14, fontWeight: "600" },
   labelAside: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },

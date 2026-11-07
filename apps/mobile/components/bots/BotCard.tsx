@@ -70,7 +70,7 @@ function topValue(bot: BotView, now: Date): { text: string; change: string | nul
 }
 
 /** An alert as a headline and a line under it, as the web card words it. */
-function alertHeadline(alert: Pick<AlertBrief, "title" | "body">, botName: string): { title: string; meta: string } {
+export function alertHeadline(alert: Pick<AlertBrief, "title" | "body">, botName: string): { title: string; meta: string } {
   const prefix = `${botName}: `;
   const what = alert.title.startsWith(prefix) ? alert.title.slice(prefix.length) : alert.title;
   const body = alert.body.replace(/ \(\+\d+ more\)$/, "");

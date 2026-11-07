@@ -1,10 +1,10 @@
 import { useCallback, useMemo, useState } from "react";
 import { RefreshControl, ScrollView, Text, View } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Bot, MessageCircle, Plus } from "lucide-react-native";
-import { boardSections, summaryLine, type StarterId } from "@timely/contract/bots";
+import { boardOrder, boardSections, summaryLine, type StarterId } from "@timely/contract/bots";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
@@ -15,10 +15,11 @@ import { FAB_GAP, FAB_SIZE, floatingTabBarInset, useFabScrollInset } from "../..
 import { ListGroup } from "../../../components/settings/SettingsList";
 import { useAssistantScreen } from "../../../components/chat/AssistantProvider";
 import { BotCard, PausedRow } from "../../../components/bots/BotCard";
+import { BotSheet } from "../../../components/bots/BotSheet";
 import { botSites } from "../../../components/bots/BotMark";
 import { BotsEmpty } from "../../../components/bots/BotsEmpty";
 import { CountPill } from "../../../components/bots/Pill";
-import { useBotActions, useDescribeInChat } from "../../../components/bots/useBotActions";
+import { BOT_KEYS_ROUTE, useBotActions, useDescribeInChat } from "../../../components/bots/useBotActions";
 import { contextChip } from "../../../lib/chat/context";
 import { useNow } from "../../../lib/dashboard";
 import { keys, useBotIcons, useBotsQuery } from "../../../lib/hooks";
@@ -33,6 +34,7 @@ import { colors, createThemedStyleSheet, radius } from "../../../lib/theme";
  */
 export default function BotsScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ bot?: string; new?: string; starter?: string }>();
   const insets = useSafeAreaInsets();
   const bottom = useFabScrollInset();
   const query = useBotsQuery();
@@ -50,11 +52,18 @@ export default function BotsScreen() {
     [router],
   );
   const actions = useBotActions(openBot);
+  const closeSheet = useCallback(() => router.setParams({ bot: undefined, new: undefined, starter: undefined }), [router]);
+  const addKey = useCallback(() => {
+    closeSheet();
+    router.push(BOT_KEYS_ROUTE as never);
+  }, [closeSheet, router]);
 
   const list = query.data;
   const sites = useMemo(() => botSites((list?.bots ?? []).flatMap((b) => b.watches)), [list]);
   const icons = useBotIcons(sites).data;
   const sections = useMemo(() => (list ? boardSections(list.bots, now) : null), [list, now]);
+  const order = useMemo(() => (list ? boardOrder(list.bots, now) : []), [list, now]);
+  const sheetMode = params.new === "1" ? "new" : params.bot ? "view" : null;
   const networkCopy = needsNetworkCopy(query);
   const empty = Boolean(list && list.bots.length === 0);
 
@@ -156,6 +165,15 @@ export default function BotsScreen() {
           <Plus size={26} color={colors.primaryForeground} />
         </AnimatedPressable>
       ) : null}
+      <BotSheet
+        botId={params.bot}
+        mode={sheetMode}
+        starter={params.starter}
+        order={order}
+        onSelect={openBot}
+        onClose={closeSheet}
+        onAddKey={addKey}
+      />
     </Screen>
   );
 }

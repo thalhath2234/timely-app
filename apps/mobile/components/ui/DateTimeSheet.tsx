@@ -72,7 +72,11 @@ export default function DateTimeSheet({
   onChange,
   mode = "datetime",
   title,
+  subtitle,
   clearable = true,
+  confirmLabel,
+  min,
+  max,
 }: {
   open: boolean;
   value: Date | null;
@@ -80,7 +84,14 @@ export default function DateTimeSheet({
   onChange: (next: Date | null) => void;
   mode?: "date" | "datetime" | "time";
   title?: string;
+  /** The line under the title (what the picked time is for). */
+  subtitle?: string;
   clearable?: boolean;
+  /** The main button's words for the picked time ("Snooze until Mon 09:00"); "Done" when left out. */
+  confirmLabel?: (picked: Date) => string;
+  /** The earliest and latest time the main button accepts (datetime). */
+  min?: Date;
+  max?: Date;
 }) {
   const initial = value ?? new Date();
   const [month, setMonth] = useState(() => startOfMonth(initial));
@@ -108,6 +119,7 @@ export default function DateTimeSheet({
   const cells = useMemo(() => monthCells(month), [month]);
   const today = useMemo(() => new Date(), []);
   const preview = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, minute);
+  const outOfRange = mode === "datetime" && ((min && preview < min) || (max && preview > max));
 
   function commitDay(next: Date) {
     setDay(startOfDay(next));
@@ -164,14 +176,21 @@ export default function DateTimeSheet({
       open={open}
       onClose={onClose}
       title={heading}
+      subtitle={subtitle}
       footer={
         <View style={styles.footerActions}>
           <Pressable onPress={setNow} style={styles.footerGhost}>
             <Text style={styles.ghostText}>{mode === "time" ? "Now" : "Today"}</Text>
           </Pressable>
           {mode !== "date" ? (
-            <AnimatedPressable onPress={apply} style={styles.done}>
-              <Text style={styles.doneText}>✓  Done</Text>
+            <AnimatedPressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: Boolean(outOfRange) }}
+              disabled={Boolean(outOfRange)}
+              onPress={apply}
+              style={[styles.done, outOfRange && styles.doneOff]}
+            >
+              <Text numberOfLines={1} style={styles.doneText}>✓  {confirmLabel ? confirmLabel(preview) : "Done"}</Text>
             </AnimatedPressable>
           ) : <View style={{ flex: 1 }} />}
           {clearable ? (
@@ -348,5 +367,6 @@ const styles = createThemedStyleSheet((colors) => ({
   footerGhost: { minWidth: 56, paddingHorizontal: 10, paddingVertical: 14, alignItems: "center" },
   ghostText: { color: colors.primary, fontSize: 14, fontWeight: "600" },
   done: { flex: 1, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: colors.primary },
+  doneOff: { opacity: 0.5 },
   doneText: { color: colors.primaryForeground, fontSize: 15, fontWeight: "600" },
 }));
