@@ -299,8 +299,10 @@ var restoreDefaults = map[string]map[string]any{
 	"statuses":      {"position": 0},
 	"lables":        {"position": 0},
 	"custom_fields": {"position": 0},
-	"configs":       {"mobile_task_views": []any{}, "mobile_active_task_view_id": ""},
-	"bots":          {"origin_client": ""},
+	"configs": {"mobile_task_views": []any{}, "mobile_active_task_view_id": "",
+		"bot_alert_defaults": map[string]any{"desktop": true, "phone": true, "urgent": false}},
+	"bots":       {"origin_client": ""},
+	"bot_alerts": {"feedback_reason": "", "feedback_note": ""},
 }
 
 type parentRef struct {

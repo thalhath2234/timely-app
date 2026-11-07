@@ -22,6 +22,11 @@ const (
 	MaxReadingBytes   = 64 << 10
 	MaxStrikes        = 5
 	AlertsPerDay      = 3
+	// MaxLessons caps what a Bot is taught. The teaching branch enforces it
+	// when it writes lessons; the clients show it.
+	MaxLessons = 20
+	// MaxFeedbackNote bounds the free line under Not useful, in characters.
+	MaxFeedbackNote = 200
 	// MaxItems and MaxSeen cap a feed reading: the newest items it keeps,
 	// and the newest item IDs it remembers so they never alert again.
 	MaxItems = 50
@@ -85,8 +90,10 @@ const (
 )
 
 var (
-	ErrNotFound = errors.New("not found")
-	ErrPaused   = errors.New("This bot is paused. Turn it on in Timely first.")
+	ErrNotFound       = errors.New("not found")
+	ErrAlertNotFound  = errors.New("alert not found")
+	ErrLessonNotFound = errors.New("lesson not found")
+	ErrPaused         = errors.New("This bot is paused. Turn it on in Timely first.")
 )
 
 // InputError is a request the person can fix; its text is shown as is.

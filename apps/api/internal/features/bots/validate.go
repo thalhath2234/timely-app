@@ -79,10 +79,14 @@ func cleanName(raw string) (string, error) {
 // maxOriginClient bounds bots.origin_client, in characters.
 const maxOriginClient = 60
 
-// cleanOriginClient keeps an outside app's name printable: control and
-// format characters are dropped, spaces collapsed, and it is clipped to
-// maxOriginClient characters.
-func cleanOriginClient(raw string) string {
+// cleanOriginClient keeps an outside app's name printable, clipped to
+// maxOriginClient characters (cleanLine).
+func cleanOriginClient(raw string) string { return cleanLine(raw, maxOriginClient) }
+
+// cleanLine makes a line someone typed safe to keep and show: control and
+// format characters are dropped, spaces collapsed, and it is clipped to limit
+// characters.
+func cleanLine(raw string, limit int) string {
 	s := strings.Map(func(r rune) rune {
 		switch {
 		case unicode.IsSpace(r):
@@ -93,8 +97,8 @@ func cleanOriginClient(raw string) string {
 		return r
 	}, raw)
 	s = strings.Join(strings.Fields(s), " ")
-	if r := []rune(s); len(r) > maxOriginClient {
-		s = strings.TrimSpace(string(r[:maxOriginClient]))
+	if r := []rune(s); len(r) > limit {
+		s = strings.TrimSpace(string(r[:limit]))
 	}
 	return s
 }

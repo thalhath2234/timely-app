@@ -60,6 +60,7 @@ type AlertBrief struct {
 	URL       string    `json:"url"`
 	Held      string    `json:"held"`
 	CreatedAt time.Time `json:"createdAt"`
+	Feedback  *string   `json:"feedback"` // useful, not_useful or nil
 }
 
 // ItemBrief is one feed item a watch read.
@@ -105,6 +106,17 @@ type Detail struct {
 	Lessons     []Lesson       `json:"lessons"`
 	Week        WeekCounts     `json:"week"`        // the last 7 days
 	AlertsMonth int            `json:"alertsMonth"` // alerts of the last 30 days
+	Rearms      []RearmView    `json:"rearms"`      // newest first: the last 30 days, at most 5
+}
+
+// RearmView is a below or above rule that armed again ("Armed again, no
+// alert"), at the start of the check that saw it.
+type RearmView struct {
+	At       time.Time `json:"at"`
+	WatchID  string    `json:"watchId"`
+	RuleID   string    `json:"ruleId"`
+	Value    float64   `json:"value"`
+	Currency string    `json:"currency"`
 }
 
 // WeekCounts is how busy a Bot was in the last 7 days.
@@ -135,6 +147,11 @@ type AlertView struct {
 	Urgent    bool           `json:"urgent"`
 	MoreCount int            `json:"moreCount"`
 	CreatedAt time.Time      `json:"createdAt"`
+	// The person's rating, see Alert.
+	Feedback       *string    `json:"feedback"`
+	FeedbackReason string     `json:"feedbackReason"`
+	FeedbackNote   string     `json:"feedbackNote"`
+	FeedbackAt     *time.Time `json:"feedbackAt"`
 }
 
 type PriceDayView struct {
@@ -435,7 +452,8 @@ func alertView(a Alert) AlertView {
 		}
 	}
 	return AlertView{ID: a.ID, CheckID: a.CheckID, Figures: figures, Kind: a.Kind, Held: a.Held, Title: a.Title, Body: a.Body,
-		URL: a.URL, Urgent: a.Urgent, MoreCount: a.MoreCount, CreatedAt: a.CreatedAt}
+		URL: a.URL, Urgent: a.Urgent, MoreCount: a.MoreCount, CreatedAt: a.CreatedAt,
+		Feedback: a.Feedback, FeedbackReason: a.FeedbackReason, FeedbackNote: a.FeedbackNote, FeedbackAt: a.FeedbackAt}
 }
 
 // summary is a short line about a reading: "₹27,499", "12 items" or
@@ -514,4 +532,22 @@ func group(digits string) string {
 		b.WriteString(digits[i : i+3])
 	}
 	return b.String()
+}
+
+// maxRearms is how many re-arms a Detail shows.
+const maxRearms = 5
+
+// rearmsOf flattens checks, newest first, into at most maxRearms re-arms.
+// A check's own list keeps its rules' order.
+func rearmsOf(checks []Check) []RearmView {
+	out := []RearmView{}
+	for _, c := range checks {
+		for _, r := range c.Rearmed {
+			if len(out) == maxRearms {
+				return out
+			}
+			out = append(out, RearmView{At: c.StartedAt, WatchID: r.WatchID, RuleID: r.RuleID, Value: r.Value, Currency: r.Currency})
+		}
+	}
+	return out
 }

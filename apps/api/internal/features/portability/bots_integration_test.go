@@ -283,3 +283,94 @@ func TestIntegrationRestoreBotWithoutOriginClient(t *testing.T) {
 		t.Fatalf("restored bot: %d (%v)", n, err)
 	}
 }
+
+// A backup carries the person's ratings of alerts and their alert switches
+// for new Bots, and a backup made before either existed restores with none
+// and the default switches.
+func TestIntegrationBackupKeepsAlertFeedbackAndDefaults(t *testing.T) {
+	db := migratedDB(t)
+	const uid = "usr_portability_bot_feedback"
+	if err := db.Create(&models.User{ID: uid, Email: "feedback@example.invalid", Password: "not-a-real-hash"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	seedAccountBasics(t, db, uid, true)
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if err := db.Exec(query, args...).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`UPDATE configs SET bot_alert_defaults = '{"desktop": false, "phone": true, "urgent": true}' WHERE user_id = ?`, uid)
+	exec(`INSERT INTO bots (id, user_id, name, interval_seconds, next_check_at) VALUES ('bot_fb', ?, 'Rated', 900, now())`, uid)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, local_day, title, feedback, feedback_reason, feedback_note, feedback_at) VALUES
+		('bal_no', 'bot_fb', ?, 'alert', '2026-11-06', 'Not this', 'not_useful', 'too_small', 'Only big dips', '2026-11-06T10:00:00Z'),
+		('bal_yes', 'bot_fb', ?, 'alert', '2026-11-06', 'This one', 'useful', '', '', '2026-11-06T11:00:00Z'),
+		('bal_none', 'bot_fb', ?, 'alert', '2026-11-06', 'Not rated', NULL, '', '', NULL)`, uid, uid, uid)
+
+	service := NewService(db, nil)
+	backup, err := service.Export(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec(`UPDATE configs SET bot_alert_defaults = '{"desktop": true, "phone": true, "urgent": false}' WHERE user_id = ?`, uid)
+	exec(`UPDATE bot_alerts SET feedback = NULL, feedback_reason = '', feedback_note = '', feedback_at = NULL WHERE user_id = ?`, uid)
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	count := func(query string, args ...any) int64 {
+		t.Helper()
+		var n int64
+		if err := db.Raw(query, args...).Scan(&n).Error; err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := count(`SELECT count(*) FROM bot_alerts WHERE id = 'bal_no' AND feedback = 'not_useful' AND feedback_reason = 'too_small'
+		AND feedback_note = 'Only big dips' AND feedback_at = '2026-11-06T10:00:00Z'`); n != 1 {
+		t.Fatal("a not useful rating did not round-trip")
+	}
+	if n := count(`SELECT count(*) FROM bot_alerts WHERE id = 'bal_yes' AND feedback = 'useful' AND feedback_at IS NOT NULL`); n != 1 {
+		t.Fatal("a useful rating did not round-trip")
+	}
+	if n := count(`SELECT count(*) FROM bot_alerts WHERE id = 'bal_none' AND feedback IS NULL AND feedback_at IS NULL`); n != 1 {
+		t.Fatal("an unrated alert came back rated")
+	}
+	var defaults models.Config
+	if err := db.Select("bot_alert_defaults").Where("user_id = ?", uid).First(&defaults).Error; err != nil {
+		t.Fatal(err)
+	}
+	if d := defaults.BotAlertDefaults; d.Desktop || !d.Phone || !d.Urgent {
+		t.Fatalf("alert defaults after restore %+v", d)
+	}
+
+	// The same backup as an older version wrote it: no feedback columns on
+	// the alerts and no alert switches on the settings row.
+	for i, raw := range backup.Rows["bot_alerts"] {
+		var row map[string]any
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatal(err)
+		}
+		for _, k := range []string{"feedback", "feedback_reason", "feedback_note", "feedback_at"} {
+			delete(row, k)
+		}
+		backup.Rows["bot_alerts"][i], _ = json.Marshal(row)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(backup.Rows["configs"][0], &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cfg["bot_alert_defaults"]; !ok {
+		t.Fatalf("export has no alert defaults: %s", backup.Rows["configs"][0])
+	}
+	delete(cfg, "bot_alert_defaults")
+	backup.Rows["configs"][0], _ = json.Marshal(cfg)
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatalf("restore of an older backup: %v", err)
+	}
+	if n := count(`SELECT count(*) FROM bot_alerts WHERE user_id = ? AND feedback IS NULL AND feedback_reason = '' AND feedback_note = '' AND feedback_at IS NULL`, uid); n != 3 {
+		t.Fatalf("older alerts restored: %d of 3 unrated", n)
+	}
+	if n := count(`SELECT count(*) FROM configs WHERE user_id = ? AND bot_alert_defaults = '{"desktop": true, "phone": true, "urgent": false}'::jsonb`, uid); n != 1 {
+		t.Fatal("an older settings row did not get the default alert switches")
+	}
+}

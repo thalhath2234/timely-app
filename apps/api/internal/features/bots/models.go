@@ -93,6 +93,16 @@ type FiredRule struct {
 	Kind    string `json:"kind"`
 }
 
+// Rearm is a below or above rule that armed again in a check: the value
+// came back past its reset band, so the next crossing alerts ("Armed
+// again, no alert").
+type Rearm struct {
+	WatchID  string  `json:"watchId"`
+	RuleID   string  `json:"ruleId"`
+	Value    float64 `json:"value"`
+	Currency string  `json:"currency,omitempty"`
+}
+
 // Check is one entry in a Bot's log (table bot_checks). Reading, keyed by
 // watch id, is kept only for baseline, changed and fired checks.
 type Check struct {
@@ -109,6 +119,7 @@ type Check struct {
 	Watches    jsonList[CheckWatch] `gorm:"type:jsonb;not null" json:"watches"`
 	Reading    map[string]Reading   `gorm:"serializer:json;type:jsonb" json:"reading,omitempty"`
 	Fired      jsonList[FiredRule]  `gorm:"type:jsonb;not null" json:"fired"`
+	Rearmed    jsonList[Rearm]      `gorm:"type:jsonb;not null" json:"rearmed"`
 	AlertID    *string              `gorm:"type:text" json:"alertId"`
 	CreatedAt  time.Time            `json:"createdAt"`
 }
@@ -132,7 +143,14 @@ type Alert struct {
 	Figures        jsonMap[string, any] `gorm:"type:jsonb;not null" json:"figures"`
 	Urgent         bool                 `gorm:"not null" json:"urgent"`
 	MoreCount      int                  `gorm:"not null" json:"moreCount"`
-	CreatedAt      time.Time            `json:"createdAt"`
+	// The person's rating: useful or not_useful, and for not_useful why
+	// (FeedbackReason) and a free line (FeedbackNote). The teaching branch
+	// learns from them.
+	Feedback       *string    `gorm:"type:text" json:"feedback"`
+	FeedbackReason string     `gorm:"type:text;not null" json:"feedbackReason"`
+	FeedbackNote   string     `gorm:"type:text;not null" json:"feedbackNote"`
+	FeedbackAt     *time.Time `json:"feedbackAt"`
+	CreatedAt      time.Time  `json:"createdAt"`
 }
 
 func (Alert) TableName() string { return "bot_alerts" }

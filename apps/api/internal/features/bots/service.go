@@ -94,6 +94,22 @@ func (s *Service) Get(ctx context.Context, userID, idOrName string) (Detail, err
 	return s.store.Get(ctx, userID, idOrName, s.now())
 }
 
+func (s *Service) RateAlert(ctx context.Context, userID, botID, alertID string, r Rating) (AlertView, error) {
+	return s.store.RateAlert(ctx, userID, botID, alertID, r, s.now())
+}
+
+func (s *Service) ForgetLesson(ctx context.Context, userID, botID, lessonID string) error {
+	return s.store.ForgetLesson(ctx, userID, botID, lessonID)
+}
+
+func (s *Service) AlertDefaults(ctx context.Context, userID string) (models.BotAlertDefaults, error) {
+	return s.store.AlertDefaults(ctx, userID)
+}
+
+func (s *Service) SetAlertDefaults(ctx context.Context, userID string, d models.BotAlertDefaults) (models.BotAlertDefaults, error) {
+	return s.store.SetAlertDefaults(ctx, userID, d)
+}
+
 func (s *Service) Findings(ctx context.Context, userID string, q FindingQuery) ([]Finding, error) {
 	return s.store.Findings(ctx, userID, q)
 }

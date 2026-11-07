@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+	"timely-api/internal/models"
 )
 
 // Routes serves Bots on the signed-in group. REST is OriginApp.
@@ -16,6 +17,8 @@ func (s *Service) Routes(g *echo.Group) {
 	g.GET("/bots", s.list)
 	g.POST("/bots", s.create)
 	g.GET("/bots/findings", s.findings) // before /bots/:id
+	g.GET("/bots/defaults", s.alertDefaults)
+	g.PUT("/bots/defaults", s.setAlertDefaults)
 	g.GET("/bots/:id", s.get)
 	g.PATCH("/bots/:id", s.update)
 	g.DELETE("/bots/:id", s.remove)
@@ -23,6 +26,8 @@ func (s *Service) Routes(g *echo.Group) {
 	g.POST("/bots/:id/resume", s.resume)
 	g.POST("/bots/:id/snooze", s.snooze)
 	g.POST("/bots/:id/run", s.run)
+	g.POST("/bots/:id/alerts/:alertId/feedback", s.rateAlert)
+	g.DELETE("/bots/:id/lessons/:lessonId", s.forgetLesson)
 }
 
 func user(c *echo.Context) string { v, _ := c.Get("userID").(string); return v }
@@ -37,6 +42,10 @@ func httpError(err error) error {
 		return echo.NewHTTPError(http.StatusBadRequest, input.Message)
 	case errors.Is(err, ErrNotFound):
 		return echo.NewHTTPError(http.StatusNotFound, "Bot not found")
+	case errors.Is(err, ErrAlertNotFound):
+		return echo.NewHTTPError(http.StatusNotFound, "Alert not found")
+	case errors.Is(err, ErrLessonNotFound):
+		return echo.NewHTTPError(http.StatusNotFound, "Lesson not found")
 	case errors.Is(err, ErrPaused):
 		return echo.NewHTTPError(http.StatusConflict, ErrPaused.Error())
 	}
@@ -185,4 +194,70 @@ func (s *Service) findings(c *echo.Context) error {
 		return httpError(err)
 	}
 	return c.JSON(http.StatusOK, map[string]any{"items": items})
+}
+
+// rateAlert takes {"feedback":"useful"}, {"feedback":"not_useful",
+// "reason":"too_small"|"not_wanted"|"already_knew"|"","note":"..."} or
+// {"feedback":null} to take the rating back.
+func (s *Service) rateAlert(c *echo.Context) error {
+	var in struct {
+		Feedback json.RawMessage `json:"feedback"`
+		Reason   string          `json:"reason"`
+		Note     string          `json:"note"`
+	}
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return badRequest()
+	}
+	r := Rating{Reason: in.Reason, Note: in.Note}
+	switch string(in.Feedback) {
+	case "":
+		return httpError(invalid(`Rate an alert "useful" or "not_useful"`))
+	case "null":
+	default:
+		var fb string
+		if err := json.Unmarshal(in.Feedback, &fb); err != nil {
+			return httpError(invalid(`Rate an alert "useful" or "not_useful"`))
+		}
+		r.Feedback = &fb
+	}
+	v, err := s.RateAlert(c.Request().Context(), user(c), c.Param("id"), c.Param("alertId"), r)
+	if err != nil {
+		return httpError(err)
+	}
+	return c.JSON(http.StatusOK, v)
+}
+
+func (s *Service) forgetLesson(c *echo.Context) error {
+	if err := s.ForgetLesson(c.Request().Context(), user(c), c.Param("id"), c.Param("lessonId")); err != nil {
+		return httpError(err)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (s *Service) alertDefaults(c *echo.Context) error {
+	d, err := s.AlertDefaults(c.Request().Context(), user(c))
+	if err != nil {
+		return httpError(err)
+	}
+	return c.JSON(http.StatusOK, d)
+}
+
+// setAlertDefaults takes all three switches: {"desktop", "phone", "urgent"}.
+func (s *Service) setAlertDefaults(c *echo.Context) error {
+	var in struct {
+		Desktop *bool `json:"desktop"`
+		Phone   *bool `json:"phone"`
+		Urgent  *bool `json:"urgent"`
+	}
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return badRequest()
+	}
+	if in.Desktop == nil || in.Phone == nil || in.Urgent == nil {
+		return httpError(invalid("Give desktop, phone and urgent as true or false"))
+	}
+	d, err := s.SetAlertDefaults(c.Request().Context(), user(c), models.BotAlertDefaults{Desktop: *in.Desktop, Phone: *in.Phone, Urgent: *in.Urgent})
+	if err != nil {
+		return httpError(err)
+	}
+	return c.JSON(http.StatusOK, d)
 }

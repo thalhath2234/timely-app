@@ -540,6 +540,7 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 			byID[w.ID] = w
 		}
 		var fired []firedEvent
+		var rearms []Rearm
 		var baseline, moved, closed bool
 		saved, notMod := 0, 0
 		readings := map[string]Reading{}
@@ -586,6 +587,9 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 						ev.WatchID = w.ID
 						fired = append(fired, firedEvent{ev: *ev, w: w, rule: rule, ref: refBefore(rule, old, prev)})
 					}
+					if v, ok := reading.value(); ok && rearmed(rule, old, st, prev, reading) {
+						rearms = append(rearms, Rearm{WatchID: w.ID, RuleID: rule.ID, Value: v, Currency: reading.Currency})
+					}
 				}
 				cw.Outcome = outUnchanged
 				if watchChanged(prev, reading) {
@@ -628,7 +632,7 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 
 		check := Check{
 			ID: utils.PrefixedUUID("bchk"), BotID: b.ID, UserID: b.UserID, JobID: &c.job.ID, Trigger: c.trigger,
-			StartedAt: c.started, FinishedAt: done, Watches: cws, Fired: jsonList[FiredRule]{},
+			StartedAt: c.started, FinishedAt: done, Watches: cws, Fired: jsonList[FiredRule]{}, Rearmed: rearms,
 		}
 		switch {
 		case len(fired) > 0:
@@ -690,6 +694,24 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 		}
 		return nil
 	})
+}
+
+// rearmed reports whether a below or above rule armed again in this check:
+// it was waiting for the value to come back past its reset band, and now it
+// is (the next crossing alerts). Other rule kinds flip Armed on every check,
+// and a currency change rebaselines rather than re-arms, so neither counts.
+func rearmed(r Rule, old, cur RuleState, prev, reading Reading) bool {
+	if r.Kind != RuleBelow && r.Kind != RuleAbove {
+		return false
+	}
+	if prev.Currency != "" && reading.Currency != "" && !strings.EqualFold(prev.Currency, reading.Currency) {
+		return false
+	}
+	before := old
+	if before == (RuleState{}) {
+		before = Rebaseline(r, prev) // as Evaluate does
+	}
+	return !before.Armed && cur.Armed
 }
 
 // refBefore is the value a fired price rule is measured from.
