@@ -263,6 +263,13 @@ func extractReading(w Watch, res *fetch.Response, now time.Time) (Reading, error
 		amount := p.Amount
 		return Reading{Kind: ReadingPrice, Price: &amount, Currency: p.Currency, At: now}, nil
 	}
+	if w.ReadMode == ReadSelectorPrice {
+		amount, currency, err := extract.SelectPrice(res.Body, res.ContentType, w.Selector)
+		if err != nil {
+			return Reading{}, unreadable(err)
+		}
+		return Reading{Kind: ReadingPrice, Price: &amount, Currency: currency, At: now}, nil
+	}
 	var text string
 	var err error
 	if w.ReadMode == ReadSelector {
@@ -374,6 +381,8 @@ func describeErr(w Watch, err error) *problem {
 			return strike("cant_find", "The feed has no items")
 		case w.ReadMode == ReadSelector:
 			return strike("cant_find", "The selector matched nothing on the page")
+		case w.ReadMode == ReadSelectorPrice:
+			return strike("cant_find", "The part it reads has no price any more")
 		case w.ReadMode == ReadProductPrice:
 			return strike("cant_find", "Could not find a price on the page")
 		}

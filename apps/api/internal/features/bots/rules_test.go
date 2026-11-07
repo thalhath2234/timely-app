@@ -348,6 +348,7 @@ func TestDefaultRules(t *testing.T) {
 		{WatchPage, ReadText, "any_change"},
 		{WatchPage, ReadSelector, "any_change"},
 		{WatchPage, ReadProductPrice, "move_pct 5 down"},
+		{WatchPage, ReadSelectorPrice, "move_pct 5 down"},
 		{WatchFeed, "", "new_item"},
 		{WatchPrice, "", "move_pct 5 any"},
 	}
@@ -462,6 +463,16 @@ func TestCleanRules(t *testing.T) {
 	}
 	if _, err := CleanRules(WatchPage, ReadProductPrice, []Rule{{Kind: RuleBelow, Threshold: f(999)}}); err != nil {
 		t.Errorf("product price rule refused: %v", err)
+	}
+	// One price on the page takes price rules, not words.
+	if ReadingKind(WatchPage, ReadSelectorPrice) != ReadingPrice || ReadingKind(WatchFeed, ReadSelectorPrice) != "" {
+		t.Error("selector_price is not a price reading on a page only")
+	}
+	if _, err := CleanRules(WatchPage, ReadSelectorPrice, []Rule{{Kind: RuleBelow, Threshold: f(40)}}); err != nil {
+		t.Errorf("selector price rule refused: %v", err)
+	}
+	if _, err := CleanRules(WatchPage, ReadSelectorPrice, []Rule{{Kind: RuleWordsAppear, Words: []string{"sale"}}}); err == nil {
+		t.Error("a words rule was taken on a selector price")
 	}
 }
 

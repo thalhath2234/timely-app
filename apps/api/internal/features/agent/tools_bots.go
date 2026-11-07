@@ -58,8 +58,8 @@ type botWatchIn struct {
 	ID       string      `json:"id,omitempty" jsonschema:"update_bot: the id of a watch to keep"`
 	Kind     string      `json:"kind" jsonschema:"page, feed or price"`
 	URL      string      `json:"url,omitempty" jsonschema:"page and feed: the public web address"`
-	Read     string      `json:"read,omitempty" jsonschema:"page: text (default), selector or product_price"`
-	Selector string      `json:"selector,omitempty" jsonschema:"page with read=selector: a CSS selector"`
+	Read     string      `json:"read,omitempty" jsonschema:"page: text (default), selector, product_price, or selector_price (the price in the part a selector picks)"`
+	Selector string      `json:"selector,omitempty" jsonschema:"page with read=selector or selector_price: a CSS selector"`
 	Source   string      `json:"source,omitempty" jsonschema:"price: stock (US tickers like NVDA, read from Finnhub; needs the person's free Finnhub key) or crypto (Coinbase)"`
 	Symbol   string      `json:"symbol,omitempty" jsonschema:"price: the ticker or coin, like AAPL or BTC"`
 	Currency string      `json:"currency,omitempty" jsonschema:"price: the quote currency, like USD"`

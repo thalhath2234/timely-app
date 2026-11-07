@@ -61,9 +61,10 @@ const (
 	WatchFeed  = "feed"
 	WatchPrice = "price"
 
-	ReadText         = "text"
-	ReadSelector     = "selector"
-	ReadProductPrice = "product_price"
+	ReadText          = "text"
+	ReadSelector      = "selector"
+	ReadProductPrice  = "product_price"
+	ReadSelectorPrice = "selector_price" // the price in one part of the page
 )
 
 // Origin is where a Bot was made or changed from. Bots made over MCP start

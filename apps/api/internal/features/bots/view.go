@@ -297,6 +297,8 @@ func watchKindLine(w Watch) string {
 		return "Price"
 	case w.ReadMode == ReadProductPrice:
 		return "Product price"
+	case w.ReadMode == ReadSelectorPrice:
+		return "One price on the page"
 	case w.ReadMode == ReadSelector:
 		return "One part of the page"
 	}

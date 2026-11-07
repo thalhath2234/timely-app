@@ -175,7 +175,9 @@ func TestCleanWatches(t *testing.T) {
 		{nil, "Give the bot something to watch"},
 		{six, "A bot can watch up to 5 things"},
 		{[]WatchInput{{Kind: "tweet"}}, "A watch is a page, a feed or a price"},
-		{[]WatchInput{{Kind: "page", URL: "https://e.com", Read: "pdf"}}, "Read a page as text, selector or product_price"},
+		{[]WatchInput{{Kind: "page", URL: "https://e.com", Read: "pdf"}}, "Read a page as text, selector, product_price or selector_price"},
+		{[]WatchInput{{Kind: "page", URL: "https://e.com", Read: "selector_price"}}, "The CSS selector is empty"},
+		{[]WatchInput{{Kind: "page", URL: "https://e.com", Read: "selector_price", Selector: "div:has(p)"}}, "uses :has"},
 		{[]WatchInput{{Kind: "page", URL: "https://e.com", Read: "selector"}}, "The CSS selector is empty"},
 		{[]WatchInput{{Kind: "page", URL: "https://e.com", Read: "selector", Selector: "div[["}}, "The CSS selector is not valid"},
 		{[]WatchInput{{Kind: "page", URL: "https://e.com", Selector: ".price"}}, "Only a page read with a selector"},
@@ -194,6 +196,13 @@ func TestCleanWatches(t *testing.T) {
 	if err != nil || sel[0].Selector != ".price" {
 		t.Fatal(sel, err)
 	}
+	sp, err := cleanWatches([]WatchInput{{Kind: "page", URL: "https://e.com", Read: "Selector_Price", Selector: " p.price_color "}}, nil, nil)
+	if err != nil || sp[0].ReadMode != ReadSelectorPrice || sp[0].Selector != "p.price_color" || sp[0].Rules[0].Kind != RuleMovePct || sp[0].Rules[0].Direction != DirDown {
+		t.Fatal(sp, err)
+	}
+	if s, err := cleanInterval(60, sp); err == nil {
+		t.Fatalf("a selector price every hour was taken: %d", s)
+	}
 }
 
 // An edited watch sent without rules keeps its rules while it still reads
@@ -208,6 +217,13 @@ func TestCleanWatchKeepsRules(t *testing.T) {
 	}
 	ws, err = cleanWatches([]WatchInput{{ID: "bw_1", Kind: "page", URL: "https://e.com", Read: "product_price"}}, prev, nil)
 	if err != nil || ws[0].Rules[0].Kind != RuleMovePct {
+		t.Fatalf("%+v %v", ws, err)
+	}
+	// Following another price on the same page keeps the price rules.
+	shop := Watch{ID: "bw_2", Kind: WatchPage, ReadMode: ReadProductPrice, URL: "https://e.com",
+		Rules: jsonList[Rule]{{ID: "brl_2", Kind: RuleBelow, Threshold: f64(40)}}}
+	ws, err = cleanWatches([]WatchInput{{ID: "bw_2", Kind: "page", URL: "https://e.com", Read: "selector_price", Selector: "p.price_color"}}, map[string]Watch{shop.ID: shop}, nil)
+	if err != nil || len(ws[0].Rules) != 1 || ws[0].Rules[0].ID != "brl_2" || ws[0].ReadMode != ReadSelectorPrice {
 		t.Fatalf("%+v %v", ws, err)
 	}
 	if _, err := cleanWatches([]WatchInput{{ID: "bw_1", Kind: "page", URL: "https://e.com"}, {ID: "bw_1", Kind: "page", URL: "https://e.com"}}, prev, nil); err == nil {

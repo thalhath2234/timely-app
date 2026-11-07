@@ -198,12 +198,12 @@ func cleanWatch(in WatchInput, old *Watch, hasKey hasKeyFunc) (Watch, error) {
 		if read == "" {
 			read = ReadText
 		}
-		if read != ReadText && read != ReadSelector && read != ReadProductPrice {
-			return Watch{}, invalid("Read a page as text, selector or product_price")
+		if read != ReadText && read != ReadSelector && read != ReadProductPrice && read != ReadSelectorPrice {
+			return Watch{}, invalid("Read a page as text, selector, product_price or selector_price")
 		}
 		w.ReadMode = read
 		switch {
-		case read == ReadSelector:
+		case read == ReadSelector || read == ReadSelectorPrice:
 			if err := extract.ValidSelector(selector); err != nil {
 				return Watch{}, invalid("%s", sentence(err.Error()))
 			}

@@ -16,7 +16,7 @@ func MinEvery(w Watch) time.Duration {
 	switch {
 	case w.Kind == WatchPrice:
 		return MinPriceEvery
-	case w.Kind == WatchPage && w.ReadMode == ReadProductPrice:
+	case w.Kind == WatchPage && (w.ReadMode == ReadProductPrice || w.ReadMode == ReadSelectorPrice):
 		return MinProductEvery
 	}
 	return MinPageEvery
@@ -38,7 +38,7 @@ func defaultEvery(w Watch) time.Duration {
 		return 15 * time.Minute
 	case w.Kind == WatchFeed:
 		return 30 * time.Minute
-	case w.ReadMode == ReadProductPrice:
+	case w.ReadMode == ReadProductPrice || w.ReadMode == ReadSelectorPrice:
 		return 6 * time.Hour
 	}
 	return time.Hour
