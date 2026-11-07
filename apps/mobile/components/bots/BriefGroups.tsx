@@ -3,7 +3,9 @@ import { Text, View } from "react-native";
 import { Sparkles, X } from "lucide-react-native";
 import {
   BOT_LIMITS,
+  BRIEF_ADD_ROW,
   BRIEF_TIMES,
+  briefSourceRow,
   DEFAULT_BRIEF_TIME,
   agoLabel,
   type BotDetail,
@@ -86,18 +88,18 @@ export function BriefGroups({
     const bot = byId.get(id);
     const name = bot?.name ?? "A deleted bot";
     const live = !!bot && !unsaved && (saved ?? []).includes(id);
+    const words = briefSourceRow(bot, live);
     return (
       <ListRow
         key={id}
         title={name}
-        // The switch is Only in the brief; its row says so, with its state.
-        meta={!live ? "Added when the brief saves" : bot.briefOnly ? "Only in the brief: on" : "Only in the brief: off"}
+        meta={words.meta}
         leading={<BotMark watches={bot?.watches ?? []} size={24} icons={icons} badge={false} />}
         trailing={
           <View style={styles.controls}>
             {live ? (
               <ListSwitch
-                label={`Only in the brief: ${name}`}
+                label={words.switchLabel}
                 value={bot.briefOnly}
                 disabled={update.isPending && update.variables?.id === id}
                 onChange={(next) => setBriefOnly(bot, next)}
@@ -123,7 +125,7 @@ export function BriefGroups({
     rows.push(
       <ListRow
         key="add"
-        title={sources.length ? "Add or remove bots" : "Add a bot"}
+        title={BRIEF_ADD_ROW}
         tone="add"
         onPress={() => setPicking(true)}
       />,

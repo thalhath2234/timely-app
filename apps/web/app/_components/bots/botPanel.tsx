@@ -26,6 +26,7 @@ import {
   DEFAULT_BOT_SETTINGS,
   DEFAULT_BRIEF_TIME,
   agoLabel,
+  briefClock,
   clockLabel,
   draftErrors,
   draftOf,
@@ -57,6 +58,7 @@ import {
   useBot,
   useBotDefaults,
   useBotIcons,
+  useBots,
   useCreateBot,
   usePauseBot,
   useResumeBot,
@@ -417,6 +419,7 @@ function EditPanel({
   const pause = usePauseBot();
   const resume = useResumeBot();
   const hasKey = useHasKey();
+  const allPaused = !!useBots().data?.summary.allPaused;
   const icons = useBotIcons(
     useMemo(() => botSites(bot.watches), [bot.watches]),
   ).data;
@@ -540,7 +543,7 @@ function EditPanel({
   const prev = index > 0 ? order[index - 1] : null;
   const next = index >= 0 && index < order.length - 1 ? order[index + 1] : null;
   const reason = needsReason(bot, now);
-  const health = healthLine(bot, now);
+  const health = healthLine(bot, now, undefined, { allPaused });
   const origin = originLine(bot);
   const cooling = bot.runNowAt && Date.parse(bot.runNowAt) > now.getTime();
   const status = Object.keys(errors).length ? "unsaved" : autosave.status;
@@ -662,9 +665,9 @@ function EditPanel({
           {bot.lastCheckAt ? (
             <Chip>Checked {agoLabel(bot.lastCheckAt, now)}</Chip>
           ) : null}
-          {bot.kind === "brief" ? (
+          {allPaused ? null : bot.kind === "brief" ? (
             bot.status === "active" && bot.nextCheckAt ? (
-              <Chip>Next brief {clockLabel(bot.nextCheckAt, now)}</Chip>
+              <Chip>Next brief {briefClock(bot, bot.nextCheckAt, now)}</Chip>
             ) : null
           ) : bot.status === "active" && !bot.lastCheckAt ? (
             // A new bot's first check is queued at once: its next scheduled

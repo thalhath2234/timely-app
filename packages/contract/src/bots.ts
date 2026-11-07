@@ -607,7 +607,7 @@ export function limitRows(): [string, string][] {
     ["Pages and feeds", `Every ${L.minEveryMinutes.page} min at most`],
     ["Prices", `Every ${L.minEveryMinutes.price} min at most`],
     ["AI checks", `${L.aiPerBot} a day per bot, ${L.aiPerAccount} in all`],
-    ["Passing on", `${L.maxLinks} bots each, ${L.linkPerDay} items a day per link`],
+    ["Passing on", `${L.maxLinks} bots, ${L.linkPerDay} a day each`],
     ["Briefs", `Up to ${L.maxBriefSources} bots, ${L.briefItemsPerBot} items each`],
   ];
 }
@@ -1719,10 +1719,10 @@ const isSnoozed = (bot: Pick<BotView, "snoozedUntil">, now: Date) => (ms(bot.sno
 
 /**
  * When the next brief goes out, at its set time: the server adds up to two
- * minutes to spread the runs, which the card does not show ("08:00", not
- * "08:01"). The day still comes from the run itself.
+ * minutes to spread the runs, which no screen shows ("08:00", not "08:01").
+ * The day still comes from the run itself.
  */
-function briefClock(bot: Pick<BotView, "briefTime">, iso: string, now: Date, tz?: string): string {
+export function briefClock(bot: Pick<BotView, "briefTime">, iso: string, now: Date, tz?: string): string {
   const label = clockLabel(iso, now, tz);
   const time = /^([01]\d|2[0-3]):[0-5]\d$/.test(bot.briefTime ?? "") ? bot.briefTime : "";
   return time ? label.replace(/\d\d:\d\d$/, time) : label;
@@ -1731,16 +1731,16 @@ function briefClock(bot: Pick<BotView, "briefTime">, iso: string, now: Date, tz?
 /**
  * The right side of a card's footer: "Next 00:12", "Made 40 min ago",
  * "Nov 5, 22:40" (when it paused itself), "No alerts yet", "No change in 6
- * days", "2 of 3 alerts today", "Next brief 08:00", "All bots paused" (while
- * Pause all is on). Null on a bot the person paused, whose card shows Resume
- * there.
+ * days", "2 of 3 alerts today", "Next brief 08:00". Null on a bot the person
+ * paused, whose card shows Resume there, and while Pause all is on, when
+ * the health line on the left says "All bots paused" and nothing is next.
  */
 export function footerRight(bot: BotView, now: Date, tz?: string, opts: { allPaused?: boolean } = {}): string | null {
   const reason = needsReason(bot, now);
   if (reason === "waiting_ok") return `Made ${agoLabel(bot.createdAt, now, tz)}`;
   if (reason === "stopped") return bot.lastCheckAt ? dateTime(bot.lastCheckAt, tz) : null;
   if (bot.status === "paused") return null;
-  if (opts.allPaused) return "All bots paused";
+  if (opts.allPaused) return null;
   if (isBrief(bot)) return bot.nextCheckAt ? `Next brief ${briefClock(bot, bot.nextCheckAt, now, tz)}` : null;
   const next = bot.nextCheckAt ? `Next ${clockLabel(bot.nextCheckAt, now, tz)}` : null;
   if (reason === "broken" || reason === "needs_key" || isSnoozed(bot, now)) return next;
@@ -1757,6 +1757,9 @@ export function footerRight(bot: BotView, now: Date, tz?: string, opts: { allPau
 
 export type HealthTone = "ok" | "warn" | "bad" | "off" | "primary";
 
+/** A bot's health while Pause all is on. */
+export const ALL_PAUSED = "All bots paused";
+
 const STRIKE_WORDS: Record<StrikeCode, string> = {
   cant_find: "Can’t read the page",
   not_found: "Page not found",
@@ -1770,14 +1773,24 @@ const STRIKE_WORDS: Record<StrikeCode, string> = {
   needs_key: "Needs your Finnhub key",
 };
 
-/** The health line under a card: a tone dot, a bold word and a time. */
-export function healthLine(bot: BotView, now: Date, tz?: string): { tone: HealthTone; word: string; time: string | null } {
+/**
+ * The health line under a card: a tone dot, a bold word and a time. While
+ * Pause all is on (`allPaused`), a bot that would run says "All bots paused"
+ * on a grey dot, so nothing reads as working.
+ */
+export function healthLine(
+  bot: BotView,
+  now: Date,
+  tz?: string,
+  opts: { allPaused?: boolean } = {},
+): { tone: HealthTone; word: string; time: string | null } {
   const reason = needsReason(bot, now);
   const ago = bot.lastCheckAt ? agoLabel(bot.lastCheckAt, now, tz) : null;
   if (bot.health.code === "preview") return { tone: "primary", word: bot.health.line || "Read once in chat", time: null };
   if (reason === "waiting_ok") return { tone: "warn", word: "Waiting for your OK", time: null };
   if (reason === "stopped") return { tone: "bad", word: `Paused after ${bot.strikes || BOT_LIMITS.maxStrikes} strikes`, time: null };
   if (bot.status === "paused") return { tone: "off", word: "Paused by you", time: shortDate(bot.updatedAt, tz) };
+  if (opts.allPaused) return { tone: "off", word: ALL_PAUSED, time: null };
   if (isSnoozed(bot, now) && bot.snoozedUntil) {
     return { tone: "off", word: "Snoozed", time: `until ${clockLabel(bot.snoozedUntil, now, tz)}` };
   }
@@ -1807,8 +1820,8 @@ export function healthLine(bot: BotView, now: Date, tz?: string): { tone: Health
 }
 
 /** The mini card's health text: "Can’t read the page · 3 of 5" when broken. */
-export function miniHealth(bot: BotView, now: Date, tz?: string): string {
-  const h = healthLine(bot, now, tz);
+export function miniHealth(bot: BotView, now: Date, tz?: string, opts: { allPaused?: boolean } = {}): string {
+  const h = healthLine(bot, now, tz, opts);
   if (needsReason(bot, now) === "new_alert") return "Was it worth it?";
   if (needsReason(bot, now) === "broken") return `${h.word} · ${bot.strikes} of ${BOT_LIMITS.maxStrikes}`;
   return h.time ? `${h.word} · ${h.time}` : h.word;
@@ -2031,6 +2044,21 @@ export function todayColumns(cols: number, hasChains: boolean): number {
   if (cols >= 6) return 3;
   if (cols >= 4) return 2;
   return 1;
+}
+
+/** The Sums up group's add row, the same on desktop and phone. */
+export const BRIEF_ADD_ROW = "Add a bot";
+
+/**
+ * A source row in a brief's Sums up group, the same on desktop and phone:
+ * the meta under the bot's name says what its Only in the brief switch
+ * does now ("Only in the brief" when on, "Also tells you itself" when off),
+ * and `switchLabel` names the switch for screen readers.
+ */
+export function briefSourceRow(bot: { name: string; briefOnly?: boolean } | undefined, saved: boolean): { meta: string; switchLabel: string } {
+  const switchLabel = `Only in the brief: ${bot?.name ?? "a deleted bot"}`;
+  if (!bot || !saved) return { meta: "Added when the brief saves", switchLabel };
+  return { meta: bot.briefOnly ? "Only in the brief" : "Also tells you itself", switchLabel };
 }
 
 /** A bot's "Works with" group: whom it passes to, who passes to it, the briefs it is in, and Only in the brief. */

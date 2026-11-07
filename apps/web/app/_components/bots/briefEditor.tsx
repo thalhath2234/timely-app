@@ -5,7 +5,9 @@ import Link from "next/link";
 import { X } from "lucide-react";
 import {
   BOT_LIMITS,
+  BRIEF_ADD_ROW,
   BRIEF_TIMES,
+  briefSourceRow,
   DEFAULT_BRIEF_TIME,
   type BotInput,
   type BotView,
@@ -95,17 +97,12 @@ export function BriefEditor({
     const bot = byId.get(id);
     const name = bot?.name ?? "A deleted bot";
     const live = !!bot && (saved ?? []).includes(id);
+    const words = briefSourceRow(bot, live);
     return (
       <ListRow
         key={id}
         label={name}
-        meta={
-          !live
-            ? "Added when the brief saves"
-            : bot.briefOnly
-              ? "Tells you only through its briefs"
-              : "Also tells you itself"
-        }
+        meta={words.meta}
         icon={
           <BotMark
             watches={bot?.watches ?? []}
@@ -116,13 +113,8 @@ export function BriefEditor({
         }
       >
         {live ? (
-          <span className="text-xs font-medium text-muted-foreground">
-            Only in brief
-          </span>
-        ) : null}
-        {live ? (
           <ListSwitch
-            label={`Only in the brief: ${name}`}
+            label={words.switchLabel}
             checked={bot.briefOnly}
             disabled={update.isPending && update.variables?.id === id}
             onChange={(next) => setBriefOnly(bot, next)}
@@ -142,10 +134,10 @@ export function BriefEditor({
   });
   if (!full && addable.length) {
     rows.push(
-      <ListRow key="add" label="Add a bot" tone="add">
+      <ListRow key="add" label={BRIEF_ADD_ROW} tone="add">
         <Select
           variant="row"
-          aria-label="Add a bot"
+          aria-label={BRIEF_ADD_ROW}
           placeholder="Pick one"
           searchable={addable.length > 8}
           value=""

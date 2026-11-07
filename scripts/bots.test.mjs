@@ -60,6 +60,9 @@ import {
   floorMinutes,
   footerRight,
   formatMoney,
+  briefClock,
+  briefSourceRow,
+  BRIEF_ADD_ROW,
   healthLine,
   intervalLabel,
   intervalOptions,
@@ -1473,7 +1476,7 @@ describe("AI, links and briefs over the seed", () => {
     assert.equal(BOT_LIMITS.chainSteps, 3);
     assert.deepEqual(limitRows().slice(-3), [
       ["AI checks", "20 a day per bot, 200 in all"],
-      ["Passing on", "4 bots each, 20 items a day per link"],
+      ["Passing on", "4 bots, 20 a day each"],
       ["Briefs", "Up to 8 bots, 5 items each"],
     ]);
     assert.deepEqual(
@@ -1514,6 +1517,13 @@ describe("AI, links and briefs over the seed", () => {
     assert.equal(valueLine(brief), "Sums up 4 bots");
     assert.equal(footerRight(brief, NOW, TZ), "Next brief 08:00", "the set time, not the spread run");
     assert.equal(footerRight({ ...brief, nextCheckAt: "2026-11-10T08:01:00Z" }, NOW, TZ), "Next brief Tue 08:00");
+    // The rail and the header say the set time too.
+    assert.equal(briefClock(brief, "2026-11-10T08:01:22Z", NOW, TZ), "Tue 08:00");
+    // The Sums up rows say the same on desktop and phone.
+    assert.deepEqual(briefSourceRow({ name: "GPU", briefOnly: true }, true), { meta: "Only in the brief", switchLabel: "Only in the brief: GPU" });
+    assert.equal(briefSourceRow({ name: "GPU", briefOnly: false }, true).meta, "Also tells you itself");
+    assert.equal(briefSourceRow({ name: "GPU" }, false).meta, "Added when the brief saves");
+    assert.equal(BRIEF_ADD_ROW, "Add a bot");
     assert.equal(feedSources(brief), null);
     assert.equal(fixAction(brief), "check_now");
     assert.equal(fixAction({ ...brief, status: "paused", pauseReason: "person" }), "resume");
@@ -1700,7 +1710,11 @@ describe("AI, links and briefs over the seed", () => {
 
   test("footer while all bots are paused", () => {
     assert.equal(footerRight(seed.headphones, NOW, TZ), "Next 00:12");
-    assert.equal(footerRight(seed.headphones, NOW, TZ, { allPaused: true }), "All bots paused");
+    // The left side says so on a grey dot; nothing is next, so the right is empty.
+    assert.equal(footerRight(seed.headphones, NOW, TZ, { allPaused: true }), null);
+    assert.deepEqual(healthLine(seed.headphones, NOW, TZ, { allPaused: true }), { tone: "off", word: "All bots paused", time: null });
+    assert.equal(miniHealth(seed.headphones, NOW, TZ, { allPaused: true }), "All bots paused");
+    assert.equal(healthLine(seed.go, NOW, TZ, { allPaused: true }).word, "Paused by you");
     assert.equal(footerRight(seed.go, NOW, TZ, { allPaused: true }), null, "a bot the person paused still shows Resume");
     assert.equal(footerRight(seed.coldplay, NOW, TZ, { allPaused: true }), "Nov 5, 22:40");
   });

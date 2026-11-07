@@ -204,7 +204,12 @@ function Footer({
   return (
     <div className="mt-auto flex min-h-10 items-center justify-between gap-2 border-t border-border px-3.5 py-1.5 text-xs tabular-nums text-muted-foreground">
       {/* The health line is what the card is for: the right side gives way first. */}
-      <HealthLine bot={bot} now={now} className="max-w-full shrink-0" />
+      <HealthLine
+        bot={bot}
+        now={now}
+        allPaused={allPaused}
+        className="max-w-full shrink-0"
+      />
       {personPaused && interactive ? (
         <Button
           variant="outline"
@@ -304,7 +309,7 @@ export function BotCard({
           }
         />
         <div className="flex min-h-11 items-center justify-between gap-2 px-3.5 pb-3 pt-2 text-xs text-muted-foreground">
-          <HealthLine bot={bot} now={now} mini />
+          <HealthLine bot={bot} now={now} mini allPaused={allPaused} />
           {reason ? (
             <NeedsAction bot={bot} now={now} compact actions={actions} />
           ) : (

@@ -8,6 +8,8 @@ import {
   agoLabel,
   alertMeta,
   checkOutcomeLabel,
+  ALL_PAUSED,
+  briefClock,
   clockLabel,
   fixAction,
   fixCopy,
@@ -40,7 +42,7 @@ import {
 import Button from "@/app/_components/_ui/button";
 import SegmentedControl from "@/app/_components/_ui/segmentedControl";
 import { cn } from "@/app/utils/cn";
-import { useBotPreview } from "@/app/utils/hooks/bots";
+import { useBotPreview, useBots } from "@/app/utils/hooks/bots";
 import { AiAlertLine } from "./aiAlertLine";
 import { AlertFeedback } from "./alertFeedback";
 import { useBotActions } from "./botActions";
@@ -241,6 +243,7 @@ function briefsSent(detail: BotDetail, now: Date, days: number): number {
 function ChecksSection({ detail, now }: { detail: BotDetail; now: Date }) {
   const last = detail.checks?.[0];
   const brief = detail.kind === "brief";
+  const allPaused = !!useBots().data?.summary.allPaused;
   return (
     <RailSection title="Checks" meta="This week">
       <RailRows>
@@ -260,9 +263,13 @@ function ChecksSection({ detail, now }: { detail: BotDetail; now: Date }) {
           value={
             detail.status === "paused"
               ? "Paused"
-              : detail.nextCheckAt
-                ? clockLabel(detail.nextCheckAt, now)
-                : "Soon"
+              : allPaused
+                ? ALL_PAUSED
+                : detail.nextCheckAt
+                  ? brief
+                    ? briefClock(detail, detail.nextCheckAt, now)
+                    : clockLabel(detail.nextCheckAt, now)
+                  : "Soon"
           }
         />
         <RailRow label={brief ? "Runs" : "Checks"} value={detail.week.checks} />

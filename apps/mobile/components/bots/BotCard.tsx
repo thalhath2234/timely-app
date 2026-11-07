@@ -194,7 +194,7 @@ function Footer({ bot, now, allPaused }: { bot: BotView; now: Date; allPaused?: 
   const right = footerRight(bot, now, undefined, { allPaused });
   return (
     <View style={styles.footer}>
-      <HealthLine bot={bot} now={now} />
+      <HealthLine bot={bot} now={now} allPaused={allPaused} />
       {right ? (
         <Text numberOfLines={1} style={styles.footerRight}>
           {right}

@@ -21,6 +21,7 @@ import {
   DEFAULT_BRIEF_TIME,
   agoLabel,
   alertMeta,
+  briefClock,
   clockLabel,
   draftErrors,
   draftOf,
@@ -520,7 +521,8 @@ function ViewSheet({
   };
 
   const reason = needsReason(bot, now);
-  const health = healthLine(bot, now);
+  const allPaused = !!board?.summary.allPaused;
+  const health = healthLine(bot, now, undefined, { allPaused });
   const origin = originLine(bot);
   const runNow = runNowState(bot, now);
   const index = order.indexOf(bot.id);
@@ -617,8 +619,8 @@ function ViewSheet({
         <View style={styles.chips}>
           <MetaChip tone={health.tone}>{health.time && health.time.startsWith("until ") ? `${health.word} ${health.time}` : health.word}</MetaChip>
           {bot.lastCheckAt ? <MetaChip>{`Checked ${agoLabel(bot.lastCheckAt, now)}`}</MetaChip> : null}
-          {bot.status === "active" && bot.nextCheckAt ? (
-            <MetaChip>{`${brief ? "Next brief" : "Next"} ${clockLabel(bot.nextCheckAt, now)}`}</MetaChip>
+          {bot.status === "active" && bot.nextCheckAt && !allPaused ? (
+            <MetaChip>{brief ? `Next brief ${briefClock(bot, bot.nextCheckAt, now)}` : `Next ${clockLabel(bot.nextCheckAt, now)}`}</MetaChip>
           ) : null}
           {origin ? <MetaChip>{origin}</MetaChip> : null}
         </View>
