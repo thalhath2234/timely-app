@@ -203,9 +203,11 @@ func main() {
 	liveBlockWriter = providerService.LiveBlock
 	liveBlockRehearsal = providerService.RehearseLiveBlock
 	// Describe (dashboard cards, live blocks) reads through the chat agent's
-	// read tools and draws its drafts from the account's data.
+	// read tools and draws its drafts from the account's data. It gets no
+	// Bots: preview_bot and ask_bot fetch from the network and stay chat
+	// only, and an outside app's add_live_block words reach Describe.
 	providerService.SetReadTools(func(tx *gorm.DB) agent.Catalog {
-		return chatCatalog(tx, live, providerService.EmbedCredentials, botService)
+		return chatCatalog(tx, live, providerService.EmbedCredentials, nil)
 	})
 	providerService.SetBoardData(boardData(db))
 	mcpServer := agent.New(agent.Deps{
