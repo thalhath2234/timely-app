@@ -551,3 +551,92 @@ func TestIntegrationBackupLeavesOutJudgeInput(t *testing.T) {
 		t.Fatalf("a restore reset the AI call log: %d (%v)", calls, err)
 	}
 }
+
+// A restored Bot keeps the doc or sheet its judge reads only while that is
+// the person's and not in the bin; over MCP it always lets it go. A backup
+// made before knowledge restores with none.
+func TestIntegrationRestoreVetsBotKnowledge(t *testing.T) {
+	db := migratedDB(t)
+	const uid, other = "usr_portability_knowledge", "usr_portability_knowledge_other"
+	for _, row := range []any{
+		&models.User{ID: uid, Email: "knowledge@example.invalid", Password: "not-a-real-hash"},
+		&models.User{ID: other, Email: "knowledge-other@example.invalid", Password: "not-a-real-hash"},
+	} {
+		if err := db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedAccountBasics(t, db, uid, true)
+	seedAccountBasics(t, db, other, true)
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if err := db.Exec(query, args...).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO documents (id, title, workspace_id, user_id, created_at, updated_at) VALUES
+		('doc_k_own', 'Wishlist notes', 'ws_' || ?, ?, '2026-11-01', '2026-11-01'),
+		('doc_k_theirs', 'Theirs', 'ws_' || ?, ?, '2026-11-01', '2026-11-01')`, uid, uid, other, other)
+	exec(`INSERT INTO sheets (id, title, workspace_id, user_id, archived_at, created_at, updated_at) VALUES
+		('sht_k_bin', 'Old wishlist', 'ws_' || ?, ?, '2026-11-02', '2026-11-01', '2026-11-01')`, uid, uid)
+	exec(`INSERT INTO bots (id, user_id, name, interval_seconds, next_check_at, judge_mode, knowledge_kind, knowledge_id) VALUES
+		('bot_k_own', ?, 'Own doc', 900, now(), 'ai', 'doc', 'doc_k_own'),
+		('bot_k_bin', ?, 'Binned sheet', 900, now(), 'ai', 'sheet', 'sht_k_bin'),
+		('bot_k_theirs', ?, 'Their doc', 900, now(), 'ai', 'doc', 'doc_k_theirs'),
+		('bot_k_none', ?, 'No knowledge', 900, now(), 'ai', '', '')`, uid, uid, uid, uid)
+
+	service := NewService(db, nil)
+	service.SetRestoreVet(bots.New(db, nil).VetRestore)
+	backup, err := service.Export(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func() map[string][2]string {
+		t.Helper()
+		var rows []struct{ ID, KnowledgeKind, KnowledgeID string }
+		if err := db.Raw(`SELECT id, knowledge_kind, knowledge_id FROM bots WHERE user_id = ?`, uid).Scan(&rows).Error; err != nil {
+			t.Fatal(err)
+		}
+		out := map[string][2]string{}
+		for _, r := range rows {
+			out[r.ID] = [2]string{r.KnowledgeKind, r.KnowledgeID}
+		}
+		return out
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	got := read()
+	if got["bot_k_own"] != [2]string{"doc", "doc_k_own"} || got["bot_k_bin"] != [2]string{} || got["bot_k_theirs"] != [2]string{} || got["bot_k_none"] != [2]string{} {
+		t.Fatalf("restored knowledge %v", got)
+	}
+
+	// A backup made before knowledge has no knowledge columns.
+	for i, raw := range backup.Rows["bots"] {
+		var row map[string]any
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatal(err)
+		}
+		if row["id"] == "bot_k_none" {
+			delete(row, "knowledge_kind")
+			delete(row, "knowledge_id")
+		}
+		backup.Rows["bots"][i], _ = json.Marshal(row)
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatalf("restore of an older backup: %v", err)
+	}
+	if got := read(); got["bot_k_none"] != [2]string{} || got["bot_k_own"] != [2]string{"doc", "doc_k_own"} {
+		t.Fatalf("older backup restored %v", got)
+	}
+
+	// Over MCP no Bot keeps a doc or sheet, even its own.
+	if _, err := service.RestoreFromMCP(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	for id, k := range read() {
+		if k != [2]string{} {
+			t.Fatalf("%s kept %v after a restore over MCP", id, k)
+		}
+	}
+}

@@ -59,7 +59,8 @@ type Service struct {
 	lastSweepWall time.Time  // under mu
 	lastPrune     time.Time  // under mu
 
-	beforeCommit func(tx *gorm.DB) error // test seam; nil in production
+	beforeCommit  func(tx *gorm.DB) error // test seam; nil in production
+	knowledgeRead func(b Bot)             // test seam, told of each knowledge read; nil in production
 }
 
 func New(db *gorm.DB, queue *jobs.Queue) *Service {

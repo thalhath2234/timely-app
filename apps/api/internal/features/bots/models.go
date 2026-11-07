@@ -39,8 +39,13 @@ type Bot struct {
 	// person last applied or dismissed one.
 	Suggestion            *Suggestion `gorm:"serializer:json;type:jsonb" json:"-"`
 	SuggestionDismissedAt *time.Time  `json:"-"`
-	CreatedAt             time.Time   `json:"createdAt"`
-	UpdatedAt             time.Time   `json:"updatedAt"`
+	// KnowledgeKind and KnowledgeID name the doc or sheet the Bot's judge
+	// reads ("doc" or "sheet"; both "" for none). No foreign key: a read
+	// checks the row is still the person's.
+	KnowledgeKind string    `gorm:"type:text;not null" json:"-"`
+	KnowledgeID   string    `gorm:"type:text;not null" json:"-"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
 }
 
 func (Bot) TableName() string { return "bots" }

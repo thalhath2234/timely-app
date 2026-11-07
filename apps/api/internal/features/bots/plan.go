@@ -39,7 +39,6 @@ func (s *Service) planCheck(ctx context.Context, c *checkRun) error {
 	if err != nil {
 		return err
 	}
-	in := buildJudgeInput(b, lessons, last, fired, nil, at)
 	c.plan.judgedKeys = eventKeys(fired)
 	c.plan.aiState = aiUnchecked
 	if s.judge == nil {
@@ -54,6 +53,8 @@ func (s *Service) planCheck(ctx context.Context, c *checkRun) error {
 	case err != nil:
 		return err
 	}
+	// The doc or sheet is read only for a judge call, and only as data.
+	in := buildJudgeInput(b, lessons, last, fired, s.readKnowledge(ctx, b), at)
 	timeout := JudgeTimeout
 	if c.trigger == TriggerAsk {
 		timeout = AskJudgeTimeout

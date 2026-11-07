@@ -1,6 +1,7 @@
 package bots
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"time"
@@ -20,10 +21,12 @@ const (
 // a save makes have run: a Bot whose watches Timely cannot use, or past the
 // 25-Bot cap, is paused; an interval under the floor is raised to it; a
 // judge mode Timely does not know is set back to rules; a suggestion is
-// dropped; no alert keeps a judge input (the export never carries one).
-// Restored over MCP, every Bot comes back paused, judged by rules, with the
-// alert settings a Bot made over MCP gets, so an outside app cannot turn a
-// Bot, its urgent alerts or AI judging on this way (ADR 0021). A
+// dropped; no alert keeps a judge input (the export never carries one); a
+// doc or sheet a Bot reads that is not the person's, or is in the bin, is
+// let go. Restored over MCP, every Bot comes back paused, judged by rules,
+// reading no doc or sheet, with the alert settings a Bot made over MCP gets,
+// so an outside app cannot turn a Bot, its urgent alerts, AI judging or what
+// the judge reads on this way (ADR 0021). A
 // stock watch passes when the account has its key, which the restore keeps.
 func (s *Service) VetRestore(tx *gorm.DB, userID string, fromMCP bool) error {
 	// A suggestion is code's reading of ratings made here, and the file's
@@ -34,6 +37,16 @@ func (s *Service) VetRestore(tx *gorm.DB, userID string, fromMCP bool) error {
 	// A re-judge reads its input from the alert; a file's would be text no
 	// check here read.
 	if err := tx.Exec(`UPDATE bot_alerts SET ai_input = NULL WHERE user_id = ? AND ai_input IS NOT NULL`, userID).Error; err != nil {
+		return err
+	}
+	// knowledge_id has no foreign key, so a file can name any row; reads
+	// check again, but the Bot should not show another account's title.
+	if err := tx.Exec(`
+UPDATE bots b SET knowledge_kind = '', knowledge_id = ''
+WHERE b.user_id = @uid AND b.knowledge_kind <> '' AND (@mcp
+   OR (b.knowledge_kind = 'doc' AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.id = b.knowledge_id AND d.user_id = b.user_id AND d.archived_at IS NULL))
+   OR (b.knowledge_kind = 'sheet' AND NOT EXISTS (SELECT 1 FROM sheets s WHERE s.id = b.knowledge_id AND s.user_id = b.user_id AND s.archived_at IS NULL)))`,
+		sql.Named("uid", userID), sql.Named("mcp", fromMCP)).Error; err != nil {
 		return err
 	}
 	var bots []Bot

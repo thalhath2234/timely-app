@@ -53,6 +53,8 @@ type View struct {
 	ItemsToday    int         `json:"itemsToday"`    // new feed items today's alerts told of, held included
 	Suggestion    *Suggestion `json:"suggestion"`    // a better rule the Bot proposes, or nil
 	AIChecksToday int         `json:"aiChecksToday"` // AI calls the Bot made today (notification zone)
+	// Knowledge is the doc or sheet the Bot's judge reads, or nil.
+	Knowledge *KnowledgeView `json:"knowledge"`
 }
 
 // AlertBrief is the alert a board card shows.
@@ -194,12 +196,13 @@ func healthOf(code, detail string) Health {
 // board is what the board shows beyond a Bot's own rows, loaded for many
 // Bots at once (loadBoard). A nil board shows a Bot with no history.
 type board struct {
-	alertsToday map[string]int         // by Bot: sent alerts today
-	itemsToday  map[string]int         // by Bot
-	strips      map[string]string      // by Bot
-	latest      map[string]*AlertBrief // by Bot
-	aiCalls     map[string]int         // by Bot: AI calls today
-	days        map[string][]dayClose  // by watch, oldest first
+	alertsToday map[string]int            // by Bot: sent alerts today
+	itemsToday  map[string]int            // by Bot
+	strips      map[string]string         // by Bot
+	latest      map[string]*AlertBrief    // by Bot
+	aiCalls     map[string]int            // by Bot: AI calls today
+	days        map[string][]dayClose     // by watch, oldest first
+	knowledge   map[string]*KnowledgeView // by Bot: its doc or sheet, by title
 }
 
 // dayClose is one UTC day of a price series, without its points.
@@ -224,7 +227,7 @@ func viewOf(b Bot, ws []Watch, bd *board, now time.Time) View {
 		Watches: make([]WatchView, 0, len(ws)), CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
 		OriginClient: b.OriginClient, Checking: b.CheckingJobID != nil, FloorLine: floorLine(floor),
 		Strip: bd.strips[b.ID], LatestAlert: bd.latest[b.ID], ItemsToday: bd.itemsToday[b.ID],
-		Suggestion: b.Suggestion, AIChecksToday: bd.aiCalls[b.ID],
+		Suggestion: b.Suggestion, AIChecksToday: bd.aiCalls[b.ID], Knowledge: bd.knowledge[b.ID],
 	}
 	if b.Origin != OriginMCP {
 		v.OriginClient = ""

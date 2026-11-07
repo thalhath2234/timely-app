@@ -117,10 +117,20 @@ func (s *Service) get(c *echo.Context) error {
 	return c.JSON(http.StatusOK, d)
 }
 
+// update takes a Patch; its "knowledge" is read apart (KnowledgePatch), so
+// null clears it while leaving it out keeps it.
 func (s *Service) update(c *echo.Context) error {
-	var p Patch
-	if err := json.NewDecoder(c.Request().Body).Decode(&p); err != nil {
+	var body struct {
+		Patch
+		Knowledge json.RawMessage `json:"knowledge"`
+	}
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil {
 		return badRequest()
+	}
+	p := body.Patch
+	var err error
+	if p.Knowledge, p.ClearKnowledge, err = KnowledgePatch(body.Knowledge); err != nil {
+		return httpError(err)
 	}
 	v, err := s.Update(c.Request().Context(), user(c), c.Param("id"), p, OriginApp)
 	if err != nil {

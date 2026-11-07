@@ -56,6 +56,9 @@ func (s *Store) Create(ctx context.Context, userID string, in Input, o Origin, n
 	if err := refuseMCPSettings(o, &in.JudgeMode, in.Urgent, in.Desktop, in.Phone); err != nil {
 		return View{}, err
 	}
+	if o == OriginMCP && in.Knowledge != nil {
+		return View{}, errMCPSetup
+	}
 	name, err := cleanName(in.Name)
 	if err != nil {
 		return View{}, err
@@ -105,9 +108,18 @@ func (s *Store) Create(ctx context.Context, userID string, in Input, o Origin, n
 	for i := range ws {
 		ws[i] = newWatch(ws[i], b, now)
 	}
+	var bd *board
 	err = s.conn(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := lockAccount(tx, userID); err != nil {
 			return err
+		}
+		if in.Knowledge != nil {
+			k, err := cleanKnowledge(tx, userID, *in.Knowledge)
+			if err != nil {
+				return err
+			}
+			b.KnowledgeKind, b.KnowledgeID = k.Kind, k.ID
+			bd = &board{knowledge: map[string]*KnowledgeView{b.ID: &k}}
 		}
 		var rows []Bot
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id", "name").Where("user_id = ?", userID).Find(&rows).Error; err != nil {
@@ -127,7 +139,7 @@ func (s *Store) Create(ctx context.Context, userID string, in Input, o Origin, n
 	if err != nil {
 		return View{}, err
 	}
-	return viewOf(b, ws, nil, now), nil
+	return viewOf(b, ws, bd, now), nil
 }
 
 // newWatch fills in a watch that is about to be inserted.
@@ -148,6 +160,9 @@ func (s *Store) Update(ctx context.Context, userID, idOrName string, p Patch, o 
 	now = now.UTC()
 	if err := refuseMCPSettings(o, p.JudgeMode, p.Urgent, p.Desktop, p.Phone); err != nil {
 		return View{}, err
+	}
+	if o == OriginMCP && (p.Knowledge != nil || p.ClearKnowledge) {
+		return View{}, errMCPSetup
 	}
 	set := map[string]any{"updated_at": now}
 	var name string
@@ -190,6 +205,16 @@ func (s *Store) Update(ctx context.Context, userID, idOrName string, p Patch, o 
 		if o == OriginMCP && b.JudgeMode == JudgeAI &&
 			((p.Description != nil && set["description"] != b.Description) || (p.Name != nil && name != b.Name)) {
 			return errMCPJudged
+		}
+		switch {
+		case p.Knowledge != nil:
+			k, err := cleanKnowledge(tx, userID, *p.Knowledge)
+			if err != nil {
+				return err
+			}
+			set["knowledge_kind"], set["knowledge_id"] = k.Kind, k.ID
+		case p.ClearKnowledge:
+			set["knowledge_kind"], set["knowledge_id"] = "", ""
 		}
 		if p.Name != nil {
 			var rows []Bot
@@ -884,11 +909,15 @@ func loadWatches(tx *gorm.DB, botID string, lock bool) ([]Watch, error) {
 func loadBoard(db *gorm.DB, userID, botID string, now time.Time) (*board, error) {
 	bd := &board{alertsToday: map[string]int{}, itemsToday: map[string]int{}, strips: map[string]string{},
 		latest: map[string]*AlertBrief{}, aiCalls: map[string]int{}, days: map[string][]dayClose{}}
+	var err error
 	scope := func(q *gorm.DB, col string) *gorm.DB {
 		if botID != "" {
 			return q.Where(col+" = ?", botID)
 		}
 		return q
+	}
+	if bd.knowledge, err = knowledgeViews(db, userID, botID); err != nil {
+		return nil, err
 	}
 	day, err := localDay(db, userID, now)
 	if err != nil {

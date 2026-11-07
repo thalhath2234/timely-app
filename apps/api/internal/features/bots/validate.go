@@ -46,6 +46,8 @@ type Input struct {
 	Desktop         *bool        `json:"desktop"`
 	Phone           *bool        `json:"phone"`
 	Watches         []WatchInput `json:"watches"`
+	// Knowledge is the doc or sheet the Bot's judge reads, or nil for none.
+	Knowledge *KnowledgeInput `json:"knowledge"`
 	// OriginClient names the outside app a Bot made over MCP came from: the
 	// name the person gave its API key. It is kept only for OriginMCP and
 	// never read from a request body.
@@ -53,16 +55,19 @@ type Input struct {
 }
 
 // Patch is an edit; nil fields are left as they are. Watches, when set, is
-// the full list.
+// the full list. Knowledge sets the doc or sheet the judge reads, and
+// ClearKnowledge (a PATCH's "knowledge": null, see KnowledgePatch) clears it.
 type Patch struct {
-	Name            *string       `json:"name"`
-	Description     *string       `json:"description"`
-	IntervalMinutes *int          `json:"intervalMinutes"`
-	JudgeMode       *string       `json:"judgeMode"`
-	Urgent          *bool         `json:"urgent"`
-	Desktop         *bool         `json:"desktop"`
-	Phone           *bool         `json:"phone"`
-	Watches         *[]WatchInput `json:"watches"`
+	Name            *string         `json:"name"`
+	Description     *string         `json:"description"`
+	IntervalMinutes *int            `json:"intervalMinutes"`
+	JudgeMode       *string         `json:"judgeMode"`
+	Urgent          *bool           `json:"urgent"`
+	Desktop         *bool           `json:"desktop"`
+	Phone           *bool           `json:"phone"`
+	Watches         *[]WatchInput   `json:"watches"`
+	Knowledge       *KnowledgeInput `json:"knowledge"`
+	ClearKnowledge  bool            `json:"-"`
 }
 
 func cleanName(raw string) (string, error) {
