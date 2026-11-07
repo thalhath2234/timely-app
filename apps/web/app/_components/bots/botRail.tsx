@@ -6,6 +6,7 @@ import {
   BOT_LIMITS,
   agoLabel,
   alertMeta,
+  checkOutcomeLabel,
   clockLabel,
   formatMoney,
   isPriceReading,
@@ -23,7 +24,6 @@ import {
   type AlertView,
   type BotDetail,
   type BotInput,
-  type CheckOutcome,
   type PreviewResult,
   type Rearm,
   type WatchView,
@@ -45,20 +45,6 @@ import { BotMark } from "./botMark";
 import { CheckStrip } from "./checkStrip";
 import { alertHeadline } from "./needsAction";
 import { PriceChart } from "./priceChart";
-
-const OUTCOMES: Record<CheckOutcome, string> = {
-  baseline: "First reading",
-  unchanged: "No change",
-  not_modified: "No change",
-  changed: "Changed",
-  fired: "Told you",
-  offline: "Offline",
-  rate_limited: "The site asked to wait",
-  site_busy: "Site busy",
-  robots: "The site asks not to be read",
-  strike: "Failed",
-  superseded: "Skipped",
-};
 
 /** "18:12". */
 const timeOf = (iso: string) =>
@@ -244,7 +230,7 @@ function ChecksSection({ detail, now }: { detail: BotDetail; now: Date }) {
           label="Last check"
           meta={
             last
-              ? `${OUTCOMES[last.outcome] ?? last.outcome} · ${timeOf(last.startedAt)}`
+              ? `${checkOutcomeLabel(last.outcome)} · ${timeOf(last.startedAt)}`
               : undefined
           }
           value={

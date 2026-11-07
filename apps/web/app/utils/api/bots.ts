@@ -12,6 +12,7 @@ import type {
   RunResult,
   SourceKeyView,
 } from "@timely/contract/bots";
+import { EMPTY_BOTS_SUMMARY } from "@timely/contract/bots";
 import { apiFetch } from "./client";
 import { codedError } from "./codedError";
 
@@ -55,11 +56,8 @@ export async function listBots(): Promise<BotsList> {
   );
   return {
     bots: body.bots ?? [],
-    summary: body.summary ?? {
-      checksToday: 0,
-      alertsToday: 0,
-      nextCheckAt: null,
-    },
+    // A field the server leaves out reads as its empty value.
+    summary: { ...EMPTY_BOTS_SUMMARY, ...body.summary },
   };
 }
 

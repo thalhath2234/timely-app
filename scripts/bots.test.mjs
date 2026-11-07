@@ -2,7 +2,28 @@ import assert from "node:assert/strict";
 import test, { describe } from "node:test";
 import {
   BOT_LIMITS,
+  BRIEF_TIMES,
+  FEEDBACK_REASONS,
+  HOW_SMART,
   MAX_BOT_TAGS,
+  PASS_FEEDBACK,
+  SMART_HINT,
+  aiHint,
+  alertAi,
+  alsoSeenLine,
+  botMarkKind,
+  chainsOf,
+  checkOutcomeLabel,
+  checkTriggerLabel,
+  filterLine,
+  howItCame,
+  lessonsHint,
+  sharedLine,
+  smartOptions,
+  todayColumns,
+  todayRows,
+  topSpans,
+  worksWith,
   STARTERS,
   STRIKE_CODES,
   STRIKE_COPY,
@@ -138,6 +159,14 @@ function bot(over) {
     strip: "",
     latestAlert: null,
     itemsToday: 0,
+    kind: "watch",
+    briefOnly: false,
+    briefAi: false,
+    briefTime: "",
+    sources: [],
+    knowledge: null,
+    aiChecksToday: 0,
+    suggestion: null,
     ...over,
   };
 }
@@ -966,9 +995,10 @@ describe("drafts", () => {
       ["price_drop", "page_changed", "stock_move", "new_in_feed", "morning_brief"],
     );
     const brief = STARTERS[4];
-    assert.equal(brief.later, true);
-    assert.equal(brief.draft, null);
-    assert.equal(brief.chatText, null);
+    assert.equal(brief.later, undefined, "the Morning brief is live");
+    assert.equal(brief.draft.kind, "brief");
+    assert.equal(brief.chatText, "Every morning at 08:00, sum up what my other bots found");
+    for (const s of STARTERS) assert.equal(s.draft.description, `${s.quote}.`, `${s.id} prefills its own words`);
     assert.equal(STARTERS[2].rows[0][1], "Finnhub (free key)");
     assert.equal(STARTERS[2].needsKey, "finnhub");
 
@@ -1281,4 +1311,482 @@ test("untilLabel always names the day", () => {
   assert.equal(untilLabel("2026-11-08T03:30:00Z", now, "Asia/Kolkata"), "Sun 09:00");
   assert.equal(untilLabel("2026-11-07T11:00:00Z", now, "UTC"), "Sat 11:00");
   assert.equal(untilLabel("2026-11-20T09:00:00Z", now, "UTC"), "Nov 20, 09:00");
+});
+
+// ── Branch 4: AI judging, teaching, links and briefs, over the plan's seed (8.2) ──
+
+describe("AI, links and briefs over the seed", () => {
+  const alertOf = (over) => ({
+    id: "bal_x",
+    kind: "alert",
+    title: "",
+    body: "",
+    url: "",
+    held: "",
+    createdAt: ago(10),
+    feedback: null,
+    aiState: "",
+    aiWhy: "",
+    urgency: "normal",
+    alsoSeenBy: [],
+    sharedWith: null,
+    via: [],
+    ...over,
+  });
+  const link = (over) => ({
+    id: "blk_x",
+    kind: "pass",
+    fromBotId: "",
+    toBotId: "",
+    filter: [],
+    enabled: true,
+    offReason: "",
+    passedToday: 0,
+    createdAt: "2026-11-01T09:00:00Z",
+    ...over,
+  });
+  const ready = { ready: true, provider: "anthropic", label: "Anthropic API", model: "small-judge-model", reason: "" };
+  const noAi = { ready: false, provider: "", label: "", model: "", reason: "none" };
+
+  const gpuToNvme = link({ id: "blk_gpu_nvme", fromBotId: "bot_seed_gpu", toBotId: "bot_seed_nvme", filter: ["2TB NVMe"], passedToday: 6 });
+  const steamToNvme = link({ id: "blk_steam_nvme", fromBotId: "bot_seed_steam", toBotId: "bot_seed_nvme", enabled: false, offReason: "person" });
+  const briefLinks = ["bot_seed_gpu", "bot_seed_sony", "bot_seed_btc", "bot_seed_steam"].map((from, i) =>
+    link({ id: `blk_brief_${i}`, kind: "brief", fromBotId: from, toBotId: "bot_seed_brief" }),
+  );
+  const links = [gpuToNvme, steamToNvme, ...briefLinks];
+
+  const nvme = bot({
+    id: "bot_seed_nvme",
+    name: "Price check · NVMe",
+    judgeMode: "ai",
+    intervalMinutes: 360,
+    aiChecksToday: 15,
+    knowledge: { kind: "sheet", id: "sht_wishlist", title: "Wishlist", missing: false },
+    latestAlert: alertOf({
+      id: "bal_nvme",
+      title: "Price check · NVMe: Samsung 990 Pro 2TB at $99",
+      aiState: "judged",
+      aiWhy: "Under your $110 wishlist limit and well below its usual price",
+      urgency: "high",
+      via: [{ botId: "bot_seed_gpu", name: "GPU deals under $400", linkId: "blk_gpu_nvme", title: "Samsung 990 Pro 2TB NVMe, $99" }],
+    }),
+    watches: [
+      watch({
+        id: "bwt_seed_nvme",
+        read: "product_price",
+        url: "https://www.newegg.com/p/N82E1",
+        site: "newegg.com",
+        currency: "USD",
+        value: 99,
+        summary: "$99",
+        rules: [below(110)],
+      }),
+    ],
+  });
+  const sonyAi = {
+    ...seed.headphones,
+    judgeMode: "ai",
+    aiChecksToday: 12,
+    latestAlert: alertOf({
+      id: "bal_sony_new",
+      title: "Sony WH-1000XM6 under ₹25,000: below 25,000",
+      aiState: "unchecked",
+      aiWhy: "AI was unavailable; Timely asks again later",
+    }),
+  };
+  const heldBack = alertOf({ held: "judged", aiState: "judged", aiWhy: "a 0.4% wobble, below what you care about" });
+  const btcSeen = alertOf({ id: "bal_btc", alsoSeenBy: [{ botId: "bot_seed_crypto", name: "Crypto mover" }] });
+  const cryptoShared = alertOf({
+    held: "shared",
+    sharedWith: { alertId: "bal_btc", botId: "bot_seed_btc", name: "Bitcoin under $70,000" },
+  });
+  const suggestion = {
+    id: "bsg_1",
+    line: "Only tell me about moves over 8%?",
+    button: "Raise to 8%",
+    reason: "too_small",
+    watchId: "bwt_seed_nvda",
+    ruleId: "brl_n",
+    rule: { kind: "move_pct", percent: 8, direction: "any" },
+    alertIds: ["bal_n1", "bal_n2", "bal_n3"],
+    createdAt: ago(60),
+  };
+  const nvdaSuggests = { ...seed.nvda, suggestion };
+  const brief = bot({
+    id: "bot_seed_brief",
+    name: "Morning brief",
+    kind: "brief",
+    briefTime: "08:00",
+    briefAi: true,
+    sources: ["bot_seed_gpu", "bot_seed_sony", "bot_seed_btc", "bot_seed_steam"],
+    intervalMinutes: 1440,
+    lastCheckAt: "2026-11-07T08:01:00Z",
+    nextCheckAt: "2026-11-08T08:01:00Z",
+    strip: "fnf",
+    latestAlert: alertOf({
+      id: "bal_brief",
+      kind: "brief",
+      // briefAi is on, so the title is the AI's own words and holds no count.
+      title: "Morning brief: a 2TB NVMe deal and a Sony drop",
+      body: "GPU deals under $400: Samsung 990 Pro 2TB NVMe, $99",
+      items: 7,
+      createdAt: "2026-11-07T08:01:00Z",
+      feedback: "useful",
+      aiState: "judged",
+    }),
+  });
+  const steamOnly = { ...seed.steam, briefOnly: true };
+  const all = [...board, nvme, brief];
+  const summary = {
+    checksToday: 312,
+    alertsToday: 2,
+    nextCheckAt: ahead(4),
+    sharedToday: 1,
+    aiChecksToday: 37,
+    aiCap: 200,
+    ai: ready,
+    allPaused: false,
+    passedToday: 6,
+    links,
+  };
+
+  test("limits, How smart and the new words", () => {
+    assert.equal(BOT_LIMITS.aiPerBot, 20);
+    assert.equal(BOT_LIMITS.aiPerAccount, 200);
+    assert.equal(BOT_LIMITS.chainSteps, 3);
+    assert.deepEqual(limitRows().slice(-3), [
+      ["AI checks", "20 a day per bot, 200 in all"],
+      ["Passing on", "4 bots each, 20 items a day per link"],
+      ["Briefs", "Up to 8 bots, 5 items each"],
+    ]);
+    assert.deepEqual(
+      HOW_SMART.map((h) => [h.id, h.label, !!h.later]),
+      [
+        ["rules", "Rules only", false],
+        ["ai", "AI judges", false],
+        ["research", "Research", true],
+      ],
+    );
+    assert.deepEqual(PASS_FEEDBACK, { id: "not_passed", label: "Shouldn't have been passed on" });
+    assert.deepEqual(
+      FEEDBACK_REASONS.map((r) => r.id),
+      ["too_small", "not_wanted", "already_knew"],
+      "the chips stay three",
+    );
+    assert.equal(BRIEF_TIMES.length, 18);
+    assert.deepEqual([BRIEF_TIMES[0], BRIEF_TIMES[3], BRIEF_TIMES[17]], ["05:00", "08:00", "22:00"]);
+    assert.equal(checkOutcomeLabel("passed"), "Passed on");
+    assert.equal(checkOutcomeLabel("judged_quiet"), "AI held it back");
+    assert.equal(checkOutcomeLabel("fired"), "Told you");
+    assert.equal(checkTriggerLabel("pass"), "Passed on");
+  });
+
+  test("the brief card fills every slot", () => {
+    assert.equal(botMarkKind(brief), "sunrise");
+    assert.equal(botMarkKind(seed.gpu), "watch");
+    assert.equal(botMarkKind(emptyDraft()), "none");
+    assert.equal(miniSub(brief, NOW, TZ), "Brief · daily at 08:00 · 4 bots");
+    assert.equal(cardSub(brief, { short: true }), "Brief · daily at 08:00");
+    assert.deepEqual(cardValue(brief), { kind: "number", text: "7", unit: "new", tone: "default" });
+    assert.equal(valueKind(brief), "number");
+    assert.equal(valueText(brief), "7");
+    assert.equal(captionLine(brief, NOW, TZ, all), "From GPU deals under $400, Sony WH-1000XM6 under ₹25,000 and 2 more");
+    assert.equal(captionLine(brief, NOW, TZ), "From 4 bots");
+    const two = { ...brief, sources: ["bot_seed_gpu", "bot_seed_btc"] };
+    assert.equal(captionLine(two, NOW, TZ, { bot_seed_gpu: { name: "GPU deals" }, bot_seed_btc: { name: "Bitcoin" } }), "From GPU deals and Bitcoin");
+    assert.equal(valueLine(brief), "Sums up 4 bots");
+    assert.equal(footerRight(brief, NOW, TZ), "Next brief 08:00", "the set time, not the spread run");
+    assert.equal(footerRight({ ...brief, nextCheckAt: "2026-11-10T08:01:00Z" }, NOW, TZ), "Next brief Tue 08:00");
+    assert.equal(feedSources(brief), null);
+    assert.equal(fixAction(brief), "check_now");
+    assert.equal(fixAction({ ...brief, status: "paused", pauseReason: "person" }), "resume");
+    assert.equal(boardGroup(brief, NOW), "watching");
+    assert.deepEqual(healthLine(brief, NOW, TZ), { tone: "ok", word: "Working", time: "10 h ago" });
+    // Nothing sent yet, and a brief whose count the server did not send: the title is never parsed for it.
+    assert.equal(valueText({ ...brief, latestAlert: null }), "Nothing yet");
+    const { items: _items, ...uncounted } = brief.latestAlert;
+    assert.deepEqual(cardValue({ ...brief, latestAlert: uncounted }), { kind: "text", text: "Brief sent", tone: "default" });
+    const template = { ...uncounted, title: "Morning brief: 7 new from 4 bots" };
+    assert.deepEqual(cardValue({ ...brief, latestAlert: template }), { kind: "text", text: "Brief sent", tone: "default" });
+    // A source whose name is not known (deleted, or not loaded yet) never drops out of the count.
+    const three = all.filter((b) => b.id !== "bot_seed_steam");
+    assert.equal(captionLine(brief, NOW, TZ, three), "From 4 bots");
+  });
+
+  test("How smart choices and hints name no model", () => {
+    assert.deepEqual(smartOptions({ ai: ready }), [
+      { id: "rules", label: "Rules only", disabled: false },
+      { id: "ai", label: "AI judges", disabled: false },
+      { id: "research", label: "Research", disabled: true, tag: "Later" },
+    ]);
+    assert.deepEqual(smartOptions({ ai: noAi })[1], { id: "ai", label: "AI judges", disabled: true, tag: "Needs AI" });
+    const hint = aiHint(nvme, { ai: ready });
+    assert.equal(
+      hint,
+      "AI checks 15 of 20 today, on Anthropic API. AI looks at each change your rules spot and decides if it's worth telling you.",
+    );
+    assert.doesNotMatch(hint, /small-judge-model|model/i, "no model id in the UI");
+    assert.equal(aiHint(nvme, { ai: noAi }), "No AI provider yet, so this bot alerts on rules alone. Add one in Settings › Agent.");
+    assert.equal(aiHint(seed.gpu, { ai: ready }), "Rules cost nothing and never call an AI.");
+    assert.equal(aiHint({ judgeMode: "ai" }, { ai: ready }).startsWith("AI checks 0 of 20 today"), true, "a new bot has used none");
+    assert.equal(SMART_HINT, "AI judges looks at each change your rules spot and decides if it's worth telling you. Research comes later.");
+    assert.equal(
+      lessonsHint(nvme),
+      "The AI judge reads these each time it decides. Rules-only bots keep them for when you turn AI on. Remove one to forget it.",
+    );
+    assert.equal(lessonsHint(brief), "When Write it with AI is on, these shape how the brief is written. Remove one to forget it.");
+  });
+
+  test("filter lines", () => {
+    assert.equal(filterLine([]), "Everything it finds");
+    assert.equal(filterLine(null), "Everything it finds");
+    assert.equal(filterLine(["2TB NVMe"]), "mentions 2TB NVMe");
+    assert.equal(filterLine(["2TB", " 4TB "]), "mentions 2TB or 4TB");
+  });
+
+  test("what AI did with each alert", () => {
+    assert.deepEqual(alertAi(nvme.latestAlert), {
+      pill: null,
+      line: "AI: Under your $110 wishlist limit and well below its usual price",
+      short: "AI: Under your $110 wishlist limit and well below its usual price",
+      tone: "default",
+    });
+    assert.deepEqual(alertAi(heldBack), {
+      pill: null,
+      line: "Held back by AI: a 0.4% wobble, below what you care about",
+      short: "Held back by AI: a 0.4% wobble, below what you care about",
+      tone: "muted",
+    });
+    assert.equal(alertAi(alertOf({ aiState: "rejudged", aiWhy: "Only a 0.2% move" })).line, "AI checked it later: Only a 0.2% move");
+    assert.deepEqual(alertAi(sonyAi.latestAlert), {
+      pill: "Not checked by AI",
+      line: "AI was unavailable; Timely asks again later",
+      short: "Not checked by AI · asks again later",
+      tone: "warning",
+    });
+    assert.equal(alertAi(alertOf({ aiState: "unchecked", aiWhy: "AI checks are used up for today" })).short, "Not checked by AI · AI checks used up today");
+    assert.equal(alertAi(alertOf({ aiState: "unchecked", aiWhy: "No AI provider is set up" })).short, "Not checked by AI · no AI provider");
+    assert.equal(alertAi(alertOf({ aiState: "unchecked", aiWhy: "Changed while AI was checking it" })).short, "Not checked by AI · changed while checking");
+    assert.deepEqual(alertAi(alertOf({})), { pill: null, line: null, short: null, tone: "default" });
+    // A brief the AI could not write went out from the template and is never asked about again.
+    assert.deepEqual(alertAi(alertOf({ kind: "brief", aiState: "unchecked", aiWhy: "AI was unavailable; Timely asks again later" })), {
+      pill: "Not checked by AI",
+      line: "AI was unavailable, so this brief was written from the template",
+      short: "Not checked by AI · written from the template",
+      tone: "warning",
+    });
+    assert.equal(alertAi(alertOf({ kind: "brief", aiState: "unchecked", aiWhy: "" })).short, "Not checked by AI · written from the template");
+    assert.equal(
+      alertAi(alertOf({ kind: "brief", aiState: "unchecked", aiWhy: "AI checks are used up for today" })).short,
+      "Not checked by AI · AI checks used up today",
+    );
+  });
+
+  test("also seen and shared lines", () => {
+    assert.equal(alsoSeenLine(btcSeen), "Also seen by Crypto mover");
+    const two = { ...btcSeen, alsoSeenBy: [...btcSeen.alsoSeenBy, { botId: "bot_seed_nvda", name: "NVDA moves 5%" }] };
+    assert.equal(alsoSeenLine(two), "Also seen by Crypto mover and 1 more");
+    assert.equal(alsoSeenLine(alertOf({})), null);
+    assert.equal(sharedLine(cryptoShared), "Already told you through Bitcoin under $70,000");
+    assert.equal(sharedLine(btcSeen), null);
+  });
+
+  test("how this came to you", () => {
+    assert.deepEqual(howItCame(nvme.latestAlert, nvme, all, links), {
+      rows: [
+        ["Found by", "GPU deals under $400"],
+        ["Passed on", "mentions 2TB NVMe"],
+        ["Checked by", "Price check · NVMe"],
+        ["Judged by", "AI"],
+      ],
+      unpass: { linkId: "blk_gpu_nvme" },
+    });
+    assert.deepEqual(howItCame(sonyAi.latestAlert, sonyAi, all, links), {
+      rows: [
+        ["Checked by", "Sony WH-1000XM6 under ₹25,000"],
+        ["Judged by", "Not checked by AI"],
+      ],
+      unpass: null,
+    });
+    assert.deepEqual(howItCame(alertOf({}), seed.gpu, all, links).rows.at(-1), ["Judged by", "Rules only"]);
+    const off = links.map((l) => (l.id === "blk_gpu_nvme" ? { ...l, enabled: false, offReason: "person" } : l));
+    assert.equal(howItCame(nvme.latestAlert, nvme, all, off).unpass, null, "a switched-off link has nothing to turn off");
+    assert.equal(howItCame(nvme.latestAlert, nvme, all, []).unpass, null, "nor does a link that is gone");
+  });
+
+  test("chains", () => {
+    assert.deepEqual(chainsOf(links, all), [
+      { ids: ["bot_seed_gpu", "bot_seed_nvme"], label: "GPU deals under $400 → Price check · NVMe", passedToday: 6, firstBotId: "bot_seed_gpu" },
+    ]);
+    const names = { a: { name: "Deals feed" }, b: { name: "Price check" }, c: { name: "Stock check" }, d: { name: "Off feed" }, e: { name: "Alpha" }, f: { name: "Beta" }, g: { name: "Brief" } };
+    const three = [
+      link({ id: "l1", fromBotId: "a", toBotId: "b", passedToday: 3 }),
+      link({ id: "l2", fromBotId: "b", toBotId: "c", passedToday: 2 }),
+      link({ id: "l3", fromBotId: "d", toBotId: "b", enabled: false, offReason: "person", passedToday: 9 }),
+      link({ id: "l4", fromBotId: "e", toBotId: "f", passedToday: 1 }),
+      link({ id: "l5", kind: "brief", fromBotId: "a", toBotId: "g" }),
+    ];
+    assert.deepEqual(chainsOf(three, names), [
+      { ids: ["e", "f"], label: "Alpha → Beta", passedToday: 1, firstBotId: "e" },
+      { ids: ["a", "b", "c"], label: "Deals feed → Price check → Stock check", passedToday: 5, firstBotId: "a" },
+    ]);
+    assert.deepEqual(chainsOf(briefLinks, all), [], "brief links are not chains");
+  });
+
+  test("Today rows", () => {
+    assert.deepEqual(todayRows(summary, all), [
+      { id: "pause", label: "Pause all bots", kind: "switch", on: false },
+      { id: "ai", label: "AI checks", kind: "value", value: "37 of 200" },
+      { id: "passed", label: "Passed on", kind: "value", value: "6 today" },
+      { id: "blk_steam_nvme", label: "Steam Deck OLED in stock → Price check · NVMe", kind: "link", value: "Off", action: "Turn on" },
+    ]);
+    assert.equal(
+      todayRows(summary, all).some((r) => r.label === "Alerts"),
+      false,
+      "the header already counts alerts",
+    );
+    const quiet = { ...summary, aiChecksToday: 0, allPaused: true, links: briefLinks };
+    assert.deepEqual(todayRows(quiet, board), [{ id: "pause", label: "Pause all bots", kind: "switch", on: true }]);
+  });
+
+  test("the header counts shared alerts", () => {
+    const list = { bots: board, summary };
+    assert.equal(summaryLine(list, NOW), "312 checks today · 2 alerts · 1 shared · next check in 4 min");
+    assert.equal(summaryLine(list, NOW, "phone"), "9 bots · 2 alerts today · 1 shared · next check in 4 min");
+    assert.equal(summaryLine({ bots: board, summary: { ...summary, sharedToday: 0 } }, NOW), "312 checks today · 2 alerts · next check in 4 min");
+  });
+
+  test("Today and Chains spans", () => {
+    assert.deepEqual(
+      [1, 2, 4, 6].map((c) => topSpans(c, true)),
+      [
+        [1, 1],
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ],
+    );
+    assert.deepEqual(topSpans(4, false), [4, 0]);
+    assert.deepEqual(
+      [1, 2, 4, 6].map((c) => todayColumns(c, true)),
+      [1, 1, 1, 1],
+    );
+    assert.deepEqual(
+      [1, 2, 4, 6].map((c) => todayColumns(c, false)),
+      [1, 1, 2, 3],
+    );
+  });
+
+  test("footer while all bots are paused", () => {
+    assert.equal(footerRight(seed.headphones, NOW, TZ), "Next 00:12");
+    assert.equal(footerRight(seed.headphones, NOW, TZ, { allPaused: true }), "All bots paused");
+    assert.equal(footerRight(seed.go, NOW, TZ, { allPaused: true }), null, "a bot the person paused still shows Resume");
+    assert.equal(footerRight(seed.coldplay, NOW, TZ, { allPaused: true }), "Nov 5, 22:40");
+  });
+
+  test("works with", () => {
+    const gpu = worksWith(seed.gpu, links, all);
+    assert.deepEqual(
+      gpu.passesTo.map((p) => [p.link.id, p.name, p.filterLine, p.passedLine]),
+      [["blk_gpu_nvme", "Price check · NVMe", "mentions 2TB NVMe", "Passed today 6 of 20"]],
+    );
+    assert.deepEqual(gpu.getsFrom, []);
+    assert.deepEqual(
+      gpu.inBriefs.map((b) => [b.link.id, b.name]),
+      [["blk_brief_0", "Morning brief"]],
+    );
+    assert.deepEqual(gpu.briefOnly, { on: false, enabled: true });
+    const check = worksWith(nvme, links, all);
+    assert.deepEqual(
+      check.getsFrom.map((g) => g.name),
+      ["GPU deals under $400", "Steam Deck OLED in stock"],
+    );
+    assert.deepEqual(check.briefOnly, { on: false, enabled: false }, "not in a brief, so the switch is off");
+    assert.deepEqual(worksWith(steamOnly, links, all).briefOnly, { on: true, enabled: true });
+  });
+
+  test("a suggested change needs you, after new alerts", () => {
+    assert.equal(needsReason(nvdaSuggests, NOW), "suggestion");
+    assert.deepEqual(
+      needsOrder([...board.filter((b) => b.id !== "bot_seed_nvda"), nvdaSuggests], NOW).map((b) => b.id),
+      ["bot_seed_gpu", "bot_seed_nvda", "bot_seed_visa", "bot_seed_pixel", "bot_seed_coldplay"],
+    );
+    assert.equal(fixAction(nvdaSuggests), "apply_suggestion");
+    assert.deepEqual(fixButtons(nvdaSuggests), {
+      primary: { action: "apply_suggestion", label: "Raise to 8%" },
+      secondary: { action: "dismiss_suggestion", label: "Not now" },
+    });
+    assert.deepEqual(fixCopy(nvdaSuggests), {
+      eyebrow: "Suggests a change",
+      title: "Only tell me about moves over 8%?",
+      meta: "After 3 Not useful alerts in a row",
+    });
+    // A broken bot is fixed first; a new alert is rated first.
+    const brokenToo = { ...seed.visa, suggestion };
+    assert.equal(needsReason(brokenToo, NOW), "broken");
+    assert.equal(fixAction(brokenToo), "pick_part");
+    assert.equal(needsReason({ ...seed.gpu, suggestion }, NOW), "new_alert");
+  });
+
+  test("brief drafts", () => {
+    const draft = starterDraft(STARTERS[4]);
+    assert.equal(draft.description, "Each morning, sum up what my other bots found.");
+    assert.deepEqual(draftErrors(draft), ["Pick at least one bot to sum up"]);
+    draft.sources = ["bot_seed_gpu"];
+    assert.deepEqual(draftErrors(draft), [], "a brief needs no watch");
+    assert.deepEqual(draftErrors({ ...draft, sources: Array.from({ length: 9 }, (_, i) => `b${i}`) }), ["Pick 1 to 8 bots for the brief to sum up"]);
+    assert.deepEqual(toInput(draft), {
+      name: "Morning brief",
+      description: "Each morning, sum up what my other bots found.",
+      intervalMinutes: 1440,
+      watches: [],
+      kind: "brief",
+      desktop: true,
+      phone: true,
+      urgent: false,
+      sources: ["bot_seed_gpu"],
+      briefAi: false,
+      briefTime: "08:00",
+    });
+    // A watch bot's draft still needs a watch.
+    assert.deepEqual(draftErrors({ ...emptyDraft(), name: "x", sources: ["bot_seed_gpu"] }), ["Give the bot something to watch: a page, a feed or a price"]);
+
+    assert.deepEqual(toPatch(brief, draftOf(brief)), {});
+    const fewer = { ...draftOf(brief), sources: ["bot_seed_gpu", "bot_seed_sony", "bot_seed_btc"] };
+    assert.deepEqual(toPatch(brief, fewer), { sources: ["bot_seed_gpu", "bot_seed_sony", "bot_seed_btc"] });
+    assert.deepEqual(toPatch(brief, { ...draftOf(brief), briefTime: "07:00", briefAi: false }), { briefTime: "07:00", briefAi: false });
+
+    const card = previewCard(draft, null, NOW);
+    assert.equal(card.kind, "brief");
+    assert.deepEqual(card.watches, []);
+    assert.equal(miniSub(card, NOW, TZ), "Brief · daily at 08:00 · 1 bot");
+    assert.equal(valueText(card), "Nothing yet");
+    assert.deepEqual(proposalFacts(draft), [["Sends", "Daily at 08:00"]]);
+  });
+
+  test("watch drafts carry judging, knowledge and links", () => {
+    const d = draftOf(nvme);
+    assert.equal(d.judgeMode, "ai");
+    assert.deepEqual(d.knowledge, { kind: "sheet", id: "sht_wishlist" });
+    assert.deepEqual(toPatch(nvme, d), {});
+    assert.deepEqual(toPatch(nvme, { ...d, knowledge: null }), { knowledge: null });
+    assert.deepEqual(toPatch(seed.gpu, { ...draftOf(seed.gpu), judgeMode: "ai" }), { judgeMode: "ai" });
+    assert.deepEqual(toPatch(seed.gpu, { ...draftOf(seed.gpu), briefOnly: true }), { briefOnly: true });
+
+    const withLinks = draftOf(seed.gpu, links);
+    assert.deepEqual(withLinks.passesTo, [{ id: "blk_gpu_nvme", botId: "bot_seed_nvme", filter: ["2TB NVMe"], enabled: true }]);
+    assert.deepEqual(toPatch(seed.gpu, withLinks, links), {}, "links are sent only when they change");
+    assert.equal(draftOf(seed.gpu).passesTo, undefined, "without its links a draft leaves them as they are");
+    const more = { ...withLinks, passesTo: [...withLinks.passesTo, { botId: "bot_seed_sony", filter: [" 4TB ", ""] }] };
+    assert.deepEqual(toPatch(seed.gpu, more, links), {
+      passesTo: [
+        { id: "blk_gpu_nvme", botId: "bot_seed_nvme", filter: ["2TB NVMe"], enabled: true },
+        { botId: "bot_seed_sony", filter: ["4TB"] },
+      ],
+    });
+
+    const args = { name: "Check", description: "", intervalMinutes: 0, judgeMode: "ai", watches: [{ kind: "price", source: "crypto", symbol: "BTC" }] };
+    assert.deepEqual(proposalFacts(args).at(-1), ["AI checks", "Up to 20 a day"]);
+    assert.equal(previewCard(args, null, NOW).judgeMode, "ai");
+  });
 });

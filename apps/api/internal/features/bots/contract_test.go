@@ -101,7 +101,7 @@ func TestContractWords(t *testing.T) {
 		{"ReadMode", union("ReadMode"), []string{ReadText, ReadSelector, ReadProductPrice, ReadSelectorPrice}},
 		{"WatchKind", union("WatchKind"), []string{WatchPage, WatchFeed, WatchPrice}},
 		{"PauseReason", union("PauseReason"), []string{PausePerson, PauseStrikes, PauseMCP}},
-		{"CheckTrigger", union("CheckTrigger"), []string{TriggerSchedule, TriggerWake, TriggerRunNow, TriggerAsk}},
+		{"CheckTrigger", union("CheckTrigger"), []string{TriggerSchedule, TriggerWake, TriggerRunNow, TriggerAsk, "pass"}}, // TriggerPass arrives with the api track; X1 swaps in the constant
 		{"AnswerFresh", union("AnswerFresh"), []string{FreshCheckedNow, FreshRecent, FreshWaiting, FreshPaused, FreshLimited, FreshFloor}},
 		{"Feedback", union("Feedback"), []string{FeedbackUseful, FeedbackNotUseful}},
 		{"FEEDBACK_REASONS", reasons, FeedbackReasons},

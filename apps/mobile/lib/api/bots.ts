@@ -12,6 +12,7 @@ import type {
   RunResult,
   SourceKeyView,
 } from "@timely/contract/bots";
+import { EMPTY_BOTS_SUMMARY } from "@timely/contract/bots";
 import { api } from "./client";
 
 /** `POST /bots/:id/snooze`: a preset span, a time, or `until: null` to stop snoozing. */
@@ -25,7 +26,8 @@ export async function listBots(): Promise<BotsList> {
   const body = await api<Partial<BotsList> | undefined>("/bots");
   return {
     bots: body?.bots ?? [],
-    summary: body?.summary ?? { checksToday: 0, alertsToday: 0, nextCheckAt: null },
+    // A field the server leaves out reads as its empty value.
+    summary: { ...EMPTY_BOTS_SUMMARY, ...body?.summary },
   };
 }
 
