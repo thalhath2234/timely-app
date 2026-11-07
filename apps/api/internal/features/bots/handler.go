@@ -61,6 +61,8 @@ func httpError(err error) error {
 		return echo.NewHTTPError(http.StatusConflict, ErrPaused.Error())
 	case errors.Is(err, ErrPreviewLimit):
 		return echo.NewHTTPError(http.StatusTooManyRequests, ErrPreviewLimit.Error())
+	case errors.Is(err, ErrKeyLimit):
+		return echo.NewHTTPError(http.StatusTooManyRequests, ErrKeyLimit.Error())
 	}
 	return err
 }

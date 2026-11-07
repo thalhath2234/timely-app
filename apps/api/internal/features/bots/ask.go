@@ -138,11 +138,20 @@ WHERE id = @id AND user_id = @uid AND (asked_at IS NULL OR asked_at < @since)`,
 		if waiting {
 			return FreshLimited, "Checking now for an earlier tag; the result shows on the bot", nil, nil
 		}
-		since := time.Duration(0) // a tag that claimed it after b was read
-		if b.AskedAt != nil {
-			since = now.Sub(*b.AskedAt)
+		// Read again: the earlier tag may have claimed it after b was read,
+		// and only a check that ran since it asked is one to point to.
+		var cur []struct{ AskedAt, LastCheckAt *time.Time }
+		if err := db.Raw(`SELECT asked_at, last_check_at FROM bots WHERE id = ? AND user_id = ?`, b.ID, b.UserID).Scan(&cur).Error; err != nil {
+			return "", "", nil, err
 		}
-		return FreshLimited, "Checked " + ago(since) + " by an earlier tag", nil, nil
+		if len(cur) == 1 && cur[0].AskedAt != nil && cur[0].LastCheckAt != nil && !cur[0].LastCheckAt.Before(*cur[0].AskedAt) {
+			return FreshLimited, "Checked " + ago(now.Sub(*cur[0].LastCheckAt)) + " by an earlier tag", nil, nil
+		}
+		asked := time.Duration(0)
+		if len(cur) == 1 && cur[0].AskedAt != nil {
+			asked = now.Sub(*cur[0].AskedAt)
+		}
+		return FreshLimited, "An earlier tag asked for a check " + ago(asked) + ". Tag it again in a few minutes if nothing shows", nil, nil
 	}
 	ws, err := loadWatches(db, b.ID, false)
 	if err != nil {

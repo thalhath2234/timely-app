@@ -87,6 +87,9 @@ func (s *Store) Create(ctx context.Context, userID string, in Input, o Origin, n
 			return View{}, err
 		}
 	}
+	if o == OriginMCP {
+		defs.Urgent = false // an outside app never makes a Bot urgent
+	}
 	b := Bot{
 		ID: utils.PrefixedUUID("bot"), UserID: userID, Name: name, Description: desc, Origin: o,
 		Status: StatusActive, JudgeMode: judge, IntervalSeconds: interval,
@@ -463,8 +466,8 @@ func (s *Store) List(ctx context.Context, userID string, now time.Time) (BotList
 	}
 	local := now.In(loc)
 	var checks int64
-	if err := db.Model(&Check{}).Where("user_id = ? AND started_at >= ?", userID,
-		time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc).UTC()).Count(&checks).Error; err != nil {
+	if err := db.Model(&Check{}).Where("user_id = ? AND started_at >= ? AND outcome <> ?", userID,
+		time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc).UTC(), outSuperseded).Count(&checks).Error; err != nil {
 		return BotList{}, err
 	}
 	out.Summary.ChecksToday = int(checks)

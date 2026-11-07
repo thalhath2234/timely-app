@@ -1,10 +1,12 @@
 package bots
 
 import (
+	"encoding/json"
 	"errors"
 	"time"
 
 	"gorm.io/gorm"
+	"timely-api/internal/models"
 )
 
 const (
@@ -37,6 +39,9 @@ func (s *Service) VetRestore(tx *gorm.DB, userID string, fromMCP bool) error {
 	// Keys hang off the account, not its Bots, so the restore kept them.
 	hasKey, err := keySet(tx, userID)
 	if err != nil {
+		return err
+	}
+	if err := vetAlertDefaults(tx, userID, fromMCP); err != nil {
 		return err
 	}
 	now := s.now().UTC()
@@ -88,6 +93,32 @@ func (s *Service) VetRestore(tx *gorm.DB, userID string, fromMCP bool) error {
 		}
 	}
 	return nil
+}
+
+// vetAlertDefaults checks the restored "Alerts for new bots": a value that
+// is not three switches goes back to the default, and over MCP urgent goes
+// off, so an outside app cannot make every later Bot urgent this way.
+func vetAlertDefaults(tx *gorm.DB, userID string, fromMCP bool) error {
+	var rows []struct{ Defaults *string }
+	if err := tx.Raw(`SELECT bot_alert_defaults::text AS defaults FROM configs WHERE user_id = ?`, userID).Scan(&rows).Error; err != nil || len(rows) == 0 {
+		return err
+	}
+	defs := models.DefaultBotAlertDefaults()
+	if rows[0].Defaults != nil {
+		var raw map[string]json.RawMessage
+		if json.Unmarshal([]byte(*rows[0].Defaults), &raw) == nil {
+			for key, dst := range map[string]*bool{"desktop": &defs.Desktop, "phone": &defs.Phone, "urgent": &defs.Urgent} {
+				var v bool
+				if b, ok := raw[key]; ok && json.Unmarshal(b, &v) == nil {
+					*dst = v
+				}
+			}
+		}
+	}
+	if fromMCP {
+		defs.Urgent = false
+	}
+	return tx.Exec(`UPDATE configs SET bot_alert_defaults = ? WHERE user_id = ?`, defs, userID).Error
 }
 
 // unusable says why a restored Bot's watches cannot run, or "" when they

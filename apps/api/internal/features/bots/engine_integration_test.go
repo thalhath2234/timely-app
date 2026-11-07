@@ -245,6 +245,15 @@ func TestIntegrationBotPriceFiresOnce(t *testing.T) {
 	if len(day.Points) != 5 {
 		t.Fatalf("a repeated quote added a point: %d", len(day.Points))
 	}
+	// A quote in another currency starts the series again.
+	other := *w.LastReading
+	other.Currency, other.At = "EUR", other.At.Add(time.Minute)
+	must(t, addPricePoint(e.db, w, other))
+	var days []PriceDay
+	must(t, e.db.Where("bot_id = ?", v.ID).Find(&days).Error)
+	if len(days) != 1 || days[0].Currency != "EUR" || len(days[0].Points) != 1 {
+		t.Fatalf("after a quote in another currency: %+v", days)
+	}
 	b := e.bot(v.ID)
 	if b.Strikes != 0 || b.Health != healthWorking || b.CheckingJobID != nil || b.LastOkAt == nil || !b.NextCheckAt.After(e.now) {
 		t.Fatalf("bot after checks %+v", b)
@@ -940,7 +949,9 @@ func TestIntegrationBotRunNow(t *testing.T) {
 	e.now = e.now.Add(time.Minute)
 	res, err := e.s.RunNow(ctx, e.user, "run", OriginApp)
 	must(t, err)
-	if want := e.now.Add(MinPageEvery - time.Minute); !res.RunAt.Equal(want) ||
+	// It runs as early as the claim fence lets it (spacedAt), the time the
+	// board's Check now shows.
+	if want := e.now.Add(MinPageEvery - time.Minute - FenceSlack); !res.RunAt.Equal(want) ||
 		!strings.HasSuffix(res.Line, "Pages and feeds are checked every 15 minutes at most.") {
 		t.Fatalf("run at %v (%s)", res.RunAt, res.Line)
 	}

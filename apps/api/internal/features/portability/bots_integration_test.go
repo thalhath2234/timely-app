@@ -373,6 +373,26 @@ func TestIntegrationBackupKeepsAlertFeedbackAndDefaults(t *testing.T) {
 	if n := count(`SELECT count(*) FROM configs WHERE user_id = ? AND bot_alert_defaults = '{"desktop": true, "phone": true, "urgent": false}'::jsonb`, uid); n != 1 {
 		t.Fatal("an older settings row did not get the default alert switches")
 	}
+
+	// Over MCP an outside app cannot turn urgent on for every later Bot,
+	// and a value that is not three switches goes back to the default.
+	service.SetRestoreVet(bots.New(db, nil).VetRestore)
+	cfg["bot_alert_defaults"] = map[string]any{"desktop": false, "phone": true, "urgent": true}
+	backup.Rows["configs"][0], _ = json.Marshal(cfg)
+	if _, err := service.RestoreFromMCP(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(`SELECT count(*) FROM configs WHERE user_id = ? AND bot_alert_defaults = '{"desktop": false, "phone": true, "urgent": false}'::jsonb`, uid); n != 1 {
+		t.Fatal("a restore over MCP kept urgent on for new bots")
+	}
+	cfg["bot_alert_defaults"] = map[string]any{"urgent": "x"}
+	backup.Rows["configs"][0], _ = json.Marshal(cfg)
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(`SELECT count(*) FROM configs WHERE user_id = ? AND bot_alert_defaults = '{"desktop": true, "phone": true, "urgent": false}'::jsonb`, uid); n != 1 {
+		t.Fatal("a malformed alert default was kept")
+	}
 }
 
 // A restore keeps the account's price source keys (they hang off the

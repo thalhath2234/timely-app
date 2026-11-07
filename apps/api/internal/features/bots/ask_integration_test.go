@@ -152,7 +152,8 @@ func TestIntegrationBotAskFreshness(t *testing.T) {
 	// limited until 5 minutes pass, then the next tag checks.
 	must(t, e.db.Model(&models.Job{}).Where("dedupe_key = ?", checkKey(v.ID)).Update("status", models.JobCancelled).Error)
 	e.now = e.now.Add(time.Minute)
-	if a = e.ask(v.ID); a.Fresh != FreshLimited || a.FreshLine != "Checked 3 min ago by an earlier tag" {
+	// No check ran since that tag asked, so the answer does not claim one.
+	if a = e.ask(v.ID); a.Fresh != FreshLimited || a.FreshLine != "An earlier tag asked for a check 3 min ago. Tag it again in a few minutes if nothing shows" {
 		t.Fatalf("limited %q %q", a.Fresh, a.FreshLine)
 	}
 	e.now = e.now.Add(3 * time.Minute)

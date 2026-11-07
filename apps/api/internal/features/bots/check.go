@@ -777,9 +777,14 @@ func watchChanged(prev, cur Reading) bool {
 }
 
 // addPricePoint appends a quote to its UTC day. A repeat of the last point's
-// quote time adds nothing.
+// quote time adds nothing. A quote in another currency than the series (a
+// shop page shown for another country) starts the series again, so the
+// spark and the day's move never compare amounts across currencies.
 func addPricePoint(tx *gorm.DB, w Watch, r Reading) error {
 	at := r.At.UTC()
+	if err := tx.Exec(`DELETE FROM bot_price_days WHERE watch_id = ? AND currency <> ?`, w.ID, r.Currency).Error; err != nil {
+		return err
+	}
 	return tx.Exec(`
 INSERT INTO bot_price_days (watch_id, day, bot_id, user_id, currency, points, open, high, low, close)
 VALUES (@w, CAST(@day AS date), @b, @u, @cur, jsonb_build_array(jsonb_build_array(CAST(@t AS bigint), CAST(@p AS numeric))),

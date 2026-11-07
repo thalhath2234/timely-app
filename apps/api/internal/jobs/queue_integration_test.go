@@ -287,3 +287,44 @@ func TestIntegrationRenewKeepsALongJobRunning(t *testing.T) {
 		t.Fatalf("a job renewed 6 minutes ago was recovered: %s", row.Status)
 	}
 }
+
+// A job with the same dedupe key that another transaction commits between
+// Enqueue's look and its insert is returned, and the caller's transaction
+// stays usable (a unique violation would abort it).
+func TestIntegrationEnqueueRaceKeepsTheTransaction(t *testing.T) {
+	db := integrationDB(t)
+	if err := db.Exec(`CREATE UNIQUE INDEX idx_jobs_dedupe_active ON jobs (dedupe_key) WHERE dedupe_key IS NOT NULL AND status IN ('pending', 'running')`).Error; err != nil {
+		t.Fatal(err)
+	}
+	const key = "icon:shop.example"
+	first := db.Begin()
+	won, err := NewQueue(first).Enqueue(Enqueue{UserID: "u1", Kind: "bot_icon", DedupeKey: key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	type result struct {
+		job *models.Job
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		var got *models.Job
+		err := db.Transaction(func(tx *gorm.DB) error {
+			var err error
+			// The look sees nothing yet; the insert waits on first.
+			if got, err = NewQueue(tx).Enqueue(Enqueue{UserID: "u1", Kind: "bot_icon", DedupeKey: key}); err != nil {
+				return err
+			}
+			return tx.Exec(`SELECT 1`).Error
+		})
+		done <- result{got, err}
+	}()
+	time.Sleep(300 * time.Millisecond)
+	if err := first.Commit().Error; err != nil {
+		t.Fatal(err)
+	}
+	r := <-done
+	if r.err != nil || r.job == nil || r.job.ID != won.ID {
+		t.Fatalf("the second enqueue: %+v %v, want %s", r.job, r.err, won.ID)
+	}
+}

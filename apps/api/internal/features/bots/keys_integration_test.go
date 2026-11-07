@@ -298,3 +298,20 @@ func callRaw(t *testing.T, s *Service, userID, method, path string) (int, string
 	e.ServeHTTP(rec, httptest.NewRequest(method, path, nil))
 	return rec.Code, rec.Body.String()
 }
+
+// Each key save reads the source live, from slots every account's checks
+// share, so one person's saves are capped.
+func TestIntegrationBotKeySavesAreCapped(t *testing.T) {
+	e := keyedEngine(t)
+	fh := e.finnhub()
+	for i := 0; i < KeyTestsPerHour; i++ {
+		if code, body := call(t, e.s, e.user, http.MethodPost, "/bots/keys/finnhub", map[string]string{"key": goodKey}); code != http.StatusOK {
+			t.Fatalf("save %d: %d %v", i+1, code, body)
+		}
+	}
+	before := fh.calls()
+	code, body := call(t, e.s, e.user, http.MethodPost, "/bots/keys/finnhub", map[string]string{"key": goodKey})
+	if code != http.StatusTooManyRequests || body["message"] != ErrKeyLimit.Error() || fh.calls() != before {
+		t.Fatalf("one save too many: %d %v, %d reads", code, body, fh.calls()-before)
+	}
+}

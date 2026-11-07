@@ -278,11 +278,11 @@ func (s *Service) nextCheck(interval time.Duration, now time.Time) time.Time {
 // keeps a run-now trigger it already has (so it still runs before the Bot is
 // due); otherwise it takes trigger.
 func (s *Service) queueCheck(b Bot, floor time.Duration, trigger string, now time.Time) (*models.Job, error) {
+	// The earliest the claim fence lets a check start (spacedAt): the same
+	// time the board's Check now and a tag's "soon" go by.
 	runAt := now
-	if b.CheckStartedAt != nil {
-		if next := b.CheckStartedAt.Add(floor); next.After(runAt) {
-			runAt = next.UTC()
-		}
+	if next := spacedAt(b.CheckStartedAt, floor); next.After(runAt) {
+		runAt = next
 	}
 	job, err := s.queue.Enqueue(jobs.Enqueue{
 		UserID: b.UserID, Kind: models.JobBotCheck, DedupeKey: checkKey(b.ID), MaxAttempts: checkAttempts, RunAt: runAt,

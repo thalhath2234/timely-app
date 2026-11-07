@@ -31,6 +31,15 @@ const (
 // keyCheckWait bounds the test read a save makes.
 const keyCheckWait = 30 * time.Second
 
+// KeyTestsPerHour caps one person's key saves: each makes a live read of
+// the source, whose slots every account's checks share.
+const KeyTestsPerHour = 10
+
+// ErrKeyLimit is a person saving keys faster than KeyTestsPerHour.
+var ErrKeyLimit = errors.New("Too many key checks right now. Try again later.")
+
+var keyTests = newPreviewLimiter(KeyTestsPerHour, time.Hour)
+
 // sourceKeyShape is what every keyed source's keys look like today.
 var sourceKeyShape = regexp.MustCompile(`^[A-Za-z0-9]{8,64}$`)
 
@@ -201,6 +210,9 @@ func (s *Service) SaveSourceKey(ctx context.Context, userID, source, key string)
 	key = strings.TrimSpace(key)
 	if !sourceKeyShape.MatchString(key) {
 		return SourceKeyView{}, invalid("That doesn't look like a %s key", src.Label)
+	}
+	if !keyTests.take(userID, 1, s.now().UTC()) {
+		return SourceKeyView{}, ErrKeyLimit
 	}
 	readCtx, cancel := context.WithTimeout(ctx, keyCheckWait)
 	_, err := price.Get(readCtx, s.fetch, oneKey(key), price.Query{UserID: userID, Source: src.Name, Symbol: src.Probe}, s.now().UTC())

@@ -222,11 +222,12 @@ func TestIntegrationBotAlertDefaults(t *testing.T) {
 	if mixed["desktop"] != true || mixed["phone"] != true || mixed["urgent"] != false {
 		t.Fatalf("mixed bot %v", mixed)
 	}
-	// Chat and outside apps never send switches, so they always get them.
+	// Chat and outside apps never send switches, so they always get them,
+	// except that an outside app never makes a Bot urgent.
 	for _, o := range []Origin{OriginChat, OriginMCP} {
 		v, err := s.Create(ctx, me, pageInput("From "+string(o), "https://example.com/"+string(o)), o)
 		must(t, err)
-		if v.Desktop || !v.Phone || !v.Urgent {
+		if v.Desktop || !v.Phone || v.Urgent != (o == OriginChat) {
 			t.Fatalf("%s bot %+v", o, v)
 		}
 	}
