@@ -2,7 +2,10 @@ package extract
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestProductPrice(t *testing.T) {
@@ -125,5 +128,50 @@ func TestCurrencyCode(t *testing.T) {
 		if got := currencyCode(c.stated, c.text); got != c.want {
 			t.Errorf("currencyCode(%q, %q) = %q, want %q", c.stated, c.text, got, c.want)
 		}
+	}
+}
+
+// JSON-LD @id references may loop or share subtrees. Following them must
+// end, quickly, and still find a price that is there.
+func TestProductPriceJSONLDReferences(t *testing.T) {
+	page := func(ld string) []byte {
+		return []byte(`<html><head><script type="application/ld+json">` + ld + `</script></head><body></body></html>`)
+	}
+	var dag strings.Builder
+	dag.WriteString(`{"@graph":[`)
+	for i := range 40 {
+		fmt.Fprintf(&dag, `{"@id":"n%d","@type":"Thing","x":{"@id":"n%d"},"y":{"@id":"n%d"}},`, i, i+1, i+1)
+	}
+	dag.WriteString(`{"@id":"n40","@type":"Thing","name":"end"}]}`)
+	deep := strings.Repeat(`{"@type":"Thing","x":`, 200) + `{"@type":"Product","offers":{"price":"9"}}` + strings.Repeat(`}`, 200)
+	cases := []struct {
+		name, ld string
+		want     Price
+		empty    bool
+	}{
+		{name: "self reference", ld: `{"@id":"a","@type":"Thing","x":{"@id":"a"}}`, empty: true},
+		{name: "offer that offers itself", ld: `{"@type":"Product","offers":{"@id":"o"}}<\/script><script type="application/ld+json">{"@id":"o","@type":"Offer","offers":{"@id":"o"}}`, empty: true},
+		{name: "two-node loop", ld: `[{"@id":"a","@type":"Thing","x":{"@id":"b"}},{"@id":"b","@type":"Thing","x":{"@id":"a"}}]`, empty: true},
+		{name: "shared subtrees", ld: dag.String(), empty: true},
+		{name: "too deep", ld: deep, empty: true},
+		{name: "loop beside a product", ld: `[{"@id":"a","@type":"Thing","x":{"@id":"a"}},{"@type":"Product","offers":{"price":"12","priceCurrency":"EUR"}}]`, want: Price{12, "EUR", "jsonld"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			start := time.Now()
+			got, err := ProductPrice(page(strings.ReplaceAll(c.ld, `<\/script>`, `</script>`)), "text/html")
+			if d := time.Since(start); d > 2*time.Second {
+				t.Fatalf("took %v", d)
+			}
+			if c.empty {
+				if !errors.Is(err, ErrEmpty) {
+					t.Fatalf("got %+v, %v; want ErrEmpty", got, err)
+				}
+				return
+			}
+			if err != nil || got != c.want {
+				t.Fatalf("got %+v, %v; want %+v", got, err, c.want)
+			}
+		})
 	}
 }

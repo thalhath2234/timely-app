@@ -145,6 +145,9 @@ func TestDescribeErr(t *testing.T) {
 	if p := describeErr(page, extract.ErrEmpty); p.code != "cant_find" || p.line != "The selector matched nothing on the page" {
 		t.Fatalf("empty %+v", p)
 	}
+	if p := describeErr(page, extract.ErrTooComplex); p.code != "too_big" || p.class != classStrike {
+		t.Fatalf("too complex %+v", p)
+	}
 	if p := describeErr(page, errFake); p != nil {
 		t.Fatalf("an unknown error is not a site problem: %+v", p)
 	}

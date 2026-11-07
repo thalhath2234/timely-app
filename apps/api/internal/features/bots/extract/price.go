@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"math"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -173,7 +174,7 @@ func jsonLDPrice(blocks []string) (Price, bool) {
 		roots = append(roots, v)
 		indexIDs(v, ids)
 	}
-	ld := ldReader{ids: ids}
+	ld := &ldReader{ids: ids, seen: map[ldVisit]bool{}}
 	for _, v := range roots {
 		if p, ok := ld.find(v, true); ok {
 			return p, true
@@ -217,10 +218,52 @@ func indexIDs(v any, ids map[string]map[string]any) {
 	}
 }
 
-type ldReader struct{ ids map[string]map[string]any }
+// JSON-LD @id references can form cycles and shared subtrees, so the reader
+// visits each node at most once per way of reading it, and gives up past
+// ldMaxDepth nested nodes or ldMaxSteps nodes in all.
+const (
+	ldMaxDepth = 64
+	ldMaxSteps = 100_000
+)
+
+type ldReader struct {
+	ids   map[string]map[string]any
+	seen  map[ldVisit]bool
+	steps int
+	depth int
+}
+
+// ldVisit is one node read one way: by find (top or not) or as an offer.
+type ldVisit struct {
+	node uintptr // the map's identity; every node stays alive in ids or the roots
+	how  byte
+}
+
+const (
+	ldFind byte = iota
+	ldFindTop
+	ldOffer
+)
+
+// enter reports whether m may be read the given way, counting the step. A
+// node already read that way, or one past the caps, gives nothing new: the
+// first read of it would have returned its price. Every enter that returns
+// true is paired with leave.
+func (ld *ldReader) enter(m map[string]any, how byte) bool {
+	v := ldVisit{node: reflect.ValueOf(m).Pointer(), how: how}
+	if ld.seen[v] || ld.depth >= ldMaxDepth || ld.steps >= ldMaxSteps {
+		return false
+	}
+	ld.seen[v] = true
+	ld.steps++
+	ld.depth++
+	return true
+}
+
+func (ld *ldReader) leave() { ld.depth-- }
 
 // resolve follows a bare {"@id": …} reference to the node it names.
-func (ld ldReader) resolve(m map[string]any) map[string]any {
+func (ld *ldReader) resolve(m map[string]any) map[string]any {
 	if id, ok := m["@id"].(string); ok && len(m) == 1 {
 		if full, ok := ld.ids[id]; ok {
 			return full
@@ -231,7 +274,7 @@ func (ld ldReader) resolve(m map[string]any) map[string]any {
 
 // find looks for a Product anywhere under v. top is true for a block's
 // root and its @graph, where a lone Offer also counts.
-func (ld ldReader) find(v any, top bool) (Price, bool) {
+func (ld *ldReader) find(v any, top bool) (Price, bool) {
 	switch t := v.(type) {
 	case []any:
 		for _, c := range t {
@@ -241,6 +284,14 @@ func (ld ldReader) find(v any, top bool) (Price, bool) {
 		}
 	case map[string]any:
 		t = ld.resolve(t)
+		how := ldFind
+		if top {
+			how = ldFindTop
+		}
+		if !ld.enter(t, how) {
+			return Price{}, false
+		}
+		defer ld.leave()
 		switch {
 		case isType(t, "Product", "IndividualProduct", "ProductModel", "ProductGroup"):
 			if p, ok := ld.offers(t["offers"]); ok {
@@ -273,7 +324,7 @@ func (ld ldReader) find(v any, top bool) (Price, bool) {
 }
 
 // offers reads an offers value: one offer or a list, first priced one wins.
-func (ld ldReader) offers(v any) (Price, bool) {
+func (ld *ldReader) offers(v any) (Price, bool) {
 	switch t := v.(type) {
 	case []any:
 		for _, c := range t {
@@ -287,7 +338,11 @@ func (ld ldReader) offers(v any) (Price, bool) {
 	return Price{}, false
 }
 
-func (ld ldReader) offer(m map[string]any) (Price, bool) {
+func (ld *ldReader) offer(m map[string]any) (Price, bool) {
+	if !ld.enter(m, ldOffer) {
+		return Price{}, false
+	}
+	defer ld.leave()
 	keys := []string{"price", "lowPrice"}
 	if isType(m, "AggregateOffer") {
 		keys = []string{"lowPrice", "price"}

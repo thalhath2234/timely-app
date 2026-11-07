@@ -59,7 +59,7 @@ func ValidSelector(css string) error {
 	return err
 }
 
-func compile(css string) (cascadia.Selector, error) {
+func compile(css string) ([][]step, error) {
 	css = strings.TrimSpace(css)
 	switch {
 	case css == "":
@@ -67,18 +67,17 @@ func compile(css string) (cascadia.Selector, error) {
 	case len(css) > MaxSelector:
 		return nil, fmt.Errorf("the CSS selector is longer than %d characters", MaxSelector)
 	}
-	sel, err := cascadia.Compile(css)
-	if err != nil {
+	if _, err := cascadia.Compile(css); err != nil {
 		return nil, fmt.Errorf("the CSS selector is not valid: %w", err)
 	}
-	return sel, nil
+	return plan(css)
 }
 
 // Select returns the text of every element css matches, one per line. An
 // element inside an earlier match is not read twice. No match, or matches
-// with no text, gives ErrEmpty.
+// with no text, gives ErrEmpty; running out of time gives ErrTooComplex.
 func Select(body []byte, contentType, css string) (string, error) {
-	sel, err := compile(css)
+	chains, err := compile(css)
 	if err != nil {
 		return "", err
 	}
@@ -86,27 +85,36 @@ func Select(body []byte, contentType, css string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	matched := map[*html.Node]bool{}
-	var b strings.Builder
-	for _, n := range sel.MatchAll(doc) {
+	b := newBudget()
+	matches, err := matchAll(doc, chains, b)
+	if err != nil {
+		return "", err
+	}
+	matched := make(map[*html.Node]bool, len(matches))
+	for _, n := range matches {
 		matched[n] = true
-		if insideAny(n, matched) {
-			continue
-		}
-		b.WriteByte('\n')
-		writeChildren(&b, n, false)
-		b.WriteByte('\n')
 	}
-	return finish(b.String())
-}
-
-func insideAny(n *html.Node, set map[*html.Node]bool) bool {
-	for p := n.Parent; p != nil; p = p.Parent {
-		if set[p] {
-			return true
+	var sb strings.Builder
+	inside := 0
+	err = walk(doc, b, func(n *html.Node) {
+		if !matched[n] {
+			return
 		}
+		if inside == 0 {
+			sb.WriteByte('\n')
+			writeChildren(&sb, n, false)
+			sb.WriteByte('\n')
+		}
+		inside++
+	}, func(n *html.Node) {
+		if matched[n] {
+			inside--
+		}
+	})
+	if err != nil {
+		return "", err
 	}
-	return false
+	return finish(sb.String())
 }
 
 func writeText(b *strings.Builder, n *html.Node, dropChrome bool) {

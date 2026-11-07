@@ -235,7 +235,7 @@ func (s *Service) readWatch(ctx context.Context, b Bot, w Watch, now time.Time) 
 // extractReading turns a fetched body into a Reading.
 func extractReading(w Watch, res *fetch.Response, now time.Time) (Reading, error) {
 	unreadable := func(err error) error {
-		if errors.Is(err, extract.ErrEmpty) {
+		if errors.Is(err, extract.ErrEmpty) || errors.Is(err, extract.ErrTooComplex) {
 			return err
 		}
 		return fmt.Errorf("%w: %v", errUnreadable, err)
@@ -354,6 +354,8 @@ func describeErr(w Watch, err error) *problem {
 		return strike("not_found", "The page is gone")
 	case errors.Is(err, fetch.ErrTooBig):
 		return strike("too_big", "The page is too large to read")
+	case errors.Is(err, extract.ErrTooComplex):
+		return strike("too_big", "The page is too large to read with this selector")
 	case errors.Is(err, fetch.ErrBlockedAddress):
 		return strike("blocked", "This is not a public web address")
 	case errors.Is(err, fetch.ErrUnsupported), errors.Is(err, errUnreadable):
