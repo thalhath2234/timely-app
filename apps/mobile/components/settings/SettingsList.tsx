@@ -156,15 +156,27 @@ export function GroupHint({ children }: { children: ReactNode }) {
 }
 
 /** Timely's drawn on/off switch, readable on a card in both themes. */
-export function ListSwitch({ value, onChange, label }: { value: boolean; onChange: (next: boolean) => void; label: string }) {
+export function ListSwitch({
+  value,
+  onChange,
+  label,
+  disabled,
+}: {
+  value: boolean;
+  onChange: (next: boolean) => void;
+  label: string;
+  /** Shown, dimmed, and not pressable (not offered yet, or saving). */
+  disabled?: boolean;
+}) {
   return (
     <AnimatedPressable
       accessibilityRole="switch"
       accessibilityLabel={label}
-      accessibilityState={{ checked: value }}
+      accessibilityState={{ checked: value, disabled: Boolean(disabled) }}
       hitSlop={8}
+      disabled={disabled}
       onPress={() => onChange(!value)}
-      style={[styles.track, value && styles.trackOn]}
+      style={[styles.track, value && styles.trackOn, disabled && styles.disabled]}
     >
       <View style={[styles.thumb, value && styles.thumbOn]} />
     </AnimatedPressable>

@@ -151,6 +151,7 @@ function BotMentionList({
                 leading={
                   <BotMark
                     watches={bot.watches}
+                    kind={bot.kind}
                     size={28}
                     badge={false}
                     icons={icons}

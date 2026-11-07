@@ -13,10 +13,12 @@ import {
   Pencil,
   Play,
   RefreshCw,
+  Sunrise,
   Trash2,
 } from "lucide-react-native";
 import {
   DEFAULT_BOT_SETTINGS,
+  DEFAULT_BRIEF_TIME,
   agoLabel,
   alertMeta,
   clockLabel,
@@ -80,12 +82,14 @@ import { AlertFeedback } from "./AlertFeedback";
 import { alertHeadline } from "./BotCard";
 import { BotGroups, DeleteRow, LessonsGroup, useWatchViews, type Commit } from "./BotGroups";
 import { BotMark, botSites } from "./BotMark";
+import { BriefGroups, LastBrief } from "./BriefGroups";
 import { CheckStrip } from "./CheckStrip";
 import { HowItCameSheet } from "./HowItCameSheet";
 import { PriceChart } from "./PriceChart";
 import { SnoozeSheet } from "./SnoozeSheet";
 import { withAlpha } from "./tone";
 import { isStock } from "./watchDraft";
+import { WorksWith, passInputs } from "./WorksWith";
 
 const say = (message: string) => useToastStore.getState().show(message);
 
@@ -485,9 +489,13 @@ function ViewSheet({
     );
   }
 
-  const draft: BotInput = { ...draftOf(bot), ...pending };
+  // With the bot's page loaded the draft also holds its Pass to links, so an
+  // edit compares them with the saved ones and never drops one.
+  const links = detail?.links;
+  const draft: BotInput = { ...draftOf(bot, links), ...pending };
+  const brief = bot.kind === "brief";
   const commit: Commit = async (next, how) => {
-    const patch = toPatch(bot, next);
+    const patch = toPatch(bot, next, links);
     if (Object.keys(patch).length === 0) return;
     if (how === "page") {
       await update.mutateAsync({ id: bot.id, patch });
@@ -586,7 +594,7 @@ function ViewSheet({
           onPress={() => setPage("name")}
           style={styles.lead}
         >
-          <BotMark watches={bot.watches} size={28} icons={icons} />
+          <BotMark watches={bot.watches} kind={bot.kind} size={28} icons={icons} />
           <Text numberOfLines={2} style={styles.name}>
             {bot.name}
           </Text>
@@ -606,36 +614,67 @@ function ViewSheet({
         <View style={styles.chips}>
           <MetaChip tone={health.tone}>{health.time && health.time.startsWith("until ") ? `${health.word} ${health.time}` : health.word}</MetaChip>
           {bot.lastCheckAt ? <MetaChip>{`Checked ${agoLabel(bot.lastCheckAt, now)}`}</MetaChip> : null}
-          {bot.status === "active" && bot.nextCheckAt ? <MetaChip>{`Next ${clockLabel(bot.nextCheckAt, now)}`}</MetaChip> : null}
+          {bot.status === "active" && bot.nextCheckAt ? (
+            <MetaChip>{`${brief ? "Next brief" : "Next"} ${clockLabel(bot.nextCheckAt, now)}`}</MetaChip>
+          ) : null}
           {origin ? <MetaChip>{origin}</MetaChip> : null}
         </View>
 
         {reason === "waiting_ok" ? <LookOver botId={bot.id} /> : null}
-        {detail ? (
+        {!detail ? (
+          <SkeletonRows rows={2} height={120} />
+        ) : brief ? (
+          <LastBrief detail={detail} now={now} />
+        ) : (
           <>
             {prices.length ? <PriceCard key={`p-${bot.id}`} detail={detail} watches={prices} /> : null}
             {readings.length ? <ReadingCard key={`r-${bot.id}`} detail={detail} watches={readings} now={now} /> : null}
             <LatestAlert detail={detail} />
           </>
-        ) : (
-          <SkeletonRows rows={2} height={120} />
         )}
 
-        <BotGroups
-          key={bot.id}
-          draft={draft}
-          views={views}
-          icons={icons}
-          alertsToday={bot.alertsToday}
-          hasKey={hasKey}
-          onAddKey={onAddKey}
-          onCommit={commit}
-          openWatch={watchId}
-          summary={board?.summary}
-          aiChecksToday={bot.aiChecksToday}
-          knowledgeView={bot.knowledge}
-          onSetUpAi={onSetUpAi}
-        />
+        {brief ? (
+          <BriefGroups
+            key={bot.id}
+            draft={draft}
+            bots={board?.bots ?? []}
+            saved={bot.sources}
+            summary={board?.summary}
+            onCommit={commit}
+            onSetUpAi={onSetUpAi}
+          />
+        ) : (
+          <BotGroups
+            key={bot.id}
+            draft={draft}
+            views={views}
+            icons={icons}
+            alertsToday={bot.alertsToday}
+            hasKey={hasKey}
+            onAddKey={onAddKey}
+            onCommit={commit}
+            openWatch={watchId}
+            summary={board?.summary}
+            aiChecksToday={bot.aiChecksToday}
+            knowledgeView={bot.knowledge}
+            onSetUpAi={onSetUpAi}
+          />
+        )}
+        {detail && !brief ? (
+          <WorksWith
+            key={`w-${bot.id}`}
+            botId={bot.id}
+            passesTo={draft.passesTo ?? passInputs(bot.id, links)}
+            links={links}
+            bots={board?.bots ?? []}
+            briefOnly={!!draft.briefOnly}
+            onBriefOnly={(briefOnly) => void commit({ ...draft, briefOnly }, "quick")}
+            onPasses={async (passesTo) => {
+              await commit({ ...draft, passesTo }, "page");
+            }}
+            onOpenBot={onSelect}
+          />
+        ) : null}
         {detail ? <LessonsGroup bot={bot} botId={bot.id} lessons={detail.lessons ?? []} /> : null}
         <View style={styles.deleteRow}>
           <DeleteRow onPress={() => setPage("delete")} />
@@ -764,7 +803,8 @@ function NewSheet({
   onSetUpAi: () => void;
 }) {
   const defaults = useBotDefaultsQuery();
-  const summary = useBotsQuery().data?.summary;
+  const board = useBotsQuery().data;
+  const summary = board?.summary;
   const create = useCreateBot();
   const hasKey = useHasKey();
   const settings = defaults.data ?? DEFAULT_BOT_SETTINGS;
@@ -783,6 +823,8 @@ function NewSheet({
   }
   const icons = useBotIcons(useMemo(() => botSites(draft.watches), [draft.watches])).data;
   const problems = draftErrors(draft, hasKey);
+  const brief = draft.kind === "brief";
+  const firstBrief = draft.briefTime || DEFAULT_BRIEF_TIME;
   const needsKey = draft.watches.some((w) => w.kind === "price" && isStock(w.source)) && !hasKey("finnhub");
 
   const change = (next: BotInput) => {
@@ -796,13 +838,23 @@ function NewSheet({
   const submit = () =>
     create.mutate(toInput(draft), {
       onSuccess: (view) => {
-        say(`${view.name} is set up. Its first check runs now.`);
+        say(
+          view.kind === "brief"
+            ? `${view.name} is set up. Its first brief goes out at ${view.briefTime || DEFAULT_BRIEF_TIME}.`
+            : `${view.name} is set up. Its first check runs now.`,
+        );
         setTouched(false);
         onCreated(view.id);
       },
     });
 
-  const line = create.error ? create.error.message : touched && problems.length ? problems[0] : "Lands in Watching once its first check works.";
+  const line = create.error
+    ? create.error.message
+    : touched && problems.length
+      ? problems[0]
+      : brief
+        ? `Sends its first brief at ${firstBrief}.`
+        : "Lands in Watching once its first check works.";
   return (
     <BottomSheet
       open={open}
@@ -815,7 +867,7 @@ function NewSheet({
       leading={
         <View style={styles.lead}>
           <View style={styles.newTile}>
-            <Bot size={16} color={colors.mutedForeground} />
+            {brief ? <Sunrise size={16} color={colors.mutedForeground} /> : <Bot size={16} color={colors.mutedForeground} />}
           </View>
           <Text numberOfLines={1} style={styles.name}>
             New bot
@@ -864,17 +916,29 @@ function NewSheet({
             </Text>
           </Text>
         ) : null}
-        <BotGroups
-          key={seeded ?? "closed"}
-          draft={draft}
-          icons={icons}
-          hasKey={hasKey}
-          onAddKey={addKey}
-          onCommit={(next) => change(next)}
-          unsaved
-          summary={summary}
-          onSetUpAi={setUpAi}
-        />
+        {brief ? (
+          <BriefGroups
+            key={seeded ?? "closed"}
+            draft={draft}
+            bots={board?.bots ?? []}
+            summary={summary}
+            unsaved
+            onCommit={(next) => change(next)}
+            onSetUpAi={setUpAi}
+          />
+        ) : (
+          <BotGroups
+            key={seeded ?? "closed"}
+            draft={draft}
+            icons={icons}
+            hasKey={hasKey}
+            onAddKey={addKey}
+            onCommit={(next) => change(next)}
+            unsaved
+            summary={summary}
+            onSetUpAi={setUpAi}
+          />
+        )}
       </View>
       <ConfirmSheet
         open={leaving !== null}

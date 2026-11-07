@@ -23,6 +23,7 @@ import {
   valueLine,
   watchCurrency,
   type AlertBrief,
+  type BotNames,
   type BotView,
   type FixButton,
 } from "@timely/contract/bots";
@@ -122,7 +123,7 @@ function fixIcon(button: FixButton, color: string) {
 function Top({ bot, icons, trailing }: { bot: BotView; icons: SiteIcons; trailing?: ReactNode }) {
   return (
     <View style={styles.top}>
-      <BotMark watches={bot.watches} icons={icons} />
+      <BotMark watches={bot.watches} kind={bot.kind} icons={icons} />
       <View style={styles.topText}>
         <Text numberOfLines={2} style={styles.name}>
           {bot.name}
@@ -136,8 +137,11 @@ function Top({ bot, icons, trailing }: { bot: BotView; icons: SiteIcons; trailin
   );
 }
 
-/** The price line across the card, or the text value beside a row of checks. */
-function Middle({ bot, now }: { bot: BotView; now: Date }) {
+/**
+ * The price line across the card, or the text value beside a row of checks.
+ * A brief names the bots it sums up from `names`.
+ */
+function Middle({ bot, now, names }: { bot: BotView; now: Date; names?: BotNames }) {
   const [width, setWidth] = useState(0);
   const value = cardValue(bot);
   const w = primaryWatch(bot);
@@ -158,7 +162,7 @@ function Middle({ bot, now }: { bot: BotView; now: Date }) {
       </View>
     );
   }
-  const caption = captionLine(bot, now);
+  const caption = captionLine(bot, now, undefined, names);
   const under = caption ? null : w?.kind === "feed" ? feedSources(bot) : value.kind === "text" ? valueLine(bot) : null;
   const text = value.kind === "text" ? value.text : null;
   return (
@@ -318,13 +322,14 @@ function Attention({ bot, now, actions, onOpen }: { bot: BotView; now: Date; act
  * A bot on the phone board. `card` is a Watching card (value, price line or
  * row of checks, health); `attention` a "Needs you" card with a tinted edge,
  * what it needs and its buttons; `preview` a card that does nothing (a new
- * bot's "On your board").
+ * bot's "On your board"). `names` lets a brief name the bots it sums up.
  */
 export function BotCard({
   bot,
   now,
   variant = "card",
   icons,
+  names,
   actions,
   onPress,
 }: {
@@ -332,6 +337,7 @@ export function BotCard({
   now: Date;
   variant?: "card" | "attention" | "preview";
   icons?: SiteIcons;
+  names?: BotNames;
   actions: BotActions;
   onPress?: () => void;
 }) {
@@ -379,7 +385,7 @@ export function BotCard({
           ) : undefined
         }
       />
-      <Middle bot={bot} now={now} />
+      <Middle bot={bot} now={now} names={names} />
       <Footer bot={bot} now={now} />
     </>
   );
@@ -404,7 +410,7 @@ export function PausedRow({ bot, now, icons, actions, onPress }: { bot: BotView;
     <ListRow
       title={bot.name}
       meta={h.time ? `${h.word} · ${h.time}` : h.word}
-      leading={<BotMark watches={bot.watches} icons={icons} size={28} />}
+      leading={<BotMark watches={bot.watches} kind={bot.kind} icons={icons} size={28} />}
       onPress={onPress}
       chevron={false}
       action={

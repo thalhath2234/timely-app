@@ -118,7 +118,7 @@ export default function BotsScreen() {
             <SectionLabel count={sections.watching.length}>Watching</SectionLabel>
             {sections.watching.map((bot) => (
               <ListEnter key={bot.id} index={index++}>
-                <BotCard bot={bot} now={now} icons={icons} actions={actions} onPress={() => openBot(bot.id)} />
+                <BotCard bot={bot} now={now} icons={icons} names={list.bots} actions={actions} onPress={() => openBot(bot.id)} />
               </ListEnter>
             ))}
           </View>

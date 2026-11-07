@@ -313,9 +313,6 @@ export function BotGroups({
     }
   });
 
-  const alerts: BotSettings = { desktop: draft.desktop ?? true, phone: draft.phone ?? true, urgent: draft.urgent ?? false };
-  const setAlert = (key: keyof BotSettings, value: boolean) => onCommit({ ...draft, [key]: value }, "quick");
-
   const editingWatch = watchEdit ? watchEdit : null;
   const editingRule = ruleEdit ? ruleEdit : null;
   const ruleWatch = editingRule ? watches[editingRule.watch] : undefined;
@@ -359,15 +356,7 @@ export function BotGroups({
         {summary || mode !== "ai" ? <GroupHint>{aiHint({ judgeMode: mode, aiChecksToday }, summary ?? EMPTY_BOTS_SUMMARY)}</GroupHint> : null}
       </View>
 
-      <View style={styles.section}>
-        <GroupLabel aside={alertsToday == null ? undefined : `${alertsToday} of ${BOT_LIMITS.alertsPerDay} today`}>Alerts</GroupLabel>
-        <ListGroup>
-          <SwitchRow title="Desktop" value={alerts.desktop} onChange={(v) => setAlert("desktop", v)} />
-          <SwitchRow title="Phone" value={alerts.phone} onChange={(v) => setAlert("phone", v)} />
-          <SwitchRow title="Urgent" meta="Rings through quiet hours" value={alerts.urgent} onChange={(v) => setAlert("urgent", v)} />
-        </ListGroup>
-        {unsaved ? <GroupHint>Up to {BOT_LIMITS.alertsPerDay} alerts a day. After that you get one “and 2 more today”.</GroupHint> : null}
-      </View>
+      <AlertsGroup draft={draft} alertsToday={alertsToday} unsaved={unsaved} onCommit={onCommit} />
 
       {editingWatch ? (
         <WatchPage
@@ -444,6 +433,39 @@ export function BotGroups({
         </View>
       </BottomSheet>
     </>
+  );
+}
+
+/**
+ * Alerts: where the bot tells you (Desktop, Phone, Urgent), each kept at
+ * once. A watch bot shows today's count against the daily cap; a brief,
+ * whose sends are not capped, leaves it out.
+ */
+export function AlertsGroup({
+  draft,
+  alertsToday,
+  unsaved,
+  onCommit,
+}: {
+  draft: BotInput;
+  alertsToday?: number;
+  unsaved?: boolean;
+  onCommit: Commit;
+}) {
+  const alerts: BotSettings = { desktop: draft.desktop ?? true, phone: draft.phone ?? true, urgent: draft.urgent ?? false };
+  const setAlert = (key: keyof BotSettings, value: boolean) => onCommit({ ...draft, [key]: value }, "quick");
+  return (
+    <View style={styles.section}>
+      <GroupLabel aside={alertsToday == null ? undefined : `${alertsToday} of ${BOT_LIMITS.alertsPerDay} today`}>Alerts</GroupLabel>
+      <ListGroup>
+        <SwitchRow title="Desktop" value={alerts.desktop} onChange={(v) => setAlert("desktop", v)} />
+        <SwitchRow title="Phone" value={alerts.phone} onChange={(v) => setAlert("phone", v)} />
+        <SwitchRow title="Urgent" meta="Rings through quiet hours" value={alerts.urgent} onChange={(v) => setAlert("urgent", v)} />
+      </ListGroup>
+      {unsaved && draft.kind !== "brief" ? (
+        <GroupHint>Up to {BOT_LIMITS.alertsPerDay} alerts a day. After that you get one “and 2 more today”.</GroupHint>
+      ) : null}
+    </View>
   );
 }
 

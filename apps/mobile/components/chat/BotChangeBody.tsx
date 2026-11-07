@@ -191,7 +191,7 @@ export default function BotChangeBody({
     <View style={{ gap: 12 }}>
       <ListGroup>
         <View style={styles.head}>
-          <BotMark watches={marked} size={36} icons={icons} />
+          <BotMark watches={marked} kind={group.args.kind} size={36} icons={icons} />
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.eyebrow}>{group.eyebrow}</Text>
             <Text numberOfLines={2} style={styles.title}>
