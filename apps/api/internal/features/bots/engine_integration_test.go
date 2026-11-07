@@ -786,6 +786,46 @@ func TestIntegrationBotWake(t *testing.T) {
 	}
 }
 
+// A sweep that still counts as a wake once the first Bot of the gap was
+// checked (a slow tick, a second process starting) sends no second away alert.
+func TestIntegrationBotWakeAlertsOncePerGap(t *testing.T) {
+	e := newEngine(t)
+	ctx := context.Background()
+	var ids []string
+	for i := range 4 {
+		u := fmt.Sprintf("https://gap%d.example.com/", i)
+		e.net.serve(u, 200, "text/html", "<p>hello</p>")
+		v := e.create(pageInput(fmt.Sprintf("Gap %d", i), u))
+		must(t, e.db.Model(&Bot{}).Where("id = ?", v.ID).Update("next_check_at", e.now.Add(-9*time.Hour+time.Duration(i)*time.Minute)).Error)
+		ids = append(ids, v.ID)
+	}
+	e.s.lastSweepWall = e.now.Add(-9 * time.Hour)
+	e.s.lastPrune = e.now
+	must(t, e.s.Sweep(ctx))
+	var first models.Job
+	must(t, e.db.Where("kind = ? AND payload->>'botId' = ?", models.JobBotCheck, ids[0]).First(&first).Error)
+	e.now = first.RunAt
+	first.Attempts = 1
+	must(t, e.s.HandleCheck(ctx, &first))
+	must(t, e.db.Model(&first).Update("status", models.JobSucceeded).Error)
+
+	e.now = e.now.Add(70 * time.Second)
+	must(t, e.s.Sweep(ctx))
+	must(t, e.service().Sweep(ctx))
+	if ntfs := e.notifications(); len(ntfs) != 1 {
+		t.Fatalf("%d away alerts for one gap", len(ntfs))
+	}
+
+	// A later gap gets its own.
+	must(t, e.db.Model(&Bot{}).Where("id IN ?", ids).Update("next_check_at", e.now.Add(time.Minute)).Error)
+	e.now = e.now.Add(5 * time.Hour)
+	e.s.lastSweepWall = e.now.Add(-5 * time.Hour)
+	must(t, e.s.Sweep(ctx))
+	if ntfs := e.notifications(); len(ntfs) != 2 {
+		t.Fatalf("%d away alerts after a second gap", len(ntfs))
+	}
+}
+
 func TestIntegrationBotSiteBusy(t *testing.T) {
 	e := newEngine(t)
 	e.s.fetch = fetch.New(fetch.Config{

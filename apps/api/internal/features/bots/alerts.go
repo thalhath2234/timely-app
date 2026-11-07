@@ -151,9 +151,20 @@ func (s *Service) pausedAlert(tx *gorm.DB, b Bot, checkID string, p *problem, no
 }
 
 // awayAlert tells the person their Bots missed checks while Timely was
-// closed or asleep. The key names the earliest missed check, so every
-// process that wakes to the same gap writes it once.
+// closed or asleep, once per gap. A later sweep that still counts as a wake
+// (a slow tick, another process starting) sees a later earliest missed check
+// once the first Bots are checked, so the key alone is not enough: an away
+// alert written since that check already covers this gap.
 func awayAlert(tx *gorm.DB, userID string, earliest time.Time, bots int, now time.Time) error {
+	if err := lockAccount(tx, userID); err != nil {
+		return err
+	}
+	var sent int64
+	if err := tx.Model(&models.Notification{}).
+		Where("user_id = ? AND category = ? AND data->>'botAlert' = ? AND created_at >= ?", userID, models.NotifyBot, awayKind, earliest).
+		Count(&sent).Error; err != nil || sent > 0 {
+		return err
+	}
 	settings, loc, err := notify.LoadAlertSettings(tx, userID)
 	if err != nil {
 		return err
