@@ -302,6 +302,10 @@ func (notChosenError) MarshalJSON() ([]byte, error) {
 
 var errNotChosen error = notChosenError{}
 
+// errCLIOff is the chosen provider being a host CLI while this server has
+// them turned off (CHAT_LOCAL_CLI=off).
+var errCLIOff = errors.New("Local CLIs are turned off on this server (CHAT_LOCAL_CLI=off)")
+
 // defaultProvider is the provider new chat runs and the writing features
 // (Help me write, checklist task offers, view queries, dashboard cards and
 // live blocks) use: the person's choice. With none chosen it is "" and
@@ -335,7 +339,7 @@ func (s *Service) Resolve(ctx context.Context, userID string) (string, string, e
 		return "", "", errNoProvider
 	}
 	if (provider == ClaudeCLI || provider == CodexCLI) && !s.localCLI {
-		return provider, "", fmt.Errorf("Local CLIs are turned off on this server (CHAT_LOCAL_CLI=off). Pick another provider in Settings → Agent")
+		return provider, "", fmt.Errorf("%w. Pick another provider in Settings → Agent", errCLIOff)
 	}
 	if spec := apiProviderByID(provider); spec != nil {
 		api, _, err := s.apiRow(s.db.WithContext(ctx), userID, provider)

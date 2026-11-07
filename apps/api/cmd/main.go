@@ -165,6 +165,8 @@ func main() {
 	})
 	providerService := provider.New(db, indexer, jobQueue)
 	providerService.Register(jobWorker)
+	// AI-judged Bots ask the account's provider, on its small model.
+	botService.SetJudge(providerService.BotJudge())
 	indexRebuild = providerService.EnsureIndex
 	// A restore replaces every row and drops the search index with them, so
 	// it queues a rebuild, which Settings shows while it runs.
