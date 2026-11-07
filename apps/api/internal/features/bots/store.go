@@ -1050,8 +1050,10 @@ func lessonText(a Alert, botName string) string {
 		line = "Not what I want: " + quoted
 	case a.FeedbackReason == "already_knew":
 		line = "I already knew: " + quoted
-	case a.FeedbackReason == PassFeedbackReason && len(a.Via) > 0:
-		line = "Not worth passing on from " + a.Via[len(a.Via)-1].Name + ": " + quoted
+	case a.FeedbackReason == PassFeedbackReason:
+		// Not the passing Bot's name: an outside app can rename a rules-only
+		// Bot, and a lesson is read as the person's own words.
+		line = "Not worth passing on: " + quoted
 	default:
 		line = "Not useful: " + quoted
 	}

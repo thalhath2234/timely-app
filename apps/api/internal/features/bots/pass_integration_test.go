@@ -206,7 +206,7 @@ func TestIntegrationBotPassTo(t *testing.T) {
 	notUseful := FeedbackNotUseful
 	res, err := e.s.RateAlert(ctx, e.user, pp.b.ID, alert.ID, Rating{Feedback: &notUseful, Reason: PassFeedbackReason})
 	must(t, err)
-	if res.FeedbackReason != PassFeedbackReason || res.Lesson == nil || res.Lesson.Text != "Not worth passing on from Deals feed: ““NVMe” appeared”" {
+	if res.FeedbackReason != PassFeedbackReason || res.Lesson == nil || res.Lesson.Text != "Not worth passing on: ““NVMe” appeared”" {
 		t.Fatalf("rating %+v / %+v", res.AlertView, res.Lesson)
 	}
 	plain := e.create(pageInput("Plain page", "https://plain.example.net/"))
