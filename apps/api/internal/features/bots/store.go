@@ -848,11 +848,14 @@ func (s *Store) Get(ctx context.Context, userID, idOrName string, now time.Time)
 	if err := db.Where("bot_id = ? AND user_id = ?", b.ID, userID).Order("created_at, id").Find(&d.Lessons).Error; err != nil {
 		return Detail{}, err
 	}
+	// Alerts the AI held back, or that another Bot's alert already told of
+	// (held shared), are not this Bot's to count: the card says "No alerts
+	// yet" on the same rule.
 	var counts struct{ Checks, Alerts, AlertsMonth int }
 	if err := db.Raw(`
 SELECT (SELECT count(*) FROM bot_checks WHERE bot_id = @bot AND user_id = @uid AND started_at >= @week AND outcome <> 'superseded') AS checks,
-       (SELECT count(*) FROM bot_alerts WHERE bot_id = @bot AND user_id = @uid AND kind = 'alert' AND held <> 'judged' AND created_at >= @week) AS alerts,
-       (SELECT count(*) FROM bot_alerts WHERE bot_id = @bot AND user_id = @uid AND kind = 'alert' AND held <> 'judged' AND created_at >= @month) AS alerts_month`,
+       (SELECT count(*) FROM bot_alerts WHERE bot_id = @bot AND user_id = @uid AND kind = 'alert' AND held NOT IN ('judged', 'shared') AND created_at >= @week) AS alerts,
+       (SELECT count(*) FROM bot_alerts WHERE bot_id = @bot AND user_id = @uid AND kind = 'alert' AND held NOT IN ('judged', 'shared') AND created_at >= @month) AS alerts_month`,
 		sql.Named("bot", b.ID), sql.Named("uid", userID),
 		sql.Named("week", now.UTC().AddDate(0, 0, -7)), sql.Named("month", now.UTC().AddDate(0, 0, -detailDays)),
 	).Scan(&counts).Error; err != nil {

@@ -155,6 +155,10 @@ func TestIntegrationBotOneAlertPerThing(t *testing.T) {
 		got.AlsoSeenBy == nil {
 		t.Fatalf("shared alert view %+v", got)
 	}
+	// Held as shared, it is not B's alert to count, as its card says "No alerts yet".
+	if dB.Week.Alerts != 0 || dB.AlertsMonth != 0 || dB.LatestAlert != nil {
+		t.Fatalf("B counts a shared alert: week %+v, month %d, latest %+v", dB.Week, dB.AlertsMonth, dB.LatestAlert)
+	}
 	dA, err := e.s.Get(ctx, e.user, a.ID)
 	must(t, err)
 	if got := dA.Alerts[0]; len(got.AlsoSeenBy) != 1 || got.SharedWith != nil {
