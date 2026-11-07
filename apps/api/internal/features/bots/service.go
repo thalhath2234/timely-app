@@ -73,6 +73,24 @@ func New(db *gorm.DB, queue *jobs.Queue) *Service {
 	}
 }
 
+// WithDB is a copy of s whose reads and writes go through db and whose jobs
+// go on q, so the chat agent's saves join its transaction (a rehearsal's
+// rollback takes their logo jobs with it). The copy shares the fetcher,
+// the keys, the live hub, the clock and Ask's timing, and with them the
+// process-wide preview memo and limit; it has its own random source and no
+// test hook.
+func (s *Service) WithDB(db *gorm.DB, q *jobs.Queue) *Service {
+	if q == nil {
+		q = jobs.NewQueue(db)
+	}
+	return &Service{
+		store: NewStore(db), db: db, queue: q,
+		fetch: s.fetch, keys: s.keys, keyStore: s.keyStore, live: s.live, now: s.now,
+		askPoll: s.askPoll, askWait: s.askWait, sleep: s.sleep,
+		rnd: rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), rand.Uint64())),
+	}
+}
+
 func (s *Service) Store() *Store { return s.store }
 
 // SetKeys gives the checks the people's saved price source keys, and the

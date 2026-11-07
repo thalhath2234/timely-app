@@ -693,7 +693,7 @@ func (s *Service) snapshots(ctx context.Context, db *gorm.DB, catalog agent.Cata
 			blockBefore = result
 			out = append(out, Snapshot{Tool: "scheduled_block", Arguments: a, Hash: hash(result)})
 		}
-		for field, tool := range map[string]string{"taskId": "get_task", "projectId": "get_project", "workspaceId": "get_workspace", "eventId": "get_event", "docId": "get_doc", "sheetId": "get_sheet", "templateId": "get_sheet_template"} {
+		for field, tool := range map[string]string{"taskId": "get_task", "projectId": "get_project", "workspaceId": "get_workspace", "eventId": "get_event", "docId": "get_doc", "sheetId": "get_sheet", "templateId": "get_sheet_template", "bot": "get_bot"} {
 			value, _ := args[field].(string)
 			if value == "" {
 				continue

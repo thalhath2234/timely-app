@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 	"timely-api/internal/features/agent"
 	"timely-api/internal/features/auth"
+	"timely-api/internal/features/bots"
 	"timely-api/internal/features/calendar"
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/embed"
@@ -69,9 +70,11 @@ func rebuildIndex(userID string) {
 // Bind all writes (including indexing jobs) to the same transaction as the
 // agent's execution checkpoint. Existing REST and Hermes behavior stays intact.
 // creds supplies each account's own embedding key, as for the REST indexer;
-// without it nothing the agent writes would be indexed.
-func chatCatalog(db *gorm.DB, live *realtime.Hub, creds embed.Credentials) agent.Catalog {
-	return catalogWith(db, live, creds, liveBlockWriter, false)
+// without it nothing the agent writes would be indexed. botService is the
+// process's Bots service, bound to db for the agent (nil leaves the bot
+// tools unavailable).
+func chatCatalog(db *gorm.DB, live *realtime.Hub, creds embed.Credentials, botService *bots.Service) agent.Catalog {
+	return catalogWith(db, live, creds, liveBlockWriter, false, botService)
 }
 
 // rehearsalCatalog is the chat catalog for rehearsing a proposal in a
@@ -79,8 +82,8 @@ func chatCatalog(db *gorm.DB, live *realtime.Hub, creds embed.Credentials) agent
 // a stand-in program instead of a model call, and Auto-schedule previews
 // skip the traits hook, which would write outside the transaction before
 // the person approves anything.
-func rehearsalCatalog(db *gorm.DB, creds embed.Credentials) agent.Catalog {
-	return catalogWith(db, nil, creds, liveBlockRehearsal, true)
+func rehearsalCatalog(db *gorm.DB, creds embed.Credentials, botService *bots.Service) agent.Catalog {
+	return catalogWith(db, nil, creds, liveBlockRehearsal, true, botService)
 }
 
 // rehearsedSchedule previews without the beforePreview hook (DryRun).
@@ -90,7 +93,7 @@ func (r rehearsedSchedule) Preview(userID string, req schedule.PlanRequest) (*sc
 	return r.DryRun(userID, req)
 }
 
-func catalogWith(db *gorm.DB, live *realtime.Hub, creds embed.Credentials, liveBlock func(ctx context.Context, userID, words, current, today string) (string, error), rehearsal bool) agent.Catalog {
+func catalogWith(db *gorm.DB, live *realtime.Hub, creds embed.Credentials, liveBlock func(ctx context.Context, userID, words, current, today string) (string, error), rehearsal bool, botService *bots.Service) agent.Catalog {
 	tasks := task.NewTaskRepository(db)
 	projects := project.NewProjectRepository(db)
 	workspaces := workspace.NewWorkspaceRepository(db)
@@ -111,6 +114,12 @@ func catalogWith(db *gorm.DB, live *realtime.Hub, creds embed.Credentials, liveB
 	if rehearsal {
 		scheduleService = rehearsedSchedule{scheduleService}
 	}
+	// A bot saved by chat, and the logo jobs its save queues, join db's
+	// transaction, so a rehearsal's rollback leaves none behind.
+	var botTools *bots.Service
+	if botService != nil {
+		botTools = botService.WithDB(db, jobs.NewQueue(db))
+	}
 	return agent.NewCatalog(agent.Deps{
 		Auth:  auth.NewAuthService(auth.NewUserRepository(db), workspaces, auth.NewSessionRepository(db)),
 		Tasks: taskService, Projects: projectService, Workspaces: workspace.NewWorkspaceService(workspaces),
@@ -127,6 +136,7 @@ func catalogWith(db *gorm.DB, live *realtime.Hub, creds embed.Credentials, liveB
 		Focus:     focus.NewStore(db),
 		Suggest:   todaySuggestions,
 		LiveBlock: liveBlock,
+		Bots:      botTools,
 	})
 }
 

@@ -204,7 +204,9 @@ func main() {
 	liveBlockRehearsal = providerService.RehearseLiveBlock
 	// Describe (dashboard cards, live blocks) reads through the chat agent's
 	// read tools and draws its drafts from the account's data.
-	providerService.SetReadTools(func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, live, providerService.EmbedCredentials) })
+	providerService.SetReadTools(func(tx *gorm.DB) agent.Catalog {
+		return chatCatalog(tx, live, providerService.EmbedCredentials, botService)
+	})
 	providerService.SetBoardData(boardData(db))
 	mcpServer := agent.New(agent.Deps{
 		Auth:       authService,
@@ -234,10 +236,14 @@ func main() {
 		},
 	})
 
-	chatService := chat.New(db, func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, live, providerService.EmbedCredentials) }, chat.NewOpenRouter())
+	chatService := chat.New(db, func(tx *gorm.DB) agent.Catalog {
+		return chatCatalog(tx, live, providerService.EmbedCredentials, botService)
+	}, chat.NewOpenRouter())
 	// Proposals are rehearsed in a rolled-back transaction: no live doc
 	// broadcasts, and live blocks are written by the model only on apply.
-	chatService.SetRehearsal(func(tx *gorm.DB) agent.Catalog { return rehearsalCatalog(tx, providerService.EmbedCredentials) })
+	chatService.SetRehearsal(func(tx *gorm.DB) agent.Catalog {
+		return rehearsalCatalog(tx, providerService.EmbedCredentials, botService)
+	})
 	chatService.SetCompleters(providerService)
 	chatService.SetLive(live)
 	chatService.SetDecisions(decisions)

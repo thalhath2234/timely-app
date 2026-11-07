@@ -105,7 +105,7 @@ func TestIntegrationBulkUpdateToolRefusesScheduling(t *testing.T) {
 	ws := call("create_workspace", map[string]any{"name": "Audit"})
 	taskID := call("create_task", map[string]any{"name": "Bulk", "workspaceId": ws["id"], "duration": 30})["task"].(map[string]any)["id"]
 
-	tools := chatCatalog(db, realtime.NewHub(), func(string) (string, string) { return "unused-test-key", "" })
+	tools := chatCatalog(db, realtime.NewHub(), func(string) (string, string) { return "unused-test-key", "" }, nil)
 	for _, field := range []string{"scheduledOn", "scheduleAt"} {
 		raw, _ := json.Marshal(map[string]any{"ids": []any{taskID}, "update": map[string]any{field: "2026-12-02T09:00:00Z"}})
 		if _, err := tools["bulk_update_tasks"].Call(context.Background(), uid, raw); err == nil {

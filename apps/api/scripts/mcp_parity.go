@@ -491,6 +491,7 @@ func (r *runner) exercise(email string) {
 	}})
 	botID := str(bot, "id")
 	r.call("list_bots", nil)
+	r.call("get_bot", map[string]any{"bot": botID})
 	r.call("update_bot", map[string]any{"bot": "Parity BTC", "name": "Parity BTC dip", "intervalMinutes": 30})
 	r.call("list_bot_findings", map[string]any{"bot": botID, "limit": 10})
 	r.callAllow("run_bot_now", map[string]any{"bot": botID}, "paused")
