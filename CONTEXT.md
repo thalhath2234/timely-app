@@ -170,3 +170,31 @@ _Avoid_: connect (reserved for Agent providers), link, sync (sync is what happen
 **Tailscale access**:
 The Settings → Server switch that lets the API listen on the host's Tailscale addresses in addition to loopback. Off means loopback only; there is no LAN or public option.
 _Avoid_: remote access, expose, port forwarding
+
+### Bots
+
+<!-- Merge note: feature/bots-adr (ADRs 0021 to 0023) adds its own Bots section here, defining Bot, Watch, Check, Bot alert, Finding and a first Lesson, Brief and Pass to. Keep that one section: replace its Lesson, Brief and Pass to with the three below, add Judge, Chain and Thing after Pass to, and drop this comment. -->
+
+**Lesson**:
+A short line a Bot keeps from a Useful or Not useful answer on one of its alerts, read by the Judge on later Checks. Code writes it from the alert's rule words and the person's own note, never from text the AI or a page wrote. Up to 20 per Bot, each removable.
+_Avoid_: memory, training, feedback (alone)
+
+**Brief**:
+A Bot with no Watches that gathers new Findings from up to 8 other Bots into one alert once a day, at the time the person picks, from a template or written by AI. A source Bot set to "Only in the brief" alerts only through it. The morning digest is not a Brief; it gets its own "From your bots" section.
+_Avoid_: digest (that is the morning digest), briefing (the morning digest's picks), report
+
+**Pass to**:
+A link from one Bot to another, with up to 5 optional filter words, that hands over each new Finding holding one of them (or every one, with no words), so the second Bot checks it under its own rules before the person is told. The first Bot stays quiet about passed Findings. Up to 4 per Bot, 10 items a Check and 20 a day per link; a Finding is never free text for the next Bot to follow (ADR 0024).
+_Avoid_: delegate, forward, message, trigger
+
+**Judge**:
+The AI step that decides whether a change a Bot's rules spotted is worth telling the person, for Bots set to "AI judges". It runs once per Check on the account's default provider, with no tools, reads page text and notes only as quoted data, and answers alert or not, a title, one line on why, and how urgent. Up to 20 calls per Bot and 200 per account a day. When it can't answer for a passing reason, the alert says "Not checked by AI" and is judged again later; with no provider, no key or the cap used up, it says why and is not asked again (ADR 0024).
+_Avoid_: AI filter, reviewer, model (in copy)
+
+**Chain**:
+The Bots one Finding travels through by Pass to links, at most 3 links long and never a loop. Its AI calls share one cap of 6, whichever Bot makes them, and the alert at its end shows "How this came to you".
+_Avoid_: pipeline, workflow, graph
+
+**Thing**:
+What two Bots' alerts are about when they match: a product, a ticker or a link, keyed from the Watch or the feed item. Two alerts on the same Thing on the same day share one alert ("Also seen by"); a follow-up gets through only after a further 5% move or a jump in urgency.
+_Avoid_: item (a feed item is one kind of Thing), duplicate, entity

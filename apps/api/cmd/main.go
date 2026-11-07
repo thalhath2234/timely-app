@@ -135,7 +135,8 @@ func main() {
 	notifyService := notify.NewService(db, jobQueue, calendarService, taskService, scheduleService, indexer)
 	portabilityService := portability.NewService(db, jobQueue)
 	// Bots (ADR 0021): bots.next_check_at is the schedule; the sweep queues
-	// due Bots and checks run four at a time on a lane of their own.
+	// due Bots and checks run three at a time on a lane of their own; passed
+	// items and re-judges share one more slot (ADR 0024).
 	botService := bots.New(db, jobQueue)
 	botKeys, err := bots.NewKeyStore(db)
 	if err != nil {
