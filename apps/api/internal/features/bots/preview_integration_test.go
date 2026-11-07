@@ -162,6 +162,30 @@ func TestIntegrationPreviewWatches(t *testing.T) {
 	}
 }
 
+// A page price read that finds no price still lists the prices the page
+// shows, which the person (or the chat) picks the right one from.
+func TestIntegrationPreviewFailedPriceCandidates(t *testing.T) {
+	db := migratedDB(t)
+	user := addUser(t, db)
+	s := previewService(db, previewNet(t))
+	code, res, msg := previewCall(t, s, user, map[string]any{"watches": []map[string]any{
+		{"kind": "page", "url": "https://shop.example/p/headphones", "read": "selector_price", "selector": "#no-such-part"},
+	}})
+	if code != http.StatusOK {
+		t.Fatalf("preview: %d %s", code, msg)
+	}
+	w := res.Watches[0]
+	if w.OK || w.Health == nil || w.Health.Code != "cant_find" {
+		t.Fatalf("a selector that matches nothing: %+v %+v", w, w.Health)
+	}
+	if len(w.Candidates) < 2 || w.Candidates[0].Amount != 19999 {
+		t.Errorf("candidates on a failed read: %+v", w.Candidates)
+	}
+	if w.Value != nil || w.Excerpt != nil {
+		t.Errorf("a failed read shows no reading: %+v", w)
+	}
+}
+
 func TestIntegrationPreviewRefusals(t *testing.T) {
 	db := migratedDB(t)
 	user := addUser(t, db)
@@ -409,6 +433,18 @@ func TestIntegrationPreviewOneSite(t *testing.T) {
 	// read, one gap apart.
 	if waited := now().Sub(start); waited < 40*time.Second {
 		t.Errorf("the reads waited %v in all, want the site's spacing kept", waited)
+	}
+
+	// The person's next preview a moment later (the chat reading the page
+	// again) waits out their own spacing; someone else's takes it for a
+	// busy site.
+	again := map[string]any{"watches": []map[string]any{{"kind": "page", "url": "https://" + site + "/p/1", "read": "selector", "selector": "#none"}}}
+	if code, res, msg := previewCall(t, s, user, again); code != http.StatusOK || res.Watches[0].Health == nil || res.Watches[0].Health.Code != "cant_find" {
+		t.Errorf("the same person's next preview: %d %s %+v", code, msg, res.Watches)
+	}
+	other := addUser(t, db)
+	if code, res, msg := previewCall(t, s, other, again); code != http.StatusOK || res.Watches[0].Health == nil || res.Watches[0].Health.Code != "waiting" {
+		t.Errorf("another person's preview on the busy site: %d %s %+v", code, msg, res.Watches)
 	}
 	noBotRows(t, db, user)
 }

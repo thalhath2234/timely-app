@@ -304,15 +304,15 @@ func (f *Fetcher) wait(ctx context.Context, site string, gap, maxWait time.Durat
 	if f.cfg.Spacer == nil {
 		return nil
 	}
-	if maxWait = own.allow(site, maxWait); maxWait <= 0 {
+	now := f.cfg.Now()
+	if maxWait = own.allow(site, maxWait, now); maxWait <= 0 {
 		maxWait = f.cfg.SiteMaxWait
 	}
-	now := f.cfg.Now()
 	slot, err := f.cfg.Spacer.Reserve(ctx, site, gap, maxWait, now)
 	if err != nil {
 		return err
 	}
-	own.booked(site, gap)
+	own.booked(site, slot, gap)
 	if d := slot.Sub(now); d > 0 {
 		if err := f.cfg.Sleep(ctx, d); err != nil {
 			return transportError(ctx, err)
@@ -321,15 +321,23 @@ func (f *Fetcher) wait(ctx context.Context, site string, gap, maxWait time.Durat
 	return nil
 }
 
-// ownSlots is, per site, the gap after the latest slot one Get booked (its
-// robots.txt, its page, a redirect's robots.txt), or every Get under one
-// ShareSlots ctx. Each booking is slept until before the request, so the
-// next slot on that site is at most that gap away: the wait for it is the
-// read's own spacing, not another check on the site.
+// ownSlots is, per site, when the spacing after the latest slot booked here
+// ends: one Get's bookings (its robots.txt, its page, a redirect's
+// robots.txt), or every Get under one ShareSlots ctx or one Slots. Each
+// booking is slept until before the request, so the next slot on that site
+// is at most that spacing away: the wait for it is the reads' own spacing,
+// not another check on the site.
 type ownSlots struct {
-	mu   sync.Mutex
-	gaps map[string]time.Duration
+	mu    sync.Mutex
+	until map[string]time.Time
 }
+
+// Slots is a set of bookings that reads made at different times count as
+// their own, such as one person's previews a few seconds apart (WithSlots).
+type Slots = ownSlots
+
+// NewSlots is an empty Slots.
+func NewSlots() *Slots { return &ownSlots{until: map[string]time.Time{}} }
 
 type sharedSlotsKey struct{}
 
@@ -340,7 +348,13 @@ func ShareSlots(ctx context.Context) context.Context {
 	if _, ok := ctx.Value(sharedSlotsKey{}).(*ownSlots); ok {
 		return ctx
 	}
-	return context.WithValue(ctx, sharedSlotsKey{}, &ownSlots{gaps: map[string]time.Duration{}})
+	return WithSlots(ctx, NewSlots())
+}
+
+// WithSlots returns a ctx whose Gets book into slots and count its earlier
+// bookings as their own.
+func WithSlots(ctx context.Context, slots *Slots) context.Context {
+	return context.WithValue(ctx, sharedSlotsKey{}, slots)
 }
 
 // slotsFor is ctx's shared bookings, or a new set for one Get.
@@ -348,25 +362,42 @@ func slotsFor(ctx context.Context) *ownSlots {
 	if o, ok := ctx.Value(sharedSlotsKey{}).(*ownSlots); ok {
 		return o
 	}
-	return &ownSlots{gaps: map[string]time.Duration{}}
+	return NewSlots()
 }
 
-// allow is maxWait for site: a short wait (above zero) on a site already
-// booked here also allows the gap after that booking. The default wait
+// allow is maxWait for site: a short wait (above zero) on a site booked
+// here also allows what is left of that booking's spacing. The default wait
 // (0) is left alone; Config.SiteMaxWait already allows a gap.
-func (o *ownSlots) allow(site string, maxWait time.Duration) time.Duration {
+func (o *ownSlots) allow(site string, maxWait time.Duration, now time.Time) time.Duration {
 	if maxWait <= 0 {
 		return maxWait
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	return maxWait + o.gaps[site]
+	if left := o.until[site].Sub(now); left > 0 {
+		return maxWait + left
+	}
+	return maxWait
 }
 
-func (o *ownSlots) booked(site string, gap time.Duration) {
+func (o *ownSlots) booked(site string, slot time.Time, gap time.Duration) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	o.gaps[site] = gap
+	if end := slot.Add(gap); end.After(o.until[site]) {
+		o.until[site] = end
+	}
+}
+
+// Idle is whether every spacing booked here ended before now.
+func (o *ownSlots) Idle(now time.Time) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	for _, end := range o.until {
+		if end.After(now) {
+			return false
+		}
+	}
+	return true
 }
 
 // client is the configured client with a redirect check for r: extra

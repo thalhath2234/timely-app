@@ -92,15 +92,43 @@ type PreviewResult struct {
 var previews = struct {
 	memo  *previewMemo
 	limit *previewLimiter
-}{newPreviewMemo(PreviewTTL, PreviewMemoMax), newPreviewLimiter(PreviewReadsPerMinute, time.Minute)}
+	slots *previewSlots
+}{newPreviewMemo(PreviewTTL, PreviewMemoMax), newPreviewLimiter(PreviewReadsPerMinute, time.Minute), &previewSlots{byUser: map[string]*fetch.Slots{}}}
+
+// previewSlots is each person's site bookings from their own recent
+// previews, so a preview a few seconds after another on the same site (the
+// chat reading a page again, or Test pressed twice) waits out its own
+// spacing instead of taking it for a busy site.
+type previewSlots struct {
+	mu     sync.Mutex
+	byUser map[string]*fetch.Slots
+}
+
+// of is userID's bookings; sets whose spacing is over are dropped.
+func (p *previewSlots) of(userID string, now time.Time) *fetch.Slots {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for id, o := range p.byUser {
+		if id != userID && o.Idle(now) {
+			delete(p.byUser, id)
+		}
+	}
+	o, ok := p.byUser[userID]
+	if !ok {
+		o = fetch.NewSlots()
+		p.byUser[userID] = o
+	}
+	return o
+}
 
 // Preview reads each watch once, the way a check would, and says what it
 // reads right now. It saves nothing: no Bot, watch, check, alert, finding,
 // price or key state, only the shared site spacing and robots.txt caches a
 // check also writes. A watch that fails gives its health line and the others
 // are still read. The watches are read one after another and share their
-// site slots (fetch.ShareSlots), so a second watch on one site waits behind
-// the first instead of taking it for a busy site.
+// site slots with the person's other recent previews (previewSlots), so a
+// second watch on one site waits behind the first instead of taking it for
+// a busy site.
 func (s *Service) Preview(ctx context.Context, userID string, in PreviewInput) (PreviewResult, error) {
 	ws, ids, err := s.previewWatches(ctx, userID, in)
 	if err != nil {
@@ -123,7 +151,7 @@ func (s *Service) Preview(ctx context.Context, userID string, in PreviewInput) (
 	}
 	ctx, cancel := context.WithTimeout(ctx, previewBudget)
 	defer cancel()
-	ctx = fetch.ShareSlots(ctx)
+	ctx = fetch.WithSlots(ctx, previews.slots.of(userID, now))
 	b := Bot{UserID: userID}
 	out := PreviewResult{Watches: make([]PreviewWatch, 0, len(ws))}
 	read := map[string]PreviewWatch{}
@@ -219,6 +247,11 @@ func (s *Service) previewOne(ctx context.Context, b Bot, w Watch) (pw PreviewWat
 			line = p.site + " asked Timely to wait before reading it again"
 		}
 		pw.Health = &Health{Code: p.code, Line: line}
+		// The page was read but no price came out of it: the prices it
+		// does show are what the person (or the chat) picks one from.
+		if r.res != nil && isPagePrice(w) {
+			pw.Candidates = priceCandidates(r.res.Body, r.res.ContentType)
+		}
 		return pw, (p.class == classStrike && p.code != "needs_key") || p.class == classRobots
 	}
 	reading := r.reading
@@ -238,10 +271,8 @@ func (s *Service) previewOne(ctx context.Context, b Bot, w Watch) (pw PreviewWat
 	case ReadingFeed:
 		pw.Items = newestItems(reading.Items, PreviewItems)
 	}
-	if r.res != nil && (w.ReadMode == ReadProductPrice || w.ReadMode == ReadSelectorPrice) {
-		if cs, err := extract.PriceCandidates(r.res.Body, r.res.ContentType); err == nil && len(cs) > 0 {
-			pw.Candidates = cs
-		}
+	if r.res != nil && isPagePrice(w) {
+		pw.Candidates = priceCandidates(r.res.Body, r.res.ContentType)
 		if pw.Value != nil {
 			if text, mark, struck := extract.PriceExcerpt(r.res.Body, r.res.ContentType, *pw.Value); text != "" {
 				if struck == nil {
@@ -252,6 +283,19 @@ func (s *Service) previewOne(ctx context.Context, b Bot, w Watch) (pw PreviewWat
 		}
 	}
 	return pw, true
+}
+
+// isPagePrice is a page watch that reads a price off the page.
+func isPagePrice(w Watch) bool {
+	return w.ReadMode == ReadProductPrice || w.ReadMode == ReadSelectorPrice
+}
+
+// priceCandidates lists the prices a page shows, or none.
+func priceCandidates(body []byte, contentType string) []PreviewCandidate {
+	if cs, err := extract.PriceCandidates(body, contentType); err == nil && len(cs) > 0 {
+		return cs
+	}
+	return []PreviewCandidate{}
 }
 
 // previewKeys finds keys without marking one refused: a key that no longer

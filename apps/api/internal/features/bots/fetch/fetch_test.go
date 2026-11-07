@@ -744,3 +744,25 @@ func TestShareSlots(t *testing.T) {
 		}
 	}
 }
+
+// One Slots carried across separate ctxs, such as one person's previews a
+// moment apart, still counts its own spacing; once that spacing is over it
+// is idle.
+func TestWithSlots(t *testing.T) {
+	const other = "https://shop.example/p/2"
+	n := newNet(map[string]reply{page: html("<html>1</html>"), other: html("<html>2</html>")})
+	f := spacedFetcher(n)
+	slots := NewSlots()
+	for _, u := range []string{page, other} {
+		if _, err := f.Get(WithSlots(context.Background(), slots), Request{URL: u, Want: WantPage, MaxWait: 5 * time.Second}); err != nil {
+			t.Fatalf("%s with one Slots: %v", u, err)
+		}
+	}
+	now := f.cfg.Now()
+	if slots.Idle(now) {
+		t.Error("the spacing after the last read has not ended yet")
+	}
+	if !slots.Idle(now.Add(time.Minute)) {
+		t.Error("a minute later the spacing is over")
+	}
+}
