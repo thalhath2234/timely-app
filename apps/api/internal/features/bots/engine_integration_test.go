@@ -691,7 +691,7 @@ func TestIntegrationBotAlerts(t *testing.T) {
 	must(t, e.db.Exec(`DELETE FROM bot_alerts WHERE bot_id = ?`, b.ID).Error)
 	for range 2 {
 		must(t, e.db.Transaction(func(tx *gorm.DB) error {
-			_, err := e.s.alert(tx, b, checkID, utils.PrefixedUUID("bal"), fired, e.now)
+			_, err := e.s.alert(tx, b, alertRun{checkID: checkID, alertID: utils.PrefixedUUID("bal"), fired: fired, now: e.now})
 			return err
 		}))
 	}

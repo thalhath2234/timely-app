@@ -182,7 +182,7 @@ func TestIntegrationBotsREST(t *testing.T) {
 		{map[string]any{"name": "x", "watches": []map[string]any{{"kind": "page", "url": "http://10.0.0.1/"}}}, "Timely only reads public web addresses"},
 		{map[string]any{"name": "x", "intervalMinutes": 10, "watches": []map[string]any{{"kind": "feed", "url": "https://e.com/rss"}}}, "Pages and feeds are checked every 15 minutes at most"},
 		{map[string]any{"name": "x", "intervalMinutes": 60, "watches": []map[string]any{{"kind": "page", "url": "https://e.com", "read": "product_price"}}}, "Shop prices are checked every 6 hours at most"},
-		{map[string]any{"name": "x", "judgeMode": "ai", "watches": []map[string]any{{"kind": "page", "url": "https://e.com"}}}, "AI judging arrives in a later version"},
+		{map[string]any{"name": "x", "judgeMode": "smart", "watches": []map[string]any{{"kind": "page", "url": "https://e.com"}}}, "Pick Rules only or AI judges"},
 		{map[string]any{"name": "PHONE PRICE", "watches": []map[string]any{{"kind": "page", "url": "https://e.com"}}}, `You already have a bot called "Phone price"`},
 	} {
 		if code, body := call(t, s, me, http.MethodPost, "/bots", c.body); code != http.StatusBadRequest || !strings.Contains(fmt.Sprint(body["message"]), c.want) {

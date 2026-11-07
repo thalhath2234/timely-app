@@ -149,7 +149,9 @@ func main() {
 	// own and never hold up reminders, pushes or each other.
 	jobWorker.Separate(models.JobReindexUser)
 	jobWorker.Separate(models.JobIndexEntity)
-	jobWorker.SeparateN(bots.Slots, models.JobBotCheck)
+	jobWorker.SeparateN(bots.CheckSlots, models.JobBotCheck)
+	// Re-judges and passed items share one slot of their own.
+	jobWorker.Separate(models.JobBotPass, models.JobBotJudge)
 	// A site logo can wait on robots.txt, a home page and the logo itself,
 	// each behind its site's spacing, so logos keep to a lane of their own.
 	jobWorker.Separate(models.JobBotIcon)

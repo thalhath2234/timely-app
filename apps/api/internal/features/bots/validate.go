@@ -115,9 +115,15 @@ func cleanJudge(raw string) (string, error) {
 	switch strings.TrimSpace(raw) {
 	case "", JudgeRules:
 		return JudgeRules, nil
+	case JudgeAI:
+		return JudgeAI, nil
 	}
-	return "", invalid("AI judging arrives in a later version")
+	return "", invalid("Pick Rules only or AI judges")
 }
+
+// errMCPJudged refuses an outside app's edit of what an AI judge obeys: an
+// AI-judged Bot's name and description are the person's instruction to it.
+var errMCPJudged = invalid("Change an AI-judged bot's name or description in Timely")
 
 // refuseMCPSettings keeps alert settings in Timely: an outside app cannot make
 // a Bot urgent, choose where it alerts or how it judges.

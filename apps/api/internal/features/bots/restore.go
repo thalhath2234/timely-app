@@ -18,15 +18,22 @@ const (
 // VetRestore checks the Bots a restore just wrote, inside its transaction
 // (portability.RestoreVet). The rows come from a file, so none of the checks
 // a save makes have run: a Bot whose watches Timely cannot use, or past the
-// 25-Bot cap, is paused; an interval under the floor is raised to it; AI
-// judging is set back to rules; a suggestion is dropped. Restored over MCP, every Bot comes back
-// paused with the alert settings a Bot made over MCP gets, so an outside
-// app cannot turn a Bot or its urgent alerts on this way (ADR 0021). A
+// 25-Bot cap, is paused; an interval under the floor is raised to it; a
+// judge mode Timely does not know is set back to rules; a suggestion is
+// dropped; no alert keeps a judge input (the export never carries one).
+// Restored over MCP, every Bot comes back paused, judged by rules, with the
+// alert settings a Bot made over MCP gets, so an outside app cannot turn a
+// Bot, its urgent alerts or AI judging on this way (ADR 0021). A
 // stock watch passes when the account has its key, which the restore keeps.
 func (s *Service) VetRestore(tx *gorm.DB, userID string, fromMCP bool) error {
 	// A suggestion is code's reading of ratings made here, and the file's
 	// may name rules it does not have.
 	if err := tx.Exec(`UPDATE bots SET suggestion = NULL WHERE user_id = ? AND suggestion IS NOT NULL`, userID).Error; err != nil {
+		return err
+	}
+	// A re-judge reads its input from the alert; a file's would be text no
+	// check here read.
+	if err := tx.Exec(`UPDATE bot_alerts SET ai_input = NULL WHERE user_id = ? AND ai_input IS NOT NULL`, userID).Error; err != nil {
 		return err
 	}
 	var bots []Bot
@@ -55,7 +62,7 @@ func (s *Service) VetRestore(tx *gorm.DB, userID string, fromMCP bool) error {
 		if floor := int(Floor(byBot[b.ID]) / time.Second); b.IntervalSeconds < floor {
 			set["interval_seconds"] = floor
 		}
-		if b.JudgeMode != JudgeRules {
+		if (b.JudgeMode != JudgeRules && b.JudgeMode != JudgeAI) || (fromMCP && b.JudgeMode != JudgeRules) {
 			set["judge_mode"] = JudgeRules
 		}
 		// Only a Bot made over MCP names the app it came from, so a file

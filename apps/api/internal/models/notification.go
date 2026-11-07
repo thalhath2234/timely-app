@@ -30,6 +30,11 @@ const (
 	// JobBotIcon fetches and stores one site's logo for the Bots page. It
 	// runs on its own lane, one at a time.
 	JobBotIcon = "bot_icon"
+	// JobBotJudge asks the AI judge again about a Bot alert that went out
+	// while AI was unavailable. JobBotPass checks a note one Bot passed to
+	// another. They share one lane.
+	JobBotJudge = "bot_judge"
+	JobBotPass  = "bot_pass"
 
 	NotifyReminder = "reminder"
 	NotifyDigest   = "digest"

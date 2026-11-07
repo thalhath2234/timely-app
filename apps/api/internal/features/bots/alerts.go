@@ -1,6 +1,7 @@
 package bots
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -30,11 +31,34 @@ const (
 	maxChangedLine  = 140
 )
 
+// alertRun is the one alert a firing check raises: the rules that fired and
+// what the judge made of them (planCheck), when the Bot is AI-judged.
+type alertRun struct {
+	checkID, alertID string
+	fired            []firedEvent
+	now              time.Time
+	verdict          *Verdict
+	aiState, aiNote  string
+	aiInput          json.RawMessage // set only when a re-judge is queued
+}
+
+// uncheckedSuffix marks an alert AI did not judge.
+const uncheckedSuffix = " (not checked by AI)"
+
 // alert raises the one alert a firing check gets, inside its transaction:
 // held while the Bot is snoozed, sent while it has sent fewer than
 // AlertsPerDay today, else folded into one "and N more today" alert that is
 // rewritten without a new push. sent reports a notification of its own.
-func (s *Service) alert(tx *gorm.DB, b Bot, checkID, alertID string, fired []firedEvent, now time.Time) (sent bool, err error) {
+//
+// For an AI-judged Bot, a verdict of "not worth it" writes the row held
+// 'judged' with no notification (not counted in the cap); "worth it" uses
+// the judge's title and line. Unchecked, the rules' words go out marked as
+// not checked by AI, and a re-judge is queued when asking again can help
+// and the alert was sent.
+// The rules' own words are kept as figures.what either way: lessons and
+// the next judge input read those, never a model's.
+func (s *Service) alert(tx *gorm.DB, b Bot, a alertRun) (sent bool, err error) {
+	now := a.now
 	settings, loc, err := notify.LoadAlertSettings(tx, b.UserID)
 	if err != nil {
 		return false, err
@@ -42,16 +66,38 @@ func (s *Service) alert(tx *gorm.DB, b Bot, checkID, alertID string, fired []fir
 	local := now.In(loc)
 	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
 	opts := notify.AlertOptions{Urgent: b.Urgent, Phone: b.NotifyPhone, Now: now}
-	what, body, figures := alertText(fired)
+	what, body, figures := alertText(a.fired)
+	figures["what"] = what
+	urgency := UrgencyNormal
+	if b.Urgent {
+		urgency = UrgencyHigh
+	}
+	url := a.fired[0].w.URL
+	row := Alert{
+		ID: a.alertID, BotID: b.ID, UserID: b.UserID, CheckID: &a.checkID, Kind: alertKindAlert, LocalDay: day,
+		URL: url, Figures: figures, Urgent: b.Urgent, CreatedAt: now,
+	}
+	switch v := a.verdict; {
+	case v != nil && !v.Alert:
+		row.Title, row.Body = b.Name+": "+what, body
+		row.Held, row.AIState, row.AIWhy, row.Urgency = heldJudged, aiJudged, v.Why, v.Urgency
+		return false, tx.Create(&row).Error
+	case v != nil:
+		if t := strings.TrimSpace(v.Title); t != "" {
+			what = t
+		}
+		body = v.Why
+		row.AIState, row.AIWhy, urgency = aiJudged, v.Why, v.Urgency
+	case a.aiState == aiUnchecked:
+		body = strings.TrimSpace(body + uncheckedSuffix)
+		row.AIState, row.AIWhy = aiUnchecked, clipRunes(a.aiNote, maxAIWhy)
+	}
+	row.Urgency = urgency
 	title := b.Name + ": " + what
 	if _, held := notify.QuietUntil(settings, loc, opts); held {
 		title = withHeldTime(title, now, loc)
 	}
-	url := fired[0].w.URL
-	row := Alert{
-		ID: alertID, BotID: b.ID, UserID: b.UserID, CheckID: &checkID, Kind: alertKindAlert, LocalDay: day,
-		Title: title, Body: body, URL: url, Figures: figures, Urgent: b.Urgent, CreatedAt: now,
-	}
+	row.Title, row.Body = title, body
 	if b.SnoozedUntil != nil && b.SnoozedUntil.After(now) {
 		row.Held = heldSnoozed
 		return false, tx.Create(&row).Error
@@ -62,12 +108,26 @@ func (s *Service) alert(tx *gorm.DB, b Bot, checkID, alertID string, fired []fir
 		return false, err
 	}
 	if today < AlertsPerDay {
-		ntf := botNotification(b, title, body, "bot:"+b.ID+":"+checkID, alertData(b, alertID, checkID, url, alertKindAlert))
+		ntf := botNotification(b, title, body, "bot:"+b.ID+":"+a.checkID, alertData(b, a.alertID, a.checkID, url, alertKindAlert))
 		if _, err := notify.WriteAlert(tx, &ntf, settings, loc, opts); err != nil {
 			return false, err
 		}
 		row.NotificationID = &ntf.ID
-		return true, tx.Create(&row).Error
+		// Only a sent alert is judged again: a re-judge can only rewrite
+		// its notification, so a held row keeps no input.
+		rejudge := row.AIState == aiUnchecked && a.aiInput != nil
+		if rejudge {
+			row.AIInput = a.aiInput
+		}
+		if err := tx.Create(&row).Error; err != nil {
+			return false, err
+		}
+		if rejudge {
+			if err := queueRejudge(tx, b, a.alertID, now); err != nil {
+				return false, err
+			}
+		}
+		return true, nil
 	}
 	row.Held = heldCap
 	if err := tx.Create(&row).Error; err != nil {
@@ -313,10 +373,12 @@ func describe(f firedEvent) (what, body string, figures jsonMap[string, any]) {
 	return "page changed", firstChangedLine(ev.Before.Text, ev.After.Text), figures
 }
 
-// saveFindings writes one typed note per fired rule.
-func saveFindings(tx *gorm.DB, b Bot, checkID string, fired []firedEvent, alerted bool, now time.Time) error {
-	rows := make([]Finding, 0, len(fired))
-	for _, f := range fired {
+// saveFindings writes one typed note per fired rule, in the rules' words
+// (never the judge's), with the judge's urgency when it judged.
+func saveFindings(tx *gorm.DB, b Bot, a alertRun, alerted bool) error {
+	checkID, now := a.checkID, a.now
+	rows := make([]Finding, 0, len(a.fired))
+	for _, f := range a.fired {
 		what, why, figures := describe(f)
 		watchID := f.w.ID
 		kind := "change"
@@ -331,8 +393,11 @@ func saveFindings(tx *gorm.DB, b Bot, checkID string, fired []firedEvent, alerte
 			Title: clipRunes(what, maxFindingTitle), Why: clipRunes(why, maxFindingWhy), URL: f.w.URL,
 			Currency: f.ev.After.Currency, Urgency: "normal", OutsideData: true, Alerted: alerted, CreatedAt: now,
 		}
-		if b.Urgent {
-			row.Urgency = "high"
+		switch {
+		case a.verdict != nil:
+			row.Urgency = a.verdict.Urgency
+		case b.Urgent:
+			row.Urgency = UrgencyHigh
 		}
 		if v, ok := f.ev.After.value(); ok {
 			row.Price = &v

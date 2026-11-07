@@ -62,7 +62,7 @@ func TestIntegrationBackupKeepsBots(t *testing.T) {
 			t.Fatalf("export %s: %d rows, want %d", table, got, want)
 		}
 	}
-	for _, table := range []string{"bot_checks", "bot_sites", "bot_robots", "bot_site_icons", "bot_source_keys"} {
+	for _, table := range []string{"bot_checks", "bot_sites", "bot_robots", "bot_site_icons", "bot_source_keys", "bot_ai_calls"} {
 		if _, ok := backup.Rows[table]; ok {
 			t.Fatalf("export carries %s", table)
 		}
@@ -221,7 +221,7 @@ func TestIntegrationRestoreVetsBots(t *testing.T) {
 	if r := got["bot_has"]; r.Status != "paused" || r.PauseReason == nil || *r.PauseReason != "person" || r.Health != "unsupported" {
 		t.Fatalf("a watch Timely cannot use came back on: %+v", r)
 	}
-	if r := got["bot_loud"]; r.Status != "active" || !r.Urgent || r.NotifyPhone || r.JudgeMode != "rules" {
+	if r := got["bot_loud"]; r.Status != "active" || !r.Urgent || r.NotifyPhone || r.JudgeMode != "ai" {
 		t.Fatalf("the person's own restore changed alert settings: %+v", r)
 	}
 
@@ -238,7 +238,7 @@ func TestIntegrationRestoreVetsBots(t *testing.T) {
 		t.Fatal(err)
 	}
 	for id, r := range read() {
-		if r.Status != "paused" || r.Urgent || !r.NotifyPhone {
+		if r.Status != "paused" || r.Urgent || !r.NotifyPhone || r.JudgeMode != "rules" {
 			t.Fatalf("%s restored over MCP: %+v", id, r)
 		}
 		if want := map[string]string{"bot_has": "person"}[id]; want == "" && *r.PauseReason != "mcp" {
@@ -468,5 +468,86 @@ func TestIntegrationRestoreKeepsSourceKeys(t *testing.T) {
 	}
 	if r := read()["bot_stock"]; r.Status != "paused" || r.HealthDetail != "Restored with a watch Timely cannot use: Stock prices need your free Finnhub key. Add it in Settings › Agent. Edit it to turn it on." {
 		t.Fatalf("stock bot without a key: %+v", r)
+	}
+}
+
+// An alert's judge input (page text kept for a re-judge) never leaves the
+// server: the export has no ai_input, and a crafted file's is dropped on
+// restore. How AI saw the alert round-trips, and a backup made before AI
+// judging restores with the defaults.
+func TestIntegrationBackupLeavesOutJudgeInput(t *testing.T) {
+	db := migratedDB(t)
+	const uid = "usr_portability_bot_judge"
+	if err := db.Create(&models.User{ID: uid, Email: "judge@example.invalid", Password: "not-a-real-hash"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	seedAccountBasics(t, db, uid, true)
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if err := db.Exec(query, args...).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO bots (id, user_id, name, interval_seconds, next_check_at, judge_mode) VALUES ('bot_j', ?, 'Judged', 900, now(), 'ai')`, uid)
+	exec(`INSERT INTO bot_watches (id, bot_id, user_id, kind, source, symbol, currency) VALUES ('bw_j', 'bot_j', ?, 'price', 'coinbase', 'BTC', 'USD')`, uid)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, local_day, title, ai_state, ai_why, ai_input, urgency) VALUES
+		('bal_j1', 'bot_j', ?, 'alert', '2026-11-06', 'Judged: below 25,000', 'unchecked', 'AI was unavailable; Timely asks again later', '{"chainId": "bchk_j", "input": {"bot": "secret page text"}}', 'high'),
+		('bal_j2', 'bot_j', ?, 'alert', '2026-11-06', 'Judged: up 5.0%', 'judged', 'Big move', NULL, 'low')`, uid, uid)
+	exec(`INSERT INTO bot_ai_calls (id, user_id, bot_id, local_day, purpose) VALUES ('bai_j', ?, 'bot_j', '2026-11-06', 'judge')`, uid)
+
+	service := NewService(db, nil)
+	service.SetRestoreVet(bots.New(db, nil).VetRestore)
+	backup, err := service.Export(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := backup.Rows["bot_ai_calls"]; ok {
+		t.Fatal("export carries bot_ai_calls")
+	}
+	for _, raw := range backup.Rows["bot_alerts"] {
+		var row map[string]any
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := row["ai_input"]; ok {
+			t.Fatalf("exported alert carries ai_input: %s", raw)
+		}
+		if row["id"] == "bal_j1" && (row["ai_state"] != "unchecked" || row["urgency"] != "high") {
+			t.Fatalf("exported alert lost how AI saw it: %s", raw)
+		}
+	}
+	// A crafted file puts an input back on one alert and leaves the AI
+	// columns out of the other, as a backup made before AI judging would.
+	for i, raw := range backup.Rows["bot_alerts"] {
+		var row map[string]any
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatal(err)
+		}
+		if row["id"] == "bal_j1" {
+			row["ai_input"] = map[string]any{"chainId": "x", "input": map[string]any{"bot": "crafted"}}
+		} else {
+			delete(row, "ai_state")
+			delete(row, "ai_why")
+			delete(row, "urgency")
+		}
+		backup.Rows["bot_alerts"][i], _ = json.Marshal(row)
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	var rows []struct {
+		ID, AIState, AIWhy, Urgency string
+		HasInput                    bool
+	}
+	if err := db.Raw(`SELECT id, ai_state, ai_why, urgency, ai_input IS NOT NULL AS has_input FROM bot_alerts WHERE user_id = ? ORDER BY id`, uid).Scan(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].HasInput || rows[0].AIState != "unchecked" || rows[0].Urgency != "high" ||
+		rows[1].HasInput || rows[1].AIState != "" || rows[1].AIWhy != "" || rows[1].Urgency != "normal" {
+		t.Fatalf("restored alerts %+v", rows)
+	}
+	var calls int64
+	if err := db.Raw(`SELECT count(*) FROM bot_ai_calls WHERE user_id = ?`, uid).Scan(&calls).Error; err != nil || calls != 1 {
+		t.Fatalf("a restore reset the AI call log: %d (%v)", calls, err)
 	}
 }

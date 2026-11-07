@@ -187,6 +187,10 @@ func (s *Store) Update(ctx context.Context, userID, idOrName string, p Patch, o 
 			return err
 		}
 		botID = b.ID
+		if o == OriginMCP && b.JudgeMode == JudgeAI &&
+			((p.Description != nil && set["description"] != b.Description) || (p.Name != nil && name != b.Name)) {
+			return errMCPJudged
+		}
 		if p.Name != nil {
 			var rows []Bot
 			if err := tx.Select("id", "name").Where("user_id = ?", userID).Find(&rows).Error; err != nil {
@@ -449,12 +453,16 @@ type BotList struct {
 	Summary ListSummary `json:"summary"`
 }
 
-// ListSummary is the board header: checks and sent alerts today in the
-// person's notification zone, and the next check of any active Bot.
+// ListSummary is the board header: checks, sent alerts and AI calls today
+// in the person's notification zone, the account's AI cap, the next check
+// of any active Bot, and whether AI can judge now.
 type ListSummary struct {
-	ChecksToday int        `json:"checksToday"`
-	AlertsToday int        `json:"alertsToday"`
-	NextCheckAt *time.Time `json:"nextCheckAt"`
+	ChecksToday   int        `json:"checksToday"`
+	AlertsToday   int        `json:"alertsToday"`
+	NextCheckAt   *time.Time `json:"nextCheckAt"`
+	AIChecksToday int        `json:"aiChecksToday"`
+	AICap         int        `json:"aiCap"`
+	AI            AIStatus   `json:"ai"` // filled by the handler: the Store has no judge
 }
 
 // List returns the account's Bots, oldest first, with the board's numbers.
@@ -477,6 +485,10 @@ func (s *Store) List(ctx context.Context, userID string, now time.Time) (BotList
 		return BotList{}, err
 	}
 	out.Summary.ChecksToday = int(checks)
+	out.Summary.AICap = AIPerAccount
+	if out.Summary.AIChecksToday, _, err = aiCallsToday(db, userID, local.Format(dayLayout)); err != nil {
+		return BotList{}, err
+	}
 	if len(bots) == 0 {
 		return out, nil
 	}
@@ -559,8 +571,8 @@ func (s *Store) Get(ctx context.Context, userID, idOrName string, now time.Time)
 	var counts struct{ Checks, Alerts, AlertsMonth int }
 	if err := db.Raw(`
 SELECT (SELECT count(*) FROM bot_checks WHERE bot_id = @bot AND user_id = @uid AND started_at >= @week AND outcome <> 'superseded') AS checks,
-       (SELECT count(*) FROM bot_alerts WHERE bot_id = @bot AND user_id = @uid AND kind = 'alert' AND created_at >= @week) AS alerts,
-       (SELECT count(*) FROM bot_alerts WHERE bot_id = @bot AND user_id = @uid AND kind = 'alert' AND created_at >= @month) AS alerts_month`,
+       (SELECT count(*) FROM bot_alerts WHERE bot_id = @bot AND user_id = @uid AND kind = 'alert' AND held <> 'judged' AND created_at >= @week) AS alerts,
+       (SELECT count(*) FROM bot_alerts WHERE bot_id = @bot AND user_id = @uid AND kind = 'alert' AND held <> 'judged' AND created_at >= @month) AS alerts_month`,
 		sql.Named("bot", b.ID), sql.Named("uid", userID),
 		sql.Named("week", now.UTC().AddDate(0, 0, -7)), sql.Named("month", now.UTC().AddDate(0, 0, -detailDays)),
 	).Scan(&counts).Error; err != nil {
@@ -871,7 +883,7 @@ func loadWatches(tx *gorm.DB, botID string, lock bool) ([]Watch, error) {
 // alert and the price closes of the last 31 days.
 func loadBoard(db *gorm.DB, userID, botID string, now time.Time) (*board, error) {
 	bd := &board{alertsToday: map[string]int{}, itemsToday: map[string]int{}, strips: map[string]string{},
-		latest: map[string]*AlertBrief{}, days: map[string][]dayClose{}}
+		latest: map[string]*AlertBrief{}, aiCalls: map[string]int{}, days: map[string][]dayClose{}}
 	scope := func(q *gorm.DB, col string) *gorm.DB {
 		if botID != "" {
 			return q.Where(col+" = ?", botID)
@@ -897,6 +909,9 @@ func loadBoard(db *gorm.DB, userID, botID string, now time.Time) (*board, error)
 	for _, r := range today {
 		bd.alertsToday[r.BotID], bd.itemsToday[r.BotID] = r.N, r.Items
 	}
+	if _, bd.aiCalls, err = aiCallsToday(db, userID, day); err != nil {
+		return nil, err
+	}
 
 	var marks []struct{ BotID, Outcome string }
 	q = db.Raw(`
@@ -918,17 +933,29 @@ ORDER BY b.id, c.started_at DESC, c.id DESC`, sql.Named("n", stripChecks), sql.N
 		bd.strips[id] = stripOf(list)
 	}
 
-	var latest []Alert
+	// The newest alert the person was told of, or that a cap held; an alert
+	// the judge held back is not one (the Bot's page lists it).
+	var latest []struct {
+		ID, BotID, BotName, Title, Body, URL, Held, Kind, AIState, AIWhy, Urgency string
+		What, Feedback                                                            *string
+		CreatedAt                                                                 time.Time
+	}
 	q = db.Raw(`
-SELECT DISTINCT ON (bot_id) id, bot_id, title, body, url, held, feedback, created_at FROM bot_alerts
-WHERE user_id = @uid AND kind = 'alert' AND held <> @snoozed AND created_at >= @since AND (@bot = '' OR bot_id = @bot)
-ORDER BY bot_id, created_at DESC, id DESC`, sql.Named("uid", userID), sql.Named("snoozed", heldSnoozed),
+SELECT DISTINCT ON (a.bot_id) a.id, a.bot_id, a.title, a.body, a.url, a.held, a.kind, a.ai_state, a.ai_why, a.urgency,
+       a.figures->>'what' AS what, a.feedback, a.created_at, b.name AS bot_name
+FROM bot_alerts a JOIN bots b ON b.id = a.bot_id
+WHERE a.user_id = @uid AND a.kind IN ('alert', 'brief') AND a.held IN ('', @cap) AND a.created_at >= @since AND (@bot = '' OR a.bot_id = @bot)
+ORDER BY a.bot_id, a.created_at DESC, a.id DESC`, sql.Named("uid", userID), sql.Named("cap", heldCap),
 		sql.Named("since", now.UTC().AddDate(0, 0, -detailDays)), sql.Named("bot", botID))
 	if err := q.Scan(&latest).Error; err != nil {
 		return nil, err
 	}
 	for _, a := range latest {
-		bd.latest[a.BotID] = &AlertBrief{ID: a.ID, Title: a.Title, Body: a.Body, URL: a.URL, Held: a.Held, CreatedAt: a.CreatedAt, Feedback: a.Feedback}
+		bd.latest[a.BotID] = &AlertBrief{ID: a.ID, Title: a.Title, Body: a.Body, URL: a.URL, Held: a.Held, CreatedAt: a.CreatedAt, Feedback: a.Feedback,
+			Kind: a.Kind, AIState: a.AIState, AIWhy: a.AIWhy, Urgency: urgencyOr(a.Urgency), RulesTitle: a.Title}
+		if a.What != nil && strings.TrimSpace(*a.What) != "" {
+			bd.latest[a.BotID].RulesTitle = a.BotName + ": " + *a.What
+		}
 	}
 
 	var days []struct {

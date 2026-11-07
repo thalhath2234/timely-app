@@ -158,7 +158,7 @@ type Alert struct {
 	CheckID        *string              `gorm:"type:text" json:"checkId"`
 	NotificationID *string              `gorm:"type:text" json:"notificationId"`
 	Kind           string               `gorm:"type:text;not null" json:"kind"` // alert|more|paused
-	Held           string               `gorm:"type:text;not null" json:"held"` // ""|snoozed|cap
+	Held           string               `gorm:"type:text;not null" json:"held"` // ""|snoozed|cap|judged
 	LocalDay       time.Time            `gorm:"type:date;not null" json:"-"`
 	Title          string               `gorm:"type:text;not null" json:"title"`
 	Body           string               `gorm:"type:text;not null" json:"body"`
@@ -173,7 +173,15 @@ type Alert struct {
 	FeedbackReason string     `gorm:"type:text;not null" json:"feedbackReason"`
 	FeedbackNote   string     `gorm:"type:text;not null" json:"feedbackNote"`
 	FeedbackAt     *time.Time `json:"feedbackAt"`
-	CreatedAt      time.Time  `json:"createdAt"`
+	// How AI saw it: AIState judged, unchecked (AIWhy says why) or
+	// rejudged (a later verdict said it was not worth it), "" for a rules
+	// Bot. AIInput keeps the judge's input only while a re-judge is
+	// queued. Urgency is the judge's, or high for an urgent rules Bot.
+	AIState   string          `gorm:"column:ai_state;type:text;not null" json:"aiState"`
+	AIWhy     string          `gorm:"column:ai_why;type:text;not null" json:"aiWhy"`
+	AIInput   json.RawMessage `gorm:"column:ai_input;type:jsonb" json:"-"`
+	Urgency   string          `gorm:"type:text;not null;default:normal" json:"urgency"`
+	CreatedAt time.Time       `json:"createdAt"`
 }
 
 func (Alert) TableName() string { return "bot_alerts" }

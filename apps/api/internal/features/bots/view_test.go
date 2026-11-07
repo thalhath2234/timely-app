@@ -13,7 +13,7 @@ import (
 func TestStripMark(t *testing.T) {
 	cases := map[string]byte{
 		outBaseline: 'n', outUnchanged: 'n', outNotModified: 'n',
-		outChanged: 'c', outFired: 'f', outStrike: 'x',
+		outChanged: 'c', outFired: 'f', outStrike: 'x', outJudgedQuiet: 'c', outPassed: 'c',
 		outOffline: 'o', outRateLimited: 'o', outSiteBusy: 'o', outRobots: 'o',
 		outSuperseded: 0, "something new": 0,
 	}

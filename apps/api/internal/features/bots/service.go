@@ -50,9 +50,9 @@ type Service struct {
 	askPoll time.Duration
 	askWait time.Duration
 	sleep   func(ctx context.Context, d time.Duration) error
-	// aiReady says the person has an AI provider, so a suggestion may turn
-	// on AI judging. nil (until the judge is wired) means none.
-	aiReady func(ctx context.Context, userID string) bool
+	// judge decides what an AI-judged Bot's rules spot (SetJudge); nil
+	// leaves AI off.
+	judge Judge
 
 	mu            sync.Mutex
 	rnd           *rand.Rand // under mu
@@ -79,7 +79,7 @@ func New(db *gorm.DB, queue *jobs.Queue) *Service {
 // WithDB is a copy of s whose reads and writes go through db and whose jobs
 // go on q, so the chat agent's saves join its transaction (a rehearsal's
 // rollback takes their logo jobs with it). The copy shares the fetcher,
-// the keys, the live hub, the clock, Ask's timing and aiReady, and with them the
+// the keys, the live hub, the clock, Ask's timing and the judge, and with them the
 // process-wide preview memo and limit; it has its own random source and no
 // test hook.
 func (s *Service) WithDB(db *gorm.DB, q *jobs.Queue) *Service {
@@ -89,7 +89,7 @@ func (s *Service) WithDB(db *gorm.DB, q *jobs.Queue) *Service {
 	return &Service{
 		store: NewStore(db), db: db, queue: q,
 		fetch: s.fetch, keys: s.keys, keyStore: s.keyStore, live: s.live, now: s.now,
-		askPoll: s.askPoll, askWait: s.askWait, sleep: s.sleep, aiReady: s.aiReady,
+		askPoll: s.askPoll, askWait: s.askWait, sleep: s.sleep, judge: s.judge,
 		rnd: rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), rand.Uint64())),
 	}
 }
@@ -114,11 +114,12 @@ func (s *Service) SetFetcher(f *fetch.Fetcher) {
 	}
 }
 
-// Register adds the check and site logo handlers. The sweep is joined into
-// the worker's one sweep in main.go, never set here.
+// Register adds the check, site logo and re-judge handlers. The sweep is
+// joined into the worker's one sweep in main.go, never set here.
 func (s *Service) Register(w *jobs.Worker) {
 	w.Handle(models.JobBotCheck, s.HandleCheck)
 	w.Handle(models.JobBotIcon, s.HandleIcon)
+	w.Handle(models.JobBotJudge, s.HandleRejudge)
 }
 
 // Create saves a Bot, and asks for the logos of sites new to Timely, so
@@ -175,7 +176,7 @@ func (s *Service) Get(ctx context.Context, userID, idOrName string) (Detail, err
 
 // RateAlert records a rating and the lesson it teaches (Store.RateAlert).
 func (s *Service) RateAlert(ctx context.Context, userID, botID, alertID string, r Rating) (RateResult, error) {
-	ready := s.aiReady != nil && s.aiReady(ctx, userID)
+	ready := s.judge != nil && s.AIStatus(ctx, userID).Ready
 	return s.store.RateAlert(ctx, userID, botID, alertID, r, s.now(), ready)
 }
 

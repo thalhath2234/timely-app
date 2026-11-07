@@ -74,10 +74,12 @@ func httpError(err error) error {
 func badRequest() error { return echo.NewHTTPError(http.StatusBadRequest, "Invalid request") }
 
 func (s *Service) list(c *echo.Context) error {
-	list, err := s.List(c.Request().Context(), user(c))
+	ctx := c.Request().Context()
+	list, err := s.List(ctx, user(c))
 	if err != nil {
 		return httpError(err)
 	}
+	list.Summary.AI = s.AIStatus(ctx, user(c))
 	return c.JSON(http.StatusOK, list)
 }
 

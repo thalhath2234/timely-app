@@ -44,14 +44,15 @@ type View struct {
 	CreatedAt       time.Time   `json:"createdAt"`
 	UpdatedAt       time.Time   `json:"updatedAt"`
 	// The board's fields.
-	OriginClient string      `json:"originClient"` // "" unless origin is mcp
-	Checking     bool        `json:"checking"`     // a check is running now
-	RunNowAt     *time.Time  `json:"runNowAt"`     // the earliest Run now can check, when later than now
-	FloorLine    string      `json:"floorLine"`    // "Shop prices are checked every 6 hours at most"
-	Strip        string      `json:"strip"`        // the last checks, oldest first: one stripMark each
-	LatestAlert  *AlertBrief `json:"latestAlert"`  // the newest alert of the last 30 days, held for a cap or not
-	ItemsToday   int         `json:"itemsToday"`   // new feed items today's alerts told of, held included
-	Suggestion   *Suggestion `json:"suggestion"`   // a better rule the Bot proposes, or nil
+	OriginClient  string      `json:"originClient"`  // "" unless origin is mcp
+	Checking      bool        `json:"checking"`      // a check is running now
+	RunNowAt      *time.Time  `json:"runNowAt"`      // the earliest Run now can check, when later than now
+	FloorLine     string      `json:"floorLine"`     // "Shop prices are checked every 6 hours at most"
+	Strip         string      `json:"strip"`         // the last checks, oldest first: one stripMark each
+	LatestAlert   *AlertBrief `json:"latestAlert"`   // the newest alert of the last 30 days, held for a cap or not
+	ItemsToday    int         `json:"itemsToday"`    // new feed items today's alerts told of, held included
+	Suggestion    *Suggestion `json:"suggestion"`    // a better rule the Bot proposes, or nil
+	AIChecksToday int         `json:"aiChecksToday"` // AI calls the Bot made today (notification zone)
 }
 
 // AlertBrief is the alert a board card shows.
@@ -63,6 +64,13 @@ type AlertBrief struct {
 	Held      string    `json:"held"`
 	CreatedAt time.Time `json:"createdAt"`
 	Feedback  *string   `json:"feedback"` // useful, not_useful or nil
+	Kind      string    `json:"kind"`
+	AIState   string    `json:"aiState"` // "", judged, unchecked or rejudged
+	AIWhy     string    `json:"aiWhy"`   // the judge's line, or why AI did not judge it
+	Urgency   string    `json:"urgency"` // low, normal or high
+	// RulesTitle is the title in the rules' words ("<bot>: " + figures.what),
+	// for readers that must not pass on a model's words (MCP).
+	RulesTitle string `json:"-"`
 }
 
 // ItemBrief is one feed item a watch read.
@@ -154,6 +162,10 @@ type AlertView struct {
 	FeedbackReason string     `json:"feedbackReason"`
 	FeedbackNote   string     `json:"feedbackNote"`
 	FeedbackAt     *time.Time `json:"feedbackAt"`
+	// How AI saw it, see Alert.
+	AIState string `json:"aiState"`
+	AIWhy   string `json:"aiWhy"`
+	Urgency string `json:"urgency"`
 }
 
 type PriceDayView struct {
@@ -186,6 +198,7 @@ type board struct {
 	itemsToday  map[string]int         // by Bot
 	strips      map[string]string      // by Bot
 	latest      map[string]*AlertBrief // by Bot
+	aiCalls     map[string]int         // by Bot: AI calls today
 	days        map[string][]dayClose  // by watch, oldest first
 }
 
@@ -211,7 +224,7 @@ func viewOf(b Bot, ws []Watch, bd *board, now time.Time) View {
 		Watches: make([]WatchView, 0, len(ws)), CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
 		OriginClient: b.OriginClient, Checking: b.CheckingJobID != nil, FloorLine: floorLine(floor),
 		Strip: bd.strips[b.ID], LatestAlert: bd.latest[b.ID], ItemsToday: bd.itemsToday[b.ID],
-		Suggestion: b.Suggestion,
+		Suggestion: b.Suggestion, AIChecksToday: bd.aiCalls[b.ID],
 	}
 	if b.Origin != OriginMCP {
 		v.OriginClient = ""
@@ -417,14 +430,15 @@ func dayChangePct(days []dayClose, r Reading) *float64 {
 	return &pct
 }
 
-// stripMark is one check on a board card's strip: n no change, c changed,
-// f told you, x failed (a strike), o offline or waiting (no strike).
-// Superseded checks are not shown (0).
+// stripMark is one check on a board card's strip: n no change, c changed
+// (rules fired but the judge held it back or it went on to other Bots
+// count here: nobody was told), f told you, x failed (a strike), o offline
+// or waiting (no strike). Superseded checks are not shown (0).
 func stripMark(outcome string) byte {
 	switch outcome {
 	case outBaseline, outUnchanged, outNotModified:
 		return 'n'
-	case outChanged:
+	case outChanged, outJudgedQuiet, outPassed:
 		return 'c'
 	case outFired:
 		return 'f'
@@ -459,7 +473,16 @@ func alertView(a Alert) AlertView {
 	}
 	return AlertView{ID: a.ID, CheckID: a.CheckID, Figures: figures, Kind: a.Kind, Held: a.Held, Title: a.Title, Body: a.Body,
 		URL: a.URL, Urgent: a.Urgent, MoreCount: a.MoreCount, CreatedAt: a.CreatedAt,
-		Feedback: a.Feedback, FeedbackReason: a.FeedbackReason, FeedbackNote: a.FeedbackNote, FeedbackAt: a.FeedbackAt}
+		Feedback: a.Feedback, FeedbackReason: a.FeedbackReason, FeedbackNote: a.FeedbackNote, FeedbackAt: a.FeedbackAt,
+		AIState: a.AIState, AIWhy: a.AIWhy, Urgency: urgencyOr(a.Urgency)}
+}
+
+// urgencyOr is an alert's urgency, normal when unset.
+func urgencyOr(u string) string {
+	if u == "" {
+		return UrgencyNormal
+	}
+	return u
 }
 
 // summary is a short line about a reading: "₹27,499", "12 items" or

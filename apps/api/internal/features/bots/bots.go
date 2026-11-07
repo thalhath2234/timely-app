@@ -38,7 +38,9 @@ const (
 	MinPriceEvery   = 5 * time.Minute
 	MinProductEvery = 6 * time.Hour
 
-	Slots          = 4
+	// CheckSlots is how many checks run at once; re-judges get a lane of
+	// their own.
+	CheckSlots     = 3
 	CheckBudget    = 3 * time.Minute
 	ProvisionalMax = 10 * time.Minute
 	// FenceSlack is how early a check may start against its due time or the
@@ -55,6 +57,17 @@ const (
 	AlertKeepDays = 365
 	PriceKeepDays = 366
 	SiteKeepDays  = 30
+	AICallDays    = 30
+
+	// AI judging: calls a Bot may make per local day, the account in all,
+	// and one chain whoever makes them; and how long one judge call may
+	// take (less for a tag's check, whose read and judge must fit Ask's
+	// wait).
+	AIPerBot        = 20
+	AIPerAccount    = 200
+	ChainAI         = 6
+	JudgeTimeout    = 30 * time.Second
+	AskJudgeTimeout = 15 * time.Second
 )
 
 // Watch kinds and page read modes, as stored in bot_watches.
@@ -101,6 +114,12 @@ var (
 	// ErrSuggestionStale answers Apply on a suggestion that was replaced, or
 	// whose watch or rule is gone.
 	ErrSuggestionStale = errors.New("This suggestion is out of date")
+	// ErrJudgeOff is a judge call with no AI to make it: no provider, none
+	// chosen, the CLI off, no saved key or the Claude CLI missing. Asking
+	// again cannot help, so the alert goes out unchecked with no re-judge.
+	ErrJudgeOff = errors.New("no AI provider")
+	// errAICap is a call the daily or chain AI caps refuse.
+	errAICap = errors.New("AI checks used up")
 )
 
 // InputError is a request the person can fix; its text is shown as is.

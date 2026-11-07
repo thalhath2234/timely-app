@@ -525,7 +525,7 @@ func TestIntegrationBotSuggestion(t *testing.T) {
 func TestIntegrationBotSuggestionAI(t *testing.T) {
 	e := newEngine(t)
 	ready := false
-	e.s.aiReady = func(context.Context, string) bool { return ready }
+	e.s.SetJudge(&fakeJudge{ready: &ready})
 	v := e.create(Input{Name: "News", Watches: []WatchInput{{Kind: WatchFeed, URL: "https://news.example.com/rss"}}})
 	w := v.Watches[0]
 	day := e.now.Truncate(24 * time.Hour)

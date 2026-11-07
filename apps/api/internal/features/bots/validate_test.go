@@ -38,7 +38,10 @@ func TestCleanName(t *testing.T) {
 	if j, err := cleanJudge(""); err != nil || j != JudgeRules {
 		t.Fatal(j, err)
 	}
-	if msg := inputMsg(t, second(cleanJudge("ai"))); msg != "AI judging arrives in a later version" {
+	if j, err := cleanJudge(" ai "); err != nil || j != JudgeAI {
+		t.Fatal(j, err)
+	}
+	if msg := inputMsg(t, second(cleanJudge("smart"))); msg != "Pick Rules only or AI judges" {
 		t.Fatal(msg)
 	}
 }

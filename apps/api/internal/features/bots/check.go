@@ -35,6 +35,11 @@ const (
 	outRobots      = "robots"
 	outStrike      = "strike"
 	outSuperseded  = "superseded"
+	// outJudgedQuiet: rules fired, and the AI judge said it was not worth
+	// telling (the alert is held). outPassed: rules fired, and everything
+	// went on to other Bots or into a brief.
+	outJudgedQuiet = "judged_quiet"
+	outPassed      = "passed"
 )
 
 const (
@@ -87,7 +92,8 @@ func (s *Service) HandleCheck(ctx context.Context, job *models.Job) error {
 		s.release(b.ID, job.ID, prevStarted)
 		return nil
 	}
-	c := checkRun{job: job, bot: b, trigger: trigger, started: started, floor: Floor(ws), reads: reads}
+	checkID := utils.PrefixedUUID("bchk")
+	c := checkRun{job: job, bot: b, trigger: trigger, started: started, floor: Floor(ws), reads: reads, checkID: checkID, chainID: checkID}
 	p, err := classify(reads)
 	switch {
 	case err != nil:
@@ -96,6 +102,16 @@ func (s *Service) HandleCheck(ctx context.Context, job *models.Job) error {
 	case p != nil:
 		err = s.saveProblem(ctx, c, p)
 	default:
+		// The judge runs here, never inside the save's transaction, which
+		// holds the Bot's row.
+		err = s.planCheck(ctx, &c)
+		if ctx.Err() != nil {
+			s.release(b.ID, job.ID, prevStarted)
+			return nil
+		}
+		if err != nil {
+			break
+		}
 		if err = s.saveOK(ctx, c); err == nil {
 			// Outside the transaction: a logo never holds up a check.
 			s.askIcons(ctx, b.UserID, readWatches(reads))
@@ -123,6 +139,12 @@ type checkRun struct {
 	started time.Time
 	floor   time.Duration // of the watches it claimed with
 	reads   []watchRead
+	// checkID is the bot_checks row the save writes; chainID is the check
+	// that started the chain this one is part of (itself for a check of its
+	// own).
+	checkID string
+	chainID string
+	plan    checkPlan
 }
 
 // spaced is the earliest the next check of c's Bot may be due.
@@ -499,7 +521,7 @@ func (s *Service) saveProblem(ctx context.Context, c checkRun, p *problem) error
 			cws = append(cws, cw)
 		}
 		check := Check{
-			ID: utils.PrefixedUUID("bchk"), BotID: b.ID, UserID: b.UserID, JobID: &c.job.ID, Trigger: c.trigger,
+			ID: c.checkID, BotID: b.ID, UserID: b.UserID, JobID: &c.job.ID, Trigger: c.trigger,
 			StartedAt: c.started, FinishedAt: done, Outcome: p.outcome, ErrorKind: p.code,
 			Error: utils.StorableText(utils.RedactSecrets(p.err.Error()), maxCheckError), Watches: cws, Fired: jsonList[FiredRule]{},
 		}
@@ -607,25 +629,14 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 				states = nil
 			default:
 				prev := *w.LastReading
-				before := len(fired)
-				for _, rule := range w.Rules {
-					old := w.RuleState[rule.ID]
-					ev, st := Evaluate(rule, old, prev, reading)
-					states[rule.ID] = st
-					if ev != nil {
-						ev.WatchID = w.ID
-						fired = append(fired, firedEvent{ev: *ev, w: w, rule: rule, ref: refBefore(rule, old, prev)})
-					}
-					if v, ok := reading.value(); ok && rearmed(rule, old, st, prev, reading) {
-						rearms = append(rearms, Rearm{WatchID: w.ID, RuleID: rule.ID, Value: v, Currency: reading.Currency})
-					}
-				}
+				evs, st, re := evaluateWatch(w, reading)
+				fired, states, rearms = append(fired, evs...), st, append(rearms, re...)
 				cw.Outcome = outUnchanged
 				if watchChanged(prev, reading) {
 					moved, cw.Outcome = true, outChanged
 					set["last_changed_at"] = done
 				}
-				if len(fired) > before {
+				if len(evs) > 0 {
 					cw.Outcome = outFired
 				}
 				if cw.Outcome != outUnchanged {
@@ -660,12 +671,16 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 		}
 
 		check := Check{
-			ID: utils.PrefixedUUID("bchk"), BotID: b.ID, UserID: b.UserID, JobID: &c.job.ID, Trigger: c.trigger,
+			ID: c.checkID, BotID: b.ID, UserID: b.UserID, JobID: &c.job.ID, Trigger: c.trigger,
 			StartedAt: c.started, FinishedAt: done, Watches: cws, Fired: jsonList[FiredRule]{}, Rearmed: rearms,
+		}
+		run := alertRun{checkID: c.checkID, fired: fired, now: done}
+		if len(fired) > 0 {
+			run = judgedRun(b, c.plan, run)
 		}
 		switch {
 		case len(fired) > 0:
-			check.Outcome = outFired
+			check.Outcome = firedOutcome(run)
 		case baseline:
 			check.Outcome = outBaseline
 		case moved:
@@ -689,17 +704,17 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 		}
 		if len(fired) > 0 {
 			alertID = utils.PrefixedUUID("bal")
-			check.AlertID = &alertID
+			check.AlertID, run.alertID = &alertID, alertID
 		}
 		if err := tx.Create(&check).Error; err != nil {
 			return err
 		}
 		if len(fired) > 0 {
-			sent, err := s.alert(tx, b, check.ID, alertID, fired, done)
+			sent, err := s.alert(tx, b, run)
 			if err != nil {
 				return err
 			}
-			if err := saveFindings(tx, b, check.ID, fired, sent, done); err != nil {
+			if err := saveFindings(tx, b, run, sent); err != nil {
 				return err
 			}
 		}
@@ -723,6 +738,54 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 		}
 		return nil
 	})
+}
+
+// evaluateWatch runs a watch's rules against a new reading, measured from
+// its last one: the rules that fired, every rule's new state and the rules
+// that armed again. The save and planCheck's dry run both use it, so the
+// judge sees what the save will alert on.
+func evaluateWatch(w Watch, reading Reading) (fired []firedEvent, states jsonMap[string, RuleState], rearms []Rearm) {
+	prev := *w.LastReading
+	states = jsonMap[string, RuleState]{}
+	for _, rule := range w.Rules {
+		old := w.RuleState[rule.ID]
+		ev, st := Evaluate(rule, old, prev, reading)
+		states[rule.ID] = st
+		if ev != nil {
+			ev.WatchID = w.ID
+			fired = append(fired, firedEvent{ev: *ev, w: w, rule: rule, ref: refBefore(rule, old, prev)})
+		}
+		if v, ok := reading.value(); ok && rearmed(rule, old, st, prev, reading) {
+			rearms = append(rearms, Rearm{WatchID: w.ID, RuleID: rule.ID, Value: v, Currency: reading.Currency})
+		}
+	}
+	return fired, states, rearms
+}
+
+// judgedRun applies what planCheck decided to the rules that fired in the
+// save. The save evaluates again under the lock, and a watch edited while
+// it was read drops out, so the verdict applies only when the save alerts
+// on exactly what the judge saw; otherwise the alert goes out in the rules'
+// words, unchecked, with no re-judge. A Bot switched to AI judging during
+// the check is unchecked too; one switched to rules alerts by its rules.
+func judgedRun(b Bot, p checkPlan, run alertRun) alertRun {
+	if b.JudgeMode != JudgeAI {
+		return run
+	}
+	if !p.asked() || !sameKeys(eventKeys(run.fired), p.judgedKeys) {
+		run.aiState, run.aiNote = aiUnchecked, noteChanged
+		return run
+	}
+	run.verdict, run.aiState, run.aiNote, run.aiInput = p.verdict, p.aiState, p.aiNote, p.aiInput
+	return run
+}
+
+// firedOutcome is the outcome of a check whose rules fired.
+func firedOutcome(run alertRun) string {
+	if run.verdict != nil && !run.verdict.Alert {
+		return outJudgedQuiet
+	}
+	return outFired
 }
 
 // rearmed reports whether a below or above rule armed again in this check:

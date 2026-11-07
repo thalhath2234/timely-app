@@ -97,8 +97,9 @@ func (s *Service) Sweep(ctx context.Context) error {
 
 // prune applies retention in small batches: the check log keeps 30 days and
 // the newest 500 per Bot, findings 30 days, alerts a year, price days 366
-// days, the shared site and robots caches 30 days past their use, and site
-// logos 60 days after anyone last asked for them. All times come from Go.
+// days, the shared site and robots caches 30 days past their use, site
+// logos 60 days after anyone last asked for them, the AI call log 30 days,
+// and a re-judge's stored input 6 hours. All times come from Go.
 func (s *Service) prune(ctx context.Context, now time.Time) error {
 	day := 24 * time.Hour
 	steps := []struct {
@@ -115,6 +116,10 @@ func (s *Service) prune(ctx context.Context, now time.Time) error {
 		{`DELETE FROM bot_sites WHERE ctid IN (SELECT ctid FROM bot_sites WHERE used_at < ? LIMIT ?)`, []any{now.Add(-SiteKeepDays * day)}},
 		{`DELETE FROM bot_robots WHERE ctid IN (SELECT ctid FROM bot_robots WHERE expires_at < ? LIMIT ?)`, []any{now.Add(-SiteKeepDays * day)}},
 		{`DELETE FROM bot_site_icons WHERE ctid IN (SELECT ctid FROM bot_site_icons WHERE used_at < ? LIMIT ?)`, []any{now.Add(-IconKeepDays * day)}},
+		{`DELETE FROM bot_ai_calls WHERE ctid IN (SELECT ctid FROM bot_ai_calls WHERE created_at < ? LIMIT ?)`, []any{now.Add(-AICallDays * day)}},
+		// Backstop for a re-judge lost on its last try: no input outlives
+		// the retries (15 min + 45 min + 2 h, with room for a late queue).
+		{`UPDATE bot_alerts SET ai_input = NULL WHERE ctid IN (SELECT ctid FROM bot_alerts WHERE ai_input IS NOT NULL AND created_at < ? LIMIT ?)`, []any{now.Add(-rejudgeKeepInput)}},
 	}
 	db := s.db.WithContext(ctx)
 	for _, st := range steps {

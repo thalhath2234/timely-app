@@ -305,6 +305,14 @@ func TestIntegrationBotMigrationsDownUp(t *testing.T) {
 	must(t, db.Create(&models.Job{ID: "job_m", UserID: user, Kind: models.JobBotIcon, Status: models.JobPending, Payload: models.JobPayload{},
 		RunAt: time.Now(), MaxAttempts: 1, CreatedAt: time.Now(), UpdatedAt: time.Now()}).Error)
 	exec(`INSERT INTO bot_site_icons (site, fetched_at, used_at) VALUES ('shop.example', now(), now())`)
+	exec(`INSERT INTO bot_checks (id, bot_id, user_id, trigger, started_at, finished_at, outcome) VALUES
+		('bchk_quiet', 'bot_m', ?, 'schedule', now(), now(), 'judged_quiet'), ('bchk_passed', 'bot_m', ?, 'schedule', now(), now(), 'passed')`, user, user)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, held, local_day, title, ai_state, ai_why, urgency) VALUES
+		('bal_judged', 'bot_m', ?, 'alert', 'judged', '2026-11-07', 'M: up 2.0%', 'judged', 'Small', 'low'),
+		('bal_kept', 'bot_m', ?, 'alert', '', '2026-11-07', 'M: up 3.0%', 'unchecked', 'AI was unavailable', 'normal')`, user, user)
+	exec(`INSERT INTO bot_ai_calls (id, user_id, bot_id, local_day, purpose) VALUES ('bai_m', ?, 'bot_m', '2026-11-07', 'judge')`, user)
+	must(t, db.Create(&models.Job{ID: "job_judge", UserID: user, Kind: models.JobBotJudge, Status: models.JobPending, Payload: models.JobPayload{},
+		RunAt: time.Now(), MaxAttempts: 3, CreatedAt: time.Now(), UpdatedAt: time.Now()}).Error)
 
 	must(t, goose.DownTo(sqlDB, ".", beforeBoard))
 	var cols []string
@@ -323,9 +331,22 @@ func TestIntegrationBotMigrationsDownUp(t *testing.T) {
 	if count(t, db, "bot_watches", "id = 'bw_m'") != 0 || count(t, db, "jobs", "id = 'job_m'") != 0 {
 		t.Fatal("rows the old constraints refuse are still there")
 	}
+	if count(t, db, "bot_checks", "id IN ('bchk_quiet', 'bchk_passed') AND outcome = 'fired'") != 2 {
+		t.Fatal("judged and passed checks were not rewritten as fired")
+	}
+	if count(t, db, "bot_alerts", "id = 'bal_judged'") != 0 || count(t, db, "bot_alerts", "id = 'bal_kept'") != 1 || count(t, db, "jobs", "id = 'job_judge'") != 0 {
+		t.Fatal("a held judged alert or a re-judge job survived the Down")
+	}
+	must(t, db.Raw(`SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'bot_ai_calls'`).Scan(&tables).Error)
+	if len(tables) != 0 {
+		t.Fatal("bot_ai_calls left after Down")
+	}
 
 	must(t, goose.Up(sqlDB, "."))
 	exec(`UPDATE bots SET asked_at = now(), origin_client = 'Claude Code', suggestion = '{"id": "bsg_m"}', suggestion_dismissed_at = now() WHERE id = 'bot_m'`)
 	exec(`INSERT INTO bot_checks (id, bot_id, user_id, trigger, started_at, finished_at, outcome) VALUES ('bchk_m2', 'bot_m', ?, 'ask', now(), now(), 'unchanged')`, user)
 	exec(`INSERT INTO bot_watches (id, bot_id, user_id, kind, url, read_mode, selector) VALUES ('bw_m2', 'bot_m', ?, 'page', 'https://shop.example/', 'selector_price', '#price')`, user)
+	exec(`INSERT INTO bot_checks (id, bot_id, user_id, trigger, started_at, finished_at, outcome) VALUES ('bchk_quiet2', 'bot_m', ?, 'schedule', now(), now(), 'judged_quiet')`, user)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, held, local_day, title, ai_state, urgency) VALUES ('bal_judged2', 'bot_m', ?, 'alert', 'judged', '2026-11-07', 'M', 'rejudged', 'high')`, user)
+	exec(`INSERT INTO bot_ai_calls (id, user_id, bot_id, local_day, purpose) VALUES ('bai_m2', ?, 'bot_m', '2026-11-07', 'rejudge')`, user)
 }
