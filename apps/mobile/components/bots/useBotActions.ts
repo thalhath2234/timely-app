@@ -4,8 +4,11 @@ import { useAssistant } from "../chat/AssistantProvider";
 import { useResumeBot, useRunBot } from "../../lib/hooks";
 import { useToastStore } from "../../lib/toast";
 
+/** Settings › Agent opens the Finnhub key sheet on `?open=` this, when no usable key is saved. */
+export const BOT_KEYS_SECTION = "bot-keys";
+
 /** Where the Finnhub key row lives (Settings › Agent). */
-export const BOT_KEYS_ROUTE = "/(app)/settings/agent";
+export const BOT_KEYS_ROUTE = `/(app)/settings/agent?open=${BOT_KEYS_SECTION}`;
 
 const say = (message: string) => useToastStore.getState().show(message);
 const failed = (error: Error) => say(error.message);
