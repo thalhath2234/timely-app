@@ -57,7 +57,7 @@ func assertAllowed(t *testing.T, constraint string, allowed []string, values ...
 // and every notification category it writes by notifications_category_check.
 func TestMigrationsAcceptEveryJobKind(t *testing.T) {
 	assertAllowed(t, "jobs_kind_check", latestCheckList(t, "jobs_kind_check"),
-		JobSendReminder, JobIndexEntity, JobDailyDigest, JobOverdueTask, JobMissedBlock, JobStartSoon, JobSendPush, JobCreateBackup, JobReindexUser, JobSmartAlerts, JobBotCheck)
+		JobSendReminder, JobIndexEntity, JobDailyDigest, JobOverdueTask, JobMissedBlock, JobStartSoon, JobSendPush, JobCreateBackup, JobReindexUser, JobSmartAlerts, JobBotCheck, JobBotIcon)
 }
 
 func TestMigrationsAcceptEveryNotificationCategory(t *testing.T) {

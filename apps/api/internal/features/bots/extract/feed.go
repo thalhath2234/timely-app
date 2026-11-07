@@ -189,7 +189,7 @@ func (f *Feed) add(r rawItem) {
 	}
 	it := FeedItem{
 		Title:     utils.ClipUTF8(title, maxTitle),
-		Link:      cleanLink(r.link),
+		Link:      CleanLink(r.link),
 		Published: r.published,
 	}
 	id := strings.TrimSpace(r.id)
@@ -239,8 +239,8 @@ func cleanText(s string) string {
 	return utils.StorableText(strings.Join(strings.Fields(s), " "), MaxText)
 }
 
-// cleanLink keeps only absolute http(s) links.
-func cleanLink(s string) string {
+// CleanLink keeps only absolute http(s) links with a host, else "".
+func CleanLink(s string) string {
 	s = strings.TrimSpace(s)
 	if len(s) > maxLink {
 		return ""

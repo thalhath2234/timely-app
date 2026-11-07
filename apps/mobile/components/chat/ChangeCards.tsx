@@ -2,6 +2,7 @@ import { createElement, useMemo, useState, type ReactNode } from "react";
 import { Text, View } from "react-native";
 import {
   ArrowUpRight,
+  Bot,
   CalendarDays,
   Check,
   ChevronDown,
@@ -17,6 +18,7 @@ import {
   type LucideIcon,
 } from "lucide-react-native";
 import {
+  BOT_TOOLS,
   reviewGroups,
   reviewProgress,
   reviewStats,
@@ -30,6 +32,7 @@ import {
 } from "@timely/contract/changeReview";
 import type { ChatStep } from "../../lib/chat/types";
 import {
+  useBotDefaultsQuery,
   useDocsQuery,
   useProjectsQuery,
   useSheetsQuery,
@@ -39,11 +42,14 @@ import {
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import { LogoSpinner } from "../ui/TimelyLogo";
+import BotChangeBody, { type BotReplyActions } from "./BotChangeBody";
 import { stepIcon, stepTarget } from "./chatMeta";
 import { Action } from "./shared";
 
 /** Names for the ids a plan mentions, from the lists the app already has. */
-function useReviewNames(): ReviewNames {
+function useReviewNames(bots: boolean): ReviewNames {
+  // Where a new bot alerts, read only when the plan makes or edits one.
+  const botDefaults = useBotDefaultsQuery(bots).data;
   const workspaces = useWorkspacesQuery().data;
   const projects = useProjectsQuery().data;
   const sheets = useSheetsQuery().data;
@@ -110,8 +116,9 @@ function useReviewNames(): ReviewNames {
         (f) => f.id,
         (f) => f.name,
       ),
+      botDefaults,
     };
-  }, [workspaces, projects, sheets, docs, tasks]);
+  }, [workspaces, projects, sheets, docs, tasks, botDefaults]);
 }
 
 /** Apply or set aside one change while the proposal waits for review. */
@@ -126,6 +133,7 @@ const KIND_ICONS: Record<string, LucideIcon> = {
   doc: FileText,
   tasks: ListChecks,
   events: CalendarDays,
+  bot: Bot,
 };
 
 function stateColor(state: ReviewProgress["state"]) {
@@ -564,6 +572,7 @@ function GroupCard({
   onToggle,
   onLink,
   review,
+  reply,
 }: {
   group: ReviewGroup;
   steps: ChatStep[];
@@ -573,6 +582,7 @@ function GroupCard({
   onToggle: () => void;
   onLink: (href: string) => void;
   review?: ReviewActions;
+  reply?: BotReplyActions;
 }) {
   const progress = reviewProgress(group, steps, activeIndex);
   const own = group.steps.map((i) => steps[i]).filter(Boolean);
@@ -587,6 +597,71 @@ function GroupCard({
       ? undefined
       : own.find((s) => s.status === "done");
   const target = opens ? stepTarget(opens) : null;
+  if (group.kind === "bot") {
+    // Always open: the bot's own grouped card, then Open bot or Apply this.
+    const pending = progress.state === "pending";
+    return (
+      <View
+        accessibilityLabel={`${group.eyebrow}: ${group.title}`}
+        style={[{ gap: 10 }, muted && { opacity: 0.75 }]}
+      >
+        {progress.state === "failed" && progress.error ? (
+          <View style={[styles.errorBox, { marginHorizontal: 0 }]}>
+            <Text style={styles.errorText}>{progress.error}</Text>
+          </View>
+        ) : null}
+        <BotChangeBody
+          group={group}
+          status={pending ? undefined : <StatusPill progress={progress} />}
+          reply={pending && !muted ? reply : undefined}
+        />
+        {target ? (
+          <AnimatedPressable
+            accessibilityRole="link"
+            onPress={() => onLink(target.href)}
+            style={styles.openLink}
+          >
+            <Text style={styles.moreText}>Open {target.noun}</Text>
+            <ArrowUpRight size={14} color={colors.primary} />
+          </AnimatedPressable>
+        ) : null}
+        {review && waiting.length ? (
+          <View style={styles.actions}>
+            <View style={{ flex: 1 }}>
+              <Action
+                label="Discard"
+                icon={Trash2}
+                compact
+                tone="destructive"
+                disabled={review.disabled}
+                onPress={() => review.discard(waiting, false)}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Action
+                label="Apply this"
+                icon={Check}
+                compact
+                disabled={review.disabled}
+                onPress={() => review.apply(waiting)}
+              />
+            </View>
+          </View>
+        ) : review && setAside.length ? (
+          <View style={styles.actions}>
+            <Text style={[styles.muted13, { flex: 1 }]}>Won’t be applied</Text>
+            <Action
+              label="Bring back"
+              icon={RotateCcw}
+              compact
+              disabled={review.disabled}
+              onPress={() => review.discard(setAside, true)}
+            />
+          </View>
+        ) : null}
+      </View>
+    );
+  }
   const icon = "icon" in group && group.icon ? group.icon : undefined;
   let body: ReactNode = null;
   if (group.kind === "sheet")
@@ -775,6 +850,7 @@ export default function ChangeCards({
   activeIndex = -1,
   muted = false,
   review,
+  reply,
 }: {
   steps: ChatStep[];
   onLink: (href: string) => void;
@@ -782,8 +858,10 @@ export default function ChangeCards({
   muted?: boolean;
   /** While the proposal waits for review: each card's own Apply and Discard. */
   review?: ReviewActions;
+  /** While a bot proposal waits: "That's not it" sends or drafts a reply. */
+  reply?: BotReplyActions;
 }) {
-  const names = useReviewNames();
+  const names = useReviewNames(steps.some((step) => BOT_TOOLS.has(step.tool)));
   const groups = useMemo(() => reviewGroups(steps, names), [steps, names]);
   const failed = groups.find((group) =>
     group.steps.some((i) => steps[i]?.status === "failed"),
@@ -805,6 +883,7 @@ export default function ChangeCards({
           onToggle={() => setPicked(open === group.key ? null : group.key)}
           onLink={onLink}
           review={review}
+          reply={reply}
         />
       ))}
     </View>

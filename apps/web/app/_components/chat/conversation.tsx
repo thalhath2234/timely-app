@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { isBotPlan } from "@timely/contract/changeReview";
 import {
   ArrowUpRight,
   ImagePlus,
@@ -15,6 +16,7 @@ import TimelyLogo, {
 } from "@/app/_components/_ui/timelyLogo";
 import {
   chatRequest,
+  type BotTag,
   type Chat,
   type ChatContext,
   type ReceiptDraft,
@@ -22,6 +24,8 @@ import {
 import { chatKey, chatsKey, useChat } from "@/app/utils/hooks/chat";
 import { cn } from "@/app/utils/cn";
 import LoadError from "@/app/_components/_ui/loadError";
+import { useBots } from "@/app/utils/hooks/bots";
+import { liveBotTags } from "./botMentionPicker";
 import Composer from "./composer";
 import EmptyHero from "./emptyHero";
 import MessageList from "./messageList";
@@ -96,6 +100,7 @@ const invalidated = [
 export default function Conversation({
   id,
   initialContext = [],
+  initialDraft = "",
   onCreated,
   onNew,
   variant = "page",
@@ -106,6 +111,8 @@ export default function Conversation({
 }: {
   id?: string | null;
   initialContext?: ChatContext[];
+  /** What the composer starts with, for the person to finish and send. */
+  initialDraft?: string;
   onCreated: (id: string) => void;
   onNew?: () => void;
   variant?: "page" | "overlay";
@@ -120,10 +127,15 @@ export default function Conversation({
   const bar = compact && !id;
   const query = useChat(id);
   const providers = useAgentProviders();
-  const needsProvider = Boolean(providers.data) && readyProviders(providers.data).length === 0;
+  const needsProvider =
+    Boolean(providers.data) && readyProviders(providers.data).length === 0;
   const cache = useQueryClient();
   const chat = query.data;
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(initialDraft);
+  // Bots picked with "@" for this message only; sent as botTags, then cleared.
+  const [botTags, setBotTags] = useState<BotTag[]>([]);
+  const bots = useBots({ enabled: draft.includes("@") }).data?.bots;
+  const tagIds = liveBotTags(draft, botTags, bots).map((tag) => tag.id);
   const [receiptDirty, setReceiptDirty] = useState(false);
   const [dragging, setDragging] = useState(false);
   const uploads = useImageUploads();
@@ -173,7 +185,10 @@ export default function Conversation({
         return chatRequest<Chat>("", "POST", {
           content: draft.trim(),
           imageIds,
-          requestId: requestIdFor(`${draft.trim()}\n${imageIds.join(",")}`),
+          requestId: requestIdFor(
+            `${draft.trim()}\n${imageIds.join(",")}\n${tagIds.join(",")}`,
+          ),
+          botTags: tagIds,
           context,
           webSearch: search,
           provider: choice.provider,
@@ -193,6 +208,7 @@ export default function Conversation({
       if (!id) onCreated(next.id);
       if (!id || (vars.action === "/messages" && !vars.keepDraft)) {
         setDraft("");
+        setBotTags([]);
         uploads.sent();
       }
       if (vars.action !== "") setReceiptDirty(false);
@@ -256,7 +272,10 @@ export default function Conversation({
       body: {
         content: draft.trim(),
         imageIds,
-        requestId: requestIdFor(`${draft.trim()}\n${imageIds.join(",")}`),
+        requestId: requestIdFor(
+          `${draft.trim()}\n${imageIds.join(",")}\n${tagIds.join(",")}`,
+        ),
+        botTags: tagIds,
         ...unsavedReceipt(),
       },
     });
@@ -265,8 +284,23 @@ export default function Conversation({
     if (!id || mutation.isPending || busy) return;
     mutation.mutate({
       action: "/messages",
-      body: { content, imageIds: [], requestId: requestIdFor(`${content}\n`), ...unsavedReceipt() },
+      body: {
+        content,
+        imageIds: [],
+        requestId: requestIdFor(`${content}\n`),
+        ...unsavedReceipt(),
+      },
       keepDraft: true,
+    });
+  }
+  // "That's not it" in words: the composer starts the reply, caret at the end.
+  function compose(text: string) {
+    setDraft(text);
+    requestAnimationFrame(() => {
+      const box = input.current;
+      if (!box) return;
+      box.focus();
+      box.setSelectionRange(text.length, text.length);
     });
   }
   function unsavedReceipt() {
@@ -534,6 +568,7 @@ export default function Conversation({
                 pending={mutation.isPending}
                 receiptDirty={receiptDirty}
                 act={act}
+                reply={{ send: ask, compose }}
               />
             )}
             {busy && chat?.phase !== "apply" && (
@@ -592,9 +627,13 @@ export default function Conversation({
         inputRef={input}
         draft={draft}
         setDraft={setDraft}
+        botTags={botTags}
+        setBotTags={setBotTags}
         placeholder={
           chat?.status === "approval"
-            ? "Tell me what to change…"
+            ? isBotPlan(chat.plan)
+              ? "Reply, or ask for changes to the bot"
+              : "Tell me what to change…"
             : "Ask Timely to create, plan, or update…"
         }
         chips={chips}

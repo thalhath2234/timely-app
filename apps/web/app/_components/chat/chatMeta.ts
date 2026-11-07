@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   Ban,
   Bell,
+  Bot,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -172,6 +173,7 @@ export function readableTimestamp(value: string): string | null {
 
 export function stepIcon(tool: string): LucideIcon {
   if (isRemoval(tool)) return Trash2;
+  if (tool.endsWith("_bot") || tool.endsWith("_bots")) return Bot;
   if (tool.includes("notification") || tool === "snooze_reminder") return Bell;
   if (tool.includes("task_view")) return ListFilter;
   if (tool === "set_today_focus") return Sun;
@@ -206,13 +208,23 @@ const targetKinds: [
   ["lbl_", "workspace", () => "/settings?tab=workspaces"],
   ["tst_", "workspace", () => "/settings?tab=workspaces"],
   ["cf_", "workspace", () => "/settings?tab=workspaces"],
+  // A bot opens its panel on the Bots page.
+  ["bot_", "bot", (id) => `/bots?bot=${id}`],
 ];
 
 const partPrefixes = ["blk_", "lbl_", "tst_", "cf_"];
 
 // Nested result objects first (the object a write returns), then the step's
 // own ID fields, then the parents it names.
-const nestedKeys = ["sheet", "task", "project", "doc", "event", "workspace"];
+const nestedKeys = [
+  "sheet",
+  "task",
+  "project",
+  "doc",
+  "event",
+  "workspace",
+  "bot",
+];
 const idKeys = [
   "id",
   "docId",
@@ -221,6 +233,9 @@ const idKeys = [
   "projectId",
   "eventId",
   "workspaceId",
+  "botId",
+  // update_bot names its bot as `bot` (an id or a name; only an id matches a prefix).
+  "bot",
 ];
 
 /** `title` is the object's own name when the step returned it. */
@@ -235,7 +250,12 @@ export function stepTarget(step: ChatStep): StepTarget | null {
   // A saved view opens Tasks with it active, on the app whose views it is
   // (viewsOn); a phone view has nothing to open here.
   const view = result.view as Record<string, unknown> | undefined;
-  if (view && typeof view === "object" && typeof view.id === "string" && result.viewsOn) {
+  if (
+    view &&
+    typeof view === "object" &&
+    typeof view.id === "string" &&
+    result.viewsOn
+  ) {
     if (result.viewsOn !== "web") return null;
     return {
       href: `/tasks?view=${encodeURIComponent(view.id)}`,

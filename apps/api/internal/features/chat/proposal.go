@@ -63,7 +63,7 @@ func unwrapJSONString(value json.RawMessage) (json.RawMessage, bool) {
 }
 
 // The objects a proposal snapshots, keyed by the read tool and its ID field.
-var snapshotFields = map[string]string{"get_task": "taskId", "get_project": "projectId", "get_workspace": "workspaceId", "get_event": "eventId", "get_doc": "docId", "get_sheet": "sheetId", "get_sheet_template": "templateId"}
+var snapshotFields = map[string]string{"get_task": "taskId", "get_project": "projectId", "get_workspace": "workspaceId", "get_event": "eventId", "get_doc": "docId", "get_sheet": "sheetId", "get_sheet_template": "templateId", "get_bot": "bot"}
 
 func readKey(tool string, args json.RawMessage) string {
 	var value map[string]any
@@ -223,6 +223,7 @@ func (s *Service) prepareProposal(ctx context.Context, catalog agent.Catalog, ui
 		step.Status = "pending"
 		step.Result = nil
 		step.Before = nil
+		step.Preview = nil // only the runner reads one (previewSteps)
 		step.Error = ""
 	}
 	origins := identityOrigins(len(p.Steps))

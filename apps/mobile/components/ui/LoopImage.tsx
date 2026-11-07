@@ -11,6 +11,7 @@ export const LOOPS = {
   project: { source: require("../../assets/loops/project.webp"), label: "A project named, its stages appearing, tasks moving to Done as the bar fills" },
   files: { source: require("../../assets/loops/files.webp"), label: "A line written in a doc turned into a task linked back to the doc" },
   schedule: { source: require("../../assets/loops/schedule.webp"), label: "Estimated tasks dropping into free time in deadline order; a meeting lands and one block moves to Friday" },
+  bots: { source: require("../../assets/loops/bots.webp"), label: "A bot reads a price that drops under your line and sends an alert" },
 } as const;
 
 export type LoopId = keyof typeof LOOPS;

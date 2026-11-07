@@ -44,9 +44,16 @@ function neutralsFrom(tokens: ColorTokens) {
     destructiveForeground: tokens.destructiveForeground,
     destructiveContainer: tokens.destructiveContainer,
     success: tokens.success,
+    successText: tokens.successText,
     warning: tokens.warning,
+    warningText: tokens.warningText,
     border: tokens.border,
+    borderStrong: tokens.borderStrong,
     input: tokens.input,
+    chart2: tokens.chart2,
+    chart3: tokens.chart3,
+    chart4: tokens.chart4,
+    chart5: tokens.chart5,
   };
 }
 
@@ -57,6 +64,8 @@ function accentFrom(tokens: ColorTokens) {
     accent: tokens.accent,
     accentForeground: tokens.accentForeground,
     ring: tokens.ring,
+    // The chart line follows the accent, as --chart-1 does on the web.
+    chart1: tokens.chart1,
   };
 }
 
@@ -136,7 +145,10 @@ export function resolvedAccentHex(accent: AccentPreference = accentPreference) {
   return normalizeHex(accent) ?? DEFAULT_ACCENT_HEX;
 }
 
-function accentRamp(mode: ThemeMode, accent: AccentPreference): Pick<ThemeColors, "primary" | "primaryForeground" | "accent" | "accentForeground" | "ring"> {
+function accentRamp(
+  mode: ThemeMode,
+  accent: AccentPreference,
+): Pick<ThemeColors, "primary" | "primaryForeground" | "accent" | "accentForeground" | "ring" | "chart1"> {
   if (accent === "default") return mode === "light" ? lightDefaultAccent : darkDefaultAccent;
   const hex = resolvedAccentHex(accent);
   if (mode === "dark") {
@@ -147,6 +159,7 @@ function accentRamp(mode: ThemeMode, accent: AccentPreference): Pick<ThemeColors
       accent: mixHex(hex, "#1a1b22", 0.72),
       accentForeground: mixHex(hex, "#ffffff", 0.38),
       ring: primary,
+      chart1: primary,
     };
   }
   const primary = mixHex(hex, "#000000", 0.1);
@@ -156,6 +169,7 @@ function accentRamp(mode: ThemeMode, accent: AccentPreference): Pick<ThemeColors
     accent: mixHex(hex, "#ffffff", 0.86),
     accentForeground: mixHex(hex, "#000000", 0.28),
     ring: primary,
+    chart1: primary,
   };
 }
 
@@ -233,7 +247,9 @@ export function editorThemeVars() {
     input: palette.input,
     card: palette.card,
     success: palette.success,
+    successText: palette.successText,
     warning: palette.warning,
+    warningText: palette.warningText,
   };
 }
 

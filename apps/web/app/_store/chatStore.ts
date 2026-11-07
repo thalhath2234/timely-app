@@ -5,13 +5,15 @@ type State = {
   open: boolean;
   conversationId: string | null;
   context: ChatContext[];
+  /** Words a new chat's composer starts with ("Describe in chat" on Bots). */
+  draft: string;
   /** Chats sent from the quick prompt that the Activity island keeps until
    * the person opens or dismisses them. */
   tracked: string[];
   /** Chats dismissed from the island, by the revision they had then; a newer
    * revision brings them back. */
   dismissed: Record<string, number>;
-  openNew: (context: ChatContext[]) => void;
+  openNew: (context: ChatContext[], draft?: string) => void;
   openChat: (id: string) => void;
   setId: (id: string) => void;
   close: () => void;
@@ -23,11 +25,13 @@ export const useChatStore = create<State>((set) => ({
   open: false,
   conversationId: null,
   context: [],
+  draft: "",
   tracked: [],
   dismissed: {},
-  openNew: (context) => set({ open: true, conversationId: null, context }),
+  openNew: (context, draft = "") =>
+    set({ open: true, conversationId: null, context, draft }),
   openChat: (conversationId) =>
-    set({ open: true, conversationId, context: [] }),
+    set({ open: true, conversationId, context: [], draft: "" }),
   setId: (conversationId) => set({ conversationId }),
   close: () => set({ open: false }),
   track: (id) =>

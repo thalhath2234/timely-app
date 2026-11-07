@@ -113,6 +113,7 @@ var finnhub = Source{
 	Currency:        regexp.MustCompile(`^USD$`),
 	DefaultCurrency: "USD",
 	KeyHeader:       "X-Finnhub-Token",
+	Probe:           "AAPL",
 	URL: func(sym, _ string) string {
 		return "https://finnhub.io/api/v1/quote?symbol=" + url.QueryEscape(sym)
 	},

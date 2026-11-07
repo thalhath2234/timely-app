@@ -4,6 +4,7 @@ import { Redirect, Stack } from "expo-router";
 import ReminderNotifications from "../../components/ReminderNotifications";
 import AndroidBridges from "../../components/AndroidBridges";
 import AccountAppearanceSync from "../../components/AccountAppearanceSync";
+import BotLiveUpdates from "../../components/bots/BotLiveUpdates";
 import StartupLoader from "../../components/ui/StartupLoader";
 import ToastHost from "../../components/ui/ToastHost";
 import { isOnboarded, useAuth } from "../../lib/auth/AuthProvider";
@@ -31,6 +32,7 @@ export default function AppLayout() {
     <>
       <ReminderNotifications />
       <AccountAppearanceSync />
+      <BotLiveUpdates />
       <AndroidBridges />
       <Stack
         screenLayout={

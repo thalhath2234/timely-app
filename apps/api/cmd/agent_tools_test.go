@@ -121,7 +121,7 @@ func TestIntegrationSuggestionTools(t *testing.T) {
 
 	todaySuggestions = nil
 	for _, name := range []string{"list_stale_work", "get_today_suggestions"} {
-		if _, err := chatCatalog(db, nil, nil)[name].Call(context.Background(), uid, json.RawMessage(`{}`)); err == nil || !strings.Contains(err.Error(), "not available") {
+		if _, err := chatCatalog(db, nil, nil, nil)[name].Call(context.Background(), uid, json.RawMessage(`{}`)); err == nil || !strings.Contains(err.Error(), "not available") {
 			t.Fatalf("%s without the service: %v", name, err)
 		}
 	}
@@ -173,7 +173,7 @@ func TestIntegrationTriageAndDeleteNotifications(t *testing.T) {
 			t.Fatal("a triaged notification is read")
 		}
 	}
-	if _, err := chatCatalog(db, nil, nil)["triage_notification"].Call(context.Background(), uid, json.RawMessage(`{"notificationId":"ntf_overdue","action":"shrug"}`)); err == nil {
+	if _, err := chatCatalog(db, nil, nil, nil)["triage_notification"].Call(context.Background(), uid, json.RawMessage(`{"notificationId":"ntf_overdue","action":"shrug"}`)); err == nil {
 		t.Fatal("an unknown step was accepted")
 	}
 
@@ -182,7 +182,7 @@ func TestIntegrationTriageAndDeleteNotifications(t *testing.T) {
 	if len(left) != 1 || left[0].(map[string]any)["id"] != "ntf_other" {
 		t.Fatalf("only the other notification is left: %v", left)
 	}
-	if _, err := chatCatalog(db, nil, nil)["delete_notification"].Call(context.Background(), uid, json.RawMessage(`{"notificationId":"ntf_overdue"}`)); err == nil {
+	if _, err := chatCatalog(db, nil, nil, nil)["delete_notification"].Call(context.Background(), uid, json.RawMessage(`{"notificationId":"ntf_overdue"}`)); err == nil {
 		t.Fatal("deleting it twice succeeded")
 	}
 }
@@ -221,7 +221,7 @@ func TestIntegrationAddLiveBlock(t *testing.T) {
 	}
 
 	raw, _ := json.Marshal(map[string]any{"docId": plan["id"], "words": "x", "block": 2})
-	if _, err := chatCatalog(db, nil, nil)["add_live_block"].Call(context.Background(), uid, raw); err == nil || !strings.Contains(err.Error(), "from 1 to 1") {
+	if _, err := chatCatalog(db, nil, nil, nil)["add_live_block"].Call(context.Background(), uid, raw); err == nil || !strings.Contains(err.Error(), "from 1 to 1") {
 		t.Fatalf("a block the doc doesn't have is refused: %v", err)
 	}
 }
@@ -255,7 +255,7 @@ func TestIntegrationProposedLiveBlockIsWrittenOnce(t *testing.T) {
 
 	rollback := errors.New("rehearsal rolled back")
 	err := db.Transaction(func(tx *gorm.DB) error {
-		out, err := rehearsalCatalog(tx, nil)["add_live_block"].Call(ctx, uid, args)
+		out, err := rehearsalCatalog(tx, nil, nil)["add_live_block"].Call(ctx, uid, args)
 		if err != nil {
 			return err
 		}
@@ -274,7 +274,7 @@ func TestIntegrationProposedLiveBlockIsWrittenOnce(t *testing.T) {
 		t.Fatalf("the rehearsal's block was rolled back:\n%s", got)
 	}
 
-	if _, err := chatCatalog(db, nil, nil)["add_live_block"].Call(ctx, uid, args); err != nil {
+	if _, err := chatCatalog(db, nil, nil, nil)["add_live_block"].Call(ctx, uid, args); err != nil {
 		t.Fatal(err)
 	}
 	got := call("get_doc", map[string]any{"docId": plan["id"]})["markdown"].(string)

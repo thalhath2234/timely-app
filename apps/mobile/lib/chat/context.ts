@@ -52,7 +52,7 @@ export function mergeContext(
  */
 export function routeObject(path: string): [string, string] | null {
   const match = path.match(
-    /\/(tasks|docs|sheets|projects|events|files)\/([^/]+)$/,
+    /\/(tasks|docs|sheets|projects|events|files|bots)\/([^/]+)$/,
   );
   if (!match) return null;
   if (match[1] !== "files") return [match[1], match[2]];

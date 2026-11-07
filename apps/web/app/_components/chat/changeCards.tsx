@@ -10,6 +10,7 @@ import { motion } from "motion/react";
 import Link from "next/link";
 import {
   ArrowUpRight,
+  Bot,
   CalendarDays,
   Check,
   ChevronRight,
@@ -24,6 +25,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import {
+  BOT_TOOLS,
   reviewGroups,
   reviewProgress,
   reviewStats,
@@ -40,15 +42,19 @@ import { revealProps } from "@/app/_components/_ui/motion";
 import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import type { ChatStep } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
+import { useBotDefaults } from "@/app/utils/hooks/bots";
 import { useDocs } from "@/app/utils/hooks/docs";
 import { useProjects } from "@/app/utils/hooks/projects";
 import { useSheets } from "@/app/utils/hooks/sheets";
 import { useTasks } from "@/app/utils/hooks/tasks";
 import { useWorkspaces } from "@/app/utils/hooks/workspaces";
+import BotChangeBody, { type BotReplyActions } from "./botChangeBody";
 import { stepIcon, stepTarget } from "./chatMeta";
 
 /** Names for the ids a plan mentions, from the lists the app already has. */
-function useReviewNames(): ReviewNames {
+function useReviewNames(bots: boolean): ReviewNames {
+  // Where a new bot alerts, read only when the plan makes or edits one.
+  const botDefaults = useBotDefaults(bots).data;
   const workspaces = useWorkspaces().data;
   const projects = useProjects().data;
   const sheets = useSheets().data;
@@ -115,8 +121,9 @@ function useReviewNames(): ReviewNames {
         (f) => f.id,
         (f) => f.name,
       ),
+      botDefaults,
     };
-  }, [workspaces, projects, sheets, docs, tasks]);
+  }, [workspaces, projects, sheets, docs, tasks, botDefaults]);
 }
 
 /** Apply or set aside one change while the proposal waits for review. */
@@ -131,6 +138,7 @@ const KIND_ICONS: Record<string, LucideIcon> = {
   doc: FileText,
   tasks: ListChecks,
   events: CalendarDays,
+  bot: Bot,
 };
 
 const STATE: Record<
@@ -667,6 +675,7 @@ function GroupCard({
   open,
   onToggle,
   review,
+  reply,
 }: {
   group: ReviewGroup;
   steps: ChatStep[];
@@ -676,6 +685,7 @@ function GroupCard({
   open: boolean;
   onToggle: () => void;
   review?: ReviewActions;
+  reply?: BotReplyActions;
 }) {
   const bodyId = `review-${index}-${group.key.replace(/[^a-z0-9]/gi, "")}`;
   const progress = reviewProgress(group, steps, activeIndex);
@@ -686,6 +696,18 @@ function GroupCard({
       steps[i] && steps[i].status !== "done" && steps[i].status !== "discarded",
   );
   const setAside = group.steps.filter((i) => steps[i]?.status === "discarded");
+  if (group.kind === "bot")
+    return (
+      <BotCardItem
+        group={group}
+        steps={steps}
+        progress={progress}
+        index={index}
+        muted={muted}
+        review={review}
+        reply={reply}
+      />
+    );
   const icon = createElement(
     group.kind === "change" ? stepIcon(group.tool) : KIND_ICONS[group.kind],
     { className: "size-4" },
@@ -851,6 +873,105 @@ function GroupCard({
   );
 }
 
+/**
+ * A proposed bot: always open, drawn as its own grouped card (BotChangeBody)
+ * rather than a collapsible row, with the same per-card Apply and Discard
+ * when the plan holds other changes too.
+ */
+function BotCardItem({
+  group,
+  steps,
+  progress,
+  index,
+  muted,
+  review,
+  reply,
+}: {
+  group: Extract<ReviewGroup, { kind: "bot" }>;
+  steps: ChatStep[];
+  progress: ReviewProgress;
+  index: number;
+  muted: boolean;
+  review?: ReviewActions;
+  reply?: BotReplyActions;
+}) {
+  const waiting = group.steps.filter(
+    (i) =>
+      steps[i] && steps[i].status !== "done" && steps[i].status !== "discarded",
+  );
+  const setAside = group.steps.filter((i) => steps[i]?.status === "discarded");
+  const done = group.steps
+    .map((i) => steps[i])
+    .find((s) => s?.status === "done");
+  const pending = progress.state === "pending";
+  const footer =
+    done || (review && (waiting.length || setAside.length)) ? (
+      <footer className="flex min-h-9 flex-wrap items-center gap-2 px-1">
+        {done ? <OpenLink step={done} /> : null}
+        {review && waiting.length ? (
+          <span className="ml-auto flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={review.disabled}
+              onClick={() => review.discard(waiting, false)}
+              className="text-muted-foreground"
+            >
+              <Trash2 />
+              Discard
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={review.disabled}
+              onClick={() => review.apply(waiting)}
+            >
+              <Check />
+              Apply this
+            </Button>
+          </span>
+        ) : review && setAside.length ? (
+          <span className="ml-auto flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">
+              Won’t be applied
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={review.disabled}
+              onClick={() => review.discard(setAside, true)}
+            >
+              <RotateCcw />
+              Bring back
+            </Button>
+          </span>
+        ) : null}
+      </footer>
+    ) : null;
+  return (
+    <motion.li
+      {...revealProps(index)}
+      aria-label={`${group.eyebrow}: ${group.title}`}
+      className={cn("list-none", muted && "opacity-80")}
+    >
+      {progress.state === "failed" && progress.error ? (
+        <p
+          role="alert"
+          className="mb-3 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs leading-5 text-destructive"
+        >
+          {progress.error}
+        </p>
+      ) : null}
+      <BotChangeBody
+        group={group}
+        status={pending ? undefined : <StatusPill progress={progress} />}
+        reply={pending && !muted ? reply : undefined}
+        footer={footer}
+      />
+    </motion.li>
+  );
+}
+
 /** What the plan adds up to, above the cards: "30 Sheet entries · 5 New tasks". */
 function SummaryStrip({ groups }: { groups: ReviewGroup[] }) {
   const stats = reviewStats(groups);
@@ -889,14 +1010,17 @@ export default function ChangeCards({
   activeIndex = -1,
   muted = false,
   review,
+  reply,
 }: {
   steps: ChatStep[];
   activeIndex?: number;
   muted?: boolean;
   /** While the proposal waits for review: each card's own Apply and Discard. */
   review?: ReviewActions;
+  /** While a bot proposal waits: "That's not it" sends or drafts a reply. */
+  reply?: BotReplyActions;
 }) {
-  const names = useReviewNames();
+  const names = useReviewNames(steps.some((step) => BOT_TOOLS.has(step.tool)));
   const groups = useMemo(() => reviewGroups(steps, names), [steps, names]);
   const failed = groups.find((group) =>
     group.steps.some((i) => steps[i]?.status === "failed"),
@@ -919,6 +1043,7 @@ export default function ChangeCards({
             open={open === group.key}
             onToggle={() => setPicked(open === group.key ? null : group.key)}
             review={review}
+            reply={reply}
           />
         ))}
       </ol>

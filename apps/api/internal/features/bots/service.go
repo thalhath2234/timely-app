@@ -14,6 +14,7 @@ import (
 	"timely-api/internal/features/notify"
 	"timely-api/internal/jobs"
 	"timely-api/internal/models"
+	"timely-api/internal/realtime"
 )
 
 // Check triggers, as stored in bot_checks.trigger and the job payload.
@@ -21,7 +22,14 @@ const (
 	TriggerSchedule = "schedule"
 	TriggerWake     = "wake"
 	TriggerRunNow   = "run_now"
+	// TriggerAsk is the one check a tag in chat starts (Ask). Like run now,
+	// it runs whether or not the Bot is due, once its floor has passed.
+	TriggerAsk = "ask"
 )
+
+// runsNow reports a trigger that runs a Bot before it is due: Run now, or
+// a tag asking it.
+func runsNow(trigger string) bool { return trigger == TriggerRunNow || trigger == TriggerAsk }
 
 // Service runs Bots: the Store behind REST and MCP, the sweep that queues
 // due Bots, and the checks themselves.
@@ -30,10 +38,18 @@ type Service struct {
 	db    *gorm.DB
 	queue *jobs.Queue
 	fetch *fetch.Fetcher
-	// keys finds a person's price source key. Nil until key storage lands
-	// (branch 3): a keyed source then answers *price.KeyError.
-	keys price.Keys
-	now  func() time.Time
+	// keys finds a person's price source key; keyStore is the same store,
+	// which also saves keys (SetKeys). Without one (tests), a keyed source
+	// answers *price.KeyError and no key can be saved.
+	keys     price.Keys
+	keyStore *KeyStore
+	live     *realtime.Hub // GET /bots/watch; nil answers 503
+	now      func() time.Time
+	// Ask waits for its check by looking every askPoll, for up to askWait,
+	// sleeping through sleep. Tests shorten the sleep.
+	askPoll time.Duration
+	askWait time.Duration
+	sleep   func(ctx context.Context, d time.Duration) error
 
 	mu            sync.Mutex
 	rnd           *rand.Rand // under mu
@@ -50,24 +66,79 @@ func New(db *gorm.DB, queue *jobs.Queue) *Service {
 	store := NewStore(db)
 	return &Service{
 		store: store, db: db, queue: queue,
-		fetch: fetch.New(fetch.Config{Spacer: store, Robots: store}),
-		now:   func() time.Time { return time.Now().UTC() },
-		rnd:   rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), rand.Uint64())),
+		fetch:   fetch.New(fetch.Config{Spacer: store, Robots: store}),
+		now:     func() time.Time { return time.Now().UTC() },
+		askPoll: askPoll, askWait: askWait, sleep: sleepCtx,
+		rnd: rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), rand.Uint64())),
+	}
+}
+
+// WithDB is a copy of s whose reads and writes go through db and whose jobs
+// go on q, so the chat agent's saves join its transaction (a rehearsal's
+// rollback takes their logo jobs with it). The copy shares the fetcher,
+// the keys, the live hub, the clock and Ask's timing, and with them the
+// process-wide preview memo and limit; it has its own random source and no
+// test hook.
+func (s *Service) WithDB(db *gorm.DB, q *jobs.Queue) *Service {
+	if q == nil {
+		q = jobs.NewQueue(db)
+	}
+	return &Service{
+		store: NewStore(db), db: db, queue: q,
+		fetch: s.fetch, keys: s.keys, keyStore: s.keyStore, live: s.live, now: s.now,
+		askPoll: s.askPoll, askWait: s.askWait, sleep: s.sleep,
+		rnd: rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), rand.Uint64())),
 	}
 }
 
 func (s *Service) Store() *Store { return s.store }
 
-// Register adds the check handler. The sweep is joined into the worker's
-// one sweep in main.go, never set here.
-func (s *Service) Register(w *jobs.Worker) { w.Handle(models.JobBotCheck, s.HandleCheck) }
-
-func (s *Service) Create(ctx context.Context, userID string, in Input, o Origin) (View, error) {
-	return s.store.Create(ctx, userID, in, o, s.now())
+// SetKeys gives the checks the people's saved price source keys, and the
+// key routes somewhere to save them.
+func (s *Service) SetKeys(k *KeyStore) {
+	if k == nil {
+		return
+	}
+	s.keys, s.keyStore = k, k
 }
 
+// SetFetcher swaps the fetcher every check, preview and key test reads
+// through. Tests use it with a fake network (botstest.Net); nil keeps the
+// current one.
+func (s *Service) SetFetcher(f *fetch.Fetcher) {
+	if f != nil {
+		s.fetch = f
+	}
+}
+
+// Register adds the check and site logo handlers. The sweep is joined into
+// the worker's one sweep in main.go, never set here.
+func (s *Service) Register(w *jobs.Worker) {
+	w.Handle(models.JobBotCheck, s.HandleCheck)
+	w.Handle(models.JobBotIcon, s.HandleIcon)
+}
+
+// Create saves a Bot, and asks for the logos of sites new to Timely, so
+// the board shows them before the first check. A save over MCP asks for
+// none: that Bot starts paused and nothing may be fetched for an outside
+// app's say-so (create_bot promises it), so its logo comes with the first
+// clean check after the person turns it on.
+func (s *Service) Create(ctx context.Context, userID string, in Input, o Origin) (View, error) {
+	v, err := s.store.Create(ctx, userID, in, o, s.now())
+	if err == nil && o != OriginMCP {
+		s.askIcons(ctx, userID, viewWatches(v))
+	}
+	return v, err
+}
+
+// Update edits a Bot, and asks for the logos of sites new to Timely; over
+// MCP it asks for none, as Create.
 func (s *Service) Update(ctx context.Context, userID, idOrName string, p Patch, o Origin) (View, error) {
-	return s.store.Update(ctx, userID, idOrName, p, o, s.now())
+	v, err := s.store.Update(ctx, userID, idOrName, p, o, s.now())
+	if err == nil && o != OriginMCP {
+		s.askIcons(ctx, userID, viewWatches(v))
+	}
+	return v, err
 }
 
 func (s *Service) Pause(ctx context.Context, userID, idOrName, reason string) (View, error) {
@@ -86,12 +157,33 @@ func (s *Service) Delete(ctx context.Context, userID, id string) error {
 	return s.store.Delete(ctx, userID, id)
 }
 
-func (s *Service) List(ctx context.Context, userID string) ([]View, error) {
+func (s *Service) List(ctx context.Context, userID string) (BotList, error) {
 	return s.store.List(ctx, userID, s.now())
+}
+
+// Names lists the account's Bots by id and name (Store.Names).
+func (s *Service) Names(ctx context.Context, userID string) ([]BotName, error) {
+	return s.store.Names(ctx, userID)
 }
 
 func (s *Service) Get(ctx context.Context, userID, idOrName string) (Detail, error) {
 	return s.store.Get(ctx, userID, idOrName, s.now())
+}
+
+func (s *Service) RateAlert(ctx context.Context, userID, botID, alertID string, r Rating) (AlertView, error) {
+	return s.store.RateAlert(ctx, userID, botID, alertID, r, s.now())
+}
+
+func (s *Service) ForgetLesson(ctx context.Context, userID, botID, lessonID string) error {
+	return s.store.ForgetLesson(ctx, userID, botID, lessonID)
+}
+
+func (s *Service) AlertDefaults(ctx context.Context, userID string) (models.BotAlertDefaults, error) {
+	return s.store.AlertDefaults(ctx, userID)
+}
+
+func (s *Service) SetAlertDefaults(ctx context.Context, userID string, d models.BotAlertDefaults) (models.BotAlertDefaults, error) {
+	return s.store.SetAlertDefaults(ctx, userID, d)
 }
 
 func (s *Service) Findings(ctx context.Context, userID string, q FindingQuery) ([]Finding, error) {
@@ -123,26 +215,9 @@ func (s *Service) RunNow(ctx context.Context, userID, idOrName string, _ Origin)
 		return RunResult{}, err
 	}
 	floor := Floor(ws)
-	runAt := now
-	if b.CheckStartedAt != nil {
-		if next := b.CheckStartedAt.Add(floor); next.After(runAt) {
-			runAt = next.UTC()
-		}
-	}
-	job, err := s.queue.Enqueue(jobs.Enqueue{
-		UserID: userID, Kind: models.JobBotCheck, DedupeKey: checkKey(b.ID), MaxAttempts: checkAttempts, RunAt: runAt,
-		Payload: models.JobPayload{"botId": b.ID, "trigger": TriggerRunNow},
-	})
+	job, err := s.queueCheck(b, floor, TriggerRunNow, now)
 	if err != nil {
 		return RunResult{}, err
-	}
-	if job.Payload.String("trigger") != TriggerRunNow || job.RunAt.After(runAt) {
-		if err := s.queue.Expedite(job.ID, runAt, models.JobPayload{"trigger": TriggerRunNow}); err != nil {
-			return RunResult{}, err
-		}
-		if job.RunAt.After(runAt) {
-			job.RunAt = runAt
-		}
 	}
 	// A check queued before the floor allows would lose the fence; the
 	// sweep then queues the Bot again when it may run.
@@ -196,6 +271,35 @@ func (s *Service) nextCheck(interval time.Duration, now time.Time) time.Time {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return NextCheck(interval, now, s.rnd)
+}
+
+// queueCheck queues a check of b that runs now, or once its floor has
+// passed. A check already waiting is pulled forward instead of doubled, and
+// keeps a run-now trigger it already has (so it still runs before the Bot is
+// due); otherwise it takes trigger.
+func (s *Service) queueCheck(b Bot, floor time.Duration, trigger string, now time.Time) (*models.Job, error) {
+	// The earliest the claim fence lets a check start (spacedAt): the same
+	// time the board's Check now and a tag's "soon" go by.
+	runAt := now
+	if next := spacedAt(b.CheckStartedAt, floor); next.After(runAt) {
+		runAt = next
+	}
+	job, err := s.queue.Enqueue(jobs.Enqueue{
+		UserID: b.UserID, Kind: models.JobBotCheck, DedupeKey: checkKey(b.ID), MaxAttempts: checkAttempts, RunAt: runAt,
+		Payload: models.JobPayload{"botId": b.ID, "trigger": trigger},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !runsNow(job.Payload.String("trigger")) || job.RunAt.After(runAt) {
+		if err := s.queue.Expedite(job.ID, runAt, models.JobPayload{"trigger": trigger}); err != nil {
+			return nil, err
+		}
+		if job.RunAt.After(runAt) {
+			job.RunAt = runAt
+		}
+	}
+	return job, nil
 }
 
 const checkAttempts = 2

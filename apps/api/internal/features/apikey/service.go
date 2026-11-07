@@ -116,9 +116,18 @@ func (s *service) Revoke(userID, keyID string) error {
 }
 
 func (s *service) Verify(rawKey string) (string, error) {
+	row, err := s.verifyKey(rawKey)
+	if err != nil {
+		return "", err
+	}
+	return row.UserID, nil
+}
+
+// verifyKey finds the live key rawKey is and marks it used.
+func (s *service) verifyKey(rawKey string) (models.ApiKey, error) {
 	rawKey = strings.TrimSpace(rawKey)
 	if !strings.HasPrefix(rawKey, keyPrefix) {
-		return "", ErrInvalidKey
+		return models.ApiKey{}, ErrInvalidKey
 	}
 
 	var row models.ApiKey
@@ -126,23 +135,27 @@ func (s *service) Verify(rawKey string) (string, error) {
 		Where("hash = ? AND revoked_at IS NULL", hashKey(rawKey)).
 		First(&row).Error
 	if err != nil {
-		return "", ErrInvalidKey
+		return models.ApiKey{}, ErrInvalidKey
 	}
 
 	now := utils.GetCurrentTimestamp()
 	_ = s.db.Model(&models.ApiKey{}).Where("id = ?", row.ID).Update("last_used_at", now).Error
-	return row.UserID, nil
+	return row, nil
 }
 
+// Verifier signs MCP requests in with a key. Extra["keyName"] carries the
+// name the person gave the key, so a Bot made over MCP can say where it
+// came from.
 func (s *service) Verifier() mcpauth.TokenVerifier {
 	return func(_ context.Context, token string, _ *http.Request) (*mcpauth.TokenInfo, error) {
-		userID, err := s.Verify(token)
+		row, err := s.verifyKey(token)
 		if err != nil {
 			return nil, fmt.Errorf("%w", mcpauth.ErrInvalidToken)
 		}
 		return &mcpauth.TokenInfo{
-			UserID:     userID,
+			UserID:     row.UserID,
 			Expiration: time.Now().Add(10 * 365 * 24 * time.Hour),
+			Extra:      map[string]any{"keyName": row.Name},
 		}, nil
 	}
 }

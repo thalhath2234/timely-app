@@ -2,7 +2,9 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { ImageIcon, X } from "lucide-react";
-import TimelyLogo, { SPINNER_LOOP_SECONDS } from "@/app/_components/_ui/timelyLogo";
+import TimelyLogo, {
+  SPINNER_LOOP_SECONDS,
+} from "@/app/_components/_ui/timelyLogo";
 import { apiFetch } from "@/app/utils/api/client";
 import {
   chatRequest,

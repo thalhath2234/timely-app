@@ -24,6 +24,7 @@ type SheetContent = {
   title?: string;
   subtitle?: string;
   leading?: ReactNode;
+  action?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
 };
@@ -46,6 +47,8 @@ type SheetProps = {
   subtitle?: string;
   /** Replaces the title on the left of the header (a kind switcher chip). */
   leading?: ReactNode;
+  /** A header button before Close (a "More" button); a page shows its own or none. */
+  action?: ReactNode;
   children: ReactNode;
   /** Action bar under the body; it sits on top of the keyboard while typing. */
   footer?: ReactNode;
@@ -70,7 +73,7 @@ export default function BottomSheet(props: SheetProps) {
 }
 
 /** A sheet opened inside another one: shown in place of its body. */
-function SheetPageEntry({ stack, open, onClose, onClosed, title, subtitle, leading, children, footer }: SheetProps & { stack: SheetStack }) {
+function SheetPageEntry({ stack, open, onClose, onClosed, title, subtitle, leading, action, children, footer }: SheetProps & { stack: SheetStack }) {
   const id = useId();
   const wasOpen = useRef(false);
   const onClosedRef = useRef(onClosed);
@@ -79,7 +82,7 @@ function SheetPageEntry({ stack, open, onClose, onClosed, title, subtitle, leadi
   useLayoutEffect(() => {
     if (open) {
       wasOpen.current = true;
-      stack.upsert({ id, onClose, title, subtitle, leading, children, footer });
+      stack.upsert({ id, onClose, title, subtitle, leading, action, children, footer });
       return;
     }
     stack.remove(id);
@@ -103,7 +106,7 @@ function SheetModal(props: SheetProps) {
   return <SheetFrame {...props} onGone={gone} />;
 }
 
-function SheetFrame({ open, onClose, title, subtitle, leading, children, footer, onClosed, onGone }: SheetProps & { onGone: () => void }) {
+function SheetFrame({ open, onClose, title, subtitle, leading, action, children, footer, onClosed, onGone }: SheetProps & { onGone: () => void }) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const reduceMotion = useReducedMotion();
@@ -118,14 +121,14 @@ function SheetFrame({ open, onClose, title, subtitle, leading, children, footer,
   const drag = useSharedValue(0);
   const openRef = useRef(open);
   const onClosedRef = useRef(onClosed);
-  const contentRef = useRef<SheetContent>({ title, subtitle, leading, children, footer });
+  const contentRef = useRef<SheetContent>({ title, subtitle, leading, action, children, footer });
 
   useLayoutEffect(() => {
     openRef.current = open;
-    if (open) contentRef.current = { title, subtitle, leading, children, footer };
-  }, [children, footer, leading, open, subtitle, title]);
+    if (open) contentRef.current = { title, subtitle, leading, action, children, footer };
+  }, [action, children, footer, leading, open, subtitle, title]);
 
-  const presented = open ? { title, subtitle, leading, children, footer } : contentRef.current;
+  const presented = open ? { title, subtitle, leading, action, children, footer } : contentRef.current;
   const page = pages.length > 0 ? pages[pages.length - 1] : null;
   const pagesRef = useRef(pages);
   pagesRef.current = pages;
@@ -282,6 +285,7 @@ function SheetFrame({ open, onClose, title, subtitle, leading, children, footer,
                 title={page ? page.title : presented.title}
                 subtitle={page ? page.subtitle ?? presented.title : presented.subtitle}
                 leading={page ? page.leading : presented.leading}
+                action={page ? page.action : presented.action}
                 onBack={page?.onClose}
                 onClose={onClose}
               />
@@ -335,12 +339,14 @@ function SheetHeader({
   title,
   subtitle,
   leading,
+  action,
   onBack,
   onClose,
 }: {
   title?: string;
   subtitle?: string;
   leading?: ReactNode;
+  action?: ReactNode;
   onBack?: () => void;
   onClose: () => void;
 }) {
@@ -360,6 +366,7 @@ function SheetHeader({
           </>
         )}
       </View>
+      {action}
       <AnimatedPressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={styles.close} hitSlop={8}>
         <X size={18} color={colors.mutedForeground} />
       </AnimatedPressable>
@@ -378,6 +385,7 @@ export function SheetOption({
   leading,
   trailing,
   detail,
+  disabled,
 }: {
   selected?: boolean;
   onSelect: () => void;
@@ -385,15 +393,18 @@ export function SheetOption({
   leading?: ReactNode;
   trailing?: ReactNode;
   detail?: string;
+  /** Shown but not offered yet (a choice tagged "Later"). */
+  disabled?: boolean;
 }) {
   const on = selected && { color: colors.accentForeground };
   return (
     <AnimatedPressable
       accessibilityRole="button"
-      accessibilityState={{ selected: Boolean(selected) }}
+      accessibilityState={{ selected: Boolean(selected), disabled: Boolean(disabled) }}
       onPress={onSelect}
-      android_ripple={{ color: `${colors.primary}22` }}
-      style={[styles.option, selected && styles.optionOn]}
+      disabled={disabled}
+      android_ripple={disabled ? undefined : { color: `${colors.primary}22` }}
+      style={[styles.option, selected && styles.optionOn, disabled && styles.optionDisabled]}
     >
       {leading}
       {!isPlainText(children) ? (
@@ -465,6 +476,7 @@ const styles = createThemedStyleSheet((colors) => ({
     marginBottom: 4,
   },
   optionOn: { backgroundColor: colors.accent },
+  optionDisabled: { opacity: 0.5 },
   optionText: { flex: 1, color: colors.foreground, fontSize: 15, fontWeight: "600" },
   optionBody: { flex: 1, minWidth: 0, paddingVertical: 8 },
   optionName: { color: colors.foreground, fontSize: 15, fontWeight: "600" },

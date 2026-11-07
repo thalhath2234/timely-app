@@ -3,7 +3,16 @@
 import type { ReactNode } from "react";
 import { cn } from "@/app/utils/cn";
 
-export type SegmentOption<T extends string> = { value: T; label: ReactNode; icon?: ReactNode; title?: string };
+export type SegmentOption<T extends string> = {
+  value: T;
+  label: ReactNode;
+  icon?: ReactNode;
+  title?: string;
+  /** Shown but not pickable (a mode that arrives later). */
+  disabled?: boolean;
+  /** A small pill after the label, such as "Later". */
+  tag?: ReactNode;
+};
 
 /**
  * One segmented control for switching views or modes (List/Kanban,
@@ -49,6 +58,8 @@ export default function SegmentedControl<T extends string>({
             type="button"
             role="radio"
             aria-checked={active}
+            aria-disabled={option.disabled || undefined}
+            disabled={option.disabled}
             title={option.title}
             onClick={() => onChange(option.value)}
             className={cn(
@@ -57,11 +68,18 @@ export default function SegmentedControl<T extends string>({
               fill && "flex-1",
               active
                 ? "bg-card text-foreground shadow-xs ring-1 ring-border"
-                : "text-muted-foreground hover:text-foreground",
+                : option.disabled
+                  ? "cursor-not-allowed text-muted-foreground/60"
+                  : "text-muted-foreground hover:text-foreground",
             )}
           >
             {option.icon}
             {option.label}
+            {option.tag ? (
+              <span className="inline-flex h-4 items-center rounded-full bg-fill px-1.5 text-[10px] font-medium text-muted-foreground">
+                {option.tag}
+              </span>
+            ) : null}
           </button>
         );
       })}

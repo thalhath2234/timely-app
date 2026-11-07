@@ -46,6 +46,10 @@ type Input struct {
 	Desktop         *bool        `json:"desktop"`
 	Phone           *bool        `json:"phone"`
 	Watches         []WatchInput `json:"watches"`
+	// OriginClient names the outside app a Bot made over MCP came from: the
+	// name the person gave its API key. It is kept only for OriginMCP and
+	// never read from a request body.
+	OriginClient string `json:"-"`
 }
 
 // Patch is an edit; nil fields are left as they are. Watches, when set, is
@@ -70,6 +74,33 @@ func cleanName(raw string) (string, error) {
 		return "", invalid("Keep the bot's name under %d characters", MaxNameLen)
 	}
 	return name, nil
+}
+
+// maxOriginClient bounds bots.origin_client, in characters.
+const maxOriginClient = 60
+
+// cleanOriginClient keeps an outside app's name printable, clipped to
+// maxOriginClient characters (cleanLine).
+func cleanOriginClient(raw string) string { return cleanLine(raw, maxOriginClient) }
+
+// cleanLine makes a line someone typed safe to keep and show: control and
+// format characters are dropped, spaces collapsed, and it is clipped to limit
+// characters.
+func cleanLine(raw string, limit int) string {
+	s := strings.Map(func(r rune) rune {
+		switch {
+		case unicode.IsSpace(r):
+			return ' '
+		case r == utf8.RuneError || unicode.IsControl(r) || unicode.Is(unicode.Cf, r):
+			return -1
+		}
+		return r
+	}, raw)
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > limit {
+		s = strings.TrimSpace(string(r[:limit]))
+	}
+	return s
 }
 
 func cleanDescription(raw string) (string, error) {
@@ -104,9 +135,13 @@ func refuseMCPSettings(o Origin, judge *string, flags ...*bool) error {
 	return nil
 }
 
+// hasKeyFunc reports whether the person has a working key saved for a keyed
+// price source (keySet). Nil means none.
+type hasKeyFunc func(source string) bool
+
 // cleanWatches checks a full watch list. prev maps the Bot's current
 // watches by ID (nil on create); a watch with an ID must be one of them.
-func cleanWatches(in []WatchInput, prev map[string]Watch) ([]Watch, error) {
+func cleanWatches(in []WatchInput, prev map[string]Watch, hasKey hasKeyFunc) ([]Watch, error) {
 	if len(in) == 0 {
 		return nil, invalid("Give the bot something to watch: a page, a feed or a price")
 	}
@@ -125,7 +160,7 @@ func cleanWatches(in []WatchInput, prev map[string]Watch) ([]Watch, error) {
 			seen[id] = true
 			old = &w
 		}
-		w, err := cleanWatch(wi, old)
+		w, err := cleanWatch(wi, old, hasKey)
 		if err != nil {
 			return nil, watchErr(len(in), i, err)
 		}
@@ -146,7 +181,7 @@ func watchErr(n, i int, err error) error {
 
 // cleanWatch checks one watch and returns its config and rules. Rule IDs are
 // not set here (see ruleIDs). old is the watch being edited, if any.
-func cleanWatch(in WatchInput, old *Watch) (Watch, error) {
+func cleanWatch(in WatchInput, old *Watch, hasKey hasKeyFunc) (Watch, error) {
 	w := Watch{Kind: strings.ToLower(strings.TrimSpace(in.Kind))}
 	if old != nil {
 		w.ID = old.ID
@@ -163,12 +198,12 @@ func cleanWatch(in WatchInput, old *Watch) (Watch, error) {
 		if read == "" {
 			read = ReadText
 		}
-		if read != ReadText && read != ReadSelector && read != ReadProductPrice {
-			return Watch{}, invalid("Read a page as text, selector or product_price")
+		if read != ReadText && read != ReadSelector && read != ReadProductPrice && read != ReadSelectorPrice {
+			return Watch{}, invalid("Read a page as text, selector, product_price or selector_price")
 		}
 		w.ReadMode = read
 		switch {
-		case read == ReadSelector:
+		case read == ReadSelector || read == ReadSelectorPrice:
 			if err := extract.ValidSelector(selector); err != nil {
 				return Watch{}, invalid("%s", sentence(err.Error()))
 			}
@@ -176,9 +211,14 @@ func cleanWatch(in WatchInput, old *Watch) (Watch, error) {
 		case selector != "":
 			return Watch{}, invalid("Only a page read with a selector takes a CSS selector")
 		}
-		if priceSet {
-			return Watch{}, invalid("A page watch takes no price source, symbol or currency")
+		switch {
+		case strings.TrimSpace(in.Source) != "" || strings.TrimSpace(in.Symbol) != "":
+			return Watch{}, invalid("A page watch takes no price source or symbol")
+		case strings.TrimSpace(in.Currency) != "" && read != ReadProductPrice && read != ReadSelectorPrice:
+			return Watch{}, invalid("A page watch takes no currency")
 		}
+		// A page's price comes with the currency the page shows; one sent
+		// along (as a chat often does) is left out, not refused.
 	case WatchFeed:
 		if w.URL, err = cleanURL(in.URL, "feed"); err != nil {
 			return Watch{}, err
@@ -193,7 +233,7 @@ func cleanWatch(in WatchInput, old *Watch) (Watch, error) {
 		if strings.TrimSpace(in.URL) != "" || read != "" || selector != "" {
 			return Watch{}, invalid("A price watch takes a source and a symbol, not a web address")
 		}
-		if w.Source, w.Symbol, w.Currency, err = cleanPrice(in.Source, in.Symbol, in.Currency); err != nil {
+		if w.Source, w.Symbol, w.Currency, err = cleanPrice(in.Source, in.Symbol, in.Currency, hasKey); err != nil {
 			return Watch{}, err
 		}
 	default:
@@ -241,8 +281,9 @@ func cleanURL(raw, what string) (string, error) {
 
 // cleanPrice resolves the source ("stock" and "crypto" pick price.Default)
 // and checks the symbol and currency against it. A source that needs the
-// person's API key is refused while keys cannot be saved.
-func cleanPrice(source, symbol, currency string) (string, string, string, error) {
+// person's API key is refused until they save one: every check would
+// otherwise be a needs_key strike, and the Bot would pause after 5.
+func cleanPrice(source, symbol, currency string, hasKey hasKeyFunc) (string, string, string, error) {
 	name := strings.ToLower(strings.TrimSpace(source))
 	if d, ok := price.Default[name]; ok {
 		name = d
@@ -261,10 +302,8 @@ func cleanPrice(source, symbol, currency string) (string, string, string, error)
 	if err != nil {
 		return "", "", "", invalid("%s", err.Error())
 	}
-	if src.KeyHeader != "" {
-		// Until a key can be saved (branch 3), every check of a keyed
-		// source would fail and the Bot would pause after 5 strikes.
-		return "", "", "", invalid("%s prices need a %s API key, and Timely cannot save one yet", sentence(src.Kind), src.Label)
+	if src.KeyHeader != "" && (hasKey == nil || !hasKey(src.Name)) {
+		return "", "", "", invalid("%s", needsKeyLine(src))
 	}
 	return name, sym, cur, nil
 }

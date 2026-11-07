@@ -32,6 +32,7 @@ import ListEnter from "../ui/ListEnter";
 import LoopImage from "../ui/LoopImage";
 import { planGroups } from "@timely/contract/changeReview";
 import { PROVIDER_NOT_CHOSEN } from "@timely/contract/helpMeWrite";
+import BotAnswerCard from "./BotAnswerCard";
 import ChangeCards from "./ChangeCards";
 import ImagePreview from "./ImagePreview";
 import { dayLabel, isBusy, phaseLabel, timeOfDay } from "./chatMeta";
@@ -392,6 +393,13 @@ export default function Thread({
                     ask={onAsk}
                     newest={message === newest}
                   />
+                  {message.botAnswers?.map((answer, i) => (
+                    <BotAnswerCard
+                      key={`${answer.bot.id}:${i}`}
+                      answer={answer}
+                      onOpen={onLink}
+                    />
+                  ))}
                   {images.length ? (
                     <View style={styles.imageRow}>
                       {images.map((image) => (

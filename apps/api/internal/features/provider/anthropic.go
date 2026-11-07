@@ -320,6 +320,16 @@ func anthropicMessages(messages []chat.WireMessage, replayThinking, cache bool, 
 			return false
 		}
 		if n := len(out); n > 0 && out[n-1].Role == role {
+			// Turns of one role become one message. Its text blocks reach
+			// the model run together, so a turn after text starts on a
+			// line of its own: a URL at the end of the person's words must
+			// not run into the "System notice" after it.
+			if prev := out[n-1].Content; len(prev) > 0 && prev[len(prev)-1].OfText != nil && blocks[0].OfText != nil &&
+				!strings.HasPrefix(blocks[0].OfText.Text, "\n") && !strings.HasSuffix(prev[len(prev)-1].OfText.Text, "\n") {
+				text := *blocks[0].OfText
+				text.Text = "\n\n" + text.Text
+				blocks = append([]anthropic.ContentBlockParamUnion{{OfText: &text}}, blocks[1:]...)
+			}
 			out[n-1].Content = append(out[n-1].Content, blocks...)
 			return true
 		}

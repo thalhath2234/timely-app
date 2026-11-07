@@ -255,6 +255,215 @@ function WheelColumn({
   );
 }
 
+/**
+ * The calendar (and, for datetime and time, the Hour / Min / Period
+ * steppers) on its own, so a menu can hold it inline instead of opening a
+ * popover from a popover (the bot Snooze menu's "Until a time"). DatePicker
+ * renders it inside its own popover. `value` is `YYYY-MM-DD`,
+ * `YYYY-MM-DDTHH:mm` or `HH:mm` by mode, as DatePicker takes it. Days before
+ * `min` or after `max` cannot be picked. `action` replaces Clear on the
+ * bottom row (a "Snooze until …" button).
+ */
+export function DateTimePanel({
+  value,
+  onChange,
+  mode = "datetime",
+  min,
+  max,
+  clearable = false,
+  onDone,
+  action,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  mode?: DatePickerMode;
+  min?: Date;
+  max?: Date;
+  clearable?: boolean;
+  /** A day was picked in date mode, or Clear pressed: a popover closes. */
+  onDone?: () => void;
+  action?: ReactNode;
+}) {
+  const clock = mode === "time" ? parseClock(value) : null;
+  const selected = mode === "time" ? null : parseLocalDate(value);
+  const [visibleMonth, setVisibleMonth] = useState(() =>
+    startOfMonth(selected ?? min ?? new Date()),
+  );
+  const [hours, setHours] = useState(
+    () => clock?.hours ?? selected?.getHours() ?? 9,
+  );
+  const [minutes, setMinutes] = useState(() =>
+    snapMinute(clock?.minutes ?? selected?.getMinutes() ?? 0),
+  );
+  const cells = useMemo(() => buildMonthCells(visibleMonth), [visibleMonth]);
+  const [today] = useState(() => new Date());
+  const firstDay = min ? new Date(min.getFullYear(), min.getMonth(), min.getDate()) : null;
+  const lastDay = max ? new Date(max.getFullYear(), max.getMonth(), max.getDate()) : null;
+  const outside = (day: Date) =>
+    (firstDay !== null && day < firstDay) || (lastDay !== null && day > lastDay);
+
+  const commitDay = (day: Date) => {
+    if (mode === "date") {
+      onChange(combineDate(day));
+      onDone?.();
+      return;
+    }
+    onChange(combineDateTime(day, hours, minutes));
+  };
+
+  const commitTime = (nextHours: number, nextMinutes: number) => {
+    setHours(nextHours);
+    setMinutes(nextMinutes);
+    if (mode === "time") {
+      onChange(`${pad2(nextHours)}:${pad2(nextMinutes)}`);
+      return;
+    }
+    const day = selected ?? new Date();
+    onChange(combineDateTime(day, nextHours, nextMinutes));
+  };
+
+  return (
+    <>
+      {mode !== "time" && (
+        <>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <button
+              type="button"
+              aria-label="Previous month"
+              onClick={() =>
+                setVisibleMonth(
+                  new Date(
+                    visibleMonth.getFullYear(),
+                    visibleMonth.getMonth() - 1,
+                    1,
+                  ),
+                )
+              }
+              className="flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <ChevronLeft className="size-4" />
+            </button>
+            <p className="text-sm font-medium">
+              {visibleMonth.toLocaleDateString(undefined, {
+                month: "long",
+                year: "numeric",
+              })}
+            </p>
+            <button
+              type="button"
+              aria-label="Next month"
+              onClick={() =>
+                setVisibleMonth(
+                  new Date(
+                    visibleMonth.getFullYear(),
+                    visibleMonth.getMonth() + 1,
+                    1,
+                  ),
+                )
+              }
+              className="flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <ChevronRight className="size-4" />
+            </button>
+          </div>
+
+          <div className="mb-1 grid grid-cols-7 gap-0.5">
+            {WEEKDAYS.map((day) => (
+              <div
+                key={day}
+                className="py-1 text-center text-[11px] font-medium text-muted-foreground"
+              >
+                {day}
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-0.5">
+            {cells.map((day, index) => {
+              if (!day) {
+                return <div key={`empty-${index}`} className="size-9" />;
+              }
+
+              const isSelected = selected ? sameDay(day, selected) : false;
+              const isToday = sameDay(day, today);
+              const off = outside(day);
+
+              return (
+                <button
+                  key={day.toISOString()}
+                  type="button"
+                  disabled={off}
+                  onClick={() => commitDay(day)}
+                  className={cn(
+                    "flex size-9 items-center justify-center rounded-lg text-sm tabular-nums transition-colors disabled:cursor-not-allowed disabled:opacity-35",
+                    isSelected
+                      ? "bg-primary text-primary-foreground"
+                      : isToday
+                        ? "bg-accent text-accent-foreground"
+                        : "text-foreground hover:bg-muted disabled:hover:bg-transparent",
+                  )}
+                >
+                  {day.getDate()}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {(mode === "datetime" || mode === "time") && (
+        <TimeStepper
+          hours={hours}
+          minutes={minutes}
+          onChange={commitTime}
+          standalone={mode === "time"}
+        />
+      )}
+
+      {(mode !== "time" || clearable || action) && (
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              const now = new Date();
+              const snapped = snapMinute(now.getMinutes());
+              if (mode === "date") {
+                onChange(combineDate(now));
+                onDone?.();
+              } else if (mode === "time") {
+                setHours(now.getHours());
+                setMinutes(snapped);
+                onChange(`${pad2(now.getHours())}:${pad2(snapped)}`);
+              } else {
+                setVisibleMonth(startOfMonth(now));
+                setHours(now.getHours());
+                setMinutes(snapped);
+                onChange(combineDateTime(now, now.getHours(), snapped));
+              }
+            }}
+            className="rounded-lg px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            {mode === "time" ? "Now" : "Today"}
+          </button>
+          {action ??
+            (clearable ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onChange("");
+                  onDone?.();
+                }}
+                className="rounded-lg px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                Clear
+              </button>
+            ) : null)}
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function DatePicker({
   value,
   onChange,
@@ -277,24 +486,6 @@ export default function DatePicker({
   const [open, setOpen] = useViewOpen();
   const [pos, setPos] = useState<PanelPos | null>(null);
   const mounted = useClientGate();
-
-  const clock = useMemo(
-    () => (mode === "time" ? parseClock(value) : null),
-    [mode, value],
-  );
-  const selected = useMemo(
-    () => (mode === "time" ? null : parseLocalDate(value)),
-    [mode, value],
-  );
-  const [visibleMonth, setVisibleMonth] = useState(() =>
-    startOfMonth(selected ?? new Date()),
-  );
-  const [hours, setHours] = useState(
-    () => clock?.hours ?? selected?.getHours() ?? 9,
-  );
-  const [minutes, setMinutes] = useState(() =>
-    snapMinute(clock?.minutes ?? selected?.getMinutes() ?? 0),
-  );
 
   const panelWidth = mode === "datetime" ? 300 : mode === "time" ? 240 : 280;
 
@@ -321,17 +512,6 @@ export default function DatePicker({
 
   const openPanel = () => {
     if (disabled) return;
-    setVisibleMonth(startOfMonth(selected ?? new Date()));
-    if (clock) {
-      setHours(clock.hours);
-      setMinutes(clock.minutes);
-    } else if (selected) {
-      setHours(selected.getHours());
-      setMinutes(snapMinute(selected.getMinutes()));
-    } else {
-      setHours(9);
-      setMinutes(0);
-    }
     setPos(measure());
     setOpen(true);
   };
@@ -387,8 +567,6 @@ export default function DatePicker({
     };
   }, [open, measure, setOpen]);
 
-  const cells = useMemo(() => buildMonthCells(visibleMonth), [visibleMonth]);
-  const today = useMemo(() => new Date(), []);
   const label =
     formatDisplay(value, mode) ||
     placeholder ||
@@ -398,25 +576,9 @@ export default function DatePicker({
         ? "Pick a time"
         : "Pick a date");
 
-  const commitDay = (day: Date) => {
-    if (mode === "date") {
-      onChange(combineDate(day));
-      setOpen(false);
-      triggerRef.current?.focus();
-      return;
-    }
-    onChange(combineDateTime(day, hours, minutes));
-  };
-
-  const commitTime = (nextHours: number, nextMinutes: number) => {
-    setHours(nextHours);
-    setMinutes(nextMinutes);
-    if (mode === "time") {
-      onChange(`${pad2(nextHours)}:${pad2(nextMinutes)}`);
-      return;
-    }
-    const day = selected ?? new Date();
-    onChange(combineDateTime(day, nextHours, nextMinutes));
+  const done = () => {
+    setOpen(false);
+    triggerRef.current?.focus();
   };
 
   const TriggerIcon = mode === "time" ? Clock : CalendarDays;
@@ -559,135 +721,13 @@ export default function DatePicker({
                 onPointerDown={(event) => event.stopPropagation()}
                 onTouchStart={(event) => event.stopPropagation()}
               >
-            {mode !== "time" && (
-              <>
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    aria-label="Previous month"
-                    onClick={() =>
-                      setVisibleMonth(
-                        new Date(
-                          visibleMonth.getFullYear(),
-                          visibleMonth.getMonth() - 1,
-                          1,
-                        ),
-                      )
-                    }
-                    className="flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  >
-                    <ChevronLeft className="size-4" />
-                  </button>
-                  <p className="text-sm font-medium">
-                    {visibleMonth.toLocaleDateString(undefined, {
-                      month: "long",
-                      year: "numeric",
-                    })}
-                  </p>
-                  <button
-                    type="button"
-                    aria-label="Next month"
-                    onClick={() =>
-                      setVisibleMonth(
-                        new Date(
-                          visibleMonth.getFullYear(),
-                          visibleMonth.getMonth() + 1,
-                          1,
-                        ),
-                      )
-                    }
-                    className="flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  >
-                    <ChevronRight className="size-4" />
-                  </button>
-                </div>
-
-                <div className="mb-1 grid grid-cols-7 gap-0.5">
-                  {WEEKDAYS.map((day) => (
-                    <div
-                      key={day}
-                      className="py-1 text-center text-[11px] font-medium text-muted-foreground"
-                    >
-                      {day}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="grid grid-cols-7 gap-0.5">
-                  {cells.map((day, index) => {
-                    if (!day) {
-                      return <div key={`empty-${index}`} className="size-9" />;
-                    }
-
-                    const isSelected = selected ? sameDay(day, selected) : false;
-                    const isToday = sameDay(day, today);
-
-                    return (
-                      <button
-                        key={day.toISOString()}
-                        type="button"
-                        onClick={() => commitDay(day)}
-                        className={cn(
-                          "flex size-9 items-center justify-center rounded-lg text-sm transition-colors",
-                          isSelected
-                            ? "bg-primary text-primary-foreground"
-                            : isToday
-                              ? "bg-accent text-accent-foreground"
-                              : "text-foreground hover:bg-muted",
-                        )}
-                      >
-                        {day.getDate()}
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-
-            {(mode === "datetime" || mode === "time") && (
-              <TimeStepper
-                hours={hours}
-                minutes={minutes}
-                onChange={commitTime}
-                standalone={mode === "time"}
+              <DateTimePanel
+                value={value}
+                onChange={onChange}
+                mode={mode}
+                clearable={clearable}
+                onDone={done}
               />
-            )}
-
-            {(mode !== "time" || clearable) && (
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const now = new Date();
-                  const snapped = snapMinute(now.getMinutes());
-                  if (mode === "date") onChange(combineDate(now));
-                  else if (mode === "time") {
-                    setHours(now.getHours());
-                    setMinutes(snapped);
-                    onChange(`${pad2(now.getHours())}:${pad2(snapped)}`);
-                  } else {
-                    onChange(combineDateTime(now, now.getHours(), snapped));
-                  }
-                  if (mode === "date") setOpen(false);
-                }}
-                className="rounded-lg px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              >
-                {mode === "time" ? "Now" : "Today"}
-              </button>
-              {clearable && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onChange("");
-                    setOpen(false);
-                  }}
-                  className="rounded-lg px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-            )}
             </div>
             </PopoverView>
           ) : null,

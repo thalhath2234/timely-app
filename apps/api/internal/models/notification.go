@@ -27,6 +27,9 @@ const (
 	JobSmartAlerts  = "smart_alerts"
 	// JobBotCheck checks one Bot (ADR 0021). It runs on its own lane.
 	JobBotCheck = "bot_check"
+	// JobBotIcon fetches and stores one site's logo for the Bots page. It
+	// runs on its own lane, one at a time.
+	JobBotIcon = "bot_icon"
 
 	NotifyReminder = "reminder"
 	NotifyDigest   = "digest"

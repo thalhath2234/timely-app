@@ -30,6 +30,22 @@ function monthCells(month: Date): (Date | null)[] {
   return cells;
 }
 
+/** Old names some browsers and phones still report, as the IANA list now spells them. */
+const ZONE_NAMES: Record<string, string> = {
+  "Asia/Calcutta": "Asia/Kolkata",
+  "Asia/Saigon": "Asia/Ho_Chi_Minh",
+  "Asia/Katmandu": "Asia/Kathmandu",
+  "Asia/Rangoon": "Asia/Yangon",
+  "Europe/Kiev": "Europe/Kyiv",
+  "America/Buenos_Aires": "America/Argentina/Buenos_Aires",
+  "Pacific/Truk": "Pacific/Chuuk",
+};
+
+function zoneName() {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return ZONE_NAMES[zone] ?? zone;
+}
+
 function hour12(hours24: number) {
   const value = hours24 % 12;
   return value === 0 ? 12 : value;
@@ -72,7 +88,11 @@ export default function DateTimeSheet({
   onChange,
   mode = "datetime",
   title,
+  subtitle,
   clearable = true,
+  confirmLabel,
+  min,
+  max,
 }: {
   open: boolean;
   value: Date | null;
@@ -80,7 +100,14 @@ export default function DateTimeSheet({
   onChange: (next: Date | null) => void;
   mode?: "date" | "datetime" | "time";
   title?: string;
+  /** The line under the title (what the picked time is for). */
+  subtitle?: string;
   clearable?: boolean;
+  /** The main button's words for the picked time ("Snooze until Mon 09:00"); "Done" when left out. */
+  confirmLabel?: (picked: Date) => string;
+  /** The earliest and latest time the main button accepts (datetime). */
+  min?: Date;
+  max?: Date;
 }) {
   const initial = value ?? new Date();
   const [month, setMonth] = useState(() => startOfMonth(initial));
@@ -108,6 +135,12 @@ export default function DateTimeSheet({
   const cells = useMemo(() => monthCells(month), [month]);
   const today = useMemo(() => new Date(), []);
   const preview = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, minute);
+  const early = mode === "datetime" && !!min && preview < min;
+  const late = mode === "datetime" && !!max && preview > max;
+  const outOfRange = early || late;
+  // A day the range leaves out entirely is greyed and cannot be picked.
+  const dayOff = (cell: Date) =>
+    (!!min && cell < startOfDay(min)) || (!!max && cell > startOfDay(max));
 
   function commitDay(next: Date) {
     setDay(startOfDay(next));
@@ -141,12 +174,15 @@ export default function DateTimeSheet({
   }
 
   function setNow() {
+    // The next 15-minute step, so "Now" is never already past.
     const now = new Date();
-    const snapped = snapMinute(now.getMinutes());
-    setMonth(startOfMonth(now));
-    setDay(startOfDay(now));
-    setHour(now.getHours());
-    setMinute(snapped);
+    const step = new Date(now);
+    step.setSeconds(0, 0);
+    step.setMinutes(Math.ceil(now.getMinutes() / 15) * 15);
+    setMonth(startOfMonth(step));
+    setDay(startOfDay(step));
+    setHour(step.getHours());
+    setMinute(step.getMinutes());
     if (mode === "date") {
       now.setHours(0, 0, 0, 0);
       onChange(now);
@@ -164,14 +200,27 @@ export default function DateTimeSheet({
       open={open}
       onClose={onClose}
       title={heading}
+      subtitle={subtitle}
       footer={
         <View style={styles.footerActions}>
           <Pressable onPress={setNow} style={styles.footerGhost}>
-            <Text style={styles.ghostText}>{mode === "time" ? "Now" : "Today"}</Text>
+            <Text style={styles.ghostText}>{mode === "date" ? "Today" : "Now"}</Text>
           </Pressable>
           {mode !== "date" ? (
-            <AnimatedPressable onPress={apply} style={styles.done}>
-              <Text style={styles.doneText}>✓  Done</Text>
+            <AnimatedPressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: Boolean(outOfRange) }}
+              disabled={Boolean(outOfRange)}
+              onPress={apply}
+              style={[styles.done, outOfRange && styles.doneOff]}
+            >
+              <Text numberOfLines={1} style={styles.doneText}>
+                {early
+                  ? "Pick a later time"
+                  : late
+                    ? "Pick an earlier time"
+                    : `✓  ${confirmLabel ? confirmLabel(preview) : "Done"}`}
+              </Text>
             </AnimatedPressable>
           ) : <View style={{ flex: 1 }} />}
           {clearable ? (
@@ -190,7 +239,7 @@ export default function DateTimeSheet({
     >
       {mode === "datetime" ? (
         <View style={styles.quickRow}>
-          <Text style={styles.timezone}>{Intl.DateTimeFormat().resolvedOptions().timeZone}</Text>
+          <Text style={styles.timezone}>{zoneName()}</Text>
           <Pressable onPress={setNow} style={styles.quick}><Text style={styles.quickText}>Today</Text></Pressable>
           <Pressable
             onPress={() => {
@@ -237,10 +286,25 @@ export default function DateTimeSheet({
                 if (!cell) return <View key={`empty-${week}-${index}`} style={styles.cell} />;
                 const on = isSameDay(cell, day);
                 const isToday = isSameDay(cell, today);
+                const off = dayOff(cell);
                 return (
-                  <Pressable key={cell.toISOString()} onPress={() => commitDay(cell)} style={styles.cell}>
+                  <Pressable
+                    key={cell.toISOString()}
+                    disabled={off}
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: off, selected: on }}
+                    onPress={() => commitDay(cell)}
+                    style={styles.cell}
+                  >
                     <View style={[styles.day, on && styles.dayOn, isToday && !on && styles.dayToday]}>
-                      <Text style={[styles.dayText, on && styles.dayOnText, isToday && !on && { color: colors.primary }]}>
+                      <Text
+                        style={[
+                          styles.dayText,
+                          on && styles.dayOnText,
+                          isToday && !on && { color: colors.primary },
+                          off && styles.dayOffText,
+                        ]}
+                      >
                         {cell.getDate()}
                       </Text>
                     </View>
@@ -319,10 +383,12 @@ const styles = createThemedStyleSheet((colors) => ({
     alignItems: "center",
     justifyContent: "center",
   },
-  dayOn: { backgroundColor: colors.accent },
+  // The picked day is solid; today keeps the soft wash, so the two differ.
+  dayOn: { backgroundColor: colors.primary },
   dayToday: { backgroundColor: colors.accent },
   dayText: { color: colors.foreground, fontSize: 14, fontWeight: "600" },
-  dayOnText: { color: colors.primary, fontWeight: "600" },
+  dayOnText: { color: colors.primaryForeground, fontWeight: "600" },
+  dayOffText: { color: colors.mutedForeground, opacity: 0.45 },
   wheels: { flexDirection: "row", gap: 8 },
   wheelsBorder: { marginTop: 16, paddingTop: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   timeHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
@@ -348,5 +414,6 @@ const styles = createThemedStyleSheet((colors) => ({
   footerGhost: { minWidth: 56, paddingHorizontal: 10, paddingVertical: 14, alignItems: "center" },
   ghostText: { color: colors.primary, fontSize: 14, fontWeight: "600" },
   done: { flex: 1, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: colors.primary },
+  doneOff: { opacity: 0.5 },
   doneText: { color: colors.primaryForeground, fontSize: 15, fontWeight: "600" },
 }));

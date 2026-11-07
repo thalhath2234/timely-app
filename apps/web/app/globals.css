@@ -27,7 +27,9 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-destructive-container: var(--destructive-container);
   --color-success: var(--success);
+  --color-success-text: var(--success-text);
   --color-warning: var(--warning);
+  --color-warning-text: var(--warning-text);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -73,17 +75,21 @@
   --destructive-foreground: #fafafa;
   --destructive-container: #dc2627;
   --success: #179765;
+  --success-text: #0f7a50;
   --warning: #df911a;
+  --warning-text: #a15c00;
   --border: rgba(0, 0, 0, 0.08);
   --border-strong: rgba(0, 0, 0, 0.14);
   --input: rgba(0, 0, 0, 0.14);
   --ring: #4f46e5;
   --fill: #ebebf0;
-  --chart-1: oklch(0.51 0.23 277);
-  --chart-2: oklch(0.62 0.16 255);
-  --chart-3: oklch(0.72 0.1 285);
-  --chart-4: oklch(0.6 0.13 160);
-  --chart-5: oklch(0.72 0.15 70);
+  /* The same colours as oklch(0.51 0.23 277), (0.62 0.16 255), (0.72 0.1 285),
+     (0.6 0.13 160) and (0.72 0.15 70), written as hex so the phone can use them. */
+  --chart-1: #4f46e5;
+  --chart-2: #3986e4;
+  --chart-3: #9e9ce1;
+  --chart-4: #179765;
+  --chart-5: #df911a;
   --radius: 0.75rem;
   --sidebar: #f7f7fa;
   --sidebar-foreground: #373a45;
@@ -116,7 +122,9 @@
   --destructive-foreground: #ffdad6;
   --destructive-container: #93000a;
   --success: #4edea3;
+  --success-text: #4edea3;
   --warning: #ffb95f;
+  --warning-text: #ffb95f;
   --border: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.14);
   --input: rgba(255, 255, 255, 0.14);
@@ -1095,6 +1103,33 @@ html.reduce-motion .lift:hover {
   }
   to {
     transform: translateY(8px) scale(0.98);
+  }
+}
+
+/* The Bots page's side panel (an open bot, or New bot) sliding in beside
+   the board. No scrim: the board stays live behind it. */
+@keyframes bots-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.bots-panel {
+  animation: bots-panel-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  box-shadow:
+    0 24px 60px -12px rgb(0 0 0 / 0.35),
+    0 10px 15px -3px rgb(0 0 0 / 0.1);
+}
+.dark .bots-panel {
+  box-shadow: 0 24px 60px -12px rgb(0 0 0 / 0.8);
+}
+@media (prefers-reduced-motion: reduce) {
+  .bots-panel {
+    animation: none;
   }
 }
 
@@ -2091,4 +2126,41 @@ html.reduce-motion:not([data-public-site]) .tl-bar {
   --heat-3: #3987e5;
   --heat-4: #86b6ef;
   --chart-grid: rgb(255 255 255 / 7%);
+}
+
+/* A bot rule's line across a price chart or a sparkline, as the kit draws it. */
+.chart-threshold {
+  fill: none;
+  stroke: var(--warning);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+
+/* An empty-state loop that follows the app's theme (film/loops/palette.ts):
+   light surfaces and ink in light theme, the film's own dark palette in dark. */
+.film-loop-themed {
+  --loop-bg: var(--fill);
+  --loop-panel: var(--card);
+  --loop-panel2: var(--muted);
+  --loop-raised: var(--muted);
+  --loop-line: var(--border);
+  --loop-line2: var(--border-strong);
+  --loop-ink: var(--foreground);
+  --loop-soft: var(--muted-foreground);
+  --loop-faint: color-mix(in oklab, var(--muted-foreground) 75%, var(--card));
+  --loop-accent: var(--primary);
+  --loop-accent-ink: var(--primary-foreground);
+}
+.dark .film-loop-themed {
+  --loop-bg: initial;
+  --loop-panel: initial;
+  --loop-panel2: initial;
+  --loop-raised: initial;
+  --loop-line: initial;
+  --loop-line2: initial;
+  --loop-ink: initial;
+  --loop-soft: initial;
+  --loop-faint: initial;
+  --loop-accent: initial;
+  --loop-accent-ink: initial;
 }

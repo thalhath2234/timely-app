@@ -6,7 +6,12 @@ import {
   draftForScreen,
   mergeContext,
   routeContext,
+  routeObject,
 } from "../apps/mobile/lib/chat/context.ts";
+import {
+  stepIconKind,
+  stepTarget,
+} from "../apps/mobile/components/chat/stepTarget.ts";
 
 test("agent notification targets its chat and retains existing reminder routing", () => {
   assert.equal(
@@ -54,7 +59,7 @@ test("a smart alert about several tasks opens the first, a project or Inbox aler
     "/(app)/inbox",
   );
 });
-test("a Bot alert opens the Notifications screen", () => {
+test("a Bot alert opens its bot on the Bots tab", () => {
   // The shape the server push and the phone's own poll both send.
   assert.equal(
     routeForNotification({
@@ -65,8 +70,66 @@ test("a Bot alert opens the Notifications screen", () => {
       taskId: "",
       url: "https://example.com/item",
     }),
-    "/(app)/notifications",
+    "/(app)/(tabs)/bots?bot=bot_a",
   );
+  // The entity names the bot when botId is missing; ids are escaped.
+  assert.equal(
+    routeForNotification({
+      category: "bot",
+      entityType: "bot",
+      entityId: "bot/b",
+    }),
+    "/(app)/(tabs)/bots?bot=bot%2Fb",
+  );
+});
+test("a Bot alert that names no bot opens the Bots board", () => {
+  assert.equal(
+    routeForNotification({ category: "bot", botId: "", taskId: "" }),
+    "/(app)/(tabs)/bots",
+  );
+  assert.equal(
+    routeForNotification({ category: "bot", kind: "digest" }),
+    "/(app)/(tabs)/bots",
+  );
+});
+
+test("a bot's screen path names the bot as the chat's object", () => {
+  assert.deepEqual(routeObject("/bots/bot_a"), ["bots", "bot_a"]);
+  assert.deepEqual(routeObject("/(app)/(tabs)/bots/bot_a"), ["bots", "bot_a"]);
+  // The board itself is a place, not an object.
+  assert.equal(routeObject("/bots"), null);
+  const chips = routeContext("/bots/bot_a", {}, { name: "Sony WH-1000XM6" });
+  assert.deepEqual(
+    chips.find((c) => c.kind === "object"),
+    contextChip("object", "Sony WH-1000XM6", "bots/bot_a"),
+  );
+});
+test("a made or changed bot opens its sheet on the Bots tab", () => {
+  const created = stepTarget({
+    tool: "create_bot",
+    status: "done",
+    arguments: { name: "Go blog" },
+    result: { id: "bot_a1", name: "Go blog", status: "active" },
+  });
+  assert.deepEqual(created, {
+    href: "/bots?bot=bot_a1",
+    title: "Go blog",
+    noun: "bot",
+  });
+  // update_bot names its bot by id in its arguments when the result has none.
+  assert.deepEqual(
+    stepTarget({ tool: "update_bot", status: "done", arguments: { bot: "bot_b" } }),
+    { href: "/bots?bot=bot_b", title: undefined, noun: "bot" },
+  );
+  // A bot named by its name has no id to open.
+  assert.equal(
+    stepTarget({ tool: "update_bot", status: "done", arguments: { bot: "Go blog" } }),
+    null,
+  );
+  assert.equal(stepIconKind("create_bot"), "bot");
+  assert.equal(stepIconKind("update_bot"), "bot");
+  assert.equal(stepIconKind("delete_bot"), "remove");
+  assert.equal(stepIconKind("update_doc"), "doc");
 });
 
 test("adding a new screen preserves original context and deduplicates references", () => {

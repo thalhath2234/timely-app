@@ -143,6 +143,11 @@ export const SIDEBAR_ITEMS = [
     href: "/files",
   },
   {
+    name: "Bots",
+    icon: "Bot",
+    href: "/bots",
+  },
+  {
     name: "Notifications",
     icon: "Bell",
     href: "/notifications",

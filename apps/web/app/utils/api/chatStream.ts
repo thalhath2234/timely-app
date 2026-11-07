@@ -1,16 +1,19 @@
 /**
- * The live stream of chat changes (GET /chats/watch, server-sent events).
+ * A live stream of changes (server-sent events): chats from GET /chats/watch,
+ * and bots from GET /bots/watch.
  *
  * A browser keeps only six connections open to one address across all its
- * tabs, so one tab per browser holds the stream: the one that gets the
- * "timely-chat-stream" Web Lock. It passes every message to the other tabs
- * over a BroadcastChannel, and the next tab takes over when it closes. Where
- * Web Locks are missing each tab opens its own stream.
+ * tabs, so one tab per browser holds each stream: the one that gets its Web
+ * Lock ("timely-chat-stream" for chats). It passes every message to the other
+ * tabs over a BroadcastChannel, and the next tab takes over when it closes.
+ * Where Web Locks are missing each tab opens its own stream.
  */
 
-export type ChatStreamMessage =
+export type LiveStreamMessage =
   | { type: "live"; live: boolean }
   | { type: "changed"; id: string };
+
+export type ChatStreamMessage = LiveStreamMessage;
 
 type Locks = {
   request(
@@ -26,14 +29,18 @@ type Channel = {
   close(): void;
 };
 
-export type ChatStreamDeps = {
-  /** Opens GET /chats/watch; must honour the signal. */
+export type LiveStreamDeps = {
+  /** Opens the watch request; must honour the signal. */
   open: (signal: AbortSignal) => Promise<Response>;
   locks?: Locks;
+  /** The Web Lock that picks the one tab holding this stream; each stream has its own. */
+  lock?: string;
   channel?: Channel;
   /** Waits before reconnecting; rejects or returns early once aborted. */
   wait?: (ms: number, signal: AbortSignal) => Promise<void>;
 };
+
+export type ChatStreamDeps = LiveStreamDeps;
 
 export const CHAT_STREAM_LOCK = "timely-chat-stream";
 const FIRST_RETRY = 1000;
@@ -73,9 +80,9 @@ function pause(ms: number, signal: AbortSignal) {
 }
 
 /** Starts listening; call the returned function to stop. */
-export function startChatStream(
-  onMessage: (message: ChatStreamMessage) => void,
-  { open, locks, channel, wait = pause }: ChatStreamDeps,
+export function startLiveStream(
+  onMessage: (message: LiveStreamMessage) => void,
+  { open, locks, lock = CHAT_STREAM_LOCK, channel, wait = pause }: LiveStreamDeps,
 ): () => void {
   const stop = new AbortController();
   let leading = false;
@@ -88,7 +95,7 @@ export function startChatStream(
       // closed
     }
   };
-  const emit = (message: ChatStreamMessage) => {
+  const emit = (message: LiveStreamMessage) => {
     if (stop.signal.aborted) return;
     if (message.type === "live") live = message.live;
     onMessage(message);
@@ -96,7 +103,7 @@ export function startChatStream(
   };
 
   channel?.addEventListener("message", (event) => {
-    const message = event.data as ChatStreamMessage | { type: "ask" };
+    const message = event.data as LiveStreamMessage | { type: "ask" };
     if (message.type === "ask") {
       // A tab that just opened asks whether the stream is up.
       if (leading) post({ type: "live", live });
@@ -154,7 +161,7 @@ export function startChatStream(
   }
 
   if (locks)
-    locks.request(CHAT_STREAM_LOCK, { signal: stop.signal }, stream).catch(() => {
+    locks.request(lock, { signal: stop.signal }, stream).catch(() => {
       // aborted while another tab held the stream
     });
   else void stream();
@@ -167,3 +174,6 @@ export function startChatStream(
     channel?.close();
   };
 }
+
+/** The chat stream: the live stream under the chat lock. */
+export const startChatStream = startLiveStream;

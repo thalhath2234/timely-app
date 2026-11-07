@@ -13,7 +13,7 @@ const block = (selector) => {
 };
 const vars = (text) =>
   Object.fromEntries([...text.matchAll(/--([a-z0-9-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
-const kebab = (key) => key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+const kebab = (key) => key.replace(/[A-Z]|\d+/g, (c) => `-${c.toLowerCase()}`);
 const norm = (value) => value.toLowerCase().replace(/\s+/g, "");
 
 describe("design tokens", () => {

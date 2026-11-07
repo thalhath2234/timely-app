@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -395,12 +396,20 @@ func TestIntegrationBotsMCP(t *testing.T) {
 	s := testService(db)
 	ctx := context.Background()
 
-	v, err := s.Create(ctx, me, Input{Name: "From outside", Watches: []WatchInput{{Kind: "feed", URL: "https://example.com/rss"}}}, OriginMCP)
+	v, err := s.Create(ctx, me, Input{Name: "From outside", Watches: []WatchInput{{Kind: "feed", URL: "https://example.com/rss"}},
+		OriginClient: " Claude\u200b Code\n"}, OriginMCP)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if v.Status != StatusPaused || v.PauseReason == nil || *v.PauseReason != PauseMCP || v.NextCheckAt != nil || v.Origin != OriginMCP || v.Health.Line != mcpPausedNew {
 		t.Fatalf("mcp create %+v", v)
+	}
+	if v.OriginClient != "Claude Code" || count(t, db, "bots", "id = ? AND origin_client = 'Claude Code'", v.ID) != 1 {
+		t.Fatalf("origin client %q", v.OriginClient)
+	}
+	// Only an MCP-made Bot names an app.
+	if app, err := s.Create(ctx, me, Input{Name: "Mine", Watches: []WatchInput{{Kind: "feed", URL: "https://example.com/rss"}}, OriginClient: "Faked"}, OriginApp); err != nil || app.OriginClient != "" {
+		t.Fatal(app, err)
 	}
 	if _, err := s.Resume(ctx, me, v.ID, OriginMCP); inputMsg(t, err) != "Turn bots on in Timely" {
 		t.Fatal(err)
@@ -504,5 +513,201 @@ func TestIntegrationRobotsCache(t *testing.T) {
 	}
 	if _, _, ok, _ := s.RobotsGet(ctx, origin, botNow.Add(2*time.Hour)); ok {
 		t.Fatal("expired answer served")
+	}
+}
+
+// The board: one List gives each card its strip, newest alert, items told
+// of today and price series, and the header its counts. A shop page keeps a
+// price series, and a watch's last change moves only when its reading does.
+func TestIntegrationBotBoard(t *testing.T) {
+	e := newEngine(t)
+	ctx := context.Background()
+	const shopURL, feedURL = "https://www.shop.example.in/p/1", "https://news.example.com/feed.xml"
+	shopPrice, feedBody, btc := "27499", rss("1"), "27499.00"
+	e.net.set(shopURL, func(req *http.Request) (*http.Response, error) {
+		return reply(req, 200, "text/html; charset=utf-8", `<html><head><title>Shop | Headphones</title><script type="application/ld+json">`+
+			`{"@type":"Product","name":"Sony WH-1000XM6 Wireless","offers":{"price":"`+shopPrice+`","priceCurrency":"INR"}}</script></head><body>Buy</body></html>`), nil
+	})
+	e.net.set(feedURL, func(req *http.Request) (*http.Response, error) {
+		return reply(req, 200, "application/rss+xml", feedBody), nil
+	})
+	e.coinbase(&btc)
+	shop := e.create(Input{Name: "Headphones", Watches: []WatchInput{{Kind: WatchPage, URL: shopURL, Read: ReadProductPrice,
+		Rules: []Rule{{Kind: RuleBelow, Threshold: f64(25000)}}}}})
+	feed := e.create(Input{Name: "News", Watches: []WatchInput{{Kind: WatchFeed, URL: feedURL}}})
+	coin := e.create(btcBot("BTC dip", Rule{Kind: RuleBelow, Threshold: f64(25000)}))
+	shopW := shop.Watches[0].ID
+	changedAt := func() time.Time {
+		t.Helper()
+		w := watchRow(t, e.db, shopW)
+		if w.LastChangedAt == nil {
+			t.Fatal("no last_changed_at")
+		}
+		return w.LastChangedAt.UTC()
+	}
+
+	// Baselines, all at 09:30.
+	t0 := e.now
+	for _, id := range []string{shop.ID, feed.ID, coin.ID} {
+		must(t, e.run(id))
+	}
+	if got := changedAt(); !got.Equal(t0) {
+		t.Fatalf("baseline last_changed_at %v, want %v", got, t0)
+	}
+	if w := watchRow(t, e.db, shopW); w.LastReading.Title != "Sony WH-1000XM6 Wireless" {
+		t.Fatalf("page title %q", w.LastReading.Title)
+	}
+	// The same price later: unchanged, so the last change stays.
+	e.again(shop.ID)
+	if c := e.lastCheck(shop.ID); c.Outcome != outUnchanged {
+		t.Fatalf("second shop check %s", c.Outcome)
+	}
+	if got := changedAt(); !got.Equal(t0) {
+		t.Fatalf("an unchanged check moved last_changed_at to %v", got)
+	}
+	// Two new posts, and BTC dips while snoozed: that alert is held.
+	feedBody, btc = rss("1", "2", "3"), "24000.00"
+	until := e.now.Add(7 * 24 * time.Hour)
+	_, err := e.s.Snooze(ctx, e.user, coin.ID, &until)
+	must(t, err)
+	must(t, e.run(feed.ID))
+	must(t, e.run(coin.ID))
+	if e.lastCheck(feed.ID).Outcome != outFired || e.lastCheck(coin.ID).Outcome != outFired {
+		t.Fatal("feed and BTC did not fire")
+	}
+	// The shop price drops under the line.
+	shopPrice = "24000"
+	e.again(shop.ID)
+	t2 := e.now
+	if c := e.lastCheck(shop.ID); c.Outcome != outFired {
+		t.Fatalf("third shop check %s", c.Outcome)
+	}
+	if got := changedAt(); !got.Equal(t2) {
+		t.Fatalf("last_changed_at %v, want %v", got, t2)
+	}
+	if t2.Format(dayLayout) != t0.Format(dayLayout) {
+		t.Fatalf("the test left the day: %v", t2)
+	}
+	var day PriceDay
+	must(t, e.db.Where("watch_id = ?", shopW).First(&day).Error)
+	if n := e.count("bot_price_days", "watch_id = ?", shopW); n != 1 || len(day.Points) != 3 || *day.Open != 27499 || *day.Close != 24000 {
+		t.Fatalf("shop price days %d, %+v", n, day)
+	}
+
+	list, err := e.s.List(ctx, e.user)
+	must(t, err)
+	byID := map[string]View{}
+	for _, v := range list.Bots {
+		byID[v.ID] = v
+	}
+	s, f, c := byID[shop.ID], byID[feed.ID], byID[coin.ID]
+	if s.Strip != "nnf" || f.Strip != "nf" || c.Strip != "nf" {
+		t.Fatalf("strips %q %q %q", s.Strip, f.Strip, c.Strip)
+	}
+	if s.LatestAlert == nil || s.LatestAlert.Title != "Headphones: below 25,000" || s.LatestAlert.Body != "Now ₹24,000 (was ₹27,499)" || s.LatestAlert.URL != shopURL {
+		t.Fatalf("shop latest alert %+v", s.LatestAlert)
+	}
+	if c.LatestAlert != nil || c.AlertsToday != 0 {
+		t.Fatalf("a snoozed alert shows on the card: %+v", c.LatestAlert)
+	}
+	if f.ItemsToday != 2 || f.AlertsToday != 1 || s.ItemsToday != 0 || f.LatestAlert == nil || f.LatestAlert.Held != "" {
+		t.Fatalf("feed today: items %d, alerts %d, latest %+v", f.ItemsToday, f.AlertsToday, f.LatestAlert)
+	}
+	sw := s.Watches[0]
+	wantPct := math.Round((24000.0-27499)/27499*100*100) / 100
+	if sw.Site != "example.in" || sw.Title != "Sony WH-1000XM6 Wireless" || sw.Value == nil || *sw.Value != 24000 ||
+		len(sw.Spark) != 1 || sw.Spark[0][1] != 24000 || sw.DayChangePct == nil || *sw.DayChangePct != wantPct {
+		t.Fatalf("shop watch %+v", sw)
+	}
+	if fw := f.Watches[0]; fw.LatestItem == nil || fw.LatestItem.Title != "Story 1" || fw.Excerpt != "Story 1" || fw.Items != nil || fw.Value != nil {
+		t.Fatalf("feed watch %+v", fw)
+	}
+	if cw := c.Watches[0]; cw.Site != "" || len(cw.Spark) != 1 || cw.Title != "" {
+		t.Fatalf("coin watch %+v", cw)
+	}
+	if list.Summary.ChecksToday != 7 || list.Summary.AlertsToday != 2 || list.Summary.NextCheckAt == nil {
+		t.Fatalf("summary %+v", list.Summary)
+	}
+	next := *list.Summary.NextCheckAt
+	for _, v := range list.Bots {
+		if v.NextCheckAt != nil && v.NextCheckAt.Before(next) {
+			t.Fatalf("summary next %v is after %s's %v", next, v.Name, v.NextCheckAt)
+		}
+	}
+	if s.Checking || s.FloorLine != "Shop prices are checked every 6 hours at most" || s.RunNowAt == nil || !s.RunNowAt.Equal(t2.Add(MinProductEvery-FenceSlack)) {
+		t.Fatalf("shop run now %+v %v", s.RunNowAt, s.FloorLine)
+	}
+
+	// A paused Bot drops out of the next check.
+	_, err = e.s.Pause(ctx, e.user, feed.ID, PausePerson)
+	must(t, err)
+	list, err = e.s.List(ctx, e.user)
+	must(t, err)
+	for _, v := range list.Bots {
+		if v.ID != feed.ID && v.NextCheckAt != nil && v.NextCheckAt.Before(*list.Summary.NextCheckAt) {
+			t.Fatal("summary next is not the earliest active Bot")
+		}
+	}
+
+	// Over REST, and the Detail.
+	code, out := call(t, e.s, e.user, "GET", "/bots", nil)
+	if sum, _ := out["summary"].(map[string]any); code != 200 || sum["checksToday"] != float64(7) || len(out["bots"].([]any)) != 3 {
+		t.Fatalf("GET /bots %d %v", code, out["summary"])
+	}
+	d, err := e.s.Get(ctx, e.user, feed.ID)
+	must(t, err)
+	if d.Week.Checks != 2 || d.Week.Alerts != 1 || d.AlertsMonth != 1 || len(d.Watches[0].Items) != 3 || d.Watches[0].Items[0].URL != "https://news.example.com/1" {
+		t.Fatalf("feed detail week %+v month %d items %+v", d.Week, d.AlertsMonth, d.Watches[0].Items)
+	}
+	d, err = e.s.Get(ctx, e.user, shop.ID)
+	must(t, err)
+	a := d.Alerts[0]
+	if a.CheckID == nil || *a.CheckID != e.lastCheck(shop.ID).ID || a.Figures["rule"] != RuleBelow || a.Figures["threshold"] != float64(25000) ||
+		a.Figures["price"] != float64(24000) || a.Figures["watchId"] != nil {
+		t.Fatalf("alert view %+v", a)
+	}
+	if d.Watches[0].Items != nil {
+		t.Fatal("a page watch lists items")
+	}
+
+	// Turning the Bot back on, or a rules edit, asks for a fresh baseline.
+	// The same price then is no change.
+	_, err = e.s.Pause(ctx, e.user, shop.ID, PausePerson)
+	must(t, err)
+	_, err = e.s.Resume(ctx, e.user, shop.ID, OriginApp)
+	must(t, err)
+	e.again(shop.ID)
+	if c := e.lastCheck(shop.ID); c.Outcome != outBaseline || !e.now.After(t2) {
+		t.Fatalf("check after Turn on %s", c.Outcome)
+	}
+	if got := changedAt(); !got.Equal(t2) {
+		t.Fatalf("a baseline after Turn on moved last_changed_at to %v", got)
+	}
+	ws := []WatchInput{{ID: shopW, Kind: WatchPage, URL: shopURL, Read: ReadProductPrice, Rules: []Rule{{Kind: RuleBelow, Threshold: f64(20000)}}}}
+	_, err = e.s.Update(ctx, e.user, shop.ID, Patch{Watches: &ws}, OriginApp)
+	must(t, err)
+	e.again(shop.ID)
+	if c := e.lastCheck(shop.ID); c.Outcome != outBaseline {
+		t.Fatalf("check after a rules edit %s", c.Outcome)
+	}
+	if got := changedAt(); !got.Equal(t2) {
+		t.Fatalf("a baseline after a rules edit moved last_changed_at to %v", got)
+	}
+	// A new price at a baseline is a change.
+	shopPrice = "23000"
+	_, err = e.s.Pause(ctx, e.user, shop.ID, PausePerson)
+	must(t, err)
+	_, err = e.s.Resume(ctx, e.user, shop.ID, OriginApp)
+	must(t, err)
+	e.again(shop.ID)
+	if got := changedAt(); !got.Equal(e.now) {
+		t.Fatalf("a moved baseline left last_changed_at at %v, want %v", got, e.now)
+	}
+	// Pointing the watch somewhere else clears it until the new first reading.
+	ws = []WatchInput{{ID: shopW, Kind: WatchPage, URL: shopURL + "?v=2", Read: ReadProductPrice}}
+	_, err = e.s.Update(ctx, e.user, shop.ID, Patch{Watches: &ws}, OriginApp)
+	must(t, err)
+	if w := watchRow(t, e.db, shopW); w.LastChangedAt != nil || w.LastReading != nil {
+		t.Fatalf("a new target kept %v %v", w.LastChangedAt, w.LastReading)
 	}
 }

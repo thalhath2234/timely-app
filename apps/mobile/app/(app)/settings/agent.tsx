@@ -17,8 +17,9 @@ import BottomSheet, { SheetOption } from "../../../components/ui/BottomSheet";
 import ConfirmSheet, {
   type ConfirmRequest,
 } from "../../../components/ui/ConfirmSheet";
-import { Field, PrimaryButton, Select, type SelectOption } from "../../../components/ui/primitives";
-import { GroupHint, ListGroup } from "../../../components/settings/SettingsList";
+import { useLocalSearchParams } from "expo-router";
+import { Button, Field, PrimaryButton, Select, type SelectOption } from "../../../components/ui/primitives";
+import { GroupHint, GroupLabel, ListGroup, ListRow } from "../../../components/settings/SettingsList";
 import {
   ProviderSheet,
   readyIds,
@@ -38,11 +39,14 @@ import {
   useProviderModelsQuery,
   useRemoveApiProviderKey,
   useRemoveOpenRouterKey,
+  useRemoveSourceKey,
   useRemoveTypeSafeKey,
   useSetApiProviderKey,
   useSetDeepWorkTime,
   useSetOpenRouterKey,
+  useSetSourceKey,
   useSetTypeSafeKey,
+  useSourceKeysQuery,
   useTestDecisions,
 } from "../../../lib/hooks";
 import type { DecisionSettings, DeepWorkTime } from "../../../lib/api/decisions";
@@ -55,6 +59,8 @@ import {
   type ProviderId,
 } from "../../../lib/api/agentProviders";
 import { providerAfterRemoval } from "@timely/contract/providerFallback";
+import type { SourceKeyView } from "@timely/contract/bots";
+import { BOT_KEYS_SECTION } from "../../../components/bots/useBotActions";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { LogoSpinner } from "../../../components/ui/TimelyLogo";
 import { FocusGroup, FocusGroupScrollView } from "../../../components/ui/FocusGroup";
@@ -929,6 +935,164 @@ function MoreApiKeys({
   );
 }
 
+const BOT_KEY_SOURCE = "finnhub";
+const FINNHUB_REGISTER_URL = "https://finnhub.io/register";
+
+function botKeyMeta(view: SourceKeyView | undefined) {
+  if (!view?.keySet) return "Not set";
+  if (view.state === "refused") return "Finnhub refused it. Replace it.";
+  return view.keyHint ? `Saved · ${view.keyHint}` : "Saved";
+}
+
+/**
+ * Stock prices for bots: the free Finnhub key stock bots read US prices with.
+ * Write-only, as on the web: the server checks the key with Finnhub before
+ * saving it and only ever answers with its last four characters. Coming from
+ * a bot's "Add a free Finnhub key" (`?open=bot-keys`), the sheet opens by
+ * itself when there is no usable key.
+ */
+function BotSourceKeysGroup() {
+  const keys = useSourceKeysQuery();
+  const setKey = useSetSourceKey();
+  const removeKey = useRemoveSourceKey();
+  const params = useLocalSearchParams<{ open?: string }>();
+  const view = keys.data?.find((row) => row.source === BOT_KEY_SOURCE);
+  const usable = !!view?.keySet && view.state !== "refused";
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  // The link opens the sheet once, after the key row has loaded.
+  const [linkSeen, setLinkSeen] = useState(false);
+  if (params.open === BOT_KEYS_SECTION && keys.data && !linkSeen) {
+    setLinkSeen(true);
+    if (!usable) setOpen(true);
+  }
+
+  const close = () => {
+    Keyboard.dismiss();
+    setOpen(false);
+    setValue("");
+    setError(null);
+  };
+
+  const save = () => {
+    const key = value.trim();
+    if (!key || setKey.isPending) return;
+    setError(null);
+    setKey.mutate(
+      { source: BOT_KEY_SOURCE, key },
+      {
+        onSuccess: close,
+        onError: (err) => setError(errorMessage(err, "Could not save the key.")),
+      },
+    );
+  };
+
+  const remove = async () => {
+    setError(null);
+    try {
+      await removeKey.mutateAsync(BOT_KEY_SOURCE);
+      close();
+    } catch (err) {
+      setError(errorMessage(err, "Could not remove the key."));
+    }
+  };
+
+  const meta = keys.isPending
+    ? "Loading…"
+    : keys.error
+      ? errorMessage(keys.error, "Could not load the key.")
+      : botKeyMeta(view);
+
+  return (
+    <View testID="bot-source-keys" style={{ gap: 6 }}>
+      <GroupLabel>Stock prices for bots</GroupLabel>
+      <ListGroup>
+        <ListRow
+          testID="bot-source-key-finnhub"
+          title="Finnhub key"
+          meta={meta}
+          trailing={
+            keys.error ? (
+              <Button label="Retry" variant="ghost" size="sm" onPress={() => void keys.refetch()} />
+            ) : undefined
+          }
+          onPress={keys.data ? () => setOpen(true) : undefined}
+        />
+      </ListGroup>
+      <GroupHint>
+        Free. Stock bots need it to read US prices from Finnhub. Crypto bots
+        don’t. Timely never shows the key again.
+      </GroupHint>
+      <BottomSheet
+        open={open}
+        onClose={() => {
+          if (!setKey.isPending) close();
+        }}
+        title="Finnhub key"
+        subtitle={view?.keySet ? botKeyMeta(view) : "Stock prices for bots"}
+        footer={
+          <PrimaryButton
+            testID="bot-source-key-save"
+            label={setKey.isPending ? "Checking…" : "Save"}
+            loading={setKey.isPending}
+            disabled={!value.trim()}
+            onPress={save}
+          />
+        }
+      >
+        <View style={{ gap: 10, paddingBottom: 12 }}>
+          <Field
+            testID="bot-source-key-input"
+            value={value}
+            onChangeText={(next) => {
+              setValue(next);
+              if (error) setError(null);
+            }}
+            accessibilityLabel="Finnhub key"
+            placeholder={view?.keySet ? "Paste a new key to replace it" : "Paste your Finnhub key"}
+            secure
+            autoFocus
+          />
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+          <Text style={styles.hint}>
+            Saving checks the key with Finnhub first.{" "}
+            <Text
+              accessibilityRole="link"
+              style={styles.inlineLink}
+              onPress={() => void Linking.openURL(FINNHUB_REGISTER_URL)}
+            >
+              Get a free key
+            </Text>
+          </Text>
+          {view?.keySet ? (
+            <View style={{ alignItems: "flex-start" }}>
+              <Button
+                testID="bot-source-key-remove"
+                label={removeKey.isPending ? "Removing…" : "Remove"}
+                variant="destructive-ghost"
+                size="sm"
+                loading={removeKey.isPending}
+                disabled={setKey.isPending}
+                onPress={() => setConfirmRemove(true)}
+              />
+            </View>
+          ) : null}
+        </View>
+        <ConfirmSheet
+          open={confirmRemove}
+          onClose={() => setConfirmRemove(false)}
+          title="Remove your Finnhub key?"
+          message="Stock bots stop reading prices until you add a key again. Each check without one counts as a strike."
+          confirmLabel="Remove"
+          onConfirm={remove}
+        />
+      </BottomSheet>
+    </View>
+  );
+}
+
 /** What the Disconnect confirm says. Removing the default provider moves chat
  * to the next one set up, so the confirm names it rather than switching
  * silently. */
@@ -1408,6 +1572,7 @@ export default function AgentSettings() {
               />
             ) : null}
             <MoreApiKeys data={data} ask={setProviderRequest} />
+            <BotSourceKeysGroup />
             {data.localCli ? (
               <>
                 <CliCard id="claude" data={data} view={data.claude} ask={setProviderRequest} />
@@ -1433,6 +1598,9 @@ export default function AgentSettings() {
             </View>
           </>
         ) : null}
+        {/* It has its own query: the Finnhub key (and ?open=bot-keys) still
+            works when the provider list is loading or failed. */}
+        {data ? null : <BotSourceKeysGroup />}
       </FocusGroupScrollView>
       <ConfirmSheet
         open={confirm !== null}

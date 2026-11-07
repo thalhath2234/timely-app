@@ -62,7 +62,7 @@ func TestIntegrationBackupKeepsBots(t *testing.T) {
 			t.Fatalf("export %s: %d rows, want %d", table, got, want)
 		}
 	}
-	for _, table := range []string{"bot_checks", "bot_sites", "bot_robots"} {
+	for _, table := range []string{"bot_checks", "bot_sites", "bot_robots", "bot_site_icons", "bot_source_keys"} {
 		if _, ok := backup.Rows[table]; ok {
 			t.Fatalf("export carries %s", table)
 		}
@@ -248,5 +248,225 @@ func TestIntegrationRestoreVetsBots(t *testing.T) {
 	var next int64
 	if err := db.Raw(`SELECT count(*) FROM bots WHERE user_id = ? AND next_check_at IS NOT NULL`, uid).Scan(&next).Error; err != nil || next != 0 {
 		t.Fatalf("%d paused bots still scheduled (%v)", next, err)
+	}
+}
+
+// A backup made before Bots named their outside app has no origin_client;
+// it restores with the column's default instead of failing on NULL.
+func TestIntegrationRestoreBotWithoutOriginClient(t *testing.T) {
+	db := migratedDB(t)
+	const uid = "usr_portability_bot_origin"
+	if err := db.Create(&models.User{ID: uid, Email: "origin@example.invalid", Password: "not-a-real-hash"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	seedAccountBasics(t, db, uid, true)
+	if err := db.Exec(`INSERT INTO bots (id, user_id, name, origin, origin_client, status, pause_reason, interval_seconds)
+		VALUES ('bot_old', ?, 'Old one', 'mcp', 'Claude Code', 'paused', 'mcp', 900)`, uid).Error; err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(db, nil)
+	backup, err := service.Export(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row map[string]any
+	if err := json.Unmarshal(backup.Rows["bots"][0], &row); err != nil || row["origin_client"] != "Claude Code" {
+		t.Fatalf("export: %s", backup.Rows["bots"][0])
+	}
+	delete(row, "origin_client")
+	backup.Rows["bots"][0], _ = json.Marshal(row)
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatalf("restore of an older backup: %v", err)
+	}
+	var n int64
+	if err := db.Raw(`SELECT count(*) FROM bots WHERE id = 'bot_old' AND user_id = ? AND origin_client = ''`, uid).Scan(&n).Error; err != nil || n != 1 {
+		t.Fatalf("restored bot: %d (%v)", n, err)
+	}
+}
+
+// A backup carries the person's ratings of alerts and their alert switches
+// for new Bots, and a backup made before either existed restores with none
+// and the default switches.
+func TestIntegrationBackupKeepsAlertFeedbackAndDefaults(t *testing.T) {
+	db := migratedDB(t)
+	const uid = "usr_portability_bot_feedback"
+	if err := db.Create(&models.User{ID: uid, Email: "feedback@example.invalid", Password: "not-a-real-hash"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	seedAccountBasics(t, db, uid, true)
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if err := db.Exec(query, args...).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`UPDATE configs SET bot_alert_defaults = '{"desktop": false, "phone": true, "urgent": true}' WHERE user_id = ?`, uid)
+	exec(`INSERT INTO bots (id, user_id, name, interval_seconds, next_check_at) VALUES ('bot_fb', ?, 'Rated', 900, now())`, uid)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, local_day, title, feedback, feedback_reason, feedback_note, feedback_at) VALUES
+		('bal_no', 'bot_fb', ?, 'alert', '2026-11-06', 'Not this', 'not_useful', 'too_small', 'Only big dips', '2026-11-06T10:00:00Z'),
+		('bal_yes', 'bot_fb', ?, 'alert', '2026-11-06', 'This one', 'useful', '', '', '2026-11-06T11:00:00Z'),
+		('bal_none', 'bot_fb', ?, 'alert', '2026-11-06', 'Not rated', NULL, '', '', NULL)`, uid, uid, uid)
+
+	service := NewService(db, nil)
+	backup, err := service.Export(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec(`UPDATE configs SET bot_alert_defaults = '{"desktop": true, "phone": true, "urgent": false}' WHERE user_id = ?`, uid)
+	exec(`UPDATE bot_alerts SET feedback = NULL, feedback_reason = '', feedback_note = '', feedback_at = NULL WHERE user_id = ?`, uid)
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	count := func(query string, args ...any) int64 {
+		t.Helper()
+		var n int64
+		if err := db.Raw(query, args...).Scan(&n).Error; err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := count(`SELECT count(*) FROM bot_alerts WHERE id = 'bal_no' AND feedback = 'not_useful' AND feedback_reason = 'too_small'
+		AND feedback_note = 'Only big dips' AND feedback_at = '2026-11-06T10:00:00Z'`); n != 1 {
+		t.Fatal("a not useful rating did not round-trip")
+	}
+	if n := count(`SELECT count(*) FROM bot_alerts WHERE id = 'bal_yes' AND feedback = 'useful' AND feedback_at IS NOT NULL`); n != 1 {
+		t.Fatal("a useful rating did not round-trip")
+	}
+	if n := count(`SELECT count(*) FROM bot_alerts WHERE id = 'bal_none' AND feedback IS NULL AND feedback_at IS NULL`); n != 1 {
+		t.Fatal("an unrated alert came back rated")
+	}
+	var defaults models.Config
+	if err := db.Select("bot_alert_defaults").Where("user_id = ?", uid).First(&defaults).Error; err != nil {
+		t.Fatal(err)
+	}
+	if d := defaults.BotAlertDefaults; d.Desktop || !d.Phone || !d.Urgent {
+		t.Fatalf("alert defaults after restore %+v", d)
+	}
+
+	// The same backup as an older version wrote it: no feedback columns on
+	// the alerts and no alert switches on the settings row.
+	for i, raw := range backup.Rows["bot_alerts"] {
+		var row map[string]any
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatal(err)
+		}
+		for _, k := range []string{"feedback", "feedback_reason", "feedback_note", "feedback_at"} {
+			delete(row, k)
+		}
+		backup.Rows["bot_alerts"][i], _ = json.Marshal(row)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(backup.Rows["configs"][0], &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cfg["bot_alert_defaults"]; !ok {
+		t.Fatalf("export has no alert defaults: %s", backup.Rows["configs"][0])
+	}
+	delete(cfg, "bot_alert_defaults")
+	backup.Rows["configs"][0], _ = json.Marshal(cfg)
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatalf("restore of an older backup: %v", err)
+	}
+	if n := count(`SELECT count(*) FROM bot_alerts WHERE user_id = ? AND feedback IS NULL AND feedback_reason = '' AND feedback_note = '' AND feedback_at IS NULL`, uid); n != 3 {
+		t.Fatalf("older alerts restored: %d of 3 unrated", n)
+	}
+	if n := count(`SELECT count(*) FROM configs WHERE user_id = ? AND bot_alert_defaults = '{"desktop": true, "phone": true, "urgent": false}'::jsonb`, uid); n != 1 {
+		t.Fatal("an older settings row did not get the default alert switches")
+	}
+
+	// Over MCP an outside app cannot turn urgent on for every later Bot,
+	// and a value that is not three switches goes back to the default.
+	service.SetRestoreVet(bots.New(db, nil).VetRestore)
+	cfg["bot_alert_defaults"] = map[string]any{"desktop": false, "phone": true, "urgent": true}
+	backup.Rows["configs"][0], _ = json.Marshal(cfg)
+	if _, err := service.RestoreFromMCP(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(`SELECT count(*) FROM configs WHERE user_id = ? AND bot_alert_defaults = '{"desktop": false, "phone": true, "urgent": false}'::jsonb`, uid); n != 1 {
+		t.Fatal("a restore over MCP kept urgent on for new bots")
+	}
+	cfg["bot_alert_defaults"] = map[string]any{"urgent": "x"}
+	backup.Rows["configs"][0], _ = json.Marshal(cfg)
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(`SELECT count(*) FROM configs WHERE user_id = ? AND bot_alert_defaults = '{"desktop": true, "phone": true, "urgent": false}'::jsonb`, uid); n != 1 {
+		t.Fatal("a malformed alert default was kept")
+	}
+}
+
+// A restore keeps the account's price source keys (they hang off the
+// account, not its Bots), so a restored stock Bot stays on while the key is
+// there. Only a Bot made over MCP keeps the app name it came from.
+func TestIntegrationRestoreKeepsSourceKeys(t *testing.T) {
+	db := migratedDB(t)
+	const uid = "usr_portability_keys"
+	if err := db.Create(&models.User{ID: uid, Email: "keys@example.invalid", Password: "not-a-real-hash"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	seedAccountBasics(t, db, uid, true)
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if err := db.Exec(query, args...).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO bot_source_keys (user_id, source, api_key, key_hint, checked_at) VALUES (?, 'finnhub', 'c2VhbGVk', '…1234', now())`, uid)
+	// A file that says a tag just checked a Bot, far ahead, must not hold
+	// off the checks tags start.
+	exec(`INSERT INTO bots (id, user_id, name, origin, origin_client, interval_seconds, next_check_at, asked_at) VALUES
+		('bot_stock', ?, 'NVDA', 'app', 'Claude Code', 900, now(), now() + interval '10 years')`, uid)
+	exec(`INSERT INTO bots (id, user_id, name, origin, origin_client, status, pause_reason, interval_seconds) VALUES
+		('bot_mcp', ?, 'From an app', 'mcp', 'My key', 'paused', 'mcp', 900)`, uid)
+	exec(`INSERT INTO bot_watches (id, bot_id, user_id, kind, source, symbol, currency) VALUES
+		('bw_stock', 'bot_stock', ?, 'price', 'finnhub', 'NVDA', 'USD'),
+		('bw_mcp', 'bot_mcp', ?, 'price', 'coinbase', 'BTC', 'USD')`, uid, uid)
+
+	service := NewService(db, nil)
+	service.SetRestoreVet(bots.New(db, nil).VetRestore)
+	backup, err := service.Export(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := backup.Rows["bot_source_keys"]; ok {
+		t.Fatal("export carries bot_source_keys")
+	}
+	type row struct {
+		ID, Status, OriginClient, HealthDetail string
+		Asked                                  bool
+	}
+	read := func() map[string]row {
+		t.Helper()
+		var rows []row
+		if err := db.Raw(`SELECT id, status, origin_client, health_detail, asked_at IS NOT NULL AS asked FROM bots WHERE user_id = ?`, uid).Scan(&rows).Error; err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]row{}
+		for _, r := range rows {
+			out[r.ID] = r
+		}
+		return out
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	var keys int64
+	if err := db.Raw(`SELECT count(*) FROM bot_source_keys WHERE user_id = ? AND state = 'ok'`, uid).Scan(&keys).Error; err != nil || keys != 1 {
+		t.Fatalf("the restore dropped the key: %d (%v)", keys, err)
+	}
+	got := read()
+	if r := got["bot_stock"]; r.Status != "active" || r.OriginClient != "" || r.Asked {
+		t.Fatalf("stock bot with a key: %+v", r)
+	}
+	if r := got["bot_mcp"]; r.OriginClient != "My key" {
+		t.Fatalf("an MCP bot lost its app name: %+v", r)
+	}
+
+	exec(`DELETE FROM bot_source_keys WHERE user_id = ?`, uid)
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	if r := read()["bot_stock"]; r.Status != "paused" || r.HealthDetail != "Restored with a watch Timely cannot use: Stock prices need your free Finnhub key. Add it in Settings › Agent. Edit it to turn it on." {
+		t.Fatalf("stock bot without a key: %+v", r)
 	}
 }

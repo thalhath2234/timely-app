@@ -2,6 +2,7 @@ package bots
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -16,6 +17,8 @@ import (
 
 const (
 	detailRows   = 20
+	detailItems  = 5  // feed items a Detail shows per watch
+	stripChecks  = 28 // checks a board card's strip shows
 	detailDays   = 30
 	findingsMax  = 100
 	findingsPage = 50
@@ -64,7 +67,11 @@ func (s *Store) Create(ctx context.Context, userID string, in Input, o Origin, n
 	if err != nil {
 		return View{}, err
 	}
-	ws, err := cleanWatches(in.Watches, nil)
+	hasKey, err := keySet(s.conn(ctx), userID)
+	if err != nil {
+		return View{}, err
+	}
+	ws, err := cleanWatches(in.Watches, nil, hasKey)
 	if err != nil {
 		return View{}, err
 	}
@@ -72,15 +79,27 @@ func (s *Store) Create(ctx context.Context, userID string, in Input, o Origin, n
 	if err != nil {
 		return View{}, err
 	}
+	// Switches left unset (always, from chat and outside apps) follow the
+	// person's "Alerts for new bots".
+	defs := models.DefaultBotAlertDefaults()
+	if in.Urgent == nil || in.Desktop == nil || in.Phone == nil {
+		if defs, err = alertDefaults(s.conn(ctx), userID); err != nil {
+			return View{}, err
+		}
+	}
+	if o == OriginMCP {
+		defs.Urgent = false // an outside app never makes a Bot urgent
+	}
 	b := Bot{
 		ID: utils.PrefixedUUID("bot"), UserID: userID, Name: name, Description: desc, Origin: o,
 		Status: StatusActive, JudgeMode: judge, IntervalSeconds: interval,
-		Urgent: deref(in.Urgent, false), NotifyDesktop: deref(in.Desktop, true), NotifyPhone: deref(in.Phone, true),
+		Urgent: deref(in.Urgent, defs.Urgent), NotifyDesktop: deref(in.Desktop, defs.Desktop), NotifyPhone: deref(in.Phone, defs.Phone),
 		NextCheckAt: &now, Health: HealthNew, CreatedAt: now, UpdatedAt: now,
 	}
 	if o == OriginMCP {
 		reason := PauseMCP
 		b.Status, b.PauseReason, b.NextCheckAt, b.HealthDetail = StatusPaused, &reason, nil, mcpPausedNew
+		b.OriginClient = cleanOriginClient(in.OriginClient)
 	}
 	for i := range ws {
 		ws[i] = newWatch(ws[i], b, now)
@@ -107,7 +126,7 @@ func (s *Store) Create(ctx context.Context, userID string, in Input, o Origin, n
 	if err != nil {
 		return View{}, err
 	}
-	return viewOf(b, ws, 0), nil
+	return viewOf(b, ws, nil, now), nil
 }
 
 // newWatch fills in a watch that is about to be inserted.
@@ -182,7 +201,11 @@ func (s *Store) Update(ctx context.Context, userID, idOrName string, p Patch, o 
 		ws := cur
 		watchesChanged := false
 		if p.Watches != nil {
-			if ws, watchesChanged, err = saveWatches(tx, b, cur, *p.Watches, now); err != nil {
+			hasKey, err := keySet(tx, userID)
+			if err != nil {
+				return err
+			}
+			if ws, watchesChanged, err = saveWatches(tx, b, cur, *p.Watches, hasKey, now); err != nil {
 				return err
 			}
 		}
@@ -224,12 +247,12 @@ func (s *Store) Update(ctx context.Context, userID, idOrName string, p Patch, o 
 // saveWatches applies a full watch list: kept watches are updated, new ones
 // inserted and missing ones deleted. changed reports any change to what is
 // read or how it is judged.
-func saveWatches(tx *gorm.DB, b Bot, cur []Watch, in []WatchInput, now time.Time) ([]Watch, bool, error) {
+func saveWatches(tx *gorm.DB, b Bot, cur []Watch, in []WatchInput, hasKey hasKeyFunc, now time.Time) ([]Watch, bool, error) {
 	prev := make(map[string]Watch, len(cur))
 	for _, w := range cur {
 		prev[w.ID] = w
 	}
-	next, err := cleanWatches(in, prev)
+	next, err := cleanWatches(in, prev, hasKey)
 	if err != nil {
 		return nil, false, err
 	}
@@ -276,8 +299,8 @@ func saveWatches(tx *gorm.DB, b Bot, cur []Watch, in []WatchInput, now time.Time
 			}
 			if !sameCfg {
 				// The old reading and price series belong to something else.
-				old.LastReading, old.LastReadingAt, old.Health, old.HealthDetail = nil, nil, HealthNew, ""
-				set["last_reading"], set["last_reading_at"], set["health"], set["health_detail"] = nil, nil, HealthNew, ""
+				old.LastReading, old.LastReadingAt, old.LastChangedAt, old.Health, old.HealthDetail = nil, nil, nil, HealthNew, ""
+				set["last_reading"], set["last_reading_at"], set["last_changed_at"], set["health"], set["health_detail"] = nil, nil, nil, HealthNew, ""
 				if err := tx.Where("watch_id = ?", old.ID).Delete(&PriceDay{}).Error; err != nil {
 					return nil, false, err
 				}
@@ -414,48 +437,86 @@ func (s *Store) Delete(ctx context.Context, userID, id string) error {
 	return nil
 }
 
-// List returns the account's Bots, oldest first. It writes nothing.
-func (s *Store) List(ctx context.Context, userID string, now time.Time) ([]View, error) {
+// BotList is the board: every Bot, oldest first, and the header's numbers.
+type BotList struct {
+	Bots    []View      `json:"bots"`
+	Summary ListSummary `json:"summary"`
+}
+
+// ListSummary is the board header: checks and sent alerts today in the
+// person's notification zone, and the next check of any active Bot.
+type ListSummary struct {
+	ChecksToday int        `json:"checksToday"`
+	AlertsToday int        `json:"alertsToday"`
+	NextCheckAt *time.Time `json:"nextCheckAt"`
+}
+
+// List returns the account's Bots, oldest first, with the board's numbers.
+// It writes nothing.
+func (s *Store) List(ctx context.Context, userID string, now time.Time) (BotList, error) {
 	db := s.conn(ctx)
+	out := BotList{Bots: []View{}}
 	var bots []Bot
 	if err := db.Where("user_id = ?", userID).Order("created_at, id").Find(&bots).Error; err != nil {
-		return nil, err
+		return BotList{}, err
 	}
-	out := make([]View, 0, len(bots))
+	loc, err := localZone(db, userID)
+	if err != nil {
+		return BotList{}, err
+	}
+	local := now.In(loc)
+	var checks int64
+	if err := db.Model(&Check{}).Where("user_id = ? AND started_at >= ? AND outcome <> ?", userID,
+		time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc).UTC(), outSuperseded).Count(&checks).Error; err != nil {
+		return BotList{}, err
+	}
+	out.Summary.ChecksToday = int(checks)
 	if len(bots) == 0 {
 		return out, nil
 	}
 	var ws []Watch
-	if err := db.Where("user_id = ?", userID).Order("bot_id, position").Find(&ws).Error; err != nil {
-		return nil, err
+	if err := db.Where("user_id = ?", userID).Order("bot_id, position, created_at").Find(&ws).Error; err != nil {
+		return BotList{}, err
 	}
 	byBot := map[string][]Watch{}
 	for _, w := range ws {
 		byBot[w.BotID] = append(byBot[w.BotID], w)
 	}
-	counts, err := alertsToday(db, userID, "", now)
+	bd, err := loadBoard(db, userID, "", now)
 	if err != nil {
-		return nil, err
+		return BotList{}, err
 	}
 	for _, b := range bots {
-		out = append(out, viewOf(b, byBot[b.ID], counts[b.ID]))
+		v := viewOf(b, byBot[b.ID], bd, now)
+		out.Bots = append(out.Bots, v)
+		out.Summary.AlertsToday += v.AlertsToday
+		if b.Status == StatusActive && b.NextCheckAt != nil && (out.Summary.NextCheckAt == nil || b.NextCheckAt.Before(*out.Summary.NextCheckAt)) {
+			next := b.NextCheckAt.UTC()
+			out.Summary.NextCheckAt = &next
+		}
 	}
 	return out, nil
 }
 
 // Get returns one Bot with its last checks and alerts, its last 30 days of
-// prices and its lessons.
+// prices, its lessons, the newest items of its feeds and its counts for the
+// week and the month.
 func (s *Store) Get(ctx context.Context, userID, idOrName string, now time.Time) (Detail, error) {
 	db := s.conn(ctx)
 	b, err := findBot(db, userID, idOrName, false)
 	if err != nil {
 		return Detail{}, err
 	}
-	v, err := s.view(ctx, userID, b.ID, now)
+	v, ws, err := s.load(ctx, userID, b.ID, now)
 	if err != nil {
 		return Detail{}, err
 	}
-	d := Detail{View: v, Checks: []CheckView{}, Alerts: []AlertView{}, Prices: []PriceDayView{}, Lessons: []Lesson{}}
+	for i, w := range ws {
+		if w.Kind == WatchFeed && w.LastReading != nil {
+			v.Watches[i].Items = newestItems(w.LastReading.Items, detailItems)
+		}
+	}
+	d := Detail{View: v, Checks: []CheckView{}, Alerts: []AlertView{}, Prices: []PriceDayView{}, Lessons: []Lesson{}, Rearms: []RearmView{}}
 	var checks []Check
 	if err := db.Where("bot_id = ? AND user_id = ?", b.ID, userID).Order("started_at DESC, id").Limit(detailRows).Find(&checks).Error; err != nil {
 		return Detail{}, err
@@ -472,7 +533,7 @@ func (s *Store) Get(ctx context.Context, userID, idOrName string, now time.Time)
 		return Detail{}, err
 	}
 	for _, a := range alerts {
-		d.Alerts = append(d.Alerts, AlertView{ID: a.ID, Kind: a.Kind, Held: a.Held, Title: a.Title, Body: a.Body, URL: a.URL, Urgent: a.Urgent, MoreCount: a.MoreCount, CreatedAt: a.CreatedAt})
+		d.Alerts = append(d.Alerts, alertView(a))
 	}
 	var days []PriceDay
 	since := now.UTC().AddDate(0, 0, -detailDays).Format(dayLayout)
@@ -489,7 +550,40 @@ func (s *Store) Get(ctx context.Context, userID, idOrName string, now time.Time)
 	if err := db.Where("bot_id = ? AND user_id = ?", b.ID, userID).Order("created_at, id").Find(&d.Lessons).Error; err != nil {
 		return Detail{}, err
 	}
+	var counts struct{ Checks, Alerts, AlertsMonth int }
+	if err := db.Raw(`
+SELECT (SELECT count(*) FROM bot_checks WHERE bot_id = @bot AND user_id = @uid AND started_at >= @week AND outcome <> 'superseded') AS checks,
+       (SELECT count(*) FROM bot_alerts WHERE bot_id = @bot AND user_id = @uid AND kind = 'alert' AND created_at >= @week) AS alerts,
+       (SELECT count(*) FROM bot_alerts WHERE bot_id = @bot AND user_id = @uid AND kind = 'alert' AND created_at >= @month) AS alerts_month`,
+		sql.Named("bot", b.ID), sql.Named("uid", userID),
+		sql.Named("week", now.UTC().AddDate(0, 0, -7)), sql.Named("month", now.UTC().AddDate(0, 0, -detailDays)),
+	).Scan(&counts).Error; err != nil {
+		return Detail{}, err
+	}
+	d.Week, d.AlertsMonth = WeekCounts{Checks: counts.Checks, Alerts: counts.Alerts}, counts.AlertsMonth
+	var rearmChecks []Check
+	if err := db.Select("id", "started_at", "rearmed").
+		Where("bot_id = ? AND user_id = ? AND started_at >= ? AND rearmed <> '[]'::jsonb", b.ID, userID, now.UTC().AddDate(0, 0, -detailDays)).
+		Order("started_at DESC, id DESC").Limit(maxRearms).Find(&rearmChecks).Error; err != nil {
+		return Detail{}, err
+	}
+	d.Rearms = rearmsOf(rearmChecks)
 	return d, nil
+}
+
+// BotName is a Bot's id and name, which is all chat needs to find the Bots
+// a message tags.
+type BotName struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// Names lists the account's Bots by id and name, oldest first, without the
+// board's numbers that List works out.
+func (s *Store) Names(ctx context.Context, userID string) ([]BotName, error) {
+	out := []BotName{}
+	err := s.conn(ctx).Model(&Bot{}).Select("id", "name").Where("user_id = ?", userID).Order("created_at, id").Scan(&out).Error
+	return out, err
 }
 
 // Findings returns the findings board, newest first: at most 100, 50 when
@@ -517,22 +611,142 @@ func (s *Store) Findings(ctx context.Context, userID string, q FindingQuery) ([]
 	return out, err
 }
 
+// Ratings an alert can get, and why it was not useful.
+const (
+	FeedbackUseful    = "useful"
+	FeedbackNotUseful = "not_useful"
+)
+
+// FeedbackReasons are the chips under Not useful: the change was too small,
+// it is not what the person wants, they already knew.
+var FeedbackReasons = []string{"too_small", "not_wanted", "already_knew"}
+
+// Rating is Useful or Not useful on an alert. A nil Feedback takes the
+// rating back. Reason and Note are kept only with not_useful.
+type Rating struct {
+	Feedback *string
+	Reason   string
+	Note     string
+}
+
+// RateAlert records the person's rating of one of a Bot's alerts. Only an
+// alert (not a "more" or "paused" notice) can be rated; rating again
+// replaces the last one.
+func (s *Store) RateAlert(ctx context.Context, userID, botIDOrName, alertID string, r Rating, now time.Time) (AlertView, error) {
+	set := map[string]any{"feedback": nil, "feedback_reason": "", "feedback_note": "", "feedback_at": nil}
+	if r.Reason != "" && !contains(FeedbackReasons, r.Reason) {
+		return AlertView{}, invalid("Pick one of the reasons")
+	}
+	if r.Feedback != nil {
+		switch *r.Feedback {
+		case FeedbackUseful:
+		case FeedbackNotUseful:
+			set["feedback_reason"], set["feedback_note"] = r.Reason, cleanLine(r.Note, MaxFeedbackNote)
+		default:
+			return AlertView{}, invalid(`Rate an alert "useful" or "not_useful"`)
+		}
+		set["feedback"], set["feedback_at"] = *r.Feedback, now.UTC()
+	}
+	db := s.conn(ctx)
+	b, err := findBot(db, userID, botIDOrName, false)
+	if err != nil {
+		return AlertView{}, err
+	}
+	var out Alert
+	err = db.Transaction(func(tx *gorm.DB) error {
+		var rows []Alert
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND bot_id = ? AND user_id = ?", alertID, b.ID, userID).
+			Limit(1).Find(&rows).Error; err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			return ErrAlertNotFound
+		}
+		if rows[0].Kind != alertKindAlert {
+			return invalid("Only alerts can be rated")
+		}
+		if err := tx.Model(&Alert{}).Where("id = ? AND bot_id = ? AND user_id = ?", alertID, b.ID, userID).Updates(set).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ? AND bot_id = ? AND user_id = ?", alertID, b.ID, userID).First(&out).Error
+	})
+	if err != nil {
+		return AlertView{}, err
+	}
+	return alertView(out), nil
+}
+
+// ForgetLesson removes one thing the person taught a Bot.
+func (s *Store) ForgetLesson(ctx context.Context, userID, botIDOrName, lessonID string) error {
+	db := s.conn(ctx)
+	b, err := findBot(db, userID, botIDOrName, false)
+	if err != nil {
+		return err
+	}
+	res := db.Where("id = ? AND bot_id = ? AND user_id = ?", lessonID, b.ID, userID).Delete(&Lesson{})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrLessonNotFound
+	}
+	return nil
+}
+
+// AlertDefaults is where the person's new Bots alert ("Alerts for new
+// bots"): desktop and phone on, urgent off until they change it.
+func (s *Store) AlertDefaults(ctx context.Context, userID string) (models.BotAlertDefaults, error) {
+	return alertDefaults(s.conn(ctx), userID)
+}
+
+// SetAlertDefaults saves where the person's new Bots alert. Bots they
+// already have keep their own switches.
+func (s *Store) SetAlertDefaults(ctx context.Context, userID string, d models.BotAlertDefaults) (models.BotAlertDefaults, error) {
+	res := s.conn(ctx).Model(&models.Config{}).Where("user_id = ?", userID).
+		Updates(map[string]any{"bot_alert_defaults": d, "updated_at": utils.GetCurrentTime()})
+	if res.Error != nil {
+		return models.BotAlertDefaults{}, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return models.BotAlertDefaults{}, errors.New("bots: the account has no settings row")
+	}
+	return d, nil
+}
+
+func alertDefaults(db *gorm.DB, userID string) (models.BotAlertDefaults, error) {
+	var config models.Config
+	err := db.Select("bot_alert_defaults").Where("user_id = ?", userID).First(&config).Error
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		return models.DefaultBotAlertDefaults(), nil
+	case err != nil:
+		return models.BotAlertDefaults{}, err
+	}
+	return config.BotAlertDefaults, nil
+}
+
 // view loads one Bot as a View.
 func (s *Store) view(ctx context.Context, userID, botID string, now time.Time) (View, error) {
+	v, _, err := s.load(ctx, userID, botID, now)
+	return v, err
+}
+
+// load loads one Bot as a View, with its watches.
+func (s *Store) load(ctx context.Context, userID, botID string, now time.Time) (View, []Watch, error) {
 	db := s.conn(ctx)
 	b, err := findBot(db, userID, botID, false)
 	if err != nil {
-		return View{}, err
+		return View{}, nil, err
 	}
 	ws, err := loadWatches(db, b.ID, false)
 	if err != nil {
-		return View{}, err
+		return View{}, nil, err
 	}
-	counts, err := alertsToday(db, userID, b.ID, now)
+	bd, err := loadBoard(db, userID, b.ID, now)
 	if err != nil {
-		return View{}, err
+		return View{}, nil, err
 	}
-	return viewOf(b, ws, counts[b.ID]), nil
+	return viewOf(b, ws, bd, now), ws, nil
 }
 
 // findBot finds a Bot by id, or by name ignoring case.
@@ -571,40 +785,103 @@ func loadWatches(tx *gorm.DB, botID string, lock bool) ([]Watch, error) {
 	return ws, err
 }
 
-// alertsToday counts the alerts each Bot sent today in the person's
-// notification zone (held alerts do not count). botID "" counts every Bot.
-func alertsToday(db *gorm.DB, userID, botID string, now time.Time) (map[string]int, error) {
+// loadBoard loads what the board shows for the account's Bots, or for one
+// when botID is set: today's alerts, the strip of recent checks, the newest
+// alert and the price closes of the last 31 days.
+func loadBoard(db *gorm.DB, userID, botID string, now time.Time) (*board, error) {
+	bd := &board{alertsToday: map[string]int{}, itemsToday: map[string]int{}, strips: map[string]string{},
+		latest: map[string]*AlertBrief{}, days: map[string][]dayClose{}}
+	scope := func(q *gorm.DB, col string) *gorm.DB {
+		if botID != "" {
+			return q.Where(col+" = ?", botID)
+		}
+		return q
+	}
 	day, err := localDay(db, userID, now)
 	if err != nil {
 		return nil, err
 	}
-	q := db.Model(&Alert{}).Select("bot_id, count(*) AS n").
-		Where("user_id = ? AND local_day = ? AND kind = 'alert' AND held = ''", userID, day)
-	if botID != "" {
-		q = q.Where("bot_id = ?", botID)
-	}
-	var rows []struct {
+	// Held alerts do not count as sent, but the items they tell of are new.
+	var today []struct {
 		BotID string
 		N     int
+		Items int
 	}
-	if err := q.Group("bot_id").Scan(&rows).Error; err != nil {
+	q := db.Model(&Alert{}).Select(`bot_id, count(*) FILTER (WHERE held = '') AS n,
+		COALESCE(sum(CASE WHEN jsonb_typeof(figures->'items') = 'number' THEN (figures->>'items')::numeric END), 0)::int AS items`).
+		Where("user_id = ? AND local_day = ? AND kind = ?", userID, day, alertKindAlert)
+	if err := scope(q, "bot_id").Group("bot_id").Scan(&today).Error; err != nil {
 		return nil, err
 	}
-	out := make(map[string]int, len(rows))
-	for _, r := range rows {
-		out[r.BotID] = r.N
+	for _, r := range today {
+		bd.alertsToday[r.BotID], bd.itemsToday[r.BotID] = r.N, r.Items
 	}
-	return out, nil
+
+	var marks []struct{ BotID, Outcome string }
+	q = db.Raw(`
+SELECT b.id AS bot_id, c.outcome FROM bots b
+CROSS JOIN LATERAL (
+    SELECT outcome, started_at, id FROM bot_checks c
+    WHERE c.bot_id = b.id AND c.outcome <> 'superseded'
+    ORDER BY c.started_at DESC, c.id DESC LIMIT @n) c
+WHERE b.user_id = @uid AND (@bot = '' OR b.id = @bot)
+ORDER BY b.id, c.started_at DESC, c.id DESC`, sql.Named("n", stripChecks), sql.Named("uid", userID), sql.Named("bot", botID))
+	if err := q.Scan(&marks).Error; err != nil {
+		return nil, err
+	}
+	outcomes := map[string][]string{}
+	for _, m := range marks {
+		outcomes[m.BotID] = append(outcomes[m.BotID], m.Outcome)
+	}
+	for id, list := range outcomes {
+		bd.strips[id] = stripOf(list)
+	}
+
+	var latest []Alert
+	q = db.Raw(`
+SELECT DISTINCT ON (bot_id) id, bot_id, title, body, url, held, feedback, created_at FROM bot_alerts
+WHERE user_id = @uid AND kind = 'alert' AND held <> @snoozed AND created_at >= @since AND (@bot = '' OR bot_id = @bot)
+ORDER BY bot_id, created_at DESC, id DESC`, sql.Named("uid", userID), sql.Named("snoozed", heldSnoozed),
+		sql.Named("since", now.UTC().AddDate(0, 0, -detailDays)), sql.Named("bot", botID))
+	if err := q.Scan(&latest).Error; err != nil {
+		return nil, err
+	}
+	for _, a := range latest {
+		bd.latest[a.BotID] = &AlertBrief{ID: a.ID, Title: a.Title, Body: a.Body, URL: a.URL, Held: a.Held, CreatedAt: a.CreatedAt, Feedback: a.Feedback}
+	}
+
+	var days []struct {
+		WatchID     string
+		Day         time.Time
+		Open, Close *float64
+	}
+	q = db.Model(&PriceDay{}).Select("watch_id, day, open, close").
+		Where("user_id = ? AND day >= ?", userID, now.UTC().AddDate(0, 0, -(sparkDays+1)).Format(dayLayout))
+	if err := scope(q, "bot_id").Order("watch_id, day").Scan(&days).Error; err != nil {
+		return nil, err
+	}
+	for _, d := range days {
+		bd.days[d.WatchID] = append(bd.days[d.WatchID], dayClose{WatchID: d.WatchID, Day: d.Day.UTC().Format(dayLayout), Open: d.Open, Close: d.Close})
+	}
+	return bd, nil
 }
 
 // localDay is today's date in the zone quiet hours and digests use.
 func localDay(db *gorm.DB, userID string, now time.Time) (string, error) {
-	var config models.Config
-	if err := db.Select("notification_settings", "working_hours").Where("user_id = ?", userID).First(&config).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+	loc, err := localZone(db, userID)
+	if err != nil {
 		return "", err
 	}
-	loc := config.NotificationSettings.Normalized().Location(config.WorkingHours.Timezone)
 	return now.In(loc).Format(dayLayout), nil
+}
+
+// localZone is the zone quiet hours and digests use.
+func localZone(db *gorm.DB, userID string) (*time.Location, error) {
+	var config models.Config
+	if err := db.Select("notification_settings", "working_hours").Where("user_id = ?", userID).First(&config).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	return config.NotificationSettings.Normalized().Location(config.WorkingHours.Timezone), nil
 }
 
 func nameTaken(rows []Bot, selfID, name string) error {

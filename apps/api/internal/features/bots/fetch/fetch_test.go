@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -168,6 +169,37 @@ func TestBodyCap(t *testing.T) {
 	}
 }
 
+func TestIcon(t *testing.T) {
+	const icon = "https://shop.example/favicon.ico"
+	n := newNet(map[string]reply{
+		icon:                                 {status: 200, header: http.Header{"Content-Type": {"image/x-icon"}}, body: "\x00\x00\x01\x00"},
+		"https://shop.example/logo.svg":      {status: 200, header: http.Header{"Content-Type": {"image/svg+xml"}}, body: "<svg/>"},
+		"https://shop.example/big.png":       {status: 200, header: http.Header{"Content-Type": {"image/png"}}, body: strings.Repeat("x", 64<<10+1)},
+		"https://shop.example/robots.txt":    {status: 200, header: http.Header{"Content-Type": {"text/plain"}}, body: "User-agent: *\nDisallow: /private/\n"},
+		"https://shop.example/private/a.png": {status: 200, header: http.Header{"Content-Type": {"image/png"}}, body: "\x89PNG\r\n\x1a\n"},
+	})
+	f := newFetcher(n, Config{})
+	res, err := f.Get(context.Background(), Request{URL: icon, Want: WantIcon})
+	if err != nil || string(res.Body) != "\x00\x00\x01\x00" {
+		t.Fatalf("icon: %v %+v", err, res)
+	}
+	if acc := n.last(icon).Header.Get("Accept"); !strings.HasPrefix(acc, "image/png") || strings.Contains(acc, "svg") || strings.Contains(acc, "text/html") {
+		t.Errorf("Accept = %q", acc)
+	}
+	if _, err := f.Get(context.Background(), Request{URL: "https://shop.example/logo.svg", Want: WantIcon}); !errors.Is(err, ErrUnsupported) {
+		t.Errorf("SVG: got %v, want ErrUnsupported", err)
+	}
+	if _, err := f.Get(context.Background(), Request{URL: "https://shop.example/big.png", Want: WantIcon}); !errors.Is(err, ErrTooBig) {
+		t.Errorf("over 64 KiB: got %v, want ErrTooBig", err)
+	}
+	if _, err := f.Get(context.Background(), Request{URL: "https://shop.example/private/a.png", Want: WantIcon}); !errors.Is(err, ErrRobots) {
+		t.Errorf("robots.txt: got %v, want ErrRobots", err)
+	}
+	if MaxBody(WantIcon) != 64<<10 {
+		t.Error("MaxBody(WantIcon) changed")
+	}
+}
+
 func TestStatuses(t *testing.T) {
 	robotCheck, err := os.ReadFile("testdata/amazon_robot_check.html")
 	if err != nil {
@@ -258,6 +290,16 @@ func TestTypeSniffing(t *testing.T) {
 		{WantJSON, "text/plain", ` [1,2]`, true},
 		{WantJSON, "text/html", "<html><body>Sorry</body></html>", false},
 		{"other", "text/html", "<html>", false},
+		{WantIcon, "image/png", "\x89PNG\r\n\x1a\n", true},
+		{WantIcon, "image/vnd.microsoft.icon", "\x00\x00\x01\x00", true},
+		{WantIcon, "image/webp", "", true},
+		{WantIcon, "application/octet-stream", "\x00\x00\x01\x00\x01\x00", true},
+		{WantIcon, "", "GIF89a", true},
+		{WantIcon, "text/plain", "RIFF\x00\x00\x00\x00WEBPVP8 ", true},
+		{WantIcon, "image/svg+xml", `<svg xmlns="http://www.w3.org/2000/svg"/>`, false},
+		{WantIcon, "application/octet-stream", `<svg xmlns="http://www.w3.org/2000/svg"/>`, false},
+		{WantIcon, "text/html", "\x89PNG\r\n\x1a\n", false},
+		{WantIcon, "image/bmp", "BM", false},
 	} {
 		if got := wanted(c.want, c.ct, []byte(c.body)); got != c.ok {
 			t.Errorf("wanted(%s, %q, %.30q) = %v, want %v", c.want, c.ct, c.body, got, c.ok)
@@ -557,5 +599,170 @@ func TestSite(t *testing.T) {
 func TestUserAgent(t *testing.T) {
 	if ua := UserAgent(); !strings.HasPrefix(ua, "Timely/") || !strings.HasSuffix(ua, "(+https://github.com/thalhath2234/timely-app)") {
 		t.Errorf("UserAgent() = %q", ua)
+	}
+}
+
+// waitSpacer records the longest wait each reservation allowed.
+type waitSpacer struct {
+	mu    sync.Mutex
+	waits []time.Duration
+}
+
+func (s *waitSpacer) Reserve(_ context.Context, _ string, _, maxWait time.Duration, now time.Time) (time.Time, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.waits = append(s.waits, maxWait)
+	return now, nil
+}
+
+func TestPerRequestMaxWait(t *testing.T) {
+	n := newNet(map[string]reply{page: html("<html>ok</html>")})
+	sp := &waitSpacer{}
+	f := newFetcher(n, Config{Spacer: sp})
+	if _, err := f.Get(context.Background(), Request{URL: page, Want: WantPage, IgnoreRobots: true, MaxWait: 5 * time.Second}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Get(context.Background(), Request{URL: page, Want: WantPage, IgnoreRobots: true}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []time.Duration{5 * time.Second, 20 * time.Second}; !slices.Equal(sp.waits, want) {
+		t.Errorf("waits %v, want %v", sp.waits, want)
+	}
+
+	// Its own robots.txt read takes the site's first slot, so the page's
+	// wait allows one gap more: the gap is this read's, not a busy site.
+	sp.waits = nil
+	if _, err := f.Get(context.Background(), Request{URL: page, Want: WantPage, MaxWait: 5 * time.Second}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []time.Duration{5 * time.Second, 15 * time.Second}; !slices.Equal(sp.waits, want) {
+		t.Errorf("waits with a robots.txt read %v, want %v", sp.waits, want)
+	}
+}
+
+// slotSpacer books slots the way bots.Store.Reserve does: the slot is the
+// later of the site's next slot and now, the next slot is gap after it, and
+// a slot further than maxWait away books nothing.
+type slotSpacer struct {
+	mu   sync.Mutex
+	next map[string]time.Time
+}
+
+func (s *slotSpacer) Reserve(_ context.Context, site string, gap, maxWait time.Duration, now time.Time) (time.Time, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	slot := now
+	if n := s.next[site]; n.After(slot) {
+		slot = n
+	}
+	if slot.After(now.Add(maxWait)) {
+		return time.Time{}, &SiteBusyError{Until: slot}
+	}
+	s.next[site] = slot.Add(gap)
+	return slot, nil
+}
+
+// testClock is a clock that sleeping moves on.
+type testClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (c *testClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+func (c *testClock) sleep(_ context.Context, d time.Duration) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = c.t.Add(d)
+	return nil
+}
+
+func spacedFetcher(n http.RoundTripper) *Fetcher {
+	clock := &testClock{t: testNow}
+	return newFetcher(n, Config{Spacer: &slotSpacer{next: map[string]time.Time{}}, Now: clock.now, Sleep: clock.sleep})
+}
+
+// A short wait still follows a redirect to another origin on the same site
+// (apex to www, http to https): that origin's robots.txt is read in the slot
+// right after this read's own request, which is not a busy site.
+func TestShortWaitFollowsSameSiteRedirect(t *testing.T) {
+	for _, c := range []struct{ name, from, to string }{
+		{"apex to www", "https://amazon.example/dp/x", "https://www.amazon.example/dp/x"},
+		{"http to https", "http://shop.example/p/2", "https://shop.example/p/2"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			n := newNet(map[string]reply{
+				c.from: {status: http.StatusMovedPermanently, header: http.Header{"Location": {c.to}}},
+				c.to:   html("<html>ok</html>"),
+			})
+			res, err := spacedFetcher(n).Get(context.Background(), Request{URL: c.from, Want: WantPage, MaxWait: 5 * time.Second})
+			if err != nil {
+				t.Fatalf("got %v", err)
+			}
+			if res.FinalURL != c.to {
+				t.Errorf("final URL %s, want %s", res.FinalURL, c.to)
+			}
+			to, _ := url.Parse(c.to)
+			if n.count(to.Scheme+"://"+to.Host+"/robots.txt") != 1 {
+				t.Error("the redirect target's robots.txt was not read")
+			}
+		})
+	}
+}
+
+// Reads one after another under ShareSlots wait behind one another on a
+// site; on their own, the second takes the first's spacing for a busy site.
+func TestShareSlots(t *testing.T) {
+	const other = "https://shop.example/p/2"
+	n := newNet(map[string]reply{page: html("<html>1</html>"), other: html("<html>2</html>")})
+	short := func(f *Fetcher, ctx context.Context, u string) error {
+		_, err := f.Get(ctx, Request{URL: u, Want: WantPage, MaxWait: 5 * time.Second})
+		return err
+	}
+
+	f := spacedFetcher(n)
+	if err := short(f, context.Background(), page); err != nil {
+		t.Fatal(err)
+	}
+	var busy *SiteBusyError
+	if err := short(f, context.Background(), other); !errors.As(err, &busy) {
+		t.Fatalf("a second read on its own: got %v, want *SiteBusyError", err)
+	}
+
+	f = spacedFetcher(n)
+	ctx := ShareSlots(context.Background())
+	if ShareSlots(ctx) != ctx {
+		t.Error("ShareSlots on a sharing ctx should keep its bookings")
+	}
+	for _, u := range []string{page, other, page} {
+		if err := short(f, ctx, u); err != nil {
+			t.Fatalf("%s under ShareSlots: %v", u, err)
+		}
+	}
+}
+
+// One Slots carried across separate ctxs, such as one person's previews a
+// moment apart, still counts its own spacing; once that spacing is over it
+// is idle.
+func TestWithSlots(t *testing.T) {
+	const other = "https://shop.example/p/2"
+	n := newNet(map[string]reply{page: html("<html>1</html>"), other: html("<html>2</html>")})
+	f := spacedFetcher(n)
+	slots := NewSlots()
+	for _, u := range []string{page, other} {
+		if _, err := f.Get(WithSlots(context.Background(), slots), Request{URL: u, Want: WantPage, MaxWait: 5 * time.Second}); err != nil {
+			t.Fatalf("%s with one Slots: %v", u, err)
+		}
+	}
+	now := f.cfg.Now()
+	if slots.Idle(now) {
+		t.Error("the spacing after the last read has not ended yet")
+	}
+	if !slots.Idle(now.Add(time.Minute)) {
+		t.Error("a minute later the spacing is over")
 	}
 }
