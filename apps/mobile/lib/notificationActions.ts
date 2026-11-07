@@ -2,6 +2,7 @@ import { markNotificationRead, prioritizeOverdueTask, snoozeNotification } from 
 import { runNotificationTriage, type TriageStep } from "./api/decisions";
 import { editTaskOccurrence, getTask, startFocus, updateTask } from "./api/tasks";
 import { chatRequest } from "./api/chat";
+import { resumeBot } from "./api/bots";
 import { LEGACY_PRIORITIZE_ACTION, NOTIFICATION_CATEGORIES } from "./notificationCategories";
 import { routeForNotification } from "./notificationRoute";
 import { notificationsModule } from "./notifications";
@@ -134,6 +135,7 @@ export async function handleQuickAction(input: QuickActionInput): Promise<QuickA
   const notificationId = text(data.notificationId);
   const taskId = text(data.taskId) || (text(data.entityType) === "task" ? text(data.entityId) : "");
   const chatId = text(data.chatId) || (text(data.entityType) === "chat" ? text(data.entityId) : "");
+  const botId = text(data.botId);
   // A plain tap or an "Open" button: mark it read and go there.
   if (opensApp(actionId)) {
     if (notificationId) void markNotificationRead(notificationId).catch(() => undefined);
@@ -167,6 +169,9 @@ export async function handleQuickAction(input: QuickActionInput): Promise<QuickA
     } else if (actionId === "retry" && chatId) {
       await chatRequest(`/${encodeURIComponent(chatId)}/retry`, "POST");
       result = { message: "Trying again" };
+    } else if (actionId === "resume_bot" && botId) {
+      await resumeBot(botId);
+      result = { message: "Resumed" };
     } else if (actionId === "dismiss") {
       // Nothing else to do; the alert is marked read below.
     } else return { route };

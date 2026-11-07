@@ -27,6 +27,7 @@ import { alertItems, dataString, targetFor } from "@/app/_components/notificatio
 import { useDecisions, useNotificationTriage } from "@/app/utils/hooks/decisions";
 import type { AlertStep, TriageStep } from "@/app/utils/api/decisions";
 import { useToastStore } from "@/app/_store/toastStore";
+import { useBots, useResumeBot } from "@/app/utils/hooks/bots";
 
 /** Next steps for Work that is past its deadline or whose block ended unfinished.
  * Smart suggestions may mark one as suggested ([35][36]). */
@@ -76,6 +77,11 @@ function dayLabel(iso: string, now: Date) {
   return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
+/** The bot a "paused after 5 failed checks" alert names, or null for any other notification. */
+function pausedBotId(item: AppNotification) {
+  return item.category === "bot" && dataString(item, "botAlert") === "paused" ? dataString(item, "botId") || null : null;
+}
+
 function timeLabel(iso: string) {
   return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
@@ -98,7 +104,18 @@ export default function NotificationsPage() {
   const remove = useDeleteNotification();
   const snooze = useSnoozeNotification();
   const openTask = useEntityDetailStore((state) => state.openTask);
+  const resume = useResumeBot();
   const items = list.data ?? [];
+  // Resume shows only while the bot is still paused: the bots list is asked
+  // for when a paused alert is in the list, and until it loads an unread
+  // alert keeps its button.
+  const bots = useBots({ enabled: items.some((item) => pausedBotId(item)) }).data?.bots;
+  const stillPaused = (item: AppNotification) => {
+    const botId = pausedBotId(item);
+    if (!botId) return false;
+    if (!bots) return !item.readAt;
+    return bots.some((bot) => bot.id === botId && bot.status === "paused");
+  };
   // Rows read by day: today first, each day one card.
   const now = new Date();
   const days: { label: string; items: AppNotification[] }[] = [];
@@ -162,8 +179,13 @@ export default function NotificationsPage() {
                       const target = targetFor(item);
                       const unread = !item.readAt;
                       const steps = unread ? triageSteps(item, smart) : [];
+                      const resumeId = stillPaused(item) ? pausedBotId(item) : null;
                       const extras =
-                        item.category === "reminder" || item.category === "suggestion" || steps.length > 0 || snooze.isError;
+                        item.category === "reminder" ||
+                        item.category === "suggestion" ||
+                        steps.length > 0 ||
+                        resumeId !== null ||
+                        snooze.isError;
                       return (
                         <motion.li
                           key={item.id}
@@ -225,6 +247,28 @@ export default function NotificationsPage() {
                                   </Button>
                                   <Button variant="outline" size="sm" onClick={() => void snooze.mutateAsync({ id: item.id, until: tomorrowNine() })}>
                                     Tomorrow 9:00
+                                  </Button>
+                                </div>
+                              ) : null}
+                              {resumeId ? (
+                                <div className="flex flex-wrap gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={resume.isPending}
+                                    onClick={() =>
+                                      void resume
+                                        .mutateAsync(resumeId)
+                                        .then(() => {
+                                          useToastStore.getState().show("Resumed");
+                                          if (unread) void markRead.mutateAsync(item.id);
+                                        })
+                                        .catch((error) =>
+                                          useToastStore.getState().show(error instanceof Error ? error.message : "Could not resume that bot"),
+                                        )
+                                    }
+                                  >
+                                    Resume
                                   </Button>
                                 </div>
                               ) : null}

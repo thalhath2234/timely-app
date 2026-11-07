@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Linking, ScrollView, Text, View } from "react-native";
+import { useRouter } from "expo-router";
 import { Bell, BellRing, RotateCcw } from "lucide-react-native";
 import { jobKindLabel } from "@timely/contract/notifications";
 import Screen from "../../../components/ui/Screen";
@@ -7,6 +8,7 @@ import MobileHeader from "../../../components/ui/MobileHeader";
 import { PrimaryButton } from "../../../components/ui/primitives";
 import { GroupHint, GroupLabel, ListGroup, ListRow, SwitchRow } from "../../../components/settings/SettingsList";
 import { TimeField } from "../../../components/ui/DateTimeField";
+import { AlertDefaults } from "../../../components/bots/BotsEmpty";
 import {
   getNotificationPermission,
   notificationsSupported,
@@ -26,6 +28,7 @@ import type { NotificationSettings } from "../../../lib/types";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
 export default function NotificationSettingsScreen() {
+  const router = useRouter();
   const [granted, setGranted] = useState(false);
   const [canAskAgain, setCanAskAgain] = useState(true);
   const [pushOk, setPushOk] = useState(false);
@@ -166,6 +169,12 @@ export default function NotificationSettingsScreen() {
             ) : null}
           </>
         ) : null}
+
+        <GroupLabel>Bots</GroupLabel>
+        <AlertDefaults label="Alerts for new bots">
+          <ListRow title="Open Bots" onPress={() => router.push("/(app)/(tabs)/bots")} />
+        </AlertDefaults>
+        <GroupHint>Each bot has its own alerts. These are what new bots start with.</GroupHint>
 
         <GroupLabel>Background jobs</GroupLabel>
         <ListGroup>

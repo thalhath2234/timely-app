@@ -2,13 +2,11 @@
 
 import type { CSSProperties } from "react";
 import dynamic from "next/dynamic";
-import { Bell, Monitor, Plus, ShieldCheck, Smartphone } from "lucide-react";
+import { Bell, Monitor, Plus, ShieldCheck } from "lucide-react";
 import {
   boardColumns,
-  DEFAULT_BOT_SETTINGS,
   fillSpans,
   STARTERS,
-  type BotSettings,
   type GridItem,
   type StarterId,
 } from "@timely/contract/bots";
@@ -17,13 +15,10 @@ import { LoadErrorBanner } from "@/app/_components/_ui/loadError";
 import {
   GroupLabel,
   ListGroup,
-  ListRow,
-  ListSwitch,
 } from "@/app/_components/_ui/groupedList";
 import { useElementSize } from "@/app/_components/report/charts";
-import { useToastStore } from "@/app/_store/toastStore";
-import { useBotDefaults, useSetBotDefaults } from "@/app/utils/hooks/bots";
 import { cn } from "@/app/utils/cn";
+import { alertDefaultRows, useAlertDefaults } from "./alertDefaults";
 import { StarterCard } from "./starters";
 
 /** Loaded only on the empty page, as EmptyState loads it: Remotion stays out of the board. */
@@ -61,20 +56,8 @@ const span = (n: number | undefined) =>
 
 /** "Alerts for new bots": where a bot made from now on tells the person. */
 function AlertDefaultsCard({ style }: { style?: CSSProperties }) {
-  const defaults = useBotDefaults();
-  const save = useSetBotDefaults();
-  const current: BotSettings =
-    save.isPending && save.variables
-      ? save.variables
-      : (defaults.data ?? DEFAULT_BOT_SETTINGS);
-  const set = (patch: Partial<BotSettings>) =>
-    save.mutate(
-      { ...current, ...patch },
-      { onError: (error) => useToastStore.getState().show(error.message) },
-    );
-  // Each save sends the whole object, so the switches wait for the stored
-  // values: a save built on the fallback would overwrite them.
-  const disabled = !defaults.data;
+  const state = useAlertDefaults();
+  const { defaults } = state;
   return (
     <article
       className="flex min-w-0 flex-col rounded-[12px] border border-border bg-card"
@@ -99,55 +82,7 @@ function AlertDefaultsCard({ style }: { style?: CSSProperties }) {
         />
       ) : (
         <ListGroup className="mx-3.5 mb-3.5 mt-2">
-          <ListRow
-            label="Desktop"
-            icon={
-              <Monitor
-                aria-hidden
-                className="size-4 shrink-0 text-muted-foreground"
-              />
-            }
-          >
-            <ListSwitch
-              label="Desktop alerts for new bots"
-              checked={current.desktop}
-              disabled={disabled}
-              onChange={(desktop) => set({ desktop })}
-            />
-          </ListRow>
-          <ListRow
-            label="Phone"
-            icon={
-              <Smartphone
-                aria-hidden
-                className="size-4 shrink-0 text-muted-foreground"
-              />
-            }
-          >
-            <ListSwitch
-              label="Phone alerts for new bots"
-              checked={current.phone}
-              disabled={disabled}
-              onChange={(phone) => set({ phone })}
-            />
-          </ListRow>
-          <ListRow
-            label="Urgent"
-            meta="Rings through quiet hours"
-            icon={
-              <Bell
-                aria-hidden
-                className="size-4 shrink-0 text-muted-foreground"
-              />
-            }
-          >
-            <ListSwitch
-              label="New bots' alerts are urgent"
-              checked={current.urgent}
-              disabled={disabled}
-              onChange={(urgent) => set({ urgent })}
-            />
-          </ListRow>
+          {alertDefaultRows(state)}
         </ListGroup>
       )}
     </article>

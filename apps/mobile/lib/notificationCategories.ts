@@ -53,6 +53,7 @@ export const NOTIFICATION_CATEGORIES: Record<string, QuickAction[]> = {
   timely_agent_done: [open("Open chat"), reply],
   timely_agent_failed: [open("Open chat"), { id: "retry", title: "Try again" }],
   timely_digest: [open("Open Today")],
+  timely_bot_paused: [{ id: "resume_bot", title: "Resume" }, open("Open")],
 };
 
 /** Server push sent before these categories existed. */
@@ -92,6 +93,8 @@ export function categoryFor(item: NotificationLike): string | null {
     case "digest":
     case "planning":
       return "timely_digest";
+    case "bot":
+      return data.botAlert === "paused" ? "timely_bot_paused" : null;
     default:
       return null;
   }

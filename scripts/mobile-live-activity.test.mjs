@@ -128,6 +128,19 @@ describe("notification quick actions", () => {
     assert.ok(NOTIFICATION_CATEGORIES.timely_agent_failed.some((action) => action.id === "retry"));
   });
 
+  test("a bot paused after failed checks offers Resume; its other alerts get no buttons", () => {
+    const id = categoryFor({ category: "bot", data: { botId: "bot_a", botAlert: "paused", resume: true } });
+    assert.equal(id, "timely_bot_paused");
+    assert.deepEqual(
+      NOTIFICATION_CATEGORIES[id].map((action) => action.id),
+      ["resume_bot", "open"],
+    );
+    assert.ok(!NOTIFICATION_CATEGORIES[id][0].opensApp, "Resume runs without opening the app");
+    assert.equal(categoryFor({ category: "bot", data: { botId: "bot_a", botAlert: "alert" } }), null);
+    assert.equal(categoryFor({ category: "bot", data: { botAlert: "away" } }), null);
+    assert.equal(categoryFor({ category: "bot", data: null }), null);
+  });
+
   test("unknown categories get no buttons", () => {
     assert.equal(categoryFor({ category: "something" }), null);
     assert.equal(categoryFor({ category: "bot", data: { botId: "bot_a", url: "https://example.com" } }), null);
