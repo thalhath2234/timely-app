@@ -612,7 +612,7 @@ export function watchCurrency(w: Pick<WatchView, "currency" | "summary">): strin
 /** The fields that decide what a watch reads; a saved watch and an input both fit. */
 type KindRead = { kind: WatchKind; read?: ReadMode | "" };
 
-type WatchLike = KindRead & { url?: string; source?: string; symbol?: string; site?: string; title?: string };
+type WatchLike = KindRead & { url?: string; source?: string; symbol?: string; currency?: string; site?: string; title?: string };
 
 /** The kind of reading a watch gives: text, price or feed. */
 export function readingKind(w: KindRead): "text" | "price" | "feed" {
@@ -697,21 +697,35 @@ const siteOf = (w: WatchLike) => w.site || hostOf(w.url);
 
 const READ_TITLES: Record<string, string> = {
   product_price: "Product price",
-  selector_price: "Price on the page",
-  selector: "Part of the page",
+  selector_price: "One price on the page",
+  selector: "One part of the page",
   text: "Page text",
 };
 
+/** What a watch reads, in a few words: "Feed", "Price", "Product price", "One part of the page"; the API's watchKindLine. */
+export function watchKindLine(w: KindRead): string {
+  if (w.kind === "feed") return "Feed";
+  if (w.kind === "price") return "Price";
+  return READ_TITLES[w.read ?? ""] ?? "Page text";
+}
+
 /**
  * A watch's name: "amazon.in · Sony WH-1000XM6 Wireless" from the page's
- * title, else "amazon.in · Product price"; "BTC-USD · Coinbase" for a price;
- * "go.dev · New posts" for a feed. The API's watchTitle follows the same rule.
+ * title, else "amazon.in · Product price"; "BTC-USD · Coinbase" for a coin
+ * and "NVDA · Finnhub" for a stock; "go.dev · Feed" for a feed. The API's
+ * watchTitle (view.go) follows the same rule; only a draft with no address
+ * yet, which the API never sees, is "New page".
  */
 export function watchTitle(w: WatchLike): string {
-  if (w.kind === "price") return `${w.symbol || "Price"} · ${sourceLabel(w.source ?? "")}`;
+  if (w.kind === "price") {
+    // A stock source quotes one currency, so only a coin names its pair.
+    const stock = !w.source || w.source === "stock" || w.source === "finnhub";
+    const pair = !w.symbol ? "Price" : w.currency && !stock ? `${w.symbol}-${w.currency}` : w.symbol;
+    return `${pair} · ${sourceLabel(w.source ?? "")}`;
+  }
   const site = siteOf(w) || "New page";
-  if (w.kind === "feed") return `${site} · ${w.title || "New posts"}`;
-  return `${site} · ${w.title || READ_TITLES[w.read ?? ""] || "Page"}`;
+  if (w.kind === "page" && w.title) return `${site} · ${w.title}`;
+  return `${site} · ${watchKindLine(w)}`;
 }
 
 /** The kind badge: `tag` (a shop price), `globe` (a page), `rss`, `chart-candlestick`. */

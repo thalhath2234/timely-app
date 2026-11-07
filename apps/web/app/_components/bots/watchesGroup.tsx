@@ -6,6 +6,7 @@ import {
   BOT_LIMITS,
   agoLabel,
   sourceLabel,
+  watchKindLine,
   watchTitle,
   type WatchInput,
   type WatchKind,
@@ -19,13 +20,6 @@ import {
 } from "@/app/_components/_ui/groupedList";
 import { BotMark, type SiteIcons } from "./botMark";
 
-const READ_WORDS: Record<string, string> = {
-  product_price: "Product price",
-  selector_price: "Price on the page",
-  selector: "Part of the page",
-  text: "Page text",
-};
-
 /** "Product price · reads ₹27,499 · 12 min ago", "Feed · not read yet", or why it fails. */
 export function watchMeta(
   w: WatchInput,
@@ -33,11 +27,7 @@ export function watchMeta(
   now: Date,
 ): string {
   const what =
-    w.kind === "price"
-      ? sourceLabel(w.source ?? "stock")
-      : w.kind === "feed"
-        ? "Feed"
-        : READ_WORDS[w.read ?? "text"];
+    w.kind === "price" ? sourceLabel(w.source ?? "stock") : watchKindLine(w);
   if (!view) return `${what} · not read yet`;
   if (
     view.health.code !== "working" &&

@@ -193,6 +193,7 @@ func TestWatchTitle(t *testing.T) {
 		{Watch{Kind: WatchFeed, URL: "https://www.reddit.com/r/buildapcsales/.rss"}, "reddit.com · Feed"},
 		{Watch{Kind: WatchPrice, Source: "coinbase", Symbol: "BTC", Currency: "USD"}, "BTC-USD · Coinbase"},
 		{Watch{Kind: WatchPrice, Source: "finnhub", Symbol: "NVDA"}, "NVDA · Finnhub"},
+		{Watch{Kind: WatchPrice, Source: "finnhub", Symbol: "NVDA", Currency: "USD"}, "NVDA · Finnhub"},
 	}
 	for _, c := range cases {
 		if got := watchTitle(c.w); got != c.want {

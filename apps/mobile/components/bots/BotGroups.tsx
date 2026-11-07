@@ -14,6 +14,7 @@ import {
   resetLine,
   rulesFor,
   sourceLabel,
+  watchKindLine,
   watchCurrency,
   watchTitle,
   type BotInput,
@@ -45,13 +46,6 @@ import { blankWatch, newRule, withWatches } from "./watchDraft";
 export type CommitHow = "page" | "quick";
 export type Commit = (next: BotInput, how: CommitHow) => void | Promise<void>;
 
-const READ_WORDS: Record<string, string> = {
-  product_price: "Product price",
-  selector_price: "Price on the page",
-  selector: "Part of the page",
-  text: "Page text",
-};
-
 /** A watch row's name: its site ("amazon.in"), or "BTC-USD · Coinbase" for a price. */
 function watchName(w: WatchInput, view?: WatchView): string {
   if (w.kind === "price") return watchTitle(view ?? w);
@@ -60,7 +54,7 @@ function watchName(w: WatchInput, view?: WatchView): string {
 
 /** "Product price · ₹27,499", "Feed · not read yet", or why it fails. */
 function watchMeta(w: WatchInput, view: WatchView | undefined): string {
-  const what = w.kind === "price" ? sourceLabel(w.source ?? "stock") : w.kind === "feed" ? "Feed" : READ_WORDS[w.read ?? "text"];
+  const what = w.kind === "price" ? sourceLabel(w.source ?? "stock") : watchKindLine(w);
   if (!view) return `${what} · not read yet`;
   if (view.health.code !== "working" && view.health.code !== "new" && view.health.line) return `${what} · ${view.health.line}`;
   if (!view.lastReadingAt) return `${what} · not read yet`;

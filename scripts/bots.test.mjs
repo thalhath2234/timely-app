@@ -58,6 +58,7 @@ import {
   valueLine,
   valueText,
   watchKindIcon,
+  watchKindLine,
   watchTitle,
   wideSpan,
 } from "../packages/contract/src/bots.ts";
@@ -295,7 +296,7 @@ const seed = {
         kind: "price",
         read: "",
         source: "coinbase",
-        symbol: "BTC-USD",
+        symbol: "BTC",
         currency: "USD",
         value: 68412,
         summary: "$68,412",
@@ -380,7 +381,7 @@ describe("bots board over the seed", () => {
       "Earliest: 14 Jan 2027",
       "Tells you when it changes",
       "Next 18:48",
-      "ais.usvisa-info.com · Part of the page · every 30 min",
+      "ais.usvisa-info.com · One part of the page · every 30 min",
       ["bad", "Can’t read the page", "6 min ago"],
     ],
     pixel: [
@@ -430,7 +431,7 @@ describe("bots board over the seed", () => {
       "“Out of stock”",
       "Tells you when “Add to cart” appears",
       "No change in 6 days",
-      "steampowered.com · Part of the page · every 30 min",
+      "steampowered.com · One part of the page · every 30 min",
       ["ok", "Working", "9 min ago"],
     ],
     nvda: [
@@ -450,7 +451,7 @@ describe("bots board over the seed", () => {
       "“Go 1.26 is released”",
       null,
       null,
-      "go.dev · New posts · daily",
+      "go.dev · Feed · daily",
       ["off", "Paused by you", "Nov 2"],
     ],
   };
@@ -852,6 +853,16 @@ describe("watches", () => {
     assert.equal(watchTitle({ kind: "page", read: "product_price", url: "https://www.amazon.in/dp/x" }), "amazon.in · Product price");
     assert.equal(watchTitle(seed.btc.watches[0]), "BTC-USD · Coinbase");
     assert.equal(watchTitle({ kind: "price", source: "stock", symbol: "NVDA" }), "NVDA · Finnhub");
+    // The same cases as view_test.go TestWatchTitle.
+    assert.equal(watchTitle({ kind: "page", read: "selector", url: "https://news.example.co.uk/x", site: "example.co.uk" }), "example.co.uk · One part of the page");
+    assert.equal(watchTitle({ kind: "page", read: "text", url: "https://example.com/" }), "example.com · Page text");
+    assert.equal(watchTitle({ kind: "feed", url: "https://www.reddit.com/r/buildapcsales/.rss", site: "reddit.com" }), "reddit.com · Feed");
+    assert.equal(watchTitle({ kind: "price", source: "coinbase", symbol: "BTC", currency: "USD" }), "BTC-USD · Coinbase");
+    assert.equal(watchTitle({ kind: "price", source: "finnhub", symbol: "NVDA" }), "NVDA · Finnhub");
+    assert.equal(watchTitle({ kind: "price", source: "finnhub", symbol: "NVDA", currency: "USD" }), "NVDA · Finnhub");
+    // A draft with no symbol yet.
+    assert.equal(watchTitle({ kind: "price", source: "crypto", symbol: "", currency: "USD" }), "Price · Coinbase");
+    assert.equal(watchKindLine({ kind: "page", read: "selector_price" }), "One price on the page");
     assert.deepEqual(
       [seed.headphones, seed.steam, seed.go, seed.btc].map((b) => watchKindIcon(b.watches[0])),
       ["tag", "globe", "rss", "chart-candlestick"],

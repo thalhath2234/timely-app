@@ -37,6 +37,10 @@ const CURRENCIES = ["USD", "EUR", "GBP", "INR", "JPY"];
 const isStock = (source: string | undefined) =>
   !source || source === "stock" || source === "finnhub";
 
+/** The currencies a source quotes in: Finnhub's stock prices are in USD only. */
+const currenciesFor = (source: string | undefined) =>
+  isStock(source) ? ["USD"] : CURRENCIES;
+
 /** A fresh watch of `kind`, with the rules a new watch of that kind gets. */
 export function blankWatch(kind: WatchKind): WatchInput {
   const w: WatchInput =
@@ -270,8 +274,7 @@ export function WatchEditor({
                         update({
                           ...w,
                           source: v,
-                          currency:
-                            v === "crypto" ? w.currency || "USD" : w.currency,
+                          currency: v === "crypto" ? w.currency || "USD" : "",
                         })
                       }
                       options={[
@@ -286,13 +289,13 @@ export function WatchEditor({
                     meta={
                       isStock(w.source)
                         ? "Like NVDA or AAPL"
-                        : "Like BTC-USD or ETH-USD"
+                        : "Like BTC or ETH. Pick the currency below"
                     }
                   >
                     <RowInput
                       aria-label="Symbol"
                       value={w.symbol ?? ""}
-                      placeholder={isStock(w.source) ? "NVDA" : "BTC-USD"}
+                      placeholder={isStock(w.source) ? "NVDA" : "BTC"}
                       onChange={(symbol) =>
                         update({ ...w, symbol: symbol.toUpperCase() })
                       }
@@ -305,7 +308,10 @@ export function WatchEditor({
                       value={w.currency ?? ""}
                       options={[
                         { value: "", label: "The source’s own" },
-                        ...CURRENCIES.map((c) => ({ value: c, label: c })),
+                        ...currenciesFor(w.source).map((c) => ({
+                          value: c,
+                          label: c,
+                        })),
                       ]}
                       onChange={(currency) => update({ ...w, currency })}
                     />

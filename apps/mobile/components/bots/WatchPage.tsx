@@ -21,6 +21,7 @@ import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { FieldRow } from "./rows";
 import { blankWatch, isStock, reshape, watchErrors } from "./watchDraft";
 
+/** Coins can be quoted in these; Finnhub's stock prices are in USD only. */
 const CURRENCIES = ["USD", "EUR", "GBP", "INR", "JPY"];
 
 const KIND_OPTIONS: { value: WatchKind; label: string }[] = [
@@ -186,14 +187,14 @@ export function WatchPage({
           { value: "stock", label: "Stock" },
           { value: "crypto", label: "Coin" },
         ]}
-        onChange={(v) => update({ ...w, source: v, currency: v === "crypto" ? w.currency || "USD" : w.currency })}
+        onChange={(v) => update({ ...w, source: v, currency: v === "crypto" ? w.currency || "USD" : "" })}
       />,
       <FieldRow
         key="symbol"
         title="Symbol"
-        meta={isStock(w.source) ? "Like NVDA or AAPL" : "Like BTC-USD or ETH-USD"}
+        meta={isStock(w.source) ? "Like NVDA or AAPL" : "Like BTC or ETH. Pick the currency below"}
         value={w.symbol ?? ""}
-        placeholder={isStock(w.source) ? "NVDA" : "BTC-USD"}
+        placeholder={isStock(w.source) ? "NVDA" : "BTC"}
         autoCapitalize="words"
         width={140}
         onChangeText={(symbol) => update({ ...w, symbol: symbol.toUpperCase() })}
@@ -203,7 +204,7 @@ export function WatchPage({
         trigger="row"
         label="Currency"
         value={w.currency ?? ""}
-        options={[{ value: "", label: "The source’s own" }, ...CURRENCIES.map((c) => ({ value: c, label: c }))]}
+        options={[{ value: "", label: "The source’s own" }, ...(isStock(w.source) ? ["USD"] : CURRENCIES).map((c) => ({ value: c, label: c }))]}
         onChange={(currency) => update({ ...w, currency })}
       />,
     );

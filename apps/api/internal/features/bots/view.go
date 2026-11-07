@@ -11,6 +11,7 @@ import (
 
 	"timely-api/internal/features/bots/extract"
 	"timely-api/internal/features/bots/fetch"
+	"timely-api/internal/features/bots/price"
 )
 
 // Health is a status code with a line written for the person.
@@ -268,12 +269,13 @@ func watchSite(w Watch) string {
 
 // watchTitle names a watch for a person: "amazon.in · Sony WH-1000XM6
 // Wireless" from the page's own title, else "amazon.in · Product price";
-// a price is "BTC-USD · Coinbase". The clients' watchTitle follows the same
-// rule.
+// a coin is "BTC-USD · Coinbase" and a stock "NVDA · Finnhub" (a stock
+// source quotes one currency, so it is left out). The clients' watchTitle
+// (packages/contract/src/bots.ts) follows the same rule.
 func watchTitle(w Watch) string {
 	if w.Kind == WatchPrice {
 		sym := w.Symbol
-		if w.Currency != "" {
+		if src, ok := price.Sources[w.Source]; w.Currency != "" && (!ok || src.Kind != "stock") {
 			sym += "-" + w.Currency
 		}
 		return sym + " · " + siteOf(w)

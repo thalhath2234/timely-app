@@ -4,6 +4,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -39,10 +40,6 @@ func TestContractLimits(t *testing.T) {
 	}
 	minutes := func(d time.Duration) int { return int(d / time.Minute) }
 
-	// maxLessons has no Go constant until the lessons store lands.
-	// TODO(A2): compare against the lessons cap constant.
-	const maxLessons = 20
-
 	cases := []struct {
 		name      string
 		got, want int
@@ -51,7 +48,7 @@ func TestContractLimits(t *testing.T) {
 		{"maxWatches", key("maxWatches"), MaxWatches},
 		{"maxRulesPerWatch", key("maxRulesPerWatch"), MaxRulesPerWatch},
 		{"alertsPerDay", key("alertsPerDay"), AlertsPerDay},
-		{"maxLessons", key("maxLessons"), maxLessons},
+		{"maxLessons", key("maxLessons"), MaxLessons},
 		{"maxStrikes", key("maxStrikes"), MaxStrikes},
 		{"maxNameLen", key("maxNameLen"), MaxNameLen},
 		{"maxDescriptionLen", key("maxDescriptionLen"), MaxDescriptionLen},
@@ -65,6 +62,53 @@ func TestContractLimits(t *testing.T) {
 	for _, c := range cases {
 		if c.got != c.want {
 			t.Errorf("BOT_LIMITS.%s = %d, API has %d", c.name, c.got, c.want)
+		}
+	}
+}
+
+// TestContractWords checks that the words the clients switch on (read modes,
+// check triggers, answer freshness, the Not useful reasons) are the ones the
+// API writes.
+func TestContractWords(t *testing.T) {
+	src, err := os.ReadFile("../../../../../packages/contract/src/bots.ts")
+	if err != nil {
+		t.Fatalf("read contract: %v", err)
+	}
+	union := func(name string) []string {
+		t.Helper()
+		m := regexp.MustCompile(`export type ` + name + ` =([^;]*);`).FindSubmatch(src)
+		if m == nil {
+			t.Fatalf("type %s not found in bots.ts", name)
+		}
+		var out []string
+		for _, w := range regexp.MustCompile(`"([a-z_]+)"`).FindAllSubmatch(m[1], -1) {
+			out = append(out, string(w[1]))
+		}
+		return out
+	}
+	var reasons []string
+	block := regexp.MustCompile(`(?s)export const FEEDBACK_REASONS[^=]*= \[(.*?)\];`).FindSubmatch(src)
+	if block == nil {
+		t.Fatal("FEEDBACK_REASONS not found in bots.ts")
+	}
+	for _, m := range regexp.MustCompile(`id: "([a-z_]+)"`).FindAllSubmatch(block[1], -1) {
+		reasons = append(reasons, string(m[1]))
+	}
+	cases := []struct {
+		name      string
+		got, want []string
+	}{
+		{"ReadMode", union("ReadMode"), []string{ReadText, ReadSelector, ReadProductPrice, ReadSelectorPrice}},
+		{"WatchKind", union("WatchKind"), []string{WatchPage, WatchFeed, WatchPrice}},
+		{"PauseReason", union("PauseReason"), []string{PausePerson, PauseStrikes, PauseMCP}},
+		{"CheckTrigger", union("CheckTrigger"), []string{TriggerSchedule, TriggerWake, TriggerRunNow, TriggerAsk}},
+		{"AnswerFresh", union("AnswerFresh"), []string{FreshCheckedNow, FreshRecent, FreshWaiting, FreshPaused, FreshLimited, FreshFloor}},
+		{"Feedback", union("Feedback"), []string{FeedbackUseful, FeedbackNotUseful}},
+		{"FEEDBACK_REASONS", reasons, FeedbackReasons},
+	}
+	for _, c := range cases {
+		if strings.Join(c.got, ",") != strings.Join(c.want, ",") {
+			t.Errorf("%s in bots.ts is %v, API has %v", c.name, c.got, c.want)
 		}
 	}
 }
