@@ -389,6 +389,10 @@ func (r *runner) exercise(email string) {
 	r.call("update_sheet_cells", map[string]any{"sheetId": sheetID, "rowId": rowID, "cells": map[string]string{colID: "3"}})
 	r.call("add_sheet_rows", map[string]any{"sheetId": sheetID, "count": 1})
 	r.call("add_sheet_row", map[string]any{"sheetId": sheetID, "cells": map[string]string{"Quantity": "5"}})
+	r.call("add_sheet_entries", map[string]any{"sheetId": sheetID, "entries": []any{
+		map[string]any{"cells": map[string]string{"Quantity": "7"}},
+		map[string]any{"cells": map[string]string{"Quantity": "9"}},
+	}})
 	r.call("update_sheet_column", map[string]any{"sheetId": sheetID, "columnId": colID, "format": map[string]any{"decimals": 2}, "hidden": false})
 	r.call("update_sheet_tab", map[string]any{"sheetId": sheetID, "frozenRows": 1, "color": "#4F8BFF",
 		"conditionalFormats": []any{map[string]any{"columnId": colID, "operator": "gt", "value": "4", "fillColor": "#5C3A12"}}})
