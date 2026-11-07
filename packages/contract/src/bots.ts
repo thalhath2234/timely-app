@@ -2068,3 +2068,170 @@ export function botTagQuery(text: string, caret: number): { query: string; start
   if (TAG_END.test(query) || /^\s/.test(query) || query.length > MAX_TAG_QUERY) return null;
   return { query, start };
 }
+
+/** How many bots one message may tag (the server's maxBotTags). */
+export const MAX_BOT_TAGS = 3;
+
+/**
+ * The bots the @-picker offers for what was typed after "@": names that start
+ * with it first, then names with a word that starts with it, then names that
+ * hold it anywhere, each in the order given. Bots already tagged are left out,
+ * and none are offered once the query is a bot's whole name and a space.
+ */
+export function botTagMatches<T extends { id: string; name: string }>(
+  bots: T[] | null | undefined,
+  query: string,
+  tagged: string[] = [],
+  limit = 8,
+): T[] {
+  const q = query.trimStart().toLowerCase();
+  // "@Name " is already a whole tag: the list closes rather than offering the
+  // longer names that start with it ("Bitcoin weekly" after "Bitcoin").
+  const done = q.trimEnd();
+  if (done !== q && (bots ?? []).some((bot) => bot.name.trim().toLowerCase() === done)) return [];
+  const ranked: { bot: T; rank: number }[] = [];
+  for (const bot of bots ?? []) {
+    if (tagged.includes(bot.id)) continue;
+    const name = bot.name.toLowerCase();
+    const at = q ? name.indexOf(q) : 0;
+    if (at < 0) continue;
+    const rank = at === 0 ? 0 : name.split(/\s+/).some((word) => word.startsWith(q)) ? 1 : 2;
+    ranked.push({ bot, rank });
+  }
+  return ranked
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, limit)
+    .map((r) => r.bot);
+}
+
+/**
+ * Picking a bot in the @-picker: the "@query" from `start` to the caret
+ * becomes "@Name " (no second space when one follows), and the caret moves
+ * after it.
+ */
+export function insertBotTag(text: string, start: number, caret: number, name: string): { text: string; caret: number } {
+  const end = Math.max(start, Math.min(caret, text.length));
+  const after = text.slice(end);
+  const tag = `@${name}`;
+  const spaced = /^\s/.test(after) ? tag : `${tag} `;
+  return { text: text.slice(0, start) + spaced + after, caret: start + tag.length + 1 };
+}
+
+const TAG_CLOSE = ",.:;?!";
+
+/** Where `name` ends when the text holds it at `at` (any case) followed by the end, whitespace or a closing mark; -1 when not. */
+function tagNameEnd(text: string, at: number, name: string): number {
+  let i = at;
+  for (const want of name) {
+    if (i >= text.length) return -1;
+    const got = String.fromCodePoint(text.codePointAt(i)!);
+    if (got !== want && got.toLowerCase() !== want.toLowerCase() && got.toUpperCase() !== want.toUpperCase()) return -1;
+    i += got.length;
+  }
+  if (i === text.length) return i;
+  const next = String.fromCodePoint(text.codePointAt(i)!);
+  return /\s/u.test(next) || TAG_CLOSE.includes(next) ? i : -1;
+}
+
+/**
+ * Every "@Name" tag in the text, as the server's tagBots reads one: "@" at the
+ * start or after whitespace, then one of `names` in any case (the longest that
+ * fits wins), then the end, whitespace or one of , . : ; ? !. In order, with
+ * each tag's span from its "@" to the end of the name.
+ */
+export function botTagSpans(text: string, names: string[]): { name: string; start: number; end: number }[] {
+  const sorted = names
+    .filter((n) => n.trim() !== "")
+    .map((n, i) => ({ n, i, len: Array.from(n).length }))
+    .sort((a, b) => b.len - a.len || a.i - b.i)
+    .map((x) => x.n);
+  const spans: { name: string; start: number; end: number }[] = [];
+  let afterSpace = true;
+  for (let i = 0; i < text.length; ) {
+    const ch = String.fromCodePoint(text.codePointAt(i)!);
+    if (ch !== "@" || !afterSpace) {
+      afterSpace = /\s/u.test(ch);
+      i += ch.length;
+      continue;
+    }
+    afterSpace = false;
+    let end = -1;
+    let hit = "";
+    for (const name of sorted) {
+      end = tagNameEnd(text, i + 1, name);
+      if (end >= 0) {
+        hit = name;
+        break;
+      }
+    }
+    if (end < 0) {
+      i += 1;
+      continue;
+    }
+    spans.push({ name: hit, start: i, end });
+    i = end;
+  }
+  return spans;
+}
+
+const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
+/**
+ * The bots the text tags, each once, in order (the server's tagBots without
+ * its limit). `skip` leaves out the tag whose "@" is there, such as the one
+ * still being typed.
+ */
+export function textBotTags<T extends { id: string; name: string }>(
+  text: string,
+  bots: T[],
+  skip = -1,
+): T[] {
+  const out: T[] = [];
+  for (const span of botTagSpans(text, bots.map((b) => b.name))) {
+    if (span.start === skip) continue;
+    const bot = bots.find((b) => sameName(b.name, span.name));
+    if (bot && !out.some((b) => b.id === bot.id)) out.push(bot);
+  }
+  return out;
+}
+
+/**
+ * Whether the text still tags `name` as the server reads it. `names` are the
+ * other bots' names, so "@Bitcoin weekly" tags "Bitcoin weekly", not "Bitcoin".
+ */
+export function hasBotTag(text: string, name: string, names: string[] = []): boolean {
+  return botTagSpans(text, [name, ...names]).some((span) => sameName(span.name, name));
+}
+
+/** Removing a picked bot's chip takes its first "@Name" tag (and one space after it) out of the text. */
+export function removeBotTag(text: string, name: string, names: string[] = []): string {
+  const span = botTagSpans(text, [name, ...names]).find((s) => sameName(s.name, name));
+  if (!span) return text;
+  const end = text[span.end] === " " ? span.end + 1 : span.end;
+  return text.slice(0, span.start) + text.slice(end);
+}
+
+const WAIT_CODES = new Set(["offline", "rate_limited", "waiting", "robots"]);
+
+/** The dot beside a tagged bot's answer: off when paused, bad when broken, primary while its check runs. */
+export function answerTone(answer: Pick<BotAnswer, "bot" | "fresh">): HealthTone {
+  if (answer.fresh === "paused" || answer.bot.status === "paused") return "off";
+  if (STRIKES.has(answer.bot.health.code)) return "bad";
+  if (answer.fresh === "waiting") return "primary";
+  if (WAIT_CODES.has(answer.bot.health.code)) return "warn";
+  return "ok";
+}
+
+/** What an answer's watch gives the logo tile: its site, or a price's symbol from its title ("BTC-USD · Coinbase"). */
+export function answerMarkWatch(w: Pick<AnswerWatch, "kind" | "site" | "title">): {
+  kind: WatchKind;
+  site: string;
+  symbol: string;
+} {
+  return { kind: w.kind, site: w.site, symbol: w.kind === "price" ? w.title.split(" · ")[0] : "" };
+}
+
+/** A watch row's second line in an answer: the excerpt, else the newest item's title. */
+export function answerWatchMeta(w: Pick<AnswerWatch, "excerpt" | "items">): string {
+  return w.excerpt || w.items?.[0]?.title || "";
+}

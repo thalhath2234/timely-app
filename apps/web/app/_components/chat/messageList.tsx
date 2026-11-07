@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { Chat, ChatMessage } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
+import BotAnswerCard from "./botAnswerCard";
 import ChatText from "./chatText";
 import ReplyBody from "./replyCards";
 import { planGroups } from "@timely/contract/changeReview";
@@ -257,6 +258,12 @@ export default function MessageList({
                       newest={m === newest}
                     />
                   </div>
+                  {m.botAnswers?.map((answer, i) => (
+                    <BotAnswerCard
+                      key={`${answer.bot.id}:${i}`}
+                      answer={answer}
+                    />
+                  ))}
                   {!!m.imageIds?.length && (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {chat.images

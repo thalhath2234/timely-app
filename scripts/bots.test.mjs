@@ -2,14 +2,23 @@ import assert from "node:assert/strict";
 import test, { describe } from "node:test";
 import {
   BOT_LIMITS,
+  MAX_BOT_TAGS,
   STARTERS,
   STRIKE_CODES,
   STRIKE_COPY,
   againLine,
+  answerMarkWatch,
+  answerTone,
+  answerWatchMeta,
   boardColumns,
   boardGroup,
   boardSections,
+  botTagMatches,
   botTagQuery,
+  hasBotTag,
+  insertBotTag,
+  removeBotTag,
+  textBotTags,
   alertFound,
   captionLine,
   cardSub,
@@ -1119,5 +1128,118 @@ describe("chat", () => {
     assert.equal(botTagQuery("a @ b", 5), null);
     assert.equal(botTagQuery("line @one\ntwo", 13), null);
     assert.equal(botTagQuery("no tag here", 5), null);
+  });
+});
+
+describe("@-tags and answers", () => {
+  const bots = [
+    { id: "b1", name: "GPU deals under $400" },
+    { id: "b2", name: "Go release news" },
+    { id: "b3", name: "Bitcoin under $70,000" },
+    { id: "b4", name: "Steam Deck OLED in stock" },
+    { id: "b5", name: "Go news feed" },
+  ];
+  const names = (list) => list.map((b) => b.name);
+
+  test("botTagMatches puts name starts first, then word starts, then anywhere", () => {
+    assert.deepEqual(names(botTagMatches(bots, "go")), ["Go release news", "Go news feed"]);
+    assert.deepEqual(names(botTagMatches(bots, "news")), ["Go release news", "Go news feed"]);
+    assert.deepEqual(names(botTagMatches(bots, "under")), ["GPU deals under $400", "Bitcoin under $70,000"]);
+    assert.deepEqual(names(botTagMatches(bots, "eam")), ["Steam Deck OLED in stock"]);
+    assert.deepEqual(names(botTagMatches(bots, "GO NEWS ")), ["Go news feed"]);
+    assert.deepEqual(botTagMatches(bots, "nothing like it"), []);
+  });
+
+  test("botTagMatches offers every bot for a bare @, leaves tagged ones out and stops at the limit", () => {
+    assert.equal(botTagMatches(bots, "").length, 5);
+    assert.deepEqual(names(botTagMatches(bots, "go", ["b2"])), ["Go news feed"]);
+    assert.equal(botTagMatches(bots, "", [], 2).length, 2);
+    assert.deepEqual(botTagMatches(undefined, "go"), []);
+    assert.equal(MAX_BOT_TAGS, 3);
+  });
+
+  test("insertBotTag replaces the typed query with the name and one space", () => {
+    assert.deepEqual(insertBotTag("@go", 0, 3, "Go news feed"), { text: "@Go news feed ", caret: 14 });
+    assert.deepEqual(insertBotTag("what does @gpu say", 10, 14, "GPU deals under $400"), {
+      text: "what does @GPU deals under $400 say",
+      caret: 32,
+    });
+    assert.deepEqual(insertBotTag("@go, anything?", 0, 3, "Go news feed"), {
+      text: "@Go news feed , anything?",
+      caret: 14,
+    });
+  });
+
+  test("hasBotTag and removeBotTag find the picked name in the text", () => {
+    assert.equal(hasBotTag("@go news feed anything new?", "Go news feed"), true);
+    assert.equal(hasBotTag("go news feed", "Go news feed"), false);
+    assert.equal(removeBotTag("@Go news feed anything new?", "Go news feed"), "anything new?");
+    assert.equal(removeBotTag("ask @Go news feed", "Go news feed"), "ask ");
+    assert.equal(removeBotTag("no tag", "Go news feed"), "no tag");
+  });
+
+  test("tags read at word edges, the longest name winning, as the server reads them", () => {
+    const known = ["Bitcoin", "Bitcoin weekly"];
+    assert.equal(hasBotTag("@Bitcoin weekly hi", "Bitcoin", known), false);
+    assert.equal(hasBotTag("@Bitcoin weekly hi", "Bitcoin weekly", known), true);
+    assert.equal(hasBotTag("@Bitcoin, any news?", "Bitcoin", known), true);
+    assert.equal(hasBotTag("@Bitcoins up?", "Bitcoin", known), false);
+    assert.equal(hasBotTag("mail me@Bitcoin", "Bitcoin", known), false);
+    assert.equal(removeBotTag("@Bitcoin weekly @Bitcoin hi", "Bitcoin", known), "@Bitcoin weekly hi");
+    assert.equal(removeBotTag("@Bitcoin weekly @Bitcoin hi", "Bitcoin weekly", known), "@Bitcoin hi");
+    assert.equal(removeBotTag("@Bitcoin weekly hi", "Bitcoin", known), "@Bitcoin weekly hi");
+    const two = [
+      { id: "x1", name: "Bitcoin" },
+      { id: "x2", name: "Bitcoin weekly" },
+    ];
+    assert.deepEqual(names(textBotTags("@bitcoin weekly and @Bitcoin? and @bitcoin", two)), ["Bitcoin weekly", "Bitcoin"]);
+    assert.deepEqual(names(textBotTags("@Bitcoin weekly and @Bitcoin", two, 20)), ["Bitcoin weekly"]);
+    assert.deepEqual(textBotTags("@@Bitcoin", two), []);
+  });
+
+  test("botTagMatches closes once the query is a whole name and a space", () => {
+    const two = [
+      { id: "x1", name: "Bitcoin" },
+      { id: "x2", name: "Bitcoin weekly" },
+    ];
+    assert.deepEqual(botTagMatches(two, "Bitcoin ", ["x1"]), []);
+    assert.deepEqual(botTagMatches(two, "bitcoin ", []), []);
+    assert.deepEqual(names(botTagMatches(two, "Bitcoin", ["x1"])), ["Bitcoin weekly"]);
+    assert.deepEqual(names(botTagMatches(two, "Bitcoin w", ["x1"])), ["Bitcoin weekly"]);
+  });
+
+  test("answerTone follows the answer's freshness and the bot's health", () => {
+    const answer = (fresh, health = ok, status = "active") => ({
+      fresh,
+      bot: { id: "b", name: "B", status, pauseReason: null, health },
+    });
+    assert.equal(answerTone(answer("checked_now")), "ok");
+    assert.equal(answerTone(answer("recent")), "ok");
+    assert.equal(answerTone(answer("limited")), "ok");
+    assert.equal(answerTone(answer("floor")), "ok");
+    assert.equal(answerTone(answer("waiting")), "primary");
+    assert.equal(answerTone(answer("paused", ok, "paused")), "off");
+    assert.equal(answerTone(answer("checked_now", { code: "cant_find", line: "x" })), "bad");
+    assert.equal(answerTone(answer("recent", { code: "offline", line: "x" })), "warn");
+  });
+
+  test("answerMarkWatch and answerWatchMeta draw a watch of an answer", () => {
+    assert.deepEqual(answerMarkWatch({ kind: "price", site: "", title: "BTC-USD · Coinbase" }), {
+      kind: "price",
+      site: "",
+      symbol: "BTC-USD",
+    });
+    assert.equal(monogram(answerMarkWatch({ kind: "price", site: "", title: "BTC-USD · Coinbase" })), "BTC");
+    assert.deepEqual(answerMarkWatch({ kind: "feed", site: "go.dev", title: "go.dev · Feed" }), {
+      kind: "feed",
+      site: "go.dev",
+      symbol: "",
+    });
+    assert.equal(answerWatchMeta({ excerpt: "Out of stock", items: [] }), "Out of stock");
+    assert.equal(
+      answerWatchMeta({ excerpt: "", items: [{ title: "Go 1.26 is released", url: "u", publishedAt: null }] }),
+      "Go 1.26 is released",
+    );
+    assert.equal(answerWatchMeta({ excerpt: "", items: null }), "");
   });
 });

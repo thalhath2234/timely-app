@@ -46,7 +46,12 @@ import {
   type ChatSettings,
 } from "../../lib/chat/settings";
 import { removeLocalImage, retainImage } from "../../lib/chat/storage";
-import type { Chat, ChatStep, PendingImage } from "../../lib/chat/types";
+import type {
+  BotTag,
+  Chat,
+  ChatStep,
+  PendingImage,
+} from "../../lib/chat/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { emptyDraft, useAssistant } from "../../lib/chat/runtime";
 import { useToastStore } from "../../lib/toast";
@@ -55,6 +60,8 @@ import ConfirmSheet from "../ui/ConfirmSheet";
 import AssistantHeader from "./AssistantHeader";
 import AttachSheet, { type ImageSource } from "./AttachSheet";
 import ModelSheet, { modelLabel, type ModelChoice } from "./ModelSheet";
+import { useBotsQuery } from "../../lib/hooks";
+import { liveBotTags } from "./BotMentionPicker";
 import Composer from "./Composer";
 import HistoryPage from "./HistoryPage";
 import ProposalPage from "./ProposalPage";
@@ -73,6 +80,7 @@ export default function Assistant() {
   const uid = user!.id;
   const id = assistant.chatId;
   const queryClient = useQueryClient();
+  const bots = useBotsQuery().data?.bots;
   const toast = useToastStore((state) => state.show);
   const [offline, setOfflineState] = useState(isOffline());
   const [page, setPage] = useState<Page>("chat");
@@ -395,13 +403,15 @@ export default function Assistant() {
       },
     );
   }
-  function editText(text: string) {
+  // `botTags` set with the text: a bot picked or untagged in the @-picker.
+  function editText(text: string, botTags?: BotTag[]) {
     if (otherDraft) return;
     assistant.setDraft((current) => ({
       ...(matchingDraft
         ? current
         : { ...emptyDraft(context), conversationId: id ?? undefined }),
       text,
+      ...(botTags ? { botTags } : {}),
       requestId: undefined,
     }));
   }
@@ -487,6 +497,9 @@ export default function Assistant() {
           content: draft.text.trim(),
           imageIds,
           requestId,
+          botTags: liveBotTags(draft.text, draft.botTags, bots).map(
+            (tag) => tag.id,
+          ),
           ...(!id ? { context, webSearch: search, ...model } : {}),
           ...unsavedReceipt(),
         },
@@ -1106,6 +1119,8 @@ export default function Assistant() {
               <Composer
                 text={draft.text}
                 onChangeText={editText}
+                botTags={draft.botTags}
+                onTag={editText}
                 placeholder={
                   draft.images.length
                     ? "Add a note (optional)…"

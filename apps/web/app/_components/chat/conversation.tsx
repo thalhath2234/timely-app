@@ -16,6 +16,7 @@ import TimelyLogo, {
 } from "@/app/_components/_ui/timelyLogo";
 import {
   chatRequest,
+  type BotTag,
   type Chat,
   type ChatContext,
   type ReceiptDraft,
@@ -23,6 +24,8 @@ import {
 import { chatKey, chatsKey, useChat } from "@/app/utils/hooks/chat";
 import { cn } from "@/app/utils/cn";
 import LoadError from "@/app/_components/_ui/loadError";
+import { useBots } from "@/app/utils/hooks/bots";
+import { liveBotTags } from "./botMentionPicker";
 import Composer from "./composer";
 import EmptyHero from "./emptyHero";
 import MessageList from "./messageList";
@@ -129,6 +132,10 @@ export default function Conversation({
   const cache = useQueryClient();
   const chat = query.data;
   const [draft, setDraft] = useState(initialDraft);
+  // Bots picked with "@" for this message only; sent as botTags, then cleared.
+  const [botTags, setBotTags] = useState<BotTag[]>([]);
+  const bots = useBots({ enabled: draft.includes("@") }).data?.bots;
+  const tagIds = liveBotTags(draft, botTags, bots).map((tag) => tag.id);
   const [receiptDirty, setReceiptDirty] = useState(false);
   const [dragging, setDragging] = useState(false);
   const uploads = useImageUploads();
@@ -178,7 +185,10 @@ export default function Conversation({
         return chatRequest<Chat>("", "POST", {
           content: draft.trim(),
           imageIds,
-          requestId: requestIdFor(`${draft.trim()}\n${imageIds.join(",")}`),
+          requestId: requestIdFor(
+            `${draft.trim()}\n${imageIds.join(",")}\n${tagIds.join(",")}`,
+          ),
+          botTags: tagIds,
           context,
           webSearch: search,
           provider: choice.provider,
@@ -198,6 +208,7 @@ export default function Conversation({
       if (!id) onCreated(next.id);
       if (!id || (vars.action === "/messages" && !vars.keepDraft)) {
         setDraft("");
+        setBotTags([]);
         uploads.sent();
       }
       if (vars.action !== "") setReceiptDirty(false);
@@ -261,7 +272,10 @@ export default function Conversation({
       body: {
         content: draft.trim(),
         imageIds,
-        requestId: requestIdFor(`${draft.trim()}\n${imageIds.join(",")}`),
+        requestId: requestIdFor(
+          `${draft.trim()}\n${imageIds.join(",")}\n${tagIds.join(",")}`,
+        ),
+        botTags: tagIds,
         ...unsavedReceipt(),
       },
     });
@@ -613,6 +627,8 @@ export default function Conversation({
         inputRef={input}
         draft={draft}
         setDraft={setDraft}
+        botTags={botTags}
+        setBotTags={setBotTags}
         placeholder={
           chat?.status === "approval"
             ? isBotPlan(chat.plan)

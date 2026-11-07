@@ -70,10 +70,15 @@ export function stableHash(value: unknown): string {
 const IDLE_POLL = 60_000;
 let botStreaming = false;
 
-export function useBots() {
+/**
+ * The board. `enabled` false keeps what is cached without asking (the chat
+ * composer asks only once an "@" is typed).
+ */
+export function useBots({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: botsKey,
     queryFn: listBots,
+    enabled,
     refetchInterval: () => (botStreaming ? false : IDLE_POLL),
     refetchOnWindowFocus: true,
     staleTime: 5000,

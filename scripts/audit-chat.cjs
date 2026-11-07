@@ -209,6 +209,216 @@ const fs = require("node:fs");
     ],
     plan: [botStep([shopWatch], { watches: [shopRead] })],
   };
+  // Bots for the composer's @-picker, and answers of tagged bots.
+  const ago = (minutes) => new Date(Date.now() - minutes * 60000).toISOString();
+  const botView = (id, name, watch, over = {}) => ({
+    id,
+    name,
+    description: "",
+    status: "active",
+    pauseReason: null,
+    origin: "app",
+    originClient: "",
+    judgeMode: "rules",
+    intervalMinutes: 60,
+    urgent: false,
+    desktop: true,
+    phone: true,
+    snoozedUntil: null,
+    nextCheckAt: ago(-30),
+    lastCheckAt: ago(12),
+    lastOkAt: ago(12),
+    strikes: 0,
+    health: { code: "working", line: "" },
+    alertsToday: 0,
+    watches: [
+      {
+        id: `${id}_w`,
+        url: "",
+        read: "",
+        selector: "",
+        source: "",
+        symbol: "",
+        currency: "",
+        rules: [],
+        health: { code: "working", line: "" },
+        lastReadingAt: ago(12),
+        summary: "",
+        site: "",
+        title: "",
+        value: null,
+        excerpt: "",
+        latestItem: null,
+        lastChangedAt: null,
+        spark: null,
+        dayChangePct: null,
+        ...watch,
+      },
+    ],
+    createdAt: ago(60 * 24 * 9),
+    updatedAt: ago(60),
+    checking: false,
+    runNowAt: null,
+    floorLine: "",
+    strip: "nnnn",
+    latestAlert: null,
+    itemsToday: 0,
+    ...over,
+  });
+  const tagBots = [
+    botView("bot_gonews", "Go news feed", { kind: "feed", site: "go.dev" }),
+    botView(
+      "bot_gorelease",
+      "Go release news",
+      { kind: "feed", site: "go.dev" },
+      { status: "paused", updatedAt: ago(60 * 24 * 5) },
+    ),
+    botView("bot_gpu", "GPU deals under $400", {
+      kind: "feed",
+      site: "reddit.com",
+    }),
+    botView("bot_btc", "Bitcoin under $70,000", {
+      kind: "price",
+      source: "coinbase",
+      symbol: "BTC",
+      currency: "USD",
+    }),
+  ];
+  const answer = (bot, fresh, freshLine, over = {}) => ({
+    bot: {
+      id: bot.id,
+      name: bot.name,
+      status: bot.status,
+      pauseReason: bot.pauseReason,
+      health: bot.health,
+    },
+    fresh,
+    freshLine,
+    checkedAt: ago(1),
+    nextCheckAt: ago(-55),
+    watches: [],
+    findings: [],
+    alertsToday: 0,
+    ...over,
+  });
+  const goFeed = {
+    id: "bot_gonews_w",
+    kind: "feed",
+    site: "go.dev",
+    title: "go.dev · Feed",
+    summary: "12 posts",
+    value: null,
+    currency: "",
+    excerpt: "",
+    items: [
+      {
+        title: "Go 1.26 is released",
+        url: "https://go.dev/blog/go1.26",
+        publishedAt: ago(60 * 26),
+      },
+    ],
+    lastChangedAt: ago(60 * 26),
+  };
+  const tagChat = {
+    ...chat,
+    id: "chat_tag",
+    title: "Go news this week",
+    status: "idle",
+    phase: "review",
+    unread: false,
+    revision: 6,
+    context: [],
+    plan: [],
+    messages: [
+      {
+        id: "t1",
+        createdAt: ago(9),
+        role: "user",
+        content: "@Go news feed anything new this week?",
+        botTags: ["bot_gonews"],
+      },
+      {
+        id: "t2",
+        createdAt: ago(8),
+        role: "assistant",
+        content:
+          "Yes: Go 1.26 came out yesterday. That is the only new post this week.",
+        botAnswers: [
+          answer(tagBots[0], "checked_now", "Checked just now", {
+            watches: [goFeed],
+            alertsToday: 1,
+            findings: [
+              {
+                id: "fnd_1",
+                botId: "bot_gonews",
+                checkId: null,
+                watchId: "bot_gonews_w",
+                kind: "item",
+                title: "Go 1.26 is released",
+                why: "A new post in the feed",
+                url: "https://go.dev/blog/go1.26",
+                price: null,
+                currency: "",
+                changePct: null,
+                urgency: "normal",
+                outsideData: true,
+                alerted: true,
+                digestedAt: null,
+                createdAt: ago(60 * 26),
+              },
+            ],
+          }),
+        ],
+      },
+      {
+        id: "t3",
+        createdAt: ago(4),
+        role: "user",
+        content: "@GPU deals under $400 @Go release news what do you see?",
+        botTags: ["bot_gpu", "bot_gorelease"],
+      },
+      {
+        id: "t4",
+        createdAt: ago(3),
+        role: "assistant",
+        content:
+          "The GPU deals bot is checking now, so its newest posts show on the bot in a moment. Go release news is paused; its last reading is from Nov 2.",
+        botAnswers: [
+          answer(
+            tagBots[2],
+            "waiting",
+            "Checking now; the result shows on the bot",
+            {
+              watches: [
+                {
+                  ...goFeed,
+                  id: "bot_gpu_w",
+                  site: "reddit.com",
+                  title: "reddit.com · Feed",
+                  summary: "40 posts",
+                  items: [],
+                  excerpt: "RTX 4070 Super, $389 at Newegg",
+                },
+                {
+                  ...goFeed,
+                  id: "bot_gpu_w2",
+                  site: "slickdeals.net",
+                  title: "slickdeals.net · Feed",
+                  summary: "25 posts",
+                  items: [],
+                  excerpt: "",
+                },
+              ],
+            },
+          ),
+          answer(tagBots[1], "paused", "Paused, so this is from Nov 2", {
+            nextCheckAt: null,
+            watches: [{ ...goFeed, id: "bot_gorelease_w", summary: "8 posts" }],
+          }),
+        ],
+      },
+    ],
+  };
   let themeMode = "light";
   let receiptMode = false;
   let deleted = false;
@@ -273,6 +483,35 @@ const fs = require("node:fs");
     try {
       payload = route.request().postDataJSON();
     } catch {}
+    if (url.pathname.includes("/chats/chat_tag")) {
+      requests.push({
+        path: url.pathname,
+        method: route.request().method(),
+        body: payload,
+      });
+      if (url.pathname.endsWith("/messages"))
+        tagChat.messages.push({
+          id: `t${tagChat.messages.length + 1}`,
+          createdAt: new Date().toISOString(),
+          role: "user",
+          content: payload.content,
+          botTags: payload.botTags,
+        });
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(tagChat),
+      });
+    }
+    if (url.pathname.endsWith("/bots") && route.request().method() === "GET")
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          bots: tagBots,
+          summary: { checksToday: 12, alertsToday: 1, nextCheckAt: ago(-30) },
+        }),
+      });
     if (url.pathname.includes("/chats/chat_bot")) {
       requests.push({
         path: url.pathname,
@@ -940,6 +1179,110 @@ const fs = require("node:fs");
     path: "/tmp/timely-chat-bot-dark.png",
     fullPage: true,
   });
+  // Tagged bots: each answer as a card under the reply, fresh, still
+  // checking, and paused.
+  themeMode = "light";
+  await page.goto("http://localhost:4002/chat?id=chat_tag");
+  const goAnswer = page.getByRole("region", { name: "Go news feed answers" });
+  await goAnswer.waitFor();
+  for (const text of [
+    "Checked just now · 1 alert today",
+    "go.dev · Feed",
+    "12 posts",
+    "Found this week",
+    "A new post in the feed",
+  ])
+    await goAnswer.getByText(text, { exact: true }).first().waitFor();
+  await expect(
+    goAnswer.getByRole("link", { name: "Open Go news feed" }),
+  ).toHaveAttribute("href", "/bots?bot=bot_gonews");
+  await page
+    .getByRole("region", { name: "GPU deals under $400 answers" })
+    .getByText("Checking now; the result shows on the bot")
+    .waitFor();
+  await page
+    .getByRole("region", { name: "GPU deals under $400 answers" })
+    .getByText("RTX 4070 Super, $389 at Newegg")
+    .waitFor();
+  const pausedAnswer = page.getByRole("region", {
+    name: "Go release news answers",
+  });
+  await pausedAnswer.getByText("Paused, so this is from Nov 2").waitFor();
+  await expect(pausedAnswer.getByText(/^Next check/)).toHaveCount(0);
+  await page.waitForTimeout(450);
+  await page.screenshot({
+    path: "/tmp/timely-chat-tag-answer.png",
+    fullPage: true,
+  });
+  // The @-picker: the arrow keys and Enter pick inside the open list,
+  // Escape closes it, a chip shows each tag, and a 4th tag is refused.
+  const box = page.getByLabel("Message Timely");
+  const picker = page.getByRole("listbox", { name: "Tag a bot" });
+  await box.fill("Hi @go");
+  await picker.waitFor();
+  await expect(picker.getByRole("option")).toHaveText([
+    /Go news feed/,
+    /Go release news/,
+  ]);
+  await page.screenshot({ path: "/tmp/timely-chat-tag-picker.png" });
+  await box.press("ArrowDown");
+  await expect(
+    picker.getByRole("option", { name: /^Go release news/ }),
+  ).toHaveAttribute("aria-selected", "true");
+  await box.press("Enter");
+  await expect(picker).toHaveCount(0);
+  await expect(box).toHaveValue("Hi @Go release news ");
+  await page
+    .getByRole("button", { name: "Remove tag Go release news" })
+    .waitFor();
+  assert(
+    !requests.some(
+      (r) => r.path.endsWith("/chat_tag/messages") && r.method === "POST",
+    ),
+    "Enter in the picker sent the message",
+  );
+  await box.press("End");
+  await box.pressSequentially("@");
+  await picker.waitFor();
+  await box.press("Escape");
+  await expect(picker).toHaveCount(0);
+  await expect(box).toBeVisible();
+  await box.press("Backspace");
+  await box.pressSequentially("@gp");
+  await picker.getByRole("option", { name: /^GPU deals under \$400/ }).click();
+  await box.pressSequentially("@bit");
+  await picker.getByRole("option", { name: /^Bitcoin under/ }).click();
+  await box.pressSequentially("@go");
+  await picker.getByText("Tag up to 3 bots").waitFor();
+  await page.screenshot({ path: "/tmp/timely-chat-tag-full.png" });
+  for (let i = 0; i < 3; i++) await box.press("Backspace");
+  await page
+    .getByRole("button", { name: "Remove tag Bitcoin under $70,000" })
+    .click();
+  await expect(box).toHaveValue("Hi @Go release news @GPU deals under $400 ");
+  await box.pressSequentially("anything new?");
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.waitForTimeout(300);
+  const sent = requests.find(
+    (r) => r.path.endsWith("/chat_tag/messages") && r.method === "POST",
+  );
+  assert(sent, "the tagged message was not sent");
+  assert.equal(
+    sent.body.content,
+    "Hi @Go release news @GPU deals under $400 anything new?",
+  );
+  assert.deepEqual(sent.body.botTags, ["bot_gorelease", "bot_gpu"]);
+  await expect(box).toHaveValue("");
+  await expect(page.getByLabel("Tagged bots")).toHaveCount(0);
+  // Dark theme.
+  themeMode = "dark";
+  await page.reload();
+  await goAnswer.waitFor();
+  await page.waitForTimeout(450);
+  await page.screenshot({
+    path: "/tmp/timely-chat-tag-answer-dark.png",
+    fullPage: true,
+  });
   themeMode = "light";
   receiptMode = true;
   themeMode = "light";
@@ -1102,6 +1445,10 @@ const fs = require("node:fs");
         "/tmp/timely-chat-bot-not-it.png",
         "/tmp/timely-chat-bot-two.png",
         "/tmp/timely-chat-bot-dark.png",
+        "/tmp/timely-chat-tag-answer.png",
+        "/tmp/timely-chat-tag-picker.png",
+        "/tmp/timely-chat-tag-full.png",
+        "/tmp/timely-chat-tag-answer-dark.png",
       ],
     }),
   );

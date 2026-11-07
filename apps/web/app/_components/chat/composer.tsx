@@ -5,8 +5,9 @@ import TimelyLogo, {
   LogoSpinner,
   SPINNER_LOOP_SECONDS,
 } from "@/app/_components/_ui/timelyLogo";
-import type { ChatContext, ChatImage } from "@/app/utils/api/chat";
+import type { BotTag, ChatContext, ChatImage } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
+import { BotTagChips, useBotMention } from "./botMentionPicker";
 import { chipIcon } from "./chatMeta";
 import { PendingImages } from "./imageAttachments";
 import ModelMenu, { type ModelChoice } from "./modelMenu";
@@ -53,6 +54,8 @@ export default function Composer({
   inputRef,
   draft,
   setDraft,
+  botTags,
+  setBotTags,
   placeholder,
   chips,
   onRemoveChip,
@@ -75,6 +78,9 @@ export default function Composer({
   inputRef: RefObject<HTMLTextAreaElement | null>;
   draft: string;
   setDraft: (value: string) => void;
+  /** Bots picked with "@" for the message being written. */
+  botTags: BotTag[];
+  setBotTags: (tags: BotTag[]) => void;
   placeholder: string;
   chips: ChatContext[];
   onRemoveChip: (index: number) => void;
@@ -101,9 +107,18 @@ export default function Composer({
   const privateImages = sensitive || images.length > 0;
   const searchOn = webSearch && !privateImages;
   const canSend = (draft.trim() || images.length) && !pending && !uploading;
+  const mention = useBotMention({
+    text: draft,
+    setText: setDraft,
+    inputRef,
+    tags: botTags,
+    setTags: setBotTags,
+    disabled: busy || pending,
+  });
   return (
     <div className={cn("shrink-0", !bar && "px-4 pb-4 pt-1 md:px-8 md:pb-5")}>
-      <div className="mx-auto max-w-3xl">
+      <div className="relative mx-auto max-w-3xl">
+        {mention.picker}
         <div
           className={cn(
             "rounded-2xl border border-border bg-card p-2.5 transition-[box-shadow,border-color] focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/15",
@@ -115,6 +130,11 @@ export default function Composer({
               chips={chips}
               disabled={busy || pending}
               onRemove={onRemoveChip}
+            />
+            <BotTagChips
+              tags={mention.tags}
+              disabled={busy || pending}
+              onRemove={mention.removeTag}
             />
             {!!images.length && (
               <PendingImages images={images} remove={removeImage} />
@@ -138,7 +158,11 @@ export default function Composer({
             aria-label="Message Timely"
             placeholder={placeholder}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              mention.onCaret(e.target);
+            }}
+            onSelect={(e) => mention.onCaret(e.currentTarget)}
             onPaste={(e) => {
               const files = Array.from(e.clipboardData.files);
               if (files.length) {
@@ -149,6 +173,10 @@ export default function Composer({
             maxLength={16000}
             rows={2}
             onKeyDown={(e) => {
+              if (mention.onKeyDown(e)) {
+                e.preventDefault();
+                return;
+              }
               if (
                 e.key === "Enter" &&
                 !e.shiftKey &&

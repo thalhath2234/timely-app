@@ -10,9 +10,10 @@ import {
   Trash2,
   X,
 } from "lucide-react-native";
-import type { ChatContext, PendingImage } from "../../lib/chat/types";
+import type { BotTag, ChatContext, PendingImage } from "../../lib/chat/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import AnimatedPressable from "../ui/AnimatedPressable";
+import { BotTagChips, useBotMention } from "./BotMentionPicker";
 import { chipIcon } from "./chatMeta";
 import { Action, IconButton, styles as common } from "./shared";
 
@@ -61,6 +62,8 @@ export function ContextChips({
 export default function Composer({
   text,
   onChangeText,
+  botTags,
+  onTag,
   placeholder,
   chips,
   onRemoveChip,
@@ -93,6 +96,10 @@ export default function Composer({
 }: {
   text: string;
   onChangeText: (value: string) => void;
+  /** Bots picked with "@" for the message being written. */
+  botTags?: BotTag[];
+  /** A pick or a removed tag: the new text and tags together. */
+  onTag: (text: string, tags: BotTag[]) => void;
   placeholder: string;
   chips: ChatContext[];
   onRemoveChip: (index: number) => void;
@@ -128,6 +135,13 @@ export default function Composer({
   onFocused?: () => void;
 }) {
   const input = useRef<TextInput>(null);
+  const mention = useBotMention({
+    text,
+    tags: botTags,
+    onTag,
+    inputRef: input,
+    disabled: !editable,
+  });
   useEffect(() => {
     if (!focusKey) return;
     input.current?.focus();
@@ -170,10 +184,16 @@ export default function Composer({
   const searchOn = search && !privateImages;
   return (
     <View style={styles.wrap}>
+      {mention.picker}
       <ContextChips
         chips={chips}
         disabled={!canConfigure}
         onRemove={onRemoveChip}
+      />
+      <BotTagChips
+        tags={mention.tags}
+        disabled={!editable}
+        onRemove={mention.removeTag}
       />
       {images.length ? (
         <ScrollView
@@ -217,7 +237,13 @@ export default function Composer({
           placeholderTextColor={colors.mutedForeground}
           value={text}
           editable={editable}
-          onChangeText={onChangeText}
+          onChangeText={(value) => {
+            mention.onTextChange(value);
+            onChangeText(value);
+          }}
+          onSelectionChange={(e) =>
+            mention.onSelectionChange(e.nativeEvent.selection.start)
+          }
           multiline
           maxLength={16000}
           selectionColor={colors.primary}
