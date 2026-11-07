@@ -74,7 +74,6 @@ func TestCleanURL(t *testing.T) {
 
 func TestCleanPrice(t *testing.T) {
 	cases := []struct{ source, symbol, currency, wantSrc, wantSym, wantCur string }{
-		{"stock", "aapl", "", "finnhub", "AAPL", "USD"},
 		{"crypto", "btc", "inr", "coinbase", "BTC", "INR"},
 		{"Coinbase", "eth", "", "coinbase", "ETH", "USD"},
 		{"yahoo", "reliance.ns", "", "yahoo", "RELIANCE.NS", ""},
@@ -91,6 +90,9 @@ func TestCleanPrice(t *testing.T) {
 		{"nasdaq", "AAPL", "", `"nasdaq" is not a price source`},
 		{"finnhub", "", "", "Give the price watch a symbol"},
 		{"finnhub", "AAPL", "EUR", "does not quote prices"},
+		// No key can be saved yet, so a keyed source could only fail.
+		{"stock", "aapl", "", "Stock prices need a Finnhub API key, and Timely cannot save one yet"},
+		{"finnhub", "AAPL", "", "need a Finnhub API key"},
 		{"coinbase", "BTC-USD!", "", "is not a"},
 	} {
 		if msg := inputMsg(t, cleanPrice4(c.source, c.symbol, c.currency)); !strings.Contains(msg, c.want) {

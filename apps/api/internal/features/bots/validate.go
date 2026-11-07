@@ -240,7 +240,8 @@ func cleanURL(raw, what string) (string, error) {
 }
 
 // cleanPrice resolves the source ("stock" and "crypto" pick price.Default)
-// and checks the symbol and currency against it.
+// and checks the symbol and currency against it. A source that needs the
+// person's API key is refused while keys cannot be saved.
 func cleanPrice(source, symbol, currency string) (string, string, string, error) {
 	name := strings.ToLower(strings.TrimSpace(source))
 	if d, ok := price.Default[name]; ok {
@@ -259,6 +260,11 @@ func cleanPrice(source, symbol, currency string) (string, string, string, error)
 	sym, cur, err := src.Check(symbol, currency)
 	if err != nil {
 		return "", "", "", invalid("%s", err.Error())
+	}
+	if src.KeyHeader != "" {
+		// Until a key can be saved (branch 3), every check of a keyed
+		// source would fail and the Bot would pause after 5 strikes.
+		return "", "", "", invalid("%s prices need a %s API key, and Timely cannot save one yet", sentence(src.Kind), src.Label)
 	}
 	return name, sym, cur, nil
 }

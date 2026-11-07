@@ -60,7 +60,7 @@ type botWatchIn struct {
 	URL      string      `json:"url,omitempty" jsonschema:"page and feed: the public web address"`
 	Read     string      `json:"read,omitempty" jsonschema:"page: text (default), selector or product_price"`
 	Selector string      `json:"selector,omitempty" jsonschema:"page with read=selector: a CSS selector"`
-	Source   string      `json:"source,omitempty" jsonschema:"price: coinbase for crypto or finnhub for stocks"`
+	Source   string      `json:"source,omitempty" jsonschema:"price: crypto (Coinbase); stock prices need a key Timely cannot save yet"`
 	Symbol   string      `json:"symbol,omitempty" jsonschema:"price: the ticker or coin, like AAPL or BTC"`
 	Currency string      `json:"currency,omitempty" jsonschema:"price: the quote currency, like USD"`
 	Rules    []botRuleIn `json:"rules,omitempty" jsonschema:"when to alert; left out gets a default"`

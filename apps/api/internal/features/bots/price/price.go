@@ -2,7 +2,8 @@
 // public JSON sources. Every source goes through the bot fetcher, so
 // robots.txt is honoured for each one (ADR 0021): today Yahoo and CoinGecko
 // answer ErrRobots, Coinbase serves crypto, and Finnhub serves stocks with a
-// free per-account key.
+// free per-account key. Keys cannot be saved yet (branch 3), so watches on a
+// keyed source are refused when they are saved.
 package price
 
 import (
