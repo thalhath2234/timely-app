@@ -2,6 +2,7 @@ package bots
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 )
@@ -26,13 +27,15 @@ func (s *Service) DigestLines(ctx context.Context, userID string, now time.Time)
 	}
 	// The past day's notes, and notes whose pass was folded, overflowed or
 	// failed in the past day: they went to no one, so the digest lists them.
+	// Like a brief, it leaves out notes another Bot took and held-back ones.
 	since := now.UTC().Add(-digestWindow)
 	err := s.db.WithContext(ctx).Raw(`
 		SELECT f.id, f.bot_id, b.name, f.title
 		FROM bot_findings f JOIN bots b ON b.id = f.bot_id
-		WHERE f.user_id = ? AND f.digested_at IS NULL AND (f.created_at > ? OR f.id IN (
-			SELECT finding_id FROM bot_passes WHERE user_id = ? AND state IN ? AND updated_at > ? AND finding_id IS NOT NULL))
-		ORDER BY f.created_at DESC, f.id DESC`, userID, since, userID, briefPassStates, since).Scan(&rows).Error
+		WHERE f.user_id = @uid AND f.digested_at IS NULL AND (f.created_at > @since OR f.id IN (
+			SELECT finding_id FROM bot_passes WHERE user_id = @uid AND state IN @states AND updated_at > @since AND finding_id IS NOT NULL))`+briefSkip+`
+		ORDER BY f.created_at DESC, f.id DESC`, sql.Named("uid", userID), sql.Named("since", since),
+		sql.Named("states", briefPassStates), sql.Named("taken", takenPassStates)).Scan(&rows).Error
 	if err != nil || len(rows) == 0 {
 		return nil, nil, err
 	}

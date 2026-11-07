@@ -254,6 +254,28 @@ func TestIntegrationBotBriefRuns(t *testing.T) {
 		t.Fatalf("folded pass in the brief: %+v", c)
 	}
 
+	// A note a link handed to another Bot (queued, told of, held quiet or
+	// already taken) is that Bot's to tell: neither the brief nor the
+	// digest lists it again.
+	for i, state := range []string{passPending, passAlerted, passQuiet, passRepeat} {
+		id := e.note(deals.ID, "item", "Passed deal "+state, "", e.now.Add(time.Duration(i+1)*time.Second))
+		must(t, e.db.Exec(`INSERT INTO bot_passes (id, user_id, link_id, from_bot_id, to_bot_id, finding_id, chain_id, depth, local_day, state, created_at, updated_at)
+			VALUES (?, ?, NULL, ?, ?, ?, 'bchk_y', 1, CURRENT_DATE, ?, ?, ?)`, "bps_"+state, e.user, deals.ID, prices.ID, id, state, e.now, e.now).Error)
+	}
+	e.note(deals.ID, "item", "Kept deal", "", e.now.Add(5*time.Second))
+	e.now = e.now.Add(time.Minute)
+	lines, _, err = e.s.DigestLines(ctx, e.user, e.now)
+	must(t, err)
+	for _, l := range lines {
+		if strings.Contains(l, "Passed deal") {
+			t.Fatalf("digest lists a passed note: %q", lines)
+		}
+	}
+	c = e.runBrief(v.ID)
+	if c.Outcome != outFired || !slices.Equal(alertView(e.alertRow(c.ID)).Lines, []string{"Deals: Kept deal"}) {
+		t.Fatalf("passed notes in the brief: %q", alertView(e.alertRow(c.ID)).Lines)
+	}
+
 	// Run now works on a brief, and a tag reads the next brief's notes
 	// without a check.
 	e.note(prices.ID, "price", "below $9", "Now $8", e.now.Add(time.Minute))

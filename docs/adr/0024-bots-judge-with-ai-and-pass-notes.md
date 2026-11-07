@@ -142,7 +142,10 @@ holds up scheduled checks.
 **A brief is a Bot with no Watches.** It runs daily at the time the person
 picks and sends one alert listing new Findings from up to eight Bots, at most
 five per Bot plus "and N more", from a template or with one AI call when
-"Write it with AI" is on. Findings stay in the 08:00 digest too. A source Bot
+"Write it with AI" is on. Findings stay in the 08:00 digest too. Neither lists
+a Finding another Bot took through a link (pending, alerted, quiet or a
+repeat), since the alert comes from the end of the chain, nor the Findings of
+a Check whose alert the AI held back or a re-judge found not worth it. A source Bot
 can be set to "Only in the brief", which counts only while it is in an active
 brief.
 

@@ -19,6 +19,20 @@ import (
 // limit, or a failed read): the next brief and the digest list the note.
 var briefPassStates = []string{passFolded, passOverflow, passFailed}
 
+// takenPassStates are passes whose note another Bot took (queued, told of,
+// held quiet, or already taken within the week): that Bot speaks for it.
+var takenPassStates = []string{passPending, passAlerted, passQuiet, passRepeat}
+
+// briefSkip leaves out of a brief and the digest (f is the note) what they
+// would only repeat: a note a link handed to another Bot (takenPassStates),
+// so the person hears of it from the end of the chain; and the notes of a
+// check whose alert the AI held back, or a re-judge later found not worth
+// it, since a held alert brings no notification. It takes @uid and @taken.
+const briefSkip = `
+  AND NOT EXISTS (SELECT 1 FROM bot_passes tp WHERE tp.user_id = @uid AND tp.finding_id = f.id AND tp.state IN @taken)
+  AND NOT EXISTS (SELECT 1 FROM bot_alerts ha WHERE ha.user_id = @uid AND ha.check_id = f.check_id
+                  AND (ha.held = '` + heldJudged + `' OR ha.ai_state = '` + aiRejudged + `'))`
+
 const (
 	// briefLag is how far behind its start a brief lists notes: a source's
 	// save that began before the brief but commits after its read keeps
@@ -60,8 +74,9 @@ ORDER BY l.created_at, l.id`, b.UserID, b.ID, LinkBrief).Scan(&out).Error
 
 // collectBrief gathers the notes a brief lists: its sources' notes made
 // after cursor and up to until, and notes whose pass reached no Bot in that
-// window (briefPassStates). Each source keeps its newest BriefItemsPerBot;
-// the rest are counted. It writes nothing.
+// window (briefPassStates), less what briefSkip leaves out. Each source
+// keeps its newest BriefItemsPerBot; the rest are counted. It writes
+// nothing.
 func collectBrief(db *gorm.DB, userID string, sources []BotRef, cursor, until time.Time) (briefDigest, error) {
 	if len(sources) == 0 {
 		return briefDigest{}, nil
@@ -76,10 +91,10 @@ SELECT f.* FROM bot_findings f
 WHERE f.user_id = @uid AND f.bot_id IN @sources
   AND ((f.created_at > @cursor AND f.created_at <= @until)
        OR f.id IN (SELECT p.finding_id FROM bot_passes p WHERE p.user_id = @uid AND p.state IN @states
-                   AND p.updated_at > @cursor AND p.updated_at <= @until AND p.finding_id IS NOT NULL))
+                   AND p.updated_at > @cursor AND p.updated_at <= @until AND p.finding_id IS NOT NULL))`+briefSkip+`
 ORDER BY f.created_at DESC, f.id DESC`,
 		sql.Named("uid", userID), sql.Named("sources", ids), sql.Named("cursor", cursor.UTC()), sql.Named("until", until.UTC()),
-		sql.Named("states", briefPassStates)).Scan(&rows).Error; err != nil {
+		sql.Named("states", briefPassStates), sql.Named("taken", takenPassStates)).Scan(&rows).Error; err != nil {
 		return briefDigest{}, err
 	}
 	return groupBrief(sources, rows), nil

@@ -217,6 +217,14 @@ func TestIntegrationBotJudgeHoldsBack(t *testing.T) {
 	if n := e.count("bot_findings", "check_id = ? AND NOT alerted AND urgency = 'low'", c.ID); n != 1 {
 		t.Fatal("the held check's finding")
 	}
+	// A held note stays on the rail: no brief or digest brings it back.
+	d0, err := collectBrief(e.db, e.user, []BotRef{{BotID: v.ID, Name: v.Name}}, c.StartedAt.Add(-time.Hour), e.now.Add(time.Hour))
+	must(t, err)
+	lines, _, err := e.s.DigestLines(context.Background(), e.user, e.now)
+	must(t, err)
+	if d0.n != 0 || len(lines) != 0 {
+		t.Fatalf("a held note in a brief (%d) or the digest %q", d0.n, lines)
+	}
 	if b := e.bot(v.ID); b.Health != healthWorking {
 		t.Fatalf("bot %+v", b)
 	}
