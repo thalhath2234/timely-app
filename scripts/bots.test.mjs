@@ -62,6 +62,7 @@ import {
   formatMoney,
   briefClock,
   briefSourceRow,
+  chainLinks,
   BRIEF_ADD_ROW,
   healthLine,
   intervalLabel,
@@ -1642,6 +1643,13 @@ describe("AI, links and briefs over the seed", () => {
     assert.deepEqual(howItCame(alertOf({}), seed.gpu, all, links).rows.at(-1), ["Judged by", "Rules only"]);
     const off = links.map((l) => (l.id === "blk_gpu_nvme" ? { ...l, enabled: false, offReason: "person" } : l));
     assert.equal(howItCame(nvme.latestAlert, nvme, all, off).unpass, null, "a switched-off link has nothing to turn off");
+    // A bot's own links lack a longer chain's first step: the board's fill it in, its own win.
+    const own = links.filter((l) => l.id !== "blk_gpu_nvme");
+    assert.equal(howItCame(nvme.latestAlert, nvme, all, own).rows[1][1], "By a link that is gone");
+    const merged = chainLinks(links, off);
+    assert.equal(merged.length, links.length);
+    assert.equal(merged.find((l) => l.id === "blk_gpu_nvme").enabled, false);
+    assert.equal(howItCame(nvme.latestAlert, nvme, all, chainLinks(links, own)).rows[1][1], "mentions 2TB NVMe");
     assert.equal(howItCame(nvme.latestAlert, nvme, all, []).unpass, null, "nor does a link that is gone");
   });
 

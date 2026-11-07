@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
 import { ThumbsDown, Unlink } from "lucide-react-native";
-import { PASS_FEEDBACK, howItCame, type AlertView, type BotView, type LinkView } from "@timely/contract/bots";
+import { PASS_FEEDBACK, chainLinks, howItCame, type AlertView, type BotView, type LinkView } from "@timely/contract/bots";
 import BottomSheet from "../ui/BottomSheet";
 import ConfirmSheet from "../ui/ConfirmSheet";
 import { GroupHint, ListGroup, ListRow } from "../settings/SettingsList";
@@ -22,7 +22,7 @@ export function HowItCameSheet({
   onClose,
   bot,
   alert,
-  links,
+  links: ownLinks,
 }: {
   open: boolean;
   onClose: () => void;
@@ -30,7 +30,9 @@ export function HowItCameSheet({
   alert: Pick<AlertView, "id" | "via" | "aiState" | "feedback" | "feedbackReason">;
   links: LinkView[] | null | undefined;
 }) {
-  const bots = useBotsQuery().data?.bots;
+  const board = useBotsQuery().data;
+  const bots = board?.bots;
+  const links = chainLinks(board?.summary.links, ownLinks);
   const rate = useRateAlert();
   const setLink = useSetLink();
   const [confirm, setConfirm] = useState(false);

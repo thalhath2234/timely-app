@@ -1945,6 +1945,19 @@ export function filterLine(filter: string[] | null | undefined): string {
 const linkName = (bots: BotNames | undefined, id: string) => nameOf(bots, id) ?? "A deleted bot";
 
 /** "How this came to you": the rows, and the link "Turn off this pass" turns off (null when there is none to turn off). */
+/**
+ * The links "How this came to you" looks steps up in: the account's (the
+ * board's summary) with the open bot's own over them. A bot's own list has
+ * only the links from or to it, so the first step of a longer chain is
+ * found only on the board.
+ */
+export function chainLinks(board: LinkView[] | null | undefined, own: LinkView[] | null | undefined): LinkView[] {
+  const byId = new Map<string, LinkView>();
+  for (const l of board ?? []) byId.set(l.id, l);
+  for (const l of own ?? []) byId.set(l.id, l);
+  return [...byId.values()];
+}
+
 export function howItCame(
   alert: Pick<AlertBrief, "via" | "aiState">,
   bot: Pick<BotView, "name">,

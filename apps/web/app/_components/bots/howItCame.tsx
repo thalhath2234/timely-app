@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Unlink, ThumbsDown } from "lucide-react";
 import {
   PASS_FEEDBACK,
+  chainLinks,
   howItCame,
   type AlertBrief,
   type AlertView,
@@ -36,14 +37,16 @@ const say = (message: string) => {
 export function HowItCame({
   bot,
   alert,
-  links,
+  links: ownLinks,
 }: {
   bot: Pick<BotView, "id" | "name">;
   alert: Pick<AlertBrief, "id" | "via" | "aiState" | "feedback"> &
     Partial<Pick<AlertView, "feedbackReason">>;
   links: LinkView[] | null | undefined;
 }) {
-  const bots = useBots().data?.bots;
+  const board = useBots().data;
+  const bots = board?.bots;
+  const links = chainLinks(board?.summary.links, ownLinks);
   const rate = useRateAlert();
   const setLink = useSetLink();
   const [open, setOpen] = useState(false);
@@ -142,7 +145,8 @@ export function HowItCame({
             aria-label="How this came to you"
             className={cn(
               popoverSurface,
-              "absolute inset-x-0 top-8 z-40 flex min-w-64 flex-col gap-2.5 p-3",
+              // Wider than a rail item: anchored right, it grows left into the panel.
+              "absolute right-0 top-8 z-40 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2.5 p-3",
             )}
           >
             <GroupLabel className="pb-0">How this came to you</GroupLabel>
@@ -156,10 +160,11 @@ export function HowItCame({
               ))}
             </ListGroup>
             {unpass ? (
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-col gap-2">
                 <Button
                   variant="outline"
                   size="sm"
+                  className="w-full"
                   leading={<ThumbsDown />}
                   aria-pressed={markedNotPassed}
                   loading={rate.isPending}
@@ -169,8 +174,9 @@ export function HowItCame({
                   {PASS_FEEDBACK.label}
                 </Button>
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
+                  className="w-full"
                   leading={<Unlink />}
                   loading={setLink.isPending}
                   onClick={turnOff}
