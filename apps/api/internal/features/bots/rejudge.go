@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -126,7 +127,10 @@ func (s *Service) rejudge(ctx context.Context, db *gorm.DB, job *models.Job, ale
 		}
 		pending := tx.Model(&Alert{}).Where("id = ? AND user_id = ? AND ai_state = ? AND ai_input IS NOT NULL", a.ID, job.UserID, aiUnchecked)
 		if v.Alert {
-			return pending.Updates(map[string]any{"ai_state": aiJudged, "ai_why": v.Why, "urgency": v.Urgency, "ai_input": nil}).Error
+			// The notification keeps its mark; the alert, now judged, drops
+			// it (from a row written before the mark moved out of bodies).
+			return pending.Updates(map[string]any{"ai_state": aiJudged, "ai_why": v.Why, "urgency": v.Urgency, "ai_input": nil,
+				"body": strings.TrimSuffix(a.Body, uncheckedSuffix)}).Error
 		}
 		res := pending.Updates(map[string]any{"ai_state": aiRejudged, "ai_why": v.Why, "ai_input": nil})
 		if res.Error != nil || res.RowsAffected == 0 || a.NotificationID == nil {

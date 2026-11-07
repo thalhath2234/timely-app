@@ -56,8 +56,18 @@ type alertRun struct {
 	url    string
 }
 
-// uncheckedSuffix marks an alert AI did not judge.
+// uncheckedSuffix marks the notification of an alert AI did not judge. The
+// alert row keeps the rules' words alone; the clients show the mark.
 const uncheckedSuffix = " (not checked by AI)"
+
+// notificationBody is what an alert's notification says: its body, marked
+// when AI did not judge it.
+func notificationBody(a Alert) string {
+	if a.AIState != aiUnchecked || strings.HasSuffix(a.Body, uncheckedSuffix) {
+		return a.Body
+	}
+	return strings.TrimSpace(a.Body + uncheckedSuffix)
+}
 
 // alert raises the one alert a firing check gets, inside its transaction:
 // held while the Bot is snoozed, held 'shared' when another Bot's alert
@@ -108,7 +118,6 @@ func (s *Service) alert(tx *gorm.DB, b Bot, a alertRun) (sent bool, err error) {
 		body = v.Why
 		row.AIState, row.AIWhy, urgency = aiJudged, v.Why, v.Urgency
 	case a.aiState == aiUnchecked:
-		body = strings.TrimSpace(body + uncheckedSuffix)
 		row.AIState, row.AIWhy = aiUnchecked, clipRunes(a.aiNote, maxAIWhy)
 	}
 	row.Urgency = urgency
@@ -138,7 +147,7 @@ func (s *Service) alert(tx *gorm.DB, b Bot, a alertRun) (sent bool, err error) {
 		return false, err
 	}
 	if today < AlertsPerDay {
-		ntf := botNotification(b, title, body, "bot:"+b.ID+":"+a.checkID, alertData(b, a.alertID, a.checkID, url, alertKindAlert))
+		ntf := botNotification(b, title, notificationBody(row), "bot:"+b.ID+":"+a.checkID, alertData(b, a.alertID, a.checkID, url, alertKindAlert))
 		if _, err := notify.WriteAlert(tx, &ntf, settings, loc, opts); err != nil {
 			return false, err
 		}
@@ -229,7 +238,7 @@ func shareAlert(tx *gorm.DB, b Bot, row *Alert, things []Thing) (bool, error) {
 		}
 	}
 	if anchor.NotificationID != nil {
-		err := notify.BumpAlert(tx, b.UserID, *anchor.NotificationID, anchor.Title, anchor.Body+alsoSeenTail(seen))
+		err := notify.BumpAlert(tx, b.UserID, *anchor.NotificationID, anchor.Title, notificationBody(*anchor)+alsoSeenTail(seen))
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return false, err
 		}

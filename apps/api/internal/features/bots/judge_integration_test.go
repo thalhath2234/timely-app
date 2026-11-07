@@ -272,9 +272,13 @@ func TestIntegrationBotJudgeUnavailable(t *testing.T) {
 	e.again(v.ID)
 	c := e.lastCheck(v.ID)
 	a := e.alertRow(c.ID)
-	if c.Outcome != outFired || a.AIState != aiUnchecked || a.AIWhy != noteLater || a.Body != "BTC now $102 (was $100) (not checked by AI)" ||
+	if c.Outcome != outFired || a.AIState != aiUnchecked || a.AIWhy != noteLater || a.Body != "BTC now $102 (was $100)" ||
 		a.Title != "BTC later: up 2.0%" || len(a.AIInput) == 0 || a.NotificationID == nil {
 		t.Fatalf("unchecked alert %+v", a)
+	}
+	// Only the notification carries the mark; the alert keeps the rules' words.
+	if ntf := e.notifications(); len(ntf) != 1 || ntf[0].Body != "BTC now $102 (was $100) (not checked by AI)" {
+		t.Fatalf("unchecked notification %+v", ntf)
 	}
 	job := e.rejudgeJob(a.ID)
 	if job.Kind != models.JobBotJudge || job.MaxAttempts != rejudgeAttempts || !job.RunAt.Equal(e.now.Add(rejudgeFirst)) || job.Payload.String("alertId") != a.ID {
@@ -311,7 +315,8 @@ func TestIntegrationBotJudgeUnavailable(t *testing.T) {
 	a2 = e.alertRow(c2.ID)
 	ntf = models.Notification{}
 	must(t, e.db.Where("id = ?", *a2.NotificationID).First(&ntf).Error)
-	if a2.AIState != aiJudged || a2.AIWhy != "Worth knowing" || a2.Urgency != UrgencyHigh || len(a2.AIInput) != 0 || ntf.Body != a2.Body {
+	if a2.AIState != aiJudged || a2.AIWhy != "Worth knowing" || a2.Urgency != UrgencyHigh || len(a2.AIInput) != 0 ||
+		ntf.Body != a2.Body+uncheckedSuffix || strings.HasSuffix(a2.Body, uncheckedSuffix) {
 		t.Fatalf("after a confirmation: alert %+v, notification %q", a2, ntf.Body)
 	}
 
@@ -397,7 +402,7 @@ func TestIntegrationBotJudgeOffAndCapped(t *testing.T) {
 		}
 	}
 	// No judge wired at all.
-	if a := step("102.00"); a.AIState != aiUnchecked || a.AIWhy != noteNoProvider || !strings.HasSuffix(a.Body, uncheckedSuffix) {
+	if a := step("102.00"); a.AIState != aiUnchecked || a.AIWhy != noteNoProvider || strings.HasSuffix(a.Body, uncheckedSuffix) {
 		t.Fatalf("no judge %+v", a)
 	} else {
 		noJob(a)
@@ -493,7 +498,7 @@ func TestIntegrationBotJudgeEditedMeanwhile(t *testing.T) {
 	c := e.lastCheck(v.ID)
 	a := e.alertRow(c.ID)
 	if c.Outcome != outFired || a.Held != "" || a.AIState != aiUnchecked || a.AIWhy != noteChanged || len(a.AIInput) != 0 ||
-		a.Body != "BTC now $102 (was $100) (not checked by AI)" {
+		a.Body != "BTC now $102 (was $100)" {
 		t.Fatalf("check %s, alert %+v", c.Outcome, a)
 	}
 	if n := e.count("jobs", "kind = ?", models.JobBotJudge); n != 0 {
