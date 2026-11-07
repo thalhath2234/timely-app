@@ -34,6 +34,8 @@ func (s *Service) Routes(g *echo.Group) {
 	g.POST("/bots/:id/run", s.run)
 	g.POST("/bots/:id/alerts/:alertId/feedback", s.rateAlert)
 	g.DELETE("/bots/:id/lessons/:lessonId", s.forgetLesson)
+	g.POST("/bots/:id/suggestion", s.applySuggestion)
+	g.DELETE("/bots/:id/suggestion", s.dismissSuggestion)
 }
 
 func user(c *echo.Context) string { v, _ := c.Get("userID").(string); return v }
@@ -57,6 +59,8 @@ func httpError(err error) error {
 		return echo.NewHTTPError(http.StatusNotFound, "Unknown price source")
 	case errors.As(err, &down):
 		return echo.NewHTTPError(http.StatusServiceUnavailable, down.Message)
+	case errors.Is(err, ErrSuggestionStale):
+		return echo.NewHTTPError(http.StatusConflict, ErrSuggestionStale.Error())
 	case errors.Is(err, ErrPaused):
 		return echo.NewHTTPError(http.StatusConflict, ErrPaused.Error())
 	case errors.Is(err, ErrPreviewLimit):
@@ -227,7 +231,8 @@ func (s *Service) findings(c *echo.Context) error {
 
 // rateAlert takes {"feedback":"useful"}, {"feedback":"not_useful",
 // "reason":"too_small"|"not_wanted"|"already_knew"|"","note":"..."} or
-// {"feedback":null} to take the rating back.
+// {"feedback":null} to take the rating back. It answers the alert with the
+// lesson the rating taught ("lesson", null on undo).
 func (s *Service) rateAlert(c *echo.Context) error {
 	var in struct {
 		Feedback json.RawMessage `json:"feedback"`
@@ -254,6 +259,29 @@ func (s *Service) rateAlert(c *echo.Context) error {
 		return httpError(err)
 	}
 	return c.JSON(http.StatusOK, v)
+}
+
+// applySuggestion takes {"id": "bsg_..."}, the suggestion the person saw,
+// and answers the Bot, or 409 when that suggestion is out of date.
+func (s *Service) applySuggestion(c *echo.Context) error {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return badRequest()
+	}
+	v, err := s.ApplySuggestion(c.Request().Context(), user(c), c.Param("id"), in.ID)
+	if err != nil {
+		return httpError(err)
+	}
+	return c.JSON(http.StatusOK, v)
+}
+
+func (s *Service) dismissSuggestion(c *echo.Context) error {
+	if err := s.DismissSuggestion(c.Request().Context(), user(c), c.Param("id")); err != nil {
+		return httpError(err)
+	}
+	return c.NoContent(http.StatusNoContent)
 }
 
 func (s *Service) forgetLesson(c *echo.Context) error {

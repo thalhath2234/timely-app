@@ -34,11 +34,33 @@ type Bot struct {
 	OfflineSince    *time.Time `json:"offlineSince"`
 	Health          string     `gorm:"type:text;not null" json:"health"`
 	HealthDetail    string     `gorm:"type:text;not null" json:"healthDetail"`
-	CreatedAt       time.Time  `json:"createdAt"`
-	UpdatedAt       time.Time  `json:"updatedAt"`
+	// Suggestion is the better rule a rules-only Bot proposes after three
+	// Not useful alerts in a row (T2); SuggestionDismissedAt is when the
+	// person last applied or dismissed one.
+	Suggestion            *Suggestion `gorm:"serializer:json;type:jsonb" json:"-"`
+	SuggestionDismissedAt *time.Time  `json:"-"`
+	CreatedAt             time.Time   `json:"createdAt"`
+	UpdatedAt             time.Time   `json:"updatedAt"`
 }
 
 func (Bot) TableName() string { return "bots" }
+
+// Suggestion is a change a Bot proposes, worked out by code from the
+// person's ratings: Line asks, Button applies. It names the rule it changes
+// (WatchID, RuleID and the new Rule), a new interval or AI judging.
+type Suggestion struct {
+	ID              string    `json:"id"` // bsg_<uuid>
+	Line            string    `json:"line"`
+	Button          string    `json:"button"`
+	Reason          string    `json:"reason"` // the ratings' most common reason, or ""
+	WatchID         string    `json:"watchId,omitempty"`
+	RuleID          string    `json:"ruleId,omitempty"`
+	Rule            *Rule     `json:"rule,omitempty"`
+	IntervalMinutes *int      `json:"intervalMinutes,omitempty"`
+	JudgeMode       string    `json:"judgeMode,omitempty"`
+	AlertIDs        []string  `json:"alertIds"`
+	CreatedAt       time.Time `json:"createdAt"`
+}
 
 // Interval is how often the Bot is checked.
 func (b Bot) Interval() time.Duration { return time.Duration(b.IntervalSeconds) * time.Second }
@@ -197,8 +219,9 @@ type PriceDay struct {
 
 func (PriceDay) TableName() string { return "bot_price_days" }
 
-// Lesson is something the person taught a Bot (table bot_lessons). It is
-// written from the teaching branch; the table is here so backups carry it.
+// Lesson is something the person taught a Bot (table bot_lessons): one per
+// rated alert, written by code from the alert's rules-made words and the
+// person's note (lessonText), the newest MaxLessons kept.
 type Lesson struct {
 	ID        string    `gorm:"type:text;primaryKey" json:"id"`
 	BotID     string    `gorm:"type:text;not null" json:"botId"`

@@ -296,3 +296,260 @@ func TestIntegrationBotRearm(t *testing.T) {
 		t.Fatalf("fresh bot rearms %v", body["rearms"])
 	}
 }
+
+// Each rating teaches the Bot one lesson, written by code: a re-rate
+// replaces it, undo deletes it, and only the newest MaxLessons are kept.
+func TestIntegrationBotLessons(t *testing.T) {
+	e := newEngine(t)
+	amount := "27499.00"
+	e.coinbase(&amount)
+	v := e.create(btcBot("BTC dip", Rule{Kind: RuleBelow, Threshold: f64(25000)}))
+	must(t, e.run(v.ID))
+	amount = "24999.00"
+	e.again(v.ID)
+	var alert Alert
+	must(t, e.db.Where("bot_id = ? AND kind = 'alert'", v.ID).First(&alert).Error)
+	what := strings.TrimPrefix(alert.Title, "BTC dip: ")
+	path := "/bots/" + v.ID + "/alerts/" + alert.ID + "/feedback"
+	lessons := func() []Lesson {
+		t.Helper()
+		var out []Lesson
+		must(t, e.db.Where("bot_id = ?", v.ID).Order("created_at, id").Find(&out).Error)
+		return out
+	}
+
+	code, body := call(t, e.s, e.user, http.MethodPost, path, map[string]any{"feedback": "useful"})
+	lesson, _ := body["lesson"].(map[string]any)
+	if code != 200 || body["id"] != alert.ID || lesson == nil || lesson["text"] != "Wanted: “"+what+"”" || lesson["alertId"] != alert.ID {
+		t.Fatalf("useful %d %v", code, body)
+	}
+	got := lessons()
+	if len(got) != 1 || got[0].UserID != e.user || got[0].BotID != v.ID || got[0].AlertID == nil || *got[0].AlertID != alert.ID || got[0].ID != lesson["id"] {
+		t.Fatalf("stored lesson %+v", got)
+	}
+
+	// Rating again replaces it; the note follows the reason.
+	_, body = call(t, e.s, e.user, http.MethodPost, path, map[string]any{"feedback": "not_useful", "reason": "too_small", "note": "Only big dips"})
+	got = lessons()
+	if want := "Too small to tell me: “" + what + "”. Only big dips"; len(got) != 1 || got[0].Text != want || body["lesson"].(map[string]any)["text"] != want {
+		t.Fatalf("re-rate %+v %v", got, body["lesson"])
+	}
+	// Undo deletes it.
+	code, body = call(t, e.s, e.user, http.MethodPost, path, map[string]any{"feedback": nil})
+	if code != 200 || body["lesson"] != nil || len(lessons()) != 0 {
+		t.Fatalf("undo %d %v %+v", code, body, lessons())
+	}
+	// The Detail lists it.
+	call(t, e.s, e.user, http.MethodPost, path, map[string]any{"feedback": "not_useful", "reason": "already_knew"})
+	_, d := call(t, e.s, e.user, http.MethodGet, "/bots/"+v.ID, nil)
+	if list, _ := d["lessons"].([]any); len(list) != 1 || list[0].(map[string]any)["text"] != "I already knew: “"+what+"”" {
+		t.Fatalf("detail lessons %v", d["lessons"])
+	}
+
+	// With MaxLessons kept, a new one drops the oldest.
+	must(t, e.db.Where("bot_id = ?", v.ID).Delete(&Lesson{}).Error)
+	for i := range MaxLessons {
+		must(t, e.db.Create(&Lesson{ID: fmt.Sprintf("bls_%02d", i), BotID: v.ID, UserID: e.user, Text: "Old lesson",
+			CreatedAt: e.now.Add(-time.Duration(MaxLessons-i) * time.Minute)}).Error)
+	}
+	call(t, e.s, e.user, http.MethodPost, path, map[string]any{"feedback": "useful"})
+	got = lessons()
+	if len(got) != MaxLessons || got[0].ID != "bls_01" || got[len(got)-1].AlertID == nil || *got[len(got)-1].AlertID != alert.ID {
+		t.Fatalf("after the 21st: %d, first %s", len(got), got[0].ID)
+	}
+	// Another Bot's lessons are its own.
+	other := e.create(btcBot("Other", Rule{Kind: RuleAbove, Threshold: f64(90000)}))
+	must(t, e.db.Create(&Lesson{ID: "bls_other", BotID: other.ID, UserID: e.user, Text: "Mine", CreatedAt: e.now.Add(-time.Hour)}).Error)
+	call(t, e.s, e.user, http.MethodPost, path, map[string]any{"feedback": "not_useful"})
+	if e.count("bot_lessons", "id = 'bls_other'") != 1 || len(lessons()) != MaxLessons {
+		t.Fatal("trimming reached another bot")
+	}
+}
+
+// Three Not useful alerts in a row make a rules-only Bot suggest a better
+// rule; Apply makes the change, Dismiss holds it off until three newer
+// ratings, and an edit or a restore drops it.
+func TestIntegrationBotSuggestion(t *testing.T) {
+	e := newEngine(t)
+	ctx := context.Background()
+	v := e.create(btcBot("BTC moves", Rule{Kind: RuleMovePct, Percent: f64(5)}, Rule{Kind: RuleAbove, Threshold: f64(90000)}))
+	w := v.Watches[0]
+	day := e.now.Truncate(24 * time.Hour)
+	var ids []string
+	for i, pct := range []float64{-5.5, 6, 5.2} {
+		a := Alert{ID: fmt.Sprintf("bal_%d", i), BotID: v.ID, UserID: e.user, Kind: alertKindAlert, LocalDay: day,
+			Title: "BTC moves: down 5.5%", Figures: jsonMap[string, any]{"rule": RuleMovePct, "watchId": w.ID, "changePct": pct},
+			CreatedAt: e.now.Add(time.Duration(i-3) * time.Hour)}
+		must(t, e.db.Create(&a).Error)
+		ids = append(ids, a.ID)
+	}
+	// An older alert and a held one never count.
+	must(t, e.db.Create(&Alert{ID: "bal_old", BotID: v.ID, UserID: e.user, Kind: alertKindAlert, LocalDay: day, Title: "BTC moves: up 9%",
+		Figures: jsonMap[string, any]{"rule": RuleMovePct, "watchId": w.ID}, CreatedAt: e.now.Add(-5 * time.Hour)}).Error)
+	must(t, e.db.Create(&Alert{ID: "bal_held", BotID: v.ID, UserID: e.user, Kind: alertKindAlert, Held: heldSnoozed, LocalDay: day, Title: "BTC moves: up 9%",
+		Figures: jsonMap[string, any]{"rule": RuleMovePct, "watchId": w.ID}, CreatedAt: e.now.Add(-time.Minute)}).Error)
+	rate := func(alertID, reason string) {
+		t.Helper()
+		if code, body := call(t, e.s, e.user, http.MethodPost, "/bots/"+v.ID+"/alerts/"+alertID+"/feedback",
+			map[string]any{"feedback": "not_useful", "reason": reason}); code != 200 {
+			t.Fatalf("rate %s: %d %v", alertID, code, body)
+		}
+	}
+	suggestion := func() map[string]any {
+		t.Helper()
+		_, body := call(t, e.s, e.user, http.MethodGet, "/bots/"+v.ID, nil)
+		sg, _ := body["suggestion"].(map[string]any)
+		return sg
+	}
+
+	// Two in a row, with an unrated one between them, are not enough.
+	rate(ids[0], "too_small")
+	rate(ids[2], "too_small")
+	if sg := suggestion(); sg != nil {
+		t.Fatalf("suggested after two %v", sg)
+	}
+	rate("bal_old", "too_small")
+	if sg := suggestion(); sg != nil {
+		t.Fatalf("an older alert filled the row %v", sg)
+	}
+	// The third makes it: above the biggest move seen (6%).
+	rate(ids[1], "")
+	sg := suggestion()
+	if sg == nil || sg["line"] != "Only tell me about moves over 8%?" || sg["button"] != "Raise to 8%" || sg["reason"] != "too_small" ||
+		sg["watchId"] != w.ID || sg["ruleId"] != w.Rules[0].ID || !strings.HasPrefix(fmt.Sprint(sg["id"]), "bsg_") {
+		t.Fatalf("suggestion %v", sg)
+	}
+	list, err := e.s.List(ctx, e.user)
+	must(t, err)
+	if list.Bots[0].Suggestion == nil || list.Bots[0].Suggestion.ID != sg["id"] {
+		t.Fatalf("board suggestion %+v", list.Bots[0].Suggestion)
+	}
+	// A wrong id is out of date, and clears the suggestion.
+	if code, _ := call(t, e.s, e.user, http.MethodPost, "/bots/"+v.ID+"/suggestion", map[string]any{"id": "bsg_wrong"}); code != http.StatusConflict {
+		t.Fatalf("wrong id %d", code)
+	}
+	if code, body := call(t, e.s, e.user, http.MethodPost, "/bots/"+v.ID+"/suggestion", map[string]any{"id": sg["id"]}); code != http.StatusConflict || body["message"] != "This suggestion is out of date" {
+		t.Fatalf("apply after a wrong id %d %v", code, body)
+	}
+	if suggestion() != nil {
+		t.Fatal("a stale suggestion was kept")
+	}
+
+	// Rating again brings it back; Dismiss holds it off until three newer.
+	rate(ids[2], "too_small")
+	sg = suggestion()
+	if sg == nil {
+		t.Fatal("no suggestion after a re-rate")
+	}
+	if code, _ := call(t, e.s, e.user, http.MethodDelete, "/bots/"+v.ID+"/suggestion", nil); code != http.StatusNoContent {
+		t.Fatalf("dismiss %d", code)
+	}
+	if b := e.bot(v.ID); b.Suggestion != nil || b.SuggestionDismissedAt == nil {
+		t.Fatalf("dismissed %+v", b)
+	}
+	for _, id := range ids {
+		rate(id, "too_small")
+	}
+	if sg := suggestion(); sg != nil {
+		t.Fatalf("back before three newer ratings %v", sg)
+	}
+	e.now = e.now.Add(time.Minute)
+	rate(ids[0], "too_small")
+	rate(ids[1], "too_small")
+	if sg := suggestion(); sg != nil {
+		t.Fatalf("back after two newer ratings %v", sg)
+	}
+	rate(ids[2], "too_small")
+	sg = suggestion()
+	if sg == nil {
+		t.Fatal("no suggestion after three newer ratings")
+	}
+
+	// Apply changes the rule, which records a quiet baseline, and the other
+	// rule stays as it was.
+	code, body := call(t, e.s, e.user, http.MethodPost, "/bots/"+v.ID+"/suggestion", map[string]any{"id": sg["id"]})
+	if code != 200 || body["suggestion"] != nil {
+		t.Fatalf("apply %d %v", code, body)
+	}
+	row := watchRow(t, e.db, w.ID)
+	if len(row.Rules) != 2 || row.Rules[0].ID != w.Rules[0].ID || row.Rules[0].Percent == nil || *row.Rules[0].Percent != 8 ||
+		row.Rules[1].ID != w.Rules[1].ID || row.Rules[1].Kind != RuleAbove || !row.BaselinePending || row.ConfigVersion != 2 {
+		t.Fatalf("applied watch %+v", row)
+	}
+	if b := e.bot(v.ID); b.Suggestion != nil || b.SuggestionDismissedAt == nil || !b.SuggestionDismissedAt.Equal(e.now) {
+		t.Fatalf("after apply %+v", b)
+	}
+	if code, _ := call(t, e.s, e.user, http.MethodPost, "/bots/"+v.ID+"/suggestion", map[string]any{"id": sg["id"]}); code != http.StatusConflict {
+		t.Fatalf("apply twice %d", code)
+	}
+
+	// An edit that leaves the rules, interval and judging alone keeps a
+	// suggestion; one that changes the interval drops it.
+	e.now = e.now.Add(time.Minute)
+	for _, id := range ids {
+		rate(id, "too_small")
+	}
+	if sg := suggestion(); sg == nil || sg["line"] != "Only tell me about moves over 10%?" {
+		t.Fatalf("next suggestion %v", sg)
+	}
+	if code, body := call(t, e.s, e.user, http.MethodPatch, "/bots/"+v.ID, map[string]any{"name": "BTC big moves"}); code != 200 || body["suggestion"] == nil {
+		t.Fatalf("rename %d %v", code, body["suggestion"])
+	}
+	if code, body := call(t, e.s, e.user, http.MethodPatch, "/bots/"+v.ID, map[string]any{"intervalMinutes": 30}); code != 200 || body["suggestion"] != nil {
+		t.Fatalf("interval edit %d %v", code, body["suggestion"])
+	}
+
+	// A restore drops it.
+	rate(ids[2], "too_small")
+	if suggestion() == nil {
+		t.Fatal("no suggestion before the restore")
+	}
+	must(t, e.s.VetRestore(e.db, e.user, false))
+	if b := e.bot(v.ID); b.Suggestion != nil {
+		t.Fatalf("restored suggestion %+v", b.Suggestion)
+	}
+
+	// Another account cannot apply or dismiss it.
+	stranger := addUser(t, e.db)
+	if code, _ := call(t, e.s, stranger, http.MethodDelete, "/bots/"+v.ID+"/suggestion", nil); code != 404 {
+		t.Fatalf("stranger dismiss %d", code)
+	}
+	if code, _ := call(t, e.s, stranger, http.MethodPost, "/bots/"+v.ID+"/suggestion", map[string]any{"id": "bsg_x"}); code != 404 {
+		t.Fatalf("stranger apply %d", code)
+	}
+}
+
+// With an AI provider, a feed whose new items are not wanted suggests AI
+// judging; without one it suggests nothing, and a copy of the service
+// (WithDB) keeps knowing.
+func TestIntegrationBotSuggestionAI(t *testing.T) {
+	e := newEngine(t)
+	ready := false
+	e.s.aiReady = func(context.Context, string) bool { return ready }
+	v := e.create(Input{Name: "News", Watches: []WatchInput{{Kind: WatchFeed, URL: "https://news.example.com/rss"}}})
+	w := v.Watches[0]
+	day := e.now.Truncate(24 * time.Hour)
+	var ids []string
+	for i := range 3 {
+		a := Alert{ID: fmt.Sprintf("bal_%d", i), BotID: v.ID, UserID: e.user, Kind: alertKindAlert, LocalDay: day, Title: "News: 1 new item",
+			Figures: jsonMap[string, any]{"rule": RuleNewItem, "watchId": w.ID, "items": 1}, CreatedAt: e.now.Add(time.Duration(i-3) * time.Hour)}
+		must(t, e.db.Create(&a).Error)
+		ids = append(ids, a.ID)
+	}
+	for _, id := range ids {
+		if _, err := e.s.RateAlert(context.Background(), e.user, v.ID, id, Rating{Feedback: ptr(FeedbackNotUseful), Reason: "not_wanted"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if b := e.bot(v.ID); b.Suggestion != nil {
+		t.Fatalf("suggested AI without a provider %+v", b.Suggestion)
+	}
+	ready = true
+	copied := e.s.WithDB(e.db, nil)
+	if _, err := copied.RateAlert(context.Background(), e.user, v.ID, ids[2], Rating{Feedback: ptr(FeedbackNotUseful), Reason: "not_wanted"}); err != nil {
+		t.Fatal(err)
+	}
+	if b := e.bot(v.ID); b.Suggestion == nil || b.Suggestion.JudgeMode != JudgeAI || b.Suggestion.Button != "Turn on AI judging" || b.Suggestion.Rule != nil {
+		t.Fatalf("AI suggestion %+v", b.Suggestion)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -141,7 +142,8 @@ func newWatch(w Watch, b Bot, now time.Time) Watch {
 
 // Update edits a Bot. A watch whose address, read mode, selector, source,
 // symbol, currency or rules change records a quiet baseline on its next
-// check. Over MCP, such a change also pauses an active Bot.
+// check. Over MCP, such a change also pauses an active Bot. A change to the
+// watches, the interval or judging drops the Bot's suggestion.
 func (s *Store) Update(ctx context.Context, userID, idOrName string, p Patch, o Origin, now time.Time) (View, error) {
 	now = now.UTC()
 	if err := refuseMCPSettings(o, p.JudgeMode, p.Urgent, p.Desktop, p.Phone); err != nil {
@@ -229,6 +231,10 @@ func (s *Store) Update(ctx context.Context, userID, idOrName string, p Patch, o 
 			if next = maxTime(next, spacedAt(b.CheckStartedAt, Floor(ws))); !next.Equal(*b.NextCheckAt) {
 				set["next_check_at"] = next
 			}
+		}
+		// A suggestion is about the rules, interval and judging it saw.
+		if b.Suggestion != nil && (watchesChanged || interval != b.IntervalSeconds || (p.JudgeMode != nil && set["judge_mode"] != b.JudgeMode)) {
+			set["suggestion"] = gorm.Expr("NULL")
 		}
 		if o == OriginMCP && watchesChanged && b.Status == StatusActive {
 			set["status"], set["pause_reason"], set["next_check_at"], set["health_detail"] = StatusPaused, PauseMCP, nil, mcpPausedNow
@@ -629,13 +635,24 @@ type Rating struct {
 	Note     string
 }
 
+// RateResult answers a rating: the alert, and the lesson it taught the Bot
+// (nil when the rating was taken back).
+type RateResult struct {
+	AlertView
+	Lesson *Lesson `json:"lesson"`
+}
+
 // RateAlert records the person's rating of one of a Bot's alerts. Only an
 // alert (not a "more" or "paused" notice) can be rated; rating again
-// replaces the last one.
-func (s *Store) RateAlert(ctx context.Context, userID, botIDOrName, alertID string, r Rating, now time.Time) (AlertView, error) {
+// replaces the last one. In the same transaction the rating becomes the
+// alert's one lesson (replaced on a re-rate, deleted on undo), only the
+// newest MaxLessons of the Bot are kept, and a Not useful that makes three
+// in a row lets a rules-only Bot suggest a better rule. aiReady says the
+// person has an AI provider, so that suggestion may be AI judging.
+func (s *Store) RateAlert(ctx context.Context, userID, botIDOrName, alertID string, r Rating, now time.Time, aiReady bool) (RateResult, error) {
 	set := map[string]any{"feedback": nil, "feedback_reason": "", "feedback_note": "", "feedback_at": nil}
 	if r.Reason != "" && !contains(FeedbackReasons, r.Reason) {
-		return AlertView{}, invalid("Pick one of the reasons")
+		return RateResult{}, invalid("Pick one of the reasons")
 	}
 	if r.Feedback != nil {
 		switch *r.Feedback {
@@ -643,17 +660,17 @@ func (s *Store) RateAlert(ctx context.Context, userID, botIDOrName, alertID stri
 		case FeedbackNotUseful:
 			set["feedback_reason"], set["feedback_note"] = r.Reason, cleanLine(r.Note, MaxFeedbackNote)
 		default:
-			return AlertView{}, invalid(`Rate an alert "useful" or "not_useful"`)
+			return RateResult{}, invalid(`Rate an alert "useful" or "not_useful"`)
 		}
 		set["feedback"], set["feedback_at"] = *r.Feedback, now.UTC()
 	}
-	db := s.conn(ctx)
-	b, err := findBot(db, userID, botIDOrName, false)
-	if err != nil {
-		return AlertView{}, err
-	}
-	var out Alert
-	err = db.Transaction(func(tx *gorm.DB) error {
+	var out RateResult
+	err := s.conn(ctx).Transaction(func(tx *gorm.DB) error {
+		// The Bot first, as a check's save locks it, then the alert.
+		b, err := findBot(tx, userID, botIDOrName, true)
+		if err != nil {
+			return err
+		}
 		var rows []Alert
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND bot_id = ? AND user_id = ?", alertID, b.ID, userID).
 			Limit(1).Find(&rows).Error; err != nil {
@@ -668,12 +685,76 @@ func (s *Store) RateAlert(ctx context.Context, userID, botIDOrName, alertID stri
 		if err := tx.Model(&Alert{}).Where("id = ? AND bot_id = ? AND user_id = ?", alertID, b.ID, userID).Updates(set).Error; err != nil {
 			return err
 		}
-		return tx.Where("id = ? AND bot_id = ? AND user_id = ?", alertID, b.ID, userID).First(&out).Error
+		var a Alert
+		if err := tx.Where("id = ? AND bot_id = ? AND user_id = ?", alertID, b.ID, userID).First(&a).Error; err != nil {
+			return err
+		}
+		out.AlertView = alertView(a)
+		if err := tx.Where("alert_id = ? AND bot_id = ?", alertID, b.ID).Delete(&Lesson{}).Error; err != nil {
+			return err
+		}
+		if r.Feedback == nil {
+			return nil
+		}
+		l := Lesson{ID: utils.PrefixedUUID("bls"), BotID: b.ID, UserID: userID, AlertID: &a.ID, Text: lessonText(a, b.Name), CreatedAt: now.UTC()}
+		if err := tx.Create(&l).Error; err != nil {
+			return err
+		}
+		out.Lesson = &l
+		if err := tx.Exec(`DELETE FROM bot_lessons WHERE bot_id = ? AND id NOT IN (
+    SELECT id FROM bot_lessons WHERE bot_id = ? ORDER BY created_at DESC, id DESC LIMIT ?)`, b.ID, b.ID, MaxLessons).Error; err != nil {
+			return err
+		}
+		if *r.Feedback != FeedbackNotUseful {
+			return nil
+		}
+		return suggest(tx, b, aiReady, now)
 	})
 	if err != nil {
-		return AlertView{}, err
+		return RateResult{}, err
 	}
-	return alertView(out), nil
+	return out, nil
+}
+
+// quietSuffix is the " (at HH:MM)" withHeldTime adds to a title.
+var quietSuffix = regexp.MustCompile(` \(at \d{2}:\d{2}\)$`)
+
+// lessonText writes the lesson a rated alert teaches its Bot, as the person's
+// words: what the rating was and what the alert told of, then their note. It
+// never uses words a model wrote: what is the alert's rules-made
+// figures.what, or for an alert without it the title without the "<bot>: "
+// prefix and the quiet-hours time (rules wrote those titles), else "this
+// alert". The whole line fits bot_lessons' 200 characters.
+func lessonText(a Alert, botName string) string {
+	what, _ := a.Figures["what"].(string)
+	what = strings.TrimSpace(what)
+	if what == "" {
+		what = quietSuffix.ReplaceAllString(strings.TrimPrefix(a.Title, botName+": "), "")
+		what = strings.TrimSpace(what)
+	}
+	if what == "" {
+		what = "this alert"
+	}
+	quoted := "“" + what + "”"
+	var line string
+	switch {
+	case a.Feedback != nil && *a.Feedback == FeedbackUseful && a.Held == heldJudged:
+		line = "Should have told me: " + quoted
+	case a.Feedback != nil && *a.Feedback == FeedbackUseful:
+		line = "Wanted: " + quoted
+	case a.FeedbackReason == "too_small":
+		line = "Too small to tell me: " + quoted
+	case a.FeedbackReason == "not_wanted":
+		line = "Not what I want: " + quoted
+	case a.FeedbackReason == "already_knew":
+		line = "I already knew: " + quoted
+	default:
+		line = "Not useful: " + quoted
+	}
+	if note := strings.TrimSpace(a.FeedbackNote); note != "" {
+		line += ". " + note
+	}
+	return clipRunes(line, MaxLessonLen)
 }
 
 // ForgetLesson removes one thing the person taught a Bot.

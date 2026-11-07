@@ -51,6 +51,7 @@ type View struct {
 	Strip        string      `json:"strip"`        // the last checks, oldest first: one stripMark each
 	LatestAlert  *AlertBrief `json:"latestAlert"`  // the newest alert of the last 30 days, held for a cap or not
 	ItemsToday   int         `json:"itemsToday"`   // new feed items today's alerts told of, held included
+	Suggestion   *Suggestion `json:"suggestion"`   // a better rule the Bot proposes, or nil
 }
 
 // AlertBrief is the alert a board card shows.
@@ -210,6 +211,7 @@ func viewOf(b Bot, ws []Watch, bd *board, now time.Time) View {
 		Watches: make([]WatchView, 0, len(ws)), CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
 		OriginClient: b.OriginClient, Checking: b.CheckingJobID != nil, FloorLine: floorLine(floor),
 		Strip: bd.strips[b.ID], LatestAlert: bd.latest[b.ID], ItemsToday: bd.itemsToday[b.ID],
+		Suggestion: b.Suggestion,
 	}
 	if b.Origin != OriginMCP {
 		v.OriginClient = ""

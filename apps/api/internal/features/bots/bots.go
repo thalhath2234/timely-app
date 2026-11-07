@@ -22,9 +22,11 @@ const (
 	MaxReadingBytes   = 64 << 10
 	MaxStrikes        = 5
 	AlertsPerDay      = 3
-	// MaxLessons caps what a Bot is taught. The teaching branch enforces it
-	// when it writes lessons; the clients show it.
+	// MaxLessons caps what a Bot is taught: rating an alert keeps only the
+	// newest this many lessons.
 	MaxLessons = 20
+	// MaxLessonLen bounds one lesson, in characters (bot_lessons' CHECK).
+	MaxLessonLen = 200
 	// MaxFeedbackNote bounds the free line under Not useful, in characters.
 	MaxFeedbackNote = 200
 	// MaxItems and MaxSeen cap a feed reading: the newest items it keeps,
@@ -87,6 +89,7 @@ const (
 	PauseMCP     = "mcp"
 
 	JudgeRules = "rules"
+	JudgeAI    = "ai"
 	HealthNew  = "new"
 )
 
@@ -95,6 +98,9 @@ var (
 	ErrAlertNotFound  = errors.New("alert not found")
 	ErrLessonNotFound = errors.New("lesson not found")
 	ErrPaused         = errors.New("This bot is paused. Turn it on in Timely first.")
+	// ErrSuggestionStale answers Apply on a suggestion that was replaced, or
+	// whose watch or rule is gone.
+	ErrSuggestionStale = errors.New("This suggestion is out of date")
 )
 
 // InputError is a request the person can fix; its text is shown as is.

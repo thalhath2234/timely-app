@@ -50,6 +50,9 @@ type Service struct {
 	askPoll time.Duration
 	askWait time.Duration
 	sleep   func(ctx context.Context, d time.Duration) error
+	// aiReady says the person has an AI provider, so a suggestion may turn
+	// on AI judging. nil (until the judge is wired) means none.
+	aiReady func(ctx context.Context, userID string) bool
 
 	mu            sync.Mutex
 	rnd           *rand.Rand // under mu
@@ -76,7 +79,7 @@ func New(db *gorm.DB, queue *jobs.Queue) *Service {
 // WithDB is a copy of s whose reads and writes go through db and whose jobs
 // go on q, so the chat agent's saves join its transaction (a rehearsal's
 // rollback takes their logo jobs with it). The copy shares the fetcher,
-// the keys, the live hub, the clock and Ask's timing, and with them the
+// the keys, the live hub, the clock, Ask's timing and aiReady, and with them the
 // process-wide preview memo and limit; it has its own random source and no
 // test hook.
 func (s *Service) WithDB(db *gorm.DB, q *jobs.Queue) *Service {
@@ -86,7 +89,7 @@ func (s *Service) WithDB(db *gorm.DB, q *jobs.Queue) *Service {
 	return &Service{
 		store: NewStore(db), db: db, queue: q,
 		fetch: s.fetch, keys: s.keys, keyStore: s.keyStore, live: s.live, now: s.now,
-		askPoll: s.askPoll, askWait: s.askWait, sleep: s.sleep,
+		askPoll: s.askPoll, askWait: s.askWait, sleep: s.sleep, aiReady: s.aiReady,
 		rnd: rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), rand.Uint64())),
 	}
 }
@@ -170,8 +173,20 @@ func (s *Service) Get(ctx context.Context, userID, idOrName string) (Detail, err
 	return s.store.Get(ctx, userID, idOrName, s.now())
 }
 
-func (s *Service) RateAlert(ctx context.Context, userID, botID, alertID string, r Rating) (AlertView, error) {
-	return s.store.RateAlert(ctx, userID, botID, alertID, r, s.now())
+// RateAlert records a rating and the lesson it teaches (Store.RateAlert).
+func (s *Service) RateAlert(ctx context.Context, userID, botID, alertID string, r Rating) (RateResult, error) {
+	ready := s.aiReady != nil && s.aiReady(ctx, userID)
+	return s.store.RateAlert(ctx, userID, botID, alertID, r, s.now(), ready)
+}
+
+// ApplySuggestion makes the change a Bot suggested (Store.ApplySuggestion).
+func (s *Service) ApplySuggestion(ctx context.Context, userID, botID, suggestionID string) (View, error) {
+	return s.store.ApplySuggestion(ctx, userID, botID, suggestionID, s.now())
+}
+
+// DismissSuggestion drops a Bot's suggestion (Store.DismissSuggestion).
+func (s *Service) DismissSuggestion(ctx context.Context, userID, botID string) error {
+	return s.store.DismissSuggestion(ctx, userID, botID, s.now())
 }
 
 func (s *Service) ForgetLesson(ctx context.Context, userID, botID, lessonID string) error {

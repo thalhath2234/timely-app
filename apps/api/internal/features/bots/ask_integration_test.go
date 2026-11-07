@@ -298,7 +298,8 @@ func TestIntegrationBotMigrationsDownUp(t *testing.T) {
 		must(t, db.Exec(q, args...).Error)
 	}
 	// Rows each Down must clear or rewrite first.
-	exec(`INSERT INTO bots (id, user_id, name, origin, interval_seconds, next_check_at, asked_at) VALUES ('bot_m', ?, 'M', 'app', 21600, now(), now())`, user)
+	exec(`INSERT INTO bots (id, user_id, name, origin, interval_seconds, next_check_at, asked_at, suggestion, suggestion_dismissed_at)
+		VALUES ('bot_m', ?, 'M', 'app', 21600, now(), now(), '{"id": "bsg_m"}', now())`, user)
 	exec(`INSERT INTO bot_watches (id, bot_id, user_id, kind, url, read_mode, selector) VALUES ('bw_m', 'bot_m', ?, 'page', 'https://shop.example/', 'selector_price', '#price')`, user)
 	exec(`INSERT INTO bot_checks (id, bot_id, user_id, trigger, started_at, finished_at, outcome) VALUES ('bchk_m', 'bot_m', ?, 'ask', now(), now(), 'unchanged')`, user)
 	must(t, db.Create(&models.Job{ID: "job_m", UserID: user, Kind: models.JobBotIcon, Status: models.JobPending, Payload: models.JobPayload{},
@@ -307,7 +308,7 @@ func TestIntegrationBotMigrationsDownUp(t *testing.T) {
 
 	must(t, goose.DownTo(sqlDB, ".", beforeBoard))
 	var cols []string
-	must(t, db.Raw(`SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'bots' AND column_name IN ('asked_at', 'origin_client')`).Scan(&cols).Error)
+	must(t, db.Raw(`SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'bots' AND column_name IN ('asked_at', 'origin_client', 'suggestion', 'suggestion_dismissed_at')`).Scan(&cols).Error)
 	if len(cols) != 0 {
 		t.Fatalf("columns left after Down: %v", cols)
 	}
@@ -324,7 +325,7 @@ func TestIntegrationBotMigrationsDownUp(t *testing.T) {
 	}
 
 	must(t, goose.Up(sqlDB, "."))
-	exec(`UPDATE bots SET asked_at = now(), origin_client = 'Claude Code' WHERE id = 'bot_m'`)
+	exec(`UPDATE bots SET asked_at = now(), origin_client = 'Claude Code', suggestion = '{"id": "bsg_m"}', suggestion_dismissed_at = now() WHERE id = 'bot_m'`)
 	exec(`INSERT INTO bot_checks (id, bot_id, user_id, trigger, started_at, finished_at, outcome) VALUES ('bchk_m2', 'bot_m', ?, 'ask', now(), now(), 'unchanged')`, user)
 	exec(`INSERT INTO bot_watches (id, bot_id, user_id, kind, url, read_mode, selector) VALUES ('bw_m2', 'bot_m', ?, 'page', 'https://shop.example/', 'selector_price', '#price')`, user)
 }

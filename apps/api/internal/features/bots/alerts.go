@@ -22,6 +22,7 @@ const (
 	alertKindPaused = "paused"
 	heldSnoozed     = "snoozed"
 	heldCap         = "cap"
+	heldJudged      = "judged" // held back by the AI judge
 	awayKind        = "away"
 
 	maxFindingTitle = 120

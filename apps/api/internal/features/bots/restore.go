@@ -19,11 +19,16 @@ const (
 // (portability.RestoreVet). The rows come from a file, so none of the checks
 // a save makes have run: a Bot whose watches Timely cannot use, or past the
 // 25-Bot cap, is paused; an interval under the floor is raised to it; AI
-// judging is set back to rules. Restored over MCP, every Bot comes back
+// judging is set back to rules; a suggestion is dropped. Restored over MCP, every Bot comes back
 // paused with the alert settings a Bot made over MCP gets, so an outside
 // app cannot turn a Bot or its urgent alerts on this way (ADR 0021). A
 // stock watch passes when the account has its key, which the restore keeps.
 func (s *Service) VetRestore(tx *gorm.DB, userID string, fromMCP bool) error {
+	// A suggestion is code's reading of ratings made here, and the file's
+	// may name rules it does not have.
+	if err := tx.Exec(`UPDATE bots SET suggestion = NULL WHERE user_id = ? AND suggestion IS NOT NULL`, userID).Error; err != nil {
+		return err
+	}
 	var bots []Bot
 	if err := tx.Where("user_id = ?", userID).Order("created_at, id").Find(&bots).Error; err != nil {
 		return err
