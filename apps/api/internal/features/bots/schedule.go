@@ -75,6 +75,17 @@ func Provisional(interval time.Duration, now time.Time) time.Time {
 	return now.Add(min(interval, ProvisionalMax))
 }
 
+// spacedAt is the earliest the claim lets a Bot whose last check started at
+// started run again: its floor later, less FenceSlack. Zero when it never ran.
+// No next_check_at may be set before it, or the sweep would queue a check
+// that loses the claim on every tick until then.
+func spacedAt(started *time.Time, floor time.Duration) time.Time {
+	if started == nil {
+		return time.Time{}
+	}
+	return started.UTC().Add(floor - FenceSlack)
+}
+
 // StrikeDelay is how long a Bot waits after a failed check: the interval,
 // doubled for each strike after the first, at most 24 hours.
 func StrikeDelay(interval time.Duration, strikes int) time.Duration {

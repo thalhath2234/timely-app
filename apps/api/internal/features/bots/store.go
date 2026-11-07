@@ -196,10 +196,15 @@ func (s *Store) Update(ctx context.Context, userID, idOrName string, p Patch, o 
 		}
 		if interval != b.IntervalSeconds {
 			set["interval_seconds"] = interval
-			if b.Status == StatusActive && b.NextCheckAt != nil {
-				if soon := now.Add(time.Duration(interval) * time.Second); soon.Before(*b.NextCheckAt) {
-					set["next_check_at"] = soon
-				}
+		}
+		if b.Status == StatusActive && b.NextCheckAt != nil {
+			next := *b.NextCheckAt
+			if soon := now.Add(time.Duration(interval) * time.Second); interval != b.IntervalSeconds && soon.Before(next) {
+				next = soon
+			}
+			// A watch with a longer floor may have been added.
+			if next = maxTime(next, spacedAt(b.CheckStartedAt, Floor(ws))); !next.Equal(*b.NextCheckAt) {
+				set["next_check_at"] = next
 			}
 		}
 		if o == OriginMCP && watchesChanged && b.Status == StatusActive {
@@ -325,7 +330,8 @@ func (s *Store) Pause(ctx context.Context, userID, idOrName string, reason strin
 	return s.view(ctx, userID, botID, now)
 }
 
-// Resume turns a paused Bot on, due now, with strikes cleared. Every watch
+// Resume turns a paused Bot on, due as soon as its floor allows, with
+// strikes cleared. Every watch
 // records a quiet baseline first, so nothing that changed while it was
 // paused alerts. Only the app can resume a Bot.
 func (s *Store) Resume(ctx context.Context, userID, id string, o Origin, now time.Time) (View, error) {
@@ -343,9 +349,15 @@ func (s *Store) Resume(ctx context.Context, userID, id string, o Origin, now tim
 		if b.Status == StatusActive {
 			return nil
 		}
+		ws, err := loadWatches(tx, b.ID, false)
+		if err != nil {
+			return err
+		}
+		// Due now, unless its last check was too recent for the floor.
+		next := maxTime(now, spacedAt(b.CheckStartedAt, Floor(ws)))
 		if err := tx.Model(&Bot{}).Where("id = ?", b.ID).Updates(map[string]any{
 			"status": StatusActive, "pause_reason": nil, "strikes": 0, "health": HealthNew, "health_detail": "",
-			"offline_since": nil, "checking_job_id": nil, "next_check_at": now, "updated_at": now,
+			"offline_since": nil, "checking_job_id": nil, "next_check_at": next, "updated_at": now,
 		}).Error; err != nil {
 			return err
 		}

@@ -87,7 +87,7 @@ func (s *Service) HandleCheck(ctx context.Context, job *models.Job) error {
 		s.release(b.ID, job.ID, prevStarted)
 		return nil
 	}
-	c := checkRun{job: job, bot: b, trigger: trigger, started: started, reads: reads}
+	c := checkRun{job: job, bot: b, trigger: trigger, started: started, floor: Floor(ws), reads: reads}
 	p, err := classify(reads)
 	switch {
 	case err != nil:
@@ -110,13 +110,19 @@ type checkRun struct {
 	bot     Bot
 	trigger string
 	started time.Time
+	floor   time.Duration // of the watches it claimed with
 	reads   []watchRead
 }
 
+// spaced is the earliest the next check of c's Bot may be due.
+func (c checkRun) spaced() time.Time { return spacedAt(&c.started, c.floor) }
+
 // claim is the fence: it takes the Bot for this job only when it is active,
 // due (or run now), and the floor has passed since its last check, or when
-// this same job claimed it before (a retry). It moves next_check_at to a
-// provisional time, so a crash cannot leave the Bot due in a loop.
+// this job claimed it on an earlier attempt (its own automatic retry; a
+// person's Retry starts again at attempt 1 and must pass the fence). It moves
+// next_check_at to a provisional time no earlier than the floor allows, so a
+// crash or a final failure cannot leave the Bot due in a loop.
 func (s *Service) claim(ctx context.Context, job *models.Job, botID, trigger string, now time.Time) (Bot, *time.Time, []Watch, bool, error) {
 	db := s.db.WithContext(ctx)
 	var rows []Bot
@@ -130,20 +136,33 @@ func (s *Service) claim(ctx context.Context, job *models.Job, botID, trigger str
 	if err != nil || len(ws) == 0 {
 		return Bot{}, nil, nil, false, err
 	}
+	floor := Floor(ws)
 	prevStarted := rows[0].CheckStartedAt
+	provisional := maxTime(Provisional(rows[0].Interval(), now), spacedAt(&now, floor))
 	var claimed []Bot
 	err = db.Raw(`
 UPDATE bots SET check_started_at = @now, checking_job_id = @job, next_check_at = @provisional, updated_at = @now
 WHERE id = @id AND user_id = @uid AND status = 'active'
-  AND (checking_job_id = @job
+  AND ((checking_job_id = @job AND CAST(@retry AS boolean))
        OR ((next_check_at <= @due_by OR CAST(@run_now AS boolean))
            AND (check_started_at IS NULL OR check_started_at <= @spaced_by)))
 RETURNING *`,
-		sql.Named("now", now), sql.Named("job", job.ID), sql.Named("provisional", Provisional(rows[0].Interval(), now)),
-		sql.Named("id", botID), sql.Named("uid", job.UserID), sql.Named("due_by", now.Add(FenceSlack)),
-		sql.Named("run_now", trigger == TriggerRunNow), sql.Named("spaced_by", now.Add(-Floor(ws)+FenceSlack)),
+		sql.Named("now", now), sql.Named("job", job.ID), sql.Named("provisional", provisional),
+		sql.Named("id", botID), sql.Named("uid", job.UserID), sql.Named("retry", job.Attempts > 1),
+		sql.Named("due_by", now.Add(FenceSlack)), sql.Named("run_now", trigger == TriggerRunNow),
+		sql.Named("spaced_by", now.Add(-floor+FenceSlack)),
 	).Scan(&claimed).Error
-	if err != nil || len(claimed) == 0 {
+	if err != nil {
+		return Bot{}, nil, nil, false, err
+	}
+	if len(claimed) == 0 {
+		// Lost. A Bot left due before its floor allows (an old row, a
+		// restore) is moved to when the fence lets it run, so the sweep
+		// stops queueing checks that do nothing.
+		err = db.Exec(`
+UPDATE bots SET next_check_at = check_started_at + make_interval(secs => @gap), updated_at = @now
+WHERE id = @id AND user_id = @uid AND status = 'active' AND next_check_at < check_started_at + make_interval(secs => @gap)`,
+			sql.Named("gap", (floor-FenceSlack).Seconds()), sql.Named("now", now), sql.Named("id", botID), sql.Named("uid", job.UserID)).Error
 		return Bot{}, nil, nil, false, err
 	}
 	return claimed[0], prevStarted, ws, true, nil
@@ -388,12 +407,21 @@ func lockClaimed(tx *gorm.DB, c checkRun) (Bot, bool, error) {
 
 // saveProblem records a failed check in one small transaction: the log row,
 // the Bot's health and next check, and at MaxStrikes the pause and its alert.
+// A watch edited or deleted while it was read is superseded instead: its
+// failure says nothing about what the Bot watches now.
 func (s *Service) saveProblem(ctx context.Context, c checkRun, p *problem) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		done := s.now().UTC()
 		b, ok, err := lockClaimed(tx, c)
 		if err != nil || !ok {
 			return err
+		}
+		var cur []Watch
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND bot_id = ?", p.watch.ID, b.ID).Limit(1).Find(&cur).Error; err != nil {
+			return err
+		}
+		if len(cur) == 0 || cur[0].ConfigVersion != p.watch.ConfigVersion {
+			p = &problem{outcome: outSuperseded, err: p.err, watch: p.watch}
 		}
 		interval := b.Interval()
 		set := map[string]any{"last_check_at": done, "checking_job_id": nil, "updated_at": done}
@@ -413,7 +441,7 @@ func (s *Service) saveProblem(ctx context.Context, c checkRun, p *problem) error
 			if p.until.After(next) {
 				next = p.until
 			}
-			next = next.Add(s.jitter(waitSpread))
+			next = maxTime(next, c.spaced()).Add(s.jitter(waitSpread))
 			if p.outcome == outRateLimited {
 				_, loc, err := notify.LoadAlertSettings(tx, b.UserID)
 				if err != nil {
@@ -427,7 +455,10 @@ func (s *Service) saveProblem(ctx context.Context, c checkRun, p *problem) error
 			strikes++
 			set["strikes"] = strikes
 			next = done.Add(StrikeDelay(interval, strikes))
+		default: // superseded: check the edited watch as soon as the floor allows
+			next = done
 		}
+		next = maxTime(next, c.spaced())
 		cws := make([]CheckWatch, 0, len(c.reads))
 		for _, r := range c.reads {
 			cw := r.cw
@@ -445,17 +476,22 @@ func (s *Service) saveProblem(ctx context.Context, c checkRun, p *problem) error
 		if err := tx.Create(&check).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&Watch{}).Where("id = ? AND bot_id = ? AND config_version = ?", p.watch.ID, b.ID, p.watch.ConfigVersion).
-			Updates(map[string]any{"health": p.code, "health_detail": p.line, "updated_at": done}).Error; err != nil {
-			return err
-		}
 		if b.Status == StatusActive {
-			set["next_check_at"], set["health"], set["health_detail"] = next, p.code, p.line
-			if p.class == classStrike && strikes >= MaxStrikes {
-				set["status"], set["pause_reason"], set["next_check_at"] = StatusPaused, PauseStrikes, nil
-				b.Strikes = strikes
-				if err := s.pausedAlert(tx, b, check.ID, p, done); err != nil {
-					return err
+			set["next_check_at"] = next
+		}
+		if p.outcome != outSuperseded {
+			if err := tx.Model(&Watch{}).Where("id = ?", p.watch.ID).
+				Updates(map[string]any{"health": p.code, "health_detail": p.line, "updated_at": done}).Error; err != nil {
+				return err
+			}
+			if b.Status == StatusActive {
+				set["health"], set["health_detail"] = p.code, p.line
+				if p.class == classStrike && strikes >= MaxStrikes {
+					set["status"], set["pause_reason"], set["next_check_at"] = StatusPaused, PauseStrikes, nil
+					b.Strikes = strikes
+					if err := s.pausedAlert(tx, b, check.ID, p, done); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -624,7 +660,7 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 			"checking_job_id": nil, "updated_at": done,
 		}
 		if b.Status == StatusActive {
-			next := s.nextCheck(b.Interval(), done)
+			next := maxTime(s.nextCheck(b.Interval(), done), c.spaced())
 			if closed {
 				next = maxTime(next, done.Add(closedEvery))
 			}

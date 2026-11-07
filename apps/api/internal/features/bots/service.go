@@ -144,10 +144,9 @@ func (s *Service) RunNow(ctx context.Context, userID, idOrName string, _ Origin)
 			job.RunAt = runAt
 		}
 	}
-	at := job.RunAt.UTC()
-	if at.Before(now) {
-		at = now
-	}
+	// A check queued before the floor allows would lose the fence; the
+	// sweep then queues the Bot again when it may run.
+	at := maxTime(maxTime(job.RunAt.UTC(), now), spacedAt(b.CheckStartedAt, floor))
 	line := "Checking now."
 	if at.Sub(now) > 10*time.Second {
 		_, loc, err := notify.LoadAlertSettings(db, userID)
