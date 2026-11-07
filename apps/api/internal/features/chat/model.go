@@ -35,6 +35,14 @@ type Message struct {
 	Chat  *ChatRef `json:"chat,omitempty"`
 	// Choice is what the person did with a "similar" pointer: "move" or "stay".
 	Choice string `json:"choice,omitempty"`
+	// BotTags are the Bots (ids, at most 3) a person's message tags with
+	// @name or the apps' picker. They belong to this one message: a run for
+	// it only answers (bot_tags.go), and the next message without tags is a
+	// normal turn.
+	BotTags []string `json:"botTags,omitempty"`
+	// BotAnswers are the ask_bot answers (bots.Answer) a reply was written
+	// from, tagged Bots first, which the apps draw as cards under it.
+	BotAnswers []json.RawMessage `json:"botAnswers,omitempty"`
 }
 type Step struct {
 	Tool      string          `json:"tool"`
@@ -44,6 +52,11 @@ type Step struct {
 	Status    string          `json:"status"`
 	Error     string          `json:"error,omitempty"`
 	Before    json.RawMessage `json:"before,omitempty"`
+	// Preview is what a proposed Bot reads right now (bots.PreviewResult, or
+	// {"error": ...}), read once by the runner for the review card. It is
+	// for the person only: never part of a snapshot, never sent back to the
+	// model (promptSteps).
+	Preview json.RawMessage `json:"preview,omitempty"`
 }
 type Snapshot struct {
 	Tool      string          `json:"tool"`

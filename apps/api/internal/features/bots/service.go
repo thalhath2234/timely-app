@@ -161,6 +161,11 @@ func (s *Service) List(ctx context.Context, userID string) (BotList, error) {
 	return s.store.List(ctx, userID, s.now())
 }
 
+// Names lists the account's Bots by id and name (Store.Names).
+func (s *Service) Names(ctx context.Context, userID string) ([]BotName, error) {
+	return s.store.Names(ctx, userID)
+}
+
 func (s *Service) Get(ctx context.Context, userID, idOrName string) (Detail, error) {
 	return s.store.Get(ctx, userID, idOrName, s.now())
 }

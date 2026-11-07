@@ -223,6 +223,7 @@ func (s *Service) prepareProposal(ctx context.Context, catalog agent.Catalog, ui
 		step.Status = "pending"
 		step.Result = nil
 		step.Before = nil
+		step.Preview = nil // only the runner reads one (previewSteps)
 		step.Error = ""
 	}
 	origins := identityOrigins(len(p.Steps))

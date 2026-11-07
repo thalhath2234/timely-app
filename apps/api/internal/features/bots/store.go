@@ -568,6 +568,21 @@ SELECT (SELECT count(*) FROM bot_checks WHERE bot_id = @bot AND user_id = @uid A
 	return d, nil
 }
 
+// BotName is a Bot's id and name, which is all chat needs to find the Bots
+// a message tags.
+type BotName struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// Names lists the account's Bots by id and name, oldest first, without the
+// board's numbers that List works out.
+func (s *Store) Names(ctx context.Context, userID string) ([]BotName, error) {
+	out := []BotName{}
+	err := s.conn(ctx).Model(&Bot{}).Select("id", "name").Where("user_id = ?", userID).Order("created_at, id").Scan(&out).Error
+	return out, err
+}
+
 // Findings returns the findings board, newest first: at most 100, 50 when
 // no limit is given.
 func (s *Store) Findings(ctx context.Context, userID string, q FindingQuery) ([]Finding, error) {

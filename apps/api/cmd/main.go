@@ -248,6 +248,7 @@ func main() {
 	chatService.SetLive(live)
 	chatService.SetDecisions(decisions)
 	chatService.SetEstimates(suggestions.EstimateMany)
+	chatService.SetBotNames(chatBotNames(botService))
 
 	authHandler := auth.NewHandler(authService, userRepo)
 	authHandler.SetPairingCodes(auth.NewPairingCodes(db))
@@ -484,4 +485,19 @@ func mustSQLDB(db *gorm.DB) *sql.DB {
 		log.Fatalf("database handle: %v", err)
 	}
 	return sqlDB
+}
+
+// chatBotNames lets chat messages tag the person's Bots by name.
+func chatBotNames(svc *bots.Service) func(ctx context.Context, userID string) ([]chat.BotName, error) {
+	return func(ctx context.Context, userID string) ([]chat.BotName, error) {
+		names, err := svc.Names(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]chat.BotName, len(names))
+		for i, n := range names {
+			out[i] = chat.BotName{ID: n.ID, Name: n.Name}
+		}
+		return out, nil
+	}
 }

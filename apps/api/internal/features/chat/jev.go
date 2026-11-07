@@ -73,6 +73,7 @@ var (
 		"sheets":        {"list_sheets", "get_sheet", "list_sheet_templates", "get_sheet_template"},
 		"projects":      {"list_tasks", "pick_tasks", "list_docs", "list_sheets", "list_task_views"},
 		"notifications": {"list_notifications", "unread_notification_count", "get_notification_settings", "list_tasks"},
+		"bots":          {"list_bots", "get_bot", "list_bot_findings", "preview_bot", "ask_bot"},
 	}
 	latinLanguages = []decide.Option{
 		{Name: "en", Description: "English"}, {Name: "es", Description: "Spanish"}, {Name: "fr", Description: "French"},
@@ -162,9 +163,10 @@ func (s *Service) triage(ctx context.Context, c *Conversation) (triage, bool) {
 			decide.Option{Name: "sheets", Description: "Spreadsheets, budgets, tables, templates or receipts."},
 			decide.Option{Name: "projects", Description: "Organising projects, workspaces, labels or stages."},
 			decide.Option{Name: "notifications", Description: "Notifications the app already sent."},
+			decide.Option{Name: "bots", Description: "Bots that watch web pages, feeds or prices and send alerts."},
 			decide.Option{Name: "mixed", Description: "Several of these, or something else."}).Twice(),
 		"change": decide.YesNo("Does the message ask the assistant to create, change, move or delete something?",
-			"It asks for a change to the person's tasks, events, docs, sheets or projects.", "It only asks a question or for information."),
+			"It asks for a change to the person's tasks, events, docs, sheets, projects or bots.", "It only asks a question or for information."),
 		"web": decide.YesNo("Does answering need public information from the web rather than the person's own data?",
 			"It needs facts from the web, such as opening hours, prices or news.", "The person's own data, or general knowledge, is enough."),
 		"unclear": decide.YesNo("Is the message too unclear to act on without asking the person a question first?",
