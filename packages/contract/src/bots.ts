@@ -1862,13 +1862,16 @@ export type AlertAi = {
   tone: "default" | "muted" | "warning";
 };
 
-/** The short reasons of an unchecked alert, by the API's words (plan.go). */
+/** The short reasons of an unchecked alert, by the API's words (plan.go, rejudge.go). */
 const UNCHECKED_SHORT: [RegExp, string][] = [
   [/asks again later/i, "asks again later"],
   [/used up/i, "AI checks used up today"],
   [/^Choose which AI provider/i, "no AI provider chosen"],
   [/^No AI provider/i, "no AI provider"],
   [/^Changed while/i, "changed while checking"],
+  [/^AI was unavailable$/i, "AI was unavailable"],
+  [/all bots are paused/i, "all bots paused"],
+  [/judging was turned off/i, "AI judging turned off"],
 ];
 
 /**

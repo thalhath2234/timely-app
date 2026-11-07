@@ -153,7 +153,7 @@ func TestIntegrationBotPauseAllStopsRejudge(t *testing.T) {
 	fj.set(Verdict{Alert: false, Why: "Noise"}, nil)
 	must(t, e.s.HandleRejudge(ctx, e.rejudgeJob(a.ID)))
 	a = e.alertRow(e.lastCheck(v.ID).ID)
-	if len(fj.calls()) != calls || a.AIState != aiUnchecked || len(a.AIInput) != 0 {
+	if len(fj.calls()) != calls || a.AIState != aiUnchecked || len(a.AIInput) != 0 || a.AIWhy != noteAllPaused {
 		t.Fatalf("re-judge while paused: %d calls, alert %+v", len(fj.calls())-calls, a)
 	}
 }

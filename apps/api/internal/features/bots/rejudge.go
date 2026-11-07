@@ -41,23 +41,32 @@ func queueRejudge(tx *gorm.DB, b Bot, alertID string, now time.Time) error {
 // the alert judged; one that it was not rewrites its notification (no new
 // push). The stored input is dropped after the last try, whatever failed,
 // and whenever the job stops, so no copy of page text outlives the retries
-// (prune backs this up for a job lost on its last try).
+// (prune backs this up for a job lost on its last try). Stopping also
+// replaces "asks again later" with why nothing will ask again.
 func (s *Service) HandleRejudge(ctx context.Context, job *models.Job) error {
 	alertID := job.Payload.String("alertId")
 	db := s.db.WithContext(ctx)
-	stop := func() error {
-		return db.Model(&Alert{}).Where("id = ? AND user_id = ?", alertID, job.UserID).Update("ai_input", nil).Error
+	stop := func(why string) error {
+		return db.Model(&Alert{}).Where("id = ? AND user_id = ? AND ai_state = ?", alertID, job.UserID, aiUnchecked).
+			Updates(map[string]any{"ai_input": nil, "ai_why": why}).Error
 	}
 	err := s.rejudge(ctx, db, job, alertID, stop)
 	if err != nil && job.Attempts >= job.MaxAttempts {
-		if serr := stop(); serr != nil {
+		if serr := stop(noteGaveUp); serr != nil {
 			return serr
 		}
 	}
 	return err
 }
 
-func (s *Service) rejudge(ctx context.Context, db *gorm.DB, job *models.Job, alertID string, stop func() error) error {
+// Why an alert stays unchecked once its re-judge stops (bot_alerts.ai_why).
+const (
+	noteGaveUp       = "AI was unavailable"
+	noteAllPaused    = "AI did not check it: all bots are paused"
+	noteJudgeTurnOff = "AI judging was turned off for this bot"
+)
+
+func (s *Service) rejudge(ctx context.Context, db *gorm.DB, job *models.Job, alertID string, stop func(why string) error) error {
 	var rows []Alert
 	if err := db.Where("id = ? AND user_id = ? AND kind = ? AND ai_state = ? AND ai_input IS NOT NULL",
 		alertID, job.UserID, alertKindAlert, aiUnchecked).Limit(1).Find(&rows).Error; err != nil {
@@ -77,15 +86,22 @@ func (s *Service) rejudge(ctx context.Context, db *gorm.DB, job *models.Job, ale
 	}
 	var jj JudgeJob
 	// "Pause all bots" stops it too: the alert stays unchecked.
-	if paused || len(bots) == 0 || bots[0].JudgeMode != JudgeAI || s.judge == nil || json.Unmarshal(a.AIInput, &jj) != nil {
-		return stop()
+	switch {
+	case paused:
+		return stop(noteAllPaused)
+	case len(bots) == 0 || bots[0].JudgeMode != JudgeAI:
+		return stop(noteJudgeTurnOff)
+	case s.judge == nil:
+		return stop(noteNoProvider)
+	case json.Unmarshal(a.AIInput, &jj) != nil:
+		return stop(noteGaveUp)
 	}
 	b := bots[0]
 	now := s.now().UTC()
 	callID, err := s.reserveAI(ctx, b, jj.ChainID, purposeRejudge, now)
 	switch {
 	case errors.Is(err, errAICap):
-		return stop()
+		return stop(noteUsedUp)
 	case err != nil:
 		return s.rejudgeFailed(job, err, stop)
 	}
@@ -98,7 +114,7 @@ func (s *Service) rejudge(ctx context.Context, db *gorm.DB, job *models.Job, ale
 	s.markAI(callID, err == nil, !errors.Is(err, ErrJudgeOff))
 	switch {
 	case errors.Is(err, ErrJudgeOff):
-		return stop()
+		return stop(s.offNote(ctx, b.UserID))
 	case err != nil:
 		return s.rejudgeFailed(job, err, stop)
 	}
@@ -151,9 +167,9 @@ func (s *Service) rejudgeInput(ctx context.Context, db *gorm.DB, b Bot, stored J
 
 // rejudgeFailed retries a failed re-judge later, and after the last try
 // drops the stored input; the alert stays unchecked.
-func (s *Service) rejudgeFailed(job *models.Job, err error, stop func() error) error {
+func (s *Service) rejudgeFailed(job *models.Job, err error, stop func(why string) error) error {
 	if job.Attempts >= job.MaxAttempts {
-		if serr := stop(); serr != nil {
+		if serr := stop(noteGaveUp); serr != nil {
 			return serr
 		}
 		return jobs.Permanent(err)

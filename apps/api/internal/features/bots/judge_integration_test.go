@@ -331,7 +331,7 @@ func TestIntegrationBotJudgeUnavailable(t *testing.T) {
 	if err := e.s.HandleRejudge(ctx, job); err == nil {
 		t.Fatal("the last failed try did not fail the job")
 	}
-	if a3 = e.alertRow(*a3.CheckID); len(a3.AIInput) != 0 || a3.AIState != aiUnchecked {
+	if a3 = e.alertRow(*a3.CheckID); len(a3.AIInput) != 0 || a3.AIState != aiUnchecked || a3.AIWhy != noteGaveUp {
 		t.Fatalf("after the last try %+v", a3)
 	}
 	if got := rejudgeDelay(1); got != 45*time.Minute {

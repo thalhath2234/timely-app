@@ -1584,6 +1584,10 @@ describe("AI, links and briefs over the seed", () => {
     assert.equal(alertAi(alertOf({ aiState: "unchecked", aiWhy: "AI checks are used up for today" })).short, "Not checked by AI · AI checks used up today");
     assert.equal(alertAi(alertOf({ aiState: "unchecked", aiWhy: "No AI provider is set up" })).short, "Not checked by AI · no AI provider");
     assert.equal(alertAi(alertOf({ aiState: "unchecked", aiWhy: "Changed while AI was checking it" })).short, "Not checked by AI · changed while checking");
+    // A re-judge that stopped says why, and no longer "asks again later".
+    assert.equal(alertAi(alertOf({ aiState: "unchecked", aiWhy: "AI was unavailable" })).short, "Not checked by AI · AI was unavailable");
+    assert.equal(alertAi(alertOf({ aiState: "unchecked", aiWhy: "AI did not check it: all bots are paused" })).short, "Not checked by AI · all bots paused");
+    assert.equal(alertAi(alertOf({ aiState: "unchecked", aiWhy: "AI judging was turned off for this bot" })).short, "Not checked by AI · AI judging turned off");
     assert.deepEqual(alertAi(alertOf({})), { pill: null, line: null, short: null, tone: "default" });
     // A brief the AI could not write went out from the template and is never asked about again.
     assert.deepEqual(alertAi(alertOf({ kind: "brief", aiState: "unchecked", aiWhy: "AI was unavailable; Timely asks again later" })), {
