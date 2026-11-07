@@ -69,6 +69,15 @@ func (s *Service) SetKeys(k *KeyStore) {
 	s.keys, s.keyStore = k, k
 }
 
+// SetFetcher swaps the fetcher every check, preview and key test reads
+// through. Tests use it with a fake network (botstest.Net); nil keeps the
+// current one.
+func (s *Service) SetFetcher(f *fetch.Fetcher) {
+	if f != nil {
+		s.fetch = f
+	}
+}
+
 // Register adds the check handler. The sweep is joined into the worker's
 // one sweep in main.go, never set here.
 func (s *Service) Register(w *jobs.Worker) { w.Handle(models.JobBotCheck, s.HandleCheck) }

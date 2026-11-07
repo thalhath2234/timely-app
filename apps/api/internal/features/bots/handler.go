@@ -17,6 +17,7 @@ func (s *Service) Routes(g *echo.Group) {
 	g.GET("/bots", s.list)
 	g.POST("/bots", s.create)
 	g.GET("/bots/findings", s.findings) // before /bots/:id
+	g.POST("/bots/preview", s.preview)
 	g.GET("/bots/defaults", s.alertDefaults)
 	g.PUT("/bots/defaults", s.setAlertDefaults)
 	g.GET("/bots/keys", s.sourceKeys)
@@ -56,6 +57,8 @@ func httpError(err error) error {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, down.Message)
 	case errors.Is(err, ErrPaused):
 		return echo.NewHTTPError(http.StatusConflict, ErrPaused.Error())
+	case errors.Is(err, ErrPreviewLimit):
+		return echo.NewHTTPError(http.StatusTooManyRequests, ErrPreviewLimit.Error())
 	}
 	return err
 }
@@ -80,6 +83,20 @@ func (s *Service) create(c *echo.Context) error {
 		return httpError(err)
 	}
 	return c.JSON(http.StatusCreated, v)
+}
+
+// preview serves POST /bots/preview: {"watches": [...]} or {"botId": "..."}
+// read once and never saved.
+func (s *Service) preview(c *echo.Context) error {
+	var in PreviewInput
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return badRequest()
+	}
+	res, err := s.Preview(c.Request().Context(), user(c), in)
+	if err != nil {
+		return httpError(err)
+	}
+	return c.JSON(http.StatusOK, res)
 }
 
 func (s *Service) get(c *echo.Context) error {

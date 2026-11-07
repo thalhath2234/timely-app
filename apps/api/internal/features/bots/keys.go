@@ -90,6 +90,20 @@ func NewKeyStore(db *gorm.DB) (*KeyStore, error) {
 // secret changed), is *price.KeyError{Rejected: true}: the check is then a
 // needs_key strike, not a job error that retries every minute.
 func (k *KeyStore) SourceKey(ctx context.Context, userID, source string) (string, error) {
+	return k.sourceKey(ctx, userID, source, true)
+}
+
+// lookOnlyKeys is a KeyStore that never marks a key refused, for reads
+// that save nothing (a preview).
+type lookOnlyKeys struct{ k *KeyStore }
+
+func (l lookOnlyKeys) SourceKey(ctx context.Context, userID, source string) (string, error) {
+	return l.k.sourceKey(ctx, userID, source, false)
+}
+
+// sourceKey is SourceKey; mark false leaves a key that no longer opens as
+// it is, still refused for this read.
+func (k *KeyStore) sourceKey(ctx context.Context, userID, source string, mark bool) (string, error) {
 	var rows []SourceKey
 	if err := k.db.WithContext(ctx).Where("user_id = ? AND source = ?", userID, source).Limit(1).Find(&rows).Error; err != nil {
 		return "", err
@@ -102,6 +116,9 @@ func (k *KeyStore) SourceKey(ctx context.Context, userID, source string) (string
 	}
 	key, err := k.box.Open(rows[0].APIKey)
 	if err != nil || strings.TrimSpace(key) == "" {
+		if !mark {
+			return "", &price.KeyError{Source: source, Rejected: true}
+		}
 		if err := k.db.WithContext(ctx).Model(&SourceKey{}).Where("user_id = ? AND source = ? AND state = ?", userID, source, KeyOK).
 			Updates(map[string]any{"state": KeyRefused, "updated_at": time.Now().UTC()}).Error; err != nil {
 			log.Printf("bots: mark an unreadable %s key: %v", source, err)

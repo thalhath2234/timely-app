@@ -144,8 +144,11 @@ type Keys interface {
 }
 
 // Query names one price to read. UserID picks whose key a keyed source uses.
+// MaxWait, when above zero, is the longest the read waits for the source's
+// slot (fetch.Request.MaxWait).
 type Query struct {
 	UserID, Source, Symbol, Currency string
+	MaxWait                          time.Duration
 }
 
 // Get reads one quote. Besides the fetcher's own errors it returns
@@ -173,7 +176,7 @@ func Get(ctx context.Context, f *fetch.Fetcher, keys Keys, q Query, now time.Tim
 		}
 		header = http.Header{src.KeyHeader: {key}}
 	}
-	res, err := f.Get(ctx, fetch.Request{URL: src.URL(sym, cur), Want: fetch.WantJSON, IgnoreRobots: src.IgnoreRobots, Header: header})
+	res, err := f.Get(ctx, fetch.Request{URL: src.URL(sym, cur), Want: fetch.WantJSON, IgnoreRobots: src.IgnoreRobots, Header: header, MaxWait: q.MaxWait})
 	if err != nil {
 		return Quote{}, src.sortErr(err, sym)
 	}

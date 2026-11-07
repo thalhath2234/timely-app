@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/publicsuffix"
@@ -48,6 +49,11 @@ type Request struct {
 	// They go only to URL itself: never to robots.txt, and never on to a
 	// redirect target. The fetcher's own headers win over them.
 	Header http.Header
+	// MaxWait, when above zero, replaces Config.SiteMaxWait for this read:
+	// the longest it waits for its site's slot before *SiteBusyError. A
+	// preview waits less than a check. A slot right after one this read
+	// booked itself is allowed that booking's gap on top (see ownSlots).
+	MaxWait time.Duration
 }
 
 type Response struct {
@@ -183,9 +189,10 @@ func (f *Fetcher) Get(ctx context.Context, r Request) (*Response, error) {
 	if err := netguard.CheckURL(u); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrBlockedAddress, err)
 	}
+	own := slotsFor(ctx)
 	gap := f.cfg.SiteGap
 	if !r.IgnoreRobots {
-		rules, err := f.robotsFor(ctx, u)
+		rules, err := f.robotsFor(ctx, u, r.MaxWait, own)
 		if err != nil {
 			return nil, err
 		}
@@ -194,7 +201,7 @@ func (f *Fetcher) Get(ctx context.Context, r Request) (*Response, error) {
 		}
 		gap = max(gap, rules.crawlDelay)
 	}
-	if err := f.wait(ctx, Site(u), gap); err != nil {
+	if err := f.wait(ctx, Site(u), gap, r.MaxWait, own); err != nil {
 		return nil, err
 	}
 
@@ -220,7 +227,7 @@ func (f *Fetcher) Get(ctx context.Context, r Request) (*Response, error) {
 			req.Header.Set("If-Modified-Since", r.LastModified)
 		}
 	}
-	res, err := f.client(r).Do(req)
+	res, err := f.client(r, own).Do(req)
 	if err != nil {
 		var hop *hopError
 		if errors.As(err, &hop) && ctx.Err() == nil {
@@ -277,17 +284,23 @@ func (f *Fetcher) Get(ctx context.Context, r Request) (*Response, error) {
 	return out, nil
 }
 
-// wait reserves the next slot for site and sleeps until it. A busy site's
-// *SiteBusyError comes back unchanged.
-func (f *Fetcher) wait(ctx context.Context, site string, gap time.Duration) error {
+// wait reserves the next slot for site, gap before the one after, and
+// sleeps until it. maxWait above zero overrides Config.SiteMaxWait, widened
+// by own (see ownSlots.allow). A busy site's *SiteBusyError comes back
+// unchanged.
+func (f *Fetcher) wait(ctx context.Context, site string, gap, maxWait time.Duration, own *ownSlots) error {
 	if f.cfg.Spacer == nil {
 		return nil
 	}
+	if maxWait = own.allow(site, maxWait); maxWait <= 0 {
+		maxWait = f.cfg.SiteMaxWait
+	}
 	now := f.cfg.Now()
-	slot, err := f.cfg.Spacer.Reserve(ctx, site, gap, f.cfg.SiteMaxWait, now)
+	slot, err := f.cfg.Spacer.Reserve(ctx, site, gap, maxWait, now)
 	if err != nil {
 		return err
 	}
+	own.booked(site, gap)
 	if d := slot.Sub(now); d > 0 {
 		if err := f.cfg.Sleep(ctx, d); err != nil {
 			return transportError(ctx, err)
@@ -296,10 +309,58 @@ func (f *Fetcher) wait(ctx context.Context, site string, gap time.Duration) erro
 	return nil
 }
 
+// ownSlots is, per site, the gap after the latest slot one Get booked (its
+// robots.txt, its page, a redirect's robots.txt), or every Get under one
+// ShareSlots ctx. Each booking is slept until before the request, so the
+// next slot on that site is at most that gap away: the wait for it is the
+// read's own spacing, not another check on the site.
+type ownSlots struct {
+	mu   sync.Mutex
+	gaps map[string]time.Duration
+}
+
+type sharedSlotsKey struct{}
+
+// ShareSlots returns a ctx whose Gets count one another's bookings as their
+// own (see ownSlots), so reads made one after another, such as a preview's
+// watches on one site, do not take their own spacing for a busy site.
+func ShareSlots(ctx context.Context) context.Context {
+	if _, ok := ctx.Value(sharedSlotsKey{}).(*ownSlots); ok {
+		return ctx
+	}
+	return context.WithValue(ctx, sharedSlotsKey{}, &ownSlots{gaps: map[string]time.Duration{}})
+}
+
+// slotsFor is ctx's shared bookings, or a new set for one Get.
+func slotsFor(ctx context.Context) *ownSlots {
+	if o, ok := ctx.Value(sharedSlotsKey{}).(*ownSlots); ok {
+		return o
+	}
+	return &ownSlots{gaps: map[string]time.Duration{}}
+}
+
+// allow is maxWait for site: a short wait (above zero) on a site already
+// booked here also allows the gap after that booking. The default wait
+// (0) is left alone; Config.SiteMaxWait already allows a gap.
+func (o *ownSlots) allow(site string, maxWait time.Duration) time.Duration {
+	if maxWait <= 0 {
+		return maxWait
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return maxWait + o.gaps[site]
+}
+
+func (o *ownSlots) booked(site string, gap time.Duration) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.gaps[site] = gap
+}
+
 // client is the configured client with a redirect check for r: extra
 // headers are stripped before any hop, and each hop is vetted like the
-// first address (see follow).
-func (f *Fetcher) client(r Request) *http.Client {
+// first address (see follow), with the slots r's Get has booked.
+func (f *Fetcher) client(r Request, own *ownSlots) *http.Client {
 	c := *f.cfg.Client
 	next := c.CheckRedirect
 	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
@@ -313,7 +374,7 @@ func (f *Fetcher) client(r Request) *http.Client {
 		} else if len(via) >= 10 {
 			return errors.New("stopped after 10 redirects")
 		}
-		return f.follow(req, via[len(via)-1].URL, r.IgnoreRobots)
+		return f.follow(req, via[len(via)-1].URL, r, own)
 	}
 	return &c
 }
@@ -327,11 +388,13 @@ func (e *hopError) Unwrap() error { return e.err }
 
 // follow vets a redirect hop: robots.txt for the new address, and a slot
 // for its site when the hop leaves the previous one, so a redirect can skip
-// neither (ADR 0021).
-func (f *Fetcher) follow(req *http.Request, prev *url.URL, ignoreRobots bool) error {
+// neither (ADR 0021). A hop to another origin on the same site, such as
+// apex to www or http to https, reads that origin's robots.txt in the slot
+// right after this read's own request, which own allows for.
+func (f *Fetcher) follow(req *http.Request, prev *url.URL, r Request, own *ownSlots) error {
 	gap := f.cfg.SiteGap
-	if !ignoreRobots {
-		rules, err := f.robotsFor(req.Context(), req.URL)
+	if !r.IgnoreRobots {
+		rules, err := f.robotsFor(req.Context(), req.URL, r.MaxWait, own)
 		if err != nil {
 			return &hopError{err: err}
 		}
@@ -341,7 +404,7 @@ func (f *Fetcher) follow(req *http.Request, prev *url.URL, ignoreRobots bool) er
 		gap = max(gap, rules.crawlDelay)
 	}
 	if site := Site(req.URL); site != Site(prev) {
-		if err := f.wait(req.Context(), site, gap); err != nil {
+		if err := f.wait(req.Context(), site, gap, r.MaxWait, own); err != nil {
 			return &hopError{err: err}
 		}
 	}

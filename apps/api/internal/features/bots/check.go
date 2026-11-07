@@ -187,7 +187,7 @@ func (s *Service) read(ctx context.Context, b Bot, ws []Watch, now time.Time) []
 	out := make([]watchRead, 0, len(ws))
 	for _, w := range ws {
 		start := time.Now()
-		r := s.readWatch(ctx, b, w, now)
+		r := s.readWatch(ctx, b, w, now, s.keys, 0)
 		r.duration = time.Since(start)
 		r.cw.WatchID, r.cw.MS = w.ID, r.duration.Milliseconds()
 		out = append(out, r)
@@ -198,10 +198,13 @@ func (s *Service) read(ctx context.Context, b Bot, ws []Watch, now time.Time) []
 	return out
 }
 
-func (s *Service) readWatch(ctx context.Context, b Bot, w Watch, now time.Time) watchRead {
+// readWatch reads one watch, finding price source keys in keys. maxWait
+// above zero caps the wait for the site's slot (a preview); 0 is the
+// fetcher's default.
+func (s *Service) readWatch(ctx context.Context, b Bot, w Watch, now time.Time, keys price.Keys, maxWait time.Duration) watchRead {
 	r := watchRead{w: w}
 	if w.Kind == WatchPrice {
-		q, err := price.Get(ctx, s.fetch, s.keys, price.Query{UserID: b.UserID, Source: w.Source, Symbol: w.Symbol, Currency: w.Currency}, now)
+		q, err := price.Get(ctx, s.fetch, keys, price.Query{UserID: b.UserID, Source: w.Source, Symbol: w.Symbol, Currency: w.Currency, MaxWait: maxWait}, now)
 		if err != nil {
 			r.err = err
 			return r
@@ -211,7 +214,7 @@ func (s *Service) readWatch(ctx context.Context, b Bot, w Watch, now time.Time) 
 		r.closed = !q.MarketOpen
 		return r
 	}
-	req := fetch.Request{URL: w.URL, Want: fetch.WantPage}
+	req := fetch.Request{URL: w.URL, Want: fetch.WantPage, MaxWait: maxWait}
 	if w.Kind == WatchFeed {
 		req.Want = fetch.WantFeed
 	}
