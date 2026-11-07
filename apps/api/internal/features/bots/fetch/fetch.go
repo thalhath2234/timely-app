@@ -220,8 +220,12 @@ func (f *Fetcher) Get(ctx context.Context, r Request) (*Response, error) {
 			req.Header.Set("If-Modified-Since", r.LastModified)
 		}
 	}
-	res, err := f.client(r.Header).Do(req)
+	res, err := f.client(r).Do(req)
 	if err != nil {
+		var hop *hopError
+		if errors.As(err, &hop) && ctx.Err() == nil {
+			return nil, hop.err
+		}
 		if res != nil && ctx.Err() == nil && !errors.Is(err, netguard.ErrBlocked) {
 			// A redirect the client would not follow (too many, or not http).
 			return nil, &StatusError{Status: res.StatusCode}
@@ -292,27 +296,56 @@ func (f *Fetcher) wait(ctx context.Context, site string, gap time.Duration) erro
 	return nil
 }
 
-// client is the configured client, or for a request with extra headers a
-// copy that strips them before any redirect is followed.
-func (f *Fetcher) client(extra http.Header) *http.Client {
-	if len(extra) == 0 {
-		return f.cfg.Client
-	}
+// client is the configured client with a redirect check for r: extra
+// headers are stripped before any hop, and each hop is vetted like the
+// first address (see follow).
+func (f *Fetcher) client(r Request) *http.Client {
 	c := *f.cfg.Client
 	next := c.CheckRedirect
 	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		for k := range extra {
+		for k := range r.Header {
 			req.Header.Del(k)
 		}
 		if next != nil {
-			return next(req, via)
-		}
-		if len(via) >= 10 {
+			if err := next(req, via); err != nil {
+				return err
+			}
+		} else if len(via) >= 10 {
 			return errors.New("stopped after 10 redirects")
 		}
-		return nil
+		return f.follow(req, via[len(via)-1].URL, r.IgnoreRobots)
 	}
 	return &c
+}
+
+// hopError is a redirect that Get refuses for the same reasons it refuses
+// a first address; Get returns err itself.
+type hopError struct{ err error }
+
+func (e *hopError) Error() string { return e.err.Error() }
+func (e *hopError) Unwrap() error { return e.err }
+
+// follow vets a redirect hop: robots.txt for the new address, and a slot
+// for its site when the hop leaves the previous one, so a redirect can skip
+// neither (ADR 0021).
+func (f *Fetcher) follow(req *http.Request, prev *url.URL, ignoreRobots bool) error {
+	gap := f.cfg.SiteGap
+	if !ignoreRobots {
+		rules, err := f.robotsFor(req.Context(), req.URL)
+		if err != nil {
+			return &hopError{err: err}
+		}
+		if !rules.Allowed(robotsPath(req.URL)) {
+			return &hopError{err: ErrRobots}
+		}
+		gap = max(gap, rules.crawlDelay)
+	}
+	if site := Site(req.URL); site != Site(prev) {
+		if err := f.wait(req.Context(), site, gap); err != nil {
+			return &hopError{err: err}
+		}
+	}
+	return nil
 }
 
 func (f *Fetcher) userAgent() string {

@@ -286,6 +286,62 @@ func TestRedirects(t *testing.T) {
 	}
 }
 
+// A redirect is vetted like the first address: robots.txt for the new path
+// and a slot for a new site.
+func TestRedirectsHonourRobotsAndSpacing(t *testing.T) {
+	n := newNet(map[string]reply{
+		"https://short.link/robots.txt":     {status: 200, body: "User-agent: *\nDisallow: /private\n"},
+		"https://short.link/x":              {status: 301, header: http.Header{"Location": {"https://shop.example/private/item"}}},
+		"https://short.link/y":              {status: 301, header: http.Header{"Location": {"https://shop.example/p/1"}}},
+		"https://short.link/z":              {status: 302, header: http.Header{"Location": {"https://short.link/private"}}},
+		"https://shop.example/robots.txt":   {status: 200, body: "User-agent: *\nDisallow: /private\nCrawl-delay: 30\n"},
+		"https://shop.example/private/item": html("<html>private</html>"),
+		"https://shop.example/p/1":          html("<html>public</html>"),
+	})
+	spacer := &fakeSpacer{}
+	f := newFetcher(n, Config{Spacer: spacer})
+	if _, err := f.Get(context.Background(), Request{URL: "https://short.link/x", Want: WantPage}); !errors.Is(err, ErrRobots) {
+		t.Fatalf("redirect to a disallowed path: got %v, want ErrRobots", err)
+	}
+	if n.count("https://shop.example/private/item") != 0 {
+		t.Fatal("the disallowed target was fetched")
+	}
+	if _, err := f.Get(context.Background(), Request{URL: "https://short.link/z", Want: WantPage}); !errors.Is(err, ErrRobots) {
+		t.Fatalf("same-site redirect to a disallowed path: got %v, want ErrRobots", err)
+	}
+
+	spacer.sites, spacer.gaps = nil, nil
+	res, err := f.Get(context.Background(), Request{URL: "https://short.link/y", Want: WantPage})
+	if err != nil || res.FinalURL != "https://shop.example/p/1" {
+		t.Fatalf("allowed redirect: %v %+v", err, res)
+	}
+	// With no robots cache: short.link's robots.txt and page, then
+	// shop.example's robots.txt and page, the page spaced by its Crawl-delay.
+	want := []string{"short.link", "short.link", "shop.example", "shop.example"}
+	if got := spacer.sites; strings.Join(got, " ") != strings.Join(want, " ") || spacer.gaps[3] != 30*time.Second {
+		t.Fatalf("reserved %v %v", spacer.sites, spacer.gaps)
+	}
+
+	busy := &SiteBusyError{Until: testNow.Add(time.Minute)}
+	f = newFetcher(n, Config{Spacer: &busyFor{site: "shop.example", err: busy}})
+	if _, err := f.Get(context.Background(), Request{URL: "https://short.link/y", Want: WantPage}); err != busy {
+		t.Fatalf("a busy redirect target: got %v, want its SiteBusyError", err)
+	}
+}
+
+// busyFor is a Spacer with every site free but one.
+type busyFor struct {
+	site string
+	err  error
+}
+
+func (b *busyFor) Reserve(_ context.Context, site string, _, _ time.Duration, now time.Time) (time.Time, error) {
+	if site == b.site {
+		return time.Time{}, b.err
+	}
+	return now, nil
+}
+
 func TestExtraHeaders(t *testing.T) {
 	const api = "https://api.example/v1/quote"
 	n := newNet(map[string]reply{
