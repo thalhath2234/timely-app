@@ -392,8 +392,10 @@ func TestIntegrationRestoreKeepsSourceKeys(t *testing.T) {
 		}
 	}
 	exec(`INSERT INTO bot_source_keys (user_id, source, api_key, key_hint, checked_at) VALUES (?, 'finnhub', 'c2VhbGVk', '…1234', now())`, uid)
-	exec(`INSERT INTO bots (id, user_id, name, origin, origin_client, interval_seconds, next_check_at) VALUES
-		('bot_stock', ?, 'NVDA', 'app', 'Claude Code', 900, now())`, uid)
+	// A file that says a tag just checked a Bot, far ahead, must not hold
+	// off the checks tags start.
+	exec(`INSERT INTO bots (id, user_id, name, origin, origin_client, interval_seconds, next_check_at, asked_at) VALUES
+		('bot_stock', ?, 'NVDA', 'app', 'Claude Code', 900, now(), now() + interval '10 years')`, uid)
 	exec(`INSERT INTO bots (id, user_id, name, origin, origin_client, status, pause_reason, interval_seconds) VALUES
 		('bot_mcp', ?, 'From an app', 'mcp', 'My key', 'paused', 'mcp', 900)`, uid)
 	exec(`INSERT INTO bot_watches (id, bot_id, user_id, kind, source, symbol, currency) VALUES
@@ -409,11 +411,14 @@ func TestIntegrationRestoreKeepsSourceKeys(t *testing.T) {
 	if _, ok := backup.Rows["bot_source_keys"]; ok {
 		t.Fatal("export carries bot_source_keys")
 	}
-	type row struct{ ID, Status, OriginClient, HealthDetail string }
+	type row struct {
+		ID, Status, OriginClient, HealthDetail string
+		Asked                                  bool
+	}
 	read := func() map[string]row {
 		t.Helper()
 		var rows []row
-		if err := db.Raw(`SELECT id, status, origin_client, health_detail FROM bots WHERE user_id = ?`, uid).Scan(&rows).Error; err != nil {
+		if err := db.Raw(`SELECT id, status, origin_client, health_detail, asked_at IS NOT NULL AS asked FROM bots WHERE user_id = ?`, uid).Scan(&rows).Error; err != nil {
 			t.Fatal(err)
 		}
 		out := map[string]row{}
@@ -430,7 +435,7 @@ func TestIntegrationRestoreKeepsSourceKeys(t *testing.T) {
 		t.Fatalf("the restore dropped the key: %d (%v)", keys, err)
 	}
 	got := read()
-	if r := got["bot_stock"]; r.Status != "active" || r.OriginClient != "" {
+	if r := got["bot_stock"]; r.Status != "active" || r.OriginClient != "" || r.Asked {
 		t.Fatalf("stock bot with a key: %+v", r)
 	}
 	if r := got["bot_mcp"]; r.OriginClient != "My key" {

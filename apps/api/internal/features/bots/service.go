@@ -22,7 +22,14 @@ const (
 	TriggerSchedule = "schedule"
 	TriggerWake     = "wake"
 	TriggerRunNow   = "run_now"
+	// TriggerAsk is the one check a tag in chat starts (Ask). Like run now,
+	// it runs whether or not the Bot is due, once its floor has passed.
+	TriggerAsk = "ask"
 )
+
+// runsNow reports a trigger that runs a Bot before it is due: Run now, or
+// a tag asking it.
+func runsNow(trigger string) bool { return trigger == TriggerRunNow || trigger == TriggerAsk }
 
 // Service runs Bots: the Store behind REST and MCP, the sweep that queues
 // due Bots, and the checks themselves.
@@ -38,6 +45,11 @@ type Service struct {
 	keyStore *KeyStore
 	live     *realtime.Hub // GET /bots/watch; nil answers 503
 	now      func() time.Time
+	// Ask waits for its check by looking every askPoll, for up to askWait,
+	// sleeping through sleep. Tests shorten the sleep.
+	askPoll time.Duration
+	askWait time.Duration
+	sleep   func(ctx context.Context, d time.Duration) error
 
 	mu            sync.Mutex
 	rnd           *rand.Rand // under mu
@@ -54,9 +66,10 @@ func New(db *gorm.DB, queue *jobs.Queue) *Service {
 	store := NewStore(db)
 	return &Service{
 		store: store, db: db, queue: queue,
-		fetch: fetch.New(fetch.Config{Spacer: store, Robots: store}),
-		now:   func() time.Time { return time.Now().UTC() },
-		rnd:   rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), rand.Uint64())),
+		fetch:   fetch.New(fetch.Config{Spacer: store, Robots: store}),
+		now:     func() time.Time { return time.Now().UTC() },
+		askPoll: askPoll, askWait: askWait, sleep: sleepCtx,
+		rnd: rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), rand.Uint64())),
 	}
 }
 
@@ -179,26 +192,9 @@ func (s *Service) RunNow(ctx context.Context, userID, idOrName string, _ Origin)
 		return RunResult{}, err
 	}
 	floor := Floor(ws)
-	runAt := now
-	if b.CheckStartedAt != nil {
-		if next := b.CheckStartedAt.Add(floor); next.After(runAt) {
-			runAt = next.UTC()
-		}
-	}
-	job, err := s.queue.Enqueue(jobs.Enqueue{
-		UserID: userID, Kind: models.JobBotCheck, DedupeKey: checkKey(b.ID), MaxAttempts: checkAttempts, RunAt: runAt,
-		Payload: models.JobPayload{"botId": b.ID, "trigger": TriggerRunNow},
-	})
+	job, err := s.queueCheck(b, floor, TriggerRunNow, now)
 	if err != nil {
 		return RunResult{}, err
-	}
-	if job.Payload.String("trigger") != TriggerRunNow || job.RunAt.After(runAt) {
-		if err := s.queue.Expedite(job.ID, runAt, models.JobPayload{"trigger": TriggerRunNow}); err != nil {
-			return RunResult{}, err
-		}
-		if job.RunAt.After(runAt) {
-			job.RunAt = runAt
-		}
 	}
 	// A check queued before the floor allows would lose the fence; the
 	// sweep then queues the Bot again when it may run.
@@ -252,6 +248,35 @@ func (s *Service) nextCheck(interval time.Duration, now time.Time) time.Time {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return NextCheck(interval, now, s.rnd)
+}
+
+// queueCheck queues a check of b that runs now, or once its floor has
+// passed. A check already waiting is pulled forward instead of doubled, and
+// keeps a run-now trigger it already has (so it still runs before the Bot is
+// due); otherwise it takes trigger.
+func (s *Service) queueCheck(b Bot, floor time.Duration, trigger string, now time.Time) (*models.Job, error) {
+	runAt := now
+	if b.CheckStartedAt != nil {
+		if next := b.CheckStartedAt.Add(floor); next.After(runAt) {
+			runAt = next.UTC()
+		}
+	}
+	job, err := s.queue.Enqueue(jobs.Enqueue{
+		UserID: b.UserID, Kind: models.JobBotCheck, DedupeKey: checkKey(b.ID), MaxAttempts: checkAttempts, RunAt: runAt,
+		Payload: models.JobPayload{"botId": b.ID, "trigger": trigger},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !runsNow(job.Payload.String("trigger")) || job.RunAt.After(runAt) {
+		if err := s.queue.Expedite(job.ID, runAt, models.JobPayload{"trigger": trigger}); err != nil {
+			return nil, err
+		}
+		if job.RunAt.After(runAt) {
+			job.RunAt = runAt
+		}
+	}
+	return job, nil
 }
 
 const checkAttempts = 2

@@ -57,6 +57,10 @@ func (s *Service) VetRestore(tx *gorm.DB, userID string, fromMCP bool) error {
 		if client != b.OriginClient {
 			set["origin_client"] = client
 		}
+		// A file cannot hold off the checks a tag starts.
+		if b.AskedAt != nil {
+			set["asked_at"] = nil
+		}
 		reason, detail := "", unusable(byBot[b.ID], hasKey)
 		if i >= MaxBots {
 			detail = restoredOverCap

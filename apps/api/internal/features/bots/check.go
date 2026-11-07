@@ -69,7 +69,7 @@ type watchRead struct {
 // nothing, so a stale, retried or doubled job is harmless.
 func (s *Service) HandleCheck(ctx context.Context, job *models.Job) error {
 	trigger := job.Payload.String("trigger")
-	if trigger != TriggerWake && trigger != TriggerRunNow {
+	if trigger != TriggerWake && !runsNow(trigger) {
 		trigger = TriggerSchedule
 	}
 	started := s.now().UTC()
@@ -160,7 +160,7 @@ WHERE id = @id AND user_id = @uid AND status = 'active'
 RETURNING *`,
 		sql.Named("now", now), sql.Named("job", job.ID), sql.Named("provisional", provisional),
 		sql.Named("id", botID), sql.Named("uid", job.UserID), sql.Named("retry", job.Attempts > 1),
-		sql.Named("due_by", now.Add(FenceSlack)), sql.Named("run_now", trigger == TriggerRunNow),
+		sql.Named("due_by", now.Add(FenceSlack)), sql.Named("run_now", runsNow(trigger)),
 		sql.Named("spaced_by", now.Add(-floor+FenceSlack)),
 	).Scan(&claimed).Error
 	if err != nil {

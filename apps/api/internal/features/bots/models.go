@@ -27,6 +27,7 @@ type Bot struct {
 	NextCheckAt     *time.Time `json:"nextCheckAt"`
 	CheckStartedAt  *time.Time `json:"checkStartedAt"`
 	CheckingJobID   *string    `gorm:"column:checking_job_id;type:text" json:"-"`
+	AskedAt         *time.Time `json:"-"` // when a tag in chat last started a check (Ask)
 	LastCheckAt     *time.Time `json:"lastCheckAt"`
 	LastOkAt        *time.Time `json:"lastOkAt"`
 	Strikes         int        `gorm:"not null" json:"strikes"`
