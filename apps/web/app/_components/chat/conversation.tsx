@@ -96,6 +96,7 @@ const invalidated = [
 export default function Conversation({
   id,
   initialContext = [],
+  initialDraft = "",
   onCreated,
   onNew,
   variant = "page",
@@ -106,6 +107,8 @@ export default function Conversation({
 }: {
   id?: string | null;
   initialContext?: ChatContext[];
+  /** What the composer starts with, for the person to finish and send. */
+  initialDraft?: string;
   onCreated: (id: string) => void;
   onNew?: () => void;
   variant?: "page" | "overlay";
@@ -123,7 +126,7 @@ export default function Conversation({
   const needsProvider = Boolean(providers.data) && readyProviders(providers.data).length === 0;
   const cache = useQueryClient();
   const chat = query.data;
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(initialDraft);
   const [receiptDirty, setReceiptDirty] = useState(false);
   const [dragging, setDragging] = useState(false);
   const uploads = useImageUploads();

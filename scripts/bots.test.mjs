@@ -44,6 +44,8 @@ import {
   proposalFacts,
   resetLine,
   ruleLine,
+  tellLine,
+  alertLink,
   runNowState,
   snoozePresets,
   starterDraft,
@@ -546,6 +548,48 @@ describe("bots board over the seed", () => {
   });
 });
 
+describe("alert links", () => {
+  const feedUrl = "https://www.reddit.com/r/buildapcsales/.rss";
+  const feedBot = (latestItem) =>
+    bot({ watches: [watch({ kind: "feed", read: "", url: feedUrl, latestItem })] });
+  const item = (url) => ({ title: "A post", url, publishedAt: null });
+
+  test("a feed alert opens the newest post, not the feed", () => {
+    assert.deepEqual(alertLink(feedBot(item("https://reddit.com/x")), { url: feedUrl }), {
+      url: "https://reddit.com/x",
+      label: "Open post",
+      post: true,
+    });
+  });
+
+  test("a feed post without a web address falls back to the feed", () => {
+    for (const latest of [null, item(""), item("javascript:alert(1)"), item("not a url")]) {
+      assert.deepEqual(alertLink(feedBot(latest), { url: feedUrl }), { url: feedUrl, label: "Open feed", post: false });
+    }
+  });
+
+  test("the alert's own watch is the one read on a two-feed bot", () => {
+    const b = bot({
+      watches: [
+        watch({ id: "a", kind: "feed", read: "", url: "https://a.example/rss", latestItem: item("https://a.example/1") }),
+        watch({ id: "b", kind: "feed", read: "", url: "https://b.example/rss", latestItem: item("https://b.example/1") }),
+      ],
+    });
+    assert.equal(alertLink(b, { url: "https://b.example/rss" })?.url, "https://b.example/1");
+  });
+
+  test("a page alert opens the page; nothing safe opens nothing", () => {
+    const page = bot({ watches: [watch({ url: "https://example.com/p" })] });
+    assert.deepEqual(alertLink(page, { url: "https://example.com/p" }), {
+      url: "https://example.com/p",
+      label: "Open page",
+      post: false,
+    });
+    assert.equal(alertLink(page, { url: "" }), null);
+    assert.equal(alertLink(page, { url: "javascript:alert(1)" }), null);
+  });
+});
+
 describe("fixes", () => {
   test("visa and Coldplay, as drawn", () => {
     assert.equal(fixAction(seed.visa), "pick_part");
@@ -728,6 +772,18 @@ describe("rules", () => {
     assert.equal(ruleLine({ kind: "below" }, inr), "Price is below …");
     // A shop page that left its currency to the page reads it from the summary.
     assert.equal(ruleLine(below(25000), seed.headphones.watches[0]), "Price is below ₹25,000");
+  });
+
+  test("tell lines read on from \"and tell you\"", () => {
+    assert.equal(tellLine(below(90000), inr), "when the price is below ₹90,000");
+    assert.equal(tellLine({ kind: "above", threshold: 70000 }, { currency: "USD" }), "when the price is above $70,000");
+    assert.equal(tellLine({ kind: "move_pct", percent: 5, direction: "any" }, inr), "when it moves 5% either way");
+    assert.equal(tellLine({ kind: "move_pct", percent: 2.5, direction: "down" }, inr), "when it drops 2.5%");
+    assert.equal(tellLine({ kind: "words_appear", words: ["Add to cart"] }, inr), "when “Add to cart” appears");
+    assert.equal(tellLine({ kind: "words_disappear", words: ["Sold out"] }, inr), "when “Sold out” disappears");
+    assert.equal(tellLine({ kind: "any_change" }, inr), "when it changes");
+    assert.equal(tellLine({ kind: "new_item" }, inr), "about each new post");
+    assert.equal(tellLine({ kind: "new_item", words: ["4070"] }, inr), "about each new post with “4070”");
   });
 
   test("again and reset lines", () => {

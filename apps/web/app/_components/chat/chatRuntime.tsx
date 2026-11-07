@@ -163,7 +163,7 @@ export default function ChatRuntime() {
   return overlayOpen ? <ChatOverlay /> : null;
 }
 function ChatOverlay() {
-  const { context, conversationId, setId, close, openNew, track } =
+  const { context, draft, conversationId, setId, close, openNew, track } =
     useChatStore();
   const { sidebarAutoHide } = usePreferences();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -206,9 +206,11 @@ function ChatOverlay() {
     >
       <div className="flex h-full flex-col">
         <Conversation
-          key={conversationId || "new"}
+          // A new draft (another starter while the bar is open) starts afresh.
+          key={conversationId || `new:${draft}`}
           id={conversationId}
           initialContext={context}
+          initialDraft={conversationId ? "" : draft}
           onCreated={(id) => {
             const handOff = () => {
               track(id);

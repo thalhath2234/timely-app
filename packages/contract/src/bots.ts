@@ -861,6 +861,48 @@ export function ruleLine(rule: Rule, watch: Pick<WatchView, "currency" | "summar
   return "Any change";
 }
 
+/**
+ * A rule as the clause after "tell you": "when the price is below ₹90,000",
+ * "when it moves 5% either way", "about each new post". Reads on from "It
+ * would read <site> every 6 hours and tell you …".
+ */
+export function tellLine(rule: Rule, watch: Pick<WatchView, "currency" | "summary"> | Pick<WatchInput, "currency">): string {
+  const line = ruleLine(rule, watch);
+  const lower = line.charAt(0).toLowerCase() + line.slice(1);
+  switch (rule.kind) {
+    case "below":
+    case "above":
+      return `when the ${lower}`;
+    case "move_pct":
+      return `when it ${lower}`;
+    case "words_appear":
+    case "words_disappear":
+      return `when ${line}`;
+    case "new_item":
+      return rule.words?.length ? `about each new post with ${quoted(rule.words)}` : "about each new post";
+  }
+  return "when it changes";
+}
+
+/**
+ * Where a new alert's link button goes. A feed alert carries the feed's own
+ * address, so it opens the newest post when that post has a web address
+ * (feed text is third-party, so only http(s) is taken), else the feed. Other
+ * alerts open the page they read. null when there is nothing safe to open.
+ */
+export function alertLink(
+  bot: Pick<BotView, "watches" | "health">,
+  alert: Pick<AlertBrief, "url">,
+): { url: string; label: "Open post" | "Open feed" | "Open page"; post: boolean } | null {
+  const w = bot.watches.find((x) => x.url && x.url === alert.url) ?? primaryWatch(bot);
+  if (w?.kind === "feed") {
+    const item = w.latestItem?.url ?? "";
+    if (isWebAddress(item)) return { url: item, label: "Open post", post: true };
+    return isWebAddress(alert.url) ? { url: alert.url, label: "Open feed", post: false } : null;
+  }
+  return isWebAddress(alert.url) ? { url: alert.url, label: "Open page", post: false } : null;
+}
+
 const stepOf = (r: Rule) => r.stepPercent || 5;
 const resetOf = (r: Rule) => r.resetPercent || 0.5;
 
