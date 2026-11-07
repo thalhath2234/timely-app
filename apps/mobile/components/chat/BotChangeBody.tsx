@@ -168,7 +168,9 @@ export default function BotChangeBody({
     () => previewCard(group.args, group.preview, now),
     [group.args, group.preview, now],
   );
-  const reads = group.preview?.watches ?? [];
+  // A brief reads no page: it has nothing to show under "Right now it reads".
+  const brief = group.args.kind === "brief";
+  const reads = brief ? [] : (group.preview?.watches ?? []);
   const several = group.args.watches.length > 1;
   let lastWatch: number | undefined;
   const rows: ReactNode[] = [];
@@ -236,7 +238,7 @@ export default function BotChangeBody({
           />
         );
       })}
-      {group.previewError ? (
+      {group.previewError && !brief ? (
         <View accessibilityLabel="What it reads" style={styles.reads}>
           <Text style={styles.readsTitle}>It couldn’t read it just now</Text>
           <Text style={styles.bad}>{group.previewError}</Text>

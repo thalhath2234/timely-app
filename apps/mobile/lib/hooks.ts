@@ -1997,8 +1997,9 @@ export function useCellFit(edit: CellFitEdit | null) {
 const BOTS_IDLE_POLL = 30_000;
 const botsPoll = () => (isBotStreaming() ? false : BOTS_IDLE_POLL);
 
-export function useBotsQuery() {
-  return useQuery({ queryKey: keys.bots, queryFn: listBots, refetchInterval: botsPoll, staleTime: 5000 });
+/** The board; `enabled` false keeps what is cached without asking (a chat proposal asks only when it holds a bot). */
+export function useBotsQuery(enabled = true) {
+  return useQuery({ queryKey: keys.bots, queryFn: listBots, enabled, refetchInterval: botsPoll, staleTime: 5000 });
 }
 
 /** One bot in full; `enabled` false (its sheet is closed) keeps what is cached without asking again. */

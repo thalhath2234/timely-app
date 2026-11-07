@@ -1424,7 +1424,8 @@ export function fixCopy(bot: BotView): { eyebrow: string; title: string; meta: s
 /** Bots by id, for names: a list or a map both fit. */
 export type BotNames = { id: string; name: string }[] | Record<string, { name: string }>;
 
-const DEFAULT_BRIEF_TIME = "08:00";
+/** When a brief sends unless the person picks another hour. */
+export const DEFAULT_BRIEF_TIME = "08:00";
 
 const isBrief = (bot: { kind?: BotKind }) => bot.kind === "brief";
 const sourcesOf = (bot: { sources?: string[] }) => bot.sources ?? [];

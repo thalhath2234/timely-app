@@ -15,8 +15,10 @@ import type { SheetColumn } from "./sheetTypes";
 import { parseIsoDate } from "./sheetValues";
 import {
   DEFAULT_BOT_SETTINGS,
+  DEFAULT_BRIEF_TIME,
   defaultMinutes,
   defaultRules,
+  filterLine,
   floorMinutes,
   hostOf,
   HOW_SMART,
@@ -218,6 +220,20 @@ export const BOT_TOOLS = new Set(["create_bot", "update_bot"]);
 /** Every change in the plan makes or edits a bot: the review reads as "New bot". */
 export function isBotPlan(steps: Pick<ReviewStep, "tool">[]): boolean {
   return steps.length > 0 && steps.every((step) => BOT_TOOLS.has(step.tool));
+}
+
+/**
+ * The line under a bot-only proposal: when it starts and what it reads. A
+ * plan of briefs reads no page, only what the person's bots found.
+ */
+export function botPlanHint(steps: Pick<ReviewStep, "tool" | "arguments" | "before">[]): string {
+  const made = steps.some((step) => step.tool === "create_bot");
+  const brief = (step: (typeof steps)[number]) => {
+    const before = obj(step.before);
+    return str(step.arguments?.kind) === "brief" || str((obj(before?.bot) ?? before)?.kind) === "brief";
+  };
+  if (steps.length && steps.every(brief)) return `${made ? "The brief starts" : "The change applies"} when you approve. It reads only what your bots found, never a page.`;
+  return `${made ? "Checks start" : "The change applies"} when you approve. It only reads the page; it never buys or signs in.`;
 }
 
 /** Deletions and clearing blocks remove data; their review says so. */
@@ -1006,20 +1022,46 @@ function clipped(text: string, max = 80): string {
 
 const titleWith = (w: WatchInput, site: string) => watchTitle({ ...w, site: w.kind === "price" ? "" : site });
 
+/** A Pass to link as chat sends it (`{bot, filter}`) or get_bot reads it (`{bot: name, botId, filter}`). */
+type LinkRef = { ref: string; name: string; filter: string[] };
+
+function linkOf(value: unknown): LinkRef | null {
+  const o = obj(value);
+  const ref = str(o?.botId) || str(o?.bot);
+  if (!o || !ref) return null;
+  const filter = Array.isArray(o.filter) ? o.filter.map(str).map((w) => w.trim()).filter(Boolean) : [];
+  return { ref, name: str(o.botId) ? str(o.bot) : "", filter };
+}
+
+type KnowledgeRef = { kind: "doc" | "sheet"; id: string; title: string };
+
+function knowledgeOf(value: unknown): KnowledgeRef | null {
+  const o = obj(value);
+  const kind = str(o?.kind);
+  if (!o || (kind !== "doc" && kind !== "sheet") || !str(o.id)) return null;
+  return { kind, id: str(o.id), title: str(o.title) };
+}
+
+/** Whether a bot named by `ref` (an id or a name) is the one read as `id` and `name`. */
+const sameBot = (ref: string, id: string, name: string) => ref === id || (!!name && ref.toLowerCase() === name.toLowerCase());
+
 /**
  * A create_bot or update_bot step as the bot card: the bot as it will be
  * (watches with their rules, defaults filled in as the server fills them),
- * and the rows the review draws, each with what it was for an edit.
+ * and the rows the review draws, each with what it was for an edit. A brief
+ * shows the bots it sums up, when it sends and who writes it instead of
+ * watches, an interval and rules.
  */
 function botGroup(key: string, index: number, steps: ReviewStep[], names: ReviewNames): ReviewGroup {
   const step = steps[index];
   const args = step.arguments ?? {};
   const update = step.tool === "update_bot";
   const before = update ? (obj(obj(step.before)?.bot) ?? obj(step.before)) : undefined;
+  const brief = str(args.kind) === "brief" || str(before?.kind) === "brief";
   const defaults = names.botDefaults ?? DEFAULT_BOT_SETTINGS;
   const { preview, error } = stepPreview(step);
-  const was = (Array.isArray(before?.watches) ? before.watches : []).map(watchOf).filter((w): w is WatchInput => !!w);
-  const given = Array.isArray(args.watches) ? args.watches.map(watchOf).filter((w): w is WatchInput => !!w) : null;
+  const was = brief ? [] : (Array.isArray(before?.watches) ? before.watches : []).map(watchOf).filter((w): w is WatchInput => !!w);
+  const given = brief ? null : Array.isArray(args.watches) ? args.watches.map(watchOf).filter((w): w is WatchInput => !!w) : null;
   // The reading is of the watches the step sends; an edit without them keeps its own.
   const reads = given ? (preview?.watches ?? []) : [];
   const watches: WatchInput[] = (given ?? was).map((w, i) => {
@@ -1032,14 +1074,57 @@ function botGroup(key: string, index: number, steps: ReviewStep[], names: Review
   const name = str(args.name) || (update ? botName(args, before, names) : "New bot");
   const minutes = (value: unknown) => num(value) || defaultMinutes(watches);
   // An edit that leaves the interval out keeps it, raised to the floor of the
-  // watches it now has, as the server saves it.
-  const every = update && args.intervalMinutes === undefined ? Math.max(minutes(before?.intervalMinutes), floorMinutes(watches)) : minutes(args.intervalMinutes);
+  // watches it now has, as the server saves it. A brief runs once a day.
+  const every = brief ? 1440 : update && args.intervalMinutes === undefined ? Math.max(minutes(before?.intervalMinutes), floorMinutes(watches)) : minutes(args.intervalMinutes);
   const description = update && typeof args.description === "string" ? args.description.trim() : str(args.description) || str(before?.description);
   const alerts: BotSettings = update && before ? { desktop: !!before.desktop, phone: !!before.phone, urgent: !!before.urgent } : defaults;
+  // Bots the edit's read names (its links and sources), for refs the app has no name for.
+  const known = new Map<string, string>();
+  for (const item of [...(Array.isArray(before?.passesTo) ? before.passesTo : []), ...(Array.isArray(before?.sources) ? before.sources : [])]) {
+    const o = obj(item);
+    const id = str(o?.botId);
+    const label = str(o?.bot) || str(o?.name);
+    if (id && label) known.set(id, label);
+  }
+  const botLabel = (ref: string) => names.bot?.(ref) ?? known.get(ref) ?? (ref.startsWith("bot_") || !ref ? "A bot" : ref);
   const several = watches.length > 1;
   const rows: ReviewBotRow[] = [];
   if (update && str(args.name) && str(before?.name) && str(args.name) !== str(before?.name)) rows.push({ label: "Name", value: str(args.name), before: str(before?.name) });
   if (update && before && description !== str(before.description)) rows.push({ label: "Description", value: clipped(description) || "None", before: clipped(str(before.description)) || "None" });
+
+  // A brief: the bots it sums up, when it sends, and who writes it.
+  const wasSources = (Array.isArray(before?.sources) ? before.sources : [])
+    .map((item) => {
+      const o = obj(item);
+      return { id: str(o?.botId) || str(item), name: str(o?.name) };
+    })
+    .filter((s) => s.id);
+  const givenSources = Array.isArray(args.sources) ? args.sources.map(str).filter(Boolean) : null;
+  const sources = givenSources ?? wasSources.map((s) => s.id);
+  const time = str(args.briefTime) || str(before?.briefTime) || DEFAULT_BRIEF_TIME;
+  const writeAi = typeof args.briefAi === "boolean" ? args.briefAi : !!before?.briefAi;
+  if (brief) {
+    sources.forEach((ref) => {
+      const row: ReviewBotRow = { label: "Sums up", value: botLabel(ref) };
+      if (givenSources && update && before && !wasSources.some((s) => sameBot(ref, s.id, s.name))) row.before = "New";
+      rows.push(row);
+    });
+    if (!sources.length) rows.push({ label: "Sums up", value: "No bots yet" });
+    if (givenSources && update) {
+      for (const old of wasSources) {
+        if (givenSources.some((ref) => sameBot(ref, old.id, old.name))) continue;
+        rows.push({ label: "Stops summing up", value: old.name || botLabel(old.id) });
+      }
+    }
+    const sends: ReviewBotRow = { label: "Sends", value: `Daily at ${time}` };
+    const wasTime = str(before?.briefTime);
+    if (update && wasTime && wasTime !== time) sends.before = `Daily at ${wasTime}`;
+    rows.push(sends);
+    const writer: ReviewBotRow = { label: "Written by", value: writeAi ? "AI" : "Timely" };
+    if (update && before && typeof args.briefAi === "boolean" && args.briefAi !== !!before.briefAi) writer.before = before.briefAi ? "AI" : "Timely";
+    rows.push(writer);
+  }
+
   watches.forEach((w, i) => {
     const old = w.id ? was.find((x) => x.id === w.id) : undefined;
     const site = siteOf(w, i);
@@ -1060,10 +1145,12 @@ function botGroup(key: string, index: number, steps: ReviewStep[], names: Review
       rows.push({ label: "Stops watching", value: titleWith(old, site), kind: old.kind, ...(site ? { site } : {}) });
     }
   }
-  const everyRow: ReviewBotRow = { label: "Checks every", value: intervalLabel(every) };
-  const wasEvery = num(before?.intervalMinutes);
-  if (update && wasEvery && wasEvery !== every) everyRow.before = intervalLabel(wasEvery);
-  rows.push(everyRow);
+  if (!brief) {
+    const everyRow: ReviewBotRow = { label: "Checks every", value: intervalLabel(every) };
+    const wasEvery = num(before?.intervalMinutes);
+    if (update && wasEvery && wasEvery !== every) everyRow.before = intervalLabel(wasEvery);
+    rows.push(everyRow);
+  }
   const titles = watches.map((w, i) => titleWith(w, siteOf(w, i)));
   watches.forEach((w, i) => {
     const old = w.id ? was.find((x) => x.id === w.id) : undefined;
@@ -1080,7 +1167,58 @@ function botGroup(key: string, index: number, steps: ReviewStep[], names: Review
       rows.push(row);
     });
   });
-  rows.push({ label: "How smart", value: HOW_SMART[0].label });
+
+  // How smart: what the step sets, else what the bot has. A brief has no judge.
+  const smartLabel = (id: string) => HOW_SMART.find((h) => h.id === id)?.label ?? HOW_SMART[0].label;
+  const mode = str(args.judgeMode) || str(before?.judgeMode) || "rules";
+  if (!brief) {
+    const smart: ReviewBotRow = { label: "How smart", value: smartLabel(mode) };
+    const wasMode = str(before?.judgeMode) || "rules";
+    if (update && before && str(args.judgeMode) && wasMode !== mode) smart.before = smartLabel(wasMode);
+    rows.push(smart);
+  }
+
+  // Knowledge: the doc or sheet the judge reads, by its title, never its id.
+  const had = knowledgeOf(before?.knowledge);
+  const set = args.knowledge === undefined ? undefined : knowledgeOf(args.knowledge);
+  const knowledge = set === undefined ? had : set;
+  const knowledgeName = (k: KnowledgeRef) =>
+    k.title || (had && had.kind === k.kind && had.id === k.id ? had.title : "") || (k.kind === "doc" ? names.doc?.(k.id) : names.sheet?.(k.id)?.title) || (k.kind === "doc" ? "A doc" : "A sheet");
+  if (knowledge || (set === null && had)) {
+    const row: ReviewBotRow = { label: "Knowledge", value: knowledge ? knowledgeName(knowledge) : "None" };
+    if (update && before && set !== undefined && (had?.kind ?? "") + (had?.id ?? "") !== (knowledge?.kind ?? "") + (knowledge?.id ?? "")) row.before = had ? knowledgeName(had) : "None";
+    rows.push(row);
+  }
+
+  // Pass to: one row per link, "Price check · mentions 2TB NVMe".
+  const wasLinks = (Array.isArray(before?.passesTo) ? before.passesTo : []).map(linkOf).filter((l): l is LinkRef => !!l);
+  const givenLinks = Array.isArray(args.passesTo) ? args.passesTo.map(linkOf).filter((l): l is LinkRef => !!l) : null;
+  const links = givenLinks ?? wasLinks;
+  const linkLine = (l: LinkRef) => `${l.name || botLabel(l.ref)} · ${filterLine(l.filter)}`;
+  links.forEach((link) => {
+    // A link named by its bot's name reads with the name the bot has.
+    const old = wasLinks.find((l) => sameBot(link.ref, l.ref, l.name));
+    const row: ReviewBotRow = { label: "Passes to", value: linkLine({ ...link, name: link.name || old?.name || "" }) };
+    if (givenLinks && update && before) {
+      if (!old) row.before = "New";
+      else if (filterLine(old.filter) !== filterLine(link.filter)) row.before = linkLine(old);
+    }
+    rows.push(row);
+  });
+  if (givenLinks && update) {
+    for (const old of wasLinks) {
+      if (givenLinks.some((l) => sameBot(l.ref, old.ref, old.name))) continue;
+      rows.push({ label: "Stops passing to", value: linkLine(old) });
+    }
+  }
+
+  const briefOnly = typeof args.briefOnly === "boolean" ? args.briefOnly : !!before?.briefOnly;
+  if (typeof args.briefOnly === "boolean") {
+    const row: ReviewBotRow = { label: "Only in the brief", value: briefOnly ? "On" : "Off" };
+    if (update && before && !!before.briefOnly !== briefOnly) row.before = before.briefOnly ? "On" : "Off";
+    rows.push(row);
+  }
+
   // An edit read without its settings cannot say where it alerts.
   if (!update || before) rows.push({ label: "Alerts on", value: botAlertsLine(alerts) });
   const ref = str(args.bot);
@@ -1091,7 +1229,7 @@ function botGroup(key: string, index: number, steps: ReviewStep[], names: Review
     steps: [index],
     eyebrow: "Bot",
     title: name,
-    meta: `Checks every ${intervalLabel(every)}`,
+    meta: brief ? `Daily at ${time}` : `Checks every ${intervalLabel(every)}`,
     removal: false,
     action: update ? "update" : "create",
     tool: step.tool,
@@ -1105,6 +1243,14 @@ function botGroup(key: string, index: number, steps: ReviewStep[], names: Review
       phone: alerts.phone,
       urgent: alerts.urgent,
       watches,
+      kind: brief ? "brief" : "watch",
+      judgeMode: mode === "ai" ? "ai" : "rules",
+      knowledge: knowledge ? { kind: knowledge.kind, id: knowledge.id } : null,
+      passesTo: links.map((l) => ({ botId: l.ref, filter: l.filter })),
+      sources: brief ? sources : [],
+      briefOnly,
+      briefAi: brief && writeAi,
+      briefTime: brief ? time : "",
     },
     rows,
     preview: given ? preview : undefined,

@@ -10,7 +10,11 @@ import {
   Square,
   Trash2,
 } from "lucide-react";
-import { isBotPlan, planGroups } from "@timely/contract/changeReview";
+import {
+  botPlanHint,
+  isBotPlan,
+  planGroups,
+} from "@timely/contract/changeReview";
 import type { Chat } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
 import type { BotReplyActions } from "./botChangeBody";
@@ -109,7 +113,7 @@ export default function ProposalPanel({
   const hint =
     chat.status === "approval"
       ? bots
-        ? `${newBots ? "Checks start" : "The change applies"} when you approve. It only reads the page; it never buys or signs in.`
+        ? botPlanHint(steps)
         : receiptDirty
           ? "Receipt fields changed. Select Review sheet changes before applying."
           : chat.imageReview?.status === "review"
