@@ -1,6 +1,12 @@
 "use client";
 
-import { useMemo, useState, type KeyboardEvent, type RefObject } from "react";
+import {
+  useId,
+  useMemo,
+  useState,
+  type KeyboardEvent,
+  type RefObject,
+} from "react";
 import { Bot, X } from "lucide-react";
 import {
   MAX_BOT_TAGS,
@@ -63,6 +69,7 @@ export function useBotMention({
   const [caret, setCaret] = useState(text.length);
   const [dismissed, setDismissed] = useState<number | null>(null);
   const [active, setActive] = useState({ query: "", index: 0 });
+  const listId = useId();
   const bots = useBots({ enabled: text.includes("@") }).data?.bots;
   const live = liveBotTags(text, tags, bots);
   const tag = disabled ? null : botTagQuery(text, caret);
@@ -122,8 +129,23 @@ export function useBotMention({
     return false;
   }
 
+  // The textarea is a combobox while the list is open, so a screen reader
+  // hears the list open and which bot Enter would pick.
+  const optionId = (i: number) => `${listId}-${i}`;
+  const comboProps = open
+    ? {
+        role: "combobox" as const,
+        "aria-expanded": true,
+        "aria-controls": listId,
+        "aria-autocomplete": "list" as const,
+        "aria-activedescendant": full ? undefined : optionId(index),
+      }
+    : {};
+
   return {
     tags: live,
+    /** ARIA for the textarea: a combobox while the list is open. */
+    comboProps,
     /** Keeps the caret, which the list follows. */
     onCaret: (box: HTMLTextAreaElement) => {
       setCaret(box.selectionStart ?? box.value.length);
@@ -141,6 +163,7 @@ export function useBotMention({
     },
     picker: open ? (
       <BotMentionList
+        id={listId}
         bots={matches}
         active={index}
         full={full}
@@ -152,12 +175,14 @@ export function useBotMention({
 }
 
 function BotMentionList({
+  id,
   bots,
   active,
   full,
   onHover,
   onPick,
 }: {
+  id: string;
   bots: BotView[];
   active: number;
   full: boolean;
@@ -169,6 +194,7 @@ function BotMentionList({
   return (
     <PopoverView>
       <div
+        id={id}
         role="listbox"
         aria-label="Tag a bot"
         onMouseDown={(event) => event.preventDefault()}
@@ -190,6 +216,7 @@ function BotMentionList({
             return (
               <button
                 key={bot.id}
+                id={`${id}-${i}`}
                 type="button"
                 role="option"
                 aria-selected={i === active}

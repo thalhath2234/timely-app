@@ -220,7 +220,18 @@ export default function BotChangeBody({
 }) {
   const now = useMemo(() => new Date(), []);
   const actions = useBotActions(() => {});
-  const sites = botSites(group.args.watches);
+  // The header mark takes each watch's site from the reading (the
+  // registrable domain, as the rows and the board preview show it), not the
+  // address's full host.
+  const marked = useMemo(
+    () =>
+      group.args.watches.map((w, i) => {
+        const site = group.preview?.watches?.find((r) => r.index === i)?.site;
+        return site ? { ...w, site } : w;
+      }),
+    [group.args.watches, group.preview],
+  );
+  const sites = botSites(marked);
   const icons = useBotIcons(sites).data;
   const card = useMemo(
     () => previewCard(group.args, group.preview, now),
@@ -245,7 +256,7 @@ export default function BotChangeBody({
       <div className="grid gap-3 @min-[720px]/bot:grid-cols-[minmax(0,1fr)_260px]">
         <ListGroup className="self-start">
           <div className="flex items-center gap-3 px-3.5 py-3">
-            <BotMark watches={group.args.watches} size={40} icons={icons} />
+            <BotMark watches={marked} size={40} icons={icons} />
             <div className="min-w-0 flex-1">
               <span className="block text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
                 {group.eyebrow}

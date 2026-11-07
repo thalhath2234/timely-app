@@ -224,6 +224,7 @@ export default function MessageList({
                   <ChatText
                     text={m.content}
                     className="text-primary-foreground"
+                    inverse
                   />
                   {!!m.imageIds?.length && (
                     <div className="mt-2 flex flex-wrap gap-2">

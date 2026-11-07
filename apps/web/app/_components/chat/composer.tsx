@@ -156,6 +156,7 @@ export default function Composer({
           <textarea
             ref={inputRef}
             aria-label="Message Timely"
+            {...mention.comboProps}
             placeholder={placeholder}
             value={draft}
             onChange={(e) => {
