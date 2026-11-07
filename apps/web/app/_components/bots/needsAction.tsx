@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  Check,
+  Clock,
   Eye,
   ExternalLink,
   KeyRound,
@@ -27,6 +29,7 @@ import {
   type FixButton,
 } from "@timely/contract/bots";
 import Button, { buttonClass } from "@/app/_components/_ui/button";
+import { cn } from "@/app/utils/cn";
 import { AiAlertLine } from "./aiAlertLine";
 import { AlertFeedback } from "./alertFeedback";
 import type { useBotActions } from "./botActions";
@@ -103,9 +106,49 @@ function fixQuote(bot: BotView): string | null {
 }
 
 /**
+ * Apply ("Raise to 8%") and Not now on a suggested change: the Needs you
+ * card's buttons and the rail's.
+ */
+export function SuggestionButtons({
+  bot,
+  actions,
+  className,
+}: {
+  bot: BotView;
+  actions: Actions;
+  className?: string;
+}) {
+  const { primary, secondary } = fixButtons(bot);
+  const busy = actions.busy(bot);
+  return (
+    <div className={cn("flex flex-wrap items-center gap-2", className)}>
+      <Button
+        size="sm"
+        leading={<Check />}
+        loading={busy === "apply_suggestion"}
+        className="relative z-[1] min-w-0"
+        onClick={() => actions.act(bot, primary.action)}
+      >
+        <span className="truncate">{primary.label}</span>
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        leading={<Clock />}
+        loading={busy === "dismiss_suggestion"}
+        className="relative z-[1]"
+        onClick={() => actions.act(bot, secondary.action)}
+      >
+        {secondary.label}
+      </Button>
+    </div>
+  );
+}
+
+/**
  * The right half of a wide "Needs you" card, or (`compact`) the one action
- * on a compact card: rate a new alert, fix a broken bot, or turn on a bot an
- * outside app made.
+ * on a compact card: rate a new alert, take or put off a suggested change,
+ * fix a broken bot, or turn on a bot an outside app made.
  */
 export function NeedsAction({
   bot,
@@ -167,6 +210,39 @@ export function NeedsAction({
             </a>
           ) : null}
         </div>
+      </>
+    );
+  }
+
+  if (reason === "suggestion" && bot.suggestion) {
+    // The compact card opens the bot, whose rail shows the whole change.
+    if (compact)
+      return (
+        <Button
+          variant="outline"
+          size="sm"
+          title={bot.suggestion.line}
+          className="relative z-[1]"
+          onClick={() => actions.act(bot, "edit")}
+        >
+          See change
+        </Button>
+      );
+    const copy = fixCopy(bot);
+    return (
+      <>
+        <div className="flex min-h-5 items-center">
+          <span className={eyebrow}>{copy.eyebrow}</span>
+        </div>
+        <div className="min-w-0">
+          <p className="line-clamp-2 text-sm font-semibold text-foreground">
+            {copy.title}
+          </p>
+          <p className="mt-0.5 line-clamp-2 text-xs tabular-nums text-muted-foreground">
+            {copy.meta}
+          </p>
+        </div>
+        <SuggestionButtons bot={bot} actions={actions} className="mt-auto" />
       </>
     );
   }

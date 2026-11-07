@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ExternalLink, Eye } from "lucide-react";
+import { ExternalLink, Eye, Lightbulb } from "lucide-react";
 import {
   BOT_LIMITS,
   DEFAULT_BRIEF_TIME,
@@ -9,6 +9,8 @@ import {
   alertMeta,
   checkOutcomeLabel,
   clockLabel,
+  fixAction,
+  fixCopy,
   formatMoney,
   isPriceReading,
   limitRows,
@@ -46,7 +48,7 @@ import { BotCard } from "./botCard";
 import { BotMark } from "./botMark";
 import { CheckStrip } from "./checkStrip";
 import { HowItCame } from "./howItCame";
-import { alertHeadline } from "./needsAction";
+import { alertHeadline, SuggestionButtons } from "./needsAction";
 import { PriceChart } from "./priceChart";
 
 /** "18:12". */
@@ -493,7 +495,28 @@ function LookOverSection({ botId }: { botId: string }) {
 }
 
 /**
- * The open bot's rail: its price over 30 days (or the latest reading of a
+ * "Suggested change", after three Not useful alerts in a row on a rules-only
+ * bot: the change in words, Apply ("Raise to 8%") and Not now, the same as
+ * on its Needs you card.
+ */
+function SuggestionSection({ detail }: { detail: BotDetail }) {
+  const actions = useBotActions(() => {});
+  const copy = fixCopy(detail);
+  return (
+    <RailSection
+      title="Suggested change"
+      icon={<Lightbulb className="size-4 shrink-0 text-warning-text" />}
+      className="border-warning/45"
+    >
+      <p className="text-sm font-semibold text-foreground">{copy.title}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{copy.meta}</p>
+      <SuggestionButtons bot={detail} actions={actions} className="mt-3" />
+    </RailSection>
+  );
+}
+
+/**
+ * The open bot's rail: a suggested change when there is one, its price over 30 days (or the latest reading of a
  * page or feed), this week's checks with the strip, and recent alerts with
  * Useful / Not useful, re-arms in between. A bot waiting for the person's OK
  * starts with a card that reads it once when the person asks.
@@ -518,8 +541,11 @@ export function BotRail({
   }
   const prices = detail.watches.filter(isPriceReading);
   const readings = detail.watches.filter((w) => !isPriceReading(w));
+  const suggests =
+    !!detail.suggestion && fixAction(detail) === "apply_suggestion";
   return (
     <>
+      {suggests ? <SuggestionSection detail={detail} /> : null}
       {lookOver ? <LookOverSection botId={detail.id} /> : null}
       {prices.length ? (
         <PriceSection key={`p-${detail.id}`} detail={detail} watches={prices} />
