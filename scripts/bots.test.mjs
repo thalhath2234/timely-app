@@ -27,6 +27,7 @@ import {
   draftErrors,
   draftOf,
   emptyDraft,
+  parseAmount,
   everyLabel,
   feedSources,
   fillSpans,
@@ -681,16 +682,24 @@ describe("fixes", () => {
 
 describe("grid", () => {
   test("columns from the content width", () => {
-    assert.deepEqual([320, 559, 560, 1039, 1040, 1599, 1600, 2400].map(boardColumns), [1, 1, 2, 2, 4, 4, 6, 6]);
+    assert.deepEqual([320, 559, 560, 1239, 1240, 2199, 2200, 2800].map(boardColumns), [1, 1, 2, 2, 4, 4, 6, 6]);
     assert.deepEqual([1, 2, 4, 6].map(wideSpan), [1, 2, 2, 3]);
   });
 
-  test("the seed board at 4 and 6 columns", () => {
+  test("the seed board at 2, 4 and 6 columns", () => {
     const sections = [
       ["wide", "wide", "wide", "wide"],
       ["card", "card", "card", "card"],
       ["card", "add"],
     ];
+    assert.deepEqual(
+      sections.map((s) => fillSpans(s, 2)),
+      [
+        [2, 2, 2, 2],
+        [1, 1, 1, 1],
+        [1, 1],
+      ],
+    );
     assert.deepEqual(
       sections.map((s) => fillSpans(s, 4)),
       [
@@ -699,23 +708,26 @@ describe("grid", () => {
         [1, 3],
       ],
     );
+    // Spare columns are shared, never one card stretched over the rest.
     assert.deepEqual(
       sections.map((s) => fillSpans(s, 6)),
       [
         [3, 3, 3, 3],
-        [1, 1, 1, 3],
+        [2, 2, 1, 1],
         [1, 5],
       ],
     );
+    assert.deepEqual(fillSpans(["wide", "card", "card"], 6), [3, 2, 1]);
+    assert.deepEqual(fillSpans(["wide", "card", "card"], 4), [2, 1, 1]);
   });
 
   test("no holes: a card that does not fit closes the row; a full row gives the add tile its own", () => {
-    assert.deepEqual(fillSpans(["card", "card", "card", "wide", "card"], 4), [1, 1, 2, 2, 2]);
+    assert.deepEqual(fillSpans(["card", "card", "card", "wide", "card"], 4), [2, 1, 1, 2, 2]);
     assert.deepEqual(fillSpans(["card", "card", "card", "card", "add"], 4), [1, 1, 1, 1, 4]);
     assert.deepEqual(fillSpans(["add"], 6), [6]);
     assert.deepEqual(fillSpans(["wide", "card"], 1), [1, 1]);
     for (const cols of [1, 2, 4, 6]) {
-      for (const items of [["wide", "card", "card"], ["card", "wide", "wide", "add"], ["card"]]) {
+      for (const items of [["wide", "card", "card"], ["card", "wide", "wide", "add"], ["card"], ["card", "card", "card", "card", "card"]]) {
         const spans = fillSpans(items, cols);
         const total = spans.reduce((a, b) => a + b, 0);
         assert.equal(total % cols, 0, `${items} at ${cols}: rows are full`);
@@ -1242,4 +1254,21 @@ describe("@-tags and answers", () => {
     );
     assert.equal(answerWatchMeta({ excerpt: "", items: null }), "");
   });
+});
+
+test("parseAmount reads grouping and a comma typed as the decimal point", () => {
+  const cases = [
+    ["25000", 25000],
+    ["25,000", 25000],
+    ["₹ 25 000", 25000],
+    ["1,00,000", 100000],
+    ["0,5", 0.5],
+    ["24,99", 24.99],
+    ["0.5", 0.5],
+    ["1.234,5", 1234.5],
+    ["1,234.5", 1234.5],
+    ["", undefined],
+    ["abc", undefined],
+  ];
+  for (const [text, want] of cases) assert.equal(parseAmount(text), want, text);
 });

@@ -79,10 +79,5 @@ export function numberText(n: number | undefined): string {
   return n == null ? "" : String(Number(n.toFixed(8)));
 }
 
-/** A typed amount ("25,000", "₹25000", "0,5" is not taken) as a number, or undefined. */
-export function parseAmount(text: string): number | undefined {
-  const clean = text.replace(/[^\d.]/g, "");
-  if (!clean) return undefined;
-  const n = Number(clean);
-  return Number.isFinite(n) ? n : undefined;
-}
+/** A typed amount ("25,000", "₹25000", "0,5") as a number, or undefined (see the contract's parseAmount). */
+export { parseAmount } from "@timely/contract/bots";

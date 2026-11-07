@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Pencil } from "lucide-react";
-import { formatMoney } from "@timely/contract/bots";
+import { formatMoney, parseAmount } from "@timely/contract/bots";
 import { cn } from "@/app/utils/cn";
 
 /** What goes before and after a number in a currency: "₹" and "", or "" and " CHF". */
@@ -15,13 +15,8 @@ export function moneyAffixes(currency: string): {
   return { before: one.slice(0, at), after: one.slice(at + 1) };
 }
 
-/** "25000" → 25000; "25,000" and "₹ 25 000" too. Blank or not a number → undefined. */
-export function parseAmount(text: string): number | undefined {
-  const clean = text.replace(/[^\d.\-]/g, "");
-  if (!clean) return undefined;
-  const n = Number(clean);
-  return Number.isFinite(n) ? n : undefined;
-}
+/** A typed amount as a number (see the contract's parseAmount). */
+export { parseAmount };
 
 /**
  * An editable value on the right of a grouped row: the value in a soft pill
@@ -64,7 +59,7 @@ export function EditPill({
   return (
     <label
       className={cn(
-        "inline-flex h-8 min-w-0 cursor-text items-center gap-1 rounded-[10px] bg-fill px-2.5 text-[13px] font-medium tabular-nums text-foreground transition-shadow focus-within:ring-2 focus-within:ring-ring/30",
+        "inline-flex h-8 min-w-0 cursor-text items-center rounded-[10px] bg-fill px-2.5 text-[13px] font-medium tabular-nums text-foreground transition-shadow focus-within:ring-2 focus-within:ring-ring/30",
         invalid && "ring-1 ring-destructive/60",
       )}
     >
@@ -82,13 +77,16 @@ export function EditPill({
           onChange(event.target.value);
         }}
         className={cn(
-          "min-w-6 bg-transparent text-right outline-none [field-sizing:content] placeholder:text-muted-foreground/70",
+          "min-w-6 text-ellipsis bg-transparent text-right outline-none [field-sizing:content] placeholder:text-muted-foreground/70",
           mono && "font-mono text-xs",
         )}
         style={{ maxWidth: width }}
       />
       {after ? <span className="text-muted-foreground">{after}</span> : null}
-      <Pencil aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+      <Pencil
+        aria-hidden
+        className="ml-1.5 size-3.5 shrink-0 text-muted-foreground"
+      />
     </label>
   );
 }

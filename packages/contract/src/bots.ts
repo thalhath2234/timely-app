@@ -565,6 +565,34 @@ function toFixedEven(a: number, d: number): string {
   return (down.charCodeAt(down.length - 1) - 48) % 2 === 0 ? down : up;
 }
 
+/**
+ * A typed amount as a number, or undefined: "25000", "25,000", "₹ 25 000",
+ * "1,00,000", and a comma typed as the decimal point ("0,5", "24,99"), as a
+ * phone's decimal keypad gives in many locales. A single comma with exactly
+ * three digits after it ("25,000") is grouping; with both marks the last one
+ * is the decimal point ("1.234,5").
+ */
+export function parseAmount(text: string): number | undefined {
+  let clean = text.replace(/[^\d.,]/g, "");
+  const comma = clean.lastIndexOf(",");
+  const dot = clean.lastIndexOf(".");
+  if (comma >= 0 && dot >= 0) {
+    clean =
+      comma > dot
+        ? clean.replace(/\./g, "").replace(/,(?=[^,]*$)/, ".").replace(/,/g, "")
+        : clean.replace(/,/g, "");
+  } else if (comma >= 0) {
+    const parts = clean.split(",");
+    clean =
+      parts.length === 2 && parts[1].length !== 3
+        ? parts.join(".")
+        : parts.join("");
+  }
+  if (!clean || clean === ".") return undefined;
+  const n = Number(clean);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 export function formatMoney(v: number, currency: string): string {
   if (!Number.isFinite(v)) return "";
   const a = Math.abs(v);
@@ -1511,11 +1539,15 @@ export function stripSummary(strip: string): string {
 
 // ── Grid ──
 
-/** The board's column count for its content width. */
+/**
+ * The board's column count for its content width. A standard card needs
+ * about 300 px for its health line, so 4 columns start at 1240 px; 6 only
+ * on very wide screens, where 4 cards would stretch past 550 px.
+ */
 export function boardColumns(width: number): number {
   if (width < 560) return 1;
-  if (width < 1040) return 2;
-  if (width < 1600) return 4;
+  if (width < 1240) return 2;
+  if (width < 2200) return 4;
   return 6;
 }
 
@@ -1528,27 +1560,43 @@ export function wideSpan(cols: number): number {
 export type GridItem = "card" | "wide" | "add";
 
 /**
- * Each item's column span, so that no row of a section ends in a hole: an
- * item that does not fit closes its row by stretching the one before it, the
- * last item stretches to the end of its row, and the add tile takes the rest
- * of its row (a full row when its row is otherwise full).
+ * Each item's column span, so that no row of a section ends in a hole: a row
+ * an item does not fit in, and the last row, share their spare columns among
+ * their items, one at a time to the narrowest, so no single card stretches
+ * across the rest of the row; the add tile takes the rest of its row (a full row
+ * when its row is otherwise full).
  */
 export function fillSpans(items: GridItem[], cols: number): number[] {
   const spans: number[] = [];
+  let row: number[] = [];
   let pos = 0;
-  items.forEach((item, i) => {
-    let span = item === "wide" ? wideSpan(cols) : item === "add" ? cols - pos : 1;
-    if (span <= 0) span = cols;
-    span = Math.min(span, cols);
-    if (pos + span > cols) {
-      if (spans.length) spans[spans.length - 1] += cols - pos;
-      pos = 0;
-      if (item === "add") span = cols;
+  const close = () => {
+    for (let spare = cols - pos; spare > 0 && row.length; spare--) {
+      // The narrowest item first, the first of those on a tie.
+      const k = row.reduce((a, b) => (spans[b] < spans[a] ? b : a));
+      spans[k]++;
     }
-    if (i === items.length - 1) span = cols - pos;
-    spans.push(span);
-    pos = (pos + span) % cols;
+    row = [];
+    pos = 0;
+  };
+  items.forEach((item, i) => {
+    if (item === "add") {
+      spans[i] = pos > 0 ? cols - pos : cols;
+      row = [];
+      pos = 0;
+      return;
+    }
+    const span = Math.min(item === "wide" ? wideSpan(cols) : 1, cols);
+    if (pos + span > cols) close();
+    spans[i] = span;
+    row.push(i);
+    pos += span;
+    if (pos === cols) {
+      row = [];
+      pos = 0;
+    }
   });
+  if (pos > 0) close();
   return spans;
 }
 
