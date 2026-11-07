@@ -94,7 +94,8 @@ export function categoryFor(item: NotificationLike): string | null {
     case "planning":
       return "timely_digest";
     case "bot":
-      return data.botAlert === "paused" ? "timely_bot_paused" : null;
+      // Resume only on an alert about one bot: one that groups several bots paused by the same source says so with data.resume unset.
+      return data.botAlert === "paused" && data.resume === true ? "timely_bot_paused" : null;
     default:
       return null;
   }

@@ -100,9 +100,10 @@ function dayLabel(iso: string, now: Date) {
 }
 
 /** The bot a "paused after 5 failed checks" alert names, or null for any other notification. */
+/** The bot a "paused after 5 strikes" alert offers Resume for: only one about a single bot (data.resume), not one that groups several. */
 function pausedBotId(item: AppNotification) {
   const botId = item.data?.botId;
-  return item.category === "bot" && item.data?.botAlert === "paused" && typeof botId === "string" && botId ? botId : null;
+  return item.category === "bot" && item.data?.botAlert === "paused" && item.data?.resume === true && typeof botId === "string" && botId ? botId : null;
 }
 
 function tomorrowNine() {

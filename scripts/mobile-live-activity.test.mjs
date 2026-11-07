@@ -138,6 +138,8 @@ describe("notification quick actions", () => {
     assert.ok(!NOTIFICATION_CATEGORIES[id][0].opensApp, "Resume runs without opening the app");
     assert.equal(categoryFor({ category: "bot", data: { botId: "bot_a", botAlert: "alert" } }), null);
     assert.equal(categoryFor({ category: "bot", data: { botAlert: "away" } }), null);
+    // One alert for several bots paused by the same source: Resume would turn on only the first.
+    assert.equal(categoryFor({ category: "bot", data: { botId: "bot_a", botAlert: "paused" } }), null);
     assert.equal(categoryFor({ category: "bot", data: null }), null);
   });
 
