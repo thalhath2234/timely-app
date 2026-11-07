@@ -24,6 +24,7 @@ const (
 	alertKindAlert  = "alert"
 	alertKindMore   = "more"
 	alertKindPaused = "paused"
+	alertKindBrief  = "brief" // a brief Bot's daily summary
 	heldSnoozed     = "snoozed"
 	heldCap         = "cap"
 	heldJudged      = "judged" // held back by the AI judge

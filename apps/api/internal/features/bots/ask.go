@@ -90,6 +90,9 @@ func (s *Service) Ask(ctx context.Context, userID, idOrName string) (Answer, err
 	if err != nil {
 		return Answer{}, err
 	}
+	if b.Kind == KindBrief {
+		return s.askBrief(ctx, b, now)
+	}
 	fresh, line := "", ""
 	var nextAt *time.Time
 	switch {
@@ -211,6 +214,20 @@ func (s *Service) awaitCheck(ctx context.Context, botID string, last *time.Time)
 		}
 	}
 	return false, nil
+}
+
+// askBrief answers for a brief: it checks nothing, so a tag never starts
+// a check; its findings are the notes its next brief would list.
+func (s *Service) askBrief(ctx context.Context, b Bot, now time.Time) (Answer, error) {
+	a, err := s.answer(ctx, b.UserID, b.ID)
+	if err != nil {
+		return Answer{}, err
+	}
+	if a.Findings, err = s.briefFindings(ctx, b, now, askFindings); err != nil {
+		return Answer{}, err
+	}
+	a.Fresh, a.FreshLine = FreshRecent, "A brief reads nothing itself; these notes go in its next brief"
+	return a, nil
 }
 
 // answer builds an Answer, without its freshness, from the Bot's rows now.

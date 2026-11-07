@@ -85,6 +85,17 @@ func (s *Service) HandleCheck(ctx context.Context, job *models.Job) error {
 	if !ok {
 		return nil
 	}
+	if b.Kind == KindBrief {
+		// A brief reads nothing: it sums up its sources' notes.
+		checkID := utils.PrefixedUUID("bchk")
+		c := checkRun{job: job, bot: b, trigger: trigger, started: started, floor: Floor(nil), checkID: checkID, chainID: checkID}
+		err := s.runBrief(ctx, c)
+		if ctx.Err() != nil {
+			s.release(b.ID, job.ID, prevStarted)
+			return nil
+		}
+		return retryDB(err)
+	}
 	readCtx, cancel := context.WithTimeout(ctx, CheckBudget)
 	reads := s.read(readCtx, b, ws, started)
 	cancel()
@@ -167,7 +178,7 @@ func (s *Service) claim(ctx context.Context, job *models.Job, botID, trigger str
 		return Bot{}, nil, nil, false, nil
 	}
 	ws, err := loadWatches(db, botID, false)
-	if err != nil || len(ws) == 0 {
+	if err != nil || (len(ws) == 0 && rows[0].Kind != KindBrief) {
 		return Bot{}, nil, nil, false, err
 	}
 	floor := Floor(ws)
@@ -678,6 +689,10 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 		// What links took goes on to other Bots; the Bot stays quiet about
 		// it and alerts only on the rest.
 		alertable := untaken(fired, c.plan.taken)
+		if c.plan.briefOnly {
+			// Only in the brief: the notes wait for the brief.
+			alertable = nil
+		}
 		run := alertRun{checkID: c.checkID, fired: alertable, now: done}
 		if len(alertable) > 0 {
 			run = judgedRun(b, c.plan, run)

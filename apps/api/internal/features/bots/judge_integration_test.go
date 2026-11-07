@@ -27,6 +27,10 @@ type fakeJudge struct {
 	inputs    []JudgeInput
 	deadlines []time.Duration
 	during    func(ctx context.Context)
+	// A brief's write: the text, or briefErr, and what it was asked.
+	brief    BriefText
+	briefErr error
+	briefs   []BriefInput
 }
 
 func (f *fakeJudge) Ready(context.Context, string) AIStatus {
@@ -56,8 +60,14 @@ func (f *fakeJudge) Judge(ctx context.Context, _ string, in JudgeInput) (Verdict
 	return v, err
 }
 
-func (f *fakeJudge) WriteBrief(context.Context, string, BriefInput) (BriefText, error) {
-	return BriefText{}, errors.New("not used")
+func (f *fakeJudge) WriteBrief(_ context.Context, _ string, in BriefInput) (BriefText, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.briefs = append(f.briefs, in)
+	if f.briefErr == nil && f.brief == (BriefText{}) {
+		return BriefText{}, errors.New("no brief set")
+	}
+	return f.brief, f.briefErr
 }
 
 func (f *fakeJudge) set(v Verdict, err error) {

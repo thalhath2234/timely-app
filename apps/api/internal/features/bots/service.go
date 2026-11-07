@@ -262,22 +262,34 @@ func (s *Service) RunNow(ctx context.Context, userID, idOrName string, _ Origin)
 
 // AfterRestore spreads the restored account's active Bots over the next few
 // minutes, so none counts as late (no away alert) and they do not all start
-// at once. Every watch records a quiet baseline first.
+// at once; a brief waits for its time. Every watch records a quiet baseline
+// first.
 func (s *Service) AfterRestore(userID string) {
 	now := s.now().UTC()
 	db := s.db
-	var ids []string
-	if err := db.Model(&Bot{}).Where("user_id = ? AND status = ?", userID, StatusActive).Pluck("id", &ids).Error; err != nil {
+	var bots []Bot
+	if err := db.Select("id", "kind", "brief_time").Where("user_id = ? AND status = ?", userID, StatusActive).Find(&bots).Error; err != nil {
+		log.Printf("bots: after restore: %v", err)
+		return
+	}
+	loc, err := localZone(db, userID)
+	if err != nil {
 		log.Printf("bots: after restore: %v", err)
 		return
 	}
 	var errs []error
-	for _, id := range ids {
-		at := now.Add(s.jitter(WakeSpread))
-		errs = append(errs, db.Model(&Bot{}).Where("id = ? AND status = ?", id, StatusActive).Updates(map[string]any{
-			"next_check_at": at, "checking_job_id": nil, "check_started_at": nil, "updated_at": now,
-		}).Error)
+	for _, b := range bots {
+		set := map[string]any{"next_check_at": now.Add(s.jitter(WakeSpread)), "checking_job_id": nil, "check_started_at": nil, "updated_at": now}
+		if b.Kind == KindBrief {
+			// A brief runs at its time, and lists only what is new from now
+			// on, never the notes the file brought back.
+			set["next_check_at"], set["brief_cursor_at"] = nextBriefAt(loc, b.BriefTime, now).Add(s.jitter(briefSpread)), now
+		}
+		errs = append(errs, db.Model(&Bot{}).Where("id = ? AND status = ?", b.ID, StatusActive).Updates(set).Error)
 	}
+	// A paused brief lists nothing older than the restore either.
+	errs = append(errs, db.Model(&Bot{}).Where("user_id = ? AND kind = ? AND status <> ?", userID, KindBrief, StatusActive).
+		Updates(map[string]any{"brief_cursor_at": now}).Error)
 	errs = append(errs, db.Model(&Watch{}).Where("user_id = ?", userID).Updates(map[string]any{"baseline_pending": true, "updated_at": now}).Error)
 	if err := errors.Join(errs...); err != nil {
 		log.Printf("bots: after restore: %v", err)

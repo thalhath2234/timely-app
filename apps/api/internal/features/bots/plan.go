@@ -17,6 +17,9 @@ type checkPlan struct {
 	aiState    string // "", aiJudged or aiUnchecked
 	aiNote     string // why it is unchecked
 	aiInput    json.RawMessage
+	// briefOnly: the Bot is "Only in the brief" and in a brief that is on,
+	// so the check alerts nothing itself and asks no judge.
+	briefOnly bool
 }
 
 // asked reports whether AI was asked about this check (or would have been).
@@ -39,6 +42,11 @@ func (s *Service) planCheck(ctx context.Context, c *checkRun) error {
 			return err
 		}
 	}
+	briefOnly, err := briefOnlyNow(db, b)
+	if err != nil {
+		return err
+	}
+	c.plan.briefOnly = briefOnly
 	if b.JudgeMode != JudgeAI && len(links) == 0 {
 		return nil
 	}
@@ -48,7 +56,7 @@ func (s *Service) planCheck(ctx context.Context, c *checkRun) error {
 	}
 	c.plan.taken = takeItems(fired, links, c.depth)
 	fired = untaken(fired, c.plan.taken)
-	if b.JudgeMode != JudgeAI || len(fired) == 0 {
+	if b.JudgeMode != JudgeAI || len(fired) == 0 || briefOnly {
 		return nil
 	}
 	now := s.now().UTC()

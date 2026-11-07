@@ -42,10 +42,19 @@ type Bot struct {
 	// KnowledgeKind and KnowledgeID name the doc or sheet the Bot's judge
 	// reads ("doc" or "sheet"; both "" for none). No foreign key: a read
 	// checks the row is still the person's.
-	KnowledgeKind string    `gorm:"type:text;not null" json:"-"`
-	KnowledgeID   string    `gorm:"type:text;not null" json:"-"`
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
+	KnowledgeKind string `gorm:"type:text;not null" json:"-"`
+	KnowledgeID   string `gorm:"type:text;not null" json:"-"`
+	// Kind is watch or brief. A brief has no watches: it sends one alert a
+	// day at BriefTime (notification zone) listing its sources' notes since
+	// BriefCursorAt, written with AI when BriefAI. A source with BriefOnly
+	// alerts only through its briefs.
+	Kind          string     `gorm:"type:text;not null;default:watch" json:"kind"`
+	BriefOnly     bool       `gorm:"not null" json:"briefOnly"`
+	BriefAI       bool       `gorm:"column:brief_ai;not null" json:"briefAi"`
+	BriefTime     string     `gorm:"type:text;not null" json:"briefTime"`
+	BriefCursorAt *time.Time `json:"-"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
 }
 
 func (Bot) TableName() string { return "bots" }
@@ -162,7 +171,7 @@ type Alert struct {
 	UserID         string               `gorm:"type:text;not null" json:"-"`
 	CheckID        *string              `gorm:"type:text" json:"checkId"`
 	NotificationID *string              `gorm:"type:text" json:"notificationId"`
-	Kind           string               `gorm:"type:text;not null" json:"kind"` // alert|more|paused
+	Kind           string               `gorm:"type:text;not null" json:"kind"` // alert|more|paused|brief
 	Held           string               `gorm:"type:text;not null" json:"held"` // ""|snoozed|cap|judged|shared
 	LocalDay       time.Time            `gorm:"type:date;not null" json:"-"`
 	Title          string               `gorm:"type:text;not null" json:"title"`

@@ -99,7 +99,7 @@ func (s *Service) loadPass(db *gorm.DB, pc *passCheck) (bool, error) {
 	if err := db.Where("id = ? AND user_id = ?", p.ToBotID, p.UserID).Limit(1).Find(&bots).Error; err != nil {
 		return false, err
 	}
-	if len(bots) == 0 || bots[0].Status != StatusActive {
+	if len(bots) == 0 || bots[0].Status != StatusActive || bots[0].Kind != KindWatch {
 		return false, nil
 	}
 	pc.bot = bots[0]
@@ -224,8 +224,9 @@ func firstHolding(ws []Watch, reading Reading) []firedEvent {
 }
 
 // planPass decides, before the save's transaction: what B passes on in
-// turn, and for an AI-judged B the judge's verdict on the rest, with the
-// note passed to it as data.
+// turn, whether B is "Only in the brief" now, and for an AI-judged B that
+// is not the judge's verdict on the rest, with the note passed to it as
+// data.
 func (s *Service) planPass(ctx context.Context, db *gorm.DB, pc *passCheck) error {
 	via, err := passVia(db, pc)
 	if err != nil {
@@ -243,8 +244,15 @@ func (s *Service) planPass(ctx context.Context, db *gorm.DB, pc *passCheck) erro
 		pc.taken = takeItems(pc.fired, links, pc.pass.Depth)
 	}
 	pc.plan.taken = pc.taken
+	// Only in the brief holds for a passed note too: B's note waits for
+	// the brief, with no judge call and no alert of its own.
+	briefOnly, err := briefOnlyNow(db, pc.bot)
+	if err != nil {
+		return err
+	}
+	pc.plan.briefOnly = briefOnly
 	alertable := untaken(pc.fired, pc.taken)
-	if pc.bot.JudgeMode != JudgeAI || len(alertable) == 0 {
+	if pc.bot.JudgeMode != JudgeAI || len(alertable) == 0 || briefOnly {
 		return nil
 	}
 	lessons, last, at, err := judgeContext(db, pc.bot, pc.started)
@@ -318,7 +326,7 @@ func (s *Service) savePass(ctx context.Context, pc *passCheck) error {
 		if err != nil || !ok {
 			return err
 		}
-		if len(bots) == 0 || bots[0].Status != StatusActive {
+		if len(bots) == 0 || bots[0].Status != StatusActive || bots[0].Kind != KindWatch {
 			return tx.Model(&Pass{}).Where("id = ?", p.ID).Updates(map[string]any{"state": passFolded, "updated_at": done}).Error
 		}
 		b := bots[0]
@@ -355,6 +363,9 @@ func (s *Service) savePass(ctx context.Context, pc *passCheck) error {
 		check.Fired = jsonList[FiredRule]{{WatchID: f.ev.WatchID, RuleID: f.ev.RuleID, Kind: f.ev.Kind}}
 		check.Reading = map[string]Reading{f.w.ID: pc.reading}
 		alertable := untaken(pc.fired, pc.taken)
+		if pc.plan.briefOnly {
+			alertable = nil
+		}
 		var things []Thing
 		if pc.note.ThingKey != "" {
 			th := Thing{Key: pc.note.ThingKey}

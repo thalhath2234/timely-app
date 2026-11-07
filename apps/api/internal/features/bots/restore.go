@@ -25,9 +25,11 @@ const (
 // doc or sheet a Bot reads that is not the person's, or is in the bin, is
 // let go; no alert keeps what it told of, so a file holds back no alert;
 // "Also seen by" and "How this came to you" keep only the person's Bots;
-// Pass to links keep to a save's limits (vetLinks). Restored over MCP,
-// every Bot comes back paused, judged by rules, reading no doc or sheet,
-// passing nothing on, with the alert settings a Bot made over MCP gets, so
+// Pass to and brief links keep to a save's limits (vetLinks), a brief left
+// with no Bots to sum up is paused, and a Bot in no brief is not "Only in
+// the brief". Restored over MCP, every Bot comes back paused, judged by
+// rules, reading no doc or sheet, passing nothing on, every brief written
+// from its template, with the alert settings a Bot made over MCP gets, so
 // an outside app cannot turn a Bot, its urgent alerts, AI judging, chains
 // or what the judge reads on this way (ADR 0021). A
 // stock watch passes when the account has its key, which the restore keeps.
@@ -69,6 +71,19 @@ WHERE b.user_id = @uid AND b.knowledge_kind <> '' AND (@mcp
 		sql.Named("uid", userID), sql.Named("mcp", fromMCP)).Error; err != nil {
 		return err
 	}
+	// A brief reads nothing, so a file's watches under one go.
+	if err := tx.Exec(`DELETE FROM bot_watches w USING bots b WHERE b.id = w.bot_id AND b.user_id = ? AND b.kind = ?`, userID, KindBrief).Error; err != nil {
+		return err
+	}
+	// A restore checks none of a save's link rules: vetLinks does, first,
+	// so a brief left with no Bots to sum up is paused below.
+	if err := vetLinks(tx, userID, fromMCP); err != nil {
+		return err
+	}
+	sources, err := briefSources(tx, userID, "")
+	if err != nil {
+		return err
+	}
 	var bots []Bot
 	if err := tx.Where("user_id = ?", userID).Order("created_at, id").Find(&bots).Error; err != nil {
 		return err
@@ -92,11 +107,20 @@ WHERE b.user_id = @uid AND b.knowledge_kind <> '' AND (@mcp
 	now := s.now().UTC()
 	for i, b := range bots {
 		set := map[string]any{}
-		if floor := int(Floor(byBot[b.ID]) / time.Second); b.IntervalSeconds < floor {
+		brief := b.Kind == KindBrief
+		if floor := int(Floor(byBot[b.ID]) / time.Second); b.IntervalSeconds < floor && !brief {
 			set["interval_seconds"] = floor
 		}
-		if (b.JudgeMode != JudgeRules && b.JudgeMode != JudgeAI) || (fromMCP && b.JudgeMode != JudgeRules) {
+		if every := int(briefEvery / time.Second); brief && b.IntervalSeconds != every {
+			set["interval_seconds"] = every
+		}
+		if (b.JudgeMode != JudgeRules && b.JudgeMode != JudgeAI) || ((fromMCP || brief) && b.JudgeMode != JudgeRules) {
 			set["judge_mode"] = JudgeRules
+		}
+		// Over MCP a brief comes back written from its template: an outside
+		// app adds no AI cost this way.
+		if fromMCP && b.BriefAI {
+			set["brief_ai"] = false
 		}
 		// Only a Bot made over MCP names the app it came from, so a file
 		// cannot make another say "From <anything>".
@@ -111,7 +135,13 @@ WHERE b.user_id = @uid AND b.knowledge_kind <> '' AND (@mcp
 		if b.AskedAt != nil {
 			set["asked_at"] = nil
 		}
-		reason, detail := "", unusable(byBot[b.ID], hasKey)
+		reason, detail := "", ""
+		switch {
+		case brief && len(sources[b.ID]) == 0:
+			detail = "This brief came back with no bots to sum up. Edit it to turn it on."
+		case !brief:
+			detail = unusable(byBot[b.ID], hasKey)
+		}
 		if i >= MaxBots {
 			detail = restoredOverCap
 		}
@@ -136,10 +166,6 @@ WHERE b.user_id = @uid AND b.knowledge_kind <> '' AND (@mcp
 		if err := tx.Model(&Bot{}).Where("id = ? AND user_id = ?", b.ID, userID).Updates(set).Error; err != nil {
 			return err
 		}
-	}
-	// A restore checks none of a save's link rules: vetLinks does.
-	if err := vetLinks(tx, userID, fromMCP); err != nil {
-		return err
 	}
 	// "How this came to you" names Bots too: keep only the person's, by
 	// their names here, with a link only when it is theirs.

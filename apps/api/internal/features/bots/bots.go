@@ -86,6 +86,13 @@ const (
 	PassRepeatDays   = 7
 	PassFoldAfter    = 24 * time.Hour
 	PassDays         = 30 // the pass log's retention
+
+	// Briefs: the Bots one brief sums up, the notes it lists of each (the
+	// rest are counted, "and N more"), and the time it sends at unless the
+	// person picks another.
+	MaxBriefSources  = 8
+	BriefItemsPerBot = 5
+	DefaultBriefTime = "08:00"
 )
 
 // Watch kinds and page read modes, as stored in bot_watches.
@@ -122,6 +129,11 @@ const (
 	JudgeRules = "rules"
 	JudgeAI    = "ai"
 	HealthNew  = "new"
+
+	// A watch Bot reads pages, feeds and prices; a brief Bot reads nothing
+	// and sums up other Bots once a day.
+	KindWatch = "watch"
+	KindBrief = "brief"
 )
 
 var (

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/netip"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -51,6 +52,15 @@ type Input struct {
 	// PassesTo is the full list of Bots this one passes what it finds to
 	// (Pass to), or nil for none.
 	PassesTo *[]LinkInput `json:"passesTo"`
+	// Kind is "watch" (the default) or "brief". A brief takes no watches:
+	// Sources (1 to MaxBriefSources watch Bots, ids or names) are the Bots
+	// it sums up, BriefTime ("08:00") when, and BriefAI "Write it with AI".
+	Kind      string    `json:"kind"`
+	Sources   *[]string `json:"sources"`
+	BriefTime *string   `json:"briefTime"`
+	BriefAI   *bool     `json:"briefAi"`
+	// BriefOnly: a watch Bot alerts only through the briefs it is in.
+	BriefOnly *bool `json:"briefOnly"`
 	// OriginClient names the outside app a Bot made over MCP came from: the
 	// name the person gave its API key. It is kept only for OriginMCP and
 	// never read from a request body.
@@ -74,6 +84,13 @@ type Patch struct {
 	// PassesTo, when set, is the full list of Pass to links; [] removes
 	// them all.
 	PassesTo *[]LinkInput `json:"passesTo"`
+	// Kind cannot change; it is read only to refuse a different one.
+	// Sources, when set, is a brief's full list.
+	Kind      *string   `json:"kind"`
+	Sources   *[]string `json:"sources"`
+	BriefTime *string   `json:"briefTime"`
+	BriefAI   *bool     `json:"briefAi"`
+	BriefOnly *bool     `json:"briefOnly"`
 }
 
 // LinkInput is one Pass to link as a client sends it: the Bot to pass to
@@ -131,6 +148,32 @@ func cleanDescription(raw string) (string, error) {
 		return "", invalid("Keep the description under %d characters", MaxDescriptionLen)
 	}
 	return d, nil
+}
+
+// briefTimeRe is a brief's time of day, "HH:MM" (bots_brief_check).
+var briefTimeRe = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
+
+// cleanBriefTime checks a brief's time; nil or blank is DefaultBriefTime.
+func cleanBriefTime(raw *string) (string, error) {
+	if raw == nil || strings.TrimSpace(*raw) == "" {
+		return DefaultBriefTime, nil
+	}
+	t := strings.TrimSpace(*raw)
+	if !briefTimeRe.MatchString(t) {
+		return "", invalid("Give the brief a time like 08:00")
+	}
+	return t, nil
+}
+
+// cleanKind reads a new Bot's kind: "" or "watch", or "brief".
+func cleanKind(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", KindWatch:
+		return KindWatch, nil
+	case KindBrief:
+		return KindBrief, nil
+	}
+	return "", invalid("A bot watches something or is a brief")
 }
 
 func cleanJudge(raw string) (string, error) {

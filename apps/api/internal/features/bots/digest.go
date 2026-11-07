@@ -13,7 +13,8 @@ const (
 	digestBots   = 8
 )
 
-// DigestLines lists the past day's findings not yet in a digest, one
+// DigestLines lists the past day's findings not yet in a digest (with
+// notes passed on that never reached the next Bot), one
 // "<Bot>: <finding title>" line each: the newest 3 per Bot, for the 8 Bots
 // with the newest findings, then "and N more". done marks every finding the
 // lines cover (listed or counted) as digested, so none comes back tomorrow;
@@ -23,11 +24,15 @@ func (s *Service) DigestLines(ctx context.Context, userID string, now time.Time)
 	var rows []struct {
 		ID, Name, Title, BotID string
 	}
+	// The past day's notes, and notes whose pass was folded, overflowed or
+	// failed in the past day: they went to no one, so the digest lists them.
+	since := now.UTC().Add(-digestWindow)
 	err := s.db.WithContext(ctx).Raw(`
 		SELECT f.id, f.bot_id, b.name, f.title
 		FROM bot_findings f JOIN bots b ON b.id = f.bot_id
-		WHERE f.user_id = ? AND f.digested_at IS NULL AND f.created_at > ?
-		ORDER BY f.created_at DESC, f.id DESC`, userID, now.UTC().Add(-digestWindow)).Scan(&rows).Error
+		WHERE f.user_id = ? AND f.digested_at IS NULL AND (f.created_at > ? OR f.id IN (
+			SELECT finding_id FROM bot_passes WHERE user_id = ? AND state IN ? AND updated_at > ? AND finding_id IS NOT NULL))
+		ORDER BY f.created_at DESC, f.id DESC`, userID, since, userID, briefPassStates, since).Scan(&rows).Error
 	if err != nil || len(rows) == 0 {
 		return nil, nil, err
 	}

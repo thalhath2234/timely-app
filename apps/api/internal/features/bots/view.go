@@ -55,6 +55,14 @@ type View struct {
 	AIChecksToday int         `json:"aiChecksToday"` // AI calls the Bot made today (notification zone)
 	// Knowledge is the doc or sheet the Bot's judge reads, or nil.
 	Knowledge *KnowledgeView `json:"knowledge"`
+	// Kind is watch or brief; a brief has BriefTime, BriefAI and Sources
+	// (the ids of the Bots it sums up, in the order they were added, never
+	// null). BriefOnly: a source that alerts only through its briefs.
+	Kind      string   `json:"kind"`
+	BriefOnly bool     `json:"briefOnly"`
+	BriefAI   bool     `json:"briefAi"`
+	BriefTime string   `json:"briefTime"`
+	Sources   []string `json:"sources"`
 }
 
 // AlertBrief is the alert a board card shows.
@@ -76,6 +84,9 @@ type AlertBrief struct {
 	SharedWith *SharedRef `json:"sharedWith"`
 	// Via is how a passed note came to the Bot (never null).
 	Via []ViaStep `json:"via"`
+	// Items is how many notes a brief held (figures.items); nil for any
+	// other alert.
+	Items *int `json:"items,omitempty"`
 	// RulesTitle is the title in the rules' words ("<bot>: " + figures.what),
 	// for readers that must not pass on a model's words (MCP).
 	RulesTitle string `json:"-"`
@@ -179,6 +190,8 @@ type AlertView struct {
 	AlsoSeenBy []BotRef   `json:"alsoSeenBy"`
 	SharedWith *SharedRef `json:"sharedWith"`
 	Via        []ViaStep  `json:"via"`
+	// Lines are a brief's rules-made lines (figures.lines), never null.
+	Lines []string `json:"lines"`
 }
 
 // SharedRef is the alert a held 'shared' alert joined, and its Bot.
@@ -221,6 +234,7 @@ type board struct {
 	aiCalls     map[string]int            // by Bot: AI calls today
 	days        map[string][]dayClose     // by watch, oldest first
 	knowledge   map[string]*KnowledgeView // by Bot: its doc or sheet, by title
+	sources     map[string][]string       // by brief: the Bots it sums up
 }
 
 // dayClose is one UTC day of a price series, without its points.
@@ -246,6 +260,13 @@ func viewOf(b Bot, ws []Watch, bd *board, now time.Time) View {
 		OriginClient: b.OriginClient, Checking: b.CheckingJobID != nil, FloorLine: floorLine(floor),
 		Strip: bd.strips[b.ID], LatestAlert: bd.latest[b.ID], ItemsToday: bd.itemsToday[b.ID],
 		Suggestion: b.Suggestion, AIChecksToday: bd.aiCalls[b.ID], Knowledge: bd.knowledge[b.ID],
+		Kind: b.Kind, BriefOnly: b.BriefOnly, BriefAI: b.BriefAI, BriefTime: b.BriefTime, Sources: bd.sources[b.ID],
+	}
+	if v.Kind == "" {
+		v.Kind = KindWatch
+	}
+	if v.Sources == nil {
+		v.Sources = []string{}
 	}
 	if b.Origin != OriginMCP {
 		v.OriginClient = ""
@@ -495,7 +516,23 @@ func alertView(a Alert) AlertView {
 	return AlertView{ID: a.ID, CheckID: a.CheckID, Figures: figures, Kind: a.Kind, Held: a.Held, Title: a.Title, Body: a.Body,
 		URL: a.URL, Urgent: a.Urgent, MoreCount: a.MoreCount, CreatedAt: a.CreatedAt,
 		Feedback: a.Feedback, FeedbackReason: a.FeedbackReason, FeedbackNote: a.FeedbackNote, FeedbackAt: a.FeedbackAt,
-		AIState: a.AIState, AIWhy: a.AIWhy, Urgency: urgencyOr(a.Urgency), AlsoSeenBy: botRefs(a.AlsoSeenBy), Via: viaSteps(a.Via)}
+		AIState: a.AIState, AIWhy: a.AIWhy, Urgency: urgencyOr(a.Urgency), AlsoSeenBy: botRefs(a.AlsoSeenBy), Via: viaSteps(a.Via),
+		Lines: figureLines(a.Figures)}
+}
+
+// figureLines is a brief's figures.lines as strings, never null.
+func figureLines(f jsonMap[string, any]) []string {
+	out := []string{}
+	if l, ok := f["lines"].([]string); ok {
+		return append(out, l...)
+	}
+	raw, _ := f["lines"].([]any)
+	for _, l := range raw {
+		if s, ok := l.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // viaSteps is "How this came to you" for a client: never null.

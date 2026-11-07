@@ -1001,3 +1001,116 @@ func TestIntegrationRestoreBotLinks(t *testing.T) {
 		t.Fatal("the other account lost its link")
 	}
 }
+
+// Briefs survive a backup: a brief keeps its sources and is not paused for
+// having no watches, and "Only in the brief" stays on its sources. A file's
+// links keep to the save rules (nothing passes to a brief, a brief sums up
+// only watch Bots), a brief left with no Bots to sum up comes back paused,
+// a Bot in no brief is not "Only in the brief", a backup made before briefs
+// restores as watch Bots, and over MCP a brief is written from its template.
+func TestIntegrationRestoreBriefs(t *testing.T) {
+	db := migratedDB(t)
+	const uid = "usr_portability_briefs"
+	if err := db.Create(&models.User{ID: uid, Email: "briefs@example.invalid", Password: "not-a-real-hash"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	seedAccountBasics(t, db, uid, true)
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if err := db.Exec(query, args...).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO bots (id, user_id, name, interval_seconds, next_check_at, brief_only) VALUES
+		('bot_r_a', ?, 'Deals', 900, now(), true), ('bot_r_b', ?, 'Prices', 900, now(), false), ('bot_r_c', ?, 'Stray', 900, now(), true)`, uid, uid, uid)
+	exec(`INSERT INTO bot_watches (id, bot_id, user_id, kind, url, read_mode) VALUES
+		('bw_r_a', 'bot_r_a', ?, 'page', 'https://deals.example/', 'text'), ('bw_r_b', 'bot_r_b', ?, 'page', 'https://prices.example/', 'text'),
+		('bw_r_c', 'bot_r_c', ?, 'page', 'https://stray.example/', 'text')`, uid, uid, uid)
+	exec(`INSERT INTO bots (id, user_id, name, interval_seconds, next_check_at, kind, brief_time, brief_ai) VALUES
+		('bot_r_brief', ?, 'Morning', 86400, now(), 'brief', '08:00', true), ('bot_r_lonely', ?, 'Lonely', 86400, now(), 'brief', '18:30', false)`, uid, uid)
+	exec(`INSERT INTO bot_links (id, user_id, kind, from_bot_id, to_bot_id, created_at) VALUES
+		('blk_r_a', ?, 'brief', 'bot_r_a', 'bot_r_brief', '2026-11-01 09:00'), ('blk_r_b', ?, 'brief', 'bot_r_b', 'bot_r_brief', '2026-11-01 09:01'),
+		('blk_r_pass', ?, 'pass', 'bot_r_c', 'bot_r_brief', '2026-11-01 09:02'), ('blk_r_of_brief', ?, 'brief', 'bot_r_brief', 'bot_r_lonely', '2026-11-01 09:03')`, uid, uid, uid, uid)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, local_day, title, figures) VALUES
+		('bal_r_brief', 'bot_r_brief', ?, 'brief', '2026-11-06', 'Morning: 2 new from 2 bots', '{"what": "2 new from 2 bots", "items": 2, "lines": ["Deals: x", "Prices: y"]}')`, uid)
+
+	service := NewService(db, nil)
+	service.SetRestoreVet(bots.New(db, nil).VetRestore)
+	backup, err := service.Export(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	type botRow struct {
+		ID, Kind, Status, HealthDetail, BriefTime string
+		BriefOnly, BriefAI                        bool
+	}
+	read := func() map[string]botRow {
+		t.Helper()
+		var rows []botRow
+		if err := db.Raw(`SELECT id, kind, status, health_detail, brief_time, brief_only, brief_ai FROM bots WHERE user_id = ?`, uid).Scan(&rows).Error; err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]botRow{}
+		for _, r := range rows {
+			out[r.ID] = r
+		}
+		return out
+	}
+	links := func() []string {
+		t.Helper()
+		var ids []string
+		if err := db.Raw(`SELECT id FROM bot_links WHERE user_id = ? ORDER BY id`, uid).Scan(&ids).Error; err != nil {
+			t.Fatal(err)
+		}
+		return ids
+	}
+	got := read()
+	if b := got["bot_r_brief"]; b.Kind != "brief" || b.Status != "active" || b.BriefTime != "08:00" || !b.BriefAI {
+		t.Fatalf("restored brief %+v", b)
+	}
+	if l := got["bot_r_lonely"]; l.Status != "paused" || !strings.Contains(l.HealthDetail, "no bots to sum up") {
+		t.Fatalf("a brief with no sources %+v", l)
+	}
+	if !got["bot_r_a"].BriefOnly || got["bot_r_c"].BriefOnly || got["bot_r_a"].Kind != "watch" {
+		t.Fatalf("brief only after restore: a %+v, c %+v", got["bot_r_a"], got["bot_r_c"])
+	}
+	if ids := links(); !slices.Equal(ids, []string{"blk_r_a", "blk_r_b"}) {
+		t.Fatalf("restored links %v", ids)
+	}
+	var lines string
+	if err := db.Raw(`SELECT figures->>'lines' FROM bot_alerts WHERE id = 'bal_r_brief'`).Scan(&lines).Error; err != nil || lines != `["Deals: x", "Prices: y"]` {
+		t.Fatalf("brief alert lines %q, %v", lines, err)
+	}
+
+	// A backup made before briefs has none of their columns.
+	for i, raw := range backup.Rows["bots"] {
+		var row map[string]any
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatal(err)
+		}
+		if row["kind"] == "watch" {
+			for _, k := range []string{"kind", "brief_only", "brief_ai", "brief_time", "brief_cursor_at"} {
+				delete(row, k)
+			}
+		}
+		backup.Rows["bots"][i], _ = json.Marshal(row)
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatalf("restore of an older backup: %v", err)
+	}
+	if got := read(); got["bot_r_b"].Kind != "watch" || got["bot_r_a"].BriefOnly || got["bot_r_b"].BriefTime != "" {
+		t.Fatalf("older backup restored %+v / %+v", got["bot_r_a"], got["bot_r_b"])
+	}
+
+	// Over MCP: no links, every brief from its template and paused.
+	if _, err := service.RestoreFromMCP(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	got = read()
+	if b := got["bot_r_brief"]; b.BriefAI || b.Status != "paused" || len(links()) != 0 {
+		t.Fatalf("MCP restore left %+v, links %v", b, links())
+	}
+}

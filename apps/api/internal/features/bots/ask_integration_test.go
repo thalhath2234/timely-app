@@ -326,8 +326,18 @@ func TestIntegrationBotMigrationsDownUp(t *testing.T) {
 		('bal_passed', 'bot_m2', ?, 'alert', '2026-11-07', 'M2: price changed', 'not_useful', now(), 'not_passed', '[{"botId": "bot_m", "name": "M", "linkId": "blk_m", "title": "Story"}]')`, user)
 	exec(`INSERT INTO bot_findings (id, bot_id, user_id, kind, title, urgency, chain_id, depth, source_finding_id) VALUES ('bfd_m2', 'bot_m2', ?, 'change', 'Story', 'normal', 'bchk_m', 1, 'bfd_m')`, user)
 
-	// Pass to's Down first, while the columns it rewrites still exist.
+	exec(`INSERT INTO bots (id, user_id, name, origin, interval_seconds, next_check_at, kind, brief_time, brief_ai) VALUES ('bot_brief', ?, 'Morning', 'app', 86400, now(), 'brief', '08:00', true)`, user)
+	exec(`UPDATE bots SET brief_only = true WHERE id = 'bot_m2'`)
+	exec(`INSERT INTO bot_links (id, user_id, kind, from_bot_id, to_bot_id) VALUES ('blk_brief', ?, 'brief', 'bot_m2', 'bot_brief')`, user)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, local_day, title) VALUES ('bal_brief', 'bot_brief', ?, 'brief', '2026-11-07', 'Morning: 3 new from 1 bot')`, user)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, local_day, title) VALUES ('bal_brief_m', 'bot_m', ?, 'brief', '2026-11-07', 'M: crafted')`, user)
+
+	// Pass to's Down first, while the columns it rewrites still exist; the
+	// briefs' Down runs before it.
 	must(t, goose.DownTo(sqlDB, ".", beforeLinks))
+	if count(t, db, "bots", "id = 'bot_brief'") != 0 || count(t, db, "bot_alerts", "kind = 'brief'") != 0 || count(t, db, "bots", "id = 'bot_m2'") != 1 {
+		t.Fatal("a brief bot or a brief alert survived the Down")
+	}
 	var cols []string
 	var tables []string
 	if count(t, db, "bot_checks", "id = 'bchk_pass' AND trigger = 'run_now'") != 1 {
@@ -381,6 +391,14 @@ func TestIntegrationBotMigrationsDownUp(t *testing.T) {
 	}
 
 	must(t, goose.Up(sqlDB, "."))
+	if count(t, db, "bots", "kind = 'watch' AND NOT brief_only AND NOT brief_ai AND brief_time = '' AND brief_cursor_at IS NULL") != 2 {
+		t.Fatal("the brief columns came back without their defaults")
+	}
+	exec(`INSERT INTO bots (id, user_id, name, origin, interval_seconds, next_check_at, kind, brief_time) VALUES ('bot_brief2', ?, 'Evening', 'app', 86400, now(), 'brief', '18:30')`, user)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, local_day, title) VALUES ('bal_brief2', 'bot_brief2', ?, 'brief', '2026-11-07', 'Evening: 1 new from 1 bot')`, user)
+	if db.Exec(`INSERT INTO bots (id, user_id, name, origin, interval_seconds, next_check_at, kind, brief_ai) VALUES ('bot_bad', ?, 'Bad', 'app', 900, now(), 'watch', true)`, user).Error == nil {
+		t.Fatal("a watch bot took Write it with AI")
+	}
 	exec(`INSERT INTO bot_links (id, user_id, kind, from_bot_id, to_bot_id) VALUES ('blk_m2', ?, 'pass', 'bot_m', 'bot_m2')`, user)
 	exec(`INSERT INTO bot_checks (id, bot_id, user_id, trigger, started_at, finished_at, outcome) VALUES ('bchk_pass2', 'bot_m2', ?, 'pass', now(), now(), 'passed')`, user)
 	exec(`UPDATE bot_alerts SET feedback_reason = 'not_passed' WHERE id = 'bal_passed'`)
