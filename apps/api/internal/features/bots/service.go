@@ -25,6 +25,10 @@ const (
 	// TriggerAsk is the one check a tag in chat starts (Ask). Like run now,
 	// it runs whether or not the Bot is due, once its floor has passed.
 	TriggerAsk = "ask"
+	// TriggerPass is the check a note another Bot passed on starts (Pass
+	// to). It reads at most the note's link and leaves the Bot's schedule
+	// alone.
+	TriggerPass = "pass"
 )
 
 // runsNow reports a trigger that runs a Bot before it is due: Run now, or
@@ -115,12 +119,13 @@ func (s *Service) SetFetcher(f *fetch.Fetcher) {
 	}
 }
 
-// Register adds the check, site logo and re-judge handlers. The sweep is
+// Register adds the check, site logo, re-judge and pass handlers. The sweep is
 // joined into the worker's one sweep in main.go, never set here.
 func (s *Service) Register(w *jobs.Worker) {
 	w.Handle(models.JobBotCheck, s.HandleCheck)
 	w.Handle(models.JobBotIcon, s.HandleIcon)
 	w.Handle(models.JobBotJudge, s.HandleRejudge)
+	w.Handle(models.JobBotPass, s.HandlePass)
 }
 
 // Create saves a Bot, and asks for the logos of sites new to Timely, so
@@ -189,6 +194,11 @@ func (s *Service) ApplySuggestion(ctx context.Context, userID, botID, suggestion
 // DismissSuggestion drops a Bot's suggestion (Store.DismissSuggestion).
 func (s *Service) DismissSuggestion(ctx context.Context, userID, botID string) error {
 	return s.store.DismissSuggestion(ctx, userID, botID, s.now())
+}
+
+// SetLink switches a Pass to link on or off (Store.SetLink).
+func (s *Service) SetLink(ctx context.Context, userID, linkID string, enabled bool) (LinkView, error) {
+	return s.store.SetLink(ctx, userID, linkID, enabled, s.now())
 }
 
 func (s *Service) ForgetLesson(ctx context.Context, userID, botID, lessonID string) error {

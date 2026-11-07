@@ -48,6 +48,9 @@ type Input struct {
 	Watches         []WatchInput `json:"watches"`
 	// Knowledge is the doc or sheet the Bot's judge reads, or nil for none.
 	Knowledge *KnowledgeInput `json:"knowledge"`
+	// PassesTo is the full list of Bots this one passes what it finds to
+	// (Pass to), or nil for none.
+	PassesTo *[]LinkInput `json:"passesTo"`
 	// OriginClient names the outside app a Bot made over MCP came from: the
 	// name the person gave its API key. It is kept only for OriginMCP and
 	// never read from a request body.
@@ -68,6 +71,20 @@ type Patch struct {
 	Watches         *[]WatchInput   `json:"watches"`
 	Knowledge       *KnowledgeInput `json:"knowledge"`
 	ClearKnowledge  bool            `json:"-"`
+	// PassesTo, when set, is the full list of Pass to links; [] removes
+	// them all.
+	PassesTo *[]LinkInput `json:"passesTo"`
+}
+
+// LinkInput is one Pass to link as a client sends it: the Bot to pass to
+// (an id or a name), the words a note must hold (any one; none passes
+// every note) and, optionally, whether it is on. A link to a Bot already
+// linked keeps its id, and stays on or off unless Enabled is given.
+type LinkInput struct {
+	ID      string   `json:"id,omitempty"`
+	BotID   string   `json:"botId"`
+	Filter  []string `json:"filter"`
+	Enabled *bool    `json:"enabled,omitempty"`
 }
 
 func cleanName(raw string) (string, error) {

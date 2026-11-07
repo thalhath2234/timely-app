@@ -144,6 +144,7 @@ type checkRun struct {
 	// own).
 	checkID string
 	chainID string
+	depth   int // the check's step in its chain: 0 for a check of its own
 	plan    checkPlan
 }
 
@@ -674,11 +675,16 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 			ID: c.checkID, BotID: b.ID, UserID: b.UserID, JobID: &c.job.ID, Trigger: c.trigger,
 			StartedAt: c.started, FinishedAt: done, Watches: cws, Fired: jsonList[FiredRule]{}, Rearmed: rearms,
 		}
-		run := alertRun{checkID: c.checkID, fired: fired, now: done}
-		if len(fired) > 0 {
+		// What links took goes on to other Bots; the Bot stays quiet about
+		// it and alerts only on the rest.
+		alertable := untaken(fired, c.plan.taken)
+		run := alertRun{checkID: c.checkID, fired: alertable, now: done}
+		if len(alertable) > 0 {
 			run = judgedRun(b, c.plan, run)
 		}
 		switch {
+		case len(fired) > 0 && len(alertable) == 0:
+			check.Outcome = outPassed
 		case len(fired) > 0:
 			check.Outcome = firedOutcome(run)
 		case baseline:
@@ -702,7 +708,7 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 		for _, f := range fired {
 			check.Fired = append(check.Fired, FiredRule{WatchID: f.ev.WatchID, RuleID: f.ev.RuleID, Kind: f.ev.Kind})
 		}
-		if len(fired) > 0 {
+		if len(alertable) > 0 {
 			alertID = utils.PrefixedUUID("bal")
 			check.AlertID, run.alertID = &alertID, alertID
 		}
@@ -710,11 +716,18 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 			return err
 		}
 		if len(fired) > 0 {
-			sent, err := s.alert(tx, b, run)
+			sent := false
+			if len(alertable) > 0 {
+				if sent, err = s.alert(tx, b, run); err != nil {
+					return err
+				}
+			}
+			notes, keys, err := saveFindings(tx, b, run, fired, c.plan.taken, sent)
 			if err != nil {
 				return err
 			}
-			if _, err := saveFindings(tx, b, run, sent); err != nil {
+			pr := passRun{bot: b, checkID: c.checkID, chainID: c.chainID, depth: c.depth, now: done}
+			if err := applyPasses(tx, pr, fired, c.plan.taken, notes, keys); err != nil {
 				return err
 			}
 		}

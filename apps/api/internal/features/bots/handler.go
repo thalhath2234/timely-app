@@ -25,6 +25,7 @@ func (s *Service) Routes(g *echo.Group) {
 	g.GET("/bots/keys", s.sourceKeys)
 	g.POST("/bots/keys/:source", s.saveSourceKey)
 	g.DELETE("/bots/keys/:source", s.deleteSourceKey)
+	g.PATCH("/bots/links/:linkId", s.setLink)
 	g.GET("/bots/:id", s.get)
 	g.PATCH("/bots/:id", s.update)
 	g.DELETE("/bots/:id", s.remove)
@@ -55,6 +56,8 @@ func httpError(err error) error {
 		return echo.NewHTTPError(http.StatusNotFound, "Alert not found")
 	case errors.Is(err, ErrLessonNotFound):
 		return echo.NewHTTPError(http.StatusNotFound, "Lesson not found")
+	case errors.Is(err, ErrLinkNotFound):
+		return echo.NewHTTPError(http.StatusNotFound, "Link not found")
 	case errors.Is(err, ErrUnknownSource):
 		return echo.NewHTTPError(http.StatusNotFound, "Unknown price source")
 	case errors.As(err, &down):
@@ -242,7 +245,8 @@ func (s *Service) findings(c *echo.Context) error {
 }
 
 // rateAlert takes {"feedback":"useful"}, {"feedback":"not_useful",
-// "reason":"too_small"|"not_wanted"|"already_knew"|"","note":"..."} or
+// "reason":"too_small"|"not_wanted"|"already_knew"|"not_passed"|"",
+// "note":"..."} (not_passed only on a passed alert) or
 // {"feedback":null} to take the rating back. It answers the alert with the
 // lesson the rating taught ("lesson", null on undo).
 func (s *Service) rateAlert(c *echo.Context) error {
@@ -294,6 +298,24 @@ func (s *Service) dismissSuggestion(c *echo.Context) error {
 		return httpError(err)
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+// setLink takes {"enabled": bool}: "Turn off this pass", or on again.
+func (s *Service) setLink(c *echo.Context) error {
+	var in struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return badRequest()
+	}
+	if in.Enabled == nil {
+		return httpError(invalid("Give enabled as true or false"))
+	}
+	v, err := s.SetLink(c.Request().Context(), user(c), c.Param("linkId"), *in.Enabled)
+	if err != nil {
+		return httpError(err)
+	}
+	return c.JSON(http.StatusOK, v)
 }
 
 func (s *Service) forgetLesson(c *echo.Context) error {

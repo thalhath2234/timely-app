@@ -71,6 +71,21 @@ const (
 	ChainAI         = 6
 	JudgeTimeout    = 30 * time.Second
 	AskJudgeTimeout = 15 * time.Second
+
+	// Pass to: links per Bot, items one link passes per local day and one
+	// check passes, links in a row before a chain stops, filter words per
+	// link and their length, how long the same thing is not passed to the
+	// same Bot again, and how old a passed item may be before it is folded
+	// into the next brief instead of checked.
+	MaxLinks         = 4
+	LinkPerDay       = 20
+	PassPerCheck     = 10
+	ChainSteps       = 3
+	MaxFilterWords   = 5
+	MaxFilterWordLen = 60
+	PassRepeatDays   = 7
+	PassFoldAfter    = 24 * time.Hour
+	PassDays         = 30 // the pass log's retention
 )
 
 // Watch kinds and page read modes, as stored in bot_watches.
@@ -113,6 +128,7 @@ var (
 	ErrNotFound       = errors.New("not found")
 	ErrAlertNotFound  = errors.New("alert not found")
 	ErrLessonNotFound = errors.New("lesson not found")
+	ErrLinkNotFound   = errors.New("link not found")
 	ErrPaused         = errors.New("This bot is paused. Turn it on in Timely first.")
 	// ErrSuggestionStale answers Apply on a suggestion that was replaced, or
 	// whose watch or rule is gone.

@@ -56,7 +56,7 @@ func (s *Store) Create(ctx context.Context, userID string, in Input, o Origin, n
 	if err := refuseMCPSettings(o, &in.JudgeMode, in.Urgent, in.Desktop, in.Phone); err != nil {
 		return View{}, err
 	}
-	if o == OriginMCP && in.Knowledge != nil {
+	if o == OriginMCP && (in.Knowledge != nil || in.PassesTo != nil) {
 		return View{}, errMCPSetup
 	}
 	name, err := cleanName(in.Name)
@@ -134,7 +134,13 @@ func (s *Store) Create(ctx context.Context, userID string, in Input, o Origin, n
 		if err := tx.Create(&b).Error; err != nil {
 			return nameConflict(err, name)
 		}
-		return tx.Create(&ws).Error
+		if err := tx.Create(&ws).Error; err != nil {
+			return err
+		}
+		if in.PassesTo != nil {
+			return saveLinks(tx, userID, b, *in.PassesTo, now)
+		}
+		return nil
 	})
 	if err != nil {
 		return View{}, err
@@ -161,7 +167,7 @@ func (s *Store) Update(ctx context.Context, userID, idOrName string, p Patch, o 
 	if err := refuseMCPSettings(o, p.JudgeMode, p.Urgent, p.Desktop, p.Phone); err != nil {
 		return View{}, err
 	}
-	if o == OriginMCP && (p.Knowledge != nil || p.ClearKnowledge) {
+	if o == OriginMCP && (p.Knowledge != nil || p.ClearKnowledge || p.PassesTo != nil) {
 		return View{}, errMCPSetup
 	}
 	set := map[string]any{"updated_at": now}
@@ -270,6 +276,9 @@ func (s *Store) Update(ctx context.Context, userID, idOrName string, p Patch, o 
 		}
 		if err := tx.Model(&Bot{}).Where("id = ? AND user_id = ?", b.ID, userID).Updates(set).Error; err != nil {
 			return nameConflict(err, name)
+		}
+		if p.PassesTo != nil {
+			return saveLinks(tx, userID, b, *p.PassesTo, now)
 		}
 		return nil
 	})
@@ -567,6 +576,9 @@ func (s *Store) Get(ctx context.Context, userID, idOrName string, now time.Time)
 		}
 	}
 	d := Detail{View: v, Checks: []CheckView{}, Alerts: []AlertView{}, Prices: []PriceDayView{}, Lessons: []Lesson{}, Rearms: []RearmView{}}
+	if d.Links, err = botLinks(db, userID, b.ID, now); err != nil {
+		return Detail{}, err
+	}
 	var checks []Check
 	if err := db.Where("bot_id = ? AND user_id = ?", b.ID, userID).Order("started_at DESC, id").Limit(detailRows).Find(&checks).Error; err != nil {
 		return Detail{}, err
@@ -709,7 +721,7 @@ type RateResult struct {
 // person has an AI provider, so that suggestion may be AI judging.
 func (s *Store) RateAlert(ctx context.Context, userID, botIDOrName, alertID string, r Rating, now time.Time, aiReady bool) (RateResult, error) {
 	set := map[string]any{"feedback": nil, "feedback_reason": "", "feedback_note": "", "feedback_at": nil}
-	if r.Reason != "" && !contains(FeedbackReasons, r.Reason) {
+	if r.Reason != "" && r.Reason != PassFeedbackReason && !contains(FeedbackReasons, r.Reason) {
 		return RateResult{}, invalid("Pick one of the reasons")
 	}
 	if r.Feedback != nil {
@@ -739,6 +751,9 @@ func (s *Store) RateAlert(ctx context.Context, userID, botIDOrName, alertID stri
 		}
 		if rows[0].Kind != alertKindAlert {
 			return invalid("Only alerts can be rated")
+		}
+		if r.Feedback != nil && *r.Feedback == FeedbackNotUseful && r.Reason == PassFeedbackReason && len(rows[0].Via) == 0 {
+			return invalid("This alert was not passed on")
 		}
 		if err := tx.Model(&Alert{}).Where("id = ? AND bot_id = ? AND user_id = ?", alertID, b.ID, userID).Updates(set).Error; err != nil {
 			return err
@@ -813,6 +828,8 @@ func lessonText(a Alert, botName string) string {
 		line = "Not what I want: " + quoted
 	case a.FeedbackReason == "already_knew":
 		line = "I already knew: " + quoted
+	case a.FeedbackReason == PassFeedbackReason && len(a.Via) > 0:
+		line = "Not worth passing on from " + a.Via[len(a.Via)-1].Name + ": " + quoted
 	default:
 		line = "Not useful: " + quoted
 	}
@@ -997,11 +1014,12 @@ ORDER BY b.id, c.started_at DESC, c.id DESC`, sql.Named("n", stripChecks), sql.N
 		ID, BotID, BotName, Title, Body, URL, Held, Kind, AIState, AIWhy, Urgency string
 		What, Feedback                                                            *string
 		AlsoSeenBy                                                                jsonList[BotRef]
+		Via                                                                       jsonList[ViaStep]
 		CreatedAt                                                                 time.Time
 	}
 	q = db.Raw(`
 SELECT DISTINCT ON (a.bot_id) a.id, a.bot_id, a.title, a.body, a.url, a.held, a.kind, a.ai_state, a.ai_why, a.urgency,
-       a.figures->>'what' AS what, a.feedback, a.also_seen_by, a.created_at, b.name AS bot_name
+       a.figures->>'what' AS what, a.feedback, a.also_seen_by, a.via, a.created_at, b.name AS bot_name
 FROM bot_alerts a JOIN bots b ON b.id = a.bot_id
 WHERE a.user_id = @uid AND a.kind IN ('alert', 'brief') AND a.held IN ('', @cap) AND a.created_at >= @since AND (@bot = '' OR a.bot_id = @bot)
 ORDER BY a.bot_id, a.created_at DESC, a.id DESC`, sql.Named("uid", userID), sql.Named("cap", heldCap),
@@ -1011,7 +1029,7 @@ ORDER BY a.bot_id, a.created_at DESC, a.id DESC`, sql.Named("uid", userID), sql.
 	}
 	for _, a := range latest {
 		brief := &AlertBrief{ID: a.ID, Title: a.Title, Body: a.Body, URL: a.URL, Held: a.Held, CreatedAt: a.CreatedAt, Feedback: a.Feedback,
-			Kind: a.Kind, AIState: a.AIState, AIWhy: a.AIWhy, Urgency: urgencyOr(a.Urgency), AlsoSeenBy: botRefs(a.AlsoSeenBy), RulesTitle: a.Title}
+			Kind: a.Kind, AIState: a.AIState, AIWhy: a.AIWhy, Urgency: urgencyOr(a.Urgency), AlsoSeenBy: botRefs(a.AlsoSeenBy), Via: viaSteps(a.Via), RulesTitle: a.Title}
 		if a.What != nil && strings.TrimSpace(*a.What) != "" {
 			brief.RulesTitle = a.BotName + ": " + *a.What
 		}

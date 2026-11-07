@@ -156,7 +156,7 @@ func TestItemFindings(t *testing.T) {
 	items[4].Title = "   "
 	items[11].Title = strings.Repeat("x", 300)
 	kolkata, _ := time.LoadLocation("Asia/Kolkata")
-	rows := itemFindings(base, firedEvent{w: feed, rule: Rule{Kind: RuleNewItem}, ev: Event{NewItems: items}}, kolkata)
+	rows, _ := itemFindings(base, firedEvent{w: feed, rule: Rule{Kind: RuleNewItem}, ev: Event{NewItems: items}}, kolkata, nil)
 	if len(rows) != MaxItemFindings+1 {
 		t.Fatalf("%d rows", len(rows))
 	}
@@ -177,11 +177,11 @@ func TestItemFindings(t *testing.T) {
 	if r := rows[10]; r.Title != "2 more new items" || r.URL != feed.URL || r.ThingKey != "" || !r.OutsideData {
 		t.Fatalf("more %+v", r)
 	}
-	one := itemFindings(base, firedEvent{w: feed, rule: Rule{Kind: RuleNewItem}, ev: Event{NewItems: items[:11]}}, time.UTC)
+	one, _ := itemFindings(base, firedEvent{w: feed, rule: Rule{Kind: RuleNewItem}, ev: Event{NewItems: items[:11]}}, time.UTC, nil)
 	if len(one) != 11 || one[10].Title != "1 more new item" {
 		t.Fatalf("one more: %+v", one[len(one)-1])
 	}
-	plain := itemFindings(base, firedEvent{w: feed, rule: Rule{Kind: RuleNewItem}, ev: Event{NewItems: []extract.FeedItem{{ID: "a", Title: "A"}}}}, time.UTC)
+	plain, _ := itemFindings(base, firedEvent{w: feed, rule: Rule{Kind: RuleNewItem}, ev: Event{NewItems: []extract.FeedItem{{ID: "a", Title: "A"}}}}, time.UTC, nil)
 	if len(plain) != 1 || plain[0].Why != "New in news.example" {
 		t.Fatalf("no publish time: %+v", plain)
 	}

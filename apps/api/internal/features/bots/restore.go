@@ -24,10 +24,12 @@ const (
 // dropped; no alert keeps a judge input (the export never carries one); a
 // doc or sheet a Bot reads that is not the person's, or is in the bin, is
 // let go; no alert keeps what it told of, so a file holds back no alert;
-// "Also seen by" keeps only the person's Bots. Restored over MCP, every Bot comes back paused, judged by rules,
-// reading no doc or sheet, with the alert settings a Bot made over MCP gets,
-// so an outside app cannot turn a Bot, its urgent alerts, AI judging or what
-// the judge reads on this way (ADR 0021). A
+// "Also seen by" and "How this came to you" keep only the person's Bots;
+// Pass to links keep to a save's limits (vetLinks). Restored over MCP,
+// every Bot comes back paused, judged by rules, reading no doc or sheet,
+// passing nothing on, with the alert settings a Bot made over MCP gets, so
+// an outside app cannot turn a Bot, its urgent alerts, AI judging, chains
+// or what the judge reads on this way (ADR 0021). A
 // stock watch passes when the account has its key, which the restore keeps.
 func (s *Service) VetRestore(tx *gorm.DB, userID string, fromMCP bool) error {
 	// A suggestion is code's reading of ratings made here, and the file's
@@ -135,7 +137,20 @@ WHERE b.user_id = @uid AND b.knowledge_kind <> '' AND (@mcp
 			return err
 		}
 	}
-	return nil
+	// A restore checks none of a save's link rules: vetLinks does.
+	if err := vetLinks(tx, userID, fromMCP); err != nil {
+		return err
+	}
+	// "How this came to you" names Bots too: keep only the person's, by
+	// their names here, with a link only when it is theirs.
+	return tx.Exec(`
+UPDATE bot_alerts a SET via = COALESCE((
+    SELECT jsonb_agg(jsonb_build_object('botId', b.id, 'name', b.name,
+               'linkId', (SELECT l.id FROM bot_links l WHERE l.id = e.v->>'linkId' AND l.user_id = a.user_id),
+               'title', left(COALESCE(e.v->>'title', ''), ?)) ORDER BY e.n)
+    FROM jsonb_array_elements(CASE WHEN jsonb_typeof(a.via) = 'array' THEN a.via ELSE '[]'::jsonb END) WITH ORDINALITY AS e(v, n)
+    JOIN bots b ON b.id = e.v->>'botId' AND b.user_id = a.user_id), '[]'::jsonb)
+WHERE a.user_id = ? AND a.via <> '[]'::jsonb`, maxFindingTitle, userID).Error
 }
 
 // vetAlertDefaults checks the restored "Alerts for new bots": a value that

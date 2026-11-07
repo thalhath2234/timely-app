@@ -192,7 +192,19 @@ type Alert struct {
 	Things     jsonList[Thing]  `gorm:"type:jsonb;not null" json:"-"`
 	AlsoSeenBy jsonList[BotRef] `gorm:"column:also_seen_by;type:jsonb;not null" json:"alsoSeenBy"`
 	SharedWith *string          `gorm:"type:text" json:"sharedWith"`
-	CreatedAt  time.Time        `json:"createdAt"`
+	// Via is how a passed note came to this Bot: the Bots it went through,
+	// from the start of the chain, each with the link it went on by.
+	Via       jsonList[ViaStep] `gorm:"type:jsonb;not null" json:"via"`
+	CreatedAt time.Time         `json:"createdAt"`
+}
+
+// ViaStep is one Bot a passed note went through ("How this came to you"):
+// the Bot, the link it passed the note on by and the note's title there.
+type ViaStep struct {
+	BotID  string  `json:"botId"`
+	Name   string  `json:"name"`
+	LinkID *string `json:"linkId"`
+	Title  string  `json:"title"`
 }
 
 // BotRef names a Bot.
@@ -231,8 +243,13 @@ type Finding struct {
 	Alerted     bool       `gorm:"not null" json:"alerted"`
 	DigestedAt  *time.Time `json:"digestedAt"`
 	// ThingKey is the product, ticker or link the note is about (thingKey*).
-	ThingKey  string    `gorm:"type:text;not null" json:"-"`
-	CreatedAt time.Time `json:"createdAt"`
+	ThingKey string `gorm:"type:text;not null" json:"-"`
+	// A note a passed check made names the chain it is part of, its step in
+	// it (0 for a check of its own) and the note it was passed.
+	ChainID         string    `gorm:"type:text;not null" json:"-"`
+	Depth           int       `gorm:"not null" json:"-"`
+	SourceFindingID *string   `gorm:"type:text" json:"-"`
+	CreatedAt       time.Time `json:"createdAt"`
 }
 
 func (Finding) TableName() string { return "bot_findings" }
@@ -268,8 +285,51 @@ type Lesson struct {
 
 func (Lesson) TableName() string { return "bot_lessons" }
 
+// Link passes what one Bot finds to another (table bot_links, kind pass):
+// a note holding one of Filter's words, or any note when it has none,
+// starts a check by ToBotID. OffReason is "person" while switched off.
+type Link struct {
+	ID        string           `gorm:"type:text;primaryKey" json:"id"`
+	UserID    string           `gorm:"type:text;not null" json:"-"`
+	Kind      string           `gorm:"type:text;not null" json:"kind"`
+	FromBotID string           `gorm:"type:text;not null" json:"fromBotId"`
+	ToBotID   string           `gorm:"type:text;not null" json:"toBotId"`
+	Filter    jsonList[string] `gorm:"type:jsonb;not null" json:"filter"`
+	Enabled   bool             `gorm:"not null" json:"enabled"`
+	OffReason string           `gorm:"type:text;not null" json:"offReason"`
+	CreatedAt time.Time        `json:"createdAt"`
+	UpdatedAt time.Time        `json:"updatedAt"`
+}
+
+func (Link) TableName() string { return "bot_links" }
+
+// Pass is one note a link took (table bot_passes), and what became of it:
+// pending until the next Bot checks it, then alerted, quiet or failed; or
+// folded (too old, or its Bot, link or note gone), overflow (past a limit)
+// or repeat (the same thing went to the same Bot in the last 7 days). It
+// has no foreign key to bots, links or findings, so deleting a Bot or a
+// restore resets no count.
+type Pass struct {
+	ID        string    `gorm:"type:text;primaryKey"`
+	UserID    string    `gorm:"type:text;not null"`
+	LinkID    *string   `gorm:"type:text"`
+	FromBotID string    `gorm:"type:text;not null"`
+	ToBotID   string    `gorm:"type:text;not null"`
+	FindingID *string   `gorm:"type:text"`
+	ThingKey  string    `gorm:"type:text;not null"`
+	ChainID   string    `gorm:"type:text;not null"`
+	Depth     int       `gorm:"not null"`
+	LocalDay  time.Time `gorm:"type:date;not null"`
+	State     string    `gorm:"type:text;not null"`
+	CheckID   *string   `gorm:"type:text"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+func (Pass) TableName() string { return "bot_passes" }
+
 // Models lists the account tables, for tests and tools that walk them.
-var Models = []any{&Bot{}, &Watch{}, &Check{}, &Alert{}, &Finding{}, &PriceDay{}, &Lesson{}}
+var Models = []any{&Bot{}, &Watch{}, &Check{}, &Alert{}, &Finding{}, &PriceDay{}, &Lesson{}, &Link{}}
 
 // jsonList is a NOT NULL jsonb array column: nil is stored as [].
 type jsonList[T any] []T

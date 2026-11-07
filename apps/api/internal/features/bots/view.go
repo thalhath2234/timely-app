@@ -74,6 +74,8 @@ type AlertBrief struct {
 	// SharedWith is the alert a held 'shared' one joined.
 	AlsoSeenBy []BotRef   `json:"alsoSeenBy"`
 	SharedWith *SharedRef `json:"sharedWith"`
+	// Via is how a passed note came to the Bot (never null).
+	Via []ViaStep `json:"via"`
 	// RulesTitle is the title in the rules' words ("<bot>: " + figures.what),
 	// for readers that must not pass on a model's words (MCP).
 	RulesTitle string `json:"-"`
@@ -123,6 +125,7 @@ type Detail struct {
 	Week        WeekCounts     `json:"week"`        // the last 7 days
 	AlertsMonth int            `json:"alertsMonth"` // alerts of the last 30 days
 	Rearms      []RearmView    `json:"rearms"`      // newest first: the last 30 days, at most 5
+	Links       []LinkView     `json:"links"`       // every link from or to the Bot, oldest first
 }
 
 // RearmView is a below or above rule that armed again ("Armed again, no
@@ -172,9 +175,10 @@ type AlertView struct {
 	AIState string `json:"aiState"`
 	AIWhy   string `json:"aiWhy"`
 	Urgency string `json:"urgency"`
-	// One alert per thing, see AlertBrief.
+	// One alert per thing and how a passed note came, see AlertBrief.
 	AlsoSeenBy []BotRef   `json:"alsoSeenBy"`
 	SharedWith *SharedRef `json:"sharedWith"`
+	Via        []ViaStep  `json:"via"`
 }
 
 // SharedRef is the alert a held 'shared' alert joined, and its Bot.
@@ -491,7 +495,15 @@ func alertView(a Alert) AlertView {
 	return AlertView{ID: a.ID, CheckID: a.CheckID, Figures: figures, Kind: a.Kind, Held: a.Held, Title: a.Title, Body: a.Body,
 		URL: a.URL, Urgent: a.Urgent, MoreCount: a.MoreCount, CreatedAt: a.CreatedAt,
 		Feedback: a.Feedback, FeedbackReason: a.FeedbackReason, FeedbackNote: a.FeedbackNote, FeedbackAt: a.FeedbackAt,
-		AIState: a.AIState, AIWhy: a.AIWhy, Urgency: urgencyOr(a.Urgency), AlsoSeenBy: botRefs(a.AlsoSeenBy)}
+		AIState: a.AIState, AIWhy: a.AIWhy, Urgency: urgencyOr(a.Urgency), AlsoSeenBy: botRefs(a.AlsoSeenBy), Via: viaSteps(a.Via)}
+}
+
+// viaSteps is "How this came to you" for a client: never null.
+func viaSteps(l []ViaStep) []ViaStep {
+	if l == nil {
+		return []ViaStep{}
+	}
+	return l
 }
 
 // botRefs is a list of Bots for a client: never null.

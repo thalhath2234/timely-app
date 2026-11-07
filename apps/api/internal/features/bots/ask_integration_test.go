@@ -289,6 +289,7 @@ func TestIntegrationBotAskClaim(t *testing.T) {
 // constraint names and the Down data fixes hold.
 func TestIntegrationBotMigrationsDownUp(t *testing.T) {
 	const beforeBoard = 20261106222047 // the last migration before bots_board
+	const beforeLinks = 20261107154900 // the last migration before bot_links
 	db := migratedDB(t)
 	sqlDB, err := db.DB()
 	must(t, err)
@@ -317,14 +318,39 @@ func TestIntegrationBotMigrationsDownUp(t *testing.T) {
 	exec(`INSERT INTO bot_findings (id, bot_id, user_id, kind, title, urgency, thing_key) VALUES ('bfd_m', 'bot_m', ?, 'item', 'Story', 'normal', 'link:https://shop.example/1')`, user)
 	must(t, db.Create(&models.Job{ID: "job_judge", UserID: user, Kind: models.JobBotJudge, Status: models.JobPending, Payload: models.JobPayload{},
 		RunAt: time.Now(), MaxAttempts: 3, CreatedAt: time.Now(), UpdatedAt: time.Now()}).Error)
+	exec(`INSERT INTO bots (id, user_id, name, origin, interval_seconds, next_check_at) VALUES ('bot_m2', ?, 'M2', 'app', 900, now())`, user)
+	exec(`INSERT INTO bot_links (id, user_id, kind, from_bot_id, to_bot_id, filter) VALUES ('blk_m', ?, 'pass', 'bot_m', 'bot_m2', '["NVMe"]')`, user)
+	exec(`INSERT INTO bot_passes (id, user_id, link_id, from_bot_id, to_bot_id, chain_id, depth, local_day, state) VALUES ('bps_m', ?, 'blk_m', 'bot_m', 'bot_m2', 'bchk_m', 1, '2026-11-07', 'pending')`, user)
+	exec(`INSERT INTO bot_checks (id, bot_id, user_id, trigger, started_at, finished_at, outcome) VALUES ('bchk_pass', 'bot_m2', ?, 'pass', now(), now(), 'fired')`, user)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, local_day, title, feedback, feedback_at, feedback_reason, via) VALUES
+		('bal_passed', 'bot_m2', ?, 'alert', '2026-11-07', 'M2: price changed', 'not_useful', now(), 'not_passed', '[{"botId": "bot_m", "name": "M", "linkId": "blk_m", "title": "Story"}]')`, user)
+	exec(`INSERT INTO bot_findings (id, bot_id, user_id, kind, title, urgency, chain_id, depth, source_finding_id) VALUES ('bfd_m2', 'bot_m2', ?, 'change', 'Story', 'normal', 'bchk_m', 1, 'bfd_m')`, user)
+
+	// Pass to's Down first, while the columns it rewrites still exist.
+	must(t, goose.DownTo(sqlDB, ".", beforeLinks))
+	var cols []string
+	var tables []string
+	if count(t, db, "bot_checks", "id = 'bchk_pass' AND trigger = 'run_now'") != 1 {
+		t.Fatal("the pass check was not rewritten as run now")
+	}
+	if count(t, db, "bot_alerts", "id = 'bal_passed' AND feedback = 'not_useful' AND feedback_reason = ''") != 1 {
+		t.Fatal("the not_passed rating was not cleared")
+	}
+	must(t, db.Raw(`SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name IN ('bot_links', 'bot_passes')`).Scan(&tables).Error)
+	if len(tables) != 0 {
+		t.Fatalf("pass tables left after Down: %v", tables)
+	}
+	must(t, db.Raw(`SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema()
+		AND ((table_name = 'bot_alerts' AND column_name = 'via') OR (table_name = 'bot_findings' AND column_name IN ('chain_id', 'depth', 'source_finding_id')))`).Scan(&cols).Error)
+	if len(cols) != 0 {
+		t.Fatalf("pass columns left after Down: %v", cols)
+	}
 
 	must(t, goose.DownTo(sqlDB, ".", beforeBoard))
-	var cols []string
 	must(t, db.Raw(`SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'bots' AND column_name IN ('asked_at', 'origin_client', 'suggestion', 'suggestion_dismissed_at')`).Scan(&cols).Error)
 	if len(cols) != 0 {
 		t.Fatalf("columns left after Down: %v", cols)
 	}
-	var tables []string
 	must(t, db.Raw(`SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name IN ('bot_source_keys', 'bot_site_icons')`).Scan(&tables).Error)
 	if len(tables) != 0 {
 		t.Fatalf("tables left after Down: %v", tables)
@@ -355,6 +381,12 @@ func TestIntegrationBotMigrationsDownUp(t *testing.T) {
 	}
 
 	must(t, goose.Up(sqlDB, "."))
+	exec(`INSERT INTO bot_links (id, user_id, kind, from_bot_id, to_bot_id) VALUES ('blk_m2', ?, 'pass', 'bot_m', 'bot_m2')`, user)
+	exec(`INSERT INTO bot_checks (id, bot_id, user_id, trigger, started_at, finished_at, outcome) VALUES ('bchk_pass2', 'bot_m2', ?, 'pass', now(), now(), 'passed')`, user)
+	exec(`UPDATE bot_alerts SET feedback_reason = 'not_passed' WHERE id = 'bal_passed'`)
+	if count(t, db, "bot_alerts", "id = 'bal_passed' AND via = '[]'::jsonb") != 1 || count(t, db, "bot_findings", "id = 'bfd_m2' AND chain_id = '' AND depth = 0") != 1 {
+		t.Fatal("the pass columns came back without their defaults")
+	}
 	exec(`UPDATE bots SET asked_at = now(), origin_client = 'Claude Code', suggestion = '{"id": "bsg_m"}', suggestion_dismissed_at = now() WHERE id = 'bot_m'`)
 	exec(`INSERT INTO bot_checks (id, bot_id, user_id, trigger, started_at, finished_at, outcome) VALUES ('bchk_m2', 'bot_m', ?, 'ask', now(), now(), 'unchanged')`, user)
 	exec(`INSERT INTO bot_watches (id, bot_id, user_id, kind, url, read_mode, selector) VALUES ('bw_m2', 'bot_m', ?, 'page', 'https://shop.example/', 'selector_price', '#price')`, user)

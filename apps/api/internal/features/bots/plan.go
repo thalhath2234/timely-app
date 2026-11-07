@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 )
 
-// checkPlan is what a check decided before its save: the judge's verdict on
-// the rules that fired, or why AI did not judge them.
+// checkPlan is what a check decided before its save: which fired items go
+// on to other Bots, and the judge's verdict on the rest, or why AI did not
+// judge them.
 type checkPlan struct {
+	taken      map[itemKey][]linkTarget
 	judgedKeys []string // eventKeys of what the judge was asked about, sorted
 	verdict    *Verdict
 	aiState    string // "", aiJudged or aiUnchecked
@@ -20,59 +23,84 @@ type checkPlan struct {
 func (p checkPlan) asked() bool { return p.aiState != "" }
 
 // planCheck runs, between the reads and the save, what must not run inside
-// the save's transaction: for an AI-judged Bot whose rules fired on a dry
-// run, one judge call within the caps. Only database errors are returned.
-// The claim fence keeps the rule state fixed until the save, which applies
-// the verdict only to the same set of fired rules.
+// the save's transaction: which fired items the Bot's links take (decided
+// here, deterministically, so the save applies the same), and for an
+// AI-judged Bot whose rules fired on a dry run on items no link took, one
+// judge call within the caps. Only database errors are returned. The claim
+// fence keeps the rule state fixed until the save, which applies the
+// verdict only to the same set of fired rules.
 func (s *Service) planCheck(ctx context.Context, c *checkRun) error {
 	b := c.bot
-	if b.JudgeMode != JudgeAI {
+	db := s.db.WithContext(ctx)
+	var links []linkTarget
+	if c.depth+1 <= ChainSteps {
+		var err error
+		if links, err = passLinks(db, b); err != nil {
+			return err
+		}
+	}
+	if b.JudgeMode != JudgeAI && len(links) == 0 {
 		return nil
 	}
 	fired := dryRun(c.reads)
 	if len(fired) == 0 {
 		return nil
 	}
+	c.plan.taken = takeItems(fired, links, c.depth)
+	fired = untaken(fired, c.plan.taken)
+	if b.JudgeMode != JudgeAI || len(fired) == 0 {
+		return nil
+	}
 	now := s.now().UTC()
-	db := s.db.WithContext(ctx)
 	lessons, last, at, err := judgeContext(db, b, now)
 	if err != nil {
 		return err
 	}
-	c.plan.judgedKeys = eventKeys(fired)
-	c.plan.aiState = aiUnchecked
+	in := buildJudgeInput(b, lessons, last, fired, nil, at)
+	timeout := JudgeTimeout
+	if c.trigger == TriggerAsk {
+		timeout = AskJudgeTimeout
+	}
+	return s.judgeInto(ctx, &c.plan, b, c.chainID, eventKeys(fired), in, timeout, now)
+}
+
+// judgeInto asks the judge about in for b within the caps, and records in p
+// what came of it: the verdict, or why AI did not judge (with the input
+// kept for a re-judge when asking again can help). The doc or sheet is read
+// only here, for a judge call, and only as data.
+func (s *Service) judgeInto(ctx context.Context, p *checkPlan, b Bot, chainID string, keys []string, in JudgeInput, timeout time.Duration, now time.Time) error {
+	p.judgedKeys = keys
+	p.aiState = aiUnchecked
 	if s.judge == nil {
-		c.plan.aiNote = noteNoProvider
+		p.aiNote = noteNoProvider
 		return nil
 	}
-	callID, err := s.reserveAI(ctx, b, c.chainID, purposeJudge, now)
+	callID, err := s.reserveAI(ctx, b, chainID, purposeJudge, now)
 	switch {
 	case errors.Is(err, errAICap):
-		c.plan.aiNote = noteUsedUp
+		p.aiNote = noteUsedUp
 		return nil
 	case err != nil:
 		return err
 	}
-	// The doc or sheet is read only for a judge call, and only as data.
-	in := buildJudgeInput(b, lessons, last, fired, s.readKnowledge(ctx, b), at)
-	timeout := JudgeTimeout
-	if c.trigger == TriggerAsk {
-		timeout = AskJudgeTimeout
+	if k := s.readKnowledge(ctx, b); k != nil {
+		in.Knowledge = k
+		in = clipJudgeInput(in, judgeMaxInput)
 	}
 	v, err := s.callJudge(ctx, b.UserID, in, timeout)
 	s.markAI(callID, err == nil, !errors.Is(err, ErrJudgeOff))
 	switch {
 	case err == nil:
-		c.plan.verdict, c.plan.aiState = &v, aiJudged
+		p.verdict, p.aiState = &v, aiJudged
 	case errors.Is(err, ErrJudgeOff):
-		c.plan.aiNote = s.offNote(ctx, b.UserID)
+		p.aiNote = s.offNote(ctx, b.UserID)
 	default:
-		c.plan.aiNote = noteLater
-		raw, merr := json.Marshal(JudgeJob{ChainID: c.chainID, Input: in})
+		p.aiNote = noteLater
+		raw, merr := json.Marshal(JudgeJob{ChainID: chainID, Input: in})
 		if merr != nil {
 			return merr
 		}
-		c.plan.aiInput = raw
+		p.aiInput = raw
 	}
 	return nil
 }

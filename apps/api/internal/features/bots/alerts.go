@@ -45,6 +45,14 @@ type alertRun struct {
 	verdict          *Verdict
 	aiState, aiNote  string
 	aiInput          json.RawMessage // set only when a re-judge is queued
+	// via is how a passed note came to the Bot ("How this came to you");
+	// things, when set, is what the alert tells of instead of the watches'
+	// own things (a passed note is about its item, not the Bot's page).
+	// url, when set, is where the alert opens instead of the first fired
+	// watch's page (a passed note opens its item).
+	via    []ViaStep
+	things []Thing
+	url    string
 }
 
 // uncheckedSuffix marks an alert AI did not judge.
@@ -80,9 +88,12 @@ func (s *Service) alert(tx *gorm.DB, b Bot, a alertRun) (sent bool, err error) {
 		urgency = UrgencyHigh
 	}
 	url := a.fired[0].w.URL
+	if a.url != "" {
+		url = a.url
+	}
 	row := Alert{
 		ID: a.alertID, BotID: b.ID, UserID: b.UserID, CheckID: &a.checkID, Kind: alertKindAlert, LocalDay: day,
-		URL: url, Figures: figures, Urgent: b.Urgent, CreatedAt: now,
+		URL: url, Figures: figures, Urgent: b.Urgent, Via: a.via, CreatedAt: now,
 	}
 	switch v := a.verdict; {
 	case v != nil && !v.Alert:
@@ -110,6 +121,13 @@ func (s *Service) alert(tx *gorm.DB, b Bot, a alertRun) (sent bool, err error) {
 		return false, tx.Create(&row).Error
 	}
 	things := thingsOf(a.fired, urgency)
+	if a.things != nil {
+		things = make([]Thing, len(a.things))
+		for i, th := range a.things {
+			th.Urgency = urgency
+			things[i] = th
+		}
+	}
 	if shared, err := shareAlert(tx, b, &row, things); err != nil || shared {
 		return false, err
 	}
@@ -433,6 +451,10 @@ func describe(f firedEvent) (what, body string, figures jsonMap[string, any]) {
 		}
 		return dir + " " + formatMoney(t, ""), nowWas(f.ref), figures
 	case RuleMovePct:
+		if f.ref == nil {
+			// A passed note: nothing to measure a move from.
+			return "at " + formatMoney(after, currency), nowWas(nil), figures
+		}
 		pct := 0.0
 		if f.ref != nil && *f.ref != 0 {
 			pct = (after - *f.ref) / math.Abs(*f.ref) * 100
@@ -479,9 +501,11 @@ func describe(f firedEvent) (what, body string, figures jsonMap[string, any]) {
 // saveFindings writes the check's typed notes, in the rules' words (never
 // the judge's), with the judge's urgency when it judged: one per fired
 // rule, except a feed's new items, which get one each (at most
-// MaxItemFindings, then one "N more new items"). Each names the thing it is
-// about. It returns the rows it wrote.
-func saveFindings(tx *gorm.DB, b Bot, a alertRun, alerted bool) ([]Finding, error) {
+// MaxItemFindings, items passed on first, then one "N more new items").
+// Each names the thing it is about. A note is alerted only when the alert
+// was sent and no link took it. It returns the rows it wrote and, for each,
+// the item it is about.
+func saveFindings(tx *gorm.DB, b Bot, a alertRun, fired []firedEvent, taken map[itemKey][]linkTarget, sent bool) ([]Finding, []itemKey, error) {
 	checkID, now := a.checkID, a.now
 	urgency := UrgencyNormal
 	switch {
@@ -491,27 +515,31 @@ func saveFindings(tx *gorm.DB, b Bot, a alertRun, alerted bool) ([]Finding, erro
 		urgency = UrgencyHigh
 	}
 	var loc *time.Location
-	rows := make([]Finding, 0, len(a.fired))
-	for _, f := range a.fired {
+	rows := make([]Finding, 0, len(fired))
+	keys := make([]itemKey, 0, len(fired))
+	for _, f := range fired {
 		watchID := f.w.ID
 		base := Finding{
 			BotID: b.ID, UserID: b.UserID, CheckID: &checkID, WatchID: &watchID, URL: f.w.URL,
-			Urgency: urgency, OutsideData: true, Alerted: alerted, CreatedAt: now,
+			Urgency: urgency, OutsideData: true, Alerted: sent, CreatedAt: now,
 		}
 		if f.rule.Kind == RuleNewItem && len(f.ev.NewItems) > 0 {
 			if loc == nil {
 				var err error
 				if loc, err = localZone(tx, b.UserID); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 			}
-			rows = append(rows, itemFindings(base, f, loc)...)
+			items, itemKeys := itemFindings(base, f, loc, taken)
+			rows, keys = append(rows, items...), append(keys, itemKeys...)
 			continue
 		}
+		k := itemKey{f.ev.WatchID, f.ev.RuleID, ""}
 		what, why, figures := describe(f)
 		row := base
 		row.ID, row.Title, row.Why = utils.PrefixedUUID("bfd"), clipRunes(what, maxFindingTitle), clipRunes(why, maxFindingWhy)
 		row.Currency, row.ThingKey = f.ev.After.Currency, thingKeyWatch(f.w)
+		row.Alerted = sent && len(taken[k]) == 0
 		row.Kind = "change"
 		switch f.rule.Kind {
 		case RuleAbove, RuleBelow, RuleMovePct:
@@ -528,24 +556,36 @@ func saveFindings(tx *gorm.DB, b Bot, a alertRun, alerted bool) ([]Finding, erro
 				row.ChangePct = &pct
 			}
 		}
-		rows = append(rows, row)
+		rows, keys = append(rows, row), append(keys, k)
 	}
 	if len(rows) == 0 {
-		return rows, nil
+		return rows, keys, nil
 	}
-	return rows, tx.Create(&rows).Error
+	return rows, keys, tx.Create(&rows).Error
 }
 
-// itemFindings are a feed rule's notes, one per new item, newest first:
-// the item's own title (clipped; page text, so marked outside data), where
-// it was new and when it was published, and its link when that is a public
+// moreItems keys a feed rule's "N more new items" note, which no link takes.
+const moreItems = "#more"
+
+// itemFindings are a feed rule's notes, one per new item, newest first
+// (items a link took before the rest, so each has a note to pass on): the
+// item's own title (clipped; page text, so marked outside data), where it
+// was new and when it was published, and its link when that is a public
 // web address. Past MaxItemFindings the rest are counted in one note.
-func itemFindings(base Finding, f firedEvent, loc *time.Location) []Finding {
+func itemFindings(base Finding, f firedEvent, loc *time.Location, taken map[itemKey][]linkTarget) ([]Finding, []itemKey) {
+	key := func(it extract.FeedItem) itemKey { return itemKey{f.ev.WatchID, f.ev.RuleID, it.ID} }
 	items := make([]extract.FeedItem, len(f.ev.NewItems))
 	copy(items, f.ev.NewItems)
-	sort.SliceStable(items, func(i, j int) bool { return items[i].Published.After(items[j].Published) })
+	sort.SliceStable(items, func(i, j int) bool {
+		ti, tj := len(taken[key(items[i])]) > 0, len(taken[key(items[j])]) > 0
+		if ti != tj {
+			return ti
+		}
+		return items[i].Published.After(items[j].Published)
+	})
 	site := watchSite(f.w)
 	out := make([]Finding, 0, min(len(items), MaxItemFindings)+1)
+	keys := make([]itemKey, 0, cap(out))
 	for _, it := range items[:min(len(items), MaxItemFindings)] {
 		row := base
 		row.ID, row.Kind = utils.PrefixedUUID("bfd"), findingKindItem
@@ -559,7 +599,8 @@ func itemFindings(base Finding, f firedEvent, loc *time.Location) []Finding {
 		}
 		row.Why = clipRunes(row.Why, maxFindingWhy)
 		row.URL, row.ThingKey = safeLink(it.Link, f.w.URL), thingKeyItem(it, f.w)
-		out = append(out, row)
+		row.Alerted = base.Alerted && len(taken[key(it)]) == 0
+		out, keys = append(out, row), append(keys, key(it))
 	}
 	if more := len(items) - MaxItemFindings; more > 0 {
 		row := base
@@ -568,10 +609,14 @@ func itemFindings(base Finding, f firedEvent, loc *time.Location) []Finding {
 		if more == 1 {
 			row.Title = "1 more new item"
 		}
+		row.Alerted = false
+		for _, it := range items[MaxItemFindings:] {
+			row.Alerted = row.Alerted || (base.Alerted && len(taken[key(it)]) == 0)
+		}
 		row.Why, row.URL = "New in "+site, f.w.URL
-		out = append(out, row)
+		out, keys = append(out, row), append(keys, itemKey{f.ev.WatchID, f.ev.RuleID, moreItems})
 	}
-	return out
+	return out, keys
 }
 
 // safeLink is a feed item's link when it is a public web address on ports
