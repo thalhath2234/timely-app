@@ -62,7 +62,7 @@ func TestIntegrationBackupKeepsBots(t *testing.T) {
 			t.Fatalf("export %s: %d rows, want %d", table, got, want)
 		}
 	}
-	for _, table := range []string{"bot_checks", "bot_sites", "bot_robots"} {
+	for _, table := range []string{"bot_checks", "bot_sites", "bot_robots", "bot_source_keys"} {
 		if _, ok := backup.Rows[table]; ok {
 			t.Fatalf("export carries %s", table)
 		}
@@ -372,5 +372,76 @@ func TestIntegrationBackupKeepsAlertFeedbackAndDefaults(t *testing.T) {
 	}
 	if n := count(`SELECT count(*) FROM configs WHERE user_id = ? AND bot_alert_defaults = '{"desktop": true, "phone": true, "urgent": false}'::jsonb`, uid); n != 1 {
 		t.Fatal("an older settings row did not get the default alert switches")
+	}
+}
+
+// A restore keeps the account's price source keys (they hang off the
+// account, not its Bots), so a restored stock Bot stays on while the key is
+// there. Only a Bot made over MCP keeps the app name it came from.
+func TestIntegrationRestoreKeepsSourceKeys(t *testing.T) {
+	db := migratedDB(t)
+	const uid = "usr_portability_keys"
+	if err := db.Create(&models.User{ID: uid, Email: "keys@example.invalid", Password: "not-a-real-hash"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	seedAccountBasics(t, db, uid, true)
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if err := db.Exec(query, args...).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO bot_source_keys (user_id, source, api_key, key_hint, checked_at) VALUES (?, 'finnhub', 'c2VhbGVk', '…1234', now())`, uid)
+	exec(`INSERT INTO bots (id, user_id, name, origin, origin_client, interval_seconds, next_check_at) VALUES
+		('bot_stock', ?, 'NVDA', 'app', 'Claude Code', 900, now())`, uid)
+	exec(`INSERT INTO bots (id, user_id, name, origin, origin_client, status, pause_reason, interval_seconds) VALUES
+		('bot_mcp', ?, 'From an app', 'mcp', 'My key', 'paused', 'mcp', 900)`, uid)
+	exec(`INSERT INTO bot_watches (id, bot_id, user_id, kind, source, symbol, currency) VALUES
+		('bw_stock', 'bot_stock', ?, 'price', 'finnhub', 'NVDA', 'USD'),
+		('bw_mcp', 'bot_mcp', ?, 'price', 'coinbase', 'BTC', 'USD')`, uid, uid)
+
+	service := NewService(db, nil)
+	service.SetRestoreVet(bots.New(db, nil).VetRestore)
+	backup, err := service.Export(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := backup.Rows["bot_source_keys"]; ok {
+		t.Fatal("export carries bot_source_keys")
+	}
+	type row struct{ ID, Status, OriginClient, HealthDetail string }
+	read := func() map[string]row {
+		t.Helper()
+		var rows []row
+		if err := db.Raw(`SELECT id, status, origin_client, health_detail FROM bots WHERE user_id = ?`, uid).Scan(&rows).Error; err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]row{}
+		for _, r := range rows {
+			out[r.ID] = r
+		}
+		return out
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	var keys int64
+	if err := db.Raw(`SELECT count(*) FROM bot_source_keys WHERE user_id = ? AND state = 'ok'`, uid).Scan(&keys).Error; err != nil || keys != 1 {
+		t.Fatalf("the restore dropped the key: %d (%v)", keys, err)
+	}
+	got := read()
+	if r := got["bot_stock"]; r.Status != "active" || r.OriginClient != "" {
+		t.Fatalf("stock bot with a key: %+v", r)
+	}
+	if r := got["bot_mcp"]; r.OriginClient != "My key" {
+		t.Fatalf("an MCP bot lost its app name: %+v", r)
+	}
+
+	exec(`DELETE FROM bot_source_keys WHERE user_id = ?`, uid)
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	if r := read()["bot_stock"]; r.Status != "paused" || r.HealthDetail != "Restored with a watch Timely cannot use: Stock prices need your free Finnhub key. Add it in Settings › Agent. Edit it to turn it on." {
+		t.Fatalf("stock bot without a key: %+v", r)
 	}
 }

@@ -137,6 +137,11 @@ func main() {
 	// Bots (ADR 0021): bots.next_check_at is the schedule; the sweep queues
 	// due Bots and checks run four at a time on a lane of their own.
 	botService := bots.New(db, jobQueue)
+	botKeys, err := bots.NewKeyStore(db)
+	if err != nil {
+		log.Fatalf("bots: price source keys: %v", err)
+	}
+	botService.SetKeys(botKeys)
 	jobWorker := jobs.NewWorker(jobQueue)
 	// Embedding work waits on OpenRouter: a whole account's reindex makes one
 	// request per item, so it and per-item index jobs each get a lane of their

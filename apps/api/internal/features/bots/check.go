@@ -487,6 +487,12 @@ func (s *Service) saveProblem(ctx context.Context, c checkRun, p *problem) error
 			set["next_check_at"] = next
 		}
 		if p.outcome != outSuperseded {
+			var key *price.KeyError
+			if errors.As(p.err, &key) && key.Rejected {
+				if err := markKeyRefused(tx, b.UserID, key.Source, c.started, done); err != nil {
+					return err
+				}
+			}
 			if err := tx.Model(&Watch{}).Where("id = ?", p.watch.ID).
 				Updates(map[string]any{"health": p.code, "health_detail": p.line, "updated_at": done}).Error; err != nil {
 				return err

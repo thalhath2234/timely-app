@@ -80,19 +80,32 @@ func TestCleanPrice(t *testing.T) {
 		{"coingecko", "Bitcoin", "eur", "coingecko", "bitcoin", "EUR"},
 	}
 	for _, c := range cases {
-		src, sym, cur, err := cleanPrice(c.source, c.symbol, c.currency)
+		src, sym, cur, err := cleanPrice(c.source, c.symbol, c.currency, nil)
 		if err != nil || src != c.wantSrc || sym != c.wantSym || cur != c.wantCur {
 			t.Errorf("%+v: %s %s %s %v", c, src, sym, cur, err)
 		}
+	}
+	// With the person's Finnhub key, "stock" is Finnhub.
+	finnhub := func(source string) bool { return source == "finnhub" }
+	for _, source := range []string{"stock", "Finnhub"} {
+		src, sym, cur, err := cleanPrice(source, "nvda", "", finnhub)
+		if err != nil || src != "finnhub" || sym != "NVDA" || cur != "USD" {
+			t.Errorf("%s with a key: %s %s %s %v", source, src, sym, cur, err)
+		}
+	}
+	// A key for another source is no Finnhub key.
+	other := func(source string) bool { return source == "coinbase" }
+	if msg := inputMsg(t, second3(cleanPrice("stock", "NVDA", "", other))); msg != "Stock prices need your free Finnhub key. Add it in Settings › Agent" {
+		t.Errorf("stock with another source's key: %q", msg)
 	}
 	for _, c := range []struct{ source, symbol, currency, want string }{
 		{"", "AAPL", "", "Say where the price comes from"},
 		{"nasdaq", "AAPL", "", `"nasdaq" is not a price source`},
 		{"finnhub", "", "", "Give the price watch a symbol"},
 		{"finnhub", "AAPL", "EUR", "does not quote prices"},
-		// No key can be saved yet, so a keyed source could only fail.
-		{"stock", "aapl", "", "Stock prices need a Finnhub API key, and Timely cannot save one yet"},
-		{"finnhub", "AAPL", "", "need a Finnhub API key"},
+		// Without a key every check of a keyed source would be a strike.
+		{"stock", "aapl", "", "Stock prices need your free Finnhub key. Add it in Settings › Agent"},
+		{"finnhub", "AAPL", "", "Stock prices need your free Finnhub key"},
 		{"coinbase", "BTC-USD!", "", "is not a"},
 	} {
 		if msg := inputMsg(t, cleanPrice4(c.source, c.symbol, c.currency)); !strings.Contains(msg, c.want) {
@@ -101,7 +114,9 @@ func TestCleanPrice(t *testing.T) {
 	}
 }
 
-func cleanPrice4(a, b, c string) error { _, _, _, err := cleanPrice(a, b, c); return err }
+func cleanPrice4(a, b, c string) error { _, _, _, err := cleanPrice(a, b, c, nil); return err }
+
+func second3(_, _, _ string, err error) error { return err }
 
 func TestCleanInterval(t *testing.T) {
 	page := []Watch{{Kind: WatchPage, ReadMode: ReadText}}
@@ -138,7 +153,7 @@ func TestCleanInterval(t *testing.T) {
 
 func TestCleanWatches(t *testing.T) {
 	page := WatchInput{Kind: "Page", URL: "https://example.com/"}
-	ws, err := cleanWatches([]WatchInput{page, {Kind: "feed", URL: "https://example.com/rss"}, {Kind: "price", Source: "crypto", Symbol: "btc"}}, nil)
+	ws, err := cleanWatches([]WatchInput{page, {Kind: "feed", URL: "https://example.com/rss"}, {Kind: "price", Source: "crypto", Symbol: "btc"}}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,11 +186,11 @@ func TestCleanWatches(t *testing.T) {
 		{[]WatchInput{page, {Kind: "feed"}}, "Watch 2: Give the feed's web address"},
 		{[]WatchInput{{ID: "bw_x", Kind: "page", URL: "https://e.com"}}, "This watch is not on the bot"},
 	} {
-		if msg := inputMsg(t, second(cleanWatches(c.in, nil))); !strings.Contains(msg, c.want) {
+		if msg := inputMsg(t, second(cleanWatches(c.in, nil, nil))); !strings.Contains(msg, c.want) {
 			t.Errorf("%v: %q, want %q", c.in, msg, c.want)
 		}
 	}
-	sel, err := cleanWatches([]WatchInput{{Kind: "page", URL: "https://e.com", Read: "selector", Selector: " .price "}}, nil)
+	sel, err := cleanWatches([]WatchInput{{Kind: "page", URL: "https://e.com", Read: "selector", Selector: " .price "}}, nil, nil)
 	if err != nil || sel[0].Selector != ".price" {
 		t.Fatal(sel, err)
 	}
@@ -187,15 +202,15 @@ func TestCleanWatchKeepsRules(t *testing.T) {
 	old := Watch{ID: "bw_1", Kind: WatchPage, ReadMode: ReadText, URL: "https://e.com",
 		Rules: jsonList[Rule]{{ID: "brl_1", Kind: RuleWordsAppear, Words: []string{"in stock"}}}}
 	prev := map[string]Watch{old.ID: old}
-	ws, err := cleanWatches([]WatchInput{{ID: "bw_1", Kind: "page", URL: "https://e.com/new", Read: "selector", Selector: "h1"}}, prev)
+	ws, err := cleanWatches([]WatchInput{{ID: "bw_1", Kind: "page", URL: "https://e.com/new", Read: "selector", Selector: "h1"}}, prev, nil)
 	if err != nil || len(ws[0].Rules) != 1 || ws[0].Rules[0].ID != "brl_1" || ws[0].ID != "bw_1" {
 		t.Fatalf("%+v %v", ws, err)
 	}
-	ws, err = cleanWatches([]WatchInput{{ID: "bw_1", Kind: "page", URL: "https://e.com", Read: "product_price"}}, prev)
+	ws, err = cleanWatches([]WatchInput{{ID: "bw_1", Kind: "page", URL: "https://e.com", Read: "product_price"}}, prev, nil)
 	if err != nil || ws[0].Rules[0].Kind != RuleMovePct {
 		t.Fatalf("%+v %v", ws, err)
 	}
-	if _, err := cleanWatches([]WatchInput{{ID: "bw_1", Kind: "page", URL: "https://e.com"}, {ID: "bw_1", Kind: "page", URL: "https://e.com"}}, prev); err == nil {
+	if _, err := cleanWatches([]WatchInput{{ID: "bw_1", Kind: "page", URL: "https://e.com"}, {ID: "bw_1", Kind: "page", URL: "https://e.com"}}, prev, nil); err == nil {
 		t.Fatal("the same watch twice")
 	}
 }

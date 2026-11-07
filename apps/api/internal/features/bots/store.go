@@ -67,7 +67,11 @@ func (s *Store) Create(ctx context.Context, userID string, in Input, o Origin, n
 	if err != nil {
 		return View{}, err
 	}
-	ws, err := cleanWatches(in.Watches, nil)
+	hasKey, err := keySet(s.conn(ctx), userID)
+	if err != nil {
+		return View{}, err
+	}
+	ws, err := cleanWatches(in.Watches, nil, hasKey)
 	if err != nil {
 		return View{}, err
 	}
@@ -194,7 +198,11 @@ func (s *Store) Update(ctx context.Context, userID, idOrName string, p Patch, o 
 		ws := cur
 		watchesChanged := false
 		if p.Watches != nil {
-			if ws, watchesChanged, err = saveWatches(tx, b, cur, *p.Watches, now); err != nil {
+			hasKey, err := keySet(tx, userID)
+			if err != nil {
+				return err
+			}
+			if ws, watchesChanged, err = saveWatches(tx, b, cur, *p.Watches, hasKey, now); err != nil {
 				return err
 			}
 		}
@@ -236,12 +244,12 @@ func (s *Store) Update(ctx context.Context, userID, idOrName string, p Patch, o 
 // saveWatches applies a full watch list: kept watches are updated, new ones
 // inserted and missing ones deleted. changed reports any change to what is
 // read or how it is judged.
-func saveWatches(tx *gorm.DB, b Bot, cur []Watch, in []WatchInput, now time.Time) ([]Watch, bool, error) {
+func saveWatches(tx *gorm.DB, b Bot, cur []Watch, in []WatchInput, hasKey hasKeyFunc, now time.Time) ([]Watch, bool, error) {
 	prev := make(map[string]Watch, len(cur))
 	for _, w := range cur {
 		prev[w.ID] = w
 	}
-	next, err := cleanWatches(in, prev)
+	next, err := cleanWatches(in, prev, hasKey)
 	if err != nil {
 		return nil, false, err
 	}

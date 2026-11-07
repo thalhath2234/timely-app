@@ -135,9 +135,13 @@ func refuseMCPSettings(o Origin, judge *string, flags ...*bool) error {
 	return nil
 }
 
+// hasKeyFunc reports whether the person has a working key saved for a keyed
+// price source (keySet). Nil means none.
+type hasKeyFunc func(source string) bool
+
 // cleanWatches checks a full watch list. prev maps the Bot's current
 // watches by ID (nil on create); a watch with an ID must be one of them.
-func cleanWatches(in []WatchInput, prev map[string]Watch) ([]Watch, error) {
+func cleanWatches(in []WatchInput, prev map[string]Watch, hasKey hasKeyFunc) ([]Watch, error) {
 	if len(in) == 0 {
 		return nil, invalid("Give the bot something to watch: a page, a feed or a price")
 	}
@@ -156,7 +160,7 @@ func cleanWatches(in []WatchInput, prev map[string]Watch) ([]Watch, error) {
 			seen[id] = true
 			old = &w
 		}
-		w, err := cleanWatch(wi, old)
+		w, err := cleanWatch(wi, old, hasKey)
 		if err != nil {
 			return nil, watchErr(len(in), i, err)
 		}
@@ -177,7 +181,7 @@ func watchErr(n, i int, err error) error {
 
 // cleanWatch checks one watch and returns its config and rules. Rule IDs are
 // not set here (see ruleIDs). old is the watch being edited, if any.
-func cleanWatch(in WatchInput, old *Watch) (Watch, error) {
+func cleanWatch(in WatchInput, old *Watch, hasKey hasKeyFunc) (Watch, error) {
 	w := Watch{Kind: strings.ToLower(strings.TrimSpace(in.Kind))}
 	if old != nil {
 		w.ID = old.ID
@@ -224,7 +228,7 @@ func cleanWatch(in WatchInput, old *Watch) (Watch, error) {
 		if strings.TrimSpace(in.URL) != "" || read != "" || selector != "" {
 			return Watch{}, invalid("A price watch takes a source and a symbol, not a web address")
 		}
-		if w.Source, w.Symbol, w.Currency, err = cleanPrice(in.Source, in.Symbol, in.Currency); err != nil {
+		if w.Source, w.Symbol, w.Currency, err = cleanPrice(in.Source, in.Symbol, in.Currency, hasKey); err != nil {
 			return Watch{}, err
 		}
 	default:
@@ -272,8 +276,9 @@ func cleanURL(raw, what string) (string, error) {
 
 // cleanPrice resolves the source ("stock" and "crypto" pick price.Default)
 // and checks the symbol and currency against it. A source that needs the
-// person's API key is refused while keys cannot be saved.
-func cleanPrice(source, symbol, currency string) (string, string, string, error) {
+// person's API key is refused until they save one: every check would
+// otherwise be a needs_key strike, and the Bot would pause after 5.
+func cleanPrice(source, symbol, currency string, hasKey hasKeyFunc) (string, string, string, error) {
 	name := strings.ToLower(strings.TrimSpace(source))
 	if d, ok := price.Default[name]; ok {
 		name = d
@@ -292,10 +297,8 @@ func cleanPrice(source, symbol, currency string) (string, string, string, error)
 	if err != nil {
 		return "", "", "", invalid("%s", err.Error())
 	}
-	if src.KeyHeader != "" {
-		// Until a key can be saved (branch 3), every check of a keyed
-		// source would fail and the Bot would pause after 5 strikes.
-		return "", "", "", invalid("%s prices need a %s API key, and Timely cannot save one yet", sentence(src.Kind), src.Label)
+	if src.KeyHeader != "" && (hasKey == nil || !hasKey(src.Name)) {
+		return "", "", "", invalid("%s", needsKeyLine(src))
 	}
 	return name, sym, cur, nil
 }

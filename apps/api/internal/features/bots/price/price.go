@@ -2,8 +2,8 @@
 // public JSON sources. Every source goes through the bot fetcher, so
 // robots.txt is honoured for each one (ADR 0021): today Yahoo and CoinGecko
 // answer ErrRobots, Coinbase serves crypto, and Finnhub serves stocks with a
-// free per-account key. Keys cannot be saved yet (branch 3), so watches on a
-// keyed source are refused when they are saved.
+// free per-account key the person saves in Settings (bots.KeyStore). A watch
+// on a keyed source is refused when it is saved without a key.
 package price
 
 import (
@@ -49,7 +49,10 @@ type Source struct {
 	// KeyHeader, when set, is the request header that carries the person's
 	// API key for this source. With no key saved, Get fetches nothing.
 	KeyHeader string
-	URL       func(symbol, currency string) string
+	// Probe is a symbol the source always quotes, read once to test a key
+	// before it is saved. Set on every keyed source.
+	Probe string
+	URL   func(symbol, currency string) string
 	// Parse reads a 2xx body. An error that wraps fetch.ErrNotFound means
 	// the symbol is unknown; any other error means the reply's shape changed.
 	Parse func(body []byte, symbol, currency string, now time.Time) (Quote, error)

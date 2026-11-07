@@ -30,10 +30,12 @@ type Service struct {
 	db    *gorm.DB
 	queue *jobs.Queue
 	fetch *fetch.Fetcher
-	// keys finds a person's price source key. Nil until key storage lands
-	// (branch 3): a keyed source then answers *price.KeyError.
-	keys price.Keys
-	now  func() time.Time
+	// keys finds a person's price source key; keyStore is the same store,
+	// which also saves keys (SetKeys). Without one (tests), a keyed source
+	// answers *price.KeyError and no key can be saved.
+	keys     price.Keys
+	keyStore *KeyStore
+	now      func() time.Time
 
 	mu            sync.Mutex
 	rnd           *rand.Rand // under mu
@@ -57,6 +59,15 @@ func New(db *gorm.DB, queue *jobs.Queue) *Service {
 }
 
 func (s *Service) Store() *Store { return s.store }
+
+// SetKeys gives the checks the people's saved price source keys, and the
+// key routes somewhere to save them.
+func (s *Service) SetKeys(k *KeyStore) {
+	if k == nil {
+		return
+	}
+	s.keys, s.keyStore = k, k
+}
 
 // Register adds the check handler. The sweep is joined into the worker's
 // one sweep in main.go, never set here.

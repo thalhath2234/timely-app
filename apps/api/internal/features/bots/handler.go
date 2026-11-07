@@ -19,6 +19,9 @@ func (s *Service) Routes(g *echo.Group) {
 	g.GET("/bots/findings", s.findings) // before /bots/:id
 	g.GET("/bots/defaults", s.alertDefaults)
 	g.PUT("/bots/defaults", s.setAlertDefaults)
+	g.GET("/bots/keys", s.sourceKeys)
+	g.POST("/bots/keys/:source", s.saveSourceKey)
+	g.DELETE("/bots/keys/:source", s.deleteSourceKey)
 	g.GET("/bots/:id", s.get)
 	g.PATCH("/bots/:id", s.update)
 	g.DELETE("/bots/:id", s.remove)
@@ -35,6 +38,7 @@ func user(c *echo.Context) string { v, _ := c.Get("userID").(string); return v }
 // httpError maps store errors to responses the client shows as is.
 func httpError(err error) error {
 	var input *InputError
+	var down *SourceDownError
 	switch {
 	case err == nil:
 		return nil
@@ -46,6 +50,10 @@ func httpError(err error) error {
 		return echo.NewHTTPError(http.StatusNotFound, "Alert not found")
 	case errors.Is(err, ErrLessonNotFound):
 		return echo.NewHTTPError(http.StatusNotFound, "Lesson not found")
+	case errors.Is(err, ErrUnknownSource):
+		return echo.NewHTTPError(http.StatusNotFound, "Unknown price source")
+	case errors.As(err, &down):
+		return echo.NewHTTPError(http.StatusServiceUnavailable, down.Message)
 	case errors.Is(err, ErrPaused):
 		return echo.NewHTTPError(http.StatusConflict, ErrPaused.Error())
 	}
