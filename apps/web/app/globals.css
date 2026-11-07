@@ -1106,6 +1106,33 @@ html.reduce-motion .lift:hover {
   }
 }
 
+/* The Bots page's side panel (an open bot, or New bot) sliding in beside
+   the board. No scrim: the board stays live behind it. */
+@keyframes bots-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.bots-panel {
+  animation: bots-panel-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  box-shadow:
+    0 24px 60px -12px rgb(0 0 0 / 0.35),
+    0 10px 15px -3px rgb(0 0 0 / 0.1);
+}
+.dark .bots-panel {
+  box-shadow: 0 24px 60px -12px rgb(0 0 0 / 0.8);
+}
+@media (prefers-reduced-motion: reduce) {
+  .bots-panel {
+    animation: none;
+  }
+}
+
 @keyframes vt-popover-in {
   from {
     transform: translateY(-6px) scale(0.96);

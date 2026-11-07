@@ -84,6 +84,19 @@ export function ListRow({
   return <div className={base}>{body}</div>;
 }
 
+/**
+ * A quiet sub-heading inside a group, above the rows that belong to one part
+ * of it (a bot's rules under each of its watches). Not a row: no hover.
+ */
+export function ListSubLabel({ children, icon, className }: { children: ReactNode; icon?: ReactNode; className?: string }) {
+  return (
+    <div className={cn("flex h-8 items-center gap-2 px-3.5 text-xs font-medium text-muted-foreground", className)}>
+      {icon}
+      <span className="min-w-0 truncate">{children}</span>
+    </div>
+  );
+}
+
 /** A small heading above a group, with an optional count or action on the right. */
 export function GroupLabel({ children, aside, className }: { children: ReactNode; aside?: ReactNode; className?: string }) {
   return (

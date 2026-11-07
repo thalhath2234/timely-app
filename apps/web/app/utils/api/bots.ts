@@ -18,7 +18,11 @@ import { codedError } from "./codedError";
 /** `POST /bots/:id/snooze`: a preset span, a time, or `until: null` to stop snoozing. */
 export type SnoozeBody = { for: "day" | "week" } | { until: string | null };
 
-/** Sends one Bots request; a failure throws the server's message and code. */
+/**
+ * Sends one Bots request; a failure throws the server's message and code,
+ * with the HTTP `status`, so autosave can tell a refused edit (400) from a
+ * failed one.
+ */
 async function request<T>(
   path: string,
   fallback: string,
@@ -34,7 +38,10 @@ async function request<T>(
           body: JSON.stringify(body),
         }),
   });
-  if (!res.ok) throw await codedError(res, fallback);
+  if (!res.ok) {
+    const error = await codedError(res, fallback);
+    throw Object.assign(error, { status: res.status });
+  }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
