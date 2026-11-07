@@ -1,7 +1,8 @@
-import { Bot, ChartCandlestick, Globe, Rss, Tag } from "lucide-react";
+import { Bot, ChartCandlestick, Globe, Rss, Sunrise, Tag } from "lucide-react";
 import {
   hostOf,
   monogram,
+  type BotKind,
   watchKindIcon,
   type WatchInput,
   type WatchView,
@@ -84,16 +85,19 @@ function SiteLogo({
 /**
  * A bot's mark: its site's logo (or the site's first letter), two overlapped
  * logos when it reads two or more sites, or the symbol's letters for a price,
- * with the first watch's kind as a small corner badge.
+ * with the first watch's kind as a small corner badge. A brief, which
+ * watches nothing, draws a sunrise.
  */
 export function BotMark({
   watches,
+  kind,
   size = 32,
   icons,
   badge = size >= 32,
   className,
 }: {
   watches: (MarkWatch | WatchInput)[];
+  kind?: BotKind;
   size?: 24 | 32 | 40;
   icons?: SiteIcons;
   badge?: boolean;
@@ -103,7 +107,9 @@ export function BotMark({
   const sites = botSites(watches);
   const px = LOGO[size];
   let inner;
-  if (!first) {
+  if (kind === "brief") {
+    inner = <Sunrise aria-hidden className="size-1/2 text-muted-foreground" />;
+  } else if (!first) {
     inner = <Bot aria-hidden className="size-1/2 text-muted-foreground" />;
   } else if (sites.length === 0) {
     const letters = monogram(first);

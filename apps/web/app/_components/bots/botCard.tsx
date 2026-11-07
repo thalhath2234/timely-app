@@ -93,7 +93,7 @@ function Top({
 }) {
   return (
     <div className="flex items-start gap-2.5 px-3.5 pt-3.5">
-      <BotMark watches={bot.watches} icons={icons} />
+      <BotMark watches={bot.watches} kind={bot.kind} icons={icons} />
       <div className="min-w-0 flex-1">
         <Name bot={bot} onOpen={onOpen} wrap={!!trailing} />
         <p className="truncate text-xs leading-4 text-muted-foreground">

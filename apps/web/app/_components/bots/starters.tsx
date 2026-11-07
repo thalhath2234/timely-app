@@ -94,7 +94,7 @@ export function StarterCard({
       </div>
       <div className="flex min-h-11 items-center gap-2 border-t border-border px-3.5 py-2 text-xs text-muted-foreground">
         <span className="min-w-0 flex-1 truncate leading-4">
-          {later ? "Comes with Research bots" : "Opens the editor filled in"}
+          {later ? "Comes in a later version" : "Opens the editor filled in"}
         </span>
         {/* An icon, so the hint keeps its one line beside Use. */}
         {!later && starter.chatText ? (
@@ -130,8 +130,8 @@ const laterTag = (
 
 /**
  * The starters in the add tile: five tiles in a row (3 + 2 when the tile is
- * narrow), or `compact` wrapping chips. Morning brief is shown but waits for
- * Research bots.
+ * narrow), or `compact` wrapping chips. A starter marked Later is shown but
+ * cannot be picked yet.
  */
 export function StarterTiles({
   compact,

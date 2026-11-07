@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ExternalLink, Eye } from "lucide-react";
 import {
   BOT_LIMITS,
+  DEFAULT_BRIEF_TIME,
   agoLabel,
   alertMeta,
   checkOutcomeLabel,
@@ -223,8 +224,21 @@ function ReadingSection({ watches, now }: { watches: WatchView[]; now: Date }) {
   );
 }
 
+/**
+ * A brief's sends of the last `days` days, from its recent alerts: the
+ * week and month counts on the bot hold alerts only. A brief sends
+ * about one a day, so a week fits in the rows the page carries.
+ */
+function briefsSent(detail: BotDetail, now: Date, days: number): number {
+  const since = now.getTime() - days * 24 * 60 * 60 * 1000;
+  return (detail.alerts ?? []).filter(
+    (a) => a.kind === "brief" && Date.parse(a.createdAt) >= since,
+  ).length;
+}
+
 function ChecksSection({ detail, now }: { detail: BotDetail; now: Date }) {
   const last = detail.checks?.[0];
+  const brief = detail.kind === "brief";
   return (
     <RailSection title="Checks" meta="This week">
       <RailRows>
@@ -240,7 +254,7 @@ function ChecksSection({ detail, now }: { detail: BotDetail; now: Date }) {
           }
         />
         <RailRow
-          label="Next check"
+          label={brief ? "Next brief" : "Next check"}
           value={
             detail.status === "paused"
               ? "Paused"
@@ -249,8 +263,11 @@ function ChecksSection({ detail, now }: { detail: BotDetail; now: Date }) {
                 : "Soon"
           }
         />
-        <RailRow label="Checks" value={detail.week.checks} />
-        <RailRow label="Alerts" value={detail.week.alerts} />
+        <RailRow label={brief ? "Runs" : "Checks"} value={detail.week.checks} />
+        <RailRow
+          label={brief ? "Briefs sent" : "Alerts"}
+          value={brief ? briefsSent(detail, now, 7) : detail.week.alerts}
+        />
       </RailRows>
       <div className="mt-3">
         <CheckStrip marks={detail.strip} size="big" legend />
@@ -310,8 +327,57 @@ function AlertItem({ detail, alert }: { detail: BotDetail; alert: AlertView }) {
   );
 }
 
+/**
+ * A brief's newest brief: what it listed, one line per find. The lines are
+ * shown even beside an AI-written body, which may leave some out.
+ */
+function LastBriefSection({ detail, now }: { detail: BotDetail; now: Date }) {
+  const last = (detail.alerts ?? []).find((a) => a.kind === "brief");
+  const lines = last?.lines ?? [];
+  const written = last && last.aiState === "judged" ? last.body.trim() : "";
+  return (
+    <RailSection
+      title="Last brief"
+      meta={last ? agoLabel(last.createdAt, now) : undefined}
+    >
+      {!last ? (
+        <RailEmpty>
+          No brief yet. The first one goes out at{" "}
+          {detail.briefTime || DEFAULT_BRIEF_TIME}, once its bots find
+          something.
+        </RailEmpty>
+      ) : (
+        <>
+          {written ? (
+            <p className="mb-2.5 whitespace-pre-line rounded-[10px] bg-fill px-3 py-2.5 text-[13px] leading-relaxed text-foreground">
+              {written}
+            </p>
+          ) : null}
+          {lines.length ? (
+            <RailRows>
+              {lines.map((line, i) => (
+                <li
+                  key={`${i}-${line}`}
+                  className="border-t border-border py-2 text-[13px] leading-5 text-foreground first:border-t-0"
+                >
+                  {line}
+                </li>
+              ))}
+            </RailRows>
+          ) : (
+            <RailEmpty>{last.body || last.title}</RailEmpty>
+          )}
+        </>
+      )}
+    </RailSection>
+  );
+}
+
 function AlertsSection({ detail }: { detail: BotDetail }) {
-  const alerts = (detail.alerts ?? []).filter((a) => a.kind === "alert");
+  const brief = detail.kind === "brief";
+  const alerts = (detail.alerts ?? []).filter(
+    (a) => a.kind === "alert" || (brief && a.kind === "brief"),
+  );
   const items: Item[] = [
     ...alerts.map((alert) => ({ at: Date.parse(alert.createdAt), alert })),
     ...(detail.rearms ?? []).map((rearm) => ({
@@ -328,11 +394,15 @@ function AlertsSection({ detail }: { detail: BotDetail }) {
   return (
     <RailSection
       title="Recent alerts"
-      meta={`${detail.alertsMonth} in 30 days`}
+      // A brief's month is not counted on the bot (alerts only), and its
+      // recent rows are too few to count 30 daily briefs: no meta.
+      meta={brief ? undefined : `${detail.alertsMonth} in 30 days`}
     >
       {items.length === 0 ? (
         <RailEmpty>
-          No alerts yet. A rule tells you once when it becomes true.
+          {brief
+            ? "No briefs yet. Each one shows here once it is sent."
+            : "No alerts yet. A rule tells you once when it becomes true."}
         </RailEmpty>
       ) : (
         <ul className="flex flex-col">
@@ -437,6 +507,15 @@ export function BotRail({
   now: Date;
   lookOver?: boolean;
 }) {
+  if (detail.kind === "brief") {
+    return (
+      <>
+        <ChecksSection detail={detail} now={now} />
+        <LastBriefSection detail={detail} now={now} />
+        <AlertsSection detail={detail} />
+      </>
+    );
+  }
   const prices = detail.watches.filter(isPriceReading);
   const readings = detail.watches.filter((w) => !isPriceReading(w));
   return (
@@ -466,10 +545,11 @@ export function NewBotRail({
 }) {
   const actions = useBotActions(() => {});
   const card = previewCard(draft, preview, now);
+  const brief = draft.kind === "brief";
   return (
     <>
       <RailSection title="On your board">
-        {draft.watches.length ? (
+        {draft.watches.length || brief ? (
           <div className="[&>article]:border-dashed">
             <BotCard bot={card} now={now} variant="preview" actions={actions} />
           </div>
@@ -499,20 +579,22 @@ export function NewBotRail({
           </article>
         )}
       </RailSection>
-      <RailSection title="After you create it">
-        <RailRows>
-          <RailRow label="First check" value="Right away" />
-          <RailRow label="First reading" value="Kept quietly" tone="muted" />
-          <RailRow
-            label="Alerts"
-            value={`Up to ${BOT_LIMITS.alertsPerDay} a day`}
-          />
-        </RailRows>
-        <p className="pt-2 text-xs leading-relaxed text-muted-foreground">
-          The first check only records where things stand. Alerts start from the
-          next change.
-        </p>
-      </RailSection>
+      {brief ? null : (
+        <RailSection title="After you create it">
+          <RailRows>
+            <RailRow label="First check" value="Right away" />
+            <RailRow label="First reading" value="Kept quietly" tone="muted" />
+            <RailRow
+              label="Alerts"
+              value={`Up to ${BOT_LIMITS.alertsPerDay} a day`}
+            />
+          </RailRows>
+          <p className="pt-2 text-xs leading-relaxed text-muted-foreground">
+            The first check only records where things stand. Alerts start from
+            the next change.
+          </p>
+        </RailSection>
+      )}
       <RailSection title="Limits" meta="Kept by Timely">
         <RailRows>
           {limitRows().map(([label, value]) => (
