@@ -35,6 +35,7 @@ export function ListRow({
   disabled,
   testID,
   accessibilityLabel,
+  action,
 }: {
   title: string;
   /** Second line under the title. */
@@ -52,21 +53,18 @@ export function ListRow({
   disabled?: boolean;
   testID?: string;
   accessibilityLabel?: string;
+  /**
+   * A control of its own on the right (a Resume button). It sits beside the
+   * pressable part of the row, never inside it: a button in a button is
+   * invalid on web and hidden from screen readers on the phone.
+   */
+  action?: ReactNode;
 }) {
   const showChevron = chevron ?? (Boolean(onPress) && tone === "default");
   const titleColor = tone === "add" ? colors.primary : tone === "danger" ? colors.destructive : colors.foreground;
-  return (
-    <AnimatedPressable
-      testID={testID}
-      accessibilityRole={onPress ? "button" : undefined}
-      accessibilityLabel={accessibilityLabel ?? (meta ? `${title}, ${meta}` : title)}
-      accessibilityState={disabled ? { disabled: true } : undefined}
-      onPress={onPress}
-      onLongPress={onLongPress}
-      disabled={disabled || (!onPress && !onLongPress)}
-      android_ripple={onPress ? { color: `${colors.primary}1f` } : undefined}
-      style={[styles.row, meta ? styles.rowTall : null, disabled && styles.disabled]}
-    >
+  const pressable = Boolean(onPress || onLongPress);
+  const content = (
+    <>
       {tone === "add" && !leading ? <Plus size={18} color={colors.primary} /> : leading}
       <View style={styles.text}>
         <Text numberOfLines={1} style={[styles.title, { color: titleColor }, tone !== "default" && styles.titleStrong]}>
@@ -80,6 +78,50 @@ export function ListRow({
       </View>
       {typeof trailing === "string" ? <Text numberOfLines={1} style={styles.value}>{trailing}</Text> : trailing}
       {showChevron ? <ChevronRight size={16} color={colors.mutedForeground} /> : null}
+    </>
+  );
+  if (!pressable) {
+    // Nothing to press: a plain row, so a field or button in it is not
+    // inside a disabled pressable (aria-disabled on web).
+    return (
+      <View testID={testID} style={[styles.row, meta ? styles.rowTall : null, disabled && styles.disabled]}>
+        {content}
+        {action}
+      </View>
+    );
+  }
+  if (action) {
+    return (
+      <View testID={testID} style={[styles.row, styles.rowSplit, meta ? styles.rowTall : null, disabled && styles.disabled]}>
+        <AnimatedPressable
+          accessibilityRole="button"
+          accessibilityLabel={accessibilityLabel ?? (meta ? `${title}, ${meta}` : title)}
+          accessibilityState={disabled ? { disabled: true } : undefined}
+          onPress={onPress}
+          onLongPress={onLongPress}
+          disabled={disabled}
+          android_ripple={{ color: `${colors.primary}1f` }}
+          style={styles.rowMain}
+        >
+          {content}
+        </AnimatedPressable>
+        {action}
+      </View>
+    );
+  }
+  return (
+    <AnimatedPressable
+      testID={testID}
+      accessibilityRole={onPress ? "button" : undefined}
+      accessibilityLabel={accessibilityLabel ?? (meta ? `${title}, ${meta}` : title)}
+      accessibilityState={disabled ? { disabled: true } : undefined}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      disabled={disabled}
+      android_ripple={onPress ? { color: `${colors.primary}1f` } : undefined}
+      style={[styles.row, meta ? styles.rowTall : null, disabled && styles.disabled]}
+    >
+      {content}
     </AnimatedPressable>
   );
 }
@@ -215,6 +257,8 @@ const styles = createThemedStyleSheet((colors) => ({
     paddingHorizontal: 14,
   },
   rowTall: { minHeight: 56, paddingVertical: 8 },
+  rowSplit: { paddingLeft: 0 },
+  rowMain: { flex: 1, minWidth: 0, alignSelf: "stretch", flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 14 },
   disabled: { opacity: 0.5 },
   text: { flex: 1, minWidth: 0 },
   title: { fontSize: 15, fontWeight: "500" },

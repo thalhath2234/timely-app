@@ -94,6 +94,7 @@ export function BotGroups({
   onAddKey,
   onCommit,
   unsaved = false,
+  openWatch,
 }: {
   draft: BotInput;
   /** The saved watches by id, for their readings, currency and health. */
@@ -105,8 +106,20 @@ export function BotGroups({
   onCommit: Commit;
   /** A new bot: nothing is saved until Create. */
   unsaved?: boolean;
+  /** A watch id to open on arrival, once its watch is in the draft. */
+  openWatch?: string;
 }) {
   const [watchEdit, setWatchEdit] = useState<WatchEdit | null>(null);
+  // Open the asked-for watch once, when it is in the draft: a fix such as
+  // "Pick the part again" lands on that watch's page, not the sheet's top.
+  const [opened, setOpened] = useState<string | null>(null);
+  if (openWatch && opened !== openWatch) {
+    const index = draft.watches.findIndex((w) => w.id === openWatch);
+    if (index >= 0) {
+      setOpened(openWatch);
+      setWatchEdit({ index, watch: draft.watches[index] });
+    }
+  }
   const [ruleEdit, setRuleEdit] = useState<RuleEdit | null>(null);
   const [smart, setSmart] = useState(false);
   const watches = draft.watches;

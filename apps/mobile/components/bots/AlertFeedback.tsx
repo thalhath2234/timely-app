@@ -11,7 +11,8 @@ import { colors, createThemedStyleSheet } from "../../lib/theme";
 const NOTE_MAX = 200;
 
 /**
- * "Was it worth it?" on an alert: two equal buttons, Useful and Not useful.
+ * "Was it worth it?" on an alert: two equal buttons, Useful and Not useful,
+ * and once rated only the chosen one with "You said this helped" beside it.
  * Not useful asks why on a sheet ("Why not?": three chips and an optional
  * line). The answer saves at once and the toast can take it back.
  */
@@ -43,34 +44,52 @@ export function AlertFeedback({ botId, alert }: { botId: string; alert: Pick<Ale
 
   const useful = alert.feedback === "useful";
   const notUseful = alert.feedback === "not_useful";
+  const rated = useful || notUseful;
   return (
     <View style={styles.wrap}>
-      <View style={styles.row}>
-        <View style={styles.half}>
+      {rated ? (
+        // Once rated, only the chosen answer with its note; tapping it takes
+        // the answer back.
+        <View style={styles.chosenRow}>
           <Button
-            label="Useful"
-            variant={useful ? "secondary" : "outline"}
+            label={useful ? "Useful" : "Not useful"}
+            variant="secondary"
             size="sm"
-            stretch
             disabled={rate.isPending}
-            icon={useful ? <Check size={16} color={colors.foreground} /> : <ThumbsUp size={16} color={colors.foreground} />}
-            onPress={() => (useful ? send({ feedback: null }, null) : send({ feedback: "useful" }, "Saved: this alert helped"))}
+            accessibilityLabel={`${useful ? "Useful" : "Not useful"}, chosen. Tap to take it back`}
+            icon={<Check size={16} color={colors.foreground} />}
+            onPress={() => send({ feedback: null }, null)}
           />
+          <Text numberOfLines={1} style={styles.chosenNote}>
+            {useful ? "You said this helped" : "You said it didn’t help"}
+          </Text>
         </View>
-        <View style={styles.half}>
-          <Button
-            label="Not useful"
-            variant={notUseful ? "secondary" : "outline"}
-            size="sm"
-            stretch
-            disabled={rate.isPending}
-            icon={notUseful ? <Check size={16} color={colors.foreground} /> : <ThumbsDown size={16} color={colors.foreground} />}
-            onPress={() => (notUseful ? send({ feedback: null }, null) : setOpen(true))}
-          />
+      ) : (
+        <View style={styles.row}>
+          <View style={styles.half}>
+            <Button
+              label="Useful"
+              variant="outline"
+              size="sm"
+              stretch
+              disabled={rate.isPending}
+              icon={<ThumbsUp size={16} color={colors.foreground} />}
+              onPress={() => send({ feedback: "useful" }, "Saved: this alert helped")}
+            />
+          </View>
+          <View style={styles.half}>
+            <Button
+              label="Not useful"
+              variant="outline"
+              size="sm"
+              stretch
+              disabled={rate.isPending}
+              icon={<ThumbsDown size={16} color={colors.foreground} />}
+              onPress={() => setOpen(true)}
+            />
+          </View>
         </View>
-      </View>
-      {useful ? <Text style={styles.note}>You said this helped</Text> : null}
-      {notUseful ? <Text style={styles.note}>You said it didn’t help</Text> : null}
+      )}
       <BottomSheet
         open={open}
         onClose={() => setOpen(false)}
@@ -106,7 +125,8 @@ const styles = createThemedStyleSheet((colors) => ({
   wrap: { gap: 6 },
   row: { flexDirection: "row", gap: 8 },
   half: { flex: 1, minWidth: 0 },
-  note: { color: colors.mutedForeground, fontSize: 12, textAlign: "center" },
+  chosenRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  chosenNote: { flex: 1, minWidth: 0, color: colors.mutedForeground, fontSize: 12 },
   sheet: { gap: 12, paddingBottom: 4 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
 }));

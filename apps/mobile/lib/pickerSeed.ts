@@ -8,12 +8,19 @@ export function snapMinute(raw: number) {
   return (Math.round(raw / 15) * 15) % 60;
 }
 
+/**
+ * The picker for a time, on the nearest 15-minute step. A step past :45
+ * carries into the next hour (and day): 15:59 shows 16:00, never 15:00.
+ */
 export function pickerFor(date: Date): PickerState {
+  const at = new Date(date);
+  at.setSeconds(0, 0);
+  at.setMinutes(Math.round(at.getMinutes() / 15) * 15);
   return {
-    month: new Date(date.getFullYear(), date.getMonth(), 1),
-    day: new Date(date.getFullYear(), date.getMonth(), date.getDate()),
-    hour: date.getHours(),
-    minute: snapMinute(date.getMinutes()),
+    month: new Date(at.getFullYear(), at.getMonth(), 1),
+    day: new Date(at.getFullYear(), at.getMonth(), at.getDate()),
+    hour: at.getHours(),
+    minute: at.getMinutes(),
   };
 }
 

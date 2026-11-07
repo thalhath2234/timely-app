@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import type { BotView, FixAction } from "@timely/contract/bots";
+import { primaryWatch, type BotView, type FixAction } from "@timely/contract/bots";
 import { useAssistant } from "../chat/AssistantProvider";
 import { useResumeBot, useRunBot } from "../../lib/hooks";
 import { useToastStore } from "../../lib/toast";
@@ -15,10 +15,11 @@ const failed = (error: Error) => say(error.message);
 
 /**
  * What the board's buttons do, as on the web. Fixes that need the editor
- * (pick the part, edit, change source) open the bot; Check now, Resume and
- * Turn on act in place; Add key goes to the key row.
+ * (pick the part, change the address or source) open the bot on its failing
+ * watch's page; Edit opens the bot; Check now, Resume and Turn on act in
+ * place; Add key goes to the key row.
  */
-export function useBotActions(onOpen: (id: string) => void) {
+export function useBotActions(onOpen: (id: string, watchId?: string) => void) {
   const router = useRouter();
   const run = useRunBot();
   const resume = useResumeBot();
@@ -37,6 +38,11 @@ export function useBotActions(onOpen: (id: string) => void) {
         return;
       case "add_key":
         router.push(BOT_KEYS_ROUTE as never);
+        return;
+      case "pick_part":
+      case "edit_url":
+      case "change_source":
+        onOpen(bot.id, primaryWatch(bot)?.id);
         return;
       default:
         onOpen(bot.id);

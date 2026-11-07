@@ -1598,6 +1598,9 @@ export default function AgentSettings() {
             </View>
           </>
         ) : null}
+        {/* It has its own query: the Finnhub key (and ?open=bot-keys) still
+            works when the provider list is loading or failed. */}
+        {data ? null : <BotSourceKeysGroup />}
       </FocusGroupScrollView>
       <ConfirmSheet
         open={confirm !== null}

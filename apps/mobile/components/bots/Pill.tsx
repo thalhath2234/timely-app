@@ -1,10 +1,13 @@
 import { Text, View } from "react-native";
-import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { colors, createThemedStyleSheet, getThemeMode } from "../../lib/theme";
 import { withAlpha } from "./tone";
+
+/** The warning wash: lighter in light theme, so warning text on it keeps 4.5:1. */
+const warningWash = () => withAlpha(colors.warning, getThemeMode() === "dark" ? 0.16 : 0.08);
 
 /** A small rounded tag on a card: "New alert", "Your OK", "Later". */
 export function Pill({ children, tone = "default" }: { children: string; tone?: "default" | "primary" | "warning" }) {
-  const wash = tone === "primary" ? withAlpha(colors.primary, 0.14) : tone === "warning" ? withAlpha(colors.warning, 0.16) : colors.muted;
+  const wash = tone === "primary" ? withAlpha(colors.primary, 0.14) : tone === "warning" ? warningWash() : colors.muted;
   const ink = tone === "primary" ? colors.primary : tone === "warning" ? colors.warningText : colors.mutedForeground;
   return (
     <View style={[styles.pill, { backgroundColor: wash }]}>
@@ -19,7 +22,7 @@ export function Pill({ children, tone = "default" }: { children: string; tone?: 
 export function CountPill({ count, tone = "default" }: { count: number; tone?: "default" | "attn" }) {
   const attn = tone === "attn";
   return (
-    <View style={[styles.count, { backgroundColor: attn ? withAlpha(colors.warning, 0.16) : colors.muted }]}>
+    <View style={[styles.count, { backgroundColor: attn ? warningWash() : colors.muted }]}>
       <Text style={[styles.countText, { color: attn ? colors.warningText : colors.mutedForeground }]}>{count}</Text>
     </View>
   );

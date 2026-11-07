@@ -153,7 +153,17 @@ export default function BotChangeBody({
   reply?: BotReplyActions;
 }) {
   const now = useMemo(() => new Date(), []);
-  const icons = useBotIcons(botSites(group.args.watches)).data;
+  // The header mark takes each watch's site from the reading (the
+  // registrable domain the rows and board preview show), not the full host.
+  const marked = useMemo(
+    () =>
+      group.args.watches.map((w, i) => {
+        const site = group.preview?.watches?.find((r) => r.index === i)?.site;
+        return site ? { ...w, site } : w;
+      }),
+    [group.args.watches, group.preview],
+  );
+  const icons = useBotIcons(botSites(marked)).data;
   const card = useMemo(
     () => previewCard(group.args, group.preview, now),
     [group.args, group.preview, now],
@@ -179,7 +189,7 @@ export default function BotChangeBody({
     <View style={{ gap: 12 }}>
       <ListGroup>
         <View style={styles.head}>
-          <BotMark watches={group.args.watches} size={36} icons={icons} />
+          <BotMark watches={marked} size={36} icons={icons} />
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.eyebrow}>{group.eyebrow}</Text>
             <Text numberOfLines={2} style={styles.title}>

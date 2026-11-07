@@ -61,7 +61,10 @@ export function EditPill({ children }: { children: string }) {
       <Text numberOfLines={1} style={styles.pillText}>
         {children}
       </Text>
-      <Pencil size={14} color={colors.mutedForeground} />
+      {/* Its own box, so a long value never squeezes the pencil smaller. */}
+      <View style={styles.pencil}>
+        <Pencil size={14} color={colors.mutedForeground} />
+      </View>
     </View>
   );
 }
@@ -85,6 +88,7 @@ const styles = createThemedStyleSheet((colors) => ({
     alignItems: "center",
     gap: 8,
   },
+  pencil: { flexShrink: 0 },
   pillText: { flexShrink: 1, color: colors.foreground, fontSize: 14, fontWeight: "500", fontVariant: ["tabular-nums"] },
   tile: { width: 32, height: 32, borderRadius: 10, backgroundColor: colors.muted, alignItems: "center", justifyContent: "center" },
 }));

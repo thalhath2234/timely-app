@@ -127,7 +127,7 @@ function Top({ bot, icons, trailing }: { bot: BotView; icons: SiteIcons; trailin
           {bot.name}
         </Text>
         <Text numberOfLines={1} style={styles.sub}>
-          {cardSub(bot)}
+          {cardSub(bot, { short: true })}
         </Text>
       </View>
       {trailing}
@@ -405,7 +405,7 @@ export function PausedRow({ bot, now, icons, actions, onPress }: { bot: BotView;
       leading={<BotMark watches={bot.watches} icons={icons} size={28} />}
       onPress={onPress}
       chevron={false}
-      trailing={
+      action={
         <Button
           label="Resume"
           variant="outline"

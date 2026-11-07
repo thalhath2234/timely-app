@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Linking, Text, useWindowDimensions, View } from "react-native";
 import {
   AlarmClockOff,
@@ -88,7 +88,7 @@ import { isStock } from "./watchDraft";
 const say = (message: string) => useToastStore.getState().show(message);
 
 /** Marks in the sheet's row of checks, beside "28 checks this week · 0 alerts". */
-const STRIP_MARKS = 24;
+const STRIP_MARKS = 16;
 
 /** Whether a keyed price source has a saved key; unknown (still loading) counts as yes. */
 function useHasKey() {
@@ -155,7 +155,7 @@ function WeekChecks({ detail }: { detail: BotDetail }) {
   return (
     <View style={styles.week}>
       <View style={styles.weekRow}>
-        <Text style={styles.meta}>
+        <Text numberOfLines={2} style={[styles.meta, styles.weekMeta]}>
           {`${detail.week.checks} ${detail.week.checks === 1 ? "check" : "checks"} this week · ${detail.week.alerts} ${detail.week.alerts === 1 ? "alert" : "alerts"}`}
         </Text>
         <CheckStrip marks={detail.strip} count={STRIP_MARKS} />
@@ -393,6 +393,7 @@ type Page = null | "more" | "snooze" | "name" | "description" | "delete";
 function ViewSheet({
   open,
   botId,
+  watchId,
   order,
   onSelect,
   onClose,
@@ -401,6 +402,8 @@ function ViewSheet({
 }: {
   open: boolean;
   botId: string | null;
+  /** A watch to open on arrival (a fix such as "Pick the part again"). */
+  watchId?: string;
   order: string[];
   onSelect: (id: string) => void;
   onClose: () => void;
@@ -426,6 +429,7 @@ function ViewSheet({
   const { width } = useWindowDimensions();
   // Switches show the new value at once, before the bot comes back.
   const [pending, setPending] = useState<Partial<BotInput>>({});
+  const pendingSeq = useRef(0);
   const [shownId, setShownId] = useState(botId);
   if (botId !== shownId) {
     setShownId(botId);
@@ -465,12 +469,17 @@ function ViewSheet({
       await update.mutateAsync({ id: bot.id, patch });
       return;
     }
-    setPending(patch as Partial<BotInput>);
+    // Shown until the bot is read back; a later quick edit's pending value
+    // is not wiped by an earlier one settling.
+    const seq = ++pendingSeq.current;
+    setPending((was) => ({ ...was, ...(patch as Partial<BotInput>) }));
     update.mutate(
       { id: bot.id, patch },
       {
         onError: (error) => say(error.message),
-        onSettled: () => setPending({}),
+        onSettled: () => {
+          if (pendingSeq.current === seq) setPending({});
+        },
       },
     );
   };
@@ -597,6 +606,7 @@ function ViewSheet({
           hasKey={hasKey}
           onAddKey={onAddKey}
           onCommit={commit}
+          openWatch={watchId}
         />
         {detail ? <LessonsGroup botId={bot.id} lessons={detail.lessons ?? []} /> : null}
         <View style={styles.deleteRow}>
@@ -856,6 +866,7 @@ function NewSheet({
  */
 export function BotSheet({
   botId,
+  watchId,
   mode,
   starter,
   order,
@@ -864,6 +875,8 @@ export function BotSheet({
   onAddKey,
 }: {
   botId?: string | null;
+  /** A watch of the bot to open on arrival. */
+  watchId?: string;
   mode: "view" | "new" | null;
   starter?: StarterId | string | null;
   /** The board's order, for Previous and Next. */
@@ -881,6 +894,7 @@ export function BotSheet({
       <ViewSheet
         open={mode === "view" && !!botId}
         botId={botId ?? lastId}
+        watchId={watchId}
         order={order}
         onSelect={onSelect}
         onClose={onClose}
@@ -898,7 +912,7 @@ const styles = createThemedStyleSheet((colors) => ({
   section: { gap: 6 },
   lead: { flexDirection: "row", alignItems: "center", gap: 10, minWidth: 0 },
   name: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 17, lineHeight: 22, fontWeight: "600" },
-  newTile: { width: 28, height: 28, borderRadius: 8, backgroundColor: colors.muted, alignItems: "center", justifyContent: "center" },
+  newTile: { width: 28, height: 28, borderRadius: 10, backgroundColor: colors.muted, alignItems: "center", justifyContent: "center" },
   headerButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.muted, alignItems: "center", justifyContent: "center" },
   description: { color: colors.foreground, fontSize: 15, lineHeight: 21 },
   descriptionEmpty: { color: colors.mutedForeground, fontSize: 15, lineHeight: 21 },
@@ -920,10 +934,10 @@ const styles = createThemedStyleSheet((colors) => ({
     backgroundColor: colors.muted,
     paddingHorizontal: 12,
     paddingVertical: 10,
+    // Words read off a page are prose: the body font, not code.
     color: colors.foreground,
-    fontSize: 12,
-    lineHeight: 18,
-    fontFamily: "monospace",
+    fontSize: 13,
+    lineHeight: 19,
   },
   items: { gap: 0 },
   item: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8 },
@@ -931,7 +945,9 @@ const styles = createThemedStyleSheet((colors) => ({
   itemText: { flex: 1, minWidth: 0, gap: 2 },
   itemTitle: { color: colors.foreground, fontSize: 14, fontWeight: "500" },
   week: { gap: 10, marginTop: 4, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border },
-  weekRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", rowGap: 8, columnGap: 12 },
+  // One row, the strip right-aligned, as the mock draws it.
+  weekRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  weekMeta: { flexShrink: 1, minWidth: 0 },
   alertHead: { flexDirection: "row", alignItems: "center", gap: 8 },
   alertDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primary },
   alertTitle: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 15, fontWeight: "600", fontVariant: ["tabular-nums"] },

@@ -508,6 +508,18 @@ export function clockLabel(iso: string, now: Date, tz?: string): string {
   return `${p.month} ${p.day}, ${p.time}`;
 }
 
+/**
+ * When a snooze ends, always with its day so a time tomorrow never reads as
+ * today: "Sun 09:00" within the week, else "Nov 14, 09:00".
+ */
+export function untilLabel(iso: string, now: Date, tz?: string): string {
+  const t = ms(iso);
+  if (t === null) return "";
+  const p = zoneParts(t, tz);
+  if (t - now.getTime() < 6 * DAY) return `${p.weekday} ${p.time}`;
+  return `${p.month} ${p.day}, ${p.time}`;
+}
+
 /** "just now", "12 min ago", "3 h ago", else "Nov 2". */
 export function agoLabel(iso: string, now: Date, tz?: string): string {
   const t = ms(iso);
@@ -1345,11 +1357,20 @@ export function miniValue(bot: BotView, now: Date): { text: string; change: stri
   return { text, change: days >= 1 ? `same for ${plural(days, "day")}` : null };
 }
 
-/** The card's sub line: "amazon.in · Sony WH-1000XM6 Wireless · every 6 h", "2 feeds · every 30 min". */
-export function cardSub(bot: Pick<BotView, "watches" | "intervalMinutes">): string {
+/**
+ * The card's sub line: "amazon.in · Sony WH-1000XM6 Wireless · every 6 h",
+ * "2 feeds · every 30 min". `short` (the phone's one narrow line) names only
+ * the site or symbol, so the interval always shows: "amazon.in · every 6 h".
+ */
+export function cardSub(bot: Pick<BotView, "watches" | "intervalMinutes">, opts: { short?: boolean } = {}): string {
   const every = everyLabel(bot.intervalMinutes || defaultMinutes(bot.watches));
   const ws = bot.watches;
   if (ws.length === 0) return "No watch yet";
+  if (ws.length === 1 && opts.short) {
+    const w = ws[0];
+    const where = w.kind === "price" ? watchTitle(w).split(" · ")[0] : siteOf(w) || "New page";
+    return `${where} · ${every}`;
+  }
   if (ws.length === 1) return `${watchTitle(ws[0])} · ${every}`;
   const kinds = new Set(ws.map((w) => w.kind));
   const noun = kinds.size > 1 ? "watches" : ws[0].kind === "feed" ? "feeds" : ws[0].kind === "price" ? "prices" : "pages";

@@ -34,7 +34,7 @@ import { colors, createThemedStyleSheet, radius } from "../../../lib/theme";
  */
 export default function BotsScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ bot?: string; new?: string; starter?: string }>();
+  const params = useLocalSearchParams<{ bot?: string; new?: string; starter?: string; watch?: string }>();
   const insets = useSafeAreaInsets();
   const bottom = useFabScrollInset();
   const query = useBotsQuery();
@@ -46,13 +46,19 @@ export default function BotsScreen() {
   const describe = useDescribeInChat();
   useAssistantScreen([contextChip("bots", "Bots", "/bots")]);
 
-  const openBot = useCallback((id: string) => router.setParams({ bot: id, new: undefined, starter: undefined }), [router]);
+  const openBot = useCallback(
+    (id: string, watchId?: string) => router.setParams({ bot: id, new: undefined, starter: undefined, watch: watchId }),
+    [router],
+  );
   const openNew = useCallback(
     (starter?: StarterId) => router.setParams({ bot: undefined, new: "1", starter: starter ?? undefined }),
     [router],
   );
   const actions = useBotActions(openBot);
-  const closeSheet = useCallback(() => router.setParams({ bot: undefined, new: undefined, starter: undefined }), [router]);
+  const closeSheet = useCallback(
+    () => router.setParams({ bot: undefined, new: undefined, starter: undefined, watch: undefined }),
+    [router],
+  );
   const addKey = useCallback(() => {
     closeSheet();
     router.push(BOT_KEYS_ROUTE as never);
@@ -167,6 +173,7 @@ export default function BotsScreen() {
       ) : null}
       <BotSheet
         botId={params.bot}
+        watchId={params.watch}
         mode={sheetMode}
         starter={params.starter}
         order={order}

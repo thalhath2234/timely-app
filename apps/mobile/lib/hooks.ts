@@ -2062,9 +2062,16 @@ export function useCreateBot() {
   return useMutation({ mutationFn: (input: BotInput) => createBot(input), onSuccess: invalidate });
 }
 
+/**
+ * An edit to a bot. It settles once the bots are read back, so a screen that
+ * shows the edit until then never flicks back to the old value.
+ */
 export function useUpdateBot() {
-  const invalidate = useInvalidateBots();
-  return useMutation({ mutationFn: ({ id, patch }: { id: string; patch: BotPatch }) => updateBot(id, patch), onSuccess: invalidate });
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: BotPatch }) => updateBot(id, patch),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.bots }),
+  });
 }
 
 export function useDeleteBot() {

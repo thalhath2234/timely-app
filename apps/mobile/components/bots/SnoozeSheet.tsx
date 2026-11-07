@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { View } from "react-native";
 import { AlarmClockOff, Calendar, CalendarClock, Sun } from "lucide-react-native";
-import { clockLabel, maxSnoozeUntil, snoozeLabel, snoozePresets, type BotView } from "@timely/contract/bots";
+import { maxSnoozeUntil, snoozeLabel, snoozePresets, type BotView, untilLabel } from "@timely/contract/bots";
 import BottomSheet from "../ui/BottomSheet";
 import DateTimeSheet from "../ui/DateTimeSheet";
 import { GroupHint, ListGroup, ListRow } from "../settings/SettingsList";
@@ -113,7 +113,7 @@ export function SnoozeSheet({ bot, open, onClose, now }: { bot: BotView; open: b
         value={bot.snoozedUntil && Date.parse(bot.snoozedUntil) > now.getTime() ? new Date(bot.snoozedUntil) : tomorrowMorning(now)}
         min={now}
         max={maxSnoozeUntil(now)}
-        confirmLabel={(picked) => `Snooze until ${clockLabel(picked.toISOString(), new Date())}`}
+        confirmLabel={(picked) => `Snooze until ${untilLabel(picked.toISOString(), new Date())}`}
         onClose={() => setPicking(false)}
         onChange={(picked) => {
           if (picked) send({ until: picked.toISOString() });

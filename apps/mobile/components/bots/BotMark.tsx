@@ -81,14 +81,18 @@ export function BotMark({
   } else if (sites.length === 1) {
     inner = <SiteLogo site={sites[0]} src={icons?.[sites[0]]} px={logo} />;
   } else {
-    const small = Math.round(logo * 0.78);
+    // The first site's logo nearly full size, the second a smaller one on
+    // an opaque backing in its corner, cut out by a ring, so the two read
+    // apart (as the mock draws it).
+    const big = Math.round(logo * 0.92);
+    const small = Math.round(logo * 0.6);
     inner = (
-      <View style={{ width: small + 6, height: small + 4 }}>
+      <View style={{ width: logo + 3, height: logo + 3 }}>
         <View style={styles.pairFirst}>
-          <SiteLogo site={sites[0]} src={icons?.[sites[0]]} px={small} />
+          <SiteLogo site={sites[0]} src={icons?.[sites[0]]} px={big} />
         </View>
         <View style={styles.pairSecond}>
-          <SiteLogo site={sites[1]} src={icons?.[sites[1]]} px={small} ring />
+          <SiteLogo site={sites[1]} src={icons?.[sites[1]]} px={small} />
         </View>
       </View>
     );
@@ -118,7 +122,15 @@ const styles = createThemedStyleSheet((colors) => ({
   letterText: { color: colors.foreground, fontWeight: "600" },
   ring: { borderWidth: 1.5, borderColor: colors.muted },
   pairFirst: { position: "absolute", left: 0, top: 0 },
-  pairSecond: { position: "absolute", right: 0, bottom: 0 },
+  pairSecond: {
+    position: "absolute",
+    right: -1.5,
+    bottom: -1.5,
+    borderRadius: 5.5,
+    borderWidth: 1.5,
+    borderColor: colors.muted,
+    backgroundColor: colors.card,
+  },
   badge: {
     position: "absolute",
     right: -4,

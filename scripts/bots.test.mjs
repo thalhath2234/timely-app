@@ -28,6 +28,7 @@ import {
   draftOf,
   emptyDraft,
   parseAmount,
+  untilLabel,
   everyLabel,
   feedSources,
   fillSpans,
@@ -546,6 +547,7 @@ describe("bots board over the seed", () => {
     assert.equal(feedSources(seed.gpu), "r/buildapcsales, slickdeals.net");
     assert.equal(feedSources(seed.headphones), null);
     assert.equal(cardSub(seed.gpu), "2 feeds · every 30 min");
+    assert.equal(cardSub(seed.gpu, { short: true }), "2 feeds · every 30 min");
   });
 
   test("header summary", () => {
@@ -1084,6 +1086,7 @@ describe("chat", () => {
     assert.equal(valueText(card), "₹19,999");
     assert.equal(valueLine(card), "₹1,999 above your line");
     assert.equal(cardSub(card), "amazon.in · Product price · every 6 h");
+    assert.equal(cardSub(card, { short: true }), "amazon.in · every 6 h");
     assert.deepEqual(healthLine(card, NOW, TZ), { tone: "primary", word: "Read once in chat", time: null });
     assert.equal(boardGroup(card, NOW), "watching");
     assert.deepEqual(proposalFacts(args), [
@@ -1271,4 +1274,11 @@ test("parseAmount reads grouping and a comma typed as the decimal point", () => 
     ["abc", undefined],
   ];
   for (const [text, want] of cases) assert.equal(parseAmount(text), want, text);
+});
+
+test("untilLabel always names the day", () => {
+  const now = new Date("2026-11-07T10:00:00Z");
+  assert.equal(untilLabel("2026-11-08T03:30:00Z", now, "Asia/Kolkata"), "Sun 09:00");
+  assert.equal(untilLabel("2026-11-07T11:00:00Z", now, "UTC"), "Sat 11:00");
+  assert.equal(untilLabel("2026-11-20T09:00:00Z", now, "UTC"), "Nov 20, 09:00");
 });

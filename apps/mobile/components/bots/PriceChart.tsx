@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Platform, Text, View } from "react-native";
-import Svg, { Circle, Line, Path, Text as SvgText } from "react-native-svg";
+import Svg, { Circle, Line, Path, Rect, Text as SvgText } from "react-native-svg";
 import { formatMoney, shortDate } from "@timely/contract/bots";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 
@@ -120,6 +120,16 @@ export function PriceChart({
                 stroke={colors.warning}
                 strokeWidth={1.5}
                 strokeDasharray="4 4"
+              />
+              {/* A card-coloured backing keeps the label readable over the fill (4.5:1). */}
+              <Rect
+                x={AXIS_LEFT + 1}
+                y={y(threshold) - 17}
+                width={Math.round(`Your line ${formatMoney(threshold, currency)}`.length * 6.2) + 6}
+                height={15}
+                rx={4}
+                fill={colors.card}
+                fillOpacity={0.92}
               />
               <SvgText fontFamily={FONT} x={AXIS_LEFT + 4} y={y(threshold) - 5} fontSize={11} fontWeight="500" fill={colors.warningText}>
                 {`Your line ${formatMoney(threshold, currency)}`}
