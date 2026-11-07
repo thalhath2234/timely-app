@@ -311,6 +311,10 @@ func TestIntegrationBotMigrationsDownUp(t *testing.T) {
 		('bal_judged', 'bot_m', ?, 'alert', 'judged', '2026-11-07', 'M: up 2.0%', 'judged', 'Small', 'low'),
 		('bal_kept', 'bot_m', ?, 'alert', '', '2026-11-07', 'M: up 3.0%', 'unchecked', 'AI was unavailable', 'normal')`, user, user)
 	exec(`INSERT INTO bot_ai_calls (id, user_id, bot_id, local_day, purpose) VALUES ('bai_m', ?, 'bot_m', '2026-11-07', 'judge')`, user)
+	exec(`UPDATE bot_alerts SET things = '[{"key": "page:https://shop.example/", "urgency": "normal"}]', also_seen_by = '[{"botId": "bot_m", "name": "M"}]' WHERE id = 'bal_kept'`)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, held, local_day, title, shared_with) VALUES
+		('bal_shared', 'bot_m', ?, 'alert', 'shared', '2026-11-07', 'M: page changed', 'bal_kept')`, user)
+	exec(`INSERT INTO bot_findings (id, bot_id, user_id, kind, title, urgency, thing_key) VALUES ('bfd_m', 'bot_m', ?, 'item', 'Story', 'normal', 'link:https://shop.example/1')`, user)
 	must(t, db.Create(&models.Job{ID: "job_judge", UserID: user, Kind: models.JobBotJudge, Status: models.JobPending, Payload: models.JobPayload{},
 		RunAt: time.Now(), MaxAttempts: 3, CreatedAt: time.Now(), UpdatedAt: time.Now()}).Error)
 
@@ -337,6 +341,14 @@ func TestIntegrationBotMigrationsDownUp(t *testing.T) {
 	if count(t, db, "bot_alerts", "id = 'bal_judged'") != 0 || count(t, db, "bot_alerts", "id = 'bal_kept'") != 1 || count(t, db, "jobs", "id = 'job_judge'") != 0 {
 		t.Fatal("a held judged alert or a re-judge job survived the Down")
 	}
+	if count(t, db, "bot_alerts", "id = 'bal_shared'") != 0 || count(t, db, "bot_findings", "id = 'bfd_m'") != 1 {
+		t.Fatal("a held shared alert survived the Down, or a note did not")
+	}
+	must(t, db.Raw(`SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema()
+		AND ((table_name = 'bot_alerts' AND column_name IN ('things', 'also_seen_by', 'shared_with')) OR (table_name = 'bot_findings' AND column_name = 'thing_key'))`).Scan(&cols).Error)
+	if len(cols) != 0 {
+		t.Fatalf("one alert per thing left columns after Down: %v", cols)
+	}
 	must(t, db.Raw(`SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'bot_ai_calls'`).Scan(&tables).Error)
 	if len(tables) != 0 {
 		t.Fatal("bot_ai_calls left after Down")
@@ -349,4 +361,9 @@ func TestIntegrationBotMigrationsDownUp(t *testing.T) {
 	exec(`INSERT INTO bot_checks (id, bot_id, user_id, trigger, started_at, finished_at, outcome) VALUES ('bchk_quiet2', 'bot_m', ?, 'schedule', now(), now(), 'judged_quiet')`, user)
 	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, held, local_day, title, ai_state, urgency) VALUES ('bal_judged2', 'bot_m', ?, 'alert', 'judged', '2026-11-07', 'M', 'rejudged', 'high')`, user)
 	exec(`INSERT INTO bot_ai_calls (id, user_id, bot_id, local_day, purpose) VALUES ('bai_m2', ?, 'bot_m', '2026-11-07', 'rejudge')`, user)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, held, local_day, title, shared_with) VALUES
+		('bal_shared2', 'bot_m', ?, 'alert', 'shared', '2026-11-07', 'M: page changed', 'bal_kept')`, user)
+	if count(t, db, "bot_alerts", "id = 'bal_kept' AND things = '[]'::jsonb AND also_seen_by = '[]'::jsonb") != 1 || count(t, db, "bot_findings", "id = 'bfd_m' AND thing_key = ''") != 1 {
+		t.Fatal("the columns came back without their defaults")
+	}
 }

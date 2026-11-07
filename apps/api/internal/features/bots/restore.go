@@ -23,7 +23,8 @@ const (
 // judge mode Timely does not know is set back to rules; a suggestion is
 // dropped; no alert keeps a judge input (the export never carries one); a
 // doc or sheet a Bot reads that is not the person's, or is in the bin, is
-// let go. Restored over MCP, every Bot comes back paused, judged by rules,
+// let go; no alert keeps what it told of, so a file holds back no alert;
+// "Also seen by" keeps only the person's Bots. Restored over MCP, every Bot comes back paused, judged by rules,
 // reading no doc or sheet, with the alert settings a Bot made over MCP gets,
 // so an outside app cannot turn a Bot, its urgent alerts, AI judging or what
 // the judge reads on this way (ADR 0021). A
@@ -37,6 +38,23 @@ func (s *Service) VetRestore(tx *gorm.DB, userID string, fromMCP bool) error {
 	// A re-judge reads its input from the alert; a file's would be text no
 	// check here read.
 	if err := tx.Exec(`UPDATE bot_alerts SET ai_input = NULL WHERE user_id = ? AND ai_input IS NOT NULL`, userID).Error; err != nil {
+		return err
+	}
+	// What a sent alert told of only decides whether another Bot's alert
+	// that day is held 'shared'; a file's could be any shape, or hold back
+	// the person's other Bots. Sharing covers one day, so nothing is lost.
+	if err := tx.Exec(`UPDATE bot_alerts SET things = '[]'::jsonb WHERE user_id = ? AND things <> '[]'::jsonb`, userID).Error; err != nil {
+		return err
+	}
+	// "Also seen by" names Bots by id and name; a file's may name another
+	// account's Bot, or any words. Keep only the person's Bots, by their
+	// names here.
+	if err := tx.Exec(`
+UPDATE bot_alerts a SET also_seen_by = COALESCE((
+    SELECT jsonb_agg(jsonb_build_object('botId', b.id, 'name', b.name) ORDER BY e.n)
+    FROM jsonb_array_elements(CASE WHEN jsonb_typeof(a.also_seen_by) = 'array' THEN a.also_seen_by ELSE '[]'::jsonb END) WITH ORDINALITY AS e(v, n)
+    JOIN bots b ON b.id = e.v->>'botId' AND b.user_id = a.user_id), '[]'::jsonb)
+WHERE a.user_id = ? AND a.also_seen_by <> '[]'::jsonb`, userID).Error; err != nil {
 		return err
 	}
 	// knowledge_id has no foreign key, so a file can name any row; reads

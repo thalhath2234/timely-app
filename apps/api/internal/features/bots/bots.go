@@ -33,6 +33,9 @@ const (
 	// and the newest item IDs it remembers so they never alert again.
 	MaxItems = 50
 	MaxSeen  = 500
+	// MaxItemFindings caps a feed rule's notes in one check: one per new
+	// item, then one "N more new items".
+	MaxItemFindings = 10
 
 	MinPageEvery    = 15 * time.Minute
 	MinPriceEvery   = 5 * time.Minute

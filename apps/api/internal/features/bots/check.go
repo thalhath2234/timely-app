@@ -714,7 +714,7 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 			if err != nil {
 				return err
 			}
-			if err := saveFindings(tx, b, run, sent); err != nil {
+			if _, err := saveFindings(tx, b, run, sent); err != nil {
 				return err
 			}
 		}

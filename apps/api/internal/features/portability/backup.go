@@ -305,8 +305,10 @@ var restoreDefaults = map[string]map[string]any{
 	"custom_fields": {"position": 0},
 	"configs": {"mobile_task_views": []any{}, "mobile_active_task_view_id": "",
 		"bot_alert_defaults": map[string]any{"desktop": true, "phone": true, "urgent": false}},
-	"bots":       {"origin_client": "", "knowledge_kind": "", "knowledge_id": ""},
-	"bot_alerts": {"feedback_reason": "", "feedback_note": "", "ai_state": "", "ai_why": "", "urgency": "normal"},
+	"bots": {"origin_client": "", "knowledge_kind": "", "knowledge_id": ""},
+	"bot_alerts": {"feedback_reason": "", "feedback_note": "", "ai_state": "", "ai_why": "", "urgency": "normal",
+		"things": []any{}, "also_seen_by": []any{}},
+	"bot_findings": {"thing_key": ""},
 }
 
 type parentRef struct {
@@ -422,6 +424,8 @@ func deferredColumns(table string) []string {
 		return []string{"blocked_by_id"}
 	case "documents":
 		return []string{"parent_id"}
+	case "bot_alerts":
+		return []string{"shared_with"}
 	default:
 		return nil
 	}

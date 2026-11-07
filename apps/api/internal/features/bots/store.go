@@ -478,16 +478,17 @@ type BotList struct {
 	Summary ListSummary `json:"summary"`
 }
 
-// ListSummary is the board header: checks, sent alerts and AI calls today
-// in the person's notification zone, the account's AI cap, the next check
-// of any active Bot, and whether AI can judge now.
+// ListSummary is the board header: checks, sent alerts, shared alerts and
+// AI calls today in the person's notification zone, the account's AI cap,
+// the next check of any active Bot, and whether AI can judge now.
 type ListSummary struct {
 	ChecksToday   int        `json:"checksToday"`
 	AlertsToday   int        `json:"alertsToday"`
 	NextCheckAt   *time.Time `json:"nextCheckAt"`
 	AIChecksToday int        `json:"aiChecksToday"`
 	AICap         int        `json:"aiCap"`
-	AI            AIStatus   `json:"ai"` // filled by the handler: the Store has no judge
+	SharedToday   int        `json:"sharedToday"` // alerts held today because another Bot's already told of the same thing
+	AI            AIStatus   `json:"ai"`          // filled by the handler: the Store has no judge
 }
 
 // List returns the account's Bots, oldest first, with the board's numbers.
@@ -510,6 +511,12 @@ func (s *Store) List(ctx context.Context, userID string, now time.Time) (BotList
 		return BotList{}, err
 	}
 	out.Summary.ChecksToday = int(checks)
+	var shared int64
+	if err := db.Model(&Alert{}).Where("user_id = ? AND local_day = ? AND kind = ? AND held = ?", userID, local.Format(dayLayout), alertKindAlert, heldShared).
+		Count(&shared).Error; err != nil {
+		return BotList{}, err
+	}
+	out.Summary.SharedToday = int(shared)
 	out.Summary.AICap = AIPerAccount
 	if out.Summary.AIChecksToday, _, err = aiCallsToday(db, userID, local.Format(dayLayout)); err != nil {
 		return BotList{}, err
@@ -575,8 +582,22 @@ func (s *Store) Get(ctx context.Context, userID, idOrName string, now time.Time)
 	if err := db.Where("bot_id = ? AND user_id = ?", b.ID, userID).Order("created_at DESC, id").Limit(detailRows).Find(&alerts).Error; err != nil {
 		return Detail{}, err
 	}
+	anchors := []string{}
 	for _, a := range alerts {
-		d.Alerts = append(d.Alerts, alertView(a))
+		if a.SharedWith != nil {
+			anchors = append(anchors, *a.SharedWith)
+		}
+	}
+	refs, err := sharedRefs(db, userID, anchors)
+	if err != nil {
+		return Detail{}, err
+	}
+	for _, a := range alerts {
+		av := alertView(a)
+		if a.SharedWith != nil {
+			av.SharedWith = refs[*a.SharedWith]
+		}
+		d.Alerts = append(d.Alerts, av)
 	}
 	var days []PriceDay
 	since := now.UTC().AddDate(0, 0, -detailDays).Format(dayLayout)
@@ -727,6 +748,13 @@ func (s *Store) RateAlert(ctx context.Context, userID, botIDOrName, alertID stri
 			return err
 		}
 		out.AlertView = alertView(a)
+		if a.SharedWith != nil {
+			refs, err := sharedRefs(tx, userID, []string{*a.SharedWith})
+			if err != nil {
+				return err
+			}
+			out.SharedWith = refs[*a.SharedWith]
+		}
 		if err := tx.Where("alert_id = ? AND bot_id = ?", alertID, b.ID).Delete(&Lesson{}).Error; err != nil {
 			return err
 		}
@@ -963,15 +991,17 @@ ORDER BY b.id, c.started_at DESC, c.id DESC`, sql.Named("n", stripChecks), sql.N
 	}
 
 	// The newest alert the person was told of, or that a cap held; an alert
-	// the judge held back is not one (the Bot's page lists it).
+	// the judge held back is not one, nor is one held 'shared', so the
+	// board never carries SharedWith (the Bot's page lists both).
 	var latest []struct {
 		ID, BotID, BotName, Title, Body, URL, Held, Kind, AIState, AIWhy, Urgency string
 		What, Feedback                                                            *string
+		AlsoSeenBy                                                                jsonList[BotRef]
 		CreatedAt                                                                 time.Time
 	}
 	q = db.Raw(`
 SELECT DISTINCT ON (a.bot_id) a.id, a.bot_id, a.title, a.body, a.url, a.held, a.kind, a.ai_state, a.ai_why, a.urgency,
-       a.figures->>'what' AS what, a.feedback, a.created_at, b.name AS bot_name
+       a.figures->>'what' AS what, a.feedback, a.also_seen_by, a.created_at, b.name AS bot_name
 FROM bot_alerts a JOIN bots b ON b.id = a.bot_id
 WHERE a.user_id = @uid AND a.kind IN ('alert', 'brief') AND a.held IN ('', @cap) AND a.created_at >= @since AND (@bot = '' OR a.bot_id = @bot)
 ORDER BY a.bot_id, a.created_at DESC, a.id DESC`, sql.Named("uid", userID), sql.Named("cap", heldCap),
@@ -980,11 +1010,12 @@ ORDER BY a.bot_id, a.created_at DESC, a.id DESC`, sql.Named("uid", userID), sql.
 		return nil, err
 	}
 	for _, a := range latest {
-		bd.latest[a.BotID] = &AlertBrief{ID: a.ID, Title: a.Title, Body: a.Body, URL: a.URL, Held: a.Held, CreatedAt: a.CreatedAt, Feedback: a.Feedback,
-			Kind: a.Kind, AIState: a.AIState, AIWhy: a.AIWhy, Urgency: urgencyOr(a.Urgency), RulesTitle: a.Title}
+		brief := &AlertBrief{ID: a.ID, Title: a.Title, Body: a.Body, URL: a.URL, Held: a.Held, CreatedAt: a.CreatedAt, Feedback: a.Feedback,
+			Kind: a.Kind, AIState: a.AIState, AIWhy: a.AIWhy, Urgency: urgencyOr(a.Urgency), AlsoSeenBy: botRefs(a.AlsoSeenBy), RulesTitle: a.Title}
 		if a.What != nil && strings.TrimSpace(*a.What) != "" {
-			bd.latest[a.BotID].RulesTitle = a.BotName + ": " + *a.What
+			brief.RulesTitle = a.BotName + ": " + *a.What
 		}
+		bd.latest[a.BotID] = brief
 	}
 
 	var days []struct {
@@ -1001,6 +1032,24 @@ ORDER BY a.bot_id, a.created_at DESC, a.id DESC`, sql.Named("uid", userID), sql.
 		bd.days[d.WatchID] = append(bd.days[d.WatchID], dayClose{WatchID: d.WatchID, Day: d.Day.UTC().Format(dayLayout), Open: d.Open, Close: d.Close})
 	}
 	return bd, nil
+}
+
+// sharedRefs names the alerts held 'shared' alerts joined, by alert id,
+// with their Bots. An alert that is gone, or not the person's, is left out.
+func sharedRefs(db *gorm.DB, userID string, ids []string) (map[string]*SharedRef, error) {
+	out := map[string]*SharedRef{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var rows []SharedRef
+	if err := db.Raw(`SELECT a.id AS alert_id, a.bot_id, b.name FROM bot_alerts a JOIN bots b ON b.id = a.bot_id
+WHERE a.user_id = ? AND b.user_id = a.user_id AND a.id IN ?`, userID, ids).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		out[rows[i].AlertID] = &rows[i]
+	}
+	return out, nil
 }
 
 // localDay is today's date in the zone quiet hours and digests use.

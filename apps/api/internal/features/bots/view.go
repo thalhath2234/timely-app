@@ -70,6 +70,10 @@ type AlertBrief struct {
 	AIState   string    `json:"aiState"` // "", judged, unchecked or rejudged
 	AIWhy     string    `json:"aiWhy"`   // the judge's line, or why AI did not judge it
 	Urgency   string    `json:"urgency"` // low, normal or high
+	// AlsoSeenBy lists the other Bots that saw the same thing the same day;
+	// SharedWith is the alert a held 'shared' one joined.
+	AlsoSeenBy []BotRef   `json:"alsoSeenBy"`
+	SharedWith *SharedRef `json:"sharedWith"`
 	// RulesTitle is the title in the rules' words ("<bot>: " + figures.what),
 	// for readers that must not pass on a model's words (MCP).
 	RulesTitle string `json:"-"`
@@ -168,6 +172,16 @@ type AlertView struct {
 	AIState string `json:"aiState"`
 	AIWhy   string `json:"aiWhy"`
 	Urgency string `json:"urgency"`
+	// One alert per thing, see AlertBrief.
+	AlsoSeenBy []BotRef   `json:"alsoSeenBy"`
+	SharedWith *SharedRef `json:"sharedWith"`
+}
+
+// SharedRef is the alert a held 'shared' alert joined, and its Bot.
+type SharedRef struct {
+	AlertID string `json:"alertId"`
+	BotID   string `json:"botId"`
+	Name    string `json:"name"`
 }
 
 type PriceDayView struct {
@@ -477,7 +491,15 @@ func alertView(a Alert) AlertView {
 	return AlertView{ID: a.ID, CheckID: a.CheckID, Figures: figures, Kind: a.Kind, Held: a.Held, Title: a.Title, Body: a.Body,
 		URL: a.URL, Urgent: a.Urgent, MoreCount: a.MoreCount, CreatedAt: a.CreatedAt,
 		Feedback: a.Feedback, FeedbackReason: a.FeedbackReason, FeedbackNote: a.FeedbackNote, FeedbackAt: a.FeedbackAt,
-		AIState: a.AIState, AIWhy: a.AIWhy, Urgency: urgencyOr(a.Urgency)}
+		AIState: a.AIState, AIWhy: a.AIWhy, Urgency: urgencyOr(a.Urgency), AlsoSeenBy: botRefs(a.AlsoSeenBy)}
+}
+
+// botRefs is a list of Bots for a client: never null.
+func botRefs(l []BotRef) []BotRef {
+	if l == nil {
+		return []BotRef{}
+	}
+	return l
 }
 
 // urgencyOr is an alert's urgency, normal when unset.

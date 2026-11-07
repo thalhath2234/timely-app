@@ -163,7 +163,7 @@ type Alert struct {
 	CheckID        *string              `gorm:"type:text" json:"checkId"`
 	NotificationID *string              `gorm:"type:text" json:"notificationId"`
 	Kind           string               `gorm:"type:text;not null" json:"kind"` // alert|more|paused
-	Held           string               `gorm:"type:text;not null" json:"held"` // ""|snoozed|cap|judged
+	Held           string               `gorm:"type:text;not null" json:"held"` // ""|snoozed|cap|judged|shared
 	LocalDay       time.Time            `gorm:"type:date;not null" json:"-"`
 	Title          string               `gorm:"type:text;not null" json:"title"`
 	Body           string               `gorm:"type:text;not null" json:"body"`
@@ -182,11 +182,31 @@ type Alert struct {
 	// rejudged (a later verdict said it was not worth it), "" for a rules
 	// Bot. AIInput keeps the judge's input only while a re-judge is
 	// queued. Urgency is the judge's, or high for an urgent rules Bot.
-	AIState   string          `gorm:"column:ai_state;type:text;not null" json:"aiState"`
-	AIWhy     string          `gorm:"column:ai_why;type:text;not null" json:"aiWhy"`
-	AIInput   json.RawMessage `gorm:"column:ai_input;type:jsonb" json:"-"`
-	Urgency   string          `gorm:"type:text;not null;default:normal" json:"urgency"`
-	CreatedAt time.Time       `json:"createdAt"`
+	AIState string          `gorm:"column:ai_state;type:text;not null" json:"aiState"`
+	AIWhy   string          `gorm:"column:ai_why;type:text;not null" json:"aiWhy"`
+	AIInput json.RawMessage `gorm:"column:ai_input;type:jsonb" json:"-"`
+	Urgency string          `gorm:"type:text;not null;default:normal" json:"urgency"`
+	// One alert per thing: Things are what a sent alert told of, so another
+	// Bot's alert on the same thing the same day joins it; AlsoSeenBy lists
+	// the Bots that did. A held 'shared' alert names the one it joined.
+	Things     jsonList[Thing]  `gorm:"type:jsonb;not null" json:"-"`
+	AlsoSeenBy jsonList[BotRef] `gorm:"column:also_seen_by;type:jsonb;not null" json:"alsoSeenBy"`
+	SharedWith *string          `gorm:"type:text" json:"sharedWith"`
+	CreatedAt  time.Time        `json:"createdAt"`
+}
+
+// BotRef names a Bot.
+type BotRef struct {
+	BotID string `json:"botId"`
+	Name  string `json:"name"`
+}
+
+// Thing is one product, ticker or link a sent alert told of: its key
+// (thingKey*), the price it told of, if any, and the alert's urgency.
+type Thing struct {
+	Key     string   `json:"key"`
+	Value   *float64 `json:"value,omitempty"`
+	Urgency string   `json:"urgency"`
 }
 
 func (Alert) TableName() string { return "bot_alerts" }
@@ -210,7 +230,9 @@ type Finding struct {
 	OutsideData bool       `gorm:"not null" json:"outsideData"`
 	Alerted     bool       `gorm:"not null" json:"alerted"`
 	DigestedAt  *time.Time `json:"digestedAt"`
-	CreatedAt   time.Time  `json:"createdAt"`
+	// ThingKey is the product, ticker or link the note is about (thingKey*).
+	ThingKey  string    `gorm:"type:text;not null" json:"-"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 func (Finding) TableName() string { return "bot_findings" }

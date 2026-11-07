@@ -93,6 +93,11 @@ func (s *Service) rejudge(ctx context.Context, db *gorm.DB, job *models.Job, ale
 		return s.rejudgeFailed(job, err, stop)
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
+		// Under the same lock as sharing, so a Bot joining this alert and
+		// the flip do not each write the notification from a stale row.
+		if err := lockThings(tx, job.UserID); err != nil {
+			return err
+		}
 		pending := tx.Model(&Alert{}).Where("id = ? AND user_id = ? AND ai_state = ? AND ai_input IS NOT NULL", a.ID, job.UserID, aiUnchecked)
 		if v.Alert {
 			return pending.Updates(map[string]any{"ai_state": aiJudged, "ai_why": v.Why, "urgency": v.Urgency, "ai_input": nil}).Error
@@ -101,7 +106,12 @@ func (s *Service) rejudge(ctx context.Context, db *gorm.DB, job *models.Job, ale
 		if res.Error != nil || res.RowsAffected == 0 || a.NotificationID == nil {
 			return res.Error
 		}
-		err := notify.BumpAlert(tx, job.UserID, *a.NotificationID, a.Title, rejudgeLaterLine+v.Why)
+		var flipped Alert
+		if err := tx.Select("also_seen_by").Where("id = ?", a.ID).Take(&flipped).Error; err != nil {
+			return err
+		}
+		// Bots that joined it before the flip stay named.
+		err := notify.BumpAlert(tx, job.UserID, *a.NotificationID, a.Title, rejudgeLaterLine+v.Why+alsoSeenTail(flipped.AlsoSeenBy))
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil // the person cleared it
 		}

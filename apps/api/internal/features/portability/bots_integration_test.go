@@ -640,3 +640,135 @@ func TestIntegrationRestoreVetsBotKnowledge(t *testing.T) {
 		}
 	}
 }
+
+// One alert per thing survives a backup: the things a sent alert told of,
+// who else saw it and the alert a shared one joined. A crafted file cannot
+// point shared_with at another account's alert or name another account's
+// Bot under "Also seen by", and a backup made before sharing restores with
+// none.
+func TestIntegrationRestoreSharedAlerts(t *testing.T) {
+	db := migratedDB(t)
+	const uid, other = "usr_portability_shared", "usr_portability_shared_other"
+	for _, row := range []any{
+		&models.User{ID: uid, Email: "shared@example.invalid", Password: "not-a-real-hash"},
+		&models.User{ID: other, Email: "shared-other@example.invalid", Password: "not-a-real-hash"},
+	} {
+		if err := db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedAccountBasics(t, db, uid, true)
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if err := db.Exec(query, args...).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO bots (id, user_id, name, interval_seconds, next_check_at) VALUES
+		('bot_s_a', ?, 'BTC A', 900, now()), ('bot_s_b', ?, 'BTC B', 900, now())`, uid, uid)
+	exec(`INSERT INTO bots (id, user_id, name, interval_seconds, next_check_at) VALUES ('bot_s_theirs', ?, 'Theirs', 900, now())`, other)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, local_day, title, things, also_seen_by, created_at) VALUES
+		('bal_s_theirs', 'bot_s_theirs', ?, 'alert', '2026-11-06', 'Theirs: below 70,000', '[]', '[]', '2026-11-06 09:00')`, other)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, local_day, title, things, also_seen_by, created_at) VALUES
+		('bal_s_first', 'bot_s_a', ?, 'alert', '2026-11-06', 'BTC A: price changed', '[{"key": "price:coinbase:BTC", "value": 69120, "urgency": "normal"}]',
+		 '[{"botId": "bot_s_b", "name": "BTC B"}]', '2026-11-06 09:00')`, uid)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, held, local_day, title, shared_with, created_at) VALUES
+		('bal_s_shared', 'bot_s_b', ?, 'alert', 'shared', '2026-11-06', 'BTC B: price changed', 'bal_s_first', '2026-11-06 09:01'),
+		('bal_s_crafted', 'bot_s_b', ?, 'alert', 'shared', '2026-11-06', 'BTC B: price changed', NULL, '2026-11-06 09:02')`, uid, uid)
+	exec(`INSERT INTO bot_findings (id, bot_id, user_id, kind, title, urgency, thing_key) VALUES
+		('bfd_s', 'bot_s_a', ?, 'item', 'Story', 'normal', 'link:https://news.example/1')`, uid)
+
+	service := NewService(db, nil)
+	service.SetRestoreVet(bots.New(db, nil).VetRestore)
+	backup, err := service.Export(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type alertRow struct {
+		ID, Things, AlsoSeenBy string
+		SharedWith             *string
+	}
+	read := func() map[string]alertRow {
+		t.Helper()
+		var rows []alertRow
+		if err := db.Raw(`SELECT id, things::text AS things, also_seen_by::text AS also_seen_by, shared_with FROM bot_alerts WHERE user_id = ?`, uid).Scan(&rows).Error; err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]alertRow{}
+		for _, r := range rows {
+			out[r.ID] = r
+		}
+		return out
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	got := read()
+	if r := got["bal_s_shared"]; r.SharedWith == nil || *r.SharedWith != "bal_s_first" {
+		t.Fatalf("shared alert lost what it joined: %+v", r)
+	}
+	// What an alert told of only matters to sharing, and a file's could
+	// hold back the person's other Bots: a restore lets it go.
+	if r := got["bal_s_first"]; r.AlsoSeenBy != `[{"name": "BTC B", "botId": "bot_s_b"}]` || r.Things != "[]" {
+		t.Fatalf("first alert %+v", r)
+	}
+	var key string
+	if err := db.Raw(`SELECT thing_key FROM bot_findings WHERE id = 'bfd_s'`).Scan(&key).Error; err != nil || key != "link:https://news.example/1" {
+		t.Fatalf("finding thing key %q (%v)", key, err)
+	}
+
+	// A crafted file: one shared alert points at another account's alert,
+	// "Also seen by" names their Bot and a made-up name for one of ours,
+	// things are not a list or carry a value that is not a number, and an
+	// older backup leaves the new columns out.
+	for i, raw := range backup.Rows["bot_alerts"] {
+		var row map[string]any
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatal(err)
+		}
+		switch row["id"] {
+		case "bal_s_crafted":
+			row["shared_with"] = "bal_s_theirs"
+			row["things"] = []any{map[string]any{"key": "price:coinbase:BTC:USD", "value": "x"}}
+		case "bal_s_first":
+			row["also_seen_by"] = []any{
+				map[string]any{"botId": "bot_s_theirs", "name": "Theirs"},
+				map[string]any{"botId": "bot_s_b", "name": "Anything at all"},
+				map[string]any{"botId": "bot_missing", "name": "Gone"},
+			}
+			row["things"] = "not a list"
+		case "bal_s_shared":
+			delete(row, "things")
+			delete(row, "also_seen_by")
+		}
+		backup.Rows["bot_alerts"][i], _ = json.Marshal(row)
+	}
+	for i, raw := range backup.Rows["bot_findings"] {
+		var row map[string]any
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatal(err)
+		}
+		delete(row, "thing_key")
+		backup.Rows["bot_findings"][i], _ = json.Marshal(row)
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	got = read()
+	if r := got["bal_s_crafted"]; r.SharedWith != nil || r.Things != "[]" {
+		t.Fatalf("a crafted shared_with points at another account's alert: %+v", r)
+	}
+	if r := got["bal_s_first"]; r.AlsoSeenBy != `[{"name": "BTC B", "botId": "bot_s_b"}]` || r.Things != "[]" {
+		t.Fatalf("also seen by and things after a crafted file: %+v", r)
+	}
+	if r := got["bal_s_shared"]; r.Things != "[]" || r.AlsoSeenBy != "[]" || r.SharedWith == nil {
+		t.Fatalf("older backup restored %+v", r)
+	}
+	if err := db.Raw(`SELECT thing_key FROM bot_findings WHERE id = 'bfd_s'`).Scan(&key).Error; err != nil || key != "" {
+		t.Fatalf("older finding thing key %q (%v)", key, err)
+	}
+	var theirs int64
+	if err := db.Raw(`SELECT count(*) FROM bot_alerts WHERE id = 'bal_s_theirs' AND user_id = ?`, other).Scan(&theirs).Error; err != nil || theirs != 1 {
+		t.Fatalf("the other account's alert: %d (%v)", theirs, err)
+	}
+}
