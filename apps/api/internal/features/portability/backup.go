@@ -208,7 +208,18 @@ type deferredRef struct {
 	value             any
 }
 
+// Restore replaces the account's rows with the backup's.
 func (s *Service) Restore(userID string, backup *Backup) (*RestoreResult, error) {
+	return s.restore(userID, backup, false)
+}
+
+// RestoreFromMCP is Restore for an outside app: the restore vet holds what
+// it brings back to what its own tools may do.
+func (s *Service) RestoreFromMCP(userID string, backup *Backup) (*RestoreResult, error) {
+	return s.restore(userID, backup, true)
+}
+
+func (s *Service) restore(userID string, backup *Backup, fromMCP bool) (*RestoreResult, error) {
 	if userID == "" {
 		return nil, errors.New("user not authenticated")
 	}
@@ -265,6 +276,11 @@ func (s *Service) Restore(userID string, backup *Backup) (*RestoreResult, error)
 				return fmt.Errorf("restore relationship %s.%s: %w", ref.table, ref.column, err)
 			}
 		}
+		if s.vetRestore != nil {
+			if err := s.vetRestore(tx, userID, fromMCP); err != nil {
+				return err
+			}
+		}
 		return checkAccountBasics(tx, userID)
 	})
 	if err != nil {
@@ -311,8 +327,10 @@ var restoreParents = map[string][]parentRef{
 	"recurrence_exceptions": {{"rule_id", "recurrence_rules", true}},
 	"habit_checks":          {{"habit_id", "habits", true}},
 	// bot_checks is never restored, so check_id always comes back NULL.
-	"bot_watches":    {{"bot_id", "bots", true}},
-	"bot_alerts":     {{"bot_id", "bots", true}, {"check_id", "bot_checks", false}},
+	"bot_watches": {{"bot_id", "bots", true}},
+	// notification_id has no FK, and bumping a "more" alert rewrites that
+	// notification, so it must be one restored to this account.
+	"bot_alerts":     {{"bot_id", "bots", true}, {"check_id", "bot_checks", false}, {"notification_id", "notifications", false}},
 	"bot_lessons":    {{"bot_id", "bots", true}, {"alert_id", "bot_alerts", false}},
 	"bot_findings":   {{"bot_id", "bots", true}, {"check_id", "bot_checks", false}, {"watch_id", "bot_watches", false}},
 	"bot_price_days": {{"watch_id", "bot_watches", true}, {"bot_id", "bots", true}},

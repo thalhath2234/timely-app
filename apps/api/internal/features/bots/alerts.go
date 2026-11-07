@@ -110,7 +110,7 @@ RETURNING id, more_count, notification_id`,
 			return err
 		}
 	default:
-		err := notify.BumpAlert(tx, *more.NotificationID, title, body)
+		err := notify.BumpAlert(tx, b.UserID, *more.NotificationID, title, body)
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			// The person cleared it: a fresh one carries the count on.
 			err = write()

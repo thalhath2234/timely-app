@@ -95,11 +95,12 @@ func WriteAlert(tx *gorm.DB, ntf *models.Notification, settings models.Notificat
 	return true, err
 }
 
-// BumpAlert rewrites an alert's title and body without a new push (the
-// "and N more" alert). It returns gorm.ErrRecordNotFound when the row is
-// gone, for example after Clear all, so the caller can write a new one.
-func BumpAlert(tx *gorm.DB, id, title, body string) error {
-	res := tx.Model(&models.Notification{}).Where("id = ?", id).Updates(map[string]any{"title": title, "body": body})
+// BumpAlert rewrites one of userID's alerts, title and body, without a new
+// push (the "and N more" alert). It returns gorm.ErrRecordNotFound when the
+// row is gone, for example after Clear all, or is not userID's, so the
+// caller can write a new one.
+func BumpAlert(tx *gorm.DB, userID, id, title, body string) error {
+	res := tx.Model(&models.Notification{}).Where("id = ? AND user_id = ?", id, userID).Updates(map[string]any{"title": title, "body": body})
 	if res.Error != nil {
 		return res.Error
 	}

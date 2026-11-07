@@ -127,14 +127,21 @@ func TestIntegrationWriteAlertDelivery(t *testing.T) {
 		t.Fatal("a rolled-back alert was kept")
 	}
 
+	// Another account's notification is never rewritten.
+	if err := BumpAlert(db, "usr_someone_else", held.ID, "Taken over", "body"); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("bump of another account's row = %v", err)
+	}
+	if row := notificationRow(t, db, held.ID); row.Title == "Taken over" {
+		t.Fatal("BumpAlert rewrote another account's notification")
+	}
 	// BumpAlert rewrites the text with no new push; a gone row says so.
-	if err := BumpAlert(db, held.ID, "Price check: and 2 more today", "body"); err != nil {
+	if err := BumpAlert(db, zoneTestUser, held.ID, "Price check: and 2 more today", "body"); err != nil {
 		t.Fatal(err)
 	}
 	if row := notificationRow(t, db, held.ID); row.Title != "Price check: and 2 more today" || row.Body != "body" || len(pushJobs(t, db, held.ID)) != 1 {
 		t.Fatalf("bumped row = %q / %q", row.Title, row.Body)
 	}
-	if err := BumpAlert(db, "ntf_missing", "t", "b"); !errors.Is(err, gorm.ErrRecordNotFound) {
+	if err := BumpAlert(db, zoneTestUser, "ntf_missing", "t", "b"); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("bump of a gone row = %v", err)
 	}
 }

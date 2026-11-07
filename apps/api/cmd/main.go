@@ -157,6 +157,9 @@ func main() {
 	indexRebuild = providerService.EnsureIndex
 	// A restore replaces every row and drops the search index with them, so
 	// it queues a rebuild, which Settings shows while it runs.
+	// Restored Bots get the checks a save makes, and stay off when an
+	// outside app restored them.
+	portabilityService.SetRestoreVet(botService.VetRestore)
 	portabilityService.SetAfterRestore(func(userID string) {
 		indexer.Invalidate(userID)
 		botService.AfterRestore(userID)

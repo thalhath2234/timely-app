@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"timely-api/internal/features/bots"
 	"timely-api/internal/models"
 )
 
@@ -37,6 +38,12 @@ func TestIntegrationBackupKeepsBots(t *testing.T) {
 	exec(`INSERT INTO bot_watches (id, bot_id, user_id, kind, url, read_mode, baseline_pending)
 		VALUES ('bw_2', 'bot_2', ?, 'page', 'https://example.com/', 'text', false)`, uid)
 	exec(`INSERT INTO bot_checks (id, bot_id, user_id, trigger, started_at, finished_at, outcome) VALUES ('bchk_1', 'bot_1', ?, 'schedule', now(), now(), 'fired')`, uid)
+	for _, n := range []models.Notification{{ID: "ntf_1", UserID: uid, Category: models.NotifyBot, Title: "BTC dip: below 25,000"},
+		{ID: "ntf_theirs", UserID: other, Category: models.NotifyBot, Title: "Theirs"}} {
+		if err := db.Create(&n).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
 	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, check_id, notification_id, kind, local_day, title) VALUES ('bal_1', 'bot_1', ?, 'bchk_1', 'ntf_1', 'alert', '2026-11-06', 'BTC dip: below 25,000')`, uid)
 	exec(`INSERT INTO bot_lessons (id, bot_id, user_id, alert_id, text) VALUES ('bls_1', 'bot_1', ?, 'bal_1', 'Only dips under 25k matter')`, uid)
 	exec(`INSERT INTO bot_findings (id, bot_id, user_id, check_id, watch_id, kind, title, price, currency, alerted, digested_at)
@@ -119,6 +126,22 @@ func TestIntegrationBackupKeepsBots(t *testing.T) {
 		t.Fatal("price day did not round-trip")
 	}
 
+	// A crafted alert pointing at another account's notification keeps
+	// the alert but drops the link, so a "more" bump cannot rewrite it.
+	var alert map[string]any
+	if err := json.Unmarshal(backup.Rows["bot_alerts"][0], &alert); err != nil {
+		t.Fatal(err)
+	}
+	alert["notification_id"] = "ntf_theirs"
+	rawAlert, _ := json.Marshal(alert)
+	backup.Rows["bot_alerts"][0] = rawAlert
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(`SELECT count(*) FROM bot_alerts WHERE id = 'bal_1' AND notification_id IS NULL`); n != 1 {
+		t.Fatal("a restored alert kept another account's notification id")
+	}
+
 	// A crafted watch on another account's Bot is refused, and nothing changes.
 	// It is a full exported row, so only the ownership check can refuse it.
 	var crafted map[string]any
@@ -136,5 +159,94 @@ func TestIntegrationBackupKeepsBots(t *testing.T) {
 	}
 	if n := count(`SELECT count(*) FROM bots WHERE user_id = ?`, uid); n != 2 {
 		t.Fatalf("refused restore changed the Bots: %d", n)
+	}
+}
+
+// Restored Bots get the checks a save makes, and an outside app's restore
+// cannot turn a Bot or its alert settings on.
+func TestIntegrationRestoreVetsBots(t *testing.T) {
+	db := migratedDB(t)
+	const uid = "usr_portability_vet"
+	if err := db.Create(&models.User{ID: uid, Email: "vet@example.invalid", Password: "not-a-real-hash"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	seedAccountBasics(t, db, uid, true)
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if err := db.Exec(query, args...).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO bots (id, user_id, name, interval_seconds, next_check_at, urgent, notify_phone, judge_mode) VALUES
+		('bot_fast', ?, 'Too fast', 300, now(), false, true, 'rules'),
+		('bot_has', ?, 'Has selector', 900, now(), false, true, 'rules'),
+		('bot_loud', ?, 'Urgent price', 900, now(), true, false, 'ai')`, uid, uid, uid)
+	exec(`INSERT INTO bot_watches (id, bot_id, user_id, kind, url, read_mode, selector) VALUES
+		('bw_fast', 'bot_fast', ?, 'page', 'https://example.com/', 'product_price', ''),
+		('bw_has', 'bot_has', ?, 'page', 'https://example.com/', 'selector', 'div:has(div:has(p))')`, uid, uid)
+	exec(`INSERT INTO bot_watches (id, bot_id, user_id, kind, source, symbol, currency) VALUES ('bw_loud', 'bot_loud', ?, 'price', 'coinbase', 'BTC', 'USD')`, uid)
+
+	service := NewService(db, nil)
+	service.SetRestoreVet(bots.New(db, nil).VetRestore)
+	backup, err := service.Export(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type row struct {
+		ID, Status, JudgeMode, Health string
+		PauseReason                   *string
+		IntervalSeconds               int
+		Urgent, NotifyPhone           bool
+	}
+	read := func() map[string]row {
+		t.Helper()
+		var rows []row
+		if err := db.Raw(`SELECT id, status, judge_mode, health, pause_reason, interval_seconds, urgent, notify_phone FROM bots WHERE user_id = ?`, uid).Scan(&rows).Error; err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]row{}
+		for _, r := range rows {
+			out[r.ID] = r
+		}
+		return out
+	}
+
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	got := read()
+	if r := got["bot_fast"]; r.Status != "active" || r.IntervalSeconds != 6*3600 {
+		t.Fatalf("a shop price restored under its floor: %+v", r)
+	}
+	if r := got["bot_has"]; r.Status != "paused" || r.PauseReason == nil || *r.PauseReason != "person" || r.Health != "unsupported" {
+		t.Fatalf("a watch Timely cannot use came back on: %+v", r)
+	}
+	if r := got["bot_loud"]; r.Status != "active" || !r.Urgent || r.NotifyPhone || r.JudgeMode != "rules" {
+		t.Fatalf("the person's own restore changed alert settings: %+v", r)
+	}
+
+	// The same backup, edited by an outside app and restored over MCP.
+	for i, raw := range backup.Rows["bots"] {
+		var b map[string]any
+		if err := json.Unmarshal(raw, &b); err != nil {
+			t.Fatal(err)
+		}
+		b["status"], b["pause_reason"], b["urgent"], b["notify_phone"] = "active", nil, true, true
+		backup.Rows["bots"][i], _ = json.Marshal(b)
+	}
+	if _, err := service.RestoreFromMCP(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	for id, r := range read() {
+		if r.Status != "paused" || r.Urgent || !r.NotifyPhone {
+			t.Fatalf("%s restored over MCP: %+v", id, r)
+		}
+		if want := map[string]string{"bot_has": "person"}[id]; want == "" && *r.PauseReason != "mcp" {
+			t.Fatalf("%s pause reason %s", id, *r.PauseReason)
+		}
+	}
+	var next int64
+	if err := db.Raw(`SELECT count(*) FROM bots WHERE user_id = ? AND next_check_at IS NOT NULL`, uid).Scan(&next).Error; err != nil || next != 0 {
+		t.Fatalf("%d paused bots still scheduled (%v)", next, err)
 	}
 }
