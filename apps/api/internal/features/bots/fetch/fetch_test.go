@@ -408,8 +408,8 @@ func TestTransportErrors(t *testing.T) {
 	}
 
 	n := newNet(map[string]reply{page: {err: &net.DNSError{Err: "no such host", Name: "shop.example", IsNotFound: true}}})
-	if _, err := newFetcher(n, Config{}).Get(context.Background(), Request{URL: page, Want: WantPage}); err == nil || errors.Is(err, ErrOffline) {
-		t.Errorf("a name that does not exist is not offline: %v", err)
+	if _, err := newFetcher(n, Config{}).Get(context.Background(), Request{URL: page, Want: WantPage}); !errors.Is(err, ErrNoSuchHost) || errors.Is(err, ErrOffline) {
+		t.Errorf("a name that does not exist is ErrNoSuchHost, not offline: %v", err)
 	}
 }
 

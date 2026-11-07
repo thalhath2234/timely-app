@@ -155,6 +155,7 @@ func TestRobotsAnswers(t *testing.T) {
 		{"disallowed", reply{status: 200, body: "User-agent: *\nDisallow: /p/\n"}, ErrRobots, 24 * time.Hour, true, false},
 		{"allowed", reply{status: 200, body: "User-agent: *\nDisallow: /cart\n"}, nil, 24 * time.Hour, true, true},
 		{"our own outage is offline", reply{err: &net.OpError{Op: "dial", Net: "tcp", Err: os.ErrDeadlineExceeded}}, ErrOffline, 0, false, false},
+		{"a name that does not exist is not a refusal", reply{err: &net.DNSError{Err: "no such host", Name: "shop.example", IsNotFound: true}}, ErrNoSuchHost, 0, false, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			n := newNet(map[string]reply{robotsURL: c.robots, page: html("<html>ok</html>")})

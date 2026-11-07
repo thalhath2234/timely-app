@@ -190,7 +190,7 @@ func (f *Fetcher) fetchRobots(ctx context.Context, u *url.URL, origin string) (i
 		// A redirect that could not be followed: the file is unavailable.
 		status = http.StatusNotFound
 	case err != nil:
-		if sorted := transportError(ctx, err); errors.Is(sorted, ErrOffline) || errors.Is(sorted, ErrBlockedAddress) {
+		if sorted := transportError(ctx, err); errors.Is(sorted, ErrOffline) || errors.Is(sorted, ErrBlockedAddress) || errors.Is(sorted, ErrNoSuchHost) {
 			return 0, "", sorted
 		}
 	default:

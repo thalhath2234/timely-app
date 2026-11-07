@@ -358,6 +358,8 @@ func describeErr(w Watch, err error) *problem {
 		return strike("too_big", "The page is too large to read with this selector")
 	case errors.Is(err, fetch.ErrBlockedAddress):
 		return strike("blocked", "This is not a public web address")
+	case errors.Is(err, fetch.ErrNoSuchHost):
+		return strike("not_found", p.site+" doesn't exist. Check the address")
 	case errors.Is(err, fetch.ErrUnsupported), errors.Is(err, errUnreadable):
 		if w.Kind == WatchFeed {
 			return strike("unsupported", "This address is not a feed Timely can read")

@@ -1,9 +1,13 @@
 package bots
 
 import (
+	"fmt"
 	"math/rand/v2"
+	"strings"
 	"testing"
 	"time"
+
+	"timely-api/internal/features/bots/fetch"
 )
 
 var (
@@ -112,5 +116,17 @@ func TestStrikeDelay(t *testing.T) {
 		if got := StrikeDelay(c.interval, c.strikes); got != c.want {
 			t.Errorf("StrikeDelay(%v, %d) = %v, want %v", c.interval, c.strikes, got, c.want)
 		}
+	}
+}
+
+func TestDescribeErrNoSuchHostIsAStrike(t *testing.T) {
+	w := Watch{Kind: WatchPage, URL: "https://shop.example/p/1"}
+	err := fmt.Errorf("%w: lookup shop.example: no such host", fetch.ErrNoSuchHost)
+	p := describeErr(w, err)
+	if p == nil || p.class != classStrike || p.code != "not_found" {
+		t.Fatalf("got %+v, want a not_found strike", p)
+	}
+	if !strings.Contains(p.line, "doesn't exist") {
+		t.Errorf("line = %q", p.line)
 	}
 }

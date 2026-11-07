@@ -23,6 +23,7 @@ var (
 	ErrRobots         = errors.New("robots.txt asks automated tools not to read it")
 	ErrUnsupported    = errors.New("not a page, feed or JSON")
 	ErrBlockedAddress = errors.New("not a public web address")
+	ErrNoSuchHost     = errors.New("no such site")
 )
 
 // RateLimitedError is a 429 or 503. RetryAfter is 0 when the site named no
@@ -65,8 +66,18 @@ func transportError(ctx context.Context, err error) error {
 		return ctx.Err()
 	case offline(err):
 		return fmt.Errorf("%w: %v", ErrOffline, err)
+	case noSuchHost(err):
+		return fmt.Errorf("%w: %v", ErrNoSuchHost, err)
 	}
 	return err
+}
+
+// noSuchHost is a name the resolver answered for and said does not exist,
+// such as a typo. It is the site's fault, not the network's, so it is a
+// strike; a resolver that couldn't answer stays offline.
+func noSuchHost(err error) bool {
+	var dnsErr *net.DNSError
+	return errors.As(err, &dnsErr) && dnsErr.IsNotFound && !dnsErr.IsTemporary && !dnsErr.IsTimeout
 }
 
 // offline matches the transient test in chat.RetryTransient, plus the
