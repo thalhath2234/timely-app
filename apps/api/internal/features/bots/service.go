@@ -14,6 +14,7 @@ import (
 	"timely-api/internal/features/notify"
 	"timely-api/internal/jobs"
 	"timely-api/internal/models"
+	"timely-api/internal/realtime"
 )
 
 // Check triggers, as stored in bot_checks.trigger and the job payload.
@@ -35,6 +36,7 @@ type Service struct {
 	// answers *price.KeyError and no key can be saved.
 	keys     price.Keys
 	keyStore *KeyStore
+	live     *realtime.Hub // GET /bots/watch; nil answers 503
 	now      func() time.Time
 
 	mu            sync.Mutex

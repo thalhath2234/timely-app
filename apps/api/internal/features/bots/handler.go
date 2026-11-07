@@ -18,6 +18,7 @@ func (s *Service) Routes(g *echo.Group) {
 	g.POST("/bots", s.create)
 	g.GET("/bots/findings", s.findings) // before /bots/:id
 	g.POST("/bots/preview", s.preview)
+	g.GET("/bots/watch", s.watch)
 	g.GET("/bots/defaults", s.alertDefaults)
 	g.PUT("/bots/defaults", s.setAlertDefaults)
 	g.GET("/bots/keys", s.sourceKeys)

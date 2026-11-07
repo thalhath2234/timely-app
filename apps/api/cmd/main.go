@@ -142,6 +142,7 @@ func main() {
 		log.Fatalf("bots: price source keys: %v", err)
 	}
 	botService.SetKeys(botKeys)
+	botService.SetLive(live)
 	jobWorker := jobs.NewWorker(jobQueue)
 	// Embedding work waits on OpenRouter: a whole account's reindex makes one
 	// request per item, so it and per-item index jobs each get a lane of their
@@ -344,6 +345,12 @@ func main() {
 		jobWorker.Run(ctx)
 	}()
 	chatService.Run(ctx)
+	// Bot changes reach GET /bots/watch from whichever process made them.
+	background.Add(1)
+	go func() {
+		defer background.Done()
+		botService.Relay(ctx)
+	}()
 
 	servers, listening := listenAll(bind, port, e)
 	if len(servers) == 0 {
