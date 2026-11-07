@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { SidebarProps } from "../../_types/types";
-import { MessageCircle, LayoutDashboard, Bell, Calendar, Files, FolderKanban, Inbox, ListTodo, Settings, Sun } from "lucide-react";
+import { MessageCircle, LayoutDashboard, Bell, Bot, Calendar, Files, FolderKanban, Inbox, ListTodo, Settings, Sun } from "lucide-react";
 import { useSidebarStore } from "../../_store/sidebarStore";
 import { motion } from "motion/react";
 import { hoverLift, tapPress } from "@/app/_components/_ui/motion";
@@ -9,6 +9,7 @@ import { usePathname } from "next/navigation";
 import { useUnreadNotificationCount } from "../../utils/hooks/notifications";
 
 import { useChats } from "@/app/utils/hooks/chat";
+import { useNeedsYouCount } from "@/app/utils/hooks/bots";
 import { plural } from "@/app/utils/plural";
 
 export default function SidebarButton({ item }: { item: SidebarProps }) {
@@ -38,6 +39,7 @@ export default function SidebarButton({ item }: { item: SidebarProps }) {
       >
         <SidebarButtonIcon icon={item.icon} />
         {item.name === "Chat" ? <ChatBadge /> : null}
+        {item.name === "Bots" ? <BotsBadge /> : null}
         {item.name === "Notifications" ? <UnreadBadge /> : null}
       </Link>
     </motion.div>
@@ -59,6 +61,8 @@ export const SidebarButtonIcon = ({ icon }: { icon: string }) => {
       return <FolderKanban className="size-5" />;
     case "Files":
       return <Files className="size-5" />;
+    case "Bot":
+      return <Bot className="size-5" />;
     case "LayoutDashboard":
       return <LayoutDashboard className="size-5" />;
     case "Bell":
@@ -93,6 +97,22 @@ function ChatBadge() {
       initial={{ scale: 0.5, opacity: 0 }}
       animate={{ scale: 1, opacity: 1 }}
       aria-label={plural(count, "unread chat")}
+      className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground"
+    >
+      {count > 9 ? "9+" : count}
+    </motion.span>
+  );
+}
+
+/** Bots that need the person: a new alert to rate, a fix, or an outside app's bot to turn on. */
+function BotsBadge() {
+  const count = useNeedsYouCount();
+  if (!count) return null;
+  return (
+    <motion.span
+      initial={{ scale: 0.5, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      aria-label={`${count} need you`}
       className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground"
     >
       {count > 9 ? "9+" : count}

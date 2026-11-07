@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listNotifications } from "@/app/utils/api/notifications";
 import type { AppNotification } from "@/app/_types/types";
+import { openedAlertHref } from "./notificationTarget";
 
 /** Shown now: a Bot alert meant for the desktop that quiet hours no longer hold. */
 function released(item: AppNotification, now: number): boolean {
@@ -14,6 +15,7 @@ function released(item: AppNotification, now: number): boolean {
 /** Pops Bot alerts as native desktop notifications. Renders nothing. */
 export default function BotAlertRuntime() {
   const router = useRouter();
+  const cache = useQueryClient();
   const desktop = typeof window !== "undefined" && !!window.timelyDesktop?.notifyAlert;
   const { data } = useQuery({
     queryKey: ["notifications", "bot-runtime"],
@@ -38,9 +40,14 @@ export default function BotAlertRuntime() {
       if (!first) notify({ id: item.id, title: item.title, body: item.body });
     }
   }, [data]);
+  // A clicked alert opens its bot.
   useEffect(
-    () => window.timelyDesktop?.onOpenAlert?.(() => router.push("/notifications")),
-    [router],
+    () =>
+      window.timelyDesktop?.onOpenAlert?.((id) => {
+        const cached = cache.getQueriesData({ queryKey: ["notifications"] }).map(([, data]) => data);
+        router.push(openedAlertHref(id, cached));
+      }),
+    [cache, router],
   );
   return null;
 }

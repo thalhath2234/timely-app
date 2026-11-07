@@ -503,8 +503,8 @@ audit-mobile-offline: ## Check the mobile offline mutation path with the app's o
 test-mobile-offline: ## Test the mobile offline queue: durable enqueue, restart, account scope, replay
 	@node --experimental-strip-types --test scripts/mobile-offline-queue.test.mjs
 
-test-electron-guards: ## Test the desktop shell's window-open origin policy and Bot alert payloads
-	@node --experimental-strip-types --test scripts/electron-guards.test.mjs
+test-electron-guards: ## Test the desktop shell's window-open origin policy, Bot alert payloads and where an opened alert goes
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/electron-guards.test.mjs scripts/notification-target.test.mjs
 
 .PHONY: test-electron-supervisor test-mobile-server-config test-desktop-instance test-web-api-proxy test-chat-stream
 test-electron-supervisor: ## Test the desktop supervisor: config/secrets, ports, Tailscale detection, backoff, stale pid, sidecar lifetime

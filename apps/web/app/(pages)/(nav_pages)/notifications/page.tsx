@@ -23,48 +23,10 @@ import { motion } from "motion/react";
 import { listContainerVariants, listItemVariants } from "@/app/_components/_ui/motion";
 import { GroupLabel } from "@/app/_components/_ui/groupedList";
 import { cn } from "@/app/utils/cn";
-import { fileHref } from "@/app/utils/fileRoutes";
+import { alertItems, dataString, targetFor } from "@/app/_components/notifications/notificationTarget";
 import { useDecisions, useNotificationTriage } from "@/app/utils/hooks/decisions";
 import type { AlertStep, TriageStep } from "@/app/utils/api/decisions";
 import { useToastStore } from "@/app/_store/toastStore";
-
-type NotificationTarget =
-  | { kind: "task"; id: string }
-  | { kind: "route"; href: string };
-
-function dataString(item: AppNotification, key: string) {
-  const value = item.data?.[key];
-  return typeof value === "string" && value ? value : null;
-}
-
-function targetFor(item: AppNotification): NotificationTarget {
-  // Bot alerts stay here until the Bots page exists.
-  if (item.category === "bot") return { kind: "route", href: "/notifications" };
-  const fromData = item.data?.taskId;
-  if (typeof fromData === "string" && fromData) return { kind: "task", id: fromData };
-  if (item.entityType === "task" && item.entityId) return { kind: "task", id: item.entityId };
-
-  const entityId = item.entityId;
-  if (entityId) {
-    if (item.entityType === "chat") return { kind: "route", href: `/chat?id=${encodeURIComponent(entityId)}` };
-    if (item.entityType === "project") return { kind: "route", href: `/projects/${entityId}` };
-    if (item.entityType === "doc" || item.entityType === "sheet") return { kind: "route", href: fileHref(entityId) };
-    if (item.entityType === "event") return { kind: "route", href: "/calendar" };
-  }
-
-  const projectId = dataString(item, "projectId");
-  if (projectId) return { kind: "route", href: `/projects/${projectId}` };
-  const fileId = dataString(item, "docId") ?? dataString(item, "sheetId");
-  if (fileId) return { kind: "route", href: fileHref(fileId) };
-  if (dataString(item, "eventId")) return { kind: "route", href: "/calendar" };
-  if (item.category === "digest") return { kind: "route", href: "/dashboard" };
-  if (item.category === "suggestion" && dataString(item, "kind") === "inbox") return { kind: "route", href: "/inbox" };
-  if (item.category === "suggestion") {
-    const first = alertItems(item)[0];
-    if (first) return { kind: "task", id: first.id };
-  }
-  return { kind: "route", href: "/today" };
-}
 
 /** Next steps for Work that is past its deadline or whose block ended unfinished.
  * Smart suggestions may mark one as suggested ([35][36]). */
@@ -96,15 +58,6 @@ const ALERT_STEP_LABEL: Record<AlertStep, string> = {
   focus: "Add to Focus",
   reschedule: "Find time",
 };
-
-function alertItems(item: AppNotification): { id: string; name: string }[] {
-  const raw = item.data?.items;
-  if (!Array.isArray(raw)) return [];
-  return raw.filter(
-    (entry): entry is { id: string; name: string } =>
-      Boolean(entry) && typeof entry === "object" && typeof (entry as { id?: unknown }).id === "string" && typeof (entry as { name?: unknown }).name === "string",
-  );
-}
 
 function alertStep(item: AppNotification): AlertStep | null {
   const step = dataString(item, "action");
