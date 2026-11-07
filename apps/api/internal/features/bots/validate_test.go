@@ -285,6 +285,10 @@ func TestFormatMoneyAndSummary(t *testing.T) {
 		{0.000123, "USD", "$0.000123"},
 		{999, "", "999"},
 		{-5.5, "EUR", "-€5.50"},
+		{187.125, "USD", "$187.12"},
+		{2.5, "JPY", "¥2"},
+		{1234.625, "EUR", "€1,234.62"},
+		{68412.375, "USD", "$68,412.38"},
 	} {
 		if got := formatMoney(c.v, c.cur); got != c.want {
 			t.Errorf("%v %s: %q, want %q", c.v, c.cur, got, c.want)
