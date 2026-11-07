@@ -19,7 +19,7 @@ import { BotSheet } from "../../../components/bots/BotSheet";
 import { botSites } from "../../../components/bots/BotMark";
 import { BotsEmpty } from "../../../components/bots/BotsEmpty";
 import { CountPill } from "../../../components/bots/Pill";
-import { BOT_KEYS_ROUTE, useBotActions, useDescribeInChat } from "../../../components/bots/useBotActions";
+import { AGENT_SETTINGS_ROUTE, BOT_KEYS_ROUTE, useBotActions, useDescribeInChat } from "../../../components/bots/useBotActions";
 import { contextChip } from "../../../lib/chat/context";
 import { useNow } from "../../../lib/dashboard";
 import { keys, useBotIcons, useBotsQuery } from "../../../lib/hooks";
@@ -62,6 +62,10 @@ export default function BotsScreen() {
   const addKey = useCallback(() => {
     closeSheet();
     router.push(BOT_KEYS_ROUTE as never);
+  }, [closeSheet, router]);
+  const setUpAi = useCallback(() => {
+    closeSheet();
+    router.push(AGENT_SETTINGS_ROUTE as never);
   }, [closeSheet, router]);
 
   const list = query.data;
@@ -180,6 +184,7 @@ export default function BotsScreen() {
         onSelect={openBot}
         onClose={closeSheet}
         onAddKey={addKey}
+        onSetUpAi={setUpAi}
       />
     </Screen>
   );

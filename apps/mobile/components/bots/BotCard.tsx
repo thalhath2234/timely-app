@@ -31,6 +31,7 @@ import { Button } from "../ui/primitives";
 import { ListRow } from "../settings/SettingsList";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { AlertFeedback } from "./AlertFeedback";
+import { AlertAiLine } from "./AlertAiLine";
 import { BotMark, type SiteIcons } from "./BotMark";
 import { CheckStrip } from "./CheckStrip";
 import { HealthLine } from "./HealthLine";
@@ -217,6 +218,7 @@ function Attention({ bot, now, actions, onOpen }: { bot: BotView; now: Date; act
             {line}
           </Text>
         ) : null}
+        <AlertAiLine alert={alert} variant="compact" />
       </>
     );
     return (

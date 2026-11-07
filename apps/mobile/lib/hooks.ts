@@ -41,9 +41,11 @@ import { relatedItems, searchItems, smartSearch, type RelatedKind } from "./api/
 import { listApiKeys, createApiKey, revokeApiKey } from "./api/apiKeys";
 import { needsYouCount, type BotInput, type BotPatch, type BotSettings, type FeedbackInput, type PreviewInput } from "@timely/contract/bots";
 import {
+  applySuggestion,
   botIcons,
   createBot,
   deleteBot,
+  dismissSuggestion,
   forgetLesson,
   getBot,
   getBotDefaults,
@@ -55,7 +57,9 @@ import {
   removeSourceKey,
   resumeBot,
   runBot,
+  setAllPaused,
   setBotDefaults,
+  setLink,
   setSourceKey,
   snoozeBot,
   updateBot,
@@ -2108,12 +2112,45 @@ export function useRunBot() {
   return useMutation({ mutationFn: (id: string) => runBot(id), onSuccess: invalidate });
 }
 
+/** Useful / Not useful; the toast says what the answer taught the bot, in the words the judge reads. */
 export function useRateAlert() {
   const invalidate = useInvalidateBots();
   return useMutation({
     mutationFn: ({ botId, alertId, body }: { botId: string; alertId: string; body: FeedbackInput }) => rateAlert(botId, alertId, body),
+    onSuccess: (result) => {
+      invalidate();
+      if (result?.lesson) useToastStore.getState().show(learnedLine(result.lesson.text));
+    },
+  });
+}
+
+/** "Learned: Only drops over 10% are worth telling" after a rating. */
+export const learnedLine = (lesson: string) => `Learned: ${lesson}`;
+
+/** Turns a Pass to link on or off; both bots on it change, and every bot sits under the bots key. */
+export function useSetLink() {
+  const invalidate = useInvalidateBots();
+  return useMutation({
+    mutationFn: ({ linkId, enabled }: { linkId: string; enabled: boolean }) => setLink(linkId, { enabled }),
     onSuccess: invalidate,
   });
+}
+
+export function useApplySuggestion() {
+  const invalidate = useInvalidateBots();
+  // A stale suggestion (409) is gone on the server too, so refetch either way.
+  return useMutation({ mutationFn: ({ botId, id }: { botId: string; id: string }) => applySuggestion(botId, id), onSettled: invalidate });
+}
+
+export function useDismissSuggestion() {
+  const invalidate = useInvalidateBots();
+  return useMutation({ mutationFn: (botId: string) => dismissSuggestion(botId), onSuccess: invalidate });
+}
+
+/** "Pause all bots": every bot's card and sheet changes. */
+export function useSetAllPaused() {
+  const invalidate = useInvalidateBots();
+  return useMutation({ mutationFn: (paused: boolean) => setAllPaused(paused), onSuccess: invalidate });
 }
 
 export function useForgetLesson() {

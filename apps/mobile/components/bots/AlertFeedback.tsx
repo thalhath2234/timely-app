@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
 import { Check, ThumbsDown, ThumbsUp } from "lucide-react-native";
-import { FEEDBACK_REASONS, type AlertBrief, type FeedbackInput, type FeedbackReason } from "@timely/contract/bots";
+import { FEEDBACK_REASONS, PASS_FEEDBACK, type AlertBrief, type FeedbackInput, type FeedbackReason } from "@timely/contract/bots";
 import BottomSheet from "../ui/BottomSheet";
 import { Button, Chip, Field, PrimaryButton } from "../ui/primitives";
-import { useRateAlert } from "../../lib/hooks";
+import { learnedLine, useRateAlert } from "../../lib/hooks";
 import { showUndoToast, useToastStore } from "../../lib/toast";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 
@@ -14,10 +14,13 @@ const NOTE_MAX = 200;
  * "Was it worth it?" on an alert: two equal buttons, Useful and Not useful,
  * and once rated only the chosen one with "You said this helped" beside it.
  * Not useful asks why on a sheet ("Why not?": three chips and an optional
- * line). The answer saves at once and the toast can take it back.
+ * line; an alert passed on from another bot adds "Shouldn't have been passed
+ * on"). The answer saves at once; the toast says what the bot learned from it
+ * and can take it back.
  */
-export function AlertFeedback({ botId, alert }: { botId: string; alert: Pick<AlertBrief, "id" | "feedback"> }) {
+export function AlertFeedback({ botId, alert }: { botId: string; alert: Pick<AlertBrief, "id" | "feedback"> & Partial<Pick<AlertBrief, "via">> }) {
   const rate = useRateAlert();
+  const reasons: { id: Exclude<FeedbackReason, "">; label: string }[] = alert.via?.length ? [...FEEDBACK_REASONS, PASS_FEEDBACK] : FEEDBACK_REASONS;
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState<FeedbackReason>("");
   const [note, setNote] = useState("");
@@ -26,12 +29,13 @@ export function AlertFeedback({ botId, alert }: { botId: string; alert: Pick<Ale
     rate.mutate(
       { botId, alertId: alert.id, body },
       {
-        onSuccess: () => {
+        onSuccess: (result) => {
           setOpen(false);
           setReason("");
           setNote("");
+          // The lesson replaces the plain thanks, so the Undo toast is the only one shown.
           if (thanks)
-            showUndoToast(thanks, () =>
+            showUndoToast(result?.lesson ? learnedLine(result.lesson.text) : thanks, () =>
               rate.mutate(
                 { botId, alertId: alert.id, body: { feedback: null } },
                 { onError: (error) => useToastStore.getState().show(error.message) },
@@ -104,7 +108,7 @@ export function AlertFeedback({ botId, alert }: { botId: string; alert: Pick<Ale
       >
         <View style={styles.sheet}>
           <View style={styles.chips}>
-            {FEEDBACK_REASONS.map((r) => (
+            {reasons.map((r) => (
               <Chip key={r.id} label={r.label} active={reason === r.id} onPress={() => setReason(reason === r.id ? "" : r.id)} />
             ))}
           </View>

@@ -7,8 +7,11 @@ import { useToastStore } from "../../lib/toast";
 /** Settings › Agent opens the Finnhub key sheet on `?open=` this, when no usable key is saved. */
 export const BOT_KEYS_SECTION = "bot-keys";
 
+/** Settings › Agent, where an AI provider for AI judging is added. */
+export const AGENT_SETTINGS_ROUTE = "/(app)/settings/agent";
+
 /** Where the Finnhub key row lives (Settings › Agent). */
-export const BOT_KEYS_ROUTE = `/(app)/settings/agent?open=${BOT_KEYS_SECTION}`;
+export const BOT_KEYS_ROUTE = `${AGENT_SETTINGS_ROUTE}?open=${BOT_KEYS_SECTION}`;
 
 const say = (message: string) => useToastStore.getState().show(message);
 const failed = (error: Error) => say(error.message);
