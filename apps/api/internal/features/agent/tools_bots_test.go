@@ -232,3 +232,152 @@ func TestListBotsSummaryLeavesOutLinks(t *testing.T) {
 		t.Errorf("summary %s", raw)
 	}
 }
+
+// chatOnlyBotFields are what chat proposes for review and an outside app
+// never sets: judging, knowledge, links and briefs.
+var chatOnlyBotFields = []string{"passesTo", "judgeMode", "kind", "sources", "knowledge", "briefTime", "briefAi", "briefOnly"}
+
+// Chat's create_bot and update_bot take judging, knowledge, links and
+// briefs; the MCP schemas take none of them.
+func TestBotToolSchemasChatOnlyFields(t *testing.T) {
+	ctx := context.Background()
+	server, clientSide := mcp.NewInMemoryTransports()
+	session, err := New(Deps{}).Connect(ctx, server, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	client, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, clientSide, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	listed, err := client.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range listed.Tools {
+		if tool.Name != "create_bot" && tool.Name != "update_bot" {
+			continue
+		}
+		raw, _ := json.Marshal(tool.InputSchema)
+		var schema map[string]any
+		if err := json.Unmarshal(raw, &schema); err != nil {
+			t.Fatal(err)
+		}
+		// Watches and rules have a kind of their own, so only the top level.
+		props, _ := schema["properties"].(map[string]any)
+		for _, field := range chatOnlyBotFields {
+			if props[field] != nil {
+				t.Errorf("MCP %s takes %q", tool.Name, field)
+			}
+		}
+		if strings.Contains(tool.Description, "passesTo") || strings.Contains(tool.Description, "judgeMode") {
+			t.Errorf("MCP %s describes chat-only fields: %q", tool.Name, tool.Description)
+		}
+	}
+
+	catalog := NewCatalog(Deps{})
+	for _, name := range []string{"create_bot", "update_bot"} {
+		raw, _ := json.Marshal(catalog[name].Parameters)
+		var schema map[string]any
+		if err := json.Unmarshal(raw, &schema); err != nil {
+			t.Fatal(err)
+		}
+		props, _ := schema["properties"].(map[string]any)
+		for _, field := range chatOnlyBotFields {
+			if props[field] == nil {
+				t.Errorf("chat %s does not take %s", name, field)
+			}
+		}
+		for _, field := range []string{"urgent", "desktop", "phone", "status"} {
+			if props[field] != nil {
+				t.Errorf("chat %s takes %s", name, field)
+			}
+		}
+		if extra, ok := schema["additionalProperties"]; !ok || extra == true {
+			t.Errorf("chat %s accepts unknown fields", name)
+		}
+	}
+	if !strings.Contains(catalog["create_bot"].Description, "judgeMode ai") || !strings.Contains(catalog["update_bot"].Description, "full lists") {
+		t.Errorf("chat descriptions: %q / %q", catalog["create_bot"].Description, catalog["update_bot"].Description)
+	}
+
+	// A link's filter holds at most a few words; knowledge null clears, and
+	// a knowledge left out is not a clear.
+	var in updateBotChatIn
+	if err := json.Unmarshal([]byte(`{"bot":"x","knowledge":null,"passesTo":[{"bot":"Price check","filter":["2TB NVMe"]}]}`), &in); err != nil {
+		t.Fatal(err)
+	}
+	if !in.clearKnowledge || in.Knowledge != nil || in.Bot != "x" || in.PassesTo == nil || (*in.PassesTo)[0].Bot != "Price check" {
+		t.Errorf("knowledge null: %+v", in)
+	}
+	in = updateBotChatIn{}
+	if err := json.Unmarshal([]byte(`{"bot":"x","knowledge":{"kind":"sheet","id":"sht_1"}}`), &in); err != nil {
+		t.Fatal(err)
+	}
+	if in.clearKnowledge || in.Knowledge == nil || in.Knowledge.ID != "sht_1" {
+		t.Errorf("knowledge set: %+v", in)
+	}
+	in = updateBotChatIn{}
+	if err := json.Unmarshal([]byte(`{"bot":"x","name":"Y"}`), &in); err != nil {
+		t.Fatal(err)
+	}
+	if in.clearKnowledge || in.Knowledge != nil || in.Name == nil || *in.Name != "Y" {
+		t.Errorf("knowledge left out: %+v", in)
+	}
+	if got := linkInputs([]botLinkIn{{Bot: "B", Filter: []string{"NVMe"}}}); len(got) != 1 || got[0].BotID != "B" || got[0].Filter[0] != "NVMe" || got[0].Enabled != nil {
+		t.Errorf("linkInputs %+v", got)
+	}
+}
+
+// get_bot gives a Bot's judging, knowledge, links (with the target's name)
+// and brief settings, and nothing a check changes, such as today's passes.
+func TestSettingsOfCarriesAIAndLinks(t *testing.T) {
+	d := bots.Detail{
+		View: bots.View{ID: "bot_a", Name: "Deals", Kind: bots.KindWatch, JudgeMode: bots.JudgeAI, BriefOnly: true,
+			Knowledge: &bots.KnowledgeView{Kind: "sheet", ID: "sht_1", Title: "Wishlist", Missing: true}, Sources: []string{}},
+		Links: []bots.LinkView{
+			{ID: "blk_1", Kind: bots.LinkPass, FromBotID: "bot_a", ToBotID: "bot_b", Filter: []string{"NVMe"}, Enabled: true, PassedToday: 3},
+			{ID: "blk_2", Kind: bots.LinkPass, FromBotID: "bot_c", ToBotID: "bot_a", Enabled: true},
+			{ID: "blk_3", Kind: bots.LinkBrief, FromBotID: "bot_a", ToBotID: "bot_m", Enabled: true},
+		},
+	}
+	got := settingsOf(d, map[string]string{"bot_b": "Price check", "bot_c": "Feed", "bot_m": "Morning"})
+	raw, _ := json.Marshal(got)
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"kind", "judgeMode", "knowledge", "passesTo", "sources", "briefTime", "briefAi", "briefOnly"} {
+		if _, ok := m[key]; !ok {
+			t.Errorf("get_bot leaves out %s: %s", key, raw)
+		}
+	}
+	if strings.Contains(string(raw), "passedToday") || strings.Contains(string(raw), "missing") || strings.Contains(string(raw), "blk_") {
+		t.Errorf("get_bot carries what a check changes, or link ids: %s", raw)
+	}
+	if l := got.PassesTo; len(l) != 1 || l[0].Bot != "Price check" || l[0].BotID != "bot_b" || !l[0].Enabled || len(l[0].Filter) != 1 || l[0].Filter[0] != "NVMe" {
+		t.Errorf("passesTo %+v: only the links from this bot, by name", got.PassesTo)
+	}
+	if got.Knowledge == nil || *got.Knowledge != (botKnowledgeOut{Kind: "sheet", ID: "sht_1", Title: "Wishlist"}) || !got.BriefOnly || got.JudgeMode != bots.JudgeAI {
+		t.Errorf("settings %+v", got)
+	}
+
+	brief := settingsOf(bots.Detail{View: bots.View{ID: "bot_m", Name: "Morning", Kind: bots.KindBrief, BriefTime: "08:00", BriefAI: true,
+		Sources: []string{"bot_a", "bot_b"}}}, map[string]string{"bot_a": "Deals", "bot_b": "Price check"})
+	if len(brief.Sources) != 2 || brief.Sources[1] != (botSourceOut{BotID: "bot_b", Name: "Price check"}) || brief.BriefTime != "08:00" || !brief.BriefAI || brief.PassesTo == nil {
+		t.Errorf("brief settings %+v", brief)
+	}
+}
+
+// list_bots names the newest alert in the rules' words, never the title an
+// AI judge wrote.
+func TestBotReplyUsesRulesTitle(t *testing.T) {
+	v := bots.View{ID: "bot_a", Kind: bots.KindWatch, JudgeMode: bots.JudgeAI, AIChecksToday: 4,
+		LatestAlert: &bots.AlertBrief{ID: "bal_1", Title: "HACKED", RulesTitle: "Deals: price fell 10%"}}
+	got := botReply(v)
+	if got.LatestAlert == nil || got.LatestAlert.Title != "Deals: price fell 10%" || got.Kind != bots.KindWatch || got.AIChecksToday != 4 || got.JudgeMode != bots.JudgeAI {
+		t.Errorf("botReply %+v", got)
+	}
+}

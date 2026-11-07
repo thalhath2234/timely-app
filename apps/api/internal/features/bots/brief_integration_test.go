@@ -276,7 +276,7 @@ func TestIntegrationBotBriefRuns(t *testing.T) {
 // lesson. Any failure sends the template, unchecked, and nothing asks again.
 func TestIntegrationBotBriefAI(t *testing.T) {
 	e := newEngine(t)
-	fj := &fakeJudge{brief: BriefText{Title: "Two deals worth a look", Body: "Deal 0 is the best\n\nDeal 1 is fine"}}
+	fj := &fakeJudge{brief: BriefText{Title: "Morning: Two deals worth a look", Body: "Deal 0 is the best\n\nDeal 1 is fine"}}
 	e.s.SetJudge(fj)
 	deals := e.create(pageInput("Deals", "https://deals.example/"))
 	in := briefInput("Morning", deals.ID)

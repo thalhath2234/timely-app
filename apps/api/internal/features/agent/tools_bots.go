@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -36,12 +37,21 @@ func (s *Server) registerBots(server *mcp.Server) {
 	if chat {
 		createText = "Make a bot that reads pages, feeds or prices on a schedule and alerts the person when a rule comes true. Propose it only after preview_bot shows the reading is right. Once the person approves it starts checking and alerts where the person's \"Alerts for new bots\" say; the person changes alerts on the Bots page. A shop's price: kind page with read product_price, or read selector_price with a selector from preview_bot's candidates. Words or one part of a page: read text or selector. New posts: kind feed. A stock: kind price, source stock (US tickers like NVDA); it needs the person's free Finnhub key, and when preview_bot says the key is missing, tell them to add it in Settings › Agent instead of proposing. A coin: kind price, source crypto. " + limits + " intervalMinutes 0 picks a default. Rules left out get a default (any change on a page, new items on a feed, a 5% move on a price)."
 		updateText = "Change a bot (id or name). watches, when given, is the full list: keep a watch's id to keep it, leave the id out to add one, and a watch left out is removed. A watch sent without rules keeps its rules. " + limits
+		createText += " " + chatCreateMore
+		updateText += " " + chatUpdateMore
 	}
 	registerTool(s, server, &mcp.Tool{Name: "list_bots", Description: "The person's bots: status, schedule, health and each watch with its rules and a short summary of its last reading."}, reads, s.listBots)
 	registerTool(s, server, &mcp.Tool{Name: "list_bot_findings", Description: "What the bots found, newest first: the findings board. bot (id or name) keeps one bot's; since is RFC 3339; limit is at most 100 (default 50)."}, reads, s.listBotFindings)
 	registerTool(s, server, &mcp.Tool{Name: "get_bot", Description: "One bot's settings (id or name): its watches with their rules, how often it checks and where it alerts. Read it before proposing update_bot."}, reads, s.getBot)
-	registerTool(s, server, &mcp.Tool{Name: "create_bot", Description: createText}, writes.reviewed(), s.createBot)
-	registerTool(s, server, &mcp.Tool{Name: "update_bot", Description: updateText}, writes.reviewed(), s.updateBot)
+	if chat {
+		// Chat proposes judging, knowledge, links and briefs for review; an
+		// outside app never sets them, so the MCP schemas leave them out.
+		registerTool(s, server, &mcp.Tool{Name: "create_bot", Description: createText}, writes.reviewed(), s.createBotChat)
+		registerTool(s, server, &mcp.Tool{Name: "update_bot", Description: updateText}, writes.reviewed(), s.updateBotChat)
+	} else {
+		registerTool(s, server, &mcp.Tool{Name: "create_bot", Description: createText}, writes.reviewed(), s.createBot)
+		registerTool(s, server, &mcp.Tool{Name: "update_bot", Description: updateText}, writes.reviewed(), s.updateBot)
+	}
 	registerTool(s, server, &mcp.Tool{Name: "pause_bot", Description: "Pause a bot (id or name). Only the person can turn it back on, in Timely."}, mcpOnly, s.pauseBot)
 	registerTool(s, server, &mcp.Tool{Name: "run_bot_now", Description: "Check an active bot (id or name) as soon as its minimum interval allows, and say when. A paused bot is refused."}, mcpOnly, s.runBotNow)
 	if chat {
@@ -50,6 +60,13 @@ func (s *Server) registerBots(server *mcp.Server) {
 		registerTool(s, nil, &mcp.Tool{Name: "ask_bot", Description: "What a bot (id or name) knows now: its latest readings and findings. If the bot is on and its last check is over an hour old, it checks once first (at most once every 5 minutes per bot), which can take up to 30 seconds. It changes nothing."}, reads, s.askBot)
 	}
 }
+
+// chatCreateMore and chatUpdateMore end the chat descriptions of create_bot
+// and update_bot: what only chat can propose.
+const (
+	chatCreateMore = "A bot can let AI judge what its rules spot (judgeMode ai: one short call on the person's own AI provider per change, up to 20 a day), read one of the person's docs or sheets as knowledge for that judge (knowledge: kind doc or sheet and its id), pass what it finds to other bots so they check it first (passesTo, with filter words), or be a brief (kind brief, sources: 1 to 8 bots, briefTime HH:MM, briefAi) that sums up those bots once a day and has no watches (watches [])."
+	chatUpdateMore = "passesTo and sources, when given, are full lists."
+)
 
 // botOrigin is who a bot tool acts for: chat (the person approved the
 // card) in the in-app catalog, an outside app over MCP.
@@ -140,8 +157,8 @@ func (s *Server) listBots(ctx context.Context, req *mcp.CallToolRequest, _ empty
 }
 
 // summaryOut is the board's numbers as the tools give them: without the
-// account's links (their filter words and Bot ids are the board's, not an
-// outside app's) and without the AI status, which only the handler fills.
+// account's links (get_bot gives each bot's own) and without the AI status,
+// which only the handler fills.
 type summaryOut struct {
 	ChecksToday   int        `json:"checksToday"`
 	AlertsToday   int        `json:"alertsToday"`
@@ -170,7 +187,9 @@ type botOut struct {
 	PauseReason     *string       `json:"pauseReason"`
 	Origin          bots.Origin   `json:"origin"`
 	OriginClient    string        `json:"originClient"`
+	Kind            string        `json:"kind"`
 	JudgeMode       string        `json:"judgeMode"`
+	AIChecksToday   int           `json:"aiChecksToday"`
 	IntervalMinutes int           `json:"intervalMinutes"`
 	Urgent          bool          `json:"urgent"`
 	Desktop         bool          `json:"desktop"`
@@ -193,7 +212,8 @@ type botOut struct {
 	UpdatedAt       time.Time     `json:"updatedAt"`
 }
 
-// botAlertOut is the newest alert, by its code-made title only.
+// botAlertOut is the newest alert, by its rules-made title only: never the
+// title an AI judge wrote, which a page may have steered.
 type botAlertOut struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`
@@ -223,14 +243,14 @@ type botWatchOut struct {
 func botReply(v bots.View) botOut {
 	out := botOut{
 		ID: v.ID, Name: v.Name, Description: v.Description, Status: v.Status, PauseReason: v.PauseReason,
-		Origin: v.Origin, OriginClient: v.OriginClient, JudgeMode: v.JudgeMode, IntervalMinutes: v.IntervalMinutes,
+		Origin: v.Origin, OriginClient: v.OriginClient, Kind: v.Kind, JudgeMode: v.JudgeMode, AIChecksToday: v.AIChecksToday, IntervalMinutes: v.IntervalMinutes,
 		Urgent: v.Urgent, Desktop: v.Desktop, Phone: v.Phone, SnoozedUntil: v.SnoozedUntil, NextCheckAt: v.NextCheckAt,
 		LastCheckAt: v.LastCheckAt, LastOkAt: v.LastOkAt, Checking: v.Checking, RunNowAt: v.RunNowAt, FloorLine: v.FloorLine,
 		Strikes: v.Strikes, Health: v.Health, Strip: v.Strip, AlertsToday: v.AlertsToday, ItemsToday: v.ItemsToday,
 		Watches: make([]botWatchOut, len(v.Watches)), CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt,
 	}
 	if a := v.LatestAlert; a != nil {
-		out.LatestAlert = &botAlertOut{ID: a.ID, Title: a.Title, Held: a.Held, CreatedAt: a.CreatedAt}
+		out.LatestAlert = &botAlertOut{ID: a.ID, Title: a.RulesTitle, Held: a.Held, CreatedAt: a.CreatedAt}
 	}
 	for i, w := range v.Watches {
 		out.Watches[i] = botWatchOut{
@@ -290,6 +310,15 @@ type createBotIn struct {
 }
 
 func (s *Server) createBot(ctx context.Context, req *mcp.CallToolRequest, in createBotIn) (*mcp.CallToolResult, any, error) {
+	return s.saveNewBot(ctx, req, in.input())
+}
+
+func (in createBotIn) input() bots.Input {
+	return bots.Input{Name: in.Name, Description: in.Description, IntervalMinutes: in.IntervalMinutes, Watches: watchInputs(in.Watches)}
+}
+
+// saveNewBot makes the Bot a create_bot call describes.
+func (s *Server) saveNewBot(ctx context.Context, req *mcp.CallToolRequest, in bots.Input) (*mcp.CallToolResult, any, error) {
 	uid, err := userID(req)
 	if err != nil {
 		return fail(err)
@@ -299,17 +328,71 @@ func (s *Server) createBot(ctx context.Context, req *mcp.CallToolRequest, in cre
 		return fail(err)
 	}
 	origin := s.botOrigin()
-	v, err := svc.Create(ctx, uid, bots.Input{
-		Name: in.Name, Description: in.Description, IntervalMinutes: in.IntervalMinutes, Watches: watchInputs(in.Watches),
-		OriginClient: apiKeyName(req),
-	}, origin)
+	in.OriginClient = apiKeyName(req)
+	v, err := svc.Create(ctx, uid, in, origin)
 	if err != nil {
 		return fail(err)
 	}
-	if origin == bots.OriginChat {
+	switch {
+	case origin == bots.OriginChat && v.Kind == bots.KindBrief:
+		return reply(fmt.Sprintf("Created %s. It sends its brief every day at %s.", v.Name, v.BriefTime), botReply(v))
+	case origin == bots.OriginChat:
 		return reply(fmt.Sprintf("Created %s. It checks every %s.", v.Name, everyWords(v.IntervalMinutes)), botReply(v))
 	}
 	return reply(fmt.Sprintf("Created %s. It starts paused; the person turns it on in Timely.", v.Name), botReply(v))
+}
+
+// botKnowledgeIn is the doc or sheet an AI-judged Bot reads.
+type botKnowledgeIn struct {
+	Kind string `json:"kind" jsonschema:"doc or sheet"`
+	ID   string `json:"id" jsonschema:"the doc's or sheet's id"`
+}
+
+// botLinkIn is one Pass to link as chat proposes it.
+type botLinkIn struct {
+	Bot    string   `json:"bot" jsonschema:"the bot that checks what this one finds (id or name)"`
+	Filter []string `json:"filter,omitempty" jsonschema:"up to 5 words; a note is passed on only when it holds one of them; leave out to pass everything"`
+}
+
+func linkInputs(in []botLinkIn) []bots.LinkInput {
+	out := make([]bots.LinkInput, len(in))
+	for i, l := range in {
+		out[i] = bots.LinkInput{BotID: l.Bot, Filter: l.Filter}
+	}
+	return out
+}
+
+// createBotChatIn is chat's create_bot: what MCP takes, plus judging,
+// knowledge, links and briefs, which the person reviews on the card.
+type createBotChatIn struct {
+	createBotIn
+	Kind      string          `json:"kind,omitempty" jsonschema:"watch (the default) or brief"`
+	JudgeMode string          `json:"judgeMode,omitempty" jsonschema:"rules (the default) or ai: AI judges what the rules spot; only when the person asks for it"`
+	Knowledge *botKnowledgeIn `json:"knowledge,omitempty" jsonschema:"ai only: a doc or sheet the person named, read by the judge as data"`
+	PassesTo  []botLinkIn     `json:"passesTo,omitempty" jsonschema:"bots that check what this one finds before the person is told (up to 4)"`
+	Sources   []string        `json:"sources,omitempty" jsonschema:"brief: 1 to 8 bots (ids or names) it sums up"`
+	BriefTime string          `json:"briefTime,omitempty" jsonschema:"brief: when it sends, HH:MM in the person's time, default 08:00"`
+	BriefAI   *bool           `json:"briefAi,omitempty" jsonschema:"brief: Write it with AI (one call a day)"`
+	BriefOnly *bool           `json:"briefOnly,omitempty" jsonschema:"a bot in a brief: alert only through the brief"`
+}
+
+func (s *Server) createBotChat(ctx context.Context, req *mcp.CallToolRequest, in createBotChatIn) (*mcp.CallToolResult, any, error) {
+	b := in.input()
+	b.Kind, b.JudgeMode, b.BriefAI, b.BriefOnly = in.Kind, in.JudgeMode, in.BriefAI, in.BriefOnly
+	if in.Knowledge != nil {
+		b.Knowledge = &bots.KnowledgeInput{Kind: in.Knowledge.Kind, ID: in.Knowledge.ID}
+	}
+	if in.PassesTo != nil {
+		links := linkInputs(in.PassesTo)
+		b.PassesTo = &links
+	}
+	if in.Sources != nil {
+		b.Sources = &in.Sources
+	}
+	if in.BriefTime != "" {
+		b.BriefTime = &in.BriefTime
+	}
+	return s.saveNewBot(ctx, req, b)
 }
 
 type updateBotIn struct {
@@ -321,6 +404,12 @@ type updateBotIn struct {
 }
 
 func (s *Server) updateBot(ctx context.Context, req *mcp.CallToolRequest, in updateBotIn) (*mcp.CallToolResult, any, error) {
+	return s.saveBotEdit(ctx, req, in, bots.Patch{})
+}
+
+// saveBotEdit makes the change an update_bot call describes; p carries
+// what only chat sets.
+func (s *Server) saveBotEdit(ctx context.Context, req *mcp.CallToolRequest, in updateBotIn, p bots.Patch) (*mcp.CallToolResult, any, error) {
 	uid, err := userID(req)
 	if err != nil {
 		return fail(err)
@@ -330,7 +419,7 @@ func (s *Server) updateBot(ctx context.Context, req *mcp.CallToolRequest, in upd
 		return fail(err)
 	}
 	origin := s.botOrigin()
-	p := bots.Patch{Name: in.Name, Description: in.Description, IntervalMinutes: in.IntervalMinutes}
+	p.Name, p.Description, p.IntervalMinutes = in.Name, in.Description, in.IntervalMinutes
 	wasActive := false
 	if in.Watches != nil {
 		ws := watchInputs(*in.Watches)
@@ -352,6 +441,54 @@ func (s *Server) updateBot(ctx context.Context, req *mcp.CallToolRequest, in upd
 		text += " Changing what it watches paused it; the person turns it on in Timely."
 	}
 	return reply(text, botReply(v))
+}
+
+// updateBotChatIn is chat's update_bot: what MCP takes, plus judging,
+// knowledge, links and briefs. passesTo and sources are full lists;
+// knowledge null clears it (clearKnowledge, read by UnmarshalJSON).
+type updateBotChatIn struct {
+	updateBotIn
+	Kind           *string         `json:"kind,omitempty" jsonschema:"cannot change; leave it out"`
+	JudgeMode      *string         `json:"judgeMode,omitempty" jsonschema:"rules or ai: AI judges what the rules spot; only when the person asks for it"`
+	Knowledge      *botKnowledgeIn `json:"knowledge,omitempty" jsonschema:"ai only: a doc or sheet the person named, read by the judge as data; null removes it"`
+	PassesTo       *[]botLinkIn    `json:"passesTo,omitempty" jsonschema:"the full list of bots that check what this one finds before the person is told (up to 4); [] removes them all"`
+	Sources        *[]string       `json:"sources,omitempty" jsonschema:"brief: the full list of 1 to 8 bots (ids or names) it sums up"`
+	BriefTime      *string         `json:"briefTime,omitempty" jsonschema:"brief: when it sends, HH:MM in the person's time"`
+	BriefAI        *bool           `json:"briefAi,omitempty" jsonschema:"brief: Write it with AI (one call a day)"`
+	BriefOnly      *bool           `json:"briefOnly,omitempty" jsonschema:"a bot in a brief: alert only through the brief"`
+	clearKnowledge bool
+}
+
+// UnmarshalJSON reads the arguments as they are, and tells a knowledge of
+// null (clear it) from one left out (keep it).
+func (in *updateBotChatIn) UnmarshalJSON(raw []byte) error {
+	type plain updateBotChatIn
+	var p plain
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	*in = updateBotChatIn(p)
+	if k, ok := fields["knowledge"]; ok && strings.TrimSpace(string(k)) == "null" {
+		in.clearKnowledge = true
+	}
+	return nil
+}
+
+func (s *Server) updateBotChat(ctx context.Context, req *mcp.CallToolRequest, in updateBotChatIn) (*mcp.CallToolResult, any, error) {
+	p := bots.Patch{Kind: in.Kind, JudgeMode: in.JudgeMode, Sources: in.Sources, BriefTime: in.BriefTime, BriefAI: in.BriefAI,
+		BriefOnly: in.BriefOnly, ClearKnowledge: in.clearKnowledge}
+	if in.Knowledge != nil {
+		p.Knowledge = &bots.KnowledgeInput{Kind: in.Knowledge.Kind, ID: in.Knowledge.ID}
+	}
+	if in.PassesTo != nil {
+		links := linkInputs(*in.PassesTo)
+		p.PassesTo = &links
+	}
+	return s.saveBotEdit(ctx, req, in.updateBotIn, p)
 }
 
 type botIn struct {
@@ -407,8 +544,8 @@ func everyWords(minutes int) string {
 }
 
 // botSettings is what get_bot gives: a Bot's settings and nothing a check
-// changes (no health, times or readings), so it is a stable "before" for
-// update_bot's review.
+// changes (no health, times, readings or today's pass counts), so it is a
+// stable "before" for update_bot's review.
 type botSettings struct {
 	ID              string             `json:"id"`
 	Name            string             `json:"name"`
@@ -416,12 +553,40 @@ type botSettings struct {
 	Status          string             `json:"status"`
 	PauseReason     *string            `json:"pauseReason"`
 	Origin          bots.Origin        `json:"origin"`
+	Kind            string             `json:"kind"`
 	IntervalMinutes int                `json:"intervalMinutes"`
 	JudgeMode       string             `json:"judgeMode"`
+	Knowledge       *botKnowledgeOut   `json:"knowledge"`
+	PassesTo        []botLinkOut       `json:"passesTo"`
+	Sources         []botSourceOut     `json:"sources"`
+	BriefTime       string             `json:"briefTime"`
+	BriefAI         bool               `json:"briefAi"`
+	BriefOnly       bool               `json:"briefOnly"`
 	Urgent          bool               `json:"urgent"`
 	Desktop         bool               `json:"desktop"`
 	Phone           bool               `json:"phone"`
 	Watches         []botWatchSettings `json:"watches"`
+}
+
+// botKnowledgeOut is the doc or sheet the judge reads, by title.
+type botKnowledgeOut struct {
+	Kind  string `json:"kind"`
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+// botLinkOut is one Pass to link from the Bot, with its target's name.
+type botLinkOut struct {
+	Bot     string   `json:"bot"`
+	BotID   string   `json:"botId"`
+	Filter  []string `json:"filter"`
+	Enabled bool     `json:"enabled"`
+}
+
+// botSourceOut is one Bot a brief sums up.
+type botSourceOut struct {
+	BotID string `json:"botId"`
+	Name  string `json:"name"`
 }
 
 type botWatchSettings struct {
@@ -436,11 +601,31 @@ type botWatchSettings struct {
 	Rules    []bots.Rule `json:"rules"`
 }
 
-func settingsOf(v bots.View) botSettings {
+// settingsOf is get_bot's reply; names maps the account's Bot ids to their
+// names, for its links and sources.
+func settingsOf(d bots.Detail, names map[string]string) botSettings {
+	v := d.View
 	out := botSettings{
 		ID: v.ID, Name: v.Name, Description: v.Description, Status: v.Status, PauseReason: v.PauseReason,
-		Origin: v.Origin, IntervalMinutes: v.IntervalMinutes, JudgeMode: v.JudgeMode,
+		Origin: v.Origin, Kind: v.Kind, IntervalMinutes: v.IntervalMinutes, JudgeMode: v.JudgeMode,
+		PassesTo: []botLinkOut{}, Sources: []botSourceOut{}, BriefTime: v.BriefTime, BriefAI: v.BriefAI, BriefOnly: v.BriefOnly,
 		Urgent: v.Urgent, Desktop: v.Desktop, Phone: v.Phone, Watches: make([]botWatchSettings, len(v.Watches)),
+	}
+	if k := v.Knowledge; k != nil {
+		out.Knowledge = &botKnowledgeOut{Kind: k.Kind, ID: k.ID, Title: k.Title}
+	}
+	for _, l := range d.Links {
+		if l.Kind != bots.LinkPass || l.FromBotID != v.ID {
+			continue
+		}
+		filter := l.Filter
+		if filter == nil {
+			filter = []string{}
+		}
+		out.PassesTo = append(out.PassesTo, botLinkOut{Bot: names[l.ToBotID], BotID: l.ToBotID, Filter: filter, Enabled: l.Enabled})
+	}
+	for _, id := range v.Sources {
+		out.Sources = append(out.Sources, botSourceOut{BotID: id, Name: names[id]})
 	}
 	for i, w := range v.Watches {
 		rules := w.Rules
@@ -468,7 +653,17 @@ func (s *Server) getBot(ctx context.Context, req *mcp.CallToolRequest, in botIn)
 	if err != nil {
 		return fail(botErr(err, in.Bot))
 	}
-	return reply(d.Name, settingsOf(d.View))
+	names := map[string]string{}
+	if len(d.Links) > 0 || len(d.Sources) > 0 {
+		list, err := svc.Names(ctx, uid)
+		if err != nil {
+			return fail(err)
+		}
+		for _, n := range list {
+			names[n.ID] = n.Name
+		}
+	}
+	return reply(d.Name, settingsOf(d, names))
 }
 
 type previewBotIn struct {

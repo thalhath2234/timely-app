@@ -68,6 +68,23 @@ func TestBriefLine(t *testing.T) {
 	}
 }
 
+func TestWithoutName(t *testing.T) {
+	for in, want := range map[string]string{
+		"Morning brief: Morning brief: Two deals": "Two deals",
+		"morning brief : Two deals":               "Two deals",
+		"Morning brief deals":                     "Morning brief deals",
+		"Morning brief:":                          "",
+		"Two deals: Morning brief":                "Two deals: Morning brief",
+	} {
+		if got := withoutName(in, "Morning brief"); got != want {
+			t.Errorf("withoutName(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := withoutName("Two deals", ""); got != "Two deals" {
+		t.Errorf("no name: %q", got)
+	}
+}
+
 func TestBriefDigest(t *testing.T) {
 	a, b, gone := BotRef{BotID: "bot_a", Name: "Deals"}, BotRef{BotID: "bot_b", Name: "Prices"}, BotRef{BotID: "bot_c", Name: "Quiet"}
 	at := time.Date(2026, 11, 7, 8, 0, 0, 0, time.UTC)

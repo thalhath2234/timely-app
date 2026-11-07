@@ -404,3 +404,75 @@ func TestIntegrationBotChatProposeApproveAndAsk(t *testing.T) {
 		t.Errorf("follow-up reply %+v", last)
 	}
 }
+
+// Links and briefs set up in chat: an update_bot with passesTo is reviewed
+// and, once approved, makes the link; a brief's create_bot reads nothing,
+// so its step carries no preview.
+func TestIntegrationBotChatLinksAndBriefs(t *testing.T) {
+	b, _ := newBotChat(t, map[string]botstest.Response{
+		chatFeedURL: botstest.Feed(`<?xml version="1.0"?><rss version="2.0"><channel><title>GPU deals</title>` +
+			`<item><guid>1</guid><title>2TB NVMe at a low price</title><link>https://news.bot-chat.example/1</link></item></channel></rss>`),
+		"https://api.coinbase.com/v2/prices/BTC-USD/spot": botstest.JSON(`{"data":{"amount":"100.00","base":"BTC","currency":"USD"}}`),
+	})
+	ctx := context.Background()
+	deals, err := b.svc.Create(ctx, b.uid, bots.Input{Name: "GPU deals", Watches: []bots.WatchInput{{Kind: "feed", URL: chatFeedURL}}}, bots.OriginApp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check, err := b.svc.Create(ctx, b.uid, bots.Input{Name: "Price check", Watches: []bots.WatchInput{{Kind: "price", Source: "crypto", Symbol: "BTC"}}}, bots.OriginApp)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. "When GPU deals finds 2TB NVMe, have Price check look first."
+	b.model.script(
+		toolCall("get_bot", map[string]any{"bot": deals.ID}),
+		toolCall("get_bot", map[string]any{"bot": check.ID}),
+		proposeSteps("Pass NVMe deals to Price check", map[string]any{"tool": "update_bot", "summary": "Pass NVMe deals to Price check",
+			"arguments": map[string]any{"bot": deals.ID, "passesTo": []any{map[string]any{"bot": "Price check", "filter": []any{"2TB NVMe"}}}}}),
+	)
+	c := b.post("/chats", map[string]any{"content": "When GPU deals finds something with 2TB NVMe in it, have Price check look at it before telling me"})
+	c = b.settle(c.ID)
+	if c.Status != "approval" || len(c.Plan) != 1 || c.Plan[0].Tool != "update_bot" || len(c.Plan[0].Before) == 0 || c.Plan[0].Preview != nil {
+		t.Fatalf("link proposal: %s %+v", c.Status, c.Plan)
+	}
+	if !strings.Contains(string(c.Plan[0].Before), `"passesTo":[]`) {
+		t.Errorf("the review's before has no empty passesTo: %s", c.Plan[0].Before)
+	}
+	if n := b.count("bot_links", "user_id = ?", b.uid); n != 0 {
+		t.Fatalf("%d links before approval: the rehearsal left one", n)
+	}
+	c = b.post("/chats/"+c.ID+"/approve", map[string]any{"revision": c.Revision})
+	c = b.settle(c.ID)
+	var links []bots.Link
+	if err := b.db.Where("user_id = ? AND kind = ?", b.uid, bots.LinkPass).Find(&links).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(links) != 1 || links[0].FromBotID != deals.ID || links[0].ToBotID != check.ID || len(links[0].Filter) != 1 || links[0].Filter[0] != "2TB NVMe" {
+		t.Fatalf("after approval (%s): links %+v", c.Status, links)
+	}
+
+	// 2. "Make me a morning brief at 8 of both": no watches, no preview.
+	b.model.script(proposeSteps("Make a morning brief", map[string]any{"tool": "create_bot", "summary": "Morning brief",
+		"arguments": map[string]any{"name": "Morning brief", "kind": "brief", "watches": []any{}, "sources": []any{"GPU deals", "Price check"}, "briefTime": "08:00"}}))
+	c = b.post("/chats/"+c.ID+"/messages", map[string]any{"content": "Make me a morning brief at 8 of GPU deals and Price check"})
+	c = b.settle(c.ID)
+	if c.Status != "approval" || len(c.Plan) != 1 || c.Plan[0].Tool != "create_bot" || c.Plan[0].Preview != nil {
+		t.Fatalf("brief proposal: %s %+v", c.Status, c.Plan)
+	}
+	c = b.post("/chats/"+c.ID+"/approve", map[string]any{"revision": c.Revision})
+	c = b.settle(c.ID)
+	var brief bots.Bot
+	if err := b.db.Where("user_id = ? AND name = ?", b.uid, "Morning brief").First(&brief).Error; err != nil {
+		t.Fatalf("approved brief: %v (status %s)", err, c.Status)
+	}
+	if brief.Kind != bots.KindBrief || brief.BriefTime != "08:00" || brief.Status != bots.StatusActive {
+		t.Fatalf("brief %+v", brief)
+	}
+	if n := b.count("bot_links", "user_id = ? AND kind = ? AND to_bot_id = ?", b.uid, bots.LinkBrief, brief.ID); n != 2 {
+		t.Errorf("%d brief links, want 2", n)
+	}
+	if n := b.count("bot_watches", "bot_id = ?", brief.ID); n != 0 {
+		t.Errorf("the brief has %d watches", n)
+	}
+}

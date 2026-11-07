@@ -212,6 +212,19 @@ type briefWrite struct {
 	aiWhy   string
 }
 
+// withoutName drops each leading "<name>:" from an AI-written title, since
+// the alert puts the brief's name in front itself.
+func withoutName(title, name string) string {
+	for name != "" && len(title) > len(name) && strings.EqualFold(title[:len(name)], name) {
+		rest := strings.TrimLeft(title[len(name):], " ")
+		if !strings.HasPrefix(rest, ":") {
+			break
+		}
+		title = strings.TrimSpace(rest[1:])
+	}
+	return title
+}
+
 // briefWindow is the cursor a brief lists notes after, and the time it
 // lists them up to (and moves its cursor to): briefLag before at, never
 // before the cursor.
@@ -287,7 +300,7 @@ func (s *Service) writeBrief(ctx context.Context, b Bot, d briefDigest, w *brief
 	t, err := s.judge.WriteBrief(wctx, b.UserID, in)
 	cancel()
 	s.markAI(callID, err == nil, !errors.Is(err, ErrJudgeOff))
-	title, body := clipRunes(cleanLine(t.Title, 2*maxFindingTitle), maxFindingTitle), cleanBody(t.Body)
+	title, body := clipRunes(withoutName(cleanLine(t.Title, 2*maxFindingTitle), b.Name), maxFindingTitle), cleanBody(t.Body)
 	switch {
 	case err == nil && body != "":
 		if title != "" {
