@@ -108,6 +108,7 @@ function patchGroup(patch: BotPatch, saved: WatchInput[]): keyof PanelErrors {
     return moved ? "watches" : "rules";
   }
   if ("intervalMinutes" in patch) return "schedule";
+  if ("judgeMode" in patch || "knowledge" in patch) return "rules";
   if ("urgent" in patch || "desktop" in patch || "phone" in patch)
     return "alerts";
   return "head";
@@ -118,6 +119,7 @@ const PATCH_KEYS = [
   "description",
   "intervalMinutes",
   "judgeMode",
+  "knowledge",
   "urgent",
   "desktop",
   "phone",

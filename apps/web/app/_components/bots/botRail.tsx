@@ -38,11 +38,13 @@ import Button from "@/app/_components/_ui/button";
 import SegmentedControl from "@/app/_components/_ui/segmentedControl";
 import { cn } from "@/app/utils/cn";
 import { useBotPreview } from "@/app/utils/hooks/bots";
+import { AiAlertLine } from "./aiAlertLine";
 import { AlertFeedback } from "./alertFeedback";
 import { useBotActions } from "./botActions";
 import { BotCard } from "./botCard";
 import { BotMark } from "./botMark";
 import { CheckStrip } from "./checkStrip";
+import { HowItCame } from "./howItCame";
 import { alertHeadline } from "./needsAction";
 import { PriceChart } from "./priceChart";
 
@@ -259,6 +261,55 @@ function ChecksSection({ detail, now }: { detail: BotDetail; now: Date }) {
 
 type Item = { at: number; alert?: AlertView; rearm?: Rearm };
 
+/**
+ * One alert in Recent alerts: its headline and when, what the AI judge did
+ * (the "Not checked by AI" pill and its line), who else saw it, Useful / Not
+ * useful, and "How this came to you".
+ */
+function AlertItem({ detail, alert }: { detail: BotDetail; alert: AlertView }) {
+  // Held by the judge, or folded into another bot's alert on the same thing.
+  const eyebrow = alert.held === "judged" ? "Held back by AI" : null;
+  const quiet = alert.held === "judged" || alert.held === "shared";
+  return (
+    <li className="flex flex-col gap-1 border-t border-border py-3 first:border-t-0 first:pt-0">
+      {eyebrow ? (
+        <span className="pl-3.5 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+          {eyebrow}
+        </span>
+      ) : null}
+      <span className="flex min-w-0 items-center gap-2">
+        <i
+          aria-hidden
+          className={cn(
+            "block size-1.5 shrink-0 rounded-full",
+            quiet ? "bg-muted-foreground/60" : "bg-primary",
+          )}
+        />
+        <span
+          className={cn(
+            "truncate text-[13px] font-semibold",
+            quiet ? "text-muted-foreground" : "text-foreground",
+          )}
+        >
+          {alertHeadline(alert, detail.name, false).title}
+        </span>
+      </span>
+      <span className="pl-3.5 text-xs tabular-nums text-muted-foreground">
+        {alertMeta(alert)}
+      </span>
+      <AiAlertLine alert={alert} variant="full" className="pl-3.5" />
+      <div className="flex flex-col items-start gap-1 pl-3.5 pt-1">
+        {/* As wide as the "Why not?" popover (w-72) or the item, whichever is
+            narrower, so the popover stays in the item and near its button. */}
+        <div className="w-full max-w-72">
+          <AlertFeedback botId={detail.id} alert={alert} align="end" />
+        </div>
+        <HowItCame bot={detail} alert={alert} links={detail.links} />
+      </div>
+    </li>
+  );
+}
+
 function AlertsSection({ detail }: { detail: BotDetail }) {
   const alerts = (detail.alerts ?? []).filter((a) => a.kind === "alert");
   const items: Item[] = [
@@ -287,30 +338,11 @@ function AlertsSection({ detail }: { detail: BotDetail }) {
         <ul className="flex flex-col">
           {items.map((item) =>
             item.alert ? (
-              <li
+              <AlertItem
                 key={item.alert.id}
-                className="flex flex-col gap-1 border-t border-border py-3 first:border-t-0 first:pt-0"
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  <i
-                    aria-hidden
-                    className="block size-1.5 shrink-0 rounded-full bg-primary"
-                  />
-                  <span className="truncate text-[13px] font-semibold text-foreground">
-                    {alertHeadline(item.alert, detail.name, false).title}
-                  </span>
-                </span>
-                <span className="pl-3.5 text-xs tabular-nums text-muted-foreground">
-                  {alertMeta(item.alert)}
-                </span>
-                <div className="pl-3.5 pt-1">
-                  <AlertFeedback
-                    botId={detail.id}
-                    alert={item.alert}
-                    align="end"
-                  />
-                </div>
-              </li>
+                detail={detail}
+                alert={item.alert}
+              />
             ) : item.rearm ? (
               <li
                 key={`rearm-${item.rearm.at}-${item.rearm.ruleId}`}

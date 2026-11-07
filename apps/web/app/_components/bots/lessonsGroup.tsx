@@ -1,7 +1,12 @@
 "use client";
 
 import { X } from "lucide-react";
-import { BOT_LIMITS, type Lesson } from "@timely/contract/bots";
+import {
+  BOT_LIMITS,
+  lessonsHint,
+  type BotKind,
+  type Lesson,
+} from "@timely/contract/bots";
 import Button from "@/app/_components/_ui/button";
 import {
   GroupHint,
@@ -13,13 +18,16 @@ import { useToastStore } from "@/app/_store/toastStore";
 import { useForgetLesson } from "@/app/utils/hooks/bots";
 
 /**
- * Lessons: what the bot was told by Not useful answers, kept for the AI
- * judge that comes later. Rules ignore them. Each one can be forgotten.
+ * Lessons: what the bot was taught by Useful and Not useful answers. The AI
+ * judge (or a brief's AI writer) reads them; rules ignore them. Each one can
+ * be forgotten.
  */
 export function LessonsGroup({
+  bot,
   botId,
   lessons,
 }: {
+  bot: { kind?: BotKind };
   botId: string;
   lessons: Lesson[];
 }) {
@@ -69,10 +77,7 @@ export function LessonsGroup({
           ))
         )}
       </ListGroup>
-      <GroupHint>
-        Used once AI judging arrives; rules ignore them. Kept from your Not
-        useful answers. Remove one to forget it.
-      </GroupHint>
+      <GroupHint>{lessonsHint(bot)}</GroupHint>
     </section>
   );
 }

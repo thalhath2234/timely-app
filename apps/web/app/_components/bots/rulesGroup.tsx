@@ -1,17 +1,25 @@
 "use client";
 
 import type { ReactElement, ReactNode } from "react";
+import Link from "next/link";
 import { X } from "lucide-react";
 import {
   BOT_LIMITS,
-  HOW_SMART,
+  EMPTY_BOTS_SUMMARY,
   RULE_LABELS,
+  SMART_HINT,
+  aiHint,
   againOptions,
   readingKind,
   resetLine,
   rulesFor,
+  smartOptions,
   watchCurrency,
   watchTitle,
+  type BotsSummary,
+  type JudgeMode,
+  type KnowledgeInput,
+  type KnowledgeView,
   type Rule,
   type RuleKind,
   type WatchInput,
@@ -30,6 +38,45 @@ import SegmentedControl from "@/app/_components/_ui/segmentedControl";
 import Select from "@/app/_components/_ui/select";
 import { cn } from "@/app/utils/cn";
 import { EditPill, moneyAffixes, parseAmount } from "./editPill";
+import { KnowledgeRow } from "./knowledgeRow";
+
+const AGENT_SETTINGS = "Settings › Agent";
+
+/**
+ * The How smart hint for this bot, with "Settings › Agent" as a link while
+ * no AI provider is ready (a rules bot is told where AI judging comes from).
+ */
+function SmartHint({
+  bot,
+  summary,
+}: {
+  bot: { judgeMode?: string; aiChecksToday?: number };
+  /** Undefined while the board loads. */
+  summary?: Pick<BotsSummary, "ai">;
+}) {
+  // Loading: say nothing about a provider not known yet.
+  if (!summary)
+    return bot.judgeMode === "ai" ? null : (
+      <GroupHint>{aiHint(bot, EMPTY_BOTS_SUMMARY)}</GroupHint>
+    );
+  let text = aiHint(bot, summary);
+  if (summary.ai?.ready) return <GroupHint>{text}</GroupHint>;
+  if (!text.includes(AGENT_SETTINGS))
+    text += ` To let AI judge, add a provider in ${AGENT_SETTINGS}.`;
+  const at = text.indexOf(AGENT_SETTINGS);
+  return (
+    <GroupHint>
+      {text.slice(0, at)}
+      <Link
+        href="/settings?tab=agent"
+        className="font-medium text-primary hover:underline"
+      >
+        {AGENT_SETTINGS}
+      </Link>
+      {text.slice(at + AGENT_SETTINGS.length)}
+    </GroupHint>
+  );
+}
 
 /**
  * The rules a watch gets when saved with none, as the API's DefaultRules:
@@ -292,14 +339,21 @@ function ruleRows({
 }
 
 /**
- * Tells me when: How smart (Rules only; AI judges and Research come later),
- * then each watch's rules as grouped rows with the values typed in place.
- * With two or more watches each watch's rules sit under its own sub-label.
+ * Tells me when: How smart (Rules only, AI judges when the account has an AI
+ * provider; Research comes later), Knowledge for an AI-judged bot, then each
+ * watch's rules as grouped rows with the values typed in place. With two or
+ * more watches each watch's rules sit under its own sub-label.
  */
 export function RulesGroup({
   watches,
   views,
   judgeMode,
+  onJudgeMode,
+  summary,
+  aiChecksToday,
+  knowledge,
+  knowledgeView,
+  onKnowledge,
   onRules,
   error,
 }: {
@@ -307,9 +361,22 @@ export function RulesGroup({
   /** The saved watches by id, for their currency and title. */
   views?: Map<string, WatchView>;
   judgeMode?: string;
+  onJudgeMode: (mode: JudgeMode) => void;
+  /**
+   * The board's summary: whether an AI provider is ready, and which.
+   * Undefined while it loads, when AI is neither offered nor marked Needs AI.
+   */
+  summary?: Pick<BotsSummary, "ai">;
+  /** The saved bot's AI checks today, for the hint. */
+  aiChecksToday?: number;
+  knowledge?: KnowledgeInput | null;
+  /** The saved bot's knowledge, with its title and whether it is missing. */
+  knowledgeView?: KnowledgeView | null;
+  onKnowledge: (knowledge: KnowledgeInput | null) => void;
   onRules: (index: number, rules: Rule[], how: "text" | "now") => void;
   error?: ReactNode;
 }) {
+  const mode = judgeMode || "rules";
   const total = watches.reduce((n, w) => n + (w.rules?.length ?? 0), 0);
   const aside =
     watches.length === 0
@@ -322,17 +389,31 @@ export function RulesGroup({
       <SegmentedControl
         size="sm"
         aria-label="How smart"
-        value={judgeMode || "rules"}
-        onChange={() => {}}
-        options={HOW_SMART.map((h) => ({
+        value={mode}
+        onChange={(next) => {
+          if (next !== mode && (next === "rules" || next === "ai"))
+            onJudgeMode(next);
+        }}
+        options={smartOptions(summary ?? EMPTY_BOTS_SUMMARY).map((h) => ({
           value: h.id,
           label: h.label,
-          disabled: h.later,
-          tag: h.later ? "Later" : undefined,
+          title: SMART_HINT,
+          disabled: h.disabled && h.id !== mode,
+          tag: !summary && h.id === "ai" ? undefined : h.tag,
         }))}
       />
     </ListRow>,
   ];
+  if (mode === "ai") {
+    rows.push(
+      <KnowledgeRow
+        key="knowledge"
+        value={knowledge ?? null}
+        view={knowledgeView}
+        onChange={onKnowledge}
+      />,
+    );
+  }
   if (watches.length === 0) {
     rows.push(
       <ListRow key="none" label="Rules" className="opacity-50">
@@ -373,10 +454,7 @@ export function RulesGroup({
       {error ? (
         <GroupHint className="text-destructive">{error}</GroupHint>
       ) : null}
-      <GroupHint>
-        Rules cost nothing and never call an AI. AI judging arrives in a later
-        version.
-      </GroupHint>
+      <SmartHint bot={{ judgeMode: mode, aiChecksToday }} summary={summary} />
     </section>
   );
 }

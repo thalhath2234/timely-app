@@ -27,6 +27,7 @@ import {
   type FixButton,
 } from "@timely/contract/bots";
 import Button, { buttonClass } from "@/app/_components/_ui/button";
+import { AiAlertLine } from "./aiAlertLine";
 import { AlertFeedback } from "./alertFeedback";
 import type { useBotActions } from "./botActions";
 import { Pill } from "./countPill";
@@ -146,6 +147,7 @@ export function NeedsAction({
               {meta}
             </p>
           ) : null}
+          <AiAlertLine alert={alert} variant="compact" className="mt-0.5" />
         </div>
         <div className="mt-auto flex flex-wrap items-center gap-2">
           <AlertFeedback botId={bot.id} alert={alert} />

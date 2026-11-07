@@ -12,6 +12,7 @@ import {
   type WatchKind,
   type WatchView,
 } from "@timely/contract/bots";
+import { useBots } from "@/app/utils/hooks/bots";
 import { AlertsGroup } from "./alertsGroup";
 import type { SiteIcons } from "./botMark";
 import { DeleteBotRow } from "./deleteRow";
@@ -75,6 +76,8 @@ export function BotEditor({
       new Map<string, WatchView>((view?.watches ?? []).map((w) => [w.id, w])),
     [view],
   );
+  // Undefined while the board loads: not the same as "no AI provider".
+  const summary = useBots().data?.summary;
   const watches = draft.watches;
 
   if (editing) {
@@ -147,6 +150,24 @@ export function BotEditor({
         watches={watches}
         views={views}
         judgeMode={draft.judgeMode}
+        onJudgeMode={(judgeMode) =>
+          onChange(
+            {
+              ...draft,
+              judgeMode,
+              // A new rules-only bot is not created with hidden knowledge.
+              ...(judgeMode === "rules" && mode === "new"
+                ? { knowledge: null }
+                : {}),
+            },
+            "now",
+          )
+        }
+        summary={summary}
+        aiChecksToday={mode === "edit" ? view?.aiChecksToday : undefined}
+        knowledge={draft.knowledge}
+        knowledgeView={mode === "edit" ? view?.knowledge : undefined}
+        onKnowledge={(knowledge) => onChange({ ...draft, knowledge }, "now")}
         onRules={setRules}
         error={errors?.rules}
       />
@@ -163,7 +184,11 @@ export function BotEditor({
       {mode === "edit" && view ? (
         <>
           {detail ? (
-            <LessonsGroup botId={view.id} lessons={detail.lessons ?? []} />
+            <LessonsGroup
+              bot={view}
+              botId={view.id}
+              lessons={detail.lessons ?? []}
+            />
           ) : null}
           <DeleteBotRow
             botId={view.id}

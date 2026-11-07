@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, ThumbsDown, ThumbsUp } from "lucide-react";
 import {
   FEEDBACK_REASONS,
+  PASS_FEEDBACK,
   type AlertBrief,
   type FeedbackInput,
   type FeedbackReason,
@@ -30,12 +31,17 @@ export function AlertFeedback({
   align = "start",
 }: {
   botId: string;
-  alert: Pick<AlertBrief, "id" | "feedback">;
+  alert: Pick<AlertBrief, "id" | "feedback"> & Partial<Pick<AlertBrief, "via">>;
   size?: "default" | "icon";
   /** Which edge the "Why not?" popover lines up with. */
   align?: "start" | "end";
 }) {
   const rate = useRateAlert();
+  // An alert passed on from another bot can also say it should not have been.
+  const reasons: { id: Exclude<FeedbackReason, "">; label: string }[] = alert
+    .via?.length
+    ? [...FEEDBACK_REASONS, PASS_FEEDBACK]
+    : FEEDBACK_REASONS;
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState<FeedbackReason>("");
   const [note, setNote] = useState("");
@@ -97,7 +103,14 @@ export function AlertFeedback({
     "size-7 border border-border bg-card text-foreground shadow-none hover:bg-muted";
 
   return (
-    <div ref={root} className="relative z-[1] flex items-center gap-2">
+    <div
+      ref={root}
+      className={cn(
+        "relative flex items-center gap-2",
+        // Open, the "Why not?" popover sits above the alerts under it.
+        open ? "z-30" : "z-[1]",
+      )}
+    >
       {rated && notUseful ? null : (
         <Button
           variant="outline"
@@ -154,7 +167,7 @@ export function AlertFeedback({
           >
             <GroupLabel className="pb-0">Why not?</GroupLabel>
             <div className="flex flex-wrap gap-1.5">
-              {FEEDBACK_REASONS.map((r) => {
+              {reasons.map((r) => {
                 const on = reason === r.id;
                 return (
                   <button
