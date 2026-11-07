@@ -71,8 +71,13 @@ func (s *Service) rejudge(ctx context.Context, db *gorm.DB, job *models.Job, ale
 	if err := db.Where("id = ? AND user_id = ?", a.BotID, job.UserID).Limit(1).Find(&bots).Error; err != nil {
 		return jobs.RetryAfter(err, time.Minute)
 	}
+	paused, err := accountPaused(db, job.UserID)
+	if err != nil {
+		return jobs.RetryAfter(err, time.Minute)
+	}
 	var jj JudgeJob
-	if len(bots) == 0 || bots[0].JudgeMode != JudgeAI || s.judge == nil || json.Unmarshal(a.AIInput, &jj) != nil {
+	// "Pause all bots" stops it too: the alert stays unchecked.
+	if paused || len(bots) == 0 || bots[0].JudgeMode != JudgeAI || s.judge == nil || json.Unmarshal(a.AIInput, &jj) != nil {
 		return stop()
 	}
 	b := bots[0]

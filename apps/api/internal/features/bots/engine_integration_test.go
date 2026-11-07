@@ -354,8 +354,12 @@ func TestIntegrationBotProblems(t *testing.T) {
 		}
 		var ntf models.Notification
 		must(t, e.db.Where("entity_id = ? AND data->>'botAlert' = 'paused'", v.ID).First(&ntf).Error)
-		if ntf.Title != "Shop paused after 5 failed checks" || ntf.Body != "example.in showed a robot check. Resume it in Timely." {
+		if ntf.Title != "Shop paused after 5 failed checks" || ntf.Body != "example.in showed a robot check. Resume it from this alert or on the Bots page." {
 			t.Fatalf("paused alert %q / %q", ntf.Title, ntf.Body)
+		}
+		// The clients offer Resume on it.
+		if n := e.count("notifications", "id = ? AND (data->>'resume')::boolean AND data->>'botId' = ?", ntf.ID, v.ID); n != 1 {
+			t.Fatalf("paused alert data %v", ntf.Data)
 		}
 		if n := e.count("notifications", "entity_id = ?", v.ID); n != 1 {
 			t.Fatalf("%d notifications", n)
@@ -474,6 +478,10 @@ func TestIntegrationBotProblems(t *testing.T) {
 		}
 		if n := e.count("notifications", "user_id = ? AND data->>'botAlert' = 'paused' AND dedupe_key LIKE 'bot:source:%'", e.user); n != 1 {
 			t.Fatalf("%d source notifications", n)
+		}
+		// It names only the first Bot, so it offers no Resume of its own.
+		if n := e.count("notifications", "user_id = ? AND dedupe_key LIKE 'bot:source:%' AND data->>'resume' IS NULL AND body LIKE '%Resume them on the Bots page.'", e.user); n != 1 {
+			t.Fatalf("%d folded notifications without a Resume", n)
 		}
 	})
 }

@@ -196,12 +196,16 @@ func TestCleanWatches(t *testing.T) {
 			t.Errorf("%v: %q, want %q", c.in, msg, c.want)
 		}
 	}
-	// A page price read keeps the page's own currency; one sent along is
-	// left out rather than refused.
-	gbp, err := cleanWatches([]WatchInput{{Kind: "page", URL: "https://e.com", Read: "selector_price", Selector: "p.price_color", Currency: "GBP",
+	// A page price read keeps a known currency sent along as its hint, and
+	// leaves out one it does not know rather than refusing it.
+	gbp, err := cleanWatches([]WatchInput{{Kind: "page", URL: "https://e.com", Read: "selector_price", Selector: "p.price_color", Currency: "gbp",
 		Rules: []Rule{{Kind: RuleBelow, Threshold: f64(40)}}}}, nil, nil)
-	if err != nil || gbp[0].Currency != "" || gbp[0].Rules[0].Kind != RuleBelow {
+	if err != nil || gbp[0].Currency != "GBP" || gbp[0].Rules[0].Kind != RuleBelow {
 		t.Fatalf("a page price with a currency: %+v %v", gbp, err)
+	}
+	odd, err := cleanWatches([]WatchInput{{Kind: "page", URL: "https://e.com", Read: "product_price", Currency: "pounds"}}, nil, nil)
+	if err != nil || odd[0].Currency != "" {
+		t.Fatalf("a page price with an unknown currency: %+v %v", odd, err)
 	}
 	sel, err := cleanWatches([]WatchInput{{Kind: "page", URL: "https://e.com", Read: "selector", Selector: " .price "}}, nil, nil)
 	if err != nil || sel[0].Selector != ".price" {
@@ -239,6 +243,75 @@ func TestCleanWatchKeepsRules(t *testing.T) {
 	}
 	if _, err := cleanWatches([]WatchInput{{ID: "bw_1", Kind: "page", URL: "https://e.com"}, {ID: "bw_1", Kind: "page", URL: "https://e.com"}}, prev, nil); err == nil {
 		t.Fatal("the same watch twice")
+	}
+}
+
+// A page price watch's currency hint: a known code sent along, else the
+// hint it had while the address stays, else the site's country, and only
+// then the hint it had.
+func TestPageCurrency(t *testing.T) {
+	in := &Watch{Kind: WatchPage, URL: "https://www.amazon.in/dp/B0", Currency: "INR"}
+	usd := &Watch{Kind: WatchPage, URL: "https://shop.example.com/p", Currency: "USD"}
+	coin := &Watch{Kind: WatchPrice, Currency: "USD"}
+	for _, c := range []struct {
+		name, sent, url string
+		old             *Watch
+		want            string
+	}{
+		{"known code", "eur", "https://www.amazon.in/dp/B0", nil, "EUR"},
+		{"known code beats the old hint", "GBP", "https://www.amazon.in/dp/B0", in, "GBP"},
+		{"unknown code falls to the domain", "rupees", "https://www.amazon.in/dp/B0", nil, "INR"},
+		{"hkd is known", " hkd ", "https://shop.example.com/p", nil, "HKD"},
+		{"amazon.co.uk", "", "https://www.amazon.co.uk/dp/B0", nil, "GBP"},
+		{"bbc.uk", "", "https://shop.bbc.uk/x", nil, "GBP"},
+		{"amazon.de", "", "https://www.amazon.de/dp/B0", nil, "EUR"},
+		{"amazon.co.jp", "", "https://www.amazon.co.jp/dp/B0", nil, "JPY"},
+		{"amazon.com.au", "", "https://www.amazon.com.au/dp/B0", nil, "AUD"},
+		{"amazon.com.br", "", "https://www.amazon.com.br/dp/B0", nil, "BRL"},
+		{"amazon.com.mx", "", "https://www.amazon.com.mx/dp/B0", nil, "MXN"},
+		{"daraz.lk", "", "https://www.daraz.lk/p", nil, "LKR"},
+		{"noon.ae", "", "https://www.noon.com.ae/p", nil, "AED"},
+		{"a .com says nothing", "", "https://www.amazon.com/dp/B0", nil, ""},
+		{"same address keeps the hint", "", "https://shop.example.com/p", usd, "USD"},
+		{"same address keeps it over the domain", "", "https://www.amazon.in/dp/B0", &Watch{Kind: WatchPage, URL: "https://www.amazon.in/dp/B0", Currency: "USD"}, "USD"},
+		{"same address with no hint takes the domain", "", "https://www.amazon.in/dp/B0", &Watch{Kind: WatchPage, URL: "https://www.amazon.in/dp/B0"}, "INR"},
+		{"moved address: domain first", "", "https://www.amazon.de/dp/B0", in, "EUR"},
+		{"moved to a .com keeps the hint", "", "https://shop.example.com/q", in, "INR"},
+		{"a price watch's currency is not a page hint", "", "https://shop.example.com/p", coin, ""},
+	} {
+		if got := pageCurrency(c.sent, c.url, c.old); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+	// Only price reads keep a hint; a text page still refuses a currency.
+	ws, err := cleanWatches([]WatchInput{{Kind: "page", URL: "https://www.amazon.in/dp/B0"}}, nil, nil)
+	if err != nil || ws[0].Currency != "" {
+		t.Fatalf("text page %+v %v", ws, err)
+	}
+	ws, err = cleanWatches([]WatchInput{{Kind: "page", URL: "https://www.amazon.in/dp/B0", Read: "product_price"}}, nil, nil)
+	if err != nil || ws[0].Currency != "INR" {
+		t.Fatalf("amazon.in product price %+v %v", ws, err)
+	}
+}
+
+// A page's currency is a hint and never makes the watch new; a price
+// watch's currency is what it quotes in.
+func TestSameConfigCurrency(t *testing.T) {
+	page := Watch{Kind: WatchPage, URL: "https://www.amazon.in/dp/B0", ReadMode: ReadProductPrice}
+	other := page
+	other.Currency = "INR"
+	if !sameConfig(page, other) {
+		t.Fatal("a page's currency hint changed its config")
+	}
+	other.URL = "https://www.amazon.de/dp/B0"
+	if sameConfig(page, other) {
+		t.Fatal("a moved page kept its config")
+	}
+	usd := Watch{Kind: WatchPrice, Source: "coinbase", Symbol: "BTC", Currency: "USD"}
+	usdc := usd
+	usdc.Currency = "USDC"
+	if sameConfig(usd, usdc) || !sameConfig(usd, usd) {
+		t.Fatal("a price watch's currency")
 	}
 }
 

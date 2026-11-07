@@ -9,6 +9,7 @@ import (
 
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"timely-api/internal/features/bots"
 )
 
 // An outside app can describe what a Bot watches, never how it alerts or
@@ -206,5 +207,28 @@ func TestEveryWords(t *testing.T) {
 		if got := everyWords(minutes); got != want {
 			t.Errorf("everyWords(%d) = %q, want %q", minutes, got, want)
 		}
+	}
+}
+
+// list_bots gives the board's numbers but not the account's links (filter
+// words and Bot ids) or the AI status the handler fills.
+func TestListBotsSummaryLeavesOutLinks(t *testing.T) {
+	sum := bots.ListSummary{ChecksToday: 3, AllPaused: true, PassedToday: 2, AIChecksToday: 1,
+		Links: []bots.LinkView{{ID: "blk_1"}}, AI: bots.AIStatus{Ready: true}}
+	raw, err := json.Marshal(summaryReply(sum))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"links", "ai"} {
+		if _, ok := got[key]; ok {
+			t.Errorf("list_bots summary carries %s: %s", key, raw)
+		}
+	}
+	if got["checksToday"] != float64(3) || got["allPaused"] != true || got["passedToday"] != float64(2) || got["aiChecksToday"] != float64(1) {
+		t.Errorf("summary %s", raw)
 	}
 }

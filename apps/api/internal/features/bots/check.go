@@ -77,6 +77,10 @@ func (s *Service) HandleCheck(ctx context.Context, job *models.Job) error {
 	if trigger != TriggerWake && !runsNow(trigger) {
 		trigger = TriggerSchedule
 	}
+	// "Pause all bots": the check ends unclaimed, and the Bot stays due.
+	if paused, err := accountPaused(s.db.WithContext(ctx), job.UserID); err != nil || paused {
+		return retryDB(err)
+	}
 	started := s.now().UTC()
 	b, prevStarted, ws, ok, err := s.claim(ctx, job, job.Payload.String("botId"), trigger, started)
 	if err != nil {

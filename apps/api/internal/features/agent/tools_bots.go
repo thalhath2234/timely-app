@@ -136,7 +136,26 @@ func (s *Server) listBots(ctx context.Context, req *mcp.CallToolRequest, _ empty
 	for i, v := range list.Bots {
 		out[i] = botReply(v)
 	}
-	return reply(fmt.Sprintf("%d bots", len(out)), map[string]any{"bots": out, "summary": list.Summary})
+	return reply(fmt.Sprintf("%d bots", len(out)), map[string]any{"bots": out, "summary": summaryReply(list.Summary)})
+}
+
+// summaryOut is the board's numbers as the tools give them: without the
+// account's links (their filter words and Bot ids are the board's, not an
+// outside app's) and without the AI status, which only the handler fills.
+type summaryOut struct {
+	ChecksToday   int        `json:"checksToday"`
+	AlertsToday   int        `json:"alertsToday"`
+	NextCheckAt   *time.Time `json:"nextCheckAt"`
+	AIChecksToday int        `json:"aiChecksToday"`
+	AICap         int        `json:"aiCap"`
+	SharedToday   int        `json:"sharedToday"`
+	AllPaused     bool       `json:"allPaused"`
+	PassedToday   int        `json:"passedToday"`
+}
+
+func summaryReply(s bots.ListSummary) summaryOut {
+	return summaryOut{ChecksToday: s.ChecksToday, AlertsToday: s.AlertsToday, NextCheckAt: s.NextCheckAt, AIChecksToday: s.AIChecksToday,
+		AICap: s.AICap, SharedToday: s.SharedToday, AllPaused: s.AllPaused, PassedToday: s.PassedToday}
 }
 
 // botOut is a Bot as the tools give it: a bots.View without the text it read

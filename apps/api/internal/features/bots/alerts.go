@@ -305,7 +305,8 @@ RETURNING id, more_count, notification_id`,
 	return tx.Model(&Alert{}).Where("id = ?", more.ID).Updates(set).Error
 }
 
-// pausedAlert tells the person a Bot paused after MaxStrikes failed checks.
+// pausedAlert tells the person a Bot paused after MaxStrikes failed checks,
+// with a Resume they can act on from the alert unless it is folded.
 // It is not counted in the daily cap. A failing price source folds into one
 // notification per account and day, however many Bots it pauses.
 func (s *Service) pausedAlert(tx *gorm.DB, b Bot, checkID string, p *problem, now time.Time) error {
@@ -316,7 +317,13 @@ func (s *Service) pausedAlert(tx *gorm.DB, b Bot, checkID string, p *problem, no
 	local := now.In(loc)
 	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
 	title := fmt.Sprintf("%s paused after %d failed checks", b.Name, MaxStrikes)
-	body := strings.TrimRight(p.line, ". ") + ". Resume it in Timely."
+	// A failing source folds every Bot it pauses that day into the first
+	// one's notification, so only an unfolded alert can name the Bot to
+	// resume.
+	body := strings.TrimRight(p.line, ". ") + ". Resume it from this alert or on the Bots page."
+	if p.fold != "" {
+		body = strings.TrimRight(p.line, ". ") + ". Resume them on the Bots page."
+	}
 	row := Alert{
 		ID: utils.PrefixedUUID("bal"), BotID: b.ID, UserID: b.UserID, CheckID: &checkID, Kind: alertKindPaused, LocalDay: day,
 		Title: title, Body: body, URL: p.watch.URL, Figures: jsonMap[string, any]{"health": p.code}, CreatedAt: now,
@@ -325,7 +332,11 @@ func (s *Service) pausedAlert(tx *gorm.DB, b Bot, checkID string, p *problem, no
 	if p.fold != "" {
 		key = "bot:source:" + b.UserID + ":" + p.fold + ":" + day.Format(dayLayout)
 	}
-	ntf := botNotification(b, title, body, key, alertData(b, row.ID, checkID, p.watch.URL, alertKindPaused))
+	data := alertData(b, row.ID, checkID, p.watch.URL, alertKindPaused)
+	if p.fold == "" {
+		data["resume"] = true // the clients offer Resume on it
+	}
+	ntf := botNotification(b, title, body, key, data)
 	if _, err := notify.WriteAlert(tx, &ntf, settings, loc, notify.AlertOptions{Phone: b.NotifyPhone, Now: now}); err != nil {
 		return err
 	}

@@ -78,12 +78,16 @@ type AnswerWatch struct {
 // would, with the trigger ask; a tag starts at most one such check of a Bot
 // every 5 minutes, and none before its floor allows. The check is a normal
 // one, so alert caps and strikes apply. Ask waits up to askWait for it, then
-// answers from what is saved.
+// answers from what is saved. While "Pause all bots" is on it gives
+// ErrAllPaused.
 func (s *Service) Ask(ctx context.Context, userID, idOrName string) (Answer, error) {
 	now := s.now().UTC()
 	db := s.db.WithContext(ctx)
 	b, err := findBot(db, userID, idOrName, false)
 	if err != nil {
+		return Answer{}, err
+	}
+	if err := allPausedErr(db, userID); err != nil {
 		return Answer{}, err
 	}
 	_, loc, err := notify.LoadAlertSettings(db, userID)

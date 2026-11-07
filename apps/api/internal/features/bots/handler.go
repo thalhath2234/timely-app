@@ -22,6 +22,7 @@ func (s *Service) Routes(g *echo.Group) {
 	g.GET("/bots/icons", s.icons)
 	g.GET("/bots/defaults", s.alertDefaults)
 	g.PUT("/bots/defaults", s.setAlertDefaults)
+	g.PUT("/bots/paused", s.setAllPaused)
 	g.GET("/bots/keys", s.sourceKeys)
 	g.POST("/bots/keys/:source", s.saveSourceKey)
 	g.DELETE("/bots/keys/:source", s.deleteSourceKey)
@@ -66,6 +67,8 @@ func httpError(err error) error {
 		return echo.NewHTTPError(http.StatusConflict, ErrSuggestionStale.Error())
 	case errors.Is(err, ErrPaused):
 		return echo.NewHTTPError(http.StatusConflict, ErrPaused.Error())
+	case errors.Is(err, ErrAllPaused):
+		return echo.NewHTTPError(http.StatusConflict, ErrAllPaused.Error())
 	case errors.Is(err, ErrPreviewLimit):
 		return echo.NewHTTPError(http.StatusTooManyRequests, ErrPreviewLimit.Error())
 	case errors.Is(err, ErrKeyLimit):
@@ -323,6 +326,24 @@ func (s *Service) forgetLesson(c *echo.Context) error {
 		return httpError(err)
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+// setAllPaused takes {"paused": bool}: "Pause all bots", or on again.
+func (s *Service) setAllPaused(c *echo.Context) error {
+	var in struct {
+		Paused *bool `json:"paused"`
+	}
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return badRequest()
+	}
+	if in.Paused == nil {
+		return httpError(invalid("Give paused as true or false"))
+	}
+	paused, err := s.SetAllPaused(c.Request().Context(), user(c), *in.Paused)
+	if err != nil {
+		return httpError(err)
+	}
+	return c.JSON(http.StatusOK, map[string]bool{"allPaused": paused})
 }
 
 func (s *Service) alertDefaults(c *echo.Context) error {

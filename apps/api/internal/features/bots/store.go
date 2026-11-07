@@ -491,9 +491,14 @@ func saveWatches(tx *gorm.DB, b Bot, cur []Watch, in []WatchInput, hasKey hasKey
 		sameCfg, sameRl := sameConfig(old, w), sameRules(old.Rules, w.Rules)
 		set := map[string]any{"position": w.Position}
 		if sameCfg && sameRl {
-			old.Position = w.Position
+			// A page's currency hint may change without a new baseline.
+			hint := old.Currency != w.Currency
+			old.Position, old.Currency = w.Position, w.Currency
 			next[i] = old
-			if old.Position != prev[w.ID].Position {
+			if hint {
+				set["currency"] = w.Currency
+			}
+			if old.Position != prev[w.ID].Position || hint {
 				set["updated_at"] = now
 			} else {
 				continue
@@ -694,9 +699,10 @@ type BotList struct {
 	Summary ListSummary `json:"summary"`
 }
 
-// ListSummary is the board header: checks, sent alerts, shared alerts and
-// AI calls today in the person's notification zone, the account's AI cap,
-// the next check of any active Bot, and whether AI can judge now.
+// ListSummary is the board header: checks, sent alerts, shared alerts, AI
+// calls and passed items today in the person's notification zone, the
+// account's AI cap, the next check of any active Bot, whether AI can judge
+// now, whether "Pause all bots" is on, and every link of the account.
 type ListSummary struct {
 	ChecksToday   int        `json:"checksToday"`
 	AlertsToday   int        `json:"alertsToday"`
@@ -705,13 +711,16 @@ type ListSummary struct {
 	AICap         int        `json:"aiCap"`
 	SharedToday   int        `json:"sharedToday"` // alerts held today because another Bot's already told of the same thing
 	AI            AIStatus   `json:"ai"`          // filled by the handler: the Store has no judge
+	AllPaused     bool       `json:"allPaused"`
+	PassedToday   int        `json:"passedToday"` // items the account's links handed on today
+	Links         []LinkView `json:"links"`       // every link of the account, oldest first
 }
 
 // List returns the account's Bots, oldest first, with the board's numbers.
 // It writes nothing.
 func (s *Store) List(ctx context.Context, userID string, now time.Time) (BotList, error) {
 	db := s.conn(ctx)
-	out := BotList{Bots: []View{}}
+	out := BotList{Bots: []View{}, Summary: ListSummary{Links: []LinkView{}}}
 	var bots []Bot
 	if err := db.Where("user_id = ?", userID).Order("created_at, id").Find(&bots).Error; err != nil {
 		return BotList{}, err
@@ -735,6 +744,12 @@ func (s *Store) List(ctx context.Context, userID string, now time.Time) (BotList
 	out.Summary.SharedToday = int(shared)
 	out.Summary.AICap = AIPerAccount
 	if out.Summary.AIChecksToday, _, err = aiCallsToday(db, userID, local.Format(dayLayout)); err != nil {
+		return BotList{}, err
+	}
+	if out.Summary.AllPaused, err = accountPaused(db, userID); err != nil {
+		return BotList{}, err
+	}
+	if out.Summary.Links, out.Summary.PassedToday, err = accountLinks(db, userID, local.Format(dayLayout)); err != nil {
 		return BotList{}, err
 	}
 	if len(bots) == 0 {
@@ -1280,6 +1295,46 @@ WHERE a.user_id = ? AND b.user_id = a.user_id AND a.id IN ?`, userID, ids).Scan(
 		out[rows[i].AlertID] = &rows[i]
 	}
 	return out, nil
+}
+
+// accountPaused reports "Pause all bots" on for the account.
+func accountPaused(db *gorm.DB, userID string) (bool, error) {
+	var paused bool
+	err := db.Raw(`SELECT EXISTS (SELECT 1 FROM configs WHERE user_id = ? AND bots_paused_at IS NOT NULL)`, userID).Scan(&paused).Error
+	return paused, err
+}
+
+// allPausedErr is ErrAllPaused while "Pause all bots" is on.
+func allPausedErr(db *gorm.DB, userID string) error {
+	paused, err := accountPaused(db, userID)
+	if err == nil && paused {
+		err = ErrAllPaused
+	}
+	return err
+}
+
+// SetAllPaused turns "Pause all bots" on or off. Each Bot keeps its own
+// status; turning it on again keeps the time it was first turned on.
+// configs has no bot change trigger, so it announces the change itself, as
+// notify_bot_change would for each of the person's Bots, so their other open
+// apps refetch the board and any Bot they show (the apps follow Bot ids).
+func (s *Store) SetAllPaused(ctx context.Context, userID string, paused bool, now time.Time) (bool, error) {
+	err := s.conn(ctx).Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`UPDATE configs SET bots_paused_at = CASE WHEN @on THEN COALESCE(bots_paused_at, @now) END, updated_at = @at WHERE user_id = @uid`,
+			sql.Named("on", paused), sql.Named("now", now.UTC()), sql.Named("at", utils.GetCurrentTime()), sql.Named("uid", userID))
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return errors.New("bots: the account has no settings row")
+		}
+		return tx.Exec(`SELECT pg_notify('timely_bots', json_build_object('schema', current_schema(), 'user', user_id, 'id', id)::text)
+			FROM bots WHERE user_id = ?`, userID).Error
+	})
+	if err != nil {
+		return false, err
+	}
+	return paused, nil
 }
 
 // localDay is today's date in the zone quiet hours and digests use.

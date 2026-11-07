@@ -213,6 +213,11 @@ func (s *Service) SetAlertDefaults(ctx context.Context, userID string, d models.
 	return s.store.SetAlertDefaults(ctx, userID, d)
 }
 
+// SetAllPaused turns "Pause all bots" on or off.
+func (s *Service) SetAllPaused(ctx context.Context, userID string, paused bool) (bool, error) {
+	return s.store.SetAllPaused(ctx, userID, paused, s.now())
+}
+
 func (s *Service) Findings(ctx context.Context, userID string, q FindingQuery) ([]Finding, error) {
 	return s.store.Findings(ctx, userID, q)
 }
@@ -225,13 +230,17 @@ type RunResult struct {
 }
 
 // RunNow queues a check as soon as the Bot's floor allows. A paused Bot gives
-// ErrPaused. A check already waiting is pulled forward instead of doubled.
-// Both origins may run an active Bot; Bots made over MCP start paused.
+// ErrPaused, and any Bot while "Pause all bots" is on ErrAllPaused. A check
+// already waiting is pulled forward instead of doubled. Both origins may run
+// an active Bot; Bots made over MCP start paused.
 func (s *Service) RunNow(ctx context.Context, userID, idOrName string, _ Origin) (RunResult, error) {
 	now := s.now().UTC()
 	db := s.db.WithContext(ctx)
 	b, err := findBot(db, userID, idOrName, false)
 	if err != nil {
+		return RunResult{}, err
+	}
+	if err := allPausedErr(db, userID); err != nil {
 		return RunResult{}, err
 	}
 	if b.Status != StatusActive {

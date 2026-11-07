@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"timely-api/internal/features/bots/extract"
+	"timely-api/internal/features/bots/fetch"
 	"timely-api/internal/features/bots/price"
 	"timely-api/internal/netguard"
 	"timely-api/internal/utils"
@@ -288,8 +289,12 @@ func cleanWatch(in WatchInput, old *Watch, hasKey hasKeyFunc) (Watch, error) {
 		case strings.TrimSpace(in.Currency) != "" && read != ReadProductPrice && read != ReadSelectorPrice:
 			return Watch{}, invalid("A page watch takes no currency")
 		}
-		// A page's price comes with the currency the page shows; one sent
-		// along (as a chat often does) is left out, not refused.
+		// A page's price comes with the currency the page shows. Until the
+		// first read the watch keeps a hint: a known code sent along, else
+		// the site's country. Checks never change it.
+		if read == ReadProductPrice || read == ReadSelectorPrice {
+			w.Currency = pageCurrency(in.Currency, w.URL, old)
+		}
 	case WatchFeed:
 		if w.URL, err = cleanURL(in.URL, "feed"); err != nil {
 			return Watch{}, err
@@ -439,10 +444,64 @@ func sameRules(a, b []Rule) bool {
 	return len(a) == len(b) && strip(a) == strip(b)
 }
 
-// sameConfig reports whether two watches read the same thing the same way.
+// sameConfig reports two watches reading the same thing. A page's currency
+// is only a hint (pageCurrency), so it never makes a page watch new.
 func sameConfig(a, b Watch) bool {
 	return a.Kind == b.Kind && a.URL == b.URL && a.ReadMode == b.ReadMode && a.Selector == b.Selector &&
-		a.Source == b.Source && a.Symbol == b.Symbol && a.Currency == b.Currency
+		a.Source == b.Source && a.Symbol == b.Symbol && (a.Kind != WatchPrice || a.Currency == b.Currency)
+}
+
+// hintCurrencies are the codes a page price watch keeps as its currency
+// hint when one is sent along.
+var hintCurrencies = map[string]bool{
+	"USD": true, "EUR": true, "GBP": true, "INR": true, "JPY": true, "CAD": true, "AUD": true, "CHF": true, "SEK": true, "NOK": true,
+	"DKK": true, "PLN": true, "BRL": true, "MXN": true, "SGD": true, "NZD": true, "ZAR": true, "LKR": true, "AED": true, "HKD": true,
+}
+
+// siteCurrencies map a site's country domain to its currency, most
+// specific first.
+var siteCurrencies = []struct{ suffix, currency string }{
+	{"in", "INR"}, {"co.uk", "GBP"}, {"uk", "GBP"},
+	{"de", "EUR"}, {"fr", "EUR"}, {"it", "EUR"}, {"es", "EUR"}, {"nl", "EUR"}, {"ie", "EUR"}, {"at", "EUR"}, {"be", "EUR"}, {"fi", "EUR"}, {"pt", "EUR"},
+	{"jp", "JPY"}, {"ca", "CAD"}, {"com.au", "AUD"}, {"au", "AUD"}, {"ch", "CHF"}, {"se", "SEK"}, {"no", "NOK"}, {"dk", "DKK"}, {"pl", "PLN"},
+	{"com.br", "BRL"}, {"com.mx", "MXN"}, {"mx", "MXN"}, {"sg", "SGD"}, {"nz", "NZD"}, {"za", "ZAR"}, {"lk", "LKR"}, {"ae", "AED"},
+}
+
+// siteCurrency is the currency of a page's country domain, "" when the
+// domain names no country this knows.
+func siteCurrency(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	site := fetch.Site(u)
+	for _, c := range siteCurrencies {
+		if strings.HasSuffix(site, "."+c.suffix) {
+			return c.currency
+		}
+	}
+	return ""
+}
+
+// pageCurrency is a page price watch's currency hint, shown before its first
+// read: a known code sent along; else, on an edit that keeps the address, the
+// hint it had; else the site's country; else, on an edit that moves the
+// address, the hint it had; else none.
+func pageCurrency(sent, pageURL string, old *Watch) string {
+	if c := strings.ToUpper(strings.TrimSpace(sent)); hintCurrencies[c] {
+		return c
+	}
+	prev := ""
+	if old != nil && old.Kind == WatchPage {
+		prev = old.Currency
+	}
+	if prev != "" && old.URL == pageURL {
+		return prev
+	}
+	if c := siteCurrency(pageURL); c != "" {
+		return c
+	}
+	return prev
 }
 
 // sentence capitalises a lower-case error from another package.

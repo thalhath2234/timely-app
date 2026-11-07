@@ -61,6 +61,14 @@ func (s *Service) HandlePass(ctx context.Context, job *models.Job) error {
 		return nil
 	}
 	pc := &passCheck{job: job, pass: rows[0], started: s.now().UTC(), checkID: utils.PrefixedUUID("bchk")}
+	// "Pause all bots" folds it: it goes into the next brief instead.
+	paused, err := accountPaused(db, job.UserID)
+	if err != nil {
+		return jobs.RetryAfter(err, time.Minute)
+	}
+	if paused {
+		return retryDB(s.foldPass(ctx, pc.pass))
+	}
 	ok, err := s.loadPass(db, pc)
 	if err != nil {
 		return jobs.RetryAfter(err, time.Minute)
@@ -210,8 +218,9 @@ func (s *Service) readPass(ctx context.Context, db *gorm.DB, pc *passCheck) erro
 // as the one event a passed note's check raises.
 func firstHolding(ws []Watch, reading Reading) []firedEvent {
 	for _, w := range ws {
+		// A page's own currency once read wins over its hint.
 		currency := w.Currency
-		if currency == "" && w.LastReading != nil {
+		if (currency == "" || w.Kind == WatchPage) && w.LastReading != nil && w.LastReading.Currency != "" {
 			currency = w.LastReading.Currency
 		}
 		for _, r := range w.Rules {

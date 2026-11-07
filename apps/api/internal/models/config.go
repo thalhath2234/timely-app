@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 	"timely-api/internal/utils"
 
 	"gorm.io/gorm"
@@ -624,6 +625,11 @@ type Config struct {
 	// BotAlertDefaults are the alert switches a new Bot starts with when
 	// whoever makes it leaves them unset: chat and outside apps always do.
 	BotAlertDefaults BotAlertDefaults `gorm:"type:jsonb;not null;default:'{\"desktop\": true, \"phone\": true, \"urgent\": false}'" json:"botAlertDefaults"`
+
+	// BotsPausedAt is set while "Pause all bots" is on: no Bot of the
+	// account is checked, and each keeps its own status. The Bots board
+	// reports it as summary.allPaused.
+	BotsPausedAt *time.Time `json:"-"`
 }
 
 func (c *Config) BeforeCreate(tx *gorm.DB) error {

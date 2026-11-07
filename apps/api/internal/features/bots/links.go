@@ -85,6 +85,28 @@ func passedToday(db *gorm.DB, userID, day string) (map[string]int, error) {
 	return out, nil
 }
 
+// accountLinks lists every link of the account, oldest first, and how many
+// items they handed on today (day, notification zone) in all.
+func accountLinks(db *gorm.DB, userID, day string) ([]LinkView, int, error) {
+	var links []Link
+	if err := db.Where("user_id = ?", userID).Order("created_at, id").Find(&links).Error; err != nil {
+		return nil, 0, err
+	}
+	passed, err := passedToday(db, userID, day)
+	if err != nil {
+		return nil, 0, err
+	}
+	total := 0
+	for _, n := range passed {
+		total += n
+	}
+	out := make([]LinkView, 0, len(links))
+	for _, l := range links {
+		out = append(out, linkView(l, passed[l.ID]))
+	}
+	return out, total, nil
+}
+
 // botLinks lists every link from or to a Bot, oldest first.
 func botLinks(db *gorm.DB, userID, botID string, now time.Time) ([]LinkView, error) {
 	var links []Link

@@ -102,18 +102,19 @@ type ItemBrief struct {
 // WatchView is one watch, with a short code-made summary of its last
 // reading instead of the reading itself.
 type WatchView struct {
-	ID            string     `json:"id"`
-	Kind          string     `json:"kind"`
-	URL           string     `json:"url"`
-	Read          string     `json:"read"`
-	Selector      string     `json:"selector"`
-	Source        string     `json:"source"`
-	Symbol        string     `json:"symbol"`
-	Currency      string     `json:"currency"`
-	Rules         []Rule     `json:"rules"`
-	Health        Health     `json:"health"`
-	LastReadingAt *time.Time `json:"lastReadingAt"`
-	Summary       string     `json:"summary"`
+	ID              string     `json:"id"`
+	Kind            string     `json:"kind"`
+	URL             string     `json:"url"`
+	Read            string     `json:"read"`
+	Selector        string     `json:"selector"`
+	Source          string     `json:"source"`
+	Symbol          string     `json:"symbol"`
+	Currency        string     `json:"currency"`        // a price's pair, or a page's hint (pageCurrency), which checks never move
+	ReadingCurrency string     `json:"readingCurrency"` // the last reading's; for a page it wins over the hint once there is one
+	Rules           []Rule     `json:"rules"`
+	Health          Health     `json:"health"`
+	LastReadingAt   *time.Time `json:"lastReadingAt"`
+	Summary         string     `json:"summary"`
 	// The board's fields.
 	Site          string       `json:"site"`            // the page's registrable domain; "" for a price
 	Title         string       `json:"title"`           // the page's own name, from its last reading
@@ -295,6 +296,7 @@ func watchView(w Watch, days []dayClose) WatchView {
 	if r == nil {
 		return wv
 	}
+	wv.ReadingCurrency = r.Currency
 	if w.Kind == WatchPage {
 		wv.Title = r.Title
 	}

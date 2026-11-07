@@ -142,6 +142,8 @@ var (
 	ErrLessonNotFound = errors.New("lesson not found")
 	ErrLinkNotFound   = errors.New("link not found")
 	ErrPaused         = errors.New("This bot is paused. Turn it on in Timely first.")
+	// ErrAllPaused answers Run now and Ask while "Pause all bots" is on.
+	ErrAllPaused = errors.New("All bots are paused. Turn them on again on the Bots page.")
 	// ErrSuggestionStale answers Apply on a suggestion that was replaced, or
 	// whose watch or rule is gone.
 	ErrSuggestionStale = errors.New("This suggestion is out of date")

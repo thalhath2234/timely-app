@@ -45,7 +45,11 @@ func (s *Service) Sweep(ctx context.Context) error {
 		UserID      string
 		NextCheckAt time.Time
 	}
-	if err := s.db.WithContext(ctx).Raw(`SELECT id, user_id, next_check_at FROM bots WHERE status = 'active' AND next_check_at <= @now ORDER BY next_check_at LIMIT @limit`,
+	// An account with "Pause all bots" on is skipped; its Bots stay due and
+	// run once it is turned off.
+	if err := s.db.WithContext(ctx).Raw(`SELECT id, user_id, next_check_at FROM bots WHERE status = 'active' AND next_check_at <= @now
+		AND NOT EXISTS (SELECT 1 FROM configs c WHERE c.user_id = bots.user_id AND c.bots_paused_at IS NOT NULL)
+		ORDER BY next_check_at LIMIT @limit`,
 		sql.Named("now", now), sql.Named("limit", sweepBatch)).Scan(&due).Error; err != nil {
 		return err
 	}
