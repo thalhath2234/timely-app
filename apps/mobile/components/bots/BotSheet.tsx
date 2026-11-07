@@ -87,7 +87,9 @@ import { CheckStrip } from "./CheckStrip";
 import { HowItCameSheet } from "./HowItCameSheet";
 import { PriceChart } from "./PriceChart";
 import { SnoozeSheet } from "./SnoozeSheet";
+import { SuggestionCard, suggests } from "./SuggestionCard";
 import { withAlpha } from "./tone";
+import { useBotActions } from "./useBotActions";
 import { isStock } from "./watchDraft";
 import { WorksWith, passInputs } from "./WorksWith";
 
@@ -450,6 +452,7 @@ function ViewSheet({
   const resume = useResumeBot();
   const run = useRunBot();
   const remove = useDeleteBot();
+  const actions = useBotActions(onSelect);
   const hasKey = useHasKey();
   const views = useWatchViews(bot?.watches);
   const icons = useBotIcons(useMemo(() => botSites(bot?.watches ?? []), [bot?.watches])).data;
@@ -620,6 +623,7 @@ function ViewSheet({
           {origin ? <MetaChip>{origin}</MetaChip> : null}
         </View>
 
+        {suggests(bot) ? <SuggestionCard bot={bot} actions={actions} /> : null}
         {reason === "waiting_ok" ? <LookOver botId={bot.id} /> : null}
         {!detail ? (
           <SkeletonRows rows={2} height={120} />

@@ -39,6 +39,7 @@ import { HealthLine } from "./HealthLine";
 import { Pill } from "./Pill";
 import { Sparkline } from "./Sparkline";
 import { StrikeMeter } from "./StrikeMeter";
+import { SuggestionButtons } from "./SuggestionCard";
 import { withAlpha } from "./tone";
 import type { BotActions } from "./useBotActions";
 
@@ -189,8 +190,8 @@ function Middle({ bot, now, names }: { bot: BotView; now: Date; names?: BotNames
   );
 }
 
-function Footer({ bot, now }: { bot: BotView; now: Date }) {
-  const right = footerRight(bot, now);
+function Footer({ bot, now, allPaused }: { bot: BotView; now: Date; allPaused?: boolean }) {
+  const right = footerRight(bot, now, undefined, { allPaused });
   return (
     <View style={styles.footer}>
       <HealthLine bot={bot} now={now} />
@@ -244,6 +245,19 @@ function Attention({ bot, now, actions, onOpen }: { bot: BotView; now: Date; act
             <AlertFeedback botId={bot.id} alert={alert} />
           </View>
         </View>
+      </>
+    );
+  }
+
+  if (reason === "suggestion" && bot.suggestion) {
+    const copy = fixCopy(bot);
+    return (
+      <>
+        <View style={styles.copy}>
+          <Text style={styles.copyTitle}>{copy.title}</Text>
+          <Text style={styles.meta}>{copy.meta}</Text>
+        </View>
+        <SuggestionButtons bot={bot} actions={actions} style={styles.buttons} />
       </>
     );
   }
@@ -322,7 +336,8 @@ function Attention({ bot, now, actions, onOpen }: { bot: BotView; now: Date; act
  * A bot on the phone board. `card` is a Watching card (value, price line or
  * row of checks, health); `attention` a "Needs you" card with a tinted edge,
  * what it needs and its buttons; `preview` a card that does nothing (a new
- * bot's "On your board"). `names` lets a brief name the bots it sums up.
+ * bot's "On your board"). `names` lets a brief name the bots it sums up;
+ * `allPaused` (Pause all is on) shows on the footer.
  */
 export function BotCard({
   bot,
@@ -330,6 +345,7 @@ export function BotCard({
   variant = "card",
   icons,
   names,
+  allPaused,
   actions,
   onPress,
 }: {
@@ -338,17 +354,20 @@ export function BotCard({
   variant?: "card" | "attention" | "preview";
   icons?: SiteIcons;
   names?: BotNames;
+  allPaused?: boolean;
   actions: BotActions;
   onPress?: () => void;
 }) {
   const reason = needsReason(bot, now);
   if (variant === "attention" && reason) {
-    const warm = reason === "new_alert" || reason === "waiting_ok";
+    const warm = reason === "new_alert" || reason === "waiting_ok" || reason === "suggestion";
     const trailing =
       reason === "new_alert" ? (
         <Pill tone="primary">New alert</Pill>
       ) : reason === "waiting_ok" ? (
         <Pill tone="warning">Your OK</Pill>
+      ) : reason === "suggestion" ? (
+        <Pill tone="warning">Suggestion</Pill>
       ) : (
         <StrikeMeter strikes={bot.strikes} />
       );
@@ -386,7 +405,7 @@ export function BotCard({
         }
       />
       <Middle bot={bot} now={now} names={names} />
-      <Footer bot={bot} now={now} />
+      <Footer bot={bot} now={now} allPaused={allPaused} />
     </>
   );
   if (variant === "preview" || !onPress) return <View style={styles.card}>{body}</View>;

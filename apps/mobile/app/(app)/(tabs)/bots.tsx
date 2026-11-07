@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Bot, MessageCircle, Plus } from "lucide-react-native";
-import { boardOrder, boardSections, summaryLine, type StarterId } from "@timely/contract/bots";
+import { boardOrder, boardSections, chainsOf, summaryLine, type StarterId } from "@timely/contract/bots";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader, { HeaderIconButton } from "../../../components/ui/MobileHeader";
 import EmptyState from "../../../components/ui/EmptyState";
@@ -18,7 +18,9 @@ import { BotCard, PausedRow } from "../../../components/bots/BotCard";
 import { BotSheet } from "../../../components/bots/BotSheet";
 import { botSites } from "../../../components/bots/BotMark";
 import { BotsEmpty } from "../../../components/bots/BotsEmpty";
+import { ChainsGroup } from "../../../components/bots/ChainsGroup";
 import { CountPill } from "../../../components/bots/Pill";
+import { TodayGroup } from "../../../components/bots/TodayGroup";
 import { AGENT_SETTINGS_ROUTE, BOT_KEYS_ROUTE, useBotActions, useDescribeInChat } from "../../../components/bots/useBotActions";
 import { contextChip } from "../../../lib/chat/context";
 import { useNow } from "../../../lib/dashboard";
@@ -28,8 +30,9 @@ import { colors, createThemedStyleSheet, radius } from "../../../lib/theme";
 
 /**
  * The Bots tab: Needs you (a new alert to rate, a bot to fix, a bot an
- * outside app made waiting for an OK), Watching and Paused, or the starters
- * before the first bot. A bot opens on `?bot=<id>` and New bot on
+ * outside app made waiting for an OK, a suggested change), Watching and
+ * Paused, then Today (Pause all, today's AI checks and passes) and Chains;
+ * or the starters before the first bot. A bot opens on `?bot=<id>` and New bot on
  * `?new=1&starter=<id>`, so a notification can open its bot.
  */
 export default function BotsScreen() {
@@ -73,6 +76,8 @@ export default function BotsScreen() {
   const icons = useBotIcons(sites).data;
   const sections = useMemo(() => (list ? boardSections(list.bots, now) : null), [list, now]);
   const order = useMemo(() => (list ? boardOrder(list.bots, now) : []), [list, now]);
+  const chains = useMemo(() => (list ? chainsOf(list.summary.links, list.bots) : []), [list]);
+  const allPaused = !!list?.summary.allPaused;
   const sheetMode = params.new === "1" ? "new" : params.bot ? "view" : null;
   const networkCopy = needsNetworkCopy(query);
   const empty = Boolean(list && list.bots.length === 0);
@@ -118,7 +123,15 @@ export default function BotsScreen() {
             <SectionLabel count={sections.watching.length}>Watching</SectionLabel>
             {sections.watching.map((bot) => (
               <ListEnter key={bot.id} index={index++}>
-                <BotCard bot={bot} now={now} icons={icons} names={list.bots} actions={actions} onPress={() => openBot(bot.id)} />
+                <BotCard
+                  bot={bot}
+                  now={now}
+                  icons={icons}
+                  names={list.bots}
+                  allPaused={allPaused}
+                  actions={actions}
+                  onPress={() => openBot(bot.id)}
+                />
               </ListEnter>
             ))}
           </View>
@@ -135,6 +148,20 @@ export default function BotsScreen() {
             </ListEnter>
           </View>
         ) : null}
+        <View style={styles.section}>
+          <SectionLabel>Today</SectionLabel>
+          <ListEnter index={index++}>
+            <TodayGroup summary={list.summary} bots={list.bots} />
+          </ListEnter>
+        </View>
+        {chains.length ? (
+          <View style={styles.section}>
+            <SectionLabel count={chains.length}>Chains</SectionLabel>
+            <ListEnter index={index++}>
+              <ChainsGroup chains={chains} bots={list.bots} onOpen={openBot} />
+            </ListEnter>
+          </View>
+        ) : null}
       </>
     );
   }
@@ -143,7 +170,7 @@ export default function BotsScreen() {
     <Screen>
       <MobileHeader
         title="Bots"
-        subtitle={list && list.bots.length ? summaryLine(list, now, "phone") : undefined}
+        subtitle={list && list.bots.length ? (allPaused ? "All bots are paused" : summaryLine(list, now, "phone")) : undefined}
         actions={
           <HeaderIconButton label="Describe in chat" onPress={() => describe()}>
             <MessageCircle size={20} color={colors.foreground} />
@@ -191,11 +218,11 @@ export default function BotsScreen() {
 }
 
 /** A board section's heading with its count right beside it, as on desktop. */
-function SectionLabel({ children, count, attn }: { children: string; count: number; attn?: boolean }) {
+function SectionLabel({ children, count, attn }: { children: string; count?: number; attn?: boolean }) {
   return (
     <View style={styles.labelRow}>
       <Text style={styles.label}>{children}</Text>
-      <CountPill count={count} tone={attn ? "attn" : undefined} />
+      {count !== undefined ? <CountPill count={count} tone={attn ? "attn" : undefined} /> : null}
     </View>
   );
 }
