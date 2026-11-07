@@ -201,7 +201,8 @@ export function NeedsAction({
             {waitingLine(bot)}
           </p>
         </div>
-        <div className="mt-auto flex flex-wrap items-center gap-2">
+        {/* One row: on a narrow card Delete keeps only its icon. */}
+        <div className="@container mt-auto flex items-center gap-2">
           {turnOn}
           <Button
             variant="outline"
@@ -216,10 +217,11 @@ export function NeedsAction({
             variant="ghost"
             size="sm"
             leading={<Trash2 />}
+            aria-label="Delete"
             className="relative z-[1] ml-auto"
             onClick={() => actions.askDelete(bot)}
           >
-            Delete
+            <span className="hidden @[320px]:inline">Delete</span>
           </Button>
         </div>
       </>

@@ -8,6 +8,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
+  type Ref,
 } from "react";
 import Link from "next/link";
 import {
@@ -220,16 +221,20 @@ function PanelFrame({
   label,
   children,
   onKeyDown,
+  frameRef,
 }: {
   label: string;
   children: ReactNode;
   onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void;
+  frameRef?: Ref<HTMLElement>;
 }) {
   return (
     <section
+      ref={frameRef}
       aria-label={label}
+      tabIndex={-1}
       onKeyDown={onKeyDown}
-      className="bots-panel flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-[20px] border border-border-strong bg-background"
+      className="bots-panel flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-[20px] border border-border-strong bg-background outline-none"
     >
       {children}
     </section>
@@ -245,7 +250,7 @@ function PanelBody({ editor, rail }: { editor: ReactNode; rail: ReactNode }) {
         style={{ "--rail": "clamp(320px, 28%, 420px)" } as CSSProperties}
       >
         <div className="min-w-0">{editor}</div>
-        <aside className="grid min-w-0 items-start gap-4 @[700px]:grid-cols-2 @[960px]:grid-cols-1">
+        <aside className="grid min-w-0 items-start gap-4 @[700px]:grid-cols-2 @[700px]:[&>*:last-child:nth-child(odd)]:col-span-2 @[960px]:grid-cols-1 @[960px]:[&>*:last-child:nth-child(odd)]:col-span-1">
           {rail}
         </aside>
       </div>
@@ -259,7 +264,7 @@ function escapeCloses(close: () => void) {
     if (event.key !== "Escape" || event.defaultPrevented) return;
     if (
       (event.target as HTMLElement).closest(
-        '[role="dialog"],[role="menu"],[role="listbox"]',
+        '[role="dialog"],[role="menu"],[role="listbox"],[aria-expanded="true"]',
       )
     )
       return;
@@ -275,6 +280,42 @@ export function confirmDiscardNew(discard: () => void) {
     confirmLabel: "Discard",
     onConfirm: discard,
   });
+}
+
+/** Asks before edits that could not save yet (an open watch, a half-made rule) are dropped. */
+export function confirmDiscardEdits(discard: () => void) {
+  requestConfirm({
+    title: "Discard changes that are not finished?",
+    description:
+      "A watch or rule you were still setting up is not saved. Everything else already is.",
+    confirmLabel: "Discard",
+    onConfirm: discard,
+  });
+}
+
+/** What an open panel holds that would be lost: a new bot's draft, or an open bot's unfinished edits. */
+export type Unfinished = "new" | "edit" | null;
+
+/** Runs go, asking first when the panel holds something unfinished. */
+export function leaveUnfinished(unfinished: Unfinished, go: () => void) {
+  if (unfinished === "new") confirmDiscardNew(go);
+  else if (unfinished === "edit") confirmDiscardEdits(go);
+  else go();
+}
+
+/** Tells the page what the panel holds, and forgets it when the panel goes. */
+function useReportUnfinished(
+  unfinished: Unfinished,
+  report?: (unfinished: Unfinished) => void,
+) {
+  const reportRef = useRef(report);
+  useEffect(() => {
+    reportRef.current = report;
+  });
+  useEffect(() => {
+    reportRef.current?.(unfinished);
+  }, [unfinished]);
+  useEffect(() => () => reportRef.current?.(null), []);
 }
 
 function CloseButton({ onClose }: { onClose: () => void }) {
@@ -336,15 +377,20 @@ function EditPanel({
   detail,
   order,
   now,
+  focusOn,
   onClose,
   onSelect,
+  onUnfinished,
 }: {
   bot: BotView | BotDetail;
   detail?: BotDetail;
   order: string[];
   now: Date;
+  /** What takes focus when the panel opens: the Previous or Next button pressed to get here, or the panel. */
+  focusOn: "prev" | "next" | "panel";
   onClose: () => void;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, via?: "prev" | "next") => void;
+  onUnfinished?: (unfinished: Unfinished) => void;
 }) {
   const update = useUpdateBot();
   const pause = usePauseBot();
@@ -357,6 +403,10 @@ function EditPanel({
   const [base, setBase] = useState<BotInput>(() => toInput(draftOf(bot)));
   const [errors, setErrors] = useState<PanelErrors>({});
   const [refused, setRefused] = useState<PanelErrors>({});
+  const [watchDirty, setWatchDirty] = useState(false);
+  const frameRef = useRef<HTMLElement>(null);
+  const prevRef = useRef<HTMLButtonElement>(null);
+  const nextRef = useRef<HTMLButtonElement>(null);
   const botRef = useRef(bot);
   useEffect(() => {
     botRef.current = bot;
@@ -397,11 +447,47 @@ function EditPanel({
       autosave.status === "error" ||
       JSON.stringify(toInput(draft)) !== JSON.stringify(base);
     if (!busy) {
+      // Follow the server, but keep the typed name and description when
+      // they save as the same words: a trailing space or line break is
+      // still being typed, not a change to undo.
       const fresh = draftOf(bot);
-      setDraft(fresh);
-      setBase(toInput(fresh));
+      const mine = toInput(draft);
+      const theirs = toInput(fresh);
+      setDraft({
+        ...fresh,
+        name: mine.name === theirs.name ? draft.name : fresh.name,
+        description:
+          mine.description === theirs.description
+            ? draft.description
+            : fresh.description,
+      });
+      setBase(theirs);
     }
   }
+
+  // Edits that could not save yet: an open watch with changes, or fields a
+  // half-made rule holds back. Closing or moving on asks first.
+  const unfinished: Unfinished =
+    watchDirty || JSON.stringify(toInput(draft)) !== JSON.stringify(base)
+      ? "edit"
+      : null;
+  useReportUnfinished(unfinished, onUnfinished);
+  const leave = (go: () => void) => leaveUnfinished(unfinished, go);
+
+  // Focus moves into the panel when it opens, so Escape and Tab work at
+  // once; after Previous or Next it stays on that button (or the other one
+  // when the end is reached).
+  useEffect(() => {
+    const target =
+      focusOn === "panel"
+        ? frameRef.current
+        : [focusOn === "prev" ? prevRef : nextRef, prevRef, nextRef]
+            .map((r) => r.current)
+            .find((b) => b && !b.disabled);
+    (target ?? frameRef.current)?.focus({ preventScroll: true });
+    // Only when this bot's panel opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const commit = (next: BotInput, how: EditHow) => {
     setDraft(next);
@@ -449,7 +535,11 @@ function EditPanel({
   };
 
   return (
-    <PanelFrame label={bot.name} onKeyDown={escapeCloses(onClose)}>
+    <PanelFrame
+      label={bot.name}
+      frameRef={frameRef}
+      onKeyDown={escapeCloses(() => leave(onClose))}
+    >
       <header className="relative z-20 shrink-0 border-b border-border bg-card pb-4 pl-6 pr-5 pt-4">
         <div className="flex items-center gap-3">
           <BotMark watches={bot.watches} size={40} icons={icons} />
@@ -497,9 +587,10 @@ function EditPanel({
               variant="ghost"
               size="sm"
               icon
+              ref={prevRef}
               aria-label="Previous bot"
               disabled={!prev}
-              onClick={() => prev && onSelect(prev)}
+              onClick={() => prev && leave(() => onSelect(prev, "prev"))}
             >
               <ChevronUp />
             </Button>
@@ -507,13 +598,14 @@ function EditPanel({
               variant="ghost"
               size="sm"
               icon
+              ref={nextRef}
               aria-label="Next bot"
               disabled={!next}
-              onClick={() => next && onSelect(next)}
+              onClick={() => next && leave(() => onSelect(next, "next"))}
             >
               <ChevronDown />
             </Button>
-            <CloseButton onClose={onClose} />
+            <CloseButton onClose={() => leave(onClose)} />
           </div>
         </div>
         {shown.head ? (
@@ -539,7 +631,11 @@ function EditPanel({
           {bot.lastCheckAt ? (
             <Chip>Checked {agoLabel(bot.lastCheckAt, now)}</Chip>
           ) : null}
-          {bot.status === "active" && bot.nextCheckAt ? (
+          {bot.status === "active" && !bot.lastCheckAt ? (
+            // A new bot's first check is queued at once: its next scheduled
+            // time would say otherwise.
+            <Chip>First check running</Chip>
+          ) : bot.status === "active" && bot.nextCheckAt ? (
             <Chip>
               Next {clockLabel(bot.nextCheckAt, now)}
               {cooling ? ` · ${waitWords(bot)}` : ""}
@@ -571,6 +667,7 @@ function EditPanel({
             hasKey={hasKey}
             errors={shown}
             onDeleted={onClose}
+            onWatchDirty={setWatchDirty}
           />
         }
         rail={
@@ -596,27 +693,28 @@ function NewPanel({
   now,
   onClose,
   onCreated,
-  onTouched,
+  onUnfinished,
 }: {
   initial: BotInput;
   now: Date;
   onClose: () => void;
   onCreated: (id: string) => void;
-  onTouched?: (touched: boolean) => void;
+  onUnfinished?: (unfinished: Unfinished) => void;
 }) {
   const create = useCreateBot();
   const hasKey = useHasKey();
   const [draft, setDraft] = useState(initial);
   const [touched, setTouched] = useState(false);
+  // A watch typed into but not added yet counts too.
+  const [watchDirty, setWatchDirty] = useState(false);
+  const frameRef = useRef<HTMLElement>(null);
   // The page asks before a board click replaces a touched draft.
-  const touchedRef = useRef(onTouched);
+  const unfinished: Unfinished = touched || watchDirty ? "new" : null;
+  useReportUnfinished(unfinished, onUnfinished);
+  const leave = (go: () => void) => leaveUnfinished(unfinished, go);
   useEffect(() => {
-    touchedRef.current = onTouched;
-  });
-  useEffect(() => {
-    touchedRef.current?.(touched);
-  }, [touched]);
-  useEffect(() => () => touchedRef.current?.(false), []);
+    frameRef.current?.focus({ preventScroll: true });
+  }, []);
   const icons = useBotIcons(
     useMemo(() => botSites(draft.watches), [draft.watches]),
   ).data;
@@ -637,7 +735,7 @@ function NewPanel({
     create.mutate(toInput(draft), {
       onSuccess: (view) => {
         say(`${view.name} is set up. Its first check runs now.`);
-        onTouched?.(false);
+        onUnfinished?.(null);
         onCreated(view.id);
       },
     });
@@ -645,9 +743,8 @@ function NewPanel({
   return (
     <PanelFrame
       label="New bot"
-      onKeyDown={escapeCloses(() =>
-        touched ? confirmDiscardNew(onClose) : onClose(),
-      )}
+      frameRef={frameRef}
+      onKeyDown={escapeCloses(() => leave(onClose))}
     >
       <header className="relative z-20 shrink-0 border-b border-border bg-card pb-4 pl-6 pr-5 pt-4">
         <div className="flex items-center gap-3">
@@ -661,7 +758,7 @@ function NewPanel({
             value={draft.name}
             onChange={(name) => change({ ...draft, name })}
           />
-          <CloseButton onClose={onClose} />
+          <CloseButton onClose={() => leave(onClose)} />
         </div>
         {errors.head ? (
           <p className="mt-1 text-xs text-destructive">{errors.head}</p>
@@ -692,6 +789,7 @@ function NewPanel({
             now={now}
             icons={icons}
             hasKey={hasKey}
+            onWatchDirty={setWatchDirty}
             errors={{
               ...errors,
               watches: needsKey ? (
@@ -725,7 +823,7 @@ function NewPanel({
               ? problems[0]
               : "Lands in Watching once its first check works."}
         </p>
-        <Button variant="outline" onClick={onClose}>
+        <Button variant="outline" onClick={() => leave(onClose)}>
           Cancel
         </Button>
         <Button
@@ -755,7 +853,7 @@ export function BotPanel({
   now,
   onClose,
   onSelect,
-  onNewTouched,
+  onUnfinished,
 }: {
   mode: "edit" | "new";
   botId?: string | null;
@@ -766,11 +864,15 @@ export function BotPanel({
   now: Date;
   onClose: () => void;
   onSelect: (id: string) => void;
-  /** Hears whether the New bot draft has been touched. */
-  onNewTouched?: (touched: boolean) => void;
+  /** Hears what the panel holds that closing would lose (see leaveUnfinished). */
+  onUnfinished?: (unfinished: Unfinished) => void;
 }) {
   const query = useBot(mode === "edit" ? botId : null);
   const defaults = useBotDefaults();
+  // Which nav button opened the next bot, for EditPanel's focus.
+  const [via, setVia] = useState<{ id: string; on: "prev" | "next" } | null>(
+    null,
+  );
 
   if (mode === "new") {
     if (defaults.isLoading) {
@@ -791,7 +893,7 @@ export function BotPanel({
         now={now}
         onClose={onClose}
         onCreated={onSelect}
-        onTouched={onNewTouched}
+        onUnfinished={onUnfinished}
       />
     );
   }
@@ -817,8 +919,13 @@ export function BotPanel({
       detail={query.data}
       order={order}
       now={now}
+      focusOn={via?.id === bot.id ? via.on : "panel"}
       onClose={onClose}
-      onSelect={onSelect}
+      onSelect={(id, on) => {
+        setVia(on ? { id, on } : null);
+        onSelect(id);
+      }}
+      onUnfinished={onUnfinished}
     />
   );
 }

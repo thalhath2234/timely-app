@@ -93,17 +93,20 @@ export function StarterCard({
         </ListGroup>
       </div>
       <div className="flex min-h-11 items-center gap-2 border-t border-border px-3.5 py-2 text-xs text-muted-foreground">
-        <span className="line-clamp-2 min-w-0 flex-1 leading-4">
+        <span className="min-w-0 flex-1 truncate leading-4">
           {later ? "Comes with Research bots" : "Opens the editor filled in"}
         </span>
+        {/* An icon, so the hint keeps its one line beside Use. */}
         {!later && starter.chatText ? (
           <Button
             variant="ghost"
             size="sm"
-            leading={<MessageCircle />}
+            icon
+            aria-label="Describe in chat"
+            title="Describe in chat"
             onClick={() => onChat(starter.chatText ?? "")}
           >
-            Describe in chat
+            <MessageCircle />
           </Button>
         ) : null}
         <Button

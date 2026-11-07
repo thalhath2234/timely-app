@@ -36,8 +36,20 @@ export function watchMeta(
   )
     return `${what} · ${view.health.line}`;
   if (!view.lastReadingAt) return `${what} · not read yet`;
-  const reads = view.summary ? ` · reads ${view.summary}` : "";
+  // A text read shows the words it read ("Out of stock"), not their length.
+  const text =
+    w.kind === "page" && (w.read === "selector" || w.read === "text")
+      ? clipWords(view.excerpt)
+      : "";
+  const shown = text ? `“${text}”` : view.summary;
+  const reads = shown ? ` · reads ${shown}` : "";
   return `${what}${reads} · ${agoLabel(view.lastReadingAt, now)}`;
+}
+
+/** A reading's text, one line and at most 40 characters. */
+function clipWords(text: string): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  return line.length > 40 ? `${line.slice(0, 39).trimEnd()}…` : line;
 }
 
 function KindIcon({ children }: { children: ReactNode }) {

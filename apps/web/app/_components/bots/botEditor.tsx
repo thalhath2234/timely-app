@@ -52,6 +52,7 @@ export function BotEditor({
   hasKey,
   errors,
   onDeleted,
+  onWatchDirty,
 }: {
   draft: BotInput;
   onChange: (next: BotInput, how: EditHow) => void;
@@ -62,6 +63,8 @@ export function BotEditor({
   hasKey: (source: string) => boolean;
   errors?: EditorErrors;
   onDeleted?: () => void;
+  /** Hears whether an open watch has changes not saved into the draft yet. */
+  onWatchDirty?: (dirty: boolean) => void;
 }) {
   const [editing, setEditing] = useState<{
     index: number;
@@ -86,6 +89,7 @@ export function BotEditor({
         isLast={mode === "edit" && watches.length <= 1}
         unsaved={mode === "new"}
         hasKey={hasKey}
+        onDirty={onWatchDirty}
         onBack={() => setEditing(null)}
         onSave={(w) => {
           const next = isNew

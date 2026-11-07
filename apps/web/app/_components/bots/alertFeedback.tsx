@@ -46,16 +46,20 @@ export function AlertFeedback({
     const onDown = (event: MouseEvent | TouchEvent) => {
       if (!root.current?.contains(event.target as Node)) setOpen(false);
     };
+    // Escape closes the popover, not the panel or dialog it sits in.
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("touchstart", onDown);
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
     return () => {
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("touchstart", onDown);
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
 
@@ -83,55 +87,58 @@ export function AlertFeedback({
   const useful = alert.feedback === "useful";
   const notUseful = alert.feedback === "not_useful";
   const icon = size === "icon";
+  // Once rated, the full size shows only the chosen answer with its note;
+  // pressing it again takes the answer back. cn() does not merge classes, so
+  // the chosen look is !important over the outline variant's bg-card.
+  const rated = !icon && (useful || notUseful);
   const chosen =
-    "border-transparent bg-accent text-accent-foreground shadow-none hover:bg-accent";
+    "!border-transparent !bg-accent !text-accent-foreground !shadow-none hover:!bg-accent";
   const iconClass =
     "size-7 border border-border bg-card text-foreground shadow-none hover:bg-muted";
 
   return (
     <div ref={root} className="relative z-[1] flex items-center gap-2">
-      <Button
-        variant="outline"
-        size="sm"
-        icon={icon}
-        aria-label={icon ? "Useful" : undefined}
-        aria-pressed={useful}
-        disabled={rate.isPending}
-        className={cn(icon && iconClass, useful && chosen)}
-        leading={useful ? <Check /> : <ThumbsUp />}
-        onClick={() =>
-          useful
-            ? send({ feedback: null }, null)
-            : send({ feedback: "useful" }, "Saved: this alert helped")
-        }
-      >
-        {icon ? null : "Useful"}
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        icon={icon}
-        aria-label={icon ? "Not useful" : undefined}
-        aria-pressed={notUseful}
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        disabled={rate.isPending}
-        className={cn(icon && iconClass, notUseful && chosen)}
-        leading={notUseful ? <Check /> : <ThumbsDown />}
-        onClick={() =>
-          notUseful ? send({ feedback: null }, null) : setOpen((was) => !was)
-        }
-      >
-        {icon ? null : "Not useful"}
-      </Button>
-      {useful && !icon ? (
-        <span className="text-xs text-muted-foreground">
-          You said this helped
-        </span>
-      ) : null}
-      {notUseful && !icon ? (
-        <span className="text-xs text-muted-foreground">
-          You said it didn’t help
+      {rated && notUseful ? null : (
+        <Button
+          variant="outline"
+          size="sm"
+          icon={icon}
+          aria-label={icon ? "Useful" : undefined}
+          aria-pressed={useful}
+          disabled={rate.isPending}
+          className={cn(icon && iconClass, useful && chosen)}
+          leading={useful ? <Check /> : <ThumbsUp />}
+          onClick={() =>
+            useful
+              ? send({ feedback: null }, null)
+              : send({ feedback: "useful" }, "Saved: this alert helped")
+          }
+        >
+          {icon ? null : "Useful"}
+        </Button>
+      )}
+      {rated && useful ? null : (
+        <Button
+          variant="outline"
+          size="sm"
+          icon={icon}
+          aria-label={icon ? "Not useful" : undefined}
+          aria-pressed={notUseful}
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          disabled={rate.isPending}
+          className={cn(icon && iconClass, notUseful && chosen)}
+          leading={notUseful ? <Check /> : <ThumbsDown />}
+          onClick={() =>
+            notUseful ? send({ feedback: null }, null) : setOpen((was) => !was)
+          }
+        >
+          {icon ? null : "Not useful"}
+        </Button>
+      )}
+      {rated ? (
+        <span className="whitespace-nowrap text-xs text-muted-foreground">
+          {useful ? "You said this helped" : "You said it didn’t help"}
         </span>
       ) : null}
       {open ? (

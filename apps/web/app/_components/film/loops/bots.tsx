@@ -1,7 +1,7 @@
 import { useCurrentFrame } from "remotion";
 import { linear, pop, progress, rise } from "../anim";
 import { I, Pill } from "../kit";
-import { C } from "../theme";
+import { C } from "./palette";
 import { LoopStage, Panel, flash } from "./stage";
 
 /** The readings a price bot takes, oldest first; the last one is under the line. */

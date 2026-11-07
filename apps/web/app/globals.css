@@ -2135,3 +2135,32 @@ html.reduce-motion:not([data-public-site]) .tl-bar {
   stroke-width: 1.5;
   stroke-dasharray: 4 4;
 }
+
+/* An empty-state loop that follows the app's theme (film/loops/palette.ts):
+   light surfaces and ink in light theme, the film's own dark palette in dark. */
+.film-loop-themed {
+  --loop-bg: var(--fill);
+  --loop-panel: var(--card);
+  --loop-panel2: var(--muted);
+  --loop-raised: var(--muted);
+  --loop-line: var(--border);
+  --loop-line2: var(--border-strong);
+  --loop-ink: var(--foreground);
+  --loop-soft: var(--muted-foreground);
+  --loop-faint: color-mix(in oklab, var(--muted-foreground) 75%, var(--card));
+  --loop-accent: var(--primary);
+  --loop-accent-ink: var(--primary-foreground);
+}
+.dark .film-loop-themed {
+  --loop-bg: initial;
+  --loop-panel: initial;
+  --loop-panel2: initial;
+  --loop-raised: initial;
+  --loop-line: initial;
+  --loop-line2: initial;
+  --loop-ink: initial;
+  --loop-soft: initial;
+  --loop-faint: initial;
+  --loop-accent: initial;
+  --loop-accent-ink: initial;
+}

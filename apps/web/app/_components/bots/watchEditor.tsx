@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Check, FlaskConical, Trash2 } from "lucide-react";
 import {
@@ -192,6 +192,7 @@ export function WatchEditor({
   onSave,
   onRemove,
   onBack,
+  onDirty,
 }: {
   watch: WatchInput;
   view?: WatchView;
@@ -204,8 +205,19 @@ export function WatchEditor({
   onSave: (watch: WatchInput) => void;
   onRemove?: () => void;
   onBack: () => void;
+  /** Hears whether the watch differs from what it opened with; false once it closes. */
+  onDirty?: (dirty: boolean) => void;
 }) {
   const [w, setW] = useState<WatchInput>(initial);
+  const dirty = JSON.stringify(w) !== JSON.stringify(initial);
+  const dirtyRef = useRef(onDirty);
+  useEffect(() => {
+    dirtyRef.current = onDirty;
+  });
+  useEffect(() => {
+    dirtyRef.current?.(dirty);
+  }, [dirty]);
+  useEffect(() => () => dirtyRef.current?.(false), []);
   const [test, setTest] = useState<PreviewInput | null>(null);
   const [lastRefused, setLastRefused] = useState(false);
   const errors = watchErrors(w, hasKey);

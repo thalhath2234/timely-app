@@ -169,7 +169,8 @@ export function BotsEmpty({
   onChat: (text: string) => void;
 }) {
   const [ref, size] = useElementSize<HTMLDivElement>();
-  const cols = size.width ? boardColumns(size.width) : 4;
+  // Never more than 4: a starter needs room for its rows and footer.
+  const cols = size.width ? Math.min(4, boardColumns(size.width)) : 4;
   const grid = { gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` };
   const firstSpans = fillSpans(["wide", "card", "card"] as GridItem[], cols);
   const moreSpans = fillSpans(
@@ -194,7 +195,7 @@ export function BotsEmpty({
               stacked ? "w-full" : "w-[360px]",
             )}
           >
-            <LoopPlayer id="bots" />
+            <LoopPlayer id="bots" themed />
           </div>
           <div className="flex min-w-0 flex-1 flex-col items-start gap-3.5">
             <h2 className="text-lg font-semibold leading-6 tracking-[-0.01em] text-foreground">

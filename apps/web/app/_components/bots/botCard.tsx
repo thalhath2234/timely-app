@@ -189,7 +189,8 @@ function Footer({
   const personPaused = bot.status === "paused" && !needsReason(bot, now);
   return (
     <div className="mt-auto flex min-h-10 items-center justify-between gap-2 border-t border-border px-3.5 py-1.5 text-xs tabular-nums text-muted-foreground">
-      <HealthLine bot={bot} now={now} />
+      {/* The health line is what the card is for: the right side gives way first. */}
+      <HealthLine bot={bot} now={now} className="max-w-full shrink-0" />
       {personPaused && interactive ? (
         <Button
           variant="outline"
@@ -202,7 +203,7 @@ function Footer({
           Resume
         </Button>
       ) : right ? (
-        <span className="shrink-0 whitespace-nowrap">{right}</span>
+        <span className="min-w-0 truncate whitespace-nowrap">{right}</span>
       ) : null}
     </div>
   );

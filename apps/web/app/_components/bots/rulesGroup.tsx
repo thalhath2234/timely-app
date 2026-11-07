@@ -88,11 +88,14 @@ function ruleRows({
   view,
   onChange,
   keyBase,
+  flag,
 }: {
   watch: WatchInput;
   view?: WatchView;
   onChange: (rules: Rule[], how: "text" | "now") => void;
   keyBase: string;
+  /** Mark unfinished values; off until the group has an error to show, so a fresh starter is not red before anything is typed. */
+  flag: boolean;
 }): ReactElement[] {
   const rules = watch.rules ?? [];
   const currency = view ? watchCurrency(view) : (watch.currency ?? "");
@@ -122,7 +125,9 @@ function ruleRows({
 
   const rows: ReactElement[] = [];
   rules.forEach((rule, index) => {
-    const key = `${keyBase}-${rule.id ?? index}`;
+    // By place, not id: a new rule gets its id when the save comes back,
+    // and a key change then would remount a pill the person is typing in.
+    const key = `${keyBase}-${index}-${rule.kind}`;
     switch (rule.kind) {
       case "below":
       case "above": {
@@ -135,7 +140,7 @@ function ruleRows({
               after={money.after}
               placeholder="0"
               numeric
-              invalid={!(rule.threshold != null && rule.threshold > 0)}
+              invalid={flag && !(rule.threshold != null && rule.threshold > 0)}
               onChange={(text) =>
                 set(index, { threshold: parseAmount(text) }, "text")
               }
@@ -183,6 +188,7 @@ function ruleRows({
               numeric
               width={40}
               invalid={
+                flag &&
                 !(
                   rule.percent != null &&
                   rule.percent > 0 &&
@@ -229,7 +235,9 @@ function ruleRows({
               value={(rule.words ?? []).join(", ")}
               placeholder={optional ? "Any post" : "Add to cart"}
               width={150}
-              invalid={!optional && !(rule.words ?? []).some((w) => w.trim())}
+              invalid={
+                flag && !optional && !(rule.words ?? []).some((w) => w.trim())
+              }
               onChange={(text) =>
                 set(
                   index,
@@ -353,6 +361,7 @@ export function RulesGroup({
         watch: w,
         view,
         keyBase: `w${index}`,
+        flag: !!error,
         onChange: (rules, how) => onRules(index, rules, how),
       }),
     );

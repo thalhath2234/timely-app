@@ -121,17 +121,20 @@ export function BotMark({
   } else if (sites.length === 1) {
     inner = <SiteLogo site={sites[0]} src={icons?.[sites[0]]} px={px} />;
   } else {
-    const small = Math.round(px * 0.8);
+    // The first site's logo nearly full size, the second a smaller one on
+    // an opaque backing in its corner, so the two read apart.
+    const big = Math.round(px * 0.84);
+    const small = Math.round(px * 0.6);
     inner = (
       <span
         aria-hidden
         className="relative"
-        style={{ width: small + 6, height: small + 4 }}
+        style={{ width: px + 2, height: px + 2 }}
       >
         <span className="absolute left-0 top-0">
-          <SiteLogo site={sites[0]} src={icons?.[sites[0]]} px={small} />
+          <SiteLogo site={sites[0]} src={icons?.[sites[0]]} px={big} />
         </span>
-        <span className="absolute bottom-0 right-0">
+        <span className="absolute bottom-0 right-0 rounded-[4px] bg-card">
           <SiteLogo site={sites[1]} src={icons?.[sites[1]]} px={small} ring />
         </span>
       </span>

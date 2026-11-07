@@ -11,7 +11,14 @@ import { LOOP } from "./loops/stage";
  * rests on the loop's finished frame as a poster. Imported lazily by
  * EmptyState, so a page without an empty state loads no Remotion code.
  */
-export default function LoopPlayer({ id }: { id: LoopId }) {
+export default function LoopPlayer({
+  id,
+  themed,
+}: {
+  id: LoopId;
+  /** Follow the app's light theme (see loops/palette.ts); otherwise always dark. */
+  themed?: boolean;
+}) {
   const loop = LOOPS[id];
   const ref = useRef<PlayerRef>(null);
   const box = useRef<HTMLDivElement>(null);
@@ -38,7 +45,14 @@ export default function LoopPlayer({ id }: { id: LoopId }) {
   }, [loop.poster, reduced]);
 
   return (
-    <div ref={box} role="img" aria-label={loop.label} className="aspect-[8/5] w-full">
+    <div
+      ref={box}
+      role="img"
+      aria-label={loop.label}
+      className={
+        themed ? "film-loop-themed aspect-[8/5] w-full" : "aspect-[8/5] w-full"
+      }
+    >
       <Player
         ref={ref}
         component={loop.component}

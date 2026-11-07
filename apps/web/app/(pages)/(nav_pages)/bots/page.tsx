@@ -7,7 +7,11 @@ import { QueryFailure } from "@/app/_components/_ui/loadError";
 import { SkeletonCards } from "@/app/_components/_ui/skeleton";
 import { useNowMinute } from "@/app/_components/auth/clock";
 import { BotsBoard } from "@/app/_components/bots/board";
-import { BotPanel, confirmDiscardNew } from "@/app/_components/bots/botPanel";
+import {
+  BotPanel,
+  leaveUnfinished,
+  type Unfinished,
+} from "@/app/_components/bots/botPanel";
 import { BotsEmpty } from "@/app/_components/bots/botsEmpty";
 import { BotsHeader } from "@/app/_components/bots/botsHeader";
 import { useChatStore } from "@/app/_store/chatStore";
@@ -84,15 +88,16 @@ function BotsPage() {
       runViewTransition(() => setPanel(panelHref(null, true, starter ?? null))),
     [],
   );
-  // A touched New bot draft is asked about before a board click replaces it.
-  const newTouched = useRef(false);
-  const onNewTouched = useCallback((touched: boolean) => {
-    newTouched.current = touched;
+  // A touched New bot draft, or an open bot's unfinished edits, are asked
+  // about before a board click replaces them.
+  const unfinished = useRef<Unfinished>(null);
+  const onUnfinished = useCallback((value: Unfinished) => {
+    unfinished.current = value;
   }, []);
   const leaveNew = useCallback(
     (target: string, go: () => void) => {
-      if (!newTouched.current || target === panel) go();
-      else confirmDiscardNew(go);
+      if (target === panel) go();
+      else leaveUnfinished(unfinished.current, go);
     },
     [panel],
   );
@@ -171,7 +176,7 @@ function BotsPage() {
           now={now}
           onClose={closePanel}
           onSelect={openBot}
-          onNewTouched={onNewTouched}
+          onUnfinished={onUnfinished}
         />
       );
       // Beside a compact board column when there is room and a board to show;
