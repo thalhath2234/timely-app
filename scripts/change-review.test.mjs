@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
 
-const { reviewGroups, planGroups, reviewStats, reviewProgress, reviewName, reviewFields, reviewDate, reviewRepeat, columnForKey, currencyUnit } = await import(
+const { reviewGroups, planGroups, reviewStats, reviewProgress, reviewName, reviewFields, reviewDate, reviewRepeat, columnForKey, currencyUnit, isBotPlan, botAlertsLine } = await import(
   "../packages/contract/src/changeReview.ts"
 );
 
@@ -306,5 +306,210 @@ describe("reviewProgress", () => {
     assert.deepEqual(reviewProgress({ steps: [0, 1] }, steps), { state: "partial", done: 1, total: 2 });
     assert.deepEqual(reviewProgress({ steps: [0, 1] }, steps, 1), { state: "active", done: 1, total: 2 });
     assert.deepEqual(reviewProgress({ steps: [0, 2] }, steps), { state: "failed", done: 1, total: 2, error: "No such tab" });
+  });
+});
+
+describe("reviewGroups: bots", () => {
+  const shop = { kind: "page", url: "https://www.amazon.in/dp/B0DFC8QZ4M", read: "product_price", rules: [{ kind: "below", threshold: 18000 }] };
+  const preview = {
+    watches: [
+      {
+        index: 0,
+        watchId: "",
+        ok: true,
+        kind: "page",
+        read: "product_price",
+        site: "amazon.in",
+        summary: "₹19,999",
+        value: 19999,
+        currency: "INR",
+        text: "",
+        items: null,
+        excerpt: { text: "M.R.P.: Rs 22,900 Deal Price: Rs 19,999", mark: [30, 39], struck: [[8, 17]] },
+        candidates: [{ label: "Deal Price", amount: 19999, currency: "INR", selector: "span.a-price-whole", struck: false, from: "text" }],
+        health: null,
+        at: "2026-11-07T10:00:00Z",
+      },
+    ],
+  };
+  const create = (watches, extra = {}) => ({
+    tool: "create_bot",
+    summary: "Make a bot",
+    arguments: { name: "Pixel Buds Pro 2 under ₹18,000", description: "tell me when these earbuds drop", intervalMinutes: 0, watches },
+    status: "pending",
+    ...extra,
+  });
+
+  test("a new bot is one card with grouped rows, the reading and the alert defaults", () => {
+    const [group] = reviewGroups([create([shop], { preview })]);
+    assert.equal(group.kind, "bot");
+    assert.equal(group.key, "bot:0");
+    assert.equal(group.action, "create");
+    assert.equal(group.eyebrow, "Bot");
+    assert.equal(group.title, "Pixel Buds Pro 2 under ₹18,000");
+    assert.deepEqual(
+      group.rows.map((r) => [r.label, r.value]),
+      [
+        ["Watches", "amazon.in · Product price"],
+        ["Checks every", "6 hours"],
+        ["Tells me when", "Price is below ₹18,000"],
+        ["How smart", "Rules only"],
+        ["Alerts on", "Desktop, Phone"],
+      ],
+    );
+    assert.equal(group.rows[0].site, "amazon.in");
+    assert.equal(group.rows[0].kind, "page");
+    assert.equal(group.rows.some((r) => r.watch), false, "one watch needs no sub-labels");
+    assert.equal(group.preview.watches[0].summary, "₹19,999");
+    assert.equal(group.args.intervalMinutes, 360);
+    assert.equal(group.args.watches[0].currency, "INR");
+  });
+
+  test("the person's alert defaults show on a new bot", () => {
+    const [group] = reviewGroups([create([shop])], { botDefaults: { desktop: false, phone: true, urgent: true } });
+    assert.equal(group.rows.at(-1).value, "Phone, urgent");
+    assert.equal(botAlertsLine({ desktop: false, phone: false, urgent: false }), "Only on the Bots page");
+  });
+
+  test("two watches label each watch and put a sub-label on each rule", () => {
+    const feed = { kind: "feed", url: "https://go.dev/blog/feed.atom" };
+    const coin = { kind: "price", source: "crypto", symbol: "BTC", currency: "USD", rules: [{ kind: "above", threshold: 100000 }, { kind: "move_pct", percent: 5, direction: "any" }] };
+    const [group] = reviewGroups([create([feed, coin])]);
+    assert.deepEqual(
+      group.rows.filter((r) => r.label.startsWith("Watch")).map((r) => [r.label, r.value, r.site ?? ""]),
+      [
+        ["Watch 1", "go.dev · Feed", "go.dev"],
+        ["Watch 2", "BTC-USD · Coinbase", ""],
+      ],
+    );
+    assert.deepEqual(
+      group.rows.filter((r) => r.label === "Tells me when").map((r) => [r.watch, r.value]),
+      [
+        ["go.dev · Feed", "A new post"],
+        ["BTC-USD · Coinbase", "Price is above $100,000"],
+        ["BTC-USD · Coinbase", "Moves 5% either way"],
+      ],
+    );
+    // A feed and a price: the default is the feed's half hour.
+    assert.equal(group.rows.find((r) => r.label === "Checks every").value, "30 minutes");
+    assert.deepEqual(group.rows.filter((r) => r.label === "Tells me when").map((r) => r.watchIndex), [0, 1, 1]);
+  });
+
+  test("two watches on one site keep their own sub-labels, numbered", () => {
+    const other = { ...shop, url: "https://www.amazon.in/dp/B0CX23V2ZK", rules: [{ kind: "below", threshold: 200 }] };
+    const [group] = reviewGroups([create([{ ...shop, rules: [{ kind: "below", threshold: 100 }] }, other])]);
+    assert.deepEqual(
+      group.rows.filter((r) => r.label === "Tells me when").map((r) => [r.watchIndex, r.watch, r.value]),
+      [
+        [0, "Watch 1 · amazon.in · Product price", "Price is below 100"],
+        [1, "Watch 2 · amazon.in · Product price", "Price is below 200"],
+      ],
+    );
+  });
+
+  test("a watch without rules shows the rule the server gives it", () => {
+    const [group] = reviewGroups([create([{ kind: "page", url: "https://example.com/visa", read: "selector", selector: "#slots" }])]);
+    assert.equal(group.rows.find((r) => r.label === "Tells me when").value, "Any change");
+    const [shopDefault] = reviewGroups([create([{ ...shop, rules: [] }], { preview })]);
+    assert.equal(shopDefault.rows.find((r) => r.label === "Tells me when").value, "Drops 5%");
+  });
+
+  test("a failed reading is kept as the reason, not a preview", () => {
+    const [group] = reviewGroups([create([shop], { preview: { error: "The site asks not to be read" } })]);
+    assert.equal(group.preview, undefined);
+    assert.equal(group.previewError, "The site asks not to be read");
+  });
+
+  test("an edit names the bot from its read and shows what each row was", () => {
+    const before = {
+      id: "bot_1",
+      name: "Earbuds",
+      description: "",
+      status: "active",
+      intervalMinutes: 360,
+      desktop: true,
+      phone: false,
+      urgent: false,
+      watches: [
+        { id: "bwt_1", kind: "page", url: "https://www.amazon.in/dp/B0DFC8QZ4M", read: "product_price", selector: "", source: "", symbol: "", currency: "INR", rules: [{ kind: "below", threshold: 18000 }] },
+        { id: "bwt_2", kind: "feed", url: "https://go.dev/blog/feed.atom", read: "", selector: "", source: "", symbol: "", currency: "", rules: [{ kind: "new_item" }] },
+      ],
+    };
+    const step = {
+      tool: "update_bot",
+      summary: "Change the line",
+      arguments: {
+        bot: "bot_1",
+        intervalMinutes: 720,
+        watches: [{ id: "bwt_1", kind: "page", url: "https://www.amazon.in/dp/B0DFC8QZ4M", read: "selector_price", selector: "span.a-price-whole", rules: [{ kind: "below", threshold: 17000 }] }],
+      },
+      status: "pending",
+      before,
+    };
+    const [group] = reviewGroups([step]);
+    assert.equal(group.action, "update");
+    assert.equal(group.title, "Earbuds");
+    assert.equal(group.botId, "bot_1");
+    const row = (label) => group.rows.find((r) => r.label === label);
+    assert.equal(row("Watches").value, "amazon.in · One price on the page");
+    assert.equal(row("Watches").before, "amazon.in · Product price");
+    assert.equal(row("Stops watching").value, "go.dev · Feed");
+    assert.deepEqual([row("Checks every").value, row("Checks every").before], ["12 hours", "6 hours"]);
+    assert.deepEqual([row("Tells me when").value, row("Tells me when").before], ["Price is below ₹17,000", "Price is below ₹18,000"]);
+    assert.equal(row("Alerts on").value, "Desktop");
+    assert.equal(row("Alerts on").before, undefined);
+  });
+
+  test("an edit that leaves a watch's rules out keeps them", () => {
+    const before = { id: "bot_1", name: "Coin", intervalMinutes: 15, desktop: true, phone: true, urgent: false, watches: [{ id: "bwt_1", kind: "price", source: "coinbase", symbol: "BTC", currency: "USD", rules: [{ kind: "below", threshold: 90000 }] }] };
+    const step = { tool: "update_bot", summary: "", arguments: { bot: "Coin", name: "Bitcoin", watches: [{ id: "bwt_1", kind: "price", source: "coinbase", symbol: "BTC", currency: "USD" }] }, status: "pending", before };
+    const [group] = reviewGroups([step]);
+    assert.deepEqual(group.rows.find((r) => r.label === "Name"), { label: "Name", value: "Bitcoin", before: "Coin" });
+    const rule = group.rows.find((r) => r.label === "Tells me when");
+    assert.equal(rule.value, "Price is below $90,000");
+    assert.equal(rule.before, undefined);
+    assert.equal(group.rows.find((r) => r.label === "Watches").before, undefined);
+  });
+
+  test("an edit without an interval rises to its new watches' floor, as the server saves it", () => {
+    const before = { id: "bot_1", name: "Earbuds", intervalMinutes: 60, desktop: true, phone: false, urgent: false, watches: [{ id: "bwt_1", kind: "page", url: "https://www.amazon.in/dp/B0DFC8QZ4M", read: "text", rules: [{ kind: "changed" }] }] };
+    const step = { tool: "update_bot", summary: "", arguments: { bot: "bot_1", watches: [{ id: "bwt_1", kind: "page", url: "https://www.amazon.in/dp/B0DFC8QZ4M", read: "product_price" }] }, status: "pending", before };
+    const [group] = reviewGroups([step]);
+    const every = group.rows.find((r) => r.label === "Checks every");
+    assert.deepEqual([every.value, every.before], ["6 hours", "1 hour"]);
+    assert.equal(group.args.intervalMinutes, 360);
+    // Above the floor, the interval stays as it was.
+    const [kept] = reviewGroups([{ ...step, before: { ...before, intervalMinutes: 720 } }]);
+    assert.deepEqual([kept.rows.find((r) => r.label === "Checks every").value, kept.rows.find((r) => r.label === "Checks every").before], ["12 hours", undefined]);
+  });
+
+  test("an edit to the description shows what it was", () => {
+    const before = { id: "bot_1", name: "Coin", description: "watch bitcoin", intervalMinutes: 15, desktop: true, phone: true, urgent: false, watches: [{ id: "bwt_1", kind: "price", source: "coinbase", symbol: "BTC", currency: "USD", rules: [{ kind: "below", threshold: 90000 }] }] };
+    const step = { tool: "update_bot", summary: "", arguments: { bot: "bot_1", description: "tell me when bitcoin dips" }, status: "pending", before };
+    const [group] = reviewGroups([step]);
+    assert.deepEqual(group.rows.find((r) => r.label === "Description"), { label: "Description", value: "tell me when bitcoin dips", before: "watch bitcoin" });
+    assert.equal(group.args.description, "tell me when bitcoin dips");
+    const [same] = reviewGroups([{ ...step, arguments: { bot: "bot_1", name: "Coin" } }]);
+    assert.equal(same.rows.some((r) => r.label === "Description"), false);
+  });
+
+  test("a bot counts as one change, and a bot-only plan reads as one", () => {
+    const steps = [create([shop]), { ...create([shop]), tool: "update_bot", arguments: { bot: "bot_9", name: "Other" } }];
+    const groups = reviewGroups(steps, { bot: (id) => (id === "bot_9" ? "Other bot" : undefined) });
+    assert.deepEqual(planGroups(steps).map((g) => [g.key, g.kind]), [["bot:0", "bot"], ["bot:1", "bot"]]);
+    assert.deepEqual(reviewStats(groups), [
+      { value: 1, label: "New bot" },
+      { value: 1, label: "Bot change" },
+    ]);
+    assert.equal(isBotPlan(steps), true);
+    assert.equal(isBotPlan([...steps, { tool: "create_task", arguments: {} }]), false);
+    assert.equal(isBotPlan([]), false);
+    assert.equal(reviewName("bot_9", { bot: () => "Other bot" }), "Other bot");
+    assert.equal(reviewName("bot_8", {}), "A bot");
+  });
+
+  test("a created bot carries its id for Open bot", () => {
+    const [group] = reviewGroups([create([shop], { status: "done", result: { id: "bot_new", name: "Pixel Buds Pro 2 under ₹18,000" } })]);
+    assert.equal(group.botId, "bot_new");
   });
 });

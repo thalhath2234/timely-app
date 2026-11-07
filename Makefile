@@ -295,9 +295,12 @@ lint-chat: ## Lint the chat UI and Electron integration
 audit-chat: ## Check chat layouts and overlay in Chromium against mocked API responses (web on :4002)
 	@node scripts/audit-chat.cjs
 
-.PHONY: format-chat install-browser
+.PHONY: format-chat check-format-chat install-browser
+CHAT_FORMAT_PATHS = apps/web/app/_components/chat apps/web/app/_store/chatStore.ts apps/web/app/utils/api/chat.ts apps/web/app/utils/hooks/chat.ts "apps/web/app/(pages)/(nav_pages)/chat/page.tsx" scripts/audit-chat.cjs
 format-chat: ## Format chat UI and its browser audit
-	@pnpm exec prettier --write apps/web/app/_components/chat apps/web/app/_store/chatStore.ts apps/web/app/utils/api/chat.ts apps/web/app/utils/hooks/chat.ts "apps/web/app/(pages)/(nav_pages)/chat/page.tsx" scripts/audit-chat.cjs
+	@pnpm exec prettier --write $(CHAT_FORMAT_PATHS)
+check-format-chat: ## Check that the chat UI and its browser audit are formatted (format-chat fixes it)
+	@pnpm exec prettier --check $(CHAT_FORMAT_PATHS)
 
 install-browser: ## Install Chromium for browser checks
 	@pnpm exec playwright install chromium

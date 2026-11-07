@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Image, ScrollView, Text, TextInput, View } from "react-native";
 import {
   ArrowUp,
@@ -87,6 +88,8 @@ export default function Composer({
   onDiscardDraft,
   otherDraft,
   onReturnDraft,
+  focusKey,
+  onFocused,
 }: {
   text: string;
   onChangeText: (value: string) => void;
@@ -117,7 +120,19 @@ export default function Composer({
   onDiscardDraft: () => void;
   otherDraft: boolean;
   onReturnDraft: () => void;
+  /**
+   * Set (non-zero) to put the caret in the message box once, for a reply
+   * started from a card; `onFocused` clears it so a remount does not focus.
+   */
+  focusKey?: number;
+  onFocused?: () => void;
 }) {
+  const input = useRef<TextInput>(null);
+  useEffect(() => {
+    if (!focusKey) return;
+    input.current?.focus();
+    onFocused?.();
+  }, [focusKey, onFocused]);
   if (otherDraft)
     return (
       <View style={styles.wrap}>
@@ -196,6 +211,7 @@ export default function Composer({
       ) : null}
       <View style={styles.box}>
         <TextInput
+          ref={input}
           accessibilityLabel="Message the assistant"
           placeholder={placeholder}
           placeholderTextColor={colors.mutedForeground}

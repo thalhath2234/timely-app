@@ -101,6 +101,114 @@ const fs = require("node:fs");
       },
     ],
   };
+  // A bot proposal (create_bot with the server's reading of the page).
+  const shopRead = {
+    index: 0,
+    watchId: "",
+    ok: true,
+    kind: "page",
+    read: "product_price",
+    site: "amazon.in",
+    summary: "₹19,999",
+    value: 19999,
+    currency: "INR",
+    text: "",
+    items: null,
+    excerpt: {
+      text: "Google Pixel Buds Pro 2 Wireless Earbuds … M.R.P.: Rs 22,900 Deal Price: Rs 19,999 (13% off) Inclusive of all taxes",
+      mark: [73, 82],
+      struck: [[51, 60]],
+    },
+    candidates: [
+      {
+        label: "Deal Price",
+        amount: 19999,
+        currency: "INR",
+        selector: "span.a-price-whole",
+        struck: false,
+        from: "text",
+      },
+      {
+        label: "M.R.P.",
+        amount: 22900,
+        currency: "INR",
+        selector: "span.a-text-price",
+        struck: true,
+        from: "text",
+      },
+    ],
+    health: null,
+    at: new Date().toISOString(),
+  };
+  const feedRead = {
+    index: 1,
+    watchId: "",
+    ok: true,
+    kind: "feed",
+    read: "",
+    site: "go.dev",
+    summary: "3 posts",
+    value: null,
+    currency: "",
+    text: "",
+    items: [
+      {
+        title: "Go 1.25 is released",
+        url: "https://go.dev/blog/go1.25",
+        publishedAt: null,
+      },
+    ],
+    excerpt: null,
+    candidates: null,
+    health: null,
+    at: new Date().toISOString(),
+  };
+  const shopWatch = {
+    kind: "page",
+    url: "https://www.amazon.in/dp/B0DFC8QZ4M",
+    read: "product_price",
+    rules: [{ kind: "below", threshold: 18000 }],
+  };
+  const feedWatch = { kind: "feed", url: "https://go.dev/blog/feed.atom" };
+  const botStep = (watches, preview) => ({
+    tool: "create_bot",
+    summary: "Make a bot that watches the earbuds' price",
+    arguments: {
+      name: "Pixel Buds Pro 2 under ₹18,000",
+      description: "tell me when these earbuds drop under 18,000 on Amazon",
+      intervalMinutes: 0,
+      watches,
+    },
+    status: "pending",
+    preview,
+  });
+  const botChat = {
+    ...chat,
+    id: "chat_bot",
+    title: "Earbuds price watch",
+    status: "approval",
+    phase: "review",
+    unread: false,
+    revision: 4,
+    context: [],
+    messages: [
+      {
+        id: "b1",
+        createdAt: new Date().toISOString(),
+        role: "user",
+        content:
+          "tell me when these earbuds drop under 18,000 on Amazon amazon.in/dp/B0DFC8QZ4M",
+      },
+      {
+        id: "b2",
+        createdAt: new Date().toISOString(),
+        role: "assistant",
+        content:
+          "I opened the page once to find the price. Here’s a bot that checks it every 6 hours and tells you once when it goes under ₹18,000. If I picked the wrong number, say “That’s not it”.",
+      },
+    ],
+    plan: [botStep([shopWatch], { watches: [shopRead] })],
+  };
   let themeMode = "light";
   let receiptMode = false;
   let deleted = false;
@@ -165,6 +273,39 @@ const fs = require("node:fs");
     try {
       payload = route.request().postDataJSON();
     } catch {}
+    if (url.pathname.includes("/chats/chat_bot")) {
+      requests.push({
+        path: url.pathname,
+        method: route.request().method(),
+        body: payload,
+      });
+      if (url.pathname.endsWith("/messages")) {
+        botChat.messages.push({
+          id: `b${botChat.messages.length + 1}`,
+          role: "user",
+          content: payload.content,
+        });
+        botChat.status = "queued";
+        botChat.revision++;
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(botChat),
+      });
+    }
+    if (url.pathname.endsWith("/bots/defaults"))
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ desktop: true, phone: true, urgent: false }),
+      });
+    if (url.pathname.endsWith("/bots/icons"))
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ icons: {} }),
+      });
     if (url.pathname.includes("/chats/images")) {
       if (route.request().method() === "POST")
         return route.fulfill({
@@ -674,6 +815,132 @@ const fs = require("node:fs");
     .getByRole("button", { name: "Dismiss Build a project budget" })
     .click();
   await expect(page.locator("[data-activity-island]")).toHaveCount(0);
+  // A bot proposal: grouped rows, how it lands on the board, what it reads
+  // right now, and "That's not it" with the other prices on the page.
+  themeMode = "light";
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("http://localhost:4002/chat?id=chat_bot");
+  const proposal = page.getByRole("region", { name: "Proposed changes" });
+  await proposal
+    .getByRole("heading", { name: "New bot", exact: true })
+    .waitFor();
+  await proposal.getByText("Needs your OK").first().waitFor();
+  for (const text of [
+    "amazon.in · Product price",
+    "6 hours",
+    "Price is below ₹18,000",
+    "Rules only",
+    "Desktop, Phone",
+    "Read once in chat",
+    "On approve",
+    "3 alerts a day",
+  ])
+    await proposal.getByText(text, { exact: true }).first().waitFor();
+  await proposal.getByText("Right now it reads: ₹19,999").first().waitFor();
+  await expect(proposal.locator("mark")).toHaveText("Rs 19,999");
+  await expect(proposal.locator("s").first()).toHaveText("Rs 22,900");
+  await expect(proposal.getByRole("progressbar")).toBeHidden();
+  await expect(
+    proposal.getByText("To adjust, just reply below", { exact: false }),
+  ).toHaveCount(0);
+  await expect(page.getByLabel("Message Timely")).toHaveAttribute(
+    "placeholder",
+    "Reply, or ask for changes to the bot",
+  );
+  await page.getByRole("button", { name: "Approve", exact: true }).waitFor();
+  await page.waitForTimeout(450);
+  await page.screenshot({ path: "/tmp/timely-chat-bot.png", fullPage: true });
+  await proposal.getByRole("button", { name: "That’s not it" }).click();
+  const notIt = page.getByRole("dialog", {
+    name: "Which price should it follow?",
+  });
+  await notIt.waitFor();
+  await notIt.getByText("What it reads now").first().waitFor();
+  await page.screenshot({
+    path: "/tmp/timely-chat-bot-not-it.png",
+    fullPage: true,
+  });
+  await notIt.getByRole("button", { name: /^Follow M\.R\.P\./ }).click();
+  await page.waitForTimeout(200);
+  assert(
+    requests.some(
+      (r) =>
+        r.path.endsWith("/chat_bot/messages") &&
+        r.body.content ===
+          'That\'s not it. Follow the “M.R.P.”, ₹22,900, on the amazon.in watch (selector "span.a-text-price").',
+    ),
+    "That's not it did not send the picked price",
+  );
+  // Two watches: each rule sits under its watch's name.
+  botChat.status = "approval";
+  botChat.plan = [
+    botStep([shopWatch, feedWatch], { watches: [shopRead, feedRead] }),
+  ];
+  await page.reload();
+  await proposal.getByText("Watch 2", { exact: true }).first().waitFor();
+  // The watch row, its rules' sub-label and its reading's name.
+  await expect(
+    proposal.getByText("go.dev · Feed", { exact: true }).nth(2),
+  ).toBeVisible();
+  await proposal.getByText("A new post", { exact: true }).first().waitFor();
+  await proposal.getByText("Right now it reads: 3 posts").first().waitFor();
+  await proposal.getByText("Go 1.25 is released").first().waitFor();
+  await page.screenshot({
+    path: "/tmp/timely-chat-bot-two.png",
+    fullPage: true,
+  });
+  // A feed has no other prices: "That's not it" starts a reply in words.
+  await proposal
+    .getByRole("region", { name: "What go.dev · Feed reads" })
+    .getByRole("button", { name: "That’s not it" })
+    .click();
+  await expect(page.getByLabel("Message Timely")).toHaveValue(
+    "That’s not it: ",
+  );
+  await expect(page.getByLabel("Message Timely")).toBeFocused();
+  // A reading that failed shows why, and still lets the person say so.
+  await page.getByLabel("Message Timely").fill("");
+  botChat.plan = [
+    botStep([shopWatch], { error: "The site asks not to be read" }),
+  ];
+  await page.reload();
+  await proposal.getByText("The site asks not to be read").first().waitFor();
+  await expect(proposal.getByText(/^Right now it reads/)).toHaveCount(0);
+  await proposal.getByRole("button", { name: "That’s not it" }).click();
+  await expect(page.getByLabel("Message Timely")).toHaveValue(
+    "That’s not it: ",
+  );
+  await page.getByLabel("Message Timely").fill("");
+  // Dark theme, a failed read of one watch.
+  themeMode = "dark";
+  botChat.plan = [
+    botStep([shopWatch], {
+      watches: [
+        {
+          ...shopRead,
+          ok: false,
+          summary: "",
+          excerpt: null,
+          candidates: null,
+          health: {
+            code: "captcha",
+            line: "The site showed a robot check instead of the page",
+          },
+        },
+      ],
+    }),
+  ];
+  await page.reload();
+  await proposal
+    .getByText("The site showed a robot check instead of the page")
+    .first()
+    .waitFor();
+  await page.waitForTimeout(450);
+  await page.screenshot({
+    path: "/tmp/timely-chat-bot-dark.png",
+    fullPage: true,
+  });
+  themeMode = "light";
   receiptMode = true;
   themeMode = "light";
   await page.setViewportSize({ width: 1440, height: 1100 });
@@ -831,6 +1098,10 @@ const fs = require("node:fs");
         "/tmp/timely-island-dark.png",
         "/tmp/timely-chat-discarded.png",
         "/tmp/timely-receipt-review.png",
+        "/tmp/timely-chat-bot.png",
+        "/tmp/timely-chat-bot-not-it.png",
+        "/tmp/timely-chat-bot-two.png",
+        "/tmp/timely-chat-bot-dark.png",
       ],
     }),
   );

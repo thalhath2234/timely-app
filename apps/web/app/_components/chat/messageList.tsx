@@ -95,7 +95,9 @@ function Similar({
         <History className="mt-0.5 size-3.5 shrink-0" />
         <span className="min-w-0 break-words">
           You already have a chat about this:{" "}
-          <span className="font-medium text-foreground">{message.chat.title}</span>
+          <span className="font-medium text-foreground">
+            {message.chat.title}
+          </span>
         </span>
       </span>
       {waiting && onChoose && (
@@ -116,7 +118,10 @@ function Similar({
             type="button"
             disabled={pending}
             onClick={() => onChoose("stay")}
-            className={cn(choice, "bg-background text-foreground hover:bg-muted")}
+            className={cn(
+              choice,
+              "bg-background text-foreground hover:bg-muted",
+            )}
           >
             Answer here
           </button>
@@ -177,7 +182,8 @@ export default function MessageList({
   const last = chat.messages?.[chat.messages.length - 1];
   // Only the newest reply, with nothing the person said after it, keeps live answer chips.
   const newest = chat.messages?.findLast(
-    (m) => (m.role === "user" && !m.kind) || (m.role === "assistant" && !m.kind),
+    (m) =>
+      (m.role === "user" && !m.kind) || (m.role === "assistant" && !m.kind),
   );
   return (
     <div

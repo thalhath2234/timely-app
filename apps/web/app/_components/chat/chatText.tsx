@@ -23,7 +23,9 @@ function inline(text: string) {
             className="break-words text-primary underline underline-offset-4"
           >
             {link[1]}
-            {host ? <span className="text-muted-foreground"> ({host})</span> : null}
+            {host ? (
+              <span className="text-muted-foreground"> ({host})</span>
+            ) : null}
           </a>
         );
       }

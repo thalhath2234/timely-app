@@ -637,6 +637,21 @@ export function rulesFor(w: KindRead): RuleKind[] {
   return ["any_change", "words_appear", "words_disappear"];
 }
 
+/**
+ * The rules a watch saved without any gets, the API's DefaultRules: any change
+ * on a page, a new post on a feed, a 5% drop on a shop price and a 5% move
+ * either way on a market price.
+ */
+export function defaultRules(w: KindRead): Rule[] {
+  switch (readingKind(w)) {
+    case "feed":
+      return [{ kind: "new_item" }];
+    case "price":
+      return [{ kind: "move_pct", percent: 5, direction: w.kind === "page" ? "down" : "any" }];
+  }
+  return [{ kind: "any_change" }];
+}
+
 export const RULE_LABELS: Record<RuleKind, string> = {
   below: "Price is below",
   above: "Price is above",

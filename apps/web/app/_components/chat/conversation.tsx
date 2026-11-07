@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { isBotPlan } from "@timely/contract/changeReview";
 import {
   ArrowUpRight,
   ImagePlus,
@@ -123,7 +124,8 @@ export default function Conversation({
   const bar = compact && !id;
   const query = useChat(id);
   const providers = useAgentProviders();
-  const needsProvider = Boolean(providers.data) && readyProviders(providers.data).length === 0;
+  const needsProvider =
+    Boolean(providers.data) && readyProviders(providers.data).length === 0;
   const cache = useQueryClient();
   const chat = query.data;
   const [draft, setDraft] = useState(initialDraft);
@@ -268,8 +270,23 @@ export default function Conversation({
     if (!id || mutation.isPending || busy) return;
     mutation.mutate({
       action: "/messages",
-      body: { content, imageIds: [], requestId: requestIdFor(`${content}\n`), ...unsavedReceipt() },
+      body: {
+        content,
+        imageIds: [],
+        requestId: requestIdFor(`${content}\n`),
+        ...unsavedReceipt(),
+      },
       keepDraft: true,
+    });
+  }
+  // "That's not it" in words: the composer starts the reply, caret at the end.
+  function compose(text: string) {
+    setDraft(text);
+    requestAnimationFrame(() => {
+      const box = input.current;
+      if (!box) return;
+      box.focus();
+      box.setSelectionRange(text.length, text.length);
     });
   }
   function unsavedReceipt() {
@@ -537,6 +554,7 @@ export default function Conversation({
                 pending={mutation.isPending}
                 receiptDirty={receiptDirty}
                 act={act}
+                reply={{ send: ask, compose }}
               />
             )}
             {busy && chat?.phase !== "apply" && (
@@ -597,7 +615,9 @@ export default function Conversation({
         setDraft={setDraft}
         placeholder={
           chat?.status === "approval"
-            ? "Tell me what to change…"
+            ? isBotPlan(chat.plan)
+              ? "Reply, or ask for changes to the bot"
+              : "Tell me what to change…"
             : "Ask Timely to create, plan, or update…"
         }
         chips={chips}

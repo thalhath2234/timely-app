@@ -133,11 +133,12 @@ export function useSourceKeys() {
   });
 }
 
-export function useBotDefaults() {
+export function useBotDefaults(enabled = true) {
   return useQuery({
     queryKey: botDefaultsKey,
     queryFn: getBotDefaults,
     staleTime: 60_000,
+    enabled,
   });
 }
 

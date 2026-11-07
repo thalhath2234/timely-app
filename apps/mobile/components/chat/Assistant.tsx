@@ -1,6 +1,6 @@
 import * as Clipboard from "expo-clipboard";
 import { PROVIDER_LABELS, type ProviderId } from "../../lib/api/agentProviders";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Image,
   KeyboardAvoidingView,
@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   AlertTriangle,
   ArrowUpRight,
+  Bot,
   ClipboardList,
   MessageCircle,
   Plus,
@@ -59,7 +60,7 @@ import HistoryPage from "./HistoryPage";
 import ProposalPage from "./ProposalPage";
 import ReceiptReview from "./ReceiptReview";
 import Thread, { FailureCard, RunStatus, StatusCard, Welcome } from "./Thread";
-import { planGroups } from "@timely/contract/changeReview";
+import { isBotPlan, planGroups } from "@timely/contract/changeReview";
 import { isBusy, phaseLabel, sharedTarget } from "./chatMeta";
 import { Action, IconButton } from "./shared";
 import TimelyLogo from "../ui/TimelyLogo";
@@ -85,6 +86,9 @@ export default function Assistant() {
     candidate?: PendingImage;
   }>();
   const [reviewSteps, setReviewSteps] = useState<ChatStep[] | null>(null);
+  // Bumped to put the caret in the composer (a reply started from a card).
+  const [focusKey, setFocusKey] = useState(0);
+  const clearFocusKey = useCallback(() => setFocusKey(0), []);
   const scroll = useRef<ScrollView>(null);
   const runningAction = useRef(false);
   const detailKey = ["chat", uid, id];
@@ -927,6 +931,19 @@ export default function Assistant() {
                   act={act}
                   onLink={openLink}
                   onEditReceipt={() => setPage("receipt")}
+                  reply={{
+                    send: (text) => {
+                      ask(text);
+                      setReviewSteps(null);
+                      setPage("chat");
+                    },
+                    compose: (text) => {
+                      editText(text);
+                      setReviewSteps(null);
+                      setPage("chat");
+                      setFocusKey((key) => key + 1);
+                    },
+                  }}
                 />
               ) : (
                 <>
@@ -1093,7 +1110,9 @@ export default function Assistant() {
                   draft.images.length
                     ? "Add a note (optional)…"
                     : chat?.status === "approval"
-                      ? "Tell me what to change…"
+                      ? isBotPlan(chat.plan)
+                        ? "Reply, or ask for changes to the bot"
+                        : "Tell me what to change…"
                       : "Ask Timely…"
                 }
                 chips={context}
@@ -1126,6 +1145,8 @@ export default function Assistant() {
                 onReturnDraft={() =>
                   assistant.select(cachedDraft?.conversationId ?? null)
                 }
+                focusKey={focusKey}
+                onFocused={clearFocusKey}
               />
             ) : null}
           </>
@@ -1177,6 +1198,9 @@ function PlanSummary({
   const approval = chat.status === "approval";
   const failed = chat.status === "failed";
   const applying = isBusy(chat.status) && chat.phase === "apply";
+  // A plan that only makes or edits bots: "New bot needs your OK".
+  const bots = isBotPlan(chat.plan);
+  const newBot = chat.plan.every((step) => step.tool === "create_bot");
   // When everything applied changed one screen, open it straight from here.
   const target =
     !approval && !isBusy(chat.status) ? sharedTarget(chat.plan) : null;
@@ -1190,11 +1214,13 @@ function PlanSummary({
   return (
     <StatusCard
       tone={tone}
-      icon={ClipboardList}
+      icon={bots ? Bot : ClipboardList}
       spinning={applying}
       title={
         approval
-          ? "Changes ready for your review"
+          ? bots
+            ? `${newBot ? (total > 1 ? "New bots" : "New bot") : total > 1 ? "Bot changes" : "Bot change"} · Needs your OK`
+            : "Changes ready for your review"
           : applying
             ? "Applying changes"
             : failed

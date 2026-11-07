@@ -2048,8 +2048,8 @@ export function useSourceKeysQuery() {
   return useQuery({ queryKey: keys.sourceKeys, queryFn: listSourceKeys, staleTime: 30_000 });
 }
 
-export function useBotDefaultsQuery() {
-  return useQuery({ queryKey: keys.botDefaults, queryFn: getBotDefaults, staleTime: 60_000 });
+export function useBotDefaultsQuery(enabled = true) {
+  return useQuery({ queryKey: keys.botDefaults, queryFn: getBotDefaults, staleTime: 60_000, enabled });
 }
 
 function useInvalidateBots() {

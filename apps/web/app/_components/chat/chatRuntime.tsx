@@ -19,7 +19,9 @@ function routeObject(pathname: string): [string, string] | null {
   const fileId = fileIdFromPath(pathname);
   if (fileId) {
     const kind = fileKind(fileId);
-    return kind === "template" ? null : [kind === "sheet" ? "sheets" : "docs", fileId];
+    return kind === "template"
+      ? null
+      : [kind === "sheet" ? "sheets" : "docs", fileId];
   }
   const match = pathname.match(/^\/(projects)\/([^/]+)/);
   return match ? [match[1], match[2]] : null;
@@ -114,7 +116,9 @@ export default function ChatRuntime() {
       }
       // A long page or task title fits the server's 200-character label
       // limit (slice counts UTF-16 units, never more characters than that).
-      openNew(chips.map((chip) => ({ ...chip, label: chip.label.slice(0, 200) })));
+      openNew(
+        chips.map((chip) => ({ ...chip, label: chip.label.slice(0, 200) })),
+      );
     }
     window.addEventListener("keydown", open);
     return () => window.removeEventListener("keydown", open);
@@ -145,8 +149,8 @@ export default function ChatRuntime() {
               : chat.status === "choose"
                 ? "You already have a chat about this. Choose where to continue."
                 : chat.status === "failed"
-                ? "Your chat needs attention."
-                : "Your chat has a new update.",
+                  ? "Your chat needs attention."
+                  : "Your chat has a new update.",
           revision: chat.revision,
         });
       }
