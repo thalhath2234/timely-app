@@ -162,7 +162,7 @@ func TestStockOldRuleAndReading(t *testing.T) {
 	oos := priceAt(89999, 1)
 	oos.Availability = extract.AvailOutOfStock
 	ev, held, wasHeld := evaluate(r, st, prev, oos)
-	if ev != nil || !wasHeld || held != st {
+	if want := (RuleState{Armed: true, Held: extract.AvailOutOfStock}); ev != nil || !wasHeld || held != want {
 		t.Fatalf("out of stock: %+v %+v %v", ev, held, wasHeld)
 	}
 	in := priceAt(89999, 2)
@@ -454,5 +454,56 @@ func TestHeldNoteCountsMoreRules(t *testing.T) {
 	}
 	if got := heldNote(w, held[:2], reading); got != "Price is below ₹90,000 (and 1 more rule), but the page says it is discontinued" {
 		t.Fatalf("note %q", got)
+	}
+}
+
+// A held any_change fires on the next reading that can be bought, even when
+// a reading that states no availability comes between: out of stock, then
+// unknown, then in stock.
+func TestStockHeldAnyChangeSurvivesUnknown(t *testing.T) {
+	at := func(v float64, i int, a string) Reading {
+		x := priceAt(v, i)
+		x.Availability = a
+		return x
+	}
+	r := Rule{ID: "a", Kind: RuleAnyChange}
+	for _, c := range []struct {
+		name       string
+		held       Reading // the change that sold out or moved while sold out
+		what, body string
+	}{
+		{"sold out", at(100000, 1, extract.AvailOutOfStock), "back in stock", "Now ₹100,000"},
+		{"price moved while sold out", at(90000, 1, extract.AvailOutOfStock), "back in stock", "Now ₹90,000"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			prev := at(100000, 0, extract.AvailInStock)
+			st := Rebaseline(r, prev)
+			ev, st, held := evaluate(r, st, prev, c.held)
+			if ev != nil || !held || st.Held != extract.AvailOutOfStock {
+				t.Fatalf("held: %+v %+v %v", ev, st, held)
+			}
+			unknown := at(*c.held.Price, 2, extract.AvailUnknown)
+			if ev, st, held = evaluate(r, st, c.held, unknown); ev != nil || held {
+				t.Fatalf("unknown: %+v %v", ev, held)
+			}
+			unknown2 := at(*c.held.Price, 3, extract.AvailUnknown)
+			if ev, st, _ = evaluate(r, st, unknown, unknown2); ev != nil {
+				t.Fatalf("second unknown: %+v", ev)
+			}
+			in := at(*c.held.Price, 4, extract.AvailInStock)
+			if ev, st = Evaluate(r, st, unknown2, in); ev == nil {
+				t.Fatal("the held change was dropped")
+			}
+			if st.Held != "" {
+				t.Fatalf("still held after firing: %+v", st)
+			}
+			what, body, _ := describe(firedEvent{ev: *ev, w: Watch{Kind: WatchPage, ReadMode: ReadProductPrice}, rule: r})
+			if what != c.what || body != c.body {
+				t.Fatalf("alert %q / %q", what, body)
+			}
+			if ev, _ = Evaluate(r, st, in, at(*c.held.Price, 5, extract.AvailInStock)); ev != nil {
+				t.Fatal("fired twice")
+			}
+		})
 	}
 }

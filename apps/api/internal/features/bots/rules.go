@@ -75,6 +75,11 @@ type RuleState struct {
 	Armed   bool       `json:"armed"`
 	Ref     *float64   `json:"ref,omitempty"`
 	FiredAt *time.Time `json:"firedAt,omitempty"`
+	// Held is the availability that held the rule (onlyInStock) at its
+	// last check, "" when it was not held. A held any_change keeps it until
+	// it fires, so the change it waited on fires on the next reading that
+	// can be bought, even after readings that state no availability.
+	Held string `json:"held,omitempty"`
 }
 
 // Reading is what one check read from one watch.
@@ -373,6 +378,7 @@ func evaluate(r Rule, st RuleState, prev, cur Reading) (*Event, RuleState, bool)
 	before := st
 	ev, st := fireRule(r, st, prev, cur)
 	if ev != nil && heldByStock(r, cur) {
+		before.Held = cur.Availability
 		return nil, before, true
 	}
 	return ev, st, false
@@ -393,6 +399,15 @@ func fireRule(r Rule, st RuleState, prev, cur Reading) (*Event, RuleState) {
 		st.Armed = !cond
 	case RuleAnyChange:
 		fire = changed(prev, cur)
+		if !fire && st.Held != "" && extract.Buyable(cur.Availability) {
+			// The change held while it could not be bought, with readings
+			// that stated nothing since: it fires now, told as the restock
+			// it waited for.
+			fire = true
+			if !extract.KnownAvailability(prev.Availability) {
+				prev.Availability = st.Held
+			}
+		}
 	case RuleNewItem:
 		items = newItems(r, prev, cur)
 		fire = len(items) > 0
@@ -405,6 +420,10 @@ func fireRule(r Rule, st RuleState, prev, cur Reading) (*Event, RuleState) {
 			fire = st.Armed
 			st.Armed = false
 		}
+	}
+	// Only a held any_change carries its hold past a check it did not fire on.
+	if fire || r.Kind != RuleAnyChange {
+		st.Held = ""
 	}
 	if !fire {
 		return nil, st
