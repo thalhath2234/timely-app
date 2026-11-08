@@ -291,7 +291,7 @@ Measured sizes at v0.23.0/main:
 | Data (skills, optional-skills, locales, optional-mcps) | 1,227 | 21.6 MB | *(ran, hermes-core)* |
 | copy-sync prototype filter (incl. plugin-catalog, all locales, scripts, assets) | 5,283 | 89 MB tree, 29.6 MiB pack, +0.5 MiB per release | *(ran, copy-sync)* |
 | This plan's filter, revision 1 (prototype minus plugin-catalog and 34 non-English locale files, but without the prototype's root and sidecar skips) | 4,335 at v0.23.0 | about 76-80 MB tree *(inferred)* | *(ran, review-feasibility: `hermes_snapshot.py` with that filter, `review-feasibility/stats_plan.json`)* |
-| This plan's filter, revision 2 (below: prototype skips restored, all npm manifests and `.env.example` skipped) | 4,335 minus about 30 root files and the two Node sidecars; phase 1 records the exact count | slightly under the row above | *(inferred; phase 1 re-runs the snapshot and replaces this row with the measured count)* |
+| The committed filter (`apps/agent/.hermes-sync/filter`: revision 2 with owner answer Q-1.4, so `plugin-catalog/` and optional skills are kept and non-English locales dropped) | 5,340 at v0.23.0 (5,248 at v0.22.7) | 70.8 MiB tree (74,217,605 bytes) | *(ran, phase 1 first import; details in `apps/agent/.hermes-sync/README.md`)* |
 | Excluded: tests 7,927 files/69.9 MB, apps 52.9 MB, website 29 MB, ui-tui, web, plugin-catalog, contributors, evals, nix, docker, .github | about 18,900 | about 169 MB | *(ran, hermes-core)* |
 
 Rules:
@@ -369,6 +369,8 @@ skip *package-lock.json
 skip scripts/whatsapp-bridge
 skip plugins/platforms/photon/sidecar
 ```
+
+The committed `apps/agent/.hermes-sync/filter` is authoritative and differs from the block above in three ways: `plugin-catalog/` is copied (owner answer Q-1.4), the `dir hermes` and `dir hermes_agent` lines are gone (`hermes` is a root launcher script and `hermes_agent/` does not exist at v0.23.0), and JS lockfiles and `.env` files are skipped at any depth *(ran, phase 1)*.
 
 The filter syntax matches with `fnmatch` on the full path or any parent (`copy-sync/proto/hermes_snapshot.py:9, 37-40`) *(read, rev check)*, so `*package.json` also matches nested files. Revision 1 of this filter left out the prototype's root and sidecar skips; run against v0.23.0 it copied the root `package-lock.json`, `scripts/whatsapp-bridge/package{,-lock}.json`, `plugins/platforms/photon/sidecar/package{,-lock}.json`, `Dockerfile`, compose files, `flake.*`, `justfile`, `lefthook.yml`, `.env.example`, `activate*`, `.npmrc` and `.nvmrc` *(ran, review-feasibility `idx_plan.txt`)*, which breaks the repo's lockfile and env-file rules. `make hermes-sync-check` fails if any `package*.json`, `pnpm-lock.yaml`, `yarn.lock` or `.env*` file exists under `apps/agent/hermes/` (`uv.lock` and `pm/lock.json` are expected and allowed).
 

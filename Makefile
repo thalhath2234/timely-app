@@ -543,3 +543,12 @@ check-qa: ## Check QA script syntax and artifact formatting
 	@node --check docs/qa/2026-10-01/api-audit.mjs
 	@node --check docs/qa/2026-10-01/offline-mutation-probe.mjs
 	@pnpm exec prettier --check 'docs/qa/2026-10-01*/**/*.{mjs,json,md}'
+
+##@ Agent (apps/agent)
+
+.PHONY: hermes-sync hermes-sync-check
+hermes-sync: ## Copy a Hermes Agent release into apps/agent/hermes and merge it (HERMES_REF=<vX.Y.Z>, default newest stable); report in .git/hermes-sync-report.md
+	@HERMES_REF='$(HERMES_REF)' scripts/sync-hermes.sh
+
+hermes-sync-check: ## Check apps/agent after a sync: snapshot link, patch inventory, no npm/env files (more checks land with phase 1)
+	@scripts/hermes-sync/check.sh

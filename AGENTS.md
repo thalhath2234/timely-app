@@ -1,12 +1,13 @@
 # Timely monorepo
 
-Three apps, one repo. Run everything from the repo root via `make` (see `make help`).
+Three apps and the agent worker, one repo. Run everything from the repo root via `make` (see `make help`).
 
 | Path | What | Stack | Dev port |
 | ------------- | ----------------------------- | --------------------------------------- | -------- |
 | `apps/api` | REST + MCP backend | Go 1.25, Echo v5, GORM, goose, Postgres | 8080 |
 | `apps/web` | Desktop web app + Electron shell | Next.js 16, React 19, Tailwind 4, Electron 44 | 4001 |
 | `apps/mobile` | Android/iOS app | Expo SDK 57, expo-router, RN 0.86 | Metro |
+| `apps/agent` | Agent worker: vendored Hermes Agent + Timely adapters | Python 3.14, uv | none (API spawns it over stdin/stdout) |
 
 ## Rules that apply everywhere
 
@@ -28,6 +29,7 @@ Each app has its own `AGENTS.md` with framework caveats — read it before editi
 
 - `apps/web/AGENTS.md` — this Next.js version has breaking changes vs. training data; read `node_modules/next/dist/docs/`. Electron lives in `apps/web/electron` and is started with `make dev-desktop`.
 - `apps/mobile/AGENTS.md` — Expo has changed; read the versioned docs for SDK 57.
+- `apps/agent/AGENTS.md` — `apps/agent/hermes/` is a byte-identical copy of upstream Hermes that changes only through `make hermes-sync`; Timely code goes in `timely_agent/` or behind seams.
 - `apps/api/setup.md` and `apps/api/MIGRATIONS.md` — API setup and migration workflow.
 
 ## Project memory
