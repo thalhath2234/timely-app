@@ -2497,6 +2497,16 @@ export const PRICE_BLOCK = {
   pickEmpty: "No bot watches a price yet.",
 } as const;
 
+/**
+ * The price-bot picker's note on a row, in the board's status words: "Paused"
+ * for a bot the person paused, "Waiting for your OK" for one an outside app
+ * made (its value already says "Starts paused"), nothing for an active bot.
+ */
+export function priceBlockPickMeta(bot: Pick<BotView, "status" | "pauseReason">): string | undefined {
+  if (bot.status !== "paused") return undefined;
+  return bot.pauseReason === "mcp" ? "Waiting for your OK" : "Paused";
+}
+
 /** A Live block that draws a bot's price history: a Panel named after the bot holding PriceHistory. */
 export function priceBlockProgram(bot: { id: string; name: string }, watchId?: string): string {
   const watch = watchId ? `, ${JSON.stringify(watchId)}` : "";

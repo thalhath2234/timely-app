@@ -2652,14 +2652,15 @@ export function buildEditorHtml(
       body.querySelectorAll("[contenteditable]").forEach((el) => el.removeAttribute("contenteditable"));
       body.querySelectorAll(".code-wrap > .block-head").forEach((el) => el.remove());
       // A live block prints as drawn, without its buttons or hidden program.
-      body.querySelectorAll(".live-actions, .live-code.is-hidden").forEach((el) => el.remove());
+      // Its "Open bot" style footer is a link into the app, of no use on paper.
+      body.querySelectorAll(".live-actions, .live-code.is-hidden, .live-wrap .lv-foot").forEach((el) => el.remove());
       body.querySelectorAll(".block-head button").forEach((el) => el.remove());
       const styles = Array.from(document.querySelectorAll("style")).map((el) => el.textContent).join("\\n");
       const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).map((el) => '<link rel="stylesheet" href="' + el.href + '">').join("");
       const heading = document.createElement("h1");
       heading.className = "print-title";
       heading.textContent = title || "Untitled";
-      const light = "html, body { background: #fff !important; color: #111 !important; } body { padding: 0 !important; } .tiptap { padding: 0 !important; color: #111; } .tiptap pre, .tiptap code, .block-head, .callout, .props-chip { background: #f3f3f5 !important; color: #111 !important; } .tiptap a, .mention, .wiki-link { color: #3730a3 !important; } .print-title { font-family: -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif; font-size: 28px; font-weight: 700; margin: 0 0 16px; } .code-wrap pre { padding-top: 12px !important; max-height: none !important; -webkit-mask-image: none !important; mask-image: none !important; } .doc-bookmark { border-color: #ddd !important; } .live-wrap { --lv-fg: #111; --lv-muted-fg: #555; --lv-border: #ddd; --lv-card: #fff; --lv-fill: #eee; --lv-check: #fff; --lv-chart: #4f46e5; --lv-warning: #df911a; --lv-warning-text: #a15c00; --lv-success-text: #0f7a50; } pre, table, img, svg, .callout, .live-wrap { break-inside: avoid; } @page { margin: 18mm 16mm; }";
+      const light = "html, body { background: #fff !important; color: #111 !important; } body { padding: 0 !important; } .tiptap { padding: 0 !important; color: #111; } .tiptap pre, .tiptap code, .block-head, .callout, .props-chip { background: #f3f3f5 !important; color: #111 !important; } .tiptap a, .mention, .wiki-link { color: #3730a3 !important; } .print-title { font-family: -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif; font-size: 28px; font-weight: 700; margin: 0 0 16px; } .code-wrap pre { padding-top: 12px !important; max-height: none !important; -webkit-mask-image: none !important; mask-image: none !important; } .doc-bookmark { border-color: #ddd !important; } .live-wrap { --lv-fg: #111; --lv-muted-fg: #555; --lv-border: #ddd; --lv-card: #fff; --lv-fill: #eee; --lv-primary: #3730a3; --lv-check: #fff; --lv-chart: #4f46e5; --lv-warning: #df911a; --lv-warning-text: #a15c00; --lv-success-text: #0f7a50; } pre, table, img, svg, .callout, .live-wrap { break-inside: avoid; } @page { margin: 18mm 16mm; }";
       send({ type: "exportHtml", html: "<!doctype html><html><head><meta charset=\\"utf-8\\">" + links + "<style>" + styles + "</style><style>" + light + "</style></head><body>" + heading.outerHTML + body.outerHTML + "</body></html>" });
     }
     ${BLOCK_TURN_JS}

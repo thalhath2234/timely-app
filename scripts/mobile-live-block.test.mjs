@@ -266,3 +266,11 @@ describe("phone live block HTML: a bot's price history", () => {
   });
 });
 
+
+test("a doc printed to PDF drops a live block's footer link and keeps its link colour dark", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../apps/mobile/components/editor/editorHtml.ts", import.meta.url), "utf8");
+  const exportFn = src.slice(src.indexOf("function exportHtml("), src.indexOf('send({ type: "exportHtml"'));
+  assert.match(exportFn, /querySelectorAll\("[^"]*\.live-wrap \.lv-foot[^"]*"\)\.forEach\(\(el\) => el\.remove\(\)\)/);
+  assert.match(exportFn, /\.live-wrap \{[^}]*--lv-primary: #3730a3/);
+});

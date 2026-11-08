@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Text, View } from "react-native";
 import { useRouter, type Href } from "expo-router";
-import { cardValue, isPriceReading, PRICE_BLOCK, type BotView } from "@timely/contract/bots";
+import { cardValue, isPriceReading, PRICE_BLOCK, priceBlockPickMeta, type BotView } from "@timely/contract/bots";
 import BottomSheet from "../ui/BottomSheet";
 import { ListGroup, ListRow } from "../settings/SettingsList";
 import { BotMark, botSites } from "../bots/BotMark";
@@ -72,7 +72,7 @@ export default function PriceBlockSheet({ open, onClose, onPick }: { open: boole
             <ListRow
               key={bot.id}
               title={bot.name}
-              meta={bot.status === "paused" ? "Paused" : undefined}
+              meta={priceBlockPickMeta(bot)}
               leading={<BotMark watches={bot.watches} kind={bot.kind} icons={icons} size={28} />}
               trailing={
                 <Text numberOfLines={1} style={[styles.value, value.tone === "destructive" && { color: colors.destructive }]}>

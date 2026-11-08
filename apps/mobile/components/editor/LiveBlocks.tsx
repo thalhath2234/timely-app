@@ -64,7 +64,8 @@ export default function LiveBlocks({
       const query = botQueries[index];
       // A bot deleted while the doc was open says so, even with its old copy cached.
       if (query?.error instanceof ApiError && query.error.status === 404) bots.set(id, { state: "gone" });
-      else if (query?.data) bots.set(id, { state: "ok", detail: query.data });
+      // GET /bots/:id falls back to a name match: another bot is not this block's.
+      else if (query?.data) bots.set(id, query.data.id === id ? { state: "ok", detail: query.data } : { state: "failed" });
       else bots.set(id, { state: query?.isPending ? "loading" : "failed" });
     });
     // Ticks show the task or item as it is now, as the Dashboard's rows do (genui/kit.tsx).

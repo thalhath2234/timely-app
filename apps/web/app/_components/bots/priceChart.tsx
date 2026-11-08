@@ -14,6 +14,8 @@ const AXIS_LEFT = 44;
 const AXIS_BOTTOM = 20;
 const PAD_TOP = 8;
 const PAD_RIGHT = 8;
+/** Room the low point's price label needs to the right of its dot. */
+const LOW_LABEL_ROOM = 64;
 
 /**
  * A price watch's last 30 days: daily closes as a line over a soft area, the
@@ -64,6 +66,7 @@ export function PriceChart({
     if (v < points[low][1]) low = i;
   });
   const last = points.length - 1;
+  const lowFlips = x(points[low][0]) > width - LOW_LABEL_ROOM;
   // Daily closes sit at UTC midnight, so their days are UTC days (priceDayLabels).
   const day = (t: number) => shortDate(new Date(t * 1000).toISOString(), "UTC");
   const label = `Price over the last ${points.length} readings, from ${formatMoney(points[0][1], currency)} to ${formatMoney(points[last][1], currency)}; lowest ${formatMoney(points[low][1], currency)}`;
@@ -148,9 +151,12 @@ export function PriceChart({
                 stroke="var(--card)"
                 strokeWidth={2}
               />
+              {/* Near the right edge the label goes left of its dot, so a
+                  card around the chart never clips it. */}
               <text
-                x={x(points[low][0]) + 6}
+                x={x(points[low][0]) + (lowFlips ? -6 : 6)}
                 y={y(points[low][1]) - 6}
+                textAnchor={lowFlips ? "end" : "start"}
                 className="fill-foreground text-[11px] font-semibold tabular-nums"
               >
                 {formatMoney(points[low][1], currency)}

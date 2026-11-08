@@ -103,6 +103,7 @@ import {
   AWAY_WHILE,
   CAUGHT_UP,
   PRICE_BLOCK,
+  priceBlockPickMeta,
   awayFor,
   awayLine,
   isBotId,
@@ -2090,6 +2091,12 @@ describe("price history", () => {
     assert.equal(JSON.parse(title), name);
     assert.equal(PRICE_BLOCK.deleted, "Bot deleted");
     assert.equal(PRICE_BLOCK.noPrice, "This bot doesn’t watch a price");
+  });
+
+  test("the picker notes a paused bot in the board's words", () => {
+    assert.equal(priceBlockPickMeta({ status: "active", pauseReason: null }), undefined);
+    assert.equal(priceBlockPickMeta({ status: "paused", pauseReason: "person" }), "Paused");
+    assert.equal(priceBlockPickMeta({ status: "paused", pauseReason: "mcp" }), "Waiting for your OK");
   });
 
   test("niceTicks and priceDomain draw the old chart's range", () => {

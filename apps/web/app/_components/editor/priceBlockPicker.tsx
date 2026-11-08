@@ -4,7 +4,7 @@ import { useEffect, useId, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
-import { cardValue, isPriceReading, PRICE_BLOCK, type BotView } from "@timely/contract/bots";
+import { cardValue, isPriceReading, PRICE_BLOCK, priceBlockPickMeta, type BotView } from "@timely/contract/bots";
 import { OverlayFrame, OverlayPanel, OverlayScrim } from "@/app/_components/_ui/motion";
 import { ListGroup, ListRow } from "@/app/_components/_ui/groupedList";
 import { SkeletonRows } from "@/app/_components/_ui/skeleton";
@@ -12,8 +12,8 @@ import { BotMark, botSites } from "@/app/_components/bots/botMark";
 import { useBotIcons, useBots } from "@/app/utils/hooks/bots";
 import { cn } from "@/app/utils/cn";
 
-/** A row focused from the keyboard shows as hovered, not with an outline the card clips. */
-const ROW_FOCUS = "outline-none focus-visible:bg-muted/60";
+/** A row focused from the keyboard: a filled row with an inset ring the card cannot clip. */
+const ROW_FOCUS = "outline-none focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60";
 
 /** A bot a price block can draw: one with a watch that reads a price. */
 export const watchesPrice = (bot: BotView) => bot.watches.some(isPriceReading);
@@ -42,7 +42,16 @@ export default function PriceBlockPicker({ onPick, onClose }: { onPick: (bot: Bo
       if (event.key === "Escape") {
         event.preventDefault();
         onCloseRef.current();
+        return;
       }
+      // Up and down move between rows, as in the "/" menu that opened this.
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      const rows = Array.from(panel.current?.querySelectorAll<HTMLElement>("[data-rows] button") ?? []);
+      if (!rows.length) return;
+      event.preventDefault();
+      const at = rows.indexOf(document.activeElement as HTMLElement);
+      const next = event.key === "ArrowDown" ? (at + 1) % rows.length : at <= 0 ? rows.length - 1 : at - 1;
+      rows[next].focus();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -94,7 +103,7 @@ export default function PriceBlockPicker({ onPick, onClose }: { onPick: (bot: Bo
             <ListRow
               key={bot.id}
               label={bot.name}
-              meta={bot.status === "paused" ? "Paused" : undefined}
+              meta={priceBlockPickMeta(bot)}
               icon={<BotMark watches={bot.watches} kind={bot.kind} icons={icons} />}
               onClick={() => onPick(bot)}
               className={cn("h-12", ROW_FOCUS)}

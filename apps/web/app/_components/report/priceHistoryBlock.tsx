@@ -32,6 +32,8 @@ export function PriceHistoryBlock({ bot, watch }: { bot: string; watch?: string 
   if ((query.error as { status?: number } | null)?.status === 404)
     return <Note title={PRICE_BLOCK.deleted} hint={PRICE_BLOCK.deletedHint} />;
   if (!query.data) return query.isPending ? <Skeleton className="m-4 h-[150px]" /> : <Note title={PRICE_BLOCK.failed} />;
+  // GET /bots/:id falls back to a name match: another bot is not this block's.
+  if (query.data.id !== bot) return <Note title={PRICE_BLOCK.failed} />;
   const model = priceHistory(query.data, watch);
   if (!model) return <Note title={PRICE_BLOCK.noPrice} />;
   const meta = [model.multiple ? model.label : "", model.paused ? "Paused" : ""].filter(Boolean).join(" · ");
