@@ -16,6 +16,11 @@ import { browserTimezone } from "@/app/utils/api/schedule";
 import { useDecisions } from "@/app/utils/hooks/decisions";
 import { buttonClass } from "@/app/_components/_ui/button";
 import { settingsColumns } from "./layout";
+import { useRouter } from "next/navigation";
+import { Bot } from "lucide-react";
+import { ListGroup, ListRow, ListSubLabel } from "@/app/_components/_ui/groupedList";
+import { LoadErrorBanner } from "@/app/_components/_ui/loadError";
+import { alertDefaultRows, useAlertDefaults } from "@/app/_components/bots/alertDefaults";
 
 export default function NotificationSettingsPanel() {
   const { data: settings, isLoading, isError } = useNotificationSettings();
@@ -30,7 +35,11 @@ export default function NotificationSettingsPanel() {
   return (
     <div className={settingsColumns}>
       <NotificationSettingsForm key={JSON.stringify(settings)} initial={settings} />
-      <FailedJobsPanel />
+      {/* Bots sit above the jobs list: below the form when stacked, beside it when wide. */}
+      <div className="flex min-w-0 flex-col gap-10">
+        <BotNotificationSettings />
+        <FailedJobsPanel />
+      </div>
     </div>
   );
 }
@@ -150,6 +159,38 @@ function NotificationSettingsForm({ initial }: { initial: NotificationSettings }
         </button>
       </div>
     </form>
+  );
+}
+
+/** Where new bots alert (they save at once, unlike the form) and a way to the Bots page. */
+function BotNotificationSettings() {
+  const router = useRouter();
+  const state = useAlertDefaults();
+  const { defaults } = state;
+  return (
+    <section className="max-w-xl">
+      <h2 className="text-base font-semibold">Bots</h2>
+      <p className="mb-3 mt-1 text-sm text-muted-foreground">Each bot has its own alerts. These are what new bots start with.</p>
+      {defaults.isError && !defaults.data ? (
+        <LoadErrorBanner
+          what="where new bots alert"
+          error={defaults.error}
+          hasCopy={false}
+          onRetry={() => void defaults.refetch()}
+          retrying={defaults.isFetching}
+          className="mb-2"
+        />
+      ) : null}
+      <ListGroup>
+        <ListSubLabel>Alerts for new bots</ListSubLabel>
+        {alertDefaultRows(state)}
+        <ListRow
+          label="Open Bots"
+          icon={<Bot aria-hidden className="size-4 shrink-0 text-muted-foreground" />}
+          onClick={() => router.push("/bots")}
+        />
+      </ListGroup>
+    </section>
   );
 }
 

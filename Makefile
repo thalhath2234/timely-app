@@ -266,6 +266,10 @@ format-api: ## Format Go source
 test-providers-live: ## Call real agent provider APIs (tool round trip + image) for every TIMELY_LIVE_KEY_<ID> set (e.g. TIMELY_LIVE_KEY_OPENROUTER)
 	@cd $(API) && TIMELY_LIVE_PROVIDERS=1 go test ./internal/features/provider -run TestLiveProviders -count=1 -v
 
+.PHONY: test-bots-ai-live
+test-bots-ai-live: ## Run bots' AI judge, lesson, knowledge, brief, pass and shared-alert cases against Anthropic's small model (TIMELY_LIVE_KEY_ANTHROPIC exported or in .env; TIMELY_LIVE_BOTS_LOG=<file> also appends the answers there)
+	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" TIMELY_LIVE_BOTS=1 go test ./cmd -run TestLiveBotAI -count=1 -v
+
 .PHONY: test-chat-integration lint-chat
 test-chat-integration: ## Test agent transactions and approvals in an isolated temporary PostgreSQL schema
 	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" go test ./internal/jobs ./internal/realtime ./internal/features/chat ./internal/features/sheet ./internal/features/provider ./internal/features/search ./internal/features/workspace ./internal/features/placement ./internal/features/task ./internal/features/notify ./internal/features/schedule ./internal/features/suggest ./internal/features/bots/... ./internal/features/portability ./cmd -run TestIntegration -count=1

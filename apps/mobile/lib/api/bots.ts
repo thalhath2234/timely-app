@@ -1,5 +1,4 @@
 import type {
-  AlertView,
   BotDetail,
   BotInput,
   BotPatch,
@@ -7,11 +6,14 @@ import type {
   BotsList,
   BotView,
   FeedbackInput,
+  LinkView,
   PreviewInput,
   PreviewResult,
+  RateResult,
   RunResult,
   SourceKeyView,
 } from "@timely/contract/bots";
+import { EMPTY_BOTS_SUMMARY } from "@timely/contract/bots";
 import { api } from "./client";
 
 /** `POST /bots/:id/snooze`: a preset span, a time, or `until: null` to stop snoozing. */
@@ -25,7 +27,8 @@ export async function listBots(): Promise<BotsList> {
   const body = await api<Partial<BotsList> | undefined>("/bots");
   return {
     bots: body?.bots ?? [],
-    summary: body?.summary ?? { checksToday: 0, alertsToday: 0, nextCheckAt: null },
+    // A field the server leaves out reads as its empty value.
+    summary: { ...EMPTY_BOTS_SUMMARY, ...body?.summary },
   };
 }
 
@@ -47,9 +50,25 @@ export const snoozeBot = (id: string, body: SnoozeBody) => api<BotView>(`${bot(i
 /** Check now: 202 with when the check runs. A paused bot answers 409 (ApiError with its code). */
 export const runBot = (id: string) => api<RunResult>(`${bot(id)}/run`, { method: "POST" });
 
-/** Useful / Not useful on an alert; `{feedback: null}` takes the answer back. */
+/**
+ * Useful / Not useful on an alert; `{feedback: null}` takes the answer back.
+ * The reply carries the lesson the answer taught the bot (null on undo).
+ */
 export const rateAlert = (botId: string, alertId: string, body: FeedbackInput) =>
-  api<AlertView>(`${bot(botId)}/alerts/${encodeURIComponent(alertId)}/feedback`, { method: "POST", body });
+  api<RateResult>(`${bot(botId)}/alerts/${encodeURIComponent(alertId)}/feedback`, { method: "POST", body });
+
+/** Turns a Pass to link on or off ("Turn off this pass"). */
+export const setLink = (linkId: string, body: { enabled: boolean }) =>
+  api<LinkView>(`/bots/links/${encodeURIComponent(linkId)}`, { method: "PATCH", body });
+
+/** Applies the bot's suggested change; a stale one answers 409. */
+export const applySuggestion = (botId: string, id: string) => api<BotView>(`${bot(botId)}/suggestion`, { method: "POST", body: { id } });
+
+/** "Not now" on a suggested change. */
+export const dismissSuggestion = (botId: string) => api<void>(`${bot(botId)}/suggestion`, { method: "DELETE" });
+
+/** "Pause all bots": nothing is checked, passed on or sent while it is on. */
+export const setAllPaused = (paused: boolean) => api<{ allPaused: boolean }>("/bots/paused", { method: "PUT", body: { paused } });
 
 export const forgetLesson = (botId: string, lessonId: string) =>
   api<void>(`${bot(botId)}/lessons/${encodeURIComponent(lessonId)}`, { method: "DELETE" });

@@ -21,6 +21,8 @@ export default function ConfirmHost() {
       description={request.description}
       confirmLabel={request.confirmLabel}
       pendingLabel={request.pendingLabel}
+      tone={request.tone}
+      icon={request.icon}
       pending={pending}
       onCancel={cancel}
       onConfirm={() => {

@@ -33,6 +33,7 @@ import {
 import type { ChatStep } from "../../lib/chat/types";
 import {
   useBotDefaultsQuery,
+  useBotsQuery,
   useDocsQuery,
   useProjectsQuery,
   useSheetsQuery,
@@ -50,6 +51,8 @@ import { Action } from "./shared";
 function useReviewNames(bots: boolean): ReviewNames {
   // Where a new bot alerts, read only when the plan makes or edits one.
   const botDefaults = useBotDefaultsQuery(bots).data;
+  // Bot names for the bots a proposal passes to or sums up.
+  const botList = useBotsQuery(bots).data?.bots;
   const workspaces = useWorkspacesQuery().data;
   const projects = useProjectsQuery().data;
   const sheets = useSheetsQuery().data;
@@ -116,9 +119,14 @@ function useReviewNames(bots: boolean): ReviewNames {
         (f) => f.id,
         (f) => f.name,
       ),
+      bot: index(
+        botList,
+        (b) => b.id,
+        (b) => b.name,
+      ),
       botDefaults,
     };
-  }, [workspaces, projects, sheets, docs, tasks, botDefaults]);
+  }, [workspaces, projects, sheets, docs, tasks, botList, botDefaults]);
 }
 
 /** Apply or set aside one change while the proposal waits for review. */

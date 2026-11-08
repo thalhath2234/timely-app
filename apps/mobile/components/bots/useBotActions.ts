@@ -1,14 +1,17 @@
 import { useRouter } from "expo-router";
 import { primaryWatch, type BotView, type FixAction } from "@timely/contract/bots";
 import { useAssistant } from "../chat/AssistantProvider";
-import { useResumeBot, useRunBot } from "../../lib/hooks";
+import { useApplySuggestion, useDismissSuggestion, useResumeBot, useRunBot } from "../../lib/hooks";
 import { useToastStore } from "../../lib/toast";
 
 /** Settings › Agent opens the Finnhub key sheet on `?open=` this, when no usable key is saved. */
 export const BOT_KEYS_SECTION = "bot-keys";
 
+/** Settings › Agent, where an AI provider for AI judging is added. */
+export const AGENT_SETTINGS_ROUTE = "/(app)/settings/agent";
+
 /** Where the Finnhub key row lives (Settings › Agent). */
-export const BOT_KEYS_ROUTE = `/(app)/settings/agent?open=${BOT_KEYS_SECTION}`;
+export const BOT_KEYS_ROUTE = `${AGENT_SETTINGS_ROUTE}?open=${BOT_KEYS_SECTION}`;
 
 const say = (message: string) => useToastStore.getState().show(message);
 const failed = (error: Error) => say(error.message);
@@ -17,12 +20,15 @@ const failed = (error: Error) => say(error.message);
  * What the board's buttons do, as on the web. Fixes that need the editor
  * (pick the part, change the address or source) open the bot on its failing
  * watch's page; Edit opens the bot; Check now, Resume and Turn on act in
- * place; Add key goes to the key row.
+ * place; Add key goes to the key row. A suggested change is applied or put
+ * off ("Not now") in place too.
  */
 export function useBotActions(onOpen: (id: string, watchId?: string) => void) {
   const router = useRouter();
   const run = useRunBot();
   const resume = useResumeBot();
+  const apply = useApplySuggestion();
+  const dismiss = useDismissSuggestion();
 
   const act = (bot: BotView, action: FixAction | "edit") => {
     switch (action) {
@@ -35,6 +41,13 @@ export function useBotActions(onOpen: (id: string, watchId?: string) => void) {
           onSuccess: () => say(action === "turn_on" ? `${bot.name} is on` : `${bot.name} is watching again`),
           onError: failed,
         });
+        return;
+      case "apply_suggestion":
+        if (!bot.suggestion) return;
+        apply.mutate({ botId: bot.id, id: bot.suggestion.id }, { onSuccess: () => say(`${bot.name} changed`), onError: failed });
+        return;
+      case "dismiss_suggestion":
+        dismiss.mutate(bot.id, { onError: failed });
         return;
       case "add_key":
         router.push(BOT_KEYS_ROUTE as never);
@@ -53,6 +66,8 @@ export function useBotActions(onOpen: (id: string, watchId?: string) => void) {
   const busy = (bot: BotView): FixAction | null => {
     if (run.isPending && run.variables === bot.id) return "check_now";
     if (resume.isPending && resume.variables === bot.id) return "resume";
+    if (apply.isPending && apply.variables?.botId === bot.id) return "apply_suggestion";
+    if (dismiss.isPending && dismiss.variables === bot.id) return "dismiss_suggestion";
     return null;
   };
 

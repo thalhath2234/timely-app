@@ -64,7 +64,7 @@ export function StarterCard({
       </ListGroup>
       {later ? (
         <View style={styles.footer}>
-          <Text style={styles.footerNote}>Comes with Research bots</Text>
+          <Text style={styles.footerNote}>Comes in a later version</Text>
           <Button label="Use" variant="outline" size="sm" disabled onPress={() => undefined} />
         </View>
       ) : (

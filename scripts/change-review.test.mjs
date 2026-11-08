@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
 
-const { reviewGroups, planGroups, reviewStats, reviewProgress, reviewName, reviewFields, reviewDate, reviewRepeat, columnForKey, currencyUnit, isBotPlan, botAlertsLine } = await import(
+const { reviewGroups, planGroups, reviewStats, reviewProgress, reviewName, reviewFields, reviewDate, reviewRepeat, columnForKey, currencyUnit, isBotPlan, botAlertsLine, botPlanHint } = await import(
   "../packages/contract/src/changeReview.ts"
 );
 
@@ -511,5 +511,174 @@ describe("reviewGroups: bots", () => {
   test("a created bot carries its id for Open bot", () => {
     const [group] = reviewGroups([create([shop], { status: "done", result: { id: "bot_new", name: "Pixel Buds Pro 2 under ₹18,000" } })]);
     assert.equal(group.botId, "bot_new");
+  });
+
+  test("How smart reads what the step sets, else what the bot has, with what it was", () => {
+    const [made] = reviewGroups([create([shop], { arguments: { ...create([shop]).arguments, judgeMode: "ai" } })]);
+    assert.deepEqual(made.rows.find((r) => r.label === "How smart"), { label: "How smart", value: "AI judges" });
+    assert.equal(made.args.judgeMode, "ai");
+    const before = { id: "bot_1", name: "Coin", judgeMode: "rules", intervalMinutes: 15, desktop: true, phone: true, urgent: false, watches: [{ id: "bwt_1", kind: "price", source: "coinbase", symbol: "BTC", currency: "USD", rules: [{ kind: "below", threshold: 90000 }] }] };
+    const step = { tool: "update_bot", summary: "", arguments: { bot: "bot_1", judgeMode: "ai" }, status: "pending", before };
+    const [turned] = reviewGroups([step]);
+    assert.deepEqual(turned.rows.find((r) => r.label === "How smart"), { label: "How smart", value: "AI judges", before: "Rules only" });
+    // An edit that leaves it out keeps the bot's own, with nothing struck.
+    const [kept] = reviewGroups([{ ...step, arguments: { bot: "bot_1", name: "Bitcoin" }, before: { ...before, judgeMode: "ai" } }]);
+    assert.deepEqual(kept.rows.find((r) => r.label === "How smart"), { label: "How smart", value: "AI judges" });
+  });
+
+  test("Knowledge names the doc or sheet, never its id, with what it was", () => {
+    const names = { doc: (id) => (id === "doc_1" ? "Wishlist notes" : undefined), sheet: (id) => (id === "sht_1" ? { title: "Wishlist" } : undefined) };
+    const [made] = reviewGroups([create([shop], { arguments: { ...create([shop]).arguments, judgeMode: "ai", knowledge: { kind: "sheet", id: "sht_1" } } })], names);
+    assert.deepEqual(made.rows.find((r) => r.label === "Knowledge"), { label: "Knowledge", value: "Wishlist" });
+    assert.deepEqual(made.args.knowledge, { kind: "sheet", id: "sht_1" });
+    const [unknown] = reviewGroups([create([shop], { arguments: { ...create([shop]).arguments, knowledge: { kind: "doc", id: "doc_9" } } })], names);
+    assert.equal(unknown.rows.find((r) => r.label === "Knowledge").value, "A doc");
+    const before = { id: "bot_1", name: "Earbuds", judgeMode: "ai", knowledge: { kind: "doc", id: "doc_1", title: "Old notes" }, intervalMinutes: 360, desktop: true, phone: true, urgent: false, watches: [{ ...shop, id: "bwt_1" }] };
+    const step = { tool: "update_bot", summary: "", arguments: { bot: "bot_1", knowledge: { kind: "sheet", id: "sht_1" } }, status: "pending", before };
+    assert.deepEqual(reviewGroups([step], names)[0].rows.find((r) => r.label === "Knowledge"), { label: "Knowledge", value: "Wishlist", before: "Old notes" });
+    // null clears it.
+    assert.deepEqual(reviewGroups([{ ...step, arguments: { bot: "bot_1", knowledge: null } }], names)[0].rows.find((r) => r.label === "Knowledge"), { label: "Knowledge", value: "None", before: "Old notes" });
+    // Left out, it stays as the bot has it.
+    assert.deepEqual(reviewGroups([{ ...step, arguments: { bot: "bot_1", name: "Buds" } }], names)[0].rows.find((r) => r.label === "Knowledge"), { label: "Knowledge", value: "Old notes" });
+    // A bot without knowledge shows no row.
+    assert.equal(reviewGroups([create([shop])])[0].rows.some((r) => r.label === "Knowledge"), false);
+  });
+
+  test("Passes to shows one row per link, what each was, and the links it stops", () => {
+    const feed = { id: "bwt_1", kind: "feed", url: "https://www.reddit.com/r/buildapcsales/.rss", read: "", selector: "", source: "", symbol: "", currency: "", rules: [{ kind: "new_item" }] };
+    const before = {
+      id: "bot_feed",
+      name: "Deals feed",
+      intervalMinutes: 30,
+      desktop: true,
+      phone: true,
+      urgent: false,
+      watches: [feed],
+      passesTo: [
+        { bot: "Price check", botId: "bot_price", filter: ["2TB"], enabled: true },
+        { bot: "GPU deals", botId: "bot_gpu", filter: [], enabled: true },
+      ],
+    };
+    const step = {
+      tool: "update_bot",
+      summary: "Check the price before telling me",
+      arguments: { bot: "bot_feed", passesTo: [{ bot: "bot_price", filter: ["2TB", "NVMe"] }, { bot: "bot_steam", filter: [] }] },
+      status: "pending",
+      before,
+    };
+    const [group] = reviewGroups([step], { bot: (id) => (id === "bot_steam" ? "Steam Deck OLED" : undefined) });
+    assert.deepEqual(
+      group.rows.filter((r) => /pass/i.test(r.label)).map((r) => [r.label, r.value, r.before]),
+      [
+        ["Passes to", "Price check · mentions 2TB or NVMe", "Price check · mentions 2TB"],
+        ["Passes to", "Steam Deck OLED · Everything it finds", "New"],
+        ["Stops passing to", "GPU deals · Everything it finds", undefined],
+      ],
+    );
+    assert.deepEqual(group.args.passesTo, [{ botId: "bot_price", filter: ["2TB", "NVMe"] }, { botId: "bot_steam", filter: [] }]);
+    // A link named by its bot's name matches the one it had, and an unknown id never shows.
+    const [named] = reviewGroups([{ ...step, arguments: { bot: "bot_feed", passesTo: [{ bot: "price check", filter: ["2TB"] }, { bot: "bot_zzz" }] } }]);
+    assert.deepEqual(
+      named.rows.filter((r) => /pass/i.test(r.label)).map((r) => [r.label, r.value, r.before]),
+      [
+        ["Passes to", "Price check · mentions 2TB", undefined],
+        ["Passes to", "A bot · Everything it finds", "New"],
+        ["Stops passing to", "GPU deals · Everything it finds", undefined],
+      ],
+    );
+    // An edit that leaves the links out shows them as they are.
+    const [kept] = reviewGroups([{ ...step, arguments: { bot: "bot_feed", name: "Deals" } }]);
+    assert.deepEqual(kept.rows.filter((r) => r.label === "Passes to").map((r) => [r.value, r.before]), [
+      ["Price check · mentions 2TB", undefined],
+      ["GPU deals · Everything it finds", undefined],
+    ]);
+  });
+
+  test("a brief sums up bots instead of watching, and sends daily", () => {
+    const step = {
+      tool: "create_bot",
+      summary: "Make a morning brief",
+      arguments: { name: "Morning brief", description: "Each morning, sum up what my other bots found.", intervalMinutes: 1440, kind: "brief", sources: ["bot_gpu", "Bitcoin under $70,000"], briefTime: "07:00", briefAi: true, watches: [] },
+      status: "pending",
+    };
+    const [group] = reviewGroups([step], { bot: (id) => (id === "bot_gpu" ? "GPU deals" : undefined) });
+    assert.equal(group.meta, "Daily at 07:00");
+    assert.deepEqual(
+      group.rows.map((r) => [r.label, r.value]),
+      [
+        ["Sums up", "GPU deals"],
+        ["Sums up", "Bitcoin under $70,000"],
+        ["Sends", "Daily at 07:00"],
+        ["Written by", "AI"],
+        ["Alerts on", "Desktop, Phone"],
+      ],
+    );
+    assert.equal(group.preview, undefined);
+    assert.deepEqual(
+      { kind: group.args.kind, sources: group.args.sources, briefTime: group.args.briefTime, briefAi: group.args.briefAi, watches: group.args.watches, intervalMinutes: group.args.intervalMinutes },
+      { kind: "brief", sources: ["bot_gpu", "Bitcoin under $70,000"], briefTime: "07:00", briefAi: true, watches: [], intervalMinutes: 1440 },
+    );
+    // Without a time or AI: 08:00, written by Timely.
+    const [plain] = reviewGroups([{ ...step, arguments: { ...step.arguments, briefTime: undefined, briefAi: undefined } }]);
+    assert.equal(plain.meta, "Daily at 08:00");
+    assert.deepEqual(plain.rows.filter((r) => r.label === "Sends" || r.label === "Written by").map((r) => r.value), ["Daily at 08:00", "Timely"]);
+  });
+
+  test("an edit to a brief shows its sources, time and writer as they were", () => {
+    const before = {
+      id: "bot_brief",
+      name: "Morning brief",
+      kind: "brief",
+      intervalMinutes: 1440,
+      desktop: true,
+      phone: false,
+      urgent: false,
+      watches: [],
+      sources: [
+        { botId: "bot_gpu", name: "GPU deals" },
+        { botId: "bot_btc", name: "Bitcoin under $70,000" },
+      ],
+      briefTime: "08:00",
+      briefAi: false,
+    };
+    const step = { tool: "update_bot", summary: "", arguments: { bot: "bot_brief", sources: ["bot_gpu", "bot_sony"], briefTime: "06:00", briefAi: true }, status: "pending", before };
+    const [group] = reviewGroups([step], { bot: (id) => (id === "bot_sony" ? "Sony WH-1000XM6" : undefined) });
+    assert.equal(group.meta, "Daily at 06:00");
+    assert.deepEqual(
+      group.rows.map((r) => [r.label, r.value, r.before]),
+      [
+        ["Sums up", "GPU deals", undefined],
+        ["Sums up", "Sony WH-1000XM6", "New"],
+        ["Stops summing up", "Bitcoin under $70,000", undefined],
+        ["Sends", "Daily at 06:00", "Daily at 08:00"],
+        ["Written by", "AI", "Timely"],
+        ["Alerts on", "Desktop", undefined],
+      ],
+    );
+    assert.equal(group.args.kind, "brief");
+    // Left out, the sources stay as the brief has them.
+    const [kept] = reviewGroups([{ ...step, arguments: { bot: "bot_brief", name: "Daily brief" } }]);
+    assert.deepEqual(kept.rows.filter((r) => r.label === "Sums up").map((r) => [r.value, r.before]), [
+      ["GPU deals", undefined],
+      ["Bitcoin under $70,000", undefined],
+    ]);
+    assert.deepEqual(kept.args.sources, ["bot_gpu", "bot_btc"]);
+  });
+
+  test("a plan of briefs says it reads no page", () => {
+    const brief = { tool: "create_bot", arguments: { name: "Morning brief", kind: "brief", sources: ["bot_gpu"] } };
+    assert.equal(botPlanHint([brief]), "The brief starts when you approve. It reads only what your bots found, never a page.");
+    assert.equal(botPlanHint([{ tool: "update_bot", arguments: { bot: "bot_b", briefTime: "07:00" }, before: { bot: { id: "bot_b", kind: "brief" } } }]), "The change applies when you approve. It reads only what your bots found, never a page.");
+    assert.equal(botPlanHint([brief, create([shop])]), "Checks start when you approve. It only reads the page; it never buys or signs in.");
+    assert.equal(botPlanHint([{ tool: "update_bot", arguments: { bot: "bot_1" } }]), "The change applies when you approve. It only reads the page; it never buys or signs in.");
+  });
+
+  test("Only in the brief shows when the step sets it", () => {
+    const before = { id: "bot_gpu", name: "GPU deals", briefOnly: false, intervalMinutes: 30, desktop: true, phone: true, urgent: false, watches: [{ id: "bwt_1", kind: "feed", url: "https://www.reddit.com/r/buildapcsales/.rss", rules: [{ kind: "new_item" }] }] };
+    const step = { tool: "update_bot", summary: "", arguments: { bot: "bot_gpu", briefOnly: true }, status: "pending", before };
+    const [group] = reviewGroups([step]);
+    assert.deepEqual(group.rows.find((r) => r.label === "Only in the brief"), { label: "Only in the brief", value: "On", before: "Off" });
+    assert.equal(group.args.briefOnly, true);
+    assert.equal(reviewGroups([{ ...step, arguments: { bot: "bot_gpu", name: "GPUs" } }])[0].rows.some((r) => r.label === "Only in the brief"), false);
   });
 });

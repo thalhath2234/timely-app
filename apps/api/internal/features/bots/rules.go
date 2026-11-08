@@ -468,6 +468,26 @@ func conditionTrue(r Rule, cur Reading) bool {
 	return false
 }
 
+// holds reports whether a rule is true of a passed note right now, with no
+// earlier reading to measure from (Pass to): a price is below or above the
+// threshold (never across currencies: currency is the watch's, "" for
+// any), words appear or are gone, and any change, a new item or a move
+// count as true, since the note is new to the Bot.
+func holds(r Rule, reading Reading, currency string) bool {
+	switch r.Kind {
+	case RuleBelow, RuleAbove:
+		if currency != "" && reading.Currency != "" && !strings.EqualFold(currency, reading.Currency) {
+			return false
+		}
+		return conditionTrue(r, reading)
+	case RuleWordsAppear, RuleWordsDisappear:
+		return conditionTrue(r, reading)
+	case RuleAnyChange, RuleNewItem, RuleMovePct:
+		return true
+	}
+	return false
+}
+
 // MatchWords returns the words found in text as whole words, ignoring case,
 // after extract.Normalize on both sides.
 func MatchWords(words []string, text string) []string {

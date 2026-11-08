@@ -22,8 +22,8 @@ const dot = (tone: HealthTone) => {
  * A card's health: a 6 px tone dot, the word in the foreground and the time
  * muted ("Working · 12 min ago", "Snoozed until Mon 09:00").
  */
-export function HealthLine({ bot, now }: { bot: BotView; now: Date }) {
-  const h = healthLine(bot, now);
+export function HealthLine({ bot, now, allPaused }: { bot: BotView; now: Date; allPaused?: boolean }) {
+  const h = healthLine(bot, now, undefined, { allPaused });
   const rest = h.time ? (h.time.startsWith("until ") ? ` ${h.time}` : ` · ${h.time}`) : "";
   return (
     <View style={styles.row}>

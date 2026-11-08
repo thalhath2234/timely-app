@@ -2,6 +2,9 @@ package portability
 
 import (
 	"encoding/json"
+	"fmt"
+	"slices"
+	"strings"
 	"testing"
 
 	"timely-api/internal/features/bots"
@@ -62,7 +65,7 @@ func TestIntegrationBackupKeepsBots(t *testing.T) {
 			t.Fatalf("export %s: %d rows, want %d", table, got, want)
 		}
 	}
-	for _, table := range []string{"bot_checks", "bot_sites", "bot_robots", "bot_site_icons", "bot_source_keys"} {
+	for _, table := range []string{"bot_checks", "bot_sites", "bot_robots", "bot_site_icons", "bot_source_keys", "bot_ai_calls", "bot_passes"} {
 		if _, ok := backup.Rows[table]; ok {
 			t.Fatalf("export carries %s", table)
 		}
@@ -221,7 +224,7 @@ func TestIntegrationRestoreVetsBots(t *testing.T) {
 	if r := got["bot_has"]; r.Status != "paused" || r.PauseReason == nil || *r.PauseReason != "person" || r.Health != "unsupported" {
 		t.Fatalf("a watch Timely cannot use came back on: %+v", r)
 	}
-	if r := got["bot_loud"]; r.Status != "active" || !r.Urgent || r.NotifyPhone || r.JudgeMode != "rules" {
+	if r := got["bot_loud"]; r.Status != "active" || !r.Urgent || r.NotifyPhone || r.JudgeMode != "ai" {
 		t.Fatalf("the person's own restore changed alert settings: %+v", r)
 	}
 
@@ -238,7 +241,7 @@ func TestIntegrationRestoreVetsBots(t *testing.T) {
 		t.Fatal(err)
 	}
 	for id, r := range read() {
-		if r.Status != "paused" || r.Urgent || !r.NotifyPhone {
+		if r.Status != "paused" || r.Urgent || !r.NotifyPhone || r.JudgeMode != "rules" {
 			t.Fatalf("%s restored over MCP: %+v", id, r)
 		}
 		if want := map[string]string{"bot_has": "person"}[id]; want == "" && *r.PauseReason != "mcp" {
@@ -468,5 +471,646 @@ func TestIntegrationRestoreKeepsSourceKeys(t *testing.T) {
 	}
 	if r := read()["bot_stock"]; r.Status != "paused" || r.HealthDetail != "Restored with a watch Timely cannot use: Stock prices need your free Finnhub key. Add it in Settings › Agent. Edit it to turn it on." {
 		t.Fatalf("stock bot without a key: %+v", r)
+	}
+}
+
+// An alert's judge input (page text kept for a re-judge) never leaves the
+// server: the export has no ai_input, and a crafted file's is dropped on
+// restore. How AI saw the alert round-trips, and a backup made before AI
+// judging restores with the defaults.
+func TestIntegrationBackupLeavesOutJudgeInput(t *testing.T) {
+	db := migratedDB(t)
+	const uid = "usr_portability_bot_judge"
+	if err := db.Create(&models.User{ID: uid, Email: "judge@example.invalid", Password: "not-a-real-hash"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	seedAccountBasics(t, db, uid, true)
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if err := db.Exec(query, args...).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO bots (id, user_id, name, interval_seconds, next_check_at, judge_mode) VALUES ('bot_j', ?, 'Judged', 900, now(), 'ai')`, uid)
+	exec(`INSERT INTO bot_watches (id, bot_id, user_id, kind, source, symbol, currency) VALUES ('bw_j', 'bot_j', ?, 'price', 'coinbase', 'BTC', 'USD')`, uid)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, local_day, title, ai_state, ai_why, ai_input, urgency) VALUES
+		('bal_j1', 'bot_j', ?, 'alert', '2026-11-06', 'Judged: below 25,000', 'unchecked', 'AI was unavailable; Timely asks again later', '{"chainId": "bchk_j", "input": {"bot": "secret page text"}}', 'high'),
+		('bal_j2', 'bot_j', ?, 'alert', '2026-11-06', 'Judged: up 5.0%', 'judged', 'Big move', NULL, 'low')`, uid, uid)
+	exec(`INSERT INTO bot_ai_calls (id, user_id, bot_id, local_day, purpose) VALUES ('bai_j', ?, 'bot_j', '2026-11-06', 'judge')`, uid)
+
+	service := NewService(db, nil)
+	service.SetRestoreVet(bots.New(db, nil).VetRestore)
+	backup, err := service.Export(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := backup.Rows["bot_ai_calls"]; ok {
+		t.Fatal("export carries bot_ai_calls")
+	}
+	for _, raw := range backup.Rows["bot_alerts"] {
+		var row map[string]any
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := row["ai_input"]; ok {
+			t.Fatalf("exported alert carries ai_input: %s", raw)
+		}
+		if row["id"] == "bal_j1" && (row["ai_state"] != "unchecked" || row["urgency"] != "high") {
+			t.Fatalf("exported alert lost how AI saw it: %s", raw)
+		}
+	}
+	// A crafted file puts an input back on one alert and leaves the AI
+	// columns out of the other, as a backup made before AI judging would.
+	for i, raw := range backup.Rows["bot_alerts"] {
+		var row map[string]any
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatal(err)
+		}
+		if row["id"] == "bal_j1" {
+			row["ai_input"] = map[string]any{"chainId": "x", "input": map[string]any{"bot": "crafted"}}
+		} else {
+			delete(row, "ai_state")
+			delete(row, "ai_why")
+			delete(row, "urgency")
+		}
+		backup.Rows["bot_alerts"][i], _ = json.Marshal(row)
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	var rows []struct {
+		ID, AIState, AIWhy, Urgency string
+		HasInput                    bool
+	}
+	if err := db.Raw(`SELECT id, ai_state, ai_why, urgency, ai_input IS NOT NULL AS has_input FROM bot_alerts WHERE user_id = ? ORDER BY id`, uid).Scan(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].HasInput || rows[0].AIState != "unchecked" || rows[0].Urgency != "high" ||
+		rows[1].HasInput || rows[1].AIState != "" || rows[1].AIWhy != "" || rows[1].Urgency != "normal" {
+		t.Fatalf("restored alerts %+v", rows)
+	}
+	var calls int64
+	if err := db.Raw(`SELECT count(*) FROM bot_ai_calls WHERE user_id = ?`, uid).Scan(&calls).Error; err != nil || calls != 1 {
+		t.Fatalf("a restore reset the AI call log: %d (%v)", calls, err)
+	}
+}
+
+// A restored Bot keeps the doc or sheet its judge reads only while that is
+// the person's and not in the bin; over MCP it always lets it go. A backup
+// made before knowledge restores with none.
+func TestIntegrationRestoreVetsBotKnowledge(t *testing.T) {
+	db := migratedDB(t)
+	const uid, other = "usr_portability_knowledge", "usr_portability_knowledge_other"
+	for _, row := range []any{
+		&models.User{ID: uid, Email: "knowledge@example.invalid", Password: "not-a-real-hash"},
+		&models.User{ID: other, Email: "knowledge-other@example.invalid", Password: "not-a-real-hash"},
+	} {
+		if err := db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedAccountBasics(t, db, uid, true)
+	seedAccountBasics(t, db, other, true)
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if err := db.Exec(query, args...).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO documents (id, title, workspace_id, user_id, created_at, updated_at) VALUES
+		('doc_k_own', 'Wishlist notes', 'ws_' || ?, ?, '2026-11-01', '2026-11-01'),
+		('doc_k_theirs', 'Theirs', 'ws_' || ?, ?, '2026-11-01', '2026-11-01')`, uid, uid, other, other)
+	exec(`INSERT INTO sheets (id, title, workspace_id, user_id, archived_at, created_at, updated_at) VALUES
+		('sht_k_bin', 'Old wishlist', 'ws_' || ?, ?, '2026-11-02', '2026-11-01', '2026-11-01')`, uid, uid)
+	exec(`INSERT INTO bots (id, user_id, name, interval_seconds, next_check_at, judge_mode, knowledge_kind, knowledge_id) VALUES
+		('bot_k_own', ?, 'Own doc', 900, now(), 'ai', 'doc', 'doc_k_own'),
+		('bot_k_bin', ?, 'Binned sheet', 900, now(), 'ai', 'sheet', 'sht_k_bin'),
+		('bot_k_theirs', ?, 'Their doc', 900, now(), 'ai', 'doc', 'doc_k_theirs'),
+		('bot_k_none', ?, 'No knowledge', 900, now(), 'ai', '', '')`, uid, uid, uid, uid)
+
+	service := NewService(db, nil)
+	service.SetRestoreVet(bots.New(db, nil).VetRestore)
+	backup, err := service.Export(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := func() map[string][2]string {
+		t.Helper()
+		var rows []struct{ ID, KnowledgeKind, KnowledgeID string }
+		if err := db.Raw(`SELECT id, knowledge_kind, knowledge_id FROM bots WHERE user_id = ?`, uid).Scan(&rows).Error; err != nil {
+			t.Fatal(err)
+		}
+		out := map[string][2]string{}
+		for _, r := range rows {
+			out[r.ID] = [2]string{r.KnowledgeKind, r.KnowledgeID}
+		}
+		return out
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	got := read()
+	if got["bot_k_own"] != [2]string{"doc", "doc_k_own"} || got["bot_k_bin"] != [2]string{} || got["bot_k_theirs"] != [2]string{} || got["bot_k_none"] != [2]string{} {
+		t.Fatalf("restored knowledge %v", got)
+	}
+
+	// A backup made before knowledge has no knowledge columns.
+	for i, raw := range backup.Rows["bots"] {
+		var row map[string]any
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatal(err)
+		}
+		if row["id"] == "bot_k_none" {
+			delete(row, "knowledge_kind")
+			delete(row, "knowledge_id")
+		}
+		backup.Rows["bots"][i], _ = json.Marshal(row)
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatalf("restore of an older backup: %v", err)
+	}
+	if got := read(); got["bot_k_none"] != [2]string{} || got["bot_k_own"] != [2]string{"doc", "doc_k_own"} {
+		t.Fatalf("older backup restored %v", got)
+	}
+
+	// Over MCP no Bot keeps a doc or sheet, even its own.
+	if _, err := service.RestoreFromMCP(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	for id, k := range read() {
+		if k != [2]string{} {
+			t.Fatalf("%s kept %v after a restore over MCP", id, k)
+		}
+	}
+}
+
+// One alert per thing survives a backup: the things a sent alert told of,
+// who else saw it and the alert a shared one joined. A crafted file cannot
+// point shared_with at another account's alert or name another account's
+// Bot under "Also seen by", and a backup made before sharing restores with
+// none.
+func TestIntegrationRestoreSharedAlerts(t *testing.T) {
+	db := migratedDB(t)
+	const uid, other = "usr_portability_shared", "usr_portability_shared_other"
+	for _, row := range []any{
+		&models.User{ID: uid, Email: "shared@example.invalid", Password: "not-a-real-hash"},
+		&models.User{ID: other, Email: "shared-other@example.invalid", Password: "not-a-real-hash"},
+	} {
+		if err := db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedAccountBasics(t, db, uid, true)
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if err := db.Exec(query, args...).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO bots (id, user_id, name, interval_seconds, next_check_at) VALUES
+		('bot_s_a', ?, 'BTC A', 900, now()), ('bot_s_b', ?, 'BTC B', 900, now())`, uid, uid)
+	exec(`INSERT INTO bots (id, user_id, name, interval_seconds, next_check_at) VALUES ('bot_s_theirs', ?, 'Theirs', 900, now())`, other)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, local_day, title, things, also_seen_by, created_at) VALUES
+		('bal_s_theirs', 'bot_s_theirs', ?, 'alert', '2026-11-06', 'Theirs: below 70,000', '[]', '[]', '2026-11-06 09:00')`, other)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, local_day, title, things, also_seen_by, created_at) VALUES
+		('bal_s_first', 'bot_s_a', ?, 'alert', '2026-11-06', 'BTC A: price changed', '[{"key": "price:coinbase:BTC", "value": 69120, "urgency": "normal"}]',
+		 '[{"botId": "bot_s_b", "name": "BTC B"}]', '2026-11-06 09:00')`, uid)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, held, local_day, title, shared_with, created_at) VALUES
+		('bal_s_shared', 'bot_s_b', ?, 'alert', 'shared', '2026-11-06', 'BTC B: price changed', 'bal_s_first', '2026-11-06 09:01'),
+		('bal_s_crafted', 'bot_s_b', ?, 'alert', 'shared', '2026-11-06', 'BTC B: price changed', NULL, '2026-11-06 09:02')`, uid, uid)
+	exec(`INSERT INTO bot_findings (id, bot_id, user_id, kind, title, urgency, thing_key) VALUES
+		('bfd_s', 'bot_s_a', ?, 'item', 'Story', 'normal', 'link:https://news.example/1')`, uid)
+
+	service := NewService(db, nil)
+	service.SetRestoreVet(bots.New(db, nil).VetRestore)
+	backup, err := service.Export(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type alertRow struct {
+		ID, Things, AlsoSeenBy string
+		SharedWith             *string
+	}
+	read := func() map[string]alertRow {
+		t.Helper()
+		var rows []alertRow
+		if err := db.Raw(`SELECT id, things::text AS things, also_seen_by::text AS also_seen_by, shared_with FROM bot_alerts WHERE user_id = ?`, uid).Scan(&rows).Error; err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]alertRow{}
+		for _, r := range rows {
+			out[r.ID] = r
+		}
+		return out
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	got := read()
+	if r := got["bal_s_shared"]; r.SharedWith == nil || *r.SharedWith != "bal_s_first" {
+		t.Fatalf("shared alert lost what it joined: %+v", r)
+	}
+	// What an alert told of only matters to sharing, and a file's could
+	// hold back the person's other Bots: a restore lets it go.
+	if r := got["bal_s_first"]; r.AlsoSeenBy != `[{"name": "BTC B", "botId": "bot_s_b"}]` || r.Things != "[]" {
+		t.Fatalf("first alert %+v", r)
+	}
+	var key string
+	if err := db.Raw(`SELECT thing_key FROM bot_findings WHERE id = 'bfd_s'`).Scan(&key).Error; err != nil || key != "link:https://news.example/1" {
+		t.Fatalf("finding thing key %q (%v)", key, err)
+	}
+
+	// A crafted file: one shared alert points at another account's alert,
+	// "Also seen by" names their Bot and a made-up name for one of ours,
+	// things are not a list or carry a value that is not a number, and an
+	// older backup leaves the new columns out.
+	for i, raw := range backup.Rows["bot_alerts"] {
+		var row map[string]any
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatal(err)
+		}
+		switch row["id"] {
+		case "bal_s_crafted":
+			row["shared_with"] = "bal_s_theirs"
+			row["things"] = []any{map[string]any{"key": "price:coinbase:BTC:USD", "value": "x"}}
+		case "bal_s_first":
+			row["also_seen_by"] = []any{
+				map[string]any{"botId": "bot_s_theirs", "name": "Theirs"},
+				map[string]any{"botId": "bot_s_b", "name": "Anything at all"},
+				map[string]any{"botId": "bot_missing", "name": "Gone"},
+			}
+			row["things"] = "not a list"
+		case "bal_s_shared":
+			delete(row, "things")
+			delete(row, "also_seen_by")
+		}
+		backup.Rows["bot_alerts"][i], _ = json.Marshal(row)
+	}
+	for i, raw := range backup.Rows["bot_findings"] {
+		var row map[string]any
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatal(err)
+		}
+		delete(row, "thing_key")
+		backup.Rows["bot_findings"][i], _ = json.Marshal(row)
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	got = read()
+	if r := got["bal_s_crafted"]; r.SharedWith != nil || r.Things != "[]" {
+		t.Fatalf("a crafted shared_with points at another account's alert: %+v", r)
+	}
+	if r := got["bal_s_first"]; r.AlsoSeenBy != `[{"name": "BTC B", "botId": "bot_s_b"}]` || r.Things != "[]" {
+		t.Fatalf("also seen by and things after a crafted file: %+v", r)
+	}
+	if r := got["bal_s_shared"]; r.Things != "[]" || r.AlsoSeenBy != "[]" || r.SharedWith == nil {
+		t.Fatalf("older backup restored %+v", r)
+	}
+	if err := db.Raw(`SELECT thing_key FROM bot_findings WHERE id = 'bfd_s'`).Scan(&key).Error; err != nil || key != "" {
+		t.Fatalf("older finding thing key %q (%v)", key, err)
+	}
+	var theirs int64
+	if err := db.Raw(`SELECT count(*) FROM bot_alerts WHERE id = 'bal_s_theirs' AND user_id = ?`, other).Scan(&theirs).Error; err != nil || theirs != 1 {
+		t.Fatalf("the other account's alert: %d (%v)", theirs, err)
+	}
+}
+
+// Pass to links come back with a backup, but a restore runs none of a
+// save's checks, so the vet trims them: each Bot keeps its 4 oldest, a
+// circle or a chain over 3 steps loses its newest link, and over MCP none
+// come back. "How this came to you" keeps only the person's Bots and links,
+// a note's source must be the person's, and the pass log (not backed up)
+// keeps its counts through a restore and through deleting a Bot and
+// restoring it.
+func TestIntegrationRestoreBotLinks(t *testing.T) {
+	db := migratedDB(t)
+	const uid, other = "usr_portability_links", "usr_portability_links_other"
+	for _, row := range []any{
+		&models.User{ID: uid, Email: "links@example.invalid", Password: "not-a-real-hash"},
+		&models.User{ID: other, Email: "links-other@example.invalid", Password: "not-a-real-hash"},
+	} {
+		if err := db.Create(row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedAccountBasics(t, db, uid, true)
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if err := db.Exec(query, args...).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := func(query string, args ...any) int64 {
+		t.Helper()
+		var n int64
+		if err := db.Raw(query, args...).Scan(&n).Error; err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	for _, id := range []string{"a", "b", "c", "d", "e", "x", "y", "f", "g1", "g2", "g3", "g4", "g5"} {
+		exec(`INSERT INTO bots (id, user_id, name, interval_seconds, next_check_at) VALUES (?, ?, ?, 900, now())`, "bot_l_"+id, uid, "Bot "+id)
+	}
+	exec(`INSERT INTO bots (id, user_id, name, interval_seconds, next_check_at) VALUES ('bot_l_theirs', ?, 'Theirs', 900, now())`, other)
+	exec(`INSERT INTO bots (id, user_id, name, interval_seconds, next_check_at) VALUES ('bot_l_theirs2', ?, 'Theirs 2', 900, now())`, other)
+	link := func(id, from, to string, minute int) {
+		exec(`INSERT INTO bot_links (id, user_id, kind, from_bot_id, to_bot_id, filter, created_at, updated_at)
+			VALUES (?, ?, 'pass', ?, ?, '["NVMe"]', timestamp '2026-11-01 09:00' + make_interval(mins => ?), now())`,
+			id, uid, "bot_l_"+from, "bot_l_"+to, minute)
+	}
+	// A chain of 4 (a→b→c→d→e), a circle (x⇄y) and 5 links from f.
+	link("blk_ab", "a", "b", 1)
+	link("blk_bc", "b", "c", 2)
+	link("blk_cd", "c", "d", 3)
+	link("blk_de", "d", "e", 4)
+	link("blk_xy", "x", "y", 5)
+	link("blk_yx", "y", "x", 6)
+	for i := 1; i <= 5; i++ {
+		link(fmt.Sprintf("blk_fg%d", i), "f", fmt.Sprintf("g%d", i), 10+i)
+	}
+	exec(`INSERT INTO bot_links (id, user_id, kind, from_bot_id, to_bot_id) VALUES ('blk_theirs', ?, 'pass', 'bot_l_theirs', 'bot_l_theirs2')`, other)
+	exec(`INSERT INTO bot_findings (id, bot_id, user_id, kind, title, urgency) VALUES ('bfd_l_theirs', 'bot_l_theirs', ?, 'item', 'Theirs', 'normal')`, other)
+	exec(`INSERT INTO bot_findings (id, bot_id, user_id, kind, title, urgency, thing_key) VALUES ('bfd_l_src', 'bot_l_a', ?, 'item', 'Samsung 2TB NVMe', 'normal', 'link:https://news.example/2')`, uid)
+	exec(`INSERT INTO bot_findings (id, bot_id, user_id, kind, title, urgency, thing_key, chain_id, depth, source_finding_id)
+		VALUES ('bfd_l_b', 'bot_l_b', ?, 'change', '“NVMe” appeared', 'normal', 'link:https://news.example/2', 'bchk_l', 1, 'bfd_l_src'),
+		       ('bfd_l_crafted', 'bot_l_b', ?, 'change', '“NVMe” appeared', 'normal', '', 'bchk_l', 1, NULL)`, uid, uid)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, local_day, title, via) VALUES ('bal_l', 'bot_l_b', ?, 'alert', '2026-11-06', 'Bot b: “NVMe” appeared',
+		'[{"botId": "bot_l_a", "name": "Old name", "linkId": "blk_ab", "title": "Samsung 2TB NVMe"}, {"botId": "bot_l_theirs", "name": "Theirs", "linkId": "blk_theirs", "title": "x"}]')`, uid)
+	// The pass log: link a→b passed 20 today, and b had this thing 2 days ago.
+	for i := range bots.LinkPerDay {
+		exec(`INSERT INTO bot_passes (id, user_id, link_id, from_bot_id, to_bot_id, thing_key, chain_id, depth, local_day, state)
+			VALUES (?, ?, 'blk_ab', 'bot_l_a', 'bot_l_b', ?, 'bchk_l', 1, CURRENT_DATE, 'quiet')`, fmt.Sprintf("bps_l_%d", i), uid, fmt.Sprintf("link:https://news.example/p%d", i))
+	}
+	exec(`INSERT INTO bot_passes (id, user_id, link_id, from_bot_id, to_bot_id, thing_key, chain_id, depth, local_day, state, created_at)
+		VALUES ('bps_l_old', ?, 'blk_ab', 'bot_l_a', 'bot_l_b', 'link:https://news.example/2', 'bchk_k', 1, CURRENT_DATE - 2, 'alerted', now() - interval '2 days')`, uid)
+
+	service := NewService(db, nil)
+	service.SetRestoreVet(bots.New(db, nil).VetRestore)
+	backup, err := service.Export(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backup.Rows["bot_links"]) != 11 {
+		t.Fatalf("export has %d links", len(backup.Rows["bot_links"]))
+	}
+	if _, ok := backup.Rows["bot_passes"]; ok {
+		t.Fatal("export carries the pass log")
+	}
+	// A crafted note names another account's note as its source.
+	for i, raw := range backup.Rows["bot_findings"] {
+		var row map[string]any
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatal(err)
+		}
+		if row["id"] == "bfd_l_crafted" {
+			row["source_finding_id"] = "bfd_l_theirs"
+		}
+		backup.Rows["bot_findings"][i], _ = json.Marshal(row)
+	}
+	held := func() {
+		t.Helper()
+		if n := count(`SELECT count(*) FROM bot_passes WHERE user_id = ? AND link_id = 'blk_ab' AND local_day = CURRENT_DATE AND state IN ('pending', 'alerted', 'quiet', 'failed')`, uid); n != int64(bots.LinkPerDay) {
+			t.Fatalf("the link's day count is %d", n)
+		}
+		if n := count(`SELECT count(*) FROM bot_passes WHERE user_id = ? AND to_bot_id = 'bot_l_b' AND thing_key = 'link:https://news.example/2' AND created_at > now() - interval '7 days'`, uid); n != 1 {
+			t.Fatalf("the 7-day repeat count is %d", n)
+		}
+		if n := count(`SELECT count(*) FROM bot_links WHERE id = 'blk_ab' AND from_bot_id = 'bot_l_a' AND to_bot_id = 'bot_l_b' AND user_id = ?`, uid); n != 1 {
+			t.Fatal("the link did not come back under its id")
+		}
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	var links []string
+	if err := db.Raw(`SELECT id FROM bot_links WHERE user_id = ? ORDER BY id`, uid).Scan(&links).Error; err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"blk_ab", "blk_bc", "blk_cd", "blk_fg1", "blk_fg2", "blk_fg3", "blk_fg4", "blk_xy"}; !slices.Equal(links, want) {
+		t.Fatalf("restored links %v", links)
+	}
+	held()
+	var via string
+	if err := db.Raw(`SELECT via::text FROM bot_alerts WHERE id = 'bal_l'`).Scan(&via).Error; err != nil {
+		t.Fatal(err)
+	}
+	if via != `[{"name": "Bot a", "botId": "bot_l_a", "title": "Samsung 2TB NVMe", "linkId": "blk_ab"}]` {
+		t.Fatalf("via %s", via)
+	}
+	var sources []struct {
+		ID              string
+		SourceFindingID *string
+		ChainID         string
+		Depth           int
+	}
+	if err := db.Raw(`SELECT id, source_finding_id, chain_id, depth FROM bot_findings WHERE user_id = ? AND id IN ('bfd_l_b', 'bfd_l_crafted') ORDER BY id`, uid).Scan(&sources).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) != 2 || sources[0].SourceFindingID == nil || *sources[0].SourceFindingID != "bfd_l_src" || sources[0].ChainID != "bchk_l" || sources[0].Depth != 1 ||
+		sources[1].SourceFindingID != nil {
+		t.Fatalf("notes' sources %+v", sources)
+	}
+
+	// Deleting b takes its links; restoring brings b and the link back
+	// under their ids, and the pass log still counts against them. A b
+	// made again in the app instead is a new Bot with a new id and new
+	// links, so its counts start from zero on purpose.
+	exec(`DELETE FROM bots WHERE id = 'bot_l_b'`)
+	if n := count(`SELECT count(*) FROM bot_links WHERE from_bot_id = 'bot_l_b' OR to_bot_id = 'bot_l_b'`); n != 0 {
+		t.Fatalf("%d links of a deleted bot", n)
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	held()
+
+	// An older backup leaves the new columns out.
+	for i, raw := range backup.Rows["bot_findings"] {
+		var row map[string]any
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatal(err)
+		}
+		delete(row, "chain_id")
+		delete(row, "depth")
+		delete(row, "source_finding_id")
+		backup.Rows["bot_findings"][i], _ = json.Marshal(row)
+	}
+	for i, raw := range backup.Rows["bot_alerts"] {
+		var row map[string]any
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatal(err)
+		}
+		delete(row, "via")
+		backup.Rows["bot_alerts"][i], _ = json.Marshal(row)
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(`SELECT count(*) FROM bot_findings WHERE user_id = ? AND chain_id = '' AND depth = 0 AND source_finding_id IS NULL`, uid); n != 3 {
+		t.Fatalf("%d notes restored with defaults", n)
+	}
+	if n := count(`SELECT count(*) FROM bot_alerts WHERE id = 'bal_l' AND via = '[]'::jsonb`); n != 1 {
+		t.Fatal("an older alert came back without its via default")
+	}
+
+	// A file's filters keep to the save rules: too many or too long words
+	// are trimmed, and a filter that is not a list of words takes its link.
+	long := strings.Repeat("w", bots.MaxFilterWordLen+10)
+	filters := map[string]any{
+		"blk_ab":  []string{"one", "two", "three", "four", "five", "six", long},
+		"blk_bc":  map[string]any{"words": "NVMe"},
+		"blk_cd":  []any{"NVMe", 7},
+		"blk_fg1": []string{long},
+	}
+	for i, raw := range backup.Rows["bot_links"] {
+		var row map[string]any
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatal(err)
+		}
+		if f, ok := filters[row["id"].(string)]; ok {
+			row["filter"] = f
+		}
+		backup.Rows["bot_links"][i], _ = json.Marshal(row)
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	var kept []struct {
+		ID     string
+		Filter string
+	}
+	if err := db.Raw(`SELECT id, filter::text AS filter FROM bot_links WHERE user_id = ? AND id IN ('blk_ab', 'blk_bc', 'blk_cd', 'blk_fg1') ORDER BY id`, uid).
+		Scan(&kept).Error; err != nil {
+		t.Fatal(err)
+	}
+	clipped := strings.Repeat("w", bots.MaxFilterWordLen)
+	if len(kept) != 2 || kept[0].ID != "blk_ab" || kept[0].Filter != `["one", "two", "three", "four", "five"]` ||
+		kept[1].ID != "blk_fg1" || kept[1].Filter != `["`+clipped+`"]` {
+		t.Fatalf("restored filters %+v", kept)
+	}
+
+	// Over MCP, no links come back; the other account keeps its own.
+	if _, err := service.RestoreFromMCP(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(`SELECT count(*) FROM bot_links WHERE user_id = ?`, uid); n != 0 {
+		t.Fatalf("an MCP restore brought back %d links", n)
+	}
+	if n := count(`SELECT count(*) FROM bot_links WHERE user_id = ?`, other); n != 1 {
+		t.Fatal("the other account lost its link")
+	}
+}
+
+// Briefs survive a backup: a brief keeps its sources and is not paused for
+// having no watches, and "Only in the brief" stays on its sources. A file's
+// links keep to the save rules (nothing passes to a brief, a brief sums up
+// only watch Bots), a brief left with no Bots to sum up comes back paused,
+// a Bot in no brief is not "Only in the brief", a backup made before briefs
+// restores as watch Bots, and over MCP a brief is written from its template.
+func TestIntegrationRestoreBriefs(t *testing.T) {
+	db := migratedDB(t)
+	const uid = "usr_portability_briefs"
+	if err := db.Create(&models.User{ID: uid, Email: "briefs@example.invalid", Password: "not-a-real-hash"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	seedAccountBasics(t, db, uid, true)
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if err := db.Exec(query, args...).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO bots (id, user_id, name, interval_seconds, next_check_at, brief_only) VALUES
+		('bot_r_a', ?, 'Deals', 900, now(), true), ('bot_r_b', ?, 'Prices', 900, now(), false), ('bot_r_c', ?, 'Stray', 900, now(), true)`, uid, uid, uid)
+	exec(`INSERT INTO bot_watches (id, bot_id, user_id, kind, url, read_mode) VALUES
+		('bw_r_a', 'bot_r_a', ?, 'page', 'https://deals.example/', 'text'), ('bw_r_b', 'bot_r_b', ?, 'page', 'https://prices.example/', 'text'),
+		('bw_r_c', 'bot_r_c', ?, 'page', 'https://stray.example/', 'text')`, uid, uid, uid)
+	exec(`INSERT INTO bots (id, user_id, name, interval_seconds, next_check_at, kind, brief_time, brief_ai) VALUES
+		('bot_r_brief', ?, 'Morning', 86400, now(), 'brief', '08:00', true), ('bot_r_lonely', ?, 'Lonely', 86400, now(), 'brief', '18:30', false)`, uid, uid)
+	exec(`INSERT INTO bot_links (id, user_id, kind, from_bot_id, to_bot_id, created_at) VALUES
+		('blk_r_a', ?, 'brief', 'bot_r_a', 'bot_r_brief', '2026-11-01 09:00'), ('blk_r_b', ?, 'brief', 'bot_r_b', 'bot_r_brief', '2026-11-01 09:01'),
+		('blk_r_pass', ?, 'pass', 'bot_r_c', 'bot_r_brief', '2026-11-01 09:02'), ('blk_r_of_brief', ?, 'brief', 'bot_r_brief', 'bot_r_lonely', '2026-11-01 09:03')`, uid, uid, uid, uid)
+	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, local_day, title, figures) VALUES
+		('bal_r_brief', 'bot_r_brief', ?, 'brief', '2026-11-06', 'Morning: 2 new from 2 bots', '{"what": "2 new from 2 bots", "items": 2, "lines": ["Deals: x", "Prices: y"]}')`, uid)
+
+	service := NewService(db, nil)
+	service.SetRestoreVet(bots.New(db, nil).VetRestore)
+	backup, err := service.Export(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	type botRow struct {
+		ID, Kind, Status, HealthDetail, BriefTime string
+		BriefOnly, BriefAI                        bool
+	}
+	read := func() map[string]botRow {
+		t.Helper()
+		var rows []botRow
+		if err := db.Raw(`SELECT id, kind, status, health_detail, brief_time, brief_only, brief_ai FROM bots WHERE user_id = ?`, uid).Scan(&rows).Error; err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]botRow{}
+		for _, r := range rows {
+			out[r.ID] = r
+		}
+		return out
+	}
+	links := func() []string {
+		t.Helper()
+		var ids []string
+		if err := db.Raw(`SELECT id FROM bot_links WHERE user_id = ? ORDER BY id`, uid).Scan(&ids).Error; err != nil {
+			t.Fatal(err)
+		}
+		return ids
+	}
+	got := read()
+	if b := got["bot_r_brief"]; b.Kind != "brief" || b.Status != "active" || b.BriefTime != "08:00" || !b.BriefAI {
+		t.Fatalf("restored brief %+v", b)
+	}
+	if l := got["bot_r_lonely"]; l.Status != "paused" || !strings.Contains(l.HealthDetail, "no bots to sum up") {
+		t.Fatalf("a brief with no sources %+v", l)
+	}
+	if !got["bot_r_a"].BriefOnly || got["bot_r_c"].BriefOnly || got["bot_r_a"].Kind != "watch" {
+		t.Fatalf("brief only after restore: a %+v, c %+v", got["bot_r_a"], got["bot_r_c"])
+	}
+	if ids := links(); !slices.Equal(ids, []string{"blk_r_a", "blk_r_b"}) {
+		t.Fatalf("restored links %v", ids)
+	}
+	var lines string
+	if err := db.Raw(`SELECT figures->>'lines' FROM bot_alerts WHERE id = 'bal_r_brief'`).Scan(&lines).Error; err != nil || lines != `["Deals: x", "Prices: y"]` {
+		t.Fatalf("brief alert lines %q, %v", lines, err)
+	}
+
+	// A backup made before briefs has none of their columns.
+	for i, raw := range backup.Rows["bots"] {
+		var row map[string]any
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatal(err)
+		}
+		if row["kind"] == "watch" {
+			for _, k := range []string{"kind", "brief_only", "brief_ai", "brief_time", "brief_cursor_at"} {
+				delete(row, k)
+			}
+		}
+		backup.Rows["bots"][i], _ = json.Marshal(row)
+	}
+	if _, err := service.Restore(uid, backup); err != nil {
+		t.Fatalf("restore of an older backup: %v", err)
+	}
+	if got := read(); got["bot_r_b"].Kind != "watch" || got["bot_r_a"].BriefOnly || got["bot_r_b"].BriefTime != "" {
+		t.Fatalf("older backup restored %+v / %+v", got["bot_r_a"], got["bot_r_b"])
+	}
+
+	// Over MCP: no links, every brief from its template and paused.
+	if _, err := service.RestoreFromMCP(uid, backup); err != nil {
+		t.Fatal(err)
+	}
+	got = read()
+	if b := got["bot_r_brief"]; b.BriefAI || b.Status != "paused" || len(links()) != 0 {
+		t.Fatalf("MCP restore left %+v, links %v", b, links())
 	}
 }

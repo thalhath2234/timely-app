@@ -72,13 +72,17 @@ var exportTables = []tableSpec{
 	// check after a restore records a quiet baseline instead of alerting on
 	// what changed since the backup. A price day is named by watch and day.
 	// Left out on purpose: bot_checks (a 30-day log), bot_sites, bot_robots
-	// and bot_site_icons (shared caches with no owner), and bot_source_keys
+	// and bot_site_icons (shared caches with no owner), bot_source_keys
 	// (price source keys are sealed with this server's secret, so they would
-	// not open anywhere else; a restore keeps the account's own).
+	// not open anywhere else; a restore keeps the account's own),
+	// bot_ai_calls (the AI caps' 30-day log) and bot_passes (the pass log,
+	// whose counts a restore must not reset). An alert's ai_input (page and
+	// knowledge text kept for a re-judge) never leaves the server.
 	{"bots", `SELECT to_jsonb(x) FROM bots x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
 	{"bot_watches", `SELECT to_jsonb(x) || jsonb_build_object('baseline_pending', true) FROM bot_watches x WHERE x.user_id = ? ORDER BY x.bot_id, x.position, x.id`},
-	{"bot_alerts", `SELECT to_jsonb(x) FROM bot_alerts x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
+	{"bot_alerts", `SELECT to_jsonb(x) - 'ai_input' FROM bot_alerts x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
 	{"bot_lessons", `SELECT to_jsonb(x) FROM bot_lessons x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
+	{"bot_links", `SELECT to_jsonb(x) FROM bot_links x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
 	{"bot_findings", `SELECT to_jsonb(x) FROM bot_findings x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
 	{"bot_price_days", `SELECT to_jsonb(x) || jsonb_build_object('id', x.watch_id || ':' || x.day::text) FROM bot_price_days x WHERE x.user_id = ? ORDER BY x.watch_id, x.day`},
 }
@@ -303,8 +307,10 @@ var restoreDefaults = map[string]map[string]any{
 	"custom_fields": {"position": 0},
 	"configs": {"mobile_task_views": []any{}, "mobile_active_task_view_id": "",
 		"bot_alert_defaults": map[string]any{"desktop": true, "phone": true, "urgent": false}},
-	"bots":       {"origin_client": ""},
-	"bot_alerts": {"feedback_reason": "", "feedback_note": ""},
+	"bots": {"origin_client": "", "knowledge_kind": "", "knowledge_id": "", "kind": "watch", "brief_only": false, "brief_ai": false, "brief_time": ""},
+	"bot_alerts": {"feedback_reason": "", "feedback_note": "", "ai_state": "", "ai_why": "", "urgency": "normal",
+		"things": []any{}, "also_seen_by": []any{}, "via": []any{}},
+	"bot_findings": {"thing_key": "", "chain_id": "", "depth": 0},
 }
 
 type parentRef struct {
@@ -337,6 +343,7 @@ var restoreParents = map[string][]parentRef{
 	// notification, so it must be one restored to this account.
 	"bot_alerts":     {{"bot_id", "bots", true}, {"check_id", "bot_checks", false}, {"notification_id", "notifications", false}},
 	"bot_lessons":    {{"bot_id", "bots", true}, {"alert_id", "bot_alerts", false}},
+	"bot_links":      {{"from_bot_id", "bots", true}, {"to_bot_id", "bots", true}},
 	"bot_findings":   {{"bot_id", "bots", true}, {"check_id", "bot_checks", false}, {"watch_id", "bot_watches", false}},
 	"bot_price_days": {{"watch_id", "bot_watches", true}, {"bot_id", "bots", true}},
 }
@@ -380,6 +387,7 @@ var ownedQueries = map[string]string{
 	"bots":             `SELECT count(*) FROM bots WHERE id = ? AND user_id = ?`,
 	"bot_watches":      `SELECT count(*) FROM bot_watches WHERE id = ? AND user_id = ?`,
 	"bot_alerts":       `SELECT count(*) FROM bot_alerts WHERE id = ? AND user_id = ?`,
+	"bot_findings":     `SELECT count(*) FROM bot_findings WHERE id = ? AND user_id = ?`,
 }
 
 type restoreOwnership struct {
@@ -420,6 +428,10 @@ func deferredColumns(table string) []string {
 		return []string{"blocked_by_id"}
 	case "documents":
 		return []string{"parent_id"}
+	case "bot_alerts":
+		return []string{"shared_with"}
+	case "bot_findings":
+		return []string{"source_finding_id"}
 	default:
 		return nil
 	}

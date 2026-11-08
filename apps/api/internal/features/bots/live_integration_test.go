@@ -90,7 +90,7 @@ func insertPausedBot(t *testing.T, db *gorm.DB, userID string) string {
 func TestIntegrationBotChangesNotify(t *testing.T) {
 	db := migratedDB(t)
 	me, other := addUser(t, db), addUser(t, db)
-	_, hub := liveBots(t, db)
+	s, hub := liveBots(t, db)
 	mine, stopMine := hub.Subscribe(me, liveTopic)
 	defer stopMine()
 	theirs, stopTheirs := hub.Subscribe(other, liveTopic)
@@ -123,6 +123,16 @@ func TestIntegrationBotChangesNotify(t *testing.T) {
 	once(t, mine, second, "bots insert")
 	must(t, db.Exec("DELETE FROM bots WHERE id = ?", second).Error)
 	once(t, mine, second, "bots delete")
+
+	// "Pause all bots" lives in configs, which has no trigger: it announces
+	// each of the person's Bots itself, each way.
+	must(t, db.Create(&models.Config{ID: "cfg_" + me, UserID: me}).Error)
+	for _, on := range []bool{true, false} {
+		if _, err := s.SetAllPaused(context.Background(), me, on); err != nil {
+			t.Fatal(err)
+		}
+		once(t, mine, botID, "pause all")
+	}
 
 	// A rolled-back transaction (a chat rehearsal) announces nothing.
 	tx := db.Begin()

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math/rand/v2"
+	"regexp"
 	"strings"
 	"time"
 
@@ -55,6 +57,14 @@ func (s *Store) Create(ctx context.Context, userID string, in Input, o Origin, n
 	if err := refuseMCPSettings(o, &in.JudgeMode, in.Urgent, in.Desktop, in.Phone); err != nil {
 		return View{}, err
 	}
+	if o == OriginMCP && (in.Knowledge != nil || in.PassesTo != nil || in.Sources != nil || in.BriefTime != nil ||
+		in.BriefAI != nil || in.BriefOnly != nil || (strings.TrimSpace(in.Kind) != "" && strings.TrimSpace(in.Kind) != KindWatch)) {
+		return View{}, errMCPSetup
+	}
+	kind, err := cleanKind(in.Kind)
+	if err != nil {
+		return View{}, err
+	}
 	name, err := cleanName(in.Name)
 	if err != nil {
 		return View{}, err
@@ -67,17 +77,31 @@ func (s *Store) Create(ctx context.Context, userID string, in Input, o Origin, n
 	if err != nil {
 		return View{}, err
 	}
-	hasKey, err := keySet(s.conn(ctx), userID)
-	if err != nil {
-		return View{}, err
+	var ws []Watch
+	var interval int
+	briefTime := ""
+	if kind == KindBrief {
+		if briefTime, err = cleanBrief(in, judge); err != nil {
+			return View{}, err
+		}
+		interval = int(briefEvery / time.Second)
+	} else {
+		if err := watchOnly(in.Sources, in.BriefTime, in.BriefAI); err != nil {
+			return View{}, err
+		}
+		hasKey, err := keySet(s.conn(ctx), userID)
+		if err != nil {
+			return View{}, err
+		}
+		if ws, err = cleanWatches(in.Watches, nil, hasKey); err != nil {
+			return View{}, err
+		}
+		if interval, err = cleanInterval(in.IntervalMinutes, ws); err != nil {
+			return View{}, err
+		}
 	}
-	ws, err := cleanWatches(in.Watches, nil, hasKey)
-	if err != nil {
-		return View{}, err
-	}
-	interval, err := cleanInterval(in.IntervalMinutes, ws)
-	if err != nil {
-		return View{}, err
+	if in.BriefOnly != nil && *in.BriefOnly {
+		return View{}, errNotInBrief // a new Bot is in no brief yet
 	}
 	// Switches left unset (always, from chat and outside apps) follow the
 	// person's "Alerts for new bots".
@@ -94,7 +118,15 @@ func (s *Store) Create(ctx context.Context, userID string, in Input, o Origin, n
 		ID: utils.PrefixedUUID("bot"), UserID: userID, Name: name, Description: desc, Origin: o,
 		Status: StatusActive, JudgeMode: judge, IntervalSeconds: interval,
 		Urgent: deref(in.Urgent, defs.Urgent), NotifyDesktop: deref(in.Desktop, defs.Desktop), NotifyPhone: deref(in.Phone, defs.Phone),
-		NextCheckAt: &now, Health: HealthNew, CreatedAt: now, UpdatedAt: now,
+		NextCheckAt: &now, Health: HealthNew, Kind: kind, CreatedAt: now, UpdatedAt: now,
+	}
+	if kind == KindBrief {
+		loc, err := localZone(s.conn(ctx), userID)
+		if err != nil {
+			return View{}, err
+		}
+		next := nextBriefAt(loc, briefTime, now).Add(rand.N(briefSpread))
+		b.BriefTime, b.BriefAI, b.BriefCursorAt, b.NextCheckAt = briefTime, deref(in.BriefAI, false), &now, &next
 	}
 	if o == OriginMCP {
 		reason := PauseMCP
@@ -104,9 +136,18 @@ func (s *Store) Create(ctx context.Context, userID string, in Input, o Origin, n
 	for i := range ws {
 		ws[i] = newWatch(ws[i], b, now)
 	}
+	var bd *board
 	err = s.conn(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := lockAccount(tx, userID); err != nil {
 			return err
+		}
+		if in.Knowledge != nil {
+			k, err := cleanKnowledge(tx, userID, *in.Knowledge)
+			if err != nil {
+				return err
+			}
+			b.KnowledgeKind, b.KnowledgeID = k.Kind, k.ID
+			bd = &board{knowledge: map[string]*KnowledgeView{b.ID: &k}}
 		}
 		var rows []Bot
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id", "name").Where("user_id = ?", userID).Find(&rows).Error; err != nil {
@@ -121,12 +162,30 @@ func (s *Store) Create(ctx context.Context, userID string, in Input, o Origin, n
 		if err := tx.Create(&b).Error; err != nil {
 			return nameConflict(err, name)
 		}
-		return tx.Create(&ws).Error
+		if len(ws) > 0 {
+			if err := tx.Create(&ws).Error; err != nil {
+				return err
+			}
+		}
+		if kind == KindBrief {
+			ids, err := saveBriefLinks(tx, userID, b, *in.Sources, now)
+			if err != nil {
+				return err
+			}
+			if bd == nil {
+				bd = &board{}
+			}
+			bd.sources = map[string][]string{b.ID: ids}
+		}
+		if in.PassesTo != nil {
+			return saveLinks(tx, userID, b, *in.PassesTo, now)
+		}
+		return nil
 	})
 	if err != nil {
 		return View{}, err
 	}
-	return viewOf(b, ws, nil, now), nil
+	return viewOf(b, ws, bd, now), nil
 }
 
 // newWatch fills in a watch that is about to be inserted.
@@ -141,11 +200,16 @@ func newWatch(w Watch, b Bot, now time.Time) Watch {
 
 // Update edits a Bot. A watch whose address, read mode, selector, source,
 // symbol, currency or rules change records a quiet baseline on its next
-// check. Over MCP, such a change also pauses an active Bot.
+// check. Over MCP, such a change also pauses an active Bot. A change to the
+// watches, the interval or judging drops the Bot's suggestion.
 func (s *Store) Update(ctx context.Context, userID, idOrName string, p Patch, o Origin, now time.Time) (View, error) {
 	now = now.UTC()
 	if err := refuseMCPSettings(o, p.JudgeMode, p.Urgent, p.Desktop, p.Phone); err != nil {
 		return View{}, err
+	}
+	if o == OriginMCP && (p.Knowledge != nil || p.ClearKnowledge || p.PassesTo != nil || p.Kind != nil || p.Sources != nil ||
+		p.BriefTime != nil || p.BriefAI != nil || p.BriefOnly != nil) {
+		return View{}, errMCPSetup
 	}
 	set := map[string]any{"updated_at": now}
 	var name string
@@ -185,6 +249,39 @@ func (s *Store) Update(ctx context.Context, userID, idOrName string, p Patch, o 
 			return err
 		}
 		botID = b.ID
+		if o == OriginMCP && (b.JudgeMode == JudgeAI || (b.Kind == KindBrief && b.BriefAI)) &&
+			((p.Description != nil && set["description"] != b.Description) || (p.Name != nil && name != b.Name)) {
+			return errMCPJudged
+		}
+		if p.Kind != nil {
+			if k, err := cleanKind(*p.Kind); err != nil || k != b.Kind {
+				return invalid("A bot's kind cannot change")
+			}
+		}
+		if p.BriefOnly != nil {
+			if *p.BriefOnly {
+				in, err := inBrief(tx, userID, b.ID)
+				if err != nil {
+					return err
+				}
+				if !in {
+					return errNotInBrief
+				}
+			}
+			set["brief_only"] = *p.BriefOnly
+		}
+		switch {
+		case b.Kind == KindBrief && p.Knowledge != nil:
+			return errBriefKnowledge
+		case p.Knowledge != nil:
+			k, err := cleanKnowledge(tx, userID, *p.Knowledge)
+			if err != nil {
+				return err
+			}
+			set["knowledge_kind"], set["knowledge_id"] = k.Kind, k.ID
+		case p.ClearKnowledge:
+			set["knowledge_kind"], set["knowledge_id"] = "", ""
+		}
 		if p.Name != nil {
 			var rows []Bot
 			if err := tx.Select("id", "name").Where("user_id = ?", userID).Find(&rows).Error; err != nil {
@@ -193,6 +290,12 @@ func (s *Store) Update(ctx context.Context, userID, idOrName string, p Patch, o 
 			if err := nameTaken(rows, b.ID, name); err != nil {
 				return err
 			}
+		}
+		if b.Kind == KindBrief {
+			return s.updateBrief(tx, b, p, set, name, now)
+		}
+		if err := watchOnly(p.Sources, p.BriefTime, p.BriefAI); err != nil {
+			return err
 		}
 		cur, err := loadWatches(tx, b.ID, true)
 		if err != nil {
@@ -230,11 +333,18 @@ func (s *Store) Update(ctx context.Context, userID, idOrName string, p Patch, o 
 				set["next_check_at"] = next
 			}
 		}
+		// A suggestion is about the rules, interval and judging it saw.
+		if b.Suggestion != nil && (watchesChanged || interval != b.IntervalSeconds || (p.JudgeMode != nil && set["judge_mode"] != b.JudgeMode)) {
+			set["suggestion"] = gorm.Expr("NULL")
+		}
 		if o == OriginMCP && watchesChanged && b.Status == StatusActive {
 			set["status"], set["pause_reason"], set["next_check_at"], set["health_detail"] = StatusPaused, PauseMCP, nil, mcpPausedNow
 		}
 		if err := tx.Model(&Bot{}).Where("id = ? AND user_id = ?", b.ID, userID).Updates(set).Error; err != nil {
 			return nameConflict(err, name)
+		}
+		if p.PassesTo != nil {
+			return saveLinks(tx, userID, b, *p.PassesTo, now)
 		}
 		return nil
 	})
@@ -242,6 +352,115 @@ func (s *Store) Update(ctx context.Context, userID, idOrName string, p Patch, o 
 		return View{}, err
 	}
 	return s.view(ctx, userID, botID, now)
+}
+
+// briefEvery is a brief's interval: it runs once a day, at its time.
+const briefEvery = 24 * time.Hour
+
+// errNotInBrief refuses "Only in the brief" on a Bot that is in no brief.
+var errNotInBrief = invalid("Add this bot to a brief first")
+
+// cleanBrief checks a new brief: no watches, no AI judging or knowledge
+// (it writes with AI instead), no Pass to, 1 to MaxBriefSources sources
+// (saveBriefLinks checks each), and its time.
+func cleanBrief(in Input, judge string) (string, error) {
+	switch {
+	case len(in.Watches) > 0:
+		return "", errBriefWatches
+	case judge == JudgeAI:
+		return "", errBriefJudge
+	case in.Knowledge != nil:
+		return "", errBriefKnowledge
+	case in.PassesTo != nil && len(*in.PassesTo) > 0:
+		return "", invalid("A brief cannot pass items on")
+	case in.Sources == nil || len(*in.Sources) == 0 || len(*in.Sources) > MaxBriefSources:
+		return "", errBriefSources
+	}
+	return cleanBriefTime(in.BriefTime)
+}
+
+var (
+	errBriefWatches   = invalid("A brief bot has no watches; it sums up other bots")
+	errBriefJudge     = invalid("A brief bot uses Write it with AI instead")
+	errBriefKnowledge = invalid("Knowledge is for bots that judge with AI")
+	errBriefSources   = invalid("Pick 1 to %d bots for the brief to sum up", MaxBriefSources)
+	errBriefLinkOff   = invalid("Change the brief's bots instead")
+)
+
+// briefNoSources is a brief's health line once its last source Bot is
+// deleted: it is paused until an edit gives it bots to sum up.
+const briefNoSources = "This brief has no bots left to sum up. Edit it to turn it on."
+
+// pauseEmptyBriefs pauses every active brief of the account left with no
+// source Bots, so none runs on with nothing to list.
+func pauseEmptyBriefs(tx *gorm.DB, userID string, now time.Time) error {
+	return tx.Exec(`UPDATE bots b SET status = ?, pause_reason = ?, next_check_at = NULL, checking_job_id = NULL,
+  health = ?, health_detail = ?, updated_at = ?
+WHERE b.user_id = ? AND b.kind = ? AND b.status = ?
+  AND NOT EXISTS (SELECT 1 FROM bot_links l WHERE l.user_id = b.user_id AND l.to_bot_id = b.id AND l.kind = ?)`,
+		StatusPaused, PausePerson, healthUnusable, briefNoSources, now.UTC(), userID, KindBrief, StatusActive, LinkBrief).Error
+}
+
+// watchOnly refuses a brief's settings on a watch Bot. Empty values (no
+// sources, no time, AI off) are what a watch Bot has, so they pass.
+func watchOnly(sources *[]string, briefTime *string, briefAI *bool) error {
+	switch {
+	case sources != nil && len(*sources) > 0:
+		return invalid("Only a brief bot sums up other bots")
+	case briefTime != nil && strings.TrimSpace(*briefTime) != "":
+		return invalid("Only a brief bot takes a time")
+	case briefAI != nil && *briefAI:
+		return invalid("Only a brief bot writes with AI")
+	}
+	return nil
+}
+
+// updateBrief applies an edit to a brief inside Update's transaction: its
+// name, description, switches, time, Write it with AI and sources. It has
+// no watches, judge, knowledge or Pass to, and its interval stays a day; a
+// new time on an active brief moves its next run.
+func (s *Store) updateBrief(tx *gorm.DB, b Bot, p Patch, set map[string]any, name string, now time.Time) error {
+	switch {
+	case p.Watches != nil && len(*p.Watches) > 0:
+		return errBriefWatches
+	case set["judge_mode"] == JudgeAI:
+		return errBriefJudge
+	case p.Knowledge != nil:
+		return errBriefKnowledge
+	case p.PassesTo != nil && len(*p.PassesTo) > 0:
+		return invalid("A brief cannot pass items on")
+	case p.Sources != nil && (len(*p.Sources) == 0 || len(*p.Sources) > MaxBriefSources):
+		return errBriefSources
+	}
+	delete(set, "judge_mode")
+	delete(set, "knowledge_kind")
+	delete(set, "knowledge_id")
+	if p.BriefAI != nil {
+		set["brief_ai"] = *p.BriefAI
+	}
+	if p.BriefTime != nil {
+		t, err := cleanBriefTime(p.BriefTime)
+		if err != nil {
+			return err
+		}
+		set["brief_time"] = t
+		if t != b.BriefTime && b.Status == StatusActive {
+			loc, err := localZone(tx, b.UserID)
+			if err != nil {
+				return err
+			}
+			set["next_check_at"] = maxTime(nextBriefAt(loc, t, now).Add(rand.N(briefSpread)), spacedAt(b.CheckStartedAt, Floor(nil)))
+		}
+	}
+	if err := tx.Model(&Bot{}).Where("id = ? AND user_id = ?", b.ID, b.UserID).Updates(set).Error; err != nil {
+		return nameConflict(err, name)
+	}
+	if p.Sources != nil {
+		if _, err := saveBriefLinks(tx, b.UserID, b, *p.Sources, now); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // saveWatches applies a full watch list: kept watches are updated, new ones
@@ -272,9 +491,14 @@ func saveWatches(tx *gorm.DB, b Bot, cur []Watch, in []WatchInput, hasKey hasKey
 		sameCfg, sameRl := sameConfig(old, w), sameRules(old.Rules, w.Rules)
 		set := map[string]any{"position": w.Position}
 		if sameCfg && sameRl {
-			old.Position = w.Position
+			// A page's currency hint may change without a new baseline.
+			hint := old.Currency != w.Currency
+			old.Position, old.Currency = w.Position, w.Currency
 			next[i] = old
-			if old.Position != prev[w.ID].Position {
+			if hint {
+				set["currency"] = w.Currency
+			}
+			if old.Position != prev[w.ID].Position || hint {
 				set["updated_at"] = now
 			} else {
 				continue
@@ -356,7 +580,8 @@ func (s *Store) Pause(ctx context.Context, userID, idOrName string, reason strin
 // Resume turns a paused Bot on, due as soon as its floor allows, with
 // strikes cleared. Every watch
 // records a quiet baseline first, so nothing that changed while it was
-// paused alerts. Only the app can resume a Bot.
+// paused alerts; a brief comes back at its next time, listing nothing from
+// its pause, and only with bots to sum up. Only the app can resume a Bot.
 func (s *Store) Resume(ctx context.Context, userID, id string, o Origin, now time.Time) (View, error) {
 	now = now.UTC()
 	if o == OriginMCP {
@@ -376,12 +601,31 @@ func (s *Store) Resume(ctx context.Context, userID, id string, o Origin, now tim
 		if err != nil {
 			return err
 		}
-		// Due now, unless its last check was too recent for the floor.
+		// Due now, unless its last check was too recent for the floor; a
+		// brief at its next time.
 		next := maxTime(now, spacedAt(b.CheckStartedAt, Floor(ws)))
-		if err := tx.Model(&Bot{}).Where("id = ?", b.ID).Updates(map[string]any{
+		set := map[string]any{
 			"status": StatusActive, "pause_reason": nil, "strikes": 0, "health": HealthNew, "health_detail": "",
 			"offline_since": nil, "checking_job_id": nil, "next_check_at": next, "updated_at": now,
-		}).Error; err != nil {
+		}
+		if b.Kind == KindBrief {
+			sources, err := briefSourceRefs(tx, b)
+			if err != nil {
+				return err
+			}
+			if len(sources) == 0 {
+				return errBriefSources
+			}
+			loc, err := localZone(tx, userID)
+			if err != nil {
+				return err
+			}
+			set["next_check_at"] = maxTime(nextBriefAt(loc, b.BriefTime, now).Add(rand.N(briefSpread)), next)
+			// Its sources spoke for themselves while it was paused: the
+			// next brief lists nothing older than now.
+			set["brief_cursor_at"] = now
+		}
+		if err := tx.Model(&Bot{}).Where("id = ?", b.ID).Updates(set).Error; err != nil {
 			return err
 		}
 		return tx.Model(&Watch{}).Where("bot_id = ?", b.ID).Updates(map[string]any{"baseline_pending": true, "updated_at": now}).Error
@@ -427,9 +671,21 @@ func (s *Store) Delete(ctx context.Context, userID, id string) error {
 	if err != nil {
 		return err
 	}
-	res := s.conn(ctx).Where("id = ? AND user_id = ?", b.ID, userID).Delete(&Bot{})
-	if res.Error != nil {
-		return res.Error
+	var res *gorm.DB
+	err = s.conn(ctx).Transaction(func(tx *gorm.DB) error {
+		if res = tx.Where("id = ? AND user_id = ?", b.ID, userID).Delete(&Bot{}); res.Error != nil {
+			return res.Error
+		}
+		// A deleted brief takes its links along; its sources speak again.
+		if b.Kind == KindBrief {
+			return resetBriefOnly(tx, userID, time.Now())
+		}
+		// A deleted source takes its brief links along: a brief left with
+		// none is paused.
+		return pauseEmptyBriefs(tx, userID, time.Now())
+	})
+	if err != nil {
+		return err
 	}
 	if res.RowsAffected == 0 {
 		return ErrNotFound
@@ -443,19 +699,28 @@ type BotList struct {
 	Summary ListSummary `json:"summary"`
 }
 
-// ListSummary is the board header: checks and sent alerts today in the
-// person's notification zone, and the next check of any active Bot.
+// ListSummary is the board header: checks, sent alerts, shared alerts, AI
+// calls and passed items today in the person's notification zone, the
+// account's AI cap, the next check of any active Bot, whether AI can judge
+// now, whether "Pause all bots" is on, and every link of the account.
 type ListSummary struct {
-	ChecksToday int        `json:"checksToday"`
-	AlertsToday int        `json:"alertsToday"`
-	NextCheckAt *time.Time `json:"nextCheckAt"`
+	ChecksToday   int        `json:"checksToday"`
+	AlertsToday   int        `json:"alertsToday"`
+	NextCheckAt   *time.Time `json:"nextCheckAt"`
+	AIChecksToday int        `json:"aiChecksToday"`
+	AICap         int        `json:"aiCap"`
+	SharedToday   int        `json:"sharedToday"` // alerts held today because another Bot's already told of the same thing
+	AI            AIStatus   `json:"ai"`          // filled by the handler: the Store has no judge
+	AllPaused     bool       `json:"allPaused"`
+	PassedToday   int        `json:"passedToday"` // items the account's links handed on today
+	Links         []LinkView `json:"links"`       // every link of the account, oldest first
 }
 
 // List returns the account's Bots, oldest first, with the board's numbers.
 // It writes nothing.
 func (s *Store) List(ctx context.Context, userID string, now time.Time) (BotList, error) {
 	db := s.conn(ctx)
-	out := BotList{Bots: []View{}}
+	out := BotList{Bots: []View{}, Summary: ListSummary{Links: []LinkView{}}}
 	var bots []Bot
 	if err := db.Where("user_id = ?", userID).Order("created_at, id").Find(&bots).Error; err != nil {
 		return BotList{}, err
@@ -471,6 +736,22 @@ func (s *Store) List(ctx context.Context, userID string, now time.Time) (BotList
 		return BotList{}, err
 	}
 	out.Summary.ChecksToday = int(checks)
+	var shared int64
+	if err := db.Model(&Alert{}).Where("user_id = ? AND local_day = ? AND kind = ? AND held = ?", userID, local.Format(dayLayout), alertKindAlert, heldShared).
+		Count(&shared).Error; err != nil {
+		return BotList{}, err
+	}
+	out.Summary.SharedToday = int(shared)
+	out.Summary.AICap = AIPerAccount
+	if out.Summary.AIChecksToday, _, err = aiCallsToday(db, userID, local.Format(dayLayout)); err != nil {
+		return BotList{}, err
+	}
+	if out.Summary.AllPaused, err = accountPaused(db, userID); err != nil {
+		return BotList{}, err
+	}
+	if out.Summary.Links, out.Summary.PassedToday, err = accountLinks(db, userID, local.Format(dayLayout)); err != nil {
+		return BotList{}, err
+	}
 	if len(bots) == 0 {
 		return out, nil
 	}
@@ -517,6 +798,9 @@ func (s *Store) Get(ctx context.Context, userID, idOrName string, now time.Time)
 		}
 	}
 	d := Detail{View: v, Checks: []CheckView{}, Alerts: []AlertView{}, Prices: []PriceDayView{}, Lessons: []Lesson{}, Rearms: []RearmView{}}
+	if d.Links, err = botLinks(db, userID, b.ID, now); err != nil {
+		return Detail{}, err
+	}
 	var checks []Check
 	if err := db.Where("bot_id = ? AND user_id = ?", b.ID, userID).Order("started_at DESC, id").Limit(detailRows).Find(&checks).Error; err != nil {
 		return Detail{}, err
@@ -532,8 +816,22 @@ func (s *Store) Get(ctx context.Context, userID, idOrName string, now time.Time)
 	if err := db.Where("bot_id = ? AND user_id = ?", b.ID, userID).Order("created_at DESC, id").Limit(detailRows).Find(&alerts).Error; err != nil {
 		return Detail{}, err
 	}
+	anchors := []string{}
 	for _, a := range alerts {
-		d.Alerts = append(d.Alerts, alertView(a))
+		if a.SharedWith != nil {
+			anchors = append(anchors, *a.SharedWith)
+		}
+	}
+	refs, err := sharedRefs(db, userID, anchors)
+	if err != nil {
+		return Detail{}, err
+	}
+	for _, a := range alerts {
+		av := alertView(a)
+		if a.SharedWith != nil {
+			av.SharedWith = refs[*a.SharedWith]
+		}
+		d.Alerts = append(d.Alerts, av)
 	}
 	var days []PriceDay
 	since := now.UTC().AddDate(0, 0, -detailDays).Format(dayLayout)
@@ -550,11 +848,14 @@ func (s *Store) Get(ctx context.Context, userID, idOrName string, now time.Time)
 	if err := db.Where("bot_id = ? AND user_id = ?", b.ID, userID).Order("created_at, id").Find(&d.Lessons).Error; err != nil {
 		return Detail{}, err
 	}
+	// Alerts the AI held back, or that another Bot's alert already told of
+	// (held shared), are not this Bot's to count: the card says "No alerts
+	// yet" on the same rule.
 	var counts struct{ Checks, Alerts, AlertsMonth int }
 	if err := db.Raw(`
 SELECT (SELECT count(*) FROM bot_checks WHERE bot_id = @bot AND user_id = @uid AND started_at >= @week AND outcome <> 'superseded') AS checks,
-       (SELECT count(*) FROM bot_alerts WHERE bot_id = @bot AND user_id = @uid AND kind = 'alert' AND created_at >= @week) AS alerts,
-       (SELECT count(*) FROM bot_alerts WHERE bot_id = @bot AND user_id = @uid AND kind = 'alert' AND created_at >= @month) AS alerts_month`,
+       (SELECT count(*) FROM bot_alerts WHERE bot_id = @bot AND user_id = @uid AND kind = 'alert' AND held NOT IN ('judged', 'shared') AND created_at >= @week) AS alerts,
+       (SELECT count(*) FROM bot_alerts WHERE bot_id = @bot AND user_id = @uid AND kind = 'alert' AND held NOT IN ('judged', 'shared') AND created_at >= @month) AS alerts_month`,
 		sql.Named("bot", b.ID), sql.Named("uid", userID),
 		sql.Named("week", now.UTC().AddDate(0, 0, -7)), sql.Named("month", now.UTC().AddDate(0, 0, -detailDays)),
 	).Scan(&counts).Error; err != nil {
@@ -629,13 +930,24 @@ type Rating struct {
 	Note     string
 }
 
+// RateResult answers a rating: the alert, and the lesson it taught the Bot
+// (nil when the rating was taken back).
+type RateResult struct {
+	AlertView
+	Lesson *Lesson `json:"lesson"`
+}
+
 // RateAlert records the person's rating of one of a Bot's alerts. Only an
 // alert (not a "more" or "paused" notice) can be rated; rating again
-// replaces the last one.
-func (s *Store) RateAlert(ctx context.Context, userID, botIDOrName, alertID string, r Rating, now time.Time) (AlertView, error) {
+// replaces the last one. In the same transaction the rating becomes the
+// alert's one lesson (replaced on a re-rate, deleted on undo), only the
+// newest MaxLessons of the Bot are kept, and a Not useful that makes three
+// in a row lets a rules-only Bot suggest a better rule. aiReady says the
+// person has an AI provider, so that suggestion may be AI judging.
+func (s *Store) RateAlert(ctx context.Context, userID, botIDOrName, alertID string, r Rating, now time.Time, aiReady bool) (RateResult, error) {
 	set := map[string]any{"feedback": nil, "feedback_reason": "", "feedback_note": "", "feedback_at": nil}
-	if r.Reason != "" && !contains(FeedbackReasons, r.Reason) {
-		return AlertView{}, invalid("Pick one of the reasons")
+	if r.Reason != "" && r.Reason != PassFeedbackReason && !contains(FeedbackReasons, r.Reason) {
+		return RateResult{}, invalid("Pick one of the reasons")
 	}
 	if r.Feedback != nil {
 		switch *r.Feedback {
@@ -643,17 +955,17 @@ func (s *Store) RateAlert(ctx context.Context, userID, botIDOrName, alertID stri
 		case FeedbackNotUseful:
 			set["feedback_reason"], set["feedback_note"] = r.Reason, cleanLine(r.Note, MaxFeedbackNote)
 		default:
-			return AlertView{}, invalid(`Rate an alert "useful" or "not_useful"`)
+			return RateResult{}, invalid(`Rate an alert "useful" or "not_useful"`)
 		}
 		set["feedback"], set["feedback_at"] = *r.Feedback, now.UTC()
 	}
-	db := s.conn(ctx)
-	b, err := findBot(db, userID, botIDOrName, false)
-	if err != nil {
-		return AlertView{}, err
-	}
-	var out Alert
-	err = db.Transaction(func(tx *gorm.DB) error {
+	var out RateResult
+	err := s.conn(ctx).Transaction(func(tx *gorm.DB) error {
+		// The Bot first, as a check's save locks it, then the alert.
+		b, err := findBot(tx, userID, botIDOrName, true)
+		if err != nil {
+			return err
+		}
 		var rows []Alert
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND bot_id = ? AND user_id = ?", alertID, b.ID, userID).
 			Limit(1).Find(&rows).Error; err != nil {
@@ -662,18 +974,96 @@ func (s *Store) RateAlert(ctx context.Context, userID, botIDOrName, alertID stri
 		if len(rows) == 0 {
 			return ErrAlertNotFound
 		}
-		if rows[0].Kind != alertKindAlert {
+		if rows[0].Kind != alertKindAlert && rows[0].Kind != alertKindBrief {
 			return invalid("Only alerts can be rated")
+		}
+		if r.Feedback != nil && *r.Feedback == FeedbackNotUseful && r.Reason == PassFeedbackReason && len(rows[0].Via) == 0 {
+			return invalid("This alert was not passed on")
 		}
 		if err := tx.Model(&Alert{}).Where("id = ? AND bot_id = ? AND user_id = ?", alertID, b.ID, userID).Updates(set).Error; err != nil {
 			return err
 		}
-		return tx.Where("id = ? AND bot_id = ? AND user_id = ?", alertID, b.ID, userID).First(&out).Error
+		var a Alert
+		if err := tx.Where("id = ? AND bot_id = ? AND user_id = ?", alertID, b.ID, userID).First(&a).Error; err != nil {
+			return err
+		}
+		out.AlertView = alertView(a)
+		if a.SharedWith != nil {
+			refs, err := sharedRefs(tx, userID, []string{*a.SharedWith})
+			if err != nil {
+				return err
+			}
+			out.SharedWith = refs[*a.SharedWith]
+		}
+		if err := tx.Where("alert_id = ? AND bot_id = ?", alertID, b.ID).Delete(&Lesson{}).Error; err != nil {
+			return err
+		}
+		if r.Feedback == nil {
+			return nil
+		}
+		l := Lesson{ID: utils.PrefixedUUID("bls"), BotID: b.ID, UserID: userID, AlertID: &a.ID, Text: lessonText(a, b.Name), CreatedAt: now.UTC()}
+		if err := tx.Create(&l).Error; err != nil {
+			return err
+		}
+		out.Lesson = &l
+		if err := tx.Exec(`DELETE FROM bot_lessons WHERE bot_id = ? AND id NOT IN (
+    SELECT id FROM bot_lessons WHERE bot_id = ? ORDER BY created_at DESC, id DESC LIMIT ?)`, b.ID, b.ID, MaxLessons).Error; err != nil {
+			return err
+		}
+		if *r.Feedback != FeedbackNotUseful {
+			return nil
+		}
+		return suggest(tx, b, aiReady, now)
 	})
 	if err != nil {
-		return AlertView{}, err
+		return RateResult{}, err
 	}
-	return alertView(out), nil
+	return out, nil
+}
+
+// quietSuffix is the " (at HH:MM)" withHeldTime adds to a title.
+var quietSuffix = regexp.MustCompile(` \(at \d{2}:\d{2}\)$`)
+
+// lessonText writes the lesson a rated alert teaches its Bot, as the person's
+// words: what the rating was and what the alert told of, then their note. It
+// never uses words a model wrote: what is the alert's rules-made
+// figures.what, or for an alert without it the title without the "<bot>: "
+// prefix and the quiet-hours time (rules wrote those titles), else "this
+// alert". The whole line fits bot_lessons' 200 characters.
+func lessonText(a Alert, botName string) string {
+	what, _ := a.Figures["what"].(string)
+	what = strings.TrimSpace(what)
+	if what == "" {
+		what = quietSuffix.ReplaceAllString(strings.TrimPrefix(a.Title, botName+": "), "")
+		what = strings.TrimSpace(what)
+	}
+	if what == "" {
+		what = "this alert"
+	}
+	quoted := "“" + what + "”"
+	var line string
+	switch {
+	case a.Feedback != nil && *a.Feedback == FeedbackUseful && a.Held == heldJudged:
+		line = "Should have told me: " + quoted
+	case a.Feedback != nil && *a.Feedback == FeedbackUseful:
+		line = "Wanted: " + quoted
+	case a.FeedbackReason == "too_small":
+		line = "Too small to tell me: " + quoted
+	case a.FeedbackReason == "not_wanted":
+		line = "Not what I want: " + quoted
+	case a.FeedbackReason == "already_knew":
+		line = "I already knew: " + quoted
+	case a.FeedbackReason == PassFeedbackReason:
+		// Not the passing Bot's name: an outside app can rename a rules-only
+		// Bot, and a lesson is read as the person's own words.
+		line = "Not worth passing on: " + quoted
+	default:
+		line = "Not useful: " + quoted
+	}
+	if note := strings.TrimSpace(a.FeedbackNote); note != "" {
+		line += ". " + note
+	}
+	return clipRunes(line, MaxLessonLen)
 }
 
 // ForgetLesson removes one thing the person taught a Bot.
@@ -790,12 +1180,19 @@ func loadWatches(tx *gorm.DB, botID string, lock bool) ([]Watch, error) {
 // alert and the price closes of the last 31 days.
 func loadBoard(db *gorm.DB, userID, botID string, now time.Time) (*board, error) {
 	bd := &board{alertsToday: map[string]int{}, itemsToday: map[string]int{}, strips: map[string]string{},
-		latest: map[string]*AlertBrief{}, days: map[string][]dayClose{}}
+		latest: map[string]*AlertBrief{}, aiCalls: map[string]int{}, days: map[string][]dayClose{}}
+	var err error
 	scope := func(q *gorm.DB, col string) *gorm.DB {
 		if botID != "" {
 			return q.Where(col+" = ?", botID)
 		}
 		return q
+	}
+	if bd.knowledge, err = knowledgeViews(db, userID, botID); err != nil {
+		return nil, err
+	}
+	if bd.sources, err = briefSources(db, userID, botID); err != nil {
+		return nil, err
 	}
 	day, err := localDay(db, userID, now)
 	if err != nil {
@@ -815,6 +1212,9 @@ func loadBoard(db *gorm.DB, userID, botID string, now time.Time) (*board, error)
 	}
 	for _, r := range today {
 		bd.alertsToday[r.BotID], bd.itemsToday[r.BotID] = r.N, r.Items
+	}
+	if _, bd.aiCalls, err = aiCallsToday(db, userID, day); err != nil {
+		return nil, err
 	}
 
 	var marks []struct{ BotID, Outcome string }
@@ -837,17 +1237,35 @@ ORDER BY b.id, c.started_at DESC, c.id DESC`, sql.Named("n", stripChecks), sql.N
 		bd.strips[id] = stripOf(list)
 	}
 
-	var latest []Alert
+	// The newest alert the person was told of, or that a cap held; an alert
+	// the judge held back is not one, nor is one held 'shared', so the
+	// board never carries SharedWith (the Bot's page lists both).
+	var latest []struct {
+		ID, BotID, BotName, Title, Body, URL, Held, Kind, AIState, AIWhy, Urgency string
+		What, Feedback                                                            *string
+		Items                                                                     *int
+		AlsoSeenBy                                                                jsonList[BotRef]
+		Via                                                                       jsonList[ViaStep]
+		CreatedAt                                                                 time.Time
+	}
 	q = db.Raw(`
-SELECT DISTINCT ON (bot_id) id, bot_id, title, body, url, held, feedback, created_at FROM bot_alerts
-WHERE user_id = @uid AND kind = 'alert' AND held <> @snoozed AND created_at >= @since AND (@bot = '' OR bot_id = @bot)
-ORDER BY bot_id, created_at DESC, id DESC`, sql.Named("uid", userID), sql.Named("snoozed", heldSnoozed),
+SELECT DISTINCT ON (a.bot_id) a.id, a.bot_id, a.title, a.body, a.url, a.held, a.kind, a.ai_state, a.ai_why, a.urgency,
+       a.figures->>'what' AS what, a.feedback,
+       CASE WHEN a.kind = 'brief' AND jsonb_typeof(a.figures->'items') = 'number' THEN (a.figures->>'items')::numeric::int END AS items, a.also_seen_by, a.via, a.created_at, b.name AS bot_name
+FROM bot_alerts a JOIN bots b ON b.id = a.bot_id
+WHERE a.user_id = @uid AND a.kind IN ('alert', 'brief') AND a.held IN ('', @cap) AND a.created_at >= @since AND (@bot = '' OR a.bot_id = @bot)
+ORDER BY a.bot_id, a.created_at DESC, a.id DESC`, sql.Named("uid", userID), sql.Named("cap", heldCap),
 		sql.Named("since", now.UTC().AddDate(0, 0, -detailDays)), sql.Named("bot", botID))
 	if err := q.Scan(&latest).Error; err != nil {
 		return nil, err
 	}
 	for _, a := range latest {
-		bd.latest[a.BotID] = &AlertBrief{ID: a.ID, Title: a.Title, Body: a.Body, URL: a.URL, Held: a.Held, CreatedAt: a.CreatedAt, Feedback: a.Feedback}
+		brief := &AlertBrief{ID: a.ID, Title: a.Title, Body: a.Body, URL: a.URL, Held: a.Held, CreatedAt: a.CreatedAt, Feedback: a.Feedback,
+			Kind: a.Kind, AIState: a.AIState, AIWhy: a.AIWhy, Urgency: urgencyOr(a.Urgency), AlsoSeenBy: botRefs(a.AlsoSeenBy), Via: viaSteps(a.Via), RulesTitle: a.Title, Items: a.Items}
+		if a.What != nil && strings.TrimSpace(*a.What) != "" {
+			brief.RulesTitle = a.BotName + ": " + *a.What
+		}
+		bd.latest[a.BotID] = brief
 	}
 
 	var days []struct {
@@ -864,6 +1282,64 @@ ORDER BY bot_id, created_at DESC, id DESC`, sql.Named("uid", userID), sql.Named(
 		bd.days[d.WatchID] = append(bd.days[d.WatchID], dayClose{WatchID: d.WatchID, Day: d.Day.UTC().Format(dayLayout), Open: d.Open, Close: d.Close})
 	}
 	return bd, nil
+}
+
+// sharedRefs names the alerts held 'shared' alerts joined, by alert id,
+// with their Bots. An alert that is gone, or not the person's, is left out.
+func sharedRefs(db *gorm.DB, userID string, ids []string) (map[string]*SharedRef, error) {
+	out := map[string]*SharedRef{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var rows []SharedRef
+	if err := db.Raw(`SELECT a.id AS alert_id, a.bot_id, b.name FROM bot_alerts a JOIN bots b ON b.id = a.bot_id
+WHERE a.user_id = ? AND b.user_id = a.user_id AND a.id IN ?`, userID, ids).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		out[rows[i].AlertID] = &rows[i]
+	}
+	return out, nil
+}
+
+// accountPaused reports "Pause all bots" on for the account.
+func accountPaused(db *gorm.DB, userID string) (bool, error) {
+	var paused bool
+	err := db.Raw(`SELECT EXISTS (SELECT 1 FROM configs WHERE user_id = ? AND bots_paused_at IS NOT NULL)`, userID).Scan(&paused).Error
+	return paused, err
+}
+
+// allPausedErr is ErrAllPaused while "Pause all bots" is on.
+func allPausedErr(db *gorm.DB, userID string) error {
+	paused, err := accountPaused(db, userID)
+	if err == nil && paused {
+		err = ErrAllPaused
+	}
+	return err
+}
+
+// SetAllPaused turns "Pause all bots" on or off. Each Bot keeps its own
+// status; turning it on again keeps the time it was first turned on.
+// configs has no bot change trigger, so it announces the change itself, as
+// notify_bot_change would for each of the person's Bots, so their other open
+// apps refetch the board and any Bot they show (the apps follow Bot ids).
+func (s *Store) SetAllPaused(ctx context.Context, userID string, paused bool, now time.Time) (bool, error) {
+	err := s.conn(ctx).Transaction(func(tx *gorm.DB) error {
+		res := tx.Exec(`UPDATE configs SET bots_paused_at = CASE WHEN @on THEN COALESCE(bots_paused_at, @now) END, updated_at = @at WHERE user_id = @uid`,
+			sql.Named("on", paused), sql.Named("now", now.UTC()), sql.Named("at", utils.GetCurrentTime()), sql.Named("uid", userID))
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return errors.New("bots: the account has no settings row")
+		}
+		return tx.Exec(`SELECT pg_notify('timely_bots', json_build_object('schema', current_schema(), 'user', user_id, 'id', id)::text)
+			FROM bots WHERE user_id = ?`, userID).Error
+	})
+	if err != nil {
+		return false, err
+	}
+	return paused, nil
 }
 
 // localDay is today's date in the zone quiet hours and digests use.

@@ -1,15 +1,19 @@
 package bots
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"gorm.io/gorm"
+	"timely-api/internal/features/bots/extract"
 	"timely-api/internal/features/notify"
 	"timely-api/internal/models"
 	"timely-api/internal/utils"
@@ -20,20 +24,67 @@ const (
 	alertKindAlert  = "alert"
 	alertKindMore   = "more"
 	alertKindPaused = "paused"
+	alertKindBrief  = "brief" // a brief Bot's daily summary
 	heldSnoozed     = "snoozed"
 	heldCap         = "cap"
+	heldJudged      = "judged" // held back by the AI judge
+	heldShared      = "shared" // another Bot's alert today already told of it
 	awayKind        = "away"
 
 	maxFindingTitle = 120
 	maxFindingWhy   = 400
 	maxChangedLine  = 140
+	findingKindItem = "item"
 )
 
+// alertRun is the one alert a firing check raises: the rules that fired and
+// what the judge made of them (planCheck), when the Bot is AI-judged.
+type alertRun struct {
+	checkID, alertID string
+	fired            []firedEvent
+	now              time.Time
+	verdict          *Verdict
+	aiState, aiNote  string
+	aiInput          json.RawMessage // set only when a re-judge is queued
+	// via is how a passed note came to the Bot ("How this came to you");
+	// things, when set, is what the alert tells of instead of the watches'
+	// own things (a passed note is about its item, not the Bot's page).
+	// url, when set, is where the alert opens instead of the first fired
+	// watch's page (a passed note opens its item).
+	via    []ViaStep
+	things []Thing
+	url    string
+}
+
+// uncheckedSuffix marks the notification of an alert AI did not judge. The
+// alert row keeps the rules' words alone; the clients show the mark.
+const uncheckedSuffix = " (not checked by AI)"
+
+// notificationBody is what an alert's notification says: its body, marked
+// when AI did not judge it.
+func notificationBody(a Alert) string {
+	if a.AIState != aiUnchecked || strings.HasSuffix(a.Body, uncheckedSuffix) {
+		return a.Body
+	}
+	return strings.TrimSpace(a.Body + uncheckedSuffix)
+}
+
 // alert raises the one alert a firing check gets, inside its transaction:
-// held while the Bot is snoozed, sent while it has sent fewer than
-// AlertsPerDay today, else folded into one "and N more today" alert that is
-// rewritten without a new push. sent reports a notification of its own.
-func (s *Service) alert(tx *gorm.DB, b Bot, checkID, alertID string, fired []firedEvent, now time.Time) (sent bool, err error) {
+// held while the Bot is snoozed, held 'shared' when another Bot's alert
+// today already told of the same things (shareAlert), sent while it has
+// sent fewer than AlertsPerDay today, else folded into one "and N more
+// today" alert that is rewritten without a new push. sent reports a
+// notification of its own.
+//
+// For an AI-judged Bot, a verdict of "not worth it" writes the row held
+// 'judged' with no notification (not counted in the cap); "worth it" uses
+// the judge's title and line. Unchecked, the rules' words go out marked as
+// not checked by AI, and a re-judge is queued when asking again can help
+// and the alert was sent.
+// The rules' own words are kept as figures.what either way: lessons and
+// the next judge input read those, never a model's.
+func (s *Service) alert(tx *gorm.DB, b Bot, a alertRun) (sent bool, err error) {
+	now := a.now
 	settings, loc, err := notify.LoadAlertSettings(tx, b.UserID)
 	if err != nil {
 		return false, err
@@ -41,19 +92,54 @@ func (s *Service) alert(tx *gorm.DB, b Bot, checkID, alertID string, fired []fir
 	local := now.In(loc)
 	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
 	opts := notify.AlertOptions{Urgent: b.Urgent, Phone: b.NotifyPhone, Now: now}
-	what, body, figures := alertText(fired)
+	what, body, figures := alertText(a.fired)
+	figures["what"] = what
+	urgency := UrgencyNormal
+	if b.Urgent {
+		urgency = UrgencyHigh
+	}
+	url := a.fired[0].w.URL
+	if a.url != "" {
+		url = a.url
+	}
+	row := Alert{
+		ID: a.alertID, BotID: b.ID, UserID: b.UserID, CheckID: &a.checkID, Kind: alertKindAlert, LocalDay: day,
+		URL: url, Figures: figures, Urgent: b.Urgent, Via: a.via, CreatedAt: now,
+	}
+	switch v := a.verdict; {
+	case v != nil && !v.Alert:
+		row.Title, row.Body = b.Name+": "+what, body
+		row.Held, row.AIState, row.AIWhy, row.Urgency = heldJudged, aiJudged, v.Why, v.Urgency
+		return false, tx.Create(&row).Error
+	case v != nil:
+		if t := strings.TrimSpace(v.Title); t != "" {
+			what = t
+		}
+		body = v.Why
+		row.AIState, row.AIWhy, urgency = aiJudged, v.Why, v.Urgency
+	case a.aiState == aiUnchecked:
+		row.AIState, row.AIWhy = aiUnchecked, clipRunes(a.aiNote, maxAIWhy)
+	}
+	row.Urgency = urgency
 	title := b.Name + ": " + what
 	if _, held := notify.QuietUntil(settings, loc, opts); held {
 		title = withHeldTime(title, now, loc)
 	}
-	url := fired[0].w.URL
-	row := Alert{
-		ID: alertID, BotID: b.ID, UserID: b.UserID, CheckID: &checkID, Kind: alertKindAlert, LocalDay: day,
-		Title: title, Body: body, URL: url, Figures: figures, Urgent: b.Urgent, CreatedAt: now,
-	}
+	row.Title, row.Body = title, body
 	if b.SnoozedUntil != nil && b.SnoozedUntil.After(now) {
 		row.Held = heldSnoozed
 		return false, tx.Create(&row).Error
+	}
+	things := thingsOf(a.fired, urgency)
+	if a.things != nil {
+		things = make([]Thing, len(a.things))
+		for i, th := range a.things {
+			th.Urgency = urgency
+			things[i] = th
+		}
+	}
+	if shared, err := shareAlert(tx, b, &row, things); err != nil || shared {
+		return false, err
 	}
 	var today int64
 	if err := tx.Model(&Alert{}).Where("bot_id = ? AND local_day = ? AND kind = ? AND held = ''", b.ID, day.Format(dayLayout), alertKindAlert).
@@ -61,18 +147,124 @@ func (s *Service) alert(tx *gorm.DB, b Bot, checkID, alertID string, fired []fir
 		return false, err
 	}
 	if today < AlertsPerDay {
-		ntf := botNotification(b, title, body, "bot:"+b.ID+":"+checkID, alertData(b, alertID, checkID, url, alertKindAlert))
+		ntf := botNotification(b, title, notificationBody(row), "bot:"+b.ID+":"+a.checkID, alertData(b, a.alertID, a.checkID, url, alertKindAlert))
 		if _, err := notify.WriteAlert(tx, &ntf, settings, loc, opts); err != nil {
 			return false, err
 		}
 		row.NotificationID = &ntf.ID
-		return true, tx.Create(&row).Error
+		row.Things = things
+		// Only a sent alert is judged again: a re-judge can only rewrite
+		// its notification, so a held row keeps no input.
+		rejudge := row.AIState == aiUnchecked && a.aiInput != nil
+		if rejudge {
+			row.AIInput = a.aiInput
+		}
+		if err := tx.Create(&row).Error; err != nil {
+			return false, err
+		}
+		if rejudge {
+			if err := queueRejudge(tx, b, a.alertID, now); err != nil {
+				return false, err
+			}
+		}
+		return true, nil
 	}
 	row.Held = heldCap
 	if err := tx.Create(&row).Error; err != nil {
 		return false, err
 	}
 	return false, s.moreAlert(tx, b, row, settings, loc, opts)
+}
+
+// lockThings serialises one alert per thing across an account's Bots. It is
+// its own lock, not lockAccount: the caller already holds a Bot row, and
+// Store.Update takes lockAccount before the Bot row.
+func lockThings(tx *gorm.DB, userID string) error {
+	return tx.Exec(`SELECT pg_advisory_xact_lock(hashtext('bot_things:' || ?))`, userID).Error
+}
+
+// shareAlert holds row back as 'shared' when another Bot's alert sent today
+// already told of every thing it tells of, and those have moved less than
+// 5% since and are no more urgent (G4). The first such alert is the anchor:
+// it lists this Bot under "Also seen by" and its notification says so,
+// without a new push. It writes row only when it shares it.
+func shareAlert(tx *gorm.DB, b Bot, row *Alert, things []Thing) (bool, error) {
+	if len(things) == 0 {
+		return false, nil
+	}
+	if err := lockThings(tx, b.UserID); err != nil {
+		return false, err
+	}
+	var anchor *Alert
+	for _, th := range things {
+		probe, err := json.Marshal([]map[string]string{{"key": th.Key}})
+		if err != nil {
+			return false, err
+		}
+		var found []Alert
+		// An alert a re-judge found not worth telling is no anchor: the
+		// person was told the AI thinks it does not matter.
+		if err := tx.Where("user_id = ? AND local_day = ? AND kind = ? AND held = '' AND ai_state <> ? AND bot_id <> ? AND things @> ?::jsonb",
+			b.UserID, row.LocalDay.Format(dayLayout), alertKindAlert, aiRejudged, b.ID, string(probe)).
+			Order("created_at DESC, id DESC").Limit(1).Find(&found).Error; err != nil {
+			return false, err
+		}
+		if len(found) == 0 {
+			return false, nil
+		}
+		told := false
+		for _, old := range found[0].Things {
+			if old.Key == th.Key {
+				told = joins(th, old)
+				break
+			}
+		}
+		if !told {
+			return false, nil
+		}
+		if anchor == nil {
+			anchor = &found[0]
+		}
+	}
+	row.Held, row.SharedWith = heldShared, &anchor.ID
+	if err := tx.Create(row).Error; err != nil {
+		return false, err
+	}
+	seen := []BotRef(anchor.AlsoSeenBy)
+	if !slices.ContainsFunc(seen, func(r BotRef) bool { return r.BotID == b.ID }) {
+		seen = append(seen, BotRef{BotID: b.ID, Name: b.Name})
+		if err := tx.Model(&Alert{}).Where("id = ?", anchor.ID).Update("also_seen_by", jsonList[BotRef](seen)).Error; err != nil {
+			return false, err
+		}
+	}
+	if anchor.NotificationID != nil {
+		err := notify.BumpAlert(tx, b.UserID, *anchor.NotificationID, anchor.Title, notificationBody(*anchor)+alsoSeenTail(seen))
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+// alsoSeenTail is what a notification body ends with once other Bots joined
+// its alert: " · Also seen by A and B", or nothing.
+func alsoSeenTail(seen []BotRef) string {
+	if len(seen) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(seen))
+	for _, r := range seen {
+		names = append(names, r.Name)
+	}
+	return " · Also seen by " + namesLine(names)
+}
+
+// namesLine joins names: "A", "A and B", "A, B and C".
+func namesLine(names []string) string {
+	if len(names) <= 1 {
+		return strings.Join(names, "")
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
 }
 
 // moreAlert counts a capped alert into the day's "and N more today" row and
@@ -122,7 +314,8 @@ RETURNING id, more_count, notification_id`,
 	return tx.Model(&Alert{}).Where("id = ?", more.ID).Updates(set).Error
 }
 
-// pausedAlert tells the person a Bot paused after MaxStrikes failed checks.
+// pausedAlert tells the person a Bot paused after MaxStrikes failed checks,
+// with a Resume they can act on from the alert unless it is folded.
 // It is not counted in the daily cap. A failing price source folds into one
 // notification per account and day, however many Bots it pauses.
 func (s *Service) pausedAlert(tx *gorm.DB, b Bot, checkID string, p *problem, now time.Time) error {
@@ -133,7 +326,13 @@ func (s *Service) pausedAlert(tx *gorm.DB, b Bot, checkID string, p *problem, no
 	local := now.In(loc)
 	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
 	title := fmt.Sprintf("%s paused after %d failed checks", b.Name, MaxStrikes)
-	body := strings.TrimRight(p.line, ". ") + ". Resume it in Timely."
+	// A failing source folds every Bot it pauses that day into the first
+	// one's notification, so only an unfolded alert can name the Bot to
+	// resume.
+	body := strings.TrimRight(p.line, ". ") + ". Resume it from this alert or on the Bots page."
+	if p.fold != "" {
+		body = strings.TrimRight(p.line, ". ") + ". Resume them on the Bots page."
+	}
 	row := Alert{
 		ID: utils.PrefixedUUID("bal"), BotID: b.ID, UserID: b.UserID, CheckID: &checkID, Kind: alertKindPaused, LocalDay: day,
 		Title: title, Body: body, URL: p.watch.URL, Figures: jsonMap[string, any]{"health": p.code}, CreatedAt: now,
@@ -142,7 +341,11 @@ func (s *Service) pausedAlert(tx *gorm.DB, b Bot, checkID string, p *problem, no
 	if p.fold != "" {
 		key = "bot:source:" + b.UserID + ":" + p.fold + ":" + day.Format(dayLayout)
 	}
-	ntf := botNotification(b, title, body, key, alertData(b, row.ID, checkID, p.watch.URL, alertKindPaused))
+	data := alertData(b, row.ID, checkID, p.watch.URL, alertKindPaused)
+	if p.fold == "" {
+		data["resume"] = true // the clients offer Resume on it
+	}
+	ntf := botNotification(b, title, body, key, data)
 	if _, err := notify.WriteAlert(tx, &ntf, settings, loc, notify.AlertOptions{Phone: b.NotifyPhone, Now: now}); err != nil {
 		return err
 	}
@@ -269,6 +472,10 @@ func describe(f firedEvent) (what, body string, figures jsonMap[string, any]) {
 		}
 		return dir + " " + formatMoney(t, ""), nowWas(f.ref), figures
 	case RuleMovePct:
+		if f.ref == nil {
+			// A passed note: nothing to measure a move from.
+			return "at " + formatMoney(after, currency), nowWas(nil), figures
+		}
 		pct := 0.0
 		if f.ref != nil && *f.ref != 0 {
 			pct = (after - *f.ref) / math.Abs(*f.ref) * 100
@@ -312,26 +519,54 @@ func describe(f firedEvent) (what, body string, figures jsonMap[string, any]) {
 	return "page changed", firstChangedLine(ev.Before.Text, ev.After.Text), figures
 }
 
-// saveFindings writes one typed note per fired rule.
-func saveFindings(tx *gorm.DB, b Bot, checkID string, fired []firedEvent, alerted bool, now time.Time) error {
+// saveFindings writes the check's typed notes, in the rules' words (never
+// the judge's), with the judge's urgency when it judged: one per fired
+// rule, except a feed's new items, which get one each (at most
+// MaxItemFindings, items passed on first, then one "N more new items").
+// Each names the thing it is about. A note is alerted only when the alert
+// was sent and no link took it. It returns the rows it wrote and, for each,
+// the item it is about.
+func saveFindings(tx *gorm.DB, b Bot, a alertRun, fired []firedEvent, taken map[itemKey][]linkTarget, sent bool) ([]Finding, []itemKey, error) {
+	checkID, now := a.checkID, a.now
+	urgency := UrgencyNormal
+	switch {
+	case a.verdict != nil:
+		urgency = a.verdict.Urgency
+	case b.Urgent:
+		urgency = UrgencyHigh
+	}
+	var loc *time.Location
 	rows := make([]Finding, 0, len(fired))
+	keys := make([]itemKey, 0, len(fired))
 	for _, f := range fired {
-		what, why, figures := describe(f)
 		watchID := f.w.ID
-		kind := "change"
+		base := Finding{
+			BotID: b.ID, UserID: b.UserID, CheckID: &checkID, WatchID: &watchID, URL: f.w.URL,
+			Urgency: urgency, OutsideData: true, Alerted: sent, CreatedAt: now,
+		}
+		if f.rule.Kind == RuleNewItem && len(f.ev.NewItems) > 0 {
+			if loc == nil {
+				var err error
+				if loc, err = localZone(tx, b.UserID); err != nil {
+					return nil, nil, err
+				}
+			}
+			items, itemKeys := itemFindings(base, f, loc, taken)
+			rows, keys = append(rows, items...), append(keys, itemKeys...)
+			continue
+		}
+		k := itemKey{f.ev.WatchID, f.ev.RuleID, ""}
+		what, why, figures := describe(f)
+		row := base
+		row.ID, row.Title, row.Why = utils.PrefixedUUID("bfd"), clipRunes(what, maxFindingTitle), clipRunes(why, maxFindingWhy)
+		row.Currency, row.ThingKey = f.ev.After.Currency, thingKeyWatch(f.w)
+		row.Alerted = sent && len(taken[k]) == 0
+		row.Kind = "change"
 		switch f.rule.Kind {
 		case RuleAbove, RuleBelow, RuleMovePct:
-			kind = "price"
+			row.Kind = "price"
 		case RuleNewItem:
-			kind = "item"
-		}
-		row := Finding{
-			ID: utils.PrefixedUUID("bfd"), BotID: b.ID, UserID: b.UserID, CheckID: &checkID, WatchID: &watchID, Kind: kind,
-			Title: clipRunes(what, maxFindingTitle), Why: clipRunes(why, maxFindingWhy), URL: f.w.URL,
-			Currency: f.ev.After.Currency, Urgency: "normal", OutsideData: true, Alerted: alerted, CreatedAt: now,
-		}
-		if b.Urgent {
-			row.Urgency = "high"
+			row.Kind = findingKindItem
 		}
 		if v, ok := f.ev.After.value(); ok {
 			row.Price = &v
@@ -342,9 +577,77 @@ func saveFindings(tx *gorm.DB, b Bot, checkID string, fired []firedEvent, alerte
 				row.ChangePct = &pct
 			}
 		}
-		rows = append(rows, row)
+		rows, keys = append(rows, row), append(keys, k)
 	}
-	return tx.Create(&rows).Error
+	if len(rows) == 0 {
+		return rows, keys, nil
+	}
+	return rows, keys, tx.Create(&rows).Error
+}
+
+// moreItems keys a feed rule's "N more new items" note, which no link takes.
+const moreItems = "#more"
+
+// itemFindings are a feed rule's notes, one per new item, newest first
+// (items a link took before the rest, so each has a note to pass on): the
+// item's own title (clipped; page text, so marked outside data), where it
+// was new and when it was published, and its link when that is a public
+// web address. Past MaxItemFindings the rest are counted in one note.
+func itemFindings(base Finding, f firedEvent, loc *time.Location, taken map[itemKey][]linkTarget) ([]Finding, []itemKey) {
+	key := func(it extract.FeedItem) itemKey { return itemKey{f.ev.WatchID, f.ev.RuleID, it.ID} }
+	items := make([]extract.FeedItem, len(f.ev.NewItems))
+	copy(items, f.ev.NewItems)
+	sort.SliceStable(items, func(i, j int) bool {
+		ti, tj := len(taken[key(items[i])]) > 0, len(taken[key(items[j])]) > 0
+		if ti != tj {
+			return ti
+		}
+		return items[i].Published.After(items[j].Published)
+	})
+	site := watchSite(f.w)
+	out := make([]Finding, 0, min(len(items), MaxItemFindings)+1)
+	keys := make([]itemKey, 0, cap(out))
+	for _, it := range items[:min(len(items), MaxItemFindings)] {
+		row := base
+		row.ID, row.Kind = utils.PrefixedUUID("bfd"), findingKindItem
+		row.Title = clipRunes(strings.TrimSpace(it.Title), maxFindingTitle)
+		if row.Title == "" {
+			row.Title = "New item"
+		}
+		row.Why = "New in " + site
+		if !it.Published.IsZero() {
+			row.Why += " · " + it.Published.In(loc).Format("2 Jan 15:04")
+		}
+		row.Why = clipRunes(row.Why, maxFindingWhy)
+		row.URL, row.ThingKey = safeLink(it.Link, f.w.URL), thingKeyItem(it, f.w)
+		row.Alerted = base.Alerted && len(taken[key(it)]) == 0
+		out, keys = append(out, row), append(keys, key(it))
+	}
+	if more := len(items) - MaxItemFindings; more > 0 {
+		row := base
+		row.ID, row.Kind = utils.PrefixedUUID("bfd"), findingKindItem
+		row.Title = fmt.Sprintf("%d more new items", more)
+		if more == 1 {
+			row.Title = "1 more new item"
+		}
+		row.Alerted = false
+		for _, it := range items[MaxItemFindings:] {
+			row.Alerted = row.Alerted || (base.Alerted && len(taken[key(it)]) == 0)
+		}
+		row.Why, row.URL = "New in "+site, f.w.URL
+		out, keys = append(out, row), append(keys, itemKey{f.ev.WatchID, f.ev.RuleID, moreItems})
+	}
+	return out, keys
+}
+
+// safeLink is a feed item's link when it is a public web address on ports
+// 80 or 443 (as a watched address must be), else fallback: a feed cannot
+// make a note point at a private host, another port or a script.
+func safeLink(link, fallback string) string {
+	if clean, err := cleanURL(link, "item"); err == nil {
+		return clean
+	}
+	return fallback
 }
 
 // firstChangedLine is the first line of cur that prev does not have.

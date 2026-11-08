@@ -1,11 +1,12 @@
+import type { ReactNode } from "react";
 import { Text, View } from "react-native";
-import { Bell, Bot, Monitor, Plus, ShieldCheck } from "lucide-react-native";
+import { Bell, Bot, Monitor, Plus, RotateCcw, ShieldCheck } from "lucide-react-native";
 import { DEFAULT_BOT_SETTINGS, STARTERS, type BotSettings, type StarterId } from "@timely/contract/bots";
 import EmptyState from "../ui/EmptyState";
 import ListEnter from "../ui/ListEnter";
 import { SkeletonRows } from "../ui/motionKit";
 import { Button } from "../ui/primitives";
-import { GroupHint, GroupLabel, ListGroup, SwitchRow } from "../settings/SettingsList";
+import { GroupHint, GroupLabel, ListGroup, ListRow, ListSubLabel, SwitchRow } from "../settings/SettingsList";
 import { useBotDefaultsQuery, useSetBotDefaults } from "../../lib/hooks";
 import { useToastStore } from "../../lib/toast";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
@@ -31,23 +32,49 @@ const FACTS = [
   },
 ];
 
-/** "Alerts for new bots": where a bot made from now on tells the person. */
-function AlertDefaults() {
+/**
+ * "Alerts for new bots": where a bot made from now on tells the person. Used
+ * by the empty Bots tab and Settings › Notifications; `label` and `children`
+ * (more rows) go in the same card.
+ */
+export function AlertDefaults({ label, children }: { label?: string; children?: ReactNode }) {
   const defaults = useBotDefaultsQuery();
   const save = useSetBotDefaults();
-  if (!defaults.data) {
-    if (defaults.isError) return <GroupHint>Couldn’t load where new bots alert. Pull down to try again.</GroupHint>;
-    return <SkeletonRows rows={3} />;
-  }
   // Each save sends the whole object, built on the stored values.
   const current: BotSettings = save.isPending && save.variables ? save.variables : (defaults.data ?? DEFAULT_BOT_SETTINGS);
   const set = (patch: Partial<BotSettings>) =>
     save.mutate({ ...current, ...patch }, { onError: (error) => useToastStore.getState().show(error.message) });
+  // Until the stored values arrive the switches stay hidden, but the card and
+  // its `children` (Open Bots on Settings) still show. A failed load gets a
+  // retry row: Settings › Notifications has no pull to refresh.
+  let rows: ReactNode;
+  if (defaults.data) {
+    // An array, not a fragment: ListGroup draws a divider between its rows.
+    rows = [
+      <SwitchRow key="desktop" title="Desktop" value={current.desktop} onChange={(desktop) => set({ desktop })} />,
+      <SwitchRow key="phone" title="Phone" value={current.phone} onChange={(phone) => set({ phone })} />,
+      <SwitchRow key="urgent" title="Urgent" meta="Rings through quiet hours" value={current.urgent} onChange={(urgent) => set({ urgent })} />,
+    ];
+  } else if (defaults.isError) {
+    rows = (
+      <ListRow
+        title="Couldn’t load where new bots alert"
+        meta={defaults.isRefetching ? "Trying again…" : "Tap to try again."}
+        accessibilityLabel="Try loading bot alerts again"
+        onPress={() => void defaults.refetch()}
+        disabled={defaults.isRefetching}
+        trailing={<RotateCcw size={16} color={colors.primary} />}
+        chevron={false}
+      />
+    );
+  } else {
+    rows = <SkeletonRows rows={3} bare />;
+  }
   return (
     <ListGroup>
-      <SwitchRow title="Desktop" value={current.desktop} onChange={(desktop) => set({ desktop })} />
-      <SwitchRow title="Phone" value={current.phone} onChange={(phone) => set({ phone })} />
-      <SwitchRow title="Urgent" meta="Rings through quiet hours" value={current.urgent} onChange={(urgent) => set({ urgent })} />
+      {label ? <ListSubLabel>{label}</ListSubLabel> : null}
+      {rows}
+      {children}
     </ListGroup>
   );
 }

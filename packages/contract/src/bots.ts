@@ -19,8 +19,14 @@ export type WatchKind = "page" | "feed" | "price";
 export type ReadMode = "text" | "selector" | "product_price" | "selector_price";
 export type RuleKind = "any_change" | "above" | "below" | "move_pct" | "words_appear" | "words_disappear" | "new_item";
 export type MoveDirection = "up" | "down" | "any";
-/** How smart a bot is. Only `rules` exists today; the others are Later. */
-export type JudgeMode = "rules";
+/** How smart a bot is: rules alone, or rules that spot and an AI that judges (Research is Later). */
+export type JudgeMode = "rules" | "ai";
+/** A watch bot reads pages, feeds and prices; a brief sums up other bots once a day. */
+export type BotKind = "watch" | "brief";
+/** How urgent an alert is: the AI judge's word, or high for an Urgent bot. */
+export type Urgency = "low" | "normal" | "high";
+/** What the AI judge did with an alert: nothing (rules only), judged, not reached, or judged later. */
+export type AiState = "" | "judged" | "unchecked" | "rejudged";
 
 /** One condition on a watch. The server fills `id`, `stepPercent` and `resetPercent`. */
 export type Rule = {
@@ -55,28 +61,58 @@ export type WatchInput = {
   rules?: Rule[];
 };
 
-/** A new bot (`POST /bots`). intervalMinutes 0 means the default for its watches. */
+/** A Pass to link as a client sends it. `botId` is the bot that checks what this one finds (an id or a name). */
+export type LinkInput = { id?: string; botId: string; filter: string[]; enabled?: boolean };
+
+/** The doc or sheet the AI judge reads each check, as data. */
+export type KnowledgeInput = { kind: "doc" | "sheet"; id: string };
+
+/**
+ * A new bot (`POST /bots`). intervalMinutes 0 means the default for its
+ * watches. A brief (`kind: "brief"`) has no watches and sums up `sources`
+ * daily at `briefTime`.
+ */
 export type BotInput = {
   name: string;
   description: string;
   intervalMinutes: number;
-  judgeMode?: string;
+  judgeMode?: JudgeMode;
   urgent?: boolean;
   desktop?: boolean;
   phone?: boolean;
   watches: WatchInput[];
+  /** Create only; a bot's kind never changes. */
+  kind?: BotKind;
+  /** null clears it (an edit). */
+  knowledge?: KnowledgeInput | null;
+  /** The full list of Pass to links. */
+  passesTo?: LinkInput[];
+  /** A brief: the bots it sums up (ids or names), the full list. */
+  sources?: string[];
+  /** A source bot: alert only through its briefs. */
+  briefOnly?: boolean;
+  /** A brief: "Write it with AI". */
+  briefAi?: boolean;
+  /** A brief: "08:00". */
+  briefTime?: string;
 };
 
-/** An edit (`PATCH /bots/:id`); a field left out stays. `watches` is the full list. */
+/** An edit (`PATCH /bots/:id`); a field left out stays. `watches`, `passesTo` and `sources` are full lists. */
 export type BotPatch = {
   name?: string;
   description?: string;
   intervalMinutes?: number;
-  judgeMode?: string;
+  judgeMode?: JudgeMode;
   urgent?: boolean;
   desktop?: boolean;
   phone?: boolean;
   watches?: WatchInput[];
+  knowledge?: KnowledgeInput | null;
+  passesTo?: LinkInput[];
+  sources?: string[];
+  briefOnly?: boolean;
+  briefAi?: boolean;
+  briefTime?: string;
 };
 
 /** Strike codes: a check that fails with one counts toward the pause at 5. */
@@ -101,19 +137,43 @@ export type Health = { code: HealthCode | (string & {}); line: string };
 export type ItemBrief = { title: string; url: string; publishedAt: string | null };
 
 export type Feedback = "useful" | "not_useful";
-export type FeedbackReason = "" | "too_small" | "not_wanted" | "already_knew";
-/** Where an alert went: sent (""), kept while snoozed, or over the day's cap. */
-export type AlertHeld = "" | "snoozed" | "cap";
+/** `not_passed` ("Shouldn't have been passed on") is only for an alert that came through a Pass to link. */
+export type FeedbackReason = "" | "too_small" | "not_wanted" | "already_knew" | "not_passed";
+/**
+ * Where an alert went: sent (""), kept while snoozed, over the day's cap,
+ * held back by the AI judge, or folded into another bot's alert on the same
+ * thing ("Also seen by").
+ */
+export type AlertHeld = "" | "snoozed" | "cap" | "judged" | "shared";
+
+/** A bot by id and name. */
+export type BotRef = { botId: string; name: string };
+/** One step of "How this came to you": the bot that found it and the link it was passed on. */
+export type ViaStep = { botId: string; name: string; linkId: string | null; title: string };
+/** The alert a held `shared` alert joined. */
+export type SharedRef = { alertId: string; botId: string; name: string };
 
 /** The newest alert of a bot, on its card. */
 export type AlertBrief = {
   id: string;
+  kind: AlertKind;
   title: string;
   body: string;
   url: string;
   held: AlertHeld;
   createdAt: string;
   feedback: Feedback | null;
+  aiState: AiState;
+  /** The judge's line, or why it was not checked. */
+  aiWhy: string;
+  urgency: Urgency;
+  /** Other bots that saw the same thing the same day. */
+  alsoSeenBy: BotRef[];
+  sharedWith: SharedRef | null;
+  /** The bots it was passed through, first finder first. */
+  via: ViaStep[];
+  /** A brief: how many notes it held (figures.items), when the server sends it. */
+  items?: number;
 };
 
 export type WatchView = {
@@ -124,7 +184,10 @@ export type WatchView = {
   selector: string;
   source: string;
   symbol: string;
+  /** A price's pair, or a page's currency hint (from the address or what was sent); checks never change it. */
   currency: string;
+  /** The last reading's currency, "" before the first read. For a page it wins over the hint. */
+  readingCurrency: string;
   rules: Rule[];
   health: Health;
   lastReadingAt: string | null;
@@ -150,6 +213,26 @@ export type WatchView = {
 /** One mark per check, oldest first. */
 export type StripMark = "n" | "c" | "f" | "x" | "o";
 
+/** The doc or sheet a bot's AI judge reads. `missing` when it was deleted or archived. */
+export type KnowledgeView = { kind: "doc" | "sheet"; id: string; title: string; missing: boolean };
+
+/** A better rule a rules-only bot suggests after three Not useful alerts in a row. */
+export type Suggestion = {
+  id: string;
+  /** "Only tell me about moves over 8%?" */
+  line: string;
+  /** "Raise to 8%". */
+  button: string;
+  reason: string;
+  watchId?: string;
+  ruleId?: string;
+  rule?: Rule;
+  intervalMinutes?: number;
+  judgeMode?: JudgeMode;
+  alertIds: string[];
+  createdAt: string;
+};
+
 export type BotView = {
   id: string;
   name: string;
@@ -159,7 +242,7 @@ export type BotView = {
   origin: BotOrigin;
   /** The outside app's name (its API key's name) when origin is mcp, else "". */
   originClient: string;
-  judgeMode: string;
+  judgeMode: JudgeMode;
   intervalMinutes: number;
   urgent: boolean;
   desktop: boolean;
@@ -185,14 +268,82 @@ export type BotView = {
   latestAlert: AlertBrief | null;
   /** New feed items in today's alerts. */
   itemsToday: number;
+  kind: BotKind;
+  /** A source bot: alerts only through its briefs. */
+  briefOnly: boolean;
+  /** A brief: written with AI. */
+  briefAi: boolean;
+  /** A brief: "08:00"; "" for a watch bot. */
+  briefTime: string;
+  /** A brief: the ids of the bots it sums up, in the order they were added. */
+  sources: string[];
+  knowledge: KnowledgeView | null;
+  aiChecksToday: number;
+  suggestion: Suggestion | null;
 };
 
-export type BotsSummary = { checksToday: number; alertsToday: number; nextCheckAt: string | null };
+export type LinkKind = "pass" | "brief";
+
+/**
+ * A link between two bots. pass: what `fromBotId` finds goes to `toBotId` to
+ * check first; brief: `fromBotId` is one of the bots the brief `toBotId` sums up.
+ */
+export type LinkView = {
+  id: string;
+  kind: LinkKind;
+  fromBotId: string;
+  toBotId: string;
+  /** pass: words a note must hold (any one); [] passes everything. */
+  filter: string[];
+  enabled: boolean;
+  offReason: "" | "person";
+  passedToday: number;
+  createdAt: string;
+};
+
+/** The account's AI provider as the judge uses it. No model ids are shown to the person. */
+export type AiStatus = {
+  ready: boolean;
+  provider: string;
+  /** "Anthropic API", "Claude Code". */
+  label: string;
+  model: string;
+  reason: "" | "none" | "not_chosen" | "off";
+};
+
+export type BotsSummary = {
+  checksToday: number;
+  alertsToday: number;
+  nextCheckAt: string | null;
+  /** Today's alerts folded into another bot's alert ("Also seen by"). */
+  sharedToday: number;
+  aiChecksToday: number;
+  aiCap: number;
+  ai: AiStatus;
+  /** "Pause all bots" is on. */
+  allPaused: boolean;
+  passedToday: number;
+  links: LinkView[];
+};
+
+/** What a client shows before `GET /bots` answers. */
+export const EMPTY_BOTS_SUMMARY: BotsSummary = {
+  checksToday: 0,
+  alertsToday: 0,
+  nextCheckAt: null,
+  sharedToday: 0,
+  aiChecksToday: 0,
+  aiCap: 200,
+  ai: { ready: false, provider: "", label: "", model: "", reason: "" },
+  allPaused: false,
+  passedToday: 0,
+  links: [],
+};
 
 /** `GET /bots`. */
 export type BotsList = { bots: BotView[]; summary: BotsSummary };
 
-export type CheckTrigger = "schedule" | "wake" | "run_now" | "ask";
+export type CheckTrigger = "schedule" | "wake" | "run_now" | "ask" | "pass";
 export type CheckOutcome =
   | "baseline"
   | "unchanged"
@@ -204,7 +355,9 @@ export type CheckOutcome =
   | "site_busy"
   | "robots"
   | "strike"
-  | "superseded";
+  | "superseded"
+  | "judged_quiet"
+  | "passed";
 
 export type FiredRule = { watchId: string; ruleId: string; kind: RuleKind };
 
@@ -229,7 +382,7 @@ export type AlertFigures = {
   items?: number;
 };
 
-export type AlertKind = "alert" | "more" | "paused";
+export type AlertKind = "alert" | "more" | "paused" | "brief";
 
 export type AlertView = {
   id: string;
@@ -247,6 +400,14 @@ export type AlertView = {
   feedbackReason: FeedbackReason;
   feedbackNote: string;
   feedbackAt: string | null;
+  aiState: AiState;
+  aiWhy: string;
+  urgency: Urgency;
+  alsoSeenBy: BotRef[];
+  sharedWith: SharedRef | null;
+  via: ViaStep[];
+  /** A brief: its rules-made lines (figures.lines), shown beside an AI-written body. */
+  lines: string[];
 };
 
 /** One UTC day of a price watch. Points are [unixSeconds, price]. */
@@ -279,6 +440,8 @@ export type BotDetail = BotView & {
   alertsMonth: number;
   /** The last 30 days, newest first, at most 5. */
   rearms: Rearm[] | null;
+  /** Every link from or to this bot. */
+  links: LinkView[] | null;
 };
 
 /** `POST /bots/:id/run` (202). */
@@ -303,6 +466,9 @@ export type Finding = {
   digestedAt: string | null;
   createdAt: string;
 };
+
+/** `POST /bots/:id/alerts/:alertId/feedback`: the alert, and the lesson the rating wrote. */
+export type RateResult = AlertView & { lesson: Lesson | null };
 
 /** `POST /bots/:id/alerts/:alertId/feedback`. */
 export type FeedbackInput =
@@ -418,6 +584,16 @@ export const BOT_LIMITS = {
   minEveryMinutes: { page: 15, feed: 15, price: 5, shop: 360 },
   maxEveryMinutes: 10080,
   maxSnoozeDays: 30,
+  aiPerBot: 20,
+  aiPerAccount: 200,
+  chainAi: 6,
+  maxLinks: 4,
+  maxBriefSources: 8,
+  briefItemsPerBot: 5,
+  linkPerDay: 20,
+  passPerCheck: 10,
+  chainSteps: 3,
+  maxFilterWords: 5,
 } as const;
 
 /** The rows of the "Limits · Kept by Timely" card. */
@@ -430,6 +606,9 @@ export function limitRows(): [string, string][] {
     ["Shop page", `Every ${L.minEveryMinutes.shop / 60} h at most`],
     ["Pages and feeds", `Every ${L.minEveryMinutes.page} min at most`],
     ["Prices", `Every ${L.minEveryMinutes.price} min at most`],
+    ["AI checks", `${L.aiPerBot} a day per bot, ${L.aiPerAccount} in all`],
+    ["Passing on", `${L.maxLinks} bots, ${L.linkPerDay} a day each`],
+    ["Briefs", `Up to ${L.maxBriefSources} bots, ${L.briefItemsPerBot} items each`],
   ];
 }
 
@@ -636,9 +815,18 @@ export function signedPct(p: number): string {
   return `${p < 0 && s !== "0.0" ? "−" : "+"}${s}%`;
 }
 
-/** The currency of a watch: its own, else the one its last reading was shown in. */
-export function watchCurrency(w: Pick<WatchView, "currency" | "summary">): string {
+/**
+ * The currency of a watch. A page shows its last reading's once it has one,
+ * else its hint; a price its own pair. Either falls back to the other, then
+ * to the one its summary was shown in.
+ */
+export function watchCurrency(
+  w: Pick<WatchView, "currency" | "summary"> & Partial<Pick<WatchView, "kind" | "readingCurrency">>,
+): string {
+  const reading = w.readingCurrency ?? "";
+  if (w.kind === "page" && reading) return reading;
   if (w.currency) return w.currency;
+  if (reading) return reading;
   const s = w.summary ?? "";
   for (const [code, sym] of Object.entries(MONEY_SYMBOLS)) {
     if (s.startsWith(sym) || s.startsWith(`-${sym}`)) return code;
@@ -710,12 +898,15 @@ export const READ_OPTIONS: { id: ReadMode; label: string }[] = [
   { id: "selector_price", label: "One price on the page" },
 ];
 
-/** "How smart". Rules only exists today. */
-export const HOW_SMART: { id: string; label: string; later?: true }[] = [
+/** "How smart". Research is Later. */
+export const HOW_SMART: { id: JudgeMode | "research"; label: string; later?: true }[] = [
   { id: "rules", label: "Rules only" },
-  { id: "ai", label: "AI judges", later: true },
+  { id: "ai", label: "AI judges" },
   { id: "research", label: "Research", later: true },
 ];
+
+/** The How smart chooser's own hint (web menu and phone sheet). */
+export const SMART_HINT = "AI judges looks at each change your rules spot and decides if it's worth telling you. Research comes later.";
 
 /** The "Not useful" reasons. */
 export const FEEDBACK_REASONS: { id: Exclude<FeedbackReason, "">; label: string }[] = [
@@ -723,6 +914,12 @@ export const FEEDBACK_REASONS: { id: Exclude<FeedbackReason, "">; label: string 
   { id: "not_wanted", label: "Not what I want" },
   { id: "already_knew", label: "Already knew" },
 ];
+
+/** The extra Not useful reason on an alert that came through a Pass to link (not one of FEEDBACK_REASONS). */
+export const PASS_FEEDBACK = { id: "not_passed", label: "Shouldn't have been passed on" } as const;
+
+/** The "Daily at" choices of a brief: 05:00 to 22:00, hourly. */
+export const BRIEF_TIMES: string[] = Array.from({ length: 18 }, (_, i) => `${String(i + 5).padStart(2, "0")}:00`);
 
 const SOURCE_LABELS: Record<string, string> = {
   finnhub: "Finnhub",
@@ -1002,7 +1199,7 @@ export function resetLine(rule: Rule, watch: Pick<WatchView, "currency" | "summa
 
 // ── The board ──
 
-export type NeedsReason = "new_alert" | "broken" | "waiting_ok" | "stopped" | "needs_key";
+export type NeedsReason = "new_alert" | "suggestion" | "broken" | "waiting_ok" | "stopped" | "needs_key";
 export type BoardGroup = "needs" | "watching" | "paused";
 
 const STRIKES = new Set<string>(STRIKE_CODES);
@@ -1022,6 +1219,7 @@ export function needsReason(bot: BotView, now: Date): NeedsReason | null {
   if (a && a.feedback === null && a.held !== "snoozed" && at !== null && now.getTime() - at < NEW_ALERT_FOR) {
     return "new_alert";
   }
+  if (bot.suggestion) return "suggestion";
   return null;
 }
 
@@ -1031,9 +1229,9 @@ export function boardGroup(bot: BotView, now: Date): BoardGroup {
   return bot.status === "paused" ? "paused" : "watching";
 }
 
-const NEEDS_RANK: Record<NeedsReason, number> = { new_alert: 0, broken: 1, needs_key: 2, waiting_ok: 3, stopped: 4 };
+const NEEDS_RANK: Record<NeedsReason, number> = { new_alert: 0, suggestion: 1, broken: 2, needs_key: 3, waiting_ok: 4, stopped: 5 };
 
-/** The "Needs you" bots in order: new alerts, broken, keys, waiting, stopped, then newest change. */
+/** The "Needs you" bots in order: new alerts, suggested changes, broken, keys, waiting, stopped, then newest change. */
 export function needsOrder(bots: BotView[], now: Date): BotView[] {
   return bots
     .map((bot) => ({ bot, reason: needsReason(bot, now) }))
@@ -1073,7 +1271,16 @@ export function primaryWatch(bot: Pick<BotView, "watches" | "health">): WatchVie
 
 // ── Fixes ──
 
-export type FixAction = "pick_part" | "edit_url" | "add_key" | "change_source" | "check_now" | "turn_on" | "resume";
+export type FixAction =
+  | "pick_part"
+  | "edit_url"
+  | "add_key"
+  | "change_source"
+  | "check_now"
+  | "turn_on"
+  | "resume"
+  | "apply_suggestion"
+  | "dismiss_suggestion";
 export type FixButton = { action: FixAction | "edit"; label: string };
 
 const FIX_LABELS: Record<FixAction, string> = {
@@ -1084,6 +1291,8 @@ const FIX_LABELS: Record<FixAction, string> = {
   check_now: "Check now",
   turn_on: "Turn on",
   resume: "Resume",
+  apply_suggestion: "Apply",
+  dismiss_suggestion: "Not now",
 };
 
 const isStopped = (bot: BotView) => bot.status === "paused" && bot.pauseReason === "strikes";
@@ -1091,6 +1300,10 @@ const isStopped = (bot: BotView) => bot.status === "paused" && bot.pauseReason =
 /** What fixes a bot that needs one. */
 export function fixAction(bot: BotView): FixAction {
   if (bot.status === "paused" && bot.pauseReason === "mcp") return "turn_on";
+  // A brief reads nothing, so nothing on it breaks: it is resumed or run.
+  if (isBrief(bot)) return bot.status === "paused" ? "resume" : "check_now";
+  const broken = bot.health.code === "needs_key" || (bot.strikes > 0 && STRIKES.has(bot.health.code));
+  if (bot.suggestion && bot.status === "active" && !broken) return "apply_suggestion";
   const w = primaryWatch(bot);
   const code = bot.health.code;
   let action: FixAction = "resume";
@@ -1130,6 +1343,12 @@ export function fixAction(bot: BotView): FixAction {
  */
 export function fixButtons(bot: BotView): { primary: FixButton; secondary: FixButton } {
   const action = fixAction(bot);
+  if (action === "apply_suggestion" && bot.suggestion) {
+    return {
+      primary: { action, label: bot.suggestion.button },
+      secondary: { action: "dismiss_suggestion", label: FIX_LABELS.dismiss_suggestion },
+    };
+  }
   const primary: FixButton = { action, label: FIX_LABELS[action] };
   const notFoundPick = action === "pick_part" && bot.health.code === "not_found";
   const wantsEdit = bot.status === "paused" || notFoundPick || action === "check_now";
@@ -1184,6 +1403,9 @@ export const STRIKE_COPY: Record<StrikeCode, { why: string; stopped: string }> =
 
 /** The copy of a fix: eyebrow, title and the meta line under it. */
 export function fixCopy(bot: BotView): { eyebrow: string; title: string; meta: string } {
+  if (fixAction(bot) === "apply_suggestion" && bot.suggestion) {
+    return { eyebrow: "Suggests a change", title: bot.suggestion.line, meta: "After 3 Not useful alerts in a row" };
+  }
   const max = BOT_LIMITS.maxStrikes;
   const stopped = isStopped(bot);
   const code = bot.health.code as StrikeCode;
@@ -1207,6 +1429,60 @@ export function fixCopy(bot: BotView): { eyebrow: string; title: string; meta: s
     meta = `${bot.strikes} of ${max} strikes.${copy ? ` ${copy.why}` : ""} At ${max} the bot pauses itself.`;
   }
   return { eyebrow: stopped ? "Paused itself" : "Needs a fix", title, meta };
+}
+
+// ── Briefs on the board ──
+
+/** Bots by id, for names: a list or a map both fit. */
+export type BotNames = { id: string; name: string }[] | Record<string, { name: string }>;
+
+/** When a brief sends unless the person picks another hour. */
+export const DEFAULT_BRIEF_TIME = "08:00";
+
+const isBrief = (bot: { kind?: BotKind }) => bot.kind === "brief";
+const sourcesOf = (bot: { sources?: string[] }) => bot.sources ?? [];
+
+function nameOf(bots: BotNames | undefined, id: string): string | undefined {
+  if (!bots) return undefined;
+  if (Array.isArray(bots)) return bots.find((b) => b.id === id)?.name;
+  return bots[id]?.name;
+}
+
+/** "A", "A and B", "A, B and C", "A, B and 2 more". */
+function namesLine(names: string[]): string {
+  if (names.length <= 2) return names.join(" and ");
+  if (names.length === 3) return `${names[0]}, ${names[1]} and ${names[2]}`;
+  return `${names[0]}, ${names[1]} and ${names.length - 2} more`;
+}
+
+/**
+ * A brief card's caption: "From GPU deals, Sony and 2 more". "From 4 bots"
+ * when any source's name is unknown (deleted, or not loaded yet), so the
+ * caption never counts fewer bots than "Sums up 4 bots" beside it.
+ */
+function briefFrom(bot: BotView, bots?: BotNames): string {
+  const ids = sourcesOf(bot);
+  if (ids.length === 0) return "No bots to sum up yet";
+  const names = ids.map((id) => nameOf(bots, id)).filter((n): n is string => !!n);
+  return names.length === ids.length ? `From ${namesLine(names)}` : `From ${plural(ids.length, "bot")}`;
+}
+
+/**
+ * A brief card's big value: "7 new" from its newest brief's count
+ * (figures.items), "Brief sent" when the server sends no count, else "Nothing
+ * yet". The title is never read for it: an AI-written title holds no count.
+ */
+function briefValue(bot: BotView): CardValue {
+  const a = bot.latestAlert;
+  if (!a) return { kind: "text", text: "Nothing yet", tone: "default" };
+  if (typeof a.items === "number") return { kind: "number", text: String(a.items), unit: "new", tone: "default" };
+  return { kind: "text", text: "Brief sent", tone: "default" };
+}
+
+/** What a bot's mark draws: the sunrise for a brief, the watches' logos, or the plain bot when it watches nothing. */
+export function botMarkKind(bot: Pick<BotView, "watches"> & Partial<Pick<BotView, "kind">>): "sunrise" | "watch" | "none" {
+  if (isBrief(bot)) return "sunrise";
+  return bot.watches.length ? "watch" : "none";
 }
 
 // ── Card lines ──
@@ -1244,7 +1520,8 @@ export function firstStrikeAt(bot: Pick<BotView, "lastCheckAt" | "lastOkAt" | "s
  * "Not checked yet", "Since Nov 5, 21:40" (paused itself, from the first
  * strike of the run), "Last post seen, Nov 1" (a feed), else null.
  */
-export function captionLine(bot: BotView, now: Date, tz?: string): string | null {
+export function captionLine(bot: BotView, now: Date, tz?: string, bots?: BotNames): string | null {
+  if (isBrief(bot)) return briefFrom(bot, bots);
   const reason = needsReason(bot, now);
   if (reason === "stopped") {
     const since = firstStrikeAt(bot);
@@ -1270,6 +1547,7 @@ export type CardValue = {
 
 /** A card's big value: a number (24/600) or a text (15/500). */
 export function cardValue(bot: BotView): CardValue {
+  if (isBrief(bot)) return briefValue(bot);
   const w = primaryWatch(bot);
   if (bot.status === "paused" && bot.pauseReason === "mcp" && !bot.lastCheckAt) return { kind: "text", text: "Starts paused", tone: "default" };
   if (
@@ -1305,6 +1583,7 @@ export const valueText = (bot: BotView): string => cardValue(bot).text;
  * $1,588 to go", "3 new today", "Tells you when “Add to cart” appears".
  */
 export function valueLine(bot: BotView): string | null {
+  if (isBrief(bot)) return `Sums up ${plural(sourcesOf(bot).length, "bot")}`;
   const w = primaryWatch(bot);
   if (!w) return null;
   if (w.kind === "feed") return bot.itemsToday > 0 ? `${bot.itemsToday} new today` : null;
@@ -1362,7 +1641,14 @@ export function miniValue(bot: BotView, now: Date): { text: string; change: stri
  * "2 feeds · every 30 min". `short` (the phone's one narrow line) names only
  * the site or symbol, so the interval always shows: "amazon.in · every 6 h".
  */
-export function cardSub(bot: Pick<BotView, "watches" | "intervalMinutes">, opts: { short?: boolean } = {}): string {
+export function cardSub(
+  bot: Pick<BotView, "watches" | "intervalMinutes"> & Partial<Pick<BotView, "kind" | "briefTime" | "sources">>,
+  opts: { short?: boolean } = {},
+): string {
+  if (isBrief(bot)) {
+    const head = `Brief · daily at ${bot.briefTime || DEFAULT_BRIEF_TIME}`;
+    return opts.short ? head : `${head} · ${plural(sourcesOf(bot).length, "bot")}`;
+  }
   const every = everyLabel(bot.intervalMinutes || defaultMinutes(bot.watches));
   const ws = bot.watches;
   if (ws.length === 0) return "No watch yet";
@@ -1411,6 +1697,7 @@ export function miniSub(bot: BotView, now: Date, tz?: string): string {
   const reason = needsReason(bot, now);
   if (reason === "new_alert" && bot.latestAlert) return `New alert · ${alertFound(bot.latestAlert, bot.name)}`;
   if (reason === "waiting_ok") return `Made by ${bot.originClient || "an outside app"} · ${agoLabel(bot.createdAt, now, tz)}`;
+  if (isBrief(bot)) return cardSub(bot);
   if (reason === "stopped") {
     const w = primaryWatch(bot);
     const line = bot.health.line;
@@ -1431,16 +1718,30 @@ export function originLine(bot: Pick<BotView, "origin" | "originClient" | "creat
 const isSnoozed = (bot: Pick<BotView, "snoozedUntil">, now: Date) => (ms(bot.snoozedUntil) ?? 0) > now.getTime();
 
 /**
+ * When the next brief goes out, at its set time: the server adds up to two
+ * minutes to spread the runs, which no screen shows ("08:00", not "08:01").
+ * The day still comes from the run itself.
+ */
+export function briefClock(bot: Pick<BotView, "briefTime">, iso: string, now: Date, tz?: string): string {
+  const label = clockLabel(iso, now, tz);
+  const time = /^([01]\d|2[0-3]):[0-5]\d$/.test(bot.briefTime ?? "") ? bot.briefTime : "";
+  return time ? label.replace(/\d\d:\d\d$/, time) : label;
+}
+
+/**
  * The right side of a card's footer: "Next 00:12", "Made 40 min ago",
  * "Nov 5, 22:40" (when it paused itself), "No alerts yet", "No change in 6
- * days", "2 of 3 alerts today". Null on a bot the person paused, whose card
- * shows Resume there.
+ * days", "2 of 3 alerts today", "Next brief 08:00". Null on a bot the person
+ * paused, whose card shows Resume there, and while Pause all is on, when
+ * the health line on the left says "All bots paused" and nothing is next.
  */
-export function footerRight(bot: BotView, now: Date, tz?: string): string | null {
+export function footerRight(bot: BotView, now: Date, tz?: string, opts: { allPaused?: boolean } = {}): string | null {
   const reason = needsReason(bot, now);
   if (reason === "waiting_ok") return `Made ${agoLabel(bot.createdAt, now, tz)}`;
   if (reason === "stopped") return bot.lastCheckAt ? dateTime(bot.lastCheckAt, tz) : null;
   if (bot.status === "paused") return null;
+  if (opts.allPaused) return null;
+  if (isBrief(bot)) return bot.nextCheckAt ? `Next brief ${briefClock(bot, bot.nextCheckAt, now, tz)}` : null;
   const next = bot.nextCheckAt ? `Next ${clockLabel(bot.nextCheckAt, now, tz)}` : null;
   if (reason === "broken" || reason === "needs_key" || isSnoozed(bot, now)) return next;
   if (bot.alertsToday > 0) return `${bot.alertsToday} of ${BOT_LIMITS.alertsPerDay} alerts today`;
@@ -1456,6 +1757,9 @@ export function footerRight(bot: BotView, now: Date, tz?: string): string | null
 
 export type HealthTone = "ok" | "warn" | "bad" | "off" | "primary";
 
+/** A bot's health while Pause all is on. */
+export const ALL_PAUSED = "All bots paused";
+
 const STRIKE_WORDS: Record<StrikeCode, string> = {
   cant_find: "Can’t read the page",
   not_found: "Page not found",
@@ -1469,14 +1773,24 @@ const STRIKE_WORDS: Record<StrikeCode, string> = {
   needs_key: "Needs your Finnhub key",
 };
 
-/** The health line under a card: a tone dot, a bold word and a time. */
-export function healthLine(bot: BotView, now: Date, tz?: string): { tone: HealthTone; word: string; time: string | null } {
+/**
+ * The health line under a card: a tone dot, a bold word and a time. While
+ * Pause all is on (`allPaused`), a bot that would run says "All bots paused"
+ * on a grey dot, so nothing reads as working.
+ */
+export function healthLine(
+  bot: BotView,
+  now: Date,
+  tz?: string,
+  opts: { allPaused?: boolean } = {},
+): { tone: HealthTone; word: string; time: string | null } {
   const reason = needsReason(bot, now);
   const ago = bot.lastCheckAt ? agoLabel(bot.lastCheckAt, now, tz) : null;
   if (bot.health.code === "preview") return { tone: "primary", word: bot.health.line || "Read once in chat", time: null };
   if (reason === "waiting_ok") return { tone: "warn", word: "Waiting for your OK", time: null };
   if (reason === "stopped") return { tone: "bad", word: `Paused after ${bot.strikes || BOT_LIMITS.maxStrikes} strikes`, time: null };
   if (bot.status === "paused") return { tone: "off", word: "Paused by you", time: shortDate(bot.updatedAt, tz) };
+  if (opts.allPaused) return { tone: "off", word: ALL_PAUSED, time: null };
   if (isSnoozed(bot, now) && bot.snoozedUntil) {
     return { tone: "off", word: "Snoozed", time: `until ${clockLabel(bot.snoozedUntil, now, tz)}` };
   }
@@ -1506,8 +1820,8 @@ export function healthLine(bot: BotView, now: Date, tz?: string): { tone: Health
 }
 
 /** The mini card's health text: "Can’t read the page · 3 of 5" when broken. */
-export function miniHealth(bot: BotView, now: Date, tz?: string): string {
-  const h = healthLine(bot, now, tz);
+export function miniHealth(bot: BotView, now: Date, tz?: string, opts: { allPaused?: boolean } = {}): string {
+  const h = healthLine(bot, now, tz, opts);
   if (needsReason(bot, now) === "new_alert") return "Was it worth it?";
   if (needsReason(bot, now) === "broken") return `${h.word} · ${bot.strikes} of ${BOT_LIMITS.maxStrikes}`;
   return h.time ? `${h.word} · ${h.time}` : h.word;
@@ -1515,14 +1829,311 @@ export function miniHealth(bot: BotView, now: Date, tz?: string): string {
 
 /** The header line: "312 checks today · 2 alerts · next check in 4 min" (phone: "9 bots · 2 alerts today · …"). */
 export function summaryLine(list: BotsList, now: Date, variant: "desktop" | "phone" = "desktop"): string {
-  const { checksToday, alertsToday, nextCheckAt } = list.summary;
+  const { checksToday, alertsToday, nextCheckAt, sharedToday } = list.summary;
   const alerts = alertsToday === 0 ? "no alerts" : plural(alertsToday, "alert");
   const parts =
     variant === "phone"
       ? [plural(list.bots.length, "bot"), `${alerts} today`]
       : [plural(checksToday, "check") + " today", alerts];
+  if (sharedToday > 0) parts.push(`${sharedToday} shared`);
   if (nextCheckAt) parts.push(`next check ${inLabel(nextCheckAt, now)}`);
   return parts.join(" · ");
+}
+
+// ── AI judging ──
+
+/** The How smart choices: Research is Later, and AI judges needs an AI provider. */
+export function smartOptions(summary: Pick<BotsSummary, "ai">): { id: JudgeMode | "research"; label: string; disabled: boolean; tag?: string }[] {
+  return HOW_SMART.map((h) => {
+    if (h.later) return { id: h.id, label: h.label, disabled: true, tag: "Later" };
+    if (h.id === "ai" && !summary.ai?.ready) return { id: h.id, label: h.label, disabled: true, tag: "Needs AI" };
+    return { id: h.id, label: h.label, disabled: false };
+  });
+}
+
+/** The How smart group's hint for this bot (no model ids). */
+export function aiHint(bot: { judgeMode?: string; aiChecksToday?: number }, summary: Pick<BotsSummary, "ai">): string {
+  if (bot.judgeMode !== "ai") return "Rules cost nothing and never call an AI.";
+  if (!summary.ai?.ready) return "No AI provider yet, so this bot alerts on rules alone. Add one in Settings › Agent.";
+  const on = summary.ai.label ? `, on ${summary.ai.label}` : "";
+  return `AI checks ${bot.aiChecksToday ?? 0} of ${BOT_LIMITS.aiPerBot} today${on}. AI looks at each change your rules spot and decides if it's worth telling you.`;
+}
+
+/** The Lessons group's hint: a watch bot's judge reads them; a brief's AI writer does. */
+export function lessonsHint(bot: { kind?: BotKind }): string {
+  if (isBrief(bot)) return "When Write it with AI is on, these shape how the brief is written. Remove one to forget it.";
+  return "The AI judge reads these each time it decides. Rules-only bots keep them for when you turn AI on. Remove one to forget it.";
+}
+
+export type AlertAi = {
+  /** "Not checked by AI" on an alert the judge did not reach. */
+  pill: "Not checked by AI" | null;
+  /** The full line under an alert. */
+  line: string | null;
+  /** The one-line card form: "Not checked by AI · asks again later". */
+  short: string | null;
+  tone: "default" | "muted" | "warning";
+};
+
+/** The short reasons of an unchecked alert, by the API's words (plan.go, rejudge.go). */
+const UNCHECKED_SHORT: [RegExp, string][] = [
+  [/asks again later/i, "asks again later"],
+  [/used up/i, "AI checks used up today"],
+  [/^Choose which AI provider/i, "no AI provider chosen"],
+  [/^No AI provider/i, "no AI provider"],
+  [/^Changed while/i, "changed while checking"],
+  [/^AI was unavailable$/i, "AI was unavailable"],
+  [/all bots are paused/i, "all bots paused"],
+  [/judging was turned off/i, "AI judging turned off"],
+];
+
+/**
+ * What the AI judge did with an alert, as its pill and lines; all null on a
+ * rules-only alert. A brief the AI could not write was sent from the template
+ * and is never asked about again, so it never says "asks again later".
+ */
+export function alertAi(alert: Pick<AlertBrief, "aiState" | "aiWhy" | "held"> & Partial<Pick<AlertBrief, "kind">>): AlertAi {
+  const why = (alert.aiWhy ?? "").trim();
+  switch (alert.aiState) {
+    case "judged": {
+      if (alert.held === "judged") {
+        const line = why ? `Held back by AI: ${why}` : "Held back by AI";
+        return { pill: null, line, short: line, tone: "muted" };
+      }
+      const line = why ? `AI: ${why}` : null;
+      return { pill: null, line, short: line, tone: "default" };
+    }
+    case "rejudged": {
+      const line = why ? `AI checked it later: ${why}` : "AI checked it later";
+      return { pill: null, line, short: line, tone: "muted" };
+    }
+    case "unchecked": {
+      const brief = alert.kind === "brief";
+      const retry = /asks again later/i.test(why);
+      const reason = brief && (retry || !why) ? "written from the template" : UNCHECKED_SHORT.find(([re]) => re.test(why))?.[1];
+      return {
+        pill: "Not checked by AI",
+        line: brief && retry ? "AI was unavailable, so this brief was written from the template" : why || null,
+        short: reason ? `Not checked by AI · ${reason}` : "Not checked by AI",
+        tone: "warning",
+      };
+    }
+  }
+  return { pill: null, line: null, short: null, tone: "default" };
+}
+
+/** "Also seen by Price check" / "Also seen by Price check and 1 more"; null when no other bot saw it. */
+export function alsoSeenLine(alert: Pick<AlertBrief, "alsoSeenBy">): string | null {
+  const seen = alert.alsoSeenBy ?? [];
+  if (seen.length === 0) return null;
+  return seen.length === 1 ? `Also seen by ${seen[0].name}` : `Also seen by ${seen[0].name} and ${seen.length - 1} more`;
+}
+
+/** "Already told you through Bitcoin under $70,000" on a held shared alert; else null. */
+export function sharedLine(alert: Pick<AlertBrief, "sharedWith">): string | null {
+  return alert.sharedWith ? `Already told you through ${alert.sharedWith.name}` : null;
+}
+
+// ── Links and briefs ──
+
+/** A Pass to filter in words: "mentions 2TB NVMe", "mentions 2TB or 4TB", "Everything it finds". */
+export function filterLine(filter: string[] | null | undefined): string {
+  const words = (filter ?? []).map((w) => w.trim()).filter(Boolean);
+  return words.length ? `mentions ${words.join(" or ")}` : "Everything it finds";
+}
+
+const linkName = (bots: BotNames | undefined, id: string) => nameOf(bots, id) ?? "A deleted bot";
+
+/** "How this came to you": the rows, and the link "Turn off this pass" turns off (null when there is none to turn off). */
+/**
+ * The links "How this came to you" looks steps up in: the account's (the
+ * board's summary) with the open bot's own over them. A bot's own list has
+ * only the links from or to it, so the first step of a longer chain is
+ * found only on the board.
+ */
+export function chainLinks(board: LinkView[] | null | undefined, own: LinkView[] | null | undefined): LinkView[] {
+  const byId = new Map<string, LinkView>();
+  for (const l of board ?? []) byId.set(l.id, l);
+  for (const l of own ?? []) byId.set(l.id, l);
+  return [...byId.values()];
+}
+
+export function howItCame(
+  alert: Pick<AlertBrief, "via" | "aiState">,
+  bot: Pick<BotView, "name">,
+  botsById: BotNames | undefined,
+  links: LinkView[] | null | undefined,
+): { rows: [string, string][]; unpass: { linkId: string } | null } {
+  const via = alert.via ?? [];
+  const byId = new Map((links ?? []).map((l) => [l.id, l]));
+  const rows: [string, string][] = [];
+  for (const step of via) {
+    rows.push(["Found by", nameOf(botsById, step.botId) ?? step.name]);
+    const link = step.linkId ? byId.get(step.linkId) : undefined;
+    rows.push(["Passed on", link ? filterLine(link.filter) : "By a link that is gone"]);
+  }
+  rows.push(["Checked by", bot.name]);
+  const judged = alert.aiState === "judged" || alert.aiState === "rejudged" ? "AI" : alert.aiState === "unchecked" ? "Not checked by AI" : "Rules only";
+  rows.push(["Judged by", judged]);
+  const last = via[via.length - 1];
+  const link = last?.linkId ? byId.get(last.linkId) : undefined;
+  return { rows, unpass: link?.enabled ? { linkId: link.id } : null };
+}
+
+export type Chain = {
+  /** The bots along the chain, first finder first. */
+  ids: string[];
+  /** "Deals feed → Price check". */
+  label: string;
+  /** Items its links passed on today. */
+  passedToday: number;
+  firstBotId: string;
+};
+
+const passLinks = (links: LinkView[] | null | undefined, enabled?: boolean) =>
+  (links ?? []).filter((l) => l.kind === "pass" && (enabled === undefined || l.enabled === enabled));
+
+/**
+ * Every chain of enabled Pass to links: each longest path from a bot that
+ * passes on and gets nothing passed to it, at most 3 links, by label. Brief
+ * links are not chains, and a switched-off link shows only as a Today row.
+ */
+export function chainsOf(links: LinkView[] | null | undefined, bots: BotNames): Chain[] {
+  const live = passLinks(links, true).filter((l) => nameOf(bots, l.fromBotId) !== undefined && nameOf(bots, l.toBotId) !== undefined);
+  const out = new Map<string, LinkView[]>();
+  for (const l of live) out.set(l.fromBotId, [...(out.get(l.fromBotId) ?? []), l]);
+  const fed = new Set(live.map((l) => l.toBotId));
+  const roots = [...new Set(live.map((l) => l.fromBotId))].filter((id) => !fed.has(id));
+  const chains: Chain[] = [];
+  const walk = (path: LinkView[], seen: Set<string>) => {
+    const at = path[path.length - 1].toBotId;
+    const next = path.length < BOT_LIMITS.chainSteps ? (out.get(at) ?? []).filter((l) => !seen.has(l.toBotId)) : [];
+    if (next.length === 0) {
+      const ids = [path[0].fromBotId, ...path.map((l) => l.toBotId)];
+      chains.push({
+        ids,
+        label: ids.map((id) => nameOf(bots, id) ?? id).join(" → "),
+        passedToday: path.reduce((n, l) => n + l.passedToday, 0),
+        firstBotId: ids[0],
+      });
+      return;
+    }
+    for (const l of next) walk([...path, l], new Set([...seen, l.toBotId]));
+  };
+  for (const root of roots) for (const l of out.get(root) ?? []) walk([l], new Set([root, l.toBotId]));
+  return chains.sort((a, b) => a.label.localeCompare(b.label));
+}
+
+export type TodayRow =
+  | { id: "pause"; label: string; kind: "switch"; on: boolean }
+  | { id: string; label: string; kind: "value"; value: string }
+  | { id: string; label: string; kind: "link"; value: "Off"; action: "Turn on" };
+
+/** The board's Today group: Pause all, AI checks, Passed on, and each switched-off link. */
+export function todayRows(summary: BotsSummary, bots: (Pick<BotView, "id" | "name"> & Partial<Pick<BotView, "judgeMode">>)[]): TodayRow[] {
+  const rows: TodayRow[] = [{ id: "pause", label: "Pause all bots", kind: "switch", on: !!summary.allPaused }];
+  if (bots.some((b) => b.judgeMode === "ai") || summary.aiChecksToday > 0) {
+    rows.push({ id: "ai", label: "AI checks", kind: "value", value: `${summary.aiChecksToday} of ${summary.aiCap}` });
+  }
+  const pass = passLinks(summary.links);
+  if (pass.length) rows.push({ id: "passed", label: "Passed on", kind: "value", value: `${summary.passedToday} today` });
+  for (const l of pass) {
+    if (l.enabled) continue;
+    rows.push({ id: l.id, label: `${linkName(bots, l.fromBotId)} → ${linkName(bots, l.toBotId)}`, kind: "link", value: "Off", action: "Turn on" });
+  }
+  return rows;
+}
+
+/** The column spans of the board's Today and Chains cards; without chains Today takes the whole row. */
+export function topSpans(cols: number, hasChains: boolean): [number, number] {
+  if (!hasChains) return [cols, 0];
+  if (cols <= 2) return [1, 1];
+  return [Math.floor(cols / 2), cols - Math.floor(cols / 2)];
+}
+
+/** How many columns Today's rows flow into inside its card: more only when it fills a wide row alone. */
+export function todayColumns(cols: number, hasChains: boolean): number {
+  if (hasChains) return 1;
+  if (cols >= 6) return 3;
+  if (cols >= 4) return 2;
+  return 1;
+}
+
+/** The Sums up group's add row, the same on desktop and phone. */
+export const BRIEF_ADD_ROW = "Add a bot";
+
+/**
+ * A source row in a brief's Sums up group, the same on desktop and phone:
+ * the meta under the bot's name says what its Only in the brief switch
+ * does now ("Only in the brief" when on, "Also tells you itself" when off),
+ * and `switchLabel` names the switch for screen readers.
+ */
+export function briefSourceRow(bot: { name: string; briefOnly?: boolean } | undefined, saved: boolean): { meta: string; switchLabel: string } {
+  const switchLabel = `Only in the brief: ${bot?.name ?? "a deleted bot"}`;
+  if (!bot || !saved) return { meta: "Added when the brief saves", switchLabel };
+  return { meta: bot.briefOnly ? "Only in the brief" : "Also tells you itself", switchLabel };
+}
+
+/** A bot's "Works with" group: whom it passes to, who passes to it, the briefs it is in, and Only in the brief. */
+export function worksWith(
+  bot: Pick<BotView, "id"> & Partial<Pick<BotView, "briefOnly">>,
+  links: LinkView[] | null | undefined,
+  bots: BotNames,
+): {
+  passesTo: { link: LinkView; name: string; filterLine: string; passedLine: string }[];
+  getsFrom: { link: LinkView; name: string }[];
+  inBriefs: { link: LinkView; name: string }[];
+  briefOnly: { on: boolean; enabled: boolean };
+} {
+  const all = links ?? [];
+  const passesTo = all
+    .filter((l) => l.kind === "pass" && l.fromBotId === bot.id)
+    .map((link) => ({
+      link,
+      name: linkName(bots, link.toBotId),
+      filterLine: filterLine(link.filter),
+      // "6 of 20" never breaks across lines.
+      passedLine: `Passed today ${link.passedToday}\u00a0of\u00a0${BOT_LIMITS.linkPerDay}`,
+    }));
+  const getsFrom = all.filter((l) => l.kind === "pass" && l.toBotId === bot.id).map((link) => ({ link, name: linkName(bots, link.fromBotId) }));
+  const inBriefs = all.filter((l) => l.kind === "brief" && l.fromBotId === bot.id).map((link) => ({ link, name: linkName(bots, link.toBotId) }));
+  return { passesTo, getsFrom, inBriefs, briefOnly: { on: !!bot.briefOnly, enabled: inBriefs.some((b) => b.link.enabled) } };
+}
+
+// ── Check labels ──
+
+const OUTCOME_LABELS: Record<CheckOutcome, string> = {
+  baseline: "First reading",
+  unchanged: "No change",
+  not_modified: "No change",
+  changed: "Changed",
+  fired: "Told you",
+  offline: "Offline",
+  rate_limited: "The site asked to wait",
+  site_busy: "Site busy",
+  robots: "The site asks not to be read",
+  strike: "Failed",
+  superseded: "Skipped",
+  judged_quiet: "AI held it back",
+  passed: "Passed on",
+};
+
+/** A check's outcome in words: "Told you", "AI held it back", "Passed on". */
+export function checkOutcomeLabel(outcome: CheckOutcome | (string & {})): string {
+  return OUTCOME_LABELS[outcome as CheckOutcome] ?? outcome;
+}
+
+const TRIGGER_LABELS: Record<CheckTrigger, string> = {
+  schedule: "On schedule",
+  wake: "After a wake",
+  run_now: "Check now",
+  ask: "Asked in chat",
+  pass: "Passed on",
+};
+
+/** What started a check: "On schedule", "Check now", "Passed on". */
+export function checkTriggerLabel(trigger: CheckTrigger | (string & {})): string {
+  return TRIGGER_LABELS[trigger as CheckTrigger] ?? trigger;
 }
 
 // ── The check strip ──
@@ -1752,9 +2363,10 @@ export type Starter = {
   later?: true;
 };
 
-const draftOfStarter = (name: string, interval: number, watch: WatchInput): BotInput => ({
+/** A starter's draft; its description is the starter's own words, so the New bot editor opens with them. */
+const draftOfStarter = (name: string, description: string, interval: number, watch: WatchInput): BotInput => ({
   name,
-  description: "",
+  description,
   intervalMinutes: interval,
   watches: [watch],
 });
@@ -1773,7 +2385,7 @@ export const STARTERS: Starter[] = [
       ["You fill in", "Link, price"],
     ],
     chatText: "Tell me when the price on this page drops under ",
-    draft: draftOfStarter("", 360, { kind: "page", url: "", read: "product_price", rules: [{ kind: "below" }] }),
+    draft: draftOfStarter("", "Tell me when this product drops under a price.", 360, { kind: "page", url: "", read: "product_price", rules: [{ kind: "below" }] }),
   },
   {
     id: "page_changed",
@@ -1788,7 +2400,7 @@ export const STARTERS: Starter[] = [
       ["You fill in", "Link, the part"],
     ],
     chatText: "Tell me when this part of a page changes: ",
-    draft: draftOfStarter("", 30, { kind: "page", url: "", read: "selector", selector: "", rules: [{ kind: "any_change" }] }),
+    draft: draftOfStarter("", "Tell me when this part of a page changes.", 30, { kind: "page", url: "", read: "selector", selector: "", rules: [{ kind: "any_change" }] }),
   },
   {
     id: "stock_move",
@@ -1803,7 +2415,7 @@ export const STARTERS: Starter[] = [
       ["You fill in", "Symbol"],
     ],
     chatText: "Tell me if NVDA moves more than 5% in a day",
-    draft: draftOfStarter("NVDA moves 5% in a day", 0, {
+    draft: draftOfStarter("NVDA moves 5% in a day", "Tell me if NVDA moves more than 5% in a day.", 0, {
       kind: "price",
       source: "stock",
       symbol: "NVDA",
@@ -1824,7 +2436,7 @@ export const STARTERS: Starter[] = [
       ["You fill in", "Feed link"],
     ],
     chatText: "Tell me about new posts in this feed: ",
-    draft: draftOfStarter("", 0, { kind: "feed", url: "", rules: [{ kind: "new_item" }] }),
+    draft: draftOfStarter("", "Tell me about new posts in this feed.", 0, { kind: "feed", url: "", rules: [{ kind: "new_item" }] }),
   },
   {
     id: "morning_brief",
@@ -1838,9 +2450,17 @@ export const STARTERS: Starter[] = [
       ["Tells me when", "Every morning at 08:00"],
       ["You fill in", "Which bots, the time"],
     ],
-    chatText: null,
-    draft: null,
-    later: true,
+    chatText: "Every morning at 08:00, sum up what my other bots found",
+    draft: {
+      name: "Morning brief",
+      description: "Each morning, sum up what my other bots found.",
+      intervalMinutes: 1440,
+      kind: "brief",
+      briefTime: "08:00",
+      briefAi: false,
+      sources: [],
+      watches: [],
+    },
   },
 ];
 
@@ -1919,6 +2539,12 @@ export function draftErrors(draft: BotInput, hasKey?: (source: string) => boolea
   if ([...draft.description.trim()].length > BOT_LIMITS.maxDescriptionLen) {
     out.push(`Keep the description under ${BOT_LIMITS.maxDescriptionLen} characters`);
   }
+  if (draft.kind === "brief") {
+    const n = (draft.sources ?? []).length;
+    if (n === 0) out.push("Pick at least one bot to sum up");
+    else if (n > BOT_LIMITS.maxBriefSources) out.push(`Pick 1 to ${BOT_LIMITS.maxBriefSources} bots for the brief to sum up`);
+    return out;
+  }
   const ws = draft.watches;
   if (ws.length === 0) out.push("Give the bot something to watch: a page, a feed or a price");
   if (ws.length > BOT_LIMITS.maxWatches) out.push(`A bot can watch up to ${BOT_LIMITS.maxWatches} things`);
@@ -1957,17 +2583,40 @@ export function draftErrors(draft: BotInput, hasKey?: (source: string) => boolea
   return out;
 }
 
-/** A draft ready for `POST /bots`. */
+/** Pass to links ready to send: filter words trimmed, empties dropped. */
+const cleanLinks = (links: LinkInput[]): LinkInput[] =>
+  links.map((l) => {
+    const out: LinkInput = { botId: l.botId, filter: (l.filter ?? []).map((w) => w.trim()).filter(Boolean) };
+    if (l.id) out.id = l.id;
+    if (l.enabled !== undefined) out.enabled = l.enabled;
+    return out;
+  });
+
+/** A draft ready for `POST /bots`. A brief sends no watches. */
 export function toInput(draft: BotInput): BotInput {
+  const brief = draft.kind === "brief";
   const out: BotInput = {
     name: draft.name.replace(/\s+/g, " ").trim(),
     description: draft.description.trim(),
     intervalMinutes: draft.intervalMinutes || 0,
-    watches: draft.watches.map(cleanWatchInput),
+    watches: brief ? [] : draft.watches.map(cleanWatchInput),
   };
+  if (draft.kind) out.kind = draft.kind;
   if (draft.judgeMode) out.judgeMode = draft.judgeMode;
   for (const k of ["urgent", "desktop", "phone"] as const) if (draft[k] !== undefined) out[k] = draft[k];
+  if (draft.knowledge !== undefined) out.knowledge = draft.knowledge ? { kind: draft.knowledge.kind, id: draft.knowledge.id } : null;
+  if (draft.passesTo) out.passesTo = cleanLinks(draft.passesTo);
+  if (draft.sources) out.sources = [...draft.sources];
+  for (const k of ["briefOnly", "briefAi"] as const) if (draft[k] !== undefined) out[k] = draft[k];
+  if (draft.briefTime) out.briefTime = draft.briefTime;
   return out;
+}
+
+/** A bot's saved Pass to links as inputs, oldest first. */
+function savedPasses(botId: string, links: LinkView[]): LinkInput[] {
+  return links
+    .filter((l) => l.kind === "pass" && l.fromBotId === botId)
+    .map((l) => ({ id: l.id, botId: l.toBotId, filter: [...l.filter], enabled: l.enabled }));
 }
 
 /** A saved watch as an editable input. */
@@ -1987,9 +2636,12 @@ export function watchInputOf(w: WatchView): WatchInput {
   return out;
 }
 
-/** A saved bot as an editable draft. */
-export function draftOf(view: BotView): BotInput {
-  return {
+/**
+ * A saved bot as an editable draft. With its links (`BotDetail.links`) the
+ * draft also holds its Pass to links; without them it leaves them as they are.
+ */
+export function draftOf(view: BotView, links?: LinkView[] | null): BotInput {
+  const draft: BotInput = {
     name: view.name,
     description: view.description,
     intervalMinutes: view.intervalMinutes,
@@ -1998,23 +2650,50 @@ export function draftOf(view: BotView): BotInput {
     desktop: view.desktop,
     phone: view.phone,
     watches: view.watches.map(watchInputOf),
+    kind: view.kind ?? "watch",
+    knowledge: view.knowledge ? { kind: view.knowledge.kind, id: view.knowledge.id } : null,
+    briefOnly: !!view.briefOnly,
   };
+  if (links) draft.passesTo = savedPasses(view.id, links);
+  if (isBrief(view)) {
+    draft.sources = [...sourcesOf(view)];
+    draft.briefAi = !!view.briefAi;
+    draft.briefTime = view.briefTime || DEFAULT_BRIEF_TIME;
+  }
+  return draft;
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-/** The edit that turns a saved bot into the draft: only what changed ({} when nothing did). */
-export function toPatch(view: BotView, draft: BotInput): BotPatch {
+/**
+ * The edit that turns a saved bot into the draft: only what changed ({} when
+ * nothing did). The kind never changes. `passesTo` is compared with the
+ * bot's saved links (`BotDetail.links`) and sent only when they differ.
+ */
+export function toPatch(view: BotView, draft: BotInput, links?: LinkView[] | null): BotPatch {
   const next = toInput(draft);
   const patch: BotPatch = {};
+  const brief = isBrief(view);
   if (next.name !== view.name) patch.name = next.name;
   if (next.description !== view.description) patch.description = next.description;
-  if (next.intervalMinutes && next.intervalMinutes !== view.intervalMinutes) patch.intervalMinutes = next.intervalMinutes;
+  if (!brief && next.intervalMinutes && next.intervalMinutes !== view.intervalMinutes) patch.intervalMinutes = next.intervalMinutes;
+  if (next.judgeMode && next.judgeMode !== (view.judgeMode || "rules")) patch.judgeMode = next.judgeMode;
   for (const k of ["urgent", "desktop", "phone"] as const) {
     if (next[k] !== undefined && next[k] !== view[k]) patch[k] = next[k];
   }
-  const saved = view.watches.map((w) => cleanWatchInput(watchInputOf(w)));
-  if (!same(saved, next.watches)) patch.watches = next.watches;
+  if (!brief) {
+    const saved = view.watches.map((w) => cleanWatchInput(watchInputOf(w)));
+    if (!same(saved, next.watches)) patch.watches = next.watches;
+  }
+  if (next.knowledge !== undefined) {
+    const was = view.knowledge ? { kind: view.knowledge.kind, id: view.knowledge.id } : null;
+    if (!same(was, next.knowledge)) patch.knowledge = next.knowledge;
+  }
+  if (next.passesTo && !same(cleanLinks(savedPasses(view.id, links ?? [])), next.passesTo)) patch.passesTo = next.passesTo;
+  if (next.sources && !same(sourcesOf(view), next.sources)) patch.sources = next.sources;
+  if (next.briefOnly !== undefined && next.briefOnly !== !!view.briefOnly) patch.briefOnly = next.briefOnly;
+  if (next.briefAi !== undefined && next.briefAi !== !!view.briefAi) patch.briefAi = next.briefAi;
+  if (next.briefTime && next.briefTime !== (view.briefTime || "")) patch.briefTime = next.briefTime;
   return patch;
 }
 
@@ -2027,9 +2706,10 @@ export function toPatch(view: BotView, draft: BotInput): BotPatch {
  */
 export function previewCard(args: BotInput, preview?: PreviewResult | null, now: Date = new Date()): BotView {
   const at = now.toISOString();
+  const brief = args.kind === "brief";
   const read = preview?.watches ?? [];
   const ok = read.some((p) => p.ok);
-  const watches: WatchView[] = (args.watches ?? []).map((w, i) => {
+  const watches: WatchView[] = (brief ? [] : (args.watches ?? [])).map((w, i) => {
     const p = read.find((x) => x.index === i);
     const value = p?.ok ? p.value : null;
     return {
@@ -2041,6 +2721,7 @@ export function previewCard(args: BotInput, preview?: PreviewResult | null, now:
       source: w.source ?? "",
       symbol: w.symbol ?? "",
       currency: w.currency || p?.currency || "",
+      readingCurrency: p?.ok ? p.currency : "",
       rules: (w.rules ?? []).map(fieldsOf),
       health: p && !p.ok && p.health ? p.health : { code: "new", line: "" },
       lastReadingAt: p?.ok ? p.at : null,
@@ -2063,8 +2744,8 @@ export function previewCard(args: BotInput, preview?: PreviewResult | null, now:
     pauseReason: null,
     origin: "chat",
     originClient: "",
-    judgeMode: "rules",
-    intervalMinutes: args.intervalMinutes || defaultMinutes(watches),
+    judgeMode: args.judgeMode === "ai" ? "ai" : "rules",
+    intervalMinutes: brief ? 1440 : args.intervalMinutes || defaultMinutes(watches),
     urgent: !!args.urgent,
     desktop: args.desktop ?? true,
     phone: args.phone ?? true,
@@ -2084,17 +2765,28 @@ export function previewCard(args: BotInput, preview?: PreviewResult | null, now:
     strip: "",
     latestAlert: null,
     itemsToday: 0,
+    kind: brief ? "brief" : "watch",
+    briefOnly: !!args.briefOnly,
+    briefAi: brief && !!args.briefAi,
+    briefTime: brief ? args.briefTime || DEFAULT_BRIEF_TIME : "",
+    sources: brief ? [...(args.sources ?? [])] : [],
+    knowledge: null,
+    aiChecksToday: 0,
+    suggestion: null,
   };
 }
 
-/** The rows beside a proposal's card: First check, Then, At most. */
+/** The rows beside a proposal's card: First check, Then, At most (and AI checks); a brief's Sends. */
 export function proposalFacts(args: BotInput): [string, string][] {
+  if (args.kind === "brief") return [["Sends", `Daily at ${args.briefTime || DEFAULT_BRIEF_TIME}`]];
   const every = args.intervalMinutes || defaultMinutes(args.watches ?? []);
-  return [
+  const rows: [string, string][] = [
     ["First check", "On approve"],
     ["Then", `Every ${intervalLabel(every).replace(/^1 /, "")}`],
     ["At most", `${BOT_LIMITS.alertsPerDay} alerts a day`],
   ];
+  if (args.judgeMode === "ai") rows.push(["AI checks", `Up to ${BOT_LIMITS.aiPerBot} a day`]);
+  return rows;
 }
 
 const MAX_LABEL_RUNES = 40;

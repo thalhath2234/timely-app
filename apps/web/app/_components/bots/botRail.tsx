@@ -1,12 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { ExternalLink, Eye } from "lucide-react";
+import { ExternalLink, Eye, Lightbulb } from "lucide-react";
 import {
   BOT_LIMITS,
+  DEFAULT_BRIEF_TIME,
   agoLabel,
   alertMeta,
+  checkOutcomeLabel,
+  ALL_PAUSED,
+  briefClock,
   clockLabel,
+  fixAction,
+  fixCopy,
   formatMoney,
   isPriceReading,
   limitRows,
@@ -23,7 +29,6 @@ import {
   type AlertView,
   type BotDetail,
   type BotInput,
-  type CheckOutcome,
   type PreviewResult,
   type Rearm,
   type WatchView,
@@ -37,28 +42,16 @@ import {
 import Button from "@/app/_components/_ui/button";
 import SegmentedControl from "@/app/_components/_ui/segmentedControl";
 import { cn } from "@/app/utils/cn";
-import { useBotPreview } from "@/app/utils/hooks/bots";
+import { useBotPreview, useBots } from "@/app/utils/hooks/bots";
+import { AiAlertLine } from "./aiAlertLine";
 import { AlertFeedback } from "./alertFeedback";
 import { useBotActions } from "./botActions";
 import { BotCard } from "./botCard";
 import { BotMark } from "./botMark";
 import { CheckStrip } from "./checkStrip";
-import { alertHeadline } from "./needsAction";
+import { HowItCame } from "./howItCame";
+import { alertHeadline, SuggestionButtons } from "./needsAction";
 import { PriceChart } from "./priceChart";
-
-const OUTCOMES: Record<CheckOutcome, string> = {
-  baseline: "First reading",
-  unchanged: "No change",
-  not_modified: "No change",
-  changed: "Changed",
-  fired: "Told you",
-  offline: "Offline",
-  rate_limited: "The site asked to wait",
-  site_busy: "Site busy",
-  robots: "The site asks not to be read",
-  strike: "Failed",
-  superseded: "Skipped",
-};
 
 /** "18:12". */
 const timeOf = (iso: string) =>
@@ -235,8 +228,22 @@ function ReadingSection({ watches, now }: { watches: WatchView[]; now: Date }) {
   );
 }
 
+/**
+ * A brief's sends of the last `days` days, from its recent alerts: the
+ * week and month counts on the bot hold alerts only. A brief sends
+ * about one a day, so a week fits in the rows the page carries.
+ */
+function briefsSent(detail: BotDetail, now: Date, days: number): number {
+  const since = now.getTime() - days * 24 * 60 * 60 * 1000;
+  return (detail.alerts ?? []).filter(
+    (a) => a.kind === "brief" && Date.parse(a.createdAt) >= since,
+  ).length;
+}
+
 function ChecksSection({ detail, now }: { detail: BotDetail; now: Date }) {
   const last = detail.checks?.[0];
+  const brief = detail.kind === "brief";
+  const allPaused = !!useBots().data?.summary.allPaused;
   return (
     <RailSection title="Checks" meta="This week">
       <RailRows>
@@ -244,7 +251,7 @@ function ChecksSection({ detail, now }: { detail: BotDetail; now: Date }) {
           label="Last check"
           meta={
             last
-              ? `${OUTCOMES[last.outcome] ?? last.outcome} · ${timeOf(last.startedAt)}`
+              ? `${checkOutcomeLabel(last.outcome)} · ${timeOf(last.startedAt)}`
               : undefined
           }
           value={
@@ -252,17 +259,24 @@ function ChecksSection({ detail, now }: { detail: BotDetail; now: Date }) {
           }
         />
         <RailRow
-          label="Next check"
+          label={brief ? "Next brief" : "Next check"}
           value={
             detail.status === "paused"
               ? "Paused"
-              : detail.nextCheckAt
-                ? clockLabel(detail.nextCheckAt, now)
-                : "Soon"
+              : allPaused
+                ? ALL_PAUSED
+                : detail.nextCheckAt
+                  ? brief
+                    ? briefClock(detail, detail.nextCheckAt, now)
+                    : clockLabel(detail.nextCheckAt, now)
+                  : "Soon"
           }
         />
-        <RailRow label="Checks" value={detail.week.checks} />
-        <RailRow label="Alerts" value={detail.week.alerts} />
+        <RailRow label={brief ? "Runs" : "Checks"} value={detail.week.checks} />
+        <RailRow
+          label={brief ? "Briefs sent" : "Alerts"}
+          value={brief ? briefsSent(detail, now, 7) : detail.week.alerts}
+        />
       </RailRows>
       <div className="mt-3">
         <CheckStrip marks={detail.strip} size="big" legend />
@@ -273,8 +287,106 @@ function ChecksSection({ detail, now }: { detail: BotDetail; now: Date }) {
 
 type Item = { at: number; alert?: AlertView; rearm?: Rearm };
 
+/**
+ * One alert in Recent alerts: its headline and when, what the AI judge did
+ * (the "Not checked by AI" pill and its line), who else saw it, Useful / Not
+ * useful, and "How this came to you".
+ */
+function AlertItem({ detail, alert }: { detail: BotDetail; alert: AlertView }) {
+  // Held by the judge, or folded into another bot's alert on the same thing.
+  const eyebrow = alert.held === "judged" ? "Held back by AI" : null;
+  const quiet = alert.held === "judged" || alert.held === "shared";
+  return (
+    <li className="flex flex-col gap-1 border-t border-border py-3 first:border-t-0 first:pt-0">
+      {eyebrow ? (
+        <span className="pl-3.5 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+          {eyebrow}
+        </span>
+      ) : null}
+      <span className="flex min-w-0 items-center gap-2">
+        <i
+          aria-hidden
+          className={cn(
+            "block size-1.5 shrink-0 rounded-full",
+            quiet ? "bg-muted-foreground/60" : "bg-primary",
+          )}
+        />
+        <span
+          className={cn(
+            "truncate text-[13px] font-semibold",
+            quiet ? "text-muted-foreground" : "text-foreground",
+          )}
+        >
+          {alertHeadline(alert, detail.name, false).title}
+        </span>
+      </span>
+      <span className="pl-3.5 text-xs tabular-nums text-muted-foreground">
+        {alertMeta(alert)}
+      </span>
+      <AiAlertLine alert={alert} variant="full" className="pl-3.5" />
+      <div className="flex flex-col items-start gap-1 pl-3.5 pt-1">
+        {/* As wide as the "Why not?" popover (w-72) or the item, whichever is
+            narrower, so the popover stays in the item and near its button. */}
+        <div className="w-full max-w-72">
+          <AlertFeedback botId={detail.id} alert={alert} align="end" />
+        </div>
+        <HowItCame bot={detail} alert={alert} links={detail.links} />
+      </div>
+    </li>
+  );
+}
+
+/**
+ * A brief's newest brief: what it listed, one line per find. The lines are
+ * shown even beside an AI-written body, which may leave some out.
+ */
+function LastBriefSection({ detail, now }: { detail: BotDetail; now: Date }) {
+  const last = (detail.alerts ?? []).find((a) => a.kind === "brief");
+  const lines = last?.lines ?? [];
+  const written = last && last.aiState === "judged" ? last.body.trim() : "";
+  return (
+    <RailSection
+      title="Last brief"
+      meta={last ? agoLabel(last.createdAt, now) : undefined}
+    >
+      {!last ? (
+        <RailEmpty>
+          No brief yet. The first one goes out at{" "}
+          {detail.briefTime || DEFAULT_BRIEF_TIME}, once its bots find
+          something.
+        </RailEmpty>
+      ) : (
+        <>
+          {written ? (
+            <p className="mb-2.5 whitespace-pre-line rounded-[10px] bg-fill px-3 py-2.5 text-[13px] leading-relaxed text-foreground">
+              {written}
+            </p>
+          ) : null}
+          {lines.length ? (
+            <RailRows>
+              {lines.map((line, i) => (
+                <li
+                  key={`${i}-${line}`}
+                  className="border-t border-border py-2 text-[13px] leading-5 text-foreground first:border-t-0"
+                >
+                  {line}
+                </li>
+              ))}
+            </RailRows>
+          ) : (
+            <RailEmpty>{last.body || last.title}</RailEmpty>
+          )}
+        </>
+      )}
+    </RailSection>
+  );
+}
+
 function AlertsSection({ detail }: { detail: BotDetail }) {
-  const alerts = (detail.alerts ?? []).filter((a) => a.kind === "alert");
+  const brief = detail.kind === "brief";
+  const alerts = (detail.alerts ?? []).filter(
+    (a) => a.kind === "alert" || (brief && a.kind === "brief"),
+  );
   const items: Item[] = [
     ...alerts.map((alert) => ({ at: Date.parse(alert.createdAt), alert })),
     ...(detail.rearms ?? []).map((rearm) => ({
@@ -291,40 +403,25 @@ function AlertsSection({ detail }: { detail: BotDetail }) {
   return (
     <RailSection
       title="Recent alerts"
-      meta={`${detail.alertsMonth} in 30 days`}
+      // A brief's month is not counted on the bot (alerts only), and its
+      // recent rows are too few to count 30 daily briefs: no meta.
+      meta={brief ? undefined : `${detail.alertsMonth} in 30 days`}
     >
       {items.length === 0 ? (
         <RailEmpty>
-          No alerts yet. A rule tells you once when it becomes true.
+          {brief
+            ? "No briefs yet. Each one shows here once it is sent."
+            : "No alerts yet. A rule tells you once when it becomes true."}
         </RailEmpty>
       ) : (
         <ul className="flex flex-col">
           {items.map((item) =>
             item.alert ? (
-              <li
+              <AlertItem
                 key={item.alert.id}
-                className="flex flex-col gap-1 border-t border-border py-3 first:border-t-0 first:pt-0"
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  <i
-                    aria-hidden
-                    className="block size-1.5 shrink-0 rounded-full bg-primary"
-                  />
-                  <span className="truncate text-[13px] font-semibold text-foreground">
-                    {alertHeadline(item.alert, detail.name, false).title}
-                  </span>
-                </span>
-                <span className="pl-3.5 text-xs tabular-nums text-muted-foreground">
-                  {alertMeta(item.alert)}
-                </span>
-                <div className="pl-3.5 pt-1">
-                  <AlertFeedback
-                    botId={detail.id}
-                    alert={item.alert}
-                    align="end"
-                  />
-                </div>
-              </li>
+                detail={detail}
+                alert={item.alert}
+              />
             ) : item.rearm ? (
               <li
                 key={`rearm-${item.rearm.at}-${item.rearm.ruleId}`}
@@ -405,7 +502,28 @@ function LookOverSection({ botId }: { botId: string }) {
 }
 
 /**
- * The open bot's rail: its price over 30 days (or the latest reading of a
+ * "Suggested change", after three Not useful alerts in a row on a rules-only
+ * bot: the change in words, Apply ("Raise to 8%") and Not now, the same as
+ * on its Needs you card.
+ */
+function SuggestionSection({ detail }: { detail: BotDetail }) {
+  const actions = useBotActions(() => {});
+  const copy = fixCopy(detail);
+  return (
+    <RailSection
+      title="Suggested change"
+      icon={<Lightbulb className="size-4 shrink-0 text-warning-text" />}
+      className="border-warning/45"
+    >
+      <p className="text-sm font-semibold text-foreground">{copy.title}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{copy.meta}</p>
+      <SuggestionButtons bot={detail} actions={actions} className="mt-3" />
+    </RailSection>
+  );
+}
+
+/**
+ * The open bot's rail: a suggested change when there is one, its price over 30 days (or the latest reading of a
  * page or feed), this week's checks with the strip, and recent alerts with
  * Useful / Not useful, re-arms in between. A bot waiting for the person's OK
  * starts with a card that reads it once when the person asks.
@@ -419,10 +537,22 @@ export function BotRail({
   now: Date;
   lookOver?: boolean;
 }) {
+  if (detail.kind === "brief") {
+    return (
+      <>
+        <ChecksSection detail={detail} now={now} />
+        <LastBriefSection detail={detail} now={now} />
+        <AlertsSection detail={detail} />
+      </>
+    );
+  }
   const prices = detail.watches.filter(isPriceReading);
   const readings = detail.watches.filter((w) => !isPriceReading(w));
+  const suggests =
+    !!detail.suggestion && fixAction(detail) === "apply_suggestion";
   return (
     <>
+      {suggests ? <SuggestionSection detail={detail} /> : null}
       {lookOver ? <LookOverSection botId={detail.id} /> : null}
       {prices.length ? (
         <PriceSection key={`p-${detail.id}`} detail={detail} watches={prices} />
@@ -448,10 +578,11 @@ export function NewBotRail({
 }) {
   const actions = useBotActions(() => {});
   const card = previewCard(draft, preview, now);
+  const brief = draft.kind === "brief";
   return (
     <>
       <RailSection title="On your board">
-        {draft.watches.length ? (
+        {draft.watches.length || brief ? (
           <div className="[&>article]:border-dashed">
             <BotCard bot={card} now={now} variant="preview" actions={actions} />
           </div>
@@ -481,20 +612,22 @@ export function NewBotRail({
           </article>
         )}
       </RailSection>
-      <RailSection title="After you create it">
-        <RailRows>
-          <RailRow label="First check" value="Right away" />
-          <RailRow label="First reading" value="Kept quietly" tone="muted" />
-          <RailRow
-            label="Alerts"
-            value={`Up to ${BOT_LIMITS.alertsPerDay} a day`}
-          />
-        </RailRows>
-        <p className="pt-2 text-xs leading-relaxed text-muted-foreground">
-          The first check only records where things stand. Alerts start from the
-          next change.
-        </p>
-      </RailSection>
+      {brief ? null : (
+        <RailSection title="After you create it">
+          <RailRows>
+            <RailRow label="First check" value="Right away" />
+            <RailRow label="First reading" value="Kept quietly" tone="muted" />
+            <RailRow
+              label="Alerts"
+              value={`Up to ${BOT_LIMITS.alertsPerDay} a day`}
+            />
+          </RailRows>
+          <p className="pt-2 text-xs leading-relaxed text-muted-foreground">
+            The first check only records where things stand. Alerts start from
+            the next change.
+          </p>
+        </RailSection>
+      )}
       <RailSection title="Limits" meta="Kept by Timely">
         <RailRows>
           {limitRows().map(([label, value]) => (

@@ -1,7 +1,7 @@
 import { Text, View } from "react-native";
 import { Image } from "expo-image";
-import { Bot, ChartCandlestick, Globe, Rss, Tag } from "lucide-react-native";
-import { hostOf, monogram, watchKindIcon, type WatchInput, type WatchView } from "@timely/contract/bots";
+import { Bot, ChartCandlestick, Globe, Rss, Sunrise, Tag } from "lucide-react-native";
+import { hostOf, monogram, watchKindIcon, type BotKind, type WatchInput, type WatchView } from "@timely/contract/bots";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 /** Site logos by site, as data URIs; null when a site has none (`useBotIcons`). */
@@ -51,15 +51,18 @@ function SiteLogo({ site, src, px, ring }: { site: string; src: string | null | 
 /**
  * A bot's mark: its site's logo (or the site's first letter), two overlapped
  * logos when it reads two or more sites, or the symbol's letters for a price,
- * with the first watch's kind as a small corner badge. Same rules as the web.
+ * with the first watch's kind as a small corner badge. A brief, which
+ * watches nothing, draws a sunrise. Same rules as the web.
  */
 export function BotMark({
   watches,
+  kind,
   size = 36,
   icons,
   badge = size >= 28,
 }: {
   watches: (MarkWatch | WatchInput)[];
+  kind?: BotKind;
   size?: 24 | 28 | 36;
   icons?: SiteIcons;
   badge?: boolean;
@@ -68,7 +71,9 @@ export function BotMark({
   const sites = botSites(watches);
   const { radius, logo } = SIZES[size];
   let inner;
-  if (!first) {
+  if (kind === "brief") {
+    inner = <Sunrise size={Math.round(size / 2)} color={colors.mutedForeground} />;
+  } else if (!first) {
     inner = <Bot size={Math.round(size / 2)} color={colors.mutedForeground} />;
   } else if (sites.length === 0) {
     const letters = monogram(first);

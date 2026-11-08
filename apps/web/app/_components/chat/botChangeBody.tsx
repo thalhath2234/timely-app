@@ -237,7 +237,9 @@ export default function BotChangeBody({
     () => previewCard(group.args, group.preview, now),
     [group.args, group.preview, now],
   );
-  const reads = group.preview?.watches ?? [];
+  // A brief reads no page: it has nothing to show under "Right now it reads".
+  const brief = group.args.kind === "brief";
+  const reads = brief ? [] : (group.preview?.watches ?? []);
   const several = group.args.watches.length > 1;
   let lastWatch: number | undefined;
   const rows: ReactNode[] = [];
@@ -309,7 +311,7 @@ export default function BotChangeBody({
           />
         );
       })}
-      {group.previewError ? (
+      {group.previewError && !brief ? (
         <section
           aria-label="What it reads"
           className="flex items-start gap-3 rounded-[12px] border border-border bg-card p-4"

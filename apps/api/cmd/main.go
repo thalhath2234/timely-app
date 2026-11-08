@@ -135,7 +135,8 @@ func main() {
 	notifyService := notify.NewService(db, jobQueue, calendarService, taskService, scheduleService, indexer)
 	portabilityService := portability.NewService(db, jobQueue)
 	// Bots (ADR 0021): bots.next_check_at is the schedule; the sweep queues
-	// due Bots and checks run four at a time on a lane of their own.
+	// due Bots and checks run three at a time on a lane of their own; passed
+	// items and re-judges share one more slot (ADR 0024).
 	botService := bots.New(db, jobQueue)
 	botKeys, err := bots.NewKeyStore(db)
 	if err != nil {
@@ -149,7 +150,9 @@ func main() {
 	// own and never hold up reminders, pushes or each other.
 	jobWorker.Separate(models.JobReindexUser)
 	jobWorker.Separate(models.JobIndexEntity)
-	jobWorker.SeparateN(bots.Slots, models.JobBotCheck)
+	jobWorker.SeparateN(bots.CheckSlots, models.JobBotCheck)
+	// Re-judges and passed items share one slot of their own.
+	jobWorker.Separate(models.JobBotPass, models.JobBotJudge)
 	// A site logo can wait on robots.txt, a home page and the logo itself,
 	// each behind its site's spacing, so logos keep to a lane of their own.
 	jobWorker.Separate(models.JobBotIcon)
@@ -163,6 +166,8 @@ func main() {
 	})
 	providerService := provider.New(db, indexer, jobQueue)
 	providerService.Register(jobWorker)
+	// AI-judged Bots ask the account's provider, on its small model.
+	botService.SetJudge(providerService.BotJudge())
 	indexRebuild = providerService.EnsureIndex
 	// A restore replaces every row and drops the search index with them, so
 	// it queues a rebuild, which Settings shows while it runs.

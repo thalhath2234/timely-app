@@ -1179,6 +1179,104 @@ const fs = require("node:fs");
     path: "/tmp/timely-chat-bot-dark.png",
     fullPage: true,
   });
+  // A bot link proposal: update_bot with passesTo, the linked bot named
+  // from the board, never by its id.
+  themeMode = "light";
+  botChat.status = "approval";
+  botChat.plan = [
+    {
+      tool: "update_bot",
+      summary: "Have Go release news check release posts first",
+      arguments: {
+        bot: "bot_gonews",
+        passesTo: [{ bot: "bot_gorelease", filter: ["release"] }],
+      },
+      status: "pending",
+      before: {
+        id: "bot_gonews",
+        name: "Go news feed",
+        description: "",
+        status: "active",
+        intervalMinutes: 30,
+        judgeMode: "rules",
+        desktop: true,
+        phone: true,
+        urgent: false,
+        watches: [
+          {
+            id: "bot_gonews_w",
+            ...feedWatch,
+            read: "",
+            selector: "",
+            source: "",
+            symbol: "",
+            currency: "",
+            rules: [{ kind: "new_item" }],
+          },
+        ],
+        passesTo: [],
+      },
+    },
+  ];
+  await page.reload();
+  await proposal
+    .getByRole("heading", { name: "Go news feed", exact: true })
+    .waitFor();
+  await proposal
+    .getByText("Go release news · mentions release", { exact: true })
+    .first()
+    .waitFor();
+  await expect(proposal.getByText("bot_gorelease")).toHaveCount(0);
+  await expect(proposal.getByText(/^Right now it reads/)).toHaveCount(0);
+  await page.waitForTimeout(450);
+  await page.screenshot({
+    path: "/tmp/timely-chat-bot-link.png",
+    fullPage: true,
+  });
+  // A brief proposal: create_bot kind brief sums up bots instead of
+  // watching, sends daily, and reads no page.
+  botChat.plan = [
+    {
+      tool: "create_bot",
+      summary: "Make a morning brief",
+      arguments: {
+        name: "Morning brief",
+        description: "Each morning, sum up what my other bots found.",
+        intervalMinutes: 1440,
+        kind: "brief",
+        sources: ["bot_gonews", "bot_gpu"],
+        briefTime: "08:00",
+        watches: [],
+      },
+      status: "pending",
+    },
+  ];
+  await page.reload();
+  await proposal
+    .getByRole("heading", { name: "Morning brief", exact: true })
+    .waitFor();
+  for (const text of [
+    "Go news feed",
+    "GPU deals under $400",
+    "Daily at 08:00",
+    "Timely",
+    "Nothing yet",
+    "The brief starts when you approve. It reads only what your bots found, never a page.",
+  ])
+    await proposal.getByText(text, { exact: true }).first().waitFor();
+  await expect(proposal.getByText("Sums up", { exact: true })).toHaveCount(2);
+  await expect(proposal.getByText("Checks every", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(proposal.getByText("First check", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(proposal.getByText(/^Right now it reads/)).toHaveCount(0);
+  await page.waitForTimeout(450);
+  await page.screenshot({
+    path: "/tmp/timely-chat-bot-brief.png",
+    fullPage: true,
+  });
   // Tagged bots: each answer as a card under the reply, fresh, still
   // checking, and paused.
   themeMode = "light";
@@ -1445,6 +1543,8 @@ const fs = require("node:fs");
         "/tmp/timely-chat-bot-not-it.png",
         "/tmp/timely-chat-bot-two.png",
         "/tmp/timely-chat-bot-dark.png",
+        "/tmp/timely-chat-bot-link.png",
+        "/tmp/timely-chat-bot-brief.png",
         "/tmp/timely-chat-tag-answer.png",
         "/tmp/timely-chat-tag-picker.png",
         "/tmp/timely-chat-tag-full.png",

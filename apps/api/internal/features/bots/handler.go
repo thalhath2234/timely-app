@@ -22,9 +22,11 @@ func (s *Service) Routes(g *echo.Group) {
 	g.GET("/bots/icons", s.icons)
 	g.GET("/bots/defaults", s.alertDefaults)
 	g.PUT("/bots/defaults", s.setAlertDefaults)
+	g.PUT("/bots/paused", s.setAllPaused)
 	g.GET("/bots/keys", s.sourceKeys)
 	g.POST("/bots/keys/:source", s.saveSourceKey)
 	g.DELETE("/bots/keys/:source", s.deleteSourceKey)
+	g.PATCH("/bots/links/:linkId", s.setLink)
 	g.GET("/bots/:id", s.get)
 	g.PATCH("/bots/:id", s.update)
 	g.DELETE("/bots/:id", s.remove)
@@ -34,6 +36,8 @@ func (s *Service) Routes(g *echo.Group) {
 	g.POST("/bots/:id/run", s.run)
 	g.POST("/bots/:id/alerts/:alertId/feedback", s.rateAlert)
 	g.DELETE("/bots/:id/lessons/:lessonId", s.forgetLesson)
+	g.POST("/bots/:id/suggestion", s.applySuggestion)
+	g.DELETE("/bots/:id/suggestion", s.dismissSuggestion)
 }
 
 func user(c *echo.Context) string { v, _ := c.Get("userID").(string); return v }
@@ -53,12 +57,18 @@ func httpError(err error) error {
 		return echo.NewHTTPError(http.StatusNotFound, "Alert not found")
 	case errors.Is(err, ErrLessonNotFound):
 		return echo.NewHTTPError(http.StatusNotFound, "Lesson not found")
+	case errors.Is(err, ErrLinkNotFound):
+		return echo.NewHTTPError(http.StatusNotFound, "Link not found")
 	case errors.Is(err, ErrUnknownSource):
 		return echo.NewHTTPError(http.StatusNotFound, "Unknown price source")
 	case errors.As(err, &down):
 		return echo.NewHTTPError(http.StatusServiceUnavailable, down.Message)
+	case errors.Is(err, ErrSuggestionStale):
+		return echo.NewHTTPError(http.StatusConflict, ErrSuggestionStale.Error())
 	case errors.Is(err, ErrPaused):
 		return echo.NewHTTPError(http.StatusConflict, ErrPaused.Error())
+	case errors.Is(err, ErrAllPaused):
+		return echo.NewHTTPError(http.StatusConflict, ErrAllPaused.Error())
 	case errors.Is(err, ErrPreviewLimit):
 		return echo.NewHTTPError(http.StatusTooManyRequests, ErrPreviewLimit.Error())
 	case errors.Is(err, ErrKeyLimit):
@@ -70,10 +80,12 @@ func httpError(err error) error {
 func badRequest() error { return echo.NewHTTPError(http.StatusBadRequest, "Invalid request") }
 
 func (s *Service) list(c *echo.Context) error {
-	list, err := s.List(c.Request().Context(), user(c))
+	ctx := c.Request().Context()
+	list, err := s.List(ctx, user(c))
 	if err != nil {
 		return httpError(err)
 	}
+	list.Summary.AI = s.AIStatus(ctx, user(c))
 	return c.JSON(http.StatusOK, list)
 }
 
@@ -111,10 +123,20 @@ func (s *Service) get(c *echo.Context) error {
 	return c.JSON(http.StatusOK, d)
 }
 
+// update takes a Patch; its "knowledge" is read apart (KnowledgePatch), so
+// null clears it while leaving it out keeps it.
 func (s *Service) update(c *echo.Context) error {
-	var p Patch
-	if err := json.NewDecoder(c.Request().Body).Decode(&p); err != nil {
+	var body struct {
+		Patch
+		Knowledge json.RawMessage `json:"knowledge"`
+	}
+	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil {
 		return badRequest()
+	}
+	p := body.Patch
+	var err error
+	if p.Knowledge, p.ClearKnowledge, err = KnowledgePatch(body.Knowledge); err != nil {
+		return httpError(err)
 	}
 	v, err := s.Update(c.Request().Context(), user(c), c.Param("id"), p, OriginApp)
 	if err != nil {
@@ -226,8 +248,10 @@ func (s *Service) findings(c *echo.Context) error {
 }
 
 // rateAlert takes {"feedback":"useful"}, {"feedback":"not_useful",
-// "reason":"too_small"|"not_wanted"|"already_knew"|"","note":"..."} or
-// {"feedback":null} to take the rating back.
+// "reason":"too_small"|"not_wanted"|"already_knew"|"not_passed"|"",
+// "note":"..."} (not_passed only on a passed alert) or
+// {"feedback":null} to take the rating back. It answers the alert with the
+// lesson the rating taught ("lesson", null on undo).
 func (s *Service) rateAlert(c *echo.Context) error {
 	var in struct {
 		Feedback json.RawMessage `json:"feedback"`
@@ -256,11 +280,70 @@ func (s *Service) rateAlert(c *echo.Context) error {
 	return c.JSON(http.StatusOK, v)
 }
 
+// applySuggestion takes {"id": "bsg_..."}, the suggestion the person saw,
+// and answers the Bot, or 409 when that suggestion is out of date.
+func (s *Service) applySuggestion(c *echo.Context) error {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return badRequest()
+	}
+	v, err := s.ApplySuggestion(c.Request().Context(), user(c), c.Param("id"), in.ID)
+	if err != nil {
+		return httpError(err)
+	}
+	return c.JSON(http.StatusOK, v)
+}
+
+func (s *Service) dismissSuggestion(c *echo.Context) error {
+	if err := s.DismissSuggestion(c.Request().Context(), user(c), c.Param("id")); err != nil {
+		return httpError(err)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// setLink takes {"enabled": bool}: "Turn off this pass", or on again.
+func (s *Service) setLink(c *echo.Context) error {
+	var in struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return badRequest()
+	}
+	if in.Enabled == nil {
+		return httpError(invalid("Give enabled as true or false"))
+	}
+	v, err := s.SetLink(c.Request().Context(), user(c), c.Param("linkId"), *in.Enabled)
+	if err != nil {
+		return httpError(err)
+	}
+	return c.JSON(http.StatusOK, v)
+}
+
 func (s *Service) forgetLesson(c *echo.Context) error {
 	if err := s.ForgetLesson(c.Request().Context(), user(c), c.Param("id"), c.Param("lessonId")); err != nil {
 		return httpError(err)
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+// setAllPaused takes {"paused": bool}: "Pause all bots", or on again.
+func (s *Service) setAllPaused(c *echo.Context) error {
+	var in struct {
+		Paused *bool `json:"paused"`
+	}
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return badRequest()
+	}
+	if in.Paused == nil {
+		return httpError(invalid("Give paused as true or false"))
+	}
+	paused, err := s.SetAllPaused(c.Request().Context(), user(c), *in.Paused)
+	if err != nil {
+		return httpError(err)
+	}
+	return c.JSON(http.StatusOK, map[string]bool{"allPaused": paused})
 }
 
 func (s *Service) alertDefaults(c *echo.Context) error {

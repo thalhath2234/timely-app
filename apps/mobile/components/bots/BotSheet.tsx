@@ -13,12 +13,15 @@ import {
   Pencil,
   Play,
   RefreshCw,
+  Sunrise,
   Trash2,
 } from "lucide-react-native";
 import {
   DEFAULT_BOT_SETTINGS,
+  DEFAULT_BRIEF_TIME,
   agoLabel,
   alertMeta,
+  briefClock,
   clockLabel,
   draftErrors,
   draftOf,
@@ -75,15 +78,21 @@ import { ApiError } from "../../lib/api/client";
 import { useNow } from "../../lib/dashboard";
 import { useToastStore } from "../../lib/toast";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import { AlertAiLine } from "./AlertAiLine";
 import { AlertFeedback } from "./AlertFeedback";
 import { alertHeadline } from "./BotCard";
 import { BotGroups, DeleteRow, LessonsGroup, useWatchViews, type Commit } from "./BotGroups";
 import { BotMark, botSites } from "./BotMark";
+import { BriefGroups, LastBrief } from "./BriefGroups";
 import { CheckStrip } from "./CheckStrip";
+import { HowItCameSheet } from "./HowItCameSheet";
 import { PriceChart } from "./PriceChart";
 import { SnoozeSheet } from "./SnoozeSheet";
+import { SuggestionCard, suggests } from "./SuggestionCard";
 import { withAlpha } from "./tone";
+import { useBotActions } from "./useBotActions";
 import { isStock } from "./watchDraft";
+import { WorksWith, passInputs } from "./WorksWith";
 
 const say = (message: string) => useToastStore.getState().show(message);
 
@@ -262,22 +271,31 @@ function rearmLine(rearm: Rearm, detail: BotDetail): string {
   return `Armed again ${shortDate(rearm.at)}, back ${side} ${formatMoney(rearm.value, rearm.currency)}. No alert for that.`;
 }
 
-/** The newest alert with Useful / Not useful, and a re-arm that came after it. */
+/**
+ * The newest alert with what the AI judge did ("Not checked by AI", held
+ * back, also seen by), Useful / Not useful, a re-arm that came after it, and
+ * "How this came to you".
+ */
 function LatestAlert({ detail }: { detail: BotDetail }) {
   const alert = (detail.alerts ?? []).find((a) => a.kind === "alert");
   const rearm = detail.rearms?.[0];
   const later = rearm && (!alert || Date.parse(rearm.at) > Date.parse(alert.createdAt)) ? rearm : null;
+  const [how, setHow] = useState(false);
+  // Held by the judge, or folded into another bot's alert on the same thing.
+  const quiet = alert?.held === "judged" || alert?.held === "shared";
   return (
     <View style={styles.section}>
       <GroupLabel aside={`${detail.alertsMonth} in 30 days`}>Latest alert</GroupLabel>
       <View style={styles.card}>
         {alert ? (
           <>
+            {alert.held === "judged" ? <Text style={styles.eyebrow}>Held back by AI</Text> : null}
             <View style={styles.alertHead}>
-              <View style={styles.alertDot} />
-              <Text style={styles.alertTitle}>{alertHeadline(alert, detail.name).title}</Text>
+              <View style={[styles.alertDot, quiet && styles.alertDotQuiet]} />
+              <Text style={[styles.alertTitle, quiet && styles.alertTitleQuiet]}>{alertHeadline(alert, detail.name).title}</Text>
             </View>
             <Text style={[styles.meta, styles.alertMeta]}>{alertMeta(alert)}</Text>
+            <AlertAiLine alert={alert} variant="full" style={styles.alertAi} />
             <AlertFeedback botId={detail.id} alert={alert} />
           </>
         ) : (
@@ -285,6 +303,16 @@ function LatestAlert({ detail }: { detail: BotDetail }) {
         )}
         {later ? <Text style={[styles.meta, styles.rearm]}>{rearmLine(later, detail)}</Text> : null}
       </View>
+      {alert ? (
+        <>
+          <View style={styles.howRow}>
+            <ListGroup>
+              <ListRow title="How this came to you" onPress={() => setHow(true)} />
+            </ListGroup>
+          </View>
+          <HowItCameSheet open={how} onClose={() => setHow(false)} bot={detail} alert={alert} links={detail.links} />
+        </>
+      ) : null}
     </View>
   );
 }
@@ -399,6 +427,7 @@ function ViewSheet({
   onClose,
   onClosed,
   onAddKey,
+  onSetUpAi,
 }: {
   open: boolean;
   botId: string | null;
@@ -410,11 +439,13 @@ function ViewSheet({
   /** The sheet has slid away. */
   onClosed: () => void;
   onAddKey: () => void;
+  onSetUpAi: () => void;
 }) {
   const now = useNow(30_000);
   // Only an open sheet keeps its bot fresh; a closed one asks for nothing.
   const query = useBotQuery(botId, open);
-  const listed = useBotsQuery().data?.bots.find((b) => b.id === botId);
+  const board = useBotsQuery().data;
+  const listed = board?.bots.find((b) => b.id === botId);
   const detail = query.data && query.data.id === botId ? query.data : undefined;
   const bot: BotView | undefined = detail ?? listed;
   const update = useUpdateBot();
@@ -422,6 +453,7 @@ function ViewSheet({
   const resume = useResumeBot();
   const run = useRunBot();
   const remove = useDeleteBot();
+  const actions = useBotActions(onSelect);
   const hasKey = useHasKey();
   const views = useWatchViews(bot?.watches);
   const icons = useBotIcons(useMemo(() => botSites(bot?.watches ?? []), [bot?.watches])).data;
@@ -461,9 +493,13 @@ function ViewSheet({
     );
   }
 
-  const draft: BotInput = { ...draftOf(bot), ...pending };
+  // With the bot's page loaded the draft also holds its Pass to links, so an
+  // edit compares them with the saved ones and never drops one.
+  const links = detail?.links;
+  const draft: BotInput = { ...draftOf(bot, links), ...pending };
+  const brief = bot.kind === "brief";
   const commit: Commit = async (next, how) => {
-    const patch = toPatch(bot, next);
+    const patch = toPatch(bot, next, links);
     if (Object.keys(patch).length === 0) return;
     if (how === "page") {
       await update.mutateAsync({ id: bot.id, patch });
@@ -485,7 +521,8 @@ function ViewSheet({
   };
 
   const reason = needsReason(bot, now);
-  const health = healthLine(bot, now);
+  const allPaused = !!board?.summary.allPaused;
+  const health = healthLine(bot, now, undefined, { allPaused });
   const origin = originLine(bot);
   const runNow = runNowState(bot, now);
   const index = order.indexOf(bot.id);
@@ -562,7 +599,7 @@ function ViewSheet({
           onPress={() => setPage("name")}
           style={styles.lead}
         >
-          <BotMark watches={bot.watches} size={28} icons={icons} />
+          <BotMark watches={bot.watches} kind={bot.kind} size={28} icons={icons} />
           <Text numberOfLines={2} style={styles.name}>
             {bot.name}
           </Text>
@@ -582,33 +619,69 @@ function ViewSheet({
         <View style={styles.chips}>
           <MetaChip tone={health.tone}>{health.time && health.time.startsWith("until ") ? `${health.word} ${health.time}` : health.word}</MetaChip>
           {bot.lastCheckAt ? <MetaChip>{`Checked ${agoLabel(bot.lastCheckAt, now)}`}</MetaChip> : null}
-          {bot.status === "active" && bot.nextCheckAt ? <MetaChip>{`Next ${clockLabel(bot.nextCheckAt, now)}`}</MetaChip> : null}
+          {bot.status === "active" && bot.nextCheckAt && !allPaused ? (
+            <MetaChip>{brief ? `Next brief ${briefClock(bot, bot.nextCheckAt, now)}` : `Next ${clockLabel(bot.nextCheckAt, now)}`}</MetaChip>
+          ) : null}
           {origin ? <MetaChip>{origin}</MetaChip> : null}
         </View>
 
+        {suggests(bot) ? <SuggestionCard bot={bot} actions={actions} /> : null}
         {reason === "waiting_ok" ? <LookOver botId={bot.id} /> : null}
-        {detail ? (
+        {!detail ? (
+          <SkeletonRows rows={2} height={120} />
+        ) : brief ? (
+          <LastBrief detail={detail} now={now} />
+        ) : (
           <>
             {prices.length ? <PriceCard key={`p-${bot.id}`} detail={detail} watches={prices} /> : null}
             {readings.length ? <ReadingCard key={`r-${bot.id}`} detail={detail} watches={readings} now={now} /> : null}
             <LatestAlert detail={detail} />
           </>
-        ) : (
-          <SkeletonRows rows={2} height={120} />
         )}
 
-        <BotGroups
-          key={bot.id}
-          draft={draft}
-          views={views}
-          icons={icons}
-          alertsToday={bot.alertsToday}
-          hasKey={hasKey}
-          onAddKey={onAddKey}
-          onCommit={commit}
-          openWatch={watchId}
-        />
-        {detail ? <LessonsGroup botId={bot.id} lessons={detail.lessons ?? []} /> : null}
+        {brief ? (
+          <BriefGroups
+            key={bot.id}
+            draft={draft}
+            bots={board?.bots ?? []}
+            saved={bot.sources}
+            summary={board?.summary}
+            onCommit={commit}
+            onSetUpAi={onSetUpAi}
+          />
+        ) : (
+          <BotGroups
+            key={bot.id}
+            draft={draft}
+            views={views}
+            icons={icons}
+            alertsToday={bot.alertsToday}
+            hasKey={hasKey}
+            onAddKey={onAddKey}
+            onCommit={commit}
+            openWatch={watchId}
+            summary={board?.summary}
+            aiChecksToday={bot.aiChecksToday}
+            knowledgeView={bot.knowledge}
+            onSetUpAi={onSetUpAi}
+          />
+        )}
+        {detail && !brief ? (
+          <WorksWith
+            key={`w-${bot.id}`}
+            botId={bot.id}
+            passesTo={draft.passesTo ?? passInputs(bot.id, links)}
+            links={links}
+            bots={board?.bots ?? []}
+            briefOnly={!!draft.briefOnly}
+            onBriefOnly={(briefOnly) => void commit({ ...draft, briefOnly }, "quick")}
+            onPasses={async (passesTo) => {
+              await commit({ ...draft, passesTo }, "page");
+            }}
+            onOpenBot={onSelect}
+          />
+        ) : null}
+        {detail ? <LessonsGroup bot={bot} botId={bot.id} lessons={detail.lessons ?? []} /> : null}
         <View style={styles.deleteRow}>
           <DeleteRow onPress={() => setPage("delete")} />
         </View>
@@ -726,22 +799,26 @@ function NewSheet({
   onCreated,
   onClose,
   onAddKey,
+  onSetUpAi,
 }: {
   open: boolean;
   starter?: StarterId | string | null;
   onCreated: (id: string) => void;
   onClose: () => void;
   onAddKey: () => void;
+  onSetUpAi: () => void;
 }) {
   const defaults = useBotDefaultsQuery();
+  const board = useBotsQuery().data;
+  const summary = board?.summary;
   const create = useCreateBot();
   const hasKey = useHasKey();
   const settings = defaults.data ?? DEFAULT_BOT_SETTINGS;
   const from = starterById(starter);
   const [draft, setDraft] = useState<BotInput>(() => emptyDraft());
   const [touched, setTouched] = useState(false);
-  // Leaving a touched draft asks first: by closing it, or for the Finnhub key in Settings.
-  const [leaving, setLeaving] = useState<"close" | "key" | null>(null);
+  // Leaving a touched draft asks first: by closing it, or for the Finnhub key or an AI provider in Settings.
+  const [leaving, setLeaving] = useState<"close" | "key" | "ai" | null>(null);
   // Fill the draft when the sheet opens, and again when the person's alert
   // defaults arrive, unless it has been touched by then.
   const seed = open ? `${from?.id ?? "blank"}|${defaults.data ? "saved" : "default"}` : null;
@@ -752,6 +829,8 @@ function NewSheet({
   }
   const icons = useBotIcons(useMemo(() => botSites(draft.watches), [draft.watches])).data;
   const problems = draftErrors(draft, hasKey);
+  const brief = draft.kind === "brief";
+  const firstBrief = draft.briefTime || DEFAULT_BRIEF_TIME;
   const needsKey = draft.watches.some((w) => w.kind === "price" && isStock(w.source)) && !hasKey("finnhub");
 
   const change = (next: BotInput) => {
@@ -761,16 +840,27 @@ function NewSheet({
   };
   const close = () => (touched ? setLeaving("close") : onClose());
   const addKey = () => (touched ? setLeaving("key") : onAddKey());
+  const setUpAi = () => (touched ? setLeaving("ai") : onSetUpAi());
   const submit = () =>
     create.mutate(toInput(draft), {
       onSuccess: (view) => {
-        say(`${view.name} is set up. Its first check runs now.`);
+        say(
+          view.kind === "brief"
+            ? `${view.name} is set up. Its first brief goes out at ${view.briefTime || DEFAULT_BRIEF_TIME}.`
+            : `${view.name} is set up. Its first check runs now.`,
+        );
         setTouched(false);
         onCreated(view.id);
       },
     });
 
-  const line = create.error ? create.error.message : touched && problems.length ? problems[0] : "Lands in Watching once its first check works.";
+  const line = create.error
+    ? create.error.message
+    : touched && problems.length
+      ? problems[0]
+      : brief
+        ? `Sends its first brief at ${firstBrief}.`
+        : "Lands in Watching once its first check works.";
   return (
     <BottomSheet
       open={open}
@@ -783,7 +873,7 @@ function NewSheet({
       leading={
         <View style={styles.lead}>
           <View style={styles.newTile}>
-            <Bot size={16} color={colors.mutedForeground} />
+            {brief ? <Sunrise size={16} color={colors.mutedForeground} /> : <Bot size={16} color={colors.mutedForeground} />}
           </View>
           <Text numberOfLines={1} style={styles.name}>
             New bot
@@ -832,15 +922,29 @@ function NewSheet({
             </Text>
           </Text>
         ) : null}
-        <BotGroups
-          key={seeded ?? "closed"}
-          draft={draft}
-          icons={icons}
-          hasKey={hasKey}
-          onAddKey={addKey}
-          onCommit={(next) => change(next)}
-          unsaved
-        />
+        {brief ? (
+          <BriefGroups
+            key={seeded ?? "closed"}
+            draft={draft}
+            bots={board?.bots ?? []}
+            summary={summary}
+            unsaved
+            onCommit={(next) => change(next)}
+            onSetUpAi={setUpAi}
+          />
+        ) : (
+          <BotGroups
+            key={seeded ?? "closed"}
+            draft={draft}
+            icons={icons}
+            hasKey={hasKey}
+            onAddKey={addKey}
+            onCommit={(next) => change(next)}
+            unsaved
+            summary={summary}
+            onSetUpAi={setUpAi}
+          />
+        )}
       </View>
       <ConfirmSheet
         open={leaving !== null}
@@ -851,6 +955,7 @@ function NewSheet({
         onConfirm={() => {
           setTouched(false);
           if (leaving === "key") onAddKey();
+          else if (leaving === "ai") onSetUpAi();
           else onClose();
         }}
       />
@@ -873,6 +978,7 @@ export function BotSheet({
   onSelect,
   onClose,
   onAddKey,
+  onSetUpAi,
 }: {
   botId?: string | null;
   /** A watch of the bot to open on arrival. */
@@ -885,6 +991,8 @@ export function BotSheet({
   onClose: () => void;
   /** Opens the Finnhub key row in Settings › Agent. */
   onAddKey: () => void;
+  /** Opens Settings › Agent to add an AI provider. */
+  onSetUpAi: () => void;
 }) {
   // While the sheet slides away the bot stays drawn, so it never empties first.
   const [lastId, setLastId] = useState(botId ?? null);
@@ -900,8 +1008,9 @@ export function BotSheet({
         onClose={onClose}
         onClosed={() => setLastId(null)}
         onAddKey={onAddKey}
+        onSetUpAi={onSetUpAi}
       />
-      <NewSheet open={mode === "new"} starter={starter} onCreated={onSelect} onClose={onClose} onAddKey={onAddKey} />
+      <NewSheet open={mode === "new"} starter={starter} onCreated={onSelect} onClose={onClose} onAddKey={onAddKey} onSetUpAi={onSetUpAi} />
     </>
   );
 }
@@ -951,7 +1060,12 @@ const styles = createThemedStyleSheet((colors) => ({
   alertHead: { flexDirection: "row", alignItems: "center", gap: 8 },
   alertDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primary },
   alertTitle: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 15, fontWeight: "600", fontVariant: ["tabular-nums"] },
+  alertDotQuiet: { backgroundColor: withAlpha(colors.mutedForeground, 0.6) },
+  alertTitleQuiet: { color: colors.mutedForeground },
   alertMeta: { paddingLeft: 14, marginTop: -6, marginBottom: 4 },
+  alertAi: { paddingLeft: 14, marginTop: -4, marginBottom: 4 },
+  eyebrow: { paddingLeft: 14, color: colors.mutedForeground, fontSize: 11, fontWeight: "500", letterSpacing: 0.88, textTransform: "uppercase" },
+  howRow: { marginTop: 4 },
   rearm: { marginTop: 4, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.border },
   lookOver: { borderColor: withAlpha(colors.warning, 0.45), alignItems: "flex-start" },
   deleteRow: { marginTop: 8 },

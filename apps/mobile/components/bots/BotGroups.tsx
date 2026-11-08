@@ -1,24 +1,32 @@
 import { useMemo, useState, type ReactElement } from "react";
 import { Text, View } from "react-native";
-import { ChartCandlestick, Globe, Rss, Trash2, X } from "lucide-react-native";
+import { ChartCandlestick, Globe, Rss, Sparkles, Trash2, X } from "lucide-react-native";
 import {
   BOT_LIMITS,
+  EMPTY_BOTS_SUMMARY,
   HOW_SMART,
   RULE_LABELS,
+  SMART_HINT,
+  aiHint,
   againOptions,
   defaultMinutes,
   floorHint,
   formatMoney,
   intervalLabel,
   intervalOptions,
+  lessonsHint,
   resetLine,
   rulesFor,
+  smartOptions,
   sourceLabel,
   watchKindLine,
   watchCurrency,
   watchTitle,
   type BotInput,
+  type BotKind,
   type BotSettings,
+  type BotsSummary,
+  type KnowledgeView,
   type Lesson,
   type MoveDirection,
   type Rule,
@@ -35,6 +43,7 @@ import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { BotMark, watchSite, type SiteIcons } from "./BotMark";
 import { Pill } from "./Pill";
 import { RulePage } from "./RulePage";
+import { KnowledgeRow } from "./KnowledgePage";
 import { EditPill, IconTile } from "./rows";
 import { WatchPage } from "./WatchPage";
 import { blankWatch, newRule, withWatches } from "./watchDraft";
@@ -80,7 +89,8 @@ type RuleEdit = { watch: number; rule: number; value: Rule };
 
 /**
  * The bot sheet's editable groups, the same on an open bot and a new one:
- * Watches, Schedule, Tells me when (How smart, then each watch's rules,
+ * Watches, Schedule, Tells me when (How smart, "Set up AI" while no AI
+ * provider is ready, Knowledge on an AI-judged bot, then each watch's rules,
  * under the watch's name when there are two or more) and Alerts. A row
  * opens its page in the sheet (a watch, a rule, How smart); a pick or a
  * switch is kept at once. Everything comes back through `onCommit`.
@@ -95,6 +105,10 @@ export function BotGroups({
   onCommit,
   unsaved = false,
   openWatch,
+  summary,
+  aiChecksToday,
+  knowledgeView,
+  onSetUpAi,
 }: {
   draft: BotInput;
   /** The saved watches by id, for their readings, currency and health. */
@@ -108,6 +122,17 @@ export function BotGroups({
   unsaved?: boolean;
   /** A watch id to open on arrival, once its watch is in the draft. */
   openWatch?: string;
+  /**
+   * The board's summary: whether an AI provider is ready, and which.
+   * Undefined while it loads, when AI is neither offered nor marked Needs AI.
+   */
+  summary?: Pick<BotsSummary, "ai">;
+  /** The saved bot's AI checks today, for the hint. */
+  aiChecksToday?: number;
+  /** The saved bot's knowledge, with its title and whether it is missing. */
+  knowledgeView?: KnowledgeView | null;
+  /** Opens Settings › Agent, where an AI provider is added. */
+  onSetUpAi?: () => void;
 }) {
   const [watchEdit, setWatchEdit] = useState<WatchEdit | null>(null);
   // Open the asked-for watch once, when it is in the draft: a fix such as
@@ -174,10 +199,35 @@ export function BotGroups({
   const totalRules = watches.reduce((n, w) => n + (w.rules?.length ?? 0), 0);
   const rulesAside =
     watches.length === 0 ? undefined : watches.length === 1 ? `${totalRules} of ${BOT_LIMITS.maxRulesPerWatch} rules` : `${totalRules} rules`;
-  const smartLabel = HOW_SMART.find((h) => h.id === (draft.judgeMode || "rules"))?.label ?? "Rules only";
+  const mode = draft.judgeMode || "rules";
+  const smartLabel = HOW_SMART.find((h) => h.id === mode)?.label ?? "Rules only";
+  // While the board loads AI is neither offered nor marked Needs AI.
+  const options = smartOptions(summary ?? EMPTY_BOTS_SUMMARY);
+  const needsAi = !!summary && options.some((o) => o.id === "ai" && o.tag === "Needs AI");
   const ruleRows: ReactElement[] = [
     <ListRow key="smart" title="How smart" trailing={smartLabel} chevron onPress={() => setSmart(true)} />,
   ];
+  if (needsAi && onSetUpAi) {
+    ruleRows.push(
+      <ListRow
+        key="setup-ai"
+        title="Set up AI"
+        meta="Add an AI provider so AI can judge"
+        leading={<Sparkles size={18} color={colors.mutedForeground} />}
+        onPress={onSetUpAi}
+      />,
+    );
+  }
+  if (mode === "ai") {
+    ruleRows.push(
+      <KnowledgeRow
+        key="knowledge"
+        value={draft.knowledge}
+        view={knowledgeView}
+        onChange={(knowledge) => onCommit({ ...draft, knowledge }, "quick")}
+      />,
+    );
+  }
   if (watches.length === 0) {
     ruleRows.push(<ListRow key="none" title="Rules" trailing="Add a watch first" disabled />);
   }
@@ -263,9 +313,6 @@ export function BotGroups({
     }
   });
 
-  const alerts: BotSettings = { desktop: draft.desktop ?? true, phone: draft.phone ?? true, urgent: draft.urgent ?? false };
-  const setAlert = (key: keyof BotSettings, value: boolean) => onCommit({ ...draft, [key]: value }, "quick");
-
   const editingWatch = watchEdit ? watchEdit : null;
   const editingRule = ruleEdit ? ruleEdit : null;
   const ruleWatch = editingRule ? watches[editingRule.watch] : undefined;
@@ -305,18 +352,11 @@ export function BotGroups({
       <View style={styles.section}>
         <GroupLabel aside={rulesAside}>Tells me when</GroupLabel>
         <ListGroup>{ruleRows}</ListGroup>
-        <GroupHint>Rules cost nothing and never call an AI. AI judging arrives in a later version.</GroupHint>
+        {/* Loading: say nothing about a provider not known yet. */}
+        {summary || mode !== "ai" ? <GroupHint>{aiHint({ judgeMode: mode, aiChecksToday }, summary ?? EMPTY_BOTS_SUMMARY)}</GroupHint> : null}
       </View>
 
-      <View style={styles.section}>
-        <GroupLabel aside={alertsToday == null ? undefined : `${alertsToday} of ${BOT_LIMITS.alertsPerDay} today`}>Alerts</GroupLabel>
-        <ListGroup>
-          <SwitchRow title="Desktop" value={alerts.desktop} onChange={(v) => setAlert("desktop", v)} />
-          <SwitchRow title="Phone" value={alerts.phone} onChange={(v) => setAlert("phone", v)} />
-          <SwitchRow title="Urgent" meta="Rings through quiet hours" value={alerts.urgent} onChange={(v) => setAlert("urgent", v)} />
-        </ListGroup>
-        {unsaved ? <GroupHint>Up to {BOT_LIMITS.alertsPerDay} alerts a day. After that you get one “and 2 more today”.</GroupHint> : null}
-      </View>
+      <AlertsGroup draft={draft} alertsToday={alertsToday} unsaved={unsaved} onCommit={onCommit} />
 
       {editingWatch ? (
         <WatchPage
@@ -372,21 +412,60 @@ export function BotGroups({
 
       <BottomSheet open={smart} onClose={() => setSmart(false)} title="How smart">
         <View style={styles.options}>
-          {HOW_SMART.map((h) => (
+          {options.map((h) => (
             <SheetOption
               key={h.id}
-              selected={(draft.judgeMode || "rules") === h.id}
-              disabled={h.later}
-              trailing={h.later ? <Pill>Later</Pill> : undefined}
-              onSelect={() => setSmart(false)}
+              selected={mode === h.id}
+              // The bot's own mode stays picked even when AI is not ready now.
+              disabled={h.disabled && h.id !== mode}
+              trailing={h.tag && (summary || h.id !== "ai") ? <Pill>{h.tag}</Pill> : undefined}
+              onSelect={() => {
+                setSmart(false);
+                if (h.id === mode || (h.id !== "rules" && h.id !== "ai")) return;
+                // A new rules-only bot is not created with hidden knowledge.
+                onCommit({ ...draft, judgeMode: h.id, ...(h.id === "rules" && unsaved ? { knowledge: null } : {}) }, "quick");
+              }}
             >
               {h.label}
             </SheetOption>
           ))}
-          <GroupHint>Rules only reads the page and checks your rules. AI judging and Research arrive in a later version.</GroupHint>
+          <GroupHint>{SMART_HINT}</GroupHint>
         </View>
       </BottomSheet>
     </>
+  );
+}
+
+/**
+ * Alerts: where the bot tells you (Desktop, Phone, Urgent), each kept at
+ * once. A watch bot shows today's count against the daily cap; a brief,
+ * whose sends are not capped, leaves it out.
+ */
+export function AlertsGroup({
+  draft,
+  alertsToday,
+  unsaved,
+  onCommit,
+}: {
+  draft: BotInput;
+  alertsToday?: number;
+  unsaved?: boolean;
+  onCommit: Commit;
+}) {
+  const alerts: BotSettings = { desktop: draft.desktop ?? true, phone: draft.phone ?? true, urgent: draft.urgent ?? false };
+  const setAlert = (key: keyof BotSettings, value: boolean) => onCommit({ ...draft, [key]: value }, "quick");
+  return (
+    <View style={styles.section}>
+      <GroupLabel aside={alertsToday == null ? undefined : `${alertsToday} of ${BOT_LIMITS.alertsPerDay} today`}>Alerts</GroupLabel>
+      <ListGroup>
+        <SwitchRow title="Desktop" value={alerts.desktop} onChange={(v) => setAlert("desktop", v)} />
+        <SwitchRow title="Phone" value={alerts.phone} onChange={(v) => setAlert("phone", v)} />
+        <SwitchRow title="Urgent" meta="Rings through quiet hours" value={alerts.urgent} onChange={(v) => setAlert("urgent", v)} />
+      </ListGroup>
+      {unsaved && draft.kind !== "brief" ? (
+        <GroupHint>Up to {BOT_LIMITS.alertsPerDay} alerts a day. After that you get one “and 2 more today”.</GroupHint>
+      ) : null}
+    </View>
   );
 }
 
@@ -395,8 +474,12 @@ function resetMeta(rule: Rule, currency: string): string | undefined {
   return resetLine(rule, { currency })?.replace(/^Once the price is /, "");
 }
 
-/** Lessons: what the bot learned from Not useful answers, each removable. */
-export function LessonsGroup({ botId, lessons }: { botId: string; lessons: Lesson[] }) {
+/**
+ * Lessons: what the bot was taught by Useful and Not useful answers. The AI
+ * judge (or a brief's AI writer) reads them; rules ignore them. Each one can
+ * be forgotten.
+ */
+export function LessonsGroup({ bot, botId, lessons }: { bot: { kind?: BotKind }; botId: string; lessons: Lesson[] }) {
   const forget = useForgetLesson();
   return (
     <View style={styles.section}>
@@ -426,7 +509,7 @@ export function LessonsGroup({ botId, lessons }: { botId: string; lessons: Lesso
           ))
         )}
       </ListGroup>
-      <GroupHint>Used once AI judging arrives; rules ignore them. Kept from your Not useful answers. Remove one to forget it.</GroupHint>
+      <GroupHint>{lessonsHint(bot)}</GroupHint>
     </View>
   );
 }

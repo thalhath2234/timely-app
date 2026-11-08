@@ -9,7 +9,11 @@ import {
   Square,
   Trash2,
 } from "lucide-react-native";
-import { isBotPlan, planGroups } from "@timely/contract/changeReview";
+import {
+  botPlanHint,
+  isBotPlan,
+  planGroups,
+} from "@timely/contract/changeReview";
 import type { Chat, ChatStep } from "../../lib/chat/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import type { BotReplyActions } from "./BotChangeBody";
@@ -127,7 +131,7 @@ export default function ProposalPage({
               : "Your changes";
   const hint = approval
     ? bots
-      ? `${newBots ? "Checks start" : "The change applies"} when you approve. It only reads the page; it never buys or signs in.`
+      ? botPlanHint(steps)
       : receiptDirty
         ? "Receipt details changed. Go back and continue again to refresh this preview."
         : receiptConfirmation

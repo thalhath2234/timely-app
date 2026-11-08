@@ -58,6 +58,16 @@ func TestContractLimits(t *testing.T) {
 		{"minEveryMinutes.shop", every("shop"), minutes(MinEvery(Watch{Kind: WatchPage, ReadMode: ReadProductPrice}))},
 		{"maxEveryMinutes", key("maxEveryMinutes"), minutes(maxInterval)},
 		{"maxSnoozeDays", key("maxSnoozeDays"), int(maxSnooze / (24 * time.Hour))},
+		{"aiPerBot", key("aiPerBot"), AIPerBot},
+		{"aiPerAccount", key("aiPerAccount"), AIPerAccount},
+		{"chainAi", key("chainAi"), ChainAI},
+		{"maxLinks", key("maxLinks"), MaxLinks},
+		{"maxBriefSources", key("maxBriefSources"), MaxBriefSources},
+		{"briefItemsPerBot", key("briefItemsPerBot"), BriefItemsPerBot},
+		{"linkPerDay", key("linkPerDay"), LinkPerDay},
+		{"passPerCheck", key("passPerCheck"), PassPerCheck},
+		{"chainSteps", key("chainSteps"), ChainSteps},
+		{"maxFilterWords", key("maxFilterWords"), MaxFilterWords},
 	}
 	for _, c := range cases {
 		if c.got != c.want {
@@ -67,8 +77,10 @@ func TestContractLimits(t *testing.T) {
 }
 
 // TestContractWords checks that the words the clients switch on (read modes,
-// check triggers, answer freshness, the Not useful reasons) are the ones the
-// API writes.
+// check triggers, answer freshness, the Not useful reasons, judging, bot and
+// link kinds, AI states, urgency, alert kinds and holds) are the ones the API
+// writes. An empty string in a union counts as a word, so AiState's "" (rules
+// only) and AlertHeld's "" (sent) are checked too.
 func TestContractWords(t *testing.T) {
 	src, err := os.ReadFile("../../../../../packages/contract/src/bots.ts")
 	if err != nil {
@@ -81,7 +93,7 @@ func TestContractWords(t *testing.T) {
 			t.Fatalf("type %s not found in bots.ts", name)
 		}
 		var out []string
-		for _, w := range regexp.MustCompile(`"([a-z_]+)"`).FindAllSubmatch(m[1], -1) {
+		for _, w := range regexp.MustCompile(`"([a-z_]*)"`).FindAllSubmatch(m[1], -1) {
 			out = append(out, string(w[1]))
 		}
 		return out
@@ -94,6 +106,10 @@ func TestContractWords(t *testing.T) {
 	for _, m := range regexp.MustCompile(`id: "([a-z_]+)"`).FindAllSubmatch(block[1], -1) {
 		reasons = append(reasons, string(m[1]))
 	}
+	pass := regexp.MustCompile(`export const PASS_FEEDBACK = \{ id: "([a-z_]+)"`).FindSubmatch(src)
+	if pass == nil {
+		t.Fatal("PASS_FEEDBACK not found in bots.ts")
+	}
 	cases := []struct {
 		name      string
 		got, want []string
@@ -101,10 +117,19 @@ func TestContractWords(t *testing.T) {
 		{"ReadMode", union("ReadMode"), []string{ReadText, ReadSelector, ReadProductPrice, ReadSelectorPrice}},
 		{"WatchKind", union("WatchKind"), []string{WatchPage, WatchFeed, WatchPrice}},
 		{"PauseReason", union("PauseReason"), []string{PausePerson, PauseStrikes, PauseMCP}},
-		{"CheckTrigger", union("CheckTrigger"), []string{TriggerSchedule, TriggerWake, TriggerRunNow, TriggerAsk}},
+		{"CheckTrigger", union("CheckTrigger"), []string{TriggerSchedule, TriggerWake, TriggerRunNow, TriggerAsk, TriggerPass}},
 		{"AnswerFresh", union("AnswerFresh"), []string{FreshCheckedNow, FreshRecent, FreshWaiting, FreshPaused, FreshLimited, FreshFloor}},
 		{"Feedback", union("Feedback"), []string{FeedbackUseful, FeedbackNotUseful}},
 		{"FEEDBACK_REASONS", reasons, FeedbackReasons},
+		{"PASS_FEEDBACK.id", []string{string(pass[1])}, []string{PassFeedbackReason}},
+		{"FeedbackReason", union("FeedbackReason"), append(append([]string{""}, FeedbackReasons...), PassFeedbackReason)},
+		{"JudgeMode", union("JudgeMode"), []string{JudgeRules, JudgeAI}},
+		{"BotKind", union("BotKind"), []string{KindWatch, KindBrief}},
+		{"LinkKind", union("LinkKind"), []string{LinkPass, LinkBrief}},
+		{"AiState", union("AiState"), []string{"", aiJudged, aiUnchecked, aiRejudged}},
+		{"Urgency", union("Urgency"), []string{UrgencyLow, UrgencyNormal, UrgencyHigh}},
+		{"AlertKind", union("AlertKind"), []string{alertKindAlert, alertKindMore, alertKindPaused, alertKindBrief}},
+		{"AlertHeld", union("AlertHeld"), []string{"", heldSnoozed, heldCap, heldJudged, heldShared}},
 	}
 	for _, c := range cases {
 		if strings.Join(c.got, ",") != strings.Join(c.want, ",") {

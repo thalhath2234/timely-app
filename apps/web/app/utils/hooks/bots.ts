@@ -17,6 +17,8 @@ import {
   botIcons,
   createBot,
   deleteBot,
+  applySuggestion,
+  dismissSuggestion,
   forgetLesson,
   getBot,
   getBotDefaults,
@@ -28,7 +30,9 @@ import {
   removeSourceKey,
   resumeBot,
   runBot,
+  setAllPaused,
   setBotDefaults,
+  setLink,
   setSourceKey,
   snoozeBot,
   updateBot,
@@ -36,6 +40,7 @@ import {
 } from "../api/bots";
 import { apiFetch } from "../api/client";
 import { startLiveStream } from "../api/chatStream";
+import { useToastStore } from "@/app/_store/toastStore";
 
 export const botsKey = ["bots"] as const;
 export const botKey = (id: string) => ["bot", id] as const;
@@ -227,7 +232,62 @@ export function useRateAlert() {
       alertId: string;
       body: FeedbackInput;
     }) => rateAlert(botId, alertId, body),
-    onSuccess: (_, { botId }) => invalidateBot(cache, botId),
+    onSuccess: (result, { botId }) => {
+      invalidateBot(cache, botId);
+      // What the answer taught the bot, in the words the judge will read.
+      if (result?.lesson)
+        useToastStore.getState().show(`Learned: ${result.lesson.text}`);
+    },
+  });
+}
+
+/** Turns a Pass to link on or off; both bots on it change, so the board refetches. */
+export function useSetLink() {
+  const cache = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      linkId,
+      enabled,
+    }: {
+      linkId: string;
+      enabled: boolean;
+      /** The bot whose page asked, refetched with the board. */
+      botId?: string;
+    }) => setLink(linkId, { enabled }),
+    onSuccess: (link, { botId }) => {
+      invalidateBot(cache, botId);
+      invalidateBot(cache, link?.fromBotId);
+      invalidateBot(cache, link?.toBotId);
+    },
+  });
+}
+
+export function useApplySuggestion() {
+  const cache = useQueryClient();
+  return useMutation({
+    mutationFn: ({ botId, id }: { botId: string; id: string }) =>
+      applySuggestion(botId, id),
+    onSettled: (_, __, { botId }) => invalidateBot(cache, botId),
+  });
+}
+
+export function useDismissSuggestion() {
+  const cache = useQueryClient();
+  return useMutation({
+    mutationFn: (botId: string) => dismissSuggestion(botId),
+    onSuccess: (_, botId) => invalidateBot(cache, botId),
+  });
+}
+
+/** "Pause all bots": every bot's card and page changes, so all of them refetch. */
+export function useSetAllPaused() {
+  const cache = useQueryClient();
+  return useMutation({
+    mutationFn: (paused: boolean) => setAllPaused(paused),
+    onSuccess: () => {
+      void cache.invalidateQueries({ queryKey: botsKey });
+      void cache.invalidateQueries({ queryKey: ["bot"] });
+    },
   });
 }
 

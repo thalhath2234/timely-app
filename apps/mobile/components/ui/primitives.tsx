@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Text, TextInput, View } from "react-native";
+import { Platform, Text, TextInput, View } from "react-native";
 import { Check, ChevronDown, ChevronRight } from "lucide-react-native";
 import { colors, controlRadius, createThemedStyleSheet, radius } from "../../lib/theme";
 import { LogoSpinner } from "./TimelyLogo";
@@ -182,6 +182,9 @@ export function Field({
       onContentSizeChange={autoGrow ? (event) => {
         // The web build reports the box's own height, which includes the 2px
         // added below; small changes are ignored so it doesn't grow forever.
+        // A field hidden behind a nested page measures 0 wide on the web:
+        // keep its height rather than shrink to one line until it is typed in.
+        if (Platform.OS === "web" && event.nativeEvent.contentSize.width === 0) return;
         const next = Math.ceil(event.nativeEvent.contentSize.height);
         setContentHeight((prev) => (Math.abs(next - prev) <= 2 ? prev : next));
       } : undefined}
@@ -326,6 +329,7 @@ export function Select({
   label,
   searchable = false,
   trigger = "field",
+  meta,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -337,6 +341,8 @@ export function Select({
   searchable?: boolean;
   /** "row": a `ListRow`-style row for a `ListGroup`, label left and the picked value right. */
   trigger?: "field" | "row";
+  /** A muted second line under a row trigger's label. */
+  meta?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -359,7 +365,14 @@ export function Select({
         onPress={() => setOpen(true)}
         style={row ? styles.selectRow : styles.selectTrigger}
       >
-        {row && label ? <Text style={styles.selectRowLabel}>{label}</Text> : null}
+        {row && label && meta ? (
+          <View style={styles.selectRowText}>
+            <Text style={styles.selectRowLabel}>{label}</Text>
+            <Text style={styles.selectRowMeta}>{meta}</Text>
+          </View>
+        ) : row && label ? (
+          <Text style={styles.selectRowLabel}>{label}</Text>
+        ) : null}
         {selected?.color ? <Dot color={selected.color} /> : null}
         <Text
           style={[row ? styles.selectRowValue : styles.selectValue, !selected && { color: colors.mutedForeground }]}
@@ -499,6 +512,8 @@ const styles = createThemedStyleSheet((colors) => ({
   // Matches ListRow in components/settings/SettingsList.tsx.
   selectRow: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14 },
   selectRowLabel: { flexShrink: 0, color: colors.foreground, fontSize: 15, fontWeight: "500" },
+  selectRowText: { flex: 1, minWidth: 0, paddingVertical: 10 },
+  selectRowMeta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2, lineHeight: 16 },
   selectRowValue: { flex: 1, minWidth: 0, color: colors.mutedForeground, fontSize: 13, fontWeight: "500", textAlign: "right" },
   selectTrigger: {
     minHeight: 48,

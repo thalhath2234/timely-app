@@ -95,3 +95,27 @@ func StrikeDelay(interval time.Duration, strikes int) time.Duration {
 	}
 	return min(d, maxStrikeDelay)
 }
+
+// briefSpread is how far after its time a brief may start, so briefs set
+// to the same minute do not all run at once.
+const briefSpread = 2 * time.Minute
+
+// nextBriefAt is the next time hhmm ("08:00", DefaultBriefTime when it is
+// not a time) comes round in loc strictly after after. A time that does not
+// exist that day (a clock going forward) falls where Go puts it, still
+// after after.
+func nextBriefAt(loc *time.Location, hhmm string, after time.Time) time.Time {
+	if !briefTimeRe.MatchString(hhmm) {
+		hhmm = DefaultBriefTime
+	}
+	h := int(hhmm[0]-'0')*10 + int(hhmm[1]-'0')
+	m := int(hhmm[3]-'0')*10 + int(hhmm[4]-'0')
+	local := after.In(loc)
+	for d := 0; d < 3; d++ {
+		at := time.Date(local.Year(), local.Month(), local.Day()+d, h, m, 0, 0, loc)
+		if at.After(after) {
+			return at.UTC()
+		}
+	}
+	return after.Add(24 * time.Hour).UTC()
+}

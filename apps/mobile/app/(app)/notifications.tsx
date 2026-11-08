@@ -21,6 +21,8 @@ import {
   usePrioritizeOverdueTask,
   useNotificationTriage,
   useDecisionsStatusQuery,
+  useBotsQuery,
+  useResumeBot,
 } from "../../lib/hooks";
 import type { AlertStep, TriageStep } from "../../lib/api/decisions";
 import type { AppNotification } from "../../lib/types";
@@ -97,6 +99,13 @@ function dayLabel(iso: string, now: Date) {
   return formatShortDate(iso);
 }
 
+/** The bot a "paused after 5 failed checks" alert names, or null for any other notification. */
+/** The bot a "paused after 5 strikes" alert offers Resume for: only one about a single bot (data.resume), not one that groups several. */
+function pausedBotId(item: AppNotification) {
+  const botId = item.data?.botId;
+  return item.category === "bot" && item.data?.botAlert === "paused" && item.data?.resume === true && typeof botId === "string" && botId ? botId : null;
+}
+
 function tomorrowNine() {
   const next = new Date();
   next.setDate(next.getDate() + 1);
@@ -115,7 +124,18 @@ export default function NotificationsScreen() {
   const prioritize = usePrioritizeOverdueTask();
   const triage = useNotificationTriage();
   const smart = useDecisionsStatusQuery().data?.available === true;
+  const resume = useResumeBot();
   const items = list.data ?? [];
+  // Resume shows only while the bot is still paused, as on the web: the bots
+  // list is asked for when a paused alert is listed, and until it loads an
+  // unread alert keeps its button.
+  const bots = useBotsQuery(items.some((item) => pausedBotId(item))).data?.bots;
+  const resumeIdFor = (item: AppNotification) => {
+    const botId = pausedBotId(item);
+    if (!botId) return null;
+    if (!bots) return item.readAt ? null : botId;
+    return bots.some((bot) => bot.id === botId && bot.status === "paused") ? botId : null;
+  };
   const networkCopy = needsNetworkCopy(list);
   const [confirmClear, setConfirmClear] = useState(false);
   const now = new Date();
@@ -184,6 +204,7 @@ export default function NotificationsScreen() {
                 {day.items.map((item, index) => {
                   const href = routeFor(item);
                   const steps = triageSteps(item, smart);
+                  const resumeId = resumeIdFor(item);
                   return (
               <ListEnter key={item.id} index={index}>
               <View style={[styles.row, !item.readAt && styles.unread]}>
@@ -233,6 +254,28 @@ export default function NotificationsScreen() {
                     >
                       <Text style={styles.chipText}>Tomorrow 9:00</Text>
                     </AnimatedPressable>
+                  </View>
+                ) : null}
+                {resumeId ? (
+                  <View style={styles.actions}>
+                    <Button
+                      label="Resume"
+                      variant="outline"
+                      size="sm"
+                      loading={resume.isPending && resume.variables === resumeId}
+                      disabled={resume.isPending}
+                      onPress={() =>
+                        void resume
+                          .mutateAsync(resumeId)
+                          .then(() => {
+                            useToastStore.getState().show("Resumed");
+                            if (!item.readAt) void markRead.mutateAsync(item.id);
+                          })
+                          .catch((error) => {
+                            useToastStore.getState().show(error instanceof Error ? error.message : "Couldn't resume that bot");
+                          })
+                      }
+                    />
                   </View>
                 ) : null}
                 {item.category === "suggestion" ? (

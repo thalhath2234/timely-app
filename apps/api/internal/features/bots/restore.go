@@ -1,6 +1,7 @@
 package bots
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"time"
@@ -18,12 +19,71 @@ const (
 // VetRestore checks the Bots a restore just wrote, inside its transaction
 // (portability.RestoreVet). The rows come from a file, so none of the checks
 // a save makes have run: a Bot whose watches Timely cannot use, or past the
-// 25-Bot cap, is paused; an interval under the floor is raised to it; AI
-// judging is set back to rules. Restored over MCP, every Bot comes back
-// paused with the alert settings a Bot made over MCP gets, so an outside
-// app cannot turn a Bot or its urgent alerts on this way (ADR 0021). A
+// 25-Bot cap, is paused; an interval under the floor is raised to it; a
+// judge mode Timely does not know is set back to rules; a suggestion is
+// dropped; no alert keeps a judge input (the export never carries one); a
+// doc or sheet a Bot reads that is not the person's, or is in the bin, is
+// let go; no alert keeps what it told of, so a file holds back no alert;
+// "Also seen by" and "How this came to you" keep only the person's Bots;
+// Pass to and brief links keep to a save's limits (vetLinks), a brief left
+// with no Bots to sum up is paused, and a Bot in no brief is not "Only in
+// the brief". Restored over MCP, every Bot comes back paused, judged by
+// rules, reading no doc or sheet, passing nothing on, every brief written
+// from its template, with the alert settings a Bot made over MCP gets, so
+// an outside app cannot turn a Bot, its urgent alerts, AI judging, chains
+// or what the judge reads on this way (ADR 0021). A
 // stock watch passes when the account has its key, which the restore keeps.
 func (s *Service) VetRestore(tx *gorm.DB, userID string, fromMCP bool) error {
+	// A suggestion is code's reading of ratings made here, and the file's
+	// may name rules it does not have.
+	if err := tx.Exec(`UPDATE bots SET suggestion = NULL WHERE user_id = ? AND suggestion IS NOT NULL`, userID).Error; err != nil {
+		return err
+	}
+	// A re-judge reads its input from the alert; a file's would be text no
+	// check here read.
+	if err := tx.Exec(`UPDATE bot_alerts SET ai_input = NULL WHERE user_id = ? AND ai_input IS NOT NULL`, userID).Error; err != nil {
+		return err
+	}
+	// What a sent alert told of only decides whether another Bot's alert
+	// that day is held 'shared'; a file's could be any shape, or hold back
+	// the person's other Bots. Sharing covers one day, so nothing is lost.
+	if err := tx.Exec(`UPDATE bot_alerts SET things = '[]'::jsonb WHERE user_id = ? AND things <> '[]'::jsonb`, userID).Error; err != nil {
+		return err
+	}
+	// "Also seen by" names Bots by id and name; a file's may name another
+	// account's Bot, or any words. Keep only the person's Bots, by their
+	// names here.
+	if err := tx.Exec(`
+UPDATE bot_alerts a SET also_seen_by = COALESCE((
+    SELECT jsonb_agg(jsonb_build_object('botId', b.id, 'name', b.name) ORDER BY e.n)
+    FROM jsonb_array_elements(CASE WHEN jsonb_typeof(a.also_seen_by) = 'array' THEN a.also_seen_by ELSE '[]'::jsonb END) WITH ORDINALITY AS e(v, n)
+    JOIN bots b ON b.id = e.v->>'botId' AND b.user_id = a.user_id), '[]'::jsonb)
+WHERE a.user_id = ? AND a.also_seen_by <> '[]'::jsonb`, userID).Error; err != nil {
+		return err
+	}
+	// knowledge_id has no foreign key, so a file can name any row; reads
+	// check again, but the Bot should not show another account's title.
+	if err := tx.Exec(`
+UPDATE bots b SET knowledge_kind = '', knowledge_id = ''
+WHERE b.user_id = @uid AND b.knowledge_kind <> '' AND (@mcp
+   OR (b.knowledge_kind = 'doc' AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.id = b.knowledge_id AND d.user_id = b.user_id AND d.archived_at IS NULL))
+   OR (b.knowledge_kind = 'sheet' AND NOT EXISTS (SELECT 1 FROM sheets s WHERE s.id = b.knowledge_id AND s.user_id = b.user_id AND s.archived_at IS NULL)))`,
+		sql.Named("uid", userID), sql.Named("mcp", fromMCP)).Error; err != nil {
+		return err
+	}
+	// A brief reads nothing, so a file's watches under one go.
+	if err := tx.Exec(`DELETE FROM bot_watches w USING bots b WHERE b.id = w.bot_id AND b.user_id = ? AND b.kind = ?`, userID, KindBrief).Error; err != nil {
+		return err
+	}
+	// A restore checks none of a save's link rules: vetLinks does, first,
+	// so a brief left with no Bots to sum up is paused below.
+	if err := vetLinks(tx, userID, fromMCP); err != nil {
+		return err
+	}
+	sources, err := briefSources(tx, userID, "")
+	if err != nil {
+		return err
+	}
 	var bots []Bot
 	if err := tx.Where("user_id = ?", userID).Order("created_at, id").Find(&bots).Error; err != nil {
 		return err
@@ -47,11 +107,20 @@ func (s *Service) VetRestore(tx *gorm.DB, userID string, fromMCP bool) error {
 	now := s.now().UTC()
 	for i, b := range bots {
 		set := map[string]any{}
-		if floor := int(Floor(byBot[b.ID]) / time.Second); b.IntervalSeconds < floor {
+		brief := b.Kind == KindBrief
+		if floor := int(Floor(byBot[b.ID]) / time.Second); b.IntervalSeconds < floor && !brief {
 			set["interval_seconds"] = floor
 		}
-		if b.JudgeMode != JudgeRules {
+		if every := int(briefEvery / time.Second); brief && b.IntervalSeconds != every {
+			set["interval_seconds"] = every
+		}
+		if (b.JudgeMode != JudgeRules && b.JudgeMode != JudgeAI) || ((fromMCP || brief) && b.JudgeMode != JudgeRules) {
 			set["judge_mode"] = JudgeRules
+		}
+		// Over MCP a brief comes back written from its template: an outside
+		// app adds no AI cost this way.
+		if fromMCP && b.BriefAI {
+			set["brief_ai"] = false
 		}
 		// Only a Bot made over MCP names the app it came from, so a file
 		// cannot make another say "From <anything>".
@@ -66,7 +135,13 @@ func (s *Service) VetRestore(tx *gorm.DB, userID string, fromMCP bool) error {
 		if b.AskedAt != nil {
 			set["asked_at"] = nil
 		}
-		reason, detail := "", unusable(byBot[b.ID], hasKey)
+		reason, detail := "", ""
+		switch {
+		case brief && len(sources[b.ID]) == 0:
+			detail = "This brief came back with no bots to sum up. Edit it to turn it on."
+		case !brief:
+			detail = unusable(byBot[b.ID], hasKey)
+		}
 		if i >= MaxBots {
 			detail = restoredOverCap
 		}
@@ -92,7 +167,16 @@ func (s *Service) VetRestore(tx *gorm.DB, userID string, fromMCP bool) error {
 			return err
 		}
 	}
-	return nil
+	// "How this came to you" names Bots too: keep only the person's, by
+	// their names here, with a link only when it is theirs.
+	return tx.Exec(`
+UPDATE bot_alerts a SET via = COALESCE((
+    SELECT jsonb_agg(jsonb_build_object('botId', b.id, 'name', b.name,
+               'linkId', (SELECT l.id FROM bot_links l WHERE l.id = e.v->>'linkId' AND l.user_id = a.user_id),
+               'title', left(COALESCE(e.v->>'title', ''), ?)) ORDER BY e.n)
+    FROM jsonb_array_elements(CASE WHEN jsonb_typeof(a.via) = 'array' THEN a.via ELSE '[]'::jsonb END) WITH ORDINALITY AS e(v, n)
+    JOIN bots b ON b.id = e.v->>'botId' AND b.user_id = a.user_id), '[]'::jsonb)
+WHERE a.user_id = ? AND a.via <> '[]'::jsonb`, maxFindingTitle, userID).Error
 }
 
 // vetAlertDefaults checks the restored "Alerts for new bots": a value that

@@ -1,5 +1,4 @@
 import type {
-  AlertView,
   BotDetail,
   BotInput,
   BotPatch,
@@ -7,11 +6,14 @@ import type {
   BotsList,
   BotView,
   FeedbackInput,
+  LinkView,
   PreviewInput,
   PreviewResult,
+  RateResult,
   RunResult,
   SourceKeyView,
 } from "@timely/contract/bots";
+import { EMPTY_BOTS_SUMMARY } from "@timely/contract/bots";
 import { apiFetch } from "./client";
 import { codedError } from "./codedError";
 
@@ -55,11 +57,8 @@ export async function listBots(): Promise<BotsList> {
   );
   return {
     bots: body.bots ?? [],
-    summary: body.summary ?? {
-      checksToday: 0,
-      alertsToday: 0,
-      nextCheckAt: null,
-    },
+    // A field the server leaves out reads as its empty value.
+    summary: { ...EMPTY_BOTS_SUMMARY, ...body.summary },
   };
 }
 
@@ -94,17 +93,55 @@ export const snoozeBot = (id: string, body: SnoozeBody) =>
 export const runBot = (id: string) =>
   request<RunResult>(`${bot(id)}/run`, "Could not check the bot now", "POST");
 
-/** Useful / Not useful on an alert; `{feedback: null}` takes the answer back. */
+/**
+ * Useful / Not useful on an alert; `{feedback: null}` takes the answer back.
+ * The reply carries the lesson the answer taught the bot (null on undo).
+ */
 export const rateAlert = (
   botId: string,
   alertId: string,
   body: FeedbackInput,
 ) =>
-  request<AlertView>(
+  request<RateResult>(
     `${bot(botId)}/alerts/${encodeURIComponent(alertId)}/feedback`,
     "Could not save your answer",
     "POST",
     body,
+  );
+
+/** Turns a Pass to link on or off ("Turn off this pass"). */
+export const setLink = (linkId: string, body: { enabled: boolean }) =>
+  request<LinkView>(
+    `/bots/links/${encodeURIComponent(linkId)}`,
+    "Could not change the pass",
+    "PATCH",
+    body,
+  );
+
+/** Applies the bot's suggested change; a stale one answers 409. */
+export const applySuggestion = (botId: string, id: string) =>
+  request<BotView>(
+    `${bot(botId)}/suggestion`,
+    "Could not apply the suggestion",
+    "POST",
+    { id },
+  );
+
+/** "Not now" on a suggested change. */
+export const dismissSuggestion = (botId: string) =>
+  request<void>(
+    `${bot(botId)}/suggestion`,
+    "Could not dismiss the suggestion",
+    "DELETE",
+  );
+
+/** "Pause all bots": nothing is checked, passed on or sent while it is on. */
+export const setAllPaused = (paused: boolean) =>
+  request<{ allPaused: boolean }>(
+    "/bots/paused",
+    paused ? "Could not pause all bots" : "Could not turn bots back on",
+    "PUT",
+    { paused },
   );
 
 export const forgetLesson = (botId: string, lessonId: string) =>

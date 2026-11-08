@@ -22,21 +22,28 @@ const (
 	MaxReadingBytes   = 64 << 10
 	MaxStrikes        = 5
 	AlertsPerDay      = 3
-	// MaxLessons caps what a Bot is taught. The teaching branch enforces it
-	// when it writes lessons; the clients show it.
+	// MaxLessons caps what a Bot is taught: rating an alert keeps only the
+	// newest this many lessons.
 	MaxLessons = 20
+	// MaxLessonLen bounds one lesson, in characters (bot_lessons' CHECK).
+	MaxLessonLen = 200
 	// MaxFeedbackNote bounds the free line under Not useful, in characters.
 	MaxFeedbackNote = 200
 	// MaxItems and MaxSeen cap a feed reading: the newest items it keeps,
 	// and the newest item IDs it remembers so they never alert again.
 	MaxItems = 50
 	MaxSeen  = 500
+	// MaxItemFindings caps a feed rule's notes in one check: one per new
+	// item, then one "N more new items".
+	MaxItemFindings = 10
 
 	MinPageEvery    = 15 * time.Minute
 	MinPriceEvery   = 5 * time.Minute
 	MinProductEvery = 6 * time.Hour
 
-	Slots          = 4
+	// CheckSlots is how many checks run at once; re-judges get a lane of
+	// their own.
+	CheckSlots     = 3
 	CheckBudget    = 3 * time.Minute
 	ProvisionalMax = 10 * time.Minute
 	// FenceSlack is how early a check may start against its due time or the
@@ -53,6 +60,39 @@ const (
 	AlertKeepDays = 365
 	PriceKeepDays = 366
 	SiteKeepDays  = 30
+	AICallDays    = 30
+
+	// AI judging: calls a Bot may make per local day, the account in all,
+	// and one chain whoever makes them; and how long one judge call may
+	// take (less for a tag's check, whose read and judge must fit Ask's
+	// wait).
+	AIPerBot        = 20
+	AIPerAccount    = 200
+	ChainAI         = 6
+	JudgeTimeout    = 30 * time.Second
+	AskJudgeTimeout = 15 * time.Second
+
+	// Pass to: links per Bot, items one link passes per local day and one
+	// check passes, links in a row before a chain stops, filter words per
+	// link and their length, how long the same thing is not passed to the
+	// same Bot again, and how old a passed item may be before it is folded
+	// into the next brief instead of checked.
+	MaxLinks         = 4
+	LinkPerDay       = 20
+	PassPerCheck     = 10
+	ChainSteps       = 3
+	MaxFilterWords   = 5
+	MaxFilterWordLen = 60
+	PassRepeatDays   = 7
+	PassFoldAfter    = 24 * time.Hour
+	PassDays         = 30 // the pass log's retention
+
+	// Briefs: the Bots one brief sums up, the notes it lists of each (the
+	// rest are counted, "and N more"), and the time it sends at unless the
+	// person picks another.
+	MaxBriefSources  = 8
+	BriefItemsPerBot = 5
+	DefaultBriefTime = "08:00"
 )
 
 // Watch kinds and page read modes, as stored in bot_watches.
@@ -87,14 +127,32 @@ const (
 	PauseMCP     = "mcp"
 
 	JudgeRules = "rules"
+	JudgeAI    = "ai"
 	HealthNew  = "new"
+
+	// A watch Bot reads pages, feeds and prices; a brief Bot reads nothing
+	// and sums up other Bots once a day.
+	KindWatch = "watch"
+	KindBrief = "brief"
 )
 
 var (
 	ErrNotFound       = errors.New("not found")
 	ErrAlertNotFound  = errors.New("alert not found")
 	ErrLessonNotFound = errors.New("lesson not found")
+	ErrLinkNotFound   = errors.New("link not found")
 	ErrPaused         = errors.New("This bot is paused. Turn it on in Timely first.")
+	// ErrAllPaused answers Run now and Ask while "Pause all bots" is on.
+	ErrAllPaused = errors.New("All bots are paused. Turn them on again on the Bots page.")
+	// ErrSuggestionStale answers Apply on a suggestion that was replaced, or
+	// whose watch or rule is gone.
+	ErrSuggestionStale = errors.New("This suggestion is out of date")
+	// ErrJudgeOff is a judge call with no AI to make it: no provider, none
+	// chosen, the CLI off, no saved key or the Claude CLI missing. Asking
+	// again cannot help, so the alert goes out unchecked with no re-judge.
+	ErrJudgeOff = errors.New("no AI provider")
+	// errAICap is a call the daily or chain AI caps refuse.
+	errAICap = errors.New("AI checks used up")
 )
 
 // InputError is a request the person can fix; its text is shown as is.

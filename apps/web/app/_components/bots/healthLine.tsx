@@ -25,14 +25,17 @@ export function HealthLine({
   bot,
   now,
   mini,
+  allPaused,
   className,
 }: {
   bot: BotView;
   now: Date;
   mini?: boolean;
+  /** Pause all is on: a bot that would run says "All bots paused". */
+  allPaused?: boolean;
   className?: string;
 }) {
-  const h = healthLine(bot, now);
+  const h = healthLine(bot, now, undefined, { allPaused });
   let word = h.word;
   let rest = h.time
     ? h.time.startsWith("until ")
@@ -41,7 +44,7 @@ export function HealthLine({
     : "";
   let tone = h.tone;
   if (mini) {
-    const line = miniHealth(bot, now);
+    const line = miniHealth(bot, now, undefined, { allPaused });
     const cut = line.indexOf(" · ");
     word = cut < 0 ? line : line.slice(0, cut);
     rest = cut < 0 ? "" : line.slice(cut);

@@ -17,6 +17,7 @@ import {
   primaryWatch,
   valueLine,
   watchCurrency,
+  type BotNames,
   type BotView,
 } from "@timely/contract/bots";
 import Button from "@/app/_components/_ui/button";
@@ -93,7 +94,7 @@ function Top({
 }) {
   return (
     <div className="flex items-start gap-2.5 px-3.5 pt-3.5">
-      <BotMark watches={bot.watches} icons={icons} />
+      <BotMark watches={bot.watches} kind={bot.kind} icons={icons} />
       <div className="min-w-0 flex-1">
         <Name bot={bot} onOpen={onOpen} wrap={!!trailing} />
         <p className="truncate text-xs leading-4 text-muted-foreground">
@@ -105,10 +106,21 @@ function Top({
   );
 }
 
-/** The value, the line under it, and the price line or row of checks. */
-function Middle({ bot, now }: { bot: BotView; now: Date }) {
+/**
+ * The value, the line under it, and the price line or row of checks. A brief
+ * names the bots it sums up from `names`.
+ */
+function Middle({
+  bot,
+  now,
+  names,
+}: {
+  bot: BotView;
+  now: Date;
+  names?: BotNames;
+}) {
   const value = cardValue(bot);
-  const caption = captionLine(bot, now);
+  const caption = captionLine(bot, now, undefined, names);
   const w = primaryWatch(bot);
   const changeKey = useChangeKey(value.text);
   // A caption ("Last good read, 3 h ago") already says what the value is.
@@ -179,18 +191,25 @@ function Footer({
   now,
   actions,
   interactive,
+  allPaused,
 }: {
   bot: BotView;
   now: Date;
   actions: Actions;
   interactive: boolean;
+  allPaused?: boolean;
 }) {
-  const right = footerRight(bot, now);
+  const right = footerRight(bot, now, undefined, { allPaused });
   const personPaused = bot.status === "paused" && !needsReason(bot, now);
   return (
     <div className="mt-auto flex min-h-10 items-center justify-between gap-2 border-t border-border px-3.5 py-1.5 text-xs tabular-nums text-muted-foreground">
       {/* The health line is what the card is for: the right side gives way first. */}
-      <HealthLine bot={bot} now={now} className="max-w-full shrink-0" />
+      <HealthLine
+        bot={bot}
+        now={now}
+        allPaused={allPaused}
+        className="max-w-full shrink-0"
+      />
       {personPaused && interactive ? (
         <Button
           variant="outline"
@@ -216,6 +235,8 @@ type Actions = ReturnType<typeof useBotActions>;
  * Needs-you card with what to do on its right half (`stacked` puts it below
  * on a one-column board); `mini` the compact column beside an open bot;
  * `preview` a card that does nothing (a new bot's "On your board").
+ * `allPaused` (Pause all is on) shows on the footer; `names` lets a brief
+ * name the bots it sums up.
  */
 export function BotCard({
   bot,
@@ -227,6 +248,8 @@ export function BotCard({
   actions,
   stacked,
   style,
+  allPaused,
+  names,
 }: {
   bot: BotView;
   now: Date;
@@ -237,12 +260,16 @@ export function BotCard({
   actions: Actions;
   stacked?: boolean;
   style?: CSSProperties;
+  allPaused?: boolean;
+  names?: BotNames;
 }) {
   const reason = needsReason(bot, now);
   const interactive = variant !== "preview";
   const open = interactive && onOpen ? () => onOpen(bot.id) : undefined;
   const tint = reason
-    ? reason === "new_alert" || reason === "waiting_ok"
+    ? reason === "new_alert" ||
+      reason === "waiting_ok" ||
+      reason === "suggestion"
       ? "border-warning/45"
       : "border-destructive/40"
     : "border-border";
@@ -282,7 +309,7 @@ export function BotCard({
           }
         />
         <div className="flex min-h-11 items-center justify-between gap-2 px-3.5 pb-3 pt-2 text-xs text-muted-foreground">
-          <HealthLine bot={bot} now={now} mini />
+          <HealthLine bot={bot} now={now} mini allPaused={allPaused} />
           {reason ? (
             <NeedsAction bot={bot} now={now} compact actions={actions} />
           ) : (
@@ -296,8 +323,14 @@ export function BotCard({
   const body = (
     <>
       <Top bot={bot} icons={icons} onOpen={open} sub={cardSub(bot)} />
-      <Middle bot={bot} now={now} />
-      <Footer bot={bot} now={now} actions={actions} interactive={interactive} />
+      <Middle bot={bot} now={now} names={names} />
+      <Footer
+        bot={bot}
+        now={now}
+        actions={actions}
+        interactive={interactive}
+        allPaused={allPaused}
+      />
     </>
   );
 

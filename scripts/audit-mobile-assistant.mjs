@@ -22,7 +22,7 @@ stub(
 );
 stub(
   "lib/hooks",
-  `export const useSheetsQuery=()=>({data:[]}); export const useDocsQuery=()=>({data:[]}); export const useProjectsQuery=()=>({data:[]}); export const useTasksQuery=()=>({data:[]}); export const useSheetQuery=()=>({data:undefined}); export const useWorkspacesQuery=()=>({data:[]}); export const useAgentProvidersQuery=()=>({data:undefined}); export const useProviderModelsQuery=()=>({data:[]}); export const useChatPromptsQuery=()=>({data:undefined}); export const useDecisionFeedback=()=>({mutate(){}}); export const useDocQuery=()=>({data:undefined}); export const useTaskQuery=()=>({data:undefined}); export const useSaveTask=()=>({mutate(){},mutateAsync:async()=>{},isPending:false}); export const useSetChecklistItem=()=>({mutate(){},isPending:false}); export const useBotIcons=()=>({data:{}}); const bot=(id,name,watch,over={})=>({id,name,description:"",status:"active",pauseReason:null,origin:"app",originClient:"",judgeMode:"rules",intervalMinutes:60,urgent:false,desktop:true,phone:true,snoozedUntil:null,nextCheckAt:new Date(Date.now()+1800000).toISOString(),lastCheckAt:new Date(Date.now()-720000).toISOString(),lastOkAt:null,strikes:0,health:{code:"working",line:""},alertsToday:0,watches:[{id:id+"_w",url:"",read:"",selector:"",source:"",symbol:"",currency:"",rules:[],health:{code:"working",line:""},lastReadingAt:null,summary:"",site:"",title:"",value:null,excerpt:"",latestItem:null,lastChangedAt:null,spark:null,dayChangePct:null,...watch}],createdAt:"2026-11-01T00:00:00Z",updatedAt:"2026-11-02T00:00:00Z",checking:false,runNowAt:null,floorLine:"",strip:"nnnn",latestAlert:null,itemsToday:0,...over}); const bots=[bot("bot_gonews","Go news feed",{kind:"feed",site:"go.dev"}),bot("bot_gorelease","Go release news",{kind:"feed",site:"go.dev"},{status:"paused"}),bot("bot_btc","Bitcoin under $70,000",{kind:"price",source:"coinbase",symbol:"BTC",currency:"USD"})]; export const useBotsQuery=()=>({data:{bots,summary:{checksToday:3,alertsToday:0,nextCheckAt:null}}}); export const useBotDefaultsQuery=()=>({data:{desktop:true,phone:true,urgent:false}}); export const useRateAlert=()=>({mutate(){},isPending:false});`,
+  `export const useSheetsQuery=()=>({data:[]}); export const useDocsQuery=()=>({data:[]}); export const useProjectsQuery=()=>({data:[]}); export const useTasksQuery=()=>({data:[]}); export const useSheetQuery=()=>({data:undefined}); export const useWorkspacesQuery=()=>({data:[]}); export const useAgentProvidersQuery=()=>({data:undefined}); export const useProviderModelsQuery=()=>({data:[]}); export const useChatPromptsQuery=()=>({data:undefined}); export const useDecisionFeedback=()=>({mutate(){}}); export const useDocQuery=()=>({data:undefined}); export const useTaskQuery=()=>({data:undefined}); export const useSaveTask=()=>({mutate(){},mutateAsync:async()=>{},isPending:false}); export const useSetChecklistItem=()=>({mutate(){},isPending:false}); export const useBotIcons=()=>({data:{}}); const bot=(id,name,watch,over={})=>({id,name,description:"",status:"active",pauseReason:null,origin:"app",originClient:"",judgeMode:"rules",intervalMinutes:60,urgent:false,desktop:true,phone:true,snoozedUntil:null,nextCheckAt:new Date(Date.now()+1800000).toISOString(),lastCheckAt:new Date(Date.now()-720000).toISOString(),lastOkAt:null,strikes:0,health:{code:"working",line:""},alertsToday:0,watches:[{id:id+"_w",url:"",read:"",selector:"",source:"",symbol:"",currency:"",rules:[],health:{code:"working",line:""},lastReadingAt:null,summary:"",site:"",title:"",value:null,excerpt:"",latestItem:null,lastChangedAt:null,spark:null,dayChangePct:null,...watch}],createdAt:"2026-11-01T00:00:00Z",updatedAt:"2026-11-02T00:00:00Z",checking:false,runNowAt:null,floorLine:"",strip:"nnnn",latestAlert:null,itemsToday:0,...over}); const bots=[bot("bot_gonews","Go news feed",{kind:"feed",site:"go.dev"}),bot("bot_gorelease","Go release news",{kind:"feed",site:"go.dev"},{status:"paused"}),bot("bot_btc","Bitcoin under $70,000",{kind:"price",source:"coinbase",symbol:"BTC",currency:"USD"})]; export const useBotsQuery=()=>({data:{bots,summary:{checksToday:3,alertsToday:0,nextCheckAt:null}}}); export const useBotDefaultsQuery=()=>({data:{desktop:true,phone:true,urgent:false}}); export const useRateAlert=()=>({mutate(){},isPending:false}); export const learnedLine=(lesson)=>"Learned: "+lesson;`,
 );
 stub(
   "lib/chat/storage",
@@ -86,6 +86,8 @@ const chats={
  settings:{id:"settings",title:"Yo",status:"idle",phase:"plan",webSearch:false,context:[{kind:"location",label:"Current screen",value:"/tasks"},{kind:"tasks",label:"3 selected tasks",value:"[]"}],revision:3,unread:false,error:"",createdAt:iso(2),updatedAt:iso(2),plan:[],messages:[{id:"y1",role:"user",content:"Yo",createdAt:iso(2)},{id:"y2",role:"assistant",content:"Hey! What would you like to do?",createdAt:iso(2)}]},
  bot:{id:"bot",title:"Earbuds price watch",status:"approval",phase:"review",webSearch:false,context:[],revision:4,unread:false,error:"",createdAt:iso(3),updatedAt:iso(2),plan:[botStep([shop],{watches:[shopRead]})],messages:[{id:"b1",role:"user",content:"tell me when these earbuds drop under 18,000 on Amazon amazon.in/dp/B0DFC8QZ4M",createdAt:iso(3)},{id:"b2",role:"assistant",content:"I opened the page once to find the price. This bot checks it every 6 hours and tells you once when it goes under ₹18,000.",createdAt:iso(2)}]},
  botfeed:{id:"botfeed",title:"Go blog posts",status:"approval",phase:"review",webSearch:false,context:[],revision:2,unread:false,error:"",createdAt:iso(5),updatedAt:iso(5),plan:[botStep([shop,feed],{watches:[shopRead,feedRead]})],messages:[{id:"f1",role:"user",content:"Watch the earbuds and the Go blog",createdAt:iso(5)}]},
+ botlink:{id:"botlink",title:"Release posts first",status:"approval",phase:"review",webSearch:false,context:[],revision:2,unread:false,error:"",createdAt:iso(7),updatedAt:iso(7),plan:[{tool:"update_bot",summary:"Have Go release news check release posts first",status:"pending",arguments:{bot:"bot_gonews",passesTo:[{bot:"bot_gorelease",filter:["release"]}]},before:{id:"bot_gonews",name:"Go news feed",description:"",status:"active",intervalMinutes:30,judgeMode:"rules",desktop:true,phone:true,urgent:false,watches:[{id:"bot_gonews_w",...feed,read:"",selector:"",source:"",symbol:"",currency:"",rules:[{kind:"new_item"}]}],passesTo:[]}}],messages:[{id:"l1",role:"user",content:"When Go news feed finds a release post, have Go release news check it first",createdAt:iso(7)}]},
+ botbrief:{id:"botbrief",title:"Morning brief",status:"approval",phase:"review",webSearch:false,context:[],revision:2,unread:false,error:"",createdAt:iso(8),updatedAt:iso(8),plan:[{tool:"create_bot",summary:"Make a morning brief",status:"pending",arguments:{name:"Morning brief",description:"Each morning, sum up what my other bots found.",intervalMinutes:1440,kind:"brief",sources:["bot_gonews","bot_btc"],briefTime:"08:00",watches:[]}}],messages:[{id:"m1",role:"user",content:"Every morning at 08:00, sum up what my other bots found",createdAt:iso(8)}]},
  botfail:{id:"botfail",title:"Robot check",status:"approval",phase:"review",webSearch:false,context:[],revision:2,unread:false,error:"",createdAt:iso(6),updatedAt:iso(6),plan:[botStep([shop],{error:"The site asks not to be read"})],messages:[{id:"x1",role:"user",content:"Watch this page",createdAt:iso(6)}]},
  tag:{id:"tag",title:"Go news this week",status:"idle",phase:"review",webSearch:false,context:[],revision:6,unread:false,error:"",createdAt:iso(9),updatedAt:iso(3),plan:[],messages:[
   {id:"t1",role:"user",content:"@Go news feed anything new this week?",botTags:["bot_gonews"],createdAt:iso(9)},
@@ -487,6 +489,36 @@ else {
     await page.getByLabel("Review and apply").click();
     await page.getByText("The site asks not to be read").first().waitFor();
     await expect(page.getByText(/^Right now it reads/)).toHaveCount(0);
+    // A link proposal: the bot it passes to by name, never its id.
+    await page.goto("http://localhost:4002/?chat=botlink");
+    await page.getByLabel("Review and apply").click();
+    await page
+      .getByText("Go release news · mentions release", { exact: false })
+      .first()
+      .waitFor();
+    await expect(page.getByText("bot_gorelease")).toHaveCount(0);
+    await expect(page.getByText(/^Right now it reads/)).toHaveCount(0);
+    await page.screenshot({
+      path: "/tmp/timely-mobile-bot-link.png",
+      fullPage: true,
+    });
+    // A brief proposal: the bots it sums up, when it sends, no reading.
+    await page.goto("http://localhost:4002/?chat=botbrief");
+    await page.getByLabel("Review and apply").click();
+    for (const text of [
+      "Go news feed",
+      "Bitcoin under $70,000",
+      "Daily at 08:00",
+      "Timely",
+    ])
+      await page.getByText(text, { exact: true }).first().waitFor();
+    await expect(page.getByText("Sums up", { exact: true })).toHaveCount(2);
+    await expect(page.getByText("First check", { exact: true })).toHaveCount(0);
+    await expect(page.getByText(/^Right now it reads/)).toHaveCount(0);
+    await page.screenshot({
+      path: "/tmp/timely-mobile-bot-brief.png",
+      fullPage: true,
+    });
     // Tagged bots answer as cards under the reply: fresh, still checking,
     // and paused; Open bot goes to the bot's sheet.
     await page.goto("http://localhost:4002/?chat=tag");
@@ -555,6 +587,8 @@ else {
           "/tmp/timely-mobile-bot.png",
           "/tmp/timely-mobile-bot-not-it.png",
           "/tmp/timely-mobile-bot-two.png",
+          "/tmp/timely-mobile-bot-link.png",
+          "/tmp/timely-mobile-bot-brief.png",
           "/tmp/timely-mobile-tag-answer.png",
           "/tmp/timely-mobile-tag-picker.png",
         ],

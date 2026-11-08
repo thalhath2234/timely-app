@@ -4,9 +4,14 @@ import { useMemo, type ReactNode } from "react";
 import {
   boardColumns,
   boardSections,
+  chainsOf,
   fillSpans,
+  todayColumns,
+  todayRows,
+  topSpans,
   type BoardGroup,
   type BotView,
+  type BotsSummary,
   type GridItem,
   type StarterId,
 } from "@timely/contract/bots";
@@ -17,7 +22,9 @@ import { AddTile } from "./addTile";
 import { useBotActions } from "./botActions";
 import { BotCard } from "./botCard";
 import { botSites } from "./botMark";
+import { ChainsGroup } from "./chainsGroup";
 import { CountPill } from "./countPill";
+import { TodayGroup } from "./todayGroup";
 
 const SECTIONS: { id: BoardGroup; label: string }[] = [
   { id: "needs", label: "Needs you" },
@@ -50,12 +57,15 @@ export function SectionLabel({
 
 /**
  * The board: Needs you (wide cards with what to do), Watching and Paused,
- * then the add tile. Columns follow the board's own width (1, 2, 4 or 6), and
- * every row is filled to its end so no column is left empty. `compact` is
- * the single column of small cards beside an open bot.
+ * then the add tile, then one row of Today (Pause all, today's AI checks and
+ * passes) and Chains. Columns follow the board's own width (1, 2, 4 or 6),
+ * and every row is filled to its end so no column is left empty. `compact` is
+ * the single column of small cards beside an open bot; it has no Today row,
+ * since the header says when all bots are paused.
  */
 export function BotsBoard({
   bots,
+  summary,
   now,
   selectedId,
   compact,
@@ -64,6 +74,7 @@ export function BotsBoard({
   onStarter,
 }: {
   bots: BotView[];
+  summary?: BotsSummary;
   now: Date;
   selectedId?: string | null;
   compact?: boolean;
@@ -83,6 +94,15 @@ export function BotsBoard({
   const icons = useBotIcons(sites).data;
   const actions = useBotActions(onOpen);
   const addTo = shown[shown.length - 1]?.id;
+  const allPaused = !!summary?.allPaused;
+  const chains = useMemo(
+    () => chainsOf(summary?.links, bots),
+    [summary?.links, bots],
+  );
+  const hasChains = chains.length > 0;
+  const [todaySpan, chainsSpan] = topSpans(cols, hasChains);
+  const todayCount = summary ? todayRows(summary, bots).length : 0;
+  const spanOf = (n: number) => ({ gridColumn: `span ${n} / span ${n}` });
 
   return (
     <div ref={ref} className="flex min-w-0 flex-col gap-5">
@@ -124,6 +144,8 @@ export function BotsBoard({
                   icons={icons}
                   actions={actions}
                   style={span(index)}
+                  allPaused={allPaused}
+                  names={bots}
                 />
               ))}
               {id === addTo ? (
@@ -138,6 +160,27 @@ export function BotsBoard({
           </section>
         );
       })}
+      {summary && !compact ? (
+        <div
+          className="grid items-stretch gap-3"
+          style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+        >
+          <TodayGroup
+            summary={summary}
+            bots={bots}
+            columns={todayColumns(cols, hasChains)}
+            style={spanOf(todaySpan)}
+          />
+          {hasChains ? (
+            <ChainsGroup
+              chains={chains}
+              onOpen={onOpen}
+              filler={cols > 1 && chains.length < todayCount}
+              style={spanOf(chainsSpan)}
+            />
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

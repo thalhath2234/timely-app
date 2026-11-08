@@ -154,6 +154,7 @@ function BotsPage() {
         ) : null}
         <BotsBoard
           bots={list.bots}
+          summary={list.summary}
           now={now}
           selectedId={selectedId}
           compact={compact}

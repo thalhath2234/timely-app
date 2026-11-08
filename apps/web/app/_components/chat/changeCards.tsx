@@ -42,7 +42,7 @@ import { revealProps } from "@/app/_components/_ui/motion";
 import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import type { ChatStep } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
-import { useBotDefaults } from "@/app/utils/hooks/bots";
+import { useBotDefaults, useBots } from "@/app/utils/hooks/bots";
 import { useDocs } from "@/app/utils/hooks/docs";
 import { useProjects } from "@/app/utils/hooks/projects";
 import { useSheets } from "@/app/utils/hooks/sheets";
@@ -55,6 +55,8 @@ import { stepIcon, stepTarget } from "./chatMeta";
 function useReviewNames(bots: boolean): ReviewNames {
   // Where a new bot alerts, read only when the plan makes or edits one.
   const botDefaults = useBotDefaults(bots).data;
+  // Bot names for the bots a proposal passes to or sums up.
+  const botList = useBots({ enabled: bots }).data?.bots;
   const workspaces = useWorkspaces().data;
   const projects = useProjects().data;
   const sheets = useSheets().data;
@@ -121,9 +123,14 @@ function useReviewNames(bots: boolean): ReviewNames {
         (f) => f.id,
         (f) => f.name,
       ),
+      bot: index(
+        botList,
+        (b) => b.id,
+        (b) => b.name,
+      ),
       botDefaults,
     };
-  }, [workspaces, projects, sheets, docs, tasks, botDefaults]);
+  }, [workspaces, projects, sheets, docs, tasks, botList, botDefaults]);
 }
 
 /** Apply or set aside one change while the proposal waits for review. */

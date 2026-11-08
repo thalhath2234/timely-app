@@ -44,13 +44,25 @@ type View struct {
 	CreatedAt       time.Time   `json:"createdAt"`
 	UpdatedAt       time.Time   `json:"updatedAt"`
 	// The board's fields.
-	OriginClient string      `json:"originClient"` // "" unless origin is mcp
-	Checking     bool        `json:"checking"`     // a check is running now
-	RunNowAt     *time.Time  `json:"runNowAt"`     // the earliest Run now can check, when later than now
-	FloorLine    string      `json:"floorLine"`    // "Shop prices are checked every 6 hours at most"
-	Strip        string      `json:"strip"`        // the last checks, oldest first: one stripMark each
-	LatestAlert  *AlertBrief `json:"latestAlert"`  // the newest alert of the last 30 days, held for a cap or not
-	ItemsToday   int         `json:"itemsToday"`   // new feed items today's alerts told of, held included
+	OriginClient  string      `json:"originClient"`  // "" unless origin is mcp
+	Checking      bool        `json:"checking"`      // a check is running now
+	RunNowAt      *time.Time  `json:"runNowAt"`      // the earliest Run now can check, when later than now
+	FloorLine     string      `json:"floorLine"`     // "Shop prices are checked every 6 hours at most"
+	Strip         string      `json:"strip"`         // the last checks, oldest first: one stripMark each
+	LatestAlert   *AlertBrief `json:"latestAlert"`   // the newest alert of the last 30 days, held for a cap or not
+	ItemsToday    int         `json:"itemsToday"`    // new feed items today's alerts told of, held included
+	Suggestion    *Suggestion `json:"suggestion"`    // a better rule the Bot proposes, or nil
+	AIChecksToday int         `json:"aiChecksToday"` // AI calls the Bot made today (notification zone)
+	// Knowledge is the doc or sheet the Bot's judge reads, or nil.
+	Knowledge *KnowledgeView `json:"knowledge"`
+	// Kind is watch or brief; a brief has BriefTime, BriefAI and Sources
+	// (the ids of the Bots it sums up, in the order they were added, never
+	// null). BriefOnly: a source that alerts only through its briefs.
+	Kind      string   `json:"kind"`
+	BriefOnly bool     `json:"briefOnly"`
+	BriefAI   bool     `json:"briefAi"`
+	BriefTime string   `json:"briefTime"`
+	Sources   []string `json:"sources"`
 }
 
 // AlertBrief is the alert a board card shows.
@@ -62,6 +74,22 @@ type AlertBrief struct {
 	Held      string    `json:"held"`
 	CreatedAt time.Time `json:"createdAt"`
 	Feedback  *string   `json:"feedback"` // useful, not_useful or nil
+	Kind      string    `json:"kind"`
+	AIState   string    `json:"aiState"` // "", judged, unchecked or rejudged
+	AIWhy     string    `json:"aiWhy"`   // the judge's line, or why AI did not judge it
+	Urgency   string    `json:"urgency"` // low, normal or high
+	// AlsoSeenBy lists the other Bots that saw the same thing the same day;
+	// SharedWith is the alert a held 'shared' one joined.
+	AlsoSeenBy []BotRef   `json:"alsoSeenBy"`
+	SharedWith *SharedRef `json:"sharedWith"`
+	// Via is how a passed note came to the Bot (never null).
+	Via []ViaStep `json:"via"`
+	// Items is how many notes a brief held (figures.items); nil for any
+	// other alert.
+	Items *int `json:"items,omitempty"`
+	// RulesTitle is the title in the rules' words ("<bot>: " + figures.what),
+	// for readers that must not pass on a model's words (MCP).
+	RulesTitle string `json:"-"`
 }
 
 // ItemBrief is one feed item a watch read.
@@ -74,18 +102,19 @@ type ItemBrief struct {
 // WatchView is one watch, with a short code-made summary of its last
 // reading instead of the reading itself.
 type WatchView struct {
-	ID            string     `json:"id"`
-	Kind          string     `json:"kind"`
-	URL           string     `json:"url"`
-	Read          string     `json:"read"`
-	Selector      string     `json:"selector"`
-	Source        string     `json:"source"`
-	Symbol        string     `json:"symbol"`
-	Currency      string     `json:"currency"`
-	Rules         []Rule     `json:"rules"`
-	Health        Health     `json:"health"`
-	LastReadingAt *time.Time `json:"lastReadingAt"`
-	Summary       string     `json:"summary"`
+	ID              string     `json:"id"`
+	Kind            string     `json:"kind"`
+	URL             string     `json:"url"`
+	Read            string     `json:"read"`
+	Selector        string     `json:"selector"`
+	Source          string     `json:"source"`
+	Symbol          string     `json:"symbol"`
+	Currency        string     `json:"currency"`        // a price's pair, or a page's hint (pageCurrency), which checks never move
+	ReadingCurrency string     `json:"readingCurrency"` // the last reading's; for a page it wins over the hint once there is one
+	Rules           []Rule     `json:"rules"`
+	Health          Health     `json:"health"`
+	LastReadingAt   *time.Time `json:"lastReadingAt"`
+	Summary         string     `json:"summary"`
 	// The board's fields.
 	Site          string       `json:"site"`            // the page's registrable domain; "" for a price
 	Title         string       `json:"title"`           // the page's own name, from its last reading
@@ -108,6 +137,7 @@ type Detail struct {
 	Week        WeekCounts     `json:"week"`        // the last 7 days
 	AlertsMonth int            `json:"alertsMonth"` // alerts of the last 30 days
 	Rearms      []RearmView    `json:"rearms"`      // newest first: the last 30 days, at most 5
+	Links       []LinkView     `json:"links"`       // every link from or to the Bot, oldest first
 }
 
 // RearmView is a below or above rule that armed again ("Armed again, no
@@ -153,6 +183,23 @@ type AlertView struct {
 	FeedbackReason string     `json:"feedbackReason"`
 	FeedbackNote   string     `json:"feedbackNote"`
 	FeedbackAt     *time.Time `json:"feedbackAt"`
+	// How AI saw it, see Alert.
+	AIState string `json:"aiState"`
+	AIWhy   string `json:"aiWhy"`
+	Urgency string `json:"urgency"`
+	// One alert per thing and how a passed note came, see AlertBrief.
+	AlsoSeenBy []BotRef   `json:"alsoSeenBy"`
+	SharedWith *SharedRef `json:"sharedWith"`
+	Via        []ViaStep  `json:"via"`
+	// Lines are a brief's rules-made lines (figures.lines), never null.
+	Lines []string `json:"lines"`
+}
+
+// SharedRef is the alert a held 'shared' alert joined, and its Bot.
+type SharedRef struct {
+	AlertID string `json:"alertId"`
+	BotID   string `json:"botId"`
+	Name    string `json:"name"`
 }
 
 type PriceDayView struct {
@@ -181,11 +228,14 @@ func healthOf(code, detail string) Health {
 // board is what the board shows beyond a Bot's own rows, loaded for many
 // Bots at once (loadBoard). A nil board shows a Bot with no history.
 type board struct {
-	alertsToday map[string]int         // by Bot: sent alerts today
-	itemsToday  map[string]int         // by Bot
-	strips      map[string]string      // by Bot
-	latest      map[string]*AlertBrief // by Bot
-	days        map[string][]dayClose  // by watch, oldest first
+	alertsToday map[string]int            // by Bot: sent alerts today
+	itemsToday  map[string]int            // by Bot
+	strips      map[string]string         // by Bot
+	latest      map[string]*AlertBrief    // by Bot
+	aiCalls     map[string]int            // by Bot: AI calls today
+	days        map[string][]dayClose     // by watch, oldest first
+	knowledge   map[string]*KnowledgeView // by Bot: its doc or sheet, by title
+	sources     map[string][]string       // by brief: the Bots it sums up
 }
 
 // dayClose is one UTC day of a price series, without its points.
@@ -210,6 +260,14 @@ func viewOf(b Bot, ws []Watch, bd *board, now time.Time) View {
 		Watches: make([]WatchView, 0, len(ws)), CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
 		OriginClient: b.OriginClient, Checking: b.CheckingJobID != nil, FloorLine: floorLine(floor),
 		Strip: bd.strips[b.ID], LatestAlert: bd.latest[b.ID], ItemsToday: bd.itemsToday[b.ID],
+		Suggestion: b.Suggestion, AIChecksToday: bd.aiCalls[b.ID], Knowledge: bd.knowledge[b.ID],
+		Kind: b.Kind, BriefOnly: b.BriefOnly, BriefAI: b.BriefAI, BriefTime: b.BriefTime, Sources: bd.sources[b.ID],
+	}
+	if v.Kind == "" {
+		v.Kind = KindWatch
+	}
+	if v.Sources == nil {
+		v.Sources = []string{}
 	}
 	if b.Origin != OriginMCP {
 		v.OriginClient = ""
@@ -238,6 +296,7 @@ func watchView(w Watch, days []dayClose) WatchView {
 	if r == nil {
 		return wv
 	}
+	wv.ReadingCurrency = r.Currency
 	if w.Kind == WatchPage {
 		wv.Title = r.Title
 	}
@@ -415,14 +474,15 @@ func dayChangePct(days []dayClose, r Reading) *float64 {
 	return &pct
 }
 
-// stripMark is one check on a board card's strip: n no change, c changed,
-// f told you, x failed (a strike), o offline or waiting (no strike).
-// Superseded checks are not shown (0).
+// stripMark is one check on a board card's strip: n no change, c changed
+// (rules fired but the judge held it back or it went on to other Bots
+// count here: nobody was told), f told you, x failed (a strike), o offline
+// or waiting (no strike). Superseded checks are not shown (0).
 func stripMark(outcome string) byte {
 	switch outcome {
 	case outBaseline, outUnchanged, outNotModified:
 		return 'n'
-	case outChanged:
+	case outChanged, outJudgedQuiet, outPassed:
 		return 'c'
 	case outFired:
 		return 'f'
@@ -457,7 +517,48 @@ func alertView(a Alert) AlertView {
 	}
 	return AlertView{ID: a.ID, CheckID: a.CheckID, Figures: figures, Kind: a.Kind, Held: a.Held, Title: a.Title, Body: a.Body,
 		URL: a.URL, Urgent: a.Urgent, MoreCount: a.MoreCount, CreatedAt: a.CreatedAt,
-		Feedback: a.Feedback, FeedbackReason: a.FeedbackReason, FeedbackNote: a.FeedbackNote, FeedbackAt: a.FeedbackAt}
+		Feedback: a.Feedback, FeedbackReason: a.FeedbackReason, FeedbackNote: a.FeedbackNote, FeedbackAt: a.FeedbackAt,
+		AIState: a.AIState, AIWhy: a.AIWhy, Urgency: urgencyOr(a.Urgency), AlsoSeenBy: botRefs(a.AlsoSeenBy), Via: viaSteps(a.Via),
+		Lines: figureLines(a.Figures)}
+}
+
+// figureLines is a brief's figures.lines as strings, never null.
+func figureLines(f jsonMap[string, any]) []string {
+	out := []string{}
+	if l, ok := f["lines"].([]string); ok {
+		return append(out, l...)
+	}
+	raw, _ := f["lines"].([]any)
+	for _, l := range raw {
+		if s, ok := l.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// viaSteps is "How this came to you" for a client: never null.
+func viaSteps(l []ViaStep) []ViaStep {
+	if l == nil {
+		return []ViaStep{}
+	}
+	return l
+}
+
+// botRefs is a list of Bots for a client: never null.
+func botRefs(l []BotRef) []BotRef {
+	if l == nil {
+		return []BotRef{}
+	}
+	return l
+}
+
+// urgencyOr is an alert's urgency, normal when unset.
+func urgencyOr(u string) string {
+	if u == "" {
+		return UrgencyNormal
+	}
+	return u
 }
 
 // summary is a short line about a reading: "₹27,499", "12 items" or

@@ -19,11 +19,14 @@ import {
   Pause,
   Play,
   Plug,
+  Sunrise,
   X,
 } from "lucide-react";
 import {
   DEFAULT_BOT_SETTINGS,
+  DEFAULT_BRIEF_TIME,
   agoLabel,
+  briefClock,
   clockLabel,
   draftErrors,
   draftOf,
@@ -55,6 +58,7 @@ import {
   useBot,
   useBotDefaults,
   useBotIcons,
+  useBots,
   useCreateBot,
   usePauseBot,
   useResumeBot,
@@ -73,9 +77,12 @@ const say = (message: string) => useToastStore.getState().show(message);
 
 type PanelErrors = EditorErrors & { head?: ReactNode };
 
-/** Which group a sentence from draftErrors belongs under. */
+/** Which group a sentence from draftErrors (or the API) belongs under. */
 function errorGroup(message: string): keyof PanelErrors {
   if (/name|description/i.test(message)) return "head";
+  // Pass to links: "A bot can pass to up to 4 bots", "…in a circle", "A chain can be…", "Up to 5 filter words".
+  if (/pass|circle|chain|filter words/i.test(message)) return "links";
+  if (/brief|sum up/i.test(message)) return "brief";
   if (/checked every|at least once a week/i.test(message)) return "schedule";
   if (
     /price to watch for|percent it should move|words to look for|does not fit|rules/i.test(
@@ -107,7 +114,11 @@ function patchGroup(patch: BotPatch, saved: WatchInput[]): keyof PanelErrors {
       patch.watches.some((w, i) => watchShape(w) !== watchShape(saved[i]));
     return moved ? "watches" : "rules";
   }
+  if ("passesTo" in patch || "briefOnly" in patch) return "links";
+  if ("sources" in patch || "briefTime" in patch || "briefAi" in patch)
+    return "brief";
   if ("intervalMinutes" in patch) return "schedule";
+  if ("judgeMode" in patch || "knowledge" in patch) return "rules";
   if ("urgent" in patch || "desktop" in patch || "phone" in patch)
     return "alerts";
   return "head";
@@ -118,10 +129,16 @@ const PATCH_KEYS = [
   "description",
   "intervalMinutes",
   "judgeMode",
+  "knowledge",
   "urgent",
   "desktop",
   "phone",
   "watches",
+  "passesTo",
+  "sources",
+  "briefOnly",
+  "briefAi",
+  "briefTime",
 ] as const;
 
 /** What changed between what was last sent and the edited draft (both from toInput). */
@@ -141,6 +158,8 @@ function heldKeys(problems: string[]): Set<keyof BotInput> {
   for (const m of problems) {
     const g = errorGroup(m);
     if (g === "head") held.add(/description/i.test(m) ? "description" : "name");
+    else if (g === "links") held.add("passesTo");
+    else if (g === "brief") held.add("sources");
     else if (g === "schedule") {
       // The floor comes from the watches, so neither side is sent.
       held.add("intervalMinutes");
@@ -173,6 +192,10 @@ function keyErrors(
   });
   return out;
 }
+
+/** A bot as an editable draft, with its Pass to links once its page has loaded them. */
+const draftOfBot = (bot: BotView | BotDetail) =>
+  draftOf(bot, "links" in bot ? bot.links : undefined);
 
 /** Whether a keyed price source has a saved key; unknown (still loading) counts as yes. */
 function useHasKey() {
@@ -396,11 +419,12 @@ function EditPanel({
   const pause = usePauseBot();
   const resume = useResumeBot();
   const hasKey = useHasKey();
+  const allPaused = !!useBots().data?.summary.allPaused;
   const icons = useBotIcons(
     useMemo(() => botSites(bot.watches), [bot.watches]),
   ).data;
-  const [draft, setDraft] = useState<BotInput>(() => draftOf(bot));
-  const [base, setBase] = useState<BotInput>(() => toInput(draftOf(bot)));
+  const [draft, setDraft] = useState<BotInput>(() => draftOfBot(bot));
+  const [base, setBase] = useState<BotInput>(() => toInput(draftOfBot(bot)));
   const [errors, setErrors] = useState<PanelErrors>({});
   const [refused, setRefused] = useState<PanelErrors>({});
   const [watchDirty, setWatchDirty] = useState(false);
@@ -418,7 +442,7 @@ function EditPanel({
     {
       onRejected: (error, patch) => {
         // The server refused it: show why under its group and put the saved values back.
-        const saved = draftOf(botRef.current);
+        const saved = draftOfBot(botRef.current);
         const keys = Object.keys(patch) as (keyof BotInput)[];
         const back = Object.fromEntries(
           keys.map((k) => [k, saved[k]]),
@@ -429,8 +453,13 @@ function EditPanel({
         ) as Partial<BotInput>;
         setDraft((d) => ({ ...d, ...back }));
         setBase((b) => ({ ...b, ...backInput }));
+        // Link and brief refusals ("…in a circle") show under their own
+        // group whatever else the edit held.
+        const said = errorGroup(error instanceof Error ? error.message : "");
         setRefused({
-          [patchGroup(patch, savedInput.watches)]: refusalMessage(error),
+          [said === "links" || said === "brief"
+            ? said
+            : patchGroup(patch, savedInput.watches)]: refusalMessage(error),
         });
       },
     },
@@ -450,7 +479,7 @@ function EditPanel({
       // Follow the server, but keep the typed name and description when
       // they save as the same words: a trailing space or line break is
       // still being typed, not a change to undo.
-      const fresh = draftOf(bot);
+      const fresh = draftOfBot(bot);
       const mine = toInput(draft);
       const theirs = toInput(fresh);
       setDraft({
@@ -514,7 +543,7 @@ function EditPanel({
   const prev = index > 0 ? order[index - 1] : null;
   const next = index >= 0 && index < order.length - 1 ? order[index + 1] : null;
   const reason = needsReason(bot, now);
-  const health = healthLine(bot, now);
+  const health = healthLine(bot, now, undefined, { allPaused });
   const origin = originLine(bot);
   const cooling = bot.runNowAt && Date.parse(bot.runNowAt) > now.getTime();
   const status = Object.keys(errors).length ? "unsaved" : autosave.status;
@@ -542,7 +571,12 @@ function EditPanel({
     >
       <header className="relative z-20 shrink-0 border-b border-border bg-card pb-4 pl-6 pr-5 pt-4">
         <div className="flex items-center gap-3">
-          <BotMark watches={bot.watches} size={40} icons={icons} />
+          <BotMark
+            watches={bot.watches}
+            kind={bot.kind}
+            size={40}
+            icons={icons}
+          />
           <NameField
             value={draft.name}
             onChange={(name) => commit({ ...draft, name }, "text")}
@@ -631,7 +665,11 @@ function EditPanel({
           {bot.lastCheckAt ? (
             <Chip>Checked {agoLabel(bot.lastCheckAt, now)}</Chip>
           ) : null}
-          {bot.status === "active" && !bot.lastCheckAt ? (
+          {allPaused ? null : bot.kind === "brief" ? (
+            bot.status === "active" && bot.nextCheckAt ? (
+              <Chip>Next brief {briefClock(bot, bot.nextCheckAt, now)}</Chip>
+            ) : null
+          ) : bot.status === "active" && !bot.lastCheckAt ? (
             // A new bot's first check is queued at once: its next scheduled
             // time would say otherwise.
             <Chip>First check running</Chip>
@@ -668,6 +706,7 @@ function EditPanel({
             errors={shown}
             onDeleted={onClose}
             onWatchDirty={setWatchDirty}
+            onOpenBot={(id) => leave(() => onSelect(id))}
           />
         }
         rail={
@@ -734,7 +773,11 @@ function NewPanel({
   const submit = () =>
     create.mutate(toInput(draft), {
       onSuccess: (view) => {
-        say(`${view.name} is set up. Its first check runs now.`);
+        say(
+          view.kind === "brief"
+            ? `${view.name} is set up. Its first brief goes out at ${view.briefTime || DEFAULT_BRIEF_TIME}.`
+            : `${view.name} is set up. Its first check runs now.`,
+        );
         onUnfinished?.(null);
         onCreated(view.id);
       },
@@ -752,7 +795,11 @@ function NewPanel({
             aria-hidden
             className="grid size-10 shrink-0 place-items-center rounded-[12px] bg-fill text-muted-foreground"
           >
-            <Bot className="size-5" />
+            {draft.kind === "brief" ? (
+              <Sunrise className="size-5" />
+            ) : (
+              <Bot className="size-5" />
+            )}
           </span>
           <NameField
             value={draft.name}
@@ -821,7 +868,9 @@ function NewPanel({
             ? create.error.message
             : touched && problems.length
               ? problems[0]
-              : "Lands in Watching once its first check works."}
+              : draft.kind === "brief"
+                ? `Sends its first brief at ${draft.briefTime || DEFAULT_BRIEF_TIME}.`
+                : "Lands in Watching once its first check works."}
         </p>
         <Button variant="outline" onClick={() => leave(onClose)}>
           Cancel

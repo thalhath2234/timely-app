@@ -34,11 +34,47 @@ type Bot struct {
 	OfflineSince    *time.Time `json:"offlineSince"`
 	Health          string     `gorm:"type:text;not null" json:"health"`
 	HealthDetail    string     `gorm:"type:text;not null" json:"healthDetail"`
-	CreatedAt       time.Time  `json:"createdAt"`
-	UpdatedAt       time.Time  `json:"updatedAt"`
+	// Suggestion is the better rule a rules-only Bot proposes after three
+	// Not useful alerts in a row (T2); SuggestionDismissedAt is when the
+	// person last applied or dismissed one.
+	Suggestion            *Suggestion `gorm:"serializer:json;type:jsonb" json:"-"`
+	SuggestionDismissedAt *time.Time  `json:"-"`
+	// KnowledgeKind and KnowledgeID name the doc or sheet the Bot's judge
+	// reads ("doc" or "sheet"; both "" for none). No foreign key: a read
+	// checks the row is still the person's.
+	KnowledgeKind string `gorm:"type:text;not null" json:"-"`
+	KnowledgeID   string `gorm:"type:text;not null" json:"-"`
+	// Kind is watch or brief. A brief has no watches: it sends one alert a
+	// day at BriefTime (notification zone) listing its sources' notes since
+	// BriefCursorAt, written with AI when BriefAI. A source with BriefOnly
+	// alerts only through its briefs.
+	Kind          string     `gorm:"type:text;not null;default:watch" json:"kind"`
+	BriefOnly     bool       `gorm:"not null" json:"briefOnly"`
+	BriefAI       bool       `gorm:"column:brief_ai;not null" json:"briefAi"`
+	BriefTime     string     `gorm:"type:text;not null" json:"briefTime"`
+	BriefCursorAt *time.Time `json:"-"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
 }
 
 func (Bot) TableName() string { return "bots" }
+
+// Suggestion is a change a Bot proposes, worked out by code from the
+// person's ratings: Line asks, Button applies. It names the rule it changes
+// (WatchID, RuleID and the new Rule), a new interval or AI judging.
+type Suggestion struct {
+	ID              string    `json:"id"` // bsg_<uuid>
+	Line            string    `json:"line"`
+	Button          string    `json:"button"`
+	Reason          string    `json:"reason"` // the ratings' most common reason, or ""
+	WatchID         string    `json:"watchId,omitempty"`
+	RuleID          string    `json:"ruleId,omitempty"`
+	Rule            *Rule     `json:"rule,omitempty"`
+	IntervalMinutes *int      `json:"intervalMinutes,omitempty"`
+	JudgeMode       string    `json:"judgeMode,omitempty"`
+	AlertIDs        []string  `json:"alertIds"`
+	CreatedAt       time.Time `json:"createdAt"`
+}
 
 // Interval is how often the Bot is checked.
 func (b Bot) Interval() time.Duration { return time.Duration(b.IntervalSeconds) * time.Second }
@@ -135,8 +171,8 @@ type Alert struct {
 	UserID         string               `gorm:"type:text;not null" json:"-"`
 	CheckID        *string              `gorm:"type:text" json:"checkId"`
 	NotificationID *string              `gorm:"type:text" json:"notificationId"`
-	Kind           string               `gorm:"type:text;not null" json:"kind"` // alert|more|paused
-	Held           string               `gorm:"type:text;not null" json:"held"` // ""|snoozed|cap
+	Kind           string               `gorm:"type:text;not null" json:"kind"` // alert|more|paused|brief
+	Held           string               `gorm:"type:text;not null" json:"held"` // ""|snoozed|cap|judged|shared
 	LocalDay       time.Time            `gorm:"type:date;not null" json:"-"`
 	Title          string               `gorm:"type:text;not null" json:"title"`
 	Body           string               `gorm:"type:text;not null" json:"body"`
@@ -151,7 +187,47 @@ type Alert struct {
 	FeedbackReason string     `gorm:"type:text;not null" json:"feedbackReason"`
 	FeedbackNote   string     `gorm:"type:text;not null" json:"feedbackNote"`
 	FeedbackAt     *time.Time `json:"feedbackAt"`
-	CreatedAt      time.Time  `json:"createdAt"`
+	// How AI saw it: AIState judged, unchecked (AIWhy says why) or
+	// rejudged (a later verdict said it was not worth it), "" for a rules
+	// Bot. AIInput keeps the judge's input only while a re-judge is
+	// queued. Urgency is the judge's, or high for an urgent rules Bot.
+	AIState string          `gorm:"column:ai_state;type:text;not null" json:"aiState"`
+	AIWhy   string          `gorm:"column:ai_why;type:text;not null" json:"aiWhy"`
+	AIInput json.RawMessage `gorm:"column:ai_input;type:jsonb" json:"-"`
+	Urgency string          `gorm:"type:text;not null;default:normal" json:"urgency"`
+	// One alert per thing: Things are what a sent alert told of, so another
+	// Bot's alert on the same thing the same day joins it; AlsoSeenBy lists
+	// the Bots that did. A held 'shared' alert names the one it joined.
+	Things     jsonList[Thing]  `gorm:"type:jsonb;not null" json:"-"`
+	AlsoSeenBy jsonList[BotRef] `gorm:"column:also_seen_by;type:jsonb;not null" json:"alsoSeenBy"`
+	SharedWith *string          `gorm:"type:text" json:"sharedWith"`
+	// Via is how a passed note came to this Bot: the Bots it went through,
+	// from the start of the chain, each with the link it went on by.
+	Via       jsonList[ViaStep] `gorm:"type:jsonb;not null" json:"via"`
+	CreatedAt time.Time         `json:"createdAt"`
+}
+
+// ViaStep is one Bot a passed note went through ("How this came to you"):
+// the Bot, the link it passed the note on by and the note's title there.
+type ViaStep struct {
+	BotID  string  `json:"botId"`
+	Name   string  `json:"name"`
+	LinkID *string `json:"linkId"`
+	Title  string  `json:"title"`
+}
+
+// BotRef names a Bot.
+type BotRef struct {
+	BotID string `json:"botId"`
+	Name  string `json:"name"`
+}
+
+// Thing is one product, ticker or link a sent alert told of: its key
+// (thingKey*), the price it told of, if any, and the alert's urgency.
+type Thing struct {
+	Key     string   `json:"key"`
+	Value   *float64 `json:"value,omitempty"`
+	Urgency string   `json:"urgency"`
 }
 
 func (Alert) TableName() string { return "bot_alerts" }
@@ -175,7 +251,14 @@ type Finding struct {
 	OutsideData bool       `gorm:"not null" json:"outsideData"`
 	Alerted     bool       `gorm:"not null" json:"alerted"`
 	DigestedAt  *time.Time `json:"digestedAt"`
-	CreatedAt   time.Time  `json:"createdAt"`
+	// ThingKey is the product, ticker or link the note is about (thingKey*).
+	ThingKey string `gorm:"type:text;not null" json:"-"`
+	// A note a passed check made names the chain it is part of, its step in
+	// it (0 for a check of its own) and the note it was passed.
+	ChainID         string    `gorm:"type:text;not null" json:"-"`
+	Depth           int       `gorm:"not null" json:"-"`
+	SourceFindingID *string   `gorm:"type:text" json:"-"`
+	CreatedAt       time.Time `json:"createdAt"`
 }
 
 func (Finding) TableName() string { return "bot_findings" }
@@ -197,8 +280,9 @@ type PriceDay struct {
 
 func (PriceDay) TableName() string { return "bot_price_days" }
 
-// Lesson is something the person taught a Bot (table bot_lessons). It is
-// written from the teaching branch; the table is here so backups carry it.
+// Lesson is something the person taught a Bot (table bot_lessons): one per
+// rated alert, written by code from the alert's rules-made words and the
+// person's note (lessonText), the newest MaxLessons kept.
 type Lesson struct {
 	ID        string    `gorm:"type:text;primaryKey" json:"id"`
 	BotID     string    `gorm:"type:text;not null" json:"botId"`
@@ -210,8 +294,51 @@ type Lesson struct {
 
 func (Lesson) TableName() string { return "bot_lessons" }
 
+// Link passes what one Bot finds to another (table bot_links, kind pass):
+// a note holding one of Filter's words, or any note when it has none,
+// starts a check by ToBotID. OffReason is "person" while switched off.
+type Link struct {
+	ID        string           `gorm:"type:text;primaryKey" json:"id"`
+	UserID    string           `gorm:"type:text;not null" json:"-"`
+	Kind      string           `gorm:"type:text;not null" json:"kind"`
+	FromBotID string           `gorm:"type:text;not null" json:"fromBotId"`
+	ToBotID   string           `gorm:"type:text;not null" json:"toBotId"`
+	Filter    jsonList[string] `gorm:"type:jsonb;not null" json:"filter"`
+	Enabled   bool             `gorm:"not null" json:"enabled"`
+	OffReason string           `gorm:"type:text;not null" json:"offReason"`
+	CreatedAt time.Time        `json:"createdAt"`
+	UpdatedAt time.Time        `json:"updatedAt"`
+}
+
+func (Link) TableName() string { return "bot_links" }
+
+// Pass is one note a link took (table bot_passes), and what became of it:
+// pending until the next Bot checks it, then alerted, quiet or failed; or
+// folded (too old, or its Bot, link or note gone), overflow (past a limit)
+// or repeat (the same thing went to the same Bot in the last 7 days). It
+// has no foreign key to bots, links or findings, so deleting a Bot or a
+// restore resets no count.
+type Pass struct {
+	ID        string    `gorm:"type:text;primaryKey"`
+	UserID    string    `gorm:"type:text;not null"`
+	LinkID    *string   `gorm:"type:text"`
+	FromBotID string    `gorm:"type:text;not null"`
+	ToBotID   string    `gorm:"type:text;not null"`
+	FindingID *string   `gorm:"type:text"`
+	ThingKey  string    `gorm:"type:text;not null"`
+	ChainID   string    `gorm:"type:text;not null"`
+	Depth     int       `gorm:"not null"`
+	LocalDay  time.Time `gorm:"type:date;not null"`
+	State     string    `gorm:"type:text;not null"`
+	CheckID   *string   `gorm:"type:text"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+func (Pass) TableName() string { return "bot_passes" }
+
 // Models lists the account tables, for tests and tools that walk them.
-var Models = []any{&Bot{}, &Watch{}, &Check{}, &Alert{}, &Finding{}, &PriceDay{}, &Lesson{}}
+var Models = []any{&Bot{}, &Watch{}, &Check{}, &Alert{}, &Finding{}, &PriceDay{}, &Lesson{}, &Link{}}
 
 // jsonList is a NOT NULL jsonb array column: nil is stored as [].
 type jsonList[T any] []T

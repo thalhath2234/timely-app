@@ -25,6 +25,10 @@ const (
 	// TriggerAsk is the one check a tag in chat starts (Ask). Like run now,
 	// it runs whether or not the Bot is due, once its floor has passed.
 	TriggerAsk = "ask"
+	// TriggerPass is the check a note another Bot passed on starts (Pass
+	// to). It reads at most the note's link and leaves the Bot's schedule
+	// alone.
+	TriggerPass = "pass"
 )
 
 // runsNow reports a trigger that runs a Bot before it is due: Run now, or
@@ -50,13 +54,17 @@ type Service struct {
 	askPoll time.Duration
 	askWait time.Duration
 	sleep   func(ctx context.Context, d time.Duration) error
+	// judge decides what an AI-judged Bot's rules spot (SetJudge); nil
+	// leaves AI off.
+	judge Judge
 
 	mu            sync.Mutex
 	rnd           *rand.Rand // under mu
 	lastSweepWall time.Time  // under mu
 	lastPrune     time.Time  // under mu
 
-	beforeCommit func(tx *gorm.DB) error // test seam; nil in production
+	beforeCommit  func(tx *gorm.DB) error // test seam; nil in production
+	knowledgeRead func(b Bot)             // test seam, told of each knowledge read; nil in production
 }
 
 func New(db *gorm.DB, queue *jobs.Queue) *Service {
@@ -76,7 +84,7 @@ func New(db *gorm.DB, queue *jobs.Queue) *Service {
 // WithDB is a copy of s whose reads and writes go through db and whose jobs
 // go on q, so the chat agent's saves join its transaction (a rehearsal's
 // rollback takes their logo jobs with it). The copy shares the fetcher,
-// the keys, the live hub, the clock and Ask's timing, and with them the
+// the keys, the live hub, the clock, Ask's timing and the judge, and with them the
 // process-wide preview memo and limit; it has its own random source and no
 // test hook.
 func (s *Service) WithDB(db *gorm.DB, q *jobs.Queue) *Service {
@@ -86,7 +94,7 @@ func (s *Service) WithDB(db *gorm.DB, q *jobs.Queue) *Service {
 	return &Service{
 		store: NewStore(db), db: db, queue: q,
 		fetch: s.fetch, keys: s.keys, keyStore: s.keyStore, live: s.live, now: s.now,
-		askPoll: s.askPoll, askWait: s.askWait, sleep: s.sleep,
+		askPoll: s.askPoll, askWait: s.askWait, sleep: s.sleep, judge: s.judge,
 		rnd: rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), rand.Uint64())),
 	}
 }
@@ -111,11 +119,13 @@ func (s *Service) SetFetcher(f *fetch.Fetcher) {
 	}
 }
 
-// Register adds the check and site logo handlers. The sweep is joined into
-// the worker's one sweep in main.go, never set here.
+// Register adds the check, site logo, re-judge and pass handlers. The sweep is
+// joined into the worker's one sweep in main.go, never set here.
 func (s *Service) Register(w *jobs.Worker) {
 	w.Handle(models.JobBotCheck, s.HandleCheck)
 	w.Handle(models.JobBotIcon, s.HandleIcon)
+	w.Handle(models.JobBotJudge, s.HandleRejudge)
+	w.Handle(models.JobBotPass, s.HandlePass)
 }
 
 // Create saves a Bot, and asks for the logos of sites new to Timely, so
@@ -170,8 +180,25 @@ func (s *Service) Get(ctx context.Context, userID, idOrName string) (Detail, err
 	return s.store.Get(ctx, userID, idOrName, s.now())
 }
 
-func (s *Service) RateAlert(ctx context.Context, userID, botID, alertID string, r Rating) (AlertView, error) {
-	return s.store.RateAlert(ctx, userID, botID, alertID, r, s.now())
+// RateAlert records a rating and the lesson it teaches (Store.RateAlert).
+func (s *Service) RateAlert(ctx context.Context, userID, botID, alertID string, r Rating) (RateResult, error) {
+	ready := s.judge != nil && s.AIStatus(ctx, userID).Ready
+	return s.store.RateAlert(ctx, userID, botID, alertID, r, s.now(), ready)
+}
+
+// ApplySuggestion makes the change a Bot suggested (Store.ApplySuggestion).
+func (s *Service) ApplySuggestion(ctx context.Context, userID, botID, suggestionID string) (View, error) {
+	return s.store.ApplySuggestion(ctx, userID, botID, suggestionID, s.now())
+}
+
+// DismissSuggestion drops a Bot's suggestion (Store.DismissSuggestion).
+func (s *Service) DismissSuggestion(ctx context.Context, userID, botID string) error {
+	return s.store.DismissSuggestion(ctx, userID, botID, s.now())
+}
+
+// SetLink switches a Pass to link on or off (Store.SetLink).
+func (s *Service) SetLink(ctx context.Context, userID, linkID string, enabled bool) (LinkView, error) {
+	return s.store.SetLink(ctx, userID, linkID, enabled, s.now())
 }
 
 func (s *Service) ForgetLesson(ctx context.Context, userID, botID, lessonID string) error {
@@ -186,6 +213,11 @@ func (s *Service) SetAlertDefaults(ctx context.Context, userID string, d models.
 	return s.store.SetAlertDefaults(ctx, userID, d)
 }
 
+// SetAllPaused turns "Pause all bots" on or off.
+func (s *Service) SetAllPaused(ctx context.Context, userID string, paused bool) (bool, error) {
+	return s.store.SetAllPaused(ctx, userID, paused, s.now())
+}
+
 func (s *Service) Findings(ctx context.Context, userID string, q FindingQuery) ([]Finding, error) {
 	return s.store.Findings(ctx, userID, q)
 }
@@ -198,13 +230,17 @@ type RunResult struct {
 }
 
 // RunNow queues a check as soon as the Bot's floor allows. A paused Bot gives
-// ErrPaused. A check already waiting is pulled forward instead of doubled.
-// Both origins may run an active Bot; Bots made over MCP start paused.
+// ErrPaused, and any Bot while "Pause all bots" is on ErrAllPaused. A check
+// already waiting is pulled forward instead of doubled. Both origins may run
+// an active Bot; Bots made over MCP start paused.
 func (s *Service) RunNow(ctx context.Context, userID, idOrName string, _ Origin) (RunResult, error) {
 	now := s.now().UTC()
 	db := s.db.WithContext(ctx)
 	b, err := findBot(db, userID, idOrName, false)
 	if err != nil {
+		return RunResult{}, err
+	}
+	if err := allPausedErr(db, userID); err != nil {
 		return RunResult{}, err
 	}
 	if b.Status != StatusActive {
@@ -235,22 +271,34 @@ func (s *Service) RunNow(ctx context.Context, userID, idOrName string, _ Origin)
 
 // AfterRestore spreads the restored account's active Bots over the next few
 // minutes, so none counts as late (no away alert) and they do not all start
-// at once. Every watch records a quiet baseline first.
+// at once; a brief waits for its time. Every watch records a quiet baseline
+// first.
 func (s *Service) AfterRestore(userID string) {
 	now := s.now().UTC()
 	db := s.db
-	var ids []string
-	if err := db.Model(&Bot{}).Where("user_id = ? AND status = ?", userID, StatusActive).Pluck("id", &ids).Error; err != nil {
+	var bots []Bot
+	if err := db.Select("id", "kind", "brief_time").Where("user_id = ? AND status = ?", userID, StatusActive).Find(&bots).Error; err != nil {
+		log.Printf("bots: after restore: %v", err)
+		return
+	}
+	loc, err := localZone(db, userID)
+	if err != nil {
 		log.Printf("bots: after restore: %v", err)
 		return
 	}
 	var errs []error
-	for _, id := range ids {
-		at := now.Add(s.jitter(WakeSpread))
-		errs = append(errs, db.Model(&Bot{}).Where("id = ? AND status = ?", id, StatusActive).Updates(map[string]any{
-			"next_check_at": at, "checking_job_id": nil, "check_started_at": nil, "updated_at": now,
-		}).Error)
+	for _, b := range bots {
+		set := map[string]any{"next_check_at": now.Add(s.jitter(WakeSpread)), "checking_job_id": nil, "check_started_at": nil, "updated_at": now}
+		if b.Kind == KindBrief {
+			// A brief runs at its time, and lists only what is new from now
+			// on, never the notes the file brought back.
+			set["next_check_at"], set["brief_cursor_at"] = nextBriefAt(loc, b.BriefTime, now).Add(s.jitter(briefSpread)), now
+		}
+		errs = append(errs, db.Model(&Bot{}).Where("id = ? AND status = ?", b.ID, StatusActive).Updates(set).Error)
 	}
+	// A paused brief lists nothing older than the restore either.
+	errs = append(errs, db.Model(&Bot{}).Where("user_id = ? AND kind = ? AND status <> ?", userID, KindBrief, StatusActive).
+		Updates(map[string]any{"brief_cursor_at": now}).Error)
 	errs = append(errs, db.Model(&Watch{}).Where("user_id = ?", userID).Updates(map[string]any{"baseline_pending": true, "updated_at": now}).Error)
 	if err := errors.Join(errs...); err != nil {
 		log.Printf("bots: after restore: %v", err)

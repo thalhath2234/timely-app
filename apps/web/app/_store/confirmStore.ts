@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { create } from "zustand";
 import { runViewTransition } from "@/app/utils/viewTransition";
 
@@ -8,6 +9,10 @@ export type ConfirmRequest = {
   description?: string;
   confirmLabel?: string;
   pendingLabel?: string;
+  /** "primary" for a choice that deletes nothing (ConfirmDialog's tone). */
+  tone?: "danger" | "primary";
+  /** Replaces the bin icon. */
+  icon?: ReactNode;
   onConfirm: () => void | Promise<void>;
 };
 

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Text, View } from "react-native";
 import { Trash2 } from "lucide-react-native";
 import BottomSheet from "./BottomSheet";
@@ -18,6 +19,8 @@ export default function ConfirmSheet({
   message,
   confirmLabel = "Delete",
   cancelLabel = "Cancel",
+  tone = "destructive",
+  icon,
   onConfirm,
 }: {
   open: boolean;
@@ -26,6 +29,10 @@ export default function ConfirmSheet({
   message?: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  /** "primary" for a confirm that removes nothing (Pause all bots). */
+  tone?: "destructive" | "primary";
+  /** The confirm button's icon; a delete gets the bin by default. */
+  icon?: ReactNode;
   onConfirm: () => void | Promise<void>;
 }) {
   return (
@@ -41,10 +48,15 @@ export default function ConfirmSheet({
           <View style={styles.cell}>
             <Button
               label={confirmLabel}
-              variant="destructive"
+              variant={tone === "primary" ? "primary" : "destructive"}
               size="lg"
               stretch
-              icon={/delete|remove|revoke|clear/.test(confirmLabel.toLowerCase()) ? <Trash2 size={16} color={colors.destructiveForeground} /> : undefined}
+              icon={
+                icon ??
+                (tone === "destructive" && /delete|remove|revoke|clear/.test(confirmLabel.toLowerCase()) ? (
+                  <Trash2 size={16} color={colors.destructiveForeground} />
+                ) : undefined)
+              }
               onPress={() => {
                 onClose();
                 onConfirm();

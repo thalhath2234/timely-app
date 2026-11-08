@@ -23,6 +23,7 @@ import {
   valueLine,
   watchCurrency,
   type AlertBrief,
+  type BotNames,
   type BotView,
   type FixButton,
 } from "@timely/contract/bots";
@@ -31,12 +32,14 @@ import { Button } from "../ui/primitives";
 import { ListRow } from "../settings/SettingsList";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { AlertFeedback } from "./AlertFeedback";
+import { AlertAiLine } from "./AlertAiLine";
 import { BotMark, type SiteIcons } from "./BotMark";
 import { CheckStrip } from "./CheckStrip";
 import { HealthLine } from "./HealthLine";
 import { Pill } from "./Pill";
 import { Sparkline } from "./Sparkline";
 import { StrikeMeter } from "./StrikeMeter";
+import { SuggestionButtons } from "./SuggestionCard";
 import { withAlpha } from "./tone";
 import type { BotActions } from "./useBotActions";
 
@@ -121,7 +124,7 @@ function fixIcon(button: FixButton, color: string) {
 function Top({ bot, icons, trailing }: { bot: BotView; icons: SiteIcons; trailing?: ReactNode }) {
   return (
     <View style={styles.top}>
-      <BotMark watches={bot.watches} icons={icons} />
+      <BotMark watches={bot.watches} kind={bot.kind} icons={icons} />
       <View style={styles.topText}>
         <Text numberOfLines={2} style={styles.name}>
           {bot.name}
@@ -135,8 +138,11 @@ function Top({ bot, icons, trailing }: { bot: BotView; icons: SiteIcons; trailin
   );
 }
 
-/** The price line across the card, or the text value beside a row of checks. */
-function Middle({ bot, now }: { bot: BotView; now: Date }) {
+/**
+ * The price line across the card, or the text value beside a row of checks.
+ * A brief names the bots it sums up from `names`.
+ */
+function Middle({ bot, now, names }: { bot: BotView; now: Date; names?: BotNames }) {
   const [width, setWidth] = useState(0);
   const value = cardValue(bot);
   const w = primaryWatch(bot);
@@ -157,7 +163,7 @@ function Middle({ bot, now }: { bot: BotView; now: Date }) {
       </View>
     );
   }
-  const caption = captionLine(bot, now);
+  const caption = captionLine(bot, now, undefined, names);
   const under = caption ? null : w?.kind === "feed" ? feedSources(bot) : value.kind === "text" ? valueLine(bot) : null;
   const text = value.kind === "text" ? value.text : null;
   return (
@@ -184,11 +190,11 @@ function Middle({ bot, now }: { bot: BotView; now: Date }) {
   );
 }
 
-function Footer({ bot, now }: { bot: BotView; now: Date }) {
-  const right = footerRight(bot, now);
+function Footer({ bot, now, allPaused }: { bot: BotView; now: Date; allPaused?: boolean }) {
+  const right = footerRight(bot, now, undefined, { allPaused });
   return (
     <View style={styles.footer}>
-      <HealthLine bot={bot} now={now} />
+      <HealthLine bot={bot} now={now} allPaused={allPaused} />
       {right ? (
         <Text numberOfLines={1} style={styles.footerRight}>
           {right}
@@ -206,7 +212,11 @@ function Attention({ bot, now, actions, onOpen }: { bot: BotView; now: Date; act
     const alert = bot.latestAlert;
     const link = alertLink(bot, alert);
     const { title, meta } = alertHeadline(alert, bot.name);
-    const line = [meta, agoLabel(alert.createdAt, now)].filter(Boolean).join(" · ");
+    const ago = agoLabel(alert.createdAt, now);
+    // A brief's body runs to several lines: its first one gets the clamp, and
+    // the time a line of its own so the clamp never cuts it off.
+    const brief = alert.kind === "brief";
+    const line = brief ? (meta ?? "").split("\n")[0].trim() : [meta, ago].filter(Boolean).join(" · ");
     const box = (
       <>
         <Text numberOfLines={3} style={styles.alertTitle}>
@@ -217,6 +227,12 @@ function Attention({ bot, now, actions, onOpen }: { bot: BotView; now: Date; act
             {line}
           </Text>
         ) : null}
+        {brief ? (
+          <Text numberOfLines={1} style={styles.meta}>
+            {ago}
+          </Text>
+        ) : null}
+        <AlertAiLine alert={alert} variant="compact" />
       </>
     );
     return (
@@ -238,6 +254,19 @@ function Attention({ bot, now, actions, onOpen }: { bot: BotView; now: Date; act
             <AlertFeedback botId={bot.id} alert={alert} />
           </View>
         </View>
+      </>
+    );
+  }
+
+  if (reason === "suggestion" && bot.suggestion) {
+    const copy = fixCopy(bot);
+    return (
+      <>
+        <View style={styles.copy}>
+          <Text style={styles.copyTitle}>{copy.title}</Text>
+          <Text style={styles.meta}>{copy.meta}</Text>
+        </View>
+        <SuggestionButtons bot={bot} actions={actions} style={styles.buttons} />
       </>
     );
   }
@@ -316,13 +345,16 @@ function Attention({ bot, now, actions, onOpen }: { bot: BotView; now: Date; act
  * A bot on the phone board. `card` is a Watching card (value, price line or
  * row of checks, health); `attention` a "Needs you" card with a tinted edge,
  * what it needs and its buttons; `preview` a card that does nothing (a new
- * bot's "On your board").
+ * bot's "On your board"). `names` lets a brief name the bots it sums up;
+ * `allPaused` (Pause all is on) shows on the footer.
  */
 export function BotCard({
   bot,
   now,
   variant = "card",
   icons,
+  names,
+  allPaused,
   actions,
   onPress,
 }: {
@@ -330,17 +362,21 @@ export function BotCard({
   now: Date;
   variant?: "card" | "attention" | "preview";
   icons?: SiteIcons;
+  names?: BotNames;
+  allPaused?: boolean;
   actions: BotActions;
   onPress?: () => void;
 }) {
   const reason = needsReason(bot, now);
   if (variant === "attention" && reason) {
-    const warm = reason === "new_alert" || reason === "waiting_ok";
+    const warm = reason === "new_alert" || reason === "waiting_ok" || reason === "suggestion";
     const trailing =
       reason === "new_alert" ? (
         <Pill tone="primary">New alert</Pill>
       ) : reason === "waiting_ok" ? (
         <Pill tone="warning">Your OK</Pill>
+      ) : reason === "suggestion" ? (
+        <Pill tone="warning">Suggestion</Pill>
       ) : (
         <StrikeMeter strikes={bot.strikes} />
       );
@@ -377,8 +413,8 @@ export function BotCard({
           ) : undefined
         }
       />
-      <Middle bot={bot} now={now} />
-      <Footer bot={bot} now={now} />
+      <Middle bot={bot} now={now} names={names} />
+      <Footer bot={bot} now={now} allPaused={allPaused} />
     </>
   );
   if (variant === "preview" || !onPress) return <View style={styles.card}>{body}</View>;
@@ -402,7 +438,7 @@ export function PausedRow({ bot, now, icons, actions, onPress }: { bot: BotView;
     <ListRow
       title={bot.name}
       meta={h.time ? `${h.word} · ${h.time}` : h.word}
-      leading={<BotMark watches={bot.watches} icons={icons} size={28} />}
+      leading={<BotMark watches={bot.watches} kind={bot.kind} icons={icons} size={28} />}
       onPress={onPress}
       chevron={false}
       action={

@@ -5,7 +5,10 @@ import { summaryLine, type BotsList } from "@timely/contract/bots";
 import Button from "@/app/_components/_ui/button";
 import PageHeader, { PageBadge } from "@/app/_components/_ui/pageHeader";
 
-/** "Bots 9", today's checks and alerts, and the two ways to make a bot. */
+/**
+ * "Bots 9", today's checks and alerts ("All bots are paused" while Pause all
+ * is on), and the two ways to make a bot.
+ */
 export function BotsHeader({
   list,
   now,
@@ -26,7 +29,11 @@ export function BotsHeader({
       badge={count ? <PageBadge>{count}</PageBadge> : undefined}
       description={
         list && count && now ? (
-          <span className="tabular-nums">{summaryLine(list, now)}</span>
+          <span className="tabular-nums">
+            {list.summary.allPaused
+              ? "All bots are paused"
+              : summaryLine(list, now)}
+          </span>
         ) : undefined
       }
       actions={
