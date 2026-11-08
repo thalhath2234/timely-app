@@ -3,6 +3,7 @@ const path = require("path");
 const { withAndroidManifest } = require("expo/config-plugins");
 const appJson = require("./app.json");
 const withTimelyAndroid = require("./plugins/withTimelyAndroid");
+const { pushConfig } = require("./pushConfig");
 const { WIDGETS } = require("./lib/widgets/catalog.json");
 
 // The phone pairs with a Desktop host over plain http inside the Tailscale
@@ -35,9 +36,22 @@ function loadDotEnv(filename) {
 // process or the root .env pre-fills the address dev builds use on the
 // emulator; the root .env is skipped for production builds so a release APK
 // never picks up a developer's emulator address.
+const dotEnv = loadDotEnv("../../.env");
 const fromProcess = (process.env.EXPO_PUBLIC_API_URL || "").trim();
-const fromEnvFile = process.env.NODE_ENV === "production" ? "" : (loadDotEnv("../../.env").EXPO_PUBLIC_API_URL || "").trim();
+const fromEnvFile = process.env.NODE_ENV === "production" ? "" : (dotEnv.EXPO_PUBLIC_API_URL || "").trim();
 const apiUrl = (fromProcess || fromEnvFile).replace(/\/+$/, "");
+
+// Instant push (docs/mobile/push.md): the Expo project id is read from the
+// process or the root .env in every build, so a release build picks it up
+// too; without it the app never asks Expo for a push token. Gradle evaluates
+// this file again when it builds the APK (expo-constants' createExpoConfig
+// writes the app.config the release reads), so the id must be set there too.
+const { googleServicesFile, extra: pushExtra } = pushConfig({
+  env: process.env,
+  dotEnv,
+  appJson,
+  exists: (file) => fs.existsSync(path.join(__dirname, file)),
+});
 
 module.exports = {
   expo: {
@@ -51,6 +65,7 @@ module.exports = {
       withTimelyAndroid,
       ["react-native-android-widget", { widgets: WIDGETS, fonts: ["./assets/fonts/Archivo-CondensedExtraBold.ttf"] }],
     ],
-    extra: apiUrl ? { apiUrl } : {},
+    android: { ...appJson.expo.android, ...(googleServicesFile ? { googleServicesFile } : {}) },
+    extra: { ...(apiUrl ? { apiUrl } : {}), ...pushExtra },
   },
 };

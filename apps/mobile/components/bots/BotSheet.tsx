@@ -17,6 +17,7 @@ import {
   Trash2,
 } from "lucide-react-native";
 import {
+  CAUGHT_UP,
   DEFAULT_BOT_SETTINGS,
   DEFAULT_BRIEF_TIME,
   agoLabel,
@@ -32,6 +33,7 @@ import {
   needsReason,
   originLine,
   priceHistory,
+  recentAway,
   runNowState,
   shortDate,
   snoozeLabel,
@@ -150,6 +152,21 @@ function WatchPicker({ watches, value, onChange }: { watches: WatchView[]; value
         onChange={onChange}
         options={watches.map((w) => ({ value: w.id, label: w.kind === "price" ? w.symbol : w.site || watchTitle(w) }))}
       />
+    </View>
+  );
+}
+
+/** "Caught up · 08:12" and "Paused for 9 hours while Timely was closed", for a day after a catch-up check. */
+function CaughtUp({ detail, now }: { detail: BotDetail; now: Date }) {
+  const away = recentAway(detail, now);
+  if (!away) return null;
+  return (
+    <View style={styles.caughtUp}>
+      <View style={styles.priceTop}>
+        <Text style={styles.caughtUpTitle}>{CAUGHT_UP}</Text>
+        <Text style={styles.meta}>{clockLabel(away.at, now)}</Text>
+      </View>
+      <Text style={styles.meta}>{away.line}</Text>
     </View>
   );
 }
@@ -593,6 +610,7 @@ function ViewSheet({
           ) : null}
           {origin ? <MetaChip>{origin}</MetaChip> : null}
         </View>
+        {detail ? <CaughtUp detail={detail} now={now} /> : null}
 
         {suggests(bot) ? <SuggestionCard bot={bot} actions={actions} /> : null}
         {reason === "waiting_ok" ? <LookOver botId={bot.id} /> : null}
@@ -995,6 +1013,8 @@ const styles = createThemedStyleSheet((colors) => ({
   description: { color: colors.foreground, fontSize: 15, lineHeight: 21 },
   descriptionEmpty: { color: colors.mutedForeground, fontSize: 15, lineHeight: 21 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  caughtUp: { gap: 2 },
+  caughtUpTitle: { color: colors.mutedForeground, fontSize: 13, lineHeight: 18, fontWeight: "500" },
   chip: { height: 22, borderRadius: 999, paddingHorizontal: 8, justifyContent: "center", maxWidth: "100%" },
   chipText: { fontSize: 12, fontWeight: "500", fontVariant: ["tabular-nums"] },
   chipStrong: { fontWeight: "600" },

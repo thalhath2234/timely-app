@@ -135,6 +135,7 @@ import {
   clearNotifications,
   deleteNotification,
   retryJob,
+  setPushTextHidden,
   snoozeNotification,
   prioritizeOverdueTask,
   unreadNotificationCount,
@@ -1936,6 +1937,15 @@ export function useSaveNotificationSettings() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (data: Partial<NotificationSettings>) => updateNotificationSettings(data),
+    onSuccess: (settings) => client.setQueryData(keys.notificationSettings, settings),
+  });
+}
+
+/** Turns "Hide alert text in push" on or off; the reply is the stored settings. */
+export function useSetPushTextHidden() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (hidden: boolean) => setPushTextHidden(hidden),
     onSuccess: (settings) => client.setQueryData(keys.notificationSettings, settings),
   });
 }

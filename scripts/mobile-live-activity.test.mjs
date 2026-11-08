@@ -143,6 +143,26 @@ describe("notification quick actions", () => {
     assert.equal(categoryFor({ category: "bot", data: null }), null);
   });
 
+  test("a pushed bot alert maps the same way, also with its text hidden", () => {
+    // The data a server push carries (notify.notificationPushMessage); with
+    // "Hide alert text in push" on it holds only these keys, with no url.
+    const pushed = {
+      notificationId: "ntf_1",
+      category: "bot",
+      botId: "bot_a",
+      alertId: "alt_1",
+      checkId: "chk_1",
+      botAlert: "paused",
+      resume: true,
+      entityType: "bot",
+      entityId: "bot_a",
+    };
+    assert.equal(categoryFor({ category: pushed.category, data: pushed }), "timely_bot_paused");
+    assert.equal(categoryFor({ category: "bot", data: { ...pushed, url: "https://example.com" } }), "timely_bot_paused");
+    assert.equal(categoryFor({ category: "bot", data: { ...pushed, resume: false } }), null);
+    assert.equal(categoryFor({ category: "bot", data: { ...pushed, botAlert: "alert" } }), null);
+  });
+
   test("unknown categories get no buttons", () => {
     assert.equal(categoryFor({ category: "something" }), null);
     assert.equal(categoryFor({ category: "bot", data: { botId: "bot_a", url: "https://example.com" } }), null);

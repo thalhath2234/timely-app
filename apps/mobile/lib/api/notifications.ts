@@ -46,6 +46,11 @@ export function updateNotificationSettings(data: Partial<NotificationSettings>) 
   return api<NotificationSettings>("/notifications/settings", { method: "PUT", body: data });
 }
 
+/** "Hide alert text in push": its own endpoint, so a whole-form save never undoes it. */
+export function setPushTextHidden(hidden: boolean) {
+  return api<NotificationSettings>("/notifications/settings/push-text", { method: "PUT", body: { hidden } });
+}
+
 export function registerPushDevice(token: string, platform: string) {
   return api("/devices/push", { method: "PUT", body: { token, platform } });
 }
