@@ -47,6 +47,7 @@ import {
   Columns2,
   MonitorPlay,
   Bookmark as BookmarkIcon,
+  ChartLine,
   ListOrdered,
   ListTodo,
   Minus,
@@ -96,6 +97,8 @@ import { belowFit, isWriteList, replaceFit, writtenContent, type WriteSpot } fro
 import type { LineHints } from "../docs/lineHints";
 import DescribeCardSheet, { type DescribedDraft } from "../report/DescribeCardSheet";
 import LiveBlocks from "./LiveBlocks";
+import PriceBlockSheet from "./PriceBlockSheet";
+import { priceBlockProgram } from "@timely/contract/bots";
 
 /** The five GitHub callout kinds, coloured as in the editor (editorHtml.ts). */
 const CALLOUT_KINDS: { kind: string; label: string; Icon: typeof Info; color?: string }[] = [
@@ -146,6 +149,7 @@ const SLASH: {
   { title: "Page", description: "Create a nested subpage", cmd: "page", Icon: FileText, keywords: ["subpage", "child", "nested"] },
   { title: "Help me write", description: "Draft or rewrite text with AI", cmd: "helpMeWrite", Icon: Sparkles, keywords: ["ai", "write", "draft", "generate", "rewrite", "assistant", "summarize"] },
   { title: "Live block", description: "A card from your data, kept current", cmd: "liveBlock", Icon: LayoutDashboard, keywords: ["live", "card", "dashboard", "chart", "widget", "data", "tasks", "ai", "openui"] },
+  { title: "Bot price chart", description: "A bot's price over 30 days, kept current", cmd: "priceBlock", Icon: ChartLine, keywords: ["price", "bot", "chart", "history", "live"] },
 ];
 
 const FORMAT_TOOLS = [
@@ -384,6 +388,9 @@ export default function RichTextEditor({
   const [livePrograms, setLivePrograms] = useState<string[]>([]);
   const [liveEdit, setLiveEdit] = useState<{ pos?: number; program: string; title: string } | null>(null);
   const [liveSheet, setLiveSheet] = useState(false);
+  // A bot's price chart needs no AI: any doc can take one.
+  const priceOn = writeContext?.kind === "doc";
+  const [priceSheet, setPriceSheet] = useState(false);
   const liveInitial = useMemo<DescribedDraft | undefined>(
     () => (liveEdit?.program.trim() ? { title: liveEdit.title, prompt: "", program: liveEdit.program } : undefined),
     [liveEdit],
@@ -668,6 +675,7 @@ export default function RichTextEditor({
     if (item.cmd === "page" && !onCreateSubpage) return false;
     if (item.cmd === "helpMeWrite" && !writeOn) return false;
     if (item.cmd === "liveBlock" && !liveOn) return false;
+    if (item.cmd === "priceBlock" && !priceOn) return false;
     if (!slashQuery) return true;
     return item.title.toLowerCase().includes(slashQuery) || item.keywords.some((k) => k.includes(slashQuery));
   });
@@ -744,6 +752,12 @@ export default function RichTextEditor({
       setLiveEdit({ program: "", title: "" });
       return;
     }
+    if (item.cmd === "priceBlock") {
+      if (range) run("deleteRange", range);
+      Keyboard.dismiss();
+      setPriceSheet(true);
+      return;
+    }
     if (item.cmd === "page") {
       if (!onCreateSubpage) return;
       const page = await onCreateSubpage();
@@ -789,6 +803,14 @@ export default function RichTextEditor({
     }
     run("linkBlock", {
       node: { type: "codeBlock", attrs: { language: LIVE_BLOCK_LANGUAGE }, content: [{ type: "text", text: draft.program }] },
+    });
+  }
+
+  /** The picked bot's price chart, as a live block at the caret. */
+  function savePriceBlock(bot: { id: string; name: string }) {
+    setPriceSheet(false);
+    run("linkBlock", {
+      node: { type: "codeBlock", attrs: { language: LIVE_BLOCK_LANGUAGE }, content: [{ type: "text", text: priceBlockProgram(bot) }] },
     });
   }
 
@@ -1260,6 +1282,8 @@ export default function RichTextEditor({
           onLink={openLiveLink}
         />
       ) : null}
+
+      {priceOn ? <PriceBlockSheet open={priceSheet} onClose={() => setPriceSheet(false)} onPick={savePriceBlock} /> : null}
 
       <BlockSheet
         block={blockMenu}

@@ -36,6 +36,7 @@ import {
   Type,
   Sparkles,
   LayoutDashboard,
+  ChartLine,
 } from "lucide-react";
 import {
   forwardRef,
@@ -62,6 +63,8 @@ export const OPEN_LINK_EDITOR_EVENT = "timely:open-link-editor";
 export const OPEN_HELP_ME_WRITE_EVENT = "timely:open-help-me-write";
 /** Emitted on the editor DOM node so the editor can describe a new live block. */
 export const OPEN_LIVE_BLOCK_EVENT = "timely:open-live-block";
+/** Emitted on the editor DOM node so the editor can pick a bot for a price chart block. */
+export const OPEN_PRICE_BLOCK_EVENT = "timely:open-price-block";
 
 function clampedRange(editor: Editor, range: Range): Range {
   const size = editor.state.doc.content.size;
@@ -84,6 +87,8 @@ export function createSlashItems(options?: {
   helpMeWrite?: boolean;
   /** Adds "Live block" (docs only, while an AI provider is set up). */
   liveBlock?: boolean;
+  /** Adds "Bot price chart" (docs only; no AI needed). */
+  priceBlock?: boolean;
 }): SlashCommandItem[] {
   const items: SlashCommandItem[] = [
     {
@@ -359,6 +364,19 @@ export function createSlashItems(options?: {
       run: ({ editor, range }) => {
         runSlash(editor, range, (chain) => chain.run());
         editor.view.dom.dispatchEvent(new CustomEvent(OPEN_LIVE_BLOCK_EVENT));
+      },
+    });
+  }
+
+  if (options?.priceBlock) {
+    items.push({
+      title: "Bot price chart",
+      description: "A bot's price over 30 days, kept current",
+      icon: ChartLine,
+      keywords: ["price", "bot", "chart", "history", "live"],
+      run: ({ editor, range }) => {
+        runSlash(editor, range, (chain) => chain.run());
+        editor.view.dom.dispatchEvent(new CustomEvent(OPEN_PRICE_BLOCK_EVENT));
       },
     });
   }
