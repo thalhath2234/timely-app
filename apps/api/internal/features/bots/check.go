@@ -43,7 +43,8 @@ const (
 	outPassed      = "passed"
 	// outHeldStock: rules would have fired, but the product page says it
 	// cannot be bought (onlyInStock). Nobody is told; the rules fire once
-	// it can be bought again.
+	// it can be bought again. Only the first held check, or one whose
+	// reading moved, logs it; the same hold again is outUnchanged.
 	outHeldStock = "held_stock"
 )
 
@@ -707,14 +708,17 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 				evs, st, re, held := evaluateWatch(w, reading)
 				fired, states, rearms = append(fired, evs...), st, append(rearms, re...)
 				cw.Outcome = outUnchanged
-				if watchChanged(prev, reading) {
+				changed := watchChanged(prev, reading)
+				if changed {
 					moved, cw.Outcome = true, outChanged
 					set["last_changed_at"] = done
 				}
 				switch {
 				case len(evs) > 0:
 					cw.Outcome = outFired
-				case len(held) > 0:
+				case len(held) > 0 && (changed || newlyHeld(w, held)):
+					// A hold is news when it starts or the reading moves;
+					// the same hold again is an unchanged check.
 					heldStock = true
 					cw.Outcome, cw.Note = outHeldStock, heldNote(w, held, reading)
 				}
@@ -867,6 +871,16 @@ func evaluateWatch(w Watch, reading Reading) (fired []firedEvent, states jsonMap
 		}
 	}
 	return fired, states, rearms, held
+}
+
+// newlyHeld reports a held rule that was not held at the watch's last check.
+func newlyHeld(w Watch, held []Rule) bool {
+	for _, r := range held {
+		if w.RuleState[r.ID].Held == "" {
+			return true
+		}
+	}
+	return false
 }
 
 // heldNote is why a watch's rules stayed quiet on stock, for the check's log:
