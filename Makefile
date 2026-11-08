@@ -517,8 +517,8 @@ test-electron-guards: ## Test the desktop shell's window-open origin policy, Bot
 	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/electron-guards.test.mjs scripts/notification-target.test.mjs
 
 .PHONY: test-electron-supervisor test-mobile-server-config test-desktop-instance test-web-api-proxy test-chat-stream
-test-electron-supervisor: ## Test the desktop supervisor: config/secrets, ports, Tailscale detection, backoff, stale pid, sidecar lifetime
-	@node --experimental-strip-types --test scripts/electron-supervisor.test.mjs scripts/electron-lifetime.test.mjs
+test-electron-supervisor: ## Test the desktop supervisor: config/secrets, ports, Tailscale detection, backoff, stale pid, sidecar lifetime, start at login
+	@node --experimental-strip-types --test scripts/electron-supervisor.test.mjs scripts/electron-lifetime.test.mjs scripts/electron-login-item.test.mjs
 
 test-mobile-server-config: ## Test mobile pairing: QR payload parsing, server order, reachability probe
 	@node --experimental-strip-types --test scripts/mobile-server-config.test.mjs

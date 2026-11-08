@@ -50,7 +50,16 @@ export type DesktopInstance = {
     tailscaleHttps: boolean;
     allowRegistration: boolean;
     setupDone: boolean;
+    /** Start hidden in the tray when the person signs in to the computer. */
+    startAtLogin: boolean;
   };
+  /**
+   * Start at login as the system has it. `supported` is false outside the
+   * installed app (and on other platforms). `blockedBySystem`: start at login
+   * is on here, but Windows (Startup apps) or the desktop turned the entry off.
+   * `notice`: the one-time notice for upgraders is still owed.
+   */
+  loginItem: { supported: boolean; blockedBySystem: boolean; notice: boolean };
   /** What the Settings → Server QR encodes; see "Pairing payload" in the contract. */
   pairing: { v: 1; name: string; id?: string; urls: string[]; code?: string };
   update: {
@@ -60,7 +69,7 @@ export type DesktopInstance = {
   };
 };
 
-export type DesktopSettingKey = "tailscaleEnabled" | "tailscaleHttps" | "allowRegistration" | "setupDone";
+export type DesktopSettingKey = "tailscaleEnabled" | "tailscaleHttps" | "allowRegistration" | "setupDone" | "startAtLogin";
 
 export type DesktopAction =
   | "restartApi"
@@ -69,9 +78,11 @@ export type DesktopAction =
   | "openLogs"
   | "checkForUpdates"
   | "installUpdate"
-  | "copyAddress";
+  | "copyAddress"
+  | "dismissLoginNotice";
 
-export type DesktopActionResult = { ok: true; message?: string } | { ok: false; error: string };
+/** `cleared` (dismissLoginNotice): this caller used up the notice and alone shows it. */
+export type DesktopActionResult = { ok: true; message?: string; cleared?: boolean } | { ok: false; error: string };
 
 export type TimelyDesktop = {
   platform: NodeJS.Platform;

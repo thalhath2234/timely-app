@@ -11,6 +11,7 @@ import { copyDataDir, manualBackupName, preUpgradeBackupName, pruneBackups, KEEP
 import { ensureSecrets, loadConfig, saveConfig, type DesktopConfig, type Sealer, type Secrets } from "./config.ts";
 import { findOrphans, scanWithCap, setprivPath, stopOrphans } from "./lifetime.ts";
 import { FileLog, createLogger, type Logger } from "./logger.ts";
+import type { LoginItemState } from "./loginItem.ts";
 import { NextManager } from "./next.ts";
 import { userPaths, type ResourceDirs, type UserPaths } from "./paths.ts";
 import { reconcilePorts, type PortSet } from "./ports.ts";
@@ -52,6 +53,11 @@ export type SupervisorDeps = {
   /** Runs the tailscale CLI for Serve; defaults to the installed CLI. */
   tailscaleServe?: ServeRunner | null;
   fetch?: typeof fetch;
+  /** Start at login (loginItem.ts, bound to Electron by main.ts); absent in tests and builds without it. */
+  loginItem?: {
+    read(): LoginItemState;
+    sync(want: boolean, userAction: boolean, target?: string): LoginItemState;
+  };
 };
 
 export type BootStep = "postgres" | "api" | "web";
@@ -68,7 +74,7 @@ export class BootError extends Error {
   }
 }
 
-export const SETTING_KEYS: readonly DesktopSettingKey[] = ["tailscaleEnabled", "tailscaleHttps", "allowRegistration", "setupDone"];
+export const SETTING_KEYS: readonly DesktopSettingKey[] = ["tailscaleEnabled", "tailscaleHttps", "allowRegistration", "setupDone", "startAtLogin"];
 export const ACTIONS: readonly DesktopAction[] = [
   "restartApi",
   "backupNow",
@@ -77,6 +83,7 @@ export const ACTIONS: readonly DesktopAction[] = [
   "checkForUpdates",
   "installUpdate",
   "copyAddress",
+  "dismissLoginNotice",
 ];
 
 const SHUTDOWN_CAP_MS = 15_000;
@@ -134,6 +141,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
   private readonly sidecarLogs: FileLog[] = [];
   /** setpriv the sidecars run under for a death signal (lifetime.ts), or null. */
   private setpriv: string | null = null;
+  private loginState: LoginItemState = { supported: false, on: false, blockedBySystem: false };
 
   private postgres: PostgresManager | null = null;
   private api: ApiManager | null = null;
@@ -159,6 +167,14 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
     const loaded = loadConfig(this.paths.configFile, deps.version, deps.defaultPorts);
     this.config = loaded.config;
     this.configExisted = loaded.existed;
+    // An upgrader: start at login is on and the notice is owed; keep both
+    // even if this run never gets as far as booting.
+    if (loaded.upgraded) this.save();
+    try {
+      if (deps.loginItem) this.loginState = deps.loginItem.read();
+    } catch (error) {
+      this.log.warn(`login item: ${describe(error)}`);
+    }
 
     this.postgresSidecar = new Sidecar({
       name: "postgres",
@@ -226,8 +242,27 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
     saveConfig(this.paths.configFile, this.config);
   }
 
+  /** Never throws: a failing login item must not stop the app. */
+  private syncLoginItem(userAction: boolean, target?: string) {
+    try {
+      this.loginState = this.deps.loginItem?.sync(this.config.startAtLogin, userAction, target) ?? this.loginState;
+    } catch (error) {
+      this.log.warn(`login item: ${describe(error)}`);
+    }
+  }
+
+  /** The AppImage now lives at `path` (an update renamed it on quit): point the login entry there. */
+  appImageMoved(path: string) {
+    this.syncLoginItem(false, path);
+  }
+
+  get setupDone(): boolean {
+    return this.config.setupDone;
+  }
+
   /** Postgres → (pre-upgrade dump) → API → Next. Throws BootError on the failing step. */
   async boot(): Promise<void> {
+    this.syncLoginItem(false);
     this.log.info(`boot: Timely ${this.deps.version} on ${this.platform}/${process.arch}; userData=${this.paths.userData}`);
     this.log.info(`boot: resources api=${this.deps.resources.api} postgres=${this.deps.resources.postgres} next=${this.deps.resources.next}`);
     this.progress("postgres", "pending");
@@ -539,6 +574,13 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
         tailscaleHttps: this.config.tailscaleHttps,
         allowRegistration: this.config.allowRegistration,
         setupDone: this.config.setupDone,
+        startAtLogin: this.config.startAtLogin,
+      },
+      loginItem: {
+        supported: this.loginState.supported,
+        blockedBySystem: this.loginState.supported && this.config.startAtLogin && this.loginState.blockedBySystem,
+        // Never claim it starts at sign-in while the system has it turned off.
+        notice: this.loginState.supported && this.config.startAtLogin && !this.loginState.blockedBySystem && this.config.loginNoticePending,
       },
       pairing: pairingPayload({ name, id: this.instanceId, httpsUrl, ...ts }),
       update: { ...this.update },
@@ -556,8 +598,13 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
     if (typeof value !== "boolean") throw new Error("Setting values must be booleans");
     const changed = this.config[key] !== value;
     this.config[key] = value;
+    // The person has found and used the switch: the one-time notice is moot.
+    if (key === "startAtLogin") this.config.loginNoticePending = false;
     this.save();
     this.log.info(`settings: ${key}=${value}`);
+    // The person's own switch: the only write that re-enables an entry the
+    // system turned off. It never restarts the API.
+    if (key === "startAtLogin") this.syncLoginItem(true);
     if (changed && (key === "tailscaleEnabled" || key === "allowRegistration")) {
       await this.restartApi();
     }
@@ -610,6 +657,17 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
           if (!this.deps.updater) return { ok: false, error: "Updates are not available in this build" };
           await this.deps.updater.install();
           return { ok: true };
+        case "dismissLoginNotice": {
+          // Synchronous check and write in the main process: of two callers
+          // (two windows, a reload) exactly one gets cleared: true.
+          const cleared = this.config.loginNoticePending;
+          if (cleared) {
+            this.config.loginNoticePending = false;
+            this.save();
+            this.emitChange();
+          }
+          return { ok: true, cleared };
+        }
         case "copyAddress": {
           const url = this.getInstance().pairing.urls[0];
           this.deps.writeClipboard(url);

@@ -17,13 +17,15 @@ export type Flavor = {
   name: string;
   /** Windows AppUserModelID; matches appId in electron-builder*.yml. */
   appId: string;
+  /** Linux start-at-login entry in $XDG_CONFIG_HOME/autostart (supervisor/loginItem.ts). */
+  autostartFile: string;
   ports: PortSet;
 };
 
 export function flavorFor(release: boolean): Flavor {
   return release
-    ? { release, name: "Timely", appId: "app.timely.desktop", ports: { ...DEFAULT_PORTS } }
-    : { release, name: "Timely Dev", appId: "app.timely.desktop.dev", ports: { ...LOCAL_BUILD_PORTS } };
+    ? { release, name: "Timely", appId: "app.timely.desktop", autostartFile: "timely.desktop", ports: { ...DEFAULT_PORTS } }
+    : { release, name: "Timely Dev", appId: "app.timely.desktop.dev", autostartFile: "timely-dev.desktop", ports: { ...LOCAL_BUILD_PORTS } };
 }
 
 export const FLAVOR = flavorFor(typeof __TIMELY_RELEASE__ === "boolean" && __TIMELY_RELEASE__);

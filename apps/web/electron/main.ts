@@ -23,6 +23,7 @@ import { makeSealer } from "./supervisor/config";
 import { checkPrivileges } from "./supervisor/guards";
 import { ACTIONS, BootError, SETTING_KEYS, Supervisor, type BootProgress, type BootStep } from "./supervisor/index";
 import { installFingerprint, isPackageManaged } from "./supervisor/install";
+import { HIDDEN_ARG, readLoginItem, startedHidden, syncLoginItem, type LoginItemDeps } from "./supervisor/loginItem";
 import { resolveResourceDirs } from "./supervisor/paths";
 import { createElectronUpdater } from "./supervisor/updater";
 import type { DesktopAction, DesktopSettingKey } from "../electron-env";
@@ -45,6 +46,18 @@ let tray: Tray | null = null;
 let supervisor: Supervisor | null = null;
 let rendererUrl = DEFAULT_RENDERER_URL;
 let quitting = false;
+/** The main window has been shown once (Windows maximizes it the first time). */
+let shownOnce = false;
+/**
+ * A start at login keeps the boot screen and the window in the tray. Any open
+ * request clears it, also while still booting, so the boot screen shows and
+ * the window opens once ready; windows read it at ready-to-show.
+ */
+let startHidden = false;
+/** Timely was opened (launcher, tray, notification) since this process started. */
+let openRequested = false;
+/** The boot screen has painted (ready-to-show), so showing it shows a page. */
+let bootWindowReady = false;
 
 // ---------------------------------------------------------------------------
 // Chat notifications (unchanged API)
@@ -261,16 +274,24 @@ function notificationIcon(): Electron.NativeImage | undefined {
 }
 
 function showMainWindow() {
+  startHidden = false;
+  openRequested = true;
   const win = mainWindow;
   if (!win || win.isDestroyed()) {
     if (HOSTED && supervisor?.isBooted) void createWindow(rendererUrl);
+    // Still booting (a hidden login start): show the boot screen now; the
+    // window then opens when ready, since startHidden is cleared.
+    else if (bootWindow && !bootWindow.isDestroyed() && bootWindowReady) bootWindow.show();
     return;
   }
   if (win.isMinimized()) win.restore();
+  if (!shownOnce && process.platform === "win32") win.maximize();
+  shownOnce = true;
   win.show();
   win.focus();
 }
 
+/** During a start at login (startHidden) the window loads but stays in the tray until opened. */
 async function createWindow(url: string) {
   const isWindows = process.platform === "win32";
   const win = new BrowserWindow({
@@ -306,8 +327,11 @@ async function createWindow(url: string) {
     });
   }
   win.once("ready-to-show", () => {
-    if (isWindows) win.maximize();
-    win.show();
+    if (!startHidden) {
+      if (isWindows) win.maximize();
+      win.show();
+      shownOnce = true;
+    }
     closeBootWindow();
   });
   // Hosted: closing the window hides it; the sidecars keep running until
@@ -381,6 +405,7 @@ function bootHtmlPath(): string {
   return path.join(app.getAppPath(), "electron", "boot.html");
 }
 
+/** A start at login (startHidden) shows no boot screen unless booting fails or Timely is opened. */
 async function createBootWindow() {
   const win = new BrowserWindow({
     width: 440,
@@ -401,7 +426,10 @@ async function createBootWindow() {
     },
   });
   win.setMenuBarVisibility(false);
-  win.once("ready-to-show", () => win.show());
+  win.once("ready-to-show", () => {
+    if (bootWindow === win) bootWindowReady = true;
+    if (!startHidden) win.show();
+  });
   win.on("close", (event) => {
     // Closing the boot screen while booting means "stop": quit cleanly.
     if (quitting) return;
@@ -409,7 +437,10 @@ async function createBootWindow() {
     requestQuit();
   });
   win.on("closed", () => {
-    if (bootWindow === win) bootWindow = null;
+    if (bootWindow === win) {
+      bootWindow = null;
+      bootWindowReady = false;
+    }
   });
   bootWindow = win;
   await win.loadFile(bootHtmlPath());
@@ -418,6 +449,7 @@ async function createBootWindow() {
 function closeBootWindow() {
   const win = bootWindow;
   bootWindow = null;
+  bootWindowReady = false;
   if (win && !win.isDestroyed()) {
     win.removeAllListeners("close");
     win.close();
@@ -571,6 +603,23 @@ async function bootHosted() {
   });
   if (app.isPackaged) watchInstall(resources.next);
   const encryptionAvailable = safeStorage.isEncryptionAvailable();
+  // Start at login: packaged builds only, so a dev run never registers
+  // node_modules/electron (TIMELY_DEV_LOGIN_ITEM=1 is for the smoke test).
+  const loginDeps: LoginItemDeps = {
+    platform: process.platform,
+    env: process.env,
+    execPath: process.execPath,
+    home: app.getPath("home"),
+    name: FLAVOR.name,
+    appId: FLAVOR.appId,
+    autostartFile: FLAVOR.autostartFile,
+    enabled: app.isPackaged || process.env.TIMELY_DEV_LOGIN_ITEM === "1",
+    electron: {
+      get: (o) => app.getLoginItemSettings(o),
+      set: (s) => app.setLoginItemSettings(s),
+    },
+    log: (m) => supervisor?.log.warn(m),
+  };
   supervisor = new Supervisor({
     userData,
     resources,
@@ -590,10 +639,15 @@ async function bootHosted() {
           isPackaged: app.isPackaged,
           managed: app.isPackaged && isPackageManaged({ platform: process.platform, env: process.env, resourcesPath: process.resourcesPath }),
           log: (m) => supervisor?.log.warn(m),
+          onAppImageMoved: (p) => supervisor?.appImageMoved(p),
         })
       : undefined,
     defaultPorts: FLAVOR.ports,
     echo: !app.isPackaged,
+    loginItem: {
+      read: () => readLoginItem(loginDeps),
+      sync: (want, userAction, target) => syncLoginItem(loginDeps, want, userAction, target),
+    },
   });
   if (!encryptionAvailable) supervisor.log.warn("safeStorage encryption unavailable; secrets are stored with the plain: prefix (file mode 0600)");
   // Without a keyring Linux falls back to "basic_text", whose key is public:
@@ -611,6 +665,12 @@ async function bootHosted() {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("instance:changed", instance);
   });
 
+  // A login start stays in the tray, unless first-run setup is not finished.
+  startHidden =
+    !openRequested &&
+    startedHidden(process.argv, process.platform, process.platform === "darwin" && app.getLoginItemSettings().wasOpenedAtLogin) && supervisor.setupDone;
+  if (startHidden) supervisor.log.info("boot: started hidden at login");
+
   await createBootWindow();
   installTray();
 
@@ -624,6 +684,9 @@ async function bootHosted() {
       title: `Timely could not start ${what}`,
       message: `${detail}\n\nThe logs folder has the details (supervisor.log, ${step === "web" ? "next" : step}.log).`,
     };
+    // A failure is never hidden, not even at login.
+    startHidden = false;
+    bootWindow?.show();
     sendBootStatus();
     supervisor.log.error(`boot failed at ${step}: ${detail}`);
     return;
@@ -661,6 +724,8 @@ async function boot() {
   if (HOSTED) await bootHosted();
   else await bootDev();
 
+  // Registered after booting: Electron may emit activate for the launch
+  // itself, which would undo a hidden login start (macOS is not shipped).
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0 || (mainWindow && !mainWindow.isVisible())) openOrRestart();
   });
@@ -681,7 +746,10 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  app.on("second-instance", () => openOrRestart());
+  // A second login start (--hidden) must not pop the window open.
+  app.on("second-instance", (_event, argv) => {
+    if (!argv.includes(HIDDEN_ARG)) openOrRestart();
+  });
 
   app.setName(FLAVOR.name);
   if (process.platform === "win32") {

@@ -17,7 +17,8 @@ import {
 } from "../apps/web/electron/supervisor/config.ts";
 import { checkPrivileges } from "../apps/web/electron/supervisor/guards.ts";
 import { installFingerprint, isPackageManaged } from "../apps/web/electron/supervisor/install.ts";
-import { pairingPayload, tailscaleUrls } from "../apps/web/electron/supervisor/index.ts";
+import { ACTIONS, SETTING_KEYS, Supervisor, pairingPayload, tailscaleUrls } from "../apps/web/electron/supervisor/index.ts";
+import { createElectronUpdater } from "../apps/web/electron/supervisor/updater.ts";
 import { resolveResourceDirs, userPaths } from "../apps/web/electron/supervisor/paths.ts";
 import { findFreePort, isPortFree, listenPort, reconcilePorts } from "../apps/web/electron/supervisor/ports.ts";
 import { classifyPidFile, isPostgresCommand, parsePostmasterPid, probePostgres } from "../apps/web/electron/supervisor/postgres.ts";
@@ -679,4 +680,263 @@ test("tailscale serve: failures say what to do", () => {
   );
   assert.match(describeServeFailure("serve config denied: Access denied: serve config denied"), /--operator=\$USER/);
   assert.match(describeServeFailure(""), /did not finish in time/);
+});
+
+// ---------------------------------------------------------------------------
+// Start at login (supervisor side; loginItem.ts has its own test file)
+// ---------------------------------------------------------------------------
+
+const ON = { supported: true, on: true, blockedBySystem: false };
+
+function fakeLoginItem(state = ON, { throws = false } = {}) {
+  const calls = [];
+  return {
+    calls,
+    loginItem: {
+      read: () => ({ ...state }),
+      sync(want, userAction, target) {
+        calls.push([want, userAction, target]);
+        if (throws) throw new Error("registry said no");
+        return { ...state, on: want };
+      },
+    },
+  };
+}
+
+function makeSupervisor(dir, loginItem, extra = {}) {
+  return new Supervisor({
+    userData: dir,
+    resources: { api: path.join(dir, "res-api"), postgres: path.join(dir, "res-pg"), next: path.join(dir, "res-next") },
+    version: "0.5.0",
+    sealer: plainSealer,
+    nodeBinary: process.execPath,
+    runAsNode: false,
+    openPath: async () => "",
+    writeClipboard: () => {},
+    hostname: () => "laptop",
+    sweepOrphans: false,
+    loginItem,
+    ...extra,
+  });
+}
+
+function writeOldConfig(dir, extra = {}) {
+  const file = userPaths(dir).configFile;
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, JSON.stringify({ version: "0.4.0", postgresPort: 54329, apiPort: 48080, webPort: 44001, setupDone: true, secrets: {}, ...extra }));
+  return file;
+}
+
+test("start at login: an old config is turned on with the notice owed, and saved by the constructor", () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    const file = writeOldConfig(dir);
+    const loaded = loadConfig(file, "0.5.0");
+    assert.equal(loaded.upgraded, true);
+    assert.equal(loaded.config.startAtLogin, true);
+    assert.equal(loaded.config.loginNoticePending, true);
+    const sup = makeSupervisor(dir, fakeLoginItem().loginItem);
+    const saved = JSON.parse(readFileSync(file, "utf8"));
+    assert.equal(saved.startAtLogin, true);
+    assert.equal(saved.loginNoticePending, true);
+    assert.equal(sup.getInstance().settings.startAtLogin, true);
+    assert.deepEqual(sup.getInstance().loginItem, { supported: true, blockedBySystem: false, notice: true });
+    assert.equal(sup.setupDone, true);
+    sup.log.close();
+    // Loaded again, it is no longer an upgrade.
+    assert.equal(loadConfig(file, "0.5.0").upgraded, false);
+  } finally {
+    cleanup();
+  }
+});
+
+test("start at login: a new install is on with no notice; an explicit false is kept; a corrupt file owes nothing", () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    const file = path.join(dir, "config.json");
+    const fresh = loadConfig(file, "0.5.0");
+    assert.deepEqual([fresh.upgraded, fresh.config.startAtLogin, fresh.config.loginNoticePending], [false, true, false]);
+    writeFileSync(file, JSON.stringify({ version: "0.5.0", startAtLogin: false }));
+    const off = loadConfig(file, "0.5.0");
+    assert.deepEqual([off.upgraded, off.config.startAtLogin, off.config.loginNoticePending], [false, false, false]);
+    writeFileSync(file, JSON.stringify({ version: "0.5.0", startAtLogin: true, loginNoticePending: true }));
+    assert.equal(loadConfig(file, "0.5.0").config.loginNoticePending, true);
+    writeFileSync(file, "{broken");
+    const corrupt = loadConfig(file, "0.5.0");
+    assert.deepEqual([corrupt.upgraded, corrupt.config.startAtLogin, corrupt.config.loginNoticePending], [false, true, false]);
+
+    const sup = makeSupervisor(path.join(dir, "new"), fakeLoginItem().loginItem);
+    assert.equal(existsSync(userPaths(path.join(dir, "new")).configFile), false, "a new install is saved later, by boot");
+    assert.deepEqual(sup.getInstance().loginItem, { supported: true, blockedBySystem: false, notice: false });
+    sup.log.close();
+  } finally {
+    cleanup();
+  }
+});
+
+test("start at login: the switch syncs as the person's action and never restarts the API", async () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    assert.ok(SETTING_KEYS.includes("startAtLogin"));
+    writeOldConfig(dir, { startAtLogin: true });
+    const fake = fakeLoginItem();
+    const sup = makeSupervisor(dir, fake.loginItem);
+    // restartApi() would throw here: the API was never started.
+    const off = await sup.setSetting("startAtLogin", false);
+    assert.deepEqual(fake.calls, [[false, true, undefined]]);
+    assert.equal(off.settings.startAtLogin, false);
+    assert.equal(JSON.parse(readFileSync(userPaths(dir).configFile, "utf8")).startAtLogin, false);
+    await sup.setSetting("startAtLogin", true);
+    assert.deepEqual(fake.calls.at(-1), [true, true, undefined]);
+    sup.log.close();
+  } finally {
+    cleanup();
+  }
+});
+
+test("start at login: using the switch clears the owed notice, so turning it back on shows no toast", async () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    writeOldConfig(dir);
+    const sup = makeSupervisor(dir, fakeLoginItem().loginItem);
+    assert.equal(sup.getInstance().loginItem.notice, true);
+    await sup.setSetting("startAtLogin", false);
+    const on = await sup.setSetting("startAtLogin", true);
+    assert.equal(on.loginItem.notice, false);
+    assert.equal(JSON.parse(readFileSync(userPaths(dir).configFile, "utf8")).loginNoticePending, false);
+    // Another setting leaves it owed.
+    const { dir: dir2, cleanup: cleanup2 } = tmpdir();
+    try {
+      writeOldConfig(dir2);
+      const other = makeSupervisor(dir2, fakeLoginItem().loginItem);
+      assert.equal((await other.setSetting("setupDone", true)).loginItem.notice, true);
+      other.log.close();
+    } finally {
+      cleanup2();
+    }
+    sup.log.close();
+  } finally {
+    cleanup();
+  }
+});
+
+test("start at login: dismissLoginNotice clears once, saves, and answers cleared to one caller", async () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    assert.ok(ACTIONS.includes("dismissLoginNotice"));
+    writeOldConfig(dir);
+    const sup = makeSupervisor(dir, fakeLoginItem().loginItem);
+    const changes = [];
+    sup.on("change", (instance) => changes.push(instance.loginItem.notice));
+    const [first, second] = await Promise.all([sup.action("dismissLoginNotice"), sup.action("dismissLoginNotice")]);
+    assert.deepEqual(first, { ok: true, cleared: true });
+    assert.deepEqual(second, { ok: true, cleared: false });
+    assert.deepEqual(changes, [false]);
+    assert.equal(JSON.parse(readFileSync(userPaths(dir).configFile, "utf8")).loginNoticePending, false);
+    assert.equal(sup.getInstance().loginItem.notice, false);
+    sup.log.close();
+  } finally {
+    cleanup();
+  }
+});
+
+test("start at login: an AppImage rename re-points the entry at boot's wish, not as the person's action", () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    writeOldConfig(dir, { startAtLogin: true });
+    const fake = fakeLoginItem();
+    const sup = makeSupervisor(dir, fake.loginItem);
+    sup.appImageMoved("/home/me/Timely-0.6.0.AppImage");
+    assert.deepEqual(fake.calls, [[true, false, "/home/me/Timely-0.6.0.AppImage"]]);
+    sup.log.close();
+  } finally {
+    cleanup();
+  }
+});
+
+test("start at login: the updater's appimage-filename-updated reaches onAppImageMoved", async () => {
+  const handlers = new Map();
+  const fake = {
+    autoDownload: true,
+    autoInstallOnAppQuit: false,
+    logger: undefined,
+    on(event, listener) {
+      handlers.set(event, listener);
+      return this;
+    },
+    checkForUpdates: async () => null,
+    downloadUpdate: async () => {},
+    quitAndInstall() {},
+  };
+  const moved = [];
+  const updater = createElectronUpdater({ isPackaged: true, autoUpdater: fake, onAppImageMoved: (p) => moved.push(p) });
+  await updater.check();
+  assert.equal(fake.autoInstallOnAppQuit, true);
+  handlers.get("appimage-filename-updated")("/home/me/Timely-0.6.0-linux-x86_64.AppImage");
+  assert.deepEqual(moved, ["/home/me/Timely-0.6.0-linux-x86_64.AppImage"]);
+});
+
+test("start at login: loginItem in the snapshot is gated on support and on the setting", async () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    writeOldConfig(dir);
+    const blocked = { supported: true, on: true, blockedBySystem: true };
+    const sup = makeSupervisor(dir, fakeLoginItem(blocked).loginItem);
+    // The system has it turned off: no notice claiming it starts at sign-in.
+    assert.deepEqual(sup.getInstance().loginItem, { supported: true, blockedBySystem: true, notice: false });
+    await sup.setSetting("startAtLogin", false);
+    assert.deepEqual(sup.getInstance().loginItem, { supported: true, blockedBySystem: false, notice: false });
+    sup.log.close();
+
+    // Outside the installed app nothing is claimed, notice included.
+    const { dir: dir2, cleanup: cleanup2 } = tmpdir();
+    try {
+      writeOldConfig(dir2);
+      const dev = makeSupervisor(dir2, fakeLoginItem({ supported: false, on: false, blockedBySystem: false }).loginItem);
+      assert.deepEqual(dev.getInstance().loginItem, { supported: false, blockedBySystem: false, notice: false });
+      dev.log.close();
+      const none = makeSupervisor(dir2, undefined);
+      assert.deepEqual(none.getInstance().loginItem, { supported: false, blockedBySystem: false, notice: false });
+      none.log.close();
+    } finally {
+      cleanup2();
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("start at login: a throwing sync is logged, not thrown", async () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    writeOldConfig(dir, { startAtLogin: true });
+    const fake = fakeLoginItem(ON, { throws: true });
+    const sup = makeSupervisor(dir, fake.loginItem);
+    const instance = await sup.setSetting("startAtLogin", false);
+    assert.equal(instance.settings.startAtLogin, false);
+    sup.appImageMoved("/x.AppImage");
+    assert.equal(fake.calls.length, 2);
+    sup.log.close();
+    assert.match(readFileSync(path.join(userPaths(dir).logDir, "supervisor.log"), "utf8"), /login item: registry said no/);
+  } finally {
+    cleanup();
+  }
+});
+
+test("start at login: boot syncs the login item first, before the database", async () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    writeOldConfig(dir, { startAtLogin: true });
+    const fake = fakeLoginItem();
+    const sup = makeSupervisor(dir, fake.loginItem);
+    const steps = [];
+    sup.on("boot", (p) => steps.push([p.step, p.state, fake.calls.length]));
+    // No Postgres binaries here: boot fails at the database step, after the sync.
+    await assert.rejects(sup.boot(), (error) => error.step === "postgres");
+    assert.deepEqual(fake.calls[0], [true, false, undefined]);
+    assert.deepEqual(steps[0], ["postgres", "pending", 1]);
+    sup.log.close();
+  } finally {
+    cleanup();
+  }
 });

@@ -127,3 +127,5 @@ nsis:
   perMachine: false # Postgres refuses to run elevated; keep the install per-user
   allowToChangeInstallationDirectory: true
   deleteAppDataOnUninstall: false
+  # Removes the start-at-login Run value on uninstall (not on update).
+  include: electron/nsis/uninstall.nsh

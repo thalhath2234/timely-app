@@ -2,7 +2,7 @@
 // packages; main.ts wires it into the Supervisor as `deps.updater`.
 import type { Updater, UpdateStatus } from "./index.ts";
 
-type AutoUpdaterLike = {
+export type AutoUpdaterLike = {
   autoDownload: boolean;
   autoInstallOnAppQuit: boolean;
   logger: unknown;
@@ -22,6 +22,14 @@ export function createElectronUpdater(options: {
   /** A package manager owns the install (AUR); see isPackageManaged. */
   managed?: boolean;
   log?: (message: string) => void;
+  /**
+   * The AppImage was renamed to the new version's file name on quit
+   * (electron-updater's `appimage-filename-updated`). Called synchronously
+   * during the quit-time install, so the handler must write synchronously.
+   */
+  onAppImageMoved?: (path: string) => void;
+  /** Tests pass a fake; otherwise electron-updater's autoUpdater, loaded lazily. */
+  autoUpdater?: AutoUpdaterLike;
 }): Updater {
   let status: UpdateStatus = options.managed ? { status: "managed" } : { status: "idle" };
   let listener: ((status: UpdateStatus) => void) | null = null;
@@ -37,8 +45,7 @@ export function createElectronUpdater(options: {
     if (updater) return updater;
     // Lazy so a build without the module still boots.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require("electron-updater") as { autoUpdater: AutoUpdaterLike };
-    const auto = mod.autoUpdater;
+    const auto = options.autoUpdater ?? (require("electron-updater") as { autoUpdater: AutoUpdaterLike }).autoUpdater;
     auto.autoDownload = false;
     auto.autoInstallOnAppQuit = true;
     auto.logger = null;
@@ -59,6 +66,7 @@ export function createElectronUpdater(options: {
       set({ status: "ready", version: info?.version ?? status.version });
     });
     auto.on("error", (error: unknown) => set({ status: "error", version: status.version, error: message(error) }));
+    auto.on("appimage-filename-updated", (path: string) => options.onAppImageMoved?.(path));
     updater = auto;
     return auto;
   }
