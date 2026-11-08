@@ -47,7 +47,7 @@ design, which would break ADR 0001.
 
 **Direct mode, with an automatic backup mode.** The worker builds Hermes' agent
 itself and keeps one per conversation, which the learning loop needs
-(ADR 0027). If direct mode fails its startup self-test, for example because a
+(ADR 0028). If direct mode fails its startup self-test, for example because a
 sync moved a seam, or crashes twice within 10 minutes at startup, Go switches
 that account's worker to backup mode: the same worker starts Hermes' own HTTP
 API (`api_server`) alone, on loopback with a per-worker token, with the cron
@@ -162,7 +162,7 @@ recommended answer to Q-5.2.
   - ADR 0011: the desktop bundles a Python runtime, the API spawns workers, and
     folder backups include agent state.
   - ADR 0012: triage no longer narrows the tools offered on the new engine.
-  - ADR 0021 and ADR 0024: changed by ADR 0026.
+  - ADR 0021 and ADR 0024: changed by ADR 0027.
   - ADR 0022: chat uses Hermes' browser tools on the person's own browser, and
     Timely typing the saved password becomes an adapter. ADR 0022 never lets
     the model run script in a page, on any page, and every Hermes browser tool
@@ -174,7 +174,7 @@ recommended answer to Q-5.2.
     with the gate enforcing the person's Tool choice; Can use, Ask me first and
     Off stay, and MCP servers that start a program on the host are for the
     host-trusted account only. Tool watches and "Fixed calls first" go with the
-    rules engine. In Bots, ADR 0026's egress policy replaces the rule that no
+    rules engine. In Bots, ADR 0027's egress policy replaces the rule that no
     MCP call follows a read of the person's data or another service's results:
     read-only Can use tools the person allowed for Bots may still run after the
     run has read outside content. In chat, that rule stands: after the
@@ -201,7 +201,7 @@ recommended answer to Q-5.2.
 - **Keep the Go loop and call single Hermes tools from it** (the earlier plan,
   `docs/plans/2026-11-08-hermes-tools.md`): rejected; Hermes refuses its loop
   tools (memory, past-chat search, delegation, todo) outside its own loop, so
-  the learning in ADR 0027 could not work, and upstream loop fixes would never
+  the learning in ADR 0028 could not work, and upstream loop fixes would never
   arrive.
 - **Hermes' `api_server` as the main mode**: rejected as the default; it fixes
   tool sets per platform, not per run, so chat, Bot and Sensitive runs could
