@@ -16,6 +16,29 @@ Hermes' own `AGENTS.md` files (`hermes/AGENTS.hermes.md`, `hermes/<pkg>/AGENTS.m
 
 Any Hermes process you start, test or script gets fresh `HERMES_HOME` and `HERMES_RUNTIME_DIR` folders under a temp dir such as `$HOME/.cache/timely-agent-test/`. Your own `~/.hermes` stays untouched: never read, write or point anything at it.
 
+## Running and testing the worker
+
+The Go API spawns one worker per account (`apps/api/internal/agenthost`); the wire contract is `PROTOCOL.md`. Commands, all from the repo root (export `TMPDIR=$HOME/.cache/gotmp` first when `/tmp` is a small tmpfs):
+
+| Command | What it does |
+| --- | --- |
+| `make agent-install` | builds `apps/agent/.venv` from Hermes' own `uv.lock` (uv-managed CPython 3.14.9, extras in `.hermes-sync/extras.txt`). Without uv it prints a notice and exits 0. `make install` runs it. |
+| `make agent-lint` | ruff on `timely_agent/` and `tests/`. |
+| `make agent-test` | worker unit and process tests (`tests/`, not `tests/contract`). `ARGS=...` passes pytest arguments. |
+| `make agent-contract` | the contract tests of plan 10.4 f (`tests/contract/test_contract.py`, numbered `test_cNN_*`), against real workers and the stub model. `ARGS="-k c19"` picks some. |
+| `make agent-go-integration` | the Go supervisor with the real worker: prepare, render-account, spawn, `hello`, `ready`, `run.start` on a Go stub model, `run.done`, `shutdown`. |
+| `make agent-go-vet-windows` | vets the Windows spawn path (Job Object) from any OS. |
+| `make hermes-sync-check` | the post-sync checks (plan 10.4 a-e). |
+
+Rules for tests and experiments:
+
+- The model is always a stub: `tests/stub_openai.py` (Python) or `stubModel` in `agenthost/integration_test.go`, both on 127.0.0.1 with an OS-picked port. Never point a test at a live provider, and never use ports 8080/4001.
+- Test agent folders go under `$HOME/.cache/timely-agent-test/run-<pid>` and are removed after the session (`TIMELY_AGENT_KEEP=1` keeps them). Go tests use `$HOME/.cache/timely-agent-test/agenthost-*`.
+- Start workers the way Go does: `tests/harness.py` (`Agent` prepares a folder and renders an account; `Worker` spawns `<venv python> -I timely_agent/boot.py worker` with an environment built from scratch). `tests/contract/probe_boot.py` wraps the same boot path for the network probe (test 5) and the stdout tool (test 19).
+- By hand: `boot.py prepare --agent-dir <dir>` once, `boot.py render-account --agent-dir <dir> --account <uid>` (settings JSON on stdin), then spawn `boot.py worker` with the `env` both print, plus `PATH`, `LANG`, `TMPDIR` and `HERMES_REAL_HOME`. The first stdin line is `hello` with `home` and `settings_hash` from render-account.
+- Hermes is imported only inside worker and helper subprocesses, never into the pytest process.
+- A new Hermes symbol imported in `timely_agent` is picked up by contract test 7 automatically; a symbol reached through a module or object attribute goes in its `SYMBOLS` table. A Hermes behaviour Timely depends on goes in `TIMELY_SEAMS` (`scripts/hermes-sync/check_seams.py`), then `make hermes-tools-dump`.
+
 ## Syncing Hermes
 
 1. `make hermes-sync` (newest stable `vX.Y.Z`) or `make hermes-sync HERMES_REF=v0.23.1`. On `dev` it first creates `fix/hermes-sync-<tag>`. Cadence: a tagged release every one to two weeks, a security fix at once.

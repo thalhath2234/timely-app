@@ -7,7 +7,9 @@ Timely-owned records for the Hermes copy in `apps/agent/hermes/`. Plan: `docs/pl
 | `filter` | which upstream paths are copied | hand; commit before syncing |
 | `tags.json` | every tag Timely imported and the commit it pointed at; a known tag that moves is refused | `make hermes-sync` |
 | `patches.md` | patch points in vendored files (none yet; cap five) | hand |
-| `tools.json`, `skills.json`, `seams.json`, `policy/*` | runtime dumps and policy | later phase-1 work (`make hermes-tools-dump`, `make hermes-skills-review`) |
+| `tools.json`, `skills.json`, `seams.json` | runtime dumps of the snapshot (tools by name and owner with schema hashes, skill trees, seam source hashes) | `make hermes-tools-dump`; compared by `make hermes-sync-check` |
+| `policy/tools.yaml`, `policy/skills-reviewed.json`, `policy/skill-body.yaml` | tool dispositions per run kind, reviewed skill trees, skill-body tokens | hand (`make hermes-skills-review NAME=<skill>` records a reviewed tree) |
+| `extras.txt` | Hermes extras the runtime installs (`make agent-install`, later `stage-agent.mjs`) | hand |
 
 ## How `make hermes-sync` works
 
@@ -46,7 +48,7 @@ Exit codes: 0 merged or up to date, 1 refused, 2 conflicts.
 - `hermes_cli/observability/shared_metrics_catalog.py` `display_languages()` lists the `.yaml` stems for a telemetry enum; with English only, a non-English language would be reported as unknown. Workers keep telemetry off (config render), so nothing changes.
 - `hermes_cli/plugin_validate_locales.py` reads `locales/_keys.{tui,desktop}.json` to validate plugin language packs (`hermes plugins validate`, a developer command the worker never runs).
 
-No runtime path the worker uses needs a non-English locale, provided the worker pins `display.language: en` in the managed config and keeps `HERMES_LANGUAGE` and `HERMES_BUNDLED_LOCALES` out of the worker environment allowlist. The phase-1 config render and contract tests should assert both. `plugin-catalog/` is copied (Q-1.4), so its readers (`hermes_cli/plugin_catalog.py`, `plugin_catalog_presence.py`, `memory_provider_migration.py`) find their data.
+No runtime path the worker uses needs a non-English locale, provided the worker pins `display.language: en` in the managed config and keeps `HERMES_LANGUAGE` and `HERMES_BUNDLED_LOCALES` out of the worker environment allowlist. Both are asserted: `display.language: en` is a managed canary key the worker self-test reads back, and contract test 12c (`apps/agent/tests/contract`) shows the worker refusing to start with either variable set. `plugin-catalog/` is copied (Q-1.4), so its readers (`hermes_cli/plugin_catalog.py`, `plugin_catalog_presence.py`, `memory_provider_migration.py`) find their data.
 
 **(b) Root files.** v0.22.7 and v0.23.0 have the same root entries. Every root `skip` matches a v0.23.0 file except `pnpm-*.yaml` and `install*.sh`, kept as guards. Copied root files: the Python root modules (`run_agent.py`, `model_tools.py`, `toolsets.py`, `cli.py`, `hermes_state*.py`, `hermes_constants*.py` and the rest), the `hermes` launcher, `pyproject.toml`, `setup.py`, `uv.lock`, `.python-version` (3.14), `ruff.toml`, `ruff.pre-commit.toml`, `cli-config.yaml.example`, `LICENSE`, `SOUL.md`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `.gitignore`, `.gitattributes`, and `AGENTS.md` renamed to `AGENTS.hermes.md`. No `package*.json`, `pnpm-lock.yaml`, `yarn.lock` or `.env*` file is left anywhere in the copy (`uv.lock` twice and `pm/lock.json` are expected).
 
