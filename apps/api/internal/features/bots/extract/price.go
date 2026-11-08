@@ -15,17 +15,23 @@ import (
 )
 
 // Price is a product's price as the page states it. From is where it was
-// read: "jsonld", "og" or "itemprop".
+// read: "jsonld", "og" or "itemprop". Availability is one of the Avail
+// words, AvailUnknown when the page states none.
 type Price struct {
-	Amount   float64
-	Currency string
-	From     string
+	Amount       float64
+	Currency     string
+	From         string
+	Availability string
 }
 
 // ProductPrice reads a product page's price. It tries, in order: JSON-LD
 // Product offers (Offer, AggregateOffer's lowPrice, @graph and @id
 // references), then og:price:amount or product:price:amount with its
 // currency, then microdata itemprop="price". No price gives ErrEmpty.
+//
+// Availability comes from the offer the price came from, else from
+// og:availability or product:availability, else from microdata
+// itemprop="availability".
 func ProductPrice(body []byte, contentType string) (Price, error) {
 	doc, err := parseHTML(body, contentType)
 	if err != nil {
@@ -33,25 +39,30 @@ func ProductPrice(body []byte, contentType string) (Price, error) {
 	}
 	var pg pricePage
 	pg.walk(doc)
-	if p, ok := jsonLDPrice(pg.ldJSON); ok {
-		return p, nil
+	p, ok := jsonLDPrice(pg.ldJSON)
+	if !ok {
+		p, ok = pg.ogPrice()
 	}
-	if p, ok := pg.ogPrice(); ok {
-		return p, nil
+	if !ok {
+		p, ok = pg.itempropPrice()
 	}
-	if p, ok := pg.itempropPrice(); ok {
-		return p, nil
+	if !ok {
+		return Price{}, ErrEmpty
 	}
-	return Price{}, ErrEmpty
+	if !KnownAvailability(p.Availability) {
+		p.Availability = pg.availability()
+	}
+	return p, nil
 }
 
 // pricePage is what one walk of the page collects.
 type pricePage struct {
 	ldJSON       []string
-	meta         map[string]string // first content per og/product price property
+	meta         map[string]string // first content per og/product price or availability property
 	itemPrice    []string
 	itemLow      []string
 	itemCurrency string
+	itemAvail    []string
 }
 
 func (pg *pricePage) walk(n *html.Node) {
@@ -67,7 +78,7 @@ func (pg *pricePage) walk(n *html.Node) {
 			if key == "" {
 				key = strings.ToLower(attr(n, "name"))
 			}
-			if strings.HasSuffix(key, ":price:amount") || strings.HasSuffix(key, ":price:currency") {
+			if strings.HasSuffix(key, ":price:amount") || strings.HasSuffix(key, ":price:currency") || key == "og:availability" || key == "product:availability" {
 				if pg.meta == nil {
 					pg.meta = map[string]string{}
 				}
@@ -86,6 +97,12 @@ func (pg *pricePage) walk(n *html.Node) {
 				if pg.itemCurrency == "" {
 					pg.itemCurrency = itemValue(n)
 				}
+			case "availability":
+				v := itemValue(n)
+				if n.DataAtom == atom.Link || (v == "" && hasAttr(n, "href")) {
+					v = attr(n, "href")
+				}
+				pg.itemAvail = append(pg.itemAvail, v)
 			}
 		}
 	}
@@ -107,6 +124,17 @@ func (pg *pricePage) ogPrice() (Price, bool) {
 		return Price{Amount: amount, Currency: currencyCode(cur, pg.meta[prefix+":price:amount"]), From: "og"}, true
 	}
 	return Price{}, false
+}
+
+// availability is the first availability the page's meta tags, then its
+// microdata, state; AvailUnknown when none does.
+func (pg *pricePage) availability() string {
+	for _, v := range append([]string{pg.meta["og:availability"], pg.meta["product:availability"]}, pg.itemAvail...) {
+		if a := NormalizeAvailability(v); KnownAvailability(a) {
+			return a
+		}
+	}
+	return AvailUnknown
 }
 
 func (pg *pricePage) itempropPrice() (Price, bool) {
@@ -344,22 +372,55 @@ func (ld *ldReader) offer(m map[string]any) (Price, bool) {
 	}
 	defer ld.leave()
 	keys := []string{"price", "lowPrice"}
-	if isType(m, "AggregateOffer") {
+	aggregate := isType(m, "AggregateOffer")
+	if aggregate {
 		keys = []string{"lowPrice", "price"}
+	}
+	avail := NormalizeAvailability(ldString(m["availability"]))
+	if !KnownAvailability(avail) && aggregate {
+		avail = ld.offersAvailability(m["offers"])
 	}
 	cur := ldString(m["priceCurrency"])
 	for _, k := range keys {
 		if amount, raw, ok := ldAmount(m[k]); ok {
-			return Price{Amount: amount, Currency: currencyCode(cur, raw), From: "jsonld"}, true
+			return Price{Amount: amount, Currency: currencyCode(cur, raw), From: "jsonld", Availability: avail}, true
 		}
 	}
 	if p, ok := ld.offers(m["priceSpecification"]); ok {
 		if p.Currency == "" {
 			p.Currency = currencyCode(cur, "")
 		}
+		// A price specification states no availability; its offer does.
+		p.Availability = avail
 		return p, true
 	}
-	return ld.offers(m["offers"])
+	p, ok := ld.offers(m["offers"])
+	if ok && !KnownAvailability(p.Availability) {
+		p.Availability = avail
+	}
+	return p, ok
+}
+
+// offersAvailability is the most buyable availability an AggregateOffer's
+// offers state: it can be bought when any one of them can. AvailUnknown when
+// none states one.
+func (ld *ldReader) offersAvailability(v any) string {
+	best := AvailUnknown
+	var visit func(v any)
+	visit = func(v any) {
+		switch t := v.(type) {
+		case []any:
+			for _, c := range t {
+				visit(c)
+			}
+		case map[string]any:
+			if a := NormalizeAvailability(ldString(ld.resolve(t)["availability"])); buyRank(a) < buyRank(best) {
+				best = a
+			}
+		}
+	}
+	visit(v)
+	return best
 }
 
 func isType(m map[string]any, names ...string) bool {

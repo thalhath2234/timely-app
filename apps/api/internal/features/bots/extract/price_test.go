@@ -13,11 +13,11 @@ func TestProductPrice(t *testing.T) {
 		file string
 		want Price
 	}{
-		{"product_jsonld.html", Price{Amount: 27499, Currency: "INR", From: "jsonld"}},
-		{"product_graph.html", Price{Amount: 89, Currency: "GBP", From: "jsonld"}},
-		{"product_og.html", Price{Amount: 1249.5, Currency: "USD", From: "og"}},
-		{"product_itemprop.html", Price{Amount: 149.99, Currency: "CAD", From: "itemprop"}},
-		{"product_eu.html", Price{Amount: 1299.99, Currency: "EUR", From: "itemprop"}},
+		{"product_jsonld.html", Price{Amount: 27499, Currency: "INR", From: "jsonld", Availability: AvailInStock}},
+		{"product_graph.html", Price{Amount: 89, Currency: "GBP", From: "jsonld", Availability: AvailUnknown}},
+		{"product_og.html", Price{Amount: 1249.5, Currency: "USD", From: "og", Availability: AvailUnknown}},
+		{"product_itemprop.html", Price{Amount: 149.99, Currency: "CAD", From: "itemprop", Availability: AvailUnknown}},
+		{"product_eu.html", Price{Amount: 1299.99, Currency: "EUR", From: "itemprop", Availability: AvailUnknown}},
 	}
 	for _, c := range cases {
 		t.Run(c.file, func(t *testing.T) {
@@ -44,14 +44,14 @@ func TestProductPriceJSONLDShapes(t *testing.T) {
 		name, ld string
 		want     Price
 	}{
-		{"number price", `{"@type":"Product","offers":{"@type":"Offer","price":19.5,"priceCurrency":"usd"}}`, Price{19.5, "USD", "jsonld"}},
-		{"type array and schema URL", `{"@type":["http://schema.org/Product","Thing"],"offers":{"price":"7"}}`, Price{7, "", "jsonld"}},
-		{"price specification", `{"@type":"Product","offers":{"@type":"Offer","priceSpecification":{"@type":"UnitPriceSpecification","price":"12.00","priceCurrency":"EUR"}}}`, Price{12, "EUR", "jsonld"}},
-		{"aggregate with only price", `{"@type":"Product","offers":{"@type":"AggregateOffer","price":"30"}}`, Price{30, "", "jsonld"}},
-		{"zero price skipped", `{"@type":"Product","offers":[{"price":"0"},{"price":"5","priceCurrency":"INR"}]}`, Price{5, "INR", "jsonld"}},
-		{"nested under WebPage", `{"@type":"WebPage","mainEntity":{"@type":"Product","offers":{"price":"3.25"}}}`, Price{3.25, "", "jsonld"}},
-		{"lone top offer", `[{"@type":"Offer","price":"44","priceCurrency":"GBP"}]`, Price{44, "GBP", "jsonld"}},
-		{"variant group", `{"@type":"ProductGroup","hasVariant":[{"@type":"Product","offers":{"price":"60"}}]}`, Price{60, "", "jsonld"}},
+		{"number price", `{"@type":"Product","offers":{"@type":"Offer","price":19.5,"priceCurrency":"usd"}}`, Price{19.5, "USD", "jsonld", AvailUnknown}},
+		{"type array and schema URL", `{"@type":["http://schema.org/Product","Thing"],"offers":{"price":"7"}}`, Price{7, "", "jsonld", AvailUnknown}},
+		{"price specification", `{"@type":"Product","offers":{"@type":"Offer","priceSpecification":{"@type":"UnitPriceSpecification","price":"12.00","priceCurrency":"EUR"}}}`, Price{12, "EUR", "jsonld", AvailUnknown}},
+		{"aggregate with only price", `{"@type":"Product","offers":{"@type":"AggregateOffer","price":"30"}}`, Price{30, "", "jsonld", AvailUnknown}},
+		{"zero price skipped", `{"@type":"Product","offers":[{"price":"0"},{"price":"5","priceCurrency":"INR"}]}`, Price{5, "INR", "jsonld", AvailUnknown}},
+		{"nested under WebPage", `{"@type":"WebPage","mainEntity":{"@type":"Product","offers":{"price":"3.25"}}}`, Price{3.25, "", "jsonld", AvailUnknown}},
+		{"lone top offer", `[{"@type":"Offer","price":"44","priceCurrency":"GBP"}]`, Price{44, "GBP", "jsonld", AvailUnknown}},
+		{"variant group", `{"@type":"ProductGroup","hasVariant":[{"@type":"Product","offers":{"price":"60"}}]}`, Price{60, "", "jsonld", AvailUnknown}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -74,7 +74,7 @@ func TestProductPriceBrokenJSONLDFallsBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (Price{10, "AUD", "og"}); got != want {
+	if want := (Price{10, "AUD", "og", AvailUnknown}); got != want {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
 }
@@ -154,7 +154,7 @@ func TestProductPriceJSONLDReferences(t *testing.T) {
 		{name: "two-node loop", ld: `[{"@id":"a","@type":"Thing","x":{"@id":"b"}},{"@id":"b","@type":"Thing","x":{"@id":"a"}}]`, empty: true},
 		{name: "shared subtrees", ld: dag.String(), empty: true},
 		{name: "too deep", ld: deep, empty: true},
-		{name: "loop beside a product", ld: `[{"@id":"a","@type":"Thing","x":{"@id":"a"}},{"@type":"Product","offers":{"price":"12","priceCurrency":"EUR"}}]`, want: Price{12, "EUR", "jsonld"}},
+		{name: "loop beside a product", ld: `[{"@id":"a","@type":"Thing","x":{"@id":"a"}},{"@type":"Product","offers":{"price":"12","priceCurrency":"EUR"}}]`, want: Price{12, "EUR", "jsonld", AvailUnknown}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

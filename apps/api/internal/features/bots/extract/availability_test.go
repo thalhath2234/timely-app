@@ -1,0 +1,126 @@
+package extract
+
+import "testing"
+
+func TestNormalizeAvailability(t *testing.T) {
+	cases := map[string]string{
+		"https://schema.org/InStock":                  AvailInStock,
+		"http://schema.org/InStock":                   AvailInStock,
+		"InStock":                                     AvailInStock,
+		"schema:InStock":                              AvailInStock,
+		" https://schema.org/OutOfStock ":             AvailOutOfStock,
+		"http://schema.org/OutOfStock":                AvailOutOfStock,
+		"OutOfStock":                                  AvailOutOfStock,
+		"https://schema.org/SoldOut":                  AvailOutOfStock,
+		"http://schema.org/LimitedAvailability":       AvailLimited,
+		"OnlineOnly":                                  AvailInStock,
+		"https://schema.org/InStoreOnly":              AvailInStock,
+		"PreOrder":                                    AvailPreorder,
+		"https://schema.org/PreSale":                  AvailPreorder,
+		"BackOrder":                                   AvailBackorder,
+		"MadeToOrder":                                 AvailBackorder,
+		"https://schema.org/Discontinued":             AvailDiscontinued,
+		"http://schema.org/ItemAvailability#Reserved": AvailOutOfStock,
+		// Open Graph / Facebook product:availability values.
+		"in stock":            AvailInStock,
+		"out of stock":        AvailOutOfStock,
+		"available for order": AvailBackorder,
+		"preorder":            AvailPreorder,
+		"discontinued":        AvailDiscontinued,
+		// The words Timely stores read back as themselves.
+		"in_stock":     AvailInStock,
+		"out_of_stock": AvailOutOfStock,
+		"":             AvailUnknown,
+		"pending":      AvailUnknown,
+		"Call us":      AvailUnknown,
+	}
+	for raw, want := range cases {
+		if got := NormalizeAvailability(raw); got != want {
+			t.Errorf("NormalizeAvailability(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+func TestAvailabilityKinds(t *testing.T) {
+	for _, a := range []string{AvailOutOfStock, AvailDiscontinued} {
+		if !Unbuyable(a) || Buyable(a) || !KnownAvailability(a) {
+			t.Errorf("%s should be unbuyable and known", a)
+		}
+	}
+	for _, a := range []string{AvailInStock, AvailLimited, AvailPreorder, AvailBackorder} {
+		if Unbuyable(a) || !Buyable(a) || !KnownAvailability(a) {
+			t.Errorf("%s should be buyable and known", a)
+		}
+	}
+	for _, a := range []string{AvailUnknown, ""} {
+		if Unbuyable(a) || Buyable(a) || KnownAvailability(a) {
+			t.Errorf("%q should be neither buyable nor unbuyable", a)
+		}
+	}
+}
+
+func TestProductPriceFlipkartOutOfStock(t *testing.T) {
+	got, err := ProductPrice(fixture(t, "product_flipkart_oos.html"), "text/html; charset=utf-8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (Price{Amount: 89999, Currency: "INR", From: "jsonld", Availability: AvailOutOfStock}); got != want {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestProductPriceAvailabilityJSONLD(t *testing.T) {
+	cases := []struct{ name, ld, want string }{
+		{"https URL", `{"@type":"Product","offers":{"@type":"Offer","price":"10","availability":"https://schema.org/InStock"}}`, AvailInStock},
+		{"http URL", `{"@type":"Product","offers":{"@type":"Offer","price":"10","availability":"http://schema.org/OutOfStock"}}`, AvailOutOfStock},
+		{"bare word", `{"@type":"Product","offers":{"@type":"Offer","price":"10","availability":"PreOrder"}}`, AvailPreorder},
+		{"absent", `{"@type":"Product","offers":{"@type":"Offer","price":"10"}}`, AvailUnknown},
+		{"offer array: the priced offer's", `{"@type":"Product","offers":[{"price":"0","availability":"InStock"},{"price":"12","availability":"SoldOut"}]}`, AvailOutOfStock},
+		{"aggregate states its own", `{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":"8","highPrice":"20","availability":"https://schema.org/InStock"}}`, AvailInStock},
+		{"aggregate: any seller in stock", `{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":"8","offers":[{"@type":"Offer","price":"8","availability":"OutOfStock"},{"@type":"Offer","price":"9","availability":"http://schema.org/InStock"}]}}`, AvailInStock},
+		{"aggregate: every seller sold out", `{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":"8","offers":[{"price":"8","availability":"OutOfStock"},{"price":"9","availability":"https://schema.org/Discontinued"}]}}`, AvailOutOfStock},
+		{"price specification keeps its offer's", `{"@type":"Product","offers":{"@type":"Offer","availability":"https://schema.org/LimitedAvailability","priceSpecification":{"price":"12","priceCurrency":"EUR"}}}`, AvailLimited},
+		{"graph", `{"@graph":[{"@type":"WebPage"},{"@type":"Product","offers":{"price":"3","availability":"BackOrder"}}]}`, AvailBackorder},
+		{"lone top offer", `{"@type":"Offer","price":"44","availability":"https://schema.org/Discontinued"}`, AvailDiscontinued},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			page := `<html><head><script type="application/ld+json">` + c.ld + `</script></head></html>`
+			got, err := ProductPrice([]byte(page), "text/html")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Availability != c.want {
+				t.Fatalf("availability %q, want %q (%+v)", got.Availability, c.want, got)
+			}
+		})
+	}
+}
+
+func TestProductPriceAvailabilityMicrodataAndMeta(t *testing.T) {
+	cases := []struct{ name, page, want string }{
+		{"microdata link", `<div itemscope itemtype="https://schema.org/Product"><div itemprop="offers" itemscope itemtype="https://schema.org/Offer">
+<span itemprop="price" content="499.00">$499</span><meta itemprop="priceCurrency" content="USD">
+<link itemprop="availability" href="https://schema.org/OutOfStock">Sold out</div></div>`, AvailOutOfStock},
+		{"microdata meta", `<div itemscope itemtype="http://schema.org/Offer"><span itemprop="price">19.99</span>
+<meta itemprop="availability" content="http://schema.org/InStock"></div>`, AvailInStock},
+		{"microdata text", `<div itemscope itemtype="https://schema.org/Offer"><span itemprop="price">5</span><span itemprop="availability">InStock</span></div>`, AvailInStock},
+		{"product meta", `<meta property="product:price:amount" content="10.00"><meta property="product:price:currency" content="AUD">
+<meta property="product:availability" content="out of stock">`, AvailOutOfStock},
+		{"og meta", `<meta property="og:price:amount" content="10.00"><meta property="og:availability" content="instock">`, AvailInStock},
+		{"JSON-LD price, availability only in microdata", `<script type="application/ld+json">{"@type":"Product","offers":{"price":"10"}}</script>
+<link itemprop="availability" href="https://schema.org/SoldOut">`, AvailOutOfStock},
+		{"none", `<meta property="og:price:amount" content="10.00">`, AvailUnknown},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := ProductPrice([]byte(`<html><head></head><body>`+c.page+`</body></html>`), "text/html")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Availability != c.want {
+				t.Fatalf("availability %q, want %q (%+v)", got.Availability, c.want, got)
+			}
+		})
+	}
+}
