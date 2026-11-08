@@ -143,6 +143,35 @@ func TestIntegrationBotAwayMark(t *testing.T) {
 	}
 }
 
+// A snoozed Bot promised no pings: when every marked Bot with its Phone
+// switch on is snoozed, the account's away alert counts it but stays off
+// the phone. One Bot that is not snoozed sends it.
+func TestIntegrationBotAwaySnoozedStaysOffPhone(t *testing.T) {
+	e := newEngine(t)
+	ctx := context.Background()
+	snoozed := lateBots(t, e, e.user, 2, e.now.Add(-9*time.Hour), time.Minute, "Snoozed")
+	must(t, e.db.Exec(`UPDATE bots SET notify_phone = true, snoozed_until = ? WHERE user_id = ?`, e.now.Add(48*time.Hour), e.user).Error)
+	e.s.lastPrune = e.now
+	must(t, e.s.Sweep(ctx))
+	ntfs := awayAlerts(t, e, e.user)
+	if len(ntfs) != 1 || ntfs[0].Body != "Timely was closed. 2 bots are checking now." || ntfs[0].Data["phone"] != false {
+		t.Fatalf("away alert with every Bot snoozed %+v", ntfs)
+	}
+	if b := e.bot(snoozed[0]); b.AwaySince == nil {
+		t.Fatal("a snoozed Bot was not marked")
+	}
+
+	// An expired snooze no longer holds the phone back.
+	other := newEngine(t)
+	lateBots(t, other, other.user, 1, other.now.Add(-9*time.Hour), 0, "Woke")
+	must(t, other.db.Exec(`UPDATE bots SET notify_phone = true, snoozed_until = ? WHERE user_id = ?`, other.now.Add(-time.Minute), other.user).Error)
+	other.s.lastPrune = other.now
+	must(t, other.s.Sweep(ctx))
+	if ntfs := awayAlerts(t, other, other.user); len(ntfs) != 1 || ntfs[0].Data["phone"] != true {
+		t.Fatalf("away alert after the snooze ran out %+v", ntfs)
+	}
+}
+
 // 25 overdue Bots get 25 checks, oldest first, each on the next slot of the
 // tail.
 func TestIntegrationBotWakeOneByOne(t *testing.T) {

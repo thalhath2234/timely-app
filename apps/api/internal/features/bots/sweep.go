@@ -113,7 +113,7 @@ func (s *Service) Sweep(ctx context.Context) error {
 
 // awayAccount is one account's Bots a wake sweep marked: how many, the
 // earliest check they missed (among the Bots this gap newly marked, when
-// any), and whether any alerts the phone.
+// any), and whether any that is not snoozed alerts the phone.
 type awayAccount struct {
 	earliest time.Time
 	fresh    bool
@@ -135,10 +135,11 @@ const newGap = `(away_since IS NULL OR last_check_at > away_until)`
 // marked per account, across every batch the due query will take.
 func markAway(db *gorm.DB, now time.Time, reason string) (map[string]*awayAccount, error) {
 	var marked []struct {
-		UserID      string
-		AwaySince   time.Time
-		NotifyPhone bool
-		Fresh       bool
+		UserID       string
+		AwaySince    time.Time
+		NotifyPhone  bool
+		SnoozedUntil *time.Time
+		Fresh        bool
 	}
 	if err := db.Raw(`WITH m AS (
 		SELECT id, `+newGap+` AS fresh FROM bots
@@ -148,7 +149,7 @@ func markAway(db *gorm.DB, now time.Time, reason string) (map[string]*awayAccoun
 	UPDATE bots SET away_since = CASE WHEN m.fresh THEN bots.next_check_at ELSE bots.away_since END, away_until = @now,
 		away_reason = CASE WHEN m.fresh THEN @reason ELSE bots.away_reason END, updated_at = @now
 	FROM m WHERE bots.id = m.id
-	RETURNING bots.user_id, bots.away_since, bots.notify_phone, m.fresh`,
+	RETURNING bots.user_id, bots.away_since, bots.notify_phone, bots.snoozed_until, m.fresh`,
 		sql.Named("now", now), sql.Named("reason", reason), sql.Named("cutoff", now.Add(-AwayAfter))).Scan(&marked).Error; err != nil {
 		return nil, err
 	}
@@ -160,7 +161,9 @@ func markAway(db *gorm.DB, now time.Time, reason string) (map[string]*awayAccoun
 			out[m.UserID] = a
 		}
 		a.bots++
-		a.phone = a.phone || m.NotifyPhone
+		// A snoozed Bot promised no pings: it checks and counts, but
+		// never sends the account's alert to the phone.
+		a.phone = a.phone || (m.NotifyPhone && (m.SnoozedUntil == nil || !m.SnoozedUntil.After(now)))
 		// The alert dates the gap from the Bots it newly marked: a Bot
 		// still on an earlier gap's alert must not hide this one.
 		if m.Fresh && (!a.fresh || m.AwaySince.Before(a.earliest)) {
