@@ -444,14 +444,40 @@ var scratch struct {
 }
 
 // scratchDir is an empty directory the CLIs run in, so the file tools that
-// cannot be disabled (Codex) see nothing of the server.
+// cannot be disabled (Codex) see nothing of the server. It also holds the
+// files handed to the CLIs, such as Claude's system prompt.
 func scratchDir() string {
 	scratch.Do(func() {
-		dir := filepath.Join(os.TempDir(), "timely-agent-cli")
-		_ = os.MkdirAll(dir, 0o700)
-		scratch.dir = dir
+		scratch.dir = privateDir(filepath.Join(os.TempDir(), "timely-agent-cli"))
 	})
 	return scratch.dir
+}
+
+// privateDir returns dir when it is a real directory this user owns with mode
+// 0700, and a fresh MkdirTemp directory otherwise. The fixed name sits in a
+// shared temp directory, so another user could create it first; as its owner
+// they could swap a prompt file between our write and the CLI's read.
+func privateDir(dir string) string {
+	_ = os.MkdirAll(dir, 0o700)
+	if ownedPrivate(dir) {
+		return dir
+	}
+	if fresh, err := os.MkdirTemp("", "timely-agent-cli-"); err == nil {
+		return fresh
+	}
+	return dir
+}
+
+func ownedPrivate(dir string) bool {
+	info, err := os.Lstat(dir)
+	if err != nil || !info.IsDir() || !ownedByMe(info) {
+		return false
+	}
+	// Windows reports no Unix mode bits, and its temp directory is per user.
+	if runtime.GOOS == "windows" || info.Mode().Perm() == 0o700 {
+		return true
+	}
+	return os.Chmod(dir, 0o700) == nil
 }
 
 // friendly maps common CLI failures to guidance that names the fix.

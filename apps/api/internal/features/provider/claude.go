@@ -41,7 +41,8 @@ func (p *Claude) Complete(ctx context.Context, messages []chat.WireMessage, tool
 	// The system prompt goes in a file, not argv: Linux refuses any single
 	// argument over 128 KB and Windows a command line over 32,767 characters,
 	// and the prompt with every tool schema is already close to the first.
-	// CreateTemp makes the file 0600 inside the 0700 scratch directory.
+	// CreateTemp makes the file 0600 in scratchDir, a directory only this user
+	// owns (mode 0700 on Unix), so no other user can read or replace it.
 	promptFile, err := os.CreateTemp(scratchDir(), "system-*.txt")
 	if err != nil {
 		return chat.WireMessage{}, fmt.Errorf("Claude could not start: %w", err)

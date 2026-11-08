@@ -115,9 +115,6 @@ func TestCLIProvidersKeepArgvSmall(t *testing.T) {
 	const limit = 120 << 10
 	messages, specs := largestAgentPrompt(t)
 	system, _, _ := render(messages, specs, true)
-	if len(system) <= 130<<10 {
-		t.Fatalf("the largest system prompt is only %d bytes; the budget check needs one over 130 KB to mean anything", len(system))
-	}
 	t.Logf("largest rendered system prompt: %d bytes", len(system))
 
 	providers := []struct {
@@ -204,5 +201,11 @@ func largestAgentPrompt(t *testing.T) ([]chat.WireMessage, []any) {
 		"\nWhen a change names an existing item in words that may match more than one, call resolve_target." +
 		"\nWeb search is on in this chat." +
 		"\nWrite tool schemas:\n" + string(encoded)
+	// The budget check only means something with a prompt over the 128 KB
+	// argument limit, so pad a smaller one rather than depend on catalog size.
+	const floor = 200 << 10
+	if len(system) < floor {
+		system += "\n" + strings.Repeat("x", floor-len(system)-1)
+	}
 	return []chat.WireMessage{{Role: "system", Content: system, Cache: true}, {Role: "user", Content: "Plan my week"}}, specs
 }
