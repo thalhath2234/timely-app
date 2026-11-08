@@ -459,21 +459,34 @@ func (ld *ldReader) offersAvailability(v any, price float64) string {
 }
 
 // samePriceAvailability is the most buyable availability among p and the
-// siblings that read at p's amount and currency, each read by read. The
-// siblings get visit marks of their own, since p's read already marked the
-// nodes they may share with it, but share them with each other and share
-// the step cap: a node many siblings name (one AggregateOffer behind every
-// "@id") is read once, and reading it again would give the same answer.
+// siblings that read at p's amount and currency, each read by read. Each
+// sibling gets visit marks of its own, since p's read or another sibling's
+// may already have marked a node it reaches (a shared priceSpecification),
+// and a sibling read with those marks would come back empty. Siblings share
+// the step cap, and a sibling that is the same node as one already read
+// (one AggregateOffer behind every "@id") is skipped: reading it again would
+// give the same answer.
 func (ld *ldReader) samePriceAvailability(siblings []any, p Price, read func(*ldReader, any) (Price, bool)) string {
 	best := p.Availability
-	sub := &ldReader{ids: ld.ids, seen: map[ldVisit]bool{}, steps: ld.steps, depth: ld.depth}
+	read1 := map[uintptr]bool{}
 	for _, c := range siblings {
+		if m, ok := c.(map[string]any); ok {
+			node := reflect.ValueOf(ld.resolve(m)).Pointer()
+			if read1[node] {
+				continue
+			}
+			read1[node] = true
+		}
+		if ld.steps >= ldMaxSteps {
+			break
+		}
+		sub := &ldReader{ids: ld.ids, seen: map[ldVisit]bool{}, steps: ld.steps, depth: ld.depth}
 		q, ok := read(sub, c)
+		ld.steps = sub.steps
 		if ok && q.Amount == p.Amount && strings.EqualFold(q.Currency, p.Currency) && buyRank(q.Availability) < buyRank(best) {
 			best = q.Availability
 		}
 	}
-	ld.steps = sub.steps
 	return best
 }
 
