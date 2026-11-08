@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"net/url"
 	"time"
 
 	"gorm.io/gorm"
 	"timely-api/internal/features/agent"
 	"timely-api/internal/features/auth"
 	"timely-api/internal/features/bots"
+	"timely-api/internal/features/bots/fetch"
 	"timely-api/internal/features/calendar"
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/embed"
@@ -192,9 +194,58 @@ func boardData(db *gorm.DB) provider.BoardData {
 		if err != nil {
 			return nil, err
 		}
+		botList, err := boardBots(db, userID)
+		if err != nil {
+			return nil, err
+		}
 		return map[string]any{
 			"tasks": all, "inbox": inbox, "reminders": reminders, "projects": projectList,
 			"workspaces": workspaceList, "docs": docs, "sheets": sheets, "events": events.Items,
+			"bots": botList,
 		}, nil
 	}
+}
+
+// boardBot is one of the person's bots as check_block sees it (the
+// contract's BoardBot): its price watches, so a PriceHistory block naming
+// another account's bot, a bot without a price or a wrong watch is flagged.
+type boardBot struct {
+	ID     string       `json:"id"`
+	Name   string       `json:"name"`
+	Prices []boardPrice `json:"prices"`
+}
+
+type boardPrice struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+// boardBots loads every bot of userID, each with its price-reading watches
+// in their order, labelled by symbol or by the site they read.
+func boardBots(db *gorm.DB, userID string) ([]boardBot, error) {
+	var rows []struct {
+		ID, Name, WatchID, Symbol, URL string
+	}
+	err := db.Raw(`SELECT b.id, b.name, COALESCE(w.id, '') AS watch_id, COALESCE(w.symbol, '') AS symbol, COALESCE(w.url, '') AS url
+		FROM bots b LEFT JOIN bot_watches w ON w.bot_id = b.id AND (w.kind = 'price' OR w.read_mode IN ('product_price', 'selector_price'))
+		WHERE b.user_id = ? ORDER BY b.created_at, b.id, w.position, w.id`, userID).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := []boardBot{}
+	for _, row := range rows {
+		if len(out) == 0 || out[len(out)-1].ID != row.ID {
+			out = append(out, boardBot{ID: row.ID, Name: row.Name, Prices: []boardPrice{}})
+		}
+		if row.WatchID == "" {
+			continue
+		}
+		label := row.Symbol
+		if u, err := url.Parse(row.URL); label == "" && err == nil && u.Host != "" {
+			label = fetch.Site(u)
+		}
+		last := &out[len(out)-1]
+		last.Prices = append(last.Prices, boardPrice{ID: row.WatchID, Label: label})
+	}
+	return out, nil
 }

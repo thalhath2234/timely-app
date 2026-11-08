@@ -97,11 +97,16 @@ type vocabRow struct {
 	Options              models.Options `gorm:"type:jsonb"`
 }
 
-// viewVocab is the person's names a view can filter on.
+// viewVocab is the person's names a view can filter on, and the bots with
+// a price a described card can draw (PriceHistory).
 type viewVocab struct {
 	workspaces, projects, statuses, stages, labels []vocabRow
 	fields                                         []vocabRow
+	priceBots                                      []vocabRow
 }
+
+// vocabPriceBots is how many bots with a price Describe is told of.
+const vocabPriceBots = 25
 
 func (s *Service) loadViewVocab(ctx context.Context, userID string) (viewVocab, error) {
 	var v viewVocab
@@ -121,6 +126,11 @@ func (s *Service) loadViewVocab(ctx context.Context, userID string) (viewVocab, 
 		{&v.labels, `SELECT l.id, l.name FROM lables l JOIN workspaces w ON w.id = l.workspace_id WHERE w.user_id = ? ORDER BY l.name`},
 		{&v.stages, `SELECT st.id, st.name FROM stages st JOIN projects p ON p.id = st.project_id JOIN workspaces w ON w.id = p.workspace_id WHERE w.user_id = ? ORDER BY st.name`},
 		{&v.fields, `SELECT f.id, f.name, f.type, f.options FROM custom_fields f JOIN workspaces w ON w.id = f.workspace_id WHERE w.user_id = ? ORDER BY f.name`},
+		// Active and paused bots with a watch that reads a price, latest
+		// edited first: only their names and ids, never what a page said.
+		{&v.priceBots, `SELECT b.id, b.name FROM bots b WHERE b.user_id = ? AND EXISTS (
+			SELECT 1 FROM bot_watches w WHERE w.bot_id = b.id AND (w.kind = 'price' OR w.read_mode IN ('product_price', 'selector_price')))
+			ORDER BY b.updated_at DESC, b.id LIMIT ` + fmt.Sprint(vocabPriceBots)},
 	}
 	for _, q := range queries {
 		if err := read(q.dest, q.query); err != nil {

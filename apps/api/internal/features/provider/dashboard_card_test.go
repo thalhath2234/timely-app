@@ -202,8 +202,25 @@ func TestDashboardCardMessagesListChecklists(t *testing.T) {
 	}
 }
 
+func TestDashboardCardMessagesListPriceBots(t *testing.T) {
+	req := dashboardCardRequest{Prompt: "the Sony headphones price", Today: "2026-11-08", Place: "doc"}
+	vocab := testVocab()
+	vocab.priceBots = []vocabRow{{ID: "bot_sony", Name: `Sony "XM6"`}, {ID: "bot_coin", Name: "BTC dip"}, {ID: "bot_blank", Name: "  "}}
+	user := dashboardCardMessages(req, vocab, nil, nil)[1].Content
+	want := "\n- Bots with a price, for PriceHistory (name, then id): \"Sony \\\"XM6\\\"\" bot_sony, \"BTC dip\" bot_coin\n"
+	if !strings.Contains(user, want) || strings.Contains(user, "bot_blank") {
+		t.Errorf("user message lacks the price bots:\n%s", user)
+	}
+	if strings.Index(user, "Bots with a price") > strings.Index(user, "Words:") {
+		t.Errorf("the bots come before the words:\n%s", user)
+	}
+	if user = dashboardCardMessages(req, testVocab(), nil, nil)[1].Content; strings.Contains(user, "Bots with a price") {
+		t.Errorf("no price bots, no bots line:\n%s", user)
+	}
+}
+
 func TestBoardPromptIsEmbedded(t *testing.T) {
-	if !strings.Contains(boardPrompt, "@Data(") || !strings.Contains(boardPrompt, "Panel(") {
+	if !strings.Contains(boardPrompt, "@Data(") || !strings.Contains(boardPrompt, "Panel(") || !strings.Contains(boardPrompt, "PriceHistory(") {
 		t.Fatal("board_prompt.txt is missing or stale; run make gen-genui-prompt")
 	}
 }
