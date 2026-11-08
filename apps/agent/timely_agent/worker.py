@@ -101,6 +101,14 @@ class Worker:
 
         started = time.monotonic()
         import run_agent  # noqa: F401  (the agent loop; also loads model_tools)
+        # Bridge the account's terminal.* config into the TERMINAL_* process env, as Hermes' CLI and
+        # gateway do at start: some readers (HOME for children: terminal.home_mode) only look there.
+        # hermes_cli.config's bridge leaves out home_mode (only gateway/run.py bridges it), so
+        # TERMINAL_HOME_MODE is set here: children get HOME=<home>/home, never the real home.
+        from hermes_cli.config import apply_terminal_config_to_env, load_config
+        apply_terminal_config_to_env()
+        home_mode = str((load_config().get("terminal") or {}).get("home_mode") or "profile")
+        os.environ["TERMINAL_HOME_MODE"] = home_mode
         from hermes_cli.plugins import discover_plugins
         discover_plugins()
         skills_sync: dict[str, Any] = {}

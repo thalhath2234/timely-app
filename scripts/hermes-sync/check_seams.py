@@ -97,6 +97,11 @@ TIMELY_SEAMS = [
     # Runtime installs (install_guard's runtime override, 4.4) and the locale finding (4.2 a)
     ("runtime extras install", "pm/extras.py", "ensure_import"),
     ("bundled locale load", "agent/i18n.py", "_load_bundled"),
+    # Worker integration (phase 1): plugin gating, terminal policy and children's HOME (6.3, 8.3)
+    ("plugin manifest gate (bundled auto-load, plugins.disabled)", "hermes_cli/plugins_discovery.py", "gate_manifest"),
+    ("terminal config bridge to TERMINAL_* env", "hermes_cli/config.py", "apply_terminal_config_to_env"),
+    ("per-turn terminal policy scope", "tools/terminal_scope.py", "build_profile_terminal_scope"),
+    ("children's HOME (TERMINAL_HOME_MODE)", "hermes_constants.py", "get_subprocess_home"),
 ]
 
 SEAMS = REPORT_SEAMS + TIMELY_SEAMS

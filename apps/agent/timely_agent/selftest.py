@@ -5,7 +5,8 @@ Checks, each ``{"name", "ok", "detail"}``:
 - ``plugins``       the four Timely plugins are loaded and enabled, without errors
 - ``gate_hook``     ``pre_tool_call`` carries timely_gate's and timely_learning's callbacks
 - ``home``          ``HERMES_HOME`` is the folder Go named in ``hello`` and Hermes resolves it
-- ``no_messaging``  no messaging tool resolves for any toolset a Timely run may enable
+- ``no_messaging``  no messaging tool resolves for any toolset a Timely run may enable, no
+                    platform plugin is enabled and no platform adapter module is imported
 - ``managed_config`` the managed floors read back through Hermes' loaders (canary)
 - ``install_guard`` every runtime-install override is in place
 - ``mcp``           no ``command`` MCP server unless the account is host-allowed and approved it
@@ -38,6 +39,16 @@ def resolved_tools(toolsets: list[str]) -> list[str]:
     import model_tools
     defs = model_tools.get_tool_definitions(enabled_toolsets=list(toolsets), quiet_mode=True) or []
     return sorted({(d.get("function") or {}).get("name", "") for d in defs} - {""})
+
+
+def platform_modules() -> list[str]:
+    """Imported messaging adapter modules (``plugins.platforms.<name>`` and Hermes' built-in
+    ``gateway.platforms.<name>`` adapters). The worker never starts the gateway, so none
+    should ever be imported (section 8.3 layer 1; contract test 11)."""
+    import sys
+    prefixes = ("plugins.platforms.", "gateway.platforms.")
+    return sorted(m for m in list(sys.modules) if m.startswith(prefixes)
+                  and m.rsplit(".", 1)[-1] not in ("base", "__init__"))
 
 
 def _account_state(home: Path) -> dict[str, Any]:
@@ -77,6 +88,9 @@ def run(*, expected_home: str, timely_skills_dir: str | None) -> dict[str, Any]:
     try:
         tools = resolved_tools(OFFERABLE_TOOLSETS)
         bad = [t for t in tools if policy.is_messaging(t)]
+        bad += [f"plugin {k} enabled" for k, p in loaded.items()
+                if p.get("enabled") and (p.get("kind") == "platform" or str(k).startswith("platforms/"))]
+        bad += [f"adapter {m} imported" for m in platform_modules()]
         checks.append(_check("no_messaging", not bad, ", ".join(bad)))
     except Exception as exc:
         tools = []

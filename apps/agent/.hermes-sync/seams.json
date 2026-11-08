@@ -515,6 +515,38 @@
       "signature": "def _load_bundled(lang: str) -> dict[str, str]",
       "sha256": "beb8a67f20813e5765f05aded7be25867a2e8ee735c1bcf3fb6bd23f81bf5cd8"
     },
+    "plugin manifest gate (bundled auto-load, plugins.disabled)": {
+      "file": "hermes_cli/plugins_discovery.py",
+      "qualname": "gate_manifest",
+      "line": 269,
+      "end_line": 334,
+      "signature": "def gate_manifest(manifest: PluginManifest, disabled: set[str], enabled: Optional[set[str]]) -> ManifestGate",
+      "sha256": "ad6f96d3667b18aed0999833fbd8129ad1e6d0109518fbd7f230e1cb5344cfa1"
+    },
+    "terminal config bridge to TERMINAL_* env": {
+      "file": "hermes_cli/config.py",
+      "qualname": "apply_terminal_config_to_env",
+      "line": 2060,
+      "end_line": 2108,
+      "signature": "def apply_terminal_config_to_env(*, env: Optional[dict[str, str]]=None, config: Optional[dict[str, Any]]=None, override: Optional[bool]=None) -> dict[str, str]",
+      "sha256": "ce3094fbb57d2c2967d325cd86c9e632a7d439ba4d281ca2b1cc48d350ea91a9"
+    },
+    "per-turn terminal policy scope": {
+      "file": "tools/terminal_scope.py",
+      "qualname": "build_profile_terminal_scope",
+      "line": 114,
+      "end_line": 194,
+      "signature": "def build_profile_terminal_scope(hermes_home: Any, *, env_overlay: Optional[dict[str, str]]=None) -> dict[str, str]",
+      "sha256": "34963ae41331f99a3af6dfd0d32feaaebf2c5f8479d2ff9dbca35c0cee4b46d1"
+    },
+    "children's HOME (TERMINAL_HOME_MODE)": {
+      "file": "hermes_constants.py",
+      "qualname": "get_subprocess_home",
+      "line": 765,
+      "end_line": 788,
+      "signature": "def get_subprocess_home(env: dict[str, str] | None=None) -> str | None",
+      "sha256": "ac639732fd2a57db9eb8a50f7714d144dc77bddcb7ceb812584dfa3bd5af1865"
+    },
     "_iters_since_skill reset sites": {
       "file": "",
       "qualname": "",

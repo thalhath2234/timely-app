@@ -24,6 +24,8 @@ On Windows the interpreter is `<venv>\Scripts\python.exe`.
 | `seed` | counts: `seeded`, `unreviewed`, `overridden`, `override_only`, `essential_off`, `default_off` |
 | `env` | `HERMES_MANAGED_DIR`, `HERMES_RUNTIME_DIR`, `HERMES_GATEWAY_LOCK_DIR`, `XDG_STATE_HOME`, `HERMES_BUNDLED_SKILLS` for every worker |
 
+The managed file pins `plugins.enabled` to the four Timely plugins and lists in `plugins.disabled` every bundled `kind: platform` plugin (messaging adapters, a2a) plus `image_gen/*`, `video_gen/*` and `dashboard_auth/*`, read from the snapshot's manifests: Hermes auto-loads bundled backends and registers bundled platforms whatever `plugins.enabled` says, and only `plugins.disabled` overrides that. Web search and browser backends and `delegation/default` stay loaded for later phases.
+
 `prepare` also writes `<agent>/runtime/prepared.json`; `render-account` and the worker read it, so `prepare` must have run once per API start before either.
 
 **`render-account`** (before each spawn). Input: the account settings (all optional):
@@ -74,15 +76,17 @@ Other unknown names are logged as warnings. `HERMES_EXEC_ASK` is allowed when th
 | --- | --- | --- |
 | `hello` | `id`, `protocol` (1), `home` (the account's `HERMES_HOME`), `settings_hash` (the `config_sha256` from `render-account`), `catalog_version`, optional `settings` (section 6) | `ready` or `error` |
 | `ping` | `id` | `pong` |
-| `run.start` | `id`, `run`, `conversation_id`, `session_key` (`timely:<uid>:<conversation>`), `user_message`, `system_hash`, `system_text`, `model` `{provider, model, base_url, api_key, api_mode, reasoning}`, `toolsets` (explicit list, required, may be empty), `flags` `{sensitive, answer_only, web, rich_ui, from_bot}`, `budgets` `{max_iterations}`, `tainted_sources` `[{kind, tool, host?, session?}]`, `pre_approved` `{tool, args_hash}` or null, `history` (only when `state.db` lacks the session) | `event`s, then `run.done` with the same `id`; or `error` with the same `id` and `run` |
+| `run.start` | `id` (optional; Go sends none), `run`, `conversation_id`, `session_key` (`timely:<uid>:<conversation>`), `user_message`, `system_hash`, `system_text`, `model` `{provider, model, base_url, api_key, api_mode, reasoning}`, `toolsets` (explicit list, required, may be empty), `flags` `{sensitive, answer_only, web, rich_ui, from_bot}`, `budgets` `{max_iterations}`, `tainted_sources` `[{kind, tool, host?, session?}]`, `pre_approved` `{tool, args_hash}` or null, `history` (only when `state.db` lacks the session) | `event`s, then `run.done` with the same `id`; or `error` with the same `id` and `run` |
 | `run.stop` | `id`, `run`, `reason` | the run's `run.done` with `interrupted: true`; `error` (`unknown_run`) if no such run |
 | `run.steer` | `id`, `run`, `text` | `ack` |
 | `approval.answer` | `id`, `run`, `request_id`, `choice` (`once` or `deny`) | `ack` |
 | `tool.result` | `id` (the worker's `tool.call` id), `result`, `outside` (bool) | none |
 | `gate.verdict` | `id` (the worker's `gate.ask` id), `verdict` (`allow`, `block`, `approve`), `message` | none |
 | `session.delete` | `id`, `conversation_id` | `ack` (`busy` error while the conversation has a live run) |
-| `shutdown` | `grace` (seconds, default 5) | none: the worker waits up to `grace` for live runs, interrupts the rest, and exits 0 |
+| `shutdown` | `grace` (seconds, default 5) | none: the worker waits up to `grace` for live runs, interrupts the rest (up to 2 s more), and exits 0. Go sends its own stop budget minus 3 s, so a worker following this exits before Go sends SIGTERM |
 | `bot.run`, `learning.*` | later phases | `error` `unsupported` in phase 1 |
+
+An `error` that carries `run` (a refused `run.start`: `busy`, `duplicate_run`, `refused`, `bad_message`) ends that run: no `run.done` follows. Go stops counting the run as live and hands the error to the run's owner.
 
 `args_hash` is the sha256 of the tool arguments' canonical JSON (keys sorted, separators `,` and `:`, non-ASCII kept as UTF-8).
 
@@ -129,9 +133,11 @@ The worker checks, in order, and answers `error` (with the hello's `id` and `acc
 3. The home folder is `account-<hash of account>` (`wrong_account`).
 4. Config: when `settings` (an object, same shape as the `render-account` input) is present, the worker renders `config.yaml` from it itself (a file that no longer matched `settings_hash` is logged as edited and overwritten); otherwise `config.yaml`'s sha256 must equal `settings_hash` (`config_mismatch`: run `render-account` again and respawn).
 
-Then it imports Hermes, loads the plugins, seeds bundled skills into the home (`sync_skills`) and runs the self-test. A failed `hello` leaves the worker waiting for a correct one; a second `hello` after `ready` is `bad_message`.
+Then it imports Hermes, bridges the account's `terminal.*` config into the `TERMINAL_*` process environment (Hermes' own `apply_terminal_config_to_env`, plus `TERMINAL_HOME_MODE`, which that bridge leaves out), loads the plugins, seeds bundled skills into the home (`sync_skills`) and runs the self-test. A failed `hello` leaves the worker waiting for a correct one; a second `hello` after `ready` is `bad_message`.
 
-**Self-test checks** (`self_test.checks[].name`): `plugins` (the four Timely plugins loaded without errors), `gate_hook` (`pre_tool_call` has timely_gate's and timely_learning's callbacks), `home` (Hermes resolves the expected `HERMES_HOME`), `no_messaging` (no messaging tool resolves), `managed_config` (the managed floors read back through Hermes' loaders: managed file, merged `load_config()`, and the raw reader skill discovery uses), `essential_skills` (Hermes' non-disableable skill list matches Timely's copy), `install_guard` (runtime installs blocked), `mcp` (no unapproved stdio MCP server). When `self_test.ok` is false the worker answers every `run.start` with `error` `refused` and Go should stop it and show "The agent could not start" with `self_test.failures`.
+**Self-test checks** (`self_test.checks[].name`): `plugins` (the four Timely plugins loaded without errors), `gate_hook` (`pre_tool_call` has timely_gate's and timely_learning's callbacks), `home` (Hermes resolves the expected `HERMES_HOME`), `no_messaging` (no messaging tool resolves, no platform plugin is enabled, no platform adapter module is imported), `managed_config` (the managed floors read back through Hermes' loaders: managed file, merged `load_config()`, and the raw reader skill discovery uses), `essential_skills` (Hermes' non-disableable skill list matches Timely's copy), `install_guard` (runtime installs blocked), `mcp` (no unapproved stdio MCP server). When `self_test.ok` is false the worker answers every `run.start` with `error` `refused` and Go should stop it and show "The agent could not start" with `self_test.failures`.
+
+Each run binds Hermes' per-turn terminal policy from `config.yaml` and the managed floors (`tools.terminal_scope.install_profile_terminal_scope`, as Hermes' gateway does): local backend, `cwd` = `<home>/workspace`, `home_mode: profile`, so terminal children get `HOME=<home>/home`, never the OS user's home. An unreadable config installs Hermes' refusal scope and terminal tools fail closed.
 
 ## 7. Errors
 

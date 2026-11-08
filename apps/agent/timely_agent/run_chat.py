@@ -161,7 +161,9 @@ def _session_tokens(agent) -> dict[str, int]:
 def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> dict[str, Any]:
     """Run one turn; returns the ``run.done`` fields (never raises)."""
     from gateway.session_context import clear_session_vars, set_session_vars
+    from hermes_constants import get_hermes_home
     from tools.approval_context import reset_current_session_key, set_current_session_key
+    from tools.terminal_scope import install_profile_terminal_scope, reset_terminal_scope
 
     msg = run.msg
     conversation = str(msg.get("conversation_id") or "")
@@ -176,6 +178,10 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
     key_token = set_current_session_key(session_key)
     var_tokens = set_session_vars(platform="timely", session_key=session_key, session_id=conversation,
                                   chat_id=conversation)
+    # The account's complete TERMINAL_* policy (config.yaml + managed floors), as Hermes' gateway
+    # binds it per turn: home_mode profile, cwd = the account workspace, local backend. Unresolvable
+    # config installs Hermes' refusal scope, so terminal tools fail closed.
+    scope_token = install_profile_terminal_scope(get_hermes_home())
     try:
         signature = config_signature(msg)
         agent = cache.get(conversation, signature)
@@ -228,6 +234,7 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
     finally:
         if run.agent is not None and getattr(run.agent, "_timely_emit", None) is not None:
             run.agent._timely_emit.emit = None
+        reset_terminal_scope(scope_token)
         clear_session_vars(var_tokens)
         reset_current_session_key(key_token)
     return done

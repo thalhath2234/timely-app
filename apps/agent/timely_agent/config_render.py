@@ -20,10 +20,12 @@ hash stable. Hermes parses them with its YAML loader (the canary proves it).
 from __future__ import annotations
 
 import copy
+import functools
 import hashlib
 import ipaddress
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import urlsplit
@@ -39,13 +41,44 @@ NEVER_TOOLSETS = (
 )
 
 
+# Bundled plugin folders Timely never loads besides the messaging platforms (section 8.3): media
+# generation (no media surface, section 8.1) and Hermes' own web dashboard sign-in.
+DISABLED_PLUGIN_GROUPS = ("image_gen", "video_gen", "dashboard_auth")
+_KIND = re.compile(r"^kind:\s*['\"]?([A-Za-z_-]+)", re.MULTILINE)
+
+
+@functools.lru_cache(maxsize=1)
+def disabled_bundled_plugins() -> tuple[str, ...]:
+    """Bundled plugin keys pinned in ``plugins.disabled``: every ``kind: platform`` manifest
+    (messaging adapters and a2a, decision 6) and the groups in ``DISABLED_PLUGIN_GROUPS``.
+
+    Hermes auto-loads bundled backends and registers bundled platforms lazily whatever
+    ``plugins.enabled`` says (``hermes_cli/plugins_discovery.py`` ``gate_manifest``); only
+    ``plugins.disabled`` wins over that. Read from the snapshot's manifests, so a platform added
+    upstream is disabled by the next sync without a code change.
+    """
+    from timely_agent import paths
+
+    root = paths.hermes_dir() / "plugins"
+    keys: set[str] = set()
+    for manifest in sorted(root.glob("*/plugin.yaml")) + sorted(root.glob("*/*/plugin.yaml")):
+        rel = manifest.parent.relative_to(root).as_posix()
+        try:
+            kind = _KIND.search(manifest.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        if (kind and kind.group(1) == "platform") or rel.split("/", 1)[0] in DISABLED_PLUGIN_GROUPS:
+            keys.add(rel)
+    return tuple(sorted(keys))
+
+
 def managed_floors(*, timely_skills_dir: os.PathLike | str | None,
                    browser_executable: str = "") -> dict[str, Any]:
     """The host-wide floors (section 6.3) with the keys Hermes v0.23.0 actually reads."""
     floors: dict[str, Any] = {
         "plugins": {
             "enabled": list(TIMELY_PLUGINS),
-            "disabled": [],
+            "disabled": list(disabled_bundled_plugins()),
             "isolation": "in_process",
             "auto_apply": False,
             "auto_update_check_hours": 0,
@@ -91,7 +124,7 @@ def managed_floors(*, timely_skills_dir: os.PathLike | str | None,
 # Leaves the canary checks after Hermes loaded the files. Path-valued ones are compared
 # against the layout, so a hand-edited managed file cannot pass by agreeing with itself.
 CANARY_KEYS = (
-    "plugins.enabled", "plugins.isolation", "plugins.entries.timely_bot.allow_tool_override",
+    "plugins.enabled", "plugins.disabled", "plugins.isolation", "plugins.entries.timely_bot.allow_tool_override",
     "security.allow_private_urls", "security.fake_ip_ranges", "security.allow_lazy_installs",
     "telemetry.shared_metrics.enabled", "approvals.mode", "approvals.cron_mode",
     "approvals.unattended_mode", "skills.inline_shell", "skills.guard_agent_created",
@@ -214,8 +247,13 @@ signed in plan their tasks, events, documents and habits. You present yourself a
 """
 
 
-def account_config(settings: Mapping, *, timely_skills_dir, browser_executable: str = "") -> tuple[dict, list[str]]:
-    """The account ``config.yaml`` content and the list of dropped MCP entries."""
+def account_config(settings: Mapping, *, timely_skills_dir, browser_executable: str = "",
+                   workspace: os.PathLike | str | None = None) -> tuple[dict, list[str]]:
+    """The account ``config.yaml`` content and the list of dropped MCP entries.
+
+    ``terminal.cwd`` and ``terminal.home_mode`` matter: each run binds Hermes' per-turn terminal
+    policy from this file (``run_chat``), and a bound policy ignores ``TERMINAL_*`` in the
+    process environment."""
     settings = dict(settings or {})
     cfg: dict[str, Any] = {}
     model = settings.get("model")
@@ -238,6 +276,8 @@ def account_config(settings: Mapping, *, timely_skills_dir, browser_executable: 
     timeout = settings.get("approval_timeout_s")
     cfg["approvals"] = {"timeout": int(timeout) if isinstance(timeout, (int, float)) and timeout > 0 else 600}
     cfg["terminal"] = {"backend": "local", "home_mode": str(settings.get("terminal_home_mode") or "profile")}
+    if workspace:
+        cfg["terminal"]["cwd"] = str(workspace)
     servers, dropped = filter_mcp_servers(
         settings.get("mcp_servers"), host_allowed=bool(settings.get("host_allowed")),
         approved_hashes=list(settings.get("approved_mcp_hashes") or []))
@@ -251,7 +291,7 @@ def render_account(layout, account: str, settings: Mapping, *, timely_skills_dir
     """Create the account home, write ``config.yaml`` and ``SOUL.md``; returns what Go needs."""
     home = layout.ensure_home(account)
     cfg, dropped = account_config(settings, timely_skills_dir=timely_skills_dir,
-                                  browser_executable=browser_executable)
+                                  browser_executable=browser_executable, workspace=home / "workspace")
     config_sha = write_atomic(home / "config.yaml", dumps(cfg))
     account_state = {"host_allowed": bool(settings.get("host_allowed")),
                      "approved_mcp_hashes": sorted({str(h) for h in settings.get("approved_mcp_hashes") or []}),
@@ -301,6 +341,12 @@ def canary(timely_skills_dir) -> list[str]:
             problems.append(f"managed {key} = {got_m!r}, want {want_n!r}")
         if got_e != want_n:
             problems.append(f"effective {key} = {got_e!r}, want {want_n!r}")
+    for label, cfg in (("managed", managed), ("effective", effective)):
+        entries = get_dotted(cfg, "plugins.entries", {}) or {}
+        others = sorted(k for k, v in entries.items() if k != "timely_bot" and isinstance(v, Mapping)
+                        and v.get("allow_tool_override"))
+        if others:
+            problems.append(f"{label} plugins.entries give allow_tool_override to {others} (only timely_bot may)")
     if timely_skills_dir:
         from agent import skill_utils
         clear = getattr(skill_utils, "_external_dirs_cache_clear", None)
