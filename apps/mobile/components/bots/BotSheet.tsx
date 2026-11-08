@@ -22,7 +22,9 @@ import {
   DEFAULT_BRIEF_TIME,
   agoLabel,
   alertMeta,
+  awayLine,
   briefClock,
+  catchingUpLine,
   clockLabel,
   draftErrors,
   draftOf,
@@ -156,8 +158,20 @@ function WatchPicker({ watches, value, onChange }: { watches: WatchView[]; value
   );
 }
 
-/** "Caught up · 08:12" and "Paused for 9 hours while Timely was closed", for a day after a catch-up check. */
-function CaughtUp({ detail, now }: { detail: BotDetail; now: Date }) {
+/**
+ * "Catching up" while the bot still owes its catch-up check, then "Caught up ·
+ * 08:12" for a day after it, each over "Paused for 9 hours while Timely was
+ * closed", as the desktop rail says it.
+ */
+function CaughtUp({ detail, now, allPaused }: { detail: BotDetail; now: Date; allPaused: boolean }) {
+  if (catchingUpLine(detail, { allPaused }) && detail.away) {
+    return (
+      <View style={styles.caughtUp}>
+        <Text style={styles.caughtUpTitle}>Catching up</Text>
+        <Text style={styles.meta}>{awayLine(detail.away)}</Text>
+      </View>
+    );
+  }
   const away = recentAway(detail, now);
   if (!away) return null;
   return (
@@ -610,7 +624,7 @@ function ViewSheet({
           ) : null}
           {origin ? <MetaChip>{origin}</MetaChip> : null}
         </View>
-        {detail ? <CaughtUp detail={detail} now={now} /> : null}
+        {detail ? <CaughtUp detail={detail} now={now} allPaused={allPaused} /> : null}
 
         {suggests(bot) ? <SuggestionCard bot={bot} actions={actions} /> : null}
         {reason === "waiting_ok" ? <LookOver botId={bot.id} /> : null}

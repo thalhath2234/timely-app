@@ -1513,6 +1513,19 @@ export const AWAY_CAPTION: Record<AwayReason, (span: string) => string> = {
   all_paused: (s) => `all bots were paused for ${s}`,
 };
 
+/**
+ * "Catching up · Timely was closed for 9 hours" while an active bot's catch-up
+ * check is still to come; null for a brief (it keeps its sources), a bot with
+ * no gap or a reason this client does not know, and under Pause all (the
+ * footer says every bot is paused). The board card's caption, the phone's
+ * "Needs you" card and the rail all say it the same way.
+ */
+export function catchingUpLine(bot: Pick<BotView, "status" | "away"> & { kind?: BotKind }, opts: { allPaused?: boolean } = {}): string | null {
+  if (isBrief(bot) || bot.status !== "active" || opts.allPaused || !bot.away || bot.away.seconds <= 0) return null;
+  const caption = AWAY_CAPTION[bot.away.reason];
+  return caption ? `Catching up · ${caption(awayFor(bot.away.seconds))}` : null;
+}
+
 /** The rail and the phone sheet, once the catch-up check has run. */
 export const CAUGHT_UP = "Caught up";
 
@@ -1612,10 +1625,8 @@ export function captionLine(bot: BotView, now: Date, tz?: string, bots?: BotName
     return since ? `Since ${dateTime(since, tz)}` : "Not checked yet";
   }
   if (reason === "broken") return bot.lastOkAt ? `Last good read, ${agoLabel(bot.lastOkAt, now, tz)}` : "No good read yet";
-  // Under Pause all the footer says every bot is paused, so no card says it is catching up.
-  const away = bot.status === "active" && !opts.allPaused && bot.away && bot.away.seconds > 0 ? bot.away : null;
-  const caption = away ? AWAY_CAPTION[away.reason] : undefined;
-  if (caption && away) return `Catching up · ${caption(awayFor(away.seconds))}`;
+  const catching = catchingUpLine(bot, opts);
+  if (catching) return catching;
   if (!bot.lastCheckAt) return "Not checked yet";
   const w = primaryWatch(bot);
   if (w?.kind === "feed" && w.latestItem && bot.itemsToday === 0) {

@@ -8,6 +8,8 @@ import {
   DEFAULT_BRIEF_TIME,
   agoLabel,
   alertMeta,
+  awayLine,
+  catchingUpLine,
   checkOutcomeLabel,
   ALL_PAUSED,
   briefClock,
@@ -185,6 +187,12 @@ function ChecksSection({ detail, now }: { detail: BotDetail; now: Date }) {
   const brief = detail.kind === "brief";
   const allPaused = !!useBots().data?.summary.allPaused;
   const away = recentAway(detail, now);
+  // Still owed its catch-up check: the rail says so too, as the full card's
+  // caption does, in the words its alert will end with.
+  const catching =
+    catchingUpLine(detail, { allPaused }) && detail.away
+      ? awayLine(detail.away)
+      : "";
   return (
     <RailSection title="Checks" meta="This week">
       <RailRows>
@@ -199,7 +207,9 @@ function ChecksSection({ detail, now }: { detail: BotDetail; now: Date }) {
             detail.lastCheckAt ? agoLabel(detail.lastCheckAt, now) : "Not yet"
           }
         />
-        {away ? (
+        {catching ? (
+          <RailRow label="Catching up" note={catching} />
+        ) : away ? (
           <RailRow label={CAUGHT_UP} value={timeOf(away.at)} note={away.line} />
         ) : null}
         <RailRow

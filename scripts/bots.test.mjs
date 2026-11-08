@@ -42,6 +42,7 @@ import {
   textBotTags,
   alertFound,
   captionLine,
+  catchingUpLine,
   cardSub,
   cardValue,
   clockLabel,
@@ -1949,6 +1950,16 @@ describe("catch-up", () => {
     assert.match(captionLine(seed.visa, NOW, TZ), /^Last good read/);
     const brief = bot({ id: "bot_brief", kind: "brief", sources: ["bot_seed_gpu"], away });
     assert.equal(captionLine(brief, NOW, TZ, { bot_seed_gpu: { name: "GPU deals" } }), "From GPU deals", "a brief keeps its sources");
+  });
+
+  test("catchingUpLine is the caption's catch-up words, for any card or the rail", () => {
+    const away = { seconds: 9 * 3600, reason: "closed" };
+    assert.equal(catchingUpLine({ ...seed.headphones, away }), "Catching up · Timely was closed for 9 hours");
+    assert.equal(catchingUpLine({ ...seed.visa, away }), "Catching up · Timely was closed for 9 hours", "a broken bot is catching up too; its card caption says the last good read");
+    assert.equal(catchingUpLine({ ...seed.headphones, away: null }), null);
+    assert.equal(catchingUpLine({ ...seed.headphones, away }, { allPaused: true }), null);
+    assert.equal(catchingUpLine({ ...seed.headphones, away, status: "paused" }), null);
+    assert.equal(catchingUpLine(bot({ id: "bot_brief", kind: "brief", sources: [], away })), null);
   });
 
   test("isBotId takes only an id", () => {

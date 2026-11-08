@@ -149,8 +149,13 @@ function Middle({
     <div className="flex min-h-[76px] items-end justify-between gap-3 px-3.5 pb-3.5 pt-3">
       <ChangeTint changeKey={changeKey} />
       <div className="min-w-0 flex-1">
+        {/* Two lines, so a narrow card still says how long and why
+            ("Catching up · Timely was closed for 9 hours"). */}
         {caption ? (
-          <p className="mb-0.5 truncate text-xs tabular-nums text-muted-foreground">
+          <p
+            title={caption}
+            className="mb-0.5 line-clamp-2 text-xs tabular-nums text-muted-foreground"
+          >
             {caption}
           </p>
         ) : null}
