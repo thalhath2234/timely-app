@@ -347,6 +347,7 @@ export default function RichTextEditor({
   onFocusChangeRef.current = onFocusChange;
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [blockWidth, setBlockWidth] = useState(0);
   const [picker, setPicker] = useState<Picker>(null);
   const pickerOpen = picker !== null;
   const [inTable, setInTable] = useState(false);
@@ -764,7 +765,12 @@ export default function RichTextEditor({
   // Links in a live block: screens by path, items as timely://kind/id, as on the Dashboard.
   function openLiveLink(href: string) {
     Keyboard.dismiss();
-    const item = /^timely:\/\/(task|project|doc|sheet|event)\/([^/?#]+)/.exec(href);
+    const item = /^timely:\/\/(task|project|doc|sheet|event|bot)\/([^/?#]+)/.exec(href);
+    if (item?.[1] === "bot") {
+      // A price block opens its bot's sheet on the Bots tab.
+      router.push(`/(app)/(tabs)/bots?bot=${encodeURIComponent(decodeURIComponent(item[2]))}` as Href);
+      return;
+    }
     if (item) {
       router.push(hrefFor(item[1] as "task", decodeURIComponent(item[2])));
       return;
@@ -1096,7 +1102,15 @@ export default function RichTextEditor({
   return (
     <View style={compact ? undefined : styles.wrap}>
       {findOpen && ready ? <FindBar run={run} result={findResult} onClose={() => onFindClose?.()} /> : null}
-      <View ref={webWrapRef} onLayout={measureEditorTop} style={compact ? styles.compactWeb : styles.webWrap}>
+      <View
+        ref={webWrapRef}
+        onLayout={(event) => {
+          // A live block spans the page less its sides (editorHtml.ts #editor) and its border.
+          setBlockWidth(Math.floor(event.nativeEvent.layout.width) - (compact ? 0 : 40) - 2);
+          measureEditorTop();
+        }}
+        style={compact ? styles.compactWeb : styles.webWrap}
+      >
         <WebView
           key={themeKey}
           ref={webRef}
@@ -1233,7 +1247,7 @@ export default function RichTextEditor({
         />
       ) : null}
 
-      {ready && livePrograms.length ? <LiveBlocks programs={livePrograms} onDrawn={(blocks) => run("liveHtml", { blocks })} /> : null}
+      {ready && livePrograms.length ? <LiveBlocks programs={livePrograms} width={blockWidth} onDrawn={(blocks) => run("liveHtml", { blocks })} /> : null}
 
       {/* Mounted from the first use on, so it opens and closes with its animation. */}
       {liveSheet ? (

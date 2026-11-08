@@ -142,15 +142,15 @@ describe("described cards", async () => {
   });
 
   test("lists the board components and @Data, and stays small", () => {
-    for (const name of ["Panel(", "List(", "Stats(", "TaskRow(", "CheckRow(", "@Data(", "@Checklist(", "@Each("]) assert.ok(board.includes(name), name);
+    for (const name of ["Panel(", "List(", "Stats(", "TaskRow(", "CheckRow(", "PriceHistory(", "@Data(", "@Checklist(", "@Each("]) assert.ok(board.includes(name), name);
     assert.ok(!board.includes("Choices("), "no chat-only components");
-    // @Cells and @Checklist made it longer; still under 4k tokens a card.
-    assert.ok(board.length < 16000, `prompt is ${board.length} characters`);
+    // @Cells, @Checklist and PriceHistory made it longer; still near 4k tokens a card.
+    assert.ok(board.length < 17000, `prompt is ${board.length} characters`);
   });
 
   test("its examples parse with no errors", () => {
     const examples = boardExamples();
-    assert.equal(examples.length, 6);
+    assert.equal(examples.length, 7);
     for (const { program } of examples) {
       const result = boardParser().parse(program);
       assert.deepEqual(result.meta.errors, [], program);
@@ -266,6 +266,80 @@ list = List(@Each(late.rows, "t", TaskRow(t.id, t.title, t.day)), "Nothing overd
     assert.ok(used.has("tasks") && used.has("events"), [...used].join());
     assert.ok(!used.has("sheets"));
     assert.deepEqual(liveBlockCards([]), []);
+  });
+});
+
+describe("PriceHistory: a bot's price history in live blocks", async () => {
+  const { blockProblems, boardExamples, boardParser, boardPrompt, botProblems, drawBoard, drawProblems, liveBotIds } = await import("../packages/contract/src/genuiBoard.ts");
+  const { priceBlockProgram } = await import("../packages/contract/src/bots.ts");
+  const { checkBoard } = await import("../packages/contract/src/boardCheck.ts");
+  const ctx = { now: new Date("2026-10-28T12:00:00Z"), timeZone: "UTC" };
+  const block = (bot, watch) => `root = Panel("Prices", [chart])\nchart = PriceHistory(${JSON.stringify(bot)}${watch ? `, ${JSON.stringify(watch)}` : ""})`;
+  const bots = [
+    { id: "bot_sony", name: "Sony WH-1000XM6", prices: [{ id: "bwt_amazon", label: "amazon.in" }, { id: "bwt_flipkart", label: "flipkart.com" }] },
+    { id: "bot_page", name: "Visa page", prices: [] },
+  ];
+
+  test("the prompt teaches PriceHistory by the bot's id, and its example draws", () => {
+    const board = boardPrompt();
+    assert.match(board, /PriceHistory\(bot: string, watch\?: string\)/);
+    assert.match(board, /PriceHistory with the bot's id from the bots list\./);
+    // Describe is not offered list_bots, so its words never send the model there.
+    assert.doesNotMatch(board, /list_bots/);
+    const example = boardExamples().find((entry) => entry.program.includes("PriceHistory("));
+    assert.ok(example, "the bot example is in the prompt");
+    const parsed = boardParser().parse(example.program);
+    assert.deepEqual(parsed.meta.errors, []);
+    const root = drawBoard(example.program, {}, ctx);
+    assert.equal(root?.typeName, "Panel");
+    assert.equal(root.props.title, "Sony WH-1000XM6");
+    const [chart] = root.props.blocks;
+    assert.equal(chart.typeName, "PriceHistory");
+    assert.deepEqual(chart.props, { bot: "bot_3f1c9a" });
+  });
+
+  test("priceBlockProgram parses to the same bot and watch, whatever the name holds", () => {
+    const name = 'The "best" \\ deal';
+    for (const watch of [undefined, "bwt_amazon"]) {
+      const program = priceBlockProgram({ id: "bot_sony", name }, watch);
+      const parsed = boardParser().parse(program);
+      assert.deepEqual(parsed.meta.errors, [], program);
+      assert.equal(parsed.root.props.title, name);
+      const [chart] = parsed.root.props.blocks;
+      assert.equal(chart.typeName, "PriceHistory");
+      assert.deepEqual(chart.props, watch ? { bot: "bot_sony", watch } : { bot: "bot_sony" });
+      assert.deepEqual(liveBotIds([program]), ["bot_sony"]);
+    }
+  });
+
+  test("anything but a bot id is flagged, with or without the person's bots", () => {
+    for (const bad of ["Sony WH-1000XM6", "keys", '"bot_sony"', 'bot_so"ny']) {
+      const expected = [`“${bad}” is not a bot id. Use an id from the bots list.`];
+      assert.deepEqual(botProblems(block(bad), {}), expected, bad);
+      assert.deepEqual(botProblems(block(bad), { bots }), expected, bad);
+      // The person never reads these: the block says it couldn't load instead.
+      assert.deepEqual(blockProblems(block(bad), { bots }), [], bad);
+      assert.deepEqual(drawProblems(block(bad), { bots }), [], bad);
+    }
+    assert.deepEqual(botProblems(block("bot_sony"), {}), [], "an id is not judged before the bots are known");
+  });
+
+  test("with the person's bots: an unknown id, a bot without a price and a wrong watch", () => {
+    assert.deepEqual(botProblems(block("bot_sony"), { bots }), []);
+    assert.deepEqual(botProblems(block("bot_sony", "bwt_flipkart"), { bots }), []);
+    assert.deepEqual(botProblems(block("bot_gone"), { bots }), ["No bot has the id “bot_gone”. Use an id from the bots list."]);
+    assert.deepEqual(botProblems(block("bot_page"), { bots }), ["“Visa page” watches no price."]);
+    assert.deepEqual(botProblems(block("bot_sony", "bwt_ebay"), { bots }), ["“Sony WH-1000XM6” has no price watch “bwt_ebay”."]);
+    // check_block (the API's Describe loop) says the same.
+    assert.deepEqual(checkBoard(block("bot_gone"), { bots }, ctx).problems, ["No bot has the id “bot_gone”. Use an id from the bots list."]);
+    assert.deepEqual(checkBoard(block("bot_sony"), { bots }, ctx).problems, []);
+    assert.deepEqual(checkBoard(block("keys"), { bots }, ctx).problems, ["“keys” is not a bot id. Use an id from the bots list."]);
+  });
+
+  test("liveBotIds lists each valid bot once and never a name, a reserved word or a quoted id", () => {
+    const programs = [block("bot_sony"), block("Sony WH-1000XM6"), block("keys"), block('"bot_sony"'), block("bot_sony", "bwt_amazon"), block("bot_b-2_c"), 'root = Panel("Tasks", [Text("hi")])', ""];
+    assert.deepEqual(liveBotIds(programs), ["bot_sony", "bot_b-2_c"]);
+    assert.deepEqual(liveBotIds([]), []);
   });
 });
 

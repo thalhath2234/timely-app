@@ -29,21 +29,16 @@ import {
   formatMoney,
   healthLine,
   isPriceReading,
-  lineOf,
   needsReason,
   originLine,
-  priceSeries,
-  priceStats,
+  priceHistory,
   runNowState,
   shortDate,
-  signedPct,
   snoozeLabel,
   starterById,
   starterDraft,
   toInput,
   toPatch,
-  valueLine,
-  watchCurrency,
   watchTitle,
   type BotDetail,
   type BotInput,
@@ -54,6 +49,7 @@ import {
   type WatchView,
 } from "@timely/contract/bots";
 import AnimatedPressable from "../ui/AnimatedPressable";
+import { PriceBody } from "./PriceBody";
 import BottomSheet from "../ui/BottomSheet";
 import ConfirmSheet from "../ui/ConfirmSheet";
 import SegmentedControl from "../ui/SegmentedControl";
@@ -86,7 +82,6 @@ import { BotMark, botSites } from "./BotMark";
 import { BriefGroups, LastBrief } from "./BriefGroups";
 import { CheckStrip } from "./CheckStrip";
 import { HowItCameSheet } from "./HowItCameSheet";
-import { PriceChart } from "./PriceChart";
 import { SnoozeSheet } from "./SnoozeSheet";
 import { SuggestionCard, suggests } from "./SuggestionCard";
 import { withAlpha } from "./tone";
@@ -177,38 +172,12 @@ function WeekChecks({ detail }: { detail: BotDetail }) {
 /** The price card: now, the 30-day low, the line it watches, the chart and this week's checks. */
 function PriceCard({ detail, watches }: { detail: BotDetail; watches: WatchView[] }) {
   const [picked, setPicked] = useState(watches[0].id);
-  const w = watches.find((x) => x.id === picked) ?? watches[0];
-  const currency = watchCurrency(w);
-  const series = priceSeries(detail.prices, w.id);
-  // The newest reading after the last daily close is "now".
-  if (w.value != null && w.lastReadingAt) {
-    const at = Math.floor(Date.parse(w.lastReadingAt) / 1000);
-    if (!series.length || at > series[series.length - 1][0]) series.push([at, w.value]);
-  }
-  const stats = priceStats(detail.prices, w.id);
-  const under = valueLine({ ...detail, watches: [w] });
-  const rule = w.rules.find((r) => r.kind === "below" || r.kind === "above");
-  const good = stats?.changePct != null && rule ? (rule.kind === "below" ? stats.changePct < 0 : stats.changePct > 0) : false;
+  // PriceCard is drawn only for a bot with a price-reading watch.
+  const model = priceHistory(detail, picked)!;
   return (
     <View style={styles.card}>
-      <WatchPicker watches={watches} value={w.id} onChange={setPicked} />
-      <View style={styles.priceTop}>
-        <Text numberOfLines={1} style={styles.price}>
-          {w.value != null ? formatMoney(w.value, currency) : "—"}
-        </Text>
-        {stats ? <Text style={styles.meta}>{`30-day low ${formatMoney(stats.low, currency)}`}</Text> : null}
-      </View>
-      <Text style={[styles.meta, styles.priceLine]}>
-        {w.value == null ? "Not read yet" : under ?? "Now"}
-        {stats?.changePct != null ? (
-          <>
-            {" · "}
-            <Text style={{ color: good ? colors.successText : colors.foreground }}>{signedPct(stats.changePct)}</Text>
-            {` since ${stats.since}`}
-          </>
-        ) : null}
-      </Text>
-      <PriceChart points={series} threshold={lineOf(w)} currency={currency} />
+      <WatchPicker watches={watches} value={model.watchId} onChange={setPicked} />
+      <PriceBody model={model} />
       <WeekChecks detail={detail} />
     </View>
   );
@@ -1035,8 +1004,6 @@ const styles = createThemedStyleSheet((colors) => ({
   card: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 16, gap: 8, marginTop: 4 },
   picker: { alignItems: "flex-start" },
   priceTop: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 8 },
-  price: { flexShrink: 1, color: colors.foreground, fontSize: 28, lineHeight: 34, fontWeight: "600", letterSpacing: -0.4, fontVariant: ["tabular-nums"] },
-  priceLine: { marginTop: -6, marginBottom: 4 },
   cardTitle: { color: colors.foreground, fontSize: 15, fontWeight: "600" },
   quote: {
     borderRadius: 10,

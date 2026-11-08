@@ -108,6 +108,7 @@ import {
   niceTicks,
   priceBlockProgram,
   priceChartGeometry,
+  priceDayLabels,
   priceDomain,
   priceHistory,
   recentAway,
@@ -2129,6 +2130,12 @@ describe("price history", () => {
       g.xLabels.map((l) => l.x),
       [40, 40 + 126, 292],
     );
+    assert.deepEqual(g.xLabels.map((l) => l.anchor), ["start", "middle", "end"]);
+    // A new bot's one close and its "now" reading: the middle would be the first day again.
+    const two = priceChartGeometry(series([100, 90]), null, PHONE_BOX);
+    assert.deepEqual(two.xLabels.map((l) => [l.x, l.anchor]), [[40, "start"], [292, "end"]]);
+    assert.deepEqual(two.xLabels.map((l) => l.label), priceDayLabels(series([100, 90])).map((l) => l.label));
+    assert.equal(two.xLabels[1].label, "Today");
 
     const wide = priceChartGeometry(points, 25000, { ...PHONE_BOX, width: 600 });
     assert.equal(wide.last.x, 600 - 8);

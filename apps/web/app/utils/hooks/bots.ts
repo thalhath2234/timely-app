@@ -90,14 +90,21 @@ export function useBots({ enabled = true }: { enabled?: boolean } = {}) {
   });
 }
 
-export function useBot(id?: string | null) {
+/** One bot in full. A deleted bot (404) is not asked for again; `enabled` false keeps what is cached without asking. */
+export function useBot(id?: string | null, { enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: botKey(id || ""),
     queryFn: () => getBot(id || ""),
-    enabled: !!id,
-    refetchInterval: () => (botStreaming ? false : IDLE_POLL),
+    enabled: !!id && enabled,
+    // A deleted bot stays missing: polling it only adds requests.
+    refetchInterval: (query) =>
+      botStreaming || (query.state.error as { status?: number } | null)?.status === 404
+        ? false
+        : IDLE_POLL,
     refetchOnWindowFocus: true,
     staleTime: 5000,
+    retry: (count, error) =>
+      (error as { status?: number }).status !== 404 && count < 3,
   });
 }
 

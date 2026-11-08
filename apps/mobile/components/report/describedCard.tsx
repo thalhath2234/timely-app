@@ -15,6 +15,7 @@ import { genuiNodes, replyBlocks, type GenuiNode } from "@timely/contract/genui"
 import { BOARD_ROOT, drawBoard, drawProblems, withBoardRenderers, type BoardName, type BoardProps } from "@timely/contract/genuiBoard";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { kit, Link, RowGroup, Surface } from "../genui/kit";
+import { PriceHistoryBlock } from "./PriceHistoryBlock";
 
 /*
  * A described card on the phone dashboard: the agent's program
@@ -54,7 +55,11 @@ function List({ props, renderNode }: Props<"List">) {
   );
 }
 
-const renderers: { [N in BoardName]: ComponentRenderer<BoardProps<N>> } = { ...kit, Panel, List };
+function PriceHistory({ props }: Props<"PriceHistory">) {
+  return <PriceHistoryBlock bot={props.bot} watch={props.watch} />;
+}
+
+const renderers: { [N in BoardName]: ComponentRenderer<BoardProps<N>> } = { ...kit, Panel, List, PriceHistory };
 const components = withBoardRenderers(renderers);
 
 function Root({ node }: { node: GenuiNode }) {

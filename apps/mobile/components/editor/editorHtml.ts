@@ -27,6 +27,10 @@ export function buildEditorHtml(
     border: string;
     /** For live blocks; older callers fall back to the page colours. */
     card?: string;
+    /** A price block's line, its rule's label and a good change; older callers fall back to the accent and the warning. */
+    chart1?: string;
+    warningText?: string;
+    successText?: string;
     /** Text on the accent, and the hairline of a control; older callers fall
      * back to the page colours. */
     primaryForeground?: string;
@@ -53,7 +57,14 @@ export function buildEditorHtml(
     accentForeground: "#d4cff5",
     border: "rgba(255,255,255,0.09)",
   };
-  const live = { card: t.card ?? t.background, success: t.success ?? "#2fa36b", warning: t.warning ?? "#d29922" };
+  const live = {
+    card: t.card ?? t.background,
+    success: t.success ?? "#2fa36b",
+    warning: t.warning ?? "#d29922",
+    chart: t.chart1 ?? t.primary,
+    warningText: t.warningText ?? t.warning ?? "#d29922",
+    successText: t.successText ?? t.success ?? "#2fa36b",
+  };
   const onPrimary = t.primaryForeground ?? t.background;
   const hairline = t.input ?? t.border;
   return `<!DOCTYPE html>
@@ -98,7 +109,7 @@ export function buildEditorHtml(
     /* Live blocks: a described card drawn from the person's data, the
        phone kit's rows as markup (liveBlockHtml.ts). The program stays
        hidden unless asked for or the caret is in it. */
-    .live-wrap { --lv-fg: ${t.foreground}; --lv-muted-fg: ${t.mutedForeground}; --lv-border: ${t.border}; --lv-card: ${live.card}; --lv-fill: ${t.muted}; --lv-primary: ${t.primary}; --lv-success: ${live.success}; --lv-warning: ${live.warning}; --lv-check: ${t.background};
+    .live-wrap { --lv-fg: ${t.foreground}; --lv-muted-fg: ${t.mutedForeground}; --lv-border: ${t.border}; --lv-card: ${live.card}; --lv-fill: ${t.muted}; --lv-primary: ${t.primary}; --lv-success: ${live.success}; --lv-warning: ${live.warning}; --lv-check: ${t.background}; --lv-chart: ${live.chart}; --lv-warning-text: ${live.warningText}; --lv-success-text: ${live.successText};
       background: var(--lv-card); border: 1px solid var(--lv-border); border-radius: 12px; overflow: clip; margin: 0 0 0.75em; color: var(--lv-fg); font-size: 15px; line-height: 1.35; }
     .live-wrap.is-selected { outline: 2px solid var(--lv-primary); outline-offset: 2px; }
     .live-head, .live-body { -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
@@ -158,6 +169,28 @@ export function buildEditorHtml(
     .lv-stat-label { color: var(--lv-muted-fg); font-size: 12px; font-weight: 500; }
     .lv-stat-hint { color: var(--lv-muted-fg); font-size: 12px; line-height: 16px; }
     .lv-chart { padding: 4px 14px 12px; }
+    .lv-price { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px 14px; }
+    .lv-price-meta { margin: 0; color: var(--lv-muted-fg); font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lv-price-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    .lv-price-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--lv-fg); font-size: 28px; line-height: 34px; font-weight: 600; letter-spacing: -0.4px; font-variant-numeric: tabular-nums; }
+    .lv-price-lowest, .lv-price-under { color: var(--lv-muted-fg); font-size: 12px; line-height: 17px; font-variant-numeric: tabular-nums; }
+    .lv-price-lowest { flex: none; }
+    .lv-price-under { margin: -6px 0 4px; }
+    .lv-price-change { color: var(--lv-fg); }
+    .lv-price-change.is-good { color: var(--lv-success-text); }
+    .lv-price-chart { display: block; max-width: 100%; height: auto; overflow: visible; font-family: ui-sans-serif, system-ui, sans-serif; }
+    .lv-price-grid { stroke: var(--lv-border); stroke-width: 1; }
+    .lv-price-axis { fill: var(--lv-muted-fg); font-size: 10px; font-variant-numeric: tabular-nums; }
+    .lv-price-area { fill: var(--lv-chart); fill-opacity: 0.1; }
+    .lv-price-line { fill: none; stroke: var(--lv-chart); stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; }
+    .lv-price-dot { fill: var(--lv-chart); stroke: var(--lv-card); stroke-width: 2; }
+    .lv-price-low { fill: var(--lv-fg); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .lv-price-threshold { stroke: var(--lv-warning); stroke-width: 1.5; stroke-dasharray: 4 4; }
+    .lv-price-backing { fill: var(--lv-card); fill-opacity: 0.92; }
+    .lv-price-threshold-label { fill: var(--lv-warning-text); font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; }
+    .lv-price-empty { margin: 0; padding: 0 12px; height: 72px; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: var(--lv-fill); color: var(--lv-muted-fg); font-size: 12px; text-align: center; }
+    .lv-price-note { display: flex; flex-direction: column; gap: 2px; }
+    .lv-price-note-title { color: var(--lv-fg); font-size: 15px; font-weight: 600; }
     .lv-chart-title { color: var(--lv-muted-fg); font-size: 12px; font-weight: 500; margin: 6px 0 4px; }
     .lv-bars { display: flex; align-items: flex-end; gap: 8px; height: 108px; }
     .lv-bar-col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 5px; }
@@ -2626,7 +2659,7 @@ export function buildEditorHtml(
       const heading = document.createElement("h1");
       heading.className = "print-title";
       heading.textContent = title || "Untitled";
-      const light = "html, body { background: #fff !important; color: #111 !important; } body { padding: 0 !important; } .tiptap { padding: 0 !important; color: #111; } .tiptap pre, .tiptap code, .block-head, .callout, .props-chip { background: #f3f3f5 !important; color: #111 !important; } .tiptap a, .mention, .wiki-link { color: #3730a3 !important; } .print-title { font-family: -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif; font-size: 28px; font-weight: 700; margin: 0 0 16px; } .code-wrap pre { padding-top: 12px !important; max-height: none !important; -webkit-mask-image: none !important; mask-image: none !important; } .doc-bookmark { border-color: #ddd !important; } .live-wrap { --lv-fg: #111; --lv-muted-fg: #555; --lv-border: #ddd; --lv-card: #fff; --lv-fill: #eee; --lv-check: #fff; } pre, table, img, svg, .callout, .live-wrap { break-inside: avoid; } @page { margin: 18mm 16mm; }";
+      const light = "html, body { background: #fff !important; color: #111 !important; } body { padding: 0 !important; } .tiptap { padding: 0 !important; color: #111; } .tiptap pre, .tiptap code, .block-head, .callout, .props-chip { background: #f3f3f5 !important; color: #111 !important; } .tiptap a, .mention, .wiki-link { color: #3730a3 !important; } .print-title { font-family: -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif; font-size: 28px; font-weight: 700; margin: 0 0 16px; } .code-wrap pre { padding-top: 12px !important; max-height: none !important; -webkit-mask-image: none !important; mask-image: none !important; } .doc-bookmark { border-color: #ddd !important; } .live-wrap { --lv-fg: #111; --lv-muted-fg: #555; --lv-border: #ddd; --lv-card: #fff; --lv-fill: #eee; --lv-check: #fff; --lv-chart: #4f46e5; --lv-warning: #df911a; --lv-warning-text: #a15c00; --lv-success-text: #0f7a50; } pre, table, img, svg, .callout, .live-wrap { break-inside: avoid; } @page { margin: 18mm 16mm; }";
       send({ type: "exportHtml", html: "<!doctype html><html><head><meta charset=\\"utf-8\\">" + links + "<style>" + styles + "</style><style>" + light + "</style></head><body>" + heading.outerHTML + body.outerHTML + "</body></html>" });
     }
     ${BLOCK_TURN_JS}

@@ -14,19 +14,13 @@ import {
   clockLabel,
   fixAction,
   fixCopy,
-  formatMoney,
   isPriceReading,
   limitRows,
-  lineOf,
   previewCard,
-  priceSeries,
-  priceStats,
+  priceHistory,
   rearmMeta,
   recentAway,
   shortDate,
-  signedPct,
-  valueLine,
-  watchCurrency,
   watchTitle,
   type AlertView,
   type BotDetail,
@@ -53,7 +47,7 @@ import { BotMark } from "./botMark";
 import { CheckStrip } from "./checkStrip";
 import { HowItCame } from "./howItCame";
 import { alertHeadline, SuggestionButtons } from "./needsAction";
-import { PriceChart } from "./priceChart";
+import { PriceSummary } from "./priceSummary";
 
 /** "18:12". */
 const timeOf = (iso: string) =>
@@ -100,68 +94,12 @@ function PriceSection({
   watches: WatchView[];
 }) {
   const [picked, setPicked] = useState(watches[0].id);
-  const w = watches.find((x) => x.id === picked) ?? watches[0];
-  const currency = watchCurrency(w);
-  const series = priceSeries(detail.prices, w.id);
-  // The newest reading after the last daily close is "now".
-  if (w.value != null && w.lastReadingAt) {
-    const at = Math.floor(Date.parse(w.lastReadingAt) / 1000);
-    if (!series.length || at > series[series.length - 1][0])
-      series.push([at, w.value]);
-  }
-  const stats = priceStats(detail.prices, w.id);
-  const line = lineOf(w);
-  const under = valueLine({ ...detail, watches: [w] });
-  const rule = w.rules.find((r) => r.kind === "below" || r.kind === "above");
-  const good =
-    stats?.changePct != null && rule
-      ? rule.kind === "below"
-        ? stats.changePct < 0
-        : stats.changePct > 0
-      : false;
+  // PriceSection is drawn only for a bot with a price-reading watch.
+  const model = priceHistory(detail, picked)!;
   return (
     <RailSection title="Price" meta="Last 30 days">
-      <WatchPicker watches={watches} value={w.id} onChange={setPicked} />
-      <div className="min-w-0">
-        <p className="text-[26px] font-semibold leading-8 tracking-[-0.02em] tabular-nums text-foreground">
-          {w.value != null ? formatMoney(w.value, currency) : "—"}
-        </p>
-        <p className="truncate text-xs tabular-nums text-muted-foreground">
-          {w.value != null
-            ? `Now${under ? ` · ${under}` : ""}`
-            : "Not read yet"}
-        </p>
-      </div>
-      <div className="mt-3.5">
-        <PriceChart points={series} threshold={line} currency={currency} />
-      </div>
-      {stats ? (
-        <div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-3.5">
-          <div className="min-w-0">
-            <p className="text-[17px] font-semibold tabular-nums text-foreground">
-              {formatMoney(stats.low, currency)}
-            </p>
-            <p className="truncate text-xs text-muted-foreground">
-              30-day low, {stats.lowDay}
-            </p>
-          </div>
-          {stats.changePct != null ? (
-            <div className="min-w-0">
-              <p
-                className={cn(
-                  "text-[17px] font-semibold tabular-nums",
-                  good ? "text-success-text" : "text-foreground",
-                )}
-              >
-                {signedPct(stats.changePct)}
-              </p>
-              <p className="truncate text-xs text-muted-foreground">
-                since {stats.since}
-              </p>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+      <WatchPicker watches={watches} value={model.watchId} onChange={setPicked} />
+      <PriceSummary model={model} />
     </RailSection>
   );
 }

@@ -228,6 +228,9 @@ export default function DashboardScreen() {
   // Links in a described card: screens by path, items as timely://kind/id.
   const openLink = useCallback(
     (href: string) => {
+      // A price block opens its bot's sheet on the Bots tab.
+      const bot = href.match(/^timely:\/\/bot\/([^/?#]+)/);
+      if (bot) return router.push(`/(app)/(tabs)/bots?bot=${encodeURIComponent(decodeURIComponent(bot[1]))}`);
       const item = href.match(/^timely:\/\/(task|project|doc|sheet|event)\/([^/?#]+)/);
       if (item) return router.push(item[1] === "doc" || item[1] === "sheet" ? fileHref(item[2]) : `/(app)/${item[1]}s/${item[2]}`);
       if (href.startsWith("/")) router.push(`/(app)${href}`);

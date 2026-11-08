@@ -9,6 +9,7 @@ import type { DashboardData, DescribedNames } from "@timely/contract/dashboard";
 import { genuiNodes, replyBlocks } from "@timely/contract/genui";
 import { BOARD_ROOT, boardFunctions, drawProblems, withBoardRenderers, type BoardName, type BoardProps } from "@timely/contract/genuiBoard";
 import { kit, RowGroup, Surface } from "../genui/kit";
+import { PriceHistoryBlock } from "./priceHistoryBlock";
 
 type Props<N extends BoardName> = ComponentRenderProps<BoardProps<N>>;
 
@@ -47,7 +48,11 @@ function List({ props, renderNode }: Props<"List">) {
   );
 }
 
-const renderers: { [N in BoardName]: ComponentRenderer<BoardProps<N>> } = { ...kit, Panel, List };
+function PriceHistory({ props }: Props<"PriceHistory">) {
+  return <PriceHistoryBlock bot={props.bot} watch={props.watch} />;
+}
+
+const renderers: { [N in BoardName]: ComponentRenderer<BoardProps<N>> } = { ...kit, Panel, List, PriceHistory };
 const components = withBoardRenderers(renderers);
 
 export default function DescribedCardView({

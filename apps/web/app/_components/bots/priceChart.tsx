@@ -1,38 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { formatMoney, shortDate } from "@timely/contract/bots";
+import {
+  axisMoney,
+  formatMoney,
+  priceDayLabels,
+  priceDomain,
+  shortDate,
+} from "@timely/contract/bots";
 import { useElementSize } from "@/app/_components/report/charts";
 
 const AXIS_LEFT = 44;
 const AXIS_BOTTOM = 20;
 const PAD_TOP = 8;
 const PAD_RIGHT = 8;
-
-/** "₹30k", "₹27.5k", "$68.4k", "$182": an axis label, short. */
-export function axisMoney(v: number, currency: string): string {
-  const unit = formatMoney(1, currency);
-  const before = unit.startsWith("1") ? "" : unit.slice(0, unit.indexOf("1"));
-  const after = unit.startsWith("1") ? unit.slice(1) : "";
-  const a = Math.abs(v);
-  let n: string;
-  if (a >= 1_000_000) n = `${Number((a / 1_000_000).toFixed(1))}M`;
-  else if (a >= 1000) n = `${Number((a / 1000).toFixed(1))}k`;
-  else n = `${Number(a.toFixed(a < 10 ? 2 : 0))}`;
-  return `${v < 0 ? "-" : ""}${before}${n}${after}`;
-}
-
-/** Round gridline values inside [lo, hi]: two to four of them. */
-function niceTicks(lo: number, hi: number): number[] {
-  const span = hi - lo || Math.abs(hi) * 0.1 || 1;
-  const power = 10 ** Math.floor(Math.log10(span / 2));
-  const step =
-    [1, 2, 2.5, 5, 10].map((s) => s * power).find((s) => span / s <= 3) ??
-    10 * power;
-  const ticks: number[] = [];
-  for (let t = Math.ceil(lo / step) * step; t <= hi; t += step) ticks.push(t);
-  return ticks;
-}
 
 /**
  * A price watch's last 30 days: daily closes as a line over a soft area, the
@@ -65,14 +46,7 @@ export function PriceChart({
       </div>
     );
   }
-  const values = points.map(([, v]) => v);
-  if (threshold != null) values.push(threshold);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const pad = (max - min) * 0.08 || Math.abs(max) * 0.02 || 1;
-  const lo = min - pad;
-  const hi = max + pad;
-  const ticks = niceTicks(lo, hi);
+  const { lo, hi, ticks } = priceDomain(points, threshold ?? null);
   const plotW = Math.max(0, width - AXIS_LEFT - PAD_RIGHT);
   const plotH = Math.max(0, height - AXIS_BOTTOM - PAD_TOP);
   const t0 = points[0][0];
@@ -90,8 +64,8 @@ export function PriceChart({
     if (v < points[low][1]) low = i;
   });
   const last = points.length - 1;
-  const day = (t: number) => shortDate(new Date(t * 1000).toISOString());
-  const mid = points[Math.floor(last / 2)][0];
+  // Daily closes sit at UTC midnight, so their days are UTC days (priceDayLabels).
+  const day = (t: number) => shortDate(new Date(t * 1000).toISOString(), "UTC");
   const label = `Price over the last ${points.length} readings, from ${formatMoney(points[0][1], currency)} to ${formatMoney(points[last][1], currency)}; lowest ${formatMoney(points[low][1], currency)}`;
 
   const onMove = (event: React.PointerEvent<SVGSVGElement>) => {
@@ -191,16 +165,12 @@ export function PriceChart({
             stroke="var(--card)"
             strokeWidth={2}
           />
-          {[
-            [t0, day(t0), "start"],
-            [mid, day(mid), "middle"],
-            [t1, "Today", "end"],
-          ].map(([t, text, anchor]) => (
+          {priceDayLabels(points).map(({ t, label: text, anchor }) => (
             <text
-              key={String(anchor)}
-              x={x(t as number)}
+              key={anchor}
+              x={x(t)}
               y={height - 4}
-              textAnchor={anchor as "start" | "middle" | "end"}
+              textAnchor={anchor}
               className="fill-muted-foreground text-[10px]"
             >
               {text}

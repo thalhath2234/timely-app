@@ -250,6 +250,7 @@ export function editorThemeVars() {
     successText: palette.successText,
     warning: palette.warning,
     warningText: palette.warningText,
+    chart1: palette.chart1,
   };
 }
 

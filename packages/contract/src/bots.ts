@@ -2502,6 +2502,19 @@ export function priceBlockProgram(bot: { id: string; name: string }, watchId?: s
   return `root = Panel(${JSON.stringify(bot.name)}, [chart])\nchart = PriceHistory(${JSON.stringify(bot.id)}${watch})`;
 }
 
+/** "₹30k", "₹27.5k", "$68.4k", "$182": an axis label, short. */
+export function axisMoney(v: number, currency: string): string {
+  const unit = formatMoney(1, currency);
+  const before = unit.startsWith("1") ? "" : unit.slice(0, unit.indexOf("1"));
+  const after = unit.startsWith("1") ? unit.slice(1) : "";
+  const a = Math.abs(v);
+  let n: string;
+  if (a >= 1_000_000) n = `${Number((a / 1_000_000).toFixed(1))}M`;
+  else if (a >= 1000) n = `${Number((a / 1000).toFixed(1))}k`;
+  else n = `${Number(a.toFixed(a < 10 ? 2 : 0))}`;
+  return `${v < 0 ? "-" : ""}${before}${n}${after}`;
+}
+
 /** Round gridline values inside [lo, hi]: two to four of them. */
 export function niceTicks(lo: number, hi: number): number[] {
   const span = hi - lo || Math.abs(hi) * 0.1 || 1;
@@ -2538,9 +2551,31 @@ export type PriceChartGeometry = {
   low: { x: number; y: number; value: number };
   last: { x: number; y: number; value: number };
   grid: { y: number; value: number }[];
-  /** The first day, the middle day and "Today". */
-  xLabels: { x: number; label: string }[];
+  /** The first day, the middle day (three points or more) and "Today". */
+  xLabels: { x: number; label: string; anchor: PriceDayLabel["anchor"] }[];
 };
+
+export type PriceDayLabel = { t: number; label: string; anchor: "start" | "middle" | "end" };
+
+/**
+ * The days under a price chart: the first, the middle and "Today". Daily
+ * closes sit at UTC midnight, so their days are UTC days, as priceStats words
+ * `since`. Under three points the middle would be the first again, so it is
+ * left out.
+ */
+export function priceDayLabels(points: [number, number][]): PriceDayLabel[] {
+  if (!points.length) return [];
+  const day = (t: number) => shortDate(new Date(t * 1000).toISOString(), "UTC");
+  const last = points.length - 1;
+  const t0 = points[0][0];
+  const labels: PriceDayLabel[] = [{ t: t0, label: day(t0), anchor: "start" }];
+  if (points.length >= 3) {
+    const mid = points[Math.floor(last / 2)][0];
+    labels.push({ t: mid, label: day(mid), anchor: "middle" });
+  }
+  labels.push({ t: points[last][0], label: "Today", anchor: "end" });
+  return labels;
+}
 
 /**
  * A price chart laid out in a box of `width` × `height`, with `left` for the
@@ -2568,9 +2603,6 @@ export function priceChartGeometry(
     if (v < points[low][1]) low = i;
   });
   const last = points.length - 1;
-  // Daily closes sit at UTC midnight, so their days are UTC days, as priceStats words `since`.
-  const day = (t: number) => shortDate(new Date(t * 1000).toISOString(), "UTC");
-  const mid = points[Math.floor(last / 2)][0];
   return {
     line,
     area,
@@ -2578,11 +2610,7 @@ export function priceChartGeometry(
     low: { x: x(points[low][0]), y: y(points[low][1]), value: points[low][1] },
     last: { x: x(t1), y: y(points[last][1]), value: points[last][1] },
     grid: ticks.map((value) => ({ y: y(value), value })),
-    xLabels: [
-      { x: x(t0), label: day(t0) },
-      { x: x(mid), label: day(mid) },
-      { x: x(t1), label: "Today" },
-    ],
+    xLabels: priceDayLabels(points).map(({ t, label, anchor }) => ({ x: x(t), label, anchor })),
   };
 }
 
