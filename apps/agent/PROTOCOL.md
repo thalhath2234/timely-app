@@ -76,7 +76,7 @@ Other unknown names are logged as warnings. `HERMES_EXEC_ASK` is allowed when th
 | --- | --- | --- |
 | `hello` | `id`, `protocol` (1), `home` (the account's `HERMES_HOME`), `settings_hash` (the `config_sha256` from `render-account`), `catalog_version`, optional `settings` (section 6) | `ready` or `error` |
 | `ping` | `id` | `pong` |
-| `run.start` | `id` (optional; Go sends none), `run`, `conversation_id`, `session_key` (`timely:<uid>:<conversation>`), `user_message`, `system_hash`, `system_text`, `model` `{provider, model, base_url, api_key, api_mode, reasoning}`, `toolsets` (explicit list, required, may be empty), `flags` `{sensitive, answer_only, web, rich_ui, from_bot}`, `budgets` `{max_iterations}`, `tainted_sources` `[{kind, tool, host?, session?}]`, `pre_approved` `{tool, args_hash}` or null, `history` (only when `state.db` lacks the session) | `event`s, then `run.done` with the same `id`; or `error` with the same `id` and `run` |
+| `run.start` | `id` (Go's `Send` gives each start an id starting `start-`), `run`, `conversation_id`, `session_key` (`timely:<uid>:<conversation>`), `user_message`, `system_hash`, `system_text`, `model` `{provider, model, base_url, api_key, api_mode, reasoning}`, `toolsets` (explicit list, required, may be empty), `flags` `{sensitive, answer_only, web, rich_ui, from_bot}`, `budgets` `{max_iterations}`, `tainted_sources` `[{kind, tool, host?, session?}]`, `pre_approved` `{tool, args_hash}` or null, `history` (only when `state.db` lacks the session) | `event`s, then `run.done` with the same `id`; or `error` with the same `id` and `run` |
 | `run.stop` | `id`, `run`, `reason` | the run's `run.done` with `interrupted: true`; `error` (`unknown_run`) if no such run |
 | `run.steer` | `id`, `run`, `text` | `ack` |
 | `approval.answer` | `id`, `run`, `request_id`, `choice` (`once` or `deny`) | `ack` |
@@ -86,7 +86,7 @@ Other unknown names are logged as warnings. `HERMES_EXEC_ASK` is allowed when th
 | `shutdown` | `grace` (seconds, default 5) | none: the worker waits up to `grace` for live runs, interrupts the rest (up to 2 s more), and exits 0. Go sends its own stop budget minus 3 s, so a worker following this exits before Go sends SIGTERM |
 | `bot.run`, `learning.*` | later phases | `error` `unsupported` in phase 1 |
 
-An `error` that carries `run` (a refused `run.start`: `busy`, `duplicate_run`, `refused`, `bad_message`) ends that run: no `run.done` follows. Go stops counting the run as live and hands the error to the run's owner.
+An `error` that carries `run` and the `id` of that run's own `run.start` (a refusal: `busy`, `refused`, `bad_message`, `not_ready`, `internal`) ends that run: no `run.done` follows. Go stops counting the run as live and hands the error to the run's owner. `duplicate_run` does not end the run (the first start is still running), and neither does an error answering `run.stop`, `run.steer` or `approval.answer`, even though it carries `run`. Go never sends a line over 32 MiB: it refuses such a `run.start` before marking the run live, because the worker's `bad_message` for an oversized line cannot name the run.
 
 `args_hash` is the sha256 of the tool arguments' canonical JSON (keys sorted, separators `,` and `:`, non-ASCII kept as UTF-8).
 

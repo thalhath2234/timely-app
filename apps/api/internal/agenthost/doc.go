@@ -14,7 +14,8 @@
 // left open fixed). This is the part the supervisor itself relies on:
 //
 //   - One JSON object per line, UTF-8, "\n" terminated ("\r\n" is accepted).
-//     Lines longer than MaxLineBytes are a protocol violation.
+//     Lines longer than MaxLineBytes are a protocol violation. Go refuses to
+//     send one (ErrLineTooLong) before it marks any run live.
 //   - Every message carries "type" and "account". The supervisor stamps
 //     "account" on everything it sends and kills the worker if a line arrives
 //     with a missing or different account (ADR 0001). The one exception is an
@@ -26,8 +27,9 @@
 //     "error" ({"type":"error","id":...,"code":...,"message":...}) fails the
 //     request with a *ReplyError.
 //   - Run-scoped messages carry "run". Outgoing "run.start" and "bot.run"
-//     mark the run live; incoming "run.done" and "bot.done" end it. A worker
-//     with a live run is never reaped.
+//     mark the run live (Send gives them an id starting "start-"; a second
+//     start of a live run is ErrRunLive); incoming "run.done" and "bot.done"
+//     end it. A worker with a live run is never reaped.
 //   - Before spawning (Config.RenderAccount): "boot.py prepare --agent-dir
 //     <root>" once, then "boot.py render-account --agent-dir <root> --account
 //     <id>" with the settings JSON on stdin; its config_sha256 is the hello's
@@ -49,10 +51,12 @@
 //     Config.Handler in arrival order. With no handler, gate.ask gets a
 //     "block" verdict and tool.call an error result, so the worker fails
 //     closed at once instead of waiting for its hook timeout.
-//   - Run-scoped errors: an "error" carrying "run" (a refused run.start: busy,
-//     duplicate_run, refused) ends that run like run.done would, and reaches
-//     Config.Handler (or the Request waiting on its id) so the caller can
-//     fail the run.
+//   - Refused starts: an "error" carrying "run" and the id of that run's own
+//     run.start or bot.run (busy, refused, bad_message, ...) ends the run like
+//     run.done would, and reaches Config.Handler (or the Request waiting on
+//     its id) so the caller can fail the run. duplicate_run never ends a run
+//     (the first start is still live), and neither does an error answering
+//     run.stop, run.steer or approval.answer: those are only logged.
 //   - Stop: Go sends "shutdown" {grace} and closes stdin (the worker's
 //     lifeline). grace is ShutdownGrace minus 3 s in whole seconds: the worker
 //     waits that long for live runs, then interrupts the rest (about 2 s), so

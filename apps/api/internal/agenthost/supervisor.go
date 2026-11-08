@@ -559,7 +559,7 @@ func (s *Supervisor) spawn(account string, spec AccountSpec) (*Worker, error) {
 		home:       s.layout.Home(account),
 		slot:       true,
 		pending:    map[string]chan Message{},
-		runs:       map[string]struct{}{},
+		runs:       map[string]string{},
 		lastUsed:   time.Now(),
 		queue:      newMsgQueue(),
 		dispatched: make(chan struct{}),

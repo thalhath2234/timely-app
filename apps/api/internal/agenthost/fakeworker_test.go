@@ -123,6 +123,7 @@ func fakeWorker(mode string) int {
 	busy := map[string]any{}
 	var child *exec.Cmd
 	var firstHello map[string]any // what the supervisor sent; later hellos are test probes
+	live := map[string]bool{}     // runs started and not done, like the real worker's
 
 	in := bufio.NewScanner(os.Stdin)
 	in.Buffer(make([]byte, 1<<20), 64<<20)
@@ -202,8 +203,17 @@ func fakeWorker(mode string) int {
 			send(map[string]any{"type": "log", "level": "info", "text": "hello from the worker"})
 		case "run.start":
 			run, _ := m["run"].(string)
-			if strings.HasPrefix(run, "refuse-") { // like the real worker's busy / duplicate_run answer
-				send(map[string]any{"type": "error", "run": run, "code": "busy", "message": "this conversation already has a live run"})
+			if live[run] { // the real worker's answer to a second start of a live run
+				send(map[string]any{"type": "error", "id": id, "run": run, "code": "duplicate_run", "message": "run is already running"})
+				continue
+			}
+			if strings.HasPrefix(run, "refuse-") { // like the real worker's busy answer
+				send(map[string]any{"type": "error", "id": id, "run": run, "code": "busy", "message": "this conversation already has a live run"})
+				continue
+			}
+			live[run] = true
+			if strings.HasPrefix(run, "hang-") { // a long turn: one event, then nothing until run.stop
+				send(map[string]any{"type": "event", "run": run, "kind": "delta", "payload": map[string]any{"text": "thinking"}})
 				continue
 			}
 			send(map[string]any{"type": "event", "run": run, "kind": "delta", "payload": map[string]any{"text": "Hi"}})
@@ -219,9 +229,13 @@ func fakeWorker(mode string) int {
 				send(map[string]any{"type": "event", "run": run, "kind": "tool.completed", "payload": map[string]any{"result": r}})
 				continue
 			}
+			delete(live, run)
 			send(map[string]any{"type": "run.done", "run": run, "completed": true, "final_response": fmt.Sprint(m["result"])})
+		case "approval.answer": // the real worker refuses a choice other than once or deny
+			send(map[string]any{"type": "error", "id": id, "run": m["run"], "code": "bad_message", "message": "choice must be once or deny"})
 		case "run.stop":
 			run, _ := m["run"].(string)
+			delete(live, run)
 			send(map[string]any{"type": "run.done", "run": run, "interrupted": true})
 		case "shutdown":
 			if mode == "stubborn" {

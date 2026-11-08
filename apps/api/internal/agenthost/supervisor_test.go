@@ -391,6 +391,84 @@ func TestRefusedRunStartEndsTheRun(t *testing.T) {
 	}
 }
 
+// Errors that name a live run without refusing its start leave the run live:
+// a duplicate start, or a bad approval.answer, run.steer or run.stop.
+func TestRunScopedErrorsThatDoNotRefuseTheStartKeepTheRunLive(t *testing.T) {
+	h := newHarness(t, "ok", nil)
+	w := h.ensure("acct-1")
+	if err := w.Send(TypeRunStart, map[string]any{"run": "hang-1", "conversation_id": "c1"}); err != nil {
+		t.Fatal(err)
+	}
+	h.message("event")
+	if err := w.Send(TypeRunStart, map[string]any{"run": "hang-1", "conversation_id": "c1"}); !errors.Is(err, ErrRunLive) {
+		t.Fatalf("second start of a live run: err = %v, want ErrRunLive", err)
+	}
+	if err := w.Send("approval.answer", map[string]any{"run": "hang-1", "request_id": "x", "choice": "always"}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for !h.log.contains("choice must be once or deny") {
+		if time.Now().After(deadline) {
+			t.Fatal("the approval.answer error never arrived")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if live := w.LiveRuns(); len(live) != 1 || live[0] != "hang-1" {
+		t.Fatalf("live runs after an approval.answer error = %v, want [hang-1]", live)
+	}
+	if err := w.Send("run.stop", map[string]any{"run": "hang-1", "reason": "test"}); err != nil {
+		t.Fatal(err)
+	}
+	h.message(TypeRunDone)
+	deadline = time.Now().Add(2 * time.Second)
+	for len(w.LiveRuns()) > 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("run still live after run.done: %v", w.LiveRuns())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// A duplicate_run error answering a start's own id still leaves the first
+// run live: the worker only says that when the run is already running.
+func TestDuplicateRunErrorKeepsTheRunLive(t *testing.T) {
+	w := &Worker{runs: map[string]string{"r1": "start-1"}}
+	dup := Message{Type: TypeError, ID: "start-1", Account: "a", Run: "r1",
+		Raw: json.RawMessage(`{"type":"error","id":"start-1","account":"a","run":"r1","code":"duplicate_run"}`)}
+	if w.refusesStart(dup) {
+		t.Fatal("duplicate_run counted as a refused start")
+	}
+	busy := dup
+	busy.Raw = json.RawMessage(`{"type":"error","id":"start-1","account":"a","run":"r1","code":"busy"}`)
+	if !w.refusesStart(busy) {
+		t.Fatal("busy answering the start's id did not end the run")
+	}
+	other := busy
+	other.ID = "go-7"
+	if w.refusesStart(other) {
+		t.Fatal("an error answering another message ended the run")
+	}
+}
+
+// A run.start over the line limit is refused in Go before the run is marked
+// live: the worker would reject it with an error that names no run.
+func TestOversizedRunStartIsRefusedBeforeItGoesLive(t *testing.T) {
+	h := newHarness(t, "ok", nil)
+	w := h.ensure("acct-1")
+	big := strings.Repeat("x", MaxLineBytes)
+	err := w.Send(TypeRunStart, map[string]any{"run": "big-1", "conversation_id": "c1", "user_message": big})
+	if !errors.Is(err, ErrLineTooLong) {
+		t.Fatalf("err = %v, want ErrLineTooLong", err)
+	}
+	if live := w.LiveRuns(); len(live) != 0 || w.Busy() {
+		t.Fatalf("oversized run went live: %v busy=%v", live, w.Busy())
+	}
+	if err := w.Send(TypeRunStart, map[string]any{"run": "r2", "conversation_id": "c2", "user_message": strings.Repeat("y", 1<<20)}); err != nil {
+		t.Fatalf("a 1 MiB run.start: %v", err)
+	}
+	h.message(TypeRunDone)
+}
+
 func TestShutdownGraceLeavesTimeToInterrupt(t *testing.T) {
 	for total, want := range map[time.Duration]int{5 * time.Second: 2, 3 * time.Second: 0, time.Second: 0, 10 * time.Second: 7} {
 		if got := shutdownGraceSeconds(total); got != want {

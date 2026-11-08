@@ -19,7 +19,16 @@ var (
 	ErrWorkerExited = errors.New("agent worker exited")
 	// ErrWorkerStopping refuses new work on a worker that is shutting down.
 	ErrWorkerStopping = errors.New("agent worker is stopping")
+	// ErrLineTooLong refuses a message whose line would pass MaxLineBytes; the
+	// worker would reject it without naming its run.
+	ErrLineTooLong = errors.New("agent message is longer than the protocol line limit")
+	// ErrRunLive refuses a run.start or bot.run for a run that is already live.
+	ErrRunLive = errors.New("agent run is already live")
 )
+
+// startIDPrefix marks the ids Go gives the run.start and bot.run it sends
+// without Request: a refusal answering that id ends the run (route).
+const startIDPrefix = "start-"
 
 // maxQueued caps messages waiting for the handler; a worker that floods Go
 // past it is treated as broken.
@@ -82,7 +91,7 @@ type Worker struct {
 
 	mu       sync.Mutex
 	pending  map[string]chan Message
-	runs     map[string]struct{}
+	runs     map[string]string // live run -> the id of the run.start or bot.run that began it
 	holds    int
 	busy     Busy
 	lastUsed time.Time
@@ -171,8 +180,16 @@ func (w *Worker) Request(ctx context.Context, typ string, fields any) (Message, 
 
 // Send sends a message that expects no reply with an id (run.start, run.stop,
 // session.delete, ...). A run.start or bot.run with a "run" field marks that
-// run live until run.done or bot.done arrives.
-func (w *Worker) Send(typ string, fields any) error { return w.write(typ, "", fields) }
+// run live until run.done or bot.done arrives, or until the worker refuses
+// that start. It gets an id of its own, so the refusal can be told apart from
+// an error about another message that names the same run.
+func (w *Worker) Send(typ string, fields any) error {
+	id := ""
+	if typ == TypeRunStart || typ == TypeBotRun {
+		id = fmt.Sprintf("%s%d", startIDPrefix, w.nextID.Add(1))
+	}
+	return w.write(typ, id, fields)
+}
 
 // Reply answers a worker request (tool.result, gate.verdict) with its id.
 func (w *Worker) Reply(req Message, typ string, fields any) error {
@@ -255,6 +272,11 @@ func (w *Worker) write(typ, id string, fields any) error {
 	if err != nil {
 		return err
 	}
+	// The worker refuses a longer line with an error that names neither id
+	// nor run, so a run.start that big would stay live forever.
+	if len(line)-1 > MaxLineBytes {
+		return fmt.Errorf("%w: %s is %d bytes, the limit is %d", ErrLineTooLong, typ, len(line)-1, MaxLineBytes)
+	}
 	run := ""
 	if typ == TypeRunStart || typ == TypeBotRun {
 		run = runField(fields)
@@ -269,7 +291,11 @@ func (w *Worker) write(typ, id string, fields any) error {
 		return ErrWorkerStopping
 	}
 	if run != "" {
-		w.runs[run] = struct{}{}
+		if _, live := w.runs[run]; live {
+			w.mu.Unlock()
+			return fmt.Errorf("%w: %s", ErrRunLive, run)
+		}
+		w.runs[run] = id
 	}
 	w.lastUsed = time.Now()
 	w.mu.Unlock()
@@ -284,6 +310,22 @@ func (w *Worker) write(typ, id string, fields any) error {
 		return fmt.Errorf("%w: %v", ErrWorkerExited, err)
 	}
 	return nil
+}
+
+// refusesStart reports whether error m refuses the run.start or bot.run that
+// began the live run it names.
+func (w *Worker) refusesStart(m Message) bool {
+	if m.Run == "" || m.ID == "" {
+		return false
+	}
+	var body errorFields
+	if m.Decode(&body) == nil && body.Code == "duplicate_run" {
+		return false
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	id, live := w.runs[m.Run]
+	return live && id == m.ID
 }
 
 func (w *Worker) endRun(run string) {
@@ -344,9 +386,11 @@ func (w *Worker) route(m Message) {
 	if (m.Type == TypeRunDone || m.Type == TypeBotDone) && m.Run != "" {
 		w.endRun(m.Run)
 	}
-	// A run-scoped error (run.start refused: busy, duplicate_run, refused, bad_message) ends
-	// that run: the worker never sends its run.done (PROTOCOL.md section 4).
-	runErr := m.Type == TypeError && m.Run != "" && m.Account != ""
+	// A refused run.start or bot.run (busy, refused, bad_message, ...) ends that run: the
+	// worker never sends its run.done (PROTOCOL.md section 4). Only the error answering the
+	// start's own id counts. An error about run.stop, run.steer or approval.answer names the
+	// run too, but the run goes on, and duplicate_run means the first start is still live.
+	runErr := m.Type == TypeError && m.Account != "" && w.refusesStart(m)
 	if runErr {
 		w.endRun(m.Run)
 	}
@@ -565,7 +609,7 @@ func (w *Worker) finish() {
 		LiveRuns: w.liveRunsLocked(),
 		Stderr:   w.stderr.Tail(),
 	}
-	w.runs = map[string]struct{}{}
+	w.runs = map[string]string{}
 	pending := w.pending
 	w.pending = nil
 	w.mu.Unlock()
