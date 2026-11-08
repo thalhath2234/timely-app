@@ -267,8 +267,12 @@ func codexCachedModels() ([]ModelOption, error) {
 func codexAppServerModels(ctx context.Context, bin string) ([]ModelOption, error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
+	dir, err := scratchDir()
+	if err != nil {
+		return nil, err
+	}
 	cmd := exec.CommandContext(ctx, bin, "app-server")
-	cmd.Dir = scratchDir()
+	cmd.Dir = dir
 	cmd.Env = cliEnv()
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

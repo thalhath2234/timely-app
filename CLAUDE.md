@@ -1,4 +1,5 @@
 @AGENTS.md
+@.agents/memory/MEMORY.md
 
 ## Agent skills
 

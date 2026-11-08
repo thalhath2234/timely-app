@@ -402,13 +402,17 @@ func withoutServerEnv(env []string) []string {
 // run executes a CLI with stdin and returns stdout; stderr is folded into the
 // error. The child never inherits the API's working directory.
 func run(ctx context.Context, bin string, env []string, stdin string, args ...string) (string, error) {
+	dir, err := scratchDir()
+	if err != nil {
+		return "", err
+	}
 	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Dir = scratchDir()
+	cmd.Dir = dir
 	cmd.Env = cliEnv(env...)
 	cmd.Stdin = strings.NewReader(stdin)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
+	err = cmd.Run()
 	if err != nil {
 		if ctx.Err() != nil {
 			return stdout.String(), ctx.Err()
@@ -431,27 +435,74 @@ func run(ctx context.Context, bin string, env []string, stdin string, args ...st
 
 // runCombined returns stdout and stderr together for CLIs that report on stderr.
 func runCombined(ctx context.Context, bin string, args ...string) (string, error) {
+	dir, err := scratchDir()
+	if err != nil {
+		return "", err
+	}
 	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Dir = scratchDir()
+	cmd.Dir = dir
 	cmd.Env = cliEnv()
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
 
 var scratch struct {
-	sync.Once
+	sync.Mutex
 	dir string
 }
 
+// mkdirTemp is os.MkdirTemp; tests replace it to make the fallback fail.
+var mkdirTemp = os.MkdirTemp
+
 // scratchDir is an empty directory the CLIs run in, so the file tools that
-// cannot be disabled (Codex) see nothing of the server.
-func scratchDir() string {
-	scratch.Do(func() {
-		dir := filepath.Join(os.TempDir(), "timely-agent-cli")
-		_ = os.MkdirAll(dir, 0o700)
-		scratch.dir = dir
-	})
-	return scratch.dir
+// cannot be disabled (Codex) see nothing of the server. It also holds the
+// files handed to the CLIs, such as Claude's system prompt. Only a safe
+// directory is remembered: after a failure the next call tries again.
+func scratchDir() (string, error) {
+	scratch.Lock()
+	defer scratch.Unlock()
+	if scratch.dir != "" {
+		return scratch.dir, nil
+	}
+	dir, err := privateDir(filepath.Join(os.TempDir(), "timely-agent-cli"))
+	if err != nil {
+		return "", err
+	}
+	scratch.dir = dir
+	return dir, nil
+}
+
+// privateDir returns dir when it is a real directory this user owns with mode
+// 0700, and a fresh MkdirTemp directory otherwise. The fixed name sits in a
+// shared temp directory, so another user could create it first; as its owner
+// they could swap a prompt file between our write and the CLI's read. When
+// neither is safe it fails rather than hand back a directory it does not trust.
+func privateDir(dir string) (string, error) {
+	_ = os.MkdirAll(dir, 0o700)
+	if ownedPrivate(dir) {
+		return dir, nil
+	}
+	fresh, err := mkdirTemp("", "timely-agent-cli-")
+	if err != nil {
+		return "", fmt.Errorf("no private scratch directory: %s is not safe to use and a new one could not be made: %w", dir, err)
+	}
+	if !ownedPrivate(fresh) {
+		_ = os.RemoveAll(fresh)
+		return "", fmt.Errorf("no private scratch directory: %s and %s are not safe to use", dir, fresh)
+	}
+	return fresh, nil
+}
+
+func ownedPrivate(dir string) bool {
+	info, err := os.Lstat(dir)
+	if err != nil || !info.IsDir() || !ownedByMe(info) {
+		return false
+	}
+	// Windows reports no Unix mode bits, and its temp directory is per user.
+	if runtime.GOOS == "windows" || info.Mode().Perm() == 0o700 {
+		return true
+	}
+	return os.Chmod(dir, 0o700) == nil
 }
 
 // friendly maps common CLI failures to guidance that names the fix.

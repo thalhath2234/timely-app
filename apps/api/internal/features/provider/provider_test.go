@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -119,10 +120,19 @@ func TestPlainCallsReturnRawText(t *testing.T) {
 // fakeCLI writes an executable that records its arguments and prints canned output.
 func fakeCLI(t *testing.T, name, script string) (bin, argsFile string) {
 	t.Helper()
+	return fakeCLIAt(t, name, func(string) string { return script })
+}
+
+// fakeCLIAt is fakeCLI for scripts that write files next to the binary.
+func fakeCLIAt(t *testing.T, name string, script func(dir string) string) (bin, argsFile string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake CLIs are /bin/sh scripts, which Windows cannot execute")
+	}
 	dir := t.TempDir()
 	bin = filepath.Join(dir, name)
 	argsFile = filepath.Join(dir, "args")
-	body := "#!/bin/sh\nprintf '%s\\0' \"$@\" > " + argsFile + "\ncat > " + filepath.Join(dir, "stdin") + "\n" + script + "\n"
+	body := "#!/bin/sh\nprintf '%s\\0' \"$@\" > " + argsFile + "\ncat > " + filepath.Join(dir, "stdin") + "\n" + script(dir) + "\n"
 	if err := os.WriteFile(bin, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
