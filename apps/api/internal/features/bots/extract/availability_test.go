@@ -92,10 +92,12 @@ func TestProductPriceAvailabilityJSONLD(t *testing.T) {
 		{"graph", `{"@graph":[{"@type":"WebPage"},{"@type":"Product","offers":{"price":"3","availability":"BackOrder"}}]}`, AvailBackorder},
 		{"offer array: one at the price says nothing, a sibling sold out", `{"@type":"Product","offers":[{"price":"12"},{"price":"12","availability":"OutOfStock"}]}`, AvailUnknown},
 		{"offer array: a sold-out offer, a sibling at the price says nothing", `{"@type":"Product","offers":[{"price":"12","availability":"OutOfStock"},{"price":"12"}]}`, AvailUnknown},
-		{"offer array: one says nothing, a sibling in stock", `{"@type":"Product","offers":[{"price":"12"},{"price":"12","availability":"InStock"}]}`, AvailInStock},
+		{"offer array: one at the price says nothing, a sibling at the price in stock", `{"@type":"Product","offers":[{"price":"12"},{"price":"12","availability":"InStock"}]}`, AvailInStock},
+		{"offer array: one says nothing, in stock only at another price", `{"@type":"Product","offers":[{"price":"12"},{"price":"15","availability":"InStock"}]}`, AvailUnknown},
 		{"offer array: siblings naming one price specification each keep their own", `{"@type":"Product","offers":[{"price":"12","priceCurrency":"EUR","availability":"OutOfStock"},{"@type":"Offer","availability":"OutOfStock","priceSpecification":{"@id":"#ps","price":"12","priceCurrency":"EUR"}},{"@type":"Offer","availability":"InStock","priceSpecification":{"@id":"#ps"}}]}`, AvailInStock},
 		{"variants: one says nothing, a sibling discontinued", `{"@type":"ProductGroup","hasVariant":[{"@type":"Product","offers":{"price":"20"}},{"@type":"Product","offers":{"price":"20","availability":"Discontinued"}}]}`, AvailUnknown},
 		{"aggregate: a seller at the low price says nothing, another sold out", `{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":"8","offers":[{"price":"8","availability":"OutOfStock"},{"price":"8"},{"price":"9","availability":"OutOfStock"}]}}`, AvailUnknown},
+		{"aggregate: the low price's seller says nothing, a dearer one in stock", `{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":"8","offers":[{"price":"8"},{"price":"9","availability":"InStock"}]}}`, AvailUnknown},
 		{"aggregate: the low price's seller says nothing, a dearer one sold out", `{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":"8","offers":[{"price":"8"},{"price":"9","availability":"OutOfStock"}]}}`, AvailUnknown},
 		{"lone top offer", `{"@type":"Offer","price":"44","availability":"https://schema.org/Discontinued"}`, AvailDiscontinued},
 	}
@@ -131,6 +133,8 @@ func TestProductPriceAvailabilityMicrodataAndMeta(t *testing.T) {
 		{"none", `<meta property="og:price:amount" content="10.00">`, AvailUnknown},
 		{"JSON-LD offer that says nothing beside a sold-out one takes og meta", `<script type="application/ld+json">{"@type":"Product","offers":[{"price":"10"},{"price":"10","availability":"OutOfStock"}]}</script>
 <meta property="og:availability" content="instock">`, AvailInStock},
+		{"JSON-LD aggregate whose low-price sellers say nothing or sold out takes og meta, not a dearer seller's stock", `<script type="application/ld+json">{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":"8","offers":[{"price":"8","availability":"OutOfStock"},{"price":"8"},{"price":"9","availability":"InStock"}]}}</script>
+<meta property="og:availability" content="out of stock">`, AvailOutOfStock},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

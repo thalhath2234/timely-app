@@ -420,10 +420,11 @@ func (ld *ldReader) offer(m map[string]any) (Price, bool) {
 // offersAvailability is the most buyable availability an AggregateOffer's
 // offers state at its price (lowPrice), so a sold-out seller's low price
 // does not read as buyable because a dearer seller has stock. An offer at
-// that price that states nothing makes it unknown rather than sold out,
-// unless another offer can be bought. When no offer is at that price, it is
-// the most buyable of any offer. AvailUnknown when none states one. Every
-// node it looks at counts against ldMaxSteps.
+// that price that states nothing makes it unknown rather than sold out, and
+// a dearer seller's stock never fills it in: the page's meta tags decide.
+// When no offer is at that price, it is the most buyable of any offer.
+// AvailUnknown when none states one. Every node it looks at counts against
+// ldMaxSteps.
 func (ld *ldReader) offersAvailability(v any, price float64) string {
 	atPrice, best := "", "" // "" ranks below every word: nothing seen yet
 	var visit func(v any)
@@ -449,7 +450,7 @@ func (ld *ldReader) offersAvailability(v any, price float64) string {
 		}
 	}
 	visit(v)
-	if atPrice == "" || (atPrice == AvailUnknown && Buyable(best)) {
+	if atPrice == "" {
 		atPrice = best
 	}
 	if atPrice == "" {
