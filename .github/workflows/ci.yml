@@ -58,3 +58,83 @@ jobs:
       - run: make test-electron-guards
       - run: make test-electron-supervisor
       - run: make test-desktop-instance
+
+  # The agent runtime (apps/agent: vendored Hermes + timely_agent) and the Go
+  # supervisor that spawns it. Stub model only: no AI provider is called.
+  agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: apps/api/go.mod
+          cache-dependency-path: apps/api/go.sum
+      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/agent/hermes/uv.lock
+      - run: make agent-install agent-lint agent-test agent-contract
+      # spawn -> hello -> ready -> run.start (stub model) -> run.done -> shutdown
+      - run: make agent-go-integration
+
+  # Phase 1 proves the Windows spawn path (stdin/stdout pipes, Job Object)
+  # before anything ships. The steps mirror `make agent-install` and
+  # `make agent-go-integration`: the Windows runner has no GNU make.
+  agent-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: apps/api/go.mod
+          cache-dependency-path: apps/api/go.sum
+      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/agent/hermes/uv.lock
+      - name: Build the Go API
+        run: cd apps/api && go build ./...
+      - name: Install the agent runtime (make agent-install)
+        run: |
+          extras=$(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' apps/agent/.hermes-sync/extras.txt | sed 's/^/--extra /' | tr '\n' ' ')
+          cd apps/agent/hermes
+          UV_PROJECT_ENVIRONMENT="$GITHUB_WORKSPACE/apps/agent/.venv" uv sync --frozen --no-install-project \
+            --managed-python --python 3.14.9 --group dev $extras
+      - name: Go supervisor tests with the real worker (spawn, hello, ready, run.start on a stub model, shutdown)
+        run: cd apps/api && TIMELY_AGENT_TEST_RUNTIME=dev go test ./internal/agenthost/... -count=1 -v
+      - name: Contract test 19 (protocol stays clean when tools and children write to stdout)
+        run: cd apps/agent && .venv/Scripts/python.exe -I -m pytest -q tests/contract -k c19
+
+  # Plan 10.4 a-e on pull requests that touch the agent or the sync tooling.
+  hermes-sync-check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          # check.sh walks history to the last "hermes: snapshot" commit.
+          fetch-depth: 0
+      - id: changed
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if git diff --quiet "origin/$BASE_REF...HEAD" -- apps/agent scripts/hermes-sync scripts/sync-hermes.sh; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.changed.outputs.run == 'true'
+        uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/agent/hermes/uv.lock
+      - if: steps.changed.outputs.run == 'true'
+        run: make hermes-sync-check
