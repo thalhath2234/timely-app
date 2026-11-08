@@ -1,0 +1,1227 @@
+{
+  "version": 1,
+  "upstream": "v0.23.0",
+  "about": "Bundled and optional skills in the copy: folder, frontmatter name, git tree id and Hermes-self signals (`hermes <command>` uses, literal ~/.hermes paths). Regenerate: python3 -I scripts/hermes-sync/check_sync.py --write",
+  "bundled": {
+    "skills/apple/apple-notes": {
+      "name": "apple-notes",
+      "tree": "a44bf261f6c4d5a0ec60426e1b81c1719cc076cb",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/apple/apple-reminders": {
+      "name": "apple-reminders",
+      "tree": "715c5c777667ed1e91581ea81dc4e481712393c9",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/apple/findmy": {
+      "name": "findmy",
+      "tree": "3a0231e2318c9936941de6d2716240df857c6cf2",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "skills/apple/imessage": {
+      "name": "imessage",
+      "tree": "64492659a012989db62320a799af2320bf79fdf8",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/autonomous-ai-agents/claude-code": {
+      "name": "claude-code",
+      "tree": "cc2e05d23617439d9584568a76cb3b933e21bb24",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "skills/autonomous-ai-agents/codex": {
+      "name": "codex",
+      "tree": "7e85952ac26f1a2b5b3142aaa781ebdc8281e5d0",
+      "hermes_cli": [
+        "auth"
+      ],
+      "home_paths": true
+    },
+    "skills/autonomous-ai-agents/computer-use": {
+      "name": "computer-use",
+      "tree": "11b3a9b45bf15c13a1c0699be215b309f0335ca1",
+      "hermes_cli": [
+        "computer-use",
+        "tools",
+        "update"
+      ],
+      "home_paths": true
+    },
+    "skills/autonomous-ai-agents/hermes-agent": {
+      "name": "hermes-agent",
+      "tree": "8742cf11de2c21a7f63fd77154138affae6cf5bb",
+      "hermes_cli": [
+        "acp",
+        "auth",
+        "chat",
+        "claw",
+        "config",
+        "cron",
+        "curator",
+        "dashboard",
+        "desktop",
+        "doctor",
+        "gateway",
+        "kanban",
+        "login",
+        "mcp",
+        "memory",
+        "model",
+        "pairing",
+        "plugins",
+        "pm",
+        "profile",
+        "sessions",
+        "setup",
+        "skills",
+        "status",
+        "tools",
+        "update",
+        "webhook"
+      ],
+      "home_paths": true
+    },
+    "skills/creative/architecture-diagram": {
+      "name": "architecture-diagram",
+      "tree": "ef341eda975e4b1f96babced447db85045885f4d",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/creative/ascii-video": {
+      "name": "ascii-video",
+      "tree": "2e53b2910dcdd981cc03a75da29871d6f81718ab",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/creative/baoyu-infographic": {
+      "name": "baoyu-infographic",
+      "tree": "0d0ef37b25e925bd9032ab000e87fd1bcb3ec205",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/creative/claude-design": {
+      "name": "claude-design",
+      "tree": "1651167d8707efea07120b9e6e5bac779895db0e",
+      "hermes_cli": [
+        "skills"
+      ],
+      "home_paths": false
+    },
+    "skills/creative/humanizer": {
+      "name": "humanizer",
+      "tree": "bdc0a20bff83e7ac657b95e5de9d4bb2357ca88f",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/creative/manim-video": {
+      "name": "manim-video",
+      "tree": "c1731c688bd68440ee45a6f29cc49322c8a5a143",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/creative/p5js": {
+      "name": "p5js",
+      "tree": "532cf8f04ae4b9ecd23766563c3dd59b71456563",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/creative/popular-web-designs": {
+      "name": "popular-web-designs",
+      "tree": "b5d08979b8af4e32d2871502f7f7f4c96636a3fd",
+      "hermes_cli": [
+        "skills"
+      ],
+      "home_paths": false
+    },
+    "skills/creative/songwriting-and-ai-music": {
+      "name": "songwriting-and-ai-music",
+      "tree": "90da32755484ad32d33cfc1f3d34c6ebefc4c5d2",
+      "hermes_cli": [
+        "skills"
+      ],
+      "home_paths": false
+    },
+    "skills/devops/sdlc-review": {
+      "name": "sdlc-review",
+      "tree": "d4773e96c78b80085d0a35bf0444582c4e900a9a",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/email/email-inbox-triage": {
+      "name": "email-inbox-triage",
+      "tree": "b5a24d9d684c4b7468dcc855802e624abd1f1ac5",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/email/himalaya": {
+      "name": "himalaya",
+      "tree": "eb3fd363cfcf281169fb0f0b7c5b9d7475b6513f",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/media/youtube-content": {
+      "name": "youtube-content",
+      "tree": "1a3d97d23ed2f707ae407d7bc73c8a255c659092",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/note-taking/obsidian": {
+      "name": "obsidian",
+      "tree": "056805bcfb91aed2b8fbd8ae9226fb42631de7bb",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/productivity/document-to-action-items": {
+      "name": "document-to-action-items",
+      "tree": "0ecdcfc759e709d4c6a703772449e5bc9adedcf5",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/productivity/google-workspace": {
+      "name": "google-workspace",
+      "tree": "e8a6df26c31a06e05904a3b0666f8505449f8382",
+      "hermes_cli": [
+        "setup"
+      ],
+      "home_paths": true
+    },
+    "skills/productivity/maps": {
+      "name": "maps",
+      "tree": "b3be9fd19dba964893cd4c654c627d72dd8b040a",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "skills/productivity/meeting-action-items": {
+      "name": "meeting-action-items",
+      "tree": "6fe27b1d479f8acd10e2becce2f69d3f7542dd80",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/productivity/microsoft-office": {
+      "name": "microsoft-office",
+      "tree": "95821ee4e8276f19a9b009c0172c4a12f965751f",
+      "hermes_cli": [
+        "pm"
+      ],
+      "home_paths": false
+    },
+    "skills/productivity/pdf": {
+      "name": "pdf",
+      "tree": "cb8cd8fccf17a5d42c75ed6672b9e584c145eb56",
+      "hermes_cli": [
+        "pm"
+      ],
+      "home_paths": false
+    },
+    "skills/productivity/product-price-monitor": {
+      "name": "product-price-monitor",
+      "tree": "378efe6cb03c2dc364703ef2b4d7268efee42e75",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "skills/productivity/teams-meeting-pipeline": {
+      "name": "teams-meeting-pipeline",
+      "tree": "977970ca4193a42d7f6a1c4c56d7d8725059bdd8",
+      "hermes_cli": [
+        "cron"
+      ],
+      "home_paths": false
+    },
+    "skills/productivity/weekly-review-planning": {
+      "name": "weekly-review-planning",
+      "tree": "f0eea47488fc8dd0b59766e863ba1b3b25f4491c",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/research/arxiv": {
+      "name": "arxiv",
+      "tree": "ab1a960256ce2fb02194792060e39404d449c940",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/research/competitor-news-monitor": {
+      "name": "competitor-news-monitor",
+      "tree": "8f266b5fd368cc00c920a774c30822e265e2b9cb",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "skills/research/grounded-citations": {
+      "name": "grounded-citations",
+      "tree": "13bf36817196b06f7422ee5a786415e851a83336",
+      "hermes_cli": [
+        "skills"
+      ],
+      "home_paths": true
+    },
+    "skills/social-media/xurl": {
+      "name": "xurl",
+      "tree": "e6e822d02bccbb497deadf82ec2087091e51ac0e",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/software-development/codebase-inspection": {
+      "name": "codebase-inspection",
+      "tree": "8dd5ae79720eaea75da4654ed8e46d187bef9b28",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/software-development/dogfood": {
+      "name": "dogfood",
+      "tree": "e4fc63a14e96629b869ca210072d9b89a1a83010",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/software-development/github": {
+      "name": "github",
+      "tree": "ad99744f9a9c0be810818c180e629fb1ef3f48e4",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "skills/software-development/requesting-code-review": {
+      "name": "requesting-code-review",
+      "tree": "730409acf6d9911f4621f682849a78702fa49afc",
+      "hermes_cli": [
+        "chat"
+      ],
+      "home_paths": false
+    },
+    "skills/software-development/simplify-code": {
+      "name": "simplify-code",
+      "tree": "49f79427a878431a87379f523cc91ae3e4006c47",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/software-development/spike": {
+      "name": "spike",
+      "tree": "b1d7fbc0dddfe1002220146d37c84972aad0c19f",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/software-development/systematic-debugging": {
+      "name": "systematic-debugging",
+      "tree": "2c2b42523ac9c62d61c40b199e16a166a920b6ec",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/software-development/test-driven-development": {
+      "name": "test-driven-development",
+      "tree": "b96071449e8154309741821665fe49a25410cf0d",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "skills/web/blocked-page-recovery": {
+      "name": "blocked-page-recovery",
+      "tree": "d31fe3255997c2401dd45cfe35307174042a5510",
+      "hermes_cli": [],
+      "home_paths": true
+    }
+  },
+  "optional": {
+    "optional-skills/autonomous-ai-agents/agent-merge-conflict-arbiter": {
+      "name": "agent-merge-conflict-arbiter",
+      "tree": "48c44ef49d28b96fc2a13419fea87d72a65d63f7",
+      "hermes_cli": [
+        "kanban"
+      ],
+      "home_paths": false
+    },
+    "optional-skills/autonomous-ai-agents/antigravity-cli": {
+      "name": "antigravity-cli",
+      "tree": "8440a6290afab71a5dd964e3c17ba34933edafdf",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/autonomous-ai-agents/blackbox": {
+      "name": "blackbox",
+      "tree": "f087024233778f5f99d2421b48b03715259a4dc2",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/autonomous-ai-agents/dynamic-workflow": {
+      "name": "dynamic-workflow",
+      "tree": "25bdb1cfa78cc2ee5891b5851f40583d75f75e4b",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/autonomous-ai-agents/grok": {
+      "name": "grok",
+      "tree": "523aaec7c53eef104ab5fc7ea927f2b59c1bd230",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/autonomous-ai-agents/opencode": {
+      "name": "opencode",
+      "tree": "17f144a85bf57eb8fccf94d8d5231e0bd18d0e89",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/autonomous-ai-agents/openhands": {
+      "name": "openhands",
+      "tree": "44a370b6014595198b92d062cf94a8927b00ee4a",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/blockchain/evm": {
+      "name": "evm",
+      "tree": "f447a3c7e3b3c05866a15da295080a7cfe6af2bf",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/blockchain/hyperliquid": {
+      "name": "hyperliquid",
+      "tree": "bf7e4a42b3238ef9a18de6c0a5c4547a51cd8f59",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/blockchain/solana": {
+      "name": "solana",
+      "tree": "e49e364f1b316a089516e212c1515579b390d23d",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/communication/one-three-one-rule": {
+      "name": "one-three-one-rule",
+      "tree": "3bb0e172c034ac244464169f189b3baa6c0e0d71",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/creative/ai-presenter-video": {
+      "name": "ai-presenter-video",
+      "tree": "8d4d544474c1fa28abf6c7ffdc5704e64869fb81",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/creative/anatomy": {
+      "name": "anatomy",
+      "tree": "705fc860c86e7e083ca6a81a8d3d2d37e6d70423",
+      "hermes_cli": [
+        "skills"
+      ],
+      "home_paths": false
+    },
+    "optional-skills/creative/archify": {
+      "name": "archify",
+      "tree": "15fa7661eae5dbd3261cee6d437edd0e4944b722",
+      "hermes_cli": [
+        "skills"
+      ],
+      "home_paths": false
+    },
+    "optional-skills/creative/ascii-art": {
+      "name": "ascii-art",
+      "tree": "2ede1d83632e7e6bd3e1efd12cabf8f27e371571",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/creative/auteur": {
+      "name": "auteur",
+      "tree": "a86219b804f755dc4f81417161f68572e5bb7e3c",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/creative/baoyu-article-illustrator": {
+      "name": "baoyu-article-illustrator",
+      "tree": "185053356fbc253a266a2581ff2eecda63db2ff9",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/creative/baoyu-comic": {
+      "name": "baoyu-comic",
+      "tree": "0d813acf5cc54d7cbfd21dcbcbce84cc8abb9813",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/creative/brag": {
+      "name": "brag",
+      "tree": "8d5ef1f59b90f33bea38dd0024f6e247b81fc8cf",
+      "hermes_cli": [
+        "skills"
+      ],
+      "home_paths": false
+    },
+    "optional-skills/creative/brag-slim": {
+      "name": "brag-slim",
+      "tree": "b96a0b731f540e01811589f0440f258401bcda05",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/creative/comfyui": {
+      "name": "comfyui",
+      "tree": "b2954063721201969922a8ae7a5942ba06baefc8",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/creative/concept-diagrams": {
+      "name": "concept-diagrams",
+      "tree": "d6213d269dc0339f72f307a7fb9d83192cc1ab28",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/creative/creative-ideation": {
+      "name": "creative-ideation",
+      "tree": "428539b96cce60e5b94db198083099498866b2bd",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/creative/design-md": {
+      "name": "design-md",
+      "tree": "90abc370d9748e759e957e359f8c0edff956f305",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/creative/draw-your-font": {
+      "name": "draw-your-font",
+      "tree": "917b59d4503e50df05737174f3bcfa63599d5910",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/creative/dream-loop": {
+      "name": "dream-loop",
+      "tree": "9e4f7bb761d4065a9c73ab5ffb9910c2b5b891a4",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/creative/excalidraw": {
+      "name": "excalidraw",
+      "tree": "bd5b1219b3b558e61515e7ebf39a3a05acd0ab2c",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/creative/heartmula": {
+      "name": "heartmula",
+      "tree": "fffd6834e2e6003369dd665c046d2f8cd62f3b46",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/creative/hyperframes": {
+      "name": "hyperframes",
+      "tree": "047c7916f7e2729f6dbda336438361555029997c",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/creative/impeccable": {
+      "name": "impeccable",
+      "tree": "19a773ef9fa176cd39e4f7667b2423534f5a8fd8",
+      "hermes_cli": [
+        "skills"
+      ],
+      "home_paths": false
+    },
+    "optional-skills/creative/ip-as-logo": {
+      "name": "ip-as-logo",
+      "tree": "1892f9cc73063a4717f8778eaa9e40e1a9b715d5",
+      "hermes_cli": [
+        "tools"
+      ],
+      "home_paths": false
+    },
+    "optional-skills/creative/kanban-video-orchestrator": {
+      "name": "kanban-video-orchestrator",
+      "tree": "b53dcbcbc61bdc8a511da8dbcd742b429c45c2fd",
+      "hermes_cli": [
+        "dashboard",
+        "kanban",
+        "plugins",
+        "profile",
+        "status",
+        "tools"
+      ],
+      "home_paths": true
+    },
+    "optional-skills/creative/meme-generation": {
+      "name": "meme-generation",
+      "tree": "63530ed5588d269315ccefc780890e5f7ffc08bc",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/creative/mono-color": {
+      "name": "mono-color",
+      "tree": "80b3fdd0561984ff1c85647bdb36df7083375adb",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/creative/pixel-art": {
+      "name": "pixel-art",
+      "tree": "6490f471f8e5815206e0c28df5e5615e9f79d065",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/creative/pretext": {
+      "name": "pretext",
+      "tree": "4e71bcbb83816290ceb488e2bb82f1fd3d35f9df",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/creative/simple-english": {
+      "name": "simple-english",
+      "tree": "1b80db422c17b583f54eb7eeab2ffd2ca5f3da83",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/creative/sketch": {
+      "name": "sketch",
+      "tree": "65c5596bd31e4c67510c0e736b3537ae68676c1d",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/creative/social-media-content-calendar": {
+      "name": "social-media-content-calendar",
+      "tree": "2d8217251ff3c593887ab1ded48be9c5769bfd53",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/creative/system-atlas": {
+      "name": "system-atlas",
+      "tree": "1305c83b1855a10b9e0bbb7a3c9fbff2e20a2b22",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/creative/tldraw-offline": {
+      "name": "tldraw-offline",
+      "tree": "c50b45e0cb8fd428db9124cd110c511fb015cd16",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/creative/unreal-mcp": {
+      "name": "unreal-mcp",
+      "tree": "9bd94dd9260118f63a67bec7b22505b8f4fb8ad7",
+      "hermes_cli": [
+        "mcp"
+      ],
+      "home_paths": true
+    },
+    "optional-skills/data-science/jupyter-notebook": {
+      "name": "jupyter-notebook",
+      "tree": "290161ca1161d38b7500345f9f68a37a5477671b",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/devops/actual-setup": {
+      "name": "actual-setup",
+      "tree": "24375716af4570a1abfb4814e1c0883bedf2afb1",
+      "hermes_cli": [
+        "chat",
+        "config",
+        "status"
+      ],
+      "home_paths": true
+    },
+    "optional-skills/devops/docker-management": {
+      "name": "docker-management",
+      "tree": "dd7cefea79ab8335010e5ea0de4be912cdd19d6e",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/devops/hermes-s6-container-supervision": {
+      "name": "hermes-s6-container-supervision",
+      "tree": "88567306c09782fe0fd64588487c3eb947443547",
+      "hermes_cli": [
+        "dashboard",
+        "gateway",
+        "profile"
+      ],
+      "home_paths": false
+    },
+    "optional-skills/devops/inference-sh-cli": {
+      "name": "inference-sh-cli",
+      "tree": "370992a20256a878b5bedd9cfabc01f4fe275136",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/devops/pinggy-tunnel": {
+      "name": "pinggy-tunnel",
+      "tree": "32a486a5392a43a19f1b6dc0f3f088dcb868c560",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/devops/setup-wizard-generator": {
+      "name": "setup-wizard-generator",
+      "tree": "07dfae7238ae37b899502565d6e641702e856406",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/devops/watchers": {
+      "name": "watchers",
+      "tree": "591302c9165e41005b9ce13d87941098f5db4524",
+      "hermes_cli": [
+        "cron"
+      ],
+      "home_paths": true
+    },
+    "optional-skills/dogfood/adversarial-ux-test": {
+      "name": "adversarial-ux-test",
+      "tree": "4f2f0726ad0d51d76c9d738d6ad3f94c000610d7",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/email/agentmail": {
+      "name": "agentmail",
+      "tree": "ffdeb7080e4fb27f293cd37a9fc5affebfe0ba79",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/finance/3-statement-model": {
+      "name": "3-statement-model",
+      "tree": "eda479070f92af5a6ee5c96c24faf3bb3478c8bf",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/finance/comps-analysis": {
+      "name": "comps-analysis",
+      "tree": "ebcfa6d3b922bcf7b3e0bacfd70bddba3b76a8d0",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/finance/dcf-model": {
+      "name": "dcf-model",
+      "tree": "b4908fdb0b8d7bdd8fd8309928548329c8fc8aca",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/finance/excel-author": {
+      "name": "excel-author",
+      "tree": "32a5186b2c2bc28a97d342b1962a953746eea6fb",
+      "hermes_cli": [
+        "pm"
+      ],
+      "home_paths": false
+    },
+    "optional-skills/finance/lbo-model": {
+      "name": "lbo-model",
+      "tree": "50d126a37bace691b49d976a8ddd006e0a7d8cfd",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/finance/merger-model": {
+      "name": "merger-model",
+      "tree": "a25dce6215d556ecac5645ad8281a4ce1cff2ab1",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/finance/polymarket": {
+      "name": "polymarket",
+      "tree": "659f5727bb805442036c103672d17f15ab4eb201",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/finance/pptx-author": {
+      "name": "pptx-author",
+      "tree": "30c6a10c76dc3d67ea03919c192cd3512246ef26",
+      "hermes_cli": [
+        "pm"
+      ],
+      "home_paths": false
+    },
+    "optional-skills/finance/stocks": {
+      "name": "stocks",
+      "tree": "508111cd6df4846d2b21b0f92e063751c7efd711",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/gaming/minecraft-modpack-server": {
+      "name": "minecraft-modpack-server",
+      "tree": "a2202c4a33f1da8a5a8a63d570e470be88ff9846",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/gaming/pokemon-player": {
+      "name": "pokemon-player",
+      "tree": "17109791f495a7d069ed87555824cdda9d67c3cc",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/health/fitness-nutrition": {
+      "name": "fitness-nutrition",
+      "tree": "20eeccb3cb4638fef4fd234ae41888fc8ccea80c",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/health/neuroskill-bci": {
+      "name": "neuroskill-bci",
+      "tree": "74f655fa91f60cdf0d1853bb2133bd0d27c633c9",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mcp/fastmcp": {
+      "name": "fastmcp",
+      "tree": "0cf9bbf51eafbc380cd2019108ab28cc4d241120",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/mcp/mcp-oauth-remote-gateway": {
+      "name": "mcp-oauth-remote-gateway",
+      "tree": "1cf563ef4f48a7e343d3bf3c6ed8e5e710c313ef",
+      "hermes_cli": [
+        "dashboard"
+      ],
+      "home_paths": true
+    },
+    "optional-skills/mcp/mcporter": {
+      "name": "mcporter",
+      "tree": "fdfe248218864fb8ab0584c3c0941b9b562a4482",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/media/gif-search": {
+      "name": "gif-search",
+      "tree": "6b66816ef99990600861a2896a04ce74be770e23",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/media/songsee": {
+      "name": "songsee",
+      "tree": "be2576bbf7da84c494d85945310749e2e1eecabf",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/accelerate": {
+      "name": "accelerate",
+      "tree": "6b744b38b360d2af7bfab0ac098c2ae27716b461",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/chroma": {
+      "name": "chroma",
+      "tree": "08b5899bdb47eb73b9ce3c556ffa589c37608b0f",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/evaluation/evaluating-llms-harness": {
+      "name": "evaluating-llms-harness",
+      "tree": "23c87e5e27f435a05c849e27fc43530360d55748",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/faiss": {
+      "name": "faiss",
+      "tree": "0947ea2a904f7a0b94ed32729debba4db4587728",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/flash-attention": {
+      "name": "flash-attention",
+      "tree": "f177488960cdaab879d66e626de0b32ce5c81e12",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/inference/llama-cpp": {
+      "name": "llama-cpp",
+      "tree": "a78f0d7e57940dae8f8a78a28ff8e964c90d157d",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/inference/serving-llms-vllm": {
+      "name": "serving-llms-vllm",
+      "tree": "0a8191ce3a616153c54e8aecf275d098f6346402",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/lambda-labs": {
+      "name": "lambda-labs",
+      "tree": "aee654b1a95a316f654844f8b2266963137732a1",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/modal": {
+      "name": "modal",
+      "tree": "718c1dbe3f81e4720f37999484c50b1e144686e9",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/models/segment-anything-model": {
+      "name": "segment-anything-model",
+      "tree": "1bd5f0f69632c7febea8fee659b4dc555e6fba32",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/nemo-curator": {
+      "name": "nemo-curator",
+      "tree": "f6de720580da5e5fe3be8ff96b41fc762e02baa5",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/obliteratus": {
+      "name": "obliteratus",
+      "tree": "d77ce4a5dde79274126656318120517e65493827",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/peft": {
+      "name": "peft",
+      "tree": "3f1f4fa277b816e5e2c577af242cd67d97968172",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/pytorch-fsdp": {
+      "name": "pytorch-fsdp",
+      "tree": "9967f337cc552b434967ede00ed3403cff5369a3",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/pytorch-lightning": {
+      "name": "pytorch-lightning",
+      "tree": "0edcdfccdc9eb2e3b68091c9ea21111e6f529c8b",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/research/dspy": {
+      "name": "dspy",
+      "tree": "1f2c52d80efcb090252e00fa42f9a0eddea3a5b5",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/saelens": {
+      "name": "saelens",
+      "tree": "f52bcf2ac23680c3528df3e0de0a5ad4c0a91ad5",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/simpo": {
+      "name": "simpo",
+      "tree": "4048e01616719bc7b367eaf0d4003944e8ed4a3d",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/slime": {
+      "name": "slime",
+      "tree": "3cb12ea34b4993d9bc46a313bd03162d8a1f83b4",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/tensorrt-llm": {
+      "name": "tensorrt-llm",
+      "tree": "2486b8be885a5ff9cdec36d349175182e6408ebd",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/torchtitan": {
+      "name": "torchtitan",
+      "tree": "74591c1f3381f4514e091df83aeb60336865d5a3",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/mlops/training/axolotl": {
+      "name": "axolotl",
+      "tree": "3e1bae87ad44a7931f4263f1092d1bdaef15074a",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/mlops/training/unsloth": {
+      "name": "unsloth",
+      "tree": "b607a22c6b11d2da000b598e47cb1ccf84a4a82d",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/payments/stripe-link-cli": {
+      "name": "stripe-link-cli",
+      "tree": "5e545c78512bb9cdf3dc5536c3904b494c9bc0a8",
+      "hermes_cli": [
+        "mcp",
+        "plugins"
+      ],
+      "home_paths": true
+    },
+    "optional-skills/payments/stripe-projects": {
+      "name": "stripe-projects",
+      "tree": "00e02d4aab98c24ec773b31144d120371e1ef38e",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/productivity/box": {
+      "name": "box",
+      "tree": "928f1796189e7334c04638b7f1157ab3eec7b387",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/productivity/canvas": {
+      "name": "canvas",
+      "tree": "06588c262b7d1a135b9e792b14fb3d71ac2fbfac",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/productivity/decision-questionnaire": {
+      "name": "decision-questionnaire",
+      "tree": "a94fc9fc8e6c8fe1c3824c5b7282cb791a8fd06a",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/productivity/here-now": {
+      "name": "here-now",
+      "tree": "5a0031eeba9d9b8a64e11a3c78e87dd3028efde1",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/productivity/live-dashboard": {
+      "name": "live-dashboard",
+      "tree": "9b5f8b3fe8e94efe2dabdc57eda0a2c0bc9a428d",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/productivity/memento-flashcards": {
+      "name": "memento-flashcards",
+      "tree": "bc2a4a031cc8019fec29c785273391f58393b1f7",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/productivity/property-listings": {
+      "name": "property-listings",
+      "tree": "906a4c4828b0f370b7ccbabd75c4f630414f52f2",
+      "hermes_cli": [
+        "skills"
+      ],
+      "home_paths": false
+    },
+    "optional-skills/productivity/shop": {
+      "name": "shop",
+      "tree": "59d26960a8e5838b2cad87cf34b8d7fd0c2edef9",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/productivity/siyuan": {
+      "name": "siyuan",
+      "tree": "1dca27a6c14f7de06264c518f8bfe8e72f658812",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/productivity/telephony": {
+      "name": "telephony",
+      "tree": "03b41a2fa8cc07d117536172687439e04e1c118d",
+      "hermes_cli": [
+        "skills"
+      ],
+      "home_paths": true
+    },
+    "optional-skills/research/bioinformatics": {
+      "name": "bioinformatics",
+      "tree": "1017468822263441094c1be695525b64f2af9f86",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/research/blogwatcher": {
+      "name": "blogwatcher",
+      "tree": "233ae2e438746f379e8720bceeb253735a149de4",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/research/darwinian-evolver": {
+      "name": "darwinian-evolver",
+      "tree": "7be801228bb0de3b3b0be2efac32230b822cd184",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/research/domain-intel": {
+      "name": "domain-intel",
+      "tree": "241e36a530a170bb5419d5de953a55a7f88b0b3f",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/research/drug-discovery": {
+      "name": "drug-discovery",
+      "tree": "854cbf0c62eb43113d39686df85c63e47c7bd367",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/research/gitnexus-explorer": {
+      "name": "gitnexus-explorer",
+      "tree": "6a6a6bd863bb994752028d2c0513163d4d02b169",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/research/llm-wiki": {
+      "name": "llm-wiki",
+      "tree": "0051b4298f0b840fbeec290c1706a58676940fa7",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/research/osint-investigation": {
+      "name": "osint-investigation",
+      "tree": "9df7201bb0c196107ea09ff1596216da3315a231",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/research/parallel-cli": {
+      "name": "parallel-cli",
+      "tree": "25e3f841a6cfd8997221b0641d07f20a71441d56",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/research/qmd": {
+      "name": "qmd",
+      "tree": "e1b50fa81e123f13a76b161360c0539dd632ff72",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/research/research-paper-writing": {
+      "name": "research-paper-writing",
+      "tree": "aa7a9bd8fb378949aa74e81d3493c6e70af44f12",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/research/rss-feeds": {
+      "name": "rss-feeds",
+      "tree": "bec7b700c4ea70f85624e0ddf0fbfebbcf8cdcda",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/research/scrapling": {
+      "name": "scrapling",
+      "tree": "12a861cea24a76410d449f350970b8c366aa8272",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/security/1password": {
+      "name": "1password",
+      "tree": "1266fc783cbe4c60f35077d9a6a914d1d7477c28",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/security/godmode": {
+      "name": "godmode",
+      "tree": "41a128c0f0233273ef4f3f7b89cccc4a1134f701",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/security/oss-forensics": {
+      "name": "oss-forensics",
+      "tree": "9baa9698d80b7a20741aa809f69788d0ad55152b",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/security/sherlock": {
+      "name": "sherlock",
+      "tree": "1e86a8e0b968c623ab2840a4069936cf6481afd1",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/security/unbroker": {
+      "name": "unbroker",
+      "tree": "19400c277b57db278d630fc1e194f66f2812b078",
+      "hermes_cli": [
+        "skills"
+      ],
+      "home_paths": true
+    },
+    "optional-skills/security/web-pentest": {
+      "name": "web-pentest",
+      "tree": "2be5e9b30535f0bd518e881d6b74b135a9603cfd",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/smart-home/openhue": {
+      "name": "openhue",
+      "tree": "970b7ec88bc9fe57e4d64fcd4a4b7f7388a52456",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/social-media/reddit-reading": {
+      "name": "reddit-reading",
+      "tree": "f540e34c8d5b6d4ad3549b10377fdbe3a9d61040",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/software-development/ast-grep": {
+      "name": "ast-grep",
+      "tree": "b10e5db082c151a7370f722a27c86e9219b869b7",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/software-development/code-wiki": {
+      "name": "code-wiki",
+      "tree": "aa5a294e3c84570a6d6d72b076d4ecb58d09895c",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/software-development/grill-me": {
+      "name": "grill-me",
+      "tree": "a5bb9b939d4f2cbf83d54f3e06b6eca230e6509d",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/software-development/hermes-agent-skill-authoring": {
+      "name": "hermes-agent-skill-authoring",
+      "tree": "d2f486cb4f9445f7ec3c2de55b321ecf83fc52fb",
+      "hermes_cli": [
+        "skills"
+      ],
+      "home_paths": true
+    },
+    "optional-skills/software-development/inspecting-hermes-desktop-dom": {
+      "name": "inspecting-hermes-desktop-dom",
+      "tree": "6b4fed9a7f78fba1d98b9fef21c91801e3f16376",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/software-development/node-inspect-debugger": {
+      "name": "node-inspect-debugger",
+      "tree": "14f1c972bcb7d970aadd79d21bc44495d0626c9c",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/software-development/pr-lens": {
+      "name": "pr-lens",
+      "tree": "c3a20b049c05ddca7672e2be308833d112bfe1ee",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/software-development/python-debugpy": {
+      "name": "python-debugpy",
+      "tree": "8cce9e927dbfac33489fe48cae243494c9821aea",
+      "hermes_cli": [
+        "gateway"
+      ],
+      "home_paths": true
+    },
+    "optional-skills/software-development/rest-graphql-debug": {
+      "name": "rest-graphql-debug",
+      "tree": "05780b28a9b7ea60a9cd891fffc4fdf2c8b7f476",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/software-development/subagent-driven-development": {
+      "name": "subagent-driven-development",
+      "tree": "afd3884ba2fa6252a224c602fceb0e1de44d8025",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/web-development/cloudflare-temporary-deploy": {
+      "name": "cloudflare-temporary-deploy",
+      "tree": "2bc6ed5a05ba39155a4270cf881cd2aa1353d08f",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/web-development/har-derived-api-client": {
+      "name": "har-derived-api-client",
+      "tree": "606d778d5a6a68c63dac3d2b9ea359d920618bc0",
+      "hermes_cli": [],
+      "home_paths": true
+    },
+    "optional-skills/web-development/page-agent": {
+      "name": "page-agent",
+      "tree": "c6bf4a4af1b772f7e2a285752bab7e4d56c49c93",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/web-development/publish-site": {
+      "name": "publish-site",
+      "tree": "786bb857b6f6e125a413c41fde519faf06282e53",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/web-development/scrollcraft": {
+      "name": "scrollcraft",
+      "tree": "0d59bd05660545af6a68822889093386ebb87f98",
+      "hermes_cli": [],
+      "home_paths": false
+    },
+    "optional-skills/yuanbao": {
+      "name": "yuanbao",
+      "tree": "b9e89ef49e95781cd92af271d57239f66e1b7af0",
+      "hermes_cli": [],
+      "home_paths": false
+    }
+  }
+}

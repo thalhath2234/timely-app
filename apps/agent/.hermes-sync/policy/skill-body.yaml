@@ -1,0 +1,114 @@
+# Skill-body rule (plan 9b.2). timely_learning stages a memory or skill write for the person to
+# confirm when its text matches either list. A match never blocks a skill outright; it only means
+# the write waits in Timely instead of applying silently.
+#
+# tool_tokens       names of every tool whose chat policy is approve or block in policy/tools.yaml,
+#                   matched as whole tokens. Generated: never edit by hand; regenerate with
+#                   `python3 -I scripts/hermes-sync/check_sync.py --write` after changing tools.yaml.
+#                   `make hermes-sync-check` fails when the list and tools.yaml disagree.
+# authority_patterns  Python regular expressions for approval and authority wording, matched
+#                   case-insensitively (re.IGNORECASE) anywhere in the text. Reviewed by hand like
+#                   tools.yaml; each must compile.
+
+version: 1
+
+# BEGIN generated tool_tokens
+tool_tokens:
+  - a2a_call
+  - a2a_discover
+  - a2a_history
+  - a2a_list
+  - a2a_orchestrate
+  - annotate_preview
+  - browser_cdp
+  - browser_dialog
+  - browser_exec
+  - browser_vault
+  - clarify
+  - close_terminal
+  - computer_use
+  - cronjob_manage
+  - desktop_preview
+  - desktop_project
+  - discord
+  - discord_admin
+  - drive_preview
+  - execute_code
+  - feishu_doc_read
+  - feishu_drive_add_comment
+  - feishu_drive_list_comment_replies
+  - feishu_drive_list_comments
+  - feishu_drive_reply_comment
+  - focus_pane
+  - gui_tour
+  - image_generate
+  - kanban_attach
+  - kanban_attach_url
+  - kanban_attachments
+  - kanban_block
+  - kanban_comment
+  - kanban_complete
+  - kanban_create
+  - kanban_heartbeat
+  - kanban_link
+  - kanban_list
+  - kanban_request_changes
+  - kanban_request_review
+  - kanban_schedule
+  - kanban_show
+  - kanban_unblock
+  - manage_catalog
+  - manage_connections
+  - meet_join
+  - meet_leave
+  - meet_say
+  - meet_status
+  - meet_transcript
+  - message_agent
+  - patch
+  - process_manage
+  - react_to_message
+  - read_file
+  - read_terminal
+  - read_window_below
+  - search_files
+  - set_theme
+  - setup_beat
+  - show_tip
+  - terminal
+  - text_to_speech
+  - tool_call
+  - tool_describe
+  - tool_search
+  - video_analyze
+  - video_generate
+  - write_file
+  - xai_video_edit
+  - xai_video_extend
+  - yb_query_group_info
+  - yb_query_group_members
+  - yb_search_sticker
+  - yb_send_dm
+  - yb_send_sticker
+# END generated tool_tokens
+
+authority_patterns:
+  - 'approv'
+  - 'pre-?approved'
+  - 'permission'
+  - 'allow-?list'
+  - '--yes\b'
+  - '\bsudo\b'
+  - 'always allow'
+  - 'don''?t (ask|confirm|check)'
+  - 'do not (ask|confirm|check)'
+  - 'without (asking|confirmation|approval|permission)'
+  - 'no need to (ask|confirm)'
+  - 'skip (the )?(approval|confirmation|review)'
+  - 'ignore (all )?(previous|prior|above|earlier) instructions'
+  - 'disregard (all )?(previous|prior|above|earlier) instructions'
+  - 'dangerously'
+  - 'bypass'
+  - '\byolo\b'
+  - 'full access'
+  - 'auto-?(run|execute|accept)'

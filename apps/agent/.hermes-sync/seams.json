@@ -1,0 +1,527 @@
+{
+  "version": 1,
+  "upstream": "v0.23.0",
+  "about": "Hermes seams Timely relies on (scripts/hermes-sync/check_seams.py). Regenerate after reading the change: python3 -I scripts/hermes-sync/check_sync.py --write",
+  "seams": {
+    "AIAgent constructor": {
+      "file": "run_agent.py",
+      "qualname": "AIAgent.__init__",
+      "line": 236,
+      "end_line": 288,
+      "signature": "def __init__(self, base_url: str | None=None, api_key: str | None=None, provider: str | None=None, api_mode: str | None=None, acp_command: str | None=None, acp_args: list[str] | None=None, command: str | None=None, args: list[str] | None=None, model: str='', max_iterations: int=sys.maxsize, tool_delay: float | None=None, enabled_toolsets: list[str] | None=None, disabled_toolsets: list[str] | None=None, save_trajectories: bool=False, verbose_logging: bool=False, quiet_mode: bool=False, tool_progress_mode: str='all', ephemeral_system_prompt: str | None=None, log_prefix_chars: int=100, log_prefix: str='', providers_allowed: list[str] | None=None, providers_ignored: list[str] | None=None, providers_order: list[str] | None=None, provider_sort: str | None=None, provider_require_parameters: bool=False, provider_data_collection: str | None=None, openrouter_min_coding_score: Optional[float]=None, session_id: str | None=None, tool_progress_callback: Callable[..., Any] | None=None, tool_start_callback: Callable[..., Any] | None=None, tool_complete_callback: Callable[..., Any] | None=None, thinking_callback: Callable[..., Any] | None=None, reasoning_callback: Callable[..., Any] | None=None, clarify_callback: Callable[..., Any] | None=None, read_terminal_callback: Callable[..., Any] | None=None, read_preview_callback: Callable[..., Any] | None=None, drive_preview_callback: Callable[..., Any] | None=None, read_window_below_callback: Callable[..., Any] | None=None, connection_callback: Callable[..., Any] | None=None, tour_callback: Callable[..., Any] | None=None, theme_callback: Callable[..., Any] | None=None, setup_beat_callback: Callable[..., Any] | None=None, step_callback: Callable[..., Any] | None=None, stream_delta_callback: Callable[..., Any] | None=None, interim_assistant_callback: Callable[..., Any] | None=None, tool_gen_callback: Callable[..., Any] | None=None, status_callback: Callable[..., Any] | None=None, notice_callback: Callable[..., Any] | None=None, notice_clear_callback: Callable[..., Any] | None=None, event_callback: Optional[Callable[[str, dict], None]]=None, reaction_callback: Optional[Callable[[str], None]]=None, max_tokens: int | None=None, reasoning_config: dict[str, Any] | None=None, service_tier: str | None=None, request_overrides: dict[str, Any] | None=None, prefill_messages: list[dict[str, Any]] | None=None, platform: str | None=None, user_id: str | None=None, user_id_alt: str | None=None, user_name: str | None=None, chat_id: str | None=None, chat_name: str | None=None, chat_type: str | None=None, thread_id: str | None=None, gateway_session_key: str | None=None, skip_context_files: bool=False, load_soul_identity: bool=False, skip_memory: bool=False, skip_background_review: bool=False, session_db=None, parent_session_id: str | None=None, iteration_budget: IterationBudget=None, run_budget_seconds: Optional[float]=None, fallback_model: dict[str, Any] | None=None, credential_pool=None, checkpoints_enabled: bool=False, checkpoint_max_snapshots: int=20, checkpoint_max_total_size_mb: int=500, checkpoint_max_file_size_mb: int=10, pass_session_id: bool=False, requested_provider: str | None=None, capabilities: dict[str, bool] | None=None, cwd: str | None=None, side_agent: bool=False, memory_manager=None, tool_result_metadata_callback: Optional[Callable[..., dict]]=None)",
+      "sha256": "a30bc01124d2ff7c5fab4af1e9b20b43da1e07ba1aed8a7a3e8b7ece7d97aceb"
+    },
+    "AIAgent passthrough params": {
+      "file": "agent/agent_init_params.py",
+      "qualname": "module:_PASSTHROUGH_PARAMS",
+      "line": 4,
+      "end_line": 16,
+      "signature": "_PASSTHROUGH_PARAMS = (\n    \"model\", \"max_iterations\", \"save_trajectories\", \"verbose_logging\", \"quiet_mode\",\n    \"tool_progress_mode\", \"ephemeral_system_prompt\", \"platform\", \"skip_context_files\",\n    \"load_soul_identity\", \"pass_session_id\", \"log_prefix_chars\",\n    # OpenRouter provider preferences\n    \"providers_allowed\", \"providers_ignored\", \"providers_order\", \"provider_sort\",\n    \"provider_require_parameters\", \"provider_data_collection\", \"openrouter_min_coding_score\",\n    # Toolset filtering\n    \"enabled_toolsets\", \"disabled_toolsets\",\n    # Model response configuration (None = provider/model default)\n    \"max_tokens\", \"reasoning_config\", \"service_tier\",\n    \"side_agent\",\n)",
+      "sha256": "72a7eb9166999d3c8e41c91124120e944ebdaf70c76315a9d8addb2aff6063c3"
+    },
+    "AIAgent callback params": {
+      "file": "agent/agent_init_params.py",
+      "qualname": "module:_CALLBACK_PARAMS",
+      "line": 23,
+      "end_line": 33,
+      "signature": "_CALLBACK_PARAMS = (\n    \"tool_progress_callback\", \"tool_start_callback\", \"tool_complete_callback\",\n    \"tool_result_metadata_callback\",\n    \"thinking_callback\", \"reasoning_callback\", \"clarify_callback\",\n    \"read_terminal_callback\", \"read_preview_callback\", \"drive_preview_callback\",\n    \"read_window_below_callback\", \"connection_callback\", \"tour_callback\", \"theme_callback\",\n    \"setup_beat_callback\", \"step_callback\", \"stream_delta_callback\",\n    \"interim_assistant_callback\",\n    \"status_callback\", \"notice_callback\", \"notice_clear_callback\",\n    \"event_callback\", \"reaction_callback\", \"tool_gen_callback\",\n)",
+      "sha256": "15b82ba11d0ee85f66cb15d5046088713de4d42ad7a9a981fd1249c1ec1c5388"
+    },
+    "AIAgent gateway identity params": {
+      "file": "agent/agent_init_params.py",
+      "qualname": "module:_GATEWAY_IDENTITY_PARAMS",
+      "line": 19,
+      "end_line": 22,
+      "signature": "_GATEWAY_IDENTITY_PARAMS = (\n    \"user_id\", \"user_id_alt\", \"user_name\", \"chat_id\", \"chat_name\", \"chat_type\", \"thread_id\",\n    \"gateway_session_key\",\n)",
+      "sha256": "4322f989c6e89c8b2aca587e6733d4213742abc959a37fb326363cd813fe84c7"
+    },
+    "run_conversation": {
+      "file": "agent/conversation_loop.py",
+      "qualname": "run_conversation",
+      "line": 1802,
+      "end_line": 1861,
+      "signature": "def run_conversation(agent, user_message: Any, system_message: str | None=None, conversation_history: list[dict[str, Any]] | None=None, task_id: str | None=None, stream_callback: Optional[callable]=None, persist_user_message: Optional[Any]=None, persist_user_timestamp: Optional[float]=None, persist_user_display_kind: Optional[str]=None, persist_user_display_metadata: Optional[dict[str, Any]]=None, persist_user_platform_id: Optional[str]=None, moa_config: Optional[dict[str, Any]]=None, turn_author: Optional[dict[str, Any]]=None, title_user_message: Optional[str]=None, prelude: Optional[Prelude]=None) -> dict[str, Any]",
+      "sha256": "c760f30c19880d08f383c79aab19631c449090e13320ed065f63cf6030f09577"
+    },
+    "pre_tool_call directive": {
+      "file": "hermes_cli/plugins.py",
+      "qualname": "get_pre_tool_call_directive",
+      "line": 1962,
+      "end_line": 1968,
+      "signature": "def get_pre_tool_call_directive(tool_name: str, args: Optional[dict[str, Any]], **hook_kwargs: Any) -> tuple[Optional[str], Optional[str]]",
+      "sha256": "d0fcc65d5052c91a18c6a58ef6a215b7003d5e373090446452e1f27c3236b309"
+    },
+    "pre_tool_call block message": {
+      "file": "hermes_cli/plugins.py",
+      "qualname": "get_pre_tool_call_block_message",
+      "line": 1971,
+      "end_line": 1976,
+      "signature": "def get_pre_tool_call_block_message(tool_name: str, args: Optional[dict[str, Any]], **hook_kwargs: Any) -> Optional[str]",
+      "sha256": "57a0d36b1b7352c0d1f1f3f6ba05c969ba4791bcdfa82cc5ad8a151abd88f71d"
+    },
+    "pre_tool_call dispatch": {
+      "file": "hermes_cli/plugins.py",
+      "qualname": "_dispatch_pre_tool_call_hooks",
+      "line": 2019,
+      "end_line": 2027,
+      "signature": "def _dispatch_pre_tool_call_hooks(tool_name: str, args: Optional[dict[str, Any]], **hook_kwargs: Any) -> tuple[Optional[str], Optional[dict[str, Any]]]",
+      "sha256": "000e9f5068136d0f99b4efb38832e16d4b39e7c3db62ae64ec3f4776d913e87c"
+    },
+    "plugin register_tool (override rules)": {
+      "file": "hermes_cli/plugins.py",
+      "qualname": "PluginContext.register_tool",
+      "line": 463,
+      "end_line": 500,
+      "signature": "def register_tool(self, name: str, toolset: str, schema: dict, handler: Callable, check_fn: Callable | None=None, requires_env: list | None=None, is_async: bool=False, description: str='', emoji: str='', override: bool=False) -> Optional[PluginRegistration]",
+      "sha256": "82492d78633e9b759a053b8ca0b6fad78d6137386271ca89a9cbf4731a50af22"
+    },
+    "approval: register_gateway_notify": {
+      "file": "tools/approval.py",
+      "qualname": "register_gateway_notify",
+      "line": 128,
+      "end_line": 132,
+      "signature": "def register_gateway_notify(session_key: str, cb) -> None",
+      "sha256": "03e27c9ddd8be05c18d00971814aa8046d47c59933d56204797f3cc68209f252"
+    },
+    "approval: resolve_gateway_approval": {
+      "file": "tools/approval.py",
+      "qualname": "resolve_gateway_approval",
+      "line": 144,
+      "end_line": 178,
+      "signature": "def resolve_gateway_approval(session_key: str, choice: str, resolve_all: bool=False, reason: Optional[str]=None, request_id: Optional[str]=None) -> int",
+      "sha256": "d71ac0fd4cd2991331d61d0c8d645dfcb8a517d8af52255a7c5554b1c17dcd27"
+    },
+    "approval: set_current_session_key": {
+      "file": "tools/approval_context.py",
+      "qualname": "set_current_session_key",
+      "line": 116,
+      "end_line": 118,
+      "signature": "def set_current_session_key(session_key: str) -> contextvars.Token[str]",
+      "sha256": "b89fdba8521281940cce64ca77321ddb0407df2b71e912f59f7a58544455f378"
+    },
+    "approval: set_session_vars": {
+      "file": "gateway/session_context.py",
+      "qualname": "set_session_vars",
+      "line": 131,
+      "end_line": 159,
+      "signature": "def set_session_vars(platform: str='', source: str='', chat_id: str='', chat_type: str='', chat_name: str='', thread_id: str='', user_id: str='', user_id_alt: str='', user_name: str='', scope_id: str='', session_key: str='', session_id: str='', message_id: str='', profile: str='', cwd: str='', async_delivery: bool=True, ui_session_id: str='', cron_session: Any=_UNSET, parent_chat_id: str='', session_history_delivery: str | None=None) -> list",
+      "sha256": "2e1eff70fafb24c875ceae215c71647073f9c10a57a7ca658b8820d41c4f8686"
+    },
+    "write approval: stage_write": {
+      "file": "tools/write_approval.py",
+      "qualname": "stage_write",
+      "line": 74,
+      "end_line": 89,
+      "signature": "def stage_write(subsystem: str, payload: dict[str, Any], *, summary: str, origin: str) -> dict[str, Any]",
+      "sha256": "09775674453dc8a6e4d7fe1dc2874fbb27c37973ca34c717783eb74288b258f0"
+    },
+    "write approval: list_pending": {
+      "file": "tools/write_approval.py",
+      "qualname": "list_pending",
+      "line": 92,
+      "end_line": 104,
+      "signature": "def list_pending(subsystem: str) -> list[dict[str, Any]]",
+      "sha256": "8ed59a1f93fbfd146ac2fc2339ebe9f12a2e452ded84d3003bd57f05678b9fb6"
+    },
+    "write approval: get_pending": {
+      "file": "tools/write_approval.py",
+      "qualname": "get_pending",
+      "line": 107,
+      "end_line": 116,
+      "signature": "def get_pending(subsystem: str, pending_id: str) -> Optional[dict[str, Any]]",
+      "sha256": "d7e554ba156850624f8948fb52695aa853efd0740ec9c80d45688ca2c344dbca"
+    },
+    "write approval: discard_pending": {
+      "file": "tools/write_approval.py",
+      "qualname": "discard_pending",
+      "line": 119,
+      "end_line": 128,
+      "signature": "def discard_pending(subsystem: str, pending_id: str) -> bool",
+      "sha256": "e3ab097ef3a0b22957eb61d8e5a139a7e0590b090d3f09269bad41e724618ebe"
+    },
+    "write approval: evaluate_gate": {
+      "file": "tools/write_approval.py",
+      "qualname": "evaluate_gate",
+      "line": 201,
+      "end_line": 216,
+      "signature": "def evaluate_gate(subsystem: str, *, inline_summary: str='', inline_detail: str='') -> GateDecision",
+      "sha256": "60d8e10d1b0ed59c7f31b487eca61256aa7e354e4163e6dd90e6fa9899e35f40"
+    },
+    "write approval: write_approval_enabled": {
+      "file": "tools/write_approval.py",
+      "qualname": "write_approval_enabled",
+      "line": 44,
+      "end_line": 52,
+      "signature": "def write_approval_enabled(subsystem: str) -> bool",
+      "sha256": "9c690d6042a6db2a5a43fedeea9fe298b685e72da39ea94e3938cbc626265c54"
+    },
+    "skill ledger: set_ledger_actor": {
+      "file": "tools/skill_ledger.py",
+      "qualname": "set_ledger_actor",
+      "line": 59,
+      "end_line": 61,
+      "signature": "def set_ledger_actor(actor: Optional[str]) -> contextvars.Token",
+      "sha256": "bfc1b4067102910e64f6193e562da97aaa247bfd7ea94f81e1957d912160f912"
+    },
+    "skill ledger: ledger_enabled": {
+      "file": "tools/skill_ledger.py",
+      "qualname": "ledger_enabled",
+      "line": 113,
+      "end_line": 115,
+      "signature": "def ledger_enabled() -> bool",
+      "sha256": "c576b2715fb4b14966ea7967e3fc24f4b02daebbd1e471d06416e35187804a17"
+    },
+    "skills_sync: sync_skills": {
+      "file": "tools/skills_sync.py",
+      "qualname": "sync_skills",
+      "line": 396,
+      "end_line": 457,
+      "signature": "def sync_skills(quiet: bool=False) -> dict",
+      "sha256": "2e4ef48bca3348e801c07ee02ea44cdae207d650477a93bd727cae27c9603eae"
+    },
+    "skills_sync: dir_hash": {
+      "file": "tools/skills_sync.py",
+      "qualname": "dir_hash",
+      "line": 187,
+      "end_line": 199,
+      "signature": "def dir_hash(directory: Path, *, include_runtime_cache: bool=False) -> str",
+      "sha256": "85a951d7b367609729077b87378535320a0c27860b2f9e03f465be40dc739f66"
+    },
+    "SessionDB methods": {
+      "file": "hermes_state.py",
+      "qualname": "SessionDB.*",
+      "line": 464,
+      "end_line": 1718,
+      "signature": "class SessionDB(SessionSessionsMixin, SessionFtsSetupMixin, SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin, SessionTelegramTopicsMixin, SessionCompressionMixin, SessionGatewayMixin, SessionMaintenanceMixin, SessionUsageMixin, SessionTitlesMixin, SessionMessagesMixin, SessionPruneRewriteMixin, SessionApiContentMixin, SessionCoverageMixin, SessionRewindMixin, SessionProfileRepairMixin, SessionPromptRefreshMixin)\ndef close(self)\ndef get_meta(self, key: str) -> Optional[str]\ndef set_meta(self, key: str, value: str, *, cursor: Optional[sqlite3.Cursor]=None) -> None\ndef retag_kanban_worker_sessions(self, workspaces_root: str) -> int\ndef is_kanban_owned_session(self, session_id: str) -> bool\ndef list_meta_prefix(self, prefix: str) -> list[tuple[str, str]]",
+      "sha256": "90492ea2d37a71ec93213733e86f33c7cf69ccbbbef970b083347e6ecd4b227e"
+    },
+    "background review": {
+      "file": "agent/background_review.py",
+      "qualname": "spawn_background_review_thread",
+      "line": 1351,
+      "end_line": 1379,
+      "signature": "def spawn_background_review_thread(agent: Any, messages_snapshot: list[dict], review_memory: bool=False, review_skills: bool=False, focus: Optional[str]=None, task_cfg: Optional[dict[str, Any]]=None, review_run: Optional[_BackgroundReviewRun]=None, explicit: bool=False)",
+      "sha256": "616885ecc29662e03d80703b7bfe3efa68ade5e894425dca44c7ae510cab072a"
+    },
+    "curator": {
+      "file": "agent/curator.py",
+      "qualname": "run_curator_review",
+      "line": 917,
+      "end_line": 1002,
+      "signature": "def run_curator_review(on_summary: Optional[Callable[[str], None]]=None, synchronous: bool=False, dry_run: bool=False, consolidate: Optional[bool]=None, trigger: str='manual') -> dict[str, Any]",
+      "sha256": "04bc0075e21d29f4b4ace66ef35bc27e5418a8b764ada325cf4782571f6d13b9"
+    },
+    "cron: use_cron_store": {
+      "file": "cron/jobs.py",
+      "qualname": "use_cron_store",
+      "line": 192,
+      "end_line": 199,
+      "signature": "def use_cron_store(home: str | Path)",
+      "sha256": "fc4c5e6ebc0709a2be3d9261591707e47fc3f4576bed8af811817f7e9239552b"
+    },
+    "is_external_skill_path": {
+      "file": "agent/skill_utils.py",
+      "qualname": "is_external_skill_path",
+      "line": 715,
+      "end_line": 725,
+      "signature": "def is_external_skill_path(path) -> bool",
+      "sha256": "01a0e3210a8ec2265e29746fd65569e3a138d1d024d807b5c02c59e232a4ec99"
+    },
+    "_find_skill search order": {
+      "file": "tools/skill_manager_tool.py",
+      "qualname": "_find_skill",
+      "line": 252,
+      "end_line": 305,
+      "signature": "def _find_skill(name: str) -> Optional[dict[str, Any]]",
+      "sha256": "f359d629981cd0c9ef6b6f375c13c371c598ae219a7a7ae5d6be6e5c4d59693a"
+    },
+    "plugin hook names": {
+      "file": "hermes_cli/plugins.py",
+      "qualname": "module:VALID_HOOKS",
+      "line": 109,
+      "end_line": 204,
+      "signature": "VALID_HOOKS: set[str] = {\n    \"pre_tool_call\", \"post_tool_call\", \"transform_terminal_output\", \"transform_tool_result\",\n    # transform_llm_output: return a replacement string (first non-None wins) or None.\n    \"transform_llm_output\", \"pre_llm_call\", \"post_llm_call\",\n    # Streaming observers (agent.plugin_stream_hooks), off the token path; payloads are immutable\n    # normalized text/lifecycle and cannot transform the stream.\n    \"on_stream_start\", \"on_stream_delta\", \"on_stream_end\", \"on_interim_message\",\n    # pre_verify: once per turn when the agent edited code and is about to verify/finish. Return\n    # {\"action\": \"continue\", \"message\"} (or Claude-Code Stop {\"decision\": \"block\", \"reason\"}) to keep\n    # going; anything else finishes. Bounded by agent.max_verify_nudges.\n    \"pre_verify\", \"pre_api_request\", \"post_api_request\", \"api_request_error\",\n    # pre/post_auxiliary_call: once per physical provider attempt of an auxiliary LLM call\n    # (agent/auxiliary_hooks.py — titling, compression, MoA, vision, approval, ...). Same payload\n    # shape as pre/post_api_request plus ``aux_task``; distinct events so turn-scoped\n    # ``*_api_request`` subscribers never receive auxiliary traffic (#79733). Observers; fail-open.\n    \"pre_auxiliary_call\", \"post_auxiliary_call\",\n    # transform_api_error_classification: once per failed API call BEFORE\n    # agent/error_classifier.classify_api_error(). Kwargs: provider, model, status_code, error_type,\n    # error_code, error_message, error_body, error, approx_tokens, context_length, num_messages.\n    # Return None or {\"reason\": <FailoverReason name> (required), \"retryable\"/\"should_compress\"/\n    # \"should_rotate_credential\"/\"should_fallback\": bool, \"message\": str, \"error_context\": dict}.\n    # Run-all-then-pick-first (see get_plugin_error_classification). Privacy: error_message/\n    # error_body may be unredacted.\n    \"transform_api_error_classification\", \"on_session_start\", \"on_session_end\",\n    \"on_session_finalize\", \"on_session_reset\", \"on_session_delete\",\n    # on_skill_lifecycle: successful skill lifecycle facts (local skill name visible to plugins).\n    \"on_skill_lifecycle\", \"subagent_start\", \"subagent_stop\",\n    # pre_gateway_dispatch: once per incoming MessageEvent, after the internal-event guard, BEFORE\n    # auth/pairing and dispatch. Kwargs: event, gateway, session_store. Return {\"action\": \"skip\",\n    # \"reason\"} -> drop; {\"action\": \"rewrite\", \"text\"} -> replace event.text; \"allow\"/None -> normal.\n    \"pre_gateway_dispatch\", \"post_gateway_admission\",  # post_*: fail-open consume, gateway/run_inbound_consumer.py\n    # agent_loop_stopped: an agent turn was interrupted mid-run (/stop, or the running-agent\n    # fast-path of /new; see gateway/run.py::_interrupt_and_clear_session). Kwargs: session_key,\n    # platform, reason, invalidation_reason. Return values are ignored.\n    \"agent_loop_stopped\",\n    # Approval observers (returns ignored; veto via pre_tool_call). Kwargs: command, description, pattern_key,\n    # pattern_keys, session_key, surface (\"cli\"|\"gateway\"|\"smart\"|\"mcp-elicitation/<server>\"|\"mcp-trust/<server>\"|\n    # \"vault-payment\"); post_approval_response adds choice/decided_by. on_human_input_*: tools/human_input_hooks.py.\n    \"pre_approval_request\", \"post_approval_response\", \"on_human_input_request\", \"on_human_input_resolved\",\n    # on_room_member_activity: a hosted Group Chat member's live runtime events (tool.started/completed,\n    # request.opened, message.delta, reasoning.delta, turn.error, ...) stamped with room_id, thread_id,\n    # member_id, turn_id, task_id, execution_generation. Observer, queued per consumer off the token\n    # path (agent.plugin_stream_hooks); never written to the durable room log. Kwargs: those\n    # coordinates + kind, seq, payload (the client-safe session event payload, approvals redacted).\n    \"on_room_member_activity\",\n    # pre_transcription: after provider resolution, BEFORE any backend runs. Kwargs: file_path,\n    # provider, model, language, prompt, source. Return None or a dict mutating prompt/language/\n    # model (registration order, last-writer-wins; file_path is read-only).\n    \"pre_transcription\",\n    # Kanban task observers (hermes_cli.kanban_db), fired AFTER the DB commit so a slow plugin never\n    # holds the SQLite write lock; returns ignored. claimed fires in the DISPATCHER right before\n    # spawn; completed/blocked fire in the WORKER (or whichever process drove it). Kwargs: task_id,\n    # board, assignee, run_id, profile_name; completed adds summary, blocked adds reason.\n    \"kanban_task_claimed\", \"kanban_task_completed\", \"kanban_task_blocked\",\n    # Kanban worker/mutation/tick observers; returns ignored; fire sites short-circuit on\n    # has_hook(). Kwargs: task_id, profile_name, board, assignee, run_id plus, per hook:\n    # worker_spawned (DISPATCHER, after PID persisted, inside the dispatch lock — stay fast):\n    #   worker_pid, workspace_path (privacy: project layout/usernames).\n    # worker_exited (tick-derived on dead-PID reclaim): worker_pid, exit_kind (\"clean_exit\" |\n    #   \"rate_limited\" | \"nonzero_exit\" | \"signaled\" | \"unknown\"), exit_code, outcome, retry_status.\n    # worker_stale_claim (TTL-expired claim reclaimed; live-PID extensions do NOT fire):\n    #   worker_pid, heartbeat_stale, retry_status.\n    # task_updated (committed task-row write outside claim/complete/block, in whichever process\n    #   committed it): changed_fields — field NAMES only, never values.\n    # dispatch_tick (once per dispatch_once, strictly AFTER the dispatch lock is released): board,\n    #   profile_name, dry_run, outcome (\"ok\"|\"skipped_locked\"|\"idle\"), result: DispatchResult\n    #   (privacy: task ids, assignees, workspace paths).\n    \"on_kanban_worker_spawned\", \"on_kanban_worker_exited\", \"on_kanban_worker_stale_claim\",\n    \"on_kanban_task_updated\", \"on_kanban_dispatch_tick\",\n    # gateway_platform_event: normalized envelopes only, never raw SDK objects or adapter handles.\n    # Kwargs: platform, event_type, payload (event_type-local; see hooks.md). New event types land\n    # only together with real fire-sites.\n    # on_kanban_dispatch_tick fires once per dispatcher tick in dispatch_once, strictly AFTER the board's\n    # single-writer dispatch lock has been released (the #56066 original fired inside the lock — the #64231\n    # disposition mandates the post-lock re-port), so a slow subscriber can never extend the writer critical\n    # section. Kwargs: board: str | None, profile_name: str, dry_run: bool, outcome: \"ok\" | \"skipped_locked\"\n    # | \"idle\", result: hermes_cli.kanban_db.DispatchResult (spawned, reclaimed, promoted,\n    # reconciled_orphans, crashed, stale, timed_out, auto_blocked, rate_limited, auto_assigned_default,\n    # respawn_guarded, skipped_per_profile_capped, skipped_unassigned, skipped_nonspawnable,\n    # skipped_locked). Privacy: result carries task ids, assignees, and workspace paths.\n    # Gateway platform-boundary observer hooks (#64176). Observer-only; each callback isolated by\n    # invoke_hook. This surface grants no adapter handles or platform actions. Fired today: Telegram\n    # \"reaction\" + \"message_edited\"; Discord \"message_edited\", \"message_deleted\", \"thread_created\",\n    # \"thread_renamed\". Each event type carries its own event-local additive payload contract (see\n    # hooks.md). Other event types and hook names land here only together with real fire-sites and payload\n    # contracts; no inert VALID_HOOKS surface is registered ahead of implementation.\n    \"gateway_platform_event\",\n    # pre_command: BEFORE a recognized slash command's handler on CLI and gateway canonical dispatch;\n    # returns IGNORED in v1. Deliberately NOT fired for the gateway's running-agent intercept path\n    # (/stop, /approve, busy_policy) — a slow/hostile plugin must not touch the operator's escape\n    # hatches. Kwargs: surface, command (canonical), alias_used, args_raw, session_key, platform.\n    # Observer-first (#64204, #64182 rule 3); a directive-shaped return gets a debug log so future\n    # block/rewrite adopters are discoverable once the middleware variant ships (#64231 taxonomy).\n    \"pre_command\",\n    \"post_compaction\",  # once per committed compaction on every path; observer (hooks.md, #118382)\n}",
+      "sha256": "e9342ddb7d1fe40065131492029574fcf69f612bd81acf83c49f644b5e10be0a"
+    },
+    "plugin manager accessor": {
+      "file": "hermes_cli/plugins.py",
+      "qualname": "get_plugin_manager",
+      "line": 1629,
+      "end_line": 1648,
+      "signature": "def get_plugin_manager() -> PluginManager",
+      "sha256": "30f9df3e811e4f8c0c699ef976387ca1640e34a3972753e34728c190d0f1c293"
+    },
+    "LoadedPlugin fields (tools_registered)": {
+      "file": "hermes_cli/plugins.py",
+      "qualname": "LoadedPlugin",
+      "line": 215,
+      "end_line": 227,
+      "signature": "class LoadedPlugin()\nmanifest: PluginManifest\nmodule: Optional[types.ModuleType] = None\ntools_registered: list[str] = field(default_factory=list)\nhooks_registered: list[str] = field(default_factory=list)\nmiddleware_registered: list[str] = field(default_factory=list)\ncommands_registered: list[str] = field(default_factory=list)\nenabled: bool = False\nerror: Optional[str] = None\ndeferred: bool = False",
+      "sha256": "ed6563fec3823451fb3767d325408c53e05296b6b3dc6742ee2fae3fe91f76e5"
+    },
+    "plugin entry-point group": {
+      "file": "hermes_cli/plugins_discovery.py",
+      "qualname": "module:ENTRY_POINTS_GROUP",
+      "line": 29,
+      "end_line": 29,
+      "signature": "ENTRY_POINTS_GROUP = \"hermes_agent.plugins\"",
+      "sha256": "ba527b8185d617aed608752c7284a075792395a4ad82de9c7bbfe0c11e98c8d5"
+    },
+    "plugins.enabled allow-list": {
+      "file": "hermes_cli/plugins_discovery.py",
+      "qualname": "_get_enabled_plugins",
+      "line": 122,
+      "end_line": 131,
+      "signature": "def _get_enabled_plugins() -> Optional[set]",
+      "sha256": "41b2bdf53294634caed1a68a8545229776b5189ae73e814c02fbacc7a0dd084a"
+    },
+    "plugin manifest scan": {
+      "file": "hermes_cli/plugins_discovery.py",
+      "qualname": "scan_directory",
+      "line": 141,
+      "end_line": 187,
+      "signature": "def scan_directory(path: Path, source: str, *, skip_names: Optional[set[str]]=None, prefix: str='', depth: int=0) -> list[PluginManifest]",
+      "sha256": "78ce97e2b695e3c290d22be2e3cc4f67238949d55bfdaa63d5a39cf874c3c1eb"
+    },
+    "post_tool_call emit": {
+      "file": "model_tools.py",
+      "qualname": "_emit_post_tool_call_hook",
+      "line": 687,
+      "end_line": 711,
+      "signature": "def _emit_post_tool_call_hook(*, function_name: str, function_args: dict[str, Any], result: Any, task_id: Optional[str]=None, session_id: Optional[str]=None, tool_call_id: Optional[str]=None, turn_id: Optional[str]=None, api_request_id: Optional[str]=None, duration_ms: int=0, status: Optional[str]=None, error_type: Optional[str]=None, error_message: Optional[str]=None, middleware_trace: Optional[list[dict[str, Any]]]=None) -> None",
+      "sha256": "a576ed652b94b46cf51988d247f3fbad77dc9f9b1ca53418744635bdd4ede4d5"
+    },
+    "handle_function_call": {
+      "file": "model_tools.py",
+      "qualname": "handle_function_call",
+      "line": 886,
+      "end_line": 979,
+      "signature": "def handle_function_call(function_name: str, function_args: dict[str, Any], task_id: Optional[str]=None, tool_call_id: Optional[str]=None, session_id: Optional[str]=None, turn_id: Optional[str]=None, api_request_id: Optional[str]=None, user_task: Optional[str]=None, enabled_tools: Optional[list[str]]=None, skip_pre_tool_call_hook: bool=False, skip_tool_request_middleware: bool=False, skip_tool_execution_middleware: bool=False, tool_request_middleware_trace: Optional[list[dict[str, Any]]]=None, enabled_toolsets: Optional[list[str]]=None, disabled_toolsets: Optional[list[str]]=None) -> str",
+      "sha256": "d5653457060b347daa0479b47e098188164530adc6a3130f47afaa9809d31a29"
+    },
+    "Tool Search bridge dispatch (tool_call unwrap)": {
+      "file": "model_tools.py",
+      "qualname": "_dispatch_bridge_tool",
+      "line": 714,
+      "end_line": 763,
+      "signature": "def _dispatch_bridge_tool(function_name: str, function_args: dict[str, Any], enabled_toolsets: Optional[list[str]], disabled_toolsets: Optional[list[str]], ids: Optional[_CallIds]=None)",
+      "sha256": "0c082d88f6d37a9384d636b4f8c99372a10612aefd3d862b4ddb15df01a481d6"
+    },
+    "agent-loop tools": {
+      "file": "model_tools.py",
+      "qualname": "module:_AGENT_LOOP_TOOLS",
+      "line": 620,
+      "end_line": 620,
+      "signature": "_AGENT_LOOP_TOOLS = {\"todo_list\", \"memory\", \"session_search\", \"delegate_task\"}",
+      "sha256": "9d3082c4b8176e68dbd3f146741de14f18c197e1c0324f0d8c531f1b9b788f7b"
+    },
+    "get_tool_definitions (explicit enabled_toolsets)": {
+      "file": "model_tools.py",
+      "qualname": "get_tool_definitions",
+      "line": 227,
+      "end_line": 270,
+      "signature": "def get_tool_definitions(enabled_toolsets: Optional[list[str]]=None, disabled_toolsets: Optional[list[str]]=None, quiet_mode: bool=False, skip_tool_search_assembly: bool=False) -> list[dict[str, Any]]",
+      "sha256": "3e3951ba26b9b758c5ad5a688420eb30412a326f69f4f88036a00f11f056cab9"
+    },
+    "registry: register": {
+      "file": "tools/registry.py",
+      "qualname": "ToolRegistry.register",
+      "line": 735,
+      "end_line": 812,
+      "signature": "def register(self, name: str, toolset: str, schema: dict, handler: Callable, check_fn: Callable | None=None, requires_env: list | None=None, is_async: bool=False, description: str='', emoji: str='', max_result_size_chars: float | None=None, dynamic_schema_overrides: Callable | None=None, override: bool=False, scope: Optional[str]=None, execution_timeout: float | None=None)",
+      "sha256": "6b85daa8fd17f1a8a9d880df69a23257c802077a2b58a4857db03c91a50b0481"
+    },
+    "registry: plugin owner of a handler": {
+      "file": "tools/registry.py",
+      "qualname": "ToolRegistry._plugin_owner_of",
+      "line": 657,
+      "end_line": 663,
+      "signature": "def _plugin_owner_of(self, handler: Callable) -> Optional[str]",
+      "sha256": "4aed783d2d7ca3d0a080e9b06cade751cd1116cff18ae25d03e60105398b81c6"
+    },
+    "registry: callable module": {
+      "file": "tools/registry.py",
+      "qualname": "ToolRegistry._callable_module",
+      "line": 666,
+      "end_line": 684,
+      "signature": "def _callable_module(handler: Callable) -> str",
+      "sha256": "f81dcd90ab065b4fc3a4b39d951a6b6efccc924e610d20d895e725fd633ac927"
+    },
+    "registry: get_all_entries": {
+      "file": "tools/registry.py",
+      "qualname": "ToolRegistry.get_all_entries",
+      "line": 589,
+      "end_line": 590,
+      "signature": "def get_all_entries(self) -> list[ToolEntry]",
+      "sha256": "36d4de20b62d12a6052bc59f9a0684c0a5ff1c27d3df1dc655abdac63dcc963d"
+    },
+    "registry: ToolEntry fields": {
+      "file": "tools/registry.py",
+      "qualname": "ToolEntry",
+      "line": 216,
+      "end_line": 232,
+      "signature": "class ToolEntry()\nname: str\ntoolset: str\nschema: dict\nhandler: Callable\ncheck_fn: Optional[Callable]\nrequires_env: list\nis_async: bool\ndescription: str\nemoji: str\nmax_result_size_chars: int | float | None = None\ndynamic_schema_overrides: Optional[Callable] = None\nexecution_timeout: float | None = None",
+      "sha256": "306574d1713659a5f7d7b181b98ffba56ea5c4390de50a4d5b092c722fda1875"
+    },
+    "Tool Search bridge names": {
+      "file": "tools/tool_search_catalog.py",
+      "qualname": "module:BRIDGE_TOOL_NAMES",
+      "line": 21,
+      "end_line": 21,
+      "signature": "BRIDGE_TOOL_NAMES = frozenset({TOOL_SEARCH_NAME, TOOL_DESCRIBE_NAME, TOOL_CALL_NAME})",
+      "sha256": "18355cdea9520b6287bb1d5c689c877c0813cd8dfc80c3f318f7fa8c62ffd8b0"
+    },
+    "message_agent schema": {
+      "file": "tools/bot_mode_dm.py",
+      "qualname": "message_agent_tool_schema",
+      "line": 70,
+      "end_line": 124,
+      "signature": "def message_agent_tool_schema() -> dict",
+      "sha256": "9b3b7f368a429630b2195a91d46c3af4946757b127b90af20c8133369f28bba9"
+    },
+    "untrusted tool names": {
+      "file": "agent/tool_dispatch_helpers.py",
+      "qualname": "module:_UNTRUSTED_TOOL_NAMES",
+      "line": 484,
+      "end_line": 484,
+      "signature": "_UNTRUSTED_TOOL_NAMES = frozenset({\"web_extract\", \"web_search\"})",
+      "sha256": "a317c38fe0e59db3bdbe852da5acac0ecdd93a337a5151f373bca081cf2a9646"
+    },
+    "untrusted result wrapper": {
+      "file": "agent/tool_dispatch_helpers.py",
+      "qualname": "_maybe_wrap_untrusted",
+      "line": 572,
+      "end_line": 598,
+      "signature": "def _maybe_wrap_untrusted(name: str, content: Any) -> Any",
+      "sha256": "c0bc312b92727d1705c2ac881c968afa98f1b52b87e83e8350ad64835235b1c6"
+    },
+    "url safety: is_safe_url": {
+      "file": "tools/url_safety.py",
+      "qualname": "is_safe_url",
+      "line": 402,
+      "end_line": 458,
+      "signature": "def is_safe_url(url: str) -> bool",
+      "sha256": "1cfbe287c3699781de1469160dce80c5deed796186fb45356e13060ee1003367"
+    },
+    "threat scan: first_threat_message": {
+      "file": "tools/threat_patterns.py",
+      "qualname": "first_threat_message",
+      "line": 148,
+      "end_line": 159,
+      "signature": "def first_threat_message(content: str, scope: str='strict') -> Optional[str]",
+      "sha256": "ba6bf45a1995e6058eb826474fb308122a5bfee6c75acd88b4c6694b08a0d645"
+    },
+    "threat scan: scan_for_threats": {
+      "file": "tools/threat_patterns.py",
+      "qualname": "scan_for_threats",
+      "line": 131,
+      "end_line": 145,
+      "signature": "def scan_for_threats(content: str, scope: str='context') -> list[str]",
+      "sha256": "4595800b8f5e16a29bf2dac75f12115d2bb20ced3d30c37dfee9a9ca7f13da24"
+    },
+    "delegate child agent (parent_session_id)": {
+      "file": "tools/delegate_tool.py",
+      "qualname": "_build_child_agent",
+      "line": 203,
+      "end_line": 361,
+      "signature": "def _build_child_agent(task_index: int, goal: str, context: Optional[str], toolsets: Optional[list[str]], model: Optional[str], max_iterations: int, task_count: int, parent_agent, override_provider: Optional[str]=None, override_base_url: Optional[str]=None, override_api_key: Optional[str]=None, override_api_mode: Optional[str]=None, override_request_overrides: Optional[dict[str, Any]]=None, override_acp_command: Optional[str]=None, override_acp_args: Optional[list[str]]=None, routing_cfg: Optional[dict[str, Any]]=None, role: str='leaf', override_reasoning_effort: Any=None, profile_home: Optional[Path]=None, override_service_tier: Optional[str]=None)",
+      "sha256": "3267b145142567c5af65114529cb0945f0a0dee1888ea228ba051334ddcfa7e1"
+    },
+    "hermes home": {
+      "file": "hermes_constants.py",
+      "qualname": "get_hermes_home",
+      "line": 194,
+      "end_line": 201,
+      "signature": "def get_hermes_home() -> Path",
+      "sha256": "f7b21484e61cc634465a2fe6dfd495323c59cd25578845a732cd58ae8cd8f5c6"
+    },
+    "managed config dir": {
+      "file": "hermes_cli/managed_scope.py",
+      "qualname": "get_managed_dir",
+      "line": 45,
+      "end_line": 59,
+      "signature": "def get_managed_dir() -> Optional[Path]",
+      "sha256": "509d1ab987fbe59874dd913ef3001c0a75be1e6ec623c9730a9da5b471d2438e"
+    },
+    "managed config overlay": {
+      "file": "hermes_cli/managed_scope.py",
+      "qualname": "apply_managed_overlay",
+      "line": 129,
+      "end_line": 154,
+      "signature": "def apply_managed_overlay(config: dict) -> dict",
+      "sha256": "2b0d426f727a0644a2e240f85254ddcda403865adb55268d070f8f6bf732a7e3"
+    },
+    "bundled skills dir (HERMES_BUNDLED_SKILLS)": {
+      "file": "tools/skills_sync.py",
+      "qualname": "_get_bundled_dir",
+      "line": 75,
+      "end_line": 76,
+      "signature": "def _get_bundled_dir() -> Path",
+      "sha256": "fe6cca046de0a99c6fc24a027be5afebe6804ef0b2ef54916459df72b80a265e"
+    },
+    "bundled skill discovery": {
+      "file": "tools/skills_sync.py",
+      "qualname": "_discover_bundled_skills",
+      "line": 170,
+      "end_line": 179,
+      "signature": "def _discover_bundled_skills(bundled_dir: Path) -> list[tuple[str, Path]]",
+      "sha256": "aef58529c3ab99c6bf5eba0ddd4137fb03f77a0bcd06dccb28129448cfe3213c"
+    },
+    "reset_bundled_skill": {
+      "file": "tools/skills_sync_bundled_ops.py",
+      "qualname": "reset_bundled_skill",
+      "line": 19,
+      "end_line": 60,
+      "signature": "def reset_bundled_skill(name: str, restore: bool=False) -> dict",
+      "sha256": "ff7a39c4064582daf1635adc2474b90ec0909a80eb4c84a3f3658fe97f38ac82"
+    },
+    "external skill dirs": {
+      "file": "agent/skill_utils.py",
+      "qualname": "get_external_skills_dirs",
+      "line": 340,
+      "end_line": 367,
+      "signature": "def get_external_skills_dirs() -> list[Path]",
+      "sha256": "04c696c495ff84a9813aa261295c4abe17e7b72b568a2a88dd0a7a1c21e735df"
+    },
+    "skill search roots order": {
+      "file": "agent/skill_utils.py",
+      "qualname": "get_all_skills_dirs",
+      "line": 427,
+      "end_line": 430,
+      "signature": "def get_all_skills_dirs() -> list[Path]",
+      "sha256": "5f977bdc4ad1cffe4bd02b64c60db54518040cbd5f763dc24332176eab515e72"
+    },
+    "curator tick": {
+      "file": "agent/curator.py",
+      "qualname": "maybe_run_curator",
+      "line": 1200,
+      "end_line": 1214,
+      "signature": "def maybe_run_curator(*, idle_for_seconds: Optional[float]=None, on_summary: Optional[Callable[[str], None]]=None) -> Optional[dict[str, Any]]",
+      "sha256": "d8ed9a19c6a72d5067638af317c581d3974320b39ecbbc29bbf93fc925616854"
+    },
+    "runtime extras install": {
+      "file": "pm/extras.py",
+      "qualname": "ensure_import",
+      "line": 187,
+      "end_line": 238,
+      "signature": "def ensure_import(extra: str) -> None",
+      "sha256": "9f8cd56f576552b7f900905ca3ef516ea4b9569eb6c470ee77335625fd211d0e"
+    },
+    "bundled locale load": {
+      "file": "agent/i18n.py",
+      "qualname": "_load_bundled",
+      "line": 153,
+      "end_line": 163,
+      "signature": "def _load_bundled(lang: str) -> dict[str, str]",
+      "sha256": "beb8a67f20813e5765f05aded7be25867a2e8ee735c1bcf3fb6bd23f81bf5cd8"
+    },
+    "_iters_since_skill reset sites": {
+      "file": "",
+      "qualname": "",
+      "line": 0,
+      "end_line": 0,
+      "signature": "agent/agent_init.py::_init_memory\nagent/codex_runtime.py::_finish_codex_turn\nagent/tool_executor.py::_dispatch_authorized_once\nagent/turn_finalizer.py::finalize_turn",
+      "sha256": "fb35f670c434b81d0e5f8887f65960486594f63de5ff33ab2fea19f264633af8"
+    }
+  }
+}

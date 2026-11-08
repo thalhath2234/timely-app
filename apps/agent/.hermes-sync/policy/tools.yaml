@@ -1,0 +1,612 @@
+# Tool policy for Timely's agent (plan section 8.1). Read by timely_gate in the worker and checked by
+# `make hermes-sync-check` (scripts/hermes-sync/check_policy.py) against the runtime tool dump.
+#
+# Every tool Hermes registers is listed here, keyed `<name>@<owner>`. Owner is `core` (registered by
+# a module in the copy), `plugin:<plugin key>` (registered by a bundled or Timely plugin) or
+# `mcp:<server>`. At dispatch the gate resolves the live owner; an owner that differs from the entry
+# is blocked, and a name with no entry is blocked (`unknown: block`). External MCP tools are not
+# listed: each account sets them per tool in Settings (Can use = allow, Ask me first = approve,
+# Off = block). Nous connector tools (`connectors__*`) have no entry, so they stay blocked.
+#
+# Fields:
+#   toolset  the registry toolset (must match the dump)
+#   chat     allow | approve | block   in a chat run
+#   bot      allow | approve | block   in a bot tick (phase 6)
+#   phase    the rollout phase that first offers the tool (section 13); `later` = after phase 8,
+#            `never` = stays blocked. A tool is offered only once its phase has shipped, whatever
+#            `chat`/`bot` say.
+#   gates    extra rules the gate applies on top of allow/approve (vocabulary below)
+#   schema   sha256 of the registry schema (canonical JSON) last reviewed. Required, and checked,
+#            for any tool that is not `block` in both run kinds: a changed schema fails the check
+#            until a developer reads the new schema and updates this hash.
+#   note     why, in one line
+#
+# Gates:
+#   learning              timely_learning stages or blocks the write (9b.2); in bot runs every write is staged
+#   timely-skills-readonly  skill_manage on a Timely skill (skills.external_dirs) is blocked (9.1)
+#   session-taint         a hit from a tainted or bot-started conversation taints the session
+#   delegate-cap          at most 3 children with a shared budget; a child's taint taints the parent
+#   web-toggle            blocked when the chat's web toggle is off, in Sensitive and in answer-only runs
+#   taint-egress          tainted session: web_extract to a new host is blocked in phases 3-4 and approved
+#                         from phase 5; web_search carrying text from a Timely read, memory or a tainted
+#                         result follows the same rule
+#   bot-egress            bot egress policy (7.5); Reads hosts go through the polite fetcher
+#   xai-key               offered only when the account has an xAI key
+#   host-path-approve     a local host path argument needs approval
+#   urls-only             bot runs accept URLs only
+#   skills-folder-allow   no approval needed inside the account's own skills folder
+#   clarify-card          the gate turns the call into a Timely card (phase 4, Q-4.3)
+#   no-secret-capture     skill secret capture is off
+#
+# Count at v0.23.0: 83 registered tools with every bundled plugin enabled (73 core, 5 from
+# plugin:platforms/a2a, 5 from plugin:google_meet). Plan 8.1's "73" came from upstream main 334f66b8,
+# a later commit where the 5 Yuanbao tools (yb_*) had left core, with only default plugins loaded
+# (google_meet is opt-in, so its 5 meet_* tools were missing). Both groups are classified below as
+# block. Runtime dump: apps/agent/.hermes-sync/tools.json.
+#
+# After a sync: a new tool fails the check until it has an entry here; a removed tool fails until
+# its entry is deleted; a changed schema on an allowed or approved tool fails until `schema` is
+# updated. The subset of YAML used here (block maps, flow lists, quoted strings) is parsed strictly
+# by scripts/hermes-sync/check_lib.py; keep values on one line.
+
+version: 1
+upstream: v0.23.0
+unknown: block
+
+tools:
+  skills_list@core:
+    toolset: skills
+    chat: allow
+    bot: allow
+    phase: 2
+    gates: [no-secret-capture]
+    schema: "b63eb8ddaea7296ac3ab6cb7d6a7b817ea92ba5ec3bd66331770355db313bf57"
+    note: "Read skills; secret capture off"
+  skill_view@core:
+    toolset: skills
+    chat: allow
+    bot: allow
+    phase: 2
+    gates: [no-secret-capture]
+    schema: "c9cb9fea35a8c30fe3f84d2b3836c675337525c46962d3c04ead549a29fc2488"
+    note: "Read skills; secret capture off"
+  skill_manage@core:
+    toolset: skills
+    chat: allow
+    bot: allow
+    phase: 3
+    gates: [learning, timely-skills-readonly]
+    schema: "bfaf7a2923464b8c50659c44564fada6b3f9c2aa91adf7c22f622f12e0a1cae4"
+    note: "Chat: timely_learning may stage. Bot: every write staged. Writes to Timely-shipped skills blocked (9.1, 9b)"
+  memory@core:
+    toolset: memory
+    chat: allow
+    bot: allow
+    phase: 3
+    gates: [learning]
+    schema: "a63150772bd6fc9d58249a07eb961b01be13f455041d300c1f0476e215376d64"
+    note: "Agent-loop tool. Chat: may stage. Bot: every write staged (9b)"
+  session_search@core:
+    toolset: session_search
+    chat: allow
+    bot: block
+    phase: 3
+    gates: [session-taint]
+    schema: "170bb5a78d2ba86d3bba150bba5115d1acaf901c1d6d772f52cb05294b9cc28d"
+    note: "Agent-loop tool; FTS5, no LLM. Bot ticks have no session DB"
+  todo_list@core:
+    toolset: todo
+    chat: allow
+    bot: block
+    phase: 2
+    schema: "5244948b0a35418856bbc94e3d5a5ac8ed2210701d776dc6f219677f3d2cab94"
+    note: "Agent-loop tool: the agent's run plan, not Timely tasks"
+  clarify@core:
+    toolset: clarify
+    chat: block
+    bot: block
+    phase: 4
+    gates: [clarify-card]
+    note: "Phase 4 turns it into a Timely card (Q-4.3)"
+  delegate_task@core:
+    toolset: delegation
+    chat: allow
+    bot: block
+    phase: 4
+    gates: [delegate-cap]
+    schema: "f0e8cb9f3be2ffcfb848e96c2867e3196dcb53a3cccc6278963570e6fb266371"
+    note: "Agent-loop tool. Children run under their own session_id; the plugin maps child to parent and propagates taint"
+  web_search@core:
+    toolset: web
+    chat: allow
+    bot: allow
+    phase: 3
+    gates: [web-toggle, taint-egress, bot-egress]
+    schema: "9a579750417a577cd4b92368abe07bf5c00e29d10a6e370f6d9a47c99a404c7d"
+    note: "Hermes wraps results as untrusted (agent/tool_dispatch_helpers.py)"
+  web_extract@core:
+    toolset: web
+    chat: allow
+    bot: allow
+    phase: 3
+    gates: [web-toggle, taint-egress, bot-egress]
+    schema: "9d493b6fd8a9356bd1e726386f0318446484f6442f8d18c6e1808957a7eddf9d"
+    note: "Hermes wraps results as untrusted (agent/tool_dispatch_helpers.py)"
+  x_search@core:
+    toolset: x_search
+    chat: allow
+    bot: allow
+    phase: later
+    gates: [xai-key]
+    schema: "d3309bdb0289faec23552406c50694ceb2412b19420800bf247c8742243206a6"
+    note: "Needs an xAI key"
+  vision_analyze@core:
+    toolset: vision
+    chat: allow
+    bot: allow
+    phase: 4
+    gates: [host-path-approve, urls-only]
+    schema: "de6149e2b21a2677885026af724209925480affb0a8da2c67d10b8633ec27324"
+    note: "Attachments and URLs; a host path needs approval in chat; bots get URLs only. Receipts stay in Go"
+  read_file@core:
+    toolset: file
+    chat: approve
+    bot: block
+    phase: 5
+    gates: [skills-folder-allow]
+    schema: "06698c255917140e2599050110e02efeb2316c3be99b7b2a69bfc95de16d71d9"
+    note: "Allowed without asking inside the account's skills folder"
+  search_files@core:
+    toolset: file
+    chat: approve
+    bot: block
+    phase: 5
+    gates: [skills-folder-allow]
+    schema: "01a3b16a1f15be4e7b2c574cc2b30c8e9ba6e71fcd3fbc34ef0c14587ba36473"
+    note: "Allowed without asking inside the account's skills folder"
+  write_file@core:
+    toolset: file
+    chat: approve
+    bot: block
+    phase: 5
+    schema: "36c48d4d4c02f950a46c684ba8d20fd2751ffba9f530e6e8e69f8825aa31b54b"
+    note: "acp_adapter must stay in the copy (approval guard)"
+  patch@core:
+    toolset: file
+    chat: approve
+    bot: block
+    phase: 5
+    schema: "d1bcb5cf08fc7bf80431445499fa454579396b080a8e8396e78d4cf2a175ef50"
+    note: "acp_adapter must stay in the copy (approval guard)"
+  terminal@core:
+    toolset: terminal
+    chat: approve
+    bot: block
+    phase: 5
+    schema: "6212738e7b72fd5bbb6b201b3a472420369cf830d25389c89b39bc009cb83f8f"
+    note: "Local backend only"
+  process_manage@core:
+    toolset: terminal
+    chat: approve
+    bot: block
+    phase: 5
+    schema: "7baaa07139de31b2ef8a2fa2eb05406649f6845ee8096252ee279a3cb1129fb4"
+    note: "Local backend only"
+  execute_code@core:
+    toolset: code_execution
+    chat: approve
+    bot: block
+    phase: 5
+    schema: "73964b625ef6eefd63f4df000ca15f9d23127281ccaa60fc7f090996ee0ffc6b"
+    note: "Phase 5 test: a blocked tool called from inside execute_code is refused"
+  browser_exec@core:
+    toolset: browser-use
+    chat: approve
+    bot: block
+    phase: 5
+    schema: "573c1df22738a7f6147da5e8d35e23b624518b0e2d08241dacfae070d5335e96"
+    note: "Runs Python against the browser; bots use Timely's bot_browse"
+  browser_cdp@core:
+    toolset: browser-cdp
+    chat: approve
+    bot: block
+    phase: 5
+    schema: "80b51c2449955bd44a19d4d666369e090a5be4704c0251d7477bc4168952e35f"
+    note: "Raw CDP"
+  browser_dialog@core:
+    toolset: browser-cdp
+    chat: approve
+    bot: block
+    phase: 5
+    schema: "50064b9417203040c27260b72fecc8fd1f93aafcb2a9f4f52559d8a46e70fe76"
+    note: "Raw CDP"
+  browser_vault@core:
+    toolset: browser
+    chat: block
+    bot: block
+    phase: never
+    note: "Stores credentials; ADR 0022 Secure Store instead"
+  computer_use@core:
+    toolset: computer_use
+    chat: block
+    bot: block
+    phase: later
+    note: "Desktop control"
+  cronjob_manage@core:
+    toolset: cronjob
+    chat: block
+    bot: block
+    phase: 6
+    note: "Hermes cron is never used; phase 6 adds the timely_bot shim (override=True) that turns create into a bot proposal (7.10)"
+  image_generate@core:
+    toolset: image_gen
+    chat: block
+    bot: block
+    phase: later
+    note: "Media: no Timely surface yet"
+  video_generate@core:
+    toolset: video_gen
+    chat: block
+    bot: block
+    phase: later
+    note: "Media: no Timely surface yet"
+  xai_video_edit@core:
+    toolset: video_gen
+    chat: block
+    bot: block
+    phase: later
+    note: "Media: no Timely surface yet"
+  xai_video_extend@core:
+    toolset: video_gen
+    chat: block
+    bot: block
+    phase: later
+    note: "Media: no Timely surface yet"
+  text_to_speech@core:
+    toolset: tts
+    chat: block
+    bot: block
+    phase: later
+    note: "Media: no Timely surface yet"
+  video_analyze@core:
+    toolset: video
+    chat: block
+    bot: block
+    phase: later
+    note: "Media: no Timely surface yet"
+  manage_connections@core:
+    toolset: connections
+    chat: block
+    bot: block
+    phase: never
+    note: "Nous managed connectors; Timely Settings handles MCP"
+  manage_catalog@core:
+    toolset: catalog
+    chat: block
+    bot: block
+    phase: never
+    note: "Hermes app features"
+  desktop_project@core:
+    toolset: project
+    chat: block
+    bot: block
+    phase: never
+    note: "Hermes app features"
+  setup_beat@core:
+    toolset: onboarding
+    chat: block
+    bot: block
+    phase: never
+    note: "Hermes app features"
+  discord@core:
+    toolset: discord
+    chat: block
+    bot: block
+    phase: never
+    note: "Messaging (decision 6)"
+  discord_admin@core:
+    toolset: discord_admin
+    chat: block
+    bot: block
+    phase: never
+    note: "Messaging (decision 6)"
+  feishu_doc_read@core:
+    toolset: feishu_doc
+    chat: block
+    bot: block
+    phase: never
+    note: "Messaging (decision 6)"
+  feishu_drive_add_comment@core:
+    toolset: feishu_drive
+    chat: block
+    bot: block
+    phase: never
+    note: "Messaging (decision 6)"
+  feishu_drive_list_comment_replies@core:
+    toolset: feishu_drive
+    chat: block
+    bot: block
+    phase: never
+    note: "Messaging (decision 6)"
+  feishu_drive_list_comments@core:
+    toolset: feishu_drive
+    chat: block
+    bot: block
+    phase: never
+    note: "Messaging (decision 6)"
+  feishu_drive_reply_comment@core:
+    toolset: feishu_drive
+    chat: block
+    bot: block
+    phase: never
+    note: "Messaging (decision 6)"
+  a2a_call@plugin:platforms/a2a:
+    toolset: a2a
+    chat: block
+    bot: block
+    phase: never
+    note: "Agent-to-agent over platforms (decision 6)"
+  a2a_discover@plugin:platforms/a2a:
+    toolset: a2a
+    chat: block
+    bot: block
+    phase: never
+    note: "Agent-to-agent over platforms (decision 6)"
+  a2a_history@plugin:platforms/a2a:
+    toolset: a2a
+    chat: block
+    bot: block
+    phase: never
+    note: "Agent-to-agent over platforms (decision 6)"
+  a2a_list@plugin:platforms/a2a:
+    toolset: a2a
+    chat: block
+    bot: block
+    phase: never
+    note: "Agent-to-agent over platforms (decision 6)"
+  a2a_orchestrate@plugin:platforms/a2a:
+    toolset: a2a
+    chat: block
+    bot: block
+    phase: never
+    note: "Agent-to-agent over platforms (decision 6)"
+  annotate_preview@core:
+    toolset: desktop_ui
+    chat: block
+    bot: block
+    phase: never
+    note: "desktop_ui: drives Hermes desktop panes; react_to_message is messaging"
+  close_terminal@core:
+    toolset: desktop_ui
+    chat: block
+    bot: block
+    phase: never
+    note: "desktop_ui: drives Hermes desktop panes; react_to_message is messaging"
+  desktop_preview@core:
+    toolset: desktop_ui
+    chat: block
+    bot: block
+    phase: never
+    note: "desktop_ui: drives Hermes desktop panes; react_to_message is messaging"
+  drive_preview@core:
+    toolset: desktop_ui
+    chat: block
+    bot: block
+    phase: never
+    note: "desktop_ui: drives Hermes desktop panes; react_to_message is messaging"
+  focus_pane@core:
+    toolset: desktop_ui
+    chat: block
+    bot: block
+    phase: never
+    note: "desktop_ui: drives Hermes desktop panes; react_to_message is messaging"
+  gui_tour@core:
+    toolset: desktop_ui
+    chat: block
+    bot: block
+    phase: never
+    note: "desktop_ui: drives Hermes desktop panes; react_to_message is messaging"
+  react_to_message@core:
+    toolset: desktop_ui
+    chat: block
+    bot: block
+    phase: never
+    note: "desktop_ui: drives Hermes desktop panes; react_to_message is messaging"
+  read_terminal@core:
+    toolset: desktop_ui
+    chat: block
+    bot: block
+    phase: never
+    note: "desktop_ui: drives Hermes desktop panes; react_to_message is messaging"
+  read_window_below@core:
+    toolset: desktop_ui
+    chat: block
+    bot: block
+    phase: never
+    note: "desktop_ui: drives Hermes desktop panes; react_to_message is messaging"
+  set_theme@core:
+    toolset: desktop_ui
+    chat: block
+    bot: block
+    phase: never
+    note: "desktop_ui: drives Hermes desktop panes; react_to_message is messaging"
+  show_tip@core:
+    toolset: desktop_ui
+    chat: block
+    bot: block
+    phase: never
+    note: "desktop_ui: drives Hermes desktop panes; react_to_message is messaging"
+  kanban_attach@core:
+    toolset: kanban
+    chat: block
+    bot: block
+    phase: never
+    note: "Kanban: root-shared board"
+  kanban_attach_url@core:
+    toolset: kanban
+    chat: block
+    bot: block
+    phase: never
+    note: "Kanban: root-shared board"
+  kanban_attachments@core:
+    toolset: kanban
+    chat: block
+    bot: block
+    phase: never
+    note: "Kanban: root-shared board"
+  kanban_block@core:
+    toolset: kanban
+    chat: block
+    bot: block
+    phase: never
+    note: "Kanban: root-shared board"
+  kanban_comment@core:
+    toolset: kanban
+    chat: block
+    bot: block
+    phase: never
+    note: "Kanban: root-shared board"
+  kanban_complete@core:
+    toolset: kanban
+    chat: block
+    bot: block
+    phase: never
+    note: "Kanban: root-shared board"
+  kanban_create@core:
+    toolset: kanban
+    chat: block
+    bot: block
+    phase: never
+    note: "Kanban: root-shared board"
+  kanban_heartbeat@core:
+    toolset: kanban
+    chat: block
+    bot: block
+    phase: never
+    note: "Kanban: root-shared board"
+  kanban_link@core:
+    toolset: kanban
+    chat: block
+    bot: block
+    phase: never
+    note: "Kanban: root-shared board"
+  kanban_list@core:
+    toolset: kanban
+    chat: block
+    bot: block
+    phase: never
+    note: "Kanban: root-shared board"
+  kanban_request_changes@core:
+    toolset: kanban
+    chat: block
+    bot: block
+    phase: never
+    note: "Kanban: root-shared board"
+  kanban_request_review@core:
+    toolset: kanban
+    chat: block
+    bot: block
+    phase: never
+    note: "Kanban: root-shared board"
+  kanban_schedule@core:
+    toolset: kanban
+    chat: block
+    bot: block
+    phase: never
+    note: "Kanban: root-shared board"
+  kanban_show@core:
+    toolset: kanban
+    chat: block
+    bot: block
+    phase: never
+    note: "Kanban: root-shared board"
+  kanban_unblock@core:
+    toolset: kanban
+    chat: block
+    bot: block
+    phase: never
+    note: "Kanban: root-shared board"
+  yb_query_group_info@core:
+    toolset: hermes-yuanbao
+    chat: block
+    bot: block
+    phase: never
+    note: "Yuanbao messaging platform (decision 6); not in plan 8.1, which counted upstream main after Yuanbao left core"
+  yb_query_group_members@core:
+    toolset: hermes-yuanbao
+    chat: block
+    bot: block
+    phase: never
+    note: "Yuanbao messaging platform (decision 6); not in plan 8.1, which counted upstream main after Yuanbao left core"
+  yb_search_sticker@core:
+    toolset: hermes-yuanbao
+    chat: block
+    bot: block
+    phase: never
+    note: "Yuanbao messaging platform (decision 6); not in plan 8.1, which counted upstream main after Yuanbao left core"
+  yb_send_dm@core:
+    toolset: hermes-yuanbao
+    chat: block
+    bot: block
+    phase: never
+    note: "Yuanbao messaging platform (decision 6); not in plan 8.1, which counted upstream main after Yuanbao left core"
+  yb_send_sticker@core:
+    toolset: hermes-yuanbao
+    chat: block
+    bot: block
+    phase: never
+    note: "Yuanbao messaging platform (decision 6); not in plan 8.1, which counted upstream main after Yuanbao left core"
+  meet_join@plugin:google_meet:
+    toolset: google_meet
+    chat: block
+    bot: block
+    phase: never
+    note: "google_meet plugin (opt-in upstream): joins and speaks in meetings; not in plan 8.1, which counted default plugins only"
+  meet_leave@plugin:google_meet:
+    toolset: google_meet
+    chat: block
+    bot: block
+    phase: never
+    note: "google_meet plugin (opt-in upstream): joins and speaks in meetings; not in plan 8.1, which counted default plugins only"
+  meet_say@plugin:google_meet:
+    toolset: google_meet
+    chat: block
+    bot: block
+    phase: never
+    note: "google_meet plugin (opt-in upstream): joins and speaks in meetings; not in plan 8.1, which counted default plugins only"
+  meet_status@plugin:google_meet:
+    toolset: google_meet
+    chat: block
+    bot: block
+    phase: never
+    note: "google_meet plugin (opt-in upstream): joins and speaks in meetings; not in plan 8.1, which counted default plugins only"
+  meet_transcript@plugin:google_meet:
+    toolset: google_meet
+    chat: block
+    bot: block
+    phase: never
+    note: "google_meet plugin (opt-in upstream): joins and speaks in meetings; not in plan 8.1, which counted default plugins only"
+
+# Callable names that are not registry entries. model_tools handles them before the tool
+# registry, so the gate's owner check does not apply; config keeps them off (see each note).
+inline:
+  tool_call@core:
+    chat: block
+    bot: block
+    phase: 2
+    note: "Tool Search bridge. Off: managed config pins tools.tool_search.enabled to \"off\" (quoted). tool_call reaches any tool by name, though the gate still sees the inner name; phase 2 measures before any change"
+  tool_describe@core:
+    chat: block
+    bot: block
+    phase: 2
+    note: "Tool Search bridge. Off: managed config pins tools.tool_search.enabled to \"off\" (quoted). tool_call reaches any tool by name, though the gate still sees the inner name; phase 2 measures before any change"
+  tool_search@core:
+    chat: block
+    bot: block
+    phase: 2
+    note: "Tool Search bridge. Off: managed config pins tools.tool_search.enabled to \"off\" (quoted). tool_call reaches any tool by name, though the gate still sees the inner name; phase 2 measures before any change"
+  message_agent@core:
+    chat: block
+    bot: block
+    phase: never
+    note: "Bot Mode roster across profiles (tools/bot_mode_dm.py); Bot Mode stays off"

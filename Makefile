@@ -550,5 +550,8 @@ check-qa: ## Check QA script syntax and artifact formatting
 hermes-sync: ## Copy a Hermes Agent release into apps/agent/hermes and merge it (HERMES_REF=<vX.Y.Z>, default newest stable); report in .git/hermes-sync-report.md
 	@HERMES_REF='$(HERMES_REF)' scripts/sync-hermes.sh
 
-hermes-sync-check: ## Check apps/agent after a sync: snapshot link, patch inventory, no npm/env files (more checks land with phase 1)
+hermes-sync-check: ## Check apps/agent after a sync (plan 10.4 a-e): snapshot link, patches, conflict markers, compileall, import smoke, tool/skill policy, seams (HERMES_CHECK_STATIC_ONLY=1 skips the agent venv)
 	@scripts/hermes-sync/check.sh
+	@python3 -I -B -m unittest discover -q -s scripts/hermes-sync -p 'check_test.py'
+	@if [ "$(HERMES_CHECK_STATIC_ONLY)" != 1 ] && $(MAKE) -n agent-install >/dev/null 2>&1; then $(MAKE) --no-print-directory agent-install; fi
+	@python3 -I -B scripts/hermes-sync/check_sync.py
