@@ -210,12 +210,68 @@ func TestProductPriceSharedAggregateOfferReadOnce(t *testing.T) {
 // stops once the cap is reached.
 func TestOffersAvailabilityCountsSteps(t *testing.T) {
 	offers := []any{map[string]any{"price": "8", "availability": "InStock"}, map[string]any{"price": "9", "availability": "OutOfStock"}}
-	ld := &ldReader{seen: map[ldVisit]bool{}}
+	ld := newLDReader(nil)
 	if got := ld.offersAvailability(offers, 8); got != AvailInStock || ld.steps != 3 {
 		t.Fatalf("got %q after %d steps", got, ld.steps)
 	}
-	ld = &ldReader{seen: map[ldVisit]bool{}, steps: ldMaxSteps}
+	ld = newLDReader(nil)
+	ld.steps = ldMaxSteps
 	if got := ld.offersAvailability(offers, 8); got != AvailUnknown || ld.steps != ldMaxSteps {
 		t.Fatalf("past the cap: got %q after %d steps", got, ld.steps)
+	}
+}
+
+// Pages that name shared nodes from many places stay fast: every node is
+// read once per way of reading it, whatever the number of paths to it.
+func TestProductPriceSharedNodesStayFast(t *testing.T) {
+	ladder := func(levels, pad int) string {
+		var b strings.Builder
+		b.WriteString(`{"@graph":[{"@type":"Product","offers":[{"@id":"#A0"},{"@id":"#B0"}]}`)
+		for k := range levels {
+			for _, side := range []string{"A", "B"} {
+				fmt.Fprintf(&b, `,{"@id":"#%s%d","@type":"Offer","offers":[{"@id":"#A%d"},{"@id":"#B%d"}`, side, k, k+1, k+1)
+				b.WriteString(strings.Repeat(",1", pad))
+				b.WriteString(`]}`)
+			}
+		}
+		fmt.Fprintf(&b, `,{"@id":"#A%d","@type":"Offer","price":"8","availability":"InStock"},{"@id":"#B%d","@type":"Offer","price":"8","availability":"OutOfStock"}]}`, levels, levels)
+		return b.String()
+	}
+	many := func(item string) string {
+		var b strings.Builder
+		b.WriteString(`{"@graph":[{"@type":"Product","offers":[`)
+		for i := range 3000 {
+			if i > 0 {
+				b.WriteString(",")
+			}
+			fmt.Fprintf(&b, item, i)
+		}
+		b.WriteString(`]},{"@id":"#agg","@type":"AggregateOffer","lowPrice":"8","priceCurrency":"EUR","price":"8","offers":[`)
+		for i := range 1000 {
+			if i > 0 {
+				b.WriteString(",")
+			}
+			fmt.Fprintf(&b, `{"price":"%d","availability":"InStock"}`, 8+i%5)
+		}
+		b.WriteString(`]}]}`)
+		return b.String()
+	}
+	cases := []struct{ name, ld string }{
+		{"two refs per level, 40 levels, padded lists", ladder(40, 8000)},
+		{"every sibling an array around one ref", many(`[{"@id":"#agg","n":%d}]`)},
+		{"distinct offers naming one price specification", many(`{"@type":"Offer","n":%d,"priceSpecification":{"@id":"#agg"}}`)},
+		{"distinct nodes pointing at one shared node", many(`{"n":%d,"r":{"@id":"#agg"}}`)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			page := []byte(`<html><head><script type="application/ld+json">` + c.ld + `</script></head><body></body></html>`)
+			start := time.Now()
+			if _, err := ProductPrice(page, "text/html"); err != nil && !errors.Is(err, ErrEmpty) {
+				t.Fatal(err)
+			}
+			if d := time.Since(start); d > 300*time.Millisecond {
+				t.Fatalf("took %v for a %d KB page", d, len(page)/1024)
+			}
+		})
 	}
 }

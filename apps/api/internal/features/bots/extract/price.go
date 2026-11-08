@@ -208,7 +208,7 @@ func jsonLDPrice(blocks []string) (Price, bool) {
 		roots = append(roots, v)
 		indexIDs(v, ids)
 	}
-	ld := &ldReader{ids: ids, seen: map[ldVisit]bool{}}
+	ld := newLDReader(ids)
 	for _, v := range roots {
 		if p, ok := ld.find(v, true); ok {
 			return p, true
@@ -253,8 +253,11 @@ func indexIDs(v any, ids map[string]map[string]any) {
 }
 
 // JSON-LD @id references can form cycles and shared subtrees, so the reader
-// visits each node at most once per way of reading it, and gives up past
-// ldMaxDepth nested nodes or ldMaxSteps nodes in all.
+// reads each node at most once per way of reading it and remembers the
+// answer: a second path to a shared node (one priceSpecification named by
+// every variant) gets the same price, without reading it again. A node met
+// again while it is still being read (a cycle) gives nothing. The reader
+// gives up past ldMaxDepth nested nodes or ldMaxSteps steps in all.
 const (
 	ldMaxDepth = 64
 	ldMaxSteps = 100_000
@@ -262,9 +265,19 @@ const (
 
 type ldReader struct {
 	ids   map[string]map[string]any
-	seen  map[ldVisit]bool
+	read  map[ldVisit]ldRead
 	steps int
 	depth int
+}
+
+// ldRead is a node's finished read; a node being read has the zero value.
+type ldRead struct {
+	p  Price
+	ok bool
+}
+
+func newLDReader(ids map[string]map[string]any) *ldReader {
+	return &ldReader{ids: ids, read: map[ldVisit]ldRead{}}
 }
 
 // ldVisit is one node read one way: by find (top or not) or as an offer.
@@ -279,22 +292,25 @@ const (
 	ldOffer
 )
 
-// enter reports whether m may be read the given way, counting the step. A
-// node already read that way, or one past the caps, gives nothing new: the
-// first read of it would have returned its price. Every enter that returns
-// true is paired with leave.
-func (ld *ldReader) enter(m map[string]any, how byte) bool {
+// once reads m the given way with read, or returns the answer of the read
+// already made. A node still being read, or one past the caps, gives
+// nothing; each new read counts a step.
+func (ld *ldReader) once(m map[string]any, how byte, read func() (Price, bool)) (Price, bool) {
 	v := ldVisit{node: reflect.ValueOf(m).Pointer(), how: how}
-	if ld.seen[v] || ld.depth >= ldMaxDepth || ld.steps >= ldMaxSteps {
-		return false
+	if r, done := ld.read[v]; done {
+		return r.p, r.ok
 	}
-	ld.seen[v] = true
+	if ld.depth >= ldMaxDepth || ld.steps >= ldMaxSteps {
+		return Price{}, false
+	}
+	ld.read[v] = ldRead{}
 	ld.steps++
 	ld.depth++
-	return true
+	p, ok := read()
+	ld.depth--
+	ld.read[v] = ldRead{p: p, ok: ok}
+	return p, ok
 }
-
-func (ld *ldReader) leave() { ld.depth-- }
 
 // resolve follows a bare {"@id": …} reference to the node it names.
 func (ld *ldReader) resolve(m map[string]any) map[string]any {
@@ -322,39 +338,41 @@ func (ld *ldReader) find(v any, top bool) (Price, bool) {
 		if top {
 			how = ldFindTop
 		}
-		if !ld.enter(t, how) {
-			return Price{}, false
+		return ld.once(t, how, func() (Price, bool) { return ld.findIn(t, top) })
+	}
+	return Price{}, false
+}
+
+// findIn reads one node for find.
+func (ld *ldReader) findIn(t map[string]any, top bool) (Price, bool) {
+	switch {
+	case isType(t, "Product", "IndividualProduct", "ProductModel", "ProductGroup"):
+		if p, ok := ld.offers(t["offers"]); ok {
+			return p, true
 		}
-		defer ld.leave()
-		switch {
-		case isType(t, "Product", "IndividualProduct", "ProductModel", "ProductGroup"):
-			if p, ok := ld.offers(t["offers"]); ok {
-				return p, true
+		if p, ok := ld.find(t["hasVariant"], false); ok {
+			if list, isList := t["hasVariant"].([]any); isList {
+				p.Availability = ld.samePriceAvailability(list, p, func(r *ldReader, v any) (Price, bool) { return r.find(v, false) })
 			}
-			if p, ok := ld.find(t["hasVariant"], false); ok {
-				if list, isList := t["hasVariant"].([]any); isList {
-					p.Availability = ld.samePriceAvailability(list, p, func(r *ldReader, v any) (Price, bool) { return r.find(v, false) })
-				}
-				return p, true
-			}
-			return Price{}, false
-		case top && isType(t, "Offer", "AggregateOffer"):
-			if p, ok := ld.offer(t); ok {
-				return p, true
-			}
+			return p, true
 		}
-		if g, ok := t["@graph"]; ok {
-			if p, ok := ld.find(g, top); ok {
-				return p, true
-			}
+		return Price{}, false
+	case top && isType(t, "Offer", "AggregateOffer"):
+		if p, ok := ld.offer(t); ok {
+			return p, true
 		}
-		for _, k := range sortedKeys(t) {
-			if k == "@graph" {
-				continue
-			}
-			if p, ok := ld.find(t[k], false); ok {
-				return p, true
-			}
+	}
+	if g, ok := t["@graph"]; ok {
+		if p, ok := ld.find(g, top); ok {
+			return p, true
+		}
+	}
+	for _, k := range sortedKeys(t) {
+		if k == "@graph" {
+			continue
+		}
+		if p, ok := ld.find(t[k], false); ok {
+			return p, true
 		}
 	}
 	return Price{}, false
@@ -380,10 +398,11 @@ func (ld *ldReader) offers(v any) (Price, bool) {
 }
 
 func (ld *ldReader) offer(m map[string]any) (Price, bool) {
-	if !ld.enter(m, ldOffer) {
-		return Price{}, false
-	}
-	defer ld.leave()
+	return ld.once(m, ldOffer, func() (Price, bool) { return ld.offerIn(m) })
+}
+
+// offerIn reads one node for offer.
+func (ld *ldReader) offerIn(m map[string]any) (Price, bool) {
 	keys := []string{"price", "lowPrice"}
 	aggregate := isType(m, "AggregateOffer")
 	if aggregate {
@@ -399,17 +418,19 @@ func (ld *ldReader) offer(m map[string]any) (Price, bool) {
 			return Price{Amount: amount, Currency: currencyCode(cur, raw), From: "jsonld", Availability: avail}, true
 		}
 	}
-	if !KnownAvailability(avail) && aggregate {
-		avail = ld.offersAvailability(m["offers"], math.NaN())
-	}
 	if p, ok := ld.offers(m["priceSpecification"]); ok {
 		if p.Currency == "" {
 			p.Currency = currencyCode(cur, "")
 		}
 		// A price specification states no availability; its offer does.
+		if !KnownAvailability(avail) && aggregate {
+			avail = ld.offersAvailability(m["offers"], p.Amount)
+		}
 		p.Availability = avail
 		return p, true
 	}
+	// An aggregate with no price of its own reads its first priced offer,
+	// and the offers at that same price decide availability (offers).
 	p, ok := ld.offers(m["offers"])
 	if ok && !KnownAvailability(p.Availability) {
 		p.Availability = avail
@@ -444,7 +465,7 @@ func (ld *ldReader) offersAvailability(v any, price float64) string {
 			if buyRank(a) < buyRank(best) {
 				best = a
 			}
-			if amount, _, ok := ldAmount(o["price"]); ok && amount == price && buyRank(a) < buyRank(atPrice) {
+			if amount, ok := ld.offerAmount(o); ok && amount == price && buyRank(a) < buyRank(atPrice) {
 				atPrice = a
 			}
 		}
@@ -459,31 +480,38 @@ func (ld *ldReader) offersAvailability(v any, price float64) string {
 	return atPrice
 }
 
+// offerAmount is an offer's own price, or its price specification's.
+func (ld *ldReader) offerAmount(o map[string]any) (float64, bool) {
+	if amount, _, ok := ldAmount(o["price"]); ok {
+		return amount, true
+	}
+	specs := []any{o["priceSpecification"]}
+	if list, ok := o["priceSpecification"].([]any); ok {
+		specs = list
+	}
+	for _, s := range specs {
+		if m, ok := s.(map[string]any); ok {
+			if amount, _, ok := ldAmount(ld.resolve(m)["price"]); ok {
+				return amount, true
+			}
+		}
+	}
+	return 0, false
+}
+
 // samePriceAvailability is the most buyable availability among p and the
-// siblings that read at p's amount and currency, each read by read. Each
-// sibling gets visit marks of its own, since p's read or another sibling's
-// may already have marked a node it reaches (a shared priceSpecification),
-// and a sibling read with those marks would come back empty. Siblings share
-// the step cap, and a sibling that is the same node as one already read
-// (one AggregateOffer behind every "@id") is skipped: reading it again would
-// give the same answer.
+// siblings that read at p's amount and currency, each read by read. Reads are
+// remembered per node, so a sibling naming a node already read (one
+// AggregateOffer behind every "@id", one shared priceSpecification) gets that
+// node's answer at no cost.
 func (ld *ldReader) samePriceAvailability(siblings []any, p Price, read func(*ldReader, any) (Price, bool)) string {
 	best := p.Availability
-	read1 := map[uintptr]bool{}
 	for _, c := range siblings {
-		if m, ok := c.(map[string]any); ok {
-			node := reflect.ValueOf(ld.resolve(m)).Pointer()
-			if read1[node] {
-				continue
-			}
-			read1[node] = true
-		}
 		if ld.steps >= ldMaxSteps {
 			break
 		}
-		sub := &ldReader{ids: ld.ids, seen: map[ldVisit]bool{}, steps: ld.steps, depth: ld.depth}
-		q, ok := read(sub, c)
-		ld.steps = sub.steps
+		ld.steps++
+		q, ok := read(ld, c)
 		if ok && q.Amount == p.Amount && strings.EqualFold(q.Currency, p.Currency) && buyRank(q.Availability) < buyRank(best) {
 			best = q.Availability
 		}
