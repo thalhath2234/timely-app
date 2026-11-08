@@ -481,10 +481,11 @@ func (ld *ldReader) offerIn(m map[string]any) (Price, bool) {
 	cur := ldString(m["priceCurrency"])
 	for _, k := range keys {
 		if amount, raw, ok := ldAmount(m[k]); ok {
+			code := currencyCode(cur, raw)
 			if !KnownAvailability(avail) && aggregate {
-				avail = ld.offersAvailability(m["offers"], amount, currencyCode(cur, raw))
+				avail = ld.offersAvailability(m["offers"], amount, code)
 			}
-			return Price{Amount: amount, Currency: currencyCode(cur, raw), From: "jsonld", Availability: avail}, true
+			return Price{Amount: amount, Currency: code, From: "jsonld", Availability: avail}, true
 		}
 	}
 	if p, ok := ld.offers(m["priceSpecification"]); ok {
@@ -773,8 +774,9 @@ func stripSeps(s string) string {
 }
 
 var (
-	isoRe   = regexp.MustCompile(`^[A-Za-z]{3}$`)
-	codeRe  = regexp.MustCompile(`\b(USD|EUR|GBP|INR|JPY|CNY|CAD|AUD|NZD|CHF|SEK|NOK|DKK|PLN|CZK|BRL|MXN|SGD|HKD|AED|ZAR)\b`)
+	isoRe = regexp.MustCompile(`^[A-Za-z]{3}$`)
+	codes = map[string]bool{"USD": true, "EUR": true, "GBP": true, "INR": true, "JPY": true, "CNY": true, "CAD": true, "AUD": true, "NZD": true, "CHF": true,
+		"SEK": true, "NOK": true, "DKK": true, "PLN": true, "CZK": true, "BRL": true, "MXN": true, "SGD": true, "HKD": true, "AED": true, "ZAR": true}
 	symbols = []struct{ sym, code string }{
 		{"₹", "INR"}, {"Rs.", "INR"}, {"Rs ", "INR"}, {"€", "EUR"}, {"£", "GBP"}, {"US$", "USD"},
 	}
@@ -788,7 +790,7 @@ func currencyCode(stated, priceText string) string {
 		return strings.ToUpper(stated)
 	}
 	for _, s := range []string{stated, priceText} {
-		if c := codeRe.FindString(s); c != "" {
+		if c := codeWord(s); c != "" {
 			return c
 		}
 		for _, sym := range symbols {
@@ -798,4 +800,26 @@ func currencyCode(stated, priceText string) string {
 		}
 	}
 	return ""
+}
+
+// codeWord is the first whole word of s that is a known currency code
+// ("EUR 12,99"), where a word is a run of ASCII letters, digits and "_". It
+// scans s once: a regexp with word boundaries took ~85 µs on 256 chars of
+// "1 1 1", which a page can repeat in tens of thousands of offers.
+func codeWord(s string) string {
+	start := 0
+	for i := 0; i <= len(s); i++ {
+		if i < len(s) && isWordByte(s[i]) {
+			continue
+		}
+		if i-start == 3 && codes[s[start:i]] {
+			return s[start:i]
+		}
+		start = i + 1
+	}
+	return ""
+}
+
+func isWordByte(b byte) bool {
+	return b == '_' || '0' <= b && b <= '9' || 'a' <= b && b <= 'z' || 'A' <= b && b <= 'Z'
 }

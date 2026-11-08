@@ -123,6 +123,12 @@ func TestCurrencyCode(t *testing.T) {
 		{"", "US$ 5", "USD"},
 		{"", "$5", ""},
 		{"Rs.", "", "INR"},
+		{"", "(EUR) 12", "EUR"},
+		{"", "EUR12", ""},
+		{"", "XEUR 12", ""},
+		{"", "eur 12", ""},
+		{"Indian Rupee INR", "", "INR"},
+		{"", "price_USD 5 GBP", "GBP"},
 	}
 	for _, c := range cases {
 		if got := currencyCode(c.stated, c.text); got != c.want {
@@ -465,4 +471,42 @@ func TestProductPriceLongChainsStayLinear(t *testing.T) {
 			t.Fatalf("got %+v, %v; want %+v", got, err, want)
 		}
 	})
+}
+
+// Tens of thousands of distinct offers with long currency and price text are
+// each read in well under a microsecond's worth of scanning, so a page near
+// the 5 MB fetch limit still reads in under a second.
+func TestProductPriceLongCurrencyTextStaysFast(t *testing.T) {
+	cur := strings.Repeat("1 ", 127)
+	price := strings.Repeat("1.", 31) + "x"
+	fill := func(head, item, tail string) string {
+		var b strings.Builder
+		b.WriteString(head)
+		for i := 0; b.Len() < 4_800_000; i++ {
+			if i > 0 {
+				b.WriteString(",")
+			}
+			fmt.Fprintf(&b, item, i)
+		}
+		b.WriteString(tail)
+		return b.String()
+	}
+	cases := map[string]string{
+		"an aggregate's offers": fill(`{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":1,"offers":[`,
+			`{"n":%d,"price":"`+price+`","priceCurrency":"`+cur+`"}`, `]}}`),
+		"a plain offers list": fill(`{"@type":"Product","offers":[{"price":1},`,
+			`{"n":%d,"price":1,"priceCurrency":"`+cur+`"}`, `]}`),
+	}
+	for name, ld := range cases {
+		t.Run(name, func(t *testing.T) {
+			page := []byte(`<html><head><script type="application/ld+json">` + ld + `</script></head><body></body></html>`)
+			start := time.Now()
+			if _, err := ProductPrice(page, "text/html"); err != nil && !errors.Is(err, ErrEmpty) {
+				t.Fatal(err)
+			}
+			if d := time.Since(start); d > time.Second {
+				t.Fatalf("took %v for a %d KB page", d, len(page)/1024)
+			}
+		})
+	}
 }
