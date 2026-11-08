@@ -29,3 +29,13 @@ Each app has its own `AGENTS.md` with framework caveats — read it before editi
 - `apps/web/AGENTS.md` — this Next.js version has breaking changes vs. training data; read `node_modules/next/dist/docs/`. Electron lives in `apps/web/electron` and is started with `make dev-desktop`.
 - `apps/mobile/AGENTS.md` — Expo has changed; read the versioned docs for SDK 57.
 - `apps/api/setup.md` and `apps/api/MIGRATIONS.md` — API setup and migration workflow.
+
+## Project memory
+
+`.agents/memory/` is the memory every agent shares, whatever tool it runs in: the owner's standing rules, how they want work done, hard-won gotchas, and the state of unfinished work. `MEMORY.md` is the index; each `topics/<name>.md` holds one subject. Use it in place of any per-tool private memory (such as Claude Code's auto memory) for this project.
+
+- **Read** `.agents/memory/MEMORY.md` at the start of every task, then the topic notes for what the task touches. Index links miss some notes: `grep -ril <word> .agents/memory/topics` finds the rest. Its rules bind like this file. Status lines are snapshots, so confirm them against code, git and GitHub before acting on one.
+- **Write** when you learn something the next agent would otherwise rediscover the hard way: a rule or preference the owner states, a correction, a non-obvious gotcha, a decision and its reason, the state of work you leave unfinished. Code, git history and docs already record the rest.
+- **Update** the closest existing note first. A new note is `topics/<kebab-name>.md` with frontmatter `name`, `description` (one line, used to judge relevance), `metadata.type` (`user`, `feedback`, `project` or `reference`) and `metadata.modified`; `feedback` and `project` notes end with **Why:** and **How to apply:** lines. Then add or edit its one line in `MEMORY.md` under the fitting heading, keeping the index to one line per entry. Write absolute dates. Fix or delete notes that prove wrong, and mark finished work done.
+- **Commit** memory edits on the branch whose work they describe.
+- **Public:** this repo is public. Name the env var or file that holds a secret; the value, passwords, tokens and auth headers stay out.
