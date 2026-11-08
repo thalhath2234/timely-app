@@ -77,9 +77,19 @@ learning model, so Timely still never switches providers silently. The Claude
 Code and Codex CLIs, and Sensitive runs, go through a Go model endpoint on its
 own 127.0.0.1 listener, never the API's Tailscale address.
 
-**Host actions need the person, every call.** Every terminal, process, code,
-file and browser call passes a Timely gate plugin that asks Go, then Hermes'
-own approval gate, which Timely shows as a host card: Run once or Deny (the
+**The person sets how much the agent may do alone.** A permission mode, set
+per account, chat and Bot, decides which calls need approval: Supervised
+(every action asks; the default for new chats), Auto (only destructive and
+critical actions ask: deleting or overwriting, sending data out, paying or
+signing in, installing, changing settings, and writes after reading outside
+pages) or Full Access (nothing asks; turning it on needs step-up). Go owns the
+critical list. Hermes' hardline blocklist, the secret allowlist, account
+isolation and staged learning hold in every mode.
+
+**Host actions that need approval are asked per call.** Every terminal,
+process, code, file and browser call passes a Timely gate plugin that asks Go,
+which answers from the permission mode; when approval is needed, Hermes' own
+approval gate raises it and Timely shows it as a host card: Run once or Deny (the
 recommended answer to Q-5.1, which also asks whether to add "Allow for this
 chat" as a grant Timely keeps itself). Hermes' "always allow" lists are never
 offered, and no skill, memory or prompt can grant an approval. A worker whose
@@ -139,8 +149,10 @@ recommended answer to Q-5.2.
 - Other ADRs this changes, recorded here rather than edited while this ADR is
   Proposed. When it is accepted, the partly superseded ones get a note at the
   top, as ADR 0019 got for ADR 0020.
-  - ADR 0007: Timely data still changes only through Agent proposals; host
-    actions get per-call approval, once or deny.
+  - ADR 0007: Timely data still changes only through Agent proposals, applied
+    by Go; the permission mode decides which proposals wait for Approve
+    (all in Supervised) and which apply at once with Undo; host actions that
+    need approval get per-call approval, once or deny.
   - ADR 0008: runs live in the worker; a lost run fails with Try again naming
     possible host effects; approval waits are bounded (recommended in Q-5.1: a
     10-minute live wait, then the card is parked).

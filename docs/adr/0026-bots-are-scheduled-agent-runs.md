@@ -99,7 +99,9 @@ chat an attended one, the Chat and Bots tabs merge into one tab on web, desktop
 and mobile (working name Assistant, owner request), holding chats, Bots and
 their runs, Bot alerts and everything waiting for the person. It ships with
 agent Bots, old chat and Bot links redirect into it, and its design is the
-owner's pick of three (Q-7.12 in the plan).
+owner's pick of three: option 1, One inbox (Q-7.12 in the plan). Each Bot has a
+permission mode like a chat; nobody can approve during a tick, so a step that
+needs approval waits in the tab's Needs you list while the run goes on.
 
 **This supersedes parts of ADR 0024 and ADR 0023 and amends ADR 0021.** From
 ADR 0024, "rules spot, AI judges", the judge with no tools, the re-judge
