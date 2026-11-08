@@ -41,6 +41,9 @@ export default function TimezoneSelect({
       options={options}
       size={size}
       variant={variant}
+      // A row's trigger is only as wide as its value: the menu needs room
+      // for "Kamchatka (Asia/Kamchatka)", and opens from the row's right edge.
+      menuMinWidth={320}
       searchable
       className={className}
       aria-label={ariaLabel}
