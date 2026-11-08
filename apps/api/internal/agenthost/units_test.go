@@ -19,12 +19,18 @@ func TestBuildEnvRefusesDangerousToolKeys(t *testing.T) {
 		"HERMES_HOME", "HERMES_LANGUAGE", "HERMES_BUNDLED_LOCALES", "PATH", "HOME", "PYTHONPATH",
 		"LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "TERMINAL_CWD", "XDG_STATE_HOME", "SYSTEMROOT",
 		"lower_case", "BAD-NAME", "", "DATABASE_URL", "PGPASSWORD",
+		// Shell, interpreter, proxy and TLS switches (review finding): not credentials.
+		"BASH_ENV", "ENV", "NODE_OPTIONS", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "SSL_CERT_FILE",
+		"REQUESTS_CA_BUNDLE", "PERL5OPT", "GCONV_PATH", "UV_INDEX_URL", "PIP_INDEX_URL", "BROWSER",
+		"SSL_KEY", "UV_PUBLISH_TOKEN", "NODE_AUTH_TOKEN", "TELEGRAM_BOT_TOKEN", "SLACK_BOT_TOKEN",
+		"HERMES_YOLO_MODE", "SUDO_PASSWORD", "_KEY",
 	} {
 		if _, err := BuildEnv(layout, "a", EnvConfig{}, map[string]string{name: "x"}); err == nil {
 			t.Errorf("tool key %q accepted", name)
 		}
 	}
-	env, err := BuildEnv(layout, "a", EnvConfig{}, map[string]string{"EXA_API_KEY": "k", "GITHUB_TOKEN": "g", "FIRECRAWL_API_KEY": ""})
+	env, err := BuildEnv(layout, "a", EnvConfig{}, map[string]string{"EXA_API_KEY": "k", "GITHUB_TOKEN": "g", "FIRECRAWL_API_KEY": "",
+		"BROWSERBASE_PROJECT_ID": "p", "SEARXNG_URL": "http://searx"})
 	if err != nil {
 		t.Fatal(err)
 	}

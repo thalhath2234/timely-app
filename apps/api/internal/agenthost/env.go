@@ -62,17 +62,57 @@ func envFromHost(getenv func(string) string) EnvConfig {
 // keyName is the shape of a tool key's Hermes name (EXA_API_KEY and so on).
 var keyName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
 
+// A tool key is a credential: its name ends in one of keySuffixes (Hermes'
+// OPTIONAL_ENV_VARS name keys that way), or it is one of the few tool
+// settings in toolSettingNames. Anything else, such as BASH_ENV,
+// NODE_OPTIONS, HTTPS_PROXY or SSL_CERT_FILE, would change how the worker's
+// shells, interpreters or TLS behave, so it is refused.
+var (
+	keySuffixes      = []string{"_API_KEY", "_TOKEN", "_KEY", "_SECRET"}
+	toolSettingNames = map[string]bool{
+		"BROWSERBASE_PROJECT_ID": true, "FIRECRAWL_API_URL": true, "SEARXNG_URL": true,
+	}
+)
+
+// toolKeyName reports whether name may carry a tool key.
+func toolKeyName(name string) bool {
+	if !keyName.MatchString(name) || Denied(name) {
+		return false
+	}
+	if toolSettingNames[name] {
+		return true
+	}
+	for _, suffix := range keySuffixes {
+		if strings.HasSuffix(name, suffix) && len(name) > len(suffix) {
+			return true
+		}
+	}
+	return false
+}
+
 // deniedPrefixes and deniedNames may never reach a worker, whatever the
 // caller asks for (plan 6.4): Timely's own secrets, database settings, and
 // Hermes or interpreter behaviour switches.
 var (
-	deniedPrefixes = []string{"DB_", "TIMELY_", "API_", "HERMES_", "PYTHON", "LD_", "DYLD_", "XDG_", "TERMINAL_", "GIT_"}
-	deniedNames    = map[string]bool{
+	deniedPrefixes = []string{
+		"DB_", "TIMELY_", "API_", "HERMES_", "PYTHON", "LD_", "DYLD_", "XDG_", "TERMINAL_", "GIT_",
+		"SSL_", "UV_", "PIP_", "NODE_", "NPM_", "PERL", "RUBY", "GCONV_", "AWS_", "GOOGLE_APPLICATION_",
+		// Messaging platforms (decision 6): the worker refuses to start with any of them
+		// (apps/agent/timely_agent/env_check.py FORBIDDEN_PREFIXES).
+		"TELEGRAM_", "DISCORD_", "SLACK_", "WHATSAPP_", "SIGNAL_", "MATRIX_", "MATTERMOST_",
+		"FEISHU_", "LARK_", "WECOM_", "WEIXIN_", "DINGTALK_", "TEAMS_", "MSGRAPH_", "TWILIO_",
+		"IMESSAGE_", "BLUEBUBBLES_", "PHOTON_", "LINE_", "EMAIL_", "SMTP_", "IMAP_", "QQ_",
+	}
+	deniedNames = map[string]bool{
 		"JWT_SECRET": true, "DATABASE_URL": true, "PGPASSWORD": true, "PGHOST": true, "PGUSER": true,
 		"PGDATABASE": true, "PGPORT": true, "PGSERVICEFILE": true, "PGPASSFILE": true,
 		"CORS_ORIGINS": true, "PORT": true, "PATH": true, "HOME": true, "LANG": true, "TZ": true,
 		"TMPDIR": true, "TEMP": true, "TMP": true, "USERPROFILE": true, "APPDATA": true, "LOCALAPPDATA": true,
-		"SHELL": true, "SSH_AUTH_SOCK": true, "SUDO_ASKPASS": true,
+		"SHELL": true, "SSH_AUTH_SOCK": true, "SUDO_ASKPASS": true, "SUDO_PASSWORD": true,
+		"BASH_ENV": true, "ENV": true, "PROMPT_COMMAND": true, "BROWSER": true, "EDITOR": true,
+		"HTTP_PROXY": true, "HTTPS_PROXY": true, "ALL_PROXY": true, "NO_PROXY": true,
+		"http_proxy": true, "https_proxy": true, "all_proxy": true, "no_proxy": true,
+		"REQUESTS_CA_BUNDLE": true, "CURL_CA_BUNDLE": true,
 	}
 )
 
@@ -173,7 +213,7 @@ func BuildEnv(layout Layout, account string, host EnvConfig, toolKeys map[string
 		env["TMP"] = temp
 	}
 	for name, value := range toolKeys {
-		if !keyName.MatchString(name) || Denied(name) {
+		if !toolKeyName(name) {
 			return nil, fmt.Errorf("agenthost: tool key %q is not allowed in a worker environment", name)
 		}
 		if strings.ContainsRune(value, 0) {
