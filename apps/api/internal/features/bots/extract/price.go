@@ -260,7 +260,12 @@ func indexIDs(v any, ids map[string]map[string]any) {
 // gives up past ldMaxDepth nested nodes or ldMaxSteps steps in all.
 const (
 	ldMaxDepth = 64
-	ldMaxSteps = 100_000
+	ldMaxSteps = 1_000_000
+	// Longer strings are not read as a price, currency or availability.
+	// Real ones are short, and a step must not cost the length of a string
+	// a page can make megabytes long and name from many places.
+	ldMaxAmount = 64
+	ldMaxWord   = 256
 )
 
 type ldReader struct {
@@ -440,7 +445,7 @@ func (ld *ldReader) offerIn(m map[string]any) (Price, bool) {
 	for _, k := range keys {
 		if amount, raw, ok := ldAmount(m[k]); ok {
 			if !KnownAvailability(avail) && aggregate {
-				avail = ld.offersAvailability(m["offers"], amount)
+				avail = ld.offersAvailability(m["offers"], amount, cur)
 			}
 			return Price{Amount: amount, Currency: currencyCode(cur, raw), From: "jsonld", Availability: avail}, true
 		}
@@ -451,7 +456,7 @@ func (ld *ldReader) offerIn(m map[string]any) (Price, bool) {
 		}
 		// A price specification states no availability; its offer does.
 		if !KnownAvailability(avail) && aggregate {
-			avail = ld.offersAvailability(m["offers"], p.Amount)
+			avail = ld.offersAvailability(m["offers"], p.Amount, p.Currency)
 		}
 		p.Availability = avail
 		return p, true
@@ -470,12 +475,16 @@ func (ld *ldReader) offerIn(m map[string]any) (Price, bool) {
 // does not read as buyable because a dearer seller has stock. An offer at
 // that price that states nothing makes it unknown rather than sold out, and
 // a dearer seller's stock never fills it in: the page's meta tags decide.
-// When no offer is at that price, it is the most buyable of any offer.
-// AvailUnknown when none states one. Every node it looks at counts against
-// ldMaxSteps.
-func (ld *ldReader) offersAvailability(v any, price float64) string {
+// When no offer is at that price, it is the most buyable of any offer. An
+// offer stating another currency is not at the price. AvailUnknown when none
+// states one, or when the step cap cut the look short before anything
+// buyable was seen. Every node it looks at counts against ldMaxSteps.
+func (ld *ldReader) offersAvailability(v any, price float64, cur string) string {
 	atPrice, best := "", "" // "" ranks below every word: nothing seen yet
 	looked := map[uintptr]bool{}
+	outer := ld.cut
+	ld.cut = false
+	defer func() { ld.cut = ld.cut || outer }()
 	var visit func(v any)
 	visit = func(v any) {
 		if !ld.step() {
@@ -497,7 +506,7 @@ func (ld *ldReader) offersAvailability(v any, price float64) string {
 			if buyRank(a) < buyRank(best) {
 				best = a
 			}
-			if amount, ok := ld.offerAmount(o); ok && amount == price && buyRank(a) < buyRank(atPrice) {
+			if amount, c, ok := ld.offerAmount(o); ok && amount == price && sameCurrency(c, cur) && buyRank(a) < buyRank(atPrice) {
 				atPrice = a
 			}
 		}
@@ -506,16 +515,23 @@ func (ld *ldReader) offersAvailability(v any, price float64) string {
 	if atPrice == "" {
 		atPrice = best
 	}
-	if atPrice == "" {
+	if atPrice == "" || ld.cut && !Buyable(atPrice) {
 		return AvailUnknown
 	}
 	return atPrice
 }
 
-// offerAmount is an offer's own price, or its price specification's.
-func (ld *ldReader) offerAmount(o map[string]any) (float64, bool) {
+// sameCurrency is false only when both name a currency and they differ.
+func sameCurrency(a, b string) bool {
+	return a == "" || b == "" || strings.EqualFold(a, b)
+}
+
+// offerAmount is an offer's own price and currency, or its price
+// specification's.
+func (ld *ldReader) offerAmount(o map[string]any) (float64, string, bool) {
+	cur := ldString(o["priceCurrency"])
 	if amount, _, ok := ldAmount(o["price"]); ok {
-		return amount, true
+		return amount, cur, true
 	}
 	specs := []any{o["priceSpecification"]}
 	if list, ok := o["priceSpecification"].([]any); ok {
@@ -526,12 +542,16 @@ func (ld *ldReader) offerAmount(o map[string]any) (float64, bool) {
 			break
 		}
 		if m, ok := s.(map[string]any); ok {
-			if amount, _, ok := ldAmount(ld.resolve(m)["price"]); ok {
-				return amount, true
+			spec := ld.resolve(m)
+			if amount, _, ok := ldAmount(spec["price"]); ok {
+				if c := ldString(spec["priceCurrency"]); c != "" {
+					cur = c
+				}
+				return amount, cur, true
 			}
 		}
 	}
-	return 0, false
+	return 0, "", false
 }
 
 // samePriceAvailability is the most buyable availability among p and the
@@ -543,6 +563,10 @@ func (ld *ldReader) samePriceAvailability(siblings []any, p Price, read func(*ld
 	best := p.Availability
 	for _, c := range siblings {
 		if !ld.step() {
+			// The look was cut short: a sibling not read may be buyable.
+			if !Buyable(best) {
+				return AvailUnknown
+			}
 			break
 		}
 		if list, isList := c.([]any); isList {
@@ -608,8 +632,10 @@ func ldString(v any) string {
 	if list, ok := v.([]any); ok && len(list) > 0 {
 		v = list[0]
 	}
-	s, _ := v.(string)
-	return s
+	if s, ok := v.(string); ok && len(s) <= ldMaxWord {
+		return s
+	}
+	return ""
 }
 
 // ldAmount is an amount value, or the first of a list of them, unwrapped one
@@ -620,9 +646,15 @@ func ldAmount(v any) (float64, string, bool) {
 	}
 	switch t := v.(type) {
 	case json.Number:
+		if len(t) > ldMaxAmount {
+			return 0, "", false
+		}
 		f, err := t.Float64()
 		return f, t.String(), err == nil && f > 0 && !math.IsInf(f, 0)
 	case string:
+		if len(t) > ldMaxAmount {
+			return 0, "", false
+		}
 		f, ok := machineAmount(t)
 		return f, t, ok
 	}

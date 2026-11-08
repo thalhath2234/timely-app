@@ -211,12 +211,12 @@ func TestProductPriceSharedAggregateOfferReadOnce(t *testing.T) {
 func TestOffersAvailabilityCountsSteps(t *testing.T) {
 	offers := []any{map[string]any{"price": "8", "availability": "InStock"}, map[string]any{"price": "9", "availability": "OutOfStock"}}
 	ld := newLDReader(nil)
-	if got := ld.offersAvailability(offers, 8); got != AvailInStock || ld.steps != 3 {
+	if got := ld.offersAvailability(offers, 8, ""); got != AvailInStock || ld.steps != 3 {
 		t.Fatalf("got %q after %d steps", got, ld.steps)
 	}
 	ld = newLDReader(nil)
 	ld.steps = ldMaxSteps
-	if got := ld.offersAvailability(offers, 8); got != AvailUnknown || ld.steps != ldMaxSteps {
+	if got := ld.offersAvailability(offers, 8, ""); got != AvailUnknown || ld.steps != ldMaxSteps {
 		t.Fatalf("past the cap: got %q after %d steps", got, ld.steps)
 	}
 }
@@ -256,7 +256,15 @@ func TestProductPriceSharedNodesStayFast(t *testing.T) {
 		b.WriteString(`]}]}`)
 		return b.String()
 	}
+	huge := strings.Repeat("x", 1<<20)
+	refs := func(ref string, n int) string { return strings.TrimSuffix(strings.Repeat(ref+",", n), ",") }
 	cases := []struct{ name, ld string }{
+		{"one shared price specification with a 1 MB price named by every offer", `{"@graph":[{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":"10","offers":[` +
+			refs(`{"priceSpecification":{"@id":"#s"}}`, 3000) + `]}},{"@id":"#s","price":"` + huge + `"}]}`},
+		{"many aggregates naming one offer with 1 MB price and availability", `{"@graph":[{"@type":"Product","offers":[` +
+			refs(`{"@type":"AggregateOffer","lowPrice":"10","offers":{"@id":"#o"}}`, 3000) + `]},{"@id":"#o","price":"` + huge + `","availability":"In` + huge + `Stock"}]}`},
+		{"a 1 MB number named many times", `{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":1,"offers":{"priceSpecification":[` +
+			refs(`{"@id":"S"}`, 3000) + `]}},"x":{"@id":"S","price":` + strings.Repeat("1", 1<<20) + `}}`},
 		{"two refs per level, 40 levels, padded lists", ladder(40, 8000)},
 		{"every sibling an array around one ref", many(`[{"@id":"#agg","n":%d}]`)},
 		{"distinct offers naming one price specification", many(`{"@type":"Offer","n":%d,"priceSpecification":{"@id":"#agg"}}`)},
@@ -297,5 +305,21 @@ func TestProductPriceDepthCutIsNotRemembered(t *testing.T) {
 	got, err := ProductPrice([]byte(page), "text/html")
 	if want := (Price{10, "USD", "jsonld", AvailInStock}); err != nil || got != want {
 		t.Fatalf("got %+v, %v; want %+v", got, err, want)
+	}
+}
+
+// A look the step cap cut short never holds an alert: a sibling it did not
+// reach may be buyable.
+func TestProductPriceCutLookReadsUnknown(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`{"@type":"Product","offers":[{"price":"19","priceCurrency":"USD","availability":"OutOfStock"}`)
+	for range 1_100_000 {
+		b.WriteString(`,1`)
+	}
+	b.WriteString(`,{"price":"19","priceCurrency":"USD","availability":"InStock"}]}`)
+	page := `<html><head><script type="application/ld+json">` + b.String() + `</script></head></html>`
+	got, err := ProductPrice([]byte(page), "text/html")
+	if err != nil || got.Amount != 19 || got.Availability != AvailUnknown {
+		t.Fatalf("got %+v, %v; want 19 with unknown availability", got, err)
 	}
 }

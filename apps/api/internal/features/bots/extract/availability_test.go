@@ -104,6 +104,7 @@ func TestProductPriceAvailabilityJSONLD(t *testing.T) {
 		{"aggregate: the low price sits in a seller's price specification", `{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":"8","offers":[{"priceSpecification":{"price":"8"},"availability":"OutOfStock"},{"price":"9","availability":"InStock"}]}}`, AvailOutOfStock},
 		{"variants naming one price specification each keep their own", `{"@type":"ProductGroup","hasVariant":[{"@type":"Product","offers":{"availability":"OutOfStock","priceSpecification":{"@id":"#ps","price":"20"}}},{"@type":"Product","offers":{"availability":"InStock","priceSpecification":{"@id":"#ps"}}}]}`, AvailInStock},
 		{"offer array: a nested list holds an offer at the price in stock", `{"@type":"Product","offers":[{"@type":"Offer","price":"10","priceCurrency":"USD","availability":"OutOfStock"},[{"@type":"Offer","price":"12","priceCurrency":"USD","availability":"InStock"},{"@type":"Offer","price":"10","priceCurrency":"USD","availability":"InStock"}]]}`, AvailInStock},
+		{"aggregate: a seller in another currency at the same number does not fill in", `{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":"10","priceCurrency":"USD","offers":[{"@type":"Offer","price":"10","priceCurrency":"USD","availability":"OutOfStock"},{"@type":"Offer","price":"10","priceCurrency":"EUR","availability":"InStock"}]}}`, AvailOutOfStock},
 		{"lone top offer", `{"@type":"Offer","price":"44","availability":"https://schema.org/Discontinued"}`, AvailDiscontinued},
 	}
 	for _, c := range cases {
