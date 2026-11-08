@@ -1,0 +1,59 @@
+// Package agenthost supervises Timely's agent workers: one Python process per
+// account running the vendored Hermes agent (apps/agent, ADR 0026).
+//
+// The supervisor spawns a worker on first need (Ensure), talks to it over the
+// child's stdin and stdout as newline-delimited JSON, logs its stderr, checks
+// that it stays healthy, reaps it after the idle time, notices crashes and
+// limits restarts, and stops every worker when the API shuts down. It never
+// passes extra descriptors (fd 3+), because os/exec cannot do that on Windows,
+// a shipped desktop target.
+//
+// # Wire protocol (Go side, protocol version 1)
+//
+// apps/agent/PROTOCOL.md is the contract (plan section 5.1 with the names it
+// left open fixed). This is the part the supervisor itself relies on:
+//
+//   - One JSON object per line, UTF-8, "\n" terminated ("\r\n" is accepted).
+//     Lines longer than MaxLineBytes are a protocol violation.
+//   - Every message carries "type" and "account". The supervisor stamps
+//     "account" on everything it sends and kills the worker if a line arrives
+//     with a missing or different account (ADR 0001). The one exception is an
+//     "error" with no account, which a worker sends before it has pinned its
+//     account (refused environment, rejected hello): it is logged or fails
+//     the request it answers, and never reaches the handler.
+//   - Requests carry "id". A reply uses the same "id". Go's request ids start
+//     with "go-", the worker's with "w-". A reply of type
+//     "error" ({"type":"error","id":...,"code":...,"message":...}) fails the
+//     request with a *ReplyError.
+//   - Run-scoped messages carry "run". Outgoing "run.start" and "bot.run"
+//     mark the run live; incoming "run.done" and "bot.done" end it. A worker
+//     with a live run is never reaped.
+//   - Before spawning (Config.RenderAccount): "boot.py prepare --agent-dir
+//     <root>" once, then "boot.py render-account --agent-dir <root> --account
+//     <id>" with the settings JSON on stdin; its config_sha256 is the hello's
+//     settings_hash.
+//   - Handshake: Go sends "hello" {protocol, account, home, settings_hash,
+//     settings?, catalog_version}; the worker answers "ready" {protocol,
+//     hermes_tag, tools[], plugins_loaded[], self_test{ok, failures[],
+//     checks[{name, ok, detail}]}} within Config.HelloTimeout (20 s).
+//     self_test.ok must be true, otherwise the worker is stopped and Ensure
+//     fails with the failed checks. An "error" reply is ErrWorkerRefused.
+//   - Liveness: any line from the worker counts. The worker sends
+//     "heartbeat" {busy} every 10 s after ready; when it has been quiet for
+//     HeartbeatInterval, Go also sends "ping" {id} and the worker answers
+//     "pong" {id, busy}. busy is {runs, learning, children}; a busy worker is
+//     never reaped. Silence for HeartbeatTimeout (30 s) kills its process
+//     group.
+//   - "log" {level, text} lines are written to the API log. Everything else
+//     (events, tool.call, gate.ask, taint, run.done, ...) goes to
+//     Config.Handler in arrival order. With no handler, gate.ask gets a
+//     "block" verdict and tool.call an error result, so the worker fails
+//     closed at once instead of waiting for its hook timeout.
+//   - Stop: Go sends "shutdown" {grace} (seconds) and closes stdin (the worker's
+//     lifeline), waits ShutdownGrace, then SIGTERMs the process group
+//     (Unix), waits KillWait, then SIGKILLs the group (Unix) or terminates
+//     the Job Object (Windows).
+//
+// The package is not wired into the API yet (phase 1 has no user-visible
+// change); phase 2's chat engine is its first caller.
+package agenthost
