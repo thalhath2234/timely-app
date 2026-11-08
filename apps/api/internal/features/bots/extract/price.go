@@ -217,6 +217,8 @@ func jsonLDPrice(blocks []string) (Price, bool) {
 	return Price{}, false
 }
 
+var ldSpaces = strings.NewReplacer("\n", " ", "\r", " ", "\t", " ")
+
 func decodeLD(raw string) (any, bool) {
 	raw = strings.TrimSpace(raw)
 	for _, wrap := range []string{"<!--", "-->", "//<![CDATA[", "//]]>", "<![CDATA[", "]]>"} {
@@ -224,7 +226,7 @@ func decodeLD(raw string) (any, bool) {
 	}
 	// Raw line breaks inside strings are invalid JSON but common; as
 	// whitespace they change nothing a price needs.
-	raw = strings.NewReplacer("\n", " ", "\r", " ", "\t", " ").Replace(raw)
+	raw = ldSpaces.Replace(raw)
 	d := json.NewDecoder(strings.NewReader(raw))
 	d.UseNumber()
 	var v any
@@ -274,9 +276,12 @@ const (
 type ldReader struct {
 	ids   map[string]map[string]any
 	read  map[ldVisit]ldRead
-	steps int
-	depth int
-	cut   bool // a cap refused a read since cut was last cleared
+	facts map[uintptr]ldFacts // an offer or price specification's own fields
+	// specAmount is an offer's price found in its price specifications.
+	specAmount map[uintptr]ldFacts
+	steps      int
+	depth      int
+	cut        bool // a cap refused a read since cut was last cleared
 }
 
 // ldRead is a node's read: busy while it is being read, then its answer,
@@ -290,7 +295,32 @@ type ldRead struct {
 }
 
 func newLDReader(ids map[string]map[string]any) *ldReader {
-	return &ldReader{ids: ids, read: map[ldVisit]ldRead{}}
+	return &ldReader{ids: ids, read: map[ldVisit]ldRead{}, facts: map[uintptr]ldFacts{}, specAmount: map[uintptr]ldFacts{}}
+}
+
+// ldFacts is a node's own availability, price and currency, parsed once
+// however many places name the node.
+type ldFacts struct {
+	avail  string
+	amount float64
+	cur    string
+	priced bool
+}
+
+func (ld *ldReader) factsOf(o map[string]any) ldFacts {
+	node := reflect.ValueOf(o).Pointer()
+	if f, ok := ld.facts[node]; ok {
+		return f
+	}
+	f := ldFacts{avail: ldAvailability(o["availability"])}
+	cur := ldString(o["priceCurrency"])
+	if amount, raw, ok := ldAmount(o["price"]); ok {
+		f.amount, f.cur, f.priced = amount, currencyCode(cur, raw), true
+	} else {
+		f.cur = cur
+	}
+	ld.facts[node] = f
+	return f
 }
 
 // ldVisit is one node read one way: by find (top or not) or as an offer.
@@ -513,7 +543,7 @@ func (ld *ldReader) offersAvailability(v any, price float64, cur string) string 
 				return
 			}
 			looked[node] = true
-			a := ldAvailability(o["availability"])
+			a := ld.factsOf(o).avail
 			if buyRank(a) < buyRank(best) {
 				best = a
 			}
@@ -538,31 +568,38 @@ func sameCurrency(a, b string) bool {
 }
 
 // offerAmount is an offer's own price and currency, or its price
-// specification's.
+// specification's. Each node's fields are parsed once (factsOf), and an
+// offer's answer is remembered with them.
 func (ld *ldReader) offerAmount(o map[string]any) (float64, string, bool) {
-	cur := ldString(o["priceCurrency"])
-	if amount, raw, ok := ldAmount(o["price"]); ok {
-		return amount, currencyCode(cur, raw), true
+	f := ld.factsOf(o)
+	if f.priced {
+		return f.amount, f.cur, true
+	}
+	node := reflect.ValueOf(o).Pointer()
+	if a, ok := ld.specAmount[node]; ok {
+		return a.amount, a.cur, a.priced
 	}
 	specs := []any{o["priceSpecification"]}
 	if list, ok := o["priceSpecification"].([]any); ok {
 		specs = list
 	}
+	found := ldFacts{}
 	for _, s := range specs {
 		if !ld.step() {
 			break
 		}
 		if m, ok := s.(map[string]any); ok {
-			spec := ld.resolve(m)
-			if amount, raw, ok := ldAmount(spec["price"]); ok {
-				if c := ldString(spec["priceCurrency"]); c != "" {
-					cur = c
+			if sf := ld.factsOf(ld.resolve(m)); sf.priced {
+				found = sf
+				if sf.cur == "" {
+					found.cur = f.cur
 				}
-				return amount, currencyCode(cur, raw), true
+				break
 			}
 		}
 	}
-	return 0, "", false
+	ld.specAmount[node] = found
+	return found.amount, found.cur, found.priced
 }
 
 // samePriceAvailability is the most buyable availability among p and the
@@ -688,6 +725,10 @@ func machineAmount(s string) (float64, bool) {
 	return parseAmount(s)
 }
 
+var groupSpaces = strings.NewReplacer(" ", "", " ", "", " ", "", "'", "")
+
+var separators = strings.NewReplacer(".", "", ",", "")
+
 var amountRe = regexp.MustCompile(`\d{1,3}(?:[ \x{00A0}\x{202F}']\d{3})+(?:[.,]\d+)?|\d[\d.,]*`)
 
 // parseAmount reads the first amount in a price as people write it:
@@ -700,7 +741,7 @@ func parseAmount(s string) (float64, bool) {
 	if m == "" {
 		return 0, false
 	}
-	m = strings.NewReplacer(" ", "", " ", "", " ", "", "'", "").Replace(m)
+	m = groupSpaces.Replace(m)
 	m = strings.TrimRight(m, ".,")
 	lastDot, lastComma := strings.LastIndexByte(m, '.'), strings.LastIndexByte(m, ',')
 	var num string
@@ -732,7 +773,7 @@ func parseAmount(s string) (float64, bool) {
 }
 
 func stripSeps(s string) string {
-	return strings.NewReplacer(".", "", ",", "").Replace(s)
+	return separators.Replace(s)
 }
 
 var (

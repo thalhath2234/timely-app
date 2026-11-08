@@ -377,3 +377,35 @@ func TestProductPriceCutSiblingNeverHolds(t *testing.T) {
 		t.Fatalf("got %+v, %v; want 10 and not sold out", got, err)
 	}
 }
+
+// Prices and stock that many aggregates or price specifications name are
+// parsed once per node, so these big pages still read in well under a second.
+func TestProductPriceNamedFactsParsedOnce(t *testing.T) {
+	slowPrice := `"0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.00"`
+	agg := `{"@type":"AggregateOffer","lowPrice":5,"offers":[{"@id":"O"}]}`
+	specs := `[{"@type":"Product","offers":[` + strings.TrimSuffix(strings.Repeat(agg+",", 6), ",") + `]},{"@id":"S","price":` + slowPrice +
+		`},{"@id":"O","priceSpecification":[` + strings.TrimSuffix(strings.Repeat(`{"@id":"S"},`, 200000), ",") + `]}]`
+	var offers, refs strings.Builder
+	for i := range 500 {
+		fmt.Fprintf(&offers, `,{"@id":"%x","availability":"%s","price":%s}`, i, strings.Repeat("A-", 128), slowPrice)
+		if i > 0 {
+			refs.WriteString(",")
+		}
+		fmt.Fprintf(&refs, `{"@id":"%x"}`, i)
+	}
+	aggs := `{"@type":"AggregateOffer","lowPrice":5,"offers":[` + refs.String() + `]}`
+	shared := `[{"@type":"Product","offers":[` + strings.TrimSuffix(strings.Repeat(aggs+",", 300), ",") + `]}` + offers.String() + `]`
+	for name, ld := range map[string]string{"one spec named 200k times by six aggregates": specs, "500 offers named by 300 aggregates": shared} {
+		t.Run(name, func(t *testing.T) {
+			page := []byte(`<html><head><script type="application/ld+json">` + ld + `</script></head><body></body></html>`)
+			start := time.Now()
+			got, err := ProductPrice(page, "text/html")
+			if d := time.Since(start); d > time.Second {
+				t.Fatalf("took %v for a %d KB page", d, len(page)/1024)
+			}
+			if err != nil || got.Amount != 5 {
+				t.Fatalf("got %+v, %v", got, err)
+			}
+		})
+	}
+}

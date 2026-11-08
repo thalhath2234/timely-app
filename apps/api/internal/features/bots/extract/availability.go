@@ -38,6 +38,8 @@ var availabilityWords = map[string]string{
 	"discontinued":        AvailDiscontinued,
 }
 
+var availabilityJoiners = strings.NewReplacer(" ", "", "-", "", "_", "")
+
 // NormalizeAvailability reads a stated availability ("https://schema.org/InStock",
 // "http://schema.org/OutOfStock", "schema:SoldOut", "InStock", "in stock",
 // "out_of_stock") as one of the Avail words. Anything else, empty included,
@@ -47,7 +49,7 @@ func NormalizeAvailability(raw string) string {
 	if i := strings.LastIndexAny(s, "/:#"); i >= 0 {
 		s = s[i+1:]
 	}
-	s = strings.NewReplacer(" ", "", "-", "", "_", "").Replace(strings.ToLower(s))
+	s = availabilityJoiners.Replace(strings.ToLower(s))
 	if w, ok := availabilityWords[s]; ok {
 		return w
 	}
