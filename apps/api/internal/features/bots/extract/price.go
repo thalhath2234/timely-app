@@ -259,7 +259,7 @@ func indexIDs(v any, ids map[string]map[string]any) {
 // shared node (one priceSpecification named by every variant) gets the same
 // price without reading it again. A node met again while it is still being
 // read (a cycle) gives nothing. The reader gives up past ldMaxDepth nested
-// nodes or ldMaxSteps steps in all. A read a cap cut short is remembered as
+// nodes and lists, or ldMaxSteps steps in all. A read a cap cut short is remembered as
 // cut and never redone, so each node is read at most once per way and the
 // work stays linear; whatever reuses it is marked cut too, and a cut look
 // never holds an alert (it reads unknown).
@@ -345,6 +345,20 @@ func (ld *ldReader) step() bool {
 	return true
 }
 
+// nest enters a nested list. Lists count toward ldMaxDepth like nodes: a
+// page can nest lists thousands deep and chain them through @id nodes, and
+// each level is a stack frame, while real pages nest two or three. It
+// reports false, marking the read cut, past the cap; the caller undoes it
+// with ld.depth--.
+func (ld *ldReader) nest() bool {
+	if ld.depth >= ldMaxDepth {
+		ld.cut = true
+		return false
+	}
+	ld.depth++
+	return true
+}
+
 // once reads m the given way with read, or returns the answer of the read
 // already made. A node still being read, or one past the caps, gives
 // nothing; each new read counts a step. A remembered read that a cap cut
@@ -389,6 +403,10 @@ func (ld *ldReader) resolve(m map[string]any) map[string]any {
 func (ld *ldReader) find(v any, top bool) (Price, bool) {
 	switch t := v.(type) {
 	case []any:
+		if !ld.nest() {
+			break
+		}
+		defer func() { ld.depth-- }()
 		for _, c := range t {
 			if !ld.step() {
 				break
@@ -451,6 +469,10 @@ func (ld *ldReader) findIn(t map[string]any, top bool) (Price, bool) {
 func (ld *ldReader) offers(v any) (Price, bool) {
 	switch t := v.(type) {
 	case []any:
+		if !ld.nest() {
+			break
+		}
+		defer func() { ld.depth-- }()
 		for i, c := range t {
 			if !ld.step() {
 				break
@@ -530,9 +552,13 @@ func (ld *ldReader) offersAvailability(v any, price float64, cur string) string 
 		}
 		switch t := v.(type) {
 		case []any:
+			if !ld.nest() {
+				return
+			}
 			for _, c := range t {
 				visit(c)
 			}
+			ld.depth--
 		case map[string]any:
 			o := ld.resolve(t)
 			node := reflect.ValueOf(o).Pointer()
@@ -614,7 +640,12 @@ func (ld *ldReader) samePriceAvailability(siblings []any, p Price, read func(*ld
 			break
 		}
 		if list, isList := c.([]any); isList {
-			if a := ld.samePriceAvailability(list, Price{Amount: p.Amount, Currency: p.Currency, Availability: best}, read); buyRank(a) < buyRank(best) {
+			if !ld.nest() {
+				continue
+			}
+			a := ld.samePriceAvailability(list, Price{Amount: p.Amount, Currency: p.Currency, Availability: best}, read)
+			ld.depth--
+			if buyRank(a) < buyRank(best) {
 				best = a
 			}
 			continue

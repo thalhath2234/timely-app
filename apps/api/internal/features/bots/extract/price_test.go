@@ -3,6 +3,7 @@ package extract
 import (
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -300,12 +301,14 @@ func TestProductPriceSharedNodesStayFast(t *testing.T) {
 // again from a shallower path reuses it, and a sold-out sibling no longer
 // holds the alert, because the cut node may have been buyable.
 func TestProductPriceDepthCutNeverHolds(t *testing.T) {
+	// ProductGroup, the hasVariant list, the Product and its offers list take
+	// four levels, so #x is read at the cap and its own offer is cut.
 	var deep strings.Builder
-	for range 61 {
+	for range 59 {
 		deep.WriteString(`{"@type":"Offer","offers":`)
 	}
 	deep.WriteString(`{"@id":"#x","@type":"Offer","offers":{"@type":"Offer","price":"10","priceCurrency":"USD","availability":"InStock"}}`)
-	deep.WriteString(strings.Repeat("}", 61))
+	deep.WriteString(strings.Repeat("}", 59))
 	ld := `{"@type":"ProductGroup","hasVariant":[{"@type":"Product","offers":[` + deep.String() +
 		`,{"@type":"Offer","price":"10","priceCurrency":"USD","availability":"OutOfStock"}]},{"@type":"Product","offers":{"@id":"#x"}}]}`
 	page := `<html><head><script type="application/ld+json">` + ld + `</script></head></html>`
@@ -506,6 +509,32 @@ func TestProductPriceLongCurrencyTextStaysFast(t *testing.T) {
 			}
 			if d := time.Since(start); d > time.Second {
 				t.Fatalf("took %v for a %d KB page", d, len(page)/1024)
+			}
+		})
+	}
+}
+
+// Lists nested thousands deep and chained through @id nodes, one node per
+// block, count toward the depth cap, so reading the page needs a small stack
+// rather than hundreds of MB.
+func TestProductPriceNestedListsKeepStackSmall(t *testing.T) {
+	deep := func(key, inner string) string {
+		return `{"@id":"#n%d","` + key + `":[{"price":1},` + strings.Repeat("[", 9990) + inner + strings.Repeat("]", 9990) + `]}`
+	}
+	page := func(key string) []byte {
+		var b strings.Builder
+		b.WriteString(`<html><head><script type="application/ld+json">{"@type":"Product","offers":{"@id":"#n0"}}</script>`)
+		for i := range 70 {
+			fmt.Fprintf(&b, `<script type="application/ld+json">`+deep(key, `{"@id":"#n%d"}`)+`</script>`, i, i+1)
+		}
+		b.WriteString(`<script type="application/ld+json">{"@id":"#n70","y":1}</script></head><body></body></html>`)
+		return []byte(b.String())
+	}
+	defer debug.SetMaxStack(debug.SetMaxStack(64 << 20))
+	for _, key := range []string{"offers", "x"} {
+		t.Run(key, func(t *testing.T) {
+			if _, err := ProductPrice(page(key), "text/html"); err != nil && !errors.Is(err, ErrEmpty) {
+				t.Fatal(err)
 			}
 		})
 	}
