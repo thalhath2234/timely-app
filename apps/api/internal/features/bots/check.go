@@ -109,7 +109,7 @@ func (s *Service) HandleCheck(ctx context.Context, job *models.Job) error {
 		return nil
 	}
 	checkID := utils.PrefixedUUID("bchk")
-	c := checkRun{job: job, bot: b, trigger: trigger, started: started, floor: Floor(ws), reads: reads, checkID: checkID, chainID: checkID}
+	c := checkRun{job: job, bot: b, trigger: trigger, started: started, prevStarted: prevStarted, floor: Floor(ws), reads: reads, checkID: checkID, chainID: checkID}
 	p, err := classify(reads)
 	switch {
 	case err != nil:
@@ -153,8 +153,11 @@ type checkRun struct {
 	bot     Bot
 	trigger string
 	started time.Time
-	floor   time.Duration // of the watches it claimed with
-	reads   []watchRead
+	// prevStarted is the Bot's check_started_at before this claim, put
+	// back when the check sent nothing (see turnedAway).
+	prevStarted *time.Time
+	floor       time.Duration // of the watches it claimed with
+	reads       []watchRead
 	// checkID is the bot_checks row the save writes; chainID is the check
 	// that started the chain this one is part of (itself for a check of its
 	// own).
@@ -518,6 +521,13 @@ func (s *Service) saveProblem(ctx context.Context, c checkRun, p *problem) error
 		if len(cur) == 0 || cur[0].ConfigVersion != p.watch.ConfigVersion {
 			p = &problem{outcome: outSuperseded, err: p.err, watch: p.watch}
 		}
+		// A check turned away by a busy site before its first request sent
+		// nothing: it gives back the floor its claim took (the start it
+		// replaced) and waits only for the site, so a catch-up check that
+		// lost a site's slot to another Bot still runs within minutes, not
+		// a whole floor (6 hours for a shop price) later. read stops at the
+		// first error, so one read is the busy one.
+		turnedAway := p.outcome == outSiteBusy && len(c.reads) == 1
 		interval := b.Interval()
 		set := map[string]any{"last_check_at": done, "checking_job_id": nil, "updated_at": done}
 		var next time.Time
@@ -529,6 +539,12 @@ func (s *Service) saveProblem(ctx context.Context, c checkRun, p *problem) error
 				set["offline_since"] = done
 			}
 		case classWait:
+			if turnedAway {
+				// Back in line for the site's next free slot, not after
+				// the floor: nothing was read, so nothing was used up.
+				next = maxTime(p.until, done).Add(s.jitter(waitSpread))
+				break
+			}
 			next = Provisional(interval, c.started)
 			if at := done.Add(p.wait); p.wait > 0 && at.After(next) {
 				next = at
@@ -553,7 +569,12 @@ func (s *Service) saveProblem(ctx context.Context, c checkRun, p *problem) error
 		default: // superseded: check the edited watch as soon as the floor allows
 			next = done
 		}
-		next = maxTime(next, c.spaced())
+		if turnedAway {
+			set["check_started_at"] = c.prevStarted
+			next = maxTime(next, spacedAt(c.prevStarted, c.floor))
+		} else {
+			next = maxTime(next, c.spaced())
+		}
 		cws := make([]CheckWatch, 0, len(c.reads))
 		for _, r := range c.reads {
 			cw := r.cw

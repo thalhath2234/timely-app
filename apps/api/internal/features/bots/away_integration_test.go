@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"timely-api/internal/features/bots/fetch"
 	"timely-api/internal/jobs"
 	"timely-api/internal/models"
 )
@@ -385,6 +386,63 @@ func TestIntegrationBotCatchUpCheck(t *testing.T) {
 	}
 	if older := detail["checks"].([]any)[1].(map[string]any); older["away"] != nil {
 		t.Fatalf("the baseline check has a gap %v", older)
+	}
+}
+
+// Shop-price Bots on one site, all overdue after a restart: each catch-up
+// check that finds the site busy waits only for the site's next slot, not
+// its 6-hour floor, and keeps its gap, so every Bot reads once within a few
+// minutes and catches up.
+func TestIntegrationBotCatchUpSharedSite(t *testing.T) {
+	e := newEngine(t)
+	ids := make([]string, 3)
+	for i := range ids {
+		u := fmt.Sprintf("https://shop.example.com/item-%d", i)
+		e.net.serve(u, 200, "text/html", `<html><head><meta property="og:price:amount" content="10"></head><body></body></html>`)
+		v := e.create(Input{Name: fmt.Sprintf("Shop item %d", i), Watches: []WatchInput{{Kind: WatchPage, URL: u, Read: ReadProductPrice}}})
+		must(t, e.run(v.ID)) // baseline, with no site spacing
+		ids[i] = v.ID
+	}
+	e.s.fetch = fetch.New(fetch.Config{
+		Client: &http.Client{Transport: e.net}, Spacer: e.s.store, Robots: e.s.store,
+		Now: func() time.Time { return e.now }, Sleep: func(context.Context, time.Duration) error { return nil },
+	})
+	e.now = e.now.Add(9 * time.Hour)
+	must(t, e.db.Exec(`UPDATE bots SET next_check_at = ? WHERE user_id = ?`, e.now.Add(-9*time.Hour), e.user).Error)
+	// Another check holds the site for the first minute and a half, so the
+	// first wake checks are turned away.
+	must(t, e.db.Exec(`INSERT INTO bot_sites (site, next_slot_at, used_at) VALUES ('example.com', ?, ?)`, e.now.Add(90*time.Second), e.now).Error)
+	e.s.lastSweepWall, e.s.lastPrune = time.Time{}, e.now // the restart
+
+	start := e.now
+	busy := 0
+	for e.now.Before(start.Add(5 * time.Minute)) {
+		e.tick()
+		for _, id := range ids {
+			if c := e.lastCheck(id); c.Outcome == outSiteBusy && c.StartedAt.Equal(e.now) {
+				busy++
+				b := e.bot(id)
+				if b.AwaySince == nil || b.CheckStartedAt == nil || !b.CheckStartedAt.Equal(start.Add(-9*time.Hour)) ||
+					b.NextCheckAt.After(e.now.Add(2*time.Minute)) {
+					t.Fatalf("a turned-away check used up the floor: started %v, next %v, away %v", b.CheckStartedAt, b.NextCheckAt, b.AwaySince)
+				}
+				e.spacedOK(id)
+			}
+		}
+		e.now = e.now.Add(10 * time.Second)
+	}
+	if busy == 0 {
+		t.Fatal("no check was turned away; the test sets nothing up")
+	}
+	for _, id := range ids {
+		var read []Check
+		must(t, e.db.Where("bot_id = ? AND started_at >= ? AND outcome <> ?", id, start, outSiteBusy).Find(&read).Error)
+		if len(read) != 1 || read[0].Outcome != outUnchanged || read[0].AwaySecs == nil || *read[0].AwaySecs != 32400 {
+			t.Fatalf("%s: reading checks after the restart %+v", id, read)
+		}
+		if b := e.bot(id); b.AwaySince != nil || b.NextCheckAt.Before(read[0].StartedAt.Add(MinProductEvery-FenceSlack)) {
+			t.Fatalf("%s after catching up: away %v, next %v", id, b.AwaySince, b.NextCheckAt)
+		}
 	}
 }
 
