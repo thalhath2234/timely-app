@@ -91,6 +91,13 @@ switched. MCP keeps its limits: Bots it creates start paused, and it can never
 set a Bot's tools, browser grants, extra hosts, skills or model, nor edit an
 active Bot's prompt.
 
+**Chat and Bots become one tab.** Once a Bot is an unattended agent run and a
+chat an attended one, the Chat and Bots tabs merge into one tab on web, desktop
+and mobile (working name Assistant, owner request), holding chats, Bots and
+their runs, Bot alerts and everything waiting for the person. It ships with
+agent Bots, old chat and Bot links redirect into it, and its design is the
+owner's pick of three (Q-7.12 in the plan).
+
 **This supersedes parts of ADR 0024 and amends ADR 0021.** From ADR 0024 (on
 `feature/bots-ai`), "rules spot, AI judges", the judge with no tools, the
 re-judge ladder, "Not checked by AI" and rule suggestions are superseded. Typed
