@@ -41,6 +41,11 @@ const (
 	// went on to other Bots or into a brief.
 	outJudgedQuiet = "judged_quiet"
 	outPassed      = "passed"
+	// outHeldStock: rules would have fired, but the product page says it
+	// cannot be bought (onlyInStock). Nobody is told; the rules fire once
+	// it can be bought again. Only the first held check, or one whose
+	// reading moved, logs it; the same hold again is outUnchanged.
+	outHeldStock = "held_stock"
 )
 
 const (
@@ -317,7 +322,7 @@ func extractReading(w Watch, res *fetch.Response, now time.Time) (Reading, error
 			return Reading{}, unreadable(err)
 		}
 		amount := p.Amount
-		return Reading{Kind: ReadingPrice, Price: &amount, Currency: p.Currency, At: now}, nil
+		return Reading{Kind: ReadingPrice, Price: &amount, Currency: p.Currency, Availability: p.Availability, At: now}, nil
 	}
 	if w.ReadMode == ReadSelectorPrice {
 		amount, currency, err := extract.SelectPrice(res.Body, res.ContentType, w.Selector)
@@ -663,7 +668,7 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 		}
 		var fired []firedEvent
 		var rearms []Rearm
-		var baseline, moved, closed bool
+		var baseline, moved, closed, heldStock bool
 		saved, notMod := 0, 0
 		readings := map[string]Reading{}
 		cws := make([]CheckWatch, 0, len(c.reads))
@@ -700,15 +705,22 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 				states = nil
 			default:
 				prev := *w.LastReading
-				evs, st, re := evaluateWatch(w, reading)
+				evs, st, re, held := evaluateWatch(w, reading)
 				fired, states, rearms = append(fired, evs...), st, append(rearms, re...)
 				cw.Outcome = outUnchanged
-				if watchChanged(prev, reading) {
+				changed := watchChanged(prev, reading)
+				if changed {
 					moved, cw.Outcome = true, outChanged
 					set["last_changed_at"] = done
 				}
-				if len(evs) > 0 {
+				switch {
+				case len(evs) > 0:
 					cw.Outcome = outFired
+				case len(held) > 0 && (changed || newlyHeld(w, held)):
+					// A hold is news when it starts or the reading moves;
+					// the same hold again is an unchanged check.
+					heldStock = true
+					cw.Outcome, cw.Note = outHeldStock, heldNote(w, held, reading)
 				}
 				if cw.Outcome != outUnchanged {
 					readings[w.ID] = reading
@@ -762,6 +774,8 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 			check.Outcome = outPassed
 		case len(fired) > 0:
 			check.Outcome = firedOutcome(run)
+		case heldStock:
+			check.Outcome = outHeldStock
 		case baseline:
 			check.Outcome = outBaseline
 		case moved:
@@ -773,7 +787,7 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 		default:
 			check.Outcome = outUnchanged
 		}
-		if check.Outcome == outFired || check.Outcome == outBaseline || check.Outcome == outChanged {
+		if check.Outcome == outFired || check.Outcome == outBaseline || check.Outcome == outChanged || check.Outcome == outHeldStock {
 			check.Reading = make(map[string]Reading, len(readings))
 			for id, r := range readings {
 				check.Reading[id] = clipReading(r, MaxReadingBytes/len(readings))
@@ -834,16 +848,20 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 }
 
 // evaluateWatch runs a watch's rules against a new reading, measured from
-// its last one: the rules that fired, every rule's new state and the rules
-// that armed again. The save and planCheck's dry run both use it, so the
-// judge sees what the save will alert on.
-func evaluateWatch(w Watch, reading Reading) (fired []firedEvent, states jsonMap[string, RuleState], rearms []Rearm) {
+// its last one: the rules that fired, every rule's new state, the rules
+// that armed again and the rules held because the product cannot be bought.
+// The save and planCheck's dry run both use it, so the judge sees what the
+// save will alert on.
+func evaluateWatch(w Watch, reading Reading) (fired []firedEvent, states jsonMap[string, RuleState], rearms []Rearm, held []Rule) {
 	prev := *w.LastReading
 	states = jsonMap[string, RuleState]{}
 	for _, rule := range w.Rules {
 		old := w.RuleState[rule.ID]
-		ev, st := Evaluate(rule, old, prev, reading)
+		ev, st, wasHeld := evaluate(rule, old, prev, reading)
 		states[rule.ID] = st
+		if wasHeld {
+			held = append(held, rule)
+		}
 		if ev != nil {
 			ev.WatchID = w.ID
 			fired = append(fired, firedEvent{ev: *ev, w: w, rule: rule, ref: refBefore(rule, old, prev)})
@@ -852,7 +870,34 @@ func evaluateWatch(w Watch, reading Reading) (fired []firedEvent, states jsonMap
 			rearms = append(rearms, Rearm{WatchID: w.ID, RuleID: rule.ID, Value: v, Currency: reading.Currency})
 		}
 	}
-	return fired, states, rearms
+	return fired, states, rearms, held
+}
+
+// newlyHeld reports a held rule that was not held at the watch's last check.
+func newlyHeld(w Watch, held []Rule) bool {
+	for _, r := range held {
+		if w.RuleState[r.ID].Held == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// heldNote is why a watch's rules stayed quiet on stock, for the check's log:
+// "Price is below ₹90,000, but the page says it is out of stock".
+func heldNote(w Watch, held []Rule, reading Reading) string {
+	currency := reading.Currency
+	if currency == "" {
+		currency = w.Currency
+	}
+	line := ruleWords(held[0], currency)
+	switch n := len(held) - 1; {
+	case n == 1:
+		line += " (and 1 more rule)"
+	case n > 1:
+		line += fmt.Sprintf(" (and %d more rules)", n)
+	}
+	return line + ", but the page says it is " + stockWords(reading.Availability)
 }
 
 // judgedRun applies what planCheck decided to the rules that fired in the

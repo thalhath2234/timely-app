@@ -81,7 +81,9 @@ import {
   proposalFacts,
   resetLine,
   ruleLine,
+  ruleNote,
   tellLine,
+  cleanWatchInput,
   alertLink,
   runNowState,
   snoozePresets,
@@ -867,6 +869,30 @@ describe("rules", () => {
     assert.equal(ruleLine(below(25000), seed.headphones.watches[0]), "Price is below ₹25,000");
   });
 
+  test("stock words: in_stock and a rule that alerts in stock or not", () => {
+    assert.equal(ruleLine({ kind: "in_stock" }, inr), "Back in stock");
+    assert.equal(tellLine({ kind: "in_stock" }, inr), "when it is back in stock");
+    assert.equal(ruleLine({ ...below(90000), onlyInStock: false }, inr), "Price is below ₹90,000, in stock or not");
+    assert.equal(ruleLine({ ...below(90000), onlyInStock: true }, inr), "Price is below ₹90,000");
+    // An edit sends false back, so a saved "in stock or not" survives the editor.
+    const sent = cleanWatchInput({ kind: "page", url: "https://shop.example/p", read: "product_price", rules: [{ ...below(90000), onlyInStock: false }, { kind: "in_stock" }] });
+    assert.equal(sent.rules?.[0].onlyInStock, false);
+    assert.equal("onlyInStock" in (sent.rules?.[1] ?? {}), false);
+  });
+
+  test("rule notes under the editors' rows: Back in stock, and in stock or not", () => {
+    assert.equal(ruleNote({ kind: "in_stock" }), "When the page says it can be bought again");
+    assert.equal(ruleNote({ kind: "any_change" }), "Any change to what it reads");
+    assert.equal(ruleNote({ kind: "any_change", onlyInStock: false }), "Any change to what it reads, in stock or not");
+    assert.equal(ruleNote({ ...below(90000), onlyInStock: false }), "Alerts in stock or not");
+    assert.equal(ruleNote({ kind: "above", threshold: 1, onlyInStock: false }), "Alerts in stock or not");
+    assert.equal(ruleNote({ kind: "move_pct", percent: 5, onlyInStock: false }), "Alerts in stock or not");
+    // The default holds while sold out, so it needs no note.
+    assert.equal(ruleNote(below(90000)), "");
+    assert.equal(ruleNote({ ...below(90000), onlyInStock: true }), "");
+    assert.equal(ruleNote({ kind: "words_appear", words: ["Add to cart"] }), "");
+  });
+
   test("tell lines read on from \"and tell you\"", () => {
     assert.equal(tellLine(below(90000), inr), "when the price is below ₹90,000");
     assert.equal(tellLine({ kind: "above", threshold: 70000 }, { currency: "USD" }), "when the price is above $70,000");
@@ -1077,6 +1103,12 @@ describe("drafts", () => {
       watches: [...shop.watches, { kind: "page", url: "https://a.in/y", read: "text", rules: [{ kind: "words_appear", words: [" "] }, { kind: "below", threshold: 1 }] }],
     };
     assert.deepEqual(draftErrors(two), ["Watch 2: Give the words to look for", "Watch 2: “Price is below” does not fit this watch"]);
+    const restock = { ...shop, intervalMinutes: 360, watches: [{ ...shop.watches[0], rules: [{ kind: "below", threshold: 90000 }, { kind: "in_stock" }] }] };
+    assert.deepEqual(draftErrors(restock), [], "a chat-made Back in stock rule still saves");
+    const textRestock = { ...restock, watches: [{ kind: "page", url: "https://a.in/y", read: "text", rules: [{ kind: "in_stock" }] }] };
+    assert.deepEqual(draftErrors(textRestock), ["“Back in stock” does not fit this watch"]);
+    const partRestock = { ...restock, watches: [{ kind: "page", url: "https://a.in/y", read: "selector_price", selector: ".p", rules: [{ kind: "in_stock" }] }] };
+    assert.deepEqual(draftErrors(partRestock), ["“Back in stock” does not fit this watch"]);
     assert.deepEqual(draftErrors({ ...shop, intervalMinutes: 20000 }), ["Check at least once a week (10080 minutes)"]);
     assert.deepEqual(draftErrors({ ...shop, intervalMinutes: 360, name: "x".repeat(81) }), ["Keep the bot's name under 80 characters"]);
   });
@@ -1517,6 +1549,7 @@ describe("AI, links and briefs over the seed", () => {
     assert.deepEqual([BRIEF_TIMES[0], BRIEF_TIMES[3], BRIEF_TIMES[17]], ["05:00", "08:00", "22:00"]);
     assert.equal(checkOutcomeLabel("passed"), "Passed on");
     assert.equal(checkOutcomeLabel("judged_quiet"), "AI held it back");
+    assert.equal(checkOutcomeLabel("held_stock"), "Out of stock, held back");
     assert.equal(checkOutcomeLabel("fired"), "Told you");
     assert.equal(checkTriggerLabel("pass"), "Passed on");
   });

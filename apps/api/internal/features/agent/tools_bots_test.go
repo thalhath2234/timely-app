@@ -381,3 +381,21 @@ func TestBotReplyUsesRulesTitle(t *testing.T) {
 		t.Errorf("botReply %+v", got)
 	}
 }
+
+// A shop watch's stock reaches the model both ways: onlyInStock on the way
+// in, availability in list_bots on the way out.
+func TestBotToolsCarryStock(t *testing.T) {
+	no := false
+	got := watchInputs([]botWatchIn{{Kind: "page", URL: "https://shop.example/p", Read: "product_price",
+		Rules: []botRuleIn{{Kind: "below", Threshold: &[]float64{90000}[0], OnlyInStock: &no}, {Kind: "in_stock"}}}})
+	if r := got[0].Rules; len(r) != 2 || r[0].OnlyInStock == nil || *r[0].OnlyInStock || r[1].Kind != bots.RuleInStock || r[1].OnlyInStock != nil {
+		t.Errorf("rules %+v", r)
+	}
+	v := bots.View{ID: "bot_p", Watches: []bots.WatchView{{ID: "bwt_p", Kind: bots.WatchPage, Read: bots.ReadProductPrice, Availability: "out_of_stock"}}}
+	if w := botReply(v).Watches[0]; w.Availability != "out_of_stock" {
+		t.Errorf("watch %+v", w)
+	}
+	if !strings.Contains(stockRules, "onlyInStock") || !strings.Contains(stockRules, "in_stock") {
+		t.Errorf("stockRules %q", stockRules)
+	}
+}

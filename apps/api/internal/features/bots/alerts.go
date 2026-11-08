@@ -1,6 +1,7 @@
 package bots
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -495,14 +496,20 @@ func describe(f firedEvent) (what, body string, figures jsonMap[string, any]) {
 	figures = jsonMap[string, any]{"rule": r.Kind, "watchId": ev.WatchID}
 	after, okA := ev.After.value()
 	currency := ev.After.Currency
+	// A product that could not be bought last time and can now says so; a
+	// price that only waited for the restock does not repeat itself.
+	restock := restockWords(ev.Before, ev.After)
 	nowWas := func(was *float64) string {
 		subject := "Now"
 		if f.w.Kind == WatchPrice && f.w.Symbol != "" {
 			subject = f.w.Symbol + " now"
 		}
 		line := subject + " " + formatMoney(after, currency)
-		if was != nil {
+		if was != nil && !(restock != "" && near(*was, after)) {
 			line += " (was " + formatMoney(*was, currency) + ")"
+		}
+		if restock != "" {
+			line += ", " + restock
 		}
 		return line
 	}
@@ -513,6 +520,12 @@ func describe(f firedEvent) (what, body string, figures jsonMap[string, any]) {
 		}
 	}
 	switch r.Kind {
+	case RuleInStock:
+		what = cmp.Or(restock, "back in stock")
+		if !okA {
+			return what, "It can be bought again.", figures
+		}
+		return what, "Now " + formatMoney(after, currency), figures
 	case RuleBelow, RuleAbove:
 		t := 0.0
 		if r.Threshold != nil {
@@ -566,6 +579,13 @@ func describe(f firedEvent) (what, body string, figures jsonMap[string, any]) {
 		was, okB := ev.Before.value()
 		if !okB {
 			return "price changed", nowWas(nil), figures
+		}
+		if okA && near(was, after) && stockMoved(ev.Before, ev.After) {
+			// Only the availability moved.
+			if restock != "" {
+				return restock, "Now " + formatMoney(after, currency), figures
+			}
+			return "now " + stockWords(ev.After.Availability), "Now " + formatMoney(after, currency), figures
 		}
 		return "price changed", nowWas(&was), figures
 	}

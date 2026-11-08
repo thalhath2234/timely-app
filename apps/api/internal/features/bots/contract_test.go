@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"timely-api/internal/features/bots/extract"
 	"timely-api/internal/utils"
 )
 
@@ -79,7 +80,7 @@ func TestContractLimits(t *testing.T) {
 }
 
 // TestContractWords checks that the words the clients switch on (read modes,
-// check triggers, answer freshness, the Not useful reasons, judging, bot and
+// check triggers and outcomes, rule kinds, availability, answer freshness, the Not useful reasons, judging, bot and
 // link kinds, AI states, urgency, alert kinds and holds) are the ones the API
 // writes. An empty string in a union counts as a word, so AiState's "" (rules
 // only) and AlertHeld's "" (sent) are checked too.
@@ -133,6 +134,9 @@ func TestContractWords(t *testing.T) {
 		{"AlertKind", union("AlertKind"), []string{alertKindAlert, alertKindMore, alertKindPaused, alertKindBrief}},
 		{"AlertHeld", union("AlertHeld"), []string{"", heldSnoozed, heldCap, heldJudged, heldShared}},
 		{"AwayReason", union("AwayReason"), []string{AwayClosed, AwayAsleep, AwayAllPaused}},
+		{"RuleKind", union("RuleKind"), []string{RuleAnyChange, RuleAbove, RuleBelow, RuleMovePct, RuleWordsAppear, RuleWordsDisappear, RuleNewItem, RuleInStock}},
+		{"Availability", union("Availability"), []string{extract.AvailInStock, extract.AvailOutOfStock, extract.AvailPreorder, extract.AvailBackorder, extract.AvailLimited, extract.AvailDiscontinued, extract.AvailUnknown}},
+		{"CheckOutcome", union("CheckOutcome"), []string{outBaseline, outUnchanged, outNotModified, outChanged, outFired, outOffline, outRateLimited, outSiteBusy, outRobots, outStrike, outSuperseded, outJudgedQuiet, outPassed, outHeldStock}},
 	}
 	for _, c := range cases {
 		if strings.Join(c.got, ",") != strings.Join(c.want, ",") {

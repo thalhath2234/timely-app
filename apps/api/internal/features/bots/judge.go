@@ -75,6 +75,10 @@ type JudgeChange struct {
 	Body   string `json:"body,omitempty"`
 	Before string `json:"before,omitempty"`
 	After  string `json:"after,omitempty"`
+	// Stock is whether the product can be bought now, as its page says
+	// ("in stock", "out of stock"), with what it said before when that
+	// differs ("out of stock, now in stock"). "" when the page says nothing.
+	Stock string `json:"stock,omitempty"`
 }
 
 // JudgeNote is a note another Bot passed on (Pass to).
@@ -201,6 +205,7 @@ func judgeChange(f firedEvent) JudgeChange {
 		if v, ok := ev.After.value(); ok {
 			c.After = formatMoney(v, ev.After.Currency)
 		}
+		c.Stock = stockLine(ev.Before, ev.After)
 	default:
 		c.Before = clipRunes(linesAround(ev.Before.Text, ev.After.Text), judgeSide)
 		c.After = clipRunes(linesAround(ev.After.Text, ev.Before.Text), judgeSide)
@@ -266,11 +271,19 @@ func ruleWords(r Rule, currency string) string {
 		}
 		return strings.Join(q, " or ")
 	}
+	// On a product page price rules wait until it can be bought, unless
+	// the person said otherwise; only then is it worth a word.
+	anyStock := ""
+	if r.OnlyInStock != nil && !*r.OnlyInStock {
+		anyStock = ", in stock or not"
+	}
 	switch r.Kind {
+	case RuleInStock:
+		return "Back in stock"
 	case RuleBelow:
-		return "Price is below " + money(r.Threshold)
+		return "Price is below " + money(r.Threshold) + anyStock
 	case RuleAbove:
-		return "Price is above " + money(r.Threshold)
+		return "Price is above " + money(r.Threshold) + anyStock
 	case RuleMovePct:
 		p := "…"
 		if r.Percent != nil {
@@ -279,11 +292,11 @@ func ruleWords(r Rule, currency string) string {
 		}
 		switch r.Direction {
 		case DirUp:
-			return "Rises " + p + "%"
+			return "Rises " + p + "%" + anyStock
 		case DirDown:
-			return "Drops " + p + "%"
+			return "Drops " + p + "%" + anyStock
 		}
-		return "Moves " + p + "% either way"
+		return "Moves " + p + "% either way" + anyStock
 	case RuleWordsAppear, RuleWordsDisappear:
 		w := quoted(r.Words)
 		if w == "" {
@@ -299,7 +312,7 @@ func ruleWords(r Rule, currency string) string {
 		}
 		return "A new post"
 	}
-	return "Any change"
+	return "Any change" + anyStock
 }
 
 // eventKey names a fired rule and, for new items, which ones, so the save

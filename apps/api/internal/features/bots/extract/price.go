@@ -15,17 +15,23 @@ import (
 )
 
 // Price is a product's price as the page states it. From is where it was
-// read: "jsonld", "og" or "itemprop".
+// read: "jsonld", "og" or "itemprop". Availability is one of the Avail
+// words, AvailUnknown when the page states none.
 type Price struct {
-	Amount   float64
-	Currency string
-	From     string
+	Amount       float64
+	Currency     string
+	From         string
+	Availability string
 }
 
 // ProductPrice reads a product page's price. It tries, in order: JSON-LD
 // Product offers (Offer, AggregateOffer's lowPrice, @graph and @id
 // references), then og:price:amount or product:price:amount with its
 // currency, then microdata itemprop="price". No price gives ErrEmpty.
+//
+// Availability comes from the offers at the price read, else from
+// og:availability or product:availability, else, for a microdata price,
+// from microdata itemprop="availability".
 func ProductPrice(body []byte, contentType string) (Price, error) {
 	doc, err := parseHTML(body, contentType)
 	if err != nil {
@@ -33,25 +39,30 @@ func ProductPrice(body []byte, contentType string) (Price, error) {
 	}
 	var pg pricePage
 	pg.walk(doc)
-	if p, ok := jsonLDPrice(pg.ldJSON); ok {
-		return p, nil
+	p, ok := jsonLDPrice(pg.ldJSON)
+	if !ok {
+		p, ok = pg.ogPrice()
 	}
-	if p, ok := pg.ogPrice(); ok {
-		return p, nil
+	if !ok {
+		p, ok = pg.itempropPrice()
 	}
-	if p, ok := pg.itempropPrice(); ok {
-		return p, nil
+	if !ok {
+		return Price{}, ErrEmpty
 	}
-	return Price{}, ErrEmpty
+	if !KnownAvailability(p.Availability) {
+		p.Availability = pg.availability(p.From == "itemprop")
+	}
+	return p, nil
 }
 
 // pricePage is what one walk of the page collects.
 type pricePage struct {
 	ldJSON       []string
-	meta         map[string]string // first content per og/product price property
+	meta         map[string]string // first content per og/product price or availability property
 	itemPrice    []string
 	itemLow      []string
 	itemCurrency string
+	itemAvail    []string
 }
 
 func (pg *pricePage) walk(n *html.Node) {
@@ -67,7 +78,7 @@ func (pg *pricePage) walk(n *html.Node) {
 			if key == "" {
 				key = strings.ToLower(attr(n, "name"))
 			}
-			if strings.HasSuffix(key, ":price:amount") || strings.HasSuffix(key, ":price:currency") {
+			if strings.HasSuffix(key, ":price:amount") || strings.HasSuffix(key, ":price:currency") || key == "og:availability" || key == "product:availability" {
 				if pg.meta == nil {
 					pg.meta = map[string]string{}
 				}
@@ -86,6 +97,12 @@ func (pg *pricePage) walk(n *html.Node) {
 				if pg.itemCurrency == "" {
 					pg.itemCurrency = itemValue(n)
 				}
+			case "availability":
+				v := itemValue(n)
+				if n.DataAtom == atom.Link || (v == "" && hasAttr(n, "href")) {
+					v = attr(n, "href")
+				}
+				pg.itemAvail = append(pg.itemAvail, v)
 			}
 		}
 	}
@@ -107,6 +124,23 @@ func (pg *pricePage) ogPrice() (Price, bool) {
 		return Price{Amount: amount, Currency: currencyCode(cur, pg.meta[prefix+":price:amount"]), From: "og"}, true
 	}
 	return Price{}, false
+}
+
+// availability is the first availability the page's meta tags, then (for a
+// price read from microdata) its microdata, state; AvailUnknown when none
+// does. A JSON-LD or meta price skips microdata, which on a shop page often
+// belongs to a carousel of other products.
+func (pg *pricePage) availability(microdata bool) string {
+	vals := []string{pg.meta["og:availability"], pg.meta["product:availability"]}
+	if microdata {
+		vals = append(vals, pg.itemAvail...)
+	}
+	for _, v := range vals {
+		if a := NormalizeAvailability(v); KnownAvailability(a) {
+			return a
+		}
+	}
+	return AvailUnknown
 }
 
 func (pg *pricePage) itempropPrice() (Price, bool) {
@@ -174,7 +208,7 @@ func jsonLDPrice(blocks []string) (Price, bool) {
 		roots = append(roots, v)
 		indexIDs(v, ids)
 	}
-	ld := &ldReader{ids: ids, seen: map[ldVisit]bool{}}
+	ld := newLDReader(ids)
 	for _, v := range roots {
 		if p, ok := ld.find(v, true); ok {
 			return p, true
@@ -183,6 +217,8 @@ func jsonLDPrice(blocks []string) (Price, bool) {
 	return Price{}, false
 }
 
+var ldSpaces = strings.NewReplacer("\n", " ", "\r", " ", "\t", " ")
+
 func decodeLD(raw string) (any, bool) {
 	raw = strings.TrimSpace(raw)
 	for _, wrap := range []string{"<!--", "-->", "//<![CDATA[", "//]]>", "<![CDATA[", "]]>"} {
@@ -190,7 +226,7 @@ func decodeLD(raw string) (any, bool) {
 	}
 	// Raw line breaks inside strings are invalid JSON but common; as
 	// whitespace they change nothing a price needs.
-	raw = strings.NewReplacer("\n", " ", "\r", " ", "\t", " ").Replace(raw)
+	raw = ldSpaces.Replace(raw)
 	d := json.NewDecoder(strings.NewReader(raw))
 	d.UseNumber()
 	var v any
@@ -219,18 +255,72 @@ func indexIDs(v any, ids map[string]map[string]any) {
 }
 
 // JSON-LD @id references can form cycles and shared subtrees, so the reader
-// visits each node at most once per way of reading it, and gives up past
-// ldMaxDepth nested nodes or ldMaxSteps nodes in all.
+// remembers each node's read per way of reading it: a second path to a
+// shared node (one priceSpecification named by every variant) gets the same
+// price without reading it again. A node met again while it is still being
+// read (a cycle) gives nothing. The reader gives up past ldMaxDepth nested
+// nodes and lists, or ldMaxSteps steps in all. A read a cap cut short is remembered as
+// cut and never redone, so each node is read at most once per way and the
+// work stays linear; whatever reuses it is marked cut too, and a cut look
+// never holds an alert (it reads unknown).
 const (
 	ldMaxDepth = 64
-	ldMaxSteps = 100_000
+	ldMaxSteps = 1_000_000
+	// Longer strings are not read as a price, currency or availability.
+	// Real ones are short, and a step must not cost the length of a string
+	// a page can make megabytes long and name from many places.
+	ldMaxAmount = 64
+	ldMaxWord   = 256
+	ldMaxTypes  = 16 // @type entries looked at
 )
 
 type ldReader struct {
 	ids   map[string]map[string]any
-	seen  map[ldVisit]bool
-	steps int
-	depth int
+	read  map[ldVisit]ldRead
+	facts map[uintptr]ldFacts // an offer or price specification's own fields
+	// specAmount is an offer's price found in its price specifications.
+	specAmount map[uintptr]ldFacts
+	steps      int
+	depth      int
+	cut        bool // a cap refused a read since cut was last cleared
+}
+
+// ldRead is a node's read: busy while it is being read, then its answer and
+// whether a cap cut it short.
+type ldRead struct {
+	p    Price
+	ok   bool
+	busy bool
+	cut  bool
+}
+
+func newLDReader(ids map[string]map[string]any) *ldReader {
+	return &ldReader{ids: ids, read: map[ldVisit]ldRead{}, facts: map[uintptr]ldFacts{}, specAmount: map[uintptr]ldFacts{}}
+}
+
+// ldFacts is a node's own availability, price and currency, parsed once
+// however many places name the node.
+type ldFacts struct {
+	avail  string
+	amount float64
+	cur    string
+	priced bool
+}
+
+func (ld *ldReader) factsOf(o map[string]any) ldFacts {
+	node := reflect.ValueOf(o).Pointer()
+	if f, ok := ld.facts[node]; ok {
+		return f
+	}
+	f := ldFacts{avail: ldAvailability(o["availability"])}
+	cur := ldString(o["priceCurrency"])
+	if amount, raw, ok := ldAmount(o["price"]); ok {
+		f.amount, f.cur, f.priced = amount, currencyCode(cur, raw), true
+	} else {
+		f.cur = cur
+	}
+	ld.facts[node] = f
+	return f
 }
 
 // ldVisit is one node read one way: by find (top or not) or as an offer.
@@ -245,22 +335,58 @@ const (
 	ldOffer
 )
 
-// enter reports whether m may be read the given way, counting the step. A
-// node already read that way, or one past the caps, gives nothing new: the
-// first read of it would have returned its price. Every enter that returns
-// true is paired with leave.
-func (ld *ldReader) enter(m map[string]any, how byte) bool {
-	v := ldVisit{node: reflect.ValueOf(m).Pointer(), how: how}
-	if ld.seen[v] || ld.depth >= ldMaxDepth || ld.steps >= ldMaxSteps {
+// step counts one unit of work, and reports false once the cap is reached.
+func (ld *ldReader) step() bool {
+	if ld.steps >= ldMaxSteps {
+		ld.cut = true
 		return false
 	}
-	ld.seen[v] = true
 	ld.steps++
+	return true
+}
+
+// nest enters a nested list. Lists count toward ldMaxDepth like nodes: a
+// page can nest lists thousands deep and chain them through @id nodes, and
+// each level is a stack frame, while real pages nest two or three. It
+// reports false, marking the read cut, past the cap; the caller undoes it
+// with ld.depth--.
+func (ld *ldReader) nest() bool {
+	if ld.depth >= ldMaxDepth {
+		ld.cut = true
+		return false
+	}
 	ld.depth++
 	return true
 }
 
-func (ld *ldReader) leave() { ld.depth-- }
+// once reads m the given way with read, or returns the answer of the read
+// already made. A node still being read, or one past the caps, gives
+// nothing; each new read counts a step. A remembered read that a cap cut
+// short is reused as it is, and marks this read cut too.
+func (ld *ldReader) once(m map[string]any, how byte, read func() (Price, bool)) (Price, bool) {
+	v := ldVisit{node: reflect.ValueOf(m).Pointer(), how: how}
+	if r, done := ld.read[v]; done {
+		if r.busy {
+			return Price{}, false
+		}
+		ld.cut = ld.cut || r.cut
+		return r.p, r.ok
+	}
+	if ld.depth >= ldMaxDepth || ld.steps >= ldMaxSteps {
+		ld.cut = true
+		return Price{}, false
+	}
+	outer := ld.cut
+	ld.cut = false
+	ld.read[v] = ldRead{busy: true}
+	ld.steps++
+	ld.depth++
+	p, ok := read()
+	ld.depth--
+	ld.read[v] = ldRead{p: p, ok: ok, cut: ld.cut}
+	ld.cut = ld.cut || outer
+	return p, ok
+}
 
 // resolve follows a bare {"@id": …} reference to the node it names.
 func (ld *ldReader) resolve(m map[string]any) map[string]any {
@@ -277,7 +403,14 @@ func (ld *ldReader) resolve(m map[string]any) map[string]any {
 func (ld *ldReader) find(v any, top bool) (Price, bool) {
 	switch t := v.(type) {
 	case []any:
+		if !ld.nest() {
+			break
+		}
+		defer func() { ld.depth-- }()
 		for _, c := range t {
+			if !ld.step() {
+				break
+			}
 			if p, ok := ld.find(c, top); ok {
 				return p, true
 			}
@@ -288,47 +421,64 @@ func (ld *ldReader) find(v any, top bool) (Price, bool) {
 		if top {
 			how = ldFindTop
 		}
-		if !ld.enter(t, how) {
-			return Price{}, false
+		return ld.once(t, how, func() (Price, bool) { return ld.findIn(t, top) })
+	}
+	return Price{}, false
+}
+
+// findIn reads one node for find.
+func (ld *ldReader) findIn(t map[string]any, top bool) (Price, bool) {
+	ld.steps += len(t) // its keys are sorted and walked below
+	switch {
+	case isType(t, "Product", "IndividualProduct", "ProductModel", "ProductGroup"):
+		if p, ok := ld.offers(t["offers"]); ok {
+			return p, true
 		}
-		defer ld.leave()
-		switch {
-		case isType(t, "Product", "IndividualProduct", "ProductModel", "ProductGroup"):
-			if p, ok := ld.offers(t["offers"]); ok {
-				return p, true
+		if p, ok := ld.find(t["hasVariant"], false); ok {
+			if list, isList := t["hasVariant"].([]any); isList {
+				p.Availability = ld.samePriceAvailability(list, p, func(r *ldReader, v any) (Price, bool) { return r.find(v, false) })
 			}
-			if p, ok := ld.find(t["hasVariant"], false); ok {
-				return p, true
-			}
-			return Price{}, false
-		case top && isType(t, "Offer", "AggregateOffer"):
-			if p, ok := ld.offer(t); ok {
-				return p, true
-			}
+			return p, true
 		}
-		if g, ok := t["@graph"]; ok {
-			if p, ok := ld.find(g, top); ok {
-				return p, true
-			}
+		return Price{}, false
+	case top && isType(t, "Offer", "AggregateOffer"):
+		if p, ok := ld.offer(t); ok {
+			return p, true
 		}
-		for _, k := range sortedKeys(t) {
-			if k == "@graph" {
-				continue
-			}
-			if p, ok := ld.find(t[k], false); ok {
-				return p, true
-			}
+	}
+	if g, ok := t["@graph"]; ok {
+		if p, ok := ld.find(g, top); ok {
+			return p, true
+		}
+	}
+	for _, k := range sortedKeys(t) {
+		if k == "@graph" {
+			continue
+		}
+		if p, ok := ld.find(t[k], false); ok {
+			return p, true
 		}
 	}
 	return Price{}, false
 }
 
 // offers reads an offers value: one offer or a list, first priced one wins.
+// In a list, the availability is the most buyable among the offers at that
+// same price: shops list one offer per variant, and the first one being sold
+// out says nothing about the rest.
 func (ld *ldReader) offers(v any) (Price, bool) {
 	switch t := v.(type) {
 	case []any:
-		for _, c := range t {
+		if !ld.nest() {
+			break
+		}
+		defer func() { ld.depth-- }()
+		for i, c := range t {
+			if !ld.step() {
+				break
+			}
 			if p, ok := ld.offers(c); ok {
+				p.Availability = ld.samePriceAvailability(t[i+1:], p, (*ldReader).offers)
 				return p, true
 			}
 		}
@@ -339,27 +489,177 @@ func (ld *ldReader) offers(v any) (Price, bool) {
 }
 
 func (ld *ldReader) offer(m map[string]any) (Price, bool) {
-	if !ld.enter(m, ldOffer) {
-		return Price{}, false
-	}
-	defer ld.leave()
+	return ld.once(m, ldOffer, func() (Price, bool) { return ld.offerIn(m) })
+}
+
+// offerIn reads one node for offer.
+func (ld *ldReader) offerIn(m map[string]any) (Price, bool) {
 	keys := []string{"price", "lowPrice"}
-	if isType(m, "AggregateOffer") {
+	aggregate := isType(m, "AggregateOffer")
+	if aggregate {
 		keys = []string{"lowPrice", "price"}
 	}
+	avail := ldAvailability(m["availability"])
 	cur := ldString(m["priceCurrency"])
 	for _, k := range keys {
 		if amount, raw, ok := ldAmount(m[k]); ok {
-			return Price{Amount: amount, Currency: currencyCode(cur, raw), From: "jsonld"}, true
+			code := currencyCode(cur, raw)
+			if !KnownAvailability(avail) && aggregate {
+				avail = ld.offersAvailability(m["offers"], amount, code)
+			}
+			return Price{Amount: amount, Currency: code, From: "jsonld", Availability: avail}, true
 		}
 	}
 	if p, ok := ld.offers(m["priceSpecification"]); ok {
 		if p.Currency == "" {
 			p.Currency = currencyCode(cur, "")
 		}
+		// A price specification states no availability; its offer does.
+		if !KnownAvailability(avail) && aggregate {
+			avail = ld.offersAvailability(m["offers"], p.Amount, p.Currency)
+		}
+		p.Availability = avail
 		return p, true
 	}
-	return ld.offers(m["offers"])
+	// An aggregate with no price of its own reads its first priced offer,
+	// and the offers at that same price decide availability (offers).
+	p, ok := ld.offers(m["offers"])
+	if ok && !KnownAvailability(p.Availability) {
+		p.Availability = avail
+	}
+	return p, ok
+}
+
+// offersAvailability is the most buyable availability an AggregateOffer's
+// offers state at its price (lowPrice), so a sold-out seller's low price
+// does not read as buyable because a dearer seller has stock. An offer at
+// that price that states nothing makes it unknown rather than sold out, and
+// a dearer seller's stock never fills it in: the page's meta tags decide.
+// When no offer is at that price, it is the most buyable of any offer. An
+// offer stating another currency is not at the price. AvailUnknown when none
+// states one, or when the step cap cut the look short before anything
+// buyable was seen. Every node it looks at counts against ldMaxSteps.
+func (ld *ldReader) offersAvailability(v any, price float64, cur string) string {
+	atPrice, best := "", "" // "" ranks below every word: nothing seen yet
+	looked := map[uintptr]bool{}
+	outer := ld.cut
+	ld.cut = false
+	defer func() { ld.cut = ld.cut || outer }()
+	var visit func(v any)
+	visit = func(v any) {
+		if !ld.step() {
+			return
+		}
+		switch t := v.(type) {
+		case []any:
+			if !ld.nest() {
+				return
+			}
+			for _, c := range t {
+				visit(c)
+			}
+			ld.depth--
+		case map[string]any:
+			o := ld.resolve(t)
+			node := reflect.ValueOf(o).Pointer()
+			if looked[node] {
+				return
+			}
+			looked[node] = true
+			a := ld.factsOf(o).avail
+			if buyRank(a) < buyRank(best) {
+				best = a
+			}
+			if amount, c, ok := ld.offerAmount(o); ok && amount == price && sameCurrency(c, cur) && buyRank(a) < buyRank(atPrice) {
+				atPrice = a
+			}
+		}
+	}
+	visit(v)
+	if atPrice == "" {
+		atPrice = best
+	}
+	if atPrice == "" || ld.cut && !Buyable(atPrice) {
+		return AvailUnknown
+	}
+	return atPrice
+}
+
+// sameCurrency is false only when both name a currency and they differ.
+func sameCurrency(a, b string) bool {
+	return a == "" || b == "" || strings.EqualFold(a, b)
+}
+
+// offerAmount is an offer's own price and currency, or its price
+// specification's. Each node's fields are parsed once (factsOf), and an
+// offer's answer is remembered with them.
+func (ld *ldReader) offerAmount(o map[string]any) (float64, string, bool) {
+	f := ld.factsOf(o)
+	if f.priced {
+		return f.amount, f.cur, true
+	}
+	node := reflect.ValueOf(o).Pointer()
+	if a, ok := ld.specAmount[node]; ok {
+		return a.amount, a.cur, a.priced
+	}
+	specs := []any{o["priceSpecification"]}
+	if list, ok := o["priceSpecification"].([]any); ok {
+		specs = list
+	}
+	found := ldFacts{}
+	for _, s := range specs {
+		if !ld.step() {
+			break
+		}
+		if m, ok := s.(map[string]any); ok {
+			if sf := ld.factsOf(ld.resolve(m)); sf.priced {
+				found = sf
+				if sf.cur == "" {
+					found.cur = f.cur
+				}
+				break
+			}
+		}
+	}
+	ld.specAmount[node] = found
+	return found.amount, found.cur, found.priced
+}
+
+// samePriceAvailability is the most buyable availability among p and the
+// siblings that read at p's amount and currency, each read by read. Reads are
+// remembered per node, so a sibling naming a node already read (one
+// AggregateOffer behind every "@id", one shared priceSpecification) gets that
+// node's answer at no cost.
+func (ld *ldReader) samePriceAvailability(siblings []any, p Price, read func(*ldReader, any) (Price, bool)) string {
+	best := p.Availability
+	outer := ld.cut
+	ld.cut = false
+	defer func() { ld.cut = ld.cut || outer }()
+	for _, c := range siblings {
+		if !ld.step() {
+			break
+		}
+		if list, isList := c.([]any); isList {
+			if !ld.nest() {
+				continue
+			}
+			a := ld.samePriceAvailability(list, Price{Amount: p.Amount, Currency: p.Currency, Availability: best}, read)
+			ld.depth--
+			if buyRank(a) < buyRank(best) {
+				best = a
+			}
+			continue
+		}
+		q, ok := read(ld, c)
+		if ok && q.Amount == p.Amount && strings.EqualFold(q.Currency, p.Currency) && buyRank(q.Availability) < buyRank(best) {
+			best = q.Availability
+		}
+	}
+	// A sibling a cap cut short may have been buyable.
+	if ld.cut && !Buyable(best) {
+		return AvailUnknown
+	}
+	return best
 }
 
 func isType(m map[string]any, names ...string) bool {
@@ -368,13 +668,16 @@ func isType(m map[string]any, names ...string) bool {
 	case string:
 		types = []string{t}
 	case []any:
-		for _, x := range t {
+		for _, x := range t[:min(len(t), ldMaxTypes)] {
 			if s, ok := x.(string); ok {
 				types = append(types, s)
 			}
 		}
 	}
 	for _, t := range types {
+		if len(t) > ldMaxWord {
+			continue
+		}
 		if i := strings.LastIndexAny(t, "/:#"); i >= 0 {
 			t = t[i+1:]
 		}
@@ -396,30 +699,46 @@ func sortedKeys(m map[string]any) []string {
 	return keys
 }
 
+// ldAvailability reads an availability given as text, a list, or a node
+// such as {"@id": "https://schema.org/InStock"}.
+func ldAvailability(v any) string {
+	if m, ok := v.(map[string]any); ok {
+		v = m["@id"]
+	}
+	return NormalizeAvailability(ldString(v))
+}
+
+// ldString is a string value, or the first of a list of them. Lists inside
+// lists are not unwrapped: a page could nest them thousands deep.
 func ldString(v any) string {
-	switch t := v.(type) {
-	case string:
-		return t
-	case []any:
-		if len(t) > 0 {
-			return ldString(t[0])
-		}
+	if list, ok := v.([]any); ok && len(list) > 0 {
+		v = list[0]
+	}
+	if s, ok := v.(string); ok && len(s) <= ldMaxWord {
+		return s
 	}
 	return ""
 }
 
+// ldAmount is an amount value, or the first of a list of them, unwrapped one
+// level like ldString.
 func ldAmount(v any) (float64, string, bool) {
+	if list, ok := v.([]any); ok && len(list) > 0 {
+		v = list[0]
+	}
 	switch t := v.(type) {
 	case json.Number:
+		if len(t) > ldMaxAmount {
+			return 0, "", false
+		}
 		f, err := t.Float64()
 		return f, t.String(), err == nil && f > 0 && !math.IsInf(f, 0)
 	case string:
+		if len(t) > ldMaxAmount {
+			return 0, "", false
+		}
 		f, ok := machineAmount(t)
 		return f, t, ok
-	case []any:
-		if len(t) > 0 {
-			return ldAmount(t[0])
-		}
 	}
 	return 0, "", false
 }
@@ -434,6 +753,10 @@ func machineAmount(s string) (float64, bool) {
 	return parseAmount(s)
 }
 
+var groupSpaces = strings.NewReplacer(" ", "", " ", "", " ", "", "'", "")
+
+var separators = strings.NewReplacer(".", "", ",", "")
+
 var amountRe = regexp.MustCompile(`\d{1,3}(?:[ \x{00A0}\x{202F}']\d{3})+(?:[.,]\d+)?|\d[\d.,]*`)
 
 // parseAmount reads the first amount in a price as people write it:
@@ -446,7 +769,7 @@ func parseAmount(s string) (float64, bool) {
 	if m == "" {
 		return 0, false
 	}
-	m = strings.NewReplacer(" ", "", " ", "", " ", "", "'", "").Replace(m)
+	m = groupSpaces.Replace(m)
 	m = strings.TrimRight(m, ".,")
 	lastDot, lastComma := strings.LastIndexByte(m, '.'), strings.LastIndexByte(m, ',')
 	var num string
@@ -478,12 +801,13 @@ func parseAmount(s string) (float64, bool) {
 }
 
 func stripSeps(s string) string {
-	return strings.NewReplacer(".", "", ",", "").Replace(s)
+	return separators.Replace(s)
 }
 
 var (
-	isoRe   = regexp.MustCompile(`^[A-Za-z]{3}$`)
-	codeRe  = regexp.MustCompile(`\b(USD|EUR|GBP|INR|JPY|CNY|CAD|AUD|NZD|CHF|SEK|NOK|DKK|PLN|CZK|BRL|MXN|SGD|HKD|AED|ZAR)\b`)
+	isoRe = regexp.MustCompile(`^[A-Za-z]{3}$`)
+	codes = map[string]bool{"USD": true, "EUR": true, "GBP": true, "INR": true, "JPY": true, "CNY": true, "CAD": true, "AUD": true, "NZD": true, "CHF": true,
+		"SEK": true, "NOK": true, "DKK": true, "PLN": true, "CZK": true, "BRL": true, "MXN": true, "SGD": true, "HKD": true, "AED": true, "ZAR": true}
 	symbols = []struct{ sym, code string }{
 		{"₹", "INR"}, {"Rs.", "INR"}, {"Rs ", "INR"}, {"€", "EUR"}, {"£", "GBP"}, {"US$", "USD"},
 	}
@@ -497,7 +821,7 @@ func currencyCode(stated, priceText string) string {
 		return strings.ToUpper(stated)
 	}
 	for _, s := range []string{stated, priceText} {
-		if c := codeRe.FindString(s); c != "" {
+		if c := codeWord(s); c != "" {
 			return c
 		}
 		for _, sym := range symbols {
@@ -507,4 +831,26 @@ func currencyCode(stated, priceText string) string {
 		}
 	}
 	return ""
+}
+
+// codeWord is the first whole word of s that is a known currency code
+// ("EUR 12,99"), where a word is a run of ASCII letters, digits and "_". It
+// scans s once: a regexp with word boundaries took ~85 µs on 256 chars of
+// "1 1 1", which a page can repeat in tens of thousands of offers.
+func codeWord(s string) string {
+	start := 0
+	for i := 0; i <= len(s); i++ {
+		if i < len(s) && isWordByte(s[i]) {
+			continue
+		}
+		if i-start == 3 && codes[s[start:i]] {
+			return s[start:i]
+		}
+		start = i + 1
+	}
+	return ""
+}
+
+func isWordByte(b byte) bool {
+	return b == '_' || '0' <= b && b <= '9' || 'a' <= b && b <= 'z' || 'A' <= b && b <= 'Z'
 }

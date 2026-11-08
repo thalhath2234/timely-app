@@ -64,21 +64,25 @@ type PreviewExcerpt struct {
 // PreviewWatch is what one watch reads right now. OK false carries the
 // problem in Health, written as a check's health line.
 type PreviewWatch struct {
-	Index      int                `json:"index"`
-	WatchID    string             `json:"watchId"` // the saved watch, botId previews only
-	OK         bool               `json:"ok"`
-	Kind       string             `json:"kind"`
-	Read       string             `json:"read"`
-	Site       string             `json:"site"`
-	Summary    string             `json:"summary"`
-	Value      *float64           `json:"value"`
-	Currency   string             `json:"currency"`
-	Text       string             `json:"text"`  // text and selector reads, up to MaxPreviewText
-	Items      []ItemBrief        `json:"items"` // feeds: the newest PreviewItems
-	Excerpt    *PreviewExcerpt    `json:"excerpt"`
-	Candidates []PreviewCandidate `json:"candidates"` // shop prices: every price the page shows
-	Health     *Health            `json:"health"`
-	At         time.Time          `json:"at"`
+	Index    int      `json:"index"`
+	WatchID  string   `json:"watchId"` // the saved watch, botId previews only
+	OK       bool     `json:"ok"`
+	Kind     string   `json:"kind"`
+	Read     string   `json:"read"`
+	Site     string   `json:"site"`
+	Summary  string   `json:"summary"`
+	Value    *float64 `json:"value"`
+	Currency string   `json:"currency"`
+	// Availability is whether the product can be bought, on a product_price
+	// page: an extract.Avail word, "unknown" when the page says nothing.
+	// "" for every other read.
+	Availability string             `json:"availability"`
+	Text         string             `json:"text"`  // text and selector reads, up to MaxPreviewText
+	Items        []ItemBrief        `json:"items"` // feeds: the newest PreviewItems
+	Excerpt      *PreviewExcerpt    `json:"excerpt"`
+	Candidates   []PreviewCandidate `json:"candidates"` // shop prices: every price the page shows
+	Health       *Health            `json:"health"`
+	At           time.Time          `json:"at"`
 }
 
 // PreviewResult is one PreviewWatch per watch, in order.
@@ -266,6 +270,7 @@ func (s *Service) previewOne(ctx context.Context, b Bot, w Watch) (pw PreviewWat
 			v := *reading.Price
 			pw.Value, pw.Currency = &v, reading.Currency
 		}
+		pw.Availability = availabilityOf(&reading, w)
 	case ReadingText:
 		pw.Text = clipRunes(reading.Text, MaxPreviewText)
 	case ReadingFeed:

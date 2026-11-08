@@ -1,0 +1,22 @@
+<!doctype html>
+<!-- Imitates a large Indian marketplace's product page for a phone that is
+     out of stock: the JSON-LD Product is in an array, its single Offer has a
+     bare number price in INR and an http://schema.org availability, and the
+     page still shows the price. Modelled on the shape a real Pixel 10 Pro
+     page returned on 2026-11-08 (price changed for the test). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Google Pixel 10 Pro (Obsidian, 256 GB) (16 GB RAM)</title>
+<script id="jsonLD" type="application/ld+json">
+[{"@context":"https://schema.org","@type":"Product","name":"Google Pixel 10 Pro (Obsidian, 256 GB)","image":"https://img.example/pixel.jpeg","brand":{"@type":"Brand","name":"Google"},"aggregateRating":{"@type":"AggregateRating","ratingValue":4.5,"reviewCount":120},"offers":{"@type":"Offer","price":89999,"priceCurrency":"INR","availability":"http://schema.org/OutOfStock"}},
+ {"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"item":{"@id":"https://shop.example/","name":"Home"}}]}]
+</script>
+</head>
+<body>
+<h1>Google Pixel 10 Pro (Obsidian, 256 GB)</h1>
+<div class="price">₹89,999</div>
+<div class="stock">Sold Out</div>
+<p>This item is currently out of stock</p>
+</body>
+</html>

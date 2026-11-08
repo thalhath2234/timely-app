@@ -16,6 +16,7 @@ import {
   intervalOptions,
   lessonsHint,
   resetLine,
+  ruleNote,
   rulesFor,
   smartOptions,
   sourceLabel,
@@ -247,6 +248,7 @@ export function BotGroups({
             <ListRow
               key={`${key}-line`}
               title={RULE_LABELS[rule.kind]}
+              meta={ruleNote(rule) || undefined}
               trailing={<EditPill>{rule.threshold == null ? "Set a price" : formatMoney(rule.threshold, currency)}</EditPill>}
               chevron={false}
               onPress={() => open(ri)}
@@ -271,7 +273,7 @@ export function BotGroups({
           break;
         case "move_pct":
           ruleRows.push(
-            <ListRow key={`${key}-line`} title="Moves by" trailing={<EditPill>{pct(rule.percent)}</EditPill>} chevron={false} onPress={() => open(ri)} />,
+            <ListRow key={`${key}-line`} title="Moves by" meta={ruleNote(rule) || undefined} trailing={<EditPill>{pct(rule.percent)}</EditPill>} chevron={false} onPress={() => open(ri)} />,
             <Select
               key={`${key}-way`}
               trigger="row"
@@ -297,8 +299,16 @@ export function BotGroups({
           );
           break;
         }
+        case "in_stock":
         default:
-          ruleRows.push(<ListRow key={`${key}-line`} title={RULE_LABELS.any_change} meta="Any change to what it reads" onPress={() => open(ri)} />);
+          ruleRows.push(
+            <ListRow
+              key={`${key}-line`}
+              title={RULE_LABELS[rule.kind]}
+              meta={ruleNote(rule)}
+              onPress={() => open(ri)}
+            />,
+          );
       }
     });
     if (rules.length < BOT_LIMITS.maxRulesPerWatch) {

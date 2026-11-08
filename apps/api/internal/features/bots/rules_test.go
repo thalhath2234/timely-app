@@ -30,7 +30,7 @@ type step struct {
 // value fires or stays quiet.
 func runPrices(t *testing.T, r Rule, steps []step) RuleState {
 	t.Helper()
-	r, err := cleanRule(ReadingPrice, r)
+	r, err := cleanRule(ReadingPrice, false, r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -479,11 +479,11 @@ func TestCleanRules(t *testing.T) {
 // rearmed logs a below or above rule only on the check where it arms again
 // past the reset band; firing, hovering and other rule kinds are not re-arms.
 func TestRearmed(t *testing.T) {
-	below, err := cleanRule(ReadingPrice, Rule{Kind: RuleBelow, Threshold: f(25000)})
+	below, err := cleanRule(ReadingPrice, false, Rule{Kind: RuleBelow, Threshold: f(25000)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	above, err := cleanRule(ReadingPrice, Rule{Kind: RuleAbove, Threshold: f(30000)})
+	above, err := cleanRule(ReadingPrice, false, Rule{Kind: RuleAbove, Threshold: f(30000)})
 	if err != nil {
 		t.Fatal(err)
 	}

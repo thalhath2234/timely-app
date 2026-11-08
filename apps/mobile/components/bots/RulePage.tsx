@@ -5,6 +5,7 @@ import {
   RULE_LABELS,
   againOptions,
   resetLine,
+  ruleNote,
   rulesFor,
   type MoveDirection,
   type Rule,
@@ -102,13 +103,17 @@ export function RulePage({
     }
   };
 
+  // The editors don't offer Back in stock yet, but a rule made in chat can
+  // be one: keep its own kind on offer so the row names it.
+  const offered = rulesFor(watch);
+  const kinds = offered.includes(initial.kind) ? offered : [...offered, initial.kind];
   const rows = [
     <Select
       key="kind"
       trigger="row"
       label="Kind"
       value={base.kind}
-      options={rulesFor(watch).map((kind) => ({ value: kind, label: RULE_LABELS[kind] }))}
+      options={kinds.map((kind) => ({ value: kind, label: RULE_LABELS[kind] }))}
       onChange={(kind) => {
         if (kind === base.kind) return;
         const next = { ...newRule(kind as RuleKind, watch), id: base.id };
@@ -118,7 +123,7 @@ export function RulePage({
       }}
     />,
   ];
-  let hint: string | null = null;
+  let hint: string | null = ruleNote(base) ? `${ruleNote(base)}.` : null;
   switch (base.kind) {
     case "below":
     case "above":
@@ -193,8 +198,6 @@ export function RulePage({
       );
       break;
     }
-    default:
-      hint = "Any change to what it reads.";
   }
 
   const line = refused ?? errors[0] ?? hint;

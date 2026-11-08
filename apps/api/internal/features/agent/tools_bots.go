@@ -40,7 +40,8 @@ func (s *Server) registerBots(server *mcp.Server) {
 		createText += " " + chatCreateMore
 		updateText += " " + chatUpdateMore
 	}
-	registerTool(s, server, &mcp.Tool{Name: "list_bots", Description: "The person's bots: status, schedule, health and each watch with its rules and a short summary of its last reading."}, reads, s.listBots)
+	createText += " " + stockRules
+	registerTool(s, server, &mcp.Tool{Name: "list_bots", Description: "The person's bots: status, schedule, health and each watch with its rules, a short summary of its last reading and, for a shop page, whether it can be bought (availability)."}, reads, s.listBots)
 	registerTool(s, server, &mcp.Tool{Name: "list_bot_findings", Description: "What the bots found, newest first: the findings board. bot (id or name) keeps one bot's; since is RFC 3339; limit is at most 100 (default 50)."}, reads, s.listBotFindings)
 	registerTool(s, server, &mcp.Tool{Name: "get_bot", Description: "One bot's settings (id or name): its watches with their rules, how often it checks and where it alerts. Read it before proposing update_bot."}, reads, s.getBot)
 	if chat {
@@ -56,10 +57,13 @@ func (s *Server) registerBots(server *mcp.Server) {
 	registerTool(s, server, &mcp.Tool{Name: "run_bot_now", Description: "Check an active bot (id or name) as soon as its minimum interval allows, and say when. A paused bot is refused."}, mcpOnly, s.runBotNow)
 	if chat {
 		// Registered without the MCP server, so mcp.AddTool never sees them.
-		registerTool(s, nil, &mcp.Tool{Name: "preview_bot", Description: "Read up to 5 watches once, the way a bot would, and say what each reads right now: the price, the text of the part, or the newest feed items. On a shop page it also lists the other prices it found, each with a selector for read=selector_price. Saves nothing. Use only addresses the person gave you or that you found for them; never put private details in an address."}, reads, s.previewBot)
+		registerTool(s, nil, &mcp.Tool{Name: "preview_bot", Description: "Read up to 5 watches once, the way a bot would, and say what each reads right now: the price (with availability on a shop page: in_stock, out_of_stock, preorder, backorder, limited, discontinued or unknown), the text of the part, or the newest feed items. On a shop page it also lists the other prices it found, each with a selector for read=selector_price. Saves nothing. Use only addresses the person gave you or that you found for them; never put private details in an address."}, reads, s.previewBot)
 		registerTool(s, nil, &mcp.Tool{Name: "ask_bot", Description: "What a bot (id or name) knows now: its latest readings and findings. If the bot is on and its last check is over an hour old, it checks once first (at most once every 5 minutes per bot), which can take up to 30 seconds. It changes nothing."}, reads, s.askBot)
 	}
 }
+
+// stockRules tells the model how a shop page's stock gates its price rules.
+const stockRules = "On a page read as product_price, price rules stay quiet while the page says it is out of stock or discontinued and alert once it can be bought (onlyInStock, default true; an unknown stock never holds an alert); rule kind in_stock alerts when it comes back in stock."
 
 // chatCreateMore and chatUpdateMore end the chat descriptions of create_bot
 // and update_bot: what only chat can propose.
@@ -94,13 +98,14 @@ func botErr(err error, bot string) error {
 
 // botRuleIn mirrors bots.Rule without its id, every field optional but kind.
 type botRuleIn struct {
-	Kind         string   `json:"kind" jsonschema:"any_change, above, below, move_pct (any price: price watches and pages read as product_price or selector_price); words_appear, words_disappear (page text); new_item (feeds)"`
+	Kind         string   `json:"kind" jsonschema:"any_change, above, below, move_pct (any price: price watches and pages read as product_price or selector_price); in_stock (product_price pages: alert when the page says it can be bought again); words_appear, words_disappear (page text); new_item (feeds)"`
 	Threshold    *float64 `json:"threshold,omitempty" jsonschema:"the price for above and below"`
 	Percent      *float64 `json:"percent,omitempty" jsonschema:"the move in percent for move_pct"`
 	Direction    string   `json:"direction,omitempty" jsonschema:"up, down or any (move_pct)"`
 	StepPercent  *float64 `json:"stepPercent,omitempty" jsonschema:"above/below: fire again after a further move this big, default 5"`
 	ResetPercent *float64 `json:"resetPercent,omitempty" jsonschema:"above/below: re-arm once back past the line by this much, default 0.5"`
 	Words        []string `json:"words,omitempty" jsonschema:"words for words_appear and words_disappear, or to filter new_item"`
+	OnlyInStock  *bool    `json:"onlyInStock,omitempty" jsonschema:"product_price pages: price rules stay quiet while the page says it is out of stock or discontinued, and alert once it can be bought (default true); false alerts on the price whatever the stock"`
 }
 
 type botWatchIn struct {
@@ -124,7 +129,7 @@ func watchInputs(in []botWatchIn) []bots.WatchInput {
 		}
 		out[i].Rules = make([]bots.Rule, len(w.Rules))
 		for j, r := range w.Rules {
-			out[i].Rules[j] = bots.Rule{Kind: r.Kind, Threshold: r.Threshold, Percent: r.Percent, Direction: r.Direction, Words: r.Words}
+			out[i].Rules[j] = bots.Rule{Kind: r.Kind, Threshold: r.Threshold, Percent: r.Percent, Direction: r.Direction, Words: r.Words, OnlyInStock: r.OnlyInStock}
 			if r.StepPercent != nil {
 				out[i].Rules[j].StepPercent = *r.StepPercent
 			}
@@ -236,6 +241,7 @@ type botWatchOut struct {
 	LastReadingAt *time.Time  `json:"lastReadingAt"`
 	Summary       string      `json:"summary"`
 	Value         *float64    `json:"value"`
+	Availability  string      `json:"availability"`
 	DayChangePct  *float64    `json:"dayChangePct"`
 	LastChangedAt *time.Time  `json:"lastChangedAt"`
 }
@@ -256,7 +262,7 @@ func botReply(v bots.View) botOut {
 		out.Watches[i] = botWatchOut{
 			ID: w.ID, Kind: w.Kind, URL: w.URL, Read: w.Read, Selector: w.Selector, Source: w.Source, Symbol: w.Symbol,
 			Currency: w.Currency, Rules: w.Rules, Health: w.Health, Site: w.Site, LastReadingAt: w.LastReadingAt,
-			Summary: w.Summary, Value: w.Value, DayChangePct: w.DayChangePct, LastChangedAt: w.LastChangedAt,
+			Summary: w.Summary, Value: w.Value, Availability: w.Availability, DayChangePct: w.DayChangePct, LastChangedAt: w.LastChangedAt,
 		}
 	}
 	return out
