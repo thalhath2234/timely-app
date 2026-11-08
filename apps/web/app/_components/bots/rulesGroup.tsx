@@ -12,6 +12,7 @@ import {
   againOptions,
   readingKind,
   resetLine,
+  ruleNote,
   rulesFor,
   smartOptions,
   watchCurrency,
@@ -179,7 +180,11 @@ function ruleRows({
       case "below":
       case "above": {
         rows.push(
-          <ListRow key={`${key}-line`} label={RULE_LABELS[rule.kind]}>
+          <ListRow
+            key={`${key}-line`}
+            label={RULE_LABELS[rule.kind]}
+            meta={ruleNote(rule) || undefined}
+          >
             <EditPill
               aria-label={RULE_LABELS[rule.kind]}
               value={groupedText(rule.threshold)}
@@ -227,7 +232,11 @@ function ruleRows({
       }
       case "move_pct":
         rows.push(
-          <ListRow key={`${key}-line`} label="Moves by">
+          <ListRow
+            key={`${key}-line`}
+            label="Moves by"
+            meta={ruleNote(rule) || undefined}
+          >
             <EditPill
               aria-label="Moves by, percent"
               value={pctText(rule.percent)}
@@ -303,12 +312,13 @@ function ruleRows({
         );
         break;
       }
+      case "in_stock":
       default:
         rows.push(
           <ListRow
             key={`${key}-line`}
-            label={RULE_LABELS.any_change}
-            meta="Any change to what it reads"
+            label={RULE_LABELS[rule.kind]}
+            meta={ruleNote(rule)}
           >
             {remove(index)}
           </ListRow>,

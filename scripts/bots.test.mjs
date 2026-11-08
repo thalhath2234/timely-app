@@ -81,6 +81,7 @@ import {
   proposalFacts,
   resetLine,
   ruleLine,
+  ruleNote,
   tellLine,
   cleanWatchInput,
   alertLink,
@@ -877,6 +878,19 @@ describe("rules", () => {
     const sent = cleanWatchInput({ kind: "page", url: "https://shop.example/p", read: "product_price", rules: [{ ...below(90000), onlyInStock: false }, { kind: "in_stock" }] });
     assert.equal(sent.rules?.[0].onlyInStock, false);
     assert.equal("onlyInStock" in (sent.rules?.[1] ?? {}), false);
+  });
+
+  test("rule notes under the editors' rows: Back in stock, and in stock or not", () => {
+    assert.equal(ruleNote({ kind: "in_stock" }), "When the page says it can be bought again");
+    assert.equal(ruleNote({ kind: "any_change" }), "Any change to what it reads");
+    assert.equal(ruleNote({ kind: "any_change", onlyInStock: false }), "Any change to what it reads, in stock or not");
+    assert.equal(ruleNote({ ...below(90000), onlyInStock: false }), "Alerts in stock or not");
+    assert.equal(ruleNote({ kind: "above", threshold: 1, onlyInStock: false }), "Alerts in stock or not");
+    assert.equal(ruleNote({ kind: "move_pct", percent: 5, onlyInStock: false }), "Alerts in stock or not");
+    // The default holds while sold out, so it needs no note.
+    assert.equal(ruleNote(below(90000)), "");
+    assert.equal(ruleNote({ ...below(90000), onlyInStock: true }), "");
+    assert.equal(ruleNote({ kind: "words_appear", words: ["Add to cart"] }), "");
   });
 
   test("tell lines read on from \"and tell you\"", () => {

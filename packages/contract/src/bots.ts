@@ -1164,6 +1164,26 @@ export function ruleLine(rule: Rule, watch: Pick<WatchView, "currency" | "summar
 }
 
 /**
+ * The small line under a rule's first row in the editors, "" when the row
+ * says it all: what Back in stock and Any change watch for, and that a
+ * price rule saved with onlyInStock false alerts in stock or not.
+ */
+export function ruleNote(rule: Rule): string {
+  const anyStock = rule.onlyInStock === false;
+  switch (rule.kind) {
+    case "in_stock":
+      return "When the page says it can be bought again";
+    case "any_change":
+      return anyStock ? "Any change to what it reads, in stock or not" : "Any change to what it reads";
+    case "below":
+    case "above":
+    case "move_pct":
+      return anyStock ? "Alerts in stock or not" : "";
+  }
+  return "";
+}
+
+/**
  * A rule as the clause after "tell you": "when the price is below ₹90,000",
  * "when it moves 5% either way", "about each new post". Reads on from "It
  * would read <site> every 6 hours and tell you …".
