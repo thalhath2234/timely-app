@@ -396,11 +396,18 @@ func awayAlert(tx *gorm.DB, userID string, earliest time.Time, bots int, now tim
 		gap = "This computer was asleep. "
 	}
 	key := fmt.Sprintf("bot:away:%s:%d", userID, earliest.Unix())
+	opts := notify.AlertOptions{Phone: phone, Now: now}
+	title := "Bots were paused for " + awayFor(now.Sub(earliest))
+	// Held until quiet hours end, "checking now" means when it was written,
+	// as a held Bot alert says.
+	if _, held := notify.QuietUntil(settings, loc, opts); held {
+		title = withHeldTime(title, now, loc)
+	}
 	ntf := models.Notification{
-		UserID: userID, Category: models.NotifyBot, Title: "Bots were paused for " + awayFor(now.Sub(earliest)),
+		UserID: userID, Category: models.NotifyBot, Title: title,
 		Body: gap + checking, DedupeKey: &key, Data: models.JobPayload{"botAlert": awayKind, "phone": phone},
 	}
-	_, err = notify.WriteAlert(tx, &ntf, settings, loc, notify.AlertOptions{Phone: phone, Now: now})
+	_, err = notify.WriteAlert(tx, &ntf, settings, loc, opts)
 	return err
 }
 

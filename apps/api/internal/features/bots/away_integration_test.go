@@ -143,6 +143,21 @@ func TestIntegrationBotAwayMark(t *testing.T) {
 	}
 }
 
+// An away alert quiet hours hold says when it was written, as a held Bot
+// alert does: its "checking now" is that time, not when the phone shows it.
+func TestIntegrationBotAwayQuietHours(t *testing.T) {
+	e := newEngine(t)
+	kolkata, _ := time.LoadLocation("Asia/Kolkata")
+	e.zone(models.NotificationSettings{Timezone: "Asia/Kolkata", QuietHoursStart: "14:00", QuietHoursEnd: "23:00"})
+	lateBots(t, e, e.user, 1, e.now.Add(-9*time.Hour), 0, "Late")
+	e.s.lastPrune = e.now
+	must(t, e.s.Sweep(context.Background()))
+	want := withHeldTime("Bots were paused for 9 hours", e.now, kolkata)
+	if ntfs := awayAlerts(t, e, e.user); len(ntfs) != 1 || ntfs[0].Title != want || ntfs[0].SnoozedUntil == nil {
+		t.Fatalf("away alert in quiet hours %+v, want title %q", ntfs, want)
+	}
+}
+
 // A snoozed Bot promised no pings: when every marked Bot with its Phone
 // switch on is snoozed, the account's away alert counts it but stays off
 // the phone. One Bot that is not snoozed sends it.
