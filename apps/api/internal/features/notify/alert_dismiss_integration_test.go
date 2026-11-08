@@ -251,7 +251,8 @@ func TestIntegrationDismissedAlertIsNotPushed(t *testing.T) {
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[]}`)), Header: http.Header{}}, nil
 	})}
 	now := time.Now().UTC()
-	if err := db.Create(&models.PushDevice{ID: "dev_dismiss", UserID: user, Token: "ExponentPushToken[test]", CreatedAt: now, UpdatedAt: now, LastSeenAt: now}).Error; err != nil {
+	session := liveSession(t, db, user, "ses_dev_dismiss", now.Add(time.Hour))
+	if err := db.Create(&models.PushDevice{ID: "dev_dismiss", UserID: user, SessionID: &session, Token: "ExponentPushToken[test]", CreatedAt: now, UpdatedAt: now, LastSeenAt: now}).Error; err != nil {
 		t.Fatal(err)
 	}
 	for _, n := range []models.Notification{

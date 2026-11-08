@@ -177,7 +177,8 @@ func TestIntegrationBotPush(t *testing.T) {
 		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[]}`)), Header: http.Header{}}, nil
 	})}
-	if err := db.Create(&models.PushDevice{ID: "dev_bot", UserID: zoneTestUser, Token: "ExponentPushToken[test]", CreatedAt: now, UpdatedAt: now, LastSeenAt: now}).Error; err != nil {
+	session := liveSession(t, db, zoneTestUser, "ses_dev_bot", now.Add(time.Hour))
+	if err := db.Create(&models.PushDevice{ID: "dev_bot", UserID: zoneTestUser, SessionID: &session, Token: "ExponentPushToken[test]", CreatedAt: now, UpdatedAt: now, LastSeenAt: now}).Error; err != nil {
 		t.Fatal(err)
 	}
 	read := now

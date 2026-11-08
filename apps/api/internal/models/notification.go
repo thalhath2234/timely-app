@@ -143,9 +143,13 @@ type Notification struct {
 
 func (Notification) TableName() string { return "notifications" }
 
+// PushDevice is a phone's push token. SessionID is the sign-in that
+// registered it: signing that session out deletes the row (ON DELETE
+// CASCADE), and only devices whose session is still valid get pushes.
 type PushDevice struct {
 	ID         string    `gorm:"type:text;primaryKey" json:"id"`
 	UserID     string    `gorm:"type:text;not null" json:"userId"`
+	SessionID  *string   `gorm:"type:text" json:"-"`
 	Token      string    `gorm:"type:text;not null" json:"token"`
 	Platform   string    `gorm:"type:text;not null;default:android" json:"platform"`
 	CreatedAt  time.Time `gorm:"type:timestamptz;not null" json:"createdAt"`

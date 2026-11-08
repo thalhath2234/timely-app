@@ -242,7 +242,9 @@ func (h *Handler) RegisterDevice(c *echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid request payload")
 	}
-	device, err := h.service.RegisterDevice(uid, req.Token, req.Platform)
+	// The token belongs to this sign-in, so signing it out stops its pushes.
+	sessionID, _ := c.Get("sessionID").(string)
+	device, err := h.service.RegisterDevice(uid, sessionID, req.Token, req.Platform)
 	if err != nil {
 		return notifyError(err)
 	}

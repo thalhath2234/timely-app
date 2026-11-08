@@ -235,12 +235,12 @@ func (s *Service) notificationTimezone(userID string) string {
 	return settings.ZoneName(s.repo.WorkingHoursTimezone(userID))
 }
 
-func (s *Service) RegisterDevice(userID, token, platform string) (*models.PushDevice, error) {
+func (s *Service) RegisterDevice(userID, sessionID, token, platform string) (*models.PushDevice, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
 		return nil, errors.New("push token is required")
 	}
-	return s.repo.RegisterDevice(userID, token, platform)
+	return s.repo.RegisterDevice(userID, sessionID, token, platform)
 }
 
 func (s *Service) UnregisterDevice(userID, token string) error {

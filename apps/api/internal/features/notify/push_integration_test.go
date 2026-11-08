@@ -114,16 +114,20 @@ func deadReceipt() expoTicket {
 	return t
 }
 
+const devicesSession = "ses_notify_devices"
+
 func pushToken(i int) string { return fmt.Sprintf("ExponentPushToken[dev%03d]", i) }
 
 func ticketID(i int) string { return fmt.Sprintf("tk-dev%03d", i) }
 
-// addDevices registers n devices for the test account, updated at when.
+// addDevices registers n devices for the test account under one live
+// sign-in (devicesSession), updated at when.
 func addDevices(t *testing.T, db *gorm.DB, n int, when time.Time) []models.PushDevice {
 	t.Helper()
+	session := testSession(t, db, devicesSession)
 	rows := make([]models.PushDevice, n)
 	for i := range rows {
-		rows[i] = models.PushDevice{ID: fmt.Sprintf("dev_%03d", i), UserID: zoneTestUser, Token: pushToken(i), Platform: "android", CreatedAt: when, UpdatedAt: when, LastSeenAt: when}
+		rows[i] = models.PushDevice{ID: fmt.Sprintf("dev_%03d", i), UserID: zoneTestUser, SessionID: &session, Token: pushToken(i), Platform: "android", CreatedAt: when, UpdatedAt: when, LastSeenAt: when}
 	}
 	if err := db.CreateInBatches(rows, 100).Error; err != nil {
 		t.Fatal(err)
@@ -283,11 +287,12 @@ func TestIntegrationExpoReceipts(t *testing.T) {
 	devices := addDevices(t, db, 5, time.Now().UTC().Add(-time.Hour))
 	sentAt := time.Now().UTC().Add(-time.Minute)
 	// Registered again after the push: same row, newer updated_at.
-	if _, err := svc.repo.RegisterDevice(zoneTestUser, devices[3].Token, "android"); err != nil {
+	if _, err := svc.repo.RegisterDevice(zoneTestUser, devicesSession, devices[3].Token, "android"); err != nil {
 		t.Fatal(err)
 	}
 	// The same token moved to another account after the push.
-	if _, err := svc.repo.RegisterDevice(other, devices[4].Token, "android"); err != nil {
+	otherSession := liveSession(t, db, other, "ses_notify_push_other", time.Now().Add(time.Hour))
+	if _, err := svc.repo.RegisterDevice(other, otherSession, devices[4].Token, "android"); err != nil {
 		t.Fatal(err)
 	}
 	tickets := map[string]any{}

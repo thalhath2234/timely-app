@@ -314,15 +314,22 @@ func (r *repository) MarkDelivered(id string) error {
 		Update("delivered_at", now).Error
 }
 
-func (r *repository) RegisterDevice(userID, token, platform string) (*models.PushDevice, error) {
+// RegisterDevice stores a phone's push token under the sign-in that sent it.
+// A token already on file moves to this account and session, keeping its id.
+func (r *repository) RegisterDevice(userID, sessionID, token, platform string) (*models.PushDevice, error) {
 	if platform == "" {
 		platform = "android"
+	}
+	var session *string
+	if sessionID != "" {
+		session = &sessionID
 	}
 	now := time.Now().UTC()
 	var existing models.PushDevice
 	err := r.db.Where("token = ?", token).First(&existing).Error
 	if err == nil {
 		existing.UserID = userID
+		existing.SessionID = session
 		existing.Platform = platform
 		existing.UpdatedAt = now
 		existing.LastSeenAt = now
@@ -337,6 +344,7 @@ func (r *repository) RegisterDevice(userID, token, platform string) (*models.Pus
 	row := &models.PushDevice{
 		ID:         utils.NewPushDeviceID(),
 		UserID:     userID,
+		SessionID:  session,
 		Token:      token,
 		Platform:   platform,
 		CreatedAt:  now,
@@ -353,12 +361,31 @@ func (r *repository) UnregisterDevice(userID, token string) error {
 	return r.db.Where("user_id = ? AND token = ?", userID, token).Delete(&models.PushDevice{}).Error
 }
 
+// Devices lists the account's phones whose sign-in is still valid: the
+// session exists (signing out deletes it, and the device with it) and has not
+// expired, by the rule auth uses. A device with no session gets nothing until
+// the phone registers again.
 func (r *repository) Devices(userID string) ([]models.PushDevice, error) {
-	var rows []models.PushDevice
-	if err := r.db.Where("user_id = ?", userID).Find(&rows).Error; err != nil {
+	var rows []struct {
+		models.PushDevice
+		ExpiresAt string
+	}
+	err := r.db.Raw(`SELECT d.*, s.expires_at FROM push_devices d
+		JOIN user_sessions s ON s.id = d.session_id AND s.user_id = d.user_id
+		WHERE d.user_id = ?`, userID).Scan(&rows).Error
+	if err != nil {
 		return nil, err
 	}
-	return rows, nil
+	now := time.Now().UTC()
+	devices := make([]models.PushDevice, 0, len(rows))
+	for _, row := range rows {
+		expires, err := time.Parse(time.RFC3339, row.ExpiresAt)
+		if err != nil || !now.Before(expires) {
+			continue
+		}
+		devices = append(devices, row.PushDevice)
+	}
+	return devices, nil
 }
 
 // DeleteDevice removes a device Expo reported as no longer registered. A
