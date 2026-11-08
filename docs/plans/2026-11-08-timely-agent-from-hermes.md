@@ -499,7 +499,7 @@ The list lives in Go (`agent/permission.go`) with one test per item; Hermes' pat
 **Floors no mode lifts.** Hermes' hardline blocklist (disk wipes, `mkfs`, fork bombs, deleting the system; `hermes:tools/approval.py:1153-1168`) *(read)*, which Hermes itself enforces even in its YOLO mode; secrets never in the worker environment (section 6.4); account isolation and the host-allowed account rule (section 12); learned skills and memory from tainted sessions or bots stay staged for Keep/Discard (section 9b.5), because they persist into later runs rather than being one action. Full Access lifts approvals, not these.
 
 **Where it is set.**
-- Account defaults in Settings → Assistant → Permissions: one row for new chats (default **Supervised**) and one for bots (default **Auto**), Q-P1.
+- Account defaults in Settings → Assistant → Permissions: one row for new chats (default **Supervised**) and one for bots (default **Auto**), confirmed by the owner (Q-P1).
 - Per chat: the permission chip in the composer opens the three-way picker; the choice lasts for that chat only.
 - Per bot: a Permission row in the bot's settings.
 - Turning on **Full Access** anywhere needs the step-up of section 3.5 (desktop window, or device unlock on the phone) and a one-time confirmation that names what it lifts. The Full Access row has an "Allowed on" setting (this desktop only by default).
@@ -1318,8 +1318,8 @@ Marked by the phase that needs the answer.
 - Q-1.2 **Answered 2026-11-08:** tagged releases batched every 1-2 weeks, security fixes immediately. **No weekly draft-PR CI job for now**; section 10.6 stays optional and unbuilt.
 - Q-1.3 Patch-point budget: start at zero, hard cap five (recommended)? Send genuine fixes upstream as PRs to NousResearch?
 - Q-1.4 Filter: drop `plugin-catalog/` and non-English locales (recommended); keep optional skills (recommended)?
-- Q-7.12 **Answered 2026-11-08: option 1, One inbox.** Open: keep the name "Assistant" for the tab (recommended)?
-- Q-P1 Permission defaults (section 5.5b): new chats start on Supervised (recommended, keeps decision 5), bots on Auto (recommended; bots have no terminal or file tools)? Full Access allowed on this desktop only by default (recommended), or on every device after device unlock?
+- Q-7.12 **Answered 2026-11-08: option 1, One inbox**, and the tab keeps the name "Assistant" for now.
+- Q-P1 **Answered 2026-11-08: yes.** New chats start on Supervised, bots on Auto, and Full Access is allowed on this desktop only by default (section 5.5b).
 
 **Phase 2**
 
