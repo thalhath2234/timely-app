@@ -2896,7 +2896,8 @@ export function draftErrors(draft: BotInput, hasKey?: (source: string) => boolea
     }
     const rules = w.rules ?? [];
     if (rules.length > BOT_LIMITS.maxRulesPerWatch) add(`A watch can have up to ${BOT_LIMITS.maxRulesPerWatch} rules`);
-    const fits = rulesFor(w);
+    // The editors don't offer in_stock yet, but a bot made in chat can carry it.
+    const fits: RuleKind[] = w.kind === "page" && w.read === "product_price" ? [...rulesFor(w), "in_stock"] : rulesFor(w);
     for (const r of rules) {
       if (!fits.includes(r.kind)) add(`“${RULE_LABELS[r.kind]}” does not fit this watch`);
       else if ((r.kind === "below" || r.kind === "above") && !(r.threshold != null && r.threshold > 0)) add("Give the price to watch for");

@@ -1089,6 +1089,12 @@ describe("drafts", () => {
       watches: [...shop.watches, { kind: "page", url: "https://a.in/y", read: "text", rules: [{ kind: "words_appear", words: [" "] }, { kind: "below", threshold: 1 }] }],
     };
     assert.deepEqual(draftErrors(two), ["Watch 2: Give the words to look for", "Watch 2: “Price is below” does not fit this watch"]);
+    const restock = { ...shop, intervalMinutes: 360, watches: [{ ...shop.watches[0], rules: [{ kind: "below", threshold: 90000 }, { kind: "in_stock" }] }] };
+    assert.deepEqual(draftErrors(restock), [], "a chat-made Back in stock rule still saves");
+    const textRestock = { ...restock, watches: [{ kind: "page", url: "https://a.in/y", read: "text", rules: [{ kind: "in_stock" }] }] };
+    assert.deepEqual(draftErrors(textRestock), ["“Back in stock” does not fit this watch"]);
+    const partRestock = { ...restock, watches: [{ kind: "page", url: "https://a.in/y", read: "selector_price", selector: ".p", rules: [{ kind: "in_stock" }] }] };
+    assert.deepEqual(draftErrors(partRestock), ["“Back in stock” does not fit this watch"]);
     assert.deepEqual(draftErrors({ ...shop, intervalMinutes: 20000 }), ["Check at least once a week (10080 minutes)"]);
     assert.deepEqual(draftErrors({ ...shop, intervalMinutes: 360, name: "x".repeat(81) }), ["Keep the bot's name under 80 characters"]);
   });
