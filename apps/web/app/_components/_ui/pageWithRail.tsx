@@ -123,6 +123,7 @@ export function RailRow({
   label,
   value,
   meta,
+  note,
   color,
   share,
   onClick,
@@ -133,6 +134,8 @@ export function RailRow({
   label: ReactNode;
   value?: ReactNode;
   meta?: ReactNode;
+  /** A line under the row that wraps instead of being cut, for a sentence. */
+  note?: ReactNode;
   /** A dot in this colour before the label. */
   color?: string | null;
   /** 0 to 1: a thin bar under the label, for "how much of the whole". */
@@ -163,12 +166,13 @@ export function RailRow({
     </span>
   );
   const body =
-    share === undefined ? (
+    share === undefined && !note ? (
       line
     ) : (
       <>
         {line}
-        <Fill value={share} color={color} height={4} trackClassName="mt-1.5" />
+        {note ? <span className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{note}</span> : null}
+        {share !== undefined ? <Fill value={share} color={color} height={4} trackClassName="mt-1.5" /> : null}
       </>
     );
   const base = cn(

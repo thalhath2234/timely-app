@@ -7,6 +7,7 @@ import {
   describeSidecar,
   describeTailscale,
   describeUpdate,
+  loginItemRow,
   pairingPayload,
   pairingUrls,
   primaryAddress,
@@ -104,4 +105,23 @@ test("HTTPS status follows both switches and the Serve state", () => {
   const failed = at({ tailscaleHttps: true }, { status: "error", error: "Turn on HTTPS" });
   assert.equal(failed.tone, "danger");
   assert.equal(failed.detail, "Turn on HTTPS");
+});
+
+test("the start-at-login row never shows On while the system turned the entry off", () => {
+  const at = (startAtLogin, loginItem, platform = "win32") =>
+    loginItemRow({ settings: { ...instance.settings, startAtLogin }, loginItem: { notice: false, ...loginItem } }, platform);
+  const ON = "Opens hidden in the tray, so bots keep watching";
+  const OFF = "Bots only check while Timely is open";
+  const WINDOWS = "Windows turned this off in Startup apps. Turn it on here to start Timely when you sign in.";
+  const DESKTOP = "Your desktop turned this off in its startup settings. Turn it on here to start Timely when you sign in.";
+  const table = [
+    ["on", at(true, { supported: true, blockedBySystem: false }), { checked: true, disabled: false, meta: ON, hint: null }],
+    ["off", at(false, { supported: true, blockedBySystem: false }), { checked: false, disabled: false, meta: OFF, hint: null }],
+    ["unsupported", at(true, { supported: false, blockedBySystem: false }), { checked: false, disabled: true, meta: OFF, hint: "Works in the installed app." }],
+    ["blocked on win32", at(true, { supported: true, blockedBySystem: true }), { checked: false, disabled: false, meta: OFF, hint: WINDOWS }],
+    ["blocked on linux", at(true, { supported: true, blockedBySystem: true }, "linux"), { checked: false, disabled: false, meta: OFF, hint: DESKTOP }],
+    ["blocked on darwin", at(true, { supported: true, blockedBySystem: true }, "darwin"), { checked: false, disabled: false, meta: OFF, hint: DESKTOP }],
+  ];
+  for (const [name, got, want] of table) assert.deepEqual(got, want, name);
+  for (const meta of [ON, OFF]) assert.ok(meta.length <= 48, `"${meta}" fits the row without truncating`);
 });

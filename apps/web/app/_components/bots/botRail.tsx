@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ExternalLink, Eye, Lightbulb } from "lucide-react";
 import {
   BOT_LIMITS,
+  CAUGHT_UP,
   DEFAULT_BRIEF_TIME,
   agoLabel,
   alertMeta,
@@ -21,6 +22,7 @@ import {
   priceSeries,
   priceStats,
   rearmMeta,
+  recentAway,
   shortDate,
   signedPct,
   valueLine,
@@ -244,6 +246,7 @@ function ChecksSection({ detail, now }: { detail: BotDetail; now: Date }) {
   const last = detail.checks?.[0];
   const brief = detail.kind === "brief";
   const allPaused = !!useBots().data?.summary.allPaused;
+  const away = recentAway(detail, now);
   return (
     <RailSection title="Checks" meta="This week">
       <RailRows>
@@ -258,6 +261,9 @@ function ChecksSection({ detail, now }: { detail: BotDetail; now: Date }) {
             detail.lastCheckAt ? agoLabel(detail.lastCheckAt, now) : "Not yet"
           }
         />
+        {away ? (
+          <RailRow label={CAUGHT_UP} value={timeOf(away.at)} note={away.line} />
+        ) : null}
         <RailRow
           label={brief ? "Next brief" : "Next check"}
           value={

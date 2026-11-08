@@ -11,12 +11,15 @@ export default function TimezoneSelect({
   onChange,
   className,
   size = "md",
+  variant,
   "aria-label": ariaLabel = "Timezone",
 }: {
   value: string;
   onChange: (value: string) => void;
   className?: string;
   size?: ControlSize;
+  /** "row": the value side of a grouped row. */
+  variant?: "default" | "row";
   "aria-label"?: string;
 }) {
   const options = useMemo<SelectOption[]>(
@@ -37,6 +40,7 @@ export default function TimezoneSelect({
       onChange={onChange}
       options={options}
       size={size}
+      variant={variant}
       searchable
       className={className}
       aria-label={ariaLabel}

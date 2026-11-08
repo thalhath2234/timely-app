@@ -8,6 +8,7 @@ import ConfirmHost from "@/app/_components/_ui/confirmHost";
 import EntityDetailHost from "@/app/_components/_ui/tasks/entityDetailHost";
 import PageTabLinks from "@/app/_components/pageTabs/pageTabLinks";
 import SetupResume from "@/app/_components/_layout/setupResume";
+import LoginItemNotice from "@/app/_components/_layout/loginItemNotice";
 
 export default async function DashboardLayout({
   children,
@@ -21,6 +22,7 @@ export default async function DashboardLayout({
       <EntityDetailHost />
       <PageTabLinks />
       <SetupResume />
+      <LoginItemNotice />
       <AutoScheduleIndicator />
       <ToastHost />
       <ContextMenuHost />

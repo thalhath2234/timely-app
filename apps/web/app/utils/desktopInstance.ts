@@ -151,3 +151,39 @@ export function canToggleTailscale(instance: Pick<DesktopInstance, "tailscale">)
 export function routeAfterOnboarding(instance: Pick<DesktopInstance, "settings"> | null): "/setup" | "/calendar" {
   return instance && !instance.settings.setupDone ? "/setup" : "/calendar";
 }
+
+export type LoginItemRow = {
+  checked: boolean;
+  disabled: boolean;
+  /** The row's second line: what the switch means right now. */
+  meta: string;
+  /** A line under the group, when the system has a say or the build cannot. */
+  hint: string | null;
+};
+
+/**
+ * Settings › Notifications › This computer: the "Start when you sign in" row.
+ * It never shows On while Windows (Startup apps) or the desktop turned the
+ * entry off; turning it on there writes the entry again and clears the block.
+ */
+export function loginItemRow(
+  instance: Pick<DesktopInstance, "settings" | "loginItem">,
+  platform: NodeJS.Platform,
+): LoginItemRow {
+  const { supported, blockedBySystem } = instance.loginItem;
+  const checked = supported && instance.settings.startAtLogin && !blockedBySystem;
+  const meta = checked ? "Opens hidden in the tray, so bots keep watching" : "Bots only check while Timely is open";
+  if (!supported) return { checked: false, disabled: true, meta, hint: "Works in the installed app." };
+  if (instance.settings.startAtLogin && blockedBySystem) {
+    return {
+      checked,
+      disabled: false,
+      meta,
+      hint:
+        platform === "win32"
+          ? "Windows turned this off in Startup apps. Turn it on here to start Timely when you sign in."
+          : "Your desktop turned this off in its startup settings. Turn it on here to start Timely when you sign in.",
+    };
+  }
+  return { checked, disabled: false, meta, hint: null };
+}
