@@ -77,7 +77,16 @@ func TestProductPriceAvailabilityJSONLD(t *testing.T) {
 		{"absent", `{"@type":"Product","offers":{"@type":"Offer","price":"10"}}`, AvailUnknown},
 		{"offer array: the priced offer's", `{"@type":"Product","offers":[{"price":"0","availability":"InStock"},{"price":"12","availability":"SoldOut"}]}`, AvailOutOfStock},
 		{"aggregate states its own", `{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":"8","highPrice":"20","availability":"https://schema.org/InStock"}}`, AvailInStock},
-		{"aggregate: any seller in stock", `{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":"8","offers":[{"@type":"Offer","price":"8","availability":"OutOfStock"},{"@type":"Offer","price":"9","availability":"http://schema.org/InStock"}]}}`, AvailInStock},
+		{"aggregate: the low price's seller sold out", `{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":"8","offers":[{"@type":"Offer","price":"8","availability":"OutOfStock"},{"@type":"Offer","price":"9","availability":"http://schema.org/InStock"}]}}`, AvailOutOfStock},
+		{"aggregate: any seller at the low price in stock", `{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":"8","offers":[{"price":"8","availability":"OutOfStock"},{"price":"8.00","availability":"InStock"},{"price":"9","availability":"OutOfStock"}]}}`, AvailInStock},
+		{"aggregate: no seller priced, any in stock", `{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":"8","offers":[{"availability":"OutOfStock"},{"availability":"InStock"}]}}`, AvailInStock},
+		{"offer array: one variant sold out, another at the price in stock", `{"@type":"Product","offers":[{"price":"12","priceCurrency":"USD","availability":"OutOfStock"},{"price":"12.00","priceCurrency":"USD","availability":"https://schema.org/InStock"}]}`, AvailInStock},
+		{"offer array: every variant sold out", `{"@type":"Product","offers":[{"price":"12","availability":"OutOfStock"},{"price":"12","availability":"SoldOut"}]}`, AvailOutOfStock},
+		{"offer array: in stock only at another price", `{"@type":"Product","offers":[{"price":"12","availability":"OutOfStock"},{"price":"15","availability":"InStock"}]}`, AvailOutOfStock},
+		{"offer array: in stock only in another currency", `{"@type":"Product","offers":[{"price":"12","priceCurrency":"USD","availability":"OutOfStock"},{"price":"12","priceCurrency":"EUR","availability":"InStock"}]}`, AvailOutOfStock},
+		{"variants: first sold out, a sibling in stock", `{"@type":"ProductGroup","hasVariant":[{"@type":"Product","offers":{"price":"20","availability":"OutOfStock"}},{"@type":"Product","offers":{"price":"20","availability":"InStock"}}]}`, AvailInStock},
+		{"variants: every one sold out", `{"@type":"ProductGroup","hasVariant":[{"@type":"Product","offers":{"price":"20","availability":"OutOfStock"}},{"@type":"Product","offers":{"price":"20","availability":"Discontinued"}}]}`, AvailOutOfStock},
+		{"availability as an @id node", `{"@type":"Product","offers":{"price":"10","availability":{"@id":"https://schema.org/OutOfStock"}}}`, AvailOutOfStock},
 		{"aggregate: every seller sold out", `{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":"8","offers":[{"price":"8","availability":"OutOfStock"},{"price":"9","availability":"https://schema.org/Discontinued"}]}}`, AvailOutOfStock},
 		{"price specification keeps its offer's", `{"@type":"Product","offers":{"@type":"Offer","availability":"https://schema.org/LimitedAvailability","priceSpecification":{"price":"12","priceCurrency":"EUR"}}}`, AvailLimited},
 		{"graph", `{"@graph":[{"@type":"WebPage"},{"@type":"Product","offers":{"price":"3","availability":"BackOrder"}}]}`, AvailBackorder},
@@ -108,8 +117,10 @@ func TestProductPriceAvailabilityMicrodataAndMeta(t *testing.T) {
 		{"product meta", `<meta property="product:price:amount" content="10.00"><meta property="product:price:currency" content="AUD">
 <meta property="product:availability" content="out of stock">`, AvailOutOfStock},
 		{"og meta", `<meta property="og:price:amount" content="10.00"><meta property="og:availability" content="instock">`, AvailInStock},
-		{"JSON-LD price, availability only in microdata", `<script type="application/ld+json">{"@type":"Product","offers":{"price":"10"}}</script>
-<link itemprop="availability" href="https://schema.org/SoldOut">`, AvailOutOfStock},
+		{"JSON-LD price skips microdata, which may be another product's", `<script type="application/ld+json">{"@type":"Product","offers":{"price":"10"}}</script>
+<link itemprop="availability" href="https://schema.org/SoldOut">`, AvailUnknown},
+		{"JSON-LD price still takes og meta", `<script type="application/ld+json">{"@type":"Product","offers":{"price":"10"}}</script>
+<meta property="og:availability" content="out of stock"><link itemprop="availability" href="https://schema.org/InStock">`, AvailOutOfStock},
 		{"none", `<meta property="og:price:amount" content="10.00">`, AvailUnknown},
 	}
 	for _, c := range cases {

@@ -29,9 +29,9 @@ type Price struct {
 // references), then og:price:amount or product:price:amount with its
 // currency, then microdata itemprop="price". No price gives ErrEmpty.
 //
-// Availability comes from the offer the price came from, else from
-// og:availability or product:availability, else from microdata
-// itemprop="availability".
+// Availability comes from the offers at the price read, else from
+// og:availability or product:availability, else, for a microdata price,
+// from microdata itemprop="availability".
 func ProductPrice(body []byte, contentType string) (Price, error) {
 	doc, err := parseHTML(body, contentType)
 	if err != nil {
@@ -50,7 +50,7 @@ func ProductPrice(body []byte, contentType string) (Price, error) {
 		return Price{}, ErrEmpty
 	}
 	if !KnownAvailability(p.Availability) {
-		p.Availability = pg.availability()
+		p.Availability = pg.availability(p.From == "itemprop")
 	}
 	return p, nil
 }
@@ -126,10 +126,16 @@ func (pg *pricePage) ogPrice() (Price, bool) {
 	return Price{}, false
 }
 
-// availability is the first availability the page's meta tags, then its
-// microdata, state; AvailUnknown when none does.
-func (pg *pricePage) availability() string {
-	for _, v := range append([]string{pg.meta["og:availability"], pg.meta["product:availability"]}, pg.itemAvail...) {
+// availability is the first availability the page's meta tags, then (for a
+// price read from microdata) its microdata, state; AvailUnknown when none
+// does. A JSON-LD or meta price skips microdata, which on a shop page often
+// belongs to a carousel of other products.
+func (pg *pricePage) availability(microdata bool) string {
+	vals := []string{pg.meta["og:availability"], pg.meta["product:availability"]}
+	if microdata {
+		vals = append(vals, pg.itemAvail...)
+	}
+	for _, v := range vals {
 		if a := NormalizeAvailability(v); KnownAvailability(a) {
 			return a
 		}
@@ -326,6 +332,9 @@ func (ld *ldReader) find(v any, top bool) (Price, bool) {
 				return p, true
 			}
 			if p, ok := ld.find(t["hasVariant"], false); ok {
+				if list, isList := t["hasVariant"].([]any); isList {
+					p.Availability = ld.samePriceAvailability(list, p, func(r *ldReader, v any) (Price, bool) { return r.find(v, false) })
+				}
 				return p, true
 			}
 			return Price{}, false
@@ -352,11 +361,15 @@ func (ld *ldReader) find(v any, top bool) (Price, bool) {
 }
 
 // offers reads an offers value: one offer or a list, first priced one wins.
+// In a list, the availability is the most buyable among the offers at that
+// same price: shops list one offer per variant, and the first one being sold
+// out says nothing about the rest.
 func (ld *ldReader) offers(v any) (Price, bool) {
 	switch t := v.(type) {
 	case []any:
-		for _, c := range t {
+		for i, c := range t {
 			if p, ok := ld.offers(c); ok {
+				p.Availability = ld.samePriceAvailability(t[i+1:], p, (*ldReader).offers)
 				return p, true
 			}
 		}
@@ -376,15 +389,18 @@ func (ld *ldReader) offer(m map[string]any) (Price, bool) {
 	if aggregate {
 		keys = []string{"lowPrice", "price"}
 	}
-	avail := NormalizeAvailability(ldString(m["availability"]))
-	if !KnownAvailability(avail) && aggregate {
-		avail = ld.offersAvailability(m["offers"])
-	}
+	avail := ldAvailability(m["availability"])
 	cur := ldString(m["priceCurrency"])
 	for _, k := range keys {
 		if amount, raw, ok := ldAmount(m[k]); ok {
+			if !KnownAvailability(avail) && aggregate {
+				avail = ld.offersAvailability(m["offers"], amount)
+			}
 			return Price{Amount: amount, Currency: currencyCode(cur, raw), From: "jsonld", Availability: avail}, true
 		}
+	}
+	if !KnownAvailability(avail) && aggregate {
+		avail = ld.offersAvailability(m["offers"], math.NaN())
 	}
 	if p, ok := ld.offers(m["priceSpecification"]); ok {
 		if p.Currency == "" {
@@ -402,10 +418,12 @@ func (ld *ldReader) offer(m map[string]any) (Price, bool) {
 }
 
 // offersAvailability is the most buyable availability an AggregateOffer's
-// offers state: it can be bought when any one of them can. AvailUnknown when
-// none states one.
-func (ld *ldReader) offersAvailability(v any) string {
-	best := AvailUnknown
+// offers state at its price (lowPrice), so a sold-out seller's low price
+// does not read as buyable because a dearer seller has stock. When no offer
+// states one at that price, it is the most buyable of any offer.
+// AvailUnknown when none states one.
+func (ld *ldReader) offersAvailability(v any, price float64) string {
+	atPrice, best := AvailUnknown, AvailUnknown
 	var visit func(v any)
 	visit = func(v any) {
 		switch t := v.(type) {
@@ -414,12 +432,38 @@ func (ld *ldReader) offersAvailability(v any) string {
 				visit(c)
 			}
 		case map[string]any:
-			if a := NormalizeAvailability(ldString(ld.resolve(t)["availability"])); buyRank(a) < buyRank(best) {
+			o := ld.resolve(t)
+			a := ldAvailability(o["availability"])
+			if buyRank(a) < buyRank(best) {
 				best = a
+			}
+			if amount, _, ok := ldAmount(o["price"]); ok && amount == price && buyRank(a) < buyRank(atPrice) {
+				atPrice = a
 			}
 		}
 	}
 	visit(v)
+	if KnownAvailability(atPrice) {
+		return atPrice
+	}
+	return best
+}
+
+// samePriceAvailability is the most buyable availability among p and the
+// siblings that read at p's amount and currency, each read by read. The
+// siblings get their own visit marks (p's read already marked shared nodes)
+// but share the step cap.
+func (ld *ldReader) samePriceAvailability(siblings []any, p Price, read func(*ldReader, any) (Price, bool)) string {
+	best := p.Availability
+	sub := &ldReader{ids: ld.ids, steps: ld.steps, depth: ld.depth}
+	for _, c := range siblings {
+		sub.seen = map[ldVisit]bool{}
+		q, ok := read(sub, c)
+		if ok && q.Amount == p.Amount && strings.EqualFold(q.Currency, p.Currency) && buyRank(q.Availability) < buyRank(best) {
+			best = q.Availability
+		}
+	}
+	ld.steps = sub.steps
 	return best
 }
 
@@ -455,6 +499,15 @@ func sortedKeys(m map[string]any) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// ldAvailability reads an availability given as text, a list, or a node
+// such as {"@id": "https://schema.org/InStock"}.
+func ldAvailability(v any) string {
+	if m, ok := v.(map[string]any); ok {
+		v = m["@id"]
+	}
+	return NormalizeAvailability(ldString(v))
 }
 
 func ldString(v any) string {

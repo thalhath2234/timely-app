@@ -271,6 +271,17 @@ func TestStockMovePctAndAnyChange(t *testing.T) {
 	if what != "back in stock" || body != "Now ₹100,000" {
 		t.Fatalf("restock alert %q / %q", what, body)
 	}
+	// Flips between buyable states at the same price are not a change.
+	in, lim := at(100000, 3, extract.AvailInStock), at(100000, 4, extract.AvailLimited)
+	if changed(in, lim) || changed(lim, at(100000, 5, extract.AvailPreorder)) {
+		t.Fatal("a buyable-to-buyable flip counted as a change")
+	}
+	if ev, _ := Evaluate(anyChange, RuleState{}, in, lim); ev != nil {
+		t.Fatalf("any_change fired on in stock to limited: %+v", ev)
+	}
+	if changed(at(100000, 6, extract.AvailOutOfStock), at(100000, 7, extract.AvailDiscontinued)) {
+		t.Fatal("out of stock to discontinued counted as a change")
+	}
 }
 
 func TestInStockRule(t *testing.T) {

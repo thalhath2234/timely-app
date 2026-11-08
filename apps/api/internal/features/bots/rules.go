@@ -488,7 +488,7 @@ func changed(prev, cur Reading) bool {
 	if cur.Kind == ReadingPrice || prev.Kind == ReadingPrice {
 		p, okP := prev.value()
 		c, okC := cur.value()
-		return okP != okC || (okC && !near(p, c)) || !strings.EqualFold(prev.Currency, cur.Currency) || stockMoved(prev, cur)
+		return okP != okC || (okC && !near(p, c)) || !strings.EqualFold(prev.Currency, cur.Currency) || buyableMoved(prev, cur)
 	}
 	return hashOf(prev) != hashOf(cur)
 }
@@ -538,6 +538,13 @@ func MergeSeen(prev []string, items []extract.FeedItem) []string {
 // and not the same one.
 func stockMoved(prev, cur Reading) bool {
 	return extract.KnownAvailability(prev.Availability) && extract.KnownAvailability(cur.Availability) && prev.Availability != cur.Availability
+}
+
+// buyableMoved is a stockMoved that sold out or came back. Shops flip
+// between buyable states ("only 3 left", preorder) without the price moving,
+// and those flips are not worth a change alert.
+func buyableMoved(prev, cur Reading) bool {
+	return stockMoved(prev, cur) && extract.Unbuyable(prev.Availability) != extract.Unbuyable(cur.Availability)
 }
 
 // conditionTrue reports whether a rule's condition holds on cur. A price
