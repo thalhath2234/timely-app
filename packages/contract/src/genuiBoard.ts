@@ -24,6 +24,7 @@ import {
   type DescribedNames,
   type EngineContext,
 } from "./dashboard";
+import { isBotId } from "./bots";
 import { formatLike } from "./dashboardFiles";
 import { checklistItems } from "./docChecklist";
 import type { Doc } from "./documents";
@@ -72,12 +73,22 @@ const List = defineComponent({
   component: null,
 });
 
+const PriceHistory = defineComponent({
+  name: "PriceHistory",
+  description: "A bot's price over the last 30 days as a line, with the line its rule watches. Read-only: it reads the bot itself.",
+  props: z.object({
+    bot: z.string().describe("The bot's id (bot_…) from the bots list, never its name"),
+    watch: z.string().optional().describe("One price watch's id (bwt_…); leave out for the bot's first price"),
+  }),
+  component: null,
+});
+
 const Panel = defineComponent({
   name: "Panel",
   description: "The root: the card's name, its blocks from top to bottom, and its size on the board.",
   props: z.object({
     title: z.string().describe("Short, e.g. Overdue client work"),
-    blocks: z.array(z.union([Stats.ref, List.ref, Card.ref, Columns.ref, BarChart.ref, DayStrip.ref, Text.ref])),
+    blocks: z.array(z.union([Stats.ref, List.ref, Card.ref, Columns.ref, BarChart.ref, DayStrip.ref, Text.ref, PriceHistory.ref])),
     size: z.enum(Object.keys(BOARD_SIZES) as [BoardSize, ...BoardSize[]]).optional(),
   }),
   component: null,
@@ -100,6 +111,7 @@ export const BOARD_COMPONENTS = {
   Slot,
   Text,
   Open,
+  PriceHistory,
 };
 export type BoardName = keyof typeof BOARD_COMPONENTS;
 export type BoardProps<N extends BoardName> = z.infer<(typeof BOARD_COMPONENTS)[N]["props"]>;
@@ -686,6 +698,7 @@ const RULES = [
   "Give every List an empty text. An Open link goes where its rows come from: Tasks for tasks, Calendar for events, a doc or sheet by its docId or sheetId. Show nothing the words don't ask for.",
   "The title is a few words in the person's language, without the word card. Labels are in the person's language too.",
   "When the message holds the card's current program and a change, answer with the whole changed program, keeping the rest as it was.",
+  "A bot's price history is PriceHistory with the bot's id from the bots list. Never write prices, or a BarChart of them, yourself; when no bot fits, answer NO_DATA.",
   'When the person\'s data holds nothing the words could be about (no sheet, doc, project or other name like it, after looking it up when you can), answer with one line instead of a program: NO_DATA: and a short reason in the person\'s language, such as "NO_DATA: There is no CRM sheet yet." Never write a card that only says the data is missing or promises to fill in later: a card\'s text never changes.',
 ];
 
@@ -729,11 +742,16 @@ spend = @Cells({sheet: "Budget", tab: "October", label: "Category", value: "Amou
 nums = Stats([Stat("Spent", spend.text), Stat("Per entry", spend.average)])
 chart = BarChart("Per category", spend.labels, spend.values)`;
 
+// Only in the model's instructions: a bot the person may not have is no example to offer them.
+const BOT_EXAMPLE = `Words: how the Sony headphones price moved
+root = Panel("Sony WH-1000XM6", [chart])
+chart = PriceHistory("bot_3f1c9a")`;
+
 const promptLibrary = () => createLibrary({ components: Object.values(BOARD_COMPONENTS), functions: [Data, Cells, Checklist], root: BOARD_ROOT });
 
 /** The model's instructions for described cards (the API embeds this text). */
 export function boardPrompt(): string {
-  return promptLibrary().prompt({ preamble: PREAMBLE, additionalRules: RULES, examples: [...EXAMPLES, SHEET_EXAMPLE, CHECKLIST_EXAMPLE], builtinFunctions: true });
+  return promptLibrary().prompt({ preamble: PREAMBLE, additionalRules: RULES, examples: [...EXAMPLES, SHEET_EXAMPLE, CHECKLIST_EXAMPLE, BOT_EXAMPLE], builtinFunctions: true });
 }
 
 /** A parser for described-card programs, for checks outside a renderer. */
@@ -786,7 +804,7 @@ export function describeChanges(program: string): string[] {
 
 /** The example programs in the prompt, without their "Words:" line. */
 export function boardExamples(): { words: string; program: string }[] {
-  return [...EXAMPLES, SHEET_EXAMPLE, CHECKLIST_EXAMPLE].map((example) => {
+  return [...EXAMPLES, SHEET_EXAMPLE, CHECKLIST_EXAMPLE, BOT_EXAMPLE].map((example) => {
     const [first, ...rest] = example.split("\n");
     return { words: first.replace(/^Words:\s*/, ""), program: rest.join("\n") };
   });
@@ -934,6 +952,58 @@ export function checklistProblems(program: string, data: DashboardData): string[
   const root = boardParser().parse(program).root;
   const missing = calls(root, "Checklist", ChecklistQuery).map((query) => checklistMissing(query, data));
   return [...new Set(missing.filter(Boolean))];
+}
+
+/** Each PriceHistory block in a program, with its bot and watch as written (literals only). */
+function priceBlocks(program: string): { bot: unknown; watch: unknown }[] {
+  if (!/\bPriceHistory\s*\(/.test(program)) return [];
+  const out: { bot: unknown; watch: unknown }[] = [];
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) return value.forEach(walk);
+    if (!value || typeof value !== "object") return;
+    const node = value as GenuiNode;
+    if (node.type !== "element") return;
+    if (node.typeName === "PriceHistory") out.push({ bot: node.props.bot, watch: node.props.watch });
+    else Object.values(node.props ?? {}).forEach(walk);
+  };
+  walk(boardParser().parse(program).root);
+  return out;
+}
+
+const shownValue = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value) ?? "");
+
+/**
+ * What a program's PriceHistory blocks name that isn't a bot: a value that
+ * is not a bot id always (a name, a reserved word), and with the person's
+ * bots (`data.bots`, filled only by the API's check) an id no bot has, a bot
+ * that watches no price, or a watch that is not one of its prices. Words for
+ * the Describe model (checkBoard) only: the block itself says what went wrong
+ * to the person, so these never join blockProblems' note.
+ */
+export function botProblems(program: string, data: DashboardData): string[] {
+  const problems = new Set<string>();
+  for (const { bot, watch } of priceBlocks(program)) {
+    if (!isBotId(bot)) {
+      problems.add(`“${shownValue(bot)}” is not a bot id. Use an id from the bots list.`);
+      continue;
+    }
+    if (!data.bots) continue;
+    const found = data.bots.find((each) => each.id === bot);
+    if (!found) problems.add(`No bot has the id “${bot}”. Use an id from the bots list.`);
+    else if (!found.prices.length) problems.add(`“${found.name}” watches no price.`);
+    else if (watch !== undefined && watch !== null && !found.prices.some((price) => price.id === watch))
+      problems.add(`“${found.name}” has no price watch “${shownValue(watch)}”.`);
+  }
+  return [...problems];
+}
+
+/** The bots a doc's PriceHistory blocks read, once each, ids only: a name or a reserved word is never fetched. */
+export function liveBotIds(programs: string[]): string[] {
+  const ids = new Set<string>();
+  for (const program of programs) {
+    for (const { bot } of priceBlocks(program)) if (isBotId(bot)) ids.add(bot);
+  }
+  return [...ids];
 }
 
 /** What a card or live block reads that the person's sheets and docs don't have: the note over it. */

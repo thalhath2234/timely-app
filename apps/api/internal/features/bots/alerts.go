@@ -54,6 +54,9 @@ type alertRun struct {
 	via    []ViaStep
 	things []Thing
 	url    string
+	// away is the last line of the alert's body when this check caught up
+	// on a gap: "Paused for 9 hours while Timely was closed" (awayLine).
+	away string
 }
 
 // uncheckedSuffix marks the notification of an alert AI did not judge. The
@@ -61,12 +64,17 @@ type alertRun struct {
 const uncheckedSuffix = " (not checked by AI)"
 
 // notificationBody is what an alert's notification says: its body, marked
-// when AI did not judge it.
+// when AI did not judge it, the mark before the line that says how long the
+// Bot was paused.
 func notificationBody(a Alert) string {
-	if a.AIState != aiUnchecked || strings.HasSuffix(a.Body, uncheckedSuffix) {
+	if a.AIState != aiUnchecked {
 		return a.Body
 	}
-	return strings.TrimSpace(a.Body + uncheckedSuffix)
+	body, away := trimAway(a.Body, a.Figures)
+	if !strings.HasSuffix(body, uncheckedSuffix) {
+		body = strings.TrimSpace(body + uncheckedSuffix)
+	}
+	return withAway(body, away)
 }
 
 // alert raises the one alert a firing check gets, inside its transaction:
@@ -94,6 +102,9 @@ func (s *Service) alert(tx *gorm.DB, b Bot, a alertRun) (sent bool, err error) {
 	opts := notify.AlertOptions{Urgent: b.Urgent, Phone: b.NotifyPhone, Now: now}
 	what, body, figures := alertText(a.fired)
 	figures["what"] = what
+	if a.away != "" {
+		figures["away"] = a.away
+	}
 	urgency := UrgencyNormal
 	if b.Urgent {
 		urgency = UrgencyHigh
@@ -108,7 +119,7 @@ func (s *Service) alert(tx *gorm.DB, b Bot, a alertRun) (sent bool, err error) {
 	}
 	switch v := a.verdict; {
 	case v != nil && !v.Alert:
-		row.Title, row.Body = b.Name+": "+what, body
+		row.Title, row.Body = b.Name+": "+what, withAway(body, a.away)
 		row.Held, row.AIState, row.AIWhy, row.Urgency = heldJudged, aiJudged, v.Why, v.Urgency
 		return false, tx.Create(&row).Error
 	case v != nil:
@@ -120,6 +131,7 @@ func (s *Service) alert(tx *gorm.DB, b Bot, a alertRun) (sent bool, err error) {
 	case a.aiState == aiUnchecked:
 		row.AIState, row.AIWhy = aiUnchecked, clipRunes(a.aiNote, maxAIWhy)
 	}
+	body = withAway(body, a.away)
 	row.Urgency = urgency
 	title := b.Name + ": " + what
 	if _, held := notify.QuietUntil(settings, loc, opts); held {
@@ -238,7 +250,8 @@ func shareAlert(tx *gorm.DB, b Bot, row *Alert, things []Thing) (bool, error) {
 		}
 	}
 	if anchor.NotificationID != nil {
-		err := notify.BumpAlert(tx, b.UserID, *anchor.NotificationID, anchor.Title, notificationBody(*anchor)+alsoSeenTail(seen))
+		body, away := trimAway(notificationBody(*anchor), anchor.Figures)
+		err := notify.BumpAlert(tx, b.UserID, *anchor.NotificationID, anchor.Title, withAway(body+alsoSeenTail(seen), away))
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return false, err
 		}
@@ -354,11 +367,13 @@ func (s *Service) pausedAlert(tx *gorm.DB, b Bot, checkID string, p *problem, no
 }
 
 // awayAlert tells the person their Bots missed checks while Timely was
-// closed or asleep, once per gap. A later sweep that still counts as a wake
-// (a slow tick, another process starting) sees a later earliest missed check
-// once the first Bots are checked, so the key alone is not enough: an away
-// alert written since that check already covers this gap.
-func awayAlert(tx *gorm.DB, userID string, earliest time.Time, bots int, now time.Time) error {
+// closed or the computer slept, once per gap, in the words of reason. A
+// later sweep that still counts as a wake (a slow tick, another process
+// starting) keeps each Bot's start of the gap until it is checked, and sees
+// a later earliest missed check once the first Bots are, so the key alone
+// is not enough: an away alert written since that check already covers this
+// gap. It goes to the phone only when one of the Bots alerts the phone.
+func awayAlert(tx *gorm.DB, userID string, earliest time.Time, bots int, now time.Time, reason string, phone bool) error {
 	if err := lockAccount(tx, userID); err != nil {
 		return err
 	}
@@ -376,13 +391,51 @@ func awayAlert(tx *gorm.DB, userID string, earliest time.Time, bots int, now tim
 	if bots == 1 {
 		checking = "1 bot is checking now."
 	}
-	key := fmt.Sprintf("bot:away:%s:%d", userID, earliest.Unix())
-	ntf := models.Notification{
-		UserID: userID, Category: models.NotifyBot, Title: "Bots were paused for " + awayFor(now.Sub(earliest)),
-		Body: "Timely was closed or asleep. " + checking, DedupeKey: &key, Data: models.JobPayload{"botAlert": awayKind},
+	gap := "Timely was closed. "
+	if reason == AwayAsleep {
+		gap = "This computer was asleep. "
 	}
-	_, err = notify.WriteAlert(tx, &ntf, settings, loc, notify.AlertOptions{Phone: true, Now: now})
+	key := fmt.Sprintf("bot:away:%s:%d", userID, earliest.Unix())
+	opts := notify.AlertOptions{Phone: phone, Now: now}
+	title := "Bots were paused for " + awayFor(now.Sub(earliest))
+	// Held until quiet hours end, "checking now" means when it was written,
+	// as a held Bot alert says.
+	if _, held := notify.QuietUntil(settings, loc, opts); held {
+		title = withHeldTime(title, now, loc)
+	}
+	ntf := models.Notification{
+		UserID: userID, Category: models.NotifyBot, Title: title,
+		Body: gap + checking, DedupeKey: &key, Data: models.JobPayload{"botAlert": awayKind, "phone": phone},
+	}
+	_, err = notify.WriteAlert(tx, &ntf, settings, loc, opts)
 	return err
+}
+
+// withAway ends an alert's body with the line that says how long its Bot
+// was paused, when this check caught up on a gap.
+func withAway(body, away string) string {
+	if away == "" {
+		return body
+	}
+	if body == "" {
+		return away
+	}
+	return body + "\n" + away
+}
+
+// trimAway is body without the away line withAway put at its end.
+func trimAway(body string, figures jsonMap[string, any]) (string, string) {
+	away, _ := figures["away"].(string)
+	if away == "" {
+		return body, ""
+	}
+	if body == away {
+		return "", away
+	}
+	if strings.HasSuffix(body, "\n"+away) {
+		return strings.TrimSuffix(body, "\n"+away), away
+	}
+	return body, ""
 }
 
 // awayFor words a gap: "45 minutes", "9 hours", "3 days".

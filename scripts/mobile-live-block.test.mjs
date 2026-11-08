@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
 import { checklistItems } from "../packages/contract/src/docChecklist.ts";
-import { blockProblems, boardExamples, cellsProblems, drawBoard } from "../packages/contract/src/genuiBoard.ts";
+import { blockProblems, boardExamples, cellsProblems, drawBoard, drawProblems } from "../packages/contract/src/genuiBoard.ts";
 import { escapeHtml, liveBlockHtml } from "../apps/mobile/components/editor/liveBlockHtml.ts";
 
 // The phone draws a doc's live blocks as HTML for its editor page; these
@@ -178,3 +178,99 @@ cols = Columns([Card("Left", [InfoRow("A")]), Card("Right", [InfoRow("B")], null
   });
 });
 
+describe("phone live block HTML: a bot's price history", () => {
+  const rule = { id: "brl_below", kind: "below", threshold: 25000, stepPercent: 5, resetPercent: 0.5 };
+  const watch = (over = {}) => ({
+    id: "bwt_sony", kind: "page", url: "https://www.amazon.in/dp/B0", read: "product_price", selector: "", source: "", symbol: "",
+    currency: "INR", readingCurrency: "INR", rules: [rule], health: { code: "working", line: "" }, lastReadingAt: "2026-10-28T11:00:00Z",
+    summary: "₹27,499", site: "amazon.in", title: "Sony WH-1000XM6", value: 27499, excerpt: "", latestItem: null, lastChangedAt: null,
+    spark: null, dayChangePct: null, ...over,
+  });
+  const day = (date, close, low = null) => ({ watchId: "bwt_sony", day: date, currency: "INR", points: null, open: close, high: close, low, close });
+  const detail = (over = {}) => ({
+    id: "bot_sony", name: "Sony \"Pro\" <b>", description: "", status: "active", kind: "watch", health: { code: "working", line: "" }, watches: [watch()],
+    prices: [day("2026-10-01", 29990), day("2026-10-10", 26990, 24990), day("2026-10-20", 27990), day("2026-10-27", 27499)],
+    checks: [], alerts: [], lessons: [], week: { checks: 0, alerts: 0 }, alertsMonth: 0, rearms: [], links: [], away: null, ...over,
+  });
+  const block = (bot, watchId) => `root = Panel("Sony", [chart])\nchart = PriceHistory(${JSON.stringify(bot)}${watchId ? `, ${JSON.stringify(watchId)}` : ""})`;
+  const asked = [];
+  const live = (state, chartWidth = 300) => ({
+    ...lookup,
+    chartWidth,
+    bot: (id) => {
+      asked.push(id);
+      return state;
+    },
+  });
+  // As LiveBlocks draws it: the note over the block is drawProblems' first.
+  const drawn = (program, state, chartWidth) => liveBlockHtml(drawBoard(program, {}, ctx), live(state, chartWidth), drawProblems(program, {})[0]);
+
+  test("a price watch draws as the bot sheet's card: price, low, change, an SVG at the given width and Open bot", () => {
+    const html = drawn(block("bot_sony"), { state: "ok", detail: detail() }, 330);
+    assert.match(html, /<span class="lv-price-value">₹27,499<\/span><span class="lv-price-lowest">30-day low ₹24,990<\/span>/);
+    assert.match(html, /<p class="lv-price-under">₹2,499 above your line · <span class="lv-price-change is-good">/);
+    assert.match(html, /<svg width="330" height="130" viewBox="0 0 330 130" class="lv-price-chart" role="img" aria-label="Price over the last/);
+    // The rule's line is dashed in the warning colour, labelled in the warning text colour; the price line is the chart colour.
+    assert.match(html, /<line class="lv-price-threshold" x1="40" x2="322\.0"/);
+    assert.match(html, /<text class="lv-price-threshold-label" [^>]*>Your line ₹25,000<\/text>/);
+    assert.match(html, /<path class="lv-price-line" d="M40\.0 /);
+    assert.match(html, />Today<\/text>/);
+    // Open bot sits in the block's foot and opens the bot by id.
+    assert.match(html, /<div class="lv-foot"><button type="button" class="lv-open" data-live-open="timely:\/\/bot\/bot_sony" aria-label="Open bot: Sony &quot;Pro&quot; &lt;b&gt;">Open bot<svg/);
+    assert.ok(!html.includes("<b>"), "the bot's name is escaped");
+    assert.ok(!html.includes("lv-problem"));
+    assert.ok(!html.includes("undefined") && !html.includes("NaN"), html);
+    const wide = drawn(block("bot_sony"), { state: "ok", detail: detail() }, 600);
+    assert.match(wide, /<svg width="600" height="130" viewBox="0 0 600 130"/);
+  });
+
+  test("two price watches name the one drawn; a paused bot says so; a picked watch is drawn", () => {
+    const second = watch({ id: "bwt_flip", site: "flipkart.com", value: 26000, rules: [] });
+    const two = detail({ status: "paused", watches: [watch(), second] });
+    const first = drawn(block("bot_sony"), { state: "ok", detail: two });
+    assert.match(first, /<p class="lv-price-meta">amazon\.in · Paused<\/p>/);
+    const picked = drawn(block("bot_sony", "bwt_flip"), { state: "ok", detail: two });
+    assert.match(picked, /<p class="lv-price-meta">flipkart\.com · Paused<\/p>/);
+    assert.match(picked, /<span class="lv-price-value">₹26,000<\/span>/);
+    // Under two points the chart says it fills in later.
+    const fresh = drawn(block("bot_sony"), { state: "ok", detail: detail({ prices: [] }) });
+    assert.match(fresh, /<p class="lv-price-empty">The line fills in after a few days of checks<\/p>/);
+  });
+
+  test("a deleted bot, a failed read and a bot without a price say so", () => {
+    const gone = drawn(block("bot_sony"), { state: "gone" });
+    assert.match(gone, /Bot deleted<\/span><span>Its price history went with it\.<\/span>/);
+    assert.ok(!gone.includes("data-live-open"));
+    assert.match(drawn(block("bot_sony"), { state: "failed" }), /Couldn’t load this bot’s prices/);
+    const page = detail({ watches: [watch({ read: "text", value: null })] });
+    assert.match(drawn(block("bot_sony"), { state: "ok", detail: page }), /This bot doesn’t watch a price/);
+  });
+
+  test("a name, a reserved word or a quoted id draws the failed words and is never looked up", () => {
+    asked.length = 0;
+    for (const bad of ["Sony WH-1000XM6", "keys", 'bot_so"ny', '"bot_sony"']) {
+      const html = drawn(block(bad), { state: "ok", detail: detail() });
+      assert.match(html, /Couldn’t load this bot’s prices/, bad);
+      assert.ok(!html.includes("data-live-open"), bad);
+      assert.ok(!html.includes("lv-problem"), `one message, no note over it: ${bad}`);
+      assert.ok(!html.includes('so"ny') && !html.includes('"bot_sony"'), `escaped: ${bad}`);
+    }
+    assert.deepEqual(asked, [], "no bot was asked for");
+  });
+
+  test("while the bot loads the block draws nothing", () => {
+    const html = drawn(block("bot_sony"), { state: "loading" });
+    assert.equal(html, '<div class="lv-panel"><div class="lv-sec"></div></div>');
+    // An app that hands no bots at all draws nothing for the block either.
+    assert.equal(liveBlockHtml(drawBoard(block("bot_sony"), {}, ctx), lookup), '<div class="lv-panel"><div class="lv-sec"></div></div>');
+  });
+});
+
+
+test("a doc printed to PDF drops a live block's footer link and keeps its link colour dark", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../apps/mobile/components/editor/editorHtml.ts", import.meta.url), "utf8");
+  const exportFn = src.slice(src.indexOf("function exportHtml("), src.indexOf('send({ type: "exportHtml"'));
+  assert.match(exportFn, /querySelectorAll\("[^"]*\.live-wrap \.lv-foot[^"]*"\)\.forEach\(\(el\) => el\.remove\(\)\)/);
+  assert.match(exportFn, /\.live-wrap \{[^}]*--lv-primary: #3730a3/);
+});

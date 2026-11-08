@@ -1,3 +1,13 @@
+import {
+  axisMoney,
+  formatMoney,
+  isBotId,
+  PRICE_BLOCK,
+  priceChartGeometry,
+  priceHistory,
+  signedPct,
+  type BotDetail,
+} from "@timely/contract/bots";
 import { findChecklistItem, type DocChecklistItem } from "@timely/contract/docChecklist";
 import { chartNumber, genuiColorHex, genuiNodes, replyBlocks, type GenuiNode } from "@timely/contract/genui";
 
@@ -15,11 +25,23 @@ import { chartNumber, genuiColorHex, genuiNodes, replyBlocks, type GenuiNode } f
 /** A task as the block shows it now, from the app's own task lists. */
 export type LiveTask = { title: string; done: boolean; late: boolean };
 
+/** A bot as a price block reads it: an id that is no bot id is never fetched. */
+export type LiveBot =
+  | { state: "invalid" }
+  | { state: "loading" }
+  | { state: "gone" }
+  | { state: "failed" }
+  | { state: "ok"; detail: BotDetail };
+
 /** What the block's rows show as it is now, from the app's own lists. */
 export type Live = {
   task: (taskId: string) => LiveTask | undefined;
   /** A doc's checklist items; undefined when the app doesn't have the doc. */
   checklist: (docId: string) => DocChecklistItem[] | undefined;
+  /** A bot for a PriceHistory block; left out, the block draws nothing yet. */
+  bot?: (botId: string) => LiveBot;
+  /** The price chart's width in px: the editor's content width less the block's padding. */
+  chartWidth?: number;
 };
 type Place = "top" | "column";
 
@@ -75,6 +97,82 @@ function open(props: Record<string, unknown>) {
   const href = SCREENS[target] ?? (id ? `timely://${target}/${encodeURIComponent(id)}` : "");
   if (!href) return "";
   return `<button type="button" class="lv-open" data-live-open="${escapeHtml(href)}">${escapeHtml(props.label)}${CHEVRON}</button>`;
+}
+
+/** The phone chart's box (components/bots/PriceChart.tsx). */
+const PRICE_BOX = { height: 130, left: 40, right: 8, top: 8, bottom: 20 };
+
+/** The price chart as an inline SVG, laid out by the contract as the phone's chart is drawn. */
+function priceSvg(points: [number, number][], threshold: number | null, currency: string, width: number): string {
+  const geometry = priceChartGeometry(points, threshold, { width, ...PRICE_BOX });
+  if (!geometry) return `<p class="lv-price-empty">${escapeHtml(PRICE_BLOCK.empty)}</p>`;
+  const { height, left, right } = PRICE_BOX;
+  const n = (value: number) => value.toFixed(1);
+  const end = width - right;
+  const first = points[0][1];
+  const lastValue = points[points.length - 1][1];
+  const label = `Price over the last ${points.length} readings, from ${formatMoney(first, currency)} to ${formatMoney(lastValue, currency)}; lowest ${formatMoney(geometry.low.value, currency)}`;
+  const parts: string[] = [];
+  for (const tick of geometry.grid) {
+    parts.push(`<line class="lv-price-grid" x1="${left}" x2="${n(end)}" y1="${n(tick.y)}" y2="${n(tick.y)}"/>`);
+    parts.push(`<text class="lv-price-axis" x="${left - 6}" y="${n(tick.y + 3.5)}" text-anchor="end">${escapeHtml(axisMoney(tick.value, currency))}</text>`);
+  }
+  parts.push(`<path class="lv-price-area" d="${geometry.area}"/>`);
+  if (threshold != null && geometry.thresholdY != null) {
+    const words = `Your line ${formatMoney(threshold, currency)}`;
+    const y = geometry.thresholdY;
+    parts.push(`<line class="lv-price-threshold" x1="${left}" x2="${n(end)}" y1="${n(y)}" y2="${n(y)}"/>`);
+    // A card-coloured backing keeps the label readable over the fill.
+    parts.push(`<rect class="lv-price-backing" x="${left + 1}" y="${n(y - 17)}" width="${Math.round(words.length * 6.2) + 6}" height="15" rx="4"/>`);
+    parts.push(`<text class="lv-price-threshold-label" x="${left + 4}" y="${n(y - 5)}">${escapeHtml(words)}</text>`);
+  }
+  parts.push(`<path class="lv-price-line" d="${geometry.line}"/>`);
+  const { low, last } = geometry;
+  if (low.x !== last.x) {
+    // The low point's label goes on whichever side has room.
+    const right = low.x < end - 64;
+    parts.push(`<circle class="lv-price-dot" cx="${n(low.x)}" cy="${n(low.y)}" r="3.5"/>`);
+    parts.push(
+      `<text class="lv-price-low" x="${n(right ? low.x + 6 : low.x - 6)}" y="${n(low.y - 6)}" text-anchor="${right ? "start" : "end"}">${escapeHtml(formatMoney(low.value, currency))}</text>`,
+    );
+  }
+  parts.push(`<circle class="lv-price-dot" cx="${n(last.x)}" cy="${n(last.y)}" r="3.5"/>`);
+  geometry.xLabels.forEach((tick) => {
+    parts.push(`<text class="lv-price-axis" x="${n(tick.x)}" y="${height - 4}" text-anchor="${tick.anchor}">${escapeHtml(tick.label)}</text>`);
+  });
+  return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" class="lv-price-chart" role="img" aria-label="${escapeHtml(label)}">${parts.join("")}</svg>`;
+}
+
+/** A bot's price history, laid out as the bot sheet's price card (components/bots/PriceBody.tsx). */
+function priceBlock(props: Record<string, unknown>, live: Live): string {
+  const id = props.bot;
+  const note = (title: string, hint?: string) =>
+    `<div class="lv-empty lv-price-note"><span class="lv-price-note-title">${escapeHtml(title)}</span>${hint ? `<span>${escapeHtml(hint)}</span>` : ""}</div>`;
+  if (!isBotId(id)) return note(PRICE_BLOCK.failed);
+  const bot = live.bot?.(id) ?? { state: "loading" };
+  if (bot.state === "loading") return "";
+  if (bot.state === "gone") return note(PRICE_BLOCK.deleted, PRICE_BLOCK.deletedHint);
+  if (bot.state !== "ok") return note(PRICE_BLOCK.failed);
+  const model = priceHistory(bot.detail, typeof props.watch === "string" ? props.watch : undefined);
+  if (!model) return note(PRICE_BLOCK.noPrice);
+  const { currency } = model;
+  const meta = [model.multiple ? model.label : "", model.paused ? "Paused" : ""].filter(Boolean).join(" · ");
+  const low = model.low != null ? `<span class="lv-price-lowest">${escapeHtml(`30-day low ${formatMoney(model.low, currency)}`)}</span>` : "";
+  const change =
+    model.changePct != null
+      ? ` · <span class="lv-price-change${model.good ? " is-good" : ""}">${escapeHtml(signedPct(model.changePct))}</span> since ${escapeHtml(model.since)}`
+      : "";
+  const head =
+    (meta ? `<p class="lv-price-meta">${escapeHtml(meta)}</p>` : "") +
+    `<div class="lv-price-top"><span class="lv-price-value">${escapeHtml(model.value != null ? formatMoney(model.value, currency) : "—")}</span>${low}</div>` +
+    `<p class="lv-price-under">${escapeHtml(model.value == null ? "Not read yet" : (model.under ?? "Now"))}${change}</p>`;
+  const width = Math.max(120, Math.floor(live.chartWidth ?? 300));
+  const href = `timely://bot/${encodeURIComponent(id)}`;
+  const name = bot.detail.name;
+  return (
+    `<div class="lv-price" role="group" aria-label="${escapeHtml(`${name}: price`)}">${head}${priceSvg(model.points, model.threshold, currency, width)}</div>` +
+    `<div class="lv-foot"><button type="button" class="lv-open" data-live-open="${escapeHtml(href)}" aria-label="${escapeHtml(`${PRICE_BLOCK.open}: ${name}`)}">${escapeHtml(PRICE_BLOCK.open)}${CHEVRON}</button></div>`
+  );
 }
 
 function node(item: GenuiNode, live: Live, place: Place = "top", timed = false): string {
@@ -249,6 +347,8 @@ function node(item: GenuiNode, live: Live, place: Place = "top", timed = false):
       return `<p class="lv-text">${escapeHtml(props.text)}</p>`;
     case "Open":
       return open(props);
+    case "PriceHistory":
+      return priceBlock(props, live);
     default:
       return "";
   }

@@ -4,6 +4,8 @@ import { File, Paths } from "expo-file-system";
 export type TextFile = {
   read(): string | null;
   write(text: string): void;
+  /** Deletes the file; nothing happens when it is not there. */
+  remove(): void;
 };
 
 /** A text file in the app's document directory. The file is opened on first
@@ -18,5 +20,9 @@ export function documentTextFile(name: string): TextFile {
       return f.exists ? f.textSync() : null;
     },
     write: (text) => open().write(text),
+    remove: () => {
+      const f = open();
+      if (f.exists) f.delete();
+    },
   };
 }

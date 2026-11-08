@@ -119,6 +119,12 @@ jobs:
   android:
     needs: prepare
     runs-on: ubuntu-latest
+    # Instant push (docs/mobile/push.md), optional. Set for the whole job, not
+    # only prebuild: Gradle evaluates app.config.js again (expo-constants'
+    # createExpoConfig, before every preBuild) and that copy is the app.config
+    # the APK ships, so the build step needs the id too.
+    env:
+      TIMELY_EAS_PROJECT_ID: ${{ vars.TIMELY_EAS_PROJECT_ID }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -136,6 +142,16 @@ jobs:
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
       - uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
       - run: pnpm install --frozen-lockfile
+      # Instant push needs this file and TIMELY_EAS_PROJECT_ID (job env). Both
+      # are optional: without them the APK checks for alerts in the background.
+      - name: Add Firebase's google-services.json
+        working-directory: apps/mobile
+        env:
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          if [[ -n "$GOOGLE_SERVICES_JSON_BASE64" ]]; then
+            echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > google-services.json
+          fi
       - name: Generate the native Android project
         working-directory: apps/mobile
         run: npx expo prebuild --platform android --no-install
@@ -162,6 +178,17 @@ jobs:
             echo "::warning::ANDROID_KEYSTORE_BASE64 is not set; the APK is signed with the debug key"
           fi
           ./gradlew app:assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon "${signing[@]}"
+          # The shipped config must carry the push project id when one is set.
+          if [[ -n "$TIMELY_EAS_PROJECT_ID" ]]; then
+            node -e '
+              const config = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+              if (config.extra?.eas?.projectId !== process.env.TIMELY_EAS_PROJECT_ID) {
+                console.error("::error::the APK app.config has no extra.eas.projectId; instant push would stay off");
+                process.exit(1);
+              }
+              if (!config.extra?.fcm) console.log("::warning::no google-services.json; the APK checks for alerts in the background");
+            ' app/build/generated/assets/expo-constants/app.config
+          fi
           cp app/build/outputs/apk/release/app-release*.apk \
              "$GITHUB_WORKSPACE/Timely-${{ needs.prepare.outputs.version }}-android-arm64.apk"
       - name: Remove the keystore

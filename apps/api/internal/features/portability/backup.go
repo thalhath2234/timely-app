@@ -77,8 +77,9 @@ var exportTables = []tableSpec{
 	// not open anywhere else; a restore keeps the account's own),
 	// bot_ai_calls (the AI caps' 30-day log) and bot_passes (the pass log,
 	// whose counts a restore must not reset). An alert's ai_input (page and
-	// knowledge text kept for a re-judge) never leaves the server.
-	{"bots", `SELECT to_jsonb(x) FROM bots x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
+	// knowledge text kept for a re-judge) never leaves the server, nor does a
+	// Bot's gap it has not caught up on (away_*).
+	{"bots", `SELECT to_jsonb(x) - 'away_since' - 'away_until' - 'away_reason' FROM bots x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
 	{"bot_watches", `SELECT to_jsonb(x) || jsonb_build_object('baseline_pending', true) FROM bot_watches x WHERE x.user_id = ? ORDER BY x.bot_id, x.position, x.id`},
 	{"bot_alerts", `SELECT to_jsonb(x) - 'ai_input' FROM bot_alerts x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
 	{"bot_lessons", `SELECT to_jsonb(x) FROM bot_lessons x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},

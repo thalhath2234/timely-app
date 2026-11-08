@@ -327,6 +327,7 @@ func setupNotifyRoutes(g *echo.Group, h *notify.Handler) {
 	g.GET("/notifications/unread-count", h.UnreadCount)
 	g.GET("/notifications/settings", h.GetSettings)
 	g.PUT("/notifications/settings", h.UpdateSettings)
+	g.PUT("/notifications/settings/push-text", h.SetPushText)
 	g.POST("/notifications/read-all", h.MarkAllRead)
 	g.POST("/notifications/clear", h.ClearAll)
 	g.POST("/notifications/:id/read", h.MarkRead)

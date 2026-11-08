@@ -120,6 +120,20 @@ export async function updateNotificationSettings(
   return response.json();
 }
 
+/** "Hide alert text in push": its own endpoint, so a whole-form save never undoes it. */
+export async function setPushTextHidden(hidden: boolean): Promise<NotificationSettings> {
+  const response = await apiFetch("/notifications/settings/push-text", {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ hidden }),
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response, "Failed to save the push setting"));
+  }
+  return response.json();
+}
+
 export async function listJobs(status?: string): Promise<JobRecord[]> {
   const params = new URLSearchParams();
   if (status) params.set("status", status);

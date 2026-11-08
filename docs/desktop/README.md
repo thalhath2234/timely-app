@@ -82,6 +82,8 @@ Guard rails before anything starts:
   "tailscaleHttps": false,
   "allowRegistration": false,
   "setupDone": false,
+  "startAtLogin": true,
+  "loginNoticePending": false,
   "secrets": {
     "jwtSecret": "<safeStorage sealed, base64>",
     "backupKey": "<safeStorage sealed, base64>",
@@ -93,6 +95,12 @@ Guard rails before anything starts:
 `tailscaleHttps` turns on Tailscale Serve (see "HTTPS with Tailscale Serve"); it only takes
 effect while `tailscaleEnabled` is on. `tailscaleServeTarget` records the Serve target Timely
 set up last, so a moved API port replaces Timely's own route and nothing else.
+
+`startAtLogin` (default `true`) starts Timely hidden in the tray when the person signs in (see
+"Start at login"). A file without the key predates the feature: it is read as an upgrade, so
+`startAtLogin` becomes `true` and `loginNoticePending` `true`, and the supervisor saves both at
+once. `loginNoticePending` means the app still owes the one-time notice; `dismissLoginNotice`
+clears it. A new install, an explicit `false` and a corrupt file owe no notice.
 
 Secrets are generated on first run (32 random bytes, base64url). A sealed value that can no
 longer be unsealed (the OS keyring changed) is replaced, and the old sealed value is moved to
@@ -190,13 +198,22 @@ Typed in `apps/web/electron-env.d.ts`. The renderer only sees it inside the desk
 ```ts
 timelyDesktop.instance.get(): Promise<DesktopInstance>
 timelyDesktop.instance.subscribe((instance) => void): () => void
-timelyDesktop.instance.setSetting("tailscaleEnabled" | "tailscaleHttps" | "allowRegistration", boolean): Promise<DesktopInstance>
-timelyDesktop.instance.action("restartApi" | "backupNow" | "openDataFolder" | "openLogs" | "checkForUpdates" | "copyAddress"): Promise<DesktopActionResult>
+timelyDesktop.instance.setSetting("tailscaleEnabled" | "tailscaleHttps" | "allowRegistration" | "startAtLogin", boolean): Promise<DesktopInstance>
+timelyDesktop.instance.action("restartApi" | "backupNow" | "openDataFolder" | "openLogs" | "checkForUpdates" | "copyAddress" | "dismissLoginNotice"): Promise<DesktopActionResult>
 ```
 
 `setSetting("tailscaleEnabled", …)` rebinds the API by restarting only the API sidecar.
 `setSetting("allowRegistration", …)` also restarts only the API sidecar.
 `setSetting("tailscaleHttps", …)` changes Tailscale Serve and leaves the API running.
+`setSetting("startAtLogin", …)` writes the login item (the person's own switch, so it also turns
+an entry the system turned off back on) and leaves the API running.
+
+`DesktopInstance.loginItem` is `{ supported, blockedBySystem, notice }`: `supported` is false
+outside the installed app; `blockedBySystem` is true when `startAtLogin` is on but Windows
+(Startup apps) or the desktop turned the entry off, so the switch shows Off; `notice` is true
+while the upgrader notice is owed. `action("dismissLoginNotice")` answers `{ ok: true, cleared }`:
+the check and the write are synchronous in the main process, so of several windows or reloads
+exactly one caller gets `cleared: true`, and only that one shows the notice.
 
 Confirm dialogs move the mouse pointer onto their Cancel button when they open, like
 Windows' "Snap To" setting. The page passes the button's centre in CSS pixels; the main
@@ -208,6 +225,63 @@ apps move the pointer, and macOS isn't supported, so there it does nothing.
 ```ts
 timelyDesktop.snapPointer(x: number, y: number): void
 ```
+
+## Start at login
+
+On by default for new installs and for upgraders (who get a one-time in-app notice), so bots
+keep watching after a reboot. `electron/supervisor/loginItem.ts` holds every platform's code,
+with Electron's login API, the file system and the environment injected
+(`scripts/electron-login-item.test.mjs` runs all three platforms on Linux).
+
+- **Windows:** `app.setLoginItemSettings({ openAtLogin, path: process.execPath, args: ["--hidden"],
+  name: <app id>, enabled: true })`. The Run value under
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` is named after the app id
+  (`app.timely.desktop`, or `app.timely.desktop.dev` for local builds), because Electron reads
+  `openAtLogin` from the value named after the AppUserModelId. The path is always this
+  executable, never a value from the environment. Per-user install, never elevated.
+- **Linux:** Electron's login item does nothing there, so Timely writes
+  `$XDG_CONFIG_HOME/autostart/timely.desktop` (`timely-dev.desktop` for local builds;
+  `~/.config` when `XDG_CONFIG_HOME` is unset or relative). `Exec` and `TryExec` name the
+  AppImage file (`$APPIMAGE`) only when this process runs from inside it (`$APPDIR`), else
+  `process.execPath` (the pacman and AUR installs), escaped per the Desktop Entry spec; `Exec`
+  ends in `--hidden`. A launch path with a control character is refused and nothing is written.
+- **macOS** (not shipped): `setLoginItemSettings({ openAtLogin })`; `wasOpenedAtLogin` counts as
+  a hidden start.
+
+**Hidden start.** A login start passes `--hidden`: no boot screen, no window, just the tray; the
+boot screen closes itself once the app is ready, and opening Timely shows the window. Opening it
+while still booting (tray click, Open Timely, the Start menu or a shortcut) shows the boot screen
+at once and the window when ready. A boot failure shows the boot screen anyway, and a hidden
+start before first-run setup is finished shows the window as usual. A second `--hidden` start
+(a second sign-in entry) does nothing. `supervisor.log` says `boot: started hidden at login`.
+Smoke test (staged build, `TIMELY_DEV_LOGIN_ITEM=1`): start it with `--hidden`, click the tray
+icon before the boot finishes, and check the boot screen appears and then the window.
+
+**Turned off by the system.** At boot Timely only adds a missing entry or repairs one that points
+elsewhere. It never re-enables one that Windows turned off (Task Manager › Startup apps, reported
+as the launch item's `enabled: false`) or that the desktop turned off (`Hidden=true` or
+`X-GNOME-Autostart-enabled=false`); Settings then shows the switch Off with a hint, and only
+turning it on there writes the entry again. Using the switch also clears the upgraders' notice,
+and the notice is not shown while the system has the entry turned off.
+
+**Known limit (Windows).** `getLoginItemSettings` lists only Run values whose program is this
+executable. A value named after the app id that points at another exe (a reinstall into another
+folder) therefore reads as missing, and boot replaces it; Electron then writes its
+StartupApproved state as on, so a Task Manager "Disabled" on the old copy is not carried over.
+
+**AppImage updates.** The AppImage's file name carries the version and `electron-updater` renames
+it on quit (`appimage-filename-updated`); the autostart entry is rewritten with the new path at
+once, synchronously. An entry the desktop turned off gets only its `TryExec` and `Exec` lines
+rewritten, so it stays off but names the live file if it is turned back on.
+
+**Development.** Login items work only in packaged builds, so a dev run never registers
+`node_modules/electron`. `TIMELY_DEV_LOGIN_ITEM=1` turns them on for a smoke test of a staged
+build; otherwise Settings shows the switch disabled ("Works in the installed app.").
+
+**Uninstall.** The NSIS uninstaller (`electron/nsis/uninstall.nsh`, `nsis.include`) deletes the
+Run and `Explorer\StartupApproved\Run` values named `${APP_ID}`, except during an update
+(`${isUpdated}`), which keeps them. On Linux the autostart file stays after removing the app;
+`TryExec` makes the desktop skip it once the executable is gone.
 
 ## Pairing payload
 

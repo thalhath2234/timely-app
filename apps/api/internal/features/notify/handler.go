@@ -207,6 +207,27 @@ func (h *Handler) UpdateSettings(c *echo.Context) error {
 	return c.JSON(http.StatusOK, updated)
 }
 
+// SetPushText turns "Hide alert text in push" on or off. It is the only way
+// to change that switch, so a settings form saving a stale draft never
+// undoes it. The reply is the full settings.
+func (h *Handler) SetPushText(c *echo.Context) error {
+	uid, err := userID(c)
+	if err != nil {
+		return err
+	}
+	var req struct {
+		Hidden *bool `json:"hidden"`
+	}
+	if err := c.Bind(&req); err != nil || req.Hidden == nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid request payload")
+	}
+	updated, err := h.service.SetPushTextHidden(uid, *req.Hidden)
+	if err != nil {
+		return notifyError(err)
+	}
+	return c.JSON(http.StatusOK, updated)
+}
+
 type deviceRequest struct {
 	Token    string `json:"token"`
 	Platform string `json:"platform"`
@@ -221,7 +242,9 @@ func (h *Handler) RegisterDevice(c *echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid request payload")
 	}
-	device, err := h.service.RegisterDevice(uid, req.Token, req.Platform)
+	// The token belongs to this sign-in, so signing it out stops its pushes.
+	sessionID, _ := c.Get("sessionID").(string)
+	device, err := h.service.RegisterDevice(uid, sessionID, req.Token, req.Platform)
 	if err != nil {
 		return notifyError(err)
 	}

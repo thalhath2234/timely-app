@@ -437,6 +437,20 @@ func writeChecklists(b *strings.Builder, checklists []checklistBrief) {
 	}
 }
 
+// writePriceBots lists the person's bots with a price, by name then id, for
+// PriceHistory, which names a bot by its id. Nothing when there are none.
+func writePriceBots(b *strings.Builder, bots []vocabRow) {
+	shown := make([]string, 0, len(bots))
+	for _, bot := range bots {
+		if name := strings.TrimSpace(bot.Name); name != "" && bot.ID != "" {
+			shown = append(shown, strconv.Quote(name)+" "+bot.ID)
+		}
+	}
+	if len(shown) > 0 {
+		fmt.Fprintf(b, "\n- Bots with a price, for PriceHistory (name, then id): %s\n", strings.Join(shown, ", "))
+	}
+}
+
 func dashboardCardMessages(req dashboardCardRequest, v viewVocab, sheets []sheetBrief, checklists []checklistBrief) []chat.WireMessage {
 	var b strings.Builder
 	weekday := ""
@@ -455,6 +469,7 @@ func dashboardCardMessages(req dashboardCardRequest, v viewVocab, sheets []sheet
 	list("Labels", v.labels)
 	writeSheets(&b, sheets)
 	writeChecklists(&b, checklists)
+	writePriceBots(&b, v.priceBots)
 	if req.Place == "doc" {
 		b.WriteString("\nThis card is a live block in a doc: it takes the doc's width and as much height as it needs, so leave the size out. Up to ten rows fit.\n")
 	}

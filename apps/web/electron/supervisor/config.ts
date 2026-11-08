@@ -26,6 +26,10 @@ export type DesktopConfig = {
   tailscaleServeTarget?: string;
   allowRegistration: boolean;
   setupDone: boolean;
+  /** Start Timely, hidden in the tray, when the person signs in to the computer (supervisor/loginItem.ts). */
+  startAtLogin: boolean;
+  /** An upgrader got startAtLogin turned on; the app owes them the one-time notice. */
+  loginNoticePending: boolean;
   /** Sealed values; see Sealer. */
   secrets: Partial<Record<SecretKey, string>>;
   /**
@@ -91,6 +95,8 @@ export function defaultConfig(version: string, ports: Ports = DEFAULT_PORTS): De
     tailscaleHttps: false,
     allowRegistration: false,
     setupDone: false,
+    startAtLogin: true,
+    loginNoticePending: false,
     secrets: {},
   };
 }
@@ -108,25 +114,35 @@ function isPort(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value > 0 && value < 65536;
 }
 
-/** Reads the config file, filling anything missing or malformed with defaults. */
-export function loadConfig(file: string, fallbackVersion: string, ports: Ports = DEFAULT_PORTS): { config: DesktopConfig; existed: boolean } {
+/**
+ * Reads the config file, filling anything missing or malformed with defaults.
+ * `upgraded`: the file predates start at login (it has no `startAtLogin`
+ * key), so it is turned on and the one-time notice is owed; the caller saves.
+ */
+export function loadConfig(
+  file: string,
+  fallbackVersion: string,
+  ports: Ports = DEFAULT_PORTS,
+): { config: DesktopConfig; existed: boolean; upgraded: boolean } {
   const defaults = defaultConfig(fallbackVersion, ports);
-  if (!existsSync(file)) return { config: defaults, existed: false };
+  if (!existsSync(file)) return { config: defaults, existed: false, upgraded: false };
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(file, "utf8"));
   } catch {
-    return { config: defaults, existed: false };
+    return { config: defaults, existed: false, upgraded: false };
   }
-  if (!raw || typeof raw !== "object") return { config: defaults, existed: false };
+  if (!raw || typeof raw !== "object") return { config: defaults, existed: false, upgraded: false };
   const data = raw as Record<string, unknown>;
   const secretsRaw = data.secrets && typeof data.secrets === "object" ? (data.secrets as Record<string, unknown>) : {};
   const secrets: Partial<Record<SecretKey, string>> = {};
   for (const key of SECRET_KEYS) {
     if (typeof secretsRaw[key] === "string" && secretsRaw[key]) secrets[key] = secretsRaw[key] as string;
   }
+  const upgraded = typeof data.startAtLogin !== "boolean";
   return {
     existed: true,
+    upgraded,
     config: {
       version: typeof data.version === "string" && data.version ? data.version : "",
       postgresPort: isPort(data.postgresPort) ? data.postgresPort : defaults.postgresPort,
@@ -137,6 +153,8 @@ export function loadConfig(file: string, fallbackVersion: string, ports: Ports =
       tailscaleServeTarget: typeof data.tailscaleServeTarget === "string" && data.tailscaleServeTarget ? data.tailscaleServeTarget : undefined,
       allowRegistration: data.allowRegistration === true,
       setupDone: data.setupDone === true,
+      startAtLogin: upgraded ? true : (data.startAtLogin as boolean),
+      loginNoticePending: upgraded || data.loginNoticePending === true,
       secrets,
       lostSecrets: readLostSecrets(data.lostSecrets),
     },

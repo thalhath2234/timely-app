@@ -3,6 +3,8 @@ import { PermissionsAndroid, Platform } from "react-native";
 import Constants from "expo-constants";
 import type { CalendarItem } from "./types";
 import { registerPushDevice, unregisterPushDevice } from "./api/notifications";
+import { pushDelivers, pushProjectId, pushRecordText, readPushRecord, type PushRecord, type PushState } from "./pushStatus";
+import { documentTextFile } from "./textFile";
 import { LEGACY_OVERDUE_CATEGORY, LEGACY_PRIORITIZE_ACTION, NOTIFICATION_CATEGORIES } from "./notificationCategories";
 
 const CHANNEL = "reminders";
@@ -17,13 +19,45 @@ let serverPush = false;
 let lastPushToken: string | null = null;
 let categoriesReady = false;
 
-export function isServerPushEnabled() {
-  return serverPush;
+export type { PushState } from "./pushStatus";
+
+// The token the server holds for this phone and whether it pushes to it,
+// kept between runs: sign-out revokes the token even when this run never
+// registered one, and the background check (a fresh JS run) skips alerts
+// the server already pushed.
+const tokenFile = documentTextFile("timely-push-token.json");
+
+function storedPush(): PushRecord | null {
+  try {
+    return readPushRecord(tokenFile.read());
+  } catch {
+    return null;
+  }
 }
 
+function savePush(record: PushRecord) {
+  try {
+    tokenFile.write(pushRecordText(record));
+  } catch {
+    // Sign-out still revokes the token this run holds.
+  }
+}
+
+/** Push stopped working: the background check shows alerts again. The token stays for sign-out to revoke. */
+function markPushOff() {
+  serverPush = false;
+  const stored = storedPush();
+  if (stored?.on) savePush({ token: stored.token, on: false });
+}
+
+/** True when the server pushes alerts to this phone, in this run or as a registration an earlier run stored. */
+export function isServerPushEnabled() {
+  return pushDelivers(serverPush, storedPush());
+}
+
+/** Set by app.config.js from TIMELY_EAS_PROJECT_ID (pushConfig.js); absent in builds without a push project. */
 function easProjectId() {
-  const extra = Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined;
-  return extra?.eas?.projectId;
+  return pushProjectId(Constants.expoConfig?.extra, Platform.OS);
 }
 
 /** expo-notifications, or null where it can't run (Expo Go, web). */
@@ -185,25 +219,45 @@ export async function cancelReminderNotifications() {
   );
 }
 
-export async function registerServerPush() {
+/**
+ * Registers this phone for instant push and says how it went. A build with
+ * no Expo project id never asks for a token: it keeps checking for alerts in
+ * the background (lib/serverNotifications.ts), with nothing broken.
+ */
+export async function registerServerPushState(): Promise<PushState> {
   const N = notifications();
-  if (!N) return false;
+  if (!N) {
+    markPushOff();
+    return "unsupported";
+  }
   const allowed = await getNotificationPermission();
-  if (!allowed.granted) return false;
+  if (!allowed.granted) {
+    markPushOff();
+    return "no_permission";
+  }
+  const projectId = easProjectId();
+  if (!projectId) {
+    markPushOff();
+    return "no_project";
+  }
   try {
-    const projectId = easProjectId();
-    const token = projectId
-      ? await N.getExpoPushTokenAsync({ projectId })
-      : await N.getExpoPushTokenAsync();
-    if (!token?.data) return false;
+    // The "bots" channel must exist before the first bot alert arrives.
+    await ensureReminderChannel();
+    const token = await N.getExpoPushTokenAsync({ projectId });
+    if (!token?.data) throw new Error("no push token");
     lastPushToken = token.data;
     await registerPushDevice(token.data, Platform.OS === "ios" ? "ios" : "android");
+    savePush({ token: token.data, on: true });
     serverPush = true;
-    return true;
+    return "on";
   } catch {
-    serverPush = false;
-    return false;
+    markPushOff();
+    return "failed";
   }
+}
+
+export async function registerServerPush() {
+  return (await registerServerPushState()) === "on";
 }
 
 export async function syncReminderNotifications(items: CalendarItem[]) {
@@ -274,18 +328,29 @@ export async function syncReminderNotifications(items: CalendarItem[]) {
   return upcoming.length;
 }
 
+/**
+ * Revokes this phone's push token at sign-out. The stored token covers a run
+ * that never registered one. The file goes only once the server dropped the
+ * token; a failed call keeps it, marked off, and the next sign-in's
+ * registration moves the server's row to that sign-in.
+ */
 export async function unregisterServerPush() {
-  const token = lastPushToken;
+  const token = lastPushToken ?? storedPush()?.token ?? null;
   lastPushToken = null;
-  serverPush = false;
+  markPushOff();
   if (!token) return;
   try {
     await unregisterPushDevice(token);
   } catch {
-    // Sign-out should continue even if the push token is already gone.
+    // Sign-out goes on; the token is revoked with the session (it belongs to it).
+    return;
+  }
+  try {
+    tokenFile.remove();
+  } catch {
+    // A file left behind only means a second, harmless revoke next time.
   }
 }
-
 
 const POMODORO_PREFIX = "timely-pomodoro:";
 

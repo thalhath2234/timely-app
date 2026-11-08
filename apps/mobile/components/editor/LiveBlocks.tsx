@@ -1,10 +1,18 @@
 import { useEffect, useMemo, useRef } from "react";
+import { useWindowDimensions } from "react-native";
+import { useQueries } from "@tanstack/react-query";
 import { checklistItems, type DocChecklistItem } from "@timely/contract/docChecklist";
 import type { GenuiNode } from "@timely/contract/genui";
-import { drawBoard, drawProblems, liveBlockCards } from "@timely/contract/genuiBoard";
+import { drawBoard, drawProblems, liveBlockCards, liveBotIds } from "@timely/contract/genuiBoard";
 import { isOverdue, todayInZone } from "@timely/contract/workStatus";
+import { getBot } from "../../lib/api/bots";
+import { ApiError } from "../../lib/api/client";
 import { useDashboardData, useNow } from "../../lib/dashboard";
-import { liveBlockHtml, type LiveTask } from "./liveBlockHtml";
+import { botPoll, keys } from "../../lib/hooks";
+import { liveBlockHtml, type LiveBot, type LiveTask } from "./liveBlockHtml";
+
+/** A live block's side padding: a price chart is this much narrower than the block, on each side. */
+const BLOCK_PAD = 14;
 
 export type LiveDrawing = { program: string; html: string; title: string };
 
@@ -17,18 +25,49 @@ export type LiveDrawing = { program: string; html: string; title: string };
  */
 export default function LiveBlocks({
   programs,
+  width,
   onDrawn,
 }: {
   /** The doc's programs in order, as the page reported them. */
   programs: string[];
+  /** A block's width in the editor, once measured. */
+  width?: number;
   onDrawn: (blocks: LiveDrawing[]) => void;
 }) {
   const cards = useMemo(() => liveBlockCards(programs), [programs]);
   const { data, timeZone, loading, eventsLoading, sheetsLoading } = useDashboardData(cards);
   const now = useNow(60_000);
+  const screen = useWindowDimensions();
+  const chartWidth = Math.floor((width && width > 0 ? width : screen.width - 32) - 2 * BLOCK_PAD);
+
+  // Price blocks read their bots by id only; a name or a reserved word is never fetched.
+  const botIds = useMemo(() => liveBotIds(programs), [programs]);
+  const botQueries = useQueries({
+    queries: botIds.map((id) => ({
+      queryKey: keys.bot(id),
+      queryFn: () => getBot(id),
+      staleTime: 60_000,
+      // Read again as the bot sheet does, so an open doc's block follows new checks.
+      refetchInterval: botPoll,
+      // A deleted bot stays missing: asking again only adds a request.
+      retry: (count: number, error: Error) => !(error instanceof ApiError && error.status === 404) && count < 1,
+    })),
+  });
+  const botsLoading = botQueries.some((query) => query.isPending);
+  // Changes whenever a bot is read again, so a new check redraws its block.
+  const botKey = botQueries.map((query) => `${query.status}:${query.dataUpdatedAt}:${query.errorUpdatedAt}`).join();
 
   const blocks = useMemo(() => {
-    if (loading || eventsLoading || sheetsLoading) return null;
+    if (loading || eventsLoading || sheetsLoading || botsLoading) return null;
+    const bots = new Map<string, LiveBot>();
+    botIds.forEach((id, index) => {
+      const query = botQueries[index];
+      // A bot deleted while the doc was open says so, even with its old copy cached.
+      if (query?.error instanceof ApiError && query.error.status === 404) bots.set(id, { state: "gone" });
+      // GET /bots/:id falls back to a name match: another bot is not this block's.
+      else if (query?.data) bots.set(id, query.data.id === id ? { state: "ok", detail: query.data } : { state: "failed" });
+      else bots.set(id, { state: query?.isPending ? "loading" : "failed" });
+    });
     // Ticks show the task or item as it is now, as the Dashboard's rows do (genui/kit.tsx).
     const today = todayInZone();
     const tasks = new Map<string, LiveTask>();
@@ -47,6 +86,8 @@ export default function LiveBlocks({
         }
         return checklists.get(id);
       },
+      bot: (id: string): LiveBot => bots.get(id) ?? { state: "invalid" },
+      chartWidth,
     };
     const seen = new Set<string>();
     return programs.flatMap((program) => {
@@ -62,7 +103,9 @@ export default function LiveBlocks({
       const title = typeof root?.props.title === "string" ? root.props.title.trim() : "";
       return [{ program: key, html: liveBlockHtml(root, live, drawProblems(program, data)[0]), title }];
     });
-  }, [programs, data, now, timeZone, loading, eventsLoading, sheetsLoading]);
+    // botKey stands in for botQueries, a new array each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [programs, data, now, timeZone, loading, eventsLoading, sheetsLoading, botsLoading, botIds, botKey, chartWidth]);
 
   // A new page reports its programs again (a new array), so it gets the drawings too.
   const payload = blocks ? JSON.stringify(blocks) : null;

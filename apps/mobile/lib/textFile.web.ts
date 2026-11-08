@@ -2,6 +2,8 @@
 export type TextFile = {
   read(): string | null;
   write(text: string): void;
+  /** Deletes the file; nothing happens when it is not there. */
+  remove(): void;
 };
 
 /** The web build's stand-in for the document directory: localStorage in the
@@ -14,5 +16,6 @@ export function documentTextFile(name: string): TextFile {
   return {
     read: () => storage()?.getItem(key) ?? null,
     write: (text) => storage()?.setItem(key, text),
+    remove: () => storage()?.removeItem(key),
   };
 }

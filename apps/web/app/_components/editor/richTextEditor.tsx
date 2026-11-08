@@ -95,6 +95,7 @@ import {
   MODEL_SAMPLE,
   OPEN_HELP_ME_WRITE_EVENT,
   OPEN_LIVE_BLOCK_EVENT,
+  OPEN_PRICE_BLOCK_EVENT,
   OPEN_LINK_EDITOR_EVENT,
   createSlashItems,
   createSlashRenderer,
@@ -103,6 +104,8 @@ import {
 import HelpMeWritePanel, { HelpMeWriteButton, useHelpMeWriteAvailable, type WriteContext } from "./helpMeWrite";
 import { insertLiveBlock, LIVE_BLOCK_TEXT, LiveBlockKeys } from "./liveBlock";
 import DescribeCardDialog from "@/app/_components/report/describeCardDialog";
+import PriceBlockPicker from "./priceBlockPicker";
+import { priceBlockProgram } from "@timely/contract/bots";
 import { fileHref } from "@/app/utils/fileRoutes";
 import { controlClass } from "@/app/_components/_ui/field";
 
@@ -347,6 +350,10 @@ export default function RichTextEditor({
   const liveOn = writeOn && writeContext?.kind === "doc";
   const [liveBox] = useState(() => createHandlerBox(liveOn));
   const [liveInsert, setLiveInsert] = useState<number | null>(null);
+  // A bot's price chart needs no AI, only a doc that can be changed.
+  const priceOn = editable && writeContext?.kind === "doc";
+  const [priceBox] = useState(() => createHandlerBox(priceOn));
+  const [priceInsert, setPriceInsert] = useState<number | null>(null);
   // Help me write stays mounted while it holds a prompt or a draft, hidden
   // when closed, so opening it again carries on; `key` starts a fresh one.
   const [write, setWrite] = useState<{ key: number; anchor: FloatingPosition; shown: boolean } | null>(null);
@@ -361,6 +368,9 @@ export default function RichTextEditor({
   useEffect(() => {
     liveBox.set(liveOn);
   }, [liveBox, liveOn]);
+  useEffect(() => {
+    priceBox.set(priceOn);
+  }, [priceBox, priceOn]);
 
   const openLinkEditor = useCallback(() => {
     const editor = editorRef.current;
@@ -476,6 +486,7 @@ export default function RichTextEditor({
                 createSlashItems({
                   helpMeWrite: writeBox.get(),
                   liveBlock: liveBox.get(),
+                  priceBlock: priceBox.get(),
                   onCreateSubpage: hasCreateSubpage
                     ? (props) => {
                         void subpageBox.get()?.(props);
@@ -505,7 +516,7 @@ export default function RichTextEditor({
 
     return list;
     // The mention list is read through the stable box, so it must not rebuild here.
-  }, [enableMentions, enableSlashCommands, hasCreateSubpage, placeholder, variant, mentionBox, subpageBox, writeBox, liveBox]);
+  }, [enableMentions, enableSlashCommands, hasCreateSubpage, placeholder, variant, mentionBox, subpageBox, writeBox, liveBox, priceBox]);
 
   const editor = useEditor({
     // The editor is rendered inside a client page, and Tiptap requires this
@@ -704,6 +715,15 @@ export default function RichTextEditor({
     const handleOpen = () => setLiveInsert(editor.state.selection.from);
     element.addEventListener(OPEN_LIVE_BLOCK_EVENT, handleOpen);
     return () => element.removeEventListener(OPEN_LIVE_BLOCK_EVENT, handleOpen);
+  }, [editor]);
+
+  // The "/" menu picks a bot whose price chart goes on the caret's line.
+  useEffect(() => {
+    if (!editor) return;
+    const element = editor.view.dom;
+    const handleOpen = () => setPriceInsert(editor.state.selection.from);
+    element.addEventListener(OPEN_PRICE_BLOCK_EVENT, handleOpen);
+    return () => element.removeEventListener(OPEN_PRICE_BLOCK_EVENT, handleOpen);
   }, [editor]);
 
   // Track the selection so the formatting and table toolbars can follow it.
@@ -1332,6 +1352,19 @@ export default function RichTextEditor({
           }}
           onClose={() => {
             setLiveInsert(null);
+            editor.commands.focus();
+          }}
+        />
+      )}
+
+      {priceInsert !== null && (
+        <PriceBlockPicker
+          onPick={(bot) => {
+            setPriceInsert(null);
+            insertLiveBlock(editor, priceInsert, priceBlockProgram(bot));
+          }}
+          onClose={() => {
+            setPriceInsert(null);
             editor.commands.focus();
           }}
         />

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/url"
 	"strings"
 	"time"
@@ -108,7 +109,7 @@ func (s *Service) HandleCheck(ctx context.Context, job *models.Job) error {
 		return nil
 	}
 	checkID := utils.PrefixedUUID("bchk")
-	c := checkRun{job: job, bot: b, trigger: trigger, started: started, floor: Floor(ws), reads: reads, checkID: checkID, chainID: checkID}
+	c := checkRun{job: job, bot: b, trigger: trigger, started: started, prevStarted: prevStarted, floor: Floor(ws), reads: reads, checkID: checkID, chainID: checkID}
 	p, err := classify(reads)
 	switch {
 	case err != nil:
@@ -152,8 +153,11 @@ type checkRun struct {
 	bot     Bot
 	trigger string
 	started time.Time
-	floor   time.Duration // of the watches it claimed with
-	reads   []watchRead
+	// prevStarted is the Bot's check_started_at before this claim, put
+	// back when the check sent nothing (see turnedAway).
+	prevStarted *time.Time
+	floor       time.Duration // of the watches it claimed with
+	reads       []watchRead
 	// checkID is the bot_checks row the save writes; chainID is the check
 	// that started the chain this one is part of (itself for a check of its
 	// own).
@@ -462,6 +466,32 @@ func siteOf(w Watch) string {
 	return "The site"
 }
 
+// awayOf is the gap b has not caught up on, as a check records it: whole
+// seconds (at least 1) and the reason, or nils for none. b must be the row
+// the save locked, never the claim's copy.
+func awayOf(b Bot) (*int, *string) {
+	if b.AwaySince == nil || b.AwayUntil == nil || b.AwayReason == nil {
+		return nil, nil
+	}
+	secs := max(int(math.Round(b.AwayUntil.Sub(*b.AwaySince).Seconds())), 1)
+	reason := *b.AwayReason
+	return &secs, &reason
+}
+
+// awayLineOf is a check's away fields as the line its alert ends with.
+func awayLineOf(secs *int, reason *string) string {
+	if secs == nil || reason == nil {
+		return ""
+	}
+	return awayLine(*secs, *reason)
+}
+
+// clearAway adds to a Bot update the columns that end a gap: its check has
+// caught up.
+func clearAway(set map[string]any) {
+	set["away_since"], set["away_until"], set["away_reason"] = nil, nil, nil
+}
+
 // lockClaimed locks the Bot this job claimed. ok is false when it is gone or
 // another job holds it now.
 func lockClaimed(tx *gorm.DB, c checkRun) (Bot, bool, error) {
@@ -491,6 +521,13 @@ func (s *Service) saveProblem(ctx context.Context, c checkRun, p *problem) error
 		if len(cur) == 0 || cur[0].ConfigVersion != p.watch.ConfigVersion {
 			p = &problem{outcome: outSuperseded, err: p.err, watch: p.watch}
 		}
+		// A check turned away by a busy site before its first request sent
+		// nothing: it gives back the floor its claim took (the start it
+		// replaced) and waits only for the site, so a catch-up check that
+		// lost a site's slot to another Bot still runs within minutes, not
+		// a whole floor (6 hours for a shop price) later. read stops at the
+		// first error, so one read is the busy one.
+		turnedAway := p.outcome == outSiteBusy && len(c.reads) == 1
 		interval := b.Interval()
 		set := map[string]any{"last_check_at": done, "checking_job_id": nil, "updated_at": done}
 		var next time.Time
@@ -502,6 +539,12 @@ func (s *Service) saveProblem(ctx context.Context, c checkRun, p *problem) error
 				set["offline_since"] = done
 			}
 		case classWait:
+			if turnedAway {
+				// Back in line for the site's next free slot, not after
+				// the floor: nothing was read, so nothing was used up.
+				next = maxTime(p.until, done).Add(s.jitter(waitSpread))
+				break
+			}
 			next = Provisional(interval, c.started)
 			if at := done.Add(p.wait); p.wait > 0 && at.After(next) {
 				next = at
@@ -526,7 +569,12 @@ func (s *Service) saveProblem(ctx context.Context, c checkRun, p *problem) error
 		default: // superseded: check the edited watch as soon as the floor allows
 			next = done
 		}
-		next = maxTime(next, c.spaced())
+		if turnedAway {
+			set["check_started_at"] = c.prevStarted
+			next = maxTime(next, spacedAt(c.prevStarted, c.floor))
+		} else {
+			next = maxTime(next, c.spaced())
+		}
 		cws := make([]CheckWatch, 0, len(c.reads))
 		for _, r := range c.reads {
 			cw := r.cw
@@ -541,8 +589,15 @@ func (s *Service) saveProblem(ctx context.Context, c checkRun, p *problem) error
 			StartedAt: c.started, FinishedAt: done, Outcome: p.outcome, ErrorKind: p.code,
 			Error: utils.StorableText(utils.RedactSecrets(p.err.Error()), maxCheckError), Watches: cws, Fired: jsonList[FiredRule]{},
 		}
+		check.AwaySecs, check.AwayReason = awayOf(b)
 		if err := tx.Create(&check).Error; err != nil {
 			return err
+		}
+		// A check that read nothing (offline, asked to wait, superseded) has
+		// not caught up yet: the Bot keeps its gap for the next one. robots
+		// and a strike are an answer from the site.
+		if p.class == classRobots || p.class == classStrike {
+			clearAway(set)
 		}
 		if b.Status == StatusActive {
 			set["next_check_at"] = next
@@ -690,6 +745,7 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 			ID: c.checkID, BotID: b.ID, UserID: b.UserID, JobID: &c.job.ID, Trigger: c.trigger,
 			StartedAt: c.started, FinishedAt: done, Watches: cws, Fired: jsonList[FiredRule]{}, Rearmed: rearms,
 		}
+		check.AwaySecs, check.AwayReason = awayOf(b)
 		// What links took goes on to other Bots; the Bot stays quiet about
 		// it and alerts only on the rest.
 		alertable := untaken(fired, c.plan.taken)
@@ -697,7 +753,7 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 			// Only in the brief: the notes wait for the brief.
 			alertable = nil
 		}
-		run := alertRun{checkID: c.checkID, fired: alertable, now: done}
+		run := alertRun{checkID: c.checkID, fired: alertable, now: done, away: awayLineOf(check.AwaySecs, check.AwayReason)}
 		if len(alertable) > 0 {
 			run = judgedRun(b, c.plan, run)
 		}
@@ -754,6 +810,11 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 		set := map[string]any{
 			"strikes": 0, "last_check_at": done, "last_ok_at": done, "offline_since": nil,
 			"checking_job_id": nil, "updated_at": done,
+		}
+		// Every watch edited or deleted while it was read: nothing was read,
+		// so the Bot has not caught up on its gap yet.
+		if check.Outcome != outSuperseded {
+			clearAway(set)
 		}
 		if b.Status == StatusActive {
 			next := maxTime(s.nextCheck(b.Interval(), done), c.spaced())

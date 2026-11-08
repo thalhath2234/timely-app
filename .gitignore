@@ -50,6 +50,8 @@ apps/mobile/ios/
 apps/mobile/*.apk
 apps/mobile/.verify*
 apps/mobile/.kotlin/
+# Firebase config for instant push (docs/mobile/push.md); the maintainer's own.
+apps/mobile/google-services.json
 *.orig.*
 *.jks
 *.p8

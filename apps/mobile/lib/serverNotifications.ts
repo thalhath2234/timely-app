@@ -50,7 +50,8 @@ export function pollServerNotifications(): Promise<number> {
   if (polling) return polling;
   polling = (async () => {
     const N = notificationsModule();
-    // With working server push the server delivers them itself.
+    // With working server push the server delivers them itself. This also holds
+    // in a background run, which reads the registration an open run stored.
     if (!N || isServerPushEnabled()) return 0;
     if (!(await getToken().catch(() => null))) return 0;
     if (!(await getNotificationPermission()).granted) return 0;

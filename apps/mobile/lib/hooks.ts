@@ -135,6 +135,7 @@ import {
   clearNotifications,
   deleteNotification,
   retryJob,
+  setPushTextHidden,
   snoozeNotification,
   prioritizeOverdueTask,
   unreadNotificationCount,
@@ -1940,6 +1941,15 @@ export function useSaveNotificationSettings() {
   });
 }
 
+/** Turns "Hide alert text in push" on or off; the reply is the stored settings. */
+export function useSetPushTextHidden() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (hidden: boolean) => setPushTextHidden(hidden),
+    onSuccess: (settings) => client.setQueryData(keys.notificationSettings, settings),
+  });
+}
+
 // Jobs run on the server, so the list only learns that a retried job failed
 // again, or that one finished, by asking. It asks while it is on screen.
 const jobsPollMs = 10_000;
@@ -2000,6 +2010,9 @@ export function useCellFit(edit: CellFitEdit | null) {
 // they do not poll at all, since every change arrives on the stream.
 const BOTS_IDLE_POLL = 30_000;
 const botsPoll = () => (isBotStreaming() ? false : BOTS_IDLE_POLL);
+/** One bot's poll: as the board's, but a deleted bot (404) is not asked for again. */
+export const botPoll = (query: { state: { error: Error | null } }) =>
+  query.state.error instanceof ApiError && query.state.error.status === 404 ? false : botsPoll();
 
 /** The board; `enabled` false keeps what is cached without asking (a chat proposal asks only when it holds a bot). */
 export function useBotsQuery(enabled = true) {
@@ -2012,7 +2025,7 @@ export function useBotQuery(id?: string | null, enabled = true) {
     queryKey: keys.bot(id || ""),
     queryFn: () => getBot(id || ""),
     enabled: !!id && enabled,
-    refetchInterval: botsPoll,
+    refetchInterval: botPoll,
     staleTime: 5000,
     // A deleted bot stays missing: asking again only adds a request.
     retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 1,

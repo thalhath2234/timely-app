@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Platform, Text, View } from "react-native";
 import Svg, { Circle, Line, Path, Rect, Text as SvgText } from "react-native-svg";
-import { formatMoney, shortDate } from "@timely/contract/bots";
+import { axisMoney, formatMoney, priceDayLabels, priceDomain } from "@timely/contract/bots";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 
 // SVG text in a browser falls back to a serif face; the phone draws it in the system font.
@@ -11,29 +11,6 @@ const AXIS_LEFT = 40;
 const AXIS_BOTTOM = 20;
 const PAD_TOP = 8;
 const PAD_RIGHT = 8;
-
-/** "₹30k", "₹27.5k", "$68.4k", "$182": an axis label, short. Same as the web. */
-export function axisMoney(v: number, currency: string): string {
-  const unit = formatMoney(1, currency);
-  const before = unit.startsWith("1") ? "" : unit.slice(0, unit.indexOf("1"));
-  const after = unit.startsWith("1") ? unit.slice(1) : "";
-  const a = Math.abs(v);
-  let n: string;
-  if (a >= 1_000_000) n = `${Number((a / 1_000_000).toFixed(1))}M`;
-  else if (a >= 1000) n = `${Number((a / 1000).toFixed(1))}k`;
-  else n = `${Number(a.toFixed(a < 10 ? 2 : 0))}`;
-  return `${v < 0 ? "-" : ""}${before}${n}${after}`;
-}
-
-/** Round gridline values inside [lo, hi]: two to four of them. */
-function niceTicks(lo: number, hi: number): number[] {
-  const span = hi - lo || Math.abs(hi) * 0.1 || 1;
-  const power = 10 ** Math.floor(Math.log10(span / 2));
-  const step = [1, 2, 2.5, 5, 10].map((s) => s * power).find((s) => span / s <= 3) ?? 10 * power;
-  const ticks: number[] = [];
-  for (let t = Math.ceil(lo / step) * step; t <= hi; t += step) ticks.push(t);
-  return ticks;
-}
 
 /**
  * A price watch's last 30 days, as the web rail draws it: daily closes as a
@@ -62,14 +39,7 @@ export function PriceChart({
       </View>
     );
   }
-  const values = points.map(([, v]) => v);
-  if (threshold != null) values.push(threshold);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const pad = (max - min) * 0.08 || Math.abs(max) * 0.02 || 1;
-  const lo = min - pad;
-  const hi = max + pad;
-  const ticks = niceTicks(lo, hi);
+  const { lo, hi, ticks } = priceDomain(points, threshold ?? null);
   const plotW = Math.max(0, width - AXIS_LEFT - PAD_RIGHT);
   const plotH = Math.max(0, height - AXIS_BOTTOM - PAD_TOP);
   const t0 = points[0][0];
@@ -84,8 +54,6 @@ export function PriceChart({
     if (v < points[low][1]) low = i;
   });
   const last = points.length - 1;
-  const day = (t: number) => shortDate(new Date(t * 1000).toISOString());
-  const mid = points[Math.floor(last / 2)][0];
   const label = `Price over the last ${points.length} readings, from ${formatMoney(points[0][1], currency)} to ${formatMoney(points[last][1], currency)}; lowest ${formatMoney(points[low][1], currency)}`;
   // The low point's label goes on whichever side has room.
   const lowX = x(points[low][0]);
@@ -154,13 +122,7 @@ export function PriceChart({
             </>
           ) : null}
           <Circle cx={x(t1)} cy={y(points[last][1])} r={3.5} fill={colors.chart1} stroke={colors.card} strokeWidth={2} />
-          {(
-            [
-              [t0, day(t0), "start"],
-              [mid, day(mid), "middle"],
-              [t1, "Today", "end"],
-            ] as const
-          ).map(([t, text, anchor]) => (
+          {priceDayLabels(points).map(({ t, label: text, anchor }) => (
             <SvgText fontFamily={FONT} key={anchor} x={x(t)} y={height - 4} textAnchor={anchor} fontSize={10} fill={colors.mutedForeground}>
               {text}
             </SvgText>

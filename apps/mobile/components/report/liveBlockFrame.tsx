@@ -42,6 +42,9 @@ export default function LiveBlockCard({ program }: { program: string }) {
   const now = useNow(60_000);
   const title = useMemo(() => readBoardProgram(program)?.title || "Live block", [program]);
   const open = (href: string) => {
+    // A price block opens its bot's sheet on the Bots tab.
+    const bot = /^timely:\/\/bot\/([^/?#]+)/.exec(href);
+    if (bot) return router.push(`/(app)/(tabs)/bots?bot=${encodeURIComponent(decodeURIComponent(bot[1]))}` as never);
     const item = /^timely:\/\/(task|project|doc|sheet|event)\/([^/?#]+)/.exec(href);
     if (item) router.push(hrefFor(item[1] as "task", decodeURIComponent(item[2])));
     else if (href.startsWith("/")) router.push(`/(app)${href}` as never);

@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Linking, ScrollView, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Bell, BellRing, RotateCcw } from "lucide-react-native";
-import { jobKindLabel } from "@timely/contract/notifications";
+import { HIDDEN_PUSH_BODY, jobKindLabel } from "@timely/contract/notifications";
 import Screen from "../../../components/ui/Screen";
 import MobileHeader from "../../../components/ui/MobileHeader";
 import { PrimaryButton } from "../../../components/ui/primitives";
@@ -12,9 +12,11 @@ import { AlertDefaults } from "../../../components/bots/BotsEmpty";
 import {
   getNotificationPermission,
   notificationsSupported,
-  registerServerPush,
+  registerServerPushState,
   requestNotificationPermission,
+  type PushState,
 } from "../../../lib/notifications";
+import { instantPushLine } from "../../../lib/pushStatus";
 import {
   useDecisionsStatusQuery,
   useFailedJobsQuery,
@@ -22,18 +24,30 @@ import {
   useNotificationSettingsQuery,
   useRetryJob,
   useSaveNotificationSettings,
+  useSetPushTextHidden,
 } from "../../../lib/hooks";
 import { deviceTimezone } from "../../../lib/format";
 import type { NotificationSettings } from "../../../lib/types";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 
+/** True when two settings differ in nothing but "Hide alert text in push", which saves on its own. */
+function onlyPushTextChanged(a: NotificationSettings, b: NotificationSettings) {
+  const rest = (s: NotificationSettings) => {
+    const { hidePushText: _hidden, ...other } = s;
+    return JSON.stringify(Object.entries(other).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)));
+  };
+  return rest(a) === rest(b);
+}
+
 export default function NotificationSettingsScreen() {
   const router = useRouter();
   const [granted, setGranted] = useState(false);
   const [canAskAgain, setCanAskAgain] = useState(true);
-  const [pushOk, setPushOk] = useState(false);
+  const [pushState, setPushState] = useState<PushState | null>(null);
   const settingsQ = useNotificationSettingsQuery();
   const save = useSaveNotificationSettings();
+  const pushText = useSetPushTextHidden();
+  const [pushTextError, setPushTextError] = useState("");
   const jobs = useFailedJobsQuery();
   const health = useJobHealthQuery();
   const retry = useRetryJob();
@@ -55,25 +69,37 @@ export default function NotificationSettingsScreen() {
     const status = await getNotificationPermission();
     setGranted(status.granted);
     setCanAskAgain(status.canAskAgain);
-    if (status.granted) {
-      setPushOk(await registerServerPush());
-    }
+    if (status.granted) setPushState(await registerServerPushState());
   }, []);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
+  // Reset the form when the saved settings change, except when only "Hide
+  // alert text in push" did: that switch saves on its own and must not wipe
+  // edits the person has not saved yet.
+  const lastSettings = useRef<NotificationSettings | null>(null);
   useEffect(() => {
-    if (settingsQ.data) {
-      setDraft({ ...settingsQ.data, timezone: settingsQ.data.timezone || deviceTimezone() });
-    }
+    const data = settingsQ.data;
+    if (!data) return;
+    const previous = lastSettings.current;
+    lastSettings.current = data;
+    if (previous && onlyPushTextChanged(previous, data)) return;
+    setDraft({ ...data, timezone: data.timezone || deviceTimezone() });
   }, [settingsQ.data]);
+
+  function setPushTextHidden(hidden: boolean) {
+    setPushTextError("");
+    pushText.mutate(hidden, {
+      onError: (err) => setPushTextError(err instanceof Error ? err.message : "Couldn’t save this setting."),
+    });
+  }
 
   async function enable() {
     const ok = await requestNotificationPermission();
     setGranted(ok);
-    if (ok) setPushOk(await registerServerPush());
+    if (ok) setPushState(await registerServerPushState());
     if (!ok) {
       const status = await getNotificationPermission();
       setCanAskAgain(status.canAskAgain);
@@ -96,13 +122,14 @@ export default function NotificationSettingsScreen() {
                 {!notificationsSupported()
                   ? "Notifications are available on the iOS and Android apps."
                   : granted
-                    ? pushOk
-                      ? "Reminders arrive from the server even if this app is closed."
-                      : "Local reminder fallback is used until a push token can be registered."
+                    ? "Timely can show alerts on this phone."
                     : "Enable to get a ping when a reminder is due."}
               </Text>
             </View>
           </View>
+          {notificationsSupported() && granted && pushState ? (
+            <ListRow title="Instant push" trailing={pushState === "on" ? "On" : "Off"} />
+          ) : null}
           {notificationsSupported() && !granted ? (
             <ListRow
               title={canAskAgain ? "Enable notifications" : "Open system settings"}
@@ -113,6 +140,7 @@ export default function NotificationSettingsScreen() {
           ) : null}
           {granted ? <ListRow title="System notification settings" onPress={() => void Linking.openSettings()} /> : null}
         </ListGroup>
+        {notificationsSupported() && granted && pushState ? <GroupHint>{instantPushLine(pushState)}</GroupHint> : null}
 
         {draft ? (
           <>
@@ -175,6 +203,25 @@ export default function NotificationSettingsScreen() {
           <ListRow title="Open Bots" onPress={() => router.push("/(app)/(tabs)/bots")} />
         </AlertDefaults>
         <GroupHint>Each bot has its own alerts. These are what new bots start with.</GroupHint>
+        {settingsQ.data ? (
+          <>
+            <ListGroup>
+              <SwitchRow
+                title="Hide alert text in push"
+                meta={`Phones show “${HIDDEN_PUSH_BODY}”`}
+                value={pushText.isPending ? pushText.variables === true : settingsQ.data.hidePushText === true}
+                onChange={(hidden) => {
+                  if (!pushText.isPending) setPushTextHidden(hidden);
+                }}
+              />
+            </ListGroup>
+            {pushTextError ? <Text style={styles.retryNote}>{pushTextError}</Text> : null}
+            <GroupHint>
+              Expo and Google carry what a push says. With this on, they only carry “{HIDDEN_PUSH_BODY}”; the alert opens in
+              Timely.
+            </GroupHint>
+          </>
+        ) : null}
 
         <GroupLabel>Background jobs</GroupLabel>
         <ListGroup>

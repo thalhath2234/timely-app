@@ -171,6 +171,14 @@ _Avoid_: connect (reserved for Agent providers and Connected services), link, sy
 The Settings → Server switch that lets the API listen on the host's Tailscale addresses in addition to loopback. Off means loopback only; there is no LAN or public option.
 _Avoid_: remote access, expose, port forwarding
 
+**Start at login**:
+The Desktop host starting hidden in the tray when the person signs in to their computer, so Bots keep watching without a window. On by default, for new installs and upgraders (who get a one-time notice); one switch in Settings → Notifications, desktop only. Timely never turns it back on after Windows or the desktop turned it off; only the switch does (ADR 0025).
+_Avoid_: autostart (in copy), run on boot, launch on startup, background service
+
+**Instant push**:
+A Bot alert or reminder reaching the phone in seconds through Expo's push service, even while the app is closed, instead of at the next check about every 15 minutes. It needs a push project in the phone build; without one the phone keeps checking and Settings says why. A phone's push token belongs to the sign-in that registered it, so signing that phone out stops its pushes. "Hide alert text in push" makes Bot pushes say only "A bot has news" (ADR 0025).
+_Avoid_: notification (alone; that is the in-app row), FCM, remote notification
+
 ### Bots
 
 **Bot**:
@@ -220,6 +228,10 @@ _Avoid_: pipeline, workflow, graph
 **Thing**:
 What two Bots' alerts are about when they match: a product, a ticker or a link, keyed from the Watch or the feed item. Two alerts on the same Thing on the same day share one alert ("Also seen by"); a follow-up gets through only after a further 5% move or a jump in urgency.
 _Avoid_: item (a feed item is one kind of Thing), duplicate, entity
+
+**Catch-up**:
+The one Check each Bot at least 30 minutes late makes after Timely was closed, the computer slept or Pause all was on, however many scheduled Checks it missed. Late Checks start one by one, about 10 seconds apart, and the next alert says how long the Bot was paused ("Paused for 9 hours while Timely was closed"). A paused Bot is not caught up and stays paused; a snoozed Bot catches up, and its alert stays held until the snooze ends (ADR 0025).
+_Avoid_: backfill, replay, missed checks (no missed slot is replayed)
 
 **Secure Store**:
 The sealed store, under TIMELY_VAULT_KEY, of saved website logins and Connected service secrets. Timely types a saved password into the page or attaches a token itself; the AI never sees either and holds only a ticket (ADR 0022, ADR 0023).

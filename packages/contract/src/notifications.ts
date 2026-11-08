@@ -10,7 +10,13 @@ export interface NotificationSettings {
   eveningDigestAt: string;
   /** Smart alerts: a few alerts a day for suggestions worth acting on (needs smart suggestions). */
   smartAlerts?: boolean;
+  /** Bot pushes say only "A bot has news", so Expo and Google never carry the alert's words. Set by its own endpoint. */
+  hidePushText?: boolean;
 }
+
+/** A bot push's title and body while "Hide alert text in push" is on. The API's HiddenPushTitle/HiddenPushBody match. */
+export const HIDDEN_PUSH_TITLE = "Timely";
+export const HIDDEN_PUSH_BODY = "A bot has news";
 
 /** Every `Category` the API writes (`models/notification.go`, chat service). */
 export type NotificationCategory =

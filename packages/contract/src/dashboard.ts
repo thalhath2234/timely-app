@@ -1132,7 +1132,12 @@ export interface DashboardData {
   docs?: Doc[];
   sheets?: Sheet[];
   workspaces?: Workspace[];
+  /** The person's bots and their price watches, for PriceHistory checks. Only the API's check_block fills it. */
+  bots?: BoardBot[];
 }
+
+/** A bot as a described card's check knows it: its id, name and price watches (label: symbol or site). */
+export type BoardBot = { id: string; name: string; prices: { id: string; label: string }[] };
 
 export interface EngineContext {
   now: Date;

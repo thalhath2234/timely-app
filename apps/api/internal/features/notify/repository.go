@@ -27,19 +27,32 @@ func (r *repository) GetSettings(userID string) (models.NotificationSettings, er
 	return config.NotificationSettings.Normalized(), nil
 }
 
+// UpdateSettings saves the settings forms' fields in one statement that
+// keeps the stored hidePushText, so a form sending a stale draft (or racing
+// SetPushTextHidden) never undoes that switch.
 func (r *repository) UpdateSettings(userID string, settings models.NotificationSettings) error {
 	if err := r.db.Select("id").Where("user_id = ?", userID).First(&models.Config{}).Error; err != nil {
 		return err
 	}
-	normalized := settings.Normalized()
-	if err := models.WriteJSONB(r.db, "configs", map[string]any{
-		"notification_settings": normalized,
-	}, "user_id = ?", userID); err != nil {
-		return err
+	return r.db.Exec(`UPDATE configs SET notification_settings = ?::jsonb || jsonb_build_object('hidePushText', COALESCE(notification_settings->'hidePushText', 'false'::jsonb)),
+		updated_at = ? WHERE user_id = ?`, settings.Normalized(), utils.GetCurrentTime(), userID).Error
+}
+
+// SetPushTextHidden sets only hidePushText; no other setting is touched. An
+// account that never saved its settings stores '{}', which reads as the
+// defaults, so the switch writes those defaults with it: a lone
+// {"hidePushText":...} would read every other setting as off.
+func (r *repository) SetPushTextHidden(userID string, hidden bool) error {
+	res := r.db.Exec(`UPDATE configs SET notification_settings = (CASE WHEN notification_settings IS NULL OR notification_settings = '{}'::jsonb
+			THEN ?::jsonb ELSE notification_settings END) || jsonb_build_object('hidePushText', ?::boolean),
+		updated_at = ? WHERE user_id = ?`, models.DefaultNotificationSettings(), hidden, utils.GetCurrentTime(), userID)
+	if res.Error != nil {
+		return res.Error
 	}
-	return r.db.Model(&models.Config{}).
-		Where("user_id = ?", userID).
-		Update("updated_at", utils.GetCurrentTime()).Error
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (r *repository) WorkingHoursTimezone(userID string) string {
@@ -301,15 +314,22 @@ func (r *repository) MarkDelivered(id string) error {
 		Update("delivered_at", now).Error
 }
 
-func (r *repository) RegisterDevice(userID, token, platform string) (*models.PushDevice, error) {
+// RegisterDevice stores a phone's push token under the sign-in that sent it.
+// A token already on file moves to this account and session, keeping its id.
+func (r *repository) RegisterDevice(userID, sessionID, token, platform string) (*models.PushDevice, error) {
 	if platform == "" {
 		platform = "android"
+	}
+	var session *string
+	if sessionID != "" {
+		session = &sessionID
 	}
 	now := time.Now().UTC()
 	var existing models.PushDevice
 	err := r.db.Where("token = ?", token).First(&existing).Error
 	if err == nil {
 		existing.UserID = userID
+		existing.SessionID = session
 		existing.Platform = platform
 		existing.UpdatedAt = now
 		existing.LastSeenAt = now
@@ -324,6 +344,7 @@ func (r *repository) RegisterDevice(userID, token, platform string) (*models.Pus
 	row := &models.PushDevice{
 		ID:         utils.NewPushDeviceID(),
 		UserID:     userID,
+		SessionID:  session,
 		Token:      token,
 		Platform:   platform,
 		CreatedAt:  now,
@@ -340,16 +361,38 @@ func (r *repository) UnregisterDevice(userID, token string) error {
 	return r.db.Where("user_id = ? AND token = ?", userID, token).Delete(&models.PushDevice{}).Error
 }
 
+// Devices lists the account's phones whose sign-in is still valid: the
+// session exists (signing out deletes it, and the device with it) and has not
+// expired, by the rule auth uses. A device with no session gets nothing until
+// the phone registers again.
 func (r *repository) Devices(userID string) ([]models.PushDevice, error) {
-	var rows []models.PushDevice
-	if err := r.db.Where("user_id = ?", userID).Find(&rows).Error; err != nil {
+	var rows []struct {
+		models.PushDevice
+		ExpiresAt string
+	}
+	err := r.db.Raw(`SELECT d.*, s.expires_at FROM push_devices d
+		JOIN user_sessions s ON s.id = d.session_id AND s.user_id = d.user_id
+		WHERE d.user_id = ?`, userID).Scan(&rows).Error
+	if err != nil {
 		return nil, err
 	}
-	return rows, nil
+	now := time.Now().UTC()
+	devices := make([]models.PushDevice, 0, len(rows))
+	for _, row := range rows {
+		expires, err := time.Parse(time.RFC3339, row.ExpiresAt)
+		if err != nil || !now.Before(expires) {
+			continue
+		}
+		devices = append(devices, row.PushDevice)
+	}
+	return devices, nil
 }
 
-func (r *repository) DeleteToken(token string) error {
-	return r.db.Where("token = ?", token).Delete(&models.PushDevice{}).Error
+// DeleteDevice removes a device Expo reported as no longer registered. A
+// row registered again since the push went out (by this account or, after
+// the token moved, another) is newer than before and stays.
+func (r *repository) DeleteDevice(id, userID string, before time.Time) error {
+	return r.db.Exec("DELETE FROM push_devices WHERE id = ? AND user_id = ? AND updated_at <= ?", id, userID, before).Error
 }
 
 func reminderDedupe(taskID string, start time.Time) string {

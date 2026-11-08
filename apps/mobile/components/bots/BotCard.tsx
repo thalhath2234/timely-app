@@ -6,6 +6,7 @@ import {
   agoLabel,
   alertLink,
   captionLine,
+  catchingUpLine,
   cardSub,
   cardValue,
   clockLabel,
@@ -147,11 +148,18 @@ function Middle({ bot, now, names }: { bot: BotView; now: Date; names?: BotNames
   const value = cardValue(bot);
   const w = primaryWatch(bot);
   const spark = w && isPriceReading(w) && (w.spark?.length ?? 0) >= 2 ? w.spark : null;
+  const caption = captionLine(bot, now, undefined, names);
   if (w && spark) {
     const cur = watchCurrency(w);
     const closes = spark.map(([, v]) => v);
     return (
       <View style={styles.middle}>
+        {/* The caption over the price line, as the desktop card has it ("Catching up · Timely was closed for 9 hours"). */}
+        {caption ? (
+          <Text numberOfLines={2} style={[styles.caption, styles.sparkCaption]}>
+            {caption}
+          </Text>
+        ) : null}
         <View style={styles.sparkBox} onLayout={(event) => setWidth(Math.floor(event.nativeEvent.layout.width))}>
           <Sparkline
             points={spark}
@@ -163,7 +171,6 @@ function Middle({ bot, now, names }: { bot: BotView; now: Date; names?: BotNames
       </View>
     );
   }
-  const caption = captionLine(bot, now, undefined, names);
   const under = caption ? null : w?.kind === "feed" ? feedSources(bot) : value.kind === "text" ? valueLine(bot) : null;
   const text = value.kind === "text" ? value.text : null;
   return (
@@ -370,6 +377,7 @@ export function BotCard({
   const reason = needsReason(bot, now);
   if (variant === "attention" && reason) {
     const warm = reason === "new_alert" || reason === "waiting_ok" || reason === "suggestion";
+    const catching = catchingUpLine(bot, { allPaused });
     const trailing =
       reason === "new_alert" ? (
         <Pill tone="primary">New alert</Pill>
@@ -390,6 +398,12 @@ export function BotCard({
           disabled={!onPress}
         >
           <Top bot={bot} icons={icons} trailing={trailing} />
+          {/* A bot still owed its catch-up check says so here too: the desktop "Needs you" card carries its caption. */}
+          {warm && catching ? (
+            <Text numberOfLines={2} style={[styles.caption, styles.attentionCaption]}>
+              {catching}
+            </Text>
+          ) : null}
         </AnimatedPressable>
         <Attention bot={bot} now={now} actions={actions} onOpen={onPress} />
       </View>
@@ -466,6 +480,8 @@ const styles = createThemedStyleSheet((colors) => ({
   valueChange: { color: colors.mutedForeground, fontSize: 12, lineHeight: 16, fontVariant: ["tabular-nums"] },
   middle: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 12 },
   sparkBox: { height: 34 },
+  sparkCaption: { marginBottom: 6 },
+  attentionCaption: { paddingHorizontal: 14, paddingTop: 8 },
   middleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   middleText: { flex: 1, minWidth: 0, gap: 2 },
   caption: { color: colors.mutedForeground, fontSize: 12, lineHeight: 16, fontVariant: ["tabular-nums"] },

@@ -544,7 +544,8 @@ function Text({ props }: KitProps<"Text">) {
 }
 
 const SCREENS = { today: "/today", calendar: "/calendar", tasks: "/tasks", inbox: "/inbox", dashboard: "/dashboard" } as const;
-const LINK = "inline-flex items-center gap-1 text-[13px] font-medium text-primary hover:underline hover:underline-offset-4";
+/** An Open link's look; a price block's "Open bot" shares it. */
+export const LINK = "inline-flex items-center gap-1 text-[13px] font-medium text-primary hover:underline hover:underline-offset-4";
 
 function Open({ props }: KitProps<"Open">) {
   const openTask = useEntityDetailStore((state) => state.openTask);

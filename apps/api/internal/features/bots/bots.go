@@ -52,7 +52,10 @@ const (
 	LateAfter  = 10 * time.Minute
 	AwayAfter  = 30 * time.Minute
 	WakeSettle = 30 * time.Second
-	WakeSpread = 3 * time.Minute
+	WakeSpread = 3 * time.Minute // a restore's spread (AfterRestore)
+	// WakeStep is how far apart wake checks start: each takes the next slot
+	// on one tail, so a catch-up never floods the check slots.
+	WakeStep = 10 * time.Second
 
 	LogDays       = 30
 	LogMax        = 500
@@ -94,6 +97,32 @@ const (
 	BriefItemsPerBot = 5
 	DefaultBriefTime = "08:00"
 )
+
+// Why a Bot missed checks, as stored in bots.away_reason and
+// bot_checks.away_reason: Timely was closed (the first sweep of a process),
+// the computer slept (a later sweep after a gap in wall time), or Pause all
+// was on.
+const (
+	AwayClosed    = "closed"
+	AwayAsleep    = "asleep"
+	AwayAllPaused = "all_paused"
+)
+
+var awayWhile = map[string]string{
+	AwayClosed:    "while Timely was closed",
+	AwayAsleep:    "while this computer was asleep",
+	AwayAllPaused: "while all bots were paused",
+}
+
+// awayLine is what a check that caught up says of the gap: "Paused for 9
+// hours while Timely was closed", or "" for no gap or an unknown reason.
+func awayLine(secs int, reason string) string {
+	while, ok := awayWhile[reason]
+	if !ok || secs <= 0 {
+		return ""
+	}
+	return "Paused for " + awayFor(time.Duration(secs)*time.Second) + " " + while
+}
 
 // Watch kinds and page read modes, as stored in bot_watches.
 const (

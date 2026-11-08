@@ -11,7 +11,7 @@ func TestAgentPushKeepsPrivateDetailsOffLockScreenAndTargetsChat(t *testing.T) {
 	kind, cid := "chat", "chat-a"
 	for _, status := range []string{"approval", "failed", "completed"} {
 		n := &models.Notification{ID: "ntf-a", Category: "agent", Title: "Private acquisition", Body: "Secret financial details", EntityType: &kind, EntityID: &cid, Data: models.JobPayload{"status": status}}
-		message := notificationPushMessage(n, "ExponentPushToken[test]")
+		message := notificationPushMessage(n, "ExponentPushToken[test]", models.NotificationSettings{})
 		raw, err := json.Marshal(message)
 		if err != nil {
 			t.Fatal(err)
@@ -26,19 +26,19 @@ func TestAgentPushKeepsPrivateDetailsOffLockScreenAndTargetsChat(t *testing.T) {
 }
 func TestReminderPushRetainsContentAndTaskTarget(t *testing.T) {
 	n := &models.Notification{ID: "ntf-a", Category: models.NotifyReminder, Title: "Reminder", Body: "A task", Data: models.JobPayload{"taskId": "task-a"}}
-	message := notificationPushMessage(n, "test")
+	message := notificationPushMessage(n, "test", models.NotificationSettings{})
 	if message.Title != n.Title || message.Body != n.Body || message.Data["taskId"] != "task-a" || message.ChannelID != "reminders" {
 		t.Fatal("reminder payload regressed")
 	}
 }
 
-// A Bot alert shows its own text on the reminders channel and names its Bot,
-// and a Bot's data never sets the routing kind.
+// A Bot alert shows its own text on the bots channel and names its Bot, and
+// a Bot's data never sets the routing kind.
 func TestBotPushKeepsContentAndNamesBot(t *testing.T) {
 	kind, bid := "bot", "bot_a"
 	n := &models.Notification{ID: "ntf-b", Category: models.NotifyBot, Title: "Price check: below 25,000", Body: "now ₹24,900", EntityType: &kind, EntityID: &bid, Data: models.JobPayload{"botId": bid, "botAlert": "alert", "phone": true}}
-	message := notificationPushMessage(n, "ExponentPushToken[test]")
-	if message.ChannelID != "reminders" || message.Title != n.Title || message.Body != n.Body {
+	message := notificationPushMessage(n, "ExponentPushToken[test]", models.NotificationSettings{})
+	if message.ChannelID != "bots" || message.Title != n.Title || message.Body != n.Body {
 		t.Fatalf("bot push = %q/%q on %q", message.Title, message.Body, message.ChannelID)
 	}
 	if message.Data["botId"] != bid || message.Data["kind"] != "" || message.Data["category"] != models.NotifyBot {

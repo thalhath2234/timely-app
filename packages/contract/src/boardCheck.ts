@@ -9,7 +9,7 @@
  */
 import type { DashboardData, EngineContext } from "./dashboard";
 import type { GenuiNode } from "./genui";
-import { BOARD_ROOT, blockProblems, boardParser, dataProblems, drawBoard } from "./genuiBoard";
+import { BOARD_ROOT, blockProblems, boardParser, botProblems, dataProblems, drawBoard } from "./genuiBoard";
 
 export interface BoardCheck {
   /** What is wrong, one sentence each; empty when the program draws as written. */
@@ -124,7 +124,7 @@ export function checkBoard(program: string, data: DashboardData, ctx: EngineCont
   for (const error of parsed.meta.errors) problems.push(error.statementId ? `${error.statementId}: ${error.message}` : error.message);
   for (const name of parsed.meta.unresolved) problems.push(`${name} is used but never defined.`);
   for (const name of parsed.meta.orphaned) problems.push(`${name} is defined but no block shows it: put it in a block or leave it out.`);
-  problems.push(...dataProblems(program, data), ...blockProblems(program, data));
+  problems.push(...dataProblems(program, data), ...blockProblems(program, data), ...botProblems(program, data));
   const root = drawBoard(program, data, ctx);
   if (root) problems.push(...openProblems(root, data));
   return { problems: [...new Set(problems)], shows: root ? outline(root) : [] };

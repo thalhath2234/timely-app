@@ -185,8 +185,10 @@ export function NeedsAction({
           <p className="line-clamp-2 text-sm font-semibold text-foreground">
             {title}
           </p>
+          {/* The body's lines stay lines: "Now ₹26,990 (was ₹27,499)" and
+              "Paused for 9 hours while Timely was closed" never run together. */}
           {meta ? (
-            <p className="mt-0.5 line-clamp-2 text-xs tabular-nums text-muted-foreground">
+            <p className="mt-0.5 line-clamp-3 whitespace-pre-line text-xs tabular-nums text-muted-foreground">
               {meta}
             </p>
           ) : null}

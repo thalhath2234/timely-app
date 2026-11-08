@@ -141,7 +141,9 @@ func (s *Service) rejudge(ctx context.Context, db *gorm.DB, job *models.Job, ale
 			return err
 		}
 		// Bots that joined it before the flip stay named.
-		err := notify.BumpAlert(tx, job.UserID, *a.NotificationID, a.Title, rejudgeLaterLine+v.Why+alsoSeenTail(flipped.AlsoSeenBy))
+		// It keeps saying how long the Bot was paused.
+		away, _ := a.Figures["away"].(string)
+		err := notify.BumpAlert(tx, job.UserID, *a.NotificationID, a.Title, withAway(rejudgeLaterLine+v.Why+alsoSeenTail(flipped.AlsoSeenBy), away))
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil // the person cleared it
 		}

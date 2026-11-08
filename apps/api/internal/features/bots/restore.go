@@ -34,6 +34,11 @@ const (
 // or what the judge reads on this way (ADR 0021). A
 // stock watch passes when the account has its key, which the restore keeps.
 func (s *Service) VetRestore(tx *gorm.DB, userID string, fromMCP bool) error {
+	// A restored Bot missed nothing it should tell of: AfterRestore spreads
+	// its next check, and a file's gap would be one from another time.
+	if err := tx.Exec(`UPDATE bots SET away_since = NULL, away_until = NULL, away_reason = NULL WHERE user_id = ? AND away_since IS NOT NULL`, userID).Error; err != nil {
+		return err
+	}
 	// A suggestion is code's reading of ratings made here, and the file's
 	// may name rules it does not have.
 	if err := tx.Exec(`UPDATE bots SET suggestion = NULL WHERE user_id = ? AND suggestion IS NOT NULL`, userID).Error; err != nil {

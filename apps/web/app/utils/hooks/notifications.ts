@@ -11,6 +11,7 @@ import {
   retryJob,
   snoozeNotification,
   unreadNotificationCount,
+  setPushTextHidden,
   updateNotificationSettings,
 } from "@/app/utils/api/notifications";
 import type { NotificationSettings } from "@/app/_types/types";
@@ -103,6 +104,17 @@ export function useUpdateNotificationSettings() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: Partial<NotificationSettings>) => updateNotificationSettings(data),
+    onSuccess: (settings) => {
+      queryClient.setQueryData(notificationSettingsKey, settings);
+    },
+  });
+}
+
+/** Turns "Hide alert text in push" on or off; the reply is the stored settings. */
+export function useSetPushTextHidden() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (hidden: boolean) => setPushTextHidden(hidden),
     onSuccess: (settings) => {
       queryClient.setQueryData(notificationSettingsKey, settings);
     },
