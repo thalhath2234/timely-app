@@ -487,6 +487,7 @@ func privateDir(dir string) (string, error) {
 		return "", fmt.Errorf("no private scratch directory: %s is not safe to use and a new one could not be made: %w", dir, err)
 	}
 	if !ownedPrivate(fresh) {
+		_ = os.RemoveAll(fresh)
 		return "", fmt.Errorf("no private scratch directory: %s and %s are not safe to use", dir, fresh)
 	}
 	return fresh, nil
