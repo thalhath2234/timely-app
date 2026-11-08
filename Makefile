@@ -555,3 +555,28 @@ hermes-sync-check: ## Check apps/agent after a sync (plan 10.4 a-e): snapshot li
 	@python3 -I -B -m unittest discover -q -s scripts/hermes-sync -p 'check_test.py'
 	@if [ "$(HERMES_CHECK_STATIC_ONLY)" != 1 ] && $(MAKE) -n agent-install >/dev/null 2>&1; then $(MAKE) --no-print-directory agent-install; fi
 	@python3 -I -B scripts/hermes-sync/check_sync.py
+
+AGENT_DIR := apps/agent
+AGENT_PYTHON_VERSION ?= 3.14.9
+AGENT_VENV := $(CURDIR)/$(AGENT_DIR)/.venv
+AGENT_PY = $(if $(wildcard $(AGENT_VENV)/Scripts/python.exe),$(AGENT_VENV)/Scripts/python.exe,$(AGENT_VENV)/bin/python)
+AGENT_TEST_TMP ?= $(HOME)/.cache/timely-agent-test/tmp
+
+.PHONY: agent-install agent-lint agent-test
+agent-install: ## Build the agent runtime apps/agent/.venv from Hermes' own lock (uv-managed CPython 3.14.9, extras in apps/agent/.hermes-sync/extras.txt, pytest/ruff from Hermes' dev group); only a notice when uv is missing
+	@if ! command -v uv >/dev/null 2>&1; then \
+		echo "agent-install: uv is not installed, so the agent runtime was not built (the classic agent still works). Install uv: https://docs.astral.sh/uv/getting-started/installation/"; \
+		exit 0; \
+	fi; \
+	extras=$$(sed -e 's/#.*//' -e '/^[[:space:]]*$$/d' $(AGENT_DIR)/.hermes-sync/extras.txt | sed 's/^/--extra /' | tr '\n' ' '); \
+	cd $(AGENT_DIR)/hermes && UV_PROJECT_ENVIRONMENT="$(AGENT_VENV)" uv sync --frozen --no-install-project \
+		--managed-python --python $(AGENT_PYTHON_VERSION) --group dev $$extras
+
+agent-lint: ## Lint Timely's agent code (apps/agent/timely_agent, tests, skills) with ruff from the agent runtime
+	@test -x "$(AGENT_PY)" || { echo "agent-lint: run make agent-install first"; exit 1; }
+	@cd $(AGENT_DIR) && "$(AGENT_PY)" -I -m ruff check timely_agent tests $(if $(wildcard $(AGENT_DIR)/skills),skills)
+
+agent-test: ## Test Timely's agent worker (protocol, config render, seed tree, plugins, stub-model runs); test homes under ~/.cache/timely-agent-test
+	@test -x "$(AGENT_PY)" || { echo "agent-test: run make agent-install first"; exit 1; }
+	@mkdir -p "$(AGENT_TEST_TMP)"
+	@cd $(AGENT_DIR) && TMPDIR="$(AGENT_TEST_TMP)" "$(AGENT_PY)" -I -m pytest -q tests $(ARGS)

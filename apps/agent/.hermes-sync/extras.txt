@@ -1,0 +1,8 @@
+# Hermes optional extras installed into Timely's agent runtime (plan 11.1, 8.2).
+# One list shared by `make agent-install` and apps/web/electron/stage-agent.mjs (phase 3b).
+# The install guard blocks run-time installs, so every backend Timely offers must be here.
+mcp
+anthropic
+exa
+firecrawl
+parallel-web
