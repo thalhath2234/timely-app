@@ -344,6 +344,12 @@ func (w *Worker) route(m Message) {
 	if (m.Type == TypeRunDone || m.Type == TypeBotDone) && m.Run != "" {
 		w.endRun(m.Run)
 	}
+	// A run-scoped error (run.start refused: busy, duplicate_run, refused, bad_message) ends
+	// that run: the worker never sends its run.done (PROTOCOL.md section 4).
+	runErr := m.Type == TypeError && m.Run != "" && m.Account != ""
+	if runErr {
+		w.endRun(m.Run)
+	}
 	if m.Type == TypeError {
 		var body errorFields
 		_ = m.Decode(&body)
@@ -368,7 +374,7 @@ func (w *Worker) route(m Message) {
 		}
 		return
 	}
-	if m.Type == TypeError {
+	if m.Type == TypeError && !runErr {
 		return
 	}
 	if !w.queue.push(m) {
@@ -465,8 +471,7 @@ func (w *Worker) stopSequence(graceful bool) {
 	cfg := w.sup.cfg
 	if graceful {
 		go func() {
-			grace := int((cfg.ShutdownGrace + time.Second - 1) / time.Second)
-			_ = w.write(TypeShutdown, "", map[string]int{"grace": grace})
+			_ = w.write(TypeShutdown, "", map[string]int{"grace": shutdownGraceSeconds(cfg.ShutdownGrace)})
 			_ = w.stdin.Close()
 		}()
 		if w.waitDone(cfg.ShutdownGrace) {
@@ -489,6 +494,22 @@ func (w *Worker) stopSequence(graceful bool) {
 	// Something else holds the protocol pipe open; stop reading it so the
 	// exit is processed.
 	_ = w.stdout.Close()
+}
+
+// workerInterruptWait is how long the worker spends after its shutdown grace
+// interrupting the runs still live and waiting for them (worker.py: 2 s), plus
+// a margin for its exit.
+const workerInterruptWait = 3 * time.Second
+
+// shutdownGraceSeconds is the shutdown message's grace: the time the worker
+// may wait for live runs before interrupting them. It leaves
+// workerInterruptWait of ShutdownGrace for the interrupt, so a worker that
+// follows the protocol has exited before Go escalates to SIGTERM.
+func shutdownGraceSeconds(total time.Duration) int {
+	if total <= workerInterruptWait {
+		return 0
+	}
+	return int((total - workerInterruptWait) / time.Second)
 }
 
 func (w *Worker) waitDone(d time.Duration) bool {

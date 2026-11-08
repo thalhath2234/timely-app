@@ -372,6 +372,33 @@ func TestRequestReplyAndErrorReply(t *testing.T) {
 	}
 }
 
+func TestRefusedRunStartEndsTheRun(t *testing.T) {
+	h := newHarness(t, "ok", nil)
+	w := h.ensure("acct-1")
+	if err := w.Send(TypeRunStart, map[string]any{"run": "refuse-1", "conversation_id": "c1"}); err != nil {
+		t.Fatal(err)
+	}
+	got := h.message(TypeError)
+	var body struct {
+		Code string `json:"code"`
+	}
+	_ = got.Decode(&body)
+	if got.Run != "refuse-1" || body.Code != "busy" {
+		t.Fatalf("handler got %s", got.Raw)
+	}
+	if live := w.LiveRuns(); len(live) != 0 {
+		t.Fatalf("refused run still live: %v", live)
+	}
+}
+
+func TestShutdownGraceLeavesTimeToInterrupt(t *testing.T) {
+	for total, want := range map[time.Duration]int{5 * time.Second: 2, 3 * time.Second: 0, time.Second: 0, 10 * time.Second: 7} {
+		if got := shutdownGraceSeconds(total); got != want {
+			t.Errorf("shutdownGraceSeconds(%v) = %d, want %d", total, got, want)
+		}
+	}
+}
+
 func TestRunTrackingHandlerAndToolCall(t *testing.T) {
 	h := newHarness(t, "ok", nil)
 	w := h.ensure("acct-1")

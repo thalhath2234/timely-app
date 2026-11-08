@@ -49,8 +49,14 @@
 //     Config.Handler in arrival order. With no handler, gate.ask gets a
 //     "block" verdict and tool.call an error result, so the worker fails
 //     closed at once instead of waiting for its hook timeout.
-//   - Stop: Go sends "shutdown" {grace} (seconds) and closes stdin (the worker's
-//     lifeline), waits ShutdownGrace, then SIGTERMs the process group
+//   - Run-scoped errors: an "error" carrying "run" (a refused run.start: busy,
+//     duplicate_run, refused) ends that run like run.done would, and reaches
+//     Config.Handler (or the Request waiting on its id) so the caller can
+//     fail the run.
+//   - Stop: Go sends "shutdown" {grace} and closes stdin (the worker's
+//     lifeline). grace is ShutdownGrace minus 3 s in whole seconds: the worker
+//     waits that long for live runs, then interrupts the rest (about 2 s), so
+//     it exits inside ShutdownGrace. Go waits ShutdownGrace, then SIGTERMs the process group
 //     (Unix), waits KillWait, then SIGKILLs the group (Unix) or terminates
 //     the Job Object (Windows).
 //

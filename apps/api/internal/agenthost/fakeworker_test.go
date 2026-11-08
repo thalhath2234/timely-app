@@ -202,6 +202,10 @@ func fakeWorker(mode string) int {
 			send(map[string]any{"type": "log", "level": "info", "text": "hello from the worker"})
 		case "run.start":
 			run, _ := m["run"].(string)
+			if strings.HasPrefix(run, "refuse-") { // like the real worker's busy / duplicate_run answer
+				send(map[string]any{"type": "error", "run": run, "code": "busy", "message": "this conversation already has a live run"})
+				continue
+			}
 			send(map[string]any{"type": "event", "run": run, "kind": "delta", "payload": map[string]any{"text": "Hi"}})
 			send(map[string]any{"type": "tool.call", "id": "w-" + run, "run": run, "name": "get_context", "args": map[string]any{}})
 		case "gate.verdict":
