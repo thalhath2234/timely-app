@@ -14,7 +14,7 @@
 
 Hermes' own `AGENTS.md` files (`hermes/AGENTS.hermes.md`, `hermes/<pkg>/AGENTS.md`) describe its architecture and are worth reading. Their workflow rules (rebase onto main, `scripts/run_tests.sh`, `hermes pm lock`, `hermes update`) are upstream's process and do not apply here.
 
-Any Hermes process you start, test or script gets fresh `HERMES_HOME` and `HERMES_RUNTIME_DIR` folders under a temp dir (`$HOME/.cache/timely-agent-test/` or `apps/agent/tmp/`). Your own `~/.hermes` stays untouched: never read, write or point anything at it.
+Any Hermes process you start, test or script gets fresh `HERMES_HOME` and `HERMES_RUNTIME_DIR` folders under a temp dir such as `$HOME/.cache/timely-agent-test/`. Your own `~/.hermes` stays untouched: never read, write or point anything at it.
 
 ## Syncing Hermes
 
