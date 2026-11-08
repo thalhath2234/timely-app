@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"timely-api/internal/utils"
 )
 
 // TestContractLimits reads BOT_LIMITS from the shared contract that the web
@@ -130,10 +132,80 @@ func TestContractWords(t *testing.T) {
 		{"Urgency", union("Urgency"), []string{UrgencyLow, UrgencyNormal, UrgencyHigh}},
 		{"AlertKind", union("AlertKind"), []string{alertKindAlert, alertKindMore, alertKindPaused, alertKindBrief}},
 		{"AlertHeld", union("AlertHeld"), []string{"", heldSnoozed, heldCap, heldJudged, heldShared}},
+		{"AwayReason", union("AwayReason"), []string{AwayClosed, AwayAsleep, AwayAllPaused}},
 	}
 	for _, c := range cases {
 		if strings.Join(c.got, ",") != strings.Join(c.want, ",") {
 			t.Errorf("%s in bots.ts is %v, API has %v", c.name, c.got, c.want)
+		}
+	}
+}
+
+// TestContractAway checks the catch-up words: each AWAY_WHILE value in the
+// contract is the API's awayWhile for the same reason, with no reason missing
+// on either side, and AlertFigures names every figure an AlertView passes on
+// (away among them).
+func TestContractAway(t *testing.T) {
+	src, err := os.ReadFile("../../../../../packages/contract/src/bots.ts")
+	if err != nil {
+		t.Fatalf("read contract: %v", err)
+	}
+	block := regexp.MustCompile(`(?s)export const AWAY_WHILE: Record<AwayReason, string> = \{(.*?)\n\};`).FindSubmatch(src)
+	if block == nil {
+		t.Fatal("AWAY_WHILE not found in bots.ts")
+	}
+	got := map[string]string{}
+	for _, m := range regexp.MustCompile(`(?m)^\s*([a-z_]+):\s*"([^"]*)",?\s*$`).FindAllSubmatch(block[1], -1) {
+		got[string(m[1])] = string(m[2])
+	}
+	if len(got) != len(awayWhile) {
+		t.Errorf("AWAY_WHILE in bots.ts has %d reasons, API awayWhile has %d", len(got), len(awayWhile))
+	}
+	for reason, want := range awayWhile {
+		if got[reason] != want {
+			t.Errorf("AWAY_WHILE.%s in bots.ts is %q, API has %q", reason, got[reason], want)
+		}
+	}
+
+	figures := regexp.MustCompile(`(?s)export type AlertFigures = \{(.*?)\n\};`).FindSubmatch(src)
+	if figures == nil {
+		t.Fatal("AlertFigures not found in bots.ts")
+	}
+	fields := map[string]bool{}
+	for _, m := range regexp.MustCompile(`(?m)^\s*([A-Za-z]+)\??:`).FindAllSubmatch(figures[1], -1) {
+		fields[string(m[1])] = true
+	}
+	for _, k := range alertFigureKeys {
+		if !fields[k] {
+			t.Errorf("AlertFigures in bots.ts has no %q, but AlertView passes it on", k)
+		}
+	}
+}
+
+// TestContractBotID checks that the clients' isBotId pattern, the only gate
+// before a Live block fetches a bot, accepts the ids the API makes and
+// refuses a name or a sibling path of /bots/:id.
+func TestContractBotID(t *testing.T) {
+	src, err := os.ReadFile("../../../../../packages/contract/src/bots.ts")
+	if err != nil {
+		t.Fatalf("read contract: %v", err)
+	}
+	m := regexp.MustCompile(`export const isBotId = [^\n]*?/(\^[^/\n]+\$)/\.test\(v\)`).FindSubmatch(src)
+	if m == nil {
+		t.Fatal("isBotId's pattern not found in bots.ts")
+	}
+	re, err := regexp.Compile(string(m[1]))
+	if err != nil {
+		t.Fatalf("isBotId's pattern %q does not compile: %v", m[1], err)
+	}
+	for i := 0; i < 5; i++ {
+		if id := utils.PrefixedUUID("bot"); !re.MatchString(id) {
+			t.Errorf("isBotId refuses the API's id %q", id)
+		}
+	}
+	for _, v := range []string{"keys", "Price watch", "bot_", `bot_"x`, "rem_" + strings.Repeat("a", 8)} {
+		if re.MatchString(v) {
+			t.Errorf("isBotId accepts %q", v)
 		}
 	}
 }
