@@ -261,6 +261,12 @@ func TestProductPriceSharedNodesStayFast(t *testing.T) {
 		{"every sibling an array around one ref", many(`[{"@id":"#agg","n":%d}]`)},
 		{"distinct offers naming one price specification", many(`{"@type":"Offer","n":%d,"priceSpecification":{"@id":"#agg"}}`)},
 		{"distinct nodes pointing at one shared node", many(`{"n":%d,"r":{"@id":"#agg"}}`)},
+		{"an aggregate's offers all naming one node with a long price specification list", `{"@type":"AggregateOffer","lowPrice":1,"priceCurrency":"USD","offers":[` +
+			strings.TrimSuffix(strings.Repeat(`{"@id":"x"},`, 20000), ",") + `]}</script><script type="application/ld+json">{"@id":"x","priceSpecification":[` +
+			strings.TrimSuffix(strings.Repeat("0,", 200000), ",") + `]}`},
+		{"an aggregate's offers all naming one node with deeply nested values", `{"@type":"AggregateOffer","lowPrice":1,"priceCurrency":"USD","offers":[` +
+			strings.TrimSuffix(strings.Repeat(`{"@id":"x"},`, 20000), ",") + `]}</script><script type="application/ld+json">{"@id":"x","availability":` +
+			strings.Repeat("[", 5000) + `"InStock"` + strings.Repeat("]", 5000) + `,"price":` + strings.Repeat("[", 5000) + `"a"` + strings.Repeat("]", 5000) + `}`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -273,5 +279,23 @@ func TestProductPriceSharedNodesStayFast(t *testing.T) {
 				t.Fatalf("took %v for a %d KB page", d, len(page)/1024)
 			}
 		})
+	}
+}
+
+// A read the depth cap cut short is not remembered: the same node reached
+// from a shallower path is read again and gives its price.
+func TestProductPriceDepthCutIsNotRemembered(t *testing.T) {
+	var deep strings.Builder
+	for range 61 {
+		deep.WriteString(`{"@type":"Offer","offers":`)
+	}
+	deep.WriteString(`{"@id":"#x","@type":"Offer","offers":{"@type":"Offer","price":"10","priceCurrency":"USD","availability":"InStock"}}`)
+	deep.WriteString(strings.Repeat("}", 61))
+	ld := `{"@type":"ProductGroup","hasVariant":[{"@type":"Product","offers":[` + deep.String() +
+		`,{"@type":"Offer","price":"10","priceCurrency":"USD","availability":"OutOfStock"}]},{"@type":"Product","offers":{"@id":"#x"}}]}`
+	page := `<html><head><script type="application/ld+json">` + ld + `</script></head></html>`
+	got, err := ProductPrice([]byte(page), "text/html")
+	if want := (Price{10, "USD", "jsonld", AvailInStock}); err != nil || got != want {
+		t.Fatalf("got %+v, %v; want %+v", got, err, want)
 	}
 }

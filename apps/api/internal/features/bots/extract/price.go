@@ -268,6 +268,7 @@ type ldReader struct {
 	read  map[ldVisit]ldRead
 	steps int
 	depth int
+	cut   bool // a cap refused a read since cut was last cleared
 }
 
 // ldRead is a node's finished read; a node being read has the zero value.
@@ -292,23 +293,42 @@ const (
 	ldOffer
 )
 
+// step counts one unit of work, and reports false once the cap is reached.
+func (ld *ldReader) step() bool {
+	if ld.steps >= ldMaxSteps {
+		ld.cut = true
+		return false
+	}
+	ld.steps++
+	return true
+}
+
 // once reads m the given way with read, or returns the answer of the read
 // already made. A node still being read, or one past the caps, gives
-// nothing; each new read counts a step.
+// nothing; each new read counts a step. A read the depth or step cap cut
+// short is not remembered: from a shallower path it may find more.
 func (ld *ldReader) once(m map[string]any, how byte, read func() (Price, bool)) (Price, bool) {
 	v := ldVisit{node: reflect.ValueOf(m).Pointer(), how: how}
 	if r, done := ld.read[v]; done {
 		return r.p, r.ok
 	}
 	if ld.depth >= ldMaxDepth || ld.steps >= ldMaxSteps {
+		ld.cut = true
 		return Price{}, false
 	}
+	outer := ld.cut
+	ld.cut = false
 	ld.read[v] = ldRead{}
 	ld.steps++
 	ld.depth++
 	p, ok := read()
 	ld.depth--
-	ld.read[v] = ldRead{p: p, ok: ok}
+	if ld.cut {
+		delete(ld.read, v)
+	} else {
+		ld.read[v] = ldRead{p: p, ok: ok}
+	}
+	ld.cut = ld.cut || outer
 	return p, ok
 }
 
@@ -328,6 +348,9 @@ func (ld *ldReader) find(v any, top bool) (Price, bool) {
 	switch t := v.(type) {
 	case []any:
 		for _, c := range t {
+			if !ld.step() {
+				break
+			}
 			if p, ok := ld.find(c, top); ok {
 				return p, true
 			}
@@ -345,6 +368,7 @@ func (ld *ldReader) find(v any, top bool) (Price, bool) {
 
 // findIn reads one node for find.
 func (ld *ldReader) findIn(t map[string]any, top bool) (Price, bool) {
+	ld.steps += len(t) // its keys are sorted and walked below
 	switch {
 	case isType(t, "Product", "IndividualProduct", "ProductModel", "ProductGroup"):
 		if p, ok := ld.offers(t["offers"]); ok {
@@ -386,6 +410,9 @@ func (ld *ldReader) offers(v any) (Price, bool) {
 	switch t := v.(type) {
 	case []any:
 		for i, c := range t {
+			if !ld.step() {
+				break
+			}
 			if p, ok := ld.offers(c); ok {
 				p.Availability = ld.samePriceAvailability(t[i+1:], p, (*ldReader).offers)
 				return p, true
@@ -448,12 +475,12 @@ func (ld *ldReader) offerIn(m map[string]any) (Price, bool) {
 // ldMaxSteps.
 func (ld *ldReader) offersAvailability(v any, price float64) string {
 	atPrice, best := "", "" // "" ranks below every word: nothing seen yet
+	looked := map[uintptr]bool{}
 	var visit func(v any)
 	visit = func(v any) {
-		if ld.steps >= ldMaxSteps {
+		if !ld.step() {
 			return
 		}
-		ld.steps++
 		switch t := v.(type) {
 		case []any:
 			for _, c := range t {
@@ -461,6 +488,11 @@ func (ld *ldReader) offersAvailability(v any, price float64) string {
 			}
 		case map[string]any:
 			o := ld.resolve(t)
+			node := reflect.ValueOf(o).Pointer()
+			if looked[node] {
+				return
+			}
+			looked[node] = true
 			a := ldAvailability(o["availability"])
 			if buyRank(a) < buyRank(best) {
 				best = a
@@ -490,6 +522,9 @@ func (ld *ldReader) offerAmount(o map[string]any) (float64, bool) {
 		specs = list
 	}
 	for _, s := range specs {
+		if !ld.step() {
+			break
+		}
 		if m, ok := s.(map[string]any); ok {
 			if amount, _, ok := ldAmount(ld.resolve(m)["price"]); ok {
 				return amount, true
@@ -507,10 +542,15 @@ func (ld *ldReader) offerAmount(o map[string]any) (float64, bool) {
 func (ld *ldReader) samePriceAvailability(siblings []any, p Price, read func(*ldReader, any) (Price, bool)) string {
 	best := p.Availability
 	for _, c := range siblings {
-		if ld.steps >= ldMaxSteps {
+		if !ld.step() {
 			break
 		}
-		ld.steps++
+		if list, isList := c.([]any); isList {
+			if a := ld.samePriceAvailability(list, Price{Amount: p.Amount, Currency: p.Currency, Availability: best}, read); buyRank(a) < buyRank(best) {
+				best = a
+			}
+			continue
+		}
 		q, ok := read(ld, c)
 		if ok && q.Amount == p.Amount && strings.EqualFold(q.Currency, p.Currency) && buyRank(q.Availability) < buyRank(best) {
 			best = q.Availability
@@ -562,19 +602,22 @@ func ldAvailability(v any) string {
 	return NormalizeAvailability(ldString(v))
 }
 
+// ldString is a string value, or the first of a list of them. Lists inside
+// lists are not unwrapped: a page could nest them thousands deep.
 func ldString(v any) string {
-	switch t := v.(type) {
-	case string:
-		return t
-	case []any:
-		if len(t) > 0 {
-			return ldString(t[0])
-		}
+	if list, ok := v.([]any); ok && len(list) > 0 {
+		v = list[0]
 	}
-	return ""
+	s, _ := v.(string)
+	return s
 }
 
+// ldAmount is an amount value, or the first of a list of them, unwrapped one
+// level like ldString.
 func ldAmount(v any) (float64, string, bool) {
+	if list, ok := v.([]any); ok && len(list) > 0 {
+		v = list[0]
+	}
 	switch t := v.(type) {
 	case json.Number:
 		f, err := t.Float64()
@@ -582,10 +625,6 @@ func ldAmount(v any) (float64, string, bool) {
 	case string:
 		f, ok := machineAmount(t)
 		return f, t, ok
-	case []any:
-		if len(t) > 0 {
-			return ldAmount(t[0])
-		}
 	}
 	return 0, "", false
 }
