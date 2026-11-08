@@ -39,4 +39,4 @@ while IFS= read -r f; do
 done < <(g ls-files -- "$PREFIX")
 
 ((fail == 0)) || exit 1
-echo "hermes-sync-check: snapshot $(g log -1 --format='%(trailers:key=Hermes-Tag,valueonly)' "$snap" | head -n1) linked, $count patch points, no npm or env files (remaining 10.4 checks not built yet)"
+echo "hermes-sync-check: snapshot $(g log -1 --format='%(trailers:key=Hermes-Tag,valueonly)' "$snap" | head -n1) linked, $count patch points, no npm or env files"

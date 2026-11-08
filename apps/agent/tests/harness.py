@@ -101,8 +101,9 @@ class Agent:
 class Worker:
     """A running worker process with a reader thread splitting stdout lines into messages."""
 
-    def __init__(self, env: dict[str, str]):
-        self.proc = subprocess.Popen([python(), "-I", str(BOOT), "worker"], stdin=subprocess.PIPE,
+    def __init__(self, env: dict[str, str], argv: list[str] | None = None):
+        """``argv`` replaces ``[<venv python>, -I, boot.py, worker]`` (the contract tests' probe wrapper)."""
+        self.proc = subprocess.Popen(argv or [python(), "-I", str(BOOT), "worker"], stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
         self.messages: "queue.Queue[dict]" = queue.Queue()
         self.raw_lines: list[bytes] = []
@@ -177,8 +178,8 @@ class Worker:
             return self.proc.wait(5)
 
 
-def ready_worker(agent: Agent, **env_extra: str) -> tuple[Worker, dict]:
-    w = Worker(agent.env(**env_extra))
+def ready_worker(agent: Agent, argv: list[str] | None = None, **env_extra: str) -> tuple[Worker, dict]:
+    w = Worker(agent.env(**env_extra), argv)
     w.send(agent.hello())
     ready, _ = w.until("ready", timeout=120)
     return w, ready

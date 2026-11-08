@@ -52,9 +52,10 @@ setup: install tools setup-env ## First-time setup: install dependencies, tools,
 setup-env: ## Copy/create the ignored root .env for this checkout or worktree
 	@scripts/setup-env.sh
 
-install: ## Install workspace JS dependencies (pnpm) and Go modules
+install: ## Install workspace JS dependencies (pnpm), Go modules and the agent runtime (skipped with a notice when uv is missing)
 	@pnpm install
 	@cd $(API) && go mod download
+	@$(MAKE) --no-print-directory agent-install
 
 tools: install-air install-goose ## Install Go CLI tools (air, goose)
 
@@ -562,7 +563,7 @@ AGENT_VENV := $(CURDIR)/$(AGENT_DIR)/.venv
 AGENT_PY = $(if $(wildcard $(AGENT_VENV)/Scripts/python.exe),$(AGENT_VENV)/Scripts/python.exe,$(AGENT_VENV)/bin/python)
 AGENT_TEST_TMP ?= $(HOME)/.cache/timely-agent-test/tmp
 
-.PHONY: agent-install agent-lint agent-test
+.PHONY: agent-install agent-lint agent-test agent-contract agent-go-integration agent-go-vet-windows hermes-tools-dump hermes-skills-review
 agent-install: ## Build the agent runtime apps/agent/.venv from Hermes' own lock (uv-managed CPython 3.14.9, extras in apps/agent/.hermes-sync/extras.txt, pytest/ruff from Hermes' dev group); only a notice when uv is missing
 	@if ! command -v uv >/dev/null 2>&1; then \
 		echo "agent-install: uv is not installed, so the agent runtime was not built (the classic agent still works). Install uv: https://docs.astral.sh/uv/getting-started/installation/"; \
@@ -579,4 +580,24 @@ agent-lint: ## Lint Timely's agent code (apps/agent/timely_agent, tests, skills)
 agent-test: ## Test Timely's agent worker (protocol, config render, seed tree, plugins, stub-model runs); test homes under ~/.cache/timely-agent-test
 	@test -x "$(AGENT_PY)" || { echo "agent-test: run make agent-install first"; exit 1; }
 	@mkdir -p "$(AGENT_TEST_TMP)"
-	@cd $(AGENT_DIR) && TMPDIR="$(AGENT_TEST_TMP)" "$(AGENT_PY)" -I -m pytest -q tests $(ARGS)
+	@cd $(AGENT_DIR) && TMPDIR="$(AGENT_TEST_TMP)" "$(AGENT_PY)" -I -m pytest -q tests --ignore=tests/contract $(ARGS)
+
+agent-contract: ## Contract tests of plan 10.4 f against real workers and a stub model, no network (ARGS=-k c19 picks tests)
+	@test -x "$(AGENT_PY)" || { echo "agent-contract: run make agent-install first"; exit 1; }
+	@mkdir -p "$(AGENT_TEST_TMP)"
+	@cd $(AGENT_DIR) && TMPDIR="$(AGENT_TEST_TMP)" "$(AGENT_PY)" -I -m pytest -q tests/contract $(ARGS)
+
+agent-go-integration: ## Go supervisor end to end with the real worker: spawn, hello, ready, run.start on a stub model, run.done, shutdown
+	@test -x "$(AGENT_PY)" || { echo "agent-go-integration: run make agent-install first"; exit 1; }
+	@cd $(API) && TIMELY_AGENT_TEST_RUNTIME=dev go test ./internal/agenthost -run TestIntegrationRealWorker -count=1 -v
+
+agent-go-vet-windows: ## go vet the agent supervisor for Windows (Job Object, process spawning) from any OS
+	@cd $(API) && GOOS=windows GOARCH=amd64 go vet ./internal/agenthost/...
+
+hermes-tools-dump: ## Regenerate apps/agent/.hermes-sync/{tools,skills,seams}.json and skill-body.yaml's tool names from the agent runtime
+	@python3 -I -B scripts/hermes-sync/check_sync.py --write
+
+hermes-skills-review: ## Record reviewed skill trees in skills-reviewed.json after reading them (NAME=<skill or folder>, or ALL=1)
+	@if [ "$(ALL)" = 1 ]; then python3 -I -B scripts/hermes-sync/check_sync.py --review-all; \
+	elif [ -n "$(NAME)" ]; then python3 -I -B scripts/hermes-sync/check_sync.py --review-skills $(NAME); \
+	else echo "hermes-skills-review: set NAME=<skill or folder> or ALL=1"; exit 1; fi
