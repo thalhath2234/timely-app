@@ -9,6 +9,10 @@ import (
 	"log"
 	"maps"
 	"net/http"
+	"net/url"
+	"os"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -23,13 +27,17 @@ import (
 )
 
 type Service struct {
-	repo         *repository
-	queue        *jobs.Queue
-	calendar     calendar.Service
-	tasks        task.TaskService
-	schedule     schedule.Service
-	indexer      embed.Indexer
-	http         *http.Client
+	repo     *repository
+	queue    *jobs.Queue
+	calendar calendar.Service
+	tasks    task.TaskService
+	schedule schedule.Service
+	indexer  embed.Indexer
+	http     *http.Client
+	// expoBase is Expo's push API (send is expoBase+"/send", receipts
+	// expoBase+"/getReceipts"); expoToken, when set, goes as a Bearer token.
+	expoBase     string
+	expoToken    string
 	overdueSwept map[string]time.Time
 	triage       Triager   // nil until SetTriage
 	alerts       Alerter   // nil until SetAlerts
@@ -64,6 +72,10 @@ type Service struct {
 }
 
 func NewService(db *gorm.DB, queue *jobs.Queue, calendar calendar.Service, tasks task.TaskService, scheduler schedule.Service, indexer embed.Indexer) *Service {
+	expoBase, err := expoBaseURL(os.Getenv("TIMELY_EXPO_PUSH_URL"))
+	if err != nil {
+		log.Printf("notify: TIMELY_EXPO_PUSH_URL must be https; using Expo's")
+	}
 	return &Service{
 		repo:         newRepository(db),
 		queue:        queue,
@@ -72,6 +84,8 @@ func NewService(db *gorm.DB, queue *jobs.Queue, calendar calendar.Service, tasks
 		schedule:     scheduler,
 		indexer:      indexer,
 		http:         &http.Client{Timeout: 15 * time.Second},
+		expoBase:     expoBase,
+		expoToken:    strings.TrimSpace(os.Getenv("TIMELY_EXPO_ACCESS_TOKEN")),
 		overdueSwept: map[string]time.Time{},
 		triageSlots:  make(chan struct{}, triageParallel),
 
@@ -89,6 +103,7 @@ func (s *Service) Register(worker *jobs.Worker) {
 	worker.Handle(models.JobStartSoon, s.HandleStartSoon)
 	worker.Handle(models.JobSmartAlerts, s.HandleSmartAlerts)
 	worker.Handle(models.JobSendPush, s.HandlePush)
+	worker.Handle(models.JobPushReceipts, s.HandleReceipts)
 	worker.Handle(models.JobIndexEntity, s.HandleIndex)
 	worker.SetSweep(s.Sweep)
 }
@@ -118,8 +133,17 @@ func (s *Service) UpdateSettings(userID string, settings models.NotificationSett
 	if err := s.repo.UpdateSettings(userID, normalized); err != nil {
 		return models.NotificationSettings{}, err
 	}
-	normalized.Timezone = normalized.ZoneName(s.repo.WorkingHoursTimezone(userID))
-	return normalized, nil
+	// Read back, so the reply shows the stored hidePushText.
+	return s.GetSettings(userID)
+}
+
+// SetPushTextHidden turns "Hide alert text in push" on or off and returns
+// the saved settings.
+func (s *Service) SetPushTextHidden(userID string, hidden bool) (models.NotificationSettings, error) {
+	if err := s.repo.SetPushTextHidden(userID, hidden); err != nil {
+		return models.NotificationSettings{}, err
+	}
+	return s.GetSettings(userID)
 }
 
 // List and UnreadCount first settle overdue and missed notices whose task was
@@ -1020,16 +1044,29 @@ func (s *Service) sendPush(ctx context.Context, ntf *models.Notification, settin
 	}
 	messages := make([]expoMessage, 0, len(devices))
 	for _, device := range devices {
-		messages = append(messages, notificationPushMessage(ntf, device.Token))
+		messages = append(messages, notificationPushMessage(ntf, device.Token, settings))
 	}
-	if err := s.postExpo(ctx, messages); err != nil {
+	if err := s.postExpo(ctx, ntf.UserID, devices, messages); err != nil {
 		return err
 	}
-	_ = settings
 	return s.repo.MarkDelivered(ntf.ID)
 }
 
-func notificationPushMessage(ntf *models.Notification, token string) expoMessage {
+// The words a push says instead of a Bot alert's text when the person hides
+// it (the clients' HIDDEN_PUSH_TITLE and HIDDEN_PUSH_BODY).
+const (
+	HiddenPushTitle  = "Timely"
+	HiddenPushBody   = "A bot has news"
+	hiddenDigestBots = "Your bots have news."
+	digestBotsMark   = "\n\nFrom your bots:"
+)
+
+// notificationPushMessage is the push a device gets for a notification. A
+// Bot alert goes on the "bots" channel, so people can give it its own sound,
+// and carries what the phone needs to offer Resume. With the alert text
+// hidden, a Bot alert says only HiddenPushBody and its data is a fixed list
+// of ids, and a digest's "From your bots" section is cut.
+func notificationPushMessage(ntf *models.Notification, token string, settings models.NotificationSettings) expoMessage {
 	title, body, channel := ntf.Title, ntf.Body, "reminders"
 	if ntf.Category == "agent" {
 		title, channel = "Timely assistant", "agent"
@@ -1042,6 +1079,49 @@ func notificationPushMessage(ntf *models.Notification, token string) expoMessage
 			body = "Your assistant has finished."
 		}
 	}
+	data := map[string]any{
+		"notificationId": ntf.ID,
+		"category":       ntf.Category,
+		"taskId":         ntf.Data.String("taskId"),
+		"entityType":     ntf.EntityType,
+		"entityId":       ntf.EntityID,
+		"kind":           ntf.Data.String("kind"),
+		"projectId":      ntf.Data.String("projectId"),
+		"botId":          ntf.Data.String("botId"),
+		// A smart alert about several tasks opens the first one.
+		"taskIds": ntf.Data["taskIds"],
+	}
+	switch ntf.Category {
+	case models.NotifyBot:
+		channel = "bots"
+		bot := map[string]any{
+			"botAlert": ntf.Data.String("botAlert"),
+			"resume":   dataBool(ntf.Data, "resume", false),
+			"alertId":  ntf.Data.String("alertId"),
+			"checkId":  ntf.Data.String("checkId"),
+		}
+		if settings.HidePushText {
+			title, body = HiddenPushTitle, HiddenPushBody
+			// Built from scratch: no page URL or later data field reaches
+			// Expo or Google.
+			data = map[string]any{
+				"notificationId": ntf.ID,
+				"category":       ntf.Category,
+				"botId":          ntf.Data.String("botId"),
+				"entityType":     ntf.EntityType,
+				"entityId":       ntf.EntityID,
+			}
+		} else {
+			bot["url"] = ntf.Data.String("url")
+		}
+		maps.Copy(data, bot)
+	case models.NotifyDigest, models.NotifyPlanning:
+		if settings.HidePushText {
+			if cut := strings.Index(body, digestBotsMark); cut >= 0 {
+				body = body[:cut] + "\n\n" + hiddenDigestBots
+			}
+		}
+	}
 	return expoMessage{
 		To:         token,
 		Title:      title,
@@ -1049,24 +1129,17 @@ func notificationPushMessage(ntf *models.Notification, token string) expoMessage
 		Sound:      "default",
 		ChannelID:  channel,
 		CategoryID: notificationCategory(ntf),
-		Data: map[string]any{
-			"notificationId": ntf.ID,
-			"category":       ntf.Category,
-			"taskId":         ntf.Data.String("taskId"),
-			"entityType":     ntf.EntityType,
-			"entityId":       ntf.EntityID,
-			"kind":           ntf.Data.String("kind"),
-			"projectId":      ntf.Data.String("projectId"),
-			"botId":          ntf.Data.String("botId"),
-			// A smart alert about several tasks opens the first one.
-			"taskIds": ntf.Data["taskIds"],
-		},
+		Data:       data,
 	}
 }
 
 func notificationCategory(ntf *models.Notification) string {
-	if ntf.Category == models.NotifyOverdue {
+	switch {
+	case ntf.Category == models.NotifyOverdue:
 		return "overdue_task"
+	case ntf.Category == models.NotifyBot && ntf.Data.String("botAlert") == "paused" && dataBool(ntf.Data, "resume", false):
+		// The phone offers Resume on a paused Bot that can be resumed.
+		return "timely_bot_paused"
 	}
 	return ""
 }
@@ -1083,44 +1156,185 @@ type expoMessage struct {
 
 type expoTicket struct {
 	Status  string `json:"status"`
+	ID      string `json:"id"`
 	Message string `json:"message"`
 	Details struct {
 		Error string `json:"error"`
 	} `json:"details"`
 }
 
-func (s *Service) postExpo(ctx context.Context, messages []expoMessage) error {
-	body, err := json.Marshal(messages)
+const (
+	defaultExpoBase = "https://exp.host/--/api/v2/push"
+	// Expo takes at most 100 messages per send and 300 ids per receipts call.
+	expoSendChunk    = 100
+	expoReceiptChunk = 300
+	// receiptsAfter is when a push's receipts are asked for; Expo keeps them
+	// for a day.
+	receiptsAfter = 15 * time.Minute
+	expoDeadToken = "DeviceNotRegistered"
+)
+
+// expoBaseURL is the Expo push API to use for a TIMELY_EXPO_PUSH_URL value:
+// Expo's own when empty. Alert text and tokens only go over https, or plain
+// http to this computer (a test server); anything else is refused, and the
+// default comes back with the error.
+func expoBaseURL(raw string) (string, error) {
+	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
+	if raw == "" {
+		return defaultExpoBase, nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.User != nil {
+		return defaultExpoBase, fmt.Errorf("expo push url %q is not a url", raw)
+	}
+	switch u.Scheme {
+	case "https":
+		return raw, nil
+	case "http":
+		switch u.Hostname() {
+		case "localhost", "127.0.0.1", "::1":
+			return raw, nil
+		}
+	}
+	return defaultExpoBase, fmt.Errorf("expo push url %q is not https", raw)
+}
+
+// postExpo sends one notification's messages, at most 100 per request. Only
+// a failed first request is an error (nothing went out, so the job tries
+// again); a later one is logged, so a retry never sends the earlier ones
+// twice. A dead token's device is deleted, and the ok tickets are checked
+// again later by a push_receipts job.
+func (s *Service) postExpo(ctx context.Context, userID string, devices []models.PushDevice, messages []expoMessage) error {
+	sentAt := time.Now().UTC()
+	tickets := map[string]any{}
+	for start, n := 0, 1; start < len(messages); start, n = start+expoSendChunk, n+1 {
+		end := min(start+expoSendChunk, len(messages))
+		var parsed struct {
+			Data []expoTicket `json:"data"`
+		}
+		if err := s.expoCall(ctx, "/send", messages[start:end], &parsed); err != nil {
+			if n == 1 {
+				return err
+			}
+			log.Printf("notify: expo chunk %d: %v", n, err)
+			continue
+		}
+		for i, ticket := range parsed.Data {
+			if start+i >= end {
+				break
+			}
+			device := devices[start+i]
+			switch {
+			case ticket.Status == "ok" && ticket.ID != "":
+				tickets[ticket.ID] = device.ID
+			case ticket.Status == "error" && ticket.Details.Error == expoDeadToken:
+				if err := s.repo.DeleteDevice(device.ID, userID, sentAt); err != nil {
+					log.Printf("notify: delete dead push device %s: %v", device.ID, err)
+				}
+			case ticket.Status == "error":
+				log.Printf("notify: expo ticket %s for device %s", firstNonEmpty(ticket.Details.Error, ticket.Message), device.ID)
+			}
+		}
+	}
+	if len(tickets) == 0 {
+		return nil
+	}
+	_, err := s.queue.Enqueue(jobs.Enqueue{
+		UserID:      userID,
+		Kind:        models.JobPushReceipts,
+		RunAt:       sentAt.Add(receiptsAfter),
+		MaxAttempts: 3,
+		Payload:     models.JobPayload{"sentAt": sentAt.Format(time.RFC3339Nano), "tickets": tickets},
+	})
+	if err != nil {
+		// The push went out; only the dead-token check is lost.
+		log.Printf("notify: queue push receipts: %v", err)
+	}
+	return nil
+}
+
+// HandleReceipts asks Expo for one push's receipts and deletes each device
+// Expo says is no longer registered, unless it was registered again since
+// the push. Receipts Expo no longer has are skipped.
+func (s *Service) HandleReceipts(ctx context.Context, job *models.Job) error {
+	sentAt, err := time.Parse(time.RFC3339Nano, job.Payload.String("sentAt"))
+	if err != nil {
+		return jobs.Permanent(fmt.Errorf("push receipts: bad sentAt: %w", err))
+	}
+	raw, _ := job.Payload["tickets"].(map[string]any)
+	ids := make([]string, 0, len(raw))
+	for id := range raw {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for start := 0; start < len(ids); start += expoReceiptChunk {
+		chunk := ids[start:min(start+expoReceiptChunk, len(ids))]
+		var parsed struct {
+			Data map[string]expoTicket `json:"data"`
+		}
+		if err := s.expoCall(ctx, "/getReceipts", map[string]any{"ids": chunk}, &parsed); err != nil {
+			return err
+		}
+		for _, id := range chunk {
+			receipt, ok := parsed.Data[id]
+			deviceID, _ := raw[id].(string)
+			if !ok || receipt.Status != "error" || deviceID == "" {
+				continue
+			}
+			if receipt.Details.Error != expoDeadToken {
+				log.Printf("notify: expo receipt %s for device %s", firstNonEmpty(receipt.Details.Error, receipt.Message), deviceID)
+				continue
+			}
+			if err := s.repo.DeleteDevice(deviceID, job.UserID, sentAt); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// expoCall posts body to one of Expo's push endpoints and decodes the reply
+// into out. A transport error or a non-2xx reply is an error.
+func (s *Service) expoCall(ctx context.Context, path string, body, out any) error {
+	payload, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://exp.host/--/api/v2/push/send", strings.NewReader(string(body)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.expoBase+path, strings.NewReader(string(payload)))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	if s.expoToken != "" {
+		req.Header.Set("Authorization", "Bearer "+s.expoToken)
+	}
 	res, err := s.http.Do(req)
 	if err != nil {
 		return err
 	}
 	defer res.Body.Close()
-	raw, _ := io.ReadAll(res.Body)
-	if res.StatusCode >= 300 {
-		return fmt.Errorf("expo push %d: %s", res.StatusCode, strings.TrimSpace(string(raw)))
+	raw, _ := io.ReadAll(io.LimitReader(res.Body, 4<<20))
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return fmt.Errorf("expo push %d: %s", res.StatusCode, expoErrorText(raw))
 	}
-	var parsed struct {
-		Data []expoTicket `json:"data"`
-	}
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return nil
-	}
-	for i, ticket := range parsed.Data {
-		if ticket.Status == "error" && ticket.Details.Error == "DeviceNotRegistered" && i < len(messages) {
-			_ = s.repo.DeleteToken(messages[i].To)
-		}
-	}
+	// An unreadable reply still means Expo took the request.
+	_ = json.Unmarshal(raw, out)
 	return nil
+}
+
+// expoPushToken matches a push token, which some of Expo's error replies
+// echo back in their details.
+var expoPushToken = regexp.MustCompile(`Expo(nent)?PushToken\[[^\]]*\]`)
+
+// expoErrorText is the part of an Expo error reply fit for logs and job
+// rows: tokens masked and cut to 300 bytes.
+func expoErrorText(raw []byte) string {
+	text := expoPushToken.ReplaceAllString(strings.TrimSpace(string(raw)), "[token]")
+	if len(text) > 300 {
+		text = strings.ToValidUTF8(text[:300], "") + "..."
+	}
+	return text
 }
 
 func firstNonEmpty(values ...string) string {

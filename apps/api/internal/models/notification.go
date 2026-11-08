@@ -22,6 +22,10 @@ const (
 	JobMissedBlock  = "missed_block"
 	JobStartSoon    = "start_soon"
 	JobSendPush     = "send_push"
+	// JobPushReceipts asks Expo for the receipts of one push's tickets, a
+	// while after the send, and deletes the devices Expo no longer knows. It
+	// runs on its own lane.
+	JobPushReceipts = "push_receipts"
 	JobCreateBackup = "create_backup"
 	JobReindexUser  = "reindex_user"
 	JobSmartAlerts  = "smart_alerts"
@@ -164,6 +168,10 @@ type NotificationSettings struct {
 	// SmartAlerts sends a few alerts a day for suggestions worth acting on
 	// (needs smart suggestions on). Nil reads as on.
 	SmartAlerts *bool `json:"smartAlerts,omitempty"`
+	// HidePushText sends a Bot alert's push as "A bot has news", so Expo and
+	// Google never carry its text. Only PUT /notifications/settings/push-text
+	// changes it; saving the rest of the settings keeps the stored value.
+	HidePushText bool `json:"hidePushText"`
 }
 
 func (s NotificationSettings) Value() (driver.Value, error) {
@@ -173,6 +181,10 @@ func (s NotificationSettings) Value() (driver.Value, error) {
 	}
 	return string(b), nil
 }
+
+// DefaultNotificationSettings are the settings of an account that never
+// saved any, which the column stores as '{}'.
+func DefaultNotificationSettings() NotificationSettings { return defaultNotificationSettings() }
 
 func defaultNotificationSettings() NotificationSettings {
 	return NotificationSettings{

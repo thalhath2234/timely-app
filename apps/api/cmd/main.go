@@ -156,6 +156,9 @@ func main() {
 	// A site logo can wait on robots.txt, a home page and the logo itself,
 	// each behind its site's spacing, so logos keep to a lane of their own.
 	jobWorker.Separate(models.JobBotIcon)
+	// Expo's push receipts can be slow to answer; asking for them never
+	// holds up the main lane's sweep.
+	jobWorker.Separate(models.JobPushReceipts)
 	botService.Register(jobWorker)
 	notifyService.Register(jobWorker)
 	portabilityService.Register(jobWorker)

@@ -159,7 +159,8 @@ func TestIntegrationLoadAlertSettingsWithoutConfig(t *testing.T) {
 }
 
 // HandlePush sends nothing for a Bot alert kept off the phone or already
-// read, holds a non-urgent one through quiet hours, and pushes an urgent one.
+// read, holds a non-urgent one through quiet hours, and pushes an urgent one
+// on the bots channel.
 func TestIntegrationBotPush(t *testing.T) {
 	now := time.Now().UTC()
 	svc, db := zoneService(t, models.NotificationSettings{
@@ -168,8 +169,12 @@ func TestIntegrationBotPush(t *testing.T) {
 		QuietHoursEnd:   now.Add(time.Hour).Format("15:04"),
 	})
 	pushes := 0
-	svc.http = &http.Client{Transport: roundTrip(func(*http.Request) (*http.Response, error) {
+	svc.http = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
 		pushes++
+		raw, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(raw), `"channelId":"bots"`) || !strings.Contains(string(raw), `"botAlert":`) {
+			t.Errorf("bot push left the bots channel: %s", raw)
+		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[]}`)), Header: http.Header{}}, nil
 	})}
 	if err := db.Create(&models.PushDevice{ID: "dev_bot", UserID: zoneTestUser, Token: "ExponentPushToken[test]", CreatedAt: now, UpdatedAt: now, LastSeenAt: now}).Error; err != nil {
