@@ -56,8 +56,12 @@ func checkPromptFile(t *testing.T, bin, argsFile, system string) {
 	if err != nil {
 		t.Fatalf("no --system-prompt-file argument in %q", args)
 	}
-	if filepath.Dir(string(path)) != scratchDir() {
-		t.Errorf("prompt file %s is outside the scratch directory %s", path, scratchDir())
+	scratch, err := scratchDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(string(path)) != scratch {
+		t.Errorf("prompt file %s is outside the scratch directory %s", path, scratch)
 	}
 	copied, err := os.ReadFile(filepath.Join(dir, "prompt-copy"))
 	if err != nil {

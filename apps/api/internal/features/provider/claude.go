@@ -43,7 +43,11 @@ func (p *Claude) Complete(ctx context.Context, messages []chat.WireMessage, tool
 	// and the prompt with every tool schema is already close to the first.
 	// CreateTemp makes the file 0600 in scratchDir, a directory only this user
 	// owns (mode 0700 on Unix), so no other user can read or replace it.
-	promptFile, err := os.CreateTemp(scratchDir(), "system-*.txt")
+	dir, err := scratchDir()
+	if err != nil {
+		return chat.WireMessage{}, fmt.Errorf("Claude could not start: %w", err)
+	}
+	promptFile, err := os.CreateTemp(dir, "system-*.txt")
 	if err != nil {
 		return chat.WireMessage{}, fmt.Errorf("Claude could not start: %w", err)
 	}
@@ -68,7 +72,7 @@ func (p *Claude) Complete(ctx context.Context, messages []chat.WireMessage, tool
 		args = append(args, "--tools", "")
 	}
 	cmd := exec.CommandContext(ctx, p.Bin, args...)
-	cmd.Dir = scratchDir()
+	cmd.Dir = dir
 	cmd.Env = cliEnv("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
 	cmd.Stdin = bytes.NewReader(append(input, '\n'))
 	var stdout, stderr bytes.Buffer
