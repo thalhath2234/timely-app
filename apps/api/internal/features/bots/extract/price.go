@@ -259,9 +259,10 @@ func indexIDs(v any, ids map[string]map[string]any) {
 // shared node (one priceSpecification named by every variant) gets the same
 // price without reading it again. A node met again while it is still being
 // read (a cycle) gives nothing. The reader gives up past ldMaxDepth nested
-// nodes or ldMaxSteps steps in all; a read a cap cut short is redone only
-// from a shallower path, where it has more room, so a node is read at most
-// ldMaxDepth times.
+// nodes or ldMaxSteps steps in all. A read a cap cut short is remembered as
+// cut and never redone, so each node is read at most once per way and the
+// work stays linear; whatever reuses it is marked cut too, and a cut look
+// never holds an alert (it reads unknown).
 const (
 	ldMaxDepth = 64
 	ldMaxSteps = 1_000_000
@@ -284,14 +285,13 @@ type ldReader struct {
 	cut        bool // a cap refused a read since cut was last cleared
 }
 
-// ldRead is a node's read: busy while it is being read, then its answer,
-// whether a cap cut it short, and the depth it was read at.
+// ldRead is a node's read: busy while it is being read, then its answer and
+// whether a cap cut it short.
 type ldRead struct {
-	p     Price
-	ok    bool
-	busy  bool
-	cut   bool
-	depth int
+	p    Price
+	ok   bool
+	busy bool
+	cut  bool
 }
 
 func newLDReader(ids map[string]map[string]any) *ldReader {
@@ -348,18 +348,15 @@ func (ld *ldReader) step() bool {
 // once reads m the given way with read, or returns the answer of the read
 // already made. A node still being read, or one past the caps, gives
 // nothing; each new read counts a step. A remembered read that a cap cut
-// short is reused, and marks this read cut too, unless this path is
-// shallower: then it is read again.
+// short is reused as it is, and marks this read cut too.
 func (ld *ldReader) once(m map[string]any, how byte, read func() (Price, bool)) (Price, bool) {
 	v := ldVisit{node: reflect.ValueOf(m).Pointer(), how: how}
 	if r, done := ld.read[v]; done {
 		if r.busy {
 			return Price{}, false
 		}
-		if !r.cut || ld.depth >= r.depth || ld.steps >= ldMaxSteps {
-			ld.cut = ld.cut || r.cut
-			return r.p, r.ok
-		}
+		ld.cut = ld.cut || r.cut
+		return r.p, r.ok
 	}
 	if ld.depth >= ldMaxDepth || ld.steps >= ldMaxSteps {
 		ld.cut = true
@@ -367,13 +364,12 @@ func (ld *ldReader) once(m map[string]any, how byte, read func() (Price, bool)) 
 	}
 	outer := ld.cut
 	ld.cut = false
-	at := ld.depth
 	ld.read[v] = ldRead{busy: true}
 	ld.steps++
 	ld.depth++
 	p, ok := read()
 	ld.depth--
-	ld.read[v] = ldRead{p: p, ok: ok, cut: ld.cut, depth: at}
+	ld.read[v] = ldRead{p: p, ok: ok, cut: ld.cut}
 	ld.cut = ld.cut || outer
 	return p, ok
 }

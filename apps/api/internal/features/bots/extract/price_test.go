@@ -290,9 +290,10 @@ func TestProductPriceSharedNodesStayFast(t *testing.T) {
 	}
 }
 
-// A read the depth cap cut short is not remembered: the same node reached
-// from a shallower path is read again and gives its price.
-func TestProductPriceDepthCutIsNotRemembered(t *testing.T) {
+// A read the depth cap cut short is remembered as cut: the same node reached
+// again from a shallower path reuses it, and a sold-out sibling no longer
+// holds the alert, because the cut node may have been buyable.
+func TestProductPriceDepthCutNeverHolds(t *testing.T) {
 	var deep strings.Builder
 	for range 61 {
 		deep.WriteString(`{"@type":"Offer","offers":`)
@@ -303,7 +304,7 @@ func TestProductPriceDepthCutIsNotRemembered(t *testing.T) {
 		`,{"@type":"Offer","price":"10","priceCurrency":"USD","availability":"OutOfStock"}]},{"@type":"Product","offers":{"@id":"#x"}}]}`
 	page := `<html><head><script type="application/ld+json">` + ld + `</script></head></html>`
 	got, err := ProductPrice([]byte(page), "text/html")
-	if want := (Price{10, "USD", "jsonld", AvailInStock}); err != nil || got != want {
+	if want := (Price{10, "USD", "jsonld", AvailUnknown}); err != nil || got != want {
 		t.Fatalf("got %+v, %v; want %+v", got, err, want)
 	}
 }
@@ -324,8 +325,8 @@ func TestProductPriceCutLookReadsUnknown(t *testing.T) {
 	}
 }
 
-// A shared structure deeper than the depth cap is read once per depth, not
-// once per path, and the real offer after it is still read.
+// A shared structure deeper than the depth cap is read once, not once per
+// path, and the real offer after it is still read.
 func TestProductPriceDeepSharedStructure(t *testing.T) {
 	specDAG := func(types int) string {
 		var b strings.Builder
@@ -408,4 +409,60 @@ func TestProductPriceNamedFactsParsedOnce(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Long @id chains past the depth cap are read once per node, not again from
+// every shallower entry, so the real Product after them is still reached in
+// time.
+func TestProductPriceLongChainsStayLinear(t *testing.T) {
+	offerChain := func(n int) string {
+		var b strings.Builder
+		b.WriteString(`{"@context":"https://schema.org","@graph":[{"@type":"Product","name":"x","offers":[`)
+		for i := range n {
+			if i > 0 {
+				b.WriteString(",")
+			}
+			fmt.Fprintf(&b, `{"@id":"%d"}`, i)
+		}
+		b.WriteString(`]}`)
+		x := strings.Repeat("x", 64)
+		for i := range n + 70 {
+			fmt.Fprintf(&b, `,{"@id":"%d","price":"%s","lowPrice":"%s","priceSpecification":{"@id":"%d"}}`, i, x, x, i+1)
+		}
+		b.WriteString(`]}`)
+		return b.String()
+	}
+	listChain := func(n int) string {
+		var b strings.Builder
+		b.WriteString(`{"@context":"https://schema.org","@graph":[{"@type":"ItemList","itemListElement":[`)
+		for i := range n {
+			if i > 0 {
+				b.WriteString(",")
+			}
+			fmt.Fprintf(&b, `{"@type":"ListItem","@id":"#li%d","position":%d,"url":"https://shop.example/p/%d"`, i, i+1, i)
+			if i+1 < n {
+				fmt.Fprintf(&b, `,"nextItem":{"@id":"#li%d"}`, i+1)
+			}
+			b.WriteString(`}`)
+		}
+		b.WriteString(`]},{"@type":"Product","name":"Main","offers":{"@type":"Offer","price":"19.00","priceCurrency":"USD","availability":"https://schema.org/InStock"}}]}`)
+		return b.String()
+	}
+	t.Run("16,000 offers each starting a price specification chain", func(t *testing.T) {
+		page := []byte(`<html><head><script type="application/ld+json">` + offerChain(16000) + `</script></head><body></body></html>`)
+		start := time.Now()
+		if _, err := ProductPrice(page, "text/html"); err != nil && !errors.Is(err, ErrEmpty) {
+			t.Fatal(err)
+		}
+		if d := time.Since(start); d > time.Second {
+			t.Fatalf("took %v for a %d KB page", d, len(page)/1024)
+		}
+	})
+	t.Run("6,000 related items linked by nextItem before the Product", func(t *testing.T) {
+		page := []byte(`<html><head><script type="application/ld+json">` + listChain(6000) + `</script></head><body></body></html>`)
+		got, err := ProductPrice(page, "text/html")
+		if want := (Price{19, "USD", "jsonld", AvailInStock}); err != nil || got != want {
+			t.Fatalf("got %+v, %v; want %+v", got, err, want)
+		}
+	})
 }
