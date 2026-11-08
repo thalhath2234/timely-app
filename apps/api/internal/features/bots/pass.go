@@ -269,7 +269,7 @@ func (s *Service) planPass(ctx context.Context, db *gorm.DB, pc *passCheck) erro
 		return err
 	}
 	in := buildJudgeInput(pc.bot, lessons, last, alertable, nil, at)
-	in.Passed = &JudgeNote{From: pc.from, Title: pc.note.Title, Why: pc.note.Why, URL: pc.note.URL, Reading: summary(&pc.reading)}
+	in.Passed = &JudgeNote{From: pc.from, Title: pc.note.Title, Why: pc.note.Why, URL: pc.note.URL, Reading: summaryWithStock(&pc.reading)}
 	in = clipJudgeInput(in, judgeMaxInput)
 	return s.judgeInto(ctx, &pc.plan, pc.bot, pc.pass.ChainID, eventKeys(alertable), in, JudgeTimeout, pc.started)
 }

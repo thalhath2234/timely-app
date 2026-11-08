@@ -68,6 +68,7 @@ type AnswerWatch struct {
 	Summary       string      `json:"summary"`
 	Value         *float64    `json:"value"`
 	Currency      string      `json:"currency"`
+	Availability  string      `json:"availability"` // WatchView.Availability
 	Excerpt       string      `json:"excerpt"`
 	Items         []ItemBrief `json:"items"` // feeds: the newest 3
 	LastChangedAt *time.Time  `json:"lastChangedAt"`
@@ -254,7 +255,7 @@ func (s *Service) answer(ctx context.Context, userID, botID string) (Answer, err
 		wv := v.Watches[i]
 		aw := AnswerWatch{
 			ID: w.ID, Kind: w.Kind, Site: wv.Site, Title: watchTitle(w), Summary: wv.Summary, Value: wv.Value,
-			Currency: w.Currency, Excerpt: wv.Excerpt, Items: []ItemBrief{}, LastChangedAt: w.LastChangedAt,
+			Currency: w.Currency, Availability: wv.Availability, Excerpt: wv.Excerpt, Items: []ItemBrief{}, LastChangedAt: w.LastChangedAt,
 		}
 		if r := w.LastReading; r != nil {
 			if r.Currency != "" {

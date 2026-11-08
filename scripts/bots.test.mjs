@@ -82,6 +82,7 @@ import {
   resetLine,
   ruleLine,
   tellLine,
+  cleanWatchInput,
   alertLink,
   runNowState,
   snoozePresets,
@@ -867,6 +868,17 @@ describe("rules", () => {
     assert.equal(ruleLine(below(25000), seed.headphones.watches[0]), "Price is below ₹25,000");
   });
 
+  test("stock words: in_stock and a rule that alerts in stock or not", () => {
+    assert.equal(ruleLine({ kind: "in_stock" }, inr), "Back in stock");
+    assert.equal(tellLine({ kind: "in_stock" }, inr), "when it is back in stock");
+    assert.equal(ruleLine({ ...below(90000), onlyInStock: false }, inr), "Price is below ₹90,000, in stock or not");
+    assert.equal(ruleLine({ ...below(90000), onlyInStock: true }, inr), "Price is below ₹90,000");
+    // An edit sends false back, so a saved "in stock or not" survives the editor.
+    const sent = cleanWatchInput({ kind: "page", url: "https://shop.example/p", read: "product_price", rules: [{ ...below(90000), onlyInStock: false }, { kind: "in_stock" }] });
+    assert.equal(sent.rules?.[0].onlyInStock, false);
+    assert.equal("onlyInStock" in (sent.rules?.[1] ?? {}), false);
+  });
+
   test("tell lines read on from \"and tell you\"", () => {
     assert.equal(tellLine(below(90000), inr), "when the price is below ₹90,000");
     assert.equal(tellLine({ kind: "above", threshold: 70000 }, { currency: "USD" }), "when the price is above $70,000");
@@ -1517,6 +1529,7 @@ describe("AI, links and briefs over the seed", () => {
     assert.deepEqual([BRIEF_TIMES[0], BRIEF_TIMES[3], BRIEF_TIMES[17]], ["05:00", "08:00", "22:00"]);
     assert.equal(checkOutcomeLabel("passed"), "Passed on");
     assert.equal(checkOutcomeLabel("judged_quiet"), "AI held it back");
+    assert.equal(checkOutcomeLabel("held_stock"), "Out of stock, held back");
     assert.equal(checkOutcomeLabel("fired"), "Told you");
     assert.equal(checkTriggerLabel("pass"), "Passed on");
   });

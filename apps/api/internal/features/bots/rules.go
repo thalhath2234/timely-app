@@ -19,6 +19,9 @@ const (
 	RuleWordsAppear    = "words_appear"
 	RuleWordsDisappear = "words_disappear"
 	RuleNewItem        = "new_item"
+	// RuleInStock fires when a product page that said it could not be
+	// bought says it can again.
+	RuleInStock = "in_stock"
 )
 
 // move_pct directions.
@@ -58,6 +61,11 @@ type Rule struct {
 	StepPercent  float64  `json:"stepPercent"`         // above/below; 0 means DefaultStepPercent
 	ResetPercent float64  `json:"resetPercent"`        // above/below; 0 means DefaultResetPercent
 	Words        []string `json:"words,omitempty"`
+	// OnlyInStock holds a price rule on a product_price page while the page
+	// says the product cannot be bought (out of stock or discontinued). nil
+	// means true, so rules saved before it existed hold too; an unknown
+	// availability never holds a rule. Kept only on product_price watches.
+	OnlyInStock *bool `json:"onlyInStock,omitempty"`
 }
 
 // RuleState is what a rule remembers between checks. Ref is the value of the
@@ -71,13 +79,16 @@ type RuleState struct {
 
 // Reading is what one check read from one watch.
 type Reading struct {
-	Kind     string             `json:"kind"` // Reading* constants
-	Text     string             `json:"text,omitempty"`
-	Hash     string             `json:"hash,omitempty"`
-	Price    *float64           `json:"price,omitempty"`
-	Currency string             `json:"currency,omitempty"`
-	Items    []extract.FeedItem `json:"items,omitempty"` // newest MaxItems
-	Seen     []string           `json:"seen,omitempty"`  // newest MaxSeen ids
+	Kind     string   `json:"kind"` // Reading* constants
+	Text     string   `json:"text,omitempty"`
+	Hash     string   `json:"hash,omitempty"`
+	Price    *float64 `json:"price,omitempty"`
+	Currency string   `json:"currency,omitempty"`
+	// Availability is a product_price page's extract.Avail word; "" for
+	// readings that do not read it and for ones saved before it existed.
+	Availability string             `json:"availability,omitempty"`
+	Items        []extract.FeedItem `json:"items,omitempty"` // newest MaxItems
+	Seen         []string           `json:"seen,omitempty"`  // newest MaxSeen ids
 	// Title is a page's own name (extract.PageTitle), for showing the watch.
 	// It is not part of Hash or of any rule, so a new title never fires or
 	// rebaselines anything.
@@ -117,6 +128,12 @@ var fitsLine = map[string]string{
 	ReadingText:  "A page can use any_change, words_appear or words_disappear",
 	ReadingPrice: "A price can use above, below, move_pct or any_change",
 	ReadingFeed:  "A feed can use new_item",
+}
+
+// readsStock reports a watch whose readings carry availability: a page read
+// as product_price. Only it takes in_stock and onlyInStock.
+func readsStock(kind, mode string) bool {
+	return kind == WatchPage && mode == ReadProductPrice
 }
 
 // DefaultRules is what a watch gets when it is saved with no rules: a page
@@ -162,6 +179,7 @@ func CleanRules(kind, mode string, rules []Rule) ([]Rule, error) {
 		return nil, invalid("A watch can have up to %d rules", MaxRulesPerWatch)
 	}
 	ids := map[string]bool{}
+	stock := readsStock(kind, mode)
 	out := make([]Rule, 0, len(rules))
 	for _, r := range rules {
 		if r.ID != "" {
@@ -170,7 +188,7 @@ func CleanRules(kind, mode string, rules []Rule) ([]Rule, error) {
 			}
 			ids[r.ID] = true
 		}
-		c, err := cleanRule(rk, r)
+		c, err := cleanRule(rk, stock, r)
 		if err != nil {
 			return nil, err
 		}
@@ -179,12 +197,21 @@ func CleanRules(kind, mode string, rules []Rule) ([]Rule, error) {
 	return out, nil
 }
 
-func cleanRule(rk string, r Rule) (Rule, error) {
-	if !contains(fits[rk], r.Kind) {
-		if !known(r.Kind) {
-			return Rule{}, invalid("%q is not a rule. %s", r.Kind, fitsLine[rk])
+func cleanRule(rk string, stock bool, r Rule) (Rule, error) {
+	line := fitsLine[rk]
+	if stock {
+		line += ", and a product_price page in_stock"
+	}
+	if r.Kind == RuleInStock {
+		if !stock {
+			return Rule{}, invalid("Only a page read as product_price can use in_stock. %s", line)
 		}
-		return Rule{}, invalid("A %s rule does not fit this watch. %s", r.Kind, fitsLine[rk])
+		r.OnlyInStock = nil
+	} else if !contains(fits[rk], r.Kind) {
+		if !known(r.Kind) {
+			return Rule{}, invalid("%q is not a rule. %s", r.Kind, line)
+		}
+		return Rule{}, invalid("A %s rule does not fit this watch. %s", r.Kind, line)
 	}
 	threshold := r.Kind == RuleAbove || r.Kind == RuleBelow
 	takesWords := r.Kind == RuleWordsAppear || r.Kind == RuleWordsDisappear || r.Kind == RuleNewItem
@@ -244,7 +271,28 @@ func cleanRule(rk string, r Rule) (Rule, error) {
 		return Rule{}, invalid("Give the %s rule at least one word", r.Kind)
 	}
 	r.Words = words
+
+	// true is the default, so it is stored as nil and an edit that spells
+	// it out is no change. A watch that reads no availability has nothing
+	// to hold on, so it keeps none.
+	if !stock || (r.OnlyInStock != nil && *r.OnlyInStock) {
+		r.OnlyInStock = nil
+	}
 	return r, nil
+}
+
+// holdsOnStock lists the rule kinds onlyInStock holds: the ones on a price.
+func holdsOnStock(kind string) bool {
+	return kind == RuleAbove || kind == RuleBelow || kind == RuleMovePct || kind == RuleAnyChange
+}
+
+// onlyInStock is OnlyInStock with its default.
+func (r Rule) onlyInStock() bool { return r.OnlyInStock == nil || *r.OnlyInStock }
+
+// heldByStock reports a rule that must not fire on cur: it holds on stock
+// and cur's page says the product cannot be bought.
+func heldByStock(r Rule, cur Reading) bool {
+	return holdsOnStock(r.Kind) && r.onlyInStock() && extract.Unbuyable(cur.Availability)
 }
 
 func cleanWords(in []string) ([]string, error) {
@@ -290,6 +338,11 @@ func (r Rule) reset() float64 {
 // for what was already there, and Ref is the current value.
 func Rebaseline(r Rule, cur Reading) RuleState {
 	st := RuleState{Armed: !conditionTrue(r, cur)}
+	if r.Kind == RuleInStock {
+		// Armed only by a page that said it could not be bought, so an
+		// unknown that turns into "in stock" is no restock.
+		st.Armed = extract.Unbuyable(cur.Availability)
+	}
 	if v, ok := cur.value(); ok && usesValue(r.Kind) {
 		st.Ref = &v
 	}
@@ -300,13 +353,33 @@ func Rebaseline(r Rule, cur Reading) RuleState {
 // the rule fires, and the rule's new state either way. A zero state (a rule
 // with nothing stored) is first rebaselined against prev.
 func Evaluate(r Rule, st RuleState, prev, cur Reading) (*Event, RuleState) {
+	ev, st, _ := evaluate(r, st, prev, cur)
+	return ev, st
+}
+
+// evaluate is Evaluate that also reports a rule held by stock: it would
+// have fired, but cur's page says the product cannot be bought. A held rule
+// keeps the state it had, so it fires once the product can be bought again
+// if its condition still holds then. A rule that would not have fired moves
+// on as usual (re-arming, say), stock or not.
+func evaluate(r Rule, st RuleState, prev, cur Reading) (*Event, RuleState, bool) {
 	if st == (RuleState{}) {
 		st = Rebaseline(r, prev)
 	}
 	// A price that changed currency cannot be compared: start again quietly.
 	if usesValue(r.Kind) && prev.Currency != "" && cur.Currency != "" && !strings.EqualFold(prev.Currency, cur.Currency) {
-		return nil, Rebaseline(r, cur)
+		return nil, Rebaseline(r, cur), false
 	}
+	before := st
+	ev, st := fireRule(r, st, prev, cur)
+	if ev != nil && heldByStock(r, cur) {
+		return nil, before, true
+	}
+	return ev, st, false
+}
+
+// fireRule runs one rule on a reading, stock aside.
+func fireRule(r Rule, st RuleState, prev, cur Reading) (*Event, RuleState) {
 	var fire bool
 	var items []extract.FeedItem
 	switch r.Kind {
@@ -323,6 +396,15 @@ func Evaluate(r Rule, st RuleState, prev, cur Reading) (*Event, RuleState) {
 	case RuleNewItem:
 		items = newItems(r, prev, cur)
 		fire = len(items) > 0
+	case RuleInStock:
+		// An unknown changes nothing: it is neither a restock nor a sell-out.
+		switch {
+		case extract.Unbuyable(cur.Availability):
+			st.Armed = true
+		case extract.Buyable(cur.Availability):
+			fire = st.Armed
+			st.Armed = false
+		}
 	}
 	if !fire {
 		return nil, st
@@ -399,11 +481,14 @@ func moved(r Rule, st *RuleState, cur Reading) bool {
 	return false
 }
 
+// changed reports another price (or currency), or a stated availability
+// that moved. An availability the page did not state, or that a reading
+// saved before availability was read lacks, is not a change.
 func changed(prev, cur Reading) bool {
 	if cur.Kind == ReadingPrice || prev.Kind == ReadingPrice {
 		p, okP := prev.value()
 		c, okC := cur.value()
-		return okP != okC || (okC && !near(p, c)) || !strings.EqualFold(prev.Currency, cur.Currency)
+		return okP != okC || (okC && !near(p, c)) || !strings.EqualFold(prev.Currency, cur.Currency) || stockMoved(prev, cur)
 	}
 	return hashOf(prev) != hashOf(cur)
 }
@@ -449,7 +534,19 @@ func MergeSeen(prev []string, items []extract.FeedItem) []string {
 	return out
 }
 
+// stockMoved reports two readings whose pages both stated an availability,
+// and not the same one.
+func stockMoved(prev, cur Reading) bool {
+	return extract.KnownAvailability(prev.Availability) && extract.KnownAvailability(cur.Availability) && prev.Availability != cur.Availability
+}
+
+// conditionTrue reports whether a rule's condition holds on cur. A price
+// rule held by stock does not hold, so a quiet baseline on an unbuyable
+// price leaves it armed for when the product can be bought.
 func conditionTrue(r Rule, cur Reading) bool {
+	if heldByStock(r, cur) {
+		return false
+	}
 	switch r.Kind {
 	case RuleBelow, RuleAbove:
 		v, ok := cur.value()
@@ -474,7 +571,12 @@ func conditionTrue(r Rule, cur Reading) bool {
 // any), words appear or are gone, and any change, a new item or a move
 // count as true, since the note is new to the Bot.
 func holds(r Rule, reading Reading, currency string) bool {
+	if heldByStock(r, reading) {
+		return false
+	}
 	switch r.Kind {
+	case RuleInStock:
+		return extract.Buyable(reading.Availability)
 	case RuleBelow, RuleAbove:
 		if currency != "" && reading.Currency != "" && !strings.EqualFold(currency, reading.Currency) {
 			return false

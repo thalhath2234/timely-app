@@ -128,6 +128,8 @@ type CheckWatch struct {
 	MS        int64  `json:"ms"`
 	Outcome   string `json:"outcome"`
 	ErrorKind string `json:"errorKind,omitempty"`
+	// Note says why a held_stock watch stayed quiet.
+	Note string `json:"note,omitempty"`
 }
 
 // FiredRule names one rule that fired in a check.

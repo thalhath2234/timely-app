@@ -815,7 +815,7 @@ func (s *Store) Get(ctx context.Context, userID, idOrName string, now time.Time)
 			fired = []FiredRule{}
 		}
 		d.Checks = append(d.Checks, CheckView{ID: c.ID, Trigger: c.Trigger, StartedAt: c.StartedAt, Outcome: c.Outcome, ErrorKind: c.ErrorKind, Error: c.Error, Fired: fired,
-			Away: checkAway(c)})
+			Away: checkAway(c), Note: checkNote(c)})
 	}
 	var alerts []Alert
 	if err := db.Where("bot_id = ? AND user_id = ?", b.ID, userID).Order("created_at DESC, id").Limit(detailRows).Find(&alerts).Error; err != nil {

@@ -126,7 +126,7 @@ func dryRun(reads []watchRead) []firedEvent {
 		if r.err != nil || r.notMod || r.w.BaselinePending || r.w.LastReading == nil {
 			continue
 		}
-		evs, _, _ := evaluateWatch(r.w, clipReading(r.reading, MaxReadingBytes))
+		evs, _, _, _ := evaluateWatch(r.w, clipReading(r.reading, MaxReadingBytes))
 		fired = append(fired, evs...)
 	}
 	return fired

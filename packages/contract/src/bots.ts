@@ -17,7 +17,13 @@ export type PauseReason = "person" | "strikes" | "mcp";
 export type BotOrigin = "app" | "chat" | "mcp";
 export type WatchKind = "page" | "feed" | "price";
 export type ReadMode = "text" | "selector" | "product_price" | "selector_price";
-export type RuleKind = "any_change" | "above" | "below" | "move_pct" | "words_appear" | "words_disappear" | "new_item";
+export type RuleKind = "any_change" | "above" | "below" | "move_pct" | "words_appear" | "words_disappear" | "new_item" | "in_stock";
+/**
+ * Whether a shop page says its product can be bought (schema.org offer
+ * availability). "unknown" when the page says nothing; an unknown never holds
+ * an alert. Only a page read as product_price has one.
+ */
+export type Availability = "in_stock" | "out_of_stock" | "preorder" | "backorder" | "limited" | "discontinued" | "unknown";
 export type MoveDirection = "up" | "down" | "any";
 /** How smart a bot is: rules alone, or rules that spot and an AI that judges (Research is Later). */
 export type JudgeMode = "rules" | "ai";
@@ -44,6 +50,12 @@ export type Rule = {
   resetPercent?: number;
   /** words_appear, words_disappear, and new_item (optional filter). */
   words?: string[];
+  /**
+   * Price rules on a product_price page: stay quiet while the page says it is
+   * out of stock or discontinued, and fire once it can be bought. Left out
+   * means true; the server keeps only false.
+   */
+  onlyInStock?: boolean;
 };
 
 /** One watch as a client sends it. A watch that keeps its id keeps its readings. */
@@ -193,6 +205,8 @@ export type WatchView = {
   lastReadingAt: string | null;
   /** "₹27,499", "12 items", "Text, 4,210 characters". */
   summary: string;
+  /** A product_price page's last stated availability; "" for other watches and before the first read. */
+  availability?: Availability | "";
   /** Registrable domain; "" for a price. */
   site: string;
   /** The page's own title (product name), "" when none. */
@@ -365,7 +379,8 @@ export type CheckOutcome =
   | "strike"
   | "superseded"
   | "judged_quiet"
-  | "passed";
+  | "passed"
+  | "held_stock";
 
 export type FiredRule = { watchId: string; ruleId: string; kind: RuleKind };
 
@@ -379,6 +394,8 @@ export type CheckView = {
   fired: FiredRule[] | null;
   /** The first check after a gap: how long the bot was paused, and why; else null. */
   away: AwayView | null;
+  /** held_stock: why nobody was told ("Price is below ₹90,000, but the page says it is out of stock"). */
+  note?: string;
 };
 
 /** The numbers behind an alert. */
@@ -521,6 +538,8 @@ export type PreviewWatch = {
   summary: string;
   value: number | null;
   currency: string;
+  /** product_price pages: what the page says about stock; "" for other reads. */
+  availability?: Availability | "";
   /** ≤600 characters, for text and selector reads. */
   text: string;
   items: ItemBrief[] | null;
@@ -559,6 +578,7 @@ export type AnswerWatch = {
   summary: string;
   value: number | null;
   currency: string;
+  availability?: Availability | "";
   excerpt: string;
   items: ItemBrief[] | null;
   lastChangedAt: string | null;
@@ -900,6 +920,7 @@ export const RULE_LABELS: Record<RuleKind, string> = {
   words_appear: "Words appear",
   words_disappear: "Words disappear",
   new_item: "A new post",
+  in_stock: "Back in stock",
 };
 
 /** The page read modes, as the "Reads" row offers them. */
@@ -1118,16 +1139,19 @@ const quoted = (words: string[] | undefined) => (words ?? []).map((w) => `“${w
 export function ruleLine(rule: Rule, watch: Pick<WatchView, "currency" | "summary"> | Pick<WatchInput, "currency">): string {
   const cur = "summary" in watch ? watchCurrency(watch) : (watch.currency ?? "");
   const money = (v: number | undefined) => (v == null ? "…" : formatMoney(v, cur));
+  const anyStock = rule.onlyInStock === false ? ", in stock or not" : "";
   switch (rule.kind) {
+    case "in_stock":
+      return "Back in stock";
     case "below":
-      return `Price is below ${money(rule.threshold)}`;
+      return `Price is below ${money(rule.threshold)}${anyStock}`;
     case "above":
-      return `Price is above ${money(rule.threshold)}`;
+      return `Price is above ${money(rule.threshold)}${anyStock}`;
     case "move_pct": {
       const p = rule.percent == null ? "…" : pctNumber(rule.percent);
-      if (rule.direction === "up") return `Rises ${p}%`;
-      if (rule.direction === "down") return `Drops ${p}%`;
-      return `Moves ${p}% either way`;
+      if (rule.direction === "up") return `Rises ${p}%${anyStock}`;
+      if (rule.direction === "down") return `Drops ${p}%${anyStock}`;
+      return `Moves ${p}% either way${anyStock}`;
     }
     case "words_appear":
       return `${quoted(rule.words) || "Words"} appears`;
@@ -1136,7 +1160,7 @@ export function ruleLine(rule: Rule, watch: Pick<WatchView, "currency" | "summar
     case "new_item":
       return rule.words?.length ? `A new post with ${quoted(rule.words)}` : "A new post";
   }
-  return "Any change";
+  return `Any change${anyStock}`;
 }
 
 /**
@@ -1158,6 +1182,8 @@ export function tellLine(rule: Rule, watch: Pick<WatchView, "currency" | "summar
       return `when ${line}`;
     case "new_item":
       return rule.words?.length ? `about each new post with ${quoted(rule.words)}` : "about each new post";
+    case "in_stock":
+      return "when it is back in stock";
   }
   return "when it changes";
 }
@@ -2215,6 +2241,7 @@ const OUTCOME_LABELS: Record<CheckOutcome, string> = {
   superseded: "Skipped",
   judged_quiet: "AI held it back",
   passed: "Passed on",
+  held_stock: "Out of stock, held back",
 };
 
 /** A check's outcome in words: "Told you", "AI held it back", "Passed on". */
@@ -2807,6 +2834,7 @@ const fieldsOf = (r: Rule): Rule => {
   }
   const words = (r.words ?? []).map((w) => w.trim()).filter(Boolean);
   if (words.length) out.words = words;
+  if (r.onlyInStock === false) out.onlyInStock = false;
   return out;
 };
 
@@ -3029,6 +3057,7 @@ export function previewCard(args: BotInput, preview?: PreviewResult | null, now:
       health: p && !p.ok && p.health ? p.health : { code: "new", line: "" },
       lastReadingAt: p?.ok ? p.at : null,
       summary: p?.ok ? p.summary : "",
+      availability: p?.ok ? (p.availability ?? "") : "",
       site: p?.site || hostOf(w.url),
       title: "",
       value: value ?? null,

@@ -127,6 +127,10 @@ type WatchView struct {
 	Health          Health     `json:"health"`
 	LastReadingAt   *time.Time `json:"lastReadingAt"`
 	Summary         string     `json:"summary"`
+	// Availability is whether the product can be bought, as its page said at
+	// the last reading: an extract.Avail word on a product_price page
+	// ("unknown" when it said nothing), "" for every other watch.
+	Availability string `json:"availability"`
 	// The board's fields.
 	Site          string       `json:"site"`            // the page's registrable domain; "" for a price
 	Title         string       `json:"title"`           // the page's own name, from its last reading
@@ -178,6 +182,19 @@ type CheckView struct {
 	Fired     []FiredRule `json:"fired"`
 	// Away is the gap this check caught up on (null when none).
 	Away *AwayView `json:"away"`
+	// Note says why a held_stock check told nobody: "Price is below
+	// ₹90,000, but the page says it is out of stock". "" otherwise.
+	Note string `json:"note,omitempty"`
+}
+
+// checkNote is the first watch note of a check.
+func checkNote(c Check) string {
+	for _, w := range c.Watches {
+		if w.Note != "" {
+			return w.Note
+		}
+	}
+	return ""
 }
 
 // checkAway is a check's away fields as a view, nil when it caught up on no
@@ -331,6 +348,7 @@ func watchView(w Watch, days []dayClose) WatchView {
 		return wv
 	}
 	wv.ReadingCurrency = r.Currency
+	wv.Availability = availabilityOf(r, w)
 	if w.Kind == WatchPage {
 		wv.Title = r.Title
 	}
@@ -509,14 +527,14 @@ func dayChangePct(days []dayClose, r Reading) *float64 {
 }
 
 // stripMark is one check on a board card's strip: n no change, c changed
-// (rules fired but the judge held it back or it went on to other Bots
-// count here: nobody was told), f told you, x failed (a strike), o offline
+// (rules fired but the judge held it back, it went on to other Bots, or
+// the product could not be bought count here: nobody was told), f told you, x failed (a strike), o offline
 // or waiting (no strike). Superseded checks are not shown (0).
 func stripMark(outcome string) byte {
 	switch outcome {
 	case outBaseline, outUnchanged, outNotModified:
 		return 'n'
-	case outChanged, outJudgedQuiet, outPassed:
+	case outChanged, outJudgedQuiet, outPassed, outHeldStock:
 		return 'c'
 	case outFired:
 		return 'f'
