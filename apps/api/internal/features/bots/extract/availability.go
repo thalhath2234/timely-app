@@ -76,8 +76,11 @@ func KnownAvailability(a string) bool {
 	return a != "" && a != AvailUnknown
 }
 
-// buyRank orders availabilities from most to least buyable, for an
-// AggregateOffer whose offers disagree.
+// buyRank orders availabilities from most to least buyable, for offers at
+// one price that disagree. Unknown sits between the buyable words and the
+// unbuyable ones: an offer that states nothing never lets a sibling's "sold
+// out" hold an alert, and the page's meta tags get their say instead. ""
+// (nothing read yet) ranks last.
 func buyRank(a string) int {
 	switch a {
 	case AvailInStock:
@@ -88,10 +91,12 @@ func buyRank(a string) int {
 		return 2
 	case AvailBackorder:
 		return 3
-	case AvailOutOfStock:
+	case AvailUnknown:
 		return 4
-	case AvailDiscontinued:
+	case AvailOutOfStock:
 		return 5
+	case AvailDiscontinued:
+		return 6
 	}
-	return 6
+	return 7
 }

@@ -90,6 +90,12 @@ func TestProductPriceAvailabilityJSONLD(t *testing.T) {
 		{"aggregate: every seller sold out", `{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":"8","offers":[{"price":"8","availability":"OutOfStock"},{"price":"9","availability":"https://schema.org/Discontinued"}]}}`, AvailOutOfStock},
 		{"price specification keeps its offer's", `{"@type":"Product","offers":{"@type":"Offer","availability":"https://schema.org/LimitedAvailability","priceSpecification":{"price":"12","priceCurrency":"EUR"}}}`, AvailLimited},
 		{"graph", `{"@graph":[{"@type":"WebPage"},{"@type":"Product","offers":{"price":"3","availability":"BackOrder"}}]}`, AvailBackorder},
+		{"offer array: one at the price says nothing, a sibling sold out", `{"@type":"Product","offers":[{"price":"12"},{"price":"12","availability":"OutOfStock"}]}`, AvailUnknown},
+		{"offer array: a sold-out offer, a sibling at the price says nothing", `{"@type":"Product","offers":[{"price":"12","availability":"OutOfStock"},{"price":"12"}]}`, AvailUnknown},
+		{"offer array: one says nothing, a sibling in stock", `{"@type":"Product","offers":[{"price":"12"},{"price":"12","availability":"InStock"}]}`, AvailInStock},
+		{"variants: one says nothing, a sibling discontinued", `{"@type":"ProductGroup","hasVariant":[{"@type":"Product","offers":{"price":"20"}},{"@type":"Product","offers":{"price":"20","availability":"Discontinued"}}]}`, AvailUnknown},
+		{"aggregate: a seller at the low price says nothing, another sold out", `{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":"8","offers":[{"price":"8","availability":"OutOfStock"},{"price":"8"},{"price":"9","availability":"OutOfStock"}]}}`, AvailUnknown},
+		{"aggregate: the low price's seller says nothing, a dearer one sold out", `{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":"8","offers":[{"price":"8"},{"price":"9","availability":"OutOfStock"}]}}`, AvailUnknown},
 		{"lone top offer", `{"@type":"Offer","price":"44","availability":"https://schema.org/Discontinued"}`, AvailDiscontinued},
 	}
 	for _, c := range cases {
@@ -122,6 +128,8 @@ func TestProductPriceAvailabilityMicrodataAndMeta(t *testing.T) {
 		{"JSON-LD price still takes og meta", `<script type="application/ld+json">{"@type":"Product","offers":{"price":"10"}}</script>
 <meta property="og:availability" content="out of stock"><link itemprop="availability" href="https://schema.org/InStock">`, AvailOutOfStock},
 		{"none", `<meta property="og:price:amount" content="10.00">`, AvailUnknown},
+		{"JSON-LD offer that says nothing beside a sold-out one takes og meta", `<script type="application/ld+json">{"@type":"Product","offers":[{"price":"10"},{"price":"10","availability":"OutOfStock"}]}</script>
+<meta property="og:availability" content="instock">`, AvailInStock},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
