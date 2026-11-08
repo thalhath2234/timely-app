@@ -1930,11 +1930,6 @@ describe("catch-up", () => {
       assert.equal(recentAway({ away: null, checks: [{ ...offline, outcome }] }, NOW), null, outcome);
     }
     assert.deepEqual(recentAway({ away: null, checks: [offline, ...checks] }, NOW), { line: "Paused for 45 minutes while this computer was asleep", at: ago(30) });
-    const lastAway = { seconds: 9 * 3600, reason: "closed", at: ago(20 * 60) };
-    assert.deepEqual(recentAway({ away: null, checks: [], lastAway }, NOW), { line: "Paused for 9 hours while Timely was closed", at: ago(20 * 60) }, "the API's lastAway outlives the newest 20 checks");
-    assert.equal(recentAway({ away: null, checks, lastAway: null }, NOW), null, "the API said none, whatever the checks hold");
-    assert.equal(recentAway({ away: null, checks: [], lastAway: { ...lastAway, at: ago(24 * 60 + 1) } }, NOW), null, "older than 24 hours");
-    assert.equal(recentAway({ away: lastAway, checks: [], lastAway }, NOW), null, "still catching up");
   });
 
   test("captionLine says an active bot is catching up", () => {

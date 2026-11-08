@@ -454,12 +454,6 @@ export type BotDetail = BotView & {
   rearms: Rearm[] | null;
   /** Every link from or to this bot. */
   links: LinkView[] | null;
-  /**
-   * The newest check of the last 24 hours that ran after a gap and read the
-   * page: its away and start. Null when none. Older APIs leave it out, and
-   * recentAway then looks through `checks` (the newest 20) instead.
-   */
-  lastAway?: (Pick<AwayView, "seconds" | "reason"> & { at: string }) | null;
 };
 
 /** `POST /bots/:id/run` (202). */
@@ -1546,22 +1540,18 @@ const DAY_MS = 24 * 3600_000;
 
 /**
  * The rail's "Caught up" line: the newest check that ran after a gap and read
- * the page, when it started at most 24 hours ago. It comes from
- * `detail.lastAway` when the API sends it, else from `detail.checks`, which
- * only holds the newest 20. Checks that read nothing (offline, a wait,
+ * the page, when it started at most 24 hours ago, from `detail.checks` (the
+ * newest 20 the API sends). Checks that read nothing (offline, a wait,
  * superseded) are not a catch-up. Null while the bot still has a gap pending
  * (its card says "Catching up"), so the two never show together.
  */
-export function recentAway(detail: Pick<BotDetail, "away" | "checks" | "lastAway">, now: Date): { line: string; at: string } | null {
+export function recentAway(detail: Pick<BotDetail, "away" | "checks">, now: Date): { line: string; at: string } | null {
   if (detail.away) return null;
   let best: (Pick<AwayView, "seconds" | "reason"> & { at: string }) | null = null;
-  if (detail.lastAway !== undefined) best = detail.lastAway;
-  else {
-    for (const c of detail.checks ?? []) {
-      if (!c.away || NO_READ.has(c.outcome)) continue;
-      const at = ms(c.startedAt);
-      if (at != null && (!best || at > (ms(best.at) as number))) best = { ...c.away, at: c.startedAt };
-    }
+  for (const c of detail.checks ?? []) {
+    if (!c.away || NO_READ.has(c.outcome)) continue;
+    const at = ms(c.startedAt);
+    if (at != null && (!best || at > (ms(best.at) as number))) best = { ...c.away, at: c.startedAt };
   }
   const at = ms(best?.at);
   if (!best || at == null || now.getTime() - at > DAY_MS) return null;
