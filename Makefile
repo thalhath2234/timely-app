@@ -31,7 +31,7 @@ GOOSE_MIGRATIONS := goose -dir $(API)/migrations postgres $(GOOSE_DBSTRING)
 GOOSE_SEEDS      := goose -dir $(API)/migrations/seeds postgres $(GOOSE_DBSTRING)
 
 .PHONY: help setup setup-env install tools install-air install-goose \
-        dev dev-api dev-web film-studio film-render film-render-loops film-render-stills dev-mobile dev-mobile-device dev-desktop launch-electron \
+        dev dev-api dev-web film-studio film-render film-render-loops film-render-stills dev-mobile dev-mobile-web dev-mobile-device dev-desktop launch-electron \
         dev-worktree dev-worktree-api dev-worktree-web \
         build build-api build-web build-desktop dist-desktop stage-desktop dev-desktop-hosted build-apk install-apk apk-status \
         emu-start emu-stop emu-status \
@@ -81,8 +81,8 @@ film-studio: ## Open the landing-page film (Remotion Studio) for editing
 film-render: ## Render the landing-page film to apps/web/out/timely-film.mp4
 	@pnpm --filter @timely/web film:render
 
-film-render-loops: ## Render the empty-state loops to apps/mobile/assets/loops/*.webp (needs ffmpeg with libwebp)
-	@pnpm --filter @timely/web film:render-loops
+film-render-loops: ## Render the empty-state loops to apps/mobile/assets/loops/*.webp (ONLY=<id> for one; needs ffmpeg with libwebp)
+	@pnpm --filter @timely/web film:render-loops $(if $(ONLY),--only $(ONLY))
 
 film-render-stills: ## Render the help-centre stills to apps/web/public/help/film/*.webp (needs ffmpeg with libwebp)
 	@pnpm --filter @timely/web film:render-stills
@@ -116,6 +116,9 @@ MOBILE_METRO_FLAGS ?=
 
 dev-mobile: setup-env ## Start the Expo dev server (Metro on :8082; leave :8081 for the worktree API)
 	@pnpm --filter @timely/mobile exec expo start --lan --port 8082 --go $(MOBILE_METRO_FLAGS)
+
+dev-mobile-web: setup-env ## Run the phone app in a browser (Metro on :8082) against the worktree API on :8081
+	@EXPO_PUBLIC_API_URL=http://localhost:8081 pnpm --filter @timely/mobile exec expo start --web --port 8082
 
 dev-mobile-device: setup-env ## Metro + Expo Go on a USB phone (adb reverse :8082)
 	@ANDROID_HOME=$${ANDROID_HOME:-$${ANDROID_SDK_ROOT:-/home/thalhath/.local/android-sdk}}; \
@@ -209,7 +212,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-change-review test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-block-turn test-inbox test-starter-labels test-view-search test-smart-search test-view-language test-dashboard test-genui test-mobile-live-block test-mobile-clearable test-mobile-plain-text test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-web-api-proxy test-chat-stream test-project-delete test-bulk-edit test-autosave test-client-calls test-mobile-event-occurrence test-calendar-occurrence-done test-mobile-meeting-url test-mobile-back-fallback ## Run all tests
+test: test-api test-markdown-parity test-change-review test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-block-turn test-inbox test-starter-labels test-view-search test-smart-search test-view-language test-dashboard test-genui test-mobile-live-block test-mobile-clearable test-mobile-plain-text test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-web-api-proxy test-chat-stream test-project-delete test-bulk-edit test-autosave test-client-calls test-mobile-event-occurrence test-calendar-occurrence-done test-mobile-meeting-url test-mobile-back-fallback test-bots ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -265,7 +268,7 @@ test-providers-live: ## Call real agent provider APIs (tool round trip + image) 
 
 .PHONY: test-chat-integration lint-chat
 test-chat-integration: ## Test agent transactions and approvals in an isolated temporary PostgreSQL schema
-	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" go test ./internal/jobs ./internal/features/chat ./internal/features/sheet ./internal/features/provider ./internal/features/search ./internal/features/workspace ./internal/features/placement ./internal/features/task ./internal/features/notify ./internal/features/schedule ./internal/features/suggest ./internal/features/bots/... ./internal/features/portability ./cmd -run TestIntegration -count=1
+	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" go test ./internal/jobs ./internal/realtime ./internal/features/chat ./internal/features/sheet ./internal/features/provider ./internal/features/search ./internal/features/workspace ./internal/features/placement ./internal/features/task ./internal/features/notify ./internal/features/schedule ./internal/features/suggest ./internal/features/bots/... ./internal/features/portability ./cmd -run TestIntegration -count=1
 
 .PHONY: mcp-60day
 mcp-60day: ## Play 60 days of one person through MCP against a running API and check reads against a ledger (TIMELY_API, default :8081; ARGS=-seed N -out DIR)
@@ -292,9 +295,12 @@ lint-chat: ## Lint the chat UI and Electron integration
 audit-chat: ## Check chat layouts and overlay in Chromium against mocked API responses (web on :4002)
 	@node scripts/audit-chat.cjs
 
-.PHONY: format-chat install-browser
+.PHONY: format-chat check-format-chat install-browser
+CHAT_FORMAT_PATHS = apps/web/app/_components/chat apps/web/app/_store/chatStore.ts apps/web/app/utils/api/chat.ts apps/web/app/utils/hooks/chat.ts "apps/web/app/(pages)/(nav_pages)/chat/page.tsx" scripts/audit-chat.cjs
 format-chat: ## Format chat UI and its browser audit
-	@pnpm exec prettier --write apps/web/app/_components/chat apps/web/app/_store/chatStore.ts apps/web/app/utils/api/chat.ts apps/web/app/utils/hooks/chat.ts "apps/web/app/(pages)/(nav_pages)/chat/page.tsx" scripts/audit-chat.cjs
+	@pnpm exec prettier --write $(CHAT_FORMAT_PATHS)
+check-format-chat: ## Check that the chat UI and its browser audit are formatted (format-chat fixes it)
+	@pnpm exec prettier --check $(CHAT_FORMAT_PATHS)
 
 install-browser: ## Install Chromium for browser checks
 	@pnpm exec playwright install chromium
@@ -330,6 +336,10 @@ test-bulk-edit: ## Test that bulk task edits undo per task and that Set label ad
 .PHONY: test-change-review
 test-change-review: ## Test how an Agent proposal is grouped for review: one item per sheet, tasks together, docs with real tick boxes
 	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/change-review.test.mjs
+
+.PHONY: test-bots
+test-bots: ## Test the Bots board rules, card lines, starters and limits shared by web and phone
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/bots.test.mjs
 
 .PHONY: test-doc-checklist
 test-doc-checklist: ## Test which doc checklist items are offered as tasks, the task name and description they get, and when a doc's suggestions are read again
@@ -499,8 +509,8 @@ audit-mobile-offline: ## Check the mobile offline mutation path with the app's o
 test-mobile-offline: ## Test the mobile offline queue: durable enqueue, restart, account scope, replay
 	@node --experimental-strip-types --test scripts/mobile-offline-queue.test.mjs
 
-test-electron-guards: ## Test the desktop shell's window-open origin policy and Bot alert payloads
-	@node --experimental-strip-types --test scripts/electron-guards.test.mjs
+test-electron-guards: ## Test the desktop shell's window-open origin policy, Bot alert payloads and where an opened alert goes
+	@node --experimental-strip-types --import ./scripts/ts-siblings.mjs --test scripts/electron-guards.test.mjs scripts/notification-target.test.mjs
 
 .PHONY: test-electron-supervisor test-mobile-server-config test-desktop-instance test-web-api-proxy test-chat-stream
 test-electron-supervisor: ## Test the desktop supervisor: config/secrets, ports, Tailscale detection, backoff, stale pid, sidecar lifetime

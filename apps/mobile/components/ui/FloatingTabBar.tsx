@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, type ComponentProps } from "react";
-import { View, type LayoutChangeEvent } from "react-native";
+import { Text, View, type LayoutChangeEvent } from "react-native";
 import { Tabs } from "expo-router";
 import Animated, {
   useAnimatedStyle,
@@ -16,7 +16,7 @@ export const FLOATING_TAB_HEIGHT = 58;
 export const FLOATING_TAB_MARGIN = 12;
 const PILL_INSET_X = 4;
 const PILL_INSET_Y = 5;
-const VISIBLE_TABS = new Set(["home", "dashboard", "calendar", "tasks", "search", "files"]);
+const VISIBLE_TABS = new Set(["home", "dashboard", "calendar", "tasks", "bots", "search", "files"]);
 
 export function floatingTabBarInset(bottomInset: number) {
   return Math.max(bottomInset, 8) + FLOATING_TAB_MARGIN + FLOATING_TAB_HEIGHT;
@@ -132,7 +132,10 @@ export default function FloatingTabBar({ state, descriptors, navigation }: TabBa
                   }}
                   style={styles.tabHit}
                 >
-                  {options.tabBarIcon?.({ focused, color, size: 22 })}
+                  <View>
+                    {options.tabBarIcon?.({ focused, color, size: 22 })}
+                    <TabBadge value={options.tabBarBadge} />
+                  </View>
                 </AnimatedPressable>
               </View>
             );
@@ -143,7 +146,36 @@ export default function FloatingTabBar({ state, descriptors, navigation }: TabBa
   );
 }
 
+/** A count on a tab's icon (the Bots that need you); the tab's label says it in words. */
+function TabBadge({ value }: { value: string | number | undefined }) {
+  if (value === undefined || value === "" || value === 0) return null;
+  const text = typeof value === "number" && value > 9 ? "9+" : String(value);
+  return (
+    <View pointerEvents="none" importantForAccessibility="no-hide-descendants" accessibilityElementsHidden style={styles.badge}>
+      <Text style={styles.badgeText}>{text}</Text>
+    </View>
+  );
+}
+
 const styles = createThemedStyleSheet((colors) => ({
+  // As MobileHeader's Notifications badge, ringed in the bar's colour so it
+  // stands off the icon.
+  badge: {
+    // 16 px of primary inside the 2 px ring.
+    position: "absolute",
+    top: -6,
+    right: -9,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colors.primary,
+    borderWidth: 2,
+    borderColor: colors.card,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+  },
+  badgeText: { color: colors.primaryForeground, fontSize: 9, fontWeight: "600", fontVariant: ["tabular-nums"] },
   wrap: {
     position: "absolute",
     left: 0,

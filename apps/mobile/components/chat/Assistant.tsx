@@ -1,6 +1,6 @@
 import * as Clipboard from "expo-clipboard";
 import { PROVIDER_LABELS, type ProviderId } from "../../lib/api/agentProviders";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Image,
   KeyboardAvoidingView,
@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   AlertTriangle,
   ArrowUpRight,
+  Bot,
   ClipboardList,
   MessageCircle,
   Plus,
@@ -45,7 +46,12 @@ import {
   type ChatSettings,
 } from "../../lib/chat/settings";
 import { removeLocalImage, retainImage } from "../../lib/chat/storage";
-import type { Chat, ChatStep, PendingImage } from "../../lib/chat/types";
+import type {
+  BotTag,
+  Chat,
+  ChatStep,
+  PendingImage,
+} from "../../lib/chat/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { emptyDraft, useAssistant } from "../../lib/chat/runtime";
 import { useToastStore } from "../../lib/toast";
@@ -54,12 +60,14 @@ import ConfirmSheet from "../ui/ConfirmSheet";
 import AssistantHeader from "./AssistantHeader";
 import AttachSheet, { type ImageSource } from "./AttachSheet";
 import ModelSheet, { modelLabel, type ModelChoice } from "./ModelSheet";
+import { useBotsQuery } from "../../lib/hooks";
+import { liveBotTags } from "./BotMentionPicker";
 import Composer from "./Composer";
 import HistoryPage from "./HistoryPage";
 import ProposalPage from "./ProposalPage";
 import ReceiptReview from "./ReceiptReview";
 import Thread, { FailureCard, RunStatus, StatusCard, Welcome } from "./Thread";
-import { planGroups } from "@timely/contract/changeReview";
+import { isBotPlan, planGroups } from "@timely/contract/changeReview";
 import { isBusy, phaseLabel, sharedTarget } from "./chatMeta";
 import { Action, IconButton } from "./shared";
 import TimelyLogo from "../ui/TimelyLogo";
@@ -72,6 +80,7 @@ export default function Assistant() {
   const uid = user!.id;
   const id = assistant.chatId;
   const queryClient = useQueryClient();
+  const bots = useBotsQuery().data?.bots;
   const toast = useToastStore((state) => state.show);
   const [offline, setOfflineState] = useState(isOffline());
   const [page, setPage] = useState<Page>("chat");
@@ -85,6 +94,9 @@ export default function Assistant() {
     candidate?: PendingImage;
   }>();
   const [reviewSteps, setReviewSteps] = useState<ChatStep[] | null>(null);
+  // Bumped to put the caret in the composer (a reply started from a card).
+  const [focusKey, setFocusKey] = useState(0);
+  const clearFocusKey = useCallback(() => setFocusKey(0), []);
   const scroll = useRef<ScrollView>(null);
   const runningAction = useRef(false);
   const detailKey = ["chat", uid, id];
@@ -391,13 +403,15 @@ export default function Assistant() {
       },
     );
   }
-  function editText(text: string) {
+  // `botTags` set with the text: a bot picked or untagged in the @-picker.
+  function editText(text: string, botTags?: BotTag[]) {
     if (otherDraft) return;
     assistant.setDraft((current) => ({
       ...(matchingDraft
         ? current
         : { ...emptyDraft(context), conversationId: id ?? undefined }),
       text,
+      ...(botTags ? { botTags } : {}),
       requestId: undefined,
     }));
   }
@@ -483,6 +497,9 @@ export default function Assistant() {
           content: draft.text.trim(),
           imageIds,
           requestId,
+          botTags: liveBotTags(draft.text, draft.botTags, bots).map(
+            (tag) => tag.id,
+          ),
           ...(!id ? { context, webSearch: search, ...model } : {}),
           ...unsavedReceipt(),
         },
@@ -708,6 +725,12 @@ export default function Assistant() {
     }
   }
   function openLink(href: string) {
+    // A bot opens its sheet on the Bots tab.
+    const bot = href.match(/^timely:\/\/bot\/([^/?#]+)/);
+    if (bot) {
+      assistant.openResult(`/(app)/(tabs)/bots?bot=${encodeURIComponent(bot[1])}`);
+      return;
+    }
     const timely = href.match(
       /^timely:\/\/(task|project|doc|sheet|event)\/([^/?#]+)/,
     );
@@ -726,7 +749,7 @@ export default function Assistant() {
       if (task) assistant.openResult(`/(app)/tasks/${task[1]}`);
       else if (legacyFile) assistant.openResult(legacyFile);
       else if (
-        /^\/(tasks|projects|files|events|calendar|today|inbox|dashboard|settings)(\/|\?|$)/.test(
+        /^\/(tasks|projects|files|events|calendar|today|inbox|dashboard|settings|bots)(\/|\?|$)/.test(
           href,
         )
       )
@@ -921,6 +944,19 @@ export default function Assistant() {
                   act={act}
                   onLink={openLink}
                   onEditReceipt={() => setPage("receipt")}
+                  reply={{
+                    send: (text) => {
+                      ask(text);
+                      setReviewSteps(null);
+                      setPage("chat");
+                    },
+                    compose: (text) => {
+                      editText(text);
+                      setReviewSteps(null);
+                      setPage("chat");
+                      setFocusKey((key) => key + 1);
+                    },
+                  }}
                 />
               ) : (
                 <>
@@ -1083,11 +1119,15 @@ export default function Assistant() {
               <Composer
                 text={draft.text}
                 onChangeText={editText}
+                botTags={draft.botTags}
+                onTag={editText}
                 placeholder={
                   draft.images.length
                     ? "Add a note (optional)…"
                     : chat?.status === "approval"
-                      ? "Tell me what to change…"
+                      ? isBotPlan(chat.plan)
+                        ? "Reply, or ask for changes to the bot"
+                        : "Tell me what to change…"
                       : "Ask Timely…"
                 }
                 chips={context}
@@ -1120,6 +1160,8 @@ export default function Assistant() {
                 onReturnDraft={() =>
                   assistant.select(cachedDraft?.conversationId ?? null)
                 }
+                focusKey={focusKey}
+                onFocused={clearFocusKey}
               />
             ) : null}
           </>
@@ -1171,6 +1213,9 @@ function PlanSummary({
   const approval = chat.status === "approval";
   const failed = chat.status === "failed";
   const applying = isBusy(chat.status) && chat.phase === "apply";
+  // A plan that only makes or edits bots: "New bot needs your OK".
+  const bots = isBotPlan(chat.plan);
+  const newBot = chat.plan.every((step) => step.tool === "create_bot");
   // When everything applied changed one screen, open it straight from here.
   const target =
     !approval && !isBusy(chat.status) ? sharedTarget(chat.plan) : null;
@@ -1184,11 +1229,13 @@ function PlanSummary({
   return (
     <StatusCard
       tone={tone}
-      icon={ClipboardList}
+      icon={bots ? Bot : ClipboardList}
       spinning={applying}
       title={
         approval
-          ? "Changes ready for your review"
+          ? bots
+            ? `${newBot ? (total > 1 ? "New bots" : "New bot") : total > 1 ? "Bot changes" : "Bot change"} · Needs your OK`
+            : "Changes ready for your review"
           : applying
             ? "Applying changes"
             : failed

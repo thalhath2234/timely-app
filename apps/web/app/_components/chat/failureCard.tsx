@@ -24,9 +24,13 @@ export default function FailureCard({
   // The run waited for the person to choose a default provider (ADR 0020):
   // once one is chosen, the waiting chat can run, so Try again stays.
   const notChosen = chat.errorCode === PROVIDER_NOT_CHOSEN;
-  const settings = needsProvider || notChosen || chat.errorAction === "settings";
+  const settings =
+    needsProvider || notChosen || chat.errorAction === "settings";
   const stopped = ["failed", "stopped"].includes(chat.status);
-  const retry = stopped && !needsProvider && (notChosen || (!settings && chat.errorAction !== "none"));
+  const retry =
+    stopped &&
+    !needsProvider &&
+    (notChosen || (!settings && chat.errorAction !== "none"));
   // Photos that failed before their review opened; an open review has its
   // own Discard images button.
   const photos = stopped && chat.imageReview?.status === "extracting";

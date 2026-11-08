@@ -1,3 +1,5 @@
+import type { BotAnswer } from "@timely/contract/bots";
+
 export type ChatContext = { kind: string; label: string; value: string };
 /** pending → done, or failed (retry resets it), or discarded in an archived plan. */
 export type ChatStepStatus = "pending" | "done" | "failed" | "discarded";
@@ -29,7 +31,13 @@ export type ChatMessage = {
   chat?: { id: string; title: string };
   /** The person's answer to a "similar" message; empty while the run waits. */
   choice?: "move" | "stay";
+  /** The bots (ids, at most 3) a person's message tagged; that turn only answers. */
+  botTags?: string[];
+  /** What the tagged bots know, on the reply written from them. */
+  botAnswers?: BotAnswer[];
 };
+/** A bot picked in the composer's @-picker, sent as `botTags` with one message. */
+export type BotTag = { id: string; name: string };
 export type Chat = {
   images?: ChatImage[];
   sensitive?: boolean;
@@ -137,6 +145,8 @@ export type AssistantDraft = {
   provider?: string;
   model?: string;
   images: PendingImage[];
+  /** Bots picked with "@" for this message only. */
+  botTags?: BotTag[];
   requestId?: string;
   conversationId?: string;
 };

@@ -149,7 +149,11 @@ function HistoryRow({
           className="flex min-w-0 flex-1 items-start gap-2.5 rounded-lg px-2.5 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           <span className={cn("mt-0.5 shrink-0", tone[meta.tone])}>
-            {meta.spin ? <LogoSpinner size={14} tone="mono" label={meta.label} /> : <Icon className="size-3.5" />}
+            {meta.spin ? (
+              <LogoSpinner size={14} tone="mono" label={meta.label} />
+            ) : (
+              <Icon className="size-3.5" />
+            )}
           </span>
           <span className="min-w-0 flex-1">
             <span
@@ -162,7 +166,9 @@ function HistoryRow({
               {chat.title}
             </span>
             <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-              {["approval", "choose", "failed", "running", "queued"].includes(chat.status)
+              {["approval", "choose", "failed", "running", "queued"].includes(
+                chat.status,
+              )
                 ? meta.label
                 : relativeTime(chat.updatedAt)}
             </span>

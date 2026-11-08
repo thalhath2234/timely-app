@@ -59,6 +59,7 @@ import {
 import { controlClass } from "@/app/_components/_ui/field";
 import { ChooseDefaultDialog, RemoveProviderDialog, readyIds } from "@/app/_components/settings/defaultChoice";
 import { buttonClass } from "@/app/_components/_ui/button";
+import { BotSourceKeysGroup } from "@/app/_components/settings/botSourceKeys";
 
 export const CLI_INSTALL_URLS = {
   claude: "https://docs.anthropic.com/en/docs/claude-code/overview",
@@ -1638,6 +1639,7 @@ export default function AgentSettings() {
           <OpenRouterCard data={data} />
           <DecisionsCard />
           <MoreApiKeys data={data} />
+          <BotSourceKeysGroup />
           {data.localCli ? (
             <>
               <CliCard id="claude" data={data} view={data.claude} />

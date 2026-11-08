@@ -2,15 +2,17 @@ import { Text, View } from "react-native";
 import {
   AlertTriangle,
   ArrowUpRight,
+  Bot,
   Check,
   ClipboardList,
   RefreshCw,
   Square,
   Trash2,
 } from "lucide-react-native";
-import { planGroups } from "@timely/contract/changeReview";
+import { isBotPlan, planGroups } from "@timely/contract/changeReview";
 import type { Chat, ChatStep } from "../../lib/chat/types";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
+import type { BotReplyActions } from "./BotChangeBody";
 import ChangeCards from "./ChangeCards";
 import { ReceiptSaveSummary } from "./ReceiptReview";
 import { isBusy, phaseLabel, reviewNotes, sharedTarget } from "./chatMeta";
@@ -32,6 +34,7 @@ export default function ProposalPage({
   act,
   onLink,
   onEditReceipt,
+  reply,
 }: {
   chat: Chat;
   steps: ChatStep[];
@@ -44,6 +47,8 @@ export default function ProposalPage({
   act: (action: string, body?: unknown) => void;
   onLink: (href: string) => void;
   onEditReceipt: () => void;
+  /** A bot's "That's not it": send the picked price, or start a reply. */
+  reply?: Omit<BotReplyActions, "disabled">;
 }) {
   const done = steps.filter((s) => s.status === "done").length;
   const notes = archived ? [] : reviewNotes(chat);
@@ -61,6 +66,10 @@ export default function ProposalPage({
   const failed = !archived && chat.status === "failed";
   const stopped = !archived && chat.status === "stopped";
   const approval = !archived && chat.status === "approval";
+  // A plan that only makes or edits bots reads as the bot card the mock draws.
+  const bots = isBotPlan(steps) && !receiptConfirmation;
+  const newBots = steps.filter((s) => s.tool === "create_bot").length;
+  const botReview = approval && bots;
   // Counted as the review draws them: 30 entries for one sheet are one change.
   const groups = planGroups(steps);
   const groupsDone = groups.filter((group) =>
@@ -98,7 +107,15 @@ export default function ProposalPage({
     : approval
       ? receiptConfirmation
         ? "Confirm and save"
-        : "Ready for your review"
+        : bots
+          ? newBots === steps.length
+            ? newBots > 1
+              ? "New bots"
+              : "New bot"
+            : steps.length > 1
+              ? "Bot changes"
+              : "Bot change"
+          : "Ready for your review"
       : applying
         ? "Applying changes"
         : failed
@@ -109,11 +126,13 @@ export default function ProposalPage({
               ? "Changes applied"
               : "Your changes";
   const hint = approval
-    ? receiptDirty
-      ? "Receipt details changed. Go back and continue again to refresh this preview."
-      : receiptConfirmation
-        ? "Saving removes the temporary photos. Extracted details stay with the receipt."
-        : "Nothing is saved until you apply. To adjust, go back and reply."
+    ? bots
+      ? `${newBots ? "Checks start" : "The change applies"} when you approve. It only reads the page; it never buys or signs in.`
+      : receiptDirty
+        ? "Receipt details changed. Go back and continue again to refresh this preview."
+        : receiptConfirmation
+          ? "Saving removes the temporary photos. Extracted details stay with the receipt."
+          : "Nothing is saved until you apply. To adjust, go back and reply."
     : failed
       ? "Finished changes are kept. Retry continues from the first unfinished step."
       : stopped
@@ -135,6 +154,8 @@ export default function ProposalPage({
           <View style={[styles.summaryIcon, { backgroundColor: `${tone}1f` }]}>
             {complete ? (
               <Check size={20} color={tone} />
+            ) : bots ? (
+              <Bot size={20} color={tone} />
             ) : (
               <ClipboardList size={20} color={tone} />
             )}
@@ -142,29 +163,30 @@ export default function ProposalPage({
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.heading}>{heading}</Text>
             <Text style={common.muted}>
-              {groupsDone} of {groups.length}{" "}
-              {groups.length === 1 ? "change" : "changes"} applied
-              {groupsDiscarded ? ` · ${groupsDiscarded} discarded` : ""}
-              {applying ? ` · ${phaseLabel(chat.phase)}` : ""}
+              {botReview
+                ? "Needs your OK"
+                : `${groupsDone} of ${groups.length} ${groups.length === 1 ? "change" : "changes"} applied${groupsDiscarded ? ` · ${groupsDiscarded} discarded` : ""}${applying ? ` · ${phaseLabel(chat.phase)}` : ""}`}
             </Text>
           </View>
         </View>
-        <View
-          accessibilityRole="progressbar"
-          accessibilityValue={{ min: 0, max: steps.length, now: done }}
-          style={styles.track}
-        >
+        {botReview ? null : (
           <View
-            style={[
-              styles.fill,
-              {
-                width: `${steps.length ? (done / steps.length) * 100 : 0}%`,
-                backgroundColor: failed ? colors.destructive : colors.primary,
-              },
-            ]}
-          />
-        </View>
-        {hint ? <Text style={common.muted}>{hint}</Text> : null}
+            accessibilityRole="progressbar"
+            accessibilityValue={{ min: 0, max: steps.length, now: done }}
+            style={styles.track}
+          >
+            <View
+              style={[
+                styles.fill,
+                {
+                  width: `${steps.length ? (done / steps.length) * 100 : 0}%`,
+                  backgroundColor: failed ? colors.destructive : colors.primary,
+                },
+              ]}
+            />
+          </View>
+        )}
+        {hint && !botReview ? <Text style={common.muted}>{hint}</Text> : null}
         {notes.length ? (
           <View style={styles.notes}>
             <AlertTriangle size={16} color={colors.warning} />
@@ -206,7 +228,7 @@ export default function ProposalPage({
           destination={chat.imageReview.destination}
         />
       ) : null}
-      {approval ? (
+      {approval && !botReview ? (
         <View style={{ gap: 10 }}>
           <Action
             label={
@@ -262,7 +284,13 @@ export default function ProposalPage({
         <Text style={styles.error}>{chat.error}</Text>
       ) : null}
       <Text style={styles.sectionLabel}>
-        {receiptConfirmation ? "Sheet changes" : "Changes"}
+        {receiptConfirmation
+          ? "Sheet changes"
+          : bots
+            ? groups.length > 1
+              ? "The bots"
+              : "The bot"
+            : "Changes"}
       </Text>
       <ChangeCards
         steps={steps}
@@ -270,7 +298,37 @@ export default function ProposalPage({
         activeIndex={activeIndex}
         muted={archived}
         review={review}
+        reply={reply && approval ? { ...reply, disabled: locked } : undefined}
       />
+      {botReview ? (
+        <View style={{ gap: 10 }}>
+          <Text style={common.muted}>{hint}</Text>
+          <View style={styles.secondaryRow}>
+            <View style={{ flex: 1 }}>
+              <Action
+                label={review ? "Discard all" : "Discard"}
+                disabled={locked}
+                onPress={() => act("/reject", { revision: chat.revision })}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Action
+                label={
+                  review
+                    ? groupsLeft === groups.length
+                      ? "Apply all"
+                      : `Apply ${groupsLeft} left`
+                    : "Approve"
+                }
+                icon={Check}
+                primary
+                disabled={locked}
+                onPress={() => act("/approve", { revision: chat.revision })}
+              />
+            </View>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }

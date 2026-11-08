@@ -71,7 +71,7 @@ func agentToolsDB(t *testing.T) (*gorm.DB, string) {
 func agentToolCaller(t *testing.T, tx *gorm.DB, uid string) func(name string, args map[string]any) map[string]any {
 	t.Helper()
 	// A key makes indexing enqueue jobs, which must roll back with the transaction.
-	tools := chatCatalog(tx, realtime.NewHub(), func(string) (string, string) { return "unused-test-key", "" })
+	tools := chatCatalog(tx, realtime.NewHub(), func(string) (string, string) { return "unused-test-key", "" }, nil)
 	return func(name string, args map[string]any) map[string]any {
 		t.Helper()
 		raw, _ := json.Marshal(args)

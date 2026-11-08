@@ -2,14 +2,7 @@ package chat
 
 import (
 	"context"
-	"database/sql/driver"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"log"
-	"time"
 
-	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/labstack/echo/v5"
 	"timely-api/internal/realtime"
 )
@@ -42,62 +35,5 @@ func (s *Service) watch(c *echo.Context) error {
 // process on this database, so a run another process claimed still reaches
 // this one's streams.
 func (s *Service) relayChanges(ctx context.Context) {
-	wait := time.Second
-	for {
-		err := s.listen(ctx)
-		if ctx.Err() != nil {
-			return
-		}
-		log.Printf("chat changes: %v; listening again in %s", err, wait)
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(wait):
-		}
-		wait = min(wait*2, 30*time.Second)
-	}
-}
-
-type change struct {
-	Schema string `json:"schema"`
-	User   string `json:"user"`
-	ID     string `json:"id"`
-}
-
-func (s *Service) listen(ctx context.Context) error {
-	pool, err := s.db.DB()
-	if err != nil {
-		return err
-	}
-	conn, err := pool.Conn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	return conn.Raw(func(dc any) error {
-		std, ok := dc.(*stdlib.Conn)
-		if !ok {
-			return fmt.Errorf("unexpected driver connection %T", dc)
-		}
-		pg := std.Conn()
-		var schema string
-		if err := pg.QueryRow(ctx, "SELECT current_schema()").Scan(&schema); err != nil {
-			return err
-		}
-		if _, err := pg.Exec(ctx, "LISTEN timely_chats"); err != nil {
-			return err
-		}
-		for {
-			n, err := pg.WaitForNotification(ctx)
-			if err != nil {
-				// Never hand a listening connection back to the pool.
-				return errors.Join(err, driver.ErrBadConn)
-			}
-			var ch change
-			if json.Unmarshal([]byte(n.Payload), &ch) != nil || ch.Schema != schema {
-				continue
-			}
-			s.live.Publish(ch.User, watchKey, realtime.Event{Type: "changed", Kind: "chat", ID: ch.ID})
-		}
-	})
+	realtime.RelayPG(ctx, s.db, s.live, "timely_chats", watchKey, "chat")
 }

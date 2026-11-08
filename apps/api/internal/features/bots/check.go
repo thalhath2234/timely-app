@@ -69,7 +69,7 @@ type watchRead struct {
 // nothing, so a stale, retried or doubled job is harmless.
 func (s *Service) HandleCheck(ctx context.Context, job *models.Job) error {
 	trigger := job.Payload.String("trigger")
-	if trigger != TriggerWake && trigger != TriggerRunNow {
+	if trigger != TriggerWake && !runsNow(trigger) {
 		trigger = TriggerSchedule
 	}
 	started := s.now().UTC()
@@ -96,12 +96,23 @@ func (s *Service) HandleCheck(ctx context.Context, job *models.Job) error {
 	case p != nil:
 		err = s.saveProblem(ctx, c, p)
 	default:
-		err = s.saveOK(ctx, c)
+		if err = s.saveOK(ctx, c); err == nil {
+			// Outside the transaction: a logo never holds up a check.
+			s.askIcons(ctx, b.UserID, readWatches(reads))
+		}
 	}
 	if err != nil {
 		return jobs.RetryAfter(err, time.Minute)
 	}
 	return nil
+}
+
+func readWatches(reads []watchRead) []Watch {
+	ws := make([]Watch, len(reads))
+	for i, r := range reads {
+		ws[i] = r.w
+	}
+	return ws
 }
 
 // checkRun is one claimed check on its way to being saved.
@@ -149,7 +160,7 @@ WHERE id = @id AND user_id = @uid AND status = 'active'
 RETURNING *`,
 		sql.Named("now", now), sql.Named("job", job.ID), sql.Named("provisional", provisional),
 		sql.Named("id", botID), sql.Named("uid", job.UserID), sql.Named("retry", job.Attempts > 1),
-		sql.Named("due_by", now.Add(FenceSlack)), sql.Named("run_now", trigger == TriggerRunNow),
+		sql.Named("due_by", now.Add(FenceSlack)), sql.Named("run_now", runsNow(trigger)),
 		sql.Named("spaced_by", now.Add(-floor+FenceSlack)),
 	).Scan(&claimed).Error
 	if err != nil {
@@ -187,7 +198,7 @@ func (s *Service) read(ctx context.Context, b Bot, ws []Watch, now time.Time) []
 	out := make([]watchRead, 0, len(ws))
 	for _, w := range ws {
 		start := time.Now()
-		r := s.readWatch(ctx, b, w, now)
+		r := s.readWatch(ctx, b, w, now, s.keys, 0)
 		r.duration = time.Since(start)
 		r.cw.WatchID, r.cw.MS = w.ID, r.duration.Milliseconds()
 		out = append(out, r)
@@ -198,10 +209,13 @@ func (s *Service) read(ctx context.Context, b Bot, ws []Watch, now time.Time) []
 	return out
 }
 
-func (s *Service) readWatch(ctx context.Context, b Bot, w Watch, now time.Time) watchRead {
+// readWatch reads one watch, finding price source keys in keys. maxWait
+// above zero caps the wait for the site's slot (a preview); 0 is the
+// fetcher's default.
+func (s *Service) readWatch(ctx context.Context, b Bot, w Watch, now time.Time, keys price.Keys, maxWait time.Duration) watchRead {
 	r := watchRead{w: w}
 	if w.Kind == WatchPrice {
-		q, err := price.Get(ctx, s.fetch, s.keys, price.Query{UserID: b.UserID, Source: w.Source, Symbol: w.Symbol, Currency: w.Currency}, now)
+		q, err := price.Get(ctx, s.fetch, keys, price.Query{UserID: b.UserID, Source: w.Source, Symbol: w.Symbol, Currency: w.Currency, MaxWait: maxWait}, now)
 		if err != nil {
 			r.err = err
 			return r
@@ -211,7 +225,7 @@ func (s *Service) readWatch(ctx context.Context, b Bot, w Watch, now time.Time) 
 		r.closed = !q.MarketOpen
 		return r
 	}
-	req := fetch.Request{URL: w.URL, Want: fetch.WantPage}
+	req := fetch.Request{URL: w.URL, Want: fetch.WantPage, MaxWait: maxWait}
 	if w.Kind == WatchFeed {
 		req.Want = fetch.WantFeed
 	}
@@ -229,6 +243,9 @@ func (s *Service) readWatch(ctx context.Context, b Bot, w Watch, now time.Time) 
 		return r
 	}
 	r.reading, r.err = extractReading(w, res, now)
+	if r.err == nil && w.Kind == WatchPage {
+		r.reading.Title = extract.PageTitle(res.Body, res.ContentType)
+	}
 	return r
 }
 
@@ -259,6 +276,13 @@ func extractReading(w Watch, res *fetch.Response, now time.Time) (Reading, error
 		}
 		amount := p.Amount
 		return Reading{Kind: ReadingPrice, Price: &amount, Currency: p.Currency, At: now}, nil
+	}
+	if w.ReadMode == ReadSelectorPrice {
+		amount, currency, err := extract.SelectPrice(res.Body, res.ContentType, w.Selector)
+		if err != nil {
+			return Reading{}, unreadable(err)
+		}
+		return Reading{Kind: ReadingPrice, Price: &amount, Currency: currency, At: now}, nil
 	}
 	var text string
 	var err error
@@ -371,6 +395,8 @@ func describeErr(w Watch, err error) *problem {
 			return strike("cant_find", "The feed has no items")
 		case w.ReadMode == ReadSelector:
 			return strike("cant_find", "The selector matched nothing on the page")
+		case w.ReadMode == ReadSelectorPrice:
+			return strike("cant_find", "The part it reads has no price any more")
 		case w.ReadMode == ReadProductPrice:
 			return strike("cant_find", "Could not find a price on the page")
 		}
@@ -484,6 +510,12 @@ func (s *Service) saveProblem(ctx context.Context, c checkRun, p *problem) error
 			set["next_check_at"] = next
 		}
 		if p.outcome != outSuperseded {
+			var key *price.KeyError
+			if errors.As(p.err, &key) && key.Rejected {
+				if err := markKeyRefused(tx, b.UserID, key.Source, c.started, done); err != nil {
+					return err
+				}
+			}
 			if err := tx.Model(&Watch{}).Where("id = ?", p.watch.ID).
 				Updates(map[string]any{"health": p.code, "health_detail": p.line, "updated_at": done}).Error; err != nil {
 				return err
@@ -537,6 +569,7 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 			byID[w.ID] = w
 		}
 		var fired []firedEvent
+		var rearms []Rearm
 		var baseline, moved, closed bool
 		saved, notMod := 0, 0
 		readings := map[string]Reading{}
@@ -562,6 +595,12 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 				baseline, cw.Outcome = true, outBaseline
 				readings[w.ID] = reading
 				set["baseline_pending"] = false
+				// A first reading starts the clock; a baseline asked for again
+				// (Turn on, a rules edit, a restore) moves it only if the
+				// reading did.
+				if w.LastReading == nil || w.LastChangedAt == nil || watchChanged(*w.LastReading, reading) {
+					set["last_changed_at"] = done
+				}
 			case r.notMod:
 				notMod++
 				cw.Outcome = outNotModified
@@ -577,10 +616,14 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 						ev.WatchID = w.ID
 						fired = append(fired, firedEvent{ev: *ev, w: w, rule: rule, ref: refBefore(rule, old, prev)})
 					}
+					if v, ok := reading.value(); ok && rearmed(rule, old, st, prev, reading) {
+						rearms = append(rearms, Rearm{WatchID: w.ID, RuleID: rule.ID, Value: v, Currency: reading.Currency})
+					}
 				}
 				cw.Outcome = outUnchanged
 				if watchChanged(prev, reading) {
 					moved, cw.Outcome = true, outChanged
+					set["last_changed_at"] = done
 				}
 				if len(fired) > before {
 					cw.Outcome = outFired
@@ -606,7 +649,9 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 			if err := tx.Model(&Watch{}).Where("id = ?", w.ID).Updates(set).Error; err != nil {
 				return err
 			}
-			if w.Kind == WatchPrice && reading.Price != nil {
+			// Shop prices on a page keep a price series too. A 304 carries
+			// the old reading and its old time, so it adds no point.
+			if !r.notMod && reading.Kind == ReadingPrice && reading.Price != nil {
 				if err := addPricePoint(tx, w, reading); err != nil {
 					return err
 				}
@@ -616,7 +661,7 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 
 		check := Check{
 			ID: utils.PrefixedUUID("bchk"), BotID: b.ID, UserID: b.UserID, JobID: &c.job.ID, Trigger: c.trigger,
-			StartedAt: c.started, FinishedAt: done, Watches: cws, Fired: jsonList[FiredRule]{},
+			StartedAt: c.started, FinishedAt: done, Watches: cws, Fired: jsonList[FiredRule]{}, Rearmed: rearms,
 		}
 		switch {
 		case len(fired) > 0:
@@ -680,6 +725,24 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 	})
 }
 
+// rearmed reports whether a below or above rule armed again in this check:
+// it was waiting for the value to come back past its reset band, and now it
+// is (the next crossing alerts). Other rule kinds flip Armed on every check,
+// and a currency change rebaselines rather than re-arms, so neither counts.
+func rearmed(r Rule, old, cur RuleState, prev, reading Reading) bool {
+	if r.Kind != RuleBelow && r.Kind != RuleAbove {
+		return false
+	}
+	if prev.Currency != "" && reading.Currency != "" && !strings.EqualFold(prev.Currency, reading.Currency) {
+		return false
+	}
+	before := old
+	if before == (RuleState{}) {
+		before = Rebaseline(r, prev) // as Evaluate does
+	}
+	return !before.Armed && cur.Armed
+}
+
 // refBefore is the value a fired price rule is measured from.
 func refBefore(r Rule, old RuleState, prev Reading) *float64 {
 	if r.Kind == RuleMovePct && old.Ref != nil {
@@ -714,9 +777,14 @@ func watchChanged(prev, cur Reading) bool {
 }
 
 // addPricePoint appends a quote to its UTC day. A repeat of the last point's
-// quote time adds nothing.
+// quote time adds nothing. A quote in another currency than the series (a
+// shop page shown for another country) starts the series again, so the
+// spark and the day's move never compare amounts across currencies.
 func addPricePoint(tx *gorm.DB, w Watch, r Reading) error {
 	at := r.At.UTC()
+	if err := tx.Exec(`DELETE FROM bot_price_days WHERE watch_id = ? AND currency <> ?`, w.ID, r.Currency).Error; err != nil {
+		return err
+	}
 	return tx.Exec(`
 INSERT INTO bot_price_days (watch_id, day, bot_id, user_id, currency, points, open, high, low, close)
 VALUES (@w, CAST(@day AS date), @b, @u, @cur, jsonb_build_array(jsonb_build_array(CAST(@t AS bigint), CAST(@p AS numeric))),

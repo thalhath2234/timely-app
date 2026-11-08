@@ -4,7 +4,11 @@
 import "../genui/setup";
 import { Fragment, useContext, useMemo, useState, createContext } from "react";
 import { CalendarDays } from "lucide-react";
-import { createLibrary, Renderer, type ComponentRenderer } from "@openuidev/react-lang";
+import {
+  createLibrary,
+  Renderer,
+  type ComponentRenderer,
+} from "@openuidev/react-lang";
 import {
   choiceOptions,
   GENUI_ROOT,
@@ -47,7 +51,11 @@ function Reply({ props, renderNode }: KitProps<"Reply">) {
 }
 
 function CardsFailed() {
-  return <p className="mt-2 text-xs text-muted-foreground">These cards could not be shown.</p>;
+  return (
+    <p className="mt-2 text-xs text-muted-foreground">
+      These cards could not be shown.
+    </p>
+  );
 }
 
 function Choices({ props }: KitProps<"Choices">) {
@@ -64,7 +72,11 @@ function Choices({ props }: KitProps<"Choices">) {
   const options = choiceOptions(props.options);
   return (
     <div>
-      <div role="group" aria-label="Suggested answers" className="flex flex-wrap items-center gap-2">
+      <div
+        role="group"
+        aria-label="Suggested answers"
+        className="flex flex-wrap items-center gap-2"
+      >
         {options.map((option) => (
           <button
             key={option}
@@ -95,14 +107,25 @@ function Choices({ props }: KitProps<"Choices">) {
           </Button>
         ) : null}
       </div>
-      {answer ? <p className="mt-2 text-xs text-muted-foreground">Tapping one sends it as your answer.</p> : null}
+      {answer ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Tapping one sends it as your answer.
+        </p>
+      ) : null}
     </div>
   );
 }
 
-const renderers: { [N in GenuiName]: ComponentRenderer<GenuiProps<N>> } = { ...kit, Reply, Choices };
+const renderers: { [N in GenuiName]: ComponentRenderer<GenuiProps<N>> } = {
+  ...kit,
+  Reply,
+  Choices,
+};
 
-const library = createLibrary({ components: withRenderers(renderers), root: GENUI_ROOT });
+const library = createLibrary({
+  components: withRenderers(renderers),
+  root: GENUI_ROOT,
+});
 
 function Cards({ code }: { code: string }) {
   const [empty, setEmpty] = useState(false);

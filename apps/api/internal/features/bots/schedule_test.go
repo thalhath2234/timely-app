@@ -14,6 +14,7 @@ var (
 	page    = Watch{Kind: WatchPage, ReadMode: ReadText}
 	sel     = Watch{Kind: WatchPage, ReadMode: ReadSelector}
 	product = Watch{Kind: WatchPage, ReadMode: ReadProductPrice}
+	onePart = Watch{Kind: WatchPage, ReadMode: ReadSelectorPrice, Selector: ".price"}
 	feed    = Watch{Kind: WatchFeed}
 	quote   = Watch{Kind: WatchPrice}
 )
@@ -32,6 +33,8 @@ func TestMinEveryFloorAndDefault(t *testing.T) {
 		{"price and feed", []Watch{quote, feed}, 5 * time.Minute, 15 * time.Minute, 30 * time.Minute},
 		{"price and page", []Watch{quote, page}, 5 * time.Minute, 15 * time.Minute, time.Hour},
 		{"page and product", []Watch{page, product}, 15 * time.Minute, 6 * time.Hour, 6 * time.Hour},
+		{"selector price", []Watch{onePart}, 6 * time.Hour, 6 * time.Hour, 6 * time.Hour},
+		{"selector price and feed", []Watch{onePart, feed}, 6 * time.Hour, 6 * time.Hour, 6 * time.Hour},
 	}
 	for _, c := range cases {
 		if got := MinEvery(c.ws[0]); got != c.min {

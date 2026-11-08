@@ -15,6 +15,7 @@ const protectedPrefixes = [
   "/setup",
   "/files",
   "/notifications",
+  "/bots",
 ];
 const publicExact = new Set(["/login", "/signup", "/"]);
 

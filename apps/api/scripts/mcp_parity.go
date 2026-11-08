@@ -389,6 +389,10 @@ func (r *runner) exercise(email string) {
 	r.call("update_sheet_cells", map[string]any{"sheetId": sheetID, "rowId": rowID, "cells": map[string]string{colID: "3"}})
 	r.call("add_sheet_rows", map[string]any{"sheetId": sheetID, "count": 1})
 	r.call("add_sheet_row", map[string]any{"sheetId": sheetID, "cells": map[string]string{"Quantity": "5"}})
+	r.call("add_sheet_entries", map[string]any{"sheetId": sheetID, "entries": []any{
+		map[string]any{"cells": map[string]string{"Quantity": "7"}},
+		map[string]any{"cells": map[string]string{"Quantity": "9"}},
+	}})
 	r.call("update_sheet_column", map[string]any{"sheetId": sheetID, "columnId": colID, "format": map[string]any{"decimals": 2}, "hidden": false})
 	r.call("update_sheet_tab", map[string]any{"sheetId": sheetID, "frozenRows": 1, "color": "#4F8BFF",
 		"conditionalFormats": []any{map[string]any{"columnId": colID, "operator": "gt", "value": "4", "fillColor": "#5C3A12"}}})
@@ -487,6 +491,7 @@ func (r *runner) exercise(email string) {
 	}})
 	botID := str(bot, "id")
 	r.call("list_bots", nil)
+	r.call("get_bot", map[string]any{"bot": botID})
 	r.call("update_bot", map[string]any{"bot": "Parity BTC", "name": "Parity BTC dip", "intervalMinutes": 30})
 	r.call("list_bot_findings", map[string]any{"bot": botID, "limit": 10})
 	r.callAllow("run_bot_now", map[string]any{"bot": botID}, "paused")
@@ -797,6 +802,8 @@ var workerTables = map[string]string{
 	"bot_price_days":          "bot_check jobs and the bots sweep",
 	"bot_sites":               "bot_check jobs and the bots sweep",
 	"bot_robots":              "bot_check jobs and the bots sweep",
+	"bot_source_keys":         "bot_check jobs mark a key the source refused",
+	"bot_site_icons":          "bot_icon jobs",
 }
 
 type tableSum struct{ rows, hash int64 }

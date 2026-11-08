@@ -1,10 +1,12 @@
 package bots
 
 import (
+	"encoding/json"
 	"errors"
 	"time"
 
 	"gorm.io/gorm"
+	"timely-api/internal/models"
 )
 
 const (
@@ -19,7 +21,8 @@ const (
 // 25-Bot cap, is paused; an interval under the floor is raised to it; AI
 // judging is set back to rules. Restored over MCP, every Bot comes back
 // paused with the alert settings a Bot made over MCP gets, so an outside
-// app cannot turn a Bot or its urgent alerts on this way (ADR 0021).
+// app cannot turn a Bot or its urgent alerts on this way (ADR 0021). A
+// stock watch passes when the account has its key, which the restore keeps.
 func (s *Service) VetRestore(tx *gorm.DB, userID string, fromMCP bool) error {
 	var bots []Bot
 	if err := tx.Where("user_id = ?", userID).Order("created_at, id").Find(&bots).Error; err != nil {
@@ -33,6 +36,14 @@ func (s *Service) VetRestore(tx *gorm.DB, userID string, fromMCP bool) error {
 	for _, w := range ws {
 		byBot[w.BotID] = append(byBot[w.BotID], w)
 	}
+	// Keys hang off the account, not its Bots, so the restore kept them.
+	hasKey, err := keySet(tx, userID)
+	if err != nil {
+		return err
+	}
+	if err := vetAlertDefaults(tx, userID, fromMCP); err != nil {
+		return err
+	}
 	now := s.now().UTC()
 	for i, b := range bots {
 		set := map[string]any{}
@@ -42,7 +53,20 @@ func (s *Service) VetRestore(tx *gorm.DB, userID string, fromMCP bool) error {
 		if b.JudgeMode != JudgeRules {
 			set["judge_mode"] = JudgeRules
 		}
-		reason, detail := "", unusable(byBot[b.ID])
+		// Only a Bot made over MCP names the app it came from, so a file
+		// cannot make another say "From <anything>".
+		client := ""
+		if b.Origin == OriginMCP {
+			client = cleanOriginClient(b.OriginClient)
+		}
+		if client != b.OriginClient {
+			set["origin_client"] = client
+		}
+		// A file cannot hold off the checks a tag starts.
+		if b.AskedAt != nil {
+			set["asked_at"] = nil
+		}
+		reason, detail := "", unusable(byBot[b.ID], hasKey)
 		if i >= MaxBots {
 			detail = restoredOverCap
 		}
@@ -71,15 +95,41 @@ func (s *Service) VetRestore(tx *gorm.DB, userID string, fromMCP bool) error {
 	return nil
 }
 
+// vetAlertDefaults checks the restored "Alerts for new bots": a value that
+// is not three switches goes back to the default, and over MCP urgent goes
+// off, so an outside app cannot make every later Bot urgent this way.
+func vetAlertDefaults(tx *gorm.DB, userID string, fromMCP bool) error {
+	var rows []struct{ Defaults *string }
+	if err := tx.Raw(`SELECT bot_alert_defaults::text AS defaults FROM configs WHERE user_id = ?`, userID).Scan(&rows).Error; err != nil || len(rows) == 0 {
+		return err
+	}
+	defs := models.DefaultBotAlertDefaults()
+	if rows[0].Defaults != nil {
+		var raw map[string]json.RawMessage
+		if json.Unmarshal([]byte(*rows[0].Defaults), &raw) == nil {
+			for key, dst := range map[string]*bool{"desktop": &defs.Desktop, "phone": &defs.Phone, "urgent": &defs.Urgent} {
+				var v bool
+				if b, ok := raw[key]; ok && json.Unmarshal(b, &v) == nil {
+					*dst = v
+				}
+			}
+		}
+	}
+	if fromMCP {
+		defs.Urgent = false
+	}
+	return tx.Exec(`UPDATE configs SET bot_alert_defaults = ? WHERE user_id = ?`, defs, userID).Error
+}
+
 // unusable says why a restored Bot's watches cannot run, or "" when they
 // pass the checks a save makes.
-func unusable(ws []Watch) string {
+func unusable(ws []Watch, hasKey hasKeyFunc) string {
 	if len(ws) == 0 || len(ws) > MaxWatches {
 		return "This bot came back from a backup with no watches Timely can use. Edit it to turn it on."
 	}
 	for _, w := range ws {
 		in := WatchInput{Kind: w.Kind, URL: w.URL, Read: w.ReadMode, Selector: w.Selector, Source: w.Source, Symbol: w.Symbol, Currency: w.Currency, Rules: w.Rules}
-		if _, err := cleanWatch(in, nil); err != nil {
+		if _, err := cleanWatch(in, nil, hasKey); err != nil {
 			var bad *InputError
 			if errors.As(err, &bad) {
 				return "Restored with a watch Timely cannot use: " + bad.Message + ". Edit it to turn it on."

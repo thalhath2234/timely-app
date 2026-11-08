@@ -31,6 +31,7 @@ type Service struct {
 	decisions  Decider
 	estimates  func(ctx context.Context, userID string, names, descriptions []string) []int
 	live       *realtime.Hub
+	botNames   func(ctx context.Context, userID string) ([]BotName, error)
 	wg         sync.WaitGroup
 }
 
@@ -127,6 +128,10 @@ type sendInput struct {
 	// Receipt is the receipt review form as the person left it, sent with a
 	// message typed during the review so unsaved edits are revised, not lost.
 	Receipt *ReceiptDraft `json:"receipt"`
+	// BotTags are the Bots (ids) the apps' @ picker tagged in this message,
+	// for this message only. Typed tags are found in Content as well
+	// (bot_tags.go).
+	BotTags []string `json:"botTags"`
 }
 
 // ProviderIDs is implemented by Completers that can tell a provider id they
@@ -199,6 +204,14 @@ func validateInput(in sendInput) error {
 	if in.Receipt != nil && len(in.Receipt.Items) > 300 {
 		return echo.NewHTTPError(400, "A receipt can contain at most 300 items")
 	}
+	if len(in.BotTags) > maxBotTags {
+		return echo.NewHTTPError(400, fmt.Sprintf("Tag up to %d bots", maxBotTags))
+	}
+	for _, tag := range in.BotTags {
+		if len(tag) > 100 {
+			return echo.NewHTTPError(400, "Invalid bot tag")
+		}
+	}
 	return nil
 }
 func (s *Service) create(c *echo.Context) error {
@@ -221,6 +234,10 @@ func (s *Service) create(c *echo.Context) error {
 	if strings.TrimSpace(in.Content) == "" {
 		in.Content = "Process these images"
 	}
+	tags, err := s.messageTags(c.Request().Context(), user(c), in)
+	if err != nil {
+		return err
+	}
 	title := []rune(strings.TrimSpace(in.Content))
 	if len(title) > 70 {
 		title = title[:70]
@@ -231,6 +248,7 @@ func (s *Service) create(c *echo.Context) error {
 	}
 	firstMessage := message("user", in.Content)
 	firstMessage.RequestID = in.RequestID
+	firstMessage.BotTags = tags
 	row := Conversation{ID: cid, UserID: user(c), Title: string(title), Status: "queued", Phase: "plan", WebSearch: in.WebSearch, ChosenProvider: in.Provider, ChosenModel: in.Model, Timezone: validTimezone(in.Timezone), Client: agent.NormalizeClient(in.Client), RichUI: in.UI == genuiCapability, Context: in.Context, Messages: []Message{firstMessage}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
 	noteLanguage(&row, in.Content)
 	if err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -320,6 +338,10 @@ func (s *Service) send(c *echo.Context) error {
 	if err := validateInput(in); err != nil {
 		return err
 	}
+	tags, err := s.messageTags(c.Request().Context(), user(c), in)
+	if err != nil {
+		return err
+	}
 	return s.change(c, func(tx *gorm.DB, row *Conversation) error {
 		if strings.TrimSpace(in.Content) == "" {
 			in.Content = "Process these images"
@@ -356,6 +378,7 @@ func (s *Service) send(c *echo.Context) error {
 		archivePlan(row)
 		nextMessage := message("user", in.Content)
 		nextMessage.RequestID = in.RequestID
+		nextMessage.BotTags = tags
 		row.Messages = append(row.Messages, nextMessage)
 		row.Status = "queued"
 		row.Phase = "plan"

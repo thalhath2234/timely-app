@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { Chat, ChatMessage } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
+import BotAnswerCard from "./botAnswerCard";
 import ChatText from "./chatText";
 import ReplyBody from "./replyCards";
 import { planGroups } from "@timely/contract/changeReview";
@@ -95,7 +96,9 @@ function Similar({
         <History className="mt-0.5 size-3.5 shrink-0" />
         <span className="min-w-0 break-words">
           You already have a chat about this:{" "}
-          <span className="font-medium text-foreground">{message.chat.title}</span>
+          <span className="font-medium text-foreground">
+            {message.chat.title}
+          </span>
         </span>
       </span>
       {waiting && onChoose && (
@@ -116,7 +119,10 @@ function Similar({
             type="button"
             disabled={pending}
             onClick={() => onChoose("stay")}
-            className={cn(choice, "bg-background text-foreground hover:bg-muted")}
+            className={cn(
+              choice,
+              "bg-background text-foreground hover:bg-muted",
+            )}
           >
             Answer here
           </button>
@@ -177,7 +183,8 @@ export default function MessageList({
   const last = chat.messages?.[chat.messages.length - 1];
   // Only the newest reply, with nothing the person said after it, keeps live answer chips.
   const newest = chat.messages?.findLast(
-    (m) => (m.role === "user" && !m.kind) || (m.role === "assistant" && !m.kind),
+    (m) =>
+      (m.role === "user" && !m.kind) || (m.role === "assistant" && !m.kind),
   );
   return (
     <div
@@ -217,6 +224,7 @@ export default function MessageList({
                   <ChatText
                     text={m.content}
                     className="text-primary-foreground"
+                    inverse
                   />
                   {!!m.imageIds?.length && (
                     <div className="mt-2 flex flex-wrap gap-2">
@@ -251,6 +259,12 @@ export default function MessageList({
                       newest={m === newest}
                     />
                   </div>
+                  {m.botAnswers?.map((answer, i) => (
+                    <BotAnswerCard
+                      key={`${answer.bot.id}:${i}`}
+                      answer={answer}
+                    />
+                  ))}
                   {!!m.imageIds?.length && (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {chat.images

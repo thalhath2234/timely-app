@@ -3,7 +3,10 @@ import { linkHost } from "@timely/contract/genui";
 
 // React text nodes keep tool/model content inert. Only safe links are rendered;
 // no model-authored HTML or raw innerHTML enters the conversation.
-function inline(text: string) {
+function inline(text: string, inverse: boolean) {
+  // On the person's own bubble (bg-primary) a link takes the bubble's text
+  // colour, underlined; text-primary there would vanish into the bubble.
+  const linkTone = inverse ? "text-inherit" : "text-primary";
   return text
     .split(
       /(\[[^\]]+\]\(https?:\/\/[^\s)]+\)|\*\*[^*]+\*\*|`[^`]+`|https?:\/\/[^\s<>)]+)/g,
@@ -20,10 +23,17 @@ function inline(text: string) {
             href={link[2]}
             target="_blank"
             rel="noopener noreferrer"
-            className="break-words text-primary underline underline-offset-4"
+            className={`break-words underline underline-offset-4 ${linkTone}`}
           >
             {link[1]}
-            {host ? <span className="text-muted-foreground"> ({host})</span> : null}
+            {host ? (
+              <span
+                className={inverse ? "opacity-80" : "text-muted-foreground"}
+              >
+                {" "}
+                ({host})
+              </span>
+            ) : null}
           </a>
         );
       }
@@ -34,7 +44,7 @@ function inline(text: string) {
             href={part}
             target="_blank"
             rel="noopener noreferrer"
-            className="break-all text-primary underline underline-offset-4"
+            className={`break-all underline underline-offset-4 ${linkTone}`}
           >
             {part.replace(/^https?:\/\//, "").replace(/\/$/, "")}
           </a>
@@ -56,9 +66,12 @@ function inline(text: string) {
 export default function ChatText({
   text,
   className = "",
+  inverse = false,
 }: {
   text: string;
   className?: string;
+  /** On the person's own bubble: links in the bubble's text colour. */
+  inverse?: boolean;
 }) {
   const lines = text.split("\n");
   return (
@@ -70,7 +83,7 @@ export default function ChatText({
         if (heading)
           return (
             <p key={i} className="pt-1.5 font-semibold text-foreground">
-              {inline(heading[1])}
+              {inline(heading[1], inverse)}
             </p>
           );
         const numbered = line.match(/^\s*(\d+)[.)]\s+(.*)/);
@@ -83,7 +96,9 @@ export default function ChatText({
               >
                 {numbered[1]}.
               </span>
-              <span className="min-w-0 flex-1">{inline(numbered[2])}</span>
+              <span className="min-w-0 flex-1">
+                {inline(numbered[2], inverse)}
+              </span>
             </div>
           );
         if (/^\s*[-*•]\s+/.test(line))
@@ -96,12 +111,12 @@ export default function ChatText({
                 •
               </span>
               <span className="min-w-0 flex-1">
-                {inline(line.replace(/^\s*[-*•]\s+/, ""))}
+                {inline(line.replace(/^\s*[-*•]\s+/, ""), inverse)}
               </span>
             </div>
           );
         if (!line.trim()) return <div key={i} aria-hidden className="h-1.5" />;
-        return <p key={i}>{inline(line)}</p>;
+        return <p key={i}>{inline(line, inverse)}</p>;
       })}
     </div>
   );

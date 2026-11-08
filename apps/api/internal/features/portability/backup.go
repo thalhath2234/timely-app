@@ -71,8 +71,10 @@ var exportTables = []tableSpec{
 	// Bots (ADR 0021). Watches come back with baseline_pending, so the first
 	// check after a restore records a quiet baseline instead of alerting on
 	// what changed since the backup. A price day is named by watch and day.
-	// Left out on purpose: bot_checks (a 30-day log), and bot_sites and
-	// bot_robots (shared caches with no owner).
+	// Left out on purpose: bot_checks (a 30-day log), bot_sites, bot_robots
+	// and bot_site_icons (shared caches with no owner), and bot_source_keys
+	// (price source keys are sealed with this server's secret, so they would
+	// not open anywhere else; a restore keeps the account's own).
 	{"bots", `SELECT to_jsonb(x) FROM bots x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
 	{"bot_watches", `SELECT to_jsonb(x) || jsonb_build_object('baseline_pending', true) FROM bot_watches x WHERE x.user_id = ? ORDER BY x.bot_id, x.position, x.id`},
 	{"bot_alerts", `SELECT to_jsonb(x) FROM bot_alerts x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
@@ -299,7 +301,10 @@ var restoreDefaults = map[string]map[string]any{
 	"statuses":      {"position": 0},
 	"lables":        {"position": 0},
 	"custom_fields": {"position": 0},
-	"configs":       {"mobile_task_views": []any{}, "mobile_active_task_view_id": ""},
+	"configs": {"mobile_task_views": []any{}, "mobile_active_task_view_id": "",
+		"bot_alert_defaults": map[string]any{"desktop": true, "phone": true, "urgent": false}},
+	"bots":       {"origin_client": ""},
+	"bot_alerts": {"feedback_reason": "", "feedback_note": ""},
 }
 
 type parentRef struct {

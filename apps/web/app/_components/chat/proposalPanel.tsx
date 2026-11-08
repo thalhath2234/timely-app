@@ -3,15 +3,17 @@ import Link from "next/link";
 import {
   AlertTriangle,
   ArrowUpRight,
+  Bot,
   Check,
   ClipboardList,
   RefreshCw,
   Square,
   Trash2,
 } from "lucide-react";
-import { planGroups } from "@timely/contract/changeReview";
+import { isBotPlan, planGroups } from "@timely/contract/changeReview";
 import type { Chat } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
+import type { BotReplyActions } from "./botChangeBody";
 import ChangeCards from "./changeCards";
 import { isBusy, phaseLabel, reviewNotes, sharedTarget } from "./chatMeta";
 import { buttonClass } from "@/app/_components/_ui/button";
@@ -28,13 +30,19 @@ export default function ProposalPanel({
   pending,
   receiptDirty,
   act,
+  reply,
 }: {
   chat: Chat;
   pending: boolean;
   receiptDirty: boolean;
   act: (action: string, body?: unknown) => void;
+  /** A bot's "That's not it": send the picked price, or draft a reply. */
+  reply?: Omit<BotReplyActions, "disabled">;
 }) {
   const steps = chat.plan;
+  // A plan that only makes or edits bots reads as the bot card the mock draws.
+  const bots = isBotPlan(steps);
+  const newBots = steps.filter((s) => s.tool === "create_bot").length;
   const notes = reviewNotes(chat);
   const done = steps.filter((s) => s.status === "done").length;
   // Counted as the review draws them: 30 entries for one sheet are one change.
@@ -80,7 +88,15 @@ export default function ProposalPanel({
     !busy && chat.status !== "approval" ? sharedTarget(steps) : null;
   const heading =
     chat.status === "approval"
-      ? "Ready for your review"
+      ? bots
+        ? newBots === steps.length
+          ? newBots > 1
+            ? "New bots"
+            : "New bot"
+          : steps.length > 1
+            ? "Bot changes"
+            : "Bot change"
+        : "Ready for your review"
       : applying
         ? "Applying changes"
         : chat.status === "failed"
@@ -92,11 +108,13 @@ export default function ProposalPanel({
               : "Your changes";
   const hint =
     chat.status === "approval"
-      ? receiptDirty
-        ? "Receipt fields changed. Select Review sheet changes before applying."
-        : chat.imageReview?.status === "review"
-          ? "Apply saves these changes and removes the temporary images."
-          : "Nothing is saved until you apply. To adjust, just reply below."
+      ? bots
+        ? `${newBots ? "Checks start" : "The change applies"} when you approve. It only reads the page; it never buys or signs in.`
+        : receiptDirty
+          ? "Receipt fields changed. Select Review sheet changes before applying."
+          : chat.imageReview?.status === "review"
+            ? "Apply saves these changes and removes the temporary images."
+            : "Nothing is saved until you apply. To adjust, just reply below."
       : chat.status === "failed"
         ? "Finished changes are kept. Retry continues from the first unfinished step."
         : chat.status === "stopped"
@@ -125,6 +143,8 @@ export default function ProposalPanel({
         >
           {complete ? (
             <Check className="size-4" />
+          ) : bots ? (
+            <Bot className="size-4" />
           ) : (
             <ClipboardList className="size-4" />
           )}
@@ -132,9 +152,15 @@ export default function ProposalPanel({
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-semibold leading-5">{heading}</h2>
           <p className="text-xs text-muted-foreground">
-            {groupsDone} of {groups.length}{" "}
-            {groups.length === 1 ? "change" : "changes"} applied
-            {groupsDiscarded ? ` · ${groupsDiscarded} discarded` : ""}
+            {bots && chat.status === "approval" ? (
+              "Needs your OK"
+            ) : (
+              <>
+                {groupsDone} of {groups.length}{" "}
+                {groups.length === 1 ? "change" : "changes"} applied
+                {groupsDiscarded ? ` · ${groupsDiscarded} discarded` : ""}
+              </>
+            )}
           </p>
         </div>
         {target && (
@@ -172,7 +198,12 @@ export default function ProposalPanel({
           </div>
         </div>
       )}
-      <div className="px-4 pt-3">
+      <div
+        className={cn(
+          "px-4 pt-3",
+          bots && chat.status === "approval" && "hidden",
+        )}
+      >
         <div
           role="progressbar"
           aria-valuemin={0}
@@ -192,7 +223,16 @@ export default function ProposalPanel({
         </div>
       </div>
       <div className="p-4">
-        <ChangeCards steps={steps} activeIndex={activeIndex} review={review} />
+        <ChangeCards
+          steps={steps}
+          activeIndex={activeIndex}
+          review={review}
+          reply={
+            reply && chat.status === "approval"
+              ? { ...reply, disabled: pending }
+              : undefined
+          }
+        />
       </div>
       {(hint ||
         chat.status === "approval" ||
@@ -210,7 +250,7 @@ export default function ProposalPanel({
                   onClick={() => act("/reject", { revision: chat.revision })}
                   className={secondary}
                 >
-                  <Trash2 className="size-3.5" />
+                  {bots && !review ? null : <Trash2 className="size-3.5" />}
                   {review ? "Discard all" : "Discard"}
                 </button>
                 <button
@@ -224,7 +264,9 @@ export default function ProposalPanel({
                     ? groupsLeft === groups.length
                       ? "Apply all"
                       : `Apply ${groupsLeft} left`
-                    : "Apply changes"}
+                    : bots
+                      ? "Approve"
+                      : "Apply changes"}
                 </button>
               </>
             )}

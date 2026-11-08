@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -417,5 +418,49 @@ func TestReviewStateFitsLargeProposals(t *testing.T) {
 	fitReview(small, small["changes"].([]map[string]string), q, decide.MaxStateBytes)
 	if _, ok := q["draft1"]; !ok {
 		t.Fatal("a small review lost its doc check")
+	}
+}
+
+// Triage knows bots: the area is offered, a bots triage offers the bot
+// reads, and a change to a bot counts as a change. The live chat test runs
+// with Jev off, so only this covers it.
+func TestTriageBots(t *testing.T) {
+	var body string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		_ = json.NewEncoder(w).Encode(map[string]any{"answers": map[string]any{"area": choice("bots", 0.95), "area__2": choice("bots", 0.95), "change": yesNo(0.9)}})
+	}))
+	defer srv.Close()
+	client := decide.NewClient(nil)
+	client.TypeSafeURL = srv.URL
+	s := New(nil, nil, nil)
+	s.SetDecisions(decide.New(nil, func(context.Context, string) (decide.Keys, error) {
+		return decide.Keys{Enabled: true, TypeSafe: "ts-test-key"}, nil
+	}, client))
+	// Two messages, so no earlier chats are looked up.
+	c := &Conversation{UserID: "u", Messages: []Message{message("user", "Hi"), message("user", "Tell me when the Go blog posts something new")}}
+	tri, ok := s.triage(context.Background(), c)
+	if !ok || tri.area != "bots" || tri.change == nil || !*tri.change {
+		t.Fatalf("triage %+v %v; request %s", tri, ok, body)
+	}
+	for _, text := range []string{`Bots that watch web pages, feeds or prices and send alerts.`, `projects or bots.`} {
+		if !strings.Contains(body, text) {
+			t.Errorf("the request misses %q: %s", text, body)
+		}
+	}
+	want := []string{"list_bots", "get_bot", "list_bot_findings", "preview_bot", "ask_bot"}
+	if !reflect.DeepEqual(areaTools["bots"], want) {
+		t.Errorf("areaTools[bots] = %v", areaTools["bots"])
+	}
+	for _, name := range append(want, essentialTools...) {
+		if !tri.tools(name) {
+			t.Errorf("a bots triage leaves out %s", name)
+		}
+	}
+	for _, name := range []string{"list_docs", "get_calendar", "list_sheets"} {
+		if tri.tools(name) {
+			t.Errorf("a bots triage offers %s", name)
+		}
 	}
 }

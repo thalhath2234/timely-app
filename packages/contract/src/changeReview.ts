@@ -13,8 +13,32 @@ import { parseNumberInput } from "./sheetCell";
 import { formatDateText } from "./sheetFunctions";
 import type { SheetColumn } from "./sheetTypes";
 import { parseIsoDate } from "./sheetValues";
+import {
+  DEFAULT_BOT_SETTINGS,
+  defaultMinutes,
+  defaultRules,
+  floorMinutes,
+  hostOf,
+  HOW_SMART,
+  intervalLabel,
+  ruleLine,
+  watchTitle,
+  type BotInput,
+  type BotSettings,
+  type PreviewResult,
+  type ReadMode,
+  type Rule,
+  type WatchInput,
+  type WatchKind,
+} from "./bots";
 
 export type { DocBlock } from "./dashboardFiles";
+
+/**
+ * What a proposed Bot reads right now, read once by the server for the
+ * review card (`Step.Preview`): the preview, or why it could not read.
+ */
+export type ReviewStepPreview = PreviewResult | { error: string };
 
 /** One step of a plan as the API sends it (chat `plan` and message `steps`). */
 export type ReviewStep = {
@@ -25,6 +49,8 @@ export type ReviewStep = {
   result?: Record<string, unknown>;
   before?: Record<string, unknown>;
   error?: string;
+  /** create_bot and update_bot with watches: what the bot reads right now. */
+  preview?: ReviewStepPreview;
 };
 
 export type ReviewSheetInfo = {
@@ -49,6 +75,9 @@ export type ReviewNames = {
   stage?: (id: string) => string | undefined;
   event?: (id: string) => string | undefined;
   customField?: (id: string) => string | undefined;
+  bot?: (id: string) => string | undefined;
+  /** Where a new bot alerts (`GET /bots/defaults`); Desktop and Phone until loaded. */
+  botDefaults?: BotSettings;
 };
 
 /** A label and its value, ready to draw as a grouped row. */
@@ -63,7 +92,7 @@ export type ReviewField = {
   blocks?: DocBlock[];
 };
 
-export type ReviewKind = "sheet" | "tasks" | "doc" | "events" | "change";
+export type ReviewKind = "sheet" | "tasks" | "doc" | "events" | "bot" | "change";
 
 export type ReviewSheetColumn = {
   key: string;
@@ -107,6 +136,16 @@ export type ReviewTaskRow = {
 
 export type ReviewEventRow = { step: number; title: string; when: string; meta: string[]; changes: ReviewField[] };
 
+/**
+ * A row of a proposed bot: "Watches", "Checks every", "Tells me when" (one
+ * per rule), "How smart", "Alerts on". `before` is the value an edit
+ * replaces; `watch` names the watch a rule belongs to when the bot has two or
+ * more (drawn as a sub-label, numbered when two watches share a title), and
+ * `watchIndex` is that watch's place, which the apps group rules by; `site`
+ * and `kind` draw a watch's logo.
+ */
+export type ReviewBotRow = { label: string; value: string; before?: string; watch?: string; watchIndex?: number; site?: string; kind?: WatchKind };
+
 type GroupBase = {
   key: string;
   kind: ReviewKind;
@@ -127,6 +166,22 @@ export type ReviewGroup =
   | (GroupBase & { kind: "tasks"; rows: ReviewTaskRow[] })
   | (GroupBase & { kind: "doc"; icon?: string; blocks: DocBlock[]; fields: ReviewField[]; action: "create" | "update" | "append" })
   | (GroupBase & { kind: "events"; rows: ReviewEventRow[] })
+  | (GroupBase & {
+      kind: "bot";
+      action: "create" | "update";
+      tool: string;
+      name: string;
+      /** The bot's id once known: an edit's, or a created bot's after apply. */
+      botId?: string;
+      /** The bot as it will be, ready for the "On your board" card. */
+      args: BotInput;
+      rows: ReviewBotRow[];
+      /** What it reads right now, by watch index. */
+      preview?: PreviewResult;
+      /** Why the server could not read it for the review. */
+      previewError?: string;
+      defaults: BotSettings;
+    })
   | (GroupBase & { kind: "change"; tool: string; fields: ReviewField[]; table?: ReviewSheetTab });
 
 const SHEET_ENTRY_TOOLS = new Set(["add_sheet_row", "add_sheet_entries"]);
@@ -157,6 +212,13 @@ const TASK_TOOLS = new Set([
 ]);
 const DOC_TOOLS = new Set(["create_doc", "update_doc", "append_to_doc", "add_live_block", "open_daily_note"]);
 const EVENT_TOOLS = new Set(["create_event", "update_event"]);
+/** Bot writes chat proposes for review; each is its own card. */
+export const BOT_TOOLS = new Set(["create_bot", "update_bot"]);
+
+/** Every change in the plan makes or edits a bot: the review reads as "New bot". */
+export function isBotPlan(steps: Pick<ReviewStep, "tool">[]): boolean {
+  return steps.length > 0 && steps.every((step) => BOT_TOOLS.has(step.tool));
+}
 
 /** Deletions and clearing blocks remove data; their review says so. */
 export function isRemovalTool(tool: string): boolean {
@@ -246,6 +308,7 @@ const PREFIX_NOUNS: [string, string][] = [
   ["tab_", "a tab"],
   ["col_", "a column"],
   ["row_", "a row"],
+  ["bot_", "a bot"],
 ];
 
 /** The object a "$N.path" reference names: what step N creates. */
@@ -278,6 +341,7 @@ export function reviewName(id: string, names: ReviewNames, steps: ReviewStep[] =
     ["stg_", names.stage],
     ["evt_", names.event],
     ["cf_", names.customField],
+    ["bot_", names.bot],
   ];
   for (const [prefix, fn] of look) {
     if (id.startsWith(prefix)) {
@@ -871,6 +935,184 @@ function eventsGroup(key: string, indexes: number[], steps: ReviewStep[], names:
   };
 }
 
+// ----------------------------------------------------------------- bots
+
+const READS = new Set<string>(["text", "selector", "product_price", "selector_price"]);
+const WATCH_KINDS = new Set<string>(["page", "feed", "price"]);
+
+function num(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function ruleOf(value: unknown): Rule | null {
+  const r = obj(value);
+  const kind = str(r?.kind);
+  if (!r || !kind) return null;
+  const out: Rule = { kind: kind as Rule["kind"] };
+  if (num(r.threshold) != null) out.threshold = num(r.threshold);
+  if (num(r.percent) != null) out.percent = num(r.percent);
+  if (str(r.direction)) out.direction = str(r.direction) as Rule["direction"];
+  if (num(r.stepPercent)) out.stepPercent = num(r.stepPercent);
+  if (num(r.resetPercent)) out.resetPercent = num(r.resetPercent);
+  if (Array.isArray(r.words)) out.words = r.words.map(str).filter(Boolean);
+  return out;
+}
+
+/** A watch from a tool's arguments or a get_bot read; null for anything else. */
+function watchOf(value: unknown): WatchInput | null {
+  const w = obj(value);
+  const kind = str(w?.kind);
+  if (!w || !WATCH_KINDS.has(kind)) return null;
+  const out: WatchInput = { kind: kind as WatchKind };
+  if (str(w.id)) out.id = str(w.id);
+  if (str(w.url)) out.url = str(w.url);
+  if (kind === "page") out.read = (READS.has(str(w.read)) ? str(w.read) : "text") as ReadMode;
+  if (str(w.selector)) out.selector = str(w.selector);
+  if (str(w.source)) out.source = str(w.source);
+  if (str(w.symbol)) out.symbol = str(w.symbol);
+  if (str(w.currency)) out.currency = str(w.currency);
+  // Left out (not an empty list) on an edit: the watch keeps its rules.
+  if (Array.isArray(w.rules)) out.rules = w.rules.map(ruleOf).filter((r): r is Rule => !!r);
+  return out;
+}
+
+/** Where a bot alerts, in words: "Desktop, Phone", "Phone, urgent". */
+export function botAlertsLine(s: Pick<BotSettings, "desktop" | "phone" | "urgent">): string {
+  const on = [s.desktop ? "Desktop" : "", s.phone ? "Phone" : ""].filter(Boolean);
+  if (!on.length) return "Only on the Bots page";
+  return s.urgent && s.phone ? `${on.join(", ")}, urgent` : on.join(", ");
+}
+
+function stepPreview(step: ReviewStep): { preview?: PreviewResult; error?: string } {
+  const p = obj(step.preview);
+  if (!p) return {};
+  if (Array.isArray(p.watches)) return { preview: p as unknown as PreviewResult };
+  return str(p.error) ? { error: str(p.error) } : {};
+}
+
+/** The name of the bot an edit changes: its own name, never its id. */
+function botName(args: Record<string, unknown>, before: Record<string, unknown> | undefined, names: ReviewNames): string {
+  const ref = str(args.bot);
+  if (str(before?.name)) return str(before?.name);
+  if (ref.startsWith("bot_")) return names.bot?.(ref) ?? "A bot";
+  return ref || "A bot";
+}
+
+/** A description on one line, cut to fit a row. */
+function clipped(text: string, max = 80): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
+}
+
+const titleWith = (w: WatchInput, site: string) => watchTitle({ ...w, site: w.kind === "price" ? "" : site });
+
+/**
+ * A create_bot or update_bot step as the bot card: the bot as it will be
+ * (watches with their rules, defaults filled in as the server fills them),
+ * and the rows the review draws, each with what it was for an edit.
+ */
+function botGroup(key: string, index: number, steps: ReviewStep[], names: ReviewNames): ReviewGroup {
+  const step = steps[index];
+  const args = step.arguments ?? {};
+  const update = step.tool === "update_bot";
+  const before = update ? (obj(obj(step.before)?.bot) ?? obj(step.before)) : undefined;
+  const defaults = names.botDefaults ?? DEFAULT_BOT_SETTINGS;
+  const { preview, error } = stepPreview(step);
+  const was = (Array.isArray(before?.watches) ? before.watches : []).map(watchOf).filter((w): w is WatchInput => !!w);
+  const given = Array.isArray(args.watches) ? args.watches.map(watchOf).filter((w): w is WatchInput => !!w) : null;
+  // The reading is of the watches the step sends; an edit without them keeps its own.
+  const reads = given ? (preview?.watches ?? []) : [];
+  const watches: WatchInput[] = (given ?? was).map((w, i) => {
+    const old = w.id ? was.find((x) => x.id === w.id) : undefined;
+    const read = reads.find((p) => p.index === i);
+    const rules = w.rules?.length ? w.rules : !w.rules && old?.rules?.length ? old.rules : defaultRules(w);
+    return { ...w, currency: w.currency || (read?.ok ? read.currency : "") || old?.currency || undefined, rules };
+  });
+  const siteOf = (w: WatchInput, i: number) => (w.kind === "price" ? "" : reads.find((p) => p.index === i)?.site || hostOf(w.url));
+  const name = str(args.name) || (update ? botName(args, before, names) : "New bot");
+  const minutes = (value: unknown) => num(value) || defaultMinutes(watches);
+  // An edit that leaves the interval out keeps it, raised to the floor of the
+  // watches it now has, as the server saves it.
+  const every = update && args.intervalMinutes === undefined ? Math.max(minutes(before?.intervalMinutes), floorMinutes(watches)) : minutes(args.intervalMinutes);
+  const description = update && typeof args.description === "string" ? args.description.trim() : str(args.description) || str(before?.description);
+  const alerts: BotSettings = update && before ? { desktop: !!before.desktop, phone: !!before.phone, urgent: !!before.urgent } : defaults;
+  const several = watches.length > 1;
+  const rows: ReviewBotRow[] = [];
+  if (update && str(args.name) && str(before?.name) && str(args.name) !== str(before?.name)) rows.push({ label: "Name", value: str(args.name), before: str(before?.name) });
+  if (update && before && description !== str(before.description)) rows.push({ label: "Description", value: clipped(description) || "None", before: clipped(str(before.description)) || "None" });
+  watches.forEach((w, i) => {
+    const old = w.id ? was.find((x) => x.id === w.id) : undefined;
+    const site = siteOf(w, i);
+    const row: ReviewBotRow = { label: several ? `Watch ${i + 1}` : "Watches", value: titleWith(w, site), kind: w.kind };
+    if (site) row.site = site;
+    if (given && update && !old) row.before = "New";
+    else if (old) {
+      const prior = titleWith(old, hostOf(old.url));
+      const moved = (old.url ?? "") !== (w.url ?? "") || (old.selector ?? "") !== (w.selector ?? "") || (old.read ?? "") !== (w.read ?? "");
+      if (prior !== row.value || moved) row.before = prior;
+    }
+    rows.push(row);
+  });
+  if (given && update) {
+    for (const old of was) {
+      if (watches.some((w) => w.id === old.id)) continue;
+      const site = old.kind === "price" ? "" : hostOf(old.url);
+      rows.push({ label: "Stops watching", value: titleWith(old, site), kind: old.kind, ...(site ? { site } : {}) });
+    }
+  }
+  const everyRow: ReviewBotRow = { label: "Checks every", value: intervalLabel(every) };
+  const wasEvery = num(before?.intervalMinutes);
+  if (update && wasEvery && wasEvery !== every) everyRow.before = intervalLabel(wasEvery);
+  rows.push(everyRow);
+  const titles = watches.map((w, i) => titleWith(w, siteOf(w, i)));
+  watches.forEach((w, i) => {
+    const old = w.id ? was.find((x) => x.id === w.id) : undefined;
+    const lines = (w.rules ?? []).map((rule) => ruleLine(rule, { currency: w.currency ?? "" }));
+    const prior = (old?.rules ?? []).map((rule) => ruleLine(rule, { currency: old?.currency ?? w.currency ?? "" }));
+    const changed = update && !!old && prior.join("\n") !== lines.join("\n");
+    lines.forEach((line, j) => {
+      const row: ReviewBotRow = { label: "Tells me when", value: line };
+      if (several) {
+        row.watch = titles.indexOf(titles[i]) === titles.lastIndexOf(titles[i]) ? titles[i] : `Watch ${i + 1} · ${titles[i]}`;
+        row.watchIndex = i;
+      }
+      if (changed && j === 0) row.before = prior.join("; ") || "Nothing";
+      rows.push(row);
+    });
+  });
+  rows.push({ label: "How smart", value: HOW_SMART[0].label });
+  // An edit read without its settings cannot say where it alerts.
+  if (!update || before) rows.push({ label: "Alerts on", value: botAlertsLine(alerts) });
+  const ref = str(args.bot);
+  const botId = str(obj(step.result)?.id) || str(before?.id) || (ref.startsWith("bot_") ? ref : "") || undefined;
+  return {
+    key,
+    kind: "bot",
+    steps: [index],
+    eyebrow: "Bot",
+    title: name,
+    meta: `Checks every ${intervalLabel(every)}`,
+    removal: false,
+    action: update ? "update" : "create",
+    tool: step.tool,
+    name,
+    botId,
+    args: {
+      name,
+      description,
+      intervalMinutes: every,
+      desktop: alerts.desktop,
+      phone: alerts.phone,
+      urgent: alerts.urgent,
+      watches,
+    },
+    rows,
+    preview: given ? preview : undefined,
+    previewError: given ? error : undefined,
+    defaults,
+  };
+}
+
 // ------------------------------------------------------------- grouping
 
 const EYEBROWS: [RegExp, string][] = [
@@ -953,6 +1195,7 @@ function groupKey(step: ReviewStep, index: number): { key: string; kind: ReviewK
   if (TASK_TOOLS.has(step.tool)) return { key: "tasks", kind: "tasks" };
   if (DOC_TOOLS.has(step.tool)) return { key: `doc:${index}`, kind: "doc" };
   if (EVENT_TOOLS.has(step.tool)) return { key: "events", kind: "events" };
+  if (BOT_TOOLS.has(step.tool)) return { key: `bot:${index}`, kind: "bot" };
   return { key: `change:${index}`, kind: "change" };
 }
 
@@ -992,6 +1235,8 @@ export function reviewGroups(steps: ReviewStep[], names: ReviewNames = {}): Revi
         return docGroup(key, indexes[0], steps, names);
       case "events":
         return eventsGroup(key, indexes, steps, names);
+      case "bot":
+        return botGroup(key, indexes[0], steps, names);
       default:
         return changeGroup(key, indexes[0], steps, names);
     }
@@ -1003,7 +1248,8 @@ export type ReviewStat = { value: number; label: string };
 
 /**
  * What the plan adds up to, biggest kinds first, for the strip above the
- * cards: entries, new tasks, task changes, docs, events, removals, the rest.
+ * cards: entries, new tasks, task changes, docs, events, bots, removals, the
+ * rest. A bot counts as one change, however many watches and rules it has.
  */
 export function reviewStats(groups: ReviewGroup[]): ReviewStat[] {
   let entries = 0;
@@ -1013,6 +1259,8 @@ export function reviewStats(groups: ReviewGroup[]): ReviewStat[] {
   let newDocs = 0;
   let docChanges = 0;
   let events = 0;
+  let newBots = 0;
+  let botChanges = 0;
   let removals = 0;
   let other = 0;
   for (const group of groups) {
@@ -1028,6 +1276,10 @@ export function reviewStats(groups: ReviewGroup[]): ReviewStat[] {
       if (group.action === "create") newDocs++;
       else docChanges++;
     } else if (group.kind === "events") events += group.rows.length;
+    else if (group.kind === "bot") {
+      if (group.action === "create") newBots++;
+      else botChanges++;
+    }
     else if (group.removal) removals++;
     else other++;
   }
@@ -1040,6 +1292,8 @@ export function reviewStats(groups: ReviewGroup[]): ReviewStat[] {
     { value: newDocs, label: plural(newDocs, "New doc", "New docs") },
     { value: docChanges, label: plural(docChanges, "Doc change", "Doc changes") },
     { value: events, label: plural(events, "Event", "Events") },
+    { value: newBots, label: plural(newBots, "New bot", "New bots") },
+    { value: botChanges, label: plural(botChanges, "Bot change", "Bot changes") },
     { value: removals, label: plural(removals, "Removal", "Removals") },
     { value: other, label: plural(other, "Other change", "Other changes") },
   ];

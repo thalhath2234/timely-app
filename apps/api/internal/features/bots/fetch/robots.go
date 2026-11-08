@@ -140,14 +140,15 @@ func matchRobots(pattern, path string) bool {
 // Under RFC 9309 a 4xx allows everything and a 5xx or no answer refuses
 // everything. Our own lack of network is ErrOffline, not a refusal, so a
 // laptop that wakes up offline does not push every Bot a day out.
-func (f *Fetcher) robotsFor(ctx context.Context, u *url.URL) (robotsGroup, error) {
+// maxWait and own are the request's wait for the site's slot (see wait).
+func (f *Fetcher) robotsFor(ctx context.Context, u *url.URL, maxWait time.Duration, own *ownSlots) (robotsGroup, error) {
 	origin := originOf(u)
 	status, body, ok, err := f.robots(ctx, origin)
 	if err != nil {
 		return robotsGroup{}, err
 	}
 	if !ok {
-		if status, body, err = f.fetchRobots(ctx, u, origin); err != nil {
+		if status, body, err = f.fetchRobots(ctx, u, origin, maxWait, own); err != nil {
 			return robotsGroup{}, err
 		}
 	}
@@ -167,8 +168,8 @@ func (f *Fetcher) robots(ctx context.Context, origin string) (int, string, bool,
 	return f.cfg.Robots.RobotsGet(ctx, origin, f.cfg.Now())
 }
 
-func (f *Fetcher) fetchRobots(ctx context.Context, u *url.URL, origin string) (int, string, error) {
-	if err := f.wait(ctx, Site(u), f.cfg.SiteGap); err != nil {
+func (f *Fetcher) fetchRobots(ctx context.Context, u *url.URL, origin string, maxWait time.Duration, own *ownSlots) (int, string, error) {
+	if err := f.wait(ctx, Site(u), f.cfg.SiteGap, maxWait, own); err != nil {
 		return 0, "", err
 	}
 	robotsURL := &url.URL{Scheme: u.Scheme, Host: u.Host, Path: "/robots.txt"}

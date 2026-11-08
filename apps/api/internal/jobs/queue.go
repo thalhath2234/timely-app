@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Queue struct {
@@ -74,16 +75,26 @@ func (q *Queue) Enqueue(job Enqueue) (*models.Job, error) {
 		key := job.DedupeKey
 		row.DedupeKey = &key
 	}
-	if err := q.db.Create(row).Error; err != nil {
-		if job.DedupeKey == "" {
+	if job.DedupeKey == "" {
+		if err := q.db.Create(row).Error; err != nil {
 			return nil, err
 		}
+		return row, nil
+	}
+	// A job another process queued since the check above is a conflict
+	// that inserts nothing, not a unique violation: inside a caller's
+	// transaction a violation would abort the whole transaction.
+	res := q.db.Clauses(clauseDoNothing()).Create(row)
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	if res.RowsAffected == 0 {
 		var existing models.Job
-		if findErr := q.db.Where("dedupe_key = ? AND status IN ?", job.DedupeKey, []string{models.JobPending, models.JobRunning}).
-			First(&existing).Error; findErr == nil {
-			return &existing, nil
+		if err := q.db.Where("dedupe_key = ? AND status IN ?", job.DedupeKey, []string{models.JobPending, models.JobRunning}).
+			First(&existing).Error; err != nil {
+			return nil, err
 		}
-		return nil, err
+		return &existing, nil
 	}
 	return row, nil
 }
@@ -505,3 +516,6 @@ func (q *Queue) RecoverStuck(olderThan time.Duration) error {
 		WHERE status = 'running' AND locked_at IS NOT NULL AND locked_at < @cutoff
 	`, sql.Named("now", now), sql.Named("cutoff", now.Add(-olderThan)), sql.Named("lost", "Stopped before finishing, on every attempt.")).Error
 }
+
+// clauseDoNothing makes an insert that hits a unique index insert nothing.
+func clauseDoNothing() clause.OnConflict { return clause.OnConflict{DoNothing: true} }

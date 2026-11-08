@@ -43,7 +43,7 @@ export function watchStream<T extends { updatedAt: string }>(
       if (!response.ok || !response.body || typeof response.body.getReader !== "function") {
         throw new Error("sse unavailable");
       }
-      await readSSE(response.body, onEvent, controller.signal);
+      await readSSE<WatchEvent<T>>(response.body, onEvent, controller.signal);
     } catch {
       if (stopped) return;
       await poll(kind, id, load, onEvent, controller.signal);
@@ -53,7 +53,19 @@ export function watchStream<T extends { updatedAt: string }>(
   return stop;
 }
 
-async function readSSE<T>(body: ReadableStream<Uint8Array>, onEvent: (event: WatchEvent<T>) => void, signal: AbortSignal) {
+/** One server-sent event: its name (`event:` line, or the payload's own `type`), and what it is about. */
+export type StreamEvent = { type: string; kind?: string; id?: string };
+
+/**
+ * Reads a `text/event-stream` body until it ends or `signal` aborts, passing
+ * each frame's JSON payload on with its event name as `type`. Frames that are
+ * not JSON (keepalive comments) are skipped.
+ */
+export async function readSSE<E extends StreamEvent = StreamEvent>(
+  body: ReadableStream<Uint8Array>,
+  onEvent: (event: E) => void,
+  signal: AbortSignal,
+) {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -73,8 +85,8 @@ async function readSSE<T>(body: ReadableStream<Uint8Array>, onEvent: (event: Wat
       }
       if (!data) continue;
       try {
-        const parsed = JSON.parse(data) as WatchEvent<T>;
-        onEvent({ ...parsed, type: parsed.type || (eventName as WatchEvent<T>["type"]) || "updated" });
+        const parsed = JSON.parse(data) as E;
+        onEvent({ ...parsed, type: parsed.type || eventName || "updated" } as E);
       } catch {
         // ignore
       }

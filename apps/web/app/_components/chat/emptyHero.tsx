@@ -18,7 +18,10 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useChatPrompts, useDecisionFeedback } from "@/app/utils/hooks/decisions";
+import {
+  useChatPrompts,
+  useDecisionFeedback,
+} from "@/app/utils/hooks/decisions";
 import dynamic from "next/dynamic";
 import { motion } from "motion/react";
 import { cn } from "@/app/utils/cn";
@@ -84,33 +87,59 @@ export default function EmptyHero({
   // project worked on most recently. The fixed examples stay until they load.
   const pathname = usePathname();
   const match = pathname?.match(/^\/projects\/([^/?#]+)/);
-  const prompts = useChatPrompts(match ? decodeURIComponent(match[1]) : undefined);
+  const prompts = useChatPrompts(
+    match ? decodeURIComponent(match[1]) : undefined,
+  );
   const feedback = useDecisionFeedback();
   const providers = useAgentProviders();
   // Chat needs a provider; the rest of Timely does not. Say so before a
   // message is sent rather than after it fails.
-  const needsProvider = Boolean(providers.data) && readyProviders(providers.data).length === 0;
+  const needsProvider =
+    Boolean(providers.data) && readyProviders(providers.data).length === 0;
   // Set up but not chosen: new chats wait for the person's pick (ADR 0020).
-  const needsChoice = Boolean(providers.data) && !needsProvider && !providers.data?.defaultChosen;
+  const needsChoice =
+    Boolean(providers.data) && !needsProvider && !providers.data?.defaultChosen;
   const fitted = prompts.data?.prompts?.length ? prompts.data : null;
   const shown = fitted
-    ? fitted.prompts.map((prompt) => ({ icon: PROMPT_ICONS[prompt.key] ?? Sparkles, title: prompt.title, text: prompt.text }))
+    ? fitted.prompts.map((prompt) => ({
+        icon: PROMPT_ICONS[prompt.key] ?? Sparkles,
+        title: prompt.title,
+        text: prompt.text,
+      }))
     : suggestions;
   const pick = (text: string) => {
     if (fitted?.logId) feedback.mutate({ logId: fitted.logId, accepted: true });
     onPick(text);
   };
   return (
-    <div className={cn("mx-auto max-w-2xl py-8", compact ? "py-3" : "lg:max-w-4xl")}>
-      <div className={cn("flex flex-col gap-5", !compact && "lg:flex-row lg:items-center lg:gap-8")}>
+    <div
+      className={cn(
+        "mx-auto max-w-2xl py-8",
+        compact ? "py-3" : "lg:max-w-4xl",
+      )}
+    >
+      <div
+        className={cn(
+          "flex flex-col gap-5",
+          !compact && "lg:flex-row lg:items-center lg:gap-8",
+        )}
+      >
         <div className="min-w-0 flex-1">
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/8 px-2.5 py-0.5 text-[11px] font-medium text-primary">
             <Sparkles className="size-3.5" />
             Timely assistant
           </div>
-          <h2 className={cn("text-[26px] font-semibold leading-8 tracking-[-0.02em]", compact && "text-xl leading-7")}>What would you like to make happen?</h2>
+          <h2
+            className={cn(
+              "text-[26px] font-semibold leading-8 tracking-[-0.02em]",
+              compact && "text-xl leading-7",
+            )}
+          >
+            What would you like to make happen?
+          </h2>
           <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
-            Turn an idea into a project, shape a sheet, or plan your week. Small changes happen right away; bigger ones wait for your approval.
+            Turn an idea into a project, shape a sheet, or plan your week. Small
+            changes happen right away; bigger ones wait for your approval.
           </p>
         </div>
         {!compact ? (
@@ -122,37 +151,59 @@ export default function EmptyHero({
       {needsProvider ? (
         <div
           data-testid="chat-needs-provider"
-          className={cn("mt-5 flex items-center gap-3 rounded-[12px] border border-primary/25 bg-primary/[0.06] px-3.5 py-2.5", compact && "mt-4")}
+          className={cn(
+            "mt-5 flex items-center gap-3 rounded-[12px] border border-primary/25 bg-primary/[0.06] px-3.5 py-2.5",
+            compact && "mt-4",
+          )}
         >
           <span className="flex size-8 shrink-0 items-center justify-center rounded-[8px] bg-primary/12 text-primary">
             <KeyRound className="size-4" />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium">Connect an AI provider to chat</p>
-            <p className="truncate text-xs text-muted-foreground">Your own OpenRouter key, Claude Code or Codex. The rest of Timely works without one.</p>
+            <p className="text-sm font-medium">
+              Connect an AI provider to chat
+            </p>
+            <p className="truncate text-xs text-muted-foreground">
+              Your own OpenRouter key, Claude Code or Codex. The rest of Timely
+              works without one.
+            </p>
           </div>
-          <Link href="/settings?tab=agent" className={buttonClass({ size: "sm" })}>
+          <Link
+            href="/settings?tab=agent"
+            className={buttonClass({ size: "sm" })}
+          >
             Settings
           </Link>
         </div>
       ) : needsChoice ? (
         <div
           data-testid="chat-needs-choice"
-          className={cn("mt-5 flex items-center gap-3 rounded-[12px] border border-primary/25 bg-primary/[0.06] px-3.5 py-2.5", compact && "mt-4")}
+          className={cn(
+            "mt-5 flex items-center gap-3 rounded-[12px] border border-primary/25 bg-primary/[0.06] px-3.5 py-2.5",
+            compact && "mt-4",
+          )}
         >
           <span className="flex size-8 shrink-0 items-center justify-center rounded-[8px] bg-primary/12 text-primary">
             <KeyRound className="size-4" />
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">Choose a provider for chats</p>
-            <p className="truncate text-xs text-muted-foreground">Chats and Help me write wait until you choose one.</p>
+            <p className="truncate text-xs text-muted-foreground">
+              Chats and Help me write wait until you choose one.
+            </p>
           </div>
-          <Link href="/settings?tab=agent" className={buttonClass({ size: "sm" })}>
+          <Link
+            href="/settings?tab=agent"
+            className={buttonClass({ size: "sm" })}
+          >
             Choose provider
           </Link>
         </div>
       ) : null}
-      <p className="mt-5 px-1 text-[13px] font-semibold text-foreground" data-testid={fitted?.project ? "chat-prompts-project" : undefined}>
+      <p
+        className="mt-5 px-1 text-[13px] font-semibold text-foreground"
+        data-testid={fitted?.project ? "chat-prompts-project" : undefined}
+      >
         {fitted?.project ? `Ideas for ${fitted.project}` : "Try one of these"}
       </p>
       <motion.div
@@ -178,8 +229,12 @@ export default function EmptyHero({
               <Icon className="size-4" />
             </span>
             <span className="min-w-0">
-              <span className="block truncate text-sm font-medium">{title}</span>
-              <span className="block truncate text-xs text-muted-foreground">{text}</span>
+              <span className="block truncate text-sm font-medium">
+                {title}
+              </span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {text}
+              </span>
             </span>
           </motion.button>
         ))}

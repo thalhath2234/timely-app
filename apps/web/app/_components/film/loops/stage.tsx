@@ -1,7 +1,8 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useCurrentFrame } from "remotion";
 import { fade } from "../anim";
-import { C, FONT, FPS } from "../theme";
+import { FONT, FPS } from "../theme";
+import { C } from "./palette";
 
 /**
  * Empty-state loops: four-second compositions drawn with the film kit at a

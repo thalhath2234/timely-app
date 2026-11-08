@@ -77,33 +77,69 @@ func compile(css string) ([][]step, error) {
 // element inside an earlier match is not read twice. No match, or matches
 // with no text, gives ErrEmpty; running out of time gives ErrTooComplex.
 func Select(body []byte, contentType, css string) (string, error) {
-	chains, err := compile(css)
+	nodes, err := selectNodes(body, contentType, css)
 	if err != nil {
 		return "", err
 	}
+	return finish(nodesText(nodes, false))
+}
+
+// SelectPrice reads the price in the part of a page css picks, as a
+// selector_price watch does: the first amount in its text with crossed-out
+// prices inside it left out ("Now ₹499 <s>₹999</s>" and "<s>₹999</s> ₹499"
+// are both 499), else the first amount at all, so a part that is itself a
+// crossed-out price still reads. A part with no price gives ErrEmpty.
+func SelectPrice(body []byte, contentType, css string) (amount float64, currency string, err error) {
+	nodes, err := selectNodes(body, contentType, css)
+	if err != nil {
+		return 0, "", err
+	}
+	amount, currency, ok := nodesPrice(nodes)
+	if !ok {
+		return 0, "", ErrEmpty
+	}
+	return amount, currency, nil
+}
+
+func nodesPrice(nodes []*html.Node) (float64, string, bool) {
+	for _, skipStruck := range []bool{true, false} {
+		if text, err := finish(nodesText(nodes, skipStruck)); err == nil {
+			if amount, currency, ok := ParseMoney(text); ok {
+				return amount, currency, true
+			}
+		}
+	}
+	return 0, "", false
+}
+
+// selectNodes returns the elements css matches on the page, in page order,
+// leaving out any inside an earlier match.
+func selectNodes(body []byte, contentType, css string) ([]*html.Node, error) {
+	chains, err := compile(css)
+	if err != nil {
+		return nil, err
+	}
 	doc, err := parseHTML(body, contentType)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	b := newBudget()
 	matches, err := matchAll(doc, chains, b)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	matched := make(map[*html.Node]bool, len(matches))
 	for _, n := range matches {
 		matched[n] = true
 	}
-	var sb strings.Builder
+	var out []*html.Node
 	inside := 0
 	err = walk(doc, b, func(n *html.Node) {
 		if !matched[n] {
 			return
 		}
 		if inside == 0 {
-			sb.WriteByte('\n')
-			writeChildren(&sb, n, false)
-			sb.WriteByte('\n')
+			out = append(out, n)
 		}
 		inside++
 	}, func(n *html.Node) {
@@ -112,9 +148,46 @@ func Select(body []byte, contentType, css string) (string, error) {
 		}
 	})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return finish(sb.String())
+	return out, nil
+}
+
+// nodesText is the text inside each node, one node per line; skipStruck
+// leaves out crossed-out elements inside them.
+func nodesText(nodes []*html.Node, skipStruck bool) string {
+	var sb strings.Builder
+	for _, n := range nodes {
+		sb.WriteByte('\n')
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			if skipStruck {
+				writeUnstruck(&sb, c)
+			} else {
+				writeText(&sb, c, false)
+			}
+		}
+		sb.WriteByte('\n')
+	}
+	return sb.String()
+}
+
+// writeUnstruck is writeText without chrome dropping and without the
+// crossed-out elements.
+func writeUnstruck(b *strings.Builder, n *html.Node) {
+	if n.Type == html.ElementNode && isStruck(n) {
+		return
+	}
+	if n.Type != html.ElementNode || hidden[n.DataAtom] {
+		writeText(b, n, false)
+		return
+	}
+	if block[n.DataAtom] {
+		b.WriteByte('\n')
+		defer b.WriteByte('\n')
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		writeUnstruck(b, c)
+	}
 }
 
 func writeText(b *strings.Builder, n *html.Node, dropChrome bool) {

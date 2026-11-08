@@ -245,9 +245,55 @@ func TestIntegrationBotPriceFiresOnce(t *testing.T) {
 	if len(day.Points) != 5 {
 		t.Fatalf("a repeated quote added a point: %d", len(day.Points))
 	}
+	// A quote in another currency starts the series again.
+	other := *w.LastReading
+	other.Currency, other.At = "EUR", other.At.Add(time.Minute)
+	must(t, addPricePoint(e.db, w, other))
+	var days []PriceDay
+	must(t, e.db.Where("bot_id = ?", v.ID).Find(&days).Error)
+	if len(days) != 1 || days[0].Currency != "EUR" || len(days[0].Points) != 1 {
+		t.Fatalf("after a quote in another currency: %+v", days)
+	}
 	b := e.bot(v.ID)
 	if b.Strikes != 0 || b.Health != healthWorking || b.CheckingJobID != nil || b.LastOkAt == nil || !b.NextCheckAt.After(e.now) {
 		t.Fatalf("bot after checks %+v", b)
+	}
+}
+
+// A watch that follows one price on a shop page reads it through its
+// selector, keeps a price series and fires its below rule once.
+func TestIntegrationBotSelectorPrice(t *testing.T) {
+	e := newEngine(t)
+	u := "https://books.example.com/catalogue/attic/index.html"
+	price := "£51.77"
+	e.net.set(u, func(req *http.Request) (*http.Response, error) {
+		return reply(req, 200, "text/html; charset=utf-8", `<html><body><div class="product_main"><h1>A Light in the Attic</h1>
+<p class="price_color">`+price+`</p></div><ol><li><p class="price_color">£53.74</p></li></ol></body></html>`), nil
+	})
+	v := e.create(Input{Name: "Attic", Watches: []WatchInput{{Kind: WatchPage, URL: u, Read: ReadSelectorPrice,
+		Selector: "div.product_main > p.price_color", Rules: []Rule{{Kind: RuleBelow, Threshold: f64(40)}}}}})
+	if v.IntervalMinutes != int(MinProductEvery/time.Minute) {
+		t.Fatalf("interval %d", v.IntervalMinutes)
+	}
+	must(t, e.run(v.ID))
+	w := watchRow(t, e.db, v.Watches[0].ID)
+	if c := e.lastCheck(v.ID); c.Outcome != outBaseline || w.LastReading == nil || w.LastReading.Kind != ReadingPrice ||
+		*w.LastReading.Price != 51.77 || w.LastReading.Currency != "GBP" {
+		t.Fatalf("first check %+v / %+v", c, w.LastReading)
+	}
+	for _, step := range []struct{ price, outcome string }{{"£45.00", outChanged}, {"£39.50", outFired}, {"£38.00", outChanged}} {
+		price = step.price
+		e.again(v.ID)
+		if c := e.lastCheck(v.ID); c.Outcome != step.outcome {
+			t.Fatalf("%s: outcome %s", step.price, c.Outcome)
+		}
+	}
+	ntfs := e.notifications()
+	if len(ntfs) != 1 || ntfs[0].Title != "Attic: below 40" {
+		t.Fatalf("notifications %+v", ntfs)
+	}
+	if n := e.count("bot_price_days", "watch_id = ?", v.Watches[0].ID); n == 0 {
+		t.Fatal("no price days for a selector price")
 	}
 }
 
@@ -332,6 +378,25 @@ func TestIntegrationBotProblems(t *testing.T) {
 			t.Fatalf("empty selector %+v / %+v", c, b)
 		}
 		if w := watchRow(t, e.db, v.Watches[0].ID); w.Health != "cant_find" || w.HealthDetail != "The selector matched nothing on the page" {
+			t.Fatalf("watch health %+v", w)
+		}
+	})
+
+	t.Run("price gone from the part", func(t *testing.T) {
+		u := "https://example.net/book"
+		e.net.serve(u, 200, "text/html", `<html><body><p class="price_color">Out of stock</p></body></html>`)
+		v := e.create(Input{Name: "Book", Watches: []WatchInput{{Kind: WatchPage, URL: u, Read: ReadSelectorPrice, Selector: "p.price_color"}}})
+		must(t, e.run(v.ID))
+		if c := e.lastCheck(v.ID); c.Outcome != outStrike || c.ErrorKind != "cant_find" {
+			t.Fatalf("no price in the part %+v", c)
+		}
+		if w := watchRow(t, e.db, v.Watches[0].ID); w.Health != "cant_find" || w.HealthDetail != "The part it reads has no price any more" {
+			t.Fatalf("watch health %+v", w)
+		}
+		// A selector that matches nothing reads the same way.
+		e.net.serve(u, 200, "text/html", `<html><body><p>Gone</p></body></html>`)
+		e.again(v.ID)
+		if w := watchRow(t, e.db, v.Watches[0].ID); w.HealthDetail != "The part it reads has no price any more" || e.bot(v.ID).Strikes != 2 {
 			t.Fatalf("watch health %+v", w)
 		}
 	})
@@ -884,7 +949,9 @@ func TestIntegrationBotRunNow(t *testing.T) {
 	e.now = e.now.Add(time.Minute)
 	res, err := e.s.RunNow(ctx, e.user, "run", OriginApp)
 	must(t, err)
-	if want := e.now.Add(MinPageEvery - time.Minute); !res.RunAt.Equal(want) ||
+	// It runs as early as the claim fence lets it (spacedAt), the time the
+	// board's Check now shows.
+	if want := e.now.Add(MinPageEvery - time.Minute - FenceSlack); !res.RunAt.Equal(want) ||
 		!strings.HasSuffix(res.Line, "Pages and feeds are checked every 15 minutes at most.") {
 		t.Fatalf("run at %v (%s)", res.RunAt, res.Line)
 	}

@@ -184,3 +184,34 @@ func TestNoisyPageHashIsStable(t *testing.T) {
 		t.Fatalf("Hash = %q, want 64 hex characters", Hash(a))
 	}
 }
+
+func TestSelectPrice(t *testing.T) {
+	page := []byte(`<html><body>
+<p class="a">Now ₹499 <s>₹999</s></p>
+<p class="b"><del>₹999</del> ₹499</p>
+<p class="c"><span class="strike">$20</span> $15 <small>Save $5</small></p>
+<s class="d">₹999</s>
+<p class="e"><del>₹999</del></p>
+<p class="f">Out of stock</p>
+</body></html>`)
+	cases := []struct {
+		css    string
+		amount float64
+		err    error
+	}{
+		{"p.a", 499, nil},
+		{"p.b", 499, nil},
+		{"p.c", 15, nil},
+		// A part that is only a crossed-out price still reads it.
+		{"s.d", 999, nil},
+		{"p.e", 999, nil},
+		{"p.f", 0, ErrEmpty},
+		{"p.none", 0, ErrEmpty},
+	}
+	for _, c := range cases {
+		amount, _, err := SelectPrice(page, "text/html", c.css)
+		if !errors.Is(err, c.err) || amount != c.amount {
+			t.Errorf("%s: %v %v, want %v %v", c.css, amount, err, c.amount, c.err)
+		}
+	}
+}

@@ -240,7 +240,10 @@ func (t *describeTools) call(ctx context.Context, call chat.ToolCall) string {
 		if err = json.Unmarshal(args, &in); err == nil {
 			result, err = t.check(ctx, in.Program)
 		}
-	case isReadTool(name) && t.catalog[name].Call != nil:
+	case describeReadTools[name] && isReadTool(name) && t.catalog[name].Call != nil:
+		// Only a tool that was offered runs: a model can name any tool,
+		// and the catalog also holds read tools that reach the network
+		// (preview_bot, ask_bot) a card must never call.
 		result, err = t.catalog[name].Call(ctx, t.userID, args)
 	default:
 		err = fmt.Errorf("unknown tool %q: use only the listed tools, then answer with the program", name)

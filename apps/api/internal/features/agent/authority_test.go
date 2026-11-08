@@ -64,8 +64,11 @@ var expectedAuthority = []struct {
 	{Read, Applies, `list_goals list_habits get_goal_progress list_focus_sessions`},
 	{Write, Applies, `add_habit check_habit`},
 	{Write, ReviewedWhen, `set_goal update_habit`},
-	// Bots (tools_bots.go): MCP-only until chat has a proposal card for them.
-	{MCPOnly, Applies, `list_bots list_bot_findings create_bot update_bot pause_bot run_bot_now`},
+	// Bots (tools_bots.go): chat reads them (preview_bot and ask_bot are chat only), proposes
+	// create and update on a reviewed card, and never pauses or runs one.
+	{Read, Applies, `list_bots list_bot_findings get_bot preview_bot ask_bot`},
+	{Write, Reviewed, `create_bot update_bot`},
+	{MCPOnly, Applies, `pause_bot run_bot_now`},
 }
 
 func TestEveryToolDeclaresAuthority(t *testing.T) {
@@ -122,13 +125,52 @@ func TestMCPServerServesTheCatalog(t *testing.T) {
 		t.Errorf("server info %+v, want title Timely at the build version", info)
 	}
 	catalog := NewCatalog(Deps{})
-	if len(listed.Tools) != len(catalog) {
-		t.Errorf("MCP serves %d tools, catalog has %d", len(listed.Tools), len(catalog))
+	if len(listed.Tools) != len(catalog)-len(chatOnly) {
+		t.Errorf("MCP serves %d tools, catalog has %d of which %d are chat only", len(listed.Tools), len(catalog), len(chatOnly))
 	}
 	for _, tool := range listed.Tools {
 		if _, ok := catalog[tool.Name]; !ok {
 			t.Errorf("MCP serves %s, which the catalog lacks", tool.Name)
 		}
+	}
+}
+
+// chatOnly are the catalog tools MCP never serves: they fetch pages at once,
+// which an outside app must not be able to ask for.
+var chatOnly = []string{"preview_bot", "ask_bot"}
+
+func TestChatOnlyToolsStayOffMCP(t *testing.T) {
+	ctx := context.Background()
+	server, clientSide := mcp.NewInMemoryTransports()
+	session, err := New(Deps{}).Connect(ctx, server, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	client, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, clientSide, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	listed, err := client.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := map[string]bool{}
+	for _, tool := range listed.Tools {
+		served[tool.Name] = true
+	}
+	catalog := NewCatalog(Deps{})
+	for _, name := range chatOnly {
+		if catalog[name].Call == nil {
+			t.Errorf("the chat catalog lacks %s", name)
+		}
+		if served[name] {
+			t.Errorf("MCP serves %s", name)
+		}
+	}
+	if !served["get_bot"] || catalog["get_bot"].Call == nil {
+		t.Error("get_bot is not on both MCP and chat")
 	}
 }
 
@@ -154,7 +196,7 @@ func TestToolAnnotations(t *testing.T) {
 	readOnly := map[string]bool{}
 	for _, name := range strings.Fields(`get_profile get_config list_jobs get_job_health list_project_activity
 	list_task_activity export_account export_calendar export_doc export_tasks_csv get_backup_settings list_backups download_backup
-	list_bots list_bot_findings`) {
+	list_bots list_bot_findings get_bot`) {
 		readOnly[name] = true
 	}
 	destructive := map[string]bool{}

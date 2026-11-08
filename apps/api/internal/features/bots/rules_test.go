@@ -348,6 +348,7 @@ func TestDefaultRules(t *testing.T) {
 		{WatchPage, ReadText, "any_change"},
 		{WatchPage, ReadSelector, "any_change"},
 		{WatchPage, ReadProductPrice, "move_pct 5 down"},
+		{WatchPage, ReadSelectorPrice, "move_pct 5 down"},
 		{WatchFeed, "", "new_item"},
 		{WatchPrice, "", "move_pct 5 any"},
 	}
@@ -462,5 +463,75 @@ func TestCleanRules(t *testing.T) {
 	}
 	if _, err := CleanRules(WatchPage, ReadProductPrice, []Rule{{Kind: RuleBelow, Threshold: f(999)}}); err != nil {
 		t.Errorf("product price rule refused: %v", err)
+	}
+	// One price on the page takes price rules, not words.
+	if ReadingKind(WatchPage, ReadSelectorPrice) != ReadingPrice || ReadingKind(WatchFeed, ReadSelectorPrice) != "" {
+		t.Error("selector_price is not a price reading on a page only")
+	}
+	if _, err := CleanRules(WatchPage, ReadSelectorPrice, []Rule{{Kind: RuleBelow, Threshold: f(40)}}); err != nil {
+		t.Errorf("selector price rule refused: %v", err)
+	}
+	if _, err := CleanRules(WatchPage, ReadSelectorPrice, []Rule{{Kind: RuleWordsAppear, Words: []string{"sale"}}}); err == nil {
+		t.Error("a words rule was taken on a selector price")
+	}
+}
+
+// rearmed logs a below or above rule only on the check where it arms again
+// past the reset band; firing, hovering and other rule kinds are not re-arms.
+func TestRearmed(t *testing.T) {
+	below, err := cleanRule(ReadingPrice, Rule{Kind: RuleBelow, Threshold: f(25000)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	above, err := cleanRule(ReadingPrice, Rule{Kind: RuleAbove, Threshold: f(30000)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	walk := func(r Rule, values ...float64) []bool {
+		prev := priceAt(values[0], 0)
+		st := Rebaseline(r, prev)
+		var out []bool
+		for i, v := range values[1:] {
+			cur := priceAt(v, i+1)
+			_, next := Evaluate(r, st, prev, cur)
+			out = append(out, rearmed(r, st, next, prev, cur))
+			st, prev = next, cur
+		}
+		return out
+	}
+	for _, c := range []struct {
+		name   string
+		r      Rule
+		values []float64
+		want   []bool
+	}{
+		// fire, inside the band, past it, still armed, fire, past it again
+		{"below", below, []float64{27499, 24999, 25050, 25200, 25400, 24800, 26000}, []bool{false, false, true, false, false, true}},
+		{"above", above, []float64{29000, 30100, 29900, 29800, 29000}, []bool{false, false, true, false}},
+		// a baseline already under the line starts disarmed: coming back up arms it
+		{"baseline under the line", below, []float64{24000, 24500, 25200}, []bool{false, true}},
+	} {
+		if got := walk(c.r, c.values...); fmt.Sprint(got) != fmt.Sprint(c.want) {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+
+	// A zero state is rebaselined against prev first, as Evaluate does.
+	prev, cur := priceAt(24000, 0), priceAt(26000, 1)
+	_, next := Evaluate(below, RuleState{}, prev, cur)
+	if !rearmed(below, RuleState{}, next, prev, cur) {
+		t.Error("a zero state under the line did not re-arm")
+	}
+	// A currency change starts again quietly: not a re-arm.
+	usd := Reading{Kind: ReadingPrice, Price: f(26000), Currency: "USD", At: t0.Add(time.Hour)}
+	_, next = Evaluate(below, RuleState{Armed: false, Ref: f(24000)}, prev, usd)
+	if rearmed(below, RuleState{Armed: false, Ref: f(24000)}, next, prev, usd) {
+		t.Error("a currency change counted as a re-arm")
+	}
+	// Other kinds flip Armed on every check and are never logged.
+	for _, r := range []Rule{{Kind: RuleMovePct, Percent: f(5)}, {Kind: RuleWordsAppear, Words: []string{"x"}}, {Kind: RuleAnyChange}} {
+		if rearmed(r, RuleState{Armed: false}, RuleState{Armed: true}, prev, cur) {
+			t.Errorf("%s counted as a re-arm", r.Kind)
+		}
 	}
 }

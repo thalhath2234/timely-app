@@ -193,7 +193,7 @@ export default function NotificationsScreen() {
                     style={styles.headText}
                     onPress={() => {
                       if (!item.readAt) void markRead.mutateAsync(item.id);
-                      // A Bot alert routes here; don't stack a second copy of this screen.
+                      // Never stack a second copy of this screen on itself.
                       if (href !== NOTIFICATIONS_ROUTE) router.push(href as never);
                     }}
                   >

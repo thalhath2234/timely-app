@@ -78,7 +78,11 @@ type Reading struct {
 	Currency string             `json:"currency,omitempty"`
 	Items    []extract.FeedItem `json:"items,omitempty"` // newest MaxItems
 	Seen     []string           `json:"seen,omitempty"`  // newest MaxSeen ids
-	At       time.Time          `json:"at"`
+	// Title is a page's own name (extract.PageTitle), for showing the watch.
+	// It is not part of Hash or of any rule, so a new title never fires or
+	// rebaselines anything.
+	Title string    `json:"title,omitempty"`
+	At    time.Time `json:"at"`
 }
 
 // Event is one rule firing. Evaluate leaves WatchID for the caller.
@@ -94,7 +98,7 @@ func ReadingKind(kind, mode string) string {
 	switch {
 	case kind == WatchPage && (mode == ReadText || mode == ReadSelector):
 		return ReadingText
-	case kind == WatchPage && mode == ReadProductPrice, kind == WatchPrice && mode == "":
+	case kind == WatchPage && (mode == ReadProductPrice || mode == ReadSelectorPrice), kind == WatchPrice && mode == "":
 		return ReadingPrice
 	case kind == WatchFeed && mode == "":
 		return ReadingFeed
@@ -149,7 +153,7 @@ func ValidateRules(kind, mode string, rules []Rule) error {
 func CleanRules(kind, mode string, rules []Rule) ([]Rule, error) {
 	rk := ReadingKind(kind, mode)
 	if rk == "" {
-		return nil, invalid("A watch is a page (text, selector or product_price), a feed or a price")
+		return nil, invalid("A watch is a page (text, selector, product_price or selector_price), a feed or a price")
 	}
 	if len(rules) == 0 {
 		return DefaultRules(kind, mode), nil

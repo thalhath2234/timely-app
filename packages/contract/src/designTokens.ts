@@ -29,7 +29,13 @@ export type ColorTokens = {
   destructiveContainer: string;
   success: string;
   warning: string;
+  /** Text in the warning hue that stays readable on a card ("Your line ₹25,000"). */
+  warningText: string;
+  /** Text in the success hue that stays readable on a card ("+2.4%"). */
+  successText: string;
   border: string;
+  /** A hairline that must show on hover or around a dashed tile. */
+  borderStrong: string;
   input: string;
   ring: string;
   /**
@@ -38,6 +44,12 @@ export type ColorTokens = {
    * `muted` equals `card`, so controls on cards need this one.
    */
   fill: string;
+  /** Chart series; chart1 is the accent's line (a price, a sparkline). */
+  chart1: string;
+  chart2: string;
+  chart3: string;
+  chart4: string;
+  chart5: string;
 };
 
 /** Keys mirrored as `--kebab-case` CSS variables in globals.css. */
@@ -61,10 +73,18 @@ export const CSS_COLOR_TOKENS = [
   "destructiveContainer",
   "success",
   "warning",
+  "warningText",
+  "successText",
   "border",
+  "borderStrong",
   "input",
   "ring",
   "fill",
+  "chart1",
+  "chart2",
+  "chart3",
+  "chart4",
+  "chart5",
 ] as const satisfies readonly (keyof ColorTokens)[];
 
 export const lightColors: ColorTokens = {
@@ -87,10 +107,18 @@ export const lightColors: ColorTokens = {
   destructiveContainer: "#dc2627",
   success: "#179765",
   warning: "#df911a",
+  warningText: "#a15c00",
+  successText: "#0f7a50",
   border: "rgba(0, 0, 0, 0.08)",
+  borderStrong: "rgba(0, 0, 0, 0.14)",
   input: "rgba(0, 0, 0, 0.14)",
   ring: "#4f46e5",
   fill: "#ebebf0",
+  chart1: "#4f46e5",
+  chart2: "#3986e4",
+  chart3: "#9e9ce1",
+  chart4: "#179765",
+  chart5: "#df911a",
 };
 
 export const darkColors: ColorTokens = {
@@ -113,10 +141,18 @@ export const darkColors: ColorTokens = {
   destructiveContainer: "#93000a",
   success: "#4edea3",
   warning: "#ffb95f",
+  warningText: "#ffb95f",
+  successText: "#4edea3",
   border: "rgba(255, 255, 255, 0.08)",
+  borderStrong: "rgba(255, 255, 255, 0.14)",
   input: "rgba(255, 255, 255, 0.14)",
   ring: "#c0c1ff",
   fill: "#1d1d25",
+  chart1: "#c0c1ff",
+  chart2: "#4edea3",
+  chart3: "#8083ff",
+  chart4: "#4edea3",
+  chart5: "#ffb95f",
 };
 
 /** Hex shown for the "default" accent (light primary). */

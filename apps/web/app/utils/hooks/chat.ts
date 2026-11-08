@@ -55,12 +55,16 @@ export function useChatStream() {
       timer = undefined;
       void cache.invalidateQueries({ queryKey: chatsKey });
       if (all) void cache.invalidateQueries({ queryKey: ["chat"] });
-      else for (const id of changed) void cache.invalidateQueries({ queryKey: chatKey(id) });
+      else
+        for (const id of changed)
+          void cache.invalidateQueries({ queryKey: chatKey(id) });
       changed.clear();
       all = false;
     };
     const channel =
-      typeof BroadcastChannel === "undefined" ? undefined : new BroadcastChannel("timely-chat-stream");
+      typeof BroadcastChannel === "undefined"
+        ? undefined
+        : new BroadcastChannel("timely-chat-stream");
     const stop = startChatStream(
       (message) => {
         if (message.type === "live") {

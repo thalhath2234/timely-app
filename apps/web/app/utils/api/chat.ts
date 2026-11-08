@@ -1,3 +1,4 @@
+import type { BotAnswer } from "@timely/contract/bots";
 import { GENUI_CAPABILITY } from "@timely/contract/genui";
 import { apiFetch } from "./client";
 import { browserTimezone } from "./schedule";
@@ -44,7 +45,13 @@ export type ChatMessage = {
   chat?: { id: string; title: string };
   /** What the person chose on a "similar" message. */
   choice?: "move" | "stay";
+  /** The bots (ids, at most 3) a person's message tagged; that turn only answers. */
+  botTags?: string[];
+  /** What the tagged bots know, on the reply written from them. */
+  botAnswers?: BotAnswer[];
 };
+/** A bot picked in the composer's @-picker, sent as `botTags` with one message. */
+export type BotTag = { id: string; name: string };
 /** GET /chats returns only these columns. */
 export type ChatSummary = {
   id: string;

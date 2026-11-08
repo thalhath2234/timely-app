@@ -37,3 +37,13 @@ describe("reseedPicker", () => {
     assert.equal(reseedPicker({ ...base, open: false, value: later, seed: opened, current: opened.picker }), null);
   });
 });
+
+test("pickerFor rounds to a 15-minute step and carries into the next hour", () => {
+  const p = pickerFor(new Date(2026, 10, 7, 15, 59));
+  assert.equal(p.hour, 16);
+  assert.equal(p.minute, 0);
+  const late = pickerFor(new Date(2026, 10, 7, 23, 53));
+  assert.equal(late.day.getDate(), 8);
+  assert.equal(late.hour, 0);
+  assert.equal(pickerFor(new Date(2026, 10, 7, 9, 7)).minute, 0);
+});

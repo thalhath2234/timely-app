@@ -62,7 +62,7 @@ Switching views or modes (List/Kanban, Day/Week/Month, All/Docs/Sheets, System/L
 
 Web `app/_components/_ui/pageHeader.tsx`: 26px semibold title at −0.02em, optional `PageBadge` count, actions on the right as `md` buttons with the primary last, `px-6 pt-5 pb-4`. A description is for a line that carries data (a date, a count); a sentence that only describes the page is left out, and what the page just did goes in a state line at the bottom of the page instead.
 
-Phone `MobileHeader`: tab roots (Today, Tasks, Calendar, Search, Files) use the large 28px title; every pushed screen (`back`) uses the compact 17px title. `large` defaults to `!back`.
+Phone `MobileHeader`: tab roots (Today, Tasks, Calendar, Bots, Search, Files) use the large 28px title; every pushed screen (`back`) uses the compact 17px title. `large` defaults to `!back`.
 
 ## Page with rail
 
@@ -86,7 +86,7 @@ The animated Timely logo (`LogoSpinner`, `LogoLoader`) wherever a spinner would 
 
 ## Empty states
 
-`EmptyState` (`app/_components/_ui/emptyState.tsx`) with a `loop`: a card holding a four-second film loop of the thing to do (320 to 400 px, from `app/_components/film/loops/`, drawn with the film kit and played muted through `@remotion/player`) beside one line of copy and the action. Loops rest on their finished frame when motion is reduced, play only while on screen, and load only with the page that shows them. Inbox, Projects, Files, Dashboard and the assistant's hero use one; a loop without an `EmptyState` sits in its own bordered `bg-panel` box. Without a `loop`, the centred dashed card. Edit loops in Studio (`make film-studio`, folder Loops); `make film-render-loops` writes them as animated WebP for the phone.
+`EmptyState` (`app/_components/_ui/emptyState.tsx`) with a `loop`: a card holding a four-second film loop of the thing to do (320 to 400 px, from `app/_components/film/loops/`, drawn with the film kit and played muted through `@remotion/player`) beside one line of copy and the action. Loops rest on their finished frame when motion is reduced, play only while on screen, and load only with the page that shows them. Inbox, Projects, Files, Dashboard, the Bots page's hero card and the assistant's hero use one; a loop without an `EmptyState` sits in its own bordered `bg-panel` box. Without a `loop`, the centred dashed card. Edit loops in Studio (`make film-studio`, folder Loops); `make film-render-loops` writes them as animated WebP for the phone (`ONLY=<id>` renders one and leaves the others untouched).
 
 ## Week in review
 

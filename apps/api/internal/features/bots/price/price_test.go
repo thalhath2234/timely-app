@@ -129,6 +129,15 @@ func TestRegistry(t *testing.T) {
 	if Sources["finnhub"].KeyHeader == "" || Sources["coinbase"].KeyHeader != "" {
 		t.Error("only Finnhub needs a key")
 	}
+	// A key is tested with one read of the source's probe before it is saved.
+	for name, s := range Sources {
+		if s.KeyHeader == "" {
+			continue
+		}
+		if _, _, err := s.Check(s.Probe, ""); s.Probe == "" || err != nil {
+			t.Errorf("%s: probe %q: %v", name, s.Probe, err)
+		}
+	}
 }
 
 func TestCheck(t *testing.T) {

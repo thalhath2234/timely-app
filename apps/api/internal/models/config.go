@@ -514,6 +514,43 @@ func (a *Appearance) Scan(src any) error {
 	return nil
 }
 
+// BotAlertDefaults are where a new Bot alerts ("Alerts for new bots").
+type BotAlertDefaults struct {
+	Desktop bool `json:"desktop"`
+	Phone   bool `json:"phone"`
+	Urgent  bool `json:"urgent"`
+}
+
+// DefaultBotAlertDefaults is desktop and phone on, urgent off.
+func DefaultBotAlertDefaults() BotAlertDefaults {
+	return BotAlertDefaults{Desktop: true, Phone: true}
+}
+
+func (d BotAlertDefaults) Value() (driver.Value, error) {
+	b, err := json.Marshal(d)
+	return string(b), err
+}
+
+// Scan reads the column; a key left out keeps its default.
+func (d *BotAlertDefaults) Scan(src any) error {
+	*d = DefaultBotAlertDefaults()
+	var b []byte
+	switch v := src.(type) {
+	case nil:
+		return nil
+	case string:
+		b = []byte(v)
+	case []byte:
+		b = v
+	default:
+		return errors.New("unsupported type for BotAlertDefaults scan")
+	}
+	if len(b) == 0 {
+		return nil
+	}
+	return json.Unmarshal(b, d)
+}
+
 func normalizeAccentHex(value string) (string, bool) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
@@ -583,6 +620,10 @@ type Config struct {
 	// desktop ones. Empty until the phone uploads its device views once.
 	MobileTaskViews        TaskViews `gorm:"type:jsonb;not null;default:'[]'" json:"mobileTaskViews"`
 	MobileActiveTaskViewId string    `gorm:"type:text;not null;default:''" json:"mobileActiveTaskViewId"`
+
+	// BotAlertDefaults are the alert switches a new Bot starts with when
+	// whoever makes it leaves them unset: chat and outside apps always do.
+	BotAlertDefaults BotAlertDefaults `gorm:"type:jsonb;not null;default:'{\"desktop\": true, \"phone\": true, \"urgent\": false}'" json:"botAlertDefaults"`
 }
 
 func (c *Config) BeforeCreate(tx *gorm.DB) error {
