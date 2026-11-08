@@ -1,0 +1,20 @@
+---
+name: help-me-write
+description: Help me write (AI drafting in docs + task/project descriptions, web and phone), PR #163, trigger choice and testing notes
+metadata:
+  type: project
+---
+
+2026-10-12 thread "Help me write": user asked for a Help me write tool in Docs and descriptions on desktop and phone, only when a provider/API key is set, and didn't know the best trigger. PR #163 merged into dev 2026-10-12 at the user's "merge all PRs with green CI" (after resolving conflicts with #157/#158/#161/#162). Follow-ups need a fresh branch + new PR.
+
+- Trigger built: option 1 of 4, a labelled "Help me write" button first in the editor toolbar (phone: "Write" pinned at the start of the dock), plus "/" menu entry. The other options shown were an empty-editor chip, a selection bubble, and "/" only. Board: /mnt/project-files/help-me-write/options/options-board.png. No user pick recorded yet.
+- Gate: any ready generative provider (readyProviders); TypeSafe alone does not count. API POST /agent/write uses the default provider, else the first ready one.
+- Shared logic in @timely/contract/helpMeWrite; phone WebView cmds writeInfo/insertWritten in editorHtml.ts.
+- Phone WebView editor does not run on Expo web, so the phone sheet was screenshotted with a temporary web-only hack (not committed), and the insert logic was tested in Chromium against buildEditorHtml. A real-phone check is still needed.
+- Related: [design-system](design-system.md), [help-me-write-replace](help-me-write-replace.md) (2026-11-02 replace vs insert).
+
+2026-10-15 thread "Help me write preview scroll" (PR #208, merged into dev 2026-10-15): preview scrolls (was pointer-events-none); user picked "Dock beside line": on wide doc pages the panel portals into the suggestions aside (writeDock) level with its target line; closing only hides it while it holds a prompt/draft (dot on button); narrow pages keep the popover with the same memory. Rail Insert menu lifts to fit short windows.
+
+2026-10-31 thread "Fix Help me write checklist context": in a checklist doc ("Shopping list") the draft came back as a bullet list (once bullets with literal "[]"), inserted as a separate list. Cause: the clients sent the doc as plain text (editor.getText), so the model never saw tick boxes. Fix on `fix/help-me-write-checklist` (b0382c6), PR #256 MERGED into dev 2026-10-31 on the user's "merge it" (review still running; edge-case fixes on a fresh branch): WriteRequest.doc = editor JSON with WRITE_CURSOR ("TIMELYWRITECURSOR") typed where the draft goes; API write.go reads it with richtext.ToMarkdown, shows `<cursor/>`, drops it for Continue/rewrites, clips around it. Contract writtenContent(markdown, into) reads "- []" and mixed lists as checklists and returns `items` to join the list at the caret (listSpot/cursorDoc in web helpMeWrite.tsx, mirrored in phone editorHtml.ts; phone writeInfo sends doc, list, endList). Proof (stand-in model, phone = editor page in Chromium, not a real phone or model): /mnt/project-files/help-me-write-checklist/. A real Haiku check needs a fresh session with ANTHROPIC_API_KEY [model-key-for-tests](model-key-for-tests.md).
+
+2026-10-31 follow-up (same thread): the #256 review's edge cases fixed on `fix/help-me-write-edge-cases` PR #257 MERGED into dev 2026-10-31 on "create pr and merge it" (79a2ca7): lone empty tick box now reaches the model with the cursor; Summarize/Describe never join the caret's list (web spotFor/joinsList, phone writeList(info, mode, action)); trailing "- [ ]"/"- []" no junk row (contract tidyLists); cursor only for action write from the editor doc, literal <cursor/> escaped; caret in table cell/callout goes after the block. Proof board /mnt/project-files/help-me-write-checklist/edge-cases-dark.png (stand-in model, web only). Review of #257 found Ask for changes sent every refine as "write", so refined summaries joined the caret's list again and refined Continue went to the caret; fixed with Run.place (placeOf) on web and phone, board refine-dark.png.
