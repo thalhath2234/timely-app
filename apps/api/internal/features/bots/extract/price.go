@@ -253,11 +253,13 @@ func indexIDs(v any, ids map[string]map[string]any) {
 }
 
 // JSON-LD @id references can form cycles and shared subtrees, so the reader
-// reads each node at most once per way of reading it and remembers the
-// answer: a second path to a shared node (one priceSpecification named by
-// every variant) gets the same price, without reading it again. A node met
-// again while it is still being read (a cycle) gives nothing. The reader
-// gives up past ldMaxDepth nested nodes or ldMaxSteps steps in all.
+// remembers each node's read per way of reading it: a second path to a
+// shared node (one priceSpecification named by every variant) gets the same
+// price without reading it again. A node met again while it is still being
+// read (a cycle) gives nothing. The reader gives up past ldMaxDepth nested
+// nodes or ldMaxSteps steps in all; a read a cap cut short is redone only
+// from a shallower path, where it has more room, so a node is read at most
+// ldMaxDepth times.
 const (
 	ldMaxDepth = 64
 	ldMaxSteps = 1_000_000
@@ -266,6 +268,7 @@ const (
 	// a page can make megabytes long and name from many places.
 	ldMaxAmount = 64
 	ldMaxWord   = 256
+	ldMaxTypes  = 16 // @type entries looked at
 )
 
 type ldReader struct {
@@ -276,10 +279,14 @@ type ldReader struct {
 	cut   bool // a cap refused a read since cut was last cleared
 }
 
-// ldRead is a node's finished read; a node being read has the zero value.
+// ldRead is a node's read: busy while it is being read, then its answer,
+// whether a cap cut it short, and the depth it was read at.
 type ldRead struct {
-	p  Price
-	ok bool
+	p     Price
+	ok    bool
+	busy  bool
+	cut   bool
+	depth int
 }
 
 func newLDReader(ids map[string]map[string]any) *ldReader {
@@ -310,12 +317,19 @@ func (ld *ldReader) step() bool {
 
 // once reads m the given way with read, or returns the answer of the read
 // already made. A node still being read, or one past the caps, gives
-// nothing; each new read counts a step. A read the depth or step cap cut
-// short is not remembered: from a shallower path it may find more.
+// nothing; each new read counts a step. A remembered read that a cap cut
+// short is reused, and marks this read cut too, unless this path is
+// shallower: then it is read again.
 func (ld *ldReader) once(m map[string]any, how byte, read func() (Price, bool)) (Price, bool) {
 	v := ldVisit{node: reflect.ValueOf(m).Pointer(), how: how}
 	if r, done := ld.read[v]; done {
-		return r.p, r.ok
+		if r.busy {
+			return Price{}, false
+		}
+		if !r.cut || ld.depth >= r.depth || ld.steps >= ldMaxSteps {
+			ld.cut = ld.cut || r.cut
+			return r.p, r.ok
+		}
 	}
 	if ld.depth >= ldMaxDepth || ld.steps >= ldMaxSteps {
 		ld.cut = true
@@ -323,16 +337,13 @@ func (ld *ldReader) once(m map[string]any, how byte, read func() (Price, bool)) 
 	}
 	outer := ld.cut
 	ld.cut = false
-	ld.read[v] = ldRead{}
+	at := ld.depth
+	ld.read[v] = ldRead{busy: true}
 	ld.steps++
 	ld.depth++
 	p, ok := read()
 	ld.depth--
-	if ld.cut {
-		delete(ld.read, v)
-	} else {
-		ld.read[v] = ldRead{p: p, ok: ok}
-	}
+	ld.read[v] = ldRead{p: p, ok: ok, cut: ld.cut, depth: at}
 	ld.cut = ld.cut || outer
 	return p, ok
 }
@@ -445,7 +456,7 @@ func (ld *ldReader) offerIn(m map[string]any) (Price, bool) {
 	for _, k := range keys {
 		if amount, raw, ok := ldAmount(m[k]); ok {
 			if !KnownAvailability(avail) && aggregate {
-				avail = ld.offersAvailability(m["offers"], amount, cur)
+				avail = ld.offersAvailability(m["offers"], amount, currencyCode(cur, raw))
 			}
 			return Price{Amount: amount, Currency: currencyCode(cur, raw), From: "jsonld", Availability: avail}, true
 		}
@@ -530,8 +541,8 @@ func sameCurrency(a, b string) bool {
 // specification's.
 func (ld *ldReader) offerAmount(o map[string]any) (float64, string, bool) {
 	cur := ldString(o["priceCurrency"])
-	if amount, _, ok := ldAmount(o["price"]); ok {
-		return amount, cur, true
+	if amount, raw, ok := ldAmount(o["price"]); ok {
+		return amount, currencyCode(cur, raw), true
 	}
 	specs := []any{o["priceSpecification"]}
 	if list, ok := o["priceSpecification"].([]any); ok {
@@ -543,11 +554,11 @@ func (ld *ldReader) offerAmount(o map[string]any) (float64, string, bool) {
 		}
 		if m, ok := s.(map[string]any); ok {
 			spec := ld.resolve(m)
-			if amount, _, ok := ldAmount(spec["price"]); ok {
+			if amount, raw, ok := ldAmount(spec["price"]); ok {
 				if c := ldString(spec["priceCurrency"]); c != "" {
 					cur = c
 				}
-				return amount, cur, true
+				return amount, currencyCode(cur, raw), true
 			}
 		}
 	}
@@ -561,12 +572,11 @@ func (ld *ldReader) offerAmount(o map[string]any) (float64, string, bool) {
 // node's answer at no cost.
 func (ld *ldReader) samePriceAvailability(siblings []any, p Price, read func(*ldReader, any) (Price, bool)) string {
 	best := p.Availability
+	outer := ld.cut
+	ld.cut = false
+	defer func() { ld.cut = ld.cut || outer }()
 	for _, c := range siblings {
 		if !ld.step() {
-			// The look was cut short: a sibling not read may be buyable.
-			if !Buyable(best) {
-				return AvailUnknown
-			}
 			break
 		}
 		if list, isList := c.([]any); isList {
@@ -580,6 +590,10 @@ func (ld *ldReader) samePriceAvailability(siblings []any, p Price, read func(*ld
 			best = q.Availability
 		}
 	}
+	// A sibling a cap cut short may have been buyable.
+	if ld.cut && !Buyable(best) {
+		return AvailUnknown
+	}
 	return best
 }
 
@@ -589,13 +603,16 @@ func isType(m map[string]any, names ...string) bool {
 	case string:
 		types = []string{t}
 	case []any:
-		for _, x := range t {
+		for _, x := range t[:min(len(t), ldMaxTypes)] {
 			if s, ok := x.(string); ok {
 				types = append(types, s)
 			}
 		}
 	}
 	for _, t := range types {
+		if len(t) > ldMaxWord {
+			continue
+		}
 		if i := strings.LastIndexAny(t, "/:#"); i >= 0 {
 			t = t[i+1:]
 		}

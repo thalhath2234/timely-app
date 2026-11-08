@@ -323,3 +323,57 @@ func TestProductPriceCutLookReadsUnknown(t *testing.T) {
 		t.Fatalf("got %+v, %v; want 19 with unknown availability", got, err)
 	}
 }
+
+// A shared structure deeper than the depth cap is read once per depth, not
+// once per path, and the real offer after it is still read.
+func TestProductPriceDeepSharedStructure(t *testing.T) {
+	specDAG := func(types int) string {
+		var b strings.Builder
+		b.WriteString(`{"@graph":[{"@type":"Product","offers":[{"@id":"#s0"},{"@type":"Offer","price":"10","priceCurrency":"USD","availability":"InStock"}]}`)
+		for i := range 58 {
+			fmt.Fprintf(&b, `,{"@type":"Offer","@id":"#s%d","priceSpecification":[{"@id":"#s%d"},{"@id":"#s%d"}]}`, i, i+1, i+1)
+		}
+		b.WriteString(`,{"@id":"#s58","@type":[` + strings.TrimSuffix(strings.Repeat(`"PriceSpecification",`, types), ",") + `],"priceSpecification":{"@id":"#t0"}}`)
+		for i := range 6 {
+			fmt.Fprintf(&b, `,{"@id":"#t%d","priceSpecification":{"@id":"#t%d"}}`, i, i+1)
+		}
+		b.WriteString(`,{"@id":"#t6","x":1}]}`)
+		return b.String()
+	}
+	deepRefs := func(n int, node string) string {
+		return strings.Repeat(`{"a":`, 62) + `{"l":[` + strings.TrimSuffix(strings.Repeat(`{"@id":"n"},`, n), ",") + `]}` + strings.Repeat("}", 62) +
+			`</script><script type="application/ld+json">` + node +
+			`</script><script type="application/ld+json">{"@type":"Product","offers":{"price":"10","priceCurrency":"USD","availability":"InStock"}}`
+	}
+	cases := []struct{ name, ld string }{
+		{"two refs per level past the depth cap", specDAG(1)},
+		{"the same with a long @type list", specDAG(10000)},
+		{"many deep refs to a node with a huge @type list", deepRefs(2000, `{"@id":"n","@type":[`+strings.Repeat(`"x",`, 200000)+`"Product"],"hasVariant":{"b":1}}`)},
+		{"many deep refs to a node with a huge @type string", deepRefs(2000, `{"@id":"n","@type":"`+strings.Repeat("a", 1<<20)+`","0":{}}`)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			page := []byte(`<html><head><script type="application/ld+json">` + c.ld + `</script></head><body></body></html>`)
+			start := time.Now()
+			got, err := ProductPrice(page, "text/html")
+			if d := time.Since(start); d > 300*time.Millisecond {
+				t.Fatalf("took %v for a %d KB page", d, len(page)/1024)
+			}
+			if want := (Price{10, "USD", "jsonld", AvailInStock}); err != nil || got != want {
+				t.Fatalf("got %+v, %v; want %+v", got, err, want)
+			}
+		})
+	}
+}
+
+// A sibling whose read the step cap cut short never leaves a sold-out
+// answer that would hold the alert.
+func TestProductPriceCutSiblingNeverHolds(t *testing.T) {
+	ld := `{"@type":"ProductGroup","hasVariant":[{"@type":"Product","offers":{"@type":"Offer","price":10,"priceCurrency":"USD","availability":"OutOfStock"}},{"@type":"Product","offers":[` +
+		strings.Repeat("0,", 1_100_000) + `{"@type":"Offer","price":10,"priceCurrency":"USD","availability":"InStock"}]}]}`
+	page := `<html><head><script type="application/ld+json">` + ld + `</script></head></html>`
+	got, err := ProductPrice([]byte(page), "text/html")
+	if err != nil || got.Amount != 10 || Unbuyable(got.Availability) {
+		t.Fatalf("got %+v, %v; want 10 and not sold out", got, err)
+	}
+}
