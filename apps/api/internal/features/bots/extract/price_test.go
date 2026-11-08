@@ -175,3 +175,47 @@ func TestProductPriceJSONLDReferences(t *testing.T) {
 		})
 	}
 }
+
+// Many offers that all name one shared AggregateOffer read it once: each
+// sibling re-reading its offers made the work offers × siblings.
+func TestProductPriceSharedAggregateOfferReadOnce(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`{"@graph":[{"@type":"Product","offers":[`)
+	for i := range 3000 {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		b.WriteString(`{"@id":"#agg"}`)
+	}
+	b.WriteString(`]},{"@type":"WebPage","mainEntity":{"@id":"#agg","@type":"AggregateOffer","lowPrice":"8","priceCurrency":"EUR","offers":[`)
+	for i := range 1000 {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		fmt.Fprintf(&b, `{"price":"%d","availability":"InStock"}`, 8+i%5)
+	}
+	b.WriteString(`]}}]}`)
+	page := []byte(`<html><head><script type="application/ld+json">` + b.String() + `</script></head><body></body></html>`)
+	start := time.Now()
+	got, err := ProductPrice(page, "text/html")
+	if d := time.Since(start); d > 300*time.Millisecond {
+		t.Fatalf("took %v for a %d KB page", d, len(page)/1024)
+	}
+	if want := (Price{8, "EUR", "jsonld", AvailInStock}); err != nil || got != want {
+		t.Fatalf("got %+v, %v; want %+v", got, err, want)
+	}
+}
+
+// offersAvailability counts the offers it looks at against the step cap and
+// stops once the cap is reached.
+func TestOffersAvailabilityCountsSteps(t *testing.T) {
+	offers := []any{map[string]any{"price": "8", "availability": "InStock"}, map[string]any{"price": "9", "availability": "OutOfStock"}}
+	ld := &ldReader{seen: map[ldVisit]bool{}}
+	if got := ld.offersAvailability(offers, 8); got != AvailInStock || ld.steps != 3 {
+		t.Fatalf("got %q after %d steps", got, ld.steps)
+	}
+	ld = &ldReader{seen: map[ldVisit]bool{}, steps: ldMaxSteps}
+	if got := ld.offersAvailability(offers, 8); got != AvailUnknown || ld.steps != ldMaxSteps {
+		t.Fatalf("past the cap: got %q after %d steps", got, ld.steps)
+	}
+}
