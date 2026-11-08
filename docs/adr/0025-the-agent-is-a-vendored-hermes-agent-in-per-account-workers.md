@@ -21,15 +21,16 @@ tagged release on a vendor line and merges it into Timely with a merge commit,
 never a squash or rebase. Upstream tags are unsigned, so the sync checks each
 tag against GitHub's releases and Timely's record of every tag it imported, and
 refuses a moved tag. Tagged releases are taken every one or two weeks, security
-fixes at once. Timely never edits, moves, reformats or deletes a vendored file.
-Its own code lives in adapters at `apps/agent/timely_agent/` and plugs in
-through Hermes' public seams: constructor arguments, callbacks, plugin hooks
-and config files. Edits inside vendored files start at zero, each marked and
-listed, with a hard cap of five (the recommended answer to Q-1.3 in the plan).
-A sync merges only when every new tool is classified in Timely's tool policy,
-every changed skill has been read by a developer, the seams Timely relies on
-are unchanged or re-reviewed, and the contract tests pass. A tool the policy
-does not know is blocked.
+fixes at once, and there is no scheduled CI job that opens draft sync PRs (the
+owner's answer to Q-1.2). Timely never edits, moves, reformats or deletes a
+vendored file. Its own code lives in adapters at `apps/agent/timely_agent/` and
+plugs in through Hermes' public seams: constructor arguments, callbacks, plugin
+hooks and config files. Edits inside vendored files start at zero, each marked
+and listed, with a hard cap of five (the recommended answer to Q-1.3 in the
+plan). A sync merges only when every new tool is classified in Timely's tool
+policy, every changed skill has been read by a developer, the seams Timely
+relies on are unchanged or re-reviewed, and the contract tests pass. A tool the
+policy does not know is blocked.
 
 **One worker per active account, spawned by the Go API.** For each account in
 use, the API starts one Python process with its own agent home (the account's
@@ -69,16 +70,22 @@ only as Agent proposals (ADR 0007), which Go applies with today's model-free
 apply; write tools are never Hermes tools. Provider selection, encrypted
 per-account keys and the provider fixed at claim stay in Go (ADR 0009,
 ADR 0019, ADR 0020). Go hands the run's key to the worker for each run, and
-Hermes calls API-key providers directly. The Claude Code and Codex CLIs, and
-Sensitive runs, go through a Go model endpoint on its own 127.0.0.1 listener,
-never the API's Tailscale address.
+Hermes calls API-key providers directly. Hermes' fallback to another model
+(`fallback_model`) is never configured, and its auxiliary calls (compression,
+titles, the learning pass) use only the run's provider or the person's chosen
+learning model, so Timely still never switches providers silently. The Claude
+Code and Codex CLIs, and Sensitive runs, go through a Go model endpoint on its
+own 127.0.0.1 listener, never the API's Tailscale address.
 
 **Host actions need the person, every call.** Every terminal, process, code,
 file and browser call passes a Timely gate plugin that asks Go, then Hermes'
-own approval gate, which Timely shows as a host card: Run once or Deny. Hermes'
-"always allow" lists are never offered, and no skill, memory or prompt can
-grant an approval. A worker whose gate plugin is not loaded refuses to serve,
-and a gate that does not answer in time denies. Only a host-trusted account
+own approval gate, which Timely shows as a host card: Run once or Deny (the
+recommended answer to Q-5.1, which also asks whether to add "Allow for this
+chat" as a grant Timely keeps itself). Hermes' "always allow" lists are never
+offered, and no skill, memory or prompt can grant an approval. A worker whose
+gate plugin is not loaded refuses to serve, and a gate that does not answer in
+time denies. Whether a card may be approved only in the desktop window or on
+any device after device unlock is open (Q-5.7). Only a host-trusted account
 (below) can run commands or touch files on the host at all.
 
 **Timely apps only.** The agent and Bots are reachable only through Timely web,
@@ -108,7 +115,8 @@ account may be host-trusted on the local terminal backend; a second is refused
 with that reason, unless a sandboxed (Docker) terminal backend exists, which
 then becomes mandatory for every host-trusted account. Accounts that are not
 host-trusted keep the agent's other features but never get terminal, file or
-code tools or MCP servers that start a program on the host.
+code tools or MCP servers that start a program on the host. These rules are the
+recommended answer to Q-5.2.
 
 ## Consequences
 
@@ -134,8 +142,8 @@ code tools or MCP servers that start a program on the host.
   - ADR 0007: Timely data still changes only through Agent proposals; host
     actions get per-call approval, once or deny.
   - ADR 0008: runs live in the worker; a lost run fails with Try again naming
-    possible host effects; approval waits are bounded (a 10-minute live wait,
-    then the card is parked).
+    possible host effects; approval waits are bounded (recommended in Q-5.1: a
+    10-minute live wait, then the card is parked).
   - ADR 0009: "the runner keeps the tool loop" is superseded. Selection on the
     API host, encrypted keys and driving a CLI as a pure model (now through the
     Go model endpoint) stand.
@@ -143,14 +151,32 @@ code tools or MCP servers that start a program on the host.
     folder backups include agent state.
   - ADR 0012: triage no longer narrows the tools offered on the new engine.
   - ADR 0021 and ADR 0024: changed by ADR 0026.
-  - ADR 0022: chat uses Hermes' browser tools on the person's own browser;
-    Timely typing the saved password becomes an adapter; whether the
-    script-running browser tool is allowed on signed-in pages is an open
-    question (Q-5.3 in the plan).
+  - ADR 0022: chat uses Hermes' browser tools on the person's own browser, and
+    Timely typing the saved password becomes an adapter. ADR 0022 never lets
+    the model run script in a page, on any page, and every Hermes browser tool
+    either runs script or sends raw browser commands. Adopting them in chat
+    therefore amends that rule, and Q-5.3 in the plan decides how far: pages
+    that are not signed in only, or signed-in pages too. Until the owner
+    answers, ADR 0022's rule stands and the script-running tools stay off.
   - ADR 0023: Go as Timely's MCP client is superseded by Hermes' MCP client,
     with the gate enforcing the person's Tool choice; Can use, Ask me first and
-    Off stay. MCP servers that start a program on the host are for the
-    host-trusted account only.
+    Off stay, and MCP servers that start a program on the host are for the
+    host-trusted account only. Tool watches and "Fixed calls first" go with the
+    rules engine. In Bots, ADR 0026's egress policy replaces the rule that no
+    MCP call follows a read of the person's data or another service's results:
+    read-only Can use tools the person allowed for Bots may still run after the
+    run has read outside content. In chat, that rule stands: after the
+    conversation has read the person's Timely data or another service's
+    results, an MCP call the model picks becomes a card with every argument
+    shown, which the gate enforces from what the run has read (the plan's chat
+    exfiltration rule, section 12, must cover MCP calls too). MCP tokens move
+    from the Secure Store's `TIMELY_VAULT_KEY` to `agent_secrets`, sealed like
+    provider keys, and sit as plaintext files in the agent home while a worker
+    runs, where an approved host command can read them; they are never backed
+    up. Tool-definition fingerprinting stays: the gate blocks a tool whose
+    definition differs from the one the person approved until they review it.
+    The plan has not designed that for Hermes' client yet; it belongs to
+    phase 5.
   - ADR 0013 to ADR 0020 stand.
 
 ## Considered Options

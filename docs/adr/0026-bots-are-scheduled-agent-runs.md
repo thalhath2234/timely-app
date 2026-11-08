@@ -14,17 +14,18 @@ has the detail.
 
 **Go keeps the schedule, the queue and the record.** The sweep, the `bot_check`
 lane, claims, strikes, caps, Pause all, alerts and backups stay in Go and
-Postgres as ADR 0021 set them. The worker does one thing: run a Check that
-wakes the agent as one agent turn, with a fresh agent each time, a small tool
-set, no learning pass and no entry in past-chat search. Hermes' own cron ticker
-never starts. Its scheduling tool is replaced by a Timely one that turns
-"create a job" into a Bot proposal, so Hermes skills that schedule work keep
-working. Timely reuses Hermes' cron prompt pieces, including its `[SILENT]`
-reply for "nothing to report". A Bot is a "What to do" prompt plus optional
-Watches, skills, a schedule (every N minutes, a daily or weekday time, a cron
-string, or only while a market is open) and a model. Today's per-source minimum
-intervals stay as floors, and a Bot with no Watches waits at least 15 minutes
-between runs.
+Postgres as ADR 0021 and ADR 0024 set them, except that agent runs take two
+slots in the lane instead of three, so long runs never starve passes. The
+worker does one thing: run a Check that wakes the agent as one agent turn, with
+a fresh agent each time, a small tool set, no learning pass and no entry in
+past-chat search. Hermes' own cron ticker never starts. Its scheduling tool is
+replaced by a Timely one that turns "create a job" into a Bot proposal, so
+Hermes skills that schedule work keep working. Timely reuses Hermes' cron
+prompt pieces, including its `[SILENT]` reply for "nothing to report". A Bot is
+a "What to do" prompt plus optional Watches, skills, a schedule (every N
+minutes, a daily or weekday time, a cron string, or only while a market is
+open) and a model. Today's per-source minimum intervals stay as floors, and a
+Bot with no Watches waits at least 15 minutes between runs.
 
 **The agent wakes only when content changes.** For every Bot with Watches, Go
 first reads them with the Bot fetcher (address guard, robots.txt, per-site
@@ -74,22 +75,24 @@ the alert, is an open question (Q-B5 in the plan). Bots never apply anything
 they learn (ADR 0027).
 
 **Costs and failures stay visible.** Runs are counted in the existing log
-against today's caps: 20 per Bot and 200 per account per local day, 6 per
-chain, with tokens stored per Check and shown on the Bots page. A model that
-cannot be reached is tried again after 5, 15 and 30 minutes without a strike; a
-rate limit holds the next check; timeouts and crashes are strikes, and five in
-a row pause the Bot with one alert. With no provider the Bot shows "Needs AI"
-and does nothing. There is no rules fallback, which is a deliberate change from
-ADR 0021: during an AI outage, alerts are late rather than sent unchecked.
+against today's caps: 20 per Bot and 200 per account per local day, 6 per chain
+(the recommended answer to Q-B7), with tokens stored per Check and shown on the
+Bots page. A model that cannot be reached is tried again after 5, 15 and 30
+minutes without a strike; a rate limit holds the next check; timeouts and
+crashes are strikes, and five in a row pause the Bot with one alert. With no
+provider the Bot shows "Needs AI" and does nothing. There is no rules fallback,
+which is a deliberate change from ADR 0021: during an AI outage, alerts are
+late rather than sent unchecked.
 
 **Existing Bots convert with approval.** Each Bot's rules become prompt words
 ("Alert when the price is below ₹90,000 and it can be bought. Stay silent
 otherwise.") and the conversion is shown as a "Switch to agent" proposal; only
-approval switches it. Alerts, Findings, price history and Lessons are kept. The
-rules, judge, re-judge and suggestion code are deleted once every Bot has
-switched. MCP keeps its limits: Bots it creates start paused, and it can never
-set a Bot's tools, browser grants, extra hosts, skills or model, nor edit an
-active Bot's prompt.
+approval switches it. Adding "and it can be bought" to product price rules, and
+approving one Bot at a time or in bulk, are the owner's to settle (Q-B4).
+Alerts, Findings, price history and Lessons are kept. The rules, judge,
+re-judge and suggestion code are deleted once every Bot has switched. MCP keeps
+its limits: Bots it creates start paused, and it can never set a Bot's tools,
+browser grants, extra hosts, skills or model, nor edit an active Bot's prompt.
 
 **Chat and Bots become one tab.** Once a Bot is an unattended agent run and a
 chat an attended one, the Chat and Bots tabs merge into one tab on web, desktop
@@ -98,19 +101,30 @@ their runs, Bot alerts and everything waiting for the person. It ships with
 agent Bots, old chat and Bot links redirect into it, and its design is the
 owner's pick of three (Q-7.12 in the plan).
 
-**This supersedes parts of ADR 0024 and amends ADR 0021.** From ADR 0024 (on
-`feature/bots-ai`), "rules spot, AI judges", the judge with no tools, the
-re-judge ladder, "Not checked by AI" and rule suggestions are superseded. Typed
+**This supersedes parts of ADR 0024 and ADR 0023 and amends ADR 0021.** From
+ADR 0024, "rules spot, AI judges", the judge with no tools, the re-judge
+ladder, "Not checked by AI" and rule suggestions are superseded. So is its rule
+that model-written text lives only in the alert it judged while Findings, the
+last alert, passed notes and briefs use words code made from the rules: those
+words no longer exist, because Findings, Things, alert titles and passed notes
+now come from the run's `bot_report`. What replaces it: model-written Findings,
+notes and last alerts carry the outside-data mark and reach a later run only
+inside JSON-escaped `<data>` blocks, never as wishes; the egress policy limits
+what an injected run can send out; and Bots never apply what they learn. Typed
 pass notes, Things, pass limits and no loops, briefs, Pause all, AI urgency
 never breaking quiet hours, the MCP limits and caps counted in a log all stay;
-a passed note now starts an agent run of the receiving Bot. In ADR 0021, "Rules
-spot a change; the AI only judges it" and "Bots work with no AI at all" no
-longer hold; the job queue, the Bot's own next-check time as the only schedule,
-the Bot fetcher, alerts and the size limits stand. When this ADR is accepted,
-CONTEXT.md changes with it: a Check becomes one scheduled agent run of a Bot,
-or a skipped one when nothing changed; Bot prompt and Bot notepad are added;
-the AI judge goes; Lesson is reworded and later replaced by the Bot's learned
-skill.
+a passed note now starts an agent run of the receiving Bot. From ADR 0023, Tool
+watches, "Fixed calls first" and refusing every model-picked MCP call in a
+research Bot once it has read outside content are superseded by the egress
+policy above, which still allows read-only Connected service tools the person
+allowed for Bots (ADR 0025 lists the rest of ADR 0023's changes). In ADR 0021,
+"Rules spot a change; the AI only judges it" and "Bots work with no AI at all"
+no longer hold; the job queue, the Bot's own next-check time as the only
+schedule, the Bot fetcher, alerts and the size limits stand. When this ADR is
+accepted, CONTEXT.md changes with it: a Check becomes one scheduled agent run
+of a Bot, or a skipped one when nothing changed; Bot prompt and Bot notepad are
+added; the AI judge goes; Lesson is reworded and later replaced by the Bot's
+learned skill.
 
 ## Considered Options
 
