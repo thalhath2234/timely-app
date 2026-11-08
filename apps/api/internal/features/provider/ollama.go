@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"timely-api/internal/features/chat"
+	"timely-api/internal/netguard"
 )
 
 // ollamaContext is the context window asked of Ollama. Its OpenAI-compatible
@@ -299,34 +300,8 @@ func typedUnreadable(label, base string, err error) error {
 	return &typedError{msg: fmt.Sprintf("%s did not answer like an %s server. Check the address", base, label), err: err}
 }
 
-// publicAddr reports whether ip is on the public internet: not this machine,
-// not a private, shared (CGNAT), link-local or reserved range, and not an
-// IPv6 form that wraps one of those.
-func publicAddr(ip netip.Addr) bool {
-	ip = ip.Unmap()
-	if !ip.IsValid() || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsInterfaceLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
-		return false
-	}
-	for _, p := range nonPublic {
-		if p.Contains(ip) {
-			return false
-		}
-	}
-	return true
-}
-
-var nonPublic = []netip.Prefix{
-	netip.MustParsePrefix("0.0.0.0/8"),      // "this network"
-	netip.MustParsePrefix("100.64.0.0/10"),  // shared address space (CGNAT, Tailscale)
-	netip.MustParsePrefix("192.0.0.0/24"),   // IETF protocol assignments
-	netip.MustParsePrefix("198.18.0.0/15"),  // benchmarking
-	netip.MustParsePrefix("240.0.0.0/4"),    // reserved and broadcast
-	netip.MustParsePrefix("64:ff9b::/96"),   // NAT64 wraps IPv4
-	netip.MustParsePrefix("64:ff9b:1::/48"), // local NAT64
-	netip.MustParsePrefix("2002::/16"),      // 6to4 wraps IPv4
-	netip.MustParsePrefix("2001::/32"),      // Teredo wraps IPv4
-}
+// publicAddr reports whether ip is on the public internet (see netguard).
+func publicAddr(ip netip.Addr) bool { return netguard.PublicAddr(ip) }
 
 // publicOnly is a dialer check run on every connection, after DNS, so a name
 // that resolves (or later re-resolves) to a private address is refused too.
@@ -336,7 +311,7 @@ func publicOnly(_, address string, _ syscall.RawConn) error {
 		return errPrivateAddress
 	}
 	ip, err := netip.ParseAddr(host)
-	if err != nil || !publicAddr(ip) {
+	if err != nil || !netguard.PublicAddr(ip) {
 		return errPrivateAddress
 	}
 	return nil

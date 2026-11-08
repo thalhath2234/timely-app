@@ -15,7 +15,7 @@ Timely is a **multi-account, single-user personal productivity system**. Multipl
 | **Desktop web / Electron** | Full product: sidebar, AI Chat, Today, Inbox, saved task views, week calendar, auto-schedule, project hub, settings, reports, rich editors, command palette; the same web app also has an Electron shell with native chat notifications |
 | **Native app** | Expo Android/iOS: Home, Calendar, Tasks, Search (command palette), Files tabs; pinch-to-open AI assistant with camera/receipt capture; Inbox/Today, local reminder notifications (permission on first launch), working hours, API keys, export |
 | **API** | Email/password JWT + refresh tokens, CRUD, calendar engine, semantic search, SSE for docs, Postgres job queue, in-app agent runner with OpenRouter, direct API (Anthropic, OpenAI, Gemini, DeepSeek, xAI, Mistral, Z.ai, Kimi, Ollama, NVIDIA, OpenCode Zen/Go), Claude Code and Codex providers |
-| **Hermes / MCP** | 174 tools on `/mcp` with a personal API key — the agent can do almost everything the UI can, including export/backup/restore and sheet templates |
+| **Hermes / MCP** | 180 tools on `/mcp` with a personal API key — the agent can do almost everything the UI can, including export/backup/restore and sheet templates |
 
 Ownership is always “this user owns this row.” No members, roles, invites, or resource ACLs.
 
@@ -574,7 +574,7 @@ Mint an API key → point Hermes at `/mcp`. The server instructions tell the age
 
 Destructive actions — `delete_workspace`, `delete_project`, `delete_doc`, `delete_backup`, `restore_account` — require `confirm=true`; `restore_account` also needs `mode="replace"` (like `POST /restore?mode=replace`) and refuses a backup without the account settings and a workspace. Prefer `archive_doc` / `archive_sheet` over delete. Deleting a document does not cascade to subpages.
 
-### Complete MCP tool list (172)
+### Complete MCP tool list (180)
 
 **Context / intelligence (7):** `get_context`, `search`, `semantic_search`, `reindex_search`, `get_agenda`, `get_free_time`, `what_next`
 
@@ -599,6 +599,8 @@ Destructive actions — `delete_workspace`, `delete_project`, `delete_doc`, `del
 **Portability (11):** `export_account`, `export_tasks_csv`, `export_calendar`, `export_doc` (markdown, or PDF as base64), `get_backup_settings`, `update_backup_settings` (interval and retention 1–30), `create_backup`, `list_backups`, `download_backup`, `delete_backup`, `restore_account`
 
 **Habits / goals / suggestions (9):** `list_habits`, `add_habit`, `check_habit`, `update_habit`, `list_goals`, `set_goal`, `get_goal_progress`, `get_today_suggestions`, `list_stale_work`
+
+**Bots (6):** `list_bots`, `list_bot_findings`, `create_bot`, `update_bot`, `pause_bot`, `run_bot_now`. MCP clients only; chat does not get them yet. A bot made or changed here starts paused, and only the person turns it on and sets its alerts, in Timely. `run_bot_now` refuses a paused bot.
 
 Every tool carries MCP annotations: reads are `readOnlyHint`, and deletes and overwrites are `destructiveHint`, so clients can run reads without asking and confirm the rest.
 

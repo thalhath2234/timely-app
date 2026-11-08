@@ -3,6 +3,7 @@ module timely-api
 go 1.25.7
 
 require (
+	github.com/andybalholm/cascadia v1.3.5
 	github.com/anthropics/anthropic-sdk-go v1.78.0
 	github.com/dop251/goja v0.0.0-20261010124532-447a94be0917
 	github.com/golang-jwt/jwt/v5 v5.3.1
@@ -12,8 +13,9 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pressly/goose/v3 v3.27.1
 	github.com/yuin/goldmark v1.8.6
-	golang.org/x/crypto v0.50.0
+	golang.org/x/crypto v0.54.0
 	golang.org/x/image v0.44.0
+	golang.org/x/net v0.57.0
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.1
 )
@@ -39,7 +41,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 )
 
 require (

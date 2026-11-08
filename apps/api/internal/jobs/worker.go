@@ -27,7 +27,13 @@ type Worker struct {
 	id       string
 	// lanes are groups of kinds that run on lanes of their own; every other
 	// kind runs on the main lane.
-	lanes [][]string
+	lanes []lane
+}
+
+// lane is a group of kinds and how many of its jobs may run at once.
+type lane struct {
+	kinds []string
+	slots int
 }
 
 func NewWorker(queue *Queue) *Worker {
@@ -52,22 +58,38 @@ func (w *Worker) SetSweep(fn func(ctx context.Context) error) {
 // next to the main lane. A slow kind (a whole account's reindex) then never
 // holds up reminders, pushes or other accounts' jobs, and they never hold it
 // up. Call it before Run.
-func (w *Worker) Separate(kinds ...string) {
-	w.lanes = append(w.lanes, kinds)
+func (w *Worker) Separate(kinds ...string) { w.SeparateN(1, kinds...) }
+
+// SeparateN is Separate with up to slots of the lane's jobs running at once
+// (at least 1). Call it before Run.
+func (w *Worker) SeparateN(slots int, kinds ...string) {
+	w.lanes = append(w.lanes, lane{kinds: kinds, slots: max(slots, 1)})
 }
 
 // Run works every lane until ctx is cancelled. Each lane claims only its own
-// kinds, with the same row locking, so lanes never take each other's jobs.
+// kinds, with the same row locking, so lanes and slots never take each
+// other's jobs. The main lane is always one goroutine, because only it
+// recovers stuck jobs and runs the sweep.
 func (w *Worker) Run(ctx context.Context) {
 	var wg sync.WaitGroup
 	var others []string
-	for _, kinds := range w.lanes {
-		others = append(others, kinds...)
-		wg.Add(1)
-		go func(lane Lane) {
-			defer wg.Done()
-			w.loop(ctx, lane, false)
-		}(Lane{Kinds: kinds})
+	for _, l := range w.lanes {
+		others = append(others, l.kinds...)
+		for i := range l.slots {
+			wg.Add(1)
+			go func(lane Lane, delay time.Duration) {
+				defer wg.Done()
+				// Stagger the slots so they don't all poll at the same moment.
+				if delay > 0 {
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(delay):
+					}
+				}
+				w.loop(ctx, lane, false)
+			}(Lane{Kinds: l.kinds}, time.Duration(i)*w.interval/time.Duration(l.slots))
+		}
 	}
 	w.loop(ctx, Lane{Exclude: others}, true)
 	wg.Wait()

@@ -271,7 +271,7 @@ func (s *Server) restoreAccount(ctx context.Context, req *mcp.CallToolRequest, i
 	if err := json.Unmarshal(raw, &backup); err != nil {
 		return fail(err)
 	}
-	result, err := svc.Restore(uid, &backup)
+	result, err := svc.RestoreFromMCP(uid, &backup)
 	if err != nil {
 		return fail(err)
 	}

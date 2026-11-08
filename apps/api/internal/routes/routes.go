@@ -5,6 +5,7 @@ import (
 
 	"timely-api/internal/features/apikey"
 	"timely-api/internal/features/auth"
+	"timely-api/internal/features/bots"
 	"timely-api/internal/features/calendar"
 	"timely-api/internal/features/chat"
 	"timely-api/internal/features/doc"
@@ -47,6 +48,7 @@ type Handlers struct {
 	Search    *search.Handler
 	Suggest   *suggest.Service
 	Focus     *focus.Service // habits and goals on Today
+	Bots      *bots.Service
 	Merge     *workspace.Merger
 	Notify    *notify.Handler
 	Portable  *portability.Handler
@@ -95,6 +97,9 @@ func SetupRoutes(e *echo.Echo, h Handlers) {
 	}
 	if h.Focus != nil {
 		h.Focus.Routes(protected)
+	}
+	if h.Bots != nil {
+		h.Bots.Routes(protected)
 	}
 	if h.Instance != nil {
 		protected.GET("/instance", h.Instance.Instance)

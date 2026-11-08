@@ -14,6 +14,7 @@ import {
 import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import { parseAlertPayload } from "./alerts";
 import { FLAVOR } from "./flavor";
 import { isOpenableExternally, isPermissionAllowed, isSameOrigin } from "./origin";
 import { movePointer } from "./pointer";
@@ -69,6 +70,27 @@ ipcMain.on("chat:notify", (event, payload: unknown) => {
     if (win.isDestroyed()) return;
     showMainWindow();
     win.webContents.send("chat:open", data.id);
+  });
+  notification.show();
+});
+
+// ---------------------------------------------------------------------------
+// Bot alerts: the renderer polls for released alerts and pops each once.
+// ---------------------------------------------------------------------------
+
+const deliveredAlerts = new Set<string>();
+ipcMain.on("alert:notify", (event, payload: unknown) => {
+  const win = mainWindow;
+  if (!win || win.isDestroyed() || event.sender !== win.webContents || win.isFocused() || !Notification.isSupported()) return;
+  const alert = parseAlertPayload(payload);
+  if (!alert || deliveredAlerts.has(alert.id)) return;
+  deliveredAlerts.add(alert.id);
+  if (deliveredAlerts.size > 1000) deliveredAlerts.delete(deliveredAlerts.values().next().value!);
+  const notification = new Notification({ title: alert.title, body: alert.body, icon: notificationIcon() });
+  notification.on("click", () => {
+    if (win.isDestroyed()) return;
+    showMainWindow();
+    win.webContents.send("alert:open", alert.id);
   });
   notification.show();
 });

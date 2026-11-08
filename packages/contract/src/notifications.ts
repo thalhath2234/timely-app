@@ -21,7 +21,8 @@ export type NotificationCategory =
   | "missed"
   | "start"
   | "suggestion"
-  | "agent";
+  | "agent"
+  | "bot";
 
 export interface AppNotification {
   id: string;
@@ -68,6 +69,7 @@ const jobKindLabels: Record<string, string> = {
   index_entity: "Search index update",
   reindex_user: "Search index rebuild",
   smart_alerts: "Smart alerts",
+  bot_check: "Bot check",
 };
 
 /** The name a person sees for a job kind; a kind added later reads as words. */

@@ -25,6 +25,8 @@ const (
 	JobCreateBackup = "create_backup"
 	JobReindexUser  = "reindex_user"
 	JobSmartAlerts  = "smart_alerts"
+	// JobBotCheck checks one Bot (ADR 0021). It runs on its own lane.
+	JobBotCheck = "bot_check"
 
 	NotifyReminder = "reminder"
 	NotifyDigest   = "digest"
@@ -35,6 +37,8 @@ const (
 	// NotifySuggestion is a smart alert: an optional suggestion Jev judged
 	// worth an alert, with its best next step.
 	NotifySuggestion = "suggestion"
+	// NotifyBot is a Bot alert (ADR 0021).
+	NotifyBot = "bot"
 )
 
 type JobPayload map[string]any

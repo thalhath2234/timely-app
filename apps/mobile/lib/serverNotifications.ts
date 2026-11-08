@@ -37,6 +37,12 @@ function saveSeen(seen: Seen) {
   }
 }
 
+function channelFor(category: string) {
+  if (category === "agent") return "agent";
+  if (category === "bot") return "bots";
+  return "reminders";
+}
+
 let polling: Promise<number> | null = null;
 
 /** Shows alerts that arrived since the last look; returns how many. */
@@ -74,7 +80,7 @@ export function pollServerNotifications(): Promise<number> {
               chatId: item.category === "agent" ? (item.entityId ?? "") : "",
             },
           },
-          trigger: { channelId: item.category === "agent" ? "agent" : "reminders" },
+          trigger: { channelId: channelFor(item.category) },
         });
       } catch {
         // One bad alert shouldn't stop the rest.
