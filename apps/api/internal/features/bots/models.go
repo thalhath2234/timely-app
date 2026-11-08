@@ -53,8 +53,15 @@ type Bot struct {
 	BriefAI       bool       `gorm:"column:brief_ai;not null" json:"briefAi"`
 	BriefTime     string     `gorm:"type:text;not null" json:"briefTime"`
 	BriefCursorAt *time.Time `json:"-"`
-	CreatedAt     time.Time  `json:"createdAt"`
-	UpdatedAt     time.Time  `json:"updatedAt"`
+	// AwaySince, AwayUntil and AwayReason are a gap the Bot has not caught
+	// up on yet: set by the sweep after Timely was closed or the computer
+	// slept, or by turning Pause all off, and cleared by its next check that
+	// reads something (all three or none).
+	AwaySince  *time.Time `json:"-"`
+	AwayUntil  *time.Time `json:"-"`
+	AwayReason *string    `gorm:"type:text" json:"-"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	UpdatedAt  time.Time  `json:"updatedAt"`
 }
 
 func (Bot) TableName() string { return "bots" }
@@ -158,7 +165,11 @@ type Check struct {
 	Fired      jsonList[FiredRule]  `gorm:"type:jsonb;not null" json:"fired"`
 	Rearmed    jsonList[Rearm]      `gorm:"type:jsonb;not null" json:"rearmed"`
 	AlertID    *string              `gorm:"type:text" json:"alertId"`
-	CreatedAt  time.Time            `json:"createdAt"`
+	// AwaySecs and AwayReason are the gap this check caught up on, when it
+	// was the first to run after one.
+	AwaySecs   *int      `json:"-"`
+	AwayReason *string   `gorm:"type:text" json:"-"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 func (Check) TableName() string { return "bot_checks" }

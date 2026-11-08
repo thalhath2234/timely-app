@@ -1114,3 +1114,63 @@ func TestIntegrationRestoreBriefs(t *testing.T) {
 		t.Fatalf("MCP restore left %+v, links %v", b, links())
 	}
 }
+
+// A backup never carries a Bot's gap it has not caught up on, and a restore
+// (in the app or over MCP) clears one a file brings, paused Bots included.
+func TestIntegrationBackupLeavesOutBotAway(t *testing.T) {
+	db := migratedDB(t)
+	const uid = "usr_portability_bot_away"
+	if err := db.Create(&models.User{ID: uid, Email: "away@example.invalid", Password: "not-a-real-hash"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	seedAccountBasics(t, db, uid, true)
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if err := db.Exec(query, args...).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO bots (id, user_id, name, interval_seconds, next_check_at, away_since, away_until, away_reason)
+		VALUES ('bot_away', ?, 'Away', 900, now(), now() - interval '9 hours', now(), 'closed')`, uid)
+	exec(`INSERT INTO bots (id, user_id, name, status, pause_reason, interval_seconds) VALUES ('bot_away_paused', ?, 'Paused away', 'paused', 'person', 900)`, uid)
+	exec(`INSERT INTO bot_watches (id, bot_id, user_id, kind, url, read_mode) VALUES ('bw_away', 'bot_away', ?, 'page', 'https://example.com/', 'text'),
+		('bw_away_paused', 'bot_away_paused', ?, 'page', 'https://example.com/b', 'text')`, uid, uid)
+
+	service := NewService(db, nil)
+	service.SetRestoreVet(bots.New(db, nil).VetRestore)
+	backup, err := service.Export(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backup.Rows["bots"]) != 2 {
+		t.Fatalf("%d bots exported", len(backup.Rows["bots"]))
+	}
+	for _, raw := range backup.Rows["bots"] {
+		for _, key := range []string{"away_since", "away_until", "away_reason"} {
+			if strings.Contains(string(raw), `"`+key+`"`) {
+				t.Fatalf("exported bot carries %s: %s", key, raw)
+			}
+		}
+	}
+	// A crafted file brings a gap back on both Bots.
+	for i, raw := range backup.Rows["bots"] {
+		var row map[string]any
+		if err := json.Unmarshal(raw, &row); err != nil {
+			t.Fatal(err)
+		}
+		row["away_since"], row["away_until"], row["away_reason"] = "2026-11-06T00:00:00Z", "2026-11-06T09:00:00Z", "asleep"
+		backup.Rows["bots"][i], _ = json.Marshal(row)
+	}
+	for _, restore := range []func(string, *Backup) (*RestoreResult, error){service.Restore, service.RestoreFromMCP} {
+		if _, err := restore(uid, backup); err != nil {
+			t.Fatal(err)
+		}
+		var away int64
+		if err := db.Raw(`SELECT count(*) FROM bots WHERE user_id = ? AND (away_since IS NOT NULL OR away_until IS NOT NULL OR away_reason IS NOT NULL)`, uid).Scan(&away).Error; err != nil {
+			t.Fatal(err)
+		}
+		if away != 0 {
+			t.Fatalf("%d restored Bots kept a gap", away)
+		}
+	}
+}

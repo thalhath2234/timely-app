@@ -339,6 +339,7 @@ func (s *Store) Update(ctx context.Context, userID, idOrName string, p Patch, o 
 		}
 		if o == OriginMCP && watchesChanged && b.Status == StatusActive {
 			set["status"], set["pause_reason"], set["next_check_at"], set["health_detail"] = StatusPaused, PauseMCP, nil, mcpPausedNow
+			clearAway(set)
 		}
 		if err := tx.Model(&Bot{}).Where("id = ? AND user_id = ?", b.ID, userID).Updates(set).Error; err != nil {
 			return nameConflict(err, name)
@@ -395,7 +396,7 @@ const briefNoSources = "This brief has no bots left to sum up. Edit it to turn i
 // source Bots, so none runs on with nothing to list.
 func pauseEmptyBriefs(tx *gorm.DB, userID string, now time.Time) error {
 	return tx.Exec(`UPDATE bots b SET status = ?, pause_reason = ?, next_check_at = NULL, checking_job_id = NULL,
-  health = ?, health_detail = ?, updated_at = ?
+  away_since = NULL, away_until = NULL, away_reason = NULL, health = ?, health_detail = ?, updated_at = ?
 WHERE b.user_id = ? AND b.kind = ? AND b.status = ?
   AND NOT EXISTS (SELECT 1 FROM bot_links l WHERE l.user_id = b.user_id AND l.to_bot_id = b.id AND l.kind = ?)`,
 		StatusPaused, PausePerson, healthUnusable, briefNoSources, now.UTC(), userID, KindBrief, StatusActive, LinkBrief).Error
@@ -567,8 +568,10 @@ func (s *Store) Pause(ctx context.Context, userID, idOrName string, reason strin
 		if b.Status == StatusPaused {
 			return nil
 		}
+		// A paused Bot misses nothing: it has no gap to tell of.
 		return tx.Model(&Bot{}).Where("id = ?", b.ID).Updates(map[string]any{
 			"status": StatusPaused, "pause_reason": reason, "next_check_at": nil, "updated_at": now,
+			"away_since": nil, "away_until": nil, "away_reason": nil,
 		}).Error
 	})
 	if err != nil {
@@ -608,6 +611,7 @@ func (s *Store) Resume(ctx context.Context, userID, id string, o Origin, now tim
 			"status": StatusActive, "pause_reason": nil, "strikes": 0, "health": HealthNew, "health_detail": "",
 			"offline_since": nil, "checking_job_id": nil, "next_check_at": next, "updated_at": now,
 		}
+		clearAway(set)
 		if b.Kind == KindBrief {
 			sources, err := briefSourceRefs(tx, b)
 			if err != nil {
@@ -810,7 +814,8 @@ func (s *Store) Get(ctx context.Context, userID, idOrName string, now time.Time)
 		if fired == nil {
 			fired = []FiredRule{}
 		}
-		d.Checks = append(d.Checks, CheckView{ID: c.ID, Trigger: c.Trigger, StartedAt: c.StartedAt, Outcome: c.Outcome, ErrorKind: c.ErrorKind, Error: c.Error, Fired: fired})
+		d.Checks = append(d.Checks, CheckView{ID: c.ID, Trigger: c.Trigger, StartedAt: c.StartedAt, Outcome: c.Outcome, ErrorKind: c.ErrorKind, Error: c.Error, Fired: fired,
+			Away: checkAway(c)})
 	}
 	var alerts []Alert
 	if err := db.Where("bot_id = ? AND user_id = ?", b.ID, userID).Order("created_at DESC, id").Limit(detailRows).Find(&alerts).Error; err != nil {
@@ -1323,10 +1328,31 @@ func allPausedErr(db *gorm.DB, userID string) error {
 // configs has no bot change trigger, so it announces the change itself, as
 // notify_bot_change would for each of the person's Bots, so their other open
 // apps refetch the board and any Bot they show (the apps follow Bot ids).
+//
+// Turning it off marks every active Bot that missed a check while it was on
+// as away since then (or since it was due, when later), for reason
+// all_paused, so its next check says how long it was paused. A gap it has
+// not caught up on keeps its start and reason (newGap).
 func (s *Store) SetAllPaused(ctx context.Context, userID string, paused bool, now time.Time) (bool, error) {
+	now = now.UTC()
 	err := s.conn(ctx).Transaction(func(tx *gorm.DB) error {
+		if !paused {
+			var was []struct{ BotsPausedAt *time.Time }
+			if err := tx.Raw(`SELECT bots_paused_at FROM configs WHERE user_id = ? FOR UPDATE`, userID).Scan(&was).Error; err != nil {
+				return err
+			}
+			if len(was) > 0 && was[0].BotsPausedAt != nil {
+				if err := tx.Exec(`UPDATE bots SET away_since = CASE WHEN `+newGap+` THEN GREATEST(next_check_at, @pausedAt) ELSE away_since END,
+					away_until = @now, away_reason = CASE WHEN `+newGap+` THEN @reason ELSE away_reason END, updated_at = @now
+				WHERE user_id = @uid AND status = 'active' AND GREATEST(next_check_at, @pausedAt) <= @cutoff`,
+					sql.Named("pausedAt", was[0].BotsPausedAt.UTC()), sql.Named("now", now), sql.Named("reason", AwayAllPaused),
+					sql.Named("uid", userID), sql.Named("cutoff", now.Add(-AwayAfter))).Error; err != nil {
+					return err
+				}
+			}
+		}
 		res := tx.Exec(`UPDATE configs SET bots_paused_at = CASE WHEN @on THEN COALESCE(bots_paused_at, @now) END, updated_at = @at WHERE user_id = @uid`,
-			sql.Named("on", paused), sql.Named("now", now.UTC()), sql.Named("at", utils.GetCurrentTime()), sql.Named("uid", userID))
+			sql.Named("on", paused), sql.Named("now", now), sql.Named("at", utils.GetCurrentTime()), sql.Named("uid", userID))
 		if res.Error != nil {
 			return res.Error
 		}

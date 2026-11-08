@@ -332,6 +332,10 @@ func TestIntegrationBotMigrationsDownUp(t *testing.T) {
 	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, local_day, title) VALUES ('bal_brief', 'bot_brief', ?, 'brief', '2026-11-07', 'Morning: 3 new from 1 bot')`, user)
 	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, local_day, title) VALUES ('bal_brief_m', 'bot_m', ?, 'brief', '2026-11-07', 'M: crafted')`, user)
 
+	// A gap a Bot has not caught up on, and a check that caught up on one.
+	exec(`UPDATE bots SET away_since = now() - interval '9 hours', away_until = now(), away_reason = 'closed' WHERE id = 'bot_m'`)
+	exec(`INSERT INTO bot_checks (id, bot_id, user_id, trigger, started_at, finished_at, outcome, away_secs, away_reason) VALUES ('bchk_away', 'bot_m2', ?, 'wake', now(), now(), 'unchanged', 32400, 'asleep')`, user)
+
 	// Pass to's Down first, while the columns it rewrites still exist; the
 	// briefs' Down runs before it.
 	must(t, goose.DownTo(sqlDB, ".", beforeLinks))
@@ -393,6 +397,18 @@ func TestIntegrationBotMigrationsDownUp(t *testing.T) {
 	must(t, goose.Up(sqlDB, "."))
 	if count(t, db, "bots", "kind = 'watch' AND NOT brief_only AND NOT brief_ai AND brief_time = '' AND brief_cursor_at IS NULL") != 2 {
 		t.Fatal("the brief columns came back without their defaults")
+	}
+	if count(t, db, "bots", "away_since IS NULL AND away_until IS NULL AND away_reason IS NULL") != 2 || count(t, db, "bot_checks", "away_secs IS NOT NULL OR away_reason IS NOT NULL") != 0 {
+		t.Fatal("the away columns came back set")
+	}
+	if db.Exec(`UPDATE bots SET away_since = now() WHERE id = 'bot_m'`).Error == nil {
+		t.Fatal("a gap with no reason was stored")
+	}
+	if db.Exec(`UPDATE bots SET away_since = now(), away_until = now(), away_reason = 'lost' WHERE id = 'bot_m'`).Error == nil {
+		t.Fatal("an unknown away reason was stored")
+	}
+	if db.Exec(`INSERT INTO bot_checks (id, bot_id, user_id, trigger, started_at, finished_at, outcome, away_secs) VALUES ('bchk_away2', 'bot_m', ?, 'wake', now(), now(), 'unchanged', 60)`, user).Error == nil {
+		t.Fatal("a check gap with no reason was stored")
 	}
 	exec(`INSERT INTO bots (id, user_id, name, origin, interval_seconds, next_check_at, kind, brief_time) VALUES ('bot_brief2', ?, 'Evening', 'app', 86400, now(), 'brief', '18:30')`, user)
 	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, kind, local_day, title) VALUES ('bal_brief2', 'bot_brief2', ?, 'brief', '2026-11-07', 'Evening: 1 new from 1 bot')`, user)

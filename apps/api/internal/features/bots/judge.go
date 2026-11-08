@@ -432,15 +432,17 @@ func judgeContext(db *gorm.DB, b Bot, now time.Time) (lessons []string, last *Ju
 }
 
 // lastAlertFor is an alert as the next judge input shows it: the rules'
-// title ("<bot>: " + figures.what) and, unless the judge wrote it, the body.
-// Nothing a model wrote goes back to a model.
+// title ("<bot>: " + figures.what) and, unless the judge wrote it, the body,
+// without the line that says how long the Bot was paused. Nothing a model
+// wrote goes back to a model.
 func lastAlertFor(a Alert, botName string, loc *time.Location) *JudgeAlert {
 	out := &JudgeAlert{Title: a.Title, At: judgeTime(a.CreatedAt, loc)}
 	if what, _ := a.Figures["what"].(string); strings.TrimSpace(what) != "" {
 		out.Title = botName + ": " + what
 	}
 	if a.AIState != aiJudged {
-		out.Body = strings.TrimSuffix(a.Body, uncheckedSuffix)
+		body, _ := trimAway(a.Body, a.Figures)
+		out.Body = strings.TrimSuffix(body, uncheckedSuffix)
 	}
 	if a.Feedback != nil {
 		out.Feedback = *a.Feedback

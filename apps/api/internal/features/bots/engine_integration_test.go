@@ -846,8 +846,8 @@ func TestIntegrationBotWake(t *testing.T) {
 		}
 	}
 	ntfs := e.notifications()
-	if len(ntfs) != 1 || ntfs[0].Title != "Bots were paused for 9 hours" || ntfs[0].Body != "Timely was closed or asleep. 4 bots are checking now." ||
-		ntfs[0].Data.String("botAlert") != "away" {
+	if len(ntfs) != 1 || ntfs[0].Title != "Bots were paused for 9 hours" || ntfs[0].Body != "This computer was asleep. 4 bots are checking now." ||
+		ntfs[0].Data.String("botAlert") != "away" || ntfs[0].Data["phone"] != true {
 		t.Fatalf("away alerts %+v", ntfs)
 	}
 	// A wake check records its trigger.

@@ -62,6 +62,7 @@ type Service struct {
 	rnd           *rand.Rand // under mu
 	lastSweepWall time.Time  // under mu
 	lastPrune     time.Time  // under mu
+	wakeTail      time.Time  // under mu: the last wake slot handed out (wakeSlot)
 
 	beforeCommit  func(tx *gorm.DB) error // test seam; nil in production
 	knowledgeRead func(b Bot)             // test seam, told of each knowledge read; nil in production

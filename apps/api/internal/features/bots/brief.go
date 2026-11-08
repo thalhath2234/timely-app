@@ -356,6 +356,7 @@ func (s *Service) saveBrief(ctx context.Context, c checkRun, until time.Time, d 
 			ID: c.checkID, BotID: b.ID, UserID: b.UserID, JobID: &c.job.ID, Trigger: c.trigger,
 			StartedAt: c.started, FinishedAt: done, Outcome: outUnchanged, Fired: jsonList[FiredRule]{},
 		}
+		check.AwaySecs, check.AwayReason = awayOf(b)
 		alertID := ""
 		if d.n > 0 {
 			alertID = utils.PrefixedUUID("bal")
@@ -365,7 +366,7 @@ func (s *Service) saveBrief(ctx context.Context, c checkRun, until time.Time, d 
 			return err
 		}
 		if d.n > 0 {
-			if err := s.briefAlert(tx, b, c.checkID, alertID, d, w, done); err != nil {
+			if err := s.briefAlert(tx, b, c.checkID, alertID, d, w, awayLineOf(check.AwaySecs, check.AwayReason), done); err != nil {
 				return err
 			}
 		}
@@ -373,6 +374,7 @@ func (s *Service) saveBrief(ctx context.Context, c checkRun, until time.Time, d 
 			"strikes": 0, "last_check_at": done, "last_ok_at": done, "offline_since": nil, "checking_job_id": nil,
 			"brief_cursor_at": until, "health": healthWorking, "health_detail": "", "updated_at": done,
 		}
+		clearAway(set)
 		if b.Status == StatusActive {
 			loc, err := localZone(tx, b.UserID)
 			if err != nil {
@@ -397,8 +399,8 @@ func (s *Service) saveBrief(ctx context.Context, c checkRun, until time.Time, d 
 // brief, its count and source lines in the figures (and the template's
 // words as figures.what, which a lesson reads), held while the brief is
 // snoozed. It is not capped and never shared: it is the person's own
-// summary.
-func (s *Service) briefAlert(tx *gorm.DB, b Bot, checkID, alertID string, d briefDigest, w briefWrite, now time.Time) error {
+// summary. away, when set, ends its body: the brief caught up on a gap.
+func (s *Service) briefAlert(tx *gorm.DB, b Bot, checkID, alertID string, d briefDigest, w briefWrite, away string, now time.Time) error {
 	settings, loc, err := notify.LoadAlertSettings(tx, b.UserID)
 	if err != nil {
 		return err
@@ -414,9 +416,14 @@ func (s *Service) briefAlert(tx *gorm.DB, b Bot, checkID, alertID string, d brie
 	if _, held := notify.QuietUntil(settings, loc, opts); held {
 		title = withHeldTime(title, now, loc)
 	}
+	w.body = withAway(w.body, away)
+	figures := jsonMap[string, any]{"what": w.what, "items": d.n, "lines": d.lines()}
+	if away != "" {
+		figures["away"] = away
+	}
 	row := Alert{
 		ID: alertID, BotID: b.ID, UserID: b.UserID, CheckID: &checkID, Kind: alertKindBrief, LocalDay: day,
-		Title: title, Body: w.body, Figures: jsonMap[string, any]{"what": w.what, "items": d.n, "lines": d.lines()},
+		Title: title, Body: w.body, Figures: figures,
 		Urgent: b.Urgent, Urgency: urgency, AIState: w.aiState, AIWhy: clipRunes(w.aiWhy, maxAIWhy), CreatedAt: now,
 	}
 	if b.SnoozedUntil != nil && b.SnoozedUntil.After(now) {

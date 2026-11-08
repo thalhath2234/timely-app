@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/url"
 	"strings"
 	"time"
@@ -462,6 +463,32 @@ func siteOf(w Watch) string {
 	return "The site"
 }
 
+// awayOf is the gap b has not caught up on, as a check records it: whole
+// seconds (at least 1) and the reason, or nils for none. b must be the row
+// the save locked, never the claim's copy.
+func awayOf(b Bot) (*int, *string) {
+	if b.AwaySince == nil || b.AwayUntil == nil || b.AwayReason == nil {
+		return nil, nil
+	}
+	secs := max(int(math.Round(b.AwayUntil.Sub(*b.AwaySince).Seconds())), 1)
+	reason := *b.AwayReason
+	return &secs, &reason
+}
+
+// awayLineOf is a check's away fields as the line its alert ends with.
+func awayLineOf(secs *int, reason *string) string {
+	if secs == nil || reason == nil {
+		return ""
+	}
+	return awayLine(*secs, *reason)
+}
+
+// clearAway adds to a Bot update the columns that end a gap: its check has
+// caught up.
+func clearAway(set map[string]any) {
+	set["away_since"], set["away_until"], set["away_reason"] = nil, nil, nil
+}
+
 // lockClaimed locks the Bot this job claimed. ok is false when it is gone or
 // another job holds it now.
 func lockClaimed(tx *gorm.DB, c checkRun) (Bot, bool, error) {
@@ -541,8 +568,15 @@ func (s *Service) saveProblem(ctx context.Context, c checkRun, p *problem) error
 			StartedAt: c.started, FinishedAt: done, Outcome: p.outcome, ErrorKind: p.code,
 			Error: utils.StorableText(utils.RedactSecrets(p.err.Error()), maxCheckError), Watches: cws, Fired: jsonList[FiredRule]{},
 		}
+		check.AwaySecs, check.AwayReason = awayOf(b)
 		if err := tx.Create(&check).Error; err != nil {
 			return err
+		}
+		// A check that read nothing (offline, asked to wait, superseded) has
+		// not caught up yet: the Bot keeps its gap for the next one. robots
+		// and a strike are an answer from the site.
+		if p.class == classRobots || p.class == classStrike {
+			clearAway(set)
 		}
 		if b.Status == StatusActive {
 			set["next_check_at"] = next
@@ -690,6 +724,7 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 			ID: c.checkID, BotID: b.ID, UserID: b.UserID, JobID: &c.job.ID, Trigger: c.trigger,
 			StartedAt: c.started, FinishedAt: done, Watches: cws, Fired: jsonList[FiredRule]{}, Rearmed: rearms,
 		}
+		check.AwaySecs, check.AwayReason = awayOf(b)
 		// What links took goes on to other Bots; the Bot stays quiet about
 		// it and alerts only on the rest.
 		alertable := untaken(fired, c.plan.taken)
@@ -697,7 +732,7 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 			// Only in the brief: the notes wait for the brief.
 			alertable = nil
 		}
-		run := alertRun{checkID: c.checkID, fired: alertable, now: done}
+		run := alertRun{checkID: c.checkID, fired: alertable, now: done, away: awayLineOf(check.AwaySecs, check.AwayReason)}
 		if len(alertable) > 0 {
 			run = judgedRun(b, c.plan, run)
 		}
@@ -754,6 +789,11 @@ func (s *Service) saveOK(ctx context.Context, c checkRun) error {
 		set := map[string]any{
 			"strikes": 0, "last_check_at": done, "last_ok_at": done, "offline_since": nil,
 			"checking_job_id": nil, "updated_at": done,
+		}
+		// Every watch edited or deleted while it was read: nothing was read,
+		// so the Bot has not caught up on its gap yet.
+		if check.Outcome != outSuperseded {
+			clearAway(set)
 		}
 		if b.Status == StatusActive {
 			next := maxTime(s.nextCheck(b.Interval(), done), c.spaced())

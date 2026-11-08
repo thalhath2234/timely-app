@@ -63,6 +63,18 @@ type View struct {
 	BriefAI   bool     `json:"briefAi"`
 	BriefTime string   `json:"briefTime"`
 	Sources   []string `json:"sources"`
+	// Away is a gap the Bot has not caught up on yet: Timely was closed,
+	// the computer slept or Pause all was on while it was due (null when
+	// none).
+	Away *AwayView `json:"away"`
+}
+
+// AwayView is how long a Bot missed checks, and why: closed, asleep or
+// all_paused.
+type AwayView struct {
+	Seconds int        `json:"seconds"`
+	Reason  string     `json:"reason"`
+	Since   *time.Time `json:"since,omitempty"` // View only: when the Bot fell behind
 }
 
 // AlertBrief is the alert a board card shows.
@@ -164,6 +176,27 @@ type CheckView struct {
 	ErrorKind string      `json:"errorKind"`
 	Error     string      `json:"error"`
 	Fired     []FiredRule `json:"fired"`
+	// Away is the gap this check caught up on (null when none).
+	Away *AwayView `json:"away"`
+}
+
+// checkAway is a check's away fields as a view, nil when it caught up on no
+// gap.
+func checkAway(c Check) *AwayView {
+	if c.AwaySecs == nil || c.AwayReason == nil {
+		return nil
+	}
+	return &AwayView{Seconds: *c.AwaySecs, Reason: *c.AwayReason}
+}
+
+// botAway is a Bot's pending gap as a view, nil when none.
+func botAway(b Bot) *AwayView {
+	secs, reason := awayOf(b)
+	if secs == nil {
+		return nil
+	}
+	since := b.AwaySince.UTC()
+	return &AwayView{Seconds: *secs, Reason: *reason, Since: &since}
 }
 
 type AlertView struct {
@@ -262,6 +295,7 @@ func viewOf(b Bot, ws []Watch, bd *board, now time.Time) View {
 		Strip: bd.strips[b.ID], LatestAlert: bd.latest[b.ID], ItemsToday: bd.itemsToday[b.ID],
 		Suggestion: b.Suggestion, AIChecksToday: bd.aiCalls[b.ID], Knowledge: bd.knowledge[b.ID],
 		Kind: b.Kind, BriefOnly: b.BriefOnly, BriefAI: b.BriefAI, BriefTime: b.BriefTime, Sources: bd.sources[b.ID],
+		Away: botAway(b),
 	}
 	if v.Kind == "" {
 		v.Kind = KindWatch
@@ -506,7 +540,7 @@ func stripOf(newestFirst []string) string {
 }
 
 // alertFigureKeys are the figures an AlertView passes on.
-var alertFigureKeys = []string{"rule", "price", "currency", "was", "threshold", "changePct", "items"}
+var alertFigureKeys = []string{"rule", "price", "currency", "was", "threshold", "changePct", "items", "away"}
 
 func alertView(a Alert) AlertView {
 	figures := map[string]any{}
