@@ -98,7 +98,22 @@ import {
   watchCurrency,
   watchTitle,
   wideSpan,
+  AWAY_CAPTION,
+  AWAY_WHILE,
+  CAUGHT_UP,
+  PRICE_BLOCK,
+  awayFor,
+  awayLine,
+  isBotId,
+  niceTicks,
+  priceBlockProgram,
+  priceChartGeometry,
+  priceDomain,
+  priceHistory,
+  recentAway,
+  shortDate,
 } from "../packages/contract/src/bots.ts";
+import { HIDDEN_PUSH_BODY, HIDDEN_PUSH_TITLE } from "../packages/contract/src/notifications.ts";
 
 // The board as the screenshots seed it (branch plan 8.2), at Sat Nov 7 2026
 // 18:12 UTC, read in UTC.
@@ -173,6 +188,7 @@ function bot(over) {
     knowledge: null,
     aiChecksToday: 0,
     suggestion: null,
+    away: null,
     ...over,
   };
 }
@@ -1831,5 +1847,309 @@ describe("AI, links and briefs over the seed", () => {
     const args = { name: "Check", description: "", intervalMinutes: 0, judgeMode: "ai", watches: [{ kind: "price", source: "crypto", symbol: "BTC" }] };
     assert.deepEqual(proposalFacts(args).at(-1), ["AI checks", "Up to 20 a day"]);
     assert.equal(previewCard(args, null, NOW).judgeMode, "ai");
+  });
+});
+
+// The chart's range and gridlines as priceChart.tsx drew them before they
+// moved into the contract: the contract must draw the same chart.
+function oldChart(points, threshold, width, height, left) {
+  const niceTicksOld = (lo, hi) => {
+    const span = hi - lo || Math.abs(hi) * 0.1 || 1;
+    const power = 10 ** Math.floor(Math.log10(span / 2));
+    const step = [1, 2, 2.5, 5, 10].map((s) => s * power).find((s) => span / s <= 3) ?? 10 * power;
+    const ticks = [];
+    for (let t = Math.ceil(lo / step) * step; t <= hi; t += step) ticks.push(t);
+    return ticks;
+  };
+  const values = points.map(([, v]) => v);
+  if (threshold != null) values.push(threshold);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const pad = (max - min) * 0.08 || Math.abs(max) * 0.02 || 1;
+  const lo = min - pad;
+  const hi = max + pad;
+  const ticks = niceTicksOld(lo, hi);
+  const plotW = Math.max(0, width - left - 8);
+  const plotH = Math.max(0, height - 20 - 8);
+  const t0 = points[0][0];
+  const t1 = points[points.length - 1][0];
+  const x = (t) => left + (t1 > t0 ? ((t - t0) / (t1 - t0)) * plotW : plotW / 2);
+  const y = (v) => 8 + (1 - (v - lo) / (hi - lo || 1)) * plotH;
+  const line = points.map(([t, v], i) => `${i ? "L" : "M"}${x(t).toFixed(1)} ${y(v).toFixed(1)}`).join(" ");
+  return { lo, hi, ticks, line, y };
+}
+
+const DAY_S = 86400;
+const T0 = Date.parse("2026-10-09T00:00:00Z") / 1000;
+const series = (values) => values.map((v, i) => [T0 + i * DAY_S, v]);
+const PHONE_BOX = { width: 300, height: 130, left: 40, right: 8, top: 8, bottom: 20 };
+
+describe("catch-up", () => {
+  test("awayFor words a gap as the API does", () => {
+    for (const [secs, want] of [
+      [60, "1 minute"],
+      [45 * 60, "45 minutes"],
+      [89 * 60, "89 minutes"],
+      [90 * 60, "2 hours"],
+      [9 * 3600, "9 hours"],
+      [47 * 3600, "47 hours"],
+      [48 * 3600, "2 days"],
+      [3 * 86400, "3 days"],
+    ]) {
+      assert.equal(awayFor(secs), want, `${secs}s`);
+    }
+  });
+
+  test("awayLine per reason", () => {
+    assert.equal(awayLine({ seconds: 9 * 3600, reason: "closed" }), "Paused for 9 hours while Timely was closed");
+    assert.equal(awayLine({ seconds: 45 * 60, reason: "asleep" }), "Paused for 45 minutes while this computer was asleep");
+    assert.equal(awayLine({ seconds: 3 * 86400, reason: "all_paused" }), "Paused for 3 days while all bots were paused");
+    assert.equal(awayLine({ seconds: 600, reason: "later" }), "", "a reason this client does not know says nothing");
+    assert.equal(awayLine({ seconds: 0, reason: "closed" }), "", "no gap says nothing, as the API's awayLine");
+    assert.deepEqual(Object.keys(AWAY_WHILE).sort(), ["all_paused", "asleep", "closed"]);
+    assert.deepEqual(Object.keys(AWAY_CAPTION).sort(), ["all_paused", "asleep", "closed"]);
+    assert.equal(CAUGHT_UP, "Caught up");
+  });
+
+  test("recentAway: the newest check with a gap, for 24 hours, and never while one is pending", () => {
+    const check = (startedAt, away) => ({ id: `bck_${startedAt}`, trigger: "wake", startedAt, outcome: "unchanged", errorKind: "", error: "", fired: null, away });
+    const closed = { seconds: 9 * 3600, reason: "closed" };
+    const asleep = { seconds: 45 * 60, reason: "asleep" };
+    const checks = [check(ago(10), null), check(ago(30), asleep), check(ago(60), closed)];
+    assert.deepEqual(recentAway({ away: null, checks }, NOW), { line: "Paused for 45 minutes while this computer was asleep", at: ago(30) });
+    assert.deepEqual(recentAway({ away: null, checks: [...checks].reverse() }, NOW), { line: "Paused for 45 minutes while this computer was asleep", at: ago(30) }, "newest wins in any order");
+    assert.deepEqual(recentAway({ away: null, checks: [check(ago(24 * 60), closed)] }, NOW), { line: "Paused for 9 hours while Timely was closed", at: ago(24 * 60) }, "24 hours is still shown");
+    assert.equal(recentAway({ away: null, checks: [check(ago(24 * 60 + 1), closed)] }, NOW), null, "older than 24 hours");
+    assert.equal(recentAway({ away: null, checks: [check(ago(5), null)] }, NOW), null, "no check had a gap");
+    assert.equal(recentAway({ away: null, checks: null }, NOW), null);
+    assert.equal(recentAway({ away: { seconds: 600, reason: "asleep", since: ago(40) }, checks }, NOW), null, "still catching up");
+    const offline = { ...check(ago(5), closed), outcome: "offline" };
+    assert.equal(recentAway({ away: null, checks: [offline] }, NOW), null, "a check that read nothing is not a catch-up");
+    for (const outcome of ["rate_limited", "site_busy", "superseded"]) {
+      assert.equal(recentAway({ away: null, checks: [{ ...offline, outcome }] }, NOW), null, outcome);
+    }
+    assert.deepEqual(recentAway({ away: null, checks: [offline, ...checks] }, NOW), { line: "Paused for 45 minutes while this computer was asleep", at: ago(30) });
+    const lastAway = { seconds: 9 * 3600, reason: "closed", at: ago(20 * 60) };
+    assert.deepEqual(recentAway({ away: null, checks: [], lastAway }, NOW), { line: "Paused for 9 hours while Timely was closed", at: ago(20 * 60) }, "the API's lastAway outlives the newest 20 checks");
+    assert.equal(recentAway({ away: null, checks, lastAway: null }, NOW), null, "the API said none, whatever the checks hold");
+    assert.equal(recentAway({ away: null, checks: [], lastAway: { ...lastAway, at: ago(24 * 60 + 1) } }, NOW), null, "older than 24 hours");
+    assert.equal(recentAway({ away: lastAway, checks: [], lastAway }, NOW), null, "still catching up");
+  });
+
+  test("captionLine says an active bot is catching up", () => {
+    const sony = (away, over = {}) => ({ ...seed.headphones, away, ...over });
+    assert.equal(captionLine(sony({ seconds: 9 * 3600, reason: "closed" }), NOW, TZ), "Catching up · Timely was closed for 9 hours");
+    assert.equal(captionLine(sony({ seconds: 9 * 3600, reason: "asleep" }), NOW, TZ), "Catching up · this computer was asleep for 9 hours");
+    assert.equal(captionLine(sony({ seconds: 9 * 3600, reason: "all_paused" }), NOW, TZ), "Catching up · all bots were paused for 9 hours");
+    assert.equal(captionLine(sony({ seconds: 45 * 60, reason: "closed" }, { lastCheckAt: null }), NOW, TZ), "Catching up · Timely was closed for 45 minutes", "before its first check too");
+    assert.equal(captionLine(sony(null), NOW, TZ), null);
+    assert.equal(captionLine(sony({ seconds: 9 * 3600, reason: "closed" }, { status: "paused", pauseReason: "person" }), NOW, TZ), null, "only an active bot");
+    assert.equal(captionLine(sony({ seconds: 600, reason: "later" }), NOW, TZ), null, "an unknown reason is left out");
+    assert.equal(captionLine(sony({ seconds: 0, reason: "closed" }), NOW, TZ), null, "no gap, as the API's awayLine");
+    assert.equal(captionLine(sony({ seconds: 9 * 3600, reason: "closed" }), NOW, TZ, undefined, { allPaused: true }), null, "Pause all on: the footer says paused");
+    const away = { seconds: 9 * 3600, reason: "closed" };
+    assert.equal(captionLine({ ...seed.coldplay, away }, NOW, TZ), captionLine(seed.coldplay, NOW, TZ), "stopped wins");
+    assert.equal(captionLine({ ...seed.visa, away }, NOW, TZ), captionLine(seed.visa, NOW, TZ), "broken wins");
+    assert.match(captionLine(seed.visa, NOW, TZ), /^Last good read/);
+    const brief = bot({ id: "bot_brief", kind: "brief", sources: ["bot_seed_gpu"], away });
+    assert.equal(captionLine(brief, NOW, TZ, { bot_seed_gpu: { name: "GPU deals" } }), "From GPU deals", "a brief keeps its sources");
+  });
+
+  test("isBotId takes only an id", () => {
+    assert.equal(isBotId("bot_3f1c9a"), true);
+    assert.equal(isBotId("bot_0b9f5e2c-1d4a-4e7b-9c3f-2a1b4c5d6e7f"), true, "utils.PrefixedUUID");
+    assert.equal(isBotId("Sony WH-1000XM6"), false, "a name");
+    assert.equal(isBotId("keys"), false);
+    assert.equal(isBotId('bot_a"b'), false, "a quote");
+    assert.equal(isBotId("bot_"), false);
+    assert.equal(isBotId(null), false);
+    assert.equal(isBotId(42), false);
+  });
+
+  test("hidden push words", () => {
+    assert.equal(HIDDEN_PUSH_TITLE, "Timely");
+    assert.equal(HIDDEN_PUSH_BODY, "A bot has news");
+  });
+});
+
+describe("price history", () => {
+  const day = (i, close, low = null, watchId = "bwt_seed_sony") => ({
+    watchId,
+    day: new Date((T0 + i * DAY_S) * 1000).toISOString().slice(0, 10),
+    currency: "INR",
+    points: null,
+    open: close,
+    high: close,
+    low,
+    close,
+  });
+  const btcWatch = {
+    ...seed.btc.watches[0],
+    id: "bwt_two_btc",
+    value: 71000,
+    lastReadingAt: ago(3),
+    rules: [{ id: "brl_up", kind: "above", threshold: 72000, stepPercent: 5, resetPercent: 0.5 }],
+  };
+  const detail = (over = {}) => ({
+    ...seed.headphones,
+    checks: [],
+    alerts: [],
+    lessons: [],
+    week: { checks: 0, alerts: 0 },
+    alertsMonth: 0,
+    rearms: [],
+    links: [],
+    prices: [day(0, 29990), day(10, 26990, 24990), day(20, 27990), day(29, 27499), day(5, 70000, null, "bwt_two_btc"), day(29, 70500, null, "bwt_two_btc")],
+    ...over,
+  });
+
+  test("the first price watch, as the rail draws it", () => {
+    const d = detail();
+    const w = d.watches[0];
+    const m = priceHistory(d);
+    const lastClose = T0 + 29 * DAY_S;
+    const now = Math.floor(Date.parse(w.lastReadingAt) / 1000);
+    assert.deepEqual(m, {
+      watchId: "bwt_seed_sony",
+      label: "amazon.in",
+      multiple: false,
+      currency: watchCurrency(w),
+      value: 27499,
+      points: [
+        [T0, 29990],
+        [T0 + 10 * DAY_S, 26990],
+        [T0 + 20 * DAY_S, 27990],
+        [lastClose, 27499],
+        [now, 27499],
+      ],
+      threshold: 25000,
+      low: 24990,
+      lowDay: "Oct 19",
+      changePct: ((27499 - 29990) / 29990) * 100,
+      since: "Oct 9",
+      good: true,
+      under: "₹2,499 above your line",
+      paused: false,
+    });
+  });
+
+  test("the now point is added only when it is newer than the last close", () => {
+    const d = detail();
+    const w = { ...d.watches[0], lastReadingAt: new Date((T0 + 29 * DAY_S - 60) * 1000).toISOString() };
+    assert.equal(priceHistory({ ...d, watches: [w] }).points.length, 4);
+    assert.equal(priceHistory({ ...d, watches: [{ ...w, value: null }] }).points.length, 4, "no reading, no now point");
+    const fresh = priceHistory({ ...d, prices: [], watches: [{ ...w, lastReadingAt: ago(1) }] });
+    assert.equal(fresh.points.length, 1, "no closes yet: just now");
+    assert.equal(fresh.low, null);
+    assert.equal(fresh.lowDay, null);
+    assert.equal(fresh.changePct, null);
+    assert.equal(fresh.good, false);
+  });
+
+  test("a picked watch, a missing one, and a bot without a price", () => {
+    const d = detail({ watches: [...seed.headphones.watches, seed.gpu.watches[0], btcWatch] });
+    const btc = priceHistory(d, "bwt_two_btc");
+    assert.equal(btc.watchId, "bwt_two_btc");
+    assert.equal(btc.label, "BTC");
+    assert.equal(btc.multiple, true, "two price watches; the feed is not one");
+    assert.equal(btc.threshold, 72000);
+    assert.equal(btc.good, true, "an above rule likes a rise");
+    assert.equal(btc.points.at(-1)[1], 71000);
+    assert.equal(priceHistory(d).watchId, "bwt_seed_sony");
+    assert.equal(priceHistory(d, "bwt_gone").watchId, "bwt_seed_sony", "a missing watch falls back to the first");
+    assert.equal(priceHistory(d, "bwt_seed_gpu1").watchId, "bwt_seed_sony", "a feed is not a price");
+    assert.equal(priceHistory(detail({ ...seed.gpu, prices: [] })), null);
+    assert.equal(priceHistory(detail({ watches: [] })), null);
+  });
+
+  test("good follows the rule, and paused is the bot's status", () => {
+    const d = detail();
+    const w = d.watches[0];
+    const rising = { prices: [day(0, 20000), day(29, 27499)] };
+    assert.equal(priceHistory(detail(rising)).good, false, "a below rule dislikes a rise");
+    assert.equal(priceHistory(detail({ ...rising, watches: [{ ...w, rules: [{ ...below(30000), kind: "above" }] }] })).good, true);
+    assert.equal(priceHistory(detail({ watches: [{ ...w, rules: [] }] })).good, false, "no rule, no colour");
+    assert.equal(priceHistory(detail({ watches: [{ ...w, rules: [] }] })).threshold, null);
+    assert.equal(priceHistory(d).paused, false);
+    assert.equal(priceHistory(detail({ status: "paused", pauseReason: "person" })).paused, true);
+    assert.equal(priceHistory(d, undefined, { allPaused: true }).paused, true, "Pause all on");
+  });
+
+  test("the block's program names the bot by id", () => {
+    const name = 'Sony "XM6" \\ deal';
+    assert.equal(priceBlockProgram({ id: "bot_x1", name }), 'root = Panel("Sony \\"XM6\\" \\\\ deal", [chart])\nchart = PriceHistory("bot_x1")');
+    assert.equal(priceBlockProgram({ id: "bot_x1", name: "Sony" }, "bwt_y"), 'root = Panel("Sony", [chart])\nchart = PriceHistory("bot_x1", "bwt_y")');
+    const title = /^root = Panel\((".*"), \[chart\]\)$/m.exec(priceBlockProgram({ id: "bot_x1", name }))[1];
+    assert.equal(JSON.parse(title), name);
+    assert.equal(PRICE_BLOCK.deleted, "Bot deleted");
+    assert.equal(PRICE_BLOCK.noPrice, "This bot doesn’t watch a price");
+  });
+
+  test("niceTicks and priceDomain draw the old chart's range", () => {
+    for (const [points, threshold] of [
+      [series([29990, 26990, 24990, 27990, 27499]), 25000],
+      [series([68250.5, 70120, 71980.25, 69400]), null],
+      [series([0.982, 1.004, 1.019, 0.997]), 1.05],
+    ]) {
+      const old = oldChart(points, threshold, 300, 130, 40);
+      const got = priceDomain(points, threshold);
+      assert.deepEqual(got, { lo: old.lo, hi: old.hi, ticks: old.ticks });
+      assert.deepEqual(niceTicks(got.lo, got.hi), old.ticks);
+      assert.ok(got.ticks.length >= 2 && got.ticks.length <= 4, `${got.ticks.length} gridlines`);
+    }
+  });
+
+  test("niceTicks stops on a huge price with a tiny span", () => {
+    for (const e of [53, 58, 59, 64, 70]) {
+      const { ticks } = priceDomain(series([2 ** e, 2 ** e + 64]), null);
+      assert.ok(ticks.length >= 1 && ticks.length <= 8, `2^${e}: ${ticks.length} gridlines`);
+    }
+    assert.ok(niceTicks(2 ** 58, 2 ** 58 + 64).length <= 8);
+  });
+
+  test("priceChartGeometry", () => {
+    assert.equal(priceChartGeometry([], null, PHONE_BOX), null);
+    assert.equal(priceChartGeometry(series([100]), null, PHONE_BOX), null, "under two points");
+
+    const points = series([29990, 26990, 24990, 27990, 27499]);
+    const g = priceChartGeometry(points, 25000, PHONE_BOX);
+    const old = oldChart(points, 25000, 300, 130, 40);
+    assert.equal(g.line, old.line, "the same line as the chart");
+    assert.ok(g.area.startsWith(`${g.line} L`) && g.area.endsWith(" Z"));
+    assert.equal(g.thresholdY, old.y(25000));
+    assert.deepEqual(g.low, { x: 40 + (2 / 4) * 252, y: old.y(24990), value: 24990 });
+    assert.deepEqual(g.last, { x: 300 - 8, y: old.y(27499), value: 27499 }, "the newest point at the right edge");
+    assert.deepEqual(g.grid, old.ticks.map((value) => ({ y: old.y(value), value })));
+    assert.deepEqual(
+      g.xLabels.map((l) => l.label),
+      [shortDate(new Date(points[0][0] * 1000).toISOString(), "UTC"), shortDate(new Date(points[2][0] * 1000).toISOString(), "UTC"), "Today"],
+      "closes are UTC days",
+    );
+    assert.deepEqual(
+      g.xLabels.map((l) => l.x),
+      [40, 40 + 126, 292],
+    );
+
+    const wide = priceChartGeometry(points, 25000, { ...PHONE_BOX, width: 600 });
+    assert.equal(wide.last.x, 600 - 8);
+    assert.deepEqual(
+      [wide.thresholdY, wide.low.y, wide.last.y, wide.grid],
+      [g.thresholdY, g.low.y, g.last.y, g.grid],
+      "a wider box keeps every height",
+    );
+
+    const flat = priceChartGeometry(series([100, 100, 100]), null, PHONE_BOX);
+    const ys = [...flat.line.matchAll(/[ML][\d.]+ ([\d.]+)/g)].map((m) => m[1]);
+    assert.deepEqual(new Set(ys).size, 1, "a flat series is one level line");
+    assert.equal(flat.low.y, 8 + 102 / 2, "in the middle of the plot");
+    assert.equal(flat.thresholdY, null);
+    assert.deepEqual(priceDomain(series([100, 100, 100]), null), { lo: 98, hi: 102, ticks: niceTicks(98, 102) });
+
+    const high = priceChartGeometry(series([100, 110, 120]), 150, PHONE_BOX);
+    const plain = priceDomain(series([100, 110, 120]), null);
+    const widened = priceDomain(series([100, 110, 120]), 150);
+    assert.ok(widened.hi > 150 && widened.hi > plain.hi, "a line above the prices widens the range");
+    assert.ok(high.thresholdY < high.last.y, "and is drawn above them");
+    assert.ok(high.thresholdY >= 8);
   });
 });

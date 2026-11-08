@@ -233,6 +233,12 @@ export type Suggestion = {
   createdAt: string;
 };
 
+/** Why a bot missed checks: Timely was closed, the computer slept, or Pause all was on. */
+export type AwayReason = "closed" | "asleep" | "all_paused";
+
+/** How long a bot missed checks and why. `since` (a bot only): when it fell behind. */
+export type AwayView = { seconds: number; reason: AwayReason; since?: string };
+
 export type BotView = {
   id: string;
   name: string;
@@ -280,6 +286,8 @@ export type BotView = {
   knowledge: KnowledgeView | null;
   aiChecksToday: number;
   suggestion: Suggestion | null;
+  /** Checks it missed while Timely was closed, the computer slept or Pause all was on, until a check reads something; else null. */
+  away: AwayView | null;
 };
 
 export type LinkKind = "pass" | "brief";
@@ -369,6 +377,8 @@ export type CheckView = {
   errorKind: string;
   error: string;
   fired: FiredRule[] | null;
+  /** The first check after a gap: how long the bot was paused, and why; else null. */
+  away: AwayView | null;
 };
 
 /** The numbers behind an alert. */
@@ -380,6 +390,8 @@ export type AlertFigures = {
   threshold?: number;
   changePct?: number;
   items?: number;
+  /** "Paused for 9 hours while Timely was closed": the alert's catch-up line, also the body's last line. */
+  away?: string;
 };
 
 export type AlertKind = "alert" | "more" | "paused" | "brief";
@@ -442,6 +454,12 @@ export type BotDetail = BotView & {
   rearms: Rearm[] | null;
   /** Every link from or to this bot. */
   links: LinkView[] | null;
+  /**
+   * The newest check of the last 24 hours that ran after a gap and read the
+   * page: its away and start. Null when none. Older APIs leave it out, and
+   * recentAway then looks through `checks` (the newest 20) instead.
+   */
+  lastAway?: (Pick<AwayView, "seconds" | "reason"> & { at: string }) | null;
 };
 
 /** `POST /bots/:id/run` (202). */
@@ -1485,6 +1503,80 @@ export function botMarkKind(bot: Pick<BotView, "watches"> & Partial<Pick<BotView
   return bot.watches.length ? "watch" : "none";
 }
 
+// ── Catch-up ──
+
+/** The end of "Paused for 9 hours …", by reason. The API's awayWhile (bots.go) holds the same words. */
+export const AWAY_WHILE: Record<AwayReason, string> = {
+  closed: "while Timely was closed",
+  asleep: "while this computer was asleep",
+  all_paused: "while all bots were paused",
+};
+
+/** A card's caption while its catch-up check is still to come: "Catching up · Timely was closed for 9 hours". */
+export const AWAY_CAPTION: Record<AwayReason, (span: string) => string> = {
+  closed: (s) => `Timely was closed for ${s}`,
+  asleep: (s) => `this computer was asleep for ${s}`,
+  all_paused: (s) => `all bots were paused for ${s}`,
+};
+
+/** The rail and the phone sheet, once the catch-up check has run. */
+export const CAUGHT_UP = "Caught up";
+
+/**
+ * "45 minutes", "9 hours", "3 days": a gap, as the API's awayFor (alerts.go)
+ * words it. Minutes under 90 minutes, hours under 48 hours, else days, each
+ * rounded half up.
+ */
+export function awayFor(seconds: number): string {
+  if (seconds < 90 * 60) return plural(Math.round(seconds / 60), "minute");
+  if (seconds < 48 * 3600) return plural(Math.round(seconds / 3600), "hour");
+  return plural(Math.round(seconds / 86400), "day");
+}
+
+/** "Paused for 9 hours while Timely was closed"; "" for no gap or a reason this client does not know, as the API's awayLine. */
+export function awayLine(away: Pick<AwayView, "seconds" | "reason">): string {
+  const end = AWAY_WHILE[away.reason];
+  return end && away.seconds > 0 ? `Paused for ${awayFor(away.seconds)} ${end}` : "";
+}
+
+/** Outcomes of a check that read nothing: the bot keeps its gap, so they are not a catch-up. */
+const NO_READ: ReadonlySet<CheckOutcome> = new Set<CheckOutcome>(["offline", "rate_limited", "site_busy", "superseded"]);
+
+const DAY_MS = 24 * 3600_000;
+
+/**
+ * The rail's "Caught up" line: the newest check that ran after a gap and read
+ * the page, when it started at most 24 hours ago. It comes from
+ * `detail.lastAway` when the API sends it, else from `detail.checks`, which
+ * only holds the newest 20. Checks that read nothing (offline, a wait,
+ * superseded) are not a catch-up. Null while the bot still has a gap pending
+ * (its card says "Catching up"), so the two never show together.
+ */
+export function recentAway(detail: Pick<BotDetail, "away" | "checks" | "lastAway">, now: Date): { line: string; at: string } | null {
+  if (detail.away) return null;
+  let best: (Pick<AwayView, "seconds" | "reason"> & { at: string }) | null = null;
+  if (detail.lastAway !== undefined) best = detail.lastAway;
+  else {
+    for (const c of detail.checks ?? []) {
+      if (!c.away || NO_READ.has(c.outcome)) continue;
+      const at = ms(c.startedAt);
+      if (at != null && (!best || at > (ms(best.at) as number))) best = { ...c.away, at: c.startedAt };
+    }
+  }
+  const at = ms(best?.at);
+  if (!best || at == null || now.getTime() - at > DAY_MS) return null;
+  const line = awayLine(best);
+  return line ? { line, at: best.at } : null;
+}
+
+/**
+ * A bot id as the API makes them ("bot_…"): a doc's price block fetches
+ * nothing that is not one, so no free-typed name and no "keys". The pattern
+ * alone cannot tell an id from a bot named "bot_deals" (`GET /bots/:id` also
+ * matches names), so a block checks that the bot it gets back has this id.
+ */
+export const isBotId = (v: unknown): v is string => typeof v === "string" && /^bot_[A-Za-z0-9_-]+$/.test(v);
+
 // ── Card lines ──
 
 const firstRule = (w: WatchView | undefined, kinds: RuleKind[]) => w?.rules.find((r) => kinds.includes(r.kind));
@@ -1518,9 +1610,11 @@ export function firstStrikeAt(bot: Pick<BotView, "lastCheckAt" | "lastOkAt" | "s
 /**
  * The muted line above a text value: "Last good read, 3 h ago" (broken),
  * "Not checked yet", "Since Nov 5, 21:40" (paused itself, from the first
- * strike of the run), "Last post seen, Nov 1" (a feed), else null.
+ * strike of the run), "Catching up · Timely was closed for 9 hours" (an
+ * active bot whose catch-up check is still to come), "Last post seen, Nov 1"
+ * (a feed), else null.
  */
-export function captionLine(bot: BotView, now: Date, tz?: string, bots?: BotNames): string | null {
+export function captionLine(bot: BotView, now: Date, tz?: string, bots?: BotNames, opts: { allPaused?: boolean } = {}): string | null {
   if (isBrief(bot)) return briefFrom(bot, bots);
   const reason = needsReason(bot, now);
   if (reason === "stopped") {
@@ -1528,6 +1622,10 @@ export function captionLine(bot: BotView, now: Date, tz?: string, bots?: BotName
     return since ? `Since ${dateTime(since, tz)}` : "Not checked yet";
   }
   if (reason === "broken") return bot.lastOkAt ? `Last good read, ${agoLabel(bot.lastOkAt, now, tz)}` : "No good read yet";
+  // Under Pause all the footer says every bot is paused, so no card says it is catching up.
+  const away = bot.status === "active" && !opts.allPaused && bot.away && bot.away.seconds > 0 ? bot.away : null;
+  const caption = away ? AWAY_CAPTION[away.reason] : undefined;
+  if (caption && away) return `Catching up · ${caption(awayFor(away.seconds))}`;
   if (!bot.lastCheckAt) return "Not checked yet";
   const w = primaryWatch(bot);
   if (w?.kind === "feed" && w.latestItem && bot.itemsToday === 0) {
@@ -2322,6 +2420,172 @@ export function priceStats(
   };
 }
 
+// ── Price history ──
+
+/** One price watch of a bot, as the rail, the phone sheet and a doc's price block draw it. */
+export type PriceHistoryModel = {
+  watchId: string;
+  /** The symbol, or the site (watchTitle when neither): the watch picker's label. */
+  label: string;
+  /** The bot has two or more price-reading watches. */
+  multiple: boolean;
+  currency: string;
+  value: number | null;
+  /** Daily closes as [unixSeconds, value], oldest first, then the newest reading when it is newer. */
+  points: [number, number][];
+  /** The line the watch's first below/above rule draws. */
+  threshold: number | null;
+  low: number | null;
+  /** "Oct 29". */
+  lowDay: string | null;
+  changePct: number | null;
+  /** "Oct 9". */
+  since: string | null;
+  /** The change is the way the rule wants (down for below, up for above). */
+  good: boolean;
+  /** The line after "Now · ": "₹2,499 above your line". */
+  under: string | null;
+  /** The bot is paused, or Pause all is on (`allPaused`). */
+  paused: boolean;
+};
+
+/**
+ * One price watch of a bot: the picked one, else its first price-reading
+ * watch. Null when the bot reads no price.
+ */
+export function priceHistory(detail: BotDetail, watchId?: string, opts: { allPaused?: boolean } = {}): PriceHistoryModel | null {
+  const watches = detail.watches.filter(isPriceReading);
+  if (!watches.length) return null;
+  const w = watches.find((x) => x.id === watchId) ?? watches[0];
+  const points = priceSeries(detail.prices, w.id);
+  // The newest reading after the last daily close is "now".
+  if (w.value != null && w.lastReadingAt) {
+    const at = Math.floor(Date.parse(w.lastReadingAt) / 1000);
+    if (!points.length || at > points[points.length - 1][0]) points.push([at, w.value]);
+  }
+  const stats = priceStats(detail.prices, w.id);
+  const rule = w.rules.find((r) => r.kind === "below" || r.kind === "above");
+  const good = stats?.changePct != null && rule ? (rule.kind === "below" ? stats.changePct < 0 : stats.changePct > 0) : false;
+  return {
+    watchId: w.id,
+    label: (w.kind === "price" ? w.symbol : w.site) || watchTitle(w),
+    multiple: watches.length > 1,
+    currency: watchCurrency(w),
+    value: w.value,
+    points,
+    threshold: lineOf(w),
+    low: stats?.low ?? null,
+    lowDay: stats?.lowDay ?? null,
+    changePct: stats?.changePct ?? null,
+    since: stats?.since ?? null,
+    good,
+    under: valueLine({ ...detail, watches: [w] }),
+    paused: detail.status === "paused" || !!opts.allPaused,
+  };
+}
+
+/** The words of a doc's price block. */
+export const PRICE_BLOCK = {
+  deleted: "Bot deleted",
+  deletedHint: "Its price history went with it.",
+  noPrice: "This bot doesn’t watch a price",
+  failed: "Couldn’t load this bot’s prices",
+  open: "Open bot",
+  empty: "The line fills in after a few days of checks",
+  pick: "Add a price chart",
+  pickEmpty: "No bot watches a price yet.",
+} as const;
+
+/** A Live block that draws a bot's price history: a Panel named after the bot holding PriceHistory. */
+export function priceBlockProgram(bot: { id: string; name: string }, watchId?: string): string {
+  const watch = watchId ? `, ${JSON.stringify(watchId)}` : "";
+  return `root = Panel(${JSON.stringify(bot.name)}, [chart])\nchart = PriceHistory(${JSON.stringify(bot.id)}${watch})`;
+}
+
+/** Round gridline values inside [lo, hi]: two to four of them. */
+export function niceTicks(lo: number, hi: number): number[] {
+  const span = hi - lo || Math.abs(hi) * 0.1 || 1;
+  const power = 10 ** Math.floor(Math.log10(span / 2));
+  const step = [1, 2, 2.5, 5, 10].map((s) => s * power).find((s) => span / s <= 3) ?? 10 * power;
+  const ticks: number[] = [];
+  // A huge price with a tiny span: past 2^53 a step can be under the value's
+  // float spacing, so `t += step` stops moving. Stop there, and never draw more than 8.
+  for (let t = Math.ceil(lo / step) * step; t <= hi && ticks.length < 8; t += step) {
+    ticks.push(t);
+    if (t + step === t) break;
+  }
+  return ticks;
+}
+
+/** A price chart's value range: the points and the line, padded by 8% (2% of a flat value, else 1), and its gridlines. */
+export function priceDomain(points: [number, number][], threshold: number | null): { lo: number; hi: number; ticks: number[] } {
+  const values = points.map(([, v]) => v);
+  if (threshold != null) values.push(threshold);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const pad = (max - min) * 0.08 || Math.abs(max) * 0.02 || 1;
+  const lo = min - pad;
+  const hi = max + pad;
+  return { lo, hi, ticks: niceTicks(lo, hi) };
+}
+
+/** Where a price chart's parts go in a box: what an SVG needs when React does not draw it. */
+export type PriceChartGeometry = {
+  /** SVG path data. */
+  line: string;
+  area: string;
+  thresholdY: number | null;
+  low: { x: number; y: number; value: number };
+  last: { x: number; y: number; value: number };
+  grid: { y: number; value: number }[];
+  /** The first day, the middle day and "Today". */
+  xLabels: { x: number; label: string }[];
+};
+
+/**
+ * A price chart laid out in a box of `width` × `height`, with `left` for the
+ * axis labels and `bottom` for the days: the same line, area, gridlines,
+ * low and newest points as the Bots page's chart. Null under two points.
+ */
+export function priceChartGeometry(
+  points: [number, number][],
+  threshold: number | null,
+  box: { width: number; height: number; left: number; right: number; top: number; bottom: number },
+): PriceChartGeometry | null {
+  if (points.length < 2) return null;
+  const { lo, hi, ticks } = priceDomain(points, threshold);
+  const plotW = Math.max(0, box.width - box.left - box.right);
+  const plotH = Math.max(0, box.height - box.bottom - box.top);
+  const t0 = points[0][0];
+  const t1 = points[points.length - 1][0];
+  const x = (t: number) => box.left + (t1 > t0 ? ((t - t0) / (t1 - t0)) * plotW : plotW / 2);
+  const y = (v: number) => box.top + (1 - (v - lo) / (hi - lo || 1)) * plotH;
+  const line = points.map(([t, v], i) => `${i ? "L" : "M"}${x(t).toFixed(1)} ${y(v).toFixed(1)}`).join(" ");
+  const base = box.top + plotH;
+  const area = `${line} L${x(t1).toFixed(1)} ${base} L${x(t0).toFixed(1)} ${base} Z`;
+  let low = 0;
+  points.forEach(([, v], i) => {
+    if (v < points[low][1]) low = i;
+  });
+  const last = points.length - 1;
+  // Daily closes sit at UTC midnight, so their days are UTC days, as priceStats words `since`.
+  const day = (t: number) => shortDate(new Date(t * 1000).toISOString(), "UTC");
+  const mid = points[Math.floor(last / 2)][0];
+  return {
+    line,
+    area,
+    thresholdY: threshold != null ? y(threshold) : null,
+    low: { x: x(points[low][0]), y: y(points[low][1]), value: points[low][1] },
+    last: { x: x(t1), y: y(points[last][1]), value: points[last][1] },
+    grid: ticks.map((value) => ({ y: y(value), value })),
+    xLabels: [
+      { x: x(t0), label: day(t0) },
+      { x: x(mid), label: day(mid) },
+      { x: x(t1), label: "Today" },
+    ],
+  };
+}
+
 /** The meta of an alert in Recent alerts: "Oct 29, 14:02 · down from ₹27,490". */
 export function alertMeta(alert: Pick<AlertView, "createdAt" | "figures">, tz?: string): string {
   const at = dateTime(alert.createdAt, tz);
@@ -2773,6 +3037,7 @@ export function previewCard(args: BotInput, preview?: PreviewResult | null, now:
     knowledge: null,
     aiChecksToday: 0,
     suggestion: null,
+    away: null,
   };
 }
 
