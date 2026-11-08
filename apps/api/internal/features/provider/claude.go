@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -37,8 +38,30 @@ func (p *Claude) Complete(ctx context.Context, messages []chat.WireMessage, tool
 	}
 	input, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": content}})
 
+	// The system prompt goes in a file, not argv: Linux refuses any single
+	// argument over 128 KB and Windows a command line over 32,767 characters,
+	// and the prompt with every tool schema is already close to the first.
+	// CreateTemp makes the file 0600 in scratchDir, a directory only this user
+	// owns (mode 0700 on Unix), so no other user can read or replace it.
+	dir, err := scratchDir()
+	if err != nil {
+		return chat.WireMessage{}, fmt.Errorf("Claude could not start: %w", err)
+	}
+	promptFile, err := os.CreateTemp(dir, "system-*.txt")
+	if err != nil {
+		return chat.WireMessage{}, fmt.Errorf("Claude could not start: %w", err)
+	}
+	defer os.Remove(promptFile.Name())
+	_, err = promptFile.WriteString(system)
+	if closeErr := promptFile.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return chat.WireMessage{}, fmt.Errorf("Claude could not start: %w", err)
+	}
+
 	args := []string{"-p", "--model", p.Model, "--strict-mcp-config", "--setting-sources", "", "--no-session-persistence", "--disable-slash-commands",
-		"--system-prompt", system, "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"}
+		"--system-prompt-file", promptFile.Name(), "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"}
 	structured := len(tools) > 0
 	if structured {
 		args = append(args, "--json-schema", responseSchema)
@@ -49,7 +72,7 @@ func (p *Claude) Complete(ctx context.Context, messages []chat.WireMessage, tool
 		args = append(args, "--tools", "")
 	}
 	cmd := exec.CommandContext(ctx, p.Bin, args...)
-	cmd.Dir = scratchDir()
+	cmd.Dir = dir
 	cmd.Env = cliEnv("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
 	cmd.Stdin = bytes.NewReader(append(input, '\n'))
 	var stdout, stderr bytes.Buffer
@@ -82,7 +105,6 @@ func (p *Claude) Complete(ctx context.Context, messages []chat.WireMessage, tool
 		return chat.WireMessage{Role: "assistant", Content: result.Result}, nil
 	}
 	var parsed chat.WireMessage
-	var err error
 	if len(result.StructuredOutput) > 0 && string(result.StructuredOutput) != "null" {
 		parsed, err = parseResponse(string(result.StructuredOutput))
 	} else {

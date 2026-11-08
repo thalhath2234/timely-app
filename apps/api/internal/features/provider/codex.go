@@ -28,9 +28,13 @@ func (p *Codex) Complete(ctx context.Context, messages []chat.WireMessage, tools
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 
-	work, err := os.MkdirTemp(scratchDir(), "codex-")
+	base, err := scratchDir()
 	if err != nil {
-		return chat.WireMessage{}, err
+		return chat.WireMessage{}, fmt.Errorf("Codex could not start: %w", err)
+	}
+	work, err := os.MkdirTemp(base, "codex-")
+	if err != nil {
+		return chat.WireMessage{}, fmt.Errorf("Codex could not start: %w", err)
 	}
 	defer os.RemoveAll(work)
 	schemaPath := filepath.Join(work, "schema.json")

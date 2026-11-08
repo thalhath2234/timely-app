@@ -165,7 +165,7 @@ _Avoid_: endpoint, API URL (in copy), base URL
 
 **Pair**:
 Giving the phone a Desktop host's Server addresses by scanning the QR code in Settings → Server or pasting one address. Pairing checks the address with a health call; it does not sign in.
-_Avoid_: connect (reserved for Agent providers), link, sync (sync is what happens after Pair)
+_Avoid_: connect (reserved for Agent providers and Connected services), link, sync (sync is what happens after Pair)
 
 **Tailscale access**:
 The Settings → Server switch that lets the API listen on the host's Tailscale addresses in addition to loopback. Off means loopback only; there is no LAN or public option.
@@ -181,11 +181,33 @@ _Avoid_: notification (alone; that is the in-app row), FCM, remote notification
 
 ### Bots
 
-<!-- Merge note: feature/bots-adr (ADRs 0021 to 0023) adds its own Bots section here, defining Bot, Watch, Check, Bot alert, Finding and a first Lesson, Brief and Pass to. Keep that one section: replace its Lesson, Brief and Pass to with the three below, add Judge, Chain, Thing and Catch-up after Pass to, and drop this comment. -->
+**Bot**:
+A named helper the person makes that checks one or more Watches on its own schedule, with nobody watching, and sends a Bot alert when something worth knowing changed. It runs in the API on the job queue and stops while the API is off (ADR 0021). It never buys, posts or deletes anything. It signs in only with a Sign-in the person attached to it, and on its own only where that Sign-in's "Sign in on its own" is on (ADR 0022).
+_Avoid_: agent (that is the chat agent), automation, monitor, Jev (in copy)
+
+**Watch**:
+One thing a Bot reads: a page (its text, one part, or its published price), a feed, a price from a free source, or a Tool watch.
+_Avoid_: source, trigger, scraper
+
+**Check**:
+One reading of a Bot's Watches, compared with the last reading against its rules. Most Checks find nothing and cost nothing; only a change that passes the rules can reach the AI judge.
+_Avoid_: run (an Agent run is a chat attempt), scan, poll
+
+**Bot alert**:
+The notification a Bot sends, in its own notification category, with Useful and Not useful. Its numbers come from the Check, never from the AI. When the AI couldn't judge, it says "Not checked by AI".
+_Avoid_: Reminder (a Reminder is a timed ping the person set), notification (alone)
 
 **Lesson**:
 A short line a Bot keeps from a Useful or Not useful answer on one of its alerts, read by the Judge on later Checks. Code writes it from the alert's rule words and the person's own note, never from text the AI or a page wrote. Up to 20 per Bot, each removable.
 _Avoid_: memory, training, feedback (alone)
+
+**Starter**:
+A ready-made Bot description on the empty Bots page (Price drop, Page changed, Stock move, New in a feed, Morning brief) that opens Bot creation with the words filled in.
+_Avoid_: template (in copy), preset (store presets are Watch settings)
+
+**Finding**:
+A typed note a Bot writes after a Check, kept on the findings board for other Bots, @-tag answers and the morning digest. Findings from fetched pages or outside services carry the outside-data mark.
+_Avoid_: result, message (Bots never send each other free text)
 
 **Brief**:
 A Bot with no Watches that gathers new Findings from up to 8 other Bots into one alert once a day, at the time the person picks, from a template or written by AI. A source Bot set to "Only in the brief" alerts only through it. The morning digest is not a Brief; it gets its own "From your bots" section.
@@ -210,3 +232,35 @@ _Avoid_: item (a feed item is one kind of Thing), duplicate, entity
 **Catch-up**:
 The one Check each Bot at least 30 minutes late makes after Timely was closed, the computer slept or Pause all was on, however many scheduled Checks it missed. Late Checks start one by one, about 10 seconds apart, and the next alert says how long the Bot was paused ("Paused for 9 hours while Timely was closed"). A paused Bot is not caught up and stays paused; a snoozed Bot catches up, and its alert stays held until the snooze ends (ADR 0025).
 _Avoid_: backfill, replay, missed checks (no missed slot is replayed)
+
+**Secure Store**:
+The sealed store, under TIMELY_VAULT_KEY, of saved website logins and Connected service secrets. Timely types a saved password into the page or attaches a token itself; the AI never sees either and holds only a ticket (ADR 0022, ADR 0023).
+_Avoid_: password manager, vault (in copy), keychain
+
+**Sign-in**:
+A saved login in the Secure Store, or a session the person signed in to themselves in a real window, that a Bot or chat run uses on one website. Signed-in pages are private and read-only. A Connected service's OAuth sign-in is not a Sign-in; call it the service's sign-in (ADR 0023).
+_Avoid_: account (an account is the person's Timely account), credentials (in copy)
+
+**Local model**:
+A model Ollama serves at a loopback address on this PC, answering now, that can use tools and isn't an Ollama cloud model. Remote Ollama, API providers, OpenRouter, Claude Code and Codex never count. "Only local AI" keeps a site's or service's data on one.
+_Avoid_: offline AI, on-device (in copy)
+
+**Take control**:
+The person driving a run's browser page themselves. The agent pauses and reads nothing until Give back.
+_Avoid_: manual mode, override
+
+**Connected service**:
+Another app's MCP server added under Settings → Integrations ("Apps Timely can use"), with its own token or sign-in. Timely is the MCP client (ADR 0023). Adding one is not Connect (Connect verifies a CLI Agent provider).
+_Avoid_: integration (alone; the tab also lists apps that use Timely), connector, plugin
+
+**Tool choice**:
+What the person allows for one tool of a Connected service: Can use (it only reads), Ask me first (it may change things), or Off. The service's own labels never decide it.
+_Avoid_: permission, scope (scopes are what a sign-in asks for)
+
+**Tool watch**:
+A Watch that makes one fixed call to a Connected service's tool, with the tool and arguments set in the Bot editor, and compares the result with the last one.
+_Avoid_: integration watch, API watch
+
+**Outside data**:
+Text that came from a fetched page or a Connected service. It reaches the AI only as quoted data, keeps its mark when it is passed on, and can't steer what a Bot or chat run does next.
+_Avoid_: untrusted input (in copy), external content
