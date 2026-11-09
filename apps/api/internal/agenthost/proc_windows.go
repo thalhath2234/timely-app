@@ -110,8 +110,9 @@ type procGroup struct {
 }
 
 // startGroup puts the suspended worker into a new Job Object and resumes it.
-// It always resumes the worker (or kills it when it cannot), so a failure here
-// never leaves a worker frozen; the error says the job is missing.
+// A worker it cannot put in the job is terminated while still suspended (it
+// never runs, so it cannot start a child outside the job); a worker it cannot
+// resume is killed. A failure never leaves a worker frozen or running.
 func startGroup(cmd *exec.Cmd) (*procGroup, error) {
 	g := &procGroup{cmd: cmd}
 	process, err := syscall.OpenProcess(processSetQuota|processTerminate|processSuspendResume, false, uint32(cmd.Process.Pid))
@@ -120,12 +121,18 @@ func startGroup(cmd *exec.Cmd) (*procGroup, error) {
 		return g, fmt.Errorf("OpenProcess: %w (worker killed)", err)
 	}
 	defer syscall.CloseHandle(process)
-	jobErr := g.assign(process)
+	if err := g.assign(process); err != nil {
+		// Never resume a worker outside its job: the venv's python.exe launcher starts the real
+		// interpreter as soon as it runs, and that child would escape both the job and the kill.
+		_ = syscall.TerminateProcess(process, 1)
+		_ = cmd.Process.Kill()
+		return g, fmt.Errorf("%w (worker killed while suspended)", err)
+	}
 	if r, _, err := procNtResumeProcess.Call(uintptr(process)); r != 0 {
 		_ = cmd.Process.Kill()
 		return g, fmt.Errorf("NtResumeProcess: status %#x %v (worker killed)", r, err)
 	}
-	return g, jobErr
+	return g, nil
 }
 
 func (g *procGroup) assign(process syscall.Handle) error {
