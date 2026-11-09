@@ -17,8 +17,9 @@ Checks, each ``{"name", "ok", "detail"}``:
 - ``home``          ``HERMES_HOME`` is the folder Go named in ``hello`` and Hermes resolves it
 - ``no_messaging``  no messaging tool resolves for any toolset a Timely run may enable, no
                     platform plugin is enabled and no platform adapter module is imported
-- ``managed_config`` the managed floors read back through Hermes' loaders (canary)
+- ``managed_config`` every leaf of the managed floors reads back through Hermes' loaders (canary)
 - ``install_guard`` every runtime-install override is in place
+- ``dotenv_guard``  Hermes' dotenv loader is a no-op after start (runtime override R2)
 - ``mcp``           no ``command`` MCP server unless the account is host-allowed and approved it
 
 If any check fails the worker answers ``ready`` with ``self_test.ok = false`` and refuses runs.
@@ -30,7 +31,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from timely_agent import config_render, env_check, install_guard, paths, policy
+from timely_agent import config_render, dotenv_guard, env_check, install_guard, paths, policy
 from timely_agent.plugin_dist import PLUGINS
 
 # The enabled plugin set at the synced Hermes tag: Timely's four plus the bundled backends Hermes
@@ -131,7 +132,7 @@ def user_plugin_entries(home: Path) -> list[str]:
     return out
 
 
-def run(*, expected_home: str, timely_skills_dir: str | None,
+def run(*, expected_home: str, timely_skills_dir: str | None, browser_executable: str = "",
         env_before: dict[str, str] | None = None, env_ignore: frozenset[str] | set[str] = frozenset()) -> dict[str, Any]:
     checks: list[dict[str, Any]] = []
     from hermes_cli.plugins import get_plugin_manager
@@ -186,7 +187,7 @@ def run(*, expected_home: str, timely_skills_dir: str | None,
         checks.append(_check("no_messaging", False, f"could not resolve tools: {exc}"))
 
     try:
-        problems = config_render.canary(timely_skills_dir)
+        problems = config_render.canary(timely_skills_dir, browser_executable)
     except Exception as exc:
         problems = [f"canary raised {type(exc).__name__}: {exc}"]
     checks.append(_check("managed_config", not problems, "; ".join(problems)))
@@ -205,6 +206,12 @@ def run(*, expected_home: str, timely_skills_dir: str | None,
     except Exception:
         guard = False
     checks.append(_check("install_guard", guard, "" if guard else "runtime install overrides are missing"))
+
+    try:
+        frozen = dotenv_guard.active()
+    except Exception:
+        frozen = False
+    checks.append(_check("dotenv_guard", frozen, "" if frozen else "Hermes' dotenv loader can still reload .env files"))
 
     try:
         from hermes_cli.config import load_config

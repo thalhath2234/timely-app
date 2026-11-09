@@ -42,6 +42,10 @@
 #   skills-folder-allow   no approval needed inside the account's own skills folder
 #   clarify-card          the gate turns the call into a Timely card (phase 4, Q-4.3)
 #   no-secret-capture     skill secret capture is off
+#   private-target        a URL in the arguments (literal, or a name resolving) to a private, loopback,
+#                         link-local or CGNAT/Tailscale address is blocked; Hermes' local browser ignores
+#                         security.allow_private_urls. Enforced by timely_gate from phase 1 (every
+#                         browser_* tool), before Go is asked
 #
 # Count at v0.23.0: 83 registered tools with every bundled plugin enabled (73 core, 5 from
 # plugin:platforms/a2a, 5 from plugin:google_meet). Plan 8.1's "73" came from upstream main 334f66b8,
@@ -209,6 +213,7 @@ tools:
     chat: approve
     bot: block
     phase: 5
+    gates: [private-target]
     schema: "573c1df22738a7f6147da5e8d35e23b624518b0e2d08241dacfae070d5335e96"
     note: "Runs Python against the browser; bots use Timely's bot_browse"
   browser_cdp@core:
@@ -216,6 +221,7 @@ tools:
     chat: approve
     bot: block
     phase: 5
+    gates: [private-target]
     schema: "80b51c2449955bd44a19d4d666369e090a5be4704c0251d7477bc4168952e35f"
     note: "Raw CDP"
   browser_dialog@core:

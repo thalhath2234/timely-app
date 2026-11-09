@@ -21,7 +21,7 @@ PHASES = set(range(0, 9)) | {"later", "never"}
 GATES = {
     "learning", "timely-skills-readonly", "session-taint", "delegate-cap", "web-toggle", "taint-egress",
     "bot-egress", "xai-key", "host-path-approve", "urls-only", "skills-folder-allow", "clarify-card",
-    "no-secret-capture",
+    "no-secret-capture", "private-target",
 }
 OWNER_RE = re.compile(r"^(core|plugin:[A-Za-z0-9_./-]+|mcp:[A-Za-z0-9_.-]+)$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -47,6 +47,22 @@ SKILLS_JSON = check_lib.SYNC_DIR + "/skills.json"
 GEN_BEGIN = "# BEGIN generated tool_tokens"
 GEN_END = "# END generated tool_tokens"
 REGEN = "python3 -I scripts/hermes-sync/check_sync.py --write"
+
+
+_WORKER_POLICY = []
+
+
+def worker_floor_blocks(name):
+    """Whether the worker's phase-1 name floor (``timely_agent.policy.is_blocked``, stdlib only)
+    blocks ``name``. Loaded from the file, so the check needs nothing on sys.path."""
+    if not _WORKER_POLICY:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "_timely_policy", check_lib.path(check_lib.AGENT_DIR + "/timely_agent/policy.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _WORKER_POLICY.append(mod)
+    return _WORKER_POLICY[0].is_blocked(name)
 
 
 def split_key(key):
@@ -91,6 +107,9 @@ def validate_tools_policy(policy):
                 msgs.append(f"{where}: phase must be 0-8, later or never (got {e['phase']!r})")
             if e.get("phase") == "never" and (e.get("chat") != "block" or e.get("bot") != "block"):
                 msgs.append(f"{where}: phase never needs chat and bot block")
+            if e.get("phase") == "never" and not worker_floor_blocks(name):
+                msgs.append(f"{where}: phase never, but the worker's name floor (apps/agent/timely_agent/policy.py "
+                            f"BLOCKED_TOOLS, BLOCKED_PREFIXES, MESSAGING_*) does not block `{name}`; add it there")
             gates = e.get("gates", [])
             if not isinstance(gates, list) or any(g not in GATES for g in gates):
                 msgs.append(f"{where}: gates must be a list from {sorted(GATES)} (got {gates!r})")

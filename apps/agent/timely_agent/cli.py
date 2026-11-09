@@ -98,7 +98,7 @@ def prepare(layout: paths.AgentLayout, opts: dict[str, Any]) -> dict[str, Any]:
     config_render.write_atomic(canary_home / "config.yaml", config_render.dumps(cfg))
     from timely_agent import install_guard
     install_guard.install()
-    problems = config_render.canary(timely_skills)
+    problems = config_render.canary(timely_skills, browser)
     if problems:
         raise RuntimeError("managed config canary failed: " + "; ".join(problems))
     state = {

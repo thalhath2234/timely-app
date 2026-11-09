@@ -295,6 +295,8 @@ class Tools(unittest.TestCase):
             "unknown field": lambda p: p["tools"]["terminal@core"].update(extra=1),
             "unknown not block": lambda p: p.update(unknown="allow"),
             "missing note": lambda p: p["tools"]["terminal@core"].pop("note"),
+            "never but not on the worker floor": lambda p: p["tools"]["terminal@core"].update(
+                chat="block", bot="block", phase="never"),
         }
         for label, mutate in cases.items():
             with self.subTest(label):

@@ -6,7 +6,10 @@ account loads the same staged Timely skills folder, so one account's learning wr
 rewrite the skill every other account follows. This hook blocks every ``skill_manage``
 action (create, patch, edit, write_file, remove_file, delete, batch operations) whose
 target resolves, through Hermes' own ``_find_skill``, under an external skills folder, and
-blocks ``write_file`` / ``patch`` on any path inside one.
+blocks ``write_file`` / ``patch`` on any path inside one: the path arguments, and for ``patch``
+in V4A mode (``mode: patch``, which Hermes accepts from any model) every file the patch text
+names (``*** Update/Add/Delete File:``, ``*** Move File: a -> b``). Relative paths resolve
+against the terminal's working folder (``TERMINAL_CWD``), as Hermes' file tools resolve them.
 
 Taint reporting, staging and review policy arrive in phase 3.
 """
@@ -15,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -40,11 +44,34 @@ def _external_roots() -> list[Path]:
 
 
 def _under_external(path: Path) -> bool:
+    path = path.expanduser()
+    if not path.is_absolute():
+        path = Path(os.environ.get("TERMINAL_CWD") or os.getcwd()) / path
     try:
-        candidate = path.expanduser().resolve()
+        candidate = path.resolve()
     except (OSError, RuntimeError):
         candidate = path.expanduser().absolute()
     return any(candidate.is_relative_to(root) for root in _external_roots())
+
+
+_V4A_FILE = re.compile(r"^\*\*\*\s*(?:Update|Add|Delete)\s+File:\s*(.+?)\s*$", re.MULTILINE)
+_V4A_MOVE = re.compile(r"^\*\*\*\s*Move\s+File:\s*(.+?)\s*->\s*(.+?)\s*$", re.MULTILINE)
+_V4A_MOVE_TO = re.compile(r"^\*\*\*\s*Move\s+to:\s*(.+?)\s*$", re.MULTILINE)
+
+
+def v4a_paths(text: str) -> list[str]:
+    """Every file a V4A patch names: Hermes' own parser, plus a plain scan of the marker lines so
+    a patch the parser rejects (or a marker form it does not know yet) is still checked."""
+    found: list[str] = []
+    try:
+        from tools.patch_parser import parse_v4a_patch
+        ops, _err = parse_v4a_patch(text)
+        found += [p for op in ops for p in (op.file_path, op.new_path) if p]
+    except Exception as exc:
+        logger.warning("V4A parse for the read-only check failed: %s", exc)
+    found += _V4A_FILE.findall(text) + _V4A_MOVE_TO.findall(text)
+    found += [p for pair in _V4A_MOVE.findall(text) for p in pair]
+    return list(dict.fromkeys(p.strip() for p in found if p.strip()))
 
 
 def _skill_targets(args: dict) -> Iterable[str]:
@@ -88,8 +115,10 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, **_: Any) -> di
             if isinstance(fp, str) and fp and os.path.isabs(fp) and _under_external(Path(fp)):
                 return {"action": "block", "message": READ_ONLY_PATH_MESSAGE.format(path=fp)}
         elif tool_name in PATH_TOOLS:
-            for key in PATH_ARGS:
-                value = args.get(key)
+            values = [args.get(key) for key in PATH_ARGS]
+            if tool_name == "patch" and isinstance(args.get("patch"), str):
+                values += v4a_paths(args["patch"])
+            for value in values:
                 if isinstance(value, str) and value and _under_external(Path(value)):
                     return {"action": "block", "message": READ_ONLY_PATH_MESSAGE.format(path=value)}
     except Exception as exc:  # fail closed: a broken check must not let the write through

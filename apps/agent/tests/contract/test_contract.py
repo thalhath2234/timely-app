@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import subprocess
 import sys
 import textwrap
@@ -274,6 +275,12 @@ SYMBOLS: dict[str, list[str] | None] = {
     "pm.extras:ensure_import": [],
     "pm.extras:available": [],
     "pm.package:InstallError": [],
+    # install guard, LSP half (R1): the auto-installer of language servers
+    "agent.lsp.install:try_install": ["pkg", "strategy"],
+    "agent.lsp.install:_run_installer": ["tool", "pkg", "cmd"],
+    # dotenv guard (runtime override R2) and the run-time reload it stops
+    "hermes_cli.env_loader:load_hermes_dotenv": [],
+    "tools.mcp_tool_config:_load_mcp_config": [],
 }
 
 
@@ -481,6 +488,8 @@ PROBE_CONFIG = textwrap.dedent("""
         "unsafe_allowed": [u for u in urls if url_safety.is_safe_url(u)],
         "approvals_mode": (cfg.get("approvals") or {}).get("mode"),
         "keyless": (cfg.get("web") or {}).get("keyless_fallback"),
+        "auto_local": (cfg.get("browser") or {}).get("auto_local_for_private_urls"),
+        "lsp_install": (cfg.get("lsp") or {}).get("install_strategy"),
     }))
 """)
 
@@ -504,6 +513,151 @@ def test_c12_managed_canary_takes_effect(agent, worker):
     assert got["unsafe_allowed"] == [], got
     assert got["override"] == ["timely_bot"], got
     assert got["approvals_mode"] == "manual" and got["keyless"] is False
+    assert got["auto_local"] is False and got["lsp_install"] == "manual", got
+
+
+def test_c12_managed_file_edited_after_prepare_fails_the_self_test(stub):
+    """12a2. The canary reads back every leaf of the managed floors, not a short list: an edit to
+    the shared ``managed/config.yaml`` between API start and a spawn (keys the old canary never
+    read: disabled toolsets, real browser profile, connectors, agent cron, LSP installs) fails
+    the self-test and every run is refused."""
+    a = harness.Agent(harness.new_root("c12a2"))
+    managed = a.layout.managed_config
+    cfg = json.loads(managed.read_text().split("\n", 1)[1])
+    cfg["agent"]["disabled_toolsets"] = []
+    cfg["browser"]["use_real_profile"] = True
+    cfg["tools"]["connectors"]["enabled"] = True
+    cfg["cron"]["allow_agent_scheduling"] = True
+    cfg["lsp"]["install_strategy"] = "auto"
+    managed.write_text(config_render.HEADER + json.dumps(cfg))
+    w, ready = _ready_fresh(a)
+    try:
+        assert ready["self_test"]["ok"] is False, ready["self_test"]
+        detail = next(c["detail"] for c in ready["self_test"]["checks"] if c["name"] == "managed_config")
+        for key in ("agent.disabled_toolsets", "browser.use_real_profile", "tools.connectors.enabled",
+                    "cron.allow_agent_scheduling", "lsp.install_strategy"):
+            assert f"managed {key}" in detail, (key, detail)
+        w.send(harness.run_start(a, stub, run_id="c12a2"))
+        err = w.recv()
+        assert err["type"] == "error" and err["code"] == "refused", err
+    finally:
+        w.close()
+
+
+PROBE_BROWSER_GATE = textwrap.dedent("""
+    import json, sys
+    sys.path[:0] = [sys.argv[1], sys.argv[2]]
+    from timely_agent import bridge, install_guard
+    install_guard.install()
+    import model_tools  # noqa: F401  (loads the tool modules as the worker does)
+    from timely_agent.plugins import timely_gate
+    asked = []
+    bridge.ask = lambda msg, timeout: asked.append(msg["tool"]) or {"type": "gate.verdict", "verdict": "allow"}
+    bridge.current_run.set(bridge.RunContext(run_id="r", session_key="k", conversation_id="c", kind="chat",
+                                             tainted_sources=[], pre_approved=None))
+    calls = {
+        "cdp_loopback": ("browser_cdp", {"method": "Page.navigate", "params": {"url": "http://127.0.0.1:8080/api/health"}}),
+        "cdp_new_tab_lan": ("browser_cdp", {"method": "Target.createTarget", "params": {"url": "http://192.168.1.1/"}}),
+        "exec_cgnat": ("browser_exec", {"code": "goto('http://100.64.0.1/admin')"}),
+        "exec_localhost": ("browser_exec", {"code": "page.goto('http://localhost:4001/')"}),
+        "exec_decimal_ip": ("browser_exec", {"code": "goto('http://2130706433/')"}),
+        "exec_scheme_relative": ("browser_exec", {"code": "fetch('//10.0.0.7/x')"}),
+        "exec_ipv6_loopback": ("browser_exec", {"code": "goto('http://[::1]:8080/')"}),
+        "cdp_public_ip": ("browser_cdp", {"method": "Page.navigate", "params": {"url": "http://93.184.215.14/"}}),
+        "exec_no_url": ("browser_exec", {"code": "print(page.title())"}),
+    }
+    out = {}
+    for label, (tool, args) in calls.items():
+        before = len(asked)
+        verdict = timely_gate.pre_tool_call(tool_name=tool, args=args, tool_call_id=label)
+        out[label] = {"verdict": verdict, "asked_go": len(asked) > before}
+    print(json.dumps(out))
+""")
+
+
+def test_c12_browser_tool_on_a_private_address_is_blocked(agent):
+    """12h. Hermes' browser URL policy lets a local Chromium reach loopback, LAN and
+    CGNAT/Tailscale addresses (``allow_private_urls`` covers only the web tools). timely_gate
+    refuses a browser tool call whose arguments name such a URL, by literal or encoded IP, before
+    it reaches Go; a public target still goes to Go's ``gate.ask``."""
+    proc = subprocess.run([harness.python(), "-I", "-c", PROBE_BROWSER_GATE, str(paths.hermes_dir()),
+                           str(paths.agent_dir())], capture_output=True, text=True, env=agent.env(), timeout=180)
+    assert proc.returncode == 0, proc.stderr[-3000:]
+    got = json.loads(proc.stdout.strip().splitlines()[-1])
+    for label, res in got.items():
+        if label in ("cdp_public_ip", "exec_no_url"):
+            assert res["verdict"] is None and res["asked_go"], (label, res)
+        else:
+            assert res["verdict"] and res["verdict"]["action"] == "block", (label, res)
+            assert "private" in res["verdict"]["message"] and not res["asked_go"], (label, res)
+
+
+@pytest.mark.skipif(IS_WINDOWS, reason="the fake go is a POSIX shell script")
+def test_c12_write_file_never_installs_a_language_server(stub):
+    """12i. ``write_file`` of a ``.go`` file in a git workspace with ``go`` on PATH must not make
+    Hermes' LSP layer ``go install gopls`` (its default ``lsp.install_strategy: auto`` runs
+    installers from PATH without pm). The managed floor pins ``manual`` and the install guard
+    replaces the installer; a fake ``go`` records every call it gets."""
+    a = harness.Agent(harness.new_root("c12i"))
+    fake_bin = a.root / "fake-bin"
+    fake_bin.mkdir()
+    calls = a.root / "go-calls.log"
+    go = fake_bin / "go"
+    go.write_text(f"#!/bin/sh\necho \"$*\" >> '{calls}'\nexit 0\n")
+    go.chmod(0o755)
+    workspace = a.home / "workspace"
+    subprocess.run(["git", "init", "-q", str(workspace)], check=True, capture_output=True)
+    (workspace / "go.mod").write_text("module example.com/probe\n\ngo 1.22\n")
+    w, ready = _ready_fresh(a, PATH=f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '/usr/bin:/bin')}")
+    try:
+        assert ready["self_test"]["ok"], ready["self_test"]
+        target = workspace / "main.go"
+        args = {"path": str(target), "content": "package main\n\nfunc main() {}\n"}
+        w.send(harness.run_start(a, stub, run_id="c12i", conversation="c-c12i", toolsets=["file"],
+                                 text=f"CALL write_file {json.dumps(args)}"))
+        ask, _ = w.until("gate.ask")
+        _verdict(a, w, ask, "allow")
+        done, seen = w.until("run.done")
+        assert target.exists(), (done, _events(seen, "tool.completed"))
+    finally:
+        w.close()
+    logged = calls.read_text() if calls.exists() else ""
+    assert not [ln for ln in logged.splitlines() if ln.startswith("install")], logged
+    assert not (a.home / "lsp" / "bin").exists() or not any((a.home / "lsp" / "bin").iterdir())
+
+
+PROBE_DOTENV_RELOAD = textwrap.dedent("""
+    import json, os, sys
+    from pathlib import Path
+    sys.path[:0] = [sys.argv[1], sys.argv[2]]
+    from timely_agent import dotenv_guard, install_guard
+    install_guard.install()
+    import run_agent  # noqa: F401  (the worker's own start-up dotenv load)
+    dotenv_guard.install()
+    home = Path(os.environ["HERMES_HOME"])
+    (home / ".env").write_text("HERMES_YOLO_MODE=1\\nHERMES_ALLOW_PRIVATE_URLS=1\\n")
+    from tools.mcp_tool_config import _load_mcp_config
+    _load_mcp_config()
+    print(json.dumps({"yolo": os.environ.get("HERMES_YOLO_MODE"),
+                      "private": os.environ.get("HERMES_ALLOW_PRIVATE_URLS"),
+                      "active": dotenv_guard.active(), "skipped": len(dotenv_guard.calls)}))
+""")
+
+
+def test_c12_dotenv_written_after_start_is_never_loaded(agent, worker):
+    """12j. Hermes reloads ``$HERMES_HOME/.env`` into the process whenever the MCP config loads.
+    After start the loader is a no-op (runtime override R2), so a ``.env`` written later (by an
+    approved terminal command, say) cannot switch on ``HERMES_YOLO_MODE``; the self-test checks
+    the override is in place."""
+    check = next(c for c in worker.ready_msg["self_test"]["checks"] if c["name"] == "dotenv_guard")
+    assert check["ok"], check
+    a = harness.Agent(harness.new_root("c12j"))
+    proc = subprocess.run([harness.python(), "-I", "-c", PROBE_DOTENV_RELOAD, str(paths.hermes_dir()),
+                           str(paths.agent_dir())], capture_output=True, text=True, env=a.env(), timeout=180)
+    assert proc.returncode == 0, proc.stderr[-3000:]
+    got = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert got["yolo"] is None and got["private"] is None, got
+    assert got["active"] is True and got["skipped"] >= 1, got
 
 
 def test_c12_tool_override_for_another_plugin_fails_the_self_test(stub):
@@ -677,6 +831,34 @@ def test_c16_skill_manage_on_timely_skill_refused(agent, worker, stub):
     assert skill.read_bytes() == before
     assert not (skill.parent / "references" / "x.md").exists()
     assert not (agent.home / "skills" / "timely").exists()
+
+
+def test_c16_v4a_patch_on_timely_skill_refused(agent, worker, stub):
+    """16b. ``patch`` in V4A mode (``mode: patch``; Hermes accepts it from any model) names its
+    target inside the patch text. timely_learning reads those paths too (Update, Add, Move), so
+    a V4A patch on a Timely skill file is refused and the file is unchanged."""
+    skill = Path(agent.prepared["timely_skills_dir"]) / "timely" / "SKILL.md"
+    before = skill.read_bytes()
+    patches = [
+        f"*** Begin Patch\n*** Update File: {skill}\n@@\n-TIMELY-FIXTURE-MARKER\n+HACKED\n*** End Patch",
+        f"*** Begin Patch\n*** Add File: {skill.parent / 'references' / 'v4a.md'}\n+HACKED\n*** End Patch",
+        f"*** Begin Patch\n*** Move File: {skill} -> {agent.home / 'workspace' / 'stolen.md'}\n*** End Patch",
+    ]
+    for i, text in enumerate(patches):
+        run_id = f"c16b-{i}"
+        worker.send(harness.run_start(agent, stub, run_id=run_id, conversation=f"c-{run_id}", toolsets=["file"],
+                                      text=f"CALL patch {json.dumps({'mode': 'patch', 'patch': text})}"))
+        while True:
+            msg = worker.recv()
+            if msg.get("type") == "gate.ask":  # hook order is Hermes'; Go would allow here
+                _verdict(agent, worker, msg, "allow")
+                continue
+            if msg.get("type") == "run.done":
+                break
+        assert "shipped with Timely" in msg["final_response"], (i, msg["final_response"])  # stub cuts at 200
+    assert skill.read_bytes() == before
+    assert not (skill.parent / "references" / "v4a.md").exists()
+    assert not (agent.home / "workspace" / "stolen.md").exists()
 
 
 # ---------------------------------------------------------------- 19

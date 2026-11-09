@@ -129,6 +129,8 @@ class Worker:
             logger.warning("set aside %s: Hermes would load it over the worker environment", planted)
         env_before = dict(os.environ)
         import run_agent  # noqa: F401  (the agent loop; also loads model_tools)
+        from timely_agent import dotenv_guard
+        dotenv_guard.install()  # R2: no dotenv reload after this point (MCP config loads call it)
         # Bridge the account's terminal.* config into the TERMINAL_* process env, as Hermes' CLI and
         # gateway do at start: some readers (HOME for children: terminal.home_mode) only look there.
         # hermes_cli.config's bridge leaves out home_mode (only gateway/run.py bridges it), so
@@ -154,6 +156,7 @@ class Worker:
             skills_sync = {"error": f"{type(exc).__name__}: {exc}"}
         from timely_agent import selftest
         result = selftest.run(expected_home=str(self.home), timely_skills_dir=timely_skills,
+                              browser_executable=str(prepared.get("browser_executable") or ""),
                               env_before=env_before, env_ignore=ours)
         from hermes_cli.plugins import get_plugin_manager
         loaded = sorted(p.get("key") or p.get("name") for p in get_plugin_manager().list_plugins() if p.get("enabled"))

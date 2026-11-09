@@ -221,8 +221,10 @@ def test_render_account_writes_home_and_stable_hash(tmp_path):
 def test_messaging_and_blocked_names():
     for name in ("discord", "send_message", "a2a_call", "feishu_doc_read", "message_agent", "react_to_message"):
         assert policy.is_messaging(name) and policy.is_blocked(name)
-    for name in ("kanban_create", "browser_vault", "computer_use", "tool_call"):
+    for name in ("kanban_create", "browser_vault", "computer_use", "tool_call", "meet_join"):
         assert policy.is_blocked(name)
+    for name in ("yb_send_dm", "yb_send_sticker", "yb_query_group_info"):  # Yuanbao, registered by core
+        assert policy.is_messaging(name) and policy.is_blocked(name)
     for name in ("terminal", "todo_list", "skill_manage", "web_search"):
         assert not policy.is_blocked(name)
     assert policy.args_hash({"b": 1, "a": 2}) == policy.args_hash({"a": 2, "b": 1})

@@ -20,7 +20,8 @@ MESSAGING_TOOLS = frozenset({
     "a2a_call", "a2a_discover", "a2a_history", "a2a_list", "a2a_orchestrate",
 })
 MESSAGING_PREFIXES = ("discord", "feishu_", "a2a_", "telegram", "slack", "whatsapp", "signal_", "matrix_",
-                      "mattermost", "teams_", "wecom", "weixin", "dingtalk", "imessage", "sms_")
+                      "mattermost", "teams_", "wecom", "weixin", "dingtalk", "imessage", "sms_",
+                      "yb_")  # Yuanbao: registered by a core module, so plugins.disabled cannot drop it
 
 # Never offered to a Timely run for other reasons (section 8.1 "block | block").
 BLOCKED_TOOLS = frozenset({
@@ -30,7 +31,10 @@ BLOCKED_TOOLS = frozenset({
     "image_generate", "video_generate", "xai_video_edit", "xai_video_extend", "text_to_speech",
     "video_analyze", "tool_search", "tool_describe", "tool_call",
 })
-BLOCKED_PREFIXES = ("kanban_",)
+BLOCKED_PREFIXES = ("kanban_", "meet_")  # meet_: the opt-in google_meet plugin (joins calls, speaks)
+
+# Every tools.yaml entry with `phase: never` must be blocked by the names above;
+# scripts/hermes-sync/check_policy.py fails the sync check when one is not.
 
 # Tools that run without a Go round trip in phase 1: read-only agent bookkeeping, and
 # skill_manage, whose policy belongs to timely_learning (it blocks writes to Timely-shipped
