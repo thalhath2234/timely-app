@@ -4,7 +4,7 @@
 module checks the environment, installs the runtime-install guard and the plugin distribution,
 then serves the protocol: ``hello`` -> ``ready`` (with the self-test), runs, and ``shutdown``.
 Closing stdin (Go exiting or restarting) is the lifeline: runs are interrupted and the worker
-exits. The wire format is ``apps/agent/PROTOCOL.md``.
+exits. ``shutdown`` lets live runs finish within its grace while the reader keeps serving them. The wire format is ``apps/agent/PROTOCOL.md``.
 """
 
 from __future__ import annotations
@@ -99,6 +99,7 @@ class Worker:
         self.ready = False
         self.refused_reason: Optional[str] = None
         self.stopping = False
+        self._shutdown_started = False
         self.home = Path(os.environ["HERMES_HOME"]).resolve()
         bridge.ask = self._ask
 
@@ -214,7 +215,8 @@ class Worker:
         return {"runs": runs, "learning": False, "children": tracked_children()}
 
     def _heartbeat(self) -> None:
-        while not self.chan.closed and not self.stopping:
+        # Also during the shutdown grace: Go still watches a stopping worker.
+        while not self.chan.closed:
             time.sleep(HEARTBEAT_S)
             self.send({"type": "heartbeat", "busy": self.busy()})
 
@@ -359,6 +361,31 @@ class Worker:
                 run.stop_reason = reason
         self.pending.cancel_all()
 
+    def begin_shutdown(self, grace: float) -> None:
+        """``shutdown``: refuse new work, and let live runs finish within ``grace`` on another
+        thread, so the reader keeps handling what they still need from Go (tool.result,
+        gate.verdict, approval.answer) and run.stop. Then interrupt the rest and exit."""
+        self.stopping = True
+        if self._shutdown_started:
+            return
+        self._shutdown_started = True
+        threading.Thread(target=self._shutdown, args=(grace,), name="timely-shutdown", daemon=True).start()
+
+    def _shutdown(self, grace: float) -> None:
+        code = 0
+        try:
+            self.wait_runs(grace)
+            self.stop_all("shutdown")
+            self.wait_runs(2.0)
+        except BaseException:  # noqa: BLE001 - exit whatever happens
+            logger.exception("shutdown failed")
+            code = 1
+        finally:
+            # Go keeps stdin open through the grace, so the reader would never see EOF: exit here.
+            self.chan.close_output()
+            sys.stderr.flush()
+            os._exit(code)
+
     def wait_runs(self, grace: float) -> None:
         deadline = time.monotonic() + max(0.0, grace)
         while time.monotonic() < deadline:
@@ -394,12 +421,8 @@ class Worker:
             self.on_session_delete(msg)
         elif t == "shutdown":
             grace = msg.get("grace")
-            grace = float(grace) if isinstance(grace, (int, float)) else 5.0
-            self.stopping = True
-            self.wait_runs(grace)
-            self.stop_all("shutdown")
-            self.wait_runs(2.0)
-            return False
+            self.begin_shutdown(float(grace) if isinstance(grace, (int, float)) and not isinstance(grace, bool)
+                                else 5.0)
         else:  # bot.run, learning.*: later phases
             raise P.ProtocolError(P.E_UNSUPPORTED, f"{t} is not supported by this worker yet", msg.get("id"))
         return True

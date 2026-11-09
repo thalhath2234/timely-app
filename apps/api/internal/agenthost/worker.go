@@ -314,7 +314,7 @@ func (w *Worker) writeCtx(ctx context.Context, typ, id string, fields any) error
 	case w.exited:
 		w.mu.Unlock()
 		return ErrWorkerExited
-	case w.stopping && typ != TypeShutdown:
+	case w.stopping && !allowedWhileStopping[typ]:
 		w.mu.Unlock()
 		return ErrWorkerStopping
 	}
@@ -601,13 +601,17 @@ func (w *Worker) stop(reason string, graceful, crash bool) {
 func (w *Worker) stopSequence(graceful bool) {
 	cfg := w.sup.cfg
 	if graceful {
+		// stdin stays open through the grace: a live run may still need Go
+		// (tool.result, gate.verdict) to finish its turn, and the worker exits
+		// on its own once its runs are done (PROTOCOL.md shutdown).
 		go func() {
 			_ = w.write(TypeShutdown, "", map[string]int{"grace": shutdownGraceSeconds(cfg.ShutdownGrace)})
-			_ = w.stdin.Close()
 		}()
 		if w.waitDone(cfg.ShutdownGrace) {
 			return
 		}
+		// The lifeline, for a worker that missed the shutdown message.
+		go func() { _ = w.stdin.Close() }()
 		if canTerminate {
 			_ = w.group.terminate()
 			if w.waitDone(cfg.KillWait) {

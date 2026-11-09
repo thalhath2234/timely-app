@@ -766,6 +766,41 @@ func TestShutdownStopsWorkersAndTheirChildren(t *testing.T) {
 	}
 }
 
+// TestGracefulStopLetsARunFinishWithGo: during the shutdown grace a run may
+// still need Go (tool.call, gate.ask), so Go keeps the pipe open and answers;
+// it used to refuse every write but shutdown and close stdin at once, so the
+// run sat out the grace and ended interrupted.
+func TestGracefulStopLetsARunFinishWithGo(t *testing.T) {
+	h := newHarness(t, "graceful", func(c *Config) {
+		c.ShutdownGrace = 8 * time.Second
+	})
+	w := h.ensure("acct-1")
+	if err := w.Send(TypeRunStart, map[string]any{"run": "hang-1", "conversation_id": "c1"}); err != nil {
+		t.Fatal(err)
+	}
+	h.message("event")
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := h.sup.Stop(ctx, "acct-1", "shutdown"); err != nil {
+		t.Fatal(err)
+	}
+	done := h.message(TypeRunDone)
+	if done.Run != "hang-1" || !strings.Contains(string(done.Raw), "context for hang-1") {
+		t.Fatalf("run.done %s", done.Raw)
+	}
+	if took := time.Since(start); took > 4*time.Second {
+		t.Fatalf("stop took %s: the run waited out the grace", took)
+	}
+	if exit := w.Exit(); exit.Crashed || len(exit.LiveRuns) != 0 {
+		t.Fatalf("exit %+v", exit)
+	}
+	// new work is still refused while the worker stops
+	if err := w.Send(TypeRunStart, map[string]any{"run": "late", "conversation_id": "c2"}); err == nil {
+		t.Fatal("run.start accepted after stop")
+	}
+}
+
 func TestStubbornWorkerIsKilled(t *testing.T) {
 	h := newHarness(t, "stubborn", func(c *Config) {
 		c.ShutdownGrace = 200 * time.Millisecond

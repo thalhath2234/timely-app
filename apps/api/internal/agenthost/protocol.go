@@ -37,7 +37,20 @@ const (
 	TypeToolResult  = "tool.result"
 	TypeGateAsk     = "gate.ask"
 	TypeGateVerdict = "gate.verdict"
+
+	TypeRunStop        = "run.stop"
+	TypeRunSteer       = "run.steer"
+	TypeApprovalAnswer = "approval.answer"
 )
+
+// allowedWhileStopping are the messages Go still writes during a graceful
+// stop: shutdown itself, and what lets a live run finish its turn (answers to
+// the worker's requests, and controls of runs already live). New work
+// (run.start, bot.run, session.delete, ...) is refused with ErrWorkerStopping.
+var allowedWhileStopping = map[string]bool{
+	TypeShutdown: true, TypeToolResult: true, TypeGateVerdict: true,
+	TypeRunStop: true, TypeRunSteer: true, TypeApprovalAnswer: true,
+}
 
 // goIDPrefix marks request ids Go creates, so a worker request can never be
 // mistaken for the reply to one of Go's.

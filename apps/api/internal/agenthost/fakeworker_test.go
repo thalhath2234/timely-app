@@ -96,6 +96,8 @@ func fakeRuntime(t *testing.T, mode string) Runtime {
 //	deaf               ready, then ignores pings
 //	rogue              ready, then answers echo for another account
 //	stubborn           ignores shutdown, stdin EOF and SIGTERM
+//	graceful           on shutdown, asks Go (tool.call) for each live run and
+//	                   exits once every run is done, like a run finishing its turn
 //	spawn-child        ready, with a sleeping child in its process group
 //	sleeper            sleeps (the child)
 //	noread             never reads stdin (a hung import)
@@ -140,6 +142,7 @@ func fakeWorker(mode string) int {
 	var child *exec.Cmd
 	var firstHello map[string]any // what the supervisor sent; later hellos are test probes
 	live := map[string]bool{}     // runs started and not done, like the real worker's
+	shuttingDown := false
 
 	in := bufio.NewScanner(os.Stdin)
 	in.Buffer(make([]byte, 1<<20), 64<<20)
@@ -257,6 +260,9 @@ func fakeWorker(mode string) int {
 			}
 			delete(live, run)
 			send(map[string]any{"type": "run.done", "run": run, "completed": true, "final_response": fmt.Sprint(m["result"])})
+			if shuttingDown && len(live) == 0 {
+				return 0
+			}
 		case "approval.answer": // the real worker refuses a choice other than once or deny
 			send(map[string]any{"type": "error", "id": id, "run": m["run"], "code": "bad_message", "message": "choice must be once or deny"})
 		case "run.stop":
@@ -265,6 +271,13 @@ func fakeWorker(mode string) int {
 			send(map[string]any{"type": "run.done", "run": run, "interrupted": true})
 		case "shutdown":
 			if mode == "stubborn" {
+				continue
+			}
+			if mode == "graceful" && len(live) > 0 {
+				shuttingDown = true
+				for run := range live {
+					send(map[string]any{"type": "tool.call", "id": "w-" + run, "run": run, "name": "get_context", "args": map[string]any{}})
+				}
 				continue
 			}
 			return 0

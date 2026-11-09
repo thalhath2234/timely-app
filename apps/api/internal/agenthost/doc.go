@@ -69,12 +69,15 @@
 //     its id) so the caller can fail the run. duplicate_run never ends a run
 //     (the first start is still live), and neither does an error answering
 //     run.stop, run.steer or approval.answer: those are only logged.
-//   - Stop: Go sends "shutdown" {grace} and closes stdin (the worker's
-//     lifeline). grace is ShutdownGrace minus 3 s in whole seconds: the worker
-//     waits that long for live runs, then interrupts the rest (about 2 s), so
-//     it exits inside ShutdownGrace. Go waits ShutdownGrace, then SIGTERMs the process group
-//     (Unix), waits KillWait, then SIGKILLs the group (Unix) or terminates
-//     the Job Object (Windows).
+//   - Stop: Go sends "shutdown" {grace} and keeps stdin open. grace is
+//     ShutdownGrace minus 3 s in whole seconds: the worker waits that long for
+//     live runs, then interrupts the rest (about 2 s), so it exits inside
+//     ShutdownGrace. While stopping, Go refuses new work (ErrWorkerStopping)
+//     but still writes what lets a live run finish: tool.result, gate.verdict,
+//     run.stop, run.steer and approval.answer. Go waits ShutdownGrace, closes
+//     stdin (the worker's lifeline), then SIGTERMs the process group (Unix),
+//     waits KillWait, then SIGKILLs the group (Unix) or terminates the Job
+//     Object (Windows).
 //
 // The package is not wired into the API yet (phase 1 has no user-visible
 // change); phase 2's chat engine is its first caller.

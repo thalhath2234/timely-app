@@ -157,6 +157,15 @@ class Channel:
         msg.update(extra)
         self.send(msg)
 
+    def close_output(self) -> None:
+        """Stop writing (closes only the output; a reader blocked on the input keeps it)."""
+        with self._lock:
+            self.closed = True
+            try:
+                self._out.close()
+            except OSError:
+                pass
+
     def close(self) -> None:
         with self._lock:
             self.closed = True

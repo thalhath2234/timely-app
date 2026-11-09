@@ -278,3 +278,32 @@ def test_stdin_close_is_the_lifeline_and_real_home_untouched(stub):
     assert list(real.iterdir()) == []  # nothing written to the user's own home, no ~/.hermes
     assert not (a.home / "home" / ".hermes").exists()
     assert (a.home / "state.db").exists()
+
+
+def test_shutdown_grace_lets_a_run_waiting_on_go_finish(stub):
+    """During the shutdown grace the worker keeps reading: a run waiting on gate.ask gets Go's
+    verdict and finishes its turn. The worker used to handle shutdown on its only reader thread,
+    so the verdict sat unread for the whole grace and the run ended interrupted."""
+    import time
+    a = harness.Agent(harness.new_root("grace"))
+    w, ready = harness.ready_worker(a)
+    try:
+        assert ready["self_test"]["ok"], ready["self_test"]
+        w.send(harness.run_start(a, stub, run_id="r-grace", conversation="c-grace", toolsets=["terminal"],
+                                 text='CALL terminal {"command": "echo grace-ran"}'))
+        ask, _ = w.until("gate.ask")
+        started = time.monotonic()
+        w.send({"type": "shutdown", "account": a.account, "grace": 20})
+        # new work is refused while the worker stops
+        w.send(harness.run_start(a, stub, run_id="r-late", conversation="c-late"))
+        err = w.recv()
+        assert err["type"] == "error" and err["code"] == "not_ready" and err["run"] == "r-late", err
+        w.send({"type": "gate.verdict", "id": ask["id"], "account": a.account, "verdict": "allow"})
+        done, seen = w.until("run.done", timeout=60)
+        assert time.monotonic() - started < 10, "the run waited out the grace"
+        assert done["completed"] is True and done["interrupted"] is False, done
+        assert any("grace-ran" in json.dumps(e) for e in _events(seen, "tool.completed")), seen
+        # it exits on its own once its runs are done, without Go closing stdin
+        assert w.proc.wait(30) == 0
+    finally:
+        w.close()
