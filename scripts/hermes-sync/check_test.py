@@ -913,6 +913,43 @@ class SyncScript(unittest.TestCase):
         res = subprocess.run(["bash", script, "v0.0.2"], capture_output=True, text=True, cwd=self.repo)
         self.assertEqual((res.returncode, res.stdout.strip()), (0, snap2), res.stderr)
 
+    def test_recovery_finds_the_snapshot_after_another_sync_moved_the_vendor_ref(self):
+        """A rebase that drops this branch's own `hermes: sync` merge, after another worktree's sync
+        moved refs/hermes/vendor: the per-tag ref refs/hermes/snapshots/<tag> still names the real
+        snapshot, and without it the reflogs do; the recovery text says where to look."""
+        for ref in ("v0.0.1", "v0.0.2"):
+            res = self.sync(ref)
+            self.assertEqual(res.returncode, 0, res.stderr)
+        snap2 = self.git(self.repo, "rev-parse", "HEAD^2").strip()
+        snap1 = self.git(self.repo, "rev-parse", "HEAD^2^").strip()
+        self.write(self.repo, "timely.txt", "more\n")
+        self.git(self.repo, "add", "-A")
+        self.git(self.repo, "commit", "-q", "-m", "timely: more")
+        first_merge = self.git(self.repo, "log", "--format=%H", "-n1", "--grep=^hermes: sync v0.0.1$").strip()
+        self.git(self.repo, "branch", "base", first_merge)
+        self.git(self.repo, "update-ref", "refs/hermes/vendor", snap1)  # another worktree's sync
+        self.git(self.repo, "rebase", "-q", "base")
+        self.assertEqual(self.git(self.repo, "rev-parse", "refs/hermes/snapshots/v0.0.2").strip(), snap2)
+        script = os.path.join(self.repo, "scripts", "hermes-sync", "snapshot-of.sh")
+
+        def snapshot_of():
+            return subprocess.run(["bash", script, "v0.0.2"], capture_output=True, text=True, cwd=self.repo)
+
+        res = snapshot_of()
+        self.assertEqual((res.returncode, res.stdout.strip()), (0, snap2), res.stderr)
+        self.git(self.repo, "update-ref", "-d", "refs/hermes/snapshots/v0.0.2")  # only the reflogs are left
+        res = snapshot_of()
+        self.assertEqual((res.returncode, res.stdout.strip()), (0, snap2), res.stderr)
+        res = subprocess.run(["python3", "-I", "-B", os.path.join(self.repo, "scripts", "hermes-sync", "check_lib.py"),
+                              "previous-snapshot", self.repo], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 1)
+        for hint in ("snapshot-of.sh", "refs/hermes/snapshots/", "git log -g"):
+            self.assertIn(hint, res.stderr)
+        self.git(self.repo, "merge", "-q", "-s", "ours", "--allow-unrelated-histories", "-m", "agent: relink", snap2)
+        res = self.sync("v0.0.2")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("v0.0.2", self.tags())
+
     def test_a_symlink_in_the_release_refuses_the_sync(self):
         os.symlink("../../secret.env", os.path.join(self.up, "tools", "link.md"))
         self.git(self.up, "add", "-A")

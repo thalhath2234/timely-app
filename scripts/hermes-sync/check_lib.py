@@ -112,8 +112,11 @@ def snapshot_of(tag, repo=None, prefix=PREFIX):
 
     The snapshot HEAD links to when it is that tag's; else the newest real one in HEAD's history
     (a filter re-snapshot is parented on the one before); else the only real one in any local ref
-    (another branch's sync, ``refs/hermes/vendor``). A rebased replay is never picked, and two
-    unrelated real snapshots of the tag outside HEAD's history are refused, naming both."""
+    (another branch's sync, ``refs/hermes/snapshots/<tag>``, ``refs/hermes/vendor``); else the
+    only real one any reflog still reaches (a rebase dropped the branch's own sync merge and
+    other syncs moved the shared refs: the branch reflog keeps the merge). A rebased replay is
+    never picked, and two unrelated real snapshots of the tag outside HEAD's history are refused,
+    naming both."""
     linked = previous_snapshot(repo=repo, prefix=prefix)[0]
     if linked and _trailer(linked, "Hermes-Tag", repo=repo) == tag:
         return linked, None
@@ -127,23 +130,27 @@ def snapshot_of(tag, repo=None, prefix=PREFIX):
     mine = real("HEAD")
     if mine:
         return mine[0], None
-    others = real("--all")
+    others = real("--all") or real("--all", "--reflog")
     if len(others) == 1:
         return others[0], None
     if not others:
-        return None, f"no real snapshot commit for {tag} in any local ref"
+        return None, f"no real snapshot commit for {tag} in any local ref or reflog"
     return None, (f"{len(others)} snapshot commits of {tag} outside HEAD's history ("
                   + ", ".join(c[:12] for c in others) + "); pass the one you mean as a commit")
 
 
 RELINK_HELP = ("Recovery: find the real snapshot commit whose apps/agent/hermes/HERMES_UPSTREAM.json matches "
-               "HEAD's: the second parent of the `hermes: sync <tag>` merge on the branch that imported it, or, "
-               "for a squash-merged PR, that merge on the PR's branch (`git fetch origin pull/<n>/head`). "
-               "`refs/hermes/vendor` is only the last snapshot any sync on this clone made (every worktree "
-               "shares it), so check its tag first. Then `git merge -s ours --allow-unrelated-histories "
-               "<snapshot>` and re-run `make hermes-sync HERMES_REF=<tag>`: it records the tag in "
-               "apps/agent/.hermes-sync/tags.json again (its own commit) when the rebase dropped the sync merge "
-               "that held it. A wrong snapshot merged earlier is skipped as long as its record differs.")
+               "HEAD's. `scripts/hermes-sync/snapshot-of.sh <tag>` looks in HEAD, every local ref (the per-tag "
+               "`refs/hermes/snapshots/<tag>` each sync on this clone sets) and every reflog. By hand: the second "
+               "parent of the `hermes: sync <tag>` merge on the branch that imported it; after a rebase dropped "
+               "that merge, the branch reflog still has it (`git log -g --format='%H %gs' <branch>`, the "
+               "`hermes: sync <tag>` entry, then `<that commit>^2`); for a squash-merged PR, that merge on the "
+               "PR's branch (`git fetch origin pull/<n>/head`). `refs/hermes/vendor` is only the last snapshot "
+               "any sync on this clone made (every worktree shares it), so check its tag first. Then `git merge "
+               "-s ours --allow-unrelated-histories <snapshot>` and re-run `make hermes-sync HERMES_REF=<tag>`: "
+               "it records the tag in apps/agent/.hermes-sync/tags.json again (its own commit) when the rebase "
+               "dropped the sync merge that held it. A wrong snapshot merged earlier is skipped as long as its "
+               "record differs.")
 
 
 if __name__ == "__main__":  # used by sync-hermes.sh and check.sh

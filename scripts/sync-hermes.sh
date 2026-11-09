@@ -171,6 +171,9 @@ Filter-Sha1: $filter_sha")
 # every worktree of this clone and moved by every sync (even one that later conflicts), so it is
 # a hint, never the recovery's source of truth.
 g update-ref -m "hermes-sync $REF" refs/hermes/vendor "$new"
+# The per-tag ref no other tag's sync moves, with a reflog (refs/hermes/* keeps none by default), so
+# the rebase recovery still finds this snapshot after other syncs (snapshot-of.sh reads it).
+g update-ref --create-reflog -m "hermes-sync $REF" "refs/hermes/snapshots/$REF" "$new"
 
 # 7. Report (also the PR body).
 report=$(g rev-parse --path-format=absolute --git-path hermes-sync-report.md)
