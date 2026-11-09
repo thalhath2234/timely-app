@@ -116,6 +116,11 @@ type Ready struct {
 	Tools         []string `json:"tools"`
 	PluginsLoaded []string `json:"plugins_loaded"`
 	SelfTest      SelfTest `json:"self_test"`
+	// PID is the interpreter's own process id. On Windows the spawned
+	// program can be a venv launcher that starts the interpreter as its
+	// child, so Go checks this pid, not its own child's, is inside the
+	// worker's Job Object (process group on Unix).
+	PID int `json:"pid,omitempty"`
 }
 
 type helloFields struct {

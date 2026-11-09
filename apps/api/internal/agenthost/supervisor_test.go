@@ -956,3 +956,80 @@ func TestRootIsMadeAbsolute(t *testing.T) {
 		t.Fatalf("relative root kept: %q", sup.Layout().Root)
 	}
 }
+
+// bigSettings is account settings larger than any pipe buffer (64 KiB on
+// Linux, less on Windows), so writing the hello blocks until the worker reads.
+func bigSettings() json.RawMessage {
+	return json.RawMessage(fmt.Sprintf(`{"soul": %q}`, strings.Repeat("s", 256<<10)))
+}
+
+func TestHelloTimeoutBoundsAHelloTheWorkerNeverReads(t *testing.T) {
+	h := newHarness(t, "noread", func(c *Config) {
+		c.HelloTimeout = 500 * time.Millisecond
+		c.Account = func(context.Context, string) (AccountSpec, error) {
+			return AccountSpec{Settings: bigSettings()}, nil
+		}
+	})
+	start := time.Now()
+	err := h.ensureErr("acct-1")
+	if !errors.Is(err, ErrHelloTimeout) {
+		t.Fatalf("err = %v after %s, want ErrHelloTimeout", err, time.Since(start))
+	}
+	if took := time.Since(start); took > 4*time.Second {
+		t.Fatalf("Ensure took %s; the hello write was not bounded by HelloTimeout", took)
+	}
+	exit := h.exit(5 * time.Second)
+	if !exit.Crashed {
+		t.Fatalf("exit %+v: a hello timeout counts as a crash", exit)
+	}
+	waitGone(t, exit.PID)
+	if _, ok := h.sup.Worker("acct-1"); ok {
+		t.Fatal("the stuck worker is still listed")
+	}
+	// the entry is free again: the next start is a new attempt, not a hang on the old one
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	if _, err := h.sup.Ensure(ctx, "acct-1"); !errors.Is(err, ErrHelloTimeout) {
+		t.Fatalf("second Ensure: %v, want ErrHelloTimeout", err)
+	}
+}
+
+func TestWriteToAWorkerThatStoppedReadingIsBounded(t *testing.T) {
+	h := newHarness(t, "stopreading", func(c *Config) { c.WriteTimeout = time.Second })
+	w := h.ensure("acct-1")
+	big := map[string]any{"payload": strings.Repeat("p", 256<<10)}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := w.Request(ctx, "echo", big); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Request: %v, want the caller's deadline", err)
+	}
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("Request took %s past its 300ms context", took)
+	}
+	sendDone := make(chan error, 1)
+	go func() { sendDone <- w.Send("echo", big) }()
+	select {
+	case err := <-sendDone:
+		if err == nil {
+			t.Fatal("Send to a worker that reads nothing succeeded")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Send blocked past WriteTimeout")
+	}
+	exit := h.exit(5 * time.Second)
+	if !exit.Crashed || !strings.Contains(exit.Reason, "has not read") {
+		t.Fatalf("exit %+v: want a crash for a worker that stopped reading", exit)
+	}
+	waitGone(t, exit.PID)
+}
+
+func TestReadyPIDOutsideTheProcessGroupIsRefused(t *testing.T) {
+	h := newHarness(t, "foreignpid", nil)
+	err := h.ensureErr("acct-1")
+	if !errors.Is(err, ErrProtocol) || !strings.Contains(err.Error(), "outside its process group") {
+		t.Fatalf("err = %v", err)
+	}
+	waitGone(t, h.exit(5*time.Second).PID)
+}

@@ -95,6 +95,7 @@ type Config struct {
 	HeartbeatTimeout  time.Duration // 30 s: kill a worker quiet this long
 	ShutdownGrace     time.Duration // 5 s after shutdown before SIGTERM / job kill
 	KillWait          time.Duration // 2 s between SIGTERM and SIGKILL
+	WriteTimeout      time.Duration // 30 s: kill a worker that has not read a message Go is writing this long
 	ReapInterval      time.Duration // how often idle workers are checked: min(IdleTimeout/4, 1 min)
 	EvictGrace        time.Duration // 30 s: an idle worker used more recently is never evicted for a queued account
 	Restart           RestartPolicy // 3 crashes in 10 min; backoff 1 s .. 30 s
@@ -159,6 +160,7 @@ func (c *Config) applyDefaults() {
 	def(&c.HeartbeatTimeout, 30*time.Second)
 	def(&c.ShutdownGrace, 5*time.Second)
 	def(&c.KillWait, 2*time.Second)
+	def(&c.WriteTimeout, 30*time.Second)
 	reap := c.IdleTimeout / 4
 	if reap > time.Minute {
 		reap = time.Minute
@@ -562,6 +564,7 @@ func (s *Supervisor) spawn(account string, spec AccountSpec) (*Worker, error) {
 		runs:       map[string]string{},
 		lastUsed:   time.Now(),
 		queue:      newMsgQueue(),
+		writes:     make(chan *writeReq),
 		dispatched: make(chan struct{}),
 		done:       make(chan struct{}),
 	}
@@ -575,7 +578,7 @@ func (s *Supervisor) spawn(account string, spec AccountSpec) (*Worker, error) {
 	// Terminal children may keep stderr open after the worker exits; Wait
 	// stops copying it after this long.
 	cmd.WaitDelay = 2 * time.Second
-	configureCmd(cmd)
+	configureWorkerCmd(cmd)
 	if w.stdin, err = cmd.StdinPipe(); err != nil {
 		return nil, err
 	}
@@ -594,6 +597,7 @@ func (s *Supervisor) spawn(account string, spec AccountSpec) (*Worker, error) {
 	w.lastSeen.Store(time.Now().UnixNano())
 	go w.readLoop()
 	go w.dispatchLoop()
+	go w.writeLoop()
 	w.logf("started pid %d", cmd.Process.Pid)
 	return w, nil
 }
@@ -643,6 +647,18 @@ func (s *Supervisor) handshake(w *Worker, spec AccountSpec, hash string) error {
 	}
 	if !ready.SelfTest.OK {
 		return &StartError{Account: w.account, Err: ErrSelfTestFailed, Detail: ready.SelfTest.failures()}
+	}
+	if ready.PID > 0 && w.group != nil {
+		// A worker outside its group or job would survive every stop and
+		// keep running approved commands after Timely thinks it is gone.
+		inside, err := w.group.contains(ready.PID)
+		switch {
+		case err != nil:
+			w.logf("could not check that pid %d is in its process group: %v", ready.PID, err)
+		case !inside:
+			return &StartError{Account: w.account, Err: ErrProtocol,
+				Detail: fmt.Sprintf("the worker interpreter (pid %d) is outside its process group or Job Object", ready.PID)}
+		}
 	}
 	w.mu.Lock()
 	w.ready = &ready

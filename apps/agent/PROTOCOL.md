@@ -96,7 +96,7 @@ Closing the worker's stdin is the lifeline: the worker interrupts live runs and 
 
 | Type | Fields |
 | --- | --- |
-| `ready` | `id` (the hello's), `protocol` (1), `hermes_tag` (e.g. `v0.23.0`), `tools` (tool names that resolve for every toolset a Timely run may enable), `plugins_loaded` (enabled plugin keys, including `timely_gate`, `timely_tools`, `timely_learning`, `timely_bot`), `self_test` `{ok, failures: ["<check>: <detail>"], checks: [{name, ok, detail}]}`, `config_sha256`, `catalog_version` (echo), `skills_sync` (Hermes' `sync_skills` counts), `boot_ms` |
+| `ready` | `id` (the hello's), `protocol` (1), `hermes_tag` (e.g. `v0.23.0`), `tools` (tool names that resolve for every toolset a Timely run may enable), `plugins_loaded` (enabled plugin keys, including `timely_gate`, `timely_tools`, `timely_learning`, `timely_bot`), `self_test` `{ok, failures: ["<check>: <detail>"], checks: [{name, ok, detail}]}`, `config_sha256`, `catalog_version` (echo), `skills_sync` (Hermes' `sync_skills` counts), `boot_ms`, `pid` (the interpreter's own process id: Go refuses the worker when it is outside the process group or, on Windows, the Job Object, since a venv launcher can stand between Go's child and the interpreter) |
 | `pong` | `id` (the ping's), `busy` |
 | `heartbeat` | `busy`; sent every 10 s after `ready` |
 | `event` | `run`, `kind`, `payload` (below) |

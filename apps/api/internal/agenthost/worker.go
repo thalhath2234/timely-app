@@ -84,7 +84,7 @@ type Worker struct {
 	stderr  *logTail
 	slot    bool
 
-	wmu      sync.Mutex
+	writes   chan *writeReq // to writeLoop, the only goroutine that writes stdin
 	nextID   atomic.Uint64
 	lastSeen atomic.Int64
 	pinging  atomic.Bool
@@ -157,7 +157,7 @@ func (w *Worker) Request(ctx context.Context, typ string, fields any) (Message, 
 		}
 		w.mu.Unlock()
 	}
-	if err := w.write(typ, id, fields); err != nil {
+	if err := w.writeCtx(ctx, typ, id, fields); err != nil {
 		forget()
 		return Message{}, err
 	}
@@ -267,7 +267,35 @@ func (w *Worker) idleSince() (time.Time, bool) {
 	return w.lastUsed, true
 }
 
+// write sends one message, bounded by Config.WriteTimeout (Send, Reply and the
+// supervisor's own pings and shutdown).
 func (w *Worker) write(typ, id string, fields any) error {
+	ctx, cancel := context.WithTimeout(context.Background(), w.sup.cfg.WriteTimeout)
+	defer cancel()
+	return w.writeCtx(ctx, typ, id, fields)
+}
+
+// writeReq is one line for writeLoop. state moves from writeQueued to
+// writeStarted (writeLoop took it) or writeAbandoned (the caller gave up first,
+// so it is never written).
+type writeReq struct {
+	line  []byte
+	run   string
+	state atomic.Int32
+	done  chan error
+}
+
+const (
+	writeQueued int32 = iota
+	writeStarted
+	writeAbandoned
+)
+
+// writeCtx hands the line to writeLoop and waits for the write, the worker's
+// exit or ctx, whichever comes first. A worker that stops reading its stdin
+// (a hung import, a wedged read loop) would otherwise block a pipe write
+// forever: past HelloTimeout, past Shutdown, holding the worker's start.
+func (w *Worker) writeCtx(ctx context.Context, typ, id string, fields any) error {
 	line, err := encode(typ, id, w.account, fields)
 	if err != nil {
 		return err
@@ -300,16 +328,75 @@ func (w *Worker) write(typ, id string, fields any) error {
 	w.lastUsed = time.Now()
 	w.mu.Unlock()
 
-	w.wmu.Lock()
-	_, err = w.stdin.Write(line)
-	w.wmu.Unlock()
-	if err != nil {
-		if run != "" {
-			w.endRun(run)
+	req := &writeReq{line: line, run: run, done: make(chan error, 1)}
+	abandon := func(err error) error {
+		if req.state.CompareAndSwap(writeQueued, writeAbandoned) {
+			if run != "" {
+				w.endRun(run) // never written: the run never started
+			}
+			return err
 		}
-		return fmt.Errorf("%w: %v", ErrWorkerExited, err)
+		// Being written: the worker is not reading its stdin. writeLoop's
+		// WriteTimeout fails the worker, which unblocks the write; a run it
+		// carried ends with the worker (ExitInfo.LiveRuns).
+		return err
 	}
-	return nil
+	select {
+	case w.writes <- req:
+	case <-ctx.Done():
+		return abandon(ctx.Err())
+	case <-w.done:
+		return abandon(ErrWorkerExited)
+	}
+	select {
+	case err := <-req.done:
+		return err
+	case <-ctx.Done():
+		return abandon(ctx.Err())
+	case <-w.done:
+		return abandon(ErrWorkerExited)
+	}
+}
+
+// writeLoop is the only goroutine that writes the worker's stdin, one line at
+// a time in the order callers handed them over. A write that has not finished
+// after Config.WriteTimeout means the worker stopped reading: it is failed,
+// which kills its process group and so unblocks the write.
+func (w *Worker) writeLoop() {
+	var broken error
+	for {
+		var req *writeReq
+		select {
+		case req = <-w.writes:
+		case <-w.done:
+			return
+		}
+		if !req.state.CompareAndSwap(writeQueued, writeStarted) {
+			continue // abandoned before its turn
+		}
+		if broken != nil {
+			if req.run != "" {
+				w.endRun(req.run)
+			}
+			req.done <- broken
+			continue
+		}
+		timer := time.AfterFunc(w.sup.cfg.WriteTimeout, func() {
+			w.fail(fmt.Sprintf("%v: the worker has not read a %d-byte message for %s",
+				ErrProtocol, len(req.line), w.sup.cfg.WriteTimeout))
+		})
+		_, err := w.stdin.Write(req.line)
+		timer.Stop()
+		if err != nil {
+			broken = fmt.Errorf("%w: %v", ErrWorkerExited, err)
+			if req.run != "" {
+				w.endRun(req.run)
+			}
+			req.done <- broken
+			continue
+		}
+		req.done <- nil
+	}
 }
 
 // refusesStart reports whether error m refuses the run.start or bot.run that
@@ -528,10 +615,12 @@ func (w *Worker) stopSequence(graceful bool) {
 			}
 		}
 	}
-	_ = w.stdin.Close()
+	// Kill first: on Windows, closing a pipe that a blocked write still uses
+	// waits for that write, which only the kill ends.
 	if err := w.group.kill(); err != nil {
 		w.logf("kill: %v", err)
 	}
+	go func() { _ = w.stdin.Close() }()
 	if w.waitDone(cfg.KillWait) {
 		return
 	}
@@ -575,6 +664,9 @@ func (w *Worker) finish() {
 	// leader is not reaped yet, so its group id is still ours to signal.
 	w.group.awaitExit(w.cmd.Process.Pid, w.sup.cfg.KillWait)
 	_ = w.group.kill()
+	// From here the group id may be reused once Wait reaps the leader, so
+	// stopSequence's own timers must not signal it any more.
+	w.group.markReaped()
 	waitErr := w.cmd.Wait()
 	w.group.release()
 	_ = w.stdin.Close()

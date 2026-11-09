@@ -90,8 +90,14 @@ func fakeRuntime(t *testing.T, mode string) Runtime {
 //	stubborn           ignores shutdown, stdin EOF and SIGTERM
 //	spawn-child        ready, with a sleeping child in its process group
 //	sleeper            sleeps (the child)
+//	noread             never reads stdin (a hung import)
+//	stopreading        ready, then never reads stdin again (a wedged read loop)
+//	foreignpid         ready naming a pid outside its process group
 func fakeWorker(mode string) int {
 	switch mode {
+	case "noread":
+		time.Sleep(time.Hour)
+		return 0
 	case "sleeper":
 		time.Sleep(time.Hour)
 		return 0
@@ -156,6 +162,7 @@ func fakeWorker(mode string) int {
 				"type": "ready", "id": id, "hermes_tag": "v0.23.0",
 				"tools": []string{"terminal", "web_search"}, "plugins_loaded": []string{"timely_gate"},
 				"self_test": map[string]any{"ok": true}, "hello": firstHello, "env": os.Environ(), "cwd": wd,
+				"pid": os.Getpid(),
 			}
 			switch mode {
 			case "badselftest":
@@ -167,6 +174,8 @@ func fakeWorker(mode string) int {
 				ready["account"] = "someone-else"
 			case "oldprotocol":
 				ready["protocol"] = 99
+			case "foreignpid":
+				ready["pid"] = os.Getppid() // the test binary: another process group
 			case "spawn-child":
 				exe, _ := os.Executable()
 				child = exec.Command(exe, fakeMarker, "sleeper")
@@ -181,6 +190,9 @@ func fakeWorker(mode string) int {
 			send(ready)
 			if mode == "crash-after-ready" {
 				return 4
+			}
+			if mode == "stopreading" {
+				time.Sleep(time.Hour)
 			}
 		case "ping":
 			if mode == "deaf" {

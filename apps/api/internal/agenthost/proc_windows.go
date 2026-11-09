@@ -17,16 +17,23 @@ import (
 // and does the same. CREATE_NO_WINDOW keeps a console from flashing up on the
 // desktop app.
 //
-// The worker is assigned to the job right after it starts, so a child started
-// in that first instant would escape; the worker imports for about a second
-// before it can start anything.
+// The worker starts suspended (CREATE_SUSPENDED), is assigned to the job, and
+// only then resumed (NtResumeProcess). The spawned program is usually the
+// venv's Scripts\python.exe, a launcher that starts the real interpreter as
+// its own child at once (hermes_cli/update_custody.py documents this); were
+// the launcher assigned after it ran, that child would already be outside the
+// job. Started suspended, everything it creates inherits the job (nested jobs,
+// Windows 8+). ready carries the interpreter's own pid and the handshake checks
+// it is in the job (IsProcessInJob).
 
 const (
+	createSuspended       = 0x00000004
 	createNewProcessGroup = 0x00000200
 	createNoWindow        = 0x08000000
 
 	processSetQuota                = 0x0100
 	processTerminate               = 0x0001
+	processSuspendResume           = 0x0800
 	processQueryLimitedInformation = 0x1000
 	synchronize                    = 0x00100000
 	stillActive                    = 259
@@ -41,6 +48,9 @@ var (
 	procSetInformationJobObject  = kernel32.NewProc("SetInformationJobObject")
 	procAssignProcessToJobObject = kernel32.NewProc("AssignProcessToJobObject")
 	procTerminateJobObject       = kernel32.NewProc("TerminateJobObject")
+	procIsProcessInJob           = kernel32.NewProc("IsProcessInJob")
+	ntdll                        = syscall.NewLazyDLL("ntdll.dll")
+	procNtResumeProcess          = ntdll.NewProc("NtResumeProcess")
 )
 
 type jobBasicLimitInformation struct {
@@ -84,18 +94,44 @@ func configureCmd(cmd *exec.Cmd) {
 	}
 }
 
-type procGroup struct {
-	cmd  *exec.Cmd
-	mu   sync.Mutex
-	job  syscall.Handle
-	open bool
+// configureWorkerCmd is configureCmd plus CREATE_SUSPENDED: startGroup
+// resumes the worker once it is in its job.
+func configureWorkerCmd(cmd *exec.Cmd) {
+	configureCmd(cmd)
+	cmd.SysProcAttr.CreationFlags |= createSuspended
 }
 
+type procGroup struct {
+	cmd    *exec.Cmd
+	mu     sync.Mutex
+	job    syscall.Handle
+	open   bool
+	reaped bool
+}
+
+// startGroup puts the suspended worker into a new Job Object and resumes it.
+// It always resumes the worker (or kills it when it cannot), so a failure here
+// never leaves a worker frozen; the error says the job is missing.
 func startGroup(cmd *exec.Cmd) (*procGroup, error) {
 	g := &procGroup{cmd: cmd}
+	process, err := syscall.OpenProcess(processSetQuota|processTerminate|processSuspendResume, false, uint32(cmd.Process.Pid))
+	if err != nil {
+		_ = cmd.Process.Kill() // suspended and unreachable: it could never run
+		return g, fmt.Errorf("OpenProcess: %w (worker killed)", err)
+	}
+	defer syscall.CloseHandle(process)
+	jobErr := g.assign(process)
+	if r, _, err := procNtResumeProcess.Call(uintptr(process)); r != 0 {
+		_ = cmd.Process.Kill()
+		return g, fmt.Errorf("NtResumeProcess: status %#x %v (worker killed)", r, err)
+	}
+	return g, jobErr
+}
+
+func (g *procGroup) assign(process syscall.Handle) error {
 	r, _, err := procCreateJobObjectW.Call(0, 0)
 	if r == 0 {
-		return g, fmt.Errorf("CreateJobObject: %w", err)
+		return fmt.Errorf("CreateJobObject: %w", err)
 	}
 	job := syscall.Handle(r)
 	var info jobExtendedLimitInformation
@@ -104,21 +140,45 @@ func startGroup(cmd *exec.Cmd) (*procGroup, error) {
 		uintptr(unsafe.Pointer(&info)), unsafe.Sizeof(info))
 	if r == 0 {
 		_ = syscall.CloseHandle(job)
-		return g, fmt.Errorf("SetInformationJobObject: %w", err)
-	}
-	process, err := syscall.OpenProcess(processSetQuota|processTerminate, false, uint32(cmd.Process.Pid))
-	if err != nil {
-		_ = syscall.CloseHandle(job)
-		return g, fmt.Errorf("OpenProcess: %w", err)
+		return fmt.Errorf("SetInformationJobObject: %w", err)
 	}
 	r, _, err = procAssignProcessToJobObject.Call(uintptr(job), uintptr(process))
-	_ = syscall.CloseHandle(process)
 	if r == 0 {
 		_ = syscall.CloseHandle(job)
-		return g, fmt.Errorf("AssignProcessToJobObject: %w", err)
+		return fmt.Errorf("AssignProcessToJobObject: %w", err)
 	}
 	g.job, g.open = job, true
-	return g, nil
+	return nil
+}
+
+// contains reports whether pid is inside the worker's Job Object.
+func (g *procGroup) contains(pid int) (bool, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.open {
+		return false, fmt.Errorf("no Job Object")
+	}
+	h, err := syscall.OpenProcess(processQueryLimitedInformation, false, uint32(pid))
+	if err != nil {
+		return false, err
+	}
+	defer syscall.CloseHandle(h)
+	var in int32
+	if r, _, err := procIsProcessInJob.Call(uintptr(h), uintptr(g.job), uintptr(unsafe.Pointer(&in))); r == 0 {
+		return false, fmt.Errorf("IsProcessInJob: %w", err)
+	}
+	return in != 0, nil
+}
+
+// markReaped is called right before the worker is reaped; later kills skip
+// the bare-process fallback (the job, while open, is still safe to end).
+func (g *procGroup) markReaped() {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	g.reaped = true
+	g.mu.Unlock()
 }
 
 // terminate has no graceful form on Windows; the shutdown message and the
@@ -140,7 +200,7 @@ func (g *procGroup) kill() error {
 		}
 		return nil
 	}
-	if g.cmd != nil && g.cmd.Process != nil {
+	if !g.reaped && g.cmd != nil && g.cmd.Process != nil {
 		_ = g.cmd.Process.Kill()
 	}
 	return nil

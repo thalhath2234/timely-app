@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -19,8 +20,14 @@ func configureCmd(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
+// configureWorkerCmd is configureCmd for the long-lived worker (Windows starts
+// it suspended until it is in its Job Object).
+func configureWorkerCmd(cmd *exec.Cmd) { configureCmd(cmd) }
+
 type procGroup struct {
-	pgid int
+	mu     sync.Mutex
+	pgid   int
+	reaped bool // set before the leader is reaped: the group id may be reused after that
 }
 
 func startGroup(cmd *exec.Cmd) (*procGroup, error) {
@@ -28,7 +35,12 @@ func startGroup(cmd *exec.Cmd) (*procGroup, error) {
 }
 
 func (g *procGroup) signal(sig syscall.Signal) error {
-	if g == nil || g.pgid <= 0 {
+	if g == nil {
+		return nil
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.pgid <= 0 || g.reaped {
 		return nil
 	}
 	err := syscall.Kill(-g.pgid, sig)
@@ -41,11 +53,31 @@ func (g *procGroup) signal(sig syscall.Signal) error {
 // terminate asks the whole group to stop (SIGTERM).
 func (g *procGroup) terminate() error { return g.signal(syscall.SIGTERM) }
 
-// kill ends the whole group (SIGKILL). The supervisor calls it before
-// reaping the leader, so the group id cannot have been reused yet.
+// kill ends the whole group (SIGKILL). Once markReaped has run it does
+// nothing, so a late stop timer never signals a reused group id.
 func (g *procGroup) kill() error { return g.signal(syscall.SIGKILL) }
 
+// markReaped is called right before the leader is reaped (cmd.Wait); every
+// later terminate or kill is a no-op.
+func (g *procGroup) markReaped() {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	g.reaped = true
+	g.mu.Unlock()
+}
+
 func (g *procGroup) release() {}
+
+// contains reports whether pid is in the worker's process group.
+func (g *procGroup) contains(pid int) (bool, error) {
+	pgid, err := syscall.Getpgid(pid)
+	if err != nil {
+		return false, err
+	}
+	return pgid == g.pgid, nil
+}
 
 // awaitExit waits up to d for the leader to exit without reaping it, so the
 // group id stays reserved for the kill that follows.

@@ -46,6 +46,14 @@
 //     "pong" {id, busy}. busy is {runs, learning, children}; a busy worker is
 //     never reaped. Silence for HeartbeatTimeout (30 s) kills its process
 //     group.
+//   - Writes: one goroutine writes the worker's stdin, in order. Request waits
+//     for its write only as long as its ctx (the handshake: HelloTimeout);
+//     Send, Reply, pings and shutdown wait up to WriteTimeout (30 s). A write
+//     still unfinished after WriteTimeout means the worker stopped reading: it
+//     is killed like a missed heartbeat, which also unblocks the write. ready
+//     carries the interpreter's pid; Go refuses a worker whose pid is outside
+//     its process group or Job Object (Windows starts the worker suspended,
+//     assigns the job, then resumes it, so a venv launcher's child is inside).
 //   - "log" {level, text} lines are written to the API log. Everything else
 //     (events, tool.call, gate.ask, taint, run.done, ...) goes to
 //     Config.Handler in arrival order. With no handler, gate.ask gets a

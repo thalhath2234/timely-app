@@ -189,6 +189,7 @@ class Worker:
         failures = [f"{c['name']}: {c['detail']}" for c in result["checks"] if not c["ok"]]
         self.send({
             "type": "ready", "id": mid, "protocol": P.PROTOCOL_VERSION, "hermes_tag": hermes_tag(),
+            "pid": os.getpid(),  # Go checks this interpreter is in its process group / Job Object
             "tools": result["tools"], "plugins_loaded": loaded,
             "self_test": {"ok": result["ok"], "failures": failures, "checks": result["checks"]},
             "config_sha256": actual,
