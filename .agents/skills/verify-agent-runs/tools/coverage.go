@@ -14,7 +14,7 @@
 //
 // Usage (run.sh calls it):
 //
-//	go run coverage.go -repo ROOT -lock coverage.lock -template model/AgentRunApply.cfg -out OUT.cfg
+//	go run coverage.go -repo ROOT -lock coverage.lock -template A.cfg,B.cfg -out OUTA.cfg,OUTB.cfg
 //	go run coverage.go -repo ROOT -lock coverage.lock -resync COMMIT
 package main
 
@@ -41,17 +41,27 @@ const (
 	receipt = "apps/api/internal/features/chat/receipts.go"
 	deps    = "apps/api/cmd/agent_deps.go"
 	mainGo  = "apps/api/cmd/main.go"
+	engine  = "apps/api/internal/features/chat/engine.go"
+	worker  = "apps/api/internal/features/chat/engine_agent.go"
+	turn    = "apps/api/internal/features/chat/toolcall.go"
+	modes   = "apps/api/internal/features/chat/permission_mode.go"
 )
+
+// coveredFiles lists every file a covered function or anchor lives in;
+// run.sh --resync refuses while one has uncommitted changes (-files).
+var coveredFiles = []string{runner, service, receipt, deps, mainGo, engine, worker, turn, modes}
 
 // covered lists the functions the model describes. Any change to one of
 // them (outside comments and formatting) is drift.
 var covered = []struct{ File, Func string }{
 	{runner, "(*Service).work"},
+	{runner, "(*Service).runClassic"},
 	{runner, "(*Service).keepLease"},
 	{runner, "(*Service).apply"},
 	{runner, "retrySerializable"},
 	{runner, "serializationFailure"},
 	{service, "(*Service).change"},
+	{service, "(*Service).save"},
 	{service, "(*Service).send"},
 	{service, "(*Service).approve"},
 	{service, "(*Service).stop"},
@@ -59,9 +69,30 @@ var covered = []struct{ File, Func string }{
 	{service, "(*Service).remove"},
 	{service, "(*Service).retry"},
 	{service, "(*Service).checkpoint"},
+	{service, "(*Service).configure"},
+	{service, "(*Service).steer"},
 	{service, "busy"},
 	{receipt, "(*Service).discardReview"},
 	{deps, "chatCatalog"},
+	{engine, "runEngine"},
+	{engine, "(*Service).startAgentRun"},
+	{engine, "(*Service).lostAgentRun"},
+	{turn, "(*Service).toolCall"},
+	{turn, "(*Service).finishTurn"},
+	{turn, "endRun"},
+	{turn, "(*Service).renewLease"},
+	{modes, "proposalStatus"},
+	{modes, "holdReason"},
+	{worker, "(*WorkerEngine).Start"},
+	{worker, "(*WorkerEngine).clearRun"},
+	{worker, "(*WorkerEngine).Lost"},
+	{worker, "(*WorkerEngine).Stop"},
+	{worker, "(*WorkerEngine).loop"},
+	{worker, "(*WorkerEngine).save"},
+	{worker, "(*WorkerEngine).renew"},
+	{worker, "(*WorkerEngine).done"},
+	{worker, "(*WorkerEngine).stopped"},
+	{worker, "(*WorkerEngine).fail"},
 }
 
 // An anchor is code text that must appear in a function (whitespace is
@@ -83,10 +114,10 @@ var anchors = []anchor{
 		`catalog := s.factory(tx)`,
 		"write tools run on the step transaction"},
 	{"WritesInStepTx", mainGo, "main",
-		`chat.New(db, func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, live, providerService.EmbedCredentials) }`,
+		`chat.New(db, func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, live, providerService.EmbedCredentials, botService) }`,
 		"the chat catalog is built on the transaction it is given"},
 	{"ApplySkipsDone", runner, "(*Service).apply",
-		`for i := range c.Plan { if c.Plan[i].Status == "done" { continue }`,
+		`for i := range c.Plan { if c.Plan[i].Status == "done" ||`,
 		"a resumed run skips steps already done"},
 	{"CheckpointFenced", service, "(*Service).checkpoint",
 		`if latest.Lease != c.Lease || latest.Status != "running" { return context.Canceled }`,
@@ -101,13 +132,91 @@ var anchors = []anchor{
 		`if err := tx.Save(&latest).Error; err != nil {`,
 		"the checkpoint saves the stored row, not the worker's copy"},
 	{"RetryKeepsDone", service, "(*Service).retry",
-		`for i := range row.Plan { if row.Plan[i].Status != "done" { row.Plan[i].Status = "pending"`,
+		`for i := range row.Plan { if row.Plan[i].Status != "done" && row.Plan[i].Status != "discarded" { row.Plan[i].Status = "pending"`,
 		"Retry sends only unfinished steps back to pending"},
+	{"HoldsSupervised", modes, "holdReason",
+		`mode, err := agent.ParseMode(row.Permission) if err != nil || mode == agent.Supervised { return heldSupervised }`,
+		"a Supervised chat (or an unreadable mode) holds every proposal"},
+	{"HoldsSupervised", modes, "proposalStatus",
+		`if holdReason(row, steps, notes) != "" { return "approval" } return "queued"`,
+		"a held proposal waits for Approve"},
+	{"HoldsSupervised", turn, "(*Service).finishTurn",
+		`row.Status = proposalStatus(row, row.Plan, p.Direct, pending.notes)`,
+		"the turn's end decides from the stored row's mode"},
 
 	// Assumptions: the model is built on these; no switch.
 	{"", runner, "(*Service).work",
 		`c.Status = "running" c.Lease = id("lease_") c.LeaseUntil = &lease return tx.Save(&c).Error`,
 		"a claim mints a fresh lease and saves it in the claim transaction"},
+	{"", runner, "(*Service).work",
+		`if c.Status == "queued" { c.RunEngine = runEngine(tx, &c) c.AgentRunID, c.AgentInstance = "", "" }`,
+		"a fresh claim picks the engine and starts with no agent run; a resumed one keeps both"},
+	{"", runner, "(*Service).work",
+		`if resumed && c.AgentRunID != "" { err = s.lostAgentRun(ctx, &c) } else if c.RunEngine == engineAgent && c.Phase == "plan" { err = s.startAgentRun(ctx, &c, providerErr) } else { err = s.runClassic(ctx, &c, providerErr) }`,
+		"work() dispatches to Lost, the agent engine's Start, or runClassic"},
+	{"", runner, "(*Service).runClassic",
+		`s.keepLease(runCtx, cancel, uid, cid, lease, 5*time.Second)`,
+		"a classic run renews its lease while the lane runs it"},
+	{"", runner, "(*Service).runClassic",
+		`} else if c.Phase == "apply" { err = s.apply(runCtx, c) } else { err = s.plan(runCtx, c) }`,
+		"apply and plan turns run in the lane"},
+	{"", engine, "runEngine",
+		`if c.Sensitive || c.Phase != "plan" { return engineClassic }`,
+		"apply, photo phases and Sensitive chats always run classic"},
+	{"", engine, "(*Service).startAgentRun",
+		`return s.engine.Start(ctx, c)`,
+		"an agent plan turn goes to the engine's Start"},
+	{"", engine, "(*Service).lostAgentRun",
+		`return s.engine.Lost(ctx, c)`,
+		"a re-claimed agent run goes to the engine's Lost"},
+	{"", worker, "(*WorkerEngine).Start",
+		`if err := e.s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error { if language != "" { row.Language = language } row.AgentRunID, row.AgentInstance = r.id, r.instance`,
+		"Start names the run on the row in a fenced checkpoint before run.start"},
+	{"", worker, "(*WorkerEngine).Start",
+		`r.conv, r.lease = *c, c.Lease`,
+		"the follower takes the lane's lease"},
+	{"", worker, "(*WorkerEngine).clearRun",
+		`_ = e.s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error { row.AgentRunID, row.AgentInstance = "", ""`,
+		"clearRun takes the run off the row in a fenced checkpoint"},
+	{"", worker, "(*WorkerEngine).Lost",
+		`if r != nil && r.cid == c.ID && r.instance == c.AgentInstance && !exited(r.worker) { r.mu.Lock() r.lease = c.Lease`,
+		"Lost re-attaches only the run the row names, in this process, to the new lease"},
+	{"", worker, "(*WorkerEngine).Lost",
+		`e.clearRun(ctx, c) return errors.New(tr(c.Language, txtAgentLost))`,
+		"otherwise Lost clears the run and fails it (Try again)"},
+	{"", worker, "(*WorkerEngine).loop",
+		`e.renew(r)`,
+		"the follower renews the lease on its timer"},
+	{"", worker, "(*WorkerEngine).renew",
+		`if e.s.renewLease(context.Background(), r.uid, r.cid, lease) { return }`,
+		"the follower renews with its current lease"},
+	{"", turn, "(*Service).renewLease",
+		`Where("id = ? AND user_id = ? AND lease = ? AND status = 'running'", cid, uid, lease). UpdateColumn("lease_until"`,
+		"the follower's renewal touches only its own running lease"},
+	{"", worker, "(*WorkerEngine).save",
+		`r.conv.Lease = r.lease r.mu.Unlock() err := e.s.checkpoint(context.Background(), &r.conv, fn)`,
+		"every follower write is a fenced checkpoint under the run's current lease"},
+	{"", worker, "(*WorkerEngine).done",
+		`r.conv.Lease = r.lease r.mu.Unlock() if err := e.s.finishTurn(context.Background(), &r.conv, final, r.pending, r.tools); err != nil && !fenced(err) {`,
+		"the follower ends the turn with finishTurn under the run's current lease"},
+	{"", worker, "(*WorkerEngine).stopped",
+		`_ = e.save(r, func(tx *gorm.DB, row *Conversation) error { mergeTaint(row, taint) endRun(row, r.tools) row.Status = "stopped"`,
+		"a run the worker interrupted is recorded through the fenced save"},
+	{"", worker, "(*WorkerEngine).fail",
+		`_ = e.save(r, func(tx *gorm.DB, row *Conversation) error { mergeTaint(row, taint) endRun(row, r.tools) row.Status = "failed"`,
+		"a failed agent run is recorded through the fenced save"},
+	{"", turn, "(*Service).finishTurn",
+		`return s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error { endRun(row, run)`,
+		"the turn ends in one fenced checkpoint that clears the agent run"},
+	{"", turn, "endRun",
+		`row.AgentRunID, row.AgentInstance = "", ""`,
+		"ending a turn clears the agent run"},
+	{"", turn, "(*Service).toolCall",
+		`} else if isReadTool(name) && run.catalog[name].Call != nil {`,
+		"a turn's tool calls run read tools"},
+	{"", turn, "(*Service).toolCall",
+		`} else if isWriteTool(name) { err = fmt.Errorf(`,
+		"a turn never runs a write tool: changes go through a proposal"},
 	{"", runner, "(*Service).work",
 		`saveErr := s.checkpoint(ctx, &c, func(tx *gorm.DB, row *Conversation) error { row.Status = "failed"`,
 		"a failed run is recorded through the fenced checkpoint"},
@@ -118,8 +227,11 @@ var anchors = []anchor{
 		`if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), c.UserID, c.ID, &row); err != nil {`,
 		"each step transaction locks and re-reads the row first"},
 	{"", runner, "(*Service).apply",
-		`result, err := catalog[row.Plan[i].Tool].Call(ctx, row.UserID, raw(value))`,
+		`result, err := catalog[row.Plan[i].Tool].Call(stepCtx, row.UserID, raw(value))`,
 		"the write tool runs inside the step transaction"},
+	{"", runner, "(*Service).apply",
+		`if !isWriteTool(row.Plan[i].Tool) && (!row.Plan[i].Undo || !agent.UndoTool(row.Plan[i].Tool)) { return fmt.Errorf("Action not permitted") }`,
+		"a plan step runs only a write tool (or, in an undo plan, the deletes its inverses need)"},
 	{"", runner, "(*Service).apply",
 		`row.Plan[i].Status = "done"`,
 		"the step is marked done in the same transaction as its write"},
@@ -130,11 +242,26 @@ var anchors = []anchor{
 		`*c = next if c.Status != "running" { return nil }`,
 		"the worker adopts the stored row only after commit"},
 	{"", service, "(*Service).change",
+		`return s.save(c, func(tx *gorm.DB, row *Conversation) error {`,
+		"person actions go through save"},
+	{"", service, "(*Service).save",
 		`if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), user(c), c.Param("id"), &row); err != nil {`,
 		"person actions lock the row"},
 	{"", service, "(*Service).stop",
 		`if busy(row) || row.Status == "approval" { row.Status = "stopped" row.Lease = ""`,
 		"Stop ends the run and clears the lease"},
+	{"", service, "(*Service).stop",
+		`runID, row.AgentRunID, row.AgentInstance = row.AgentRunID, "", ""`,
+		"Stop clears the agent run in the same transaction"},
+	{"", service, "(*Service).retry",
+		`row.AgentRunID, row.AgentInstance = "", ""`,
+		"Retry clears the agent run"},
+	{"", service, "(*Service).steer",
+		`if row.Status != "running" || row.AgentRunID == "" { return echo.NewHTTPError(409, "Nothing is running in this chat") }`,
+		"steer only adds a message to a live agent run"},
+	{"", service, "(*Service).configure",
+		`if in.Permission != nil { row.Permission = *in.Permission }`,
+		"a permission change edits only the mode"},
 	{"", service, "(*Service).approve",
 		`if row.Status != "approval" || row.Revision != in.Revision {`,
 		"Approve needs a proposal waiting at that revision"},
@@ -169,7 +296,12 @@ func main() {
 	template := flag.String("template", "", "TLC config to copy")
 	out := flag.String("out", "", "TLC config to write")
 	resync := flag.String("resync", "", "write coverage.lock for this commit and exit")
+	files := flag.Bool("files", false, "print the covered files and exit")
 	flag.Parse()
+	if *files {
+		fmt.Println(strings.Join(coveredFiles, "\n"))
+		return
+	}
 
 	funcs, missing := load(*repo)
 	if *resync != "" {
@@ -247,7 +379,13 @@ func main() {
 	}
 
 	if *template != "" && *out != "" {
-		writeConfig(*template, *out, flags)
+		templates, outs := strings.Split(*template, ","), strings.Split(*out, ",")
+		if len(templates) != len(outs) {
+			fail(2, "-template and -out need the same number of files")
+		}
+		for i := range templates {
+			writeConfig(templates[i], outs[i], flags)
+		}
 	}
 	os.Exit(code)
 }

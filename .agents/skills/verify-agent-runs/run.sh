@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Model-check the Agent run apply protocol (see SKILL.md).
+# Model-check the Agent run protocol (see SKILL.md): the apply check
+# (AgentRunApply.cfg) and the turn check (AgentRunTurn.cfg), one model.
 #
-#   run.sh             read guards from the code, check drift, run TLC (~10 s)
+#   run.sh             read guards from the code, check drift, run TLC (~50 s)
 #   run.sh --mutants   also prove each guard matters: remove it in the model
-#                      and expect TLC to find a violation (~20 s more)
+#                      and expect TLC to find a violation (~2 min more)
 #   run.sh --resync    after you confirmed the model matches the code: record
 #                      the covered functions at HEAD and move the sync commit
 #
@@ -43,15 +44,22 @@ echo "$TLA_SHA256  $JAR" | sha256sum -c --quiet - || { echo "tla2tools checksum 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/verify-agent-runs.XXXXXX")"
 trap 'rm -rf -- "${WORK:?}"' EXIT
 cp "$SKILL/model/AgentRunApply.tla" "$WORK/"
+CONFIGS=(AgentRunApply AgentRunTurn)
 
 tlc() { # tlc CONFIG METADIR -> prints TLC output
   (cd "$WORK" && java -XX:+UseParallelGC -cp "$JAR" tlc2.TLC -workers auto \
      -metadir "$2" -config "$1" AgentRunApply.tla 2>&1)
 }
 
+# Built, not `go run`: go run turns every non-zero exit into 1, which hid
+# MODEL MISMATCH (2) and DRIFT (3).
+(cd "$ROOT" && go build -o "$WORK/coverage" "$SKILL/tools/coverage.go")
+templates="" outs=""
+for c in "${CONFIGS[@]}"; do
+  templates+="${templates:+,}$SKILL/model/$c.cfg"; outs+="${outs:+,}$WORK/$c.cfg"
+done
 set +e
-(cd "$ROOT" && go run "$SKILL/tools/coverage.go" -repo "$ROOT" -lock "$LOCK" \
-   -template "$SKILL/model/AgentRunApply.cfg" -out "$WORK/AgentRunApply.cfg" 2> >(grep -v '^exit status' >&2))
+(cd "$ROOT" && "$WORK/coverage" -repo "$ROOT" -lock "$LOCK" -template "$templates" -out "$outs")
 cov=$?
 set -e
 if [[ $cov -eq 2 ]]; then
@@ -62,13 +70,14 @@ skill_sync="$(sed -n 's/^Sync commit: `\([0-9a-f]*\)`.*/\1/p' "$SKILL/SKILL.md")
 lock_sync="$(sed -n 's/^sync //p' "$LOCK")"
 [[ "$skill_sync" == "$lock_sync" ]] || echo "warning: SKILL.md sync commit ($skill_sync) differs from coverage.lock ($lock_sync)"
 
-echo "running TLC on the model with those guards..."
+result=0
+for c in "${CONFIGS[@]}"; do
+echo "running TLC on $c with those guards..."
 start=$SECONDS
-out="$(tlc AgentRunApply.cfg "$WORK/states" || true)"   # TLC exits non-zero on a violation
+out="$(tlc "$c.cfg" "$WORK/states-$c" || true)"   # TLC exits non-zero on a violation
 if grep -q "Model checking completed. No error has been found." <<<"$out"; then
   echo "$out" | grep -E "distinct states found|depth of the complete"
-  echo "PASS: every interleaving within the bounds keeps the properties ($((SECONDS - start)) s)"
-  result=0
+  echo "PASS ($c): every interleaving within the bounds keeps the properties ($((SECONDS - start)) s)"
 else
   echo "$out" | sed -n '/^Error:/,$p'
   echo
@@ -83,31 +92,35 @@ else
     /^\/\\ writes =/ { wr = $0; sub("^.* = ", "", wr) }
     /^\/\\ pc =/ { pcs = $0; sub("^/\\\\ pc = ", "", pcs); gsub("\"", "", pcs) }
     END { flush() }'
-  echo "FAIL: TLC found a behaviour that breaks a property (trace above)."
+  echo "FAIL ($c): TLC found a behaviour that breaks a property (trace above)."
   echo "Read it with SKILL.md, 'Reading a counterexample'."
   exit 1
 fi
+done
 
 if [[ $mode == "mutants" ]]; then
-  echo "mutants: each guard removed in the model must break a property"
+  echo "mutants: each guard removed in the model must break a property (apply check first, then the turn check)"
   bad=0
-  for g in ClaimLocksRow StepFenced WritesInStepTx ApplySkipsDone CheckpointFenced CheckpointReadsLatest RetryKeepsDone; do
-    sed -E "s/^(\s*$g\s*=\s*)TRUE/\1FALSE/" "$WORK/AgentRunApply.cfg" > "$WORK/m-$g.cfg"
-    v="$( (tlc "m-$g.cfg" "$WORK/st-$g" || true) | sed -n 's/^Error: Invariant \(.*\) is violated\./\1/p' | head -1)"
-    if [[ -n $v ]]; then printf '  %-22s removed -> %s violated\n' "$g" "$v"; else printf '  %-22s removed -> NO VIOLATION (model lost its teeth)\n' "$g"; bad=1; fi
+  for g in ClaimLocksRow StepFenced WritesInStepTx ApplySkipsDone CheckpointFenced CheckpointReadsLatest RetryKeepsDone HoldsSupervised; do
+    v="" where=""
+    for c in "${CONFIGS[@]}"; do
+      sed -E "s/^(\s*$g\s*=\s*)TRUE/\1FALSE/" "$WORK/$c.cfg" > "$WORK/m-$g-$c.cfg"
+      v="$( (tlc "m-$g-$c.cfg" "$WORK/st-$g-$c" || true) | sed -n 's/^Error: Invariant \(.*\) is violated\./\1/p' | head -1)"
+      if [[ -n $v ]]; then where="$c"; break; fi
+    done
+    if [[ -n $v ]]; then printf '  %-22s removed -> %s violated (%s)\n' "$g" "$v" "$where"; else printf '  %-22s removed -> NO VIOLATION (model lost its teeth)\n' "$g"; bad=1; fi
   done
   [[ $bad -eq 0 ]] || exit 1
 fi
 
 if [[ $mode == "resync" ]]; then
-  covered_files=(apps/api/internal/features/chat/runner.go apps/api/internal/features/chat/service.go
-                 apps/api/internal/features/chat/receipts.go apps/api/cmd/agent_deps.go apps/api/cmd/main.go)
+  mapfile -t covered_files < <("$WORK/coverage" -files)
   if ! git -C "$ROOT" diff --quiet HEAD -- "${covered_files[@]}"; then
     echo "covered files have uncommitted changes; commit them first so the sync commit contains them" >&2
     exit 2
   fi
   head="$(git -C "$ROOT" rev-parse HEAD)"
-  (cd "$ROOT" && go run "$SKILL/tools/coverage.go" -repo "$ROOT" -lock "$LOCK" -resync "$head")
+  (cd "$ROOT" && "$WORK/coverage" -repo "$ROOT" -lock "$LOCK" -resync "$head")
   sed -i "s/^Sync commit: \`[0-9a-f]*\`/Sync commit: \`$head\`/" "$SKILL/SKILL.md"
   echo "sync commit moved to $head in coverage.lock and SKILL.md"
   exit 0
