@@ -975,6 +975,31 @@ class SyncScript(unittest.TestCase):
         res = check_sh()
         self.assertEqual(res.returncode, 0, res.stderr)
 
+    def test_report_between_two_old_tags_never_calls_upstream_changes_timely_ones(self):
+        """`make hermes-sync-report OLD=<tag> NEW=<tag>` passes --head HEAD, which may be past OLD:
+        the Timely delta (section 7) and Timely-added files (section 10) are measured against the
+        snapshot HEAD links to, not against OLD, so upstream's own changes are not listed as
+        Timely's."""
+        for ref in ("v0.0.1", "v0.0.2"):
+            res = self.sync(ref)
+            self.assertEqual(res.returncode, 0, res.stderr)
+        self.write(self.up, "tools/b.py", "y = 1\n")  # a file upstream adds in v0.0.3
+        self.git(self.up, "add", "-A")
+        self.git(self.up, "commit", "-q", "-m", "v0.0.3")
+        self.git(self.up, "tag", "v0.0.3")
+        res = self.sync("v0.0.3")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        snap1 = self.git(self.repo, "rev-parse", "HEAD^2^^").strip()
+        snap2 = self.git(self.repo, "rev-parse", "HEAD^2^").strip()
+        res = subprocess.run(["python3", "-I", "-B", os.path.join(self.repo, "scripts", "hermes-sync", "report.py"),
+                              "--repo", self.repo, "--old", snap1, "--new", snap2, "--head", "HEAD",
+                              "--prefix", check_lib.PREFIX, "--sync-dir", check_lib.SYNC_DIR],
+                             capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("Timely delta since the last snapshot (0 files", res.stdout)
+        self.assertNotIn("M tools/a.py", res.stdout)
+        self.assertIn("upstream now adds files Timely had added itself: none", res.stdout)
+
     def test_a_symlink_in_the_release_refuses_the_sync(self):
         os.symlink("../../secret.env", os.path.join(self.up, "tools", "link.md"))
         self.git(self.up, "add", "-A")

@@ -38,7 +38,7 @@ def _blob(rev, path, repo=None):
     return git("rev-parse", "-q", "--verify", f"{rev}:{path}", repo=repo, check=False).strip()
 
 
-def previous_snapshot(repo=None, prefix=PREFIX):
+def previous_snapshot(repo=None, prefix=PREFIX, head="HEAD"):
     """``(commit, problems, warnings)``: the snapshot HEAD is linked to, chosen by validity, not
     by date.
 
@@ -47,11 +47,11 @@ def previous_snapshot(repo=None, prefix=PREFIX):
     ``HERMES_UPSTREAM.json`` blob equals HEAD's is the link. So the documented recovery (merge
     the real snapshot with ``-s ours``) works after a rebase, and after merging a wrong snapshot
     first. ``commit`` is None with no problems for a first import (no snapshot, no record);
-    otherwise ``problems`` says why nothing links."""
+    otherwise ``problems`` says why nothing links. ``head`` replaces HEAD (report.py --head)."""
     record = f"{prefix}/HERMES_UPSTREAM.json"
-    head_rec = _blob("HEAD", record, repo=repo)
+    head_rec = _blob(head, record, repo=repo)
     out = git("log", "--format=%H", "--all-match", "--grep=^hermes: snapshot ", "--grep=^Hermes-Commit: ",
-              "HEAD", repo=repo, check=False)
+              head, repo=repo, check=False)
     candidates = [c for c in out.split() if c]
     warnings, real = [], []
     for c in candidates:

@@ -67,6 +67,7 @@ ITERS_RESET = "_iters_since_skill = 0"
 # The report covers every seam the check compares: the list above (kept literal, a unit test pins it
 # to check_seams.REPORT_SEAMS) plus the worker-integration seams check_seams.py adds.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import check_lib  # noqa: E402
 import check_seams  # noqa: E402
 
 ALL_SEAMS = SEAMS + check_seams.TIMELY_SEAMS
@@ -686,9 +687,18 @@ def main():
     agents = sorted({n for s, o, n in rows if n.endswith(("AGENTS.md", "AGENTS.hermes.md", "CLAUDE.md"))})
     p(f"- {names(agents)}" if A.old else f"- first import: {names(sorted(f for f in nf if f.endswith(('AGENTS.md', 'AGENTS.hermes.md', 'CLAUDE.md'))))}")
 
-    p("\n## 7. Timely-patched files that upstream also changed (expect conflicts here)\n")
+    # Timely's own changes are measured against the snapshot --head links to. That is --old during a
+    # sync, but `make hermes-sync-report OLD=<tag> NEW=<tag>` may run with HEAD past OLD, and then
+    # diffing --old against HEAD would list upstream's changes as Timely's.
+    base = A.old
     if A.old:
-        timely = [r for r in name_status(A.old, A.head) if r[1] != "HERMES_UPSTREAM.json"]
+        linked = check_lib.previous_snapshot(repo=A.repo, prefix=PREFIX, head=A.head)[0]
+        base = linked or ""
+    p("\n## 7. Timely-patched files that upstream also changed (expect conflicts here)\n")
+    if A.old and not base:
+        p(f"- skipped: `{A.head}` is not linked to a Hermes snapshot, so Timely's own changes cannot be told apart")
+    elif A.old:
+        timely = [r for r in name_status(base, A.head) if r[1] != "HERMES_UPSTREAM.json"]
         upstream = {o: (s, n) for s, o, n in rows}
         p(f"- Timely delta since the last snapshot ({len(timely)} files; must equal patches.md): "
           f"{names([f'{s} {o}' + (f' -> {n}' if n != o else '') for s, o, n in timely], fmt='{}')}")
@@ -752,8 +762,11 @@ def main():
     outside = [f for f in git("ls-tree", "-r", "-z", "--name-only", A.new).split("\0") if f and not f.startswith(PREFIX + "/")]
     p(f"- snapshot paths outside `{PREFIX}/`: {names(outside)}")
     if A.old:
-        timely_added = {f for f in ls(A.head) if f not in of}
-        p(f"- upstream now adds files Timely had added itself: {names(sorted(timely_added & set(nf)))}")
+        if base:
+            timely_added = {f for f in ls(A.head) if f not in ls(base)}
+            p(f"- upstream now adds files Timely had added itself: {names(sorted(timely_added & (set(nf) - set(of))))}")
+        else:
+            p(f"- Timely-added files: skipped (`{A.head}` is not linked to a Hermes snapshot)")
     print("\n".join(out))
 
 
