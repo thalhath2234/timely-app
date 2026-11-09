@@ -98,6 +98,9 @@ if [[ -n $known ]]; then
 else
   tags_check="new tag, not in tags.json yet"
 fi
+# The linked snapshot's trailers are a second record of the tag, which a rebase cannot drop.
+[[ -z $prev_tag || $prev_tag != "$REF" || $prev_commit == "$commit" ]] ||
+  die "$REF now points at $commit, but the linked snapshot $prev imported it from $prev_commit; the tag moved"
 ancestry="first import"
 if [[ -n $prev_commit && $prev_commit == "$commit" ]]; then
   ancestry="same upstream commit as the last import"
@@ -136,6 +139,18 @@ tree=$(python3 -I -B "$HELPERS/snapshot.py" --cache "$CACHE" --repo "$(g rev-par
   --commit "$commit" --tag "$REF" --committed "$committed" --filter "$tmp/filter" --filter-sha1 "$filter_sha" \
   --prefix "$PREFIX" --index "$tmp/index" --url "${URL%.git}" --stats-out "$tmp/stats.json")
 if [[ -n $prev && $tree == $(g rev-parse "$prev^{tree}") ]]; then
+  # Same tree, so the same tag and commit as the linked snapshot. tags.json can still lack it: a
+  # rebase drops the `hermes: sync` merge that recorded it, and the documented recovery (relink,
+  # then re-run) lands here. Record it again in its own commit. ($known is empty only then; a
+  # recorded commit that differs was refused in step 1b.)
+  if [[ -z $known ]]; then
+    [[ $branch == dev ]] && die "$SYNC_DIR/tags.json on dev has no entry for $REF; record it on a fix/ branch (re-run the sync there)"
+    mkdir -p "$REPO_ROOT/$SYNC_DIR"
+    python3 -I -B "$HELPERS/record_tag.py" "$REPO_ROOT/$SYNC_DIR/tags.json" "$REF" "$commit" "$committed" "$release_api"
+    g add "$SYNC_DIR/tags.json"
+    g commit -q -m "hermes: record $REF in tags.json" -m "The linked snapshot $prev imported $REF ($commit); the commit that recorded it is gone (a rebase?)."
+    echo "Recorded $REF ($commit) in $SYNC_DIR/tags.json: the commit that recorded it was gone (a rebase?)"
+  fi
   echo "Hermes $REF is already up to date ($commit, snapshot $prev)"
   exit 0
 fi

@@ -107,7 +107,9 @@ RELINK_HELP = ("Recovery: find the real snapshot commit whose apps/agent/hermes/
                "for a squash-merged PR, that merge on the PR's branch (`git fetch origin pull/<n>/head`). "
                "`refs/hermes/vendor` is only the last snapshot any sync on this clone made (every worktree "
                "shares it), so check its tag first. Then `git merge -s ours --allow-unrelated-histories "
-               "<snapshot>` and re-run; a wrong snapshot merged earlier is skipped as long as its record differs.")
+               "<snapshot>` and re-run `make hermes-sync HERMES_REF=<tag>`: it records the tag in "
+               "apps/agent/.hermes-sync/tags.json again (its own commit) when the rebase dropped the sync merge "
+               "that held it. A wrong snapshot merged earlier is skipped as long as its record differs.")
 
 
 if __name__ == "__main__":  # used by sync-hermes.sh and check.sh

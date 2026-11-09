@@ -693,3 +693,110 @@ class SnapshotLink(unittest.TestCase):
         self.git("commit", "-q", "-am", "agent: the patch itself")
         res = self.check_sh()
         self.assertEqual(res.returncode, 0, res.stderr)
+
+
+# ---------------------------------------------------------------- sync-hermes.sh end to end
+SYNC_SH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "sync-hermes.sh")
+
+
+class SyncScript(unittest.TestCase):
+    """sync-hermes.sh against a synthetic local upstream (two tags), in a throwaway Timely repo
+    holding a copy of the sync scripts. No network: the release API check is skipped."""
+
+    def setUp(self):
+        self.base = tempfile.mkdtemp(prefix="hermes-sync-e2e.")
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", self.base]))
+        self.up = os.path.join(self.base, "up")
+        self.repo = os.path.join(self.base, "repo")
+        self.cache = os.path.join(self.base, "cache.git")
+        for path, branch in ((self.up, "main"), (self.repo, "feature/x")):
+            os.makedirs(path)
+            self.git(path, "init", "-q", "-b", branch)
+            self.git(path, "config", "user.email", "t@example.com")
+            self.git(path, "config", "user.name", "t")
+            self.git(path, "config", "commit.gpgsign", "false")
+        for tag, body in (("v0.0.1", "x = 1\n"), ("v0.0.2", "x = 2\n")):
+            self.write(self.up, "tools/a.py", body)
+            self.write(self.up, "README.md", "# hermes\n")
+            self.git(self.up, "add", "-A")
+            self.git(self.up, "commit", "-q", "-m", tag)
+            self.git(self.up, "tag", tag)
+        here = os.path.dirname(os.path.abspath(__file__))
+        os.makedirs(os.path.join(self.repo, "scripts", "hermes-sync"))
+        subprocess.run(["cp", SYNC_SH, os.path.join(self.repo, "scripts")], check=True)
+        for name in os.listdir(here):
+            if name.endswith((".py", ".sh")):
+                subprocess.run(["cp", os.path.join(here, name), os.path.join(self.repo, "scripts", "hermes-sync")],
+                               check=True)
+        self.write(self.repo, f"{check_lib.SYNC_DIR}/filter", "dir tools\n")
+        self.write(self.repo, "README.md", "timely\n")
+        self.git(self.repo, "add", "-A")
+        self.git(self.repo, "commit", "-q", "-m", "timely: start")
+
+    def git(self, where, *args):
+        res = subprocess.run(["git", "-C", where, *args], capture_output=True, text=True)
+        if res.returncode:
+            raise AssertionError(f"git {args}: {res.stderr}")
+        return res.stdout
+
+    def write(self, where, rel, body):
+        full = os.path.join(where, rel)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w") as fh:
+            fh.write(body)
+
+    def sync(self, ref, **env):
+        full = dict(os.environ, HERMES_UPSTREAM_URL="file://" + self.up, HERMES_CACHE=self.cache,
+                    HERMES_SKIP_RELEASE_API="1", HERMES_REF=ref, **env)
+        return subprocess.run(["bash", os.path.join(self.repo, "scripts", "sync-hermes.sh")],
+                              capture_output=True, text=True, env=full)
+
+    def tags(self):
+        import json
+        with open(os.path.join(self.repo, check_lib.SYNC_DIR, "tags.json")) as fh:
+            return json.load(fh)
+
+    def upstream_record(self):
+        import json
+        with open(os.path.join(self.repo, check_lib.PREFIX, "HERMES_UPSTREAM.json")) as fh:
+            return json.load(fh)
+
+    def test_rerun_after_the_documented_rebase_recovery_restores_tags_json(self):
+        for ref in ("v0.0.1", "v0.0.2"):
+            res = self.sync(ref)
+            self.assertEqual(res.returncode, 0, res.stderr)
+        first_merge = self.git(self.repo, "log", "--format=%H", "-n1", "--grep=^hermes: sync v0.0.1$").strip()
+        snap2 = self.git(self.repo, "rev-parse", "HEAD^2").strip()
+        # a rebase drops the `hermes: sync v0.0.2` merge, the only commit that recorded the tag
+        self.git(self.repo, "rebase", "-q", first_merge)
+        self.assertNotIn("v0.0.2", self.tags())
+        res = self.sync("v0.0.2")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("--allow-unrelated-histories", res.stderr)
+        # the documented recovery: merge the real snapshot with -s ours, then re-run the sync
+        self.git(self.repo, "merge", "-q", "-s", "ours", "--allow-unrelated-histories", "-m", "agent: relink", snap2)
+        res = self.sync("v0.0.2")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("v0.0.2", self.tags())
+        self.assertEqual(check_policy.check_tags(self.tags(), self.upstream_record()), [])
+        self.assertEqual(self.git(self.repo, "status", "--porcelain", "--untracked-files=no"), "")
+        # and a further re-run is a plain no-op
+        head = self.git(self.repo, "rev-parse", "HEAD")
+        res = self.sync("v0.0.2")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("already up to date", res.stdout)
+        self.assertEqual(self.git(self.repo, "rev-parse", "HEAD"), head)
+
+    def test_a_moved_tag_is_refused_even_when_tags_json_lost_it(self):
+        res = self.sync("v0.0.1")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        # tags.json loses the record (a rebase dropped the sync merge); the snapshot still has it
+        self.write(self.repo, f"{check_lib.SYNC_DIR}/tags.json", "{}\n")
+        self.git(self.repo, "commit", "-q", "-am", "timely: lose the record")
+        self.write(self.up, "tools/a.py", "x = 'moved'\n")
+        self.git(self.up, "commit", "-q", "-am", "moved")
+        self.git(self.up, "tag", "-f", "v0.0.1")
+        subprocess.run(["rm", "-rf", self.cache], check=True)  # the cache would keep the old tag
+        res = self.sync("v0.0.1", HERMES_ALLOW_NON_DESCENDANT="1")
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("the tag moved", res.stderr)

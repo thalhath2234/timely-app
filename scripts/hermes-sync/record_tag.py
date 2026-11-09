@@ -1,10 +1,11 @@
-"""Record an imported Hermes tag in tags.json (sync-hermes.sh step 8).
+"""Record an imported Hermes tag in tags.json (sync-hermes.sh step 8, and its up-to-date branch
+when a rebase dropped the commit that recorded the linked snapshot's tag).
 
     python3 -I -B record_tag.py <tags.json> <tag> <commit> <committed> <releaseApi>
 
 A re-import of the same tag at the same commit with the release API skipped (a filter
-re-snapshot, the recovery re-run) keeps the release-API commit already recorded: a skipped
-check never erases one that passed.
+re-snapshot) keeps the release-API commit already recorded: a skipped check never erases one
+that passed.
 """
 import json
 import os
