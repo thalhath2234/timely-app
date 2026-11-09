@@ -1,5 +1,6 @@
-# Lint, type-check and unit-test every app. No database is needed: the Go
-# integration tests are gated behind CHAT_TEST_ENV / TIMELY_TEST_POSTGRES.
+# Lint, type-check and unit-test every app. Only the chat-integration job needs
+# a database (a throwaway PostgreSQL service); elsewhere the Go integration
+# tests stay gated behind CHAT_TEST_ENV / TIMELY_TEST_POSTGRES.
 
 name: ci
 
@@ -30,6 +31,39 @@ jobs:
       - run: make lint-api
       - run: make test-api
 
+  # Chat runs, approvals, permission modes and the agent engine against the Go
+  # fake worker (plan phase 2), each test in its own schema of a throwaway
+  # PostgreSQL. No AI provider and no Python runtime: the real-worker test
+  # skips without TIMELY_AGENT_TEST_RUNTIME.
+  chat-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: timely
+          POSTGRES_PASSWORD: root123
+          POSTGRES_DB: timely_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U timely -d timely_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: apps/api/go.mod
+          cache-dependency-path: apps/api/go.sum
+      # The example's DB_* settings match the service above; the target reads
+      # them through CHAT_TEST_ENV=.env.
+      - run: cp .env.example .env
+      - run: make test-chat-integration
+
   node:
     runs-on: ubuntu-latest
     steps:
@@ -58,6 +92,7 @@ jobs:
       - run: make test-electron-guards
       - run: make test-electron-supervisor
       - run: make test-desktop-instance
+      - run: make test-agent-chat
 
   # The agent runtime (apps/agent: vendored Hermes + timely_agent) and the Go
   # supervisor that spawns it. Stub model only: no AI provider is called.
