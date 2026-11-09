@@ -129,7 +129,10 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: |
-          if git diff --quiet "origin/$BASE_REF...HEAD" -- apps/agent scripts/hermes-sync scripts/sync-hermes.sh; then
+          # Also what the check reads outside those folders: agenthost/env.go (the messaging-platform
+          # env check) and the Makefile (agent-install recipe, AGENT_PYTHON_VERSION).
+          if git diff --quiet "origin/$BASE_REF...HEAD" -- apps/agent scripts/hermes-sync scripts/sync-hermes.sh \
+              apps/api/internal/agenthost/env.go Makefile .github/workflows/ci.yml; then
             echo "run=false" >> "$GITHUB_OUTPUT"
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
