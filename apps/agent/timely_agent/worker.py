@@ -66,6 +66,28 @@ def tracked_children() -> int:
         return 0
 
 
+def run_start_problem(msg: dict[str, Any]) -> Optional[str]:
+    """Why a run.start's optional fields have the wrong shape, else None. Checked before the run
+    thread starts, so a malformed start is refused with an error answering its id instead of
+    killing the thread before run.done."""
+    shapes = {
+        "tainted_sources": (list,), "pre_approved": (dict,), "history": (list,), "budgets": (dict,),
+        "flags": (dict,), "model": (dict,), "session_key": (str,), "user_message": (str,),
+        "system_text": (str,),
+    }
+    for field, types in shapes.items():
+        value = msg.get(field)
+        if value is not None and not isinstance(value, types):
+            return f"{field} must be a {' or '.join(t.__name__ for t in types)}, not {type(value).__name__}"
+    if any(not isinstance(t, str) for t in msg.get("toolsets") or []):
+        return "toolsets must be a list of strings"
+    if any(not isinstance(t, (dict, str)) for t in msg.get("tainted_sources") or []):
+        return "tainted_sources must be a list of source objects"
+    if any(not isinstance(h, dict) for h in msg.get("history") or []):
+        return "history must be a list of message objects"
+    return None
+
+
 class Worker:
     def __init__(self, chan: P.Channel):
         from timely_agent.run_chat import AgentCache
@@ -205,6 +227,10 @@ class Worker:
             raise P.ProtocolError(P.E_BAD_MESSAGE, "run.start needs run and conversation_id", mid)
         if not isinstance(msg.get("toolsets"), list):
             raise P.ProtocolError(P.E_BAD_MESSAGE, "run.start needs an explicit toolsets list", mid)
+        problem = run_start_problem(msg)
+        if problem:
+            # answers the start's own id, so Go ends the run (PROTOCOL.md "Errors")
+            raise P.ProtocolError(P.E_BAD_MESSAGE, f"run.start {problem}", mid)
         with self.runs_lock:
             if run_id in self.runs:
                 raise P.ProtocolError(P.E_DUPLICATE_RUN, f"run {run_id} is already running", mid)
@@ -219,30 +245,51 @@ class Worker:
             self.send({"type": "event", "run": run_id, "kind": kind, "payload": payload})
 
         def body() -> None:
-            from tools.approval import register_gateway_notify, unregister_gateway_notify
-            session_key = str(msg.get("session_key") or f"timely:{conversation}")
-
-            def notify(data: dict) -> None:
-                emit("approval.request", {k: v for k, v in data.items()
-                                          if isinstance(v, (str, int, float, bool, type(None)))})
-
-            register_gateway_notify(session_key, notify)
+            done: Optional[dict[str, Any]] = None
             try:
-                done = run_turn(run, self.cache, emit)
+                from tools.approval import register_gateway_notify, unregister_gateway_notify
+                session_key = str(msg.get("session_key") or f"timely:{conversation}")
+
+                def notify(data: dict) -> None:
+                    emit("approval.request", {k: v for k, v in data.items()
+                                              if isinstance(v, (str, int, float, bool, type(None)))})
+
+                register_gateway_notify(session_key, notify)
+                try:
+                    done = run_turn(run, self.cache, emit)
+                finally:
+                    unregister_gateway_notify(session_key)
+            except BaseException as exc:  # noqa: BLE001 - Go must hear about every way a run ends
+                logger.exception("run %s failed outside the turn", run_id)
+                done = {"final_response": "", "completed": False, "interrupted": bool(run.stop_reason),
+                        "error": f"{type(exc).__name__}: {exc}"[:2000]}
             finally:
-                unregister_gateway_notify(session_key)
                 with self.runs_lock:
                     self.runs.pop(run_id, None)
-            try:
-                self.send({"type": "run.done", "id": mid, "run": run_id, **done})
-            except Exception as exc:  # Go must always get a run.done, or the run stays live there
-                logger.exception("run.done for %s could not be sent", run_id)
-                self.send({"type": "run.done", "id": mid, "run": run_id, "completed": False,
-                           "interrupted": False, "error": f"run.done could not be encoded: {type(exc).__name__}"})
+                self._send_run_done(mid, run_id, done)
 
         ctx = contextvars.copy_context()
         run.thread = threading.Thread(target=ctx.run, args=(body,), name=f"timely-run-{run_id}"[:40], daemon=True)
         run.thread.start()
+
+    def _send_run_done(self, mid: Optional[str], run_id: str, done: Optional[dict[str, Any]]) -> None:
+        """Send run.done; Go keeps a run live until it arrives, so this never gives up silently."""
+        if done is None:
+            done = {"final_response": "", "completed": False, "interrupted": False,
+                    "error": "the run ended without a result"}
+        try:
+            if self.send({"type": "run.done", "id": mid, "run": run_id, **done}):
+                return
+        except Exception as exc:
+            logger.exception("run.done for %s could not be sent", run_id)
+            reason = f"run.done could not be encoded: {type(exc).__name__}"
+        else:
+            reason = "run.done could not be sent"
+        try:
+            self.send({"type": "run.done", "id": mid, "run": run_id, "completed": False,
+                       "interrupted": False, "error": reason})
+        except Exception:
+            logger.exception("fallback run.done for %s could not be sent", run_id)
 
     def _find_run(self, msg: dict[str, Any]):
         with self.runs_lock:

@@ -86,7 +86,7 @@ Other unknown names are logged as warnings. `HERMES_EXEC_ASK` is allowed when th
 | `shutdown` | `grace` (seconds, default 5) | none: the worker waits up to `grace` for live runs, interrupts the rest (up to 2 s more), and exits 0. Go sends its own stop budget minus 3 s, so a worker following this exits before Go sends SIGTERM |
 | `bot.run`, `learning.*` | later phases | `error` `unsupported` in phase 1 |
 
-An `error` that carries `run` and the `id` of that run's own `run.start` (a refusal: `busy`, `refused`, `bad_message`, `not_ready`, `internal`) ends that run: no `run.done` follows. Go stops counting the run as live and hands the error to the run's owner. `duplicate_run` does not end the run (the first start is still running), and neither does an error answering `run.stop`, `run.steer` or `approval.answer`, even though it carries `run`. Go never sends a line over 32 MiB: it refuses such a `run.start` before marking the run live, because the worker's `bad_message` for an oversized line cannot name the run.
+Every `run.start` the worker accepts ends in exactly one `run.done`, whatever fails inside the run (a failure outside the turn itself arrives as `run.done` with `completed: false` and `error`). An `error` that carries `run` and the `id` of that run's own `run.start` (a refusal: `busy`, `refused`, `bad_message`, `not_ready`, `internal`) ends that run: no `run.done` follows. Go stops counting the run as live and hands the error to the run's owner. `duplicate_run` does not end the run (the first start is still running), and neither does an error answering `run.stop`, `run.steer` or `approval.answer`, even though it carries `run`. Go never sends a line over 32 MiB: it refuses such a `run.start` before marking the run live, because the worker's `bad_message` for an oversized line cannot name the run.
 
 `args_hash` is the sha256 of the tool arguments' canonical JSON (keys sorted, separators `,` and `:`, non-ASCII kept as UTF-8).
 
@@ -144,7 +144,7 @@ Each run binds Hermes' per-turn terminal policy from `config.yaml` and the manag
 | `code` | When |
 | --- | --- |
 | `bad_json` | the line is not JSON |
-| `bad_message` | not an object, no `type` or `account`, missing required fields, oversized line, second `hello` |
+| `bad_message` | not an object, no `type` or `account`, missing required fields, a `run.start` field of the wrong shape (`tainted_sources`, `history`, `toolsets` not lists; `pre_approved`, `budgets`, `flags`, `model` not objects), oversized line, second `hello` |
 | `unknown_type` | a type this protocol does not define |
 | `wrong_account` | the message names another account, or the home belongs to another account |
 | `protocol_mismatch` | `hello.protocol` is not 1 |

@@ -117,6 +117,24 @@ def test_errors_and_account_checks(agent, worker, stub):
     assert worker.recv()["code"] == "bad_message"
 
 
+def test_malformed_run_start_fields_are_refused_not_lost(agent, worker, stub):
+    """A run.start with a wrong-shaped optional field is refused with an error answering its own
+    id and run (so Go ends the run); before, the run thread died with no run.done and Go kept the
+    run live forever. The worker forgets nothing: the next valid run completes."""
+    for i, (field, value) in enumerate([("tainted_sources", 5), ("pre_approved", "x"), ("history", {"a": 1}),
+                                        ("budgets", []), ("history", [1, 2]), ("toolsets", [1])]):
+        run_id = f"r-shape-{i}"
+        worker.send(harness.run_start(agent, stub, run_id=run_id, conversation=f"c-shape-{i}", **{field: value}))
+        err = worker.recv(timeout=15)
+        assert err["type"] == "error" and err["code"] == "bad_message", (field, err)
+        assert err["id"] == f"s-{run_id}" and err["run"] == run_id and field in err["message"], (field, err)
+    worker.send({"type": "ping", "id": "go-shape", "account": agent.account})
+    assert worker.recv()["busy"]["runs"] == 0
+    worker.send(harness.run_start(agent, stub, run_id="r-shape-ok", conversation="c-shape-ok", text="fine"))
+    done, _ = worker.until("run.done")
+    assert done["completed"] is True and done["run"] == "r-shape-ok", done
+
+
 def test_install_guard_refuses_in_worker_runtime(agent):
     script = f"""
 import sys

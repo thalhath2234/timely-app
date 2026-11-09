@@ -168,21 +168,23 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
     msg = run.msg
     conversation = str(msg.get("conversation_id") or "")
     session_key = str(msg.get("session_key") or f"timely:{conversation}")
-    ctx = bridge.RunContext(
-        run_id=run.run_id, session_key=session_key, conversation_id=conversation, kind="chat",
-        tainted_sources=list(msg.get("tainted_sources") or []), pre_approved=msg.get("pre_approved") or None)
-    bridge.current_run.set(ctx)
     done: dict[str, Any] = {"final_response": "", "completed": False, "interrupted": False,
                             "turn_exit_reason": "", "tokens": {}, "estimated_cost_usd": None,
-                            "turn_id": None, "tainted_sources": ctx.tainted_sources}
-    key_token = set_current_session_key(session_key)
-    var_tokens = set_session_vars(platform="timely", session_key=session_key, session_id=conversation,
-                                  chat_id=conversation)
-    # The account's complete TERMINAL_* policy (config.yaml + managed floors), as Hermes' gateway
-    # binds it per turn: home_mode profile, cwd = the account workspace, local backend. Unresolvable
-    # config installs Hermes' refusal scope, so terminal tools fail closed.
-    scope_token = install_profile_terminal_scope(get_hermes_home())
+                            "turn_id": None, "tainted_sources": []}
+    key_token = var_tokens = scope_token = None
     try:
+        ctx = bridge.RunContext(
+            run_id=run.run_id, session_key=session_key, conversation_id=conversation, kind="chat",
+            tainted_sources=list(msg.get("tainted_sources") or []), pre_approved=msg.get("pre_approved") or None)
+        bridge.current_run.set(ctx)
+        done["tainted_sources"] = ctx.tainted_sources
+        key_token = set_current_session_key(session_key)
+        var_tokens = set_session_vars(platform="timely", session_key=session_key, session_id=conversation,
+                                      chat_id=conversation)
+        # The account's complete TERMINAL_* policy (config.yaml + managed floors), as Hermes' gateway
+        # binds it per turn: home_mode profile, cwd = the account workspace, local backend. Unresolvable
+        # config installs Hermes' refusal scope, so terminal tools fail closed.
+        scope_token = install_profile_terminal_scope(get_hermes_home())
         signature = config_signature(msg)
         agent = cache.get(conversation, signature)
         if agent is None:
@@ -234,7 +236,10 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
     finally:
         if run.agent is not None and getattr(run.agent, "_timely_emit", None) is not None:
             run.agent._timely_emit.emit = None
-        reset_terminal_scope(scope_token)
-        clear_session_vars(var_tokens)
-        reset_current_session_key(key_token)
+        if scope_token is not None:
+            reset_terminal_scope(scope_token)
+        if var_tokens is not None:
+            clear_session_vars(var_tokens)
+        if key_token is not None:
+            reset_current_session_key(key_token)
     return done
