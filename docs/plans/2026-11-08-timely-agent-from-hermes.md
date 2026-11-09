@@ -1250,7 +1250,36 @@ Every phase keeps a working agent: the classic engine stays the default until ph
   - `verify-timely` run *(ran)*: API on 8081 with `DB_SCHEMA=verify`, web on 4002, the stub model behind an Ollama shim as the account's provider (no live keys, 8080 and 4001 untouched). On the web, in light and dark: sign up in the UI; Settings → Agent → Engine from Classic to New (the API reads `engine: agent`, `engineAvailable: true`); a reply streamed mid-turn on the new engine; tasks created through chat, held in Supervised and applied with Apply changes (tasks 0 → 1 each); Auto applied two tasks at once and Undo removed them (1 → 0 each); Stop mid-run left the chat `stopped` with nothing written. On the phone at 390 px on Expo web, light and dark, the same five flows pass through the phone UI. Proof (screenshots, ARIA snapshots, API reads, action logs, the parity smoke and the DB audit) is in `.agents/skills/verify-timely/evidence/20261109T093531Z-agent-engine-phase2/` (git-ignored).
   - Exit audit "no data written outside proposals" *(ran)*: in the `verify` schema, every task, event, doc and sheet of the 15 accounts the runs made traces to a done plan step of that account's chats, except one row per parity account ("Plan the garden"), which the harness itself created by REST as setup for `questions-01`. The integration suite asserts the same on every engine test (`TestIntegrationAgentEngineNoDataWithoutAProposal`, the held-proposal, Stop and recorded-fixture tests).
   - Parity *(partly ran)*: `make agent-parity` (`apps/api/scripts/agentqa`, 84 scenarios recreated from the 2026-10-02 categories, seven per category) passed a smoke of five scenarios on both engines against the stub model: 5/5 on classic, 5/5 on the agent engine, 0 of 5 ending differently. **The 84-scenario parity run with a real model is pending the owner's key** (`TIMELY_PARITY_KEY`), so the exit criterion "parity within an agreed margin" is not met yet, and the margin is still to be agreed.
-  - Seen in the run, not changed here: a Stop mid-reply drops the streamed text and keeps only the "Stopped" notice (web and phone); the phone's chat header truncates "Needs your review" at 390 px, and its "Applied on its own" card shows while the apply is still running; the phone's empty chat still says "Small changes happen right away" in a Supervised chat; the web chat sidebar shows the "Chat from any screen with Ctrl+Shift+J" key hint, which predates phase 2 (82281a7a on `dev`).
+  - Seen in the run: four issues, fixed in the integration pass below. A Stop mid-reply dropped the streamed text. The phone's "Applied on its own" card showed while the apply was still running. The empty chat said "Small changes happen right away" in a Supervised chat. The phone's chat header truncated "Needs your review" at 390 px; it no longer does in the integration run. Not changed: the web chat sidebar's "Chat from any screen with Ctrl+Shift+J" key hint, which predates phase 2 (82281a7a on `dev`).
+  - Integration pass (2026-11-09) *(ran)*:
+    - Fixes:
+      - Stop keeps what an agent run streamed as the reply, ahead of the "Stopped" notice. It takes the engine's live copy, or `activity.draft` when no live copy is newer (`WorkerEngine.Draft`, asserted in `TestIntegrationAgentEngineStopMidRunAppliesNothing`).
+      - `GET /chats` rows carry `permission`, `engine` and `runEngine`.
+      - The live draft drops the worker's leading blank lines on web and phone.
+      - The phone card reads "Applying on its own" until the apply ends.
+      - Both empty chats say the chat's permission decides what waits for review.
+      - `make audit-mobile-assistant` stubs the phase 2 calls again and passes.
+      - The phase 2 web chat files are formatted, so `make check-format-chat` passes.
+      - TLA+ coverage is resynced: `stop` changed, the model did not, and all eight mutants are caught.
+    - Suites, all exit 0:
+      - `make test`: 43 Go packages, 1,102 node tests, worker pytest 93 and 37.
+      - `make test-api`.
+      - `TIMELY_AGENT_TEST_RUNTIME=dev make test-chat-integration`: 19 packages, the real-worker chat test included.
+      - `make agent-test` (93), `make agent-contract` (37, tests 6 and 18 included), `make hermes-sync-check` (0 patch points, 76 seams unchanged) and `make agent-go-integration`.
+      - `make verify-agent-runs`: before the resync, DRIFT (exit 3) on `stop` only.
+      - `go vet ./...`, plus `GOOS=windows go vet` on agenthost, chat, agent, provider, cmd and agentqa, and `make agent-go-vet-windows`.
+      - `make typecheck`, `make lint-web`, `make lint-chat`, `make test-mobile-assistant` (26), `make test-agent-chat` (10), `make test-chat-stream` (10) and `make audit-mobile-assistant`.
+    - `make audit-chat` fails at the history rename step: no PATCH is sent after Enter. It fails the same way with `apps/web` checked out at 0213be94, before phase 2, so phase 2 did not cause it. It is not in CI.
+    - End to end on a fresh schema (`DB_SCHEMA=integ2`): API 8081 (both migrations ran from zero in order), web 4002, Expo web 8082, and the stub model behind `apps/api/scripts/agentqa/ollama_shim.py`. Web ran at 1440 and the phone as Expo web at 390 (no native run), each in light and dark. Every run passed its assertions:
+      - Settings → Agent → Engine went from Classic to New.
+      - A reply streamed mid-turn.
+      - In Supervised, a held proposal applied on Approve (tasks 0 → 1).
+      - In Auto, two tasks applied at once and Undo removed them (1 → 0).
+      - In Auto, a non-critical checklist add applied at once, then a critical `delete_checklist_item` was held (`status: approval`, the item still there).
+      - Stop mid-run kept the streamed text and wrote nothing.
+      - API read-back: every task traces to a done `create_task` plan step, none outside proposals.
+    - Screenshots, ARIA snapshots and API reads are in the session scratchpad under `shots/phase2/e2e/{web-light-1440, web-dark-1440, phone-light-390, phone-dark-390}`, plus `web-light-1440-run1-before-draft-trim`. They are not committed.
+    - How to run the real-model parity is in `apps/agent/AGENTS.md` ("Parity run").
 
 ### Phase 3: self-learning, web tools, backups
 

@@ -42,6 +42,29 @@ Rules for tests and experiments:
 - Hermes is imported only inside worker and helper subprocesses, never into the pytest process.
 - A new Hermes symbol imported in `timely_agent` is picked up by contract test 7 automatically; a symbol reached through a module or object attribute goes in its `SYMBOLS` table. A Hermes behaviour Timely depends on goes in `TIMELY_SEAMS` (`scripts/hermes-sync/check_seams.py`), then `make hermes-tools-dump`.
 
+## Parity run: 84 scenarios on both engines
+
+Phase 2's exit needs the 84 agent QA scenarios run on classic and on the agent engine with a real model. It is the one check that calls a live provider, so it runs only when the owner hands over a key. For Claude, use Haiku and no other model. The harness is `apps/api/scripts/agentqa` (its `README.md` has the scoring and scenario format).
+
+1. Start a worktree API on 8081 with its own schema and the agent runtime (`make agent-install` once). Do not use ports 8080 or 4001:
+   `DB_SCHEMA=parity ALLOW_REGISTRATION=true TIMELY_DATA_DIR=$HOME/.cache/timely-parity/data make dev-worktree-api`
+2. In the same shell that runs the harness, export the key. It is read only from `TIMELY_PARITY_KEY`, and `make` refuses a value that comes from `.env` or the command line:
+   `export TIMELY_PARITY_KEY=<the Anthropic key>`
+3. Run both engines:
+   `make agent-parity ENGINE=both PROVIDER=anthropic MODEL=claude-haiku-5-5 SCENARIOS=apps/api/scripts/agentqa/scenarios.json OUT=$HOME/.cache/timely-parity/$(date +%Y%m%d-%H%M)`
+   - `MODEL` is the Haiku id that Settings → Agent lists for the Anthropic API. Do not use the `haiku` alias: it belongs to the `claude` CLI provider, which the agent engine does not support until phase 4.
+   - The chats run Supervised, the harness's `-permission` default, so every proposal waits and the scenario approves it.
+   - `ONLY=tasks-01,docs` picks scenario ids or whole categories.
+   - `TIMELY_API` changes the API, which defaults to `http://localhost:8081`.
+   - `TIMELY_PARITY_DSN` (a DSN whose `search_path` is `parity`) adds classic's tool trace.
+   - Each engine gets its own throwaway account, `agentqa+<engine>-<n>@example.invalid`, in that schema.
+4. Results go to `OUT`:
+   - `classic.json` and `agent.json`: per scenario, the engine, status, replies, the proposal (held or applied), what Approve led to, the tool trace, the time, and pass or fail with the reasons.
+   - `report.md`: totals per engine and category, plus every scenario side by side with whether the two engines ended the same way.
+5. Unset the key afterwards (`unset TIMELY_PARITY_KEY`). Never paste it into a file, commit, PR or reply. Record the totals in the plan's phase 2 status. The margin that counts as parity is still the owner's to set.
+
+To try the harness without a key, run the stub smoke in `apps/api/scripts/agentqa/README.md` ("Against the stub model").
+
 ## Syncing Hermes
 
 1. `make hermes-sync` (newest stable `vX.Y.Z`) or `make hermes-sync HERMES_REF=v0.23.1`. On `dev` it first creates `fix/hermes-sync-<tag>`. Cadence: a tagged release every one to two weeks, a security fix at once.
