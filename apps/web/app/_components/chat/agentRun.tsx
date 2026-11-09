@@ -104,7 +104,8 @@ export function LiveReply({ draft }: { draft: ReplyDraft }) {
         <span className="text-xs font-semibold">Timely</span>
         {/* A caret after the last line while the reply is still coming. */}
         <div className="mt-1 [&>div>*:last-child]:after:ml-0.5 [&>div>*:last-child]:after:inline-block [&>div>*:last-child]:after:h-[1em] [&>div>*:last-child]:after:w-0.5 [&>div>*:last-child]:after:translate-y-0.5 [&>div>*:last-child]:after:animate-pulse [&>div>*:last-child]:after:rounded-full [&>div>*:last-child]:after:bg-primary [&>div>*:last-child]:after:content-['']">
-          <ChatText text={draft.text} />
+          {/* The worker's first chunk often starts with blank lines. */}
+          <ChatText text={draft.text.trimStart()} />
         </div>
       </div>
     </div>

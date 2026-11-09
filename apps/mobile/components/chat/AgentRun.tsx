@@ -59,7 +59,7 @@ export function LiveRun({ chat, draft, onLink }: { chat: Chat; draft: string; on
         <ActivityLines lines={lines} />
         {draft ? (
           <View testID="live-reply">
-            <ChatText text={draft} onLink={onLink} />
+            <ChatText text={draft.trimStart()} onLink={onLink} />
           </View>
         ) : null}
         <Text style={styles.hint}>This keeps running on the server. Send a message to steer it, or Stop.</Text>
