@@ -197,7 +197,7 @@ emu-status: ## Show emulator cgroup memory, adb, and log
 
 check: lint typecheck test ## Run all lint, typecheck and tests
 
-lint: lint-api lint-web ## Lint all apps
+lint: lint-api lint-web lint-agent ## Lint all apps
 
 lint-api: ## go vet the API
 	@cd $(API) && go vet ./...
@@ -213,7 +213,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-change-review test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-block-turn test-inbox test-starter-labels test-view-search test-smart-search test-view-language test-dashboard test-genui test-mobile-live-block test-mobile-clearable test-mobile-plain-text test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-push test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-web-api-proxy test-chat-stream test-project-delete test-bulk-edit test-autosave test-client-calls test-mobile-event-occurrence test-calendar-occurrence-done test-mobile-meeting-url test-mobile-back-fallback test-bots ## Run all tests
+test: test-api test-markdown-parity test-change-review test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-block-turn test-inbox test-starter-labels test-view-search test-smart-search test-view-language test-dashboard test-genui test-mobile-live-block test-mobile-clearable test-mobile-plain-text test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-push test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-web-api-proxy test-chat-stream test-project-delete test-bulk-edit test-autosave test-client-calls test-mobile-event-occurrence test-calendar-occurrence-done test-mobile-meeting-url test-mobile-back-fallback test-bots test-agent ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -551,11 +551,19 @@ check-qa: ## Check QA script syntax and artifact formatting
 hermes-sync: ## Copy a Hermes Agent release into apps/agent/hermes and merge it (HERMES_REF=<vX.Y.Z>, default newest stable); report in .git/hermes-sync-report.md
 	@HERMES_REF='$(HERMES_REF)' scripts/sync-hermes.sh
 
-hermes-sync-check: ## Check apps/agent after a sync (plan 10.4 a-e): snapshot link, patches, conflict markers, compileall, import smoke, tool/skill policy, seams (HERMES_CHECK_STATIC_ONLY=1 skips the agent venv)
+hermes-sync-check: ## Check apps/agent after a sync (plan 10.4 a-g): snapshot link, patches, conflict markers, compileall, import smoke, tool/skill policy, seams, then agent-test and agent-contract (HERMES_CHECK_STATIC_ONLY=1 skips the agent venv and the tests)
 	@scripts/hermes-sync/check.sh
 	@python3 -I -B -m unittest discover -q -s scripts/hermes-sync -p 'check_test.py'
 	@if [ "$(HERMES_CHECK_STATIC_ONLY)" != 1 ] && $(MAKE) -n agent-install >/dev/null 2>&1; then $(MAKE) --no-print-directory agent-install; fi
 	@python3 -I -B scripts/hermes-sync/check_sync.py
+	@if [ "$(HERMES_CHECK_STATIC_ONLY)" != 1 ]; then $(MAKE) --no-print-directory test-agent; fi
+
+hermes-sync-report: ## Upstream-change report between two imported Hermes tags or snapshot commits (OLD=<vX.Y.Z or commit, empty for a first import> NEW=<vX.Y.Z or commit>), to stdout
+	@test -n "$(NEW)" || { echo "hermes-sync-report: set NEW=<tag or snapshot commit> (and OLD=...)"; exit 1; }
+	@new=$$(scripts/hermes-sync/snapshot-of.sh '$(NEW)') && old="" && \
+	if [ -n "$(OLD)" ]; then old=$$(scripts/hermes-sync/snapshot-of.sh '$(OLD)'); fi && \
+	python3 -I scripts/hermes-sync/report.py --repo "$(CURDIR)" --old "$$old" --new "$$new" --head HEAD \
+		--prefix apps/agent/hermes --sync-dir apps/agent/.hermes-sync
 
 AGENT_DIR := apps/agent
 AGENT_PYTHON_VERSION ?= 3.14.9
@@ -563,7 +571,13 @@ AGENT_VENV := $(CURDIR)/$(AGENT_DIR)/.venv
 AGENT_PY = $(if $(wildcard $(AGENT_VENV)/Scripts/python.exe),$(AGENT_VENV)/Scripts/python.exe,$(AGENT_VENV)/bin/python)
 AGENT_TEST_TMP ?= $(HOME)/.cache/timely-agent-test/tmp
 
-.PHONY: agent-install agent-lint agent-test agent-contract agent-go-integration agent-go-vet-windows hermes-tools-dump hermes-skills-review
+.PHONY: agent-install agent-lint agent-test agent-contract agent-go-integration agent-go-vet-windows hermes-tools-dump hermes-skills-review hermes-sync-report lint-agent test-agent
+lint-agent: ## agent-lint when the agent runtime is built, else a notice (part of make lint)
+	@if [ -x "$(AGENT_PY)" ]; then $(MAKE) --no-print-directory agent-lint; else echo "lint-agent: skipped, the agent runtime is not built (make agent-install)"; fi
+
+test-agent: ## agent-test and agent-contract when the agent runtime is built, else a notice (part of make test; plan 10.4 g)
+	@if [ -x "$(AGENT_PY)" ]; then $(MAKE) --no-print-directory agent-test agent-contract; else echo "test-agent: skipped, the agent runtime is not built (make agent-install)"; fi
+
 agent-install: ## Build the agent runtime apps/agent/.venv from Hermes' own lock (uv-managed CPython 3.14.9, extras in apps/agent/.hermes-sync/extras.txt, pytest/ruff from Hermes' dev group); only a notice when uv is missing
 	@if ! command -v uv >/dev/null 2>&1; then \
 		echo "agent-install: uv is not installed, so the agent runtime was not built (the classic agent still works). Install uv: https://docs.astral.sh/uv/getting-started/installation/"; \
