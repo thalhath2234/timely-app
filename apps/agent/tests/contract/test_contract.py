@@ -231,6 +231,12 @@ def test_c06_soul_and_timely_block_stable_across_turns_and_rebuild(stub):
         reqs = _chat_requests(stub, marker)
         assert len(reqs) == 1, len(reqs)
         systems.append(_system_text(reqs[0]))
+        if i == 2:
+            # The rebuild really loaded state.db: the fresh worker's request carries turns 1-2.
+            history = [(m.get("role"), m.get("content")) for m in reqs[0]["body"]["messages"][1:]]
+            for n in (1, 2):
+                assert ("user", f"c6 turn {n}") in history, history
+                assert ("assistant", f"Stub reply: c6 turn {n}") in history, history
         if i in (1, 2):
             w.close()
     for text in systems:
@@ -965,8 +971,10 @@ def test_c16_v4a_patch_on_timely_skill_refused(agent, worker, stub):
 # ---------------------------------------------------------------- 19
 
 def test_c19_protocol_survives_tool_printing_to_stdout(stub):
-    """19a. A tool that prints to stdout (``print``, ``sys.__stdout__``, ``os.write(1)``) never
-    reaches the protocol: everything lands on stderr."""
+    """19a. A tool that prints to stdout (``print``, ``sys.__stdout__``, ``os.write(1)``) or starts
+    a child that writes to the fd 1 it inherited never reaches the protocol: everything lands on
+    stderr. The child is the "terminal child lands on stderr" half of plan 10.4 f #19: Hermes'
+    terminal backend pipes its children's output (test 19b), so only a direct spawn proves it."""
     a = harness.Agent(harness.new_root("c19"))
     w, ready = harness.ready_worker(a, argv=[harness.python(), "-I", str(PROBE_BOOT), "--stdout-tool", "worker"])
     try:
@@ -977,21 +985,22 @@ def test_c19_protocol_survives_tool_printing_to_stdout(stub):
         assert ask["tool"] == probe_boot.PROBE_TOOL
         w.send({"type": "gate.verdict", "id": ask["id"], "account": a.account, "verdict": "allow"})
         done, _ = w.until("run.done")
-        assert '"wrote": 3' in done["final_response"], done
+        assert '"wrote": 4' in done["final_response"], done
         w.send({"type": "ping", "id": "go-after", "account": a.account})
         pong, _ = w.until("pong")
         assert pong["id"] == "go-after"
     finally:
         w.close()
     _all_stdout_is_protocol(w)
-    for mark in (probe_boot.PRINT_MARK, probe_boot.DUNDER_MARK, probe_boot.FD1_MARK):
+    for mark in (probe_boot.PRINT_MARK, probe_boot.DUNDER_MARK, probe_boot.FD1_MARK, probe_boot.CHILD_MARK):
         assert mark in w.stderr, mark
 
 
-def test_c19_protocol_survives_terminal_child_writing_to_fd1(agent, worker, stub):
-    """19b. A terminal child writing to its fd 1 never reaches the protocol (its output comes
-    back as the tool result, and the protocol stays clean). The command works in sh, cmd and
-    PowerShell, so the Windows job runs it unchanged."""
+def test_c19_protocol_survives_terminal_tool_output(agent, worker, stub):
+    """19b. A terminal command's output comes back as the tool result and the protocol stays
+    clean. Hermes' local backend pipes its children's stdout, so this does not reach the worker's
+    fd 1; 19a's inheriting child covers that. The command works in sh, cmd and PowerShell, so
+    the Windows job runs it unchanged."""
     worker.send(harness.run_start(agent, stub, run_id="c19b", conversation="c-c19b", toolsets=["terminal"],
                                   text='CALL terminal {"command": "echo hi-from-child"}'))
     ask, _ = worker.until("gate.ask")

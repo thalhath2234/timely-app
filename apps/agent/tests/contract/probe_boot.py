@@ -7,7 +7,8 @@ process makes (``socket.getaddrinfo``, ``gethostbyname``, ``gethostbyname_ex``,
 ``socket.connect``/``connect_ex``) as JSON lines in FILE (contract test 5).
 
 ``--stdout-tool`` registers a ``stdout_probe`` tool (toolset ``probe``) once Hermes is loaded.
-It writes to standard output three ways: ``print``, ``sys.__stdout__`` and ``os.write(1, ...)``
+It writes to standard output four ways: ``print``, ``sys.__stdout__``, ``os.write(1, ...)`` and
+a child process that inherits the worker's fd 1 (no pipe, unlike Hermes' terminal backend)
 (contract test 19). The worker must keep all of it off the protocol.
 
 Everything else is the real boot path: the wrapper loads ``boot.py`` from its own file and
@@ -32,6 +33,7 @@ PROBE_TOOLSET = "probe"
 PRINT_MARK = "PROBE-PRINT-TO-STDOUT"
 DUNDER_MARK = "PROBE-SYS-DUNDER-STDOUT"
 FD1_MARK = "PROBE-OS-WRITE-FD1"
+CHILD_MARK = "PROBE-CHILD-INHERITED-FD1"
 
 
 def _install_net_log(path: str) -> None:
@@ -77,11 +79,14 @@ def _install_stdout_tool() -> None:
             sys.__stdout__.write(DUNDER_MARK + "\n")
             sys.__stdout__.flush()
             os.write(1, (FD1_MARK + "\n").encode())
-            return json.dumps({"ok": True, "wrote": 3})
+            import subprocess
+            subprocess.run([sys.executable, "-I", "-c", f"import os; os.write(1, b'{CHILD_MARK}\\n')"],
+                           check=True, timeout=60)  # inherits fd 0-2: whatever fd 1 is now
+            return json.dumps({"ok": True, "wrote": 4})
 
         registry.register(
             name=PROBE_TOOL, toolset=PROBE_TOOLSET, handler=handler,
-            schema={"name": PROBE_TOOL, "description": "Contract test 19: writes to stdout three ways.",
+            schema={"name": PROBE_TOOL, "description": "Contract test 19: writes to stdout four ways.",
                     "parameters": {"type": "object", "properties": {}}})
         return original(self, msg)
 
