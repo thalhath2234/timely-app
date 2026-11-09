@@ -145,6 +145,9 @@ type agentRun struct {
 	mu       sync.Mutex
 	lease    string
 	stopSent time.Time
+	// draft is the reply streamed so far, for Stop (Draft) on another
+	// goroutine; the follower owns live.
+	draft atomic.Pointer[string]
 
 	// Owned by the follower goroutine.
 	conv      Conversation
@@ -463,6 +466,21 @@ func (e *WorkerEngine) Stop(uid, cid, runID string) {
 	}
 }
 
+// Draft is the reply a live run of this process has streamed so far ("" when
+// it follows no such run).
+func (e *WorkerEngine) Draft(uid, cid, runID string) string {
+	e.mu.Lock()
+	r := e.runs[runID]
+	e.mu.Unlock()
+	if r == nil || r.uid != uid || r.cid != cid {
+		return ""
+	}
+	if p := r.draft.Load(); p != nil {
+		return *p
+	}
+	return ""
+}
+
 // stopWorkerRun sends run.stop once.
 func (e *WorkerEngine) stopWorkerRun(r *agentRun, reason string) {
 	r.mu.Lock()
@@ -725,6 +743,8 @@ func (e *WorkerEngine) step(r *agentRun, it runItem) bool {
 		}
 		changed, delta := r.live.event(ev, time.Now().UTC())
 		if delta != nil {
+			text := r.live.draft.String()
+			r.draft.Store(&text)
 			e.publish(r, delta)
 		}
 		r.dirty = r.dirty || changed

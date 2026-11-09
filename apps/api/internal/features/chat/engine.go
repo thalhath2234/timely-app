@@ -39,6 +39,13 @@ type AgentEngine interface {
 	Forget(uid, cid string)
 }
 
+// draftReader is an engine that can say how much of a live run's reply it
+// has streamed (the row's activity.draft lags it by up to the activity
+// throttle). Stop keeps that text as the reply.
+type draftReader interface {
+	Draft(uid, cid, runID string) string
+}
+
 // SetAgentEngine lets chats run on the agent engine. Without one, a chat set
 // to the agent engine fails with "Use classic for this chat", never
 // switching engines silently.

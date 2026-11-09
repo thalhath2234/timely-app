@@ -519,6 +519,10 @@ func TestIntegrationAgentEngineStopMidRunAppliesNothing(t *testing.T) {
 	if len(c.Plan) != 0 || items(h.db) != 0 || notices != 1 || c.AgentRunID != "" {
 		t.Fatalf("after Stop: plan %+v, %d items, %d stopped notices, run %q", c.Plan, items(h.db), notices, c.AgentRunID)
 	}
+	// What it streamed before Stop stays as the reply, ahead of the notice.
+	if n := len(c.Messages); n < 2 || c.Messages[n-2].Content != "Drafting" || c.Messages[n-2].Kind != "" {
+		t.Fatalf("streamed text not kept on Stop: %+v", c.Messages)
+	}
 }
 
 // A message typed while the run is live reaches the worker as run.steer.

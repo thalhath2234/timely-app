@@ -97,7 +97,7 @@ func (s *Service) find(db *gorm.DB, uid, cid string, c *Conversation) error {
 }
 func (s *Service) list(c *echo.Context) error {
 	rows := []Conversation{}
-	err := s.db.Select("id", "title", "status", "phase", "web_search", "revision", "unread", "error", "created_at", "updated_at").Where("user_id = ?", user(c)).Order("updated_at DESC").Limit(200).Find(&rows).Error
+	err := s.db.Select("id", "title", "status", "phase", "web_search", "revision", "unread", "error", "permission", "engine", "run_engine", "created_at", "updated_at").Where("user_id = ?", user(c)).Order("updated_at DESC").Limit(200).Find(&rows).Error
 	if err != nil {
 		return err
 	}
@@ -480,7 +480,18 @@ func (s *Service) stop(c *echo.Context) error {
 			row.LeaseUntil = nil
 			// The agent run ends once this commits (engine Stop below).
 			runID, row.AgentRunID, row.AgentInstance = row.AgentRunID, "", ""
+			// What it streamed stays as the reply (Q-2.5): the engine's
+			// copy when it follows the run, else the row's, which lags.
+			draft := row.Activity.Draft
+			if dr, ok := s.engine.(draftReader); ok && runID != "" {
+				if live := dr.Draft(user(c), row.ID, runID); len(live) > len(draft) {
+					draft = live
+				}
+			}
 			row.Activity = ChatActivity{}
+			if text := strings.TrimSpace(draft); text != "" {
+				row.Messages = append(row.Messages, message("assistant", text))
+			}
 			row.Messages = append(row.Messages, notice(tr(row.Language, txtStopped)))
 		}
 		return nil
