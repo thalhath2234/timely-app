@@ -80,7 +80,7 @@ Other unknown names are logged as warnings. `HERMES_EXEC_ASK` is allowed when th
 | `run.start` | `id` (Go's `Send` gives each start an id starting `start-`), `run`, `conversation_id`, `session_key` (`timely:<uid>:<conversation>`), `user_message`, `system_hash`, `system_text`, `model` `{provider, model, base_url, api_key, api_mode, reasoning}`, `toolsets` (explicit list, required, may be empty), `flags` `{sensitive, answer_only, web, rich_ui, from_bot}`, `budgets` `{max_iterations}`, `tainted_sources` `[{kind, tool, host?, session?}]`, `pre_approved` `{tool, args_hash}` or null, `history` (only when `state.db` lacks the session) | `event`s, then `run.done` with the same `id`; or `error` with the same `id` and `run` |
 | `run.stop` | `id`, `run`, `reason` | the run's `run.done` with `interrupted: true`; `error` (`unknown_run`) if no such run. A stop that arrives as the turn is finishing acts on that run only: it never carries over to the conversation's next turn |
 | `run.steer` | `id`, `run`, `text` | `ack` |
-| `approval.answer` | `id`, `run`, `request_id`, `choice` (`once` or `deny`) | `ack` |
+| `approval.answer` | `id`, `run`, `request_id`, `choice` (`once` or `deny`) | `ack` (`ok: false` when that request is no longer pending); `error` (`bad_message`) when `request_id` is missing or empty: the worker resolves only the request it names, never the session's oldest |
 | `tool.result` | `id` (the worker's `tool.call` id), `result`, `outside` (bool) | none |
 | `gate.verdict` | `id` (the worker's `gate.ask` id), `verdict` (`allow`, `block`, `approve`), `message` | none |
 | `session.delete` | `id`, `conversation_id` | `ack` (`busy` error while the conversation has a live run) |

@@ -321,9 +321,15 @@ class Worker:
         choice = msg.get("choice")
         if choice not in ("once", "deny"):
             raise P.ProtocolError(P.E_BAD_MESSAGE, "choice must be once or deny", msg.get("id"))
+        request_id = msg.get("request_id")
+        if not isinstance(request_id, str) or not request_id:
+            # Without an id Hermes resolves the session's oldest pending approval (FIFO), which
+            # may not be the one the person answered.
+            raise P.ProtocolError(P.E_BAD_MESSAGE, "approval.answer needs the approval.request's request_id",
+                                  msg.get("id"))
         from tools.approval import resolve_gateway_approval
         key = str(run.msg.get("session_key") or f"timely:{run.msg.get('conversation_id')}")
-        n = resolve_gateway_approval(key, choice, request_id=msg.get("request_id") or None)
+        n = resolve_gateway_approval(key, choice, request_id=request_id)
         self.send({"type": "ack", "id": msg.get("id"), "ok": n > 0})
 
     def on_session_delete(self, msg: dict[str, Any]) -> None:

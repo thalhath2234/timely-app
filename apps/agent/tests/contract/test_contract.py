@@ -120,8 +120,16 @@ def test_c02_approval_once_and_deny_through_timely_gate(agent, worker, stub):
         assert req["run"] == run_id
         payload = req["payload"]
         assert "Run this command?" in json.dumps(payload), payload
+        assert isinstance(payload.get("request_id"), str) and payload["request_id"], payload
+        # An answer naming no request is refused: Hermes would resolve the session's oldest
+        # pending approval, which may not be the one the person answered.
+        for bad in ({}, {"request_id": ""}, {"request_id": 7}):
+            worker.send({"type": "approval.answer", "id": f"a-bad-{run_id}", "account": agent.account,
+                         "run": run_id, "choice": choice, **bad})
+            err, _ = worker.until("error")
+            assert err["code"] == "bad_message" and err["id"] == f"a-bad-{run_id}", err
         worker.send({"type": "approval.answer", "id": f"a-{run_id}", "account": agent.account, "run": run_id,
-                     "request_id": payload.get("request_id") or "", "choice": choice})
+                     "request_id": payload["request_id"], "choice": choice})
         ack, _ = worker.until("ack")
         assert ack["id"] == f"a-{run_id}" and ack["ok"] is True, ack
         done, _ = worker.until("run.done")
@@ -622,7 +630,7 @@ def test_c12_account_command_allowlist_never_skips_an_approval(stub):
                 break
         assert not marker.exists()
         w.send({"type": "approval.answer", "id": "a-c12a5", "account": a.account, "run": "c12a5",
-                "request_id": msg["payload"].get("request_id") or "", "choice": "deny"})
+                "request_id": msg["payload"]["request_id"], "choice": "deny"})
         w.until("run.done")
         assert not marker.exists()
     finally:
@@ -849,7 +857,7 @@ def test_c12_home_dotenv_never_reaches_the_worker(stub):
             seen += more
         assert req["kind"] == "approval.request", seen
         w.send({"type": "approval.answer", "id": "a-c12e", "account": a.account, "run": "c12e",
-                "request_id": req["payload"].get("request_id") or "", "choice": "once"})
+                "request_id": req["payload"]["request_id"], "choice": "once"})
         done, seen = w.until("run.done")
         out = json.dumps(_events(seen, "tool.completed"))
         for name in ("HERMES_YOLO_MODE", "PROBE_DOTENV", "HERMES_ALLOW_PRIVATE_URLS"):
