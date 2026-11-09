@@ -80,6 +80,49 @@ def test_pending_requests_round_trip():
     assert pending.ask(lambda m: False, {"type": "gate.ask"}, timeout=5) is None
 
 
+class _FakeAgent:
+    def __init__(self):
+        self.interrupted = False
+        self.steers = []
+
+    def interrupt(self, reason, hard_cancel=False):
+        self.interrupted = True
+
+    def clear_interrupt(self, hard_cancel=False):
+        self.interrupted = False
+
+    def steer(self, text):
+        self.steers.append(text)
+        return True
+
+
+def test_run_stop_never_reaches_the_cached_agent_after_the_run_finished():
+    """The conversation's agent outlives the run: a stop or steer after finish() must not touch
+    it, and a stop that landed before finish() (Hermes had already cleared its interrupt, or the
+    turn returned early) is cleared, so the next turn is not read as stopped."""
+    from timely_agent.run_chat import Run
+    agent = _FakeAgent()
+    run = Run(run_id="r", request_id="s", msg={})
+    run.stop("user")  # before the agent is attached: recorded only
+    assert run.stop_reason == "user" and not agent.interrupted
+    run.attach(agent)
+    run.stop("user")  # lands, then the turn returns early (run_turn's stop_reason check)
+    assert agent.interrupted
+    run.finish()
+    assert not agent.interrupted and run.finished
+    run.stop("user again")  # late: after the turn, before the run left the worker's table
+    assert not agent.interrupted and run.stop_reason == "user again"
+    assert run.steer("late note") is False and agent.steers == []
+
+    clean = _FakeAgent()
+    run2 = Run(run_id="r2", request_id="s2", msg={})
+    run2.attach(clean)
+    assert run2.steer("in time") is True and clean.steers == ["in time"]
+    clean.interrupted = True  # finish() leaves an agent alone when this run was never stopped
+    run2.finish()
+    assert clean.interrupted
+
+
 # ---------------------------------------------------------------- paths
 
 def test_account_dir_matches_go_portability_name():

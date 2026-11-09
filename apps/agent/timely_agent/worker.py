@@ -309,16 +309,11 @@ class Worker:
 
     def on_run_stop(self, msg: dict[str, Any]) -> None:
         run = self._find_run(msg)
-        run.stop_reason = str(msg.get("reason") or "stopped")
-        if run.agent is not None:
-            try:
-                run.agent.interrupt(run.stop_reason, hard_cancel=True)
-            except TypeError:
-                run.agent.interrupt(run.stop_reason)
+        run.stop(str(msg.get("reason") or "stopped"))
 
     def on_run_steer(self, msg: dict[str, Any]) -> None:
         run = self._find_run(msg)
-        ok = bool(run.agent is not None and run.agent.steer(str(msg.get("text") or "")))
+        ok = run.steer(str(msg.get("text") or ""))
         self.send({"type": "ack", "id": msg.get("id"), "ok": ok})
 
     def on_approval_answer(self, msg: dict[str, Any]) -> None:
@@ -352,12 +347,10 @@ class Worker:
         with self.runs_lock:
             runs = list(self.runs.values())
         for run in runs:
-            run.stop_reason = reason
-            if run.agent is not None:
-                try:
-                    run.agent.interrupt(reason, hard_cancel=True)
-                except Exception:
-                    pass
+            try:
+                run.stop(reason)
+            except Exception:
+                run.stop_reason = reason
         self.pending.cancel_all()
 
     def wait_runs(self, grace: float) -> None:

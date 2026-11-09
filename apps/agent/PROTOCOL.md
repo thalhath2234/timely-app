@@ -78,7 +78,7 @@ Other unknown names are logged as warnings. `HERMES_EXEC_ASK` is allowed when th
 | `hello` | `id`, `protocol` (1), `home` (the account's `HERMES_HOME`), `settings_hash` (the `config_sha256` from `render-account`), `catalog_version`, `timely_skills_dir`, `managed_sha256` and `browser_executable` (from `prepare`'s answer), optional `settings` (section 6) | `ready` or `error` |
 | `ping` | `id` | `pong` |
 | `run.start` | `id` (Go's `Send` gives each start an id starting `start-`), `run`, `conversation_id`, `session_key` (`timely:<uid>:<conversation>`), `user_message`, `system_hash`, `system_text`, `model` `{provider, model, base_url, api_key, api_mode, reasoning}`, `toolsets` (explicit list, required, may be empty), `flags` `{sensitive, answer_only, web, rich_ui, from_bot}`, `budgets` `{max_iterations}`, `tainted_sources` `[{kind, tool, host?, session?}]`, `pre_approved` `{tool, args_hash}` or null, `history` (only when `state.db` lacks the session) | `event`s, then `run.done` with the same `id`; or `error` with the same `id` and `run` |
-| `run.stop` | `id`, `run`, `reason` | the run's `run.done` with `interrupted: true`; `error` (`unknown_run`) if no such run |
+| `run.stop` | `id`, `run`, `reason` | the run's `run.done` with `interrupted: true`; `error` (`unknown_run`) if no such run. A stop that arrives as the turn is finishing acts on that run only: it never carries over to the conversation's next turn |
 | `run.steer` | `id`, `run`, `text` | `ack` |
 | `approval.answer` | `id`, `run`, `request_id`, `choice` (`once` or `deny`) | `ack` |
 | `tool.result` | `id` (the worker's `tool.call` id), `result`, `outside` (bool) | none |

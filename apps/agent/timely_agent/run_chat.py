@@ -35,6 +35,43 @@ class Run:
     agent: Any = None
     stop_reason: Optional[str] = None
     started: float = field(default_factory=time.monotonic)
+    # The cached agent outlives this run. ``finished`` (under ``lock``) marks the point after which
+    # a stop or steer for this run must not reach it, or it would act on the conversation's next
+    # turn: Hermes reads a leftover interrupt as "stopped before this turn started".
+    finished: bool = False
+    lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+
+    def attach(self, agent: Any) -> None:
+        with self.lock:
+            self.agent = agent
+
+    def stop(self, reason: str) -> None:
+        """Record the stop and interrupt the agent while this run still owns it."""
+        with self.lock:
+            self.stop_reason = reason
+            if self.agent is None or self.finished:
+                return
+            try:
+                self.agent.interrupt(reason, hard_cancel=True)
+            except TypeError:
+                self.agent.interrupt(reason)
+
+    def steer(self, text: str) -> bool:
+        with self.lock:
+            return bool(self.agent is not None and not self.finished and self.agent.steer(text))
+
+    def finish(self) -> None:
+        """End this run's hold on the agent. A stop that landed after Hermes' turn finalizer
+        cleared its interrupt (or before the turn started) is cleared here, so the next turn on
+        this conversation starts clean."""
+        with self.lock:
+            self.finished = True
+            if self.agent is None or not self.stop_reason:
+                return
+            try:
+                self.agent.clear_interrupt(hard_cancel=True)
+            except TypeError:
+                self.agent.clear_interrupt()
 
 
 def config_signature(msg: dict[str, Any]) -> str:
@@ -193,7 +230,7 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
             agent._timely_emit = ref
             cache.put(conversation, signature, agent)
         agent._timely_emit.emit = emit
-        run.agent = agent
+        run.attach(agent)
         if run.stop_reason:
             done.update(interrupted=True, turn_exit_reason="interrupted")
             return done
@@ -234,6 +271,11 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
         done["error"] = f"{type(exc).__name__}: {exc}"
         cache.drop(conversation)
     finally:
+        try:
+            run.finish()
+        except Exception:
+            logger.exception("run %s: clearing a late stop failed", run.run_id)
+            cache.drop(conversation)  # never reuse an agent that may still hold the stop
         if run.agent is not None and getattr(run.agent, "_timely_emit", None) is not None:
             run.agent._timely_emit.emit = None
         if scope_token is not None:

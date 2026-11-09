@@ -95,6 +95,45 @@ def test_second_turn_reuses_session(agent, worker, stub):
     assert roles.count("user") >= 2, roles  # history from state.db came along
 
 
+def test_late_run_stop_never_drops_the_next_turn(agent, worker, stub):
+    """run.stop acts only on the run it names. Stops that land while a turn is finishing (after
+    Hermes cleared its interrupt, before the run left the worker's table) used to leave the
+    conversation's cached agent interrupted, so the next run.start answered at once with
+    "Stopped before this turn started" and dropped the person's message."""
+    import threading
+    import time
+    for i in range(3):
+        conv, first = f"c-late-stop-{i}", f"r-late-a{i}"
+        worker.send(harness.run_start(agent, stub, run_id=first, conversation=conv, text="SLOW 0.2"))
+        stop = threading.Event()
+
+        def spam(run_id=first, stop=stop):
+            while not stop.is_set():
+                worker.send({"type": "run.stop", "account": agent.account, "run": run_id, "reason": "user"})
+                time.sleep(0.0005)
+        spammer = None
+        try:
+            while True:
+                m = worker.recv(timeout=60, skip=("heartbeat", "log", "error"))
+                if spammer is None and m.get("type") == "event":
+                    spammer = threading.Thread(target=spam, daemon=True)
+                    spammer.start()
+                if m.get("type") == "run.done" and m.get("run") == first:
+                    break
+        finally:
+            stop.set()
+            if spammer is not None:
+                spammer.join()
+        second = f"r-late-b{i}"
+        worker.send(harness.run_start(agent, stub, run_id=second, conversation=conv, text="next message"))
+        while True:
+            m = worker.recv(timeout=60, skip=("heartbeat", "log", "error", "event"))
+            if m.get("type") == "run.done" and m.get("run") == second:
+                break
+        assert m["completed"] is True and m["interrupted"] is False, m
+        assert m["final_response"] == "Stub reply: next message", m
+
+
 def test_gate_asks_go_and_blocks(agent, worker, stub):
     worker.send(harness.run_start(agent, stub, run_id="r-gate", conversation="c-gate", toolsets=["terminal"],
                                   text='CALL terminal {"command": "echo should-not-run"}'))
