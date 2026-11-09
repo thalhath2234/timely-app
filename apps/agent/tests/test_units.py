@@ -399,3 +399,36 @@ os.write(pout, b'{{"type":"log","text":"protocol"}}\\n')
     err = proc.stderr.decode()
     for text in ("stray print", "stray fd1", "child stdout", "child fd1"):
         assert text in err
+
+
+def test_gate_blocks_messaging_and_never_offered_names_without_asking_go():
+    """Plan 8.3: timely_gate's name block is the layer under the toolset selection. A messaging or
+    never-offered tool the model names gets ``block`` and never reaches Go (``gate.ask``), even
+    with a live run and a pre-approval for that exact call."""
+    from timely_agent import bridge
+    from timely_agent.plugins import timely_gate
+    asked: list[dict] = []
+    old_ask = bridge.ask
+    bridge.ask = lambda msg, timeout: asked.append(msg) or {"type": "gate.verdict", "verdict": "allow"}
+    try:
+        for name in ("send_message", "a2a_call", "discord", "kanban_create", "meet_join", "tool_call",
+                     "yb_send_dm", "browser_vault", "set_theme"):
+            run = bridge.RunContext(run_id="r", session_key="k", conversation_id="c",
+                                    pre_approved={"tool": name, "args_hash": policy.args_hash({})})
+            token = bridge.current_run.set(run)
+            try:
+                verdict = timely_gate.pre_tool_call(tool_name=name, args={}, tool_call_id="t")
+            finally:
+                bridge.current_run.reset(token)
+            assert verdict and verdict["action"] == "block" and "not available in Timely" in verdict["message"], \
+                (name, verdict)
+        assert asked == []
+        # the control: an ordinary tool does reach Go
+        token = bridge.current_run.set(bridge.RunContext(run_id="r", session_key="k", conversation_id="c"))
+        try:
+            assert timely_gate.pre_tool_call(tool_name="terminal", args={"command": "ls"}) is None
+        finally:
+            bridge.current_run.reset(token)
+        assert [m["tool"] for m in asked] == ["terminal"]
+    finally:
+        bridge.ask = old_ask

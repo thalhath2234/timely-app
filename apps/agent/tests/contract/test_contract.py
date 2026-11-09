@@ -460,7 +460,9 @@ def test_c11_no_messaging_tool_resolves_and_no_platform_adapter_starts(agent, wo
     ``ready.tools`` resolves every toolset a Timely run may enable; every bundled platform
     plugin is disabled (``plugins.disabled``, section 8.3), and the self-test's
     ``no_messaging`` check also fails on an imported adapter module. A messaging tool the model
-    names anyway never runs and never reaches Go (``gate.ask``)."""
+    names anyway does not resolve in the run's toolsets, so it never runs and never reaches Go
+    (``gate.ask``). timely_gate's name block, the next layer, is tested on its own in
+    ``test_units.py`` (``test_gate_blocks_messaging_and_never_offered_names_without_asking_go``)."""
     ready = worker.ready_msg
     assert not [t for t in ready["tools"] if policy.is_messaging(t)], ready["tools"]
     assert not [p for p in ready["plugins_loaded"] if p.startswith(("platforms/", "image_gen/", "video_gen/"))], \
