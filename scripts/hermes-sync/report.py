@@ -372,16 +372,31 @@ print(json.dumps({"config": out, "env": env}))
 """
 
 
+CONFIG_TIMEOUT_S = 30
+
+
 def config(files):
+    """DEFAULT_CONFIG and OPTIONAL_ENV_VARS of the new snapshot. This imports upstream code nobody
+    has reviewed yet, so it runs with a bare environment (no developer tokens or cloud keys; HOME
+    and TMPDIR in a throwaway folder) and a timeout."""
     want = [p for p in files if re.fullmatch(r"hermes_cli/(config_defaults\w*|__init__)\.py", p)]
     if "hermes_cli/config_defaults.py" not in want:
         return {}, [], "hermes_cli/config_defaults.py not found"
     with tempfile.TemporaryDirectory() as d:
         os.makedirs(f"{d}/hermes_cli")
+        os.makedirs(f"{d}/home")
         for p in want:
             with open(f"{d}/{p}", "wb") as fh:
                 fh.write(blob(files[p]))
-        res = subprocess.run([sys.executable, "-I", "-c", CONFIG_CODE, d], capture_output=True, text=True)
+        env = {"PATH": os.environ.get("PATH", os.defpath), "HOME": f"{d}/home", "TMPDIR": d,
+               "TEMP": d, "TMP": d, "USERPROFILE": f"{d}/home"}
+        if os.environ.get("SYSTEMROOT"):
+            env["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
+        try:
+            res = subprocess.run([sys.executable, "-I", "-c", CONFIG_CODE, d], capture_output=True, text=True,
+                                 env=env, cwd=d, timeout=CONFIG_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            return {}, [], f"importing config_defaults timed out after {CONFIG_TIMEOUT_S} s"
     if res.returncode:
         return {}, [], (res.stderr.strip().splitlines() or ["unknown error"])[-1]
     data = json.loads(res.stdout)

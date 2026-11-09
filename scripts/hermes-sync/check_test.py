@@ -118,6 +118,41 @@ class LockSources(unittest.TestCase):
         self.assertEqual(flat, {"sources.x.git": '"https://g"', "override-dependencies": '["y==1"]'})
 
 
+class ConfigDefaults(unittest.TestCase):
+    """report.py imports the new snapshot's config_defaults before anyone reviewed it: it must
+    run with a bare environment (no developer tokens) and a timeout (report.py section 4)."""
+
+    def _config(self, source, **patches):
+        from unittest import mock
+        report = _report_module()
+        blobs = {"sha-cfg": source.encode()}
+        with mock.patch.object(report, "blob", blobs.__getitem__), \
+                mock.patch.dict(os.environ, {"GH_TOKEN": "ghp_secret_for_test"}):
+            for name, value in patches.items():
+                setattr(report, name, value)
+            return report.config({"hermes_cli/config_defaults.py": "sha-cfg"})
+
+    def test_no_developer_environment(self):
+        cfg, env, err = self._config(textwrap.dedent("""\
+            import os
+            DEFAULT_CONFIG = {"seen": sorted(os.environ)}
+            OPTIONAL_ENV_VARS = {}
+            """))
+        self.assertEqual(err, "")
+        self.assertNotIn("GH_TOKEN", cfg["seen"])
+        self.assertNotIn("ghp_secret_for_test", repr(cfg))
+
+    def test_a_hanging_import_is_a_report_line(self):
+        report = _report_module()
+        old = report.CONFIG_TIMEOUT_S
+        try:
+            cfg, env, err = self._config("import time\ntime.sleep(60)\n", CONFIG_TIMEOUT_S=1)
+        finally:
+            report.CONFIG_TIMEOUT_S = old
+        self.assertEqual((cfg, env), ({}, []))
+        self.assertIn("timed out", err)
+
+
 class SchemaHash(unittest.TestCase):
     def test_dump_and_lib_hash_agree(self):
         schema = {"name": "x", "parameters": {"type": "object", "properties": {"b": {}, "a": {"description": "é"}}}}
