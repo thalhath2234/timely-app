@@ -117,11 +117,11 @@ def check_tools(policy, dump):
         listed = by_name.get(name, {})
         if not listed:
             msgs.append(f"new tool `{name}` (toolset {t['toolset']}, owner {owner}) is not classified: add "
-                        f"`{name}@{owner}` to {TOOLS_YAML} (schema {t['schema_sha256']}); until then the gate blocks it")
+                        f"`{name}@{owner}` to {TOOLS_YAML} (schema {t['schema_sha256']}); the phase-2 gate blocks a tool with no entry")
             continue
         if owner not in listed:
             msgs.append(f"tool `{name}` is registered by {owner} but {TOOLS_YAML} lists it for "
-                        f"{', '.join(sorted(listed))}; the gate blocks an owner mismatch. Review who registers it now")
+                        f"{', '.join(sorted(listed))}; the phase-2 gate blocks an owner mismatch. Review who registers it now")
             continue
         e = listed[owner]
         if e.get("toolset") != t["toolset"]:

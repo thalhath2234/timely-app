@@ -1,5 +1,10 @@
-# Tool policy for Timely's agent (plan section 8.1). Read by timely_gate in the worker and checked by
-# `make hermes-sync-check` (scripts/hermes-sync/check_policy.py) against the runtime tool dump.
+# Tool policy for Timely's agent (plan section 8.1). Checked by `make hermes-sync-check`
+# (scripts/hermes-sync/check_policy.py) against the runtime tool dump.
+#
+# PHASE 1: timely_gate does not read this file yet; phase 2 makes it enforce what follows. Until
+# then the gate blocks the hard-coded names in timely_agent/policy.py, runs the few
+# policy.LOCAL_ALLOW tools without asking, and sends every other call to Go (`gate.ask`), which
+# fails closed. So "blocked", "owner mismatch" and "phase" below describe the phase-2 gate.
 #
 # Every tool Hermes registers is listed here, keyed `<name>@<owner>`. Owner is `core` (registered by
 # a module in the copy), `plugin:<plugin key>` (registered by a bundled or Timely plugin) or
