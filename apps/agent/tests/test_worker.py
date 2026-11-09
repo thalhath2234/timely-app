@@ -589,3 +589,42 @@ def test_stream_deltas_are_coalesced_and_never_lose_text(tagent, tworker, stub):
     assert len(deltas) < 120, len(deltas)  # 600 chunks without coalescing
     assert all(len(d["payload"]["text"]) <= 200 + 2 for d in deltas)
     assert seen.index(deltas[-1]) < seen.index(done)
+
+
+def test_record_events_writes_one_jsonl_per_scenario(tmp_path):
+    """``record_events.py`` (``make agent-record-fixtures``): worker -> Go lines per scenario,
+    ending with the run's ``run.done``, plus a manifest of what Go sent."""
+    import record_events
+    names = {"read_tool_then_reply", "propose_then_tool_call_ends_turn"}
+    manifest = record_events.record(tmp_path, only=names)
+    assert set(manifest["scenarios"]) == names
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted([f"{n}.jsonl" for n in names] + ["manifest.json"])
+    for name in names:
+        lines = [json.loads(line) for line in (tmp_path / f"{name}.jsonl").read_text().splitlines()]
+        assert lines[-1]["type"] == "run.done" and lines[-1]["run"] == f"run-{name}"
+        assert all(m["account"] == record_events.ACCOUNT for m in lines)
+        assert not {m["type"] for m in lines} & {"heartbeat", "log", "ready"}
+        assert "api_key" not in json.dumps(manifest["scenarios"][name]["run_start"])
+    ended = [json.loads(line) for line in (tmp_path / "propose_then_tool_call_ends_turn.jsonl").read_text().splitlines()]
+    assert ended[-1]["turn_exit_reason"] == "end_turn"
+    assert [m["name"] for m in ended if m["type"] == "tool.call"] == ["propose_changes"]
+
+
+def test_history_seed_is_stored_once_and_kept_by_later_turns(agent, worker, stub):
+    """Plan 5.4: Go sends ``history`` when ``state.db`` lacks the session. The worker writes the
+    seed into ``state.db`` (Hermes stores only a turn's new messages), so the next turn still has
+    it; a seed sent again for a known session is ignored, never duplicated."""
+    seed = [{"role": "user", "content": "SEED-USER: plan my week"},
+            {"role": "assistant", "content": "SEED-ASSISTANT: here is your week"}]
+    conv = "c-seed"
+    for run_id, text, history, seeded in (("r-seed-1", "first after restore", seed, True),
+                                          ("r-seed-2", "second after restore", None, False),
+                                          ("r-seed-3", "third with a stale seed", seed, False)):
+        extra = {"history": history} if history else {}
+        worker.send(harness.run_start(agent, stub, run_id=run_id, conversation=conv, text=text, **extra))
+        done, _ = worker.until("run.done")
+        assert done["history_seeded"] is seeded and done["final_response"] == f"Stub reply: {text}", done
+        req = [r for r in stub.requests if r["method"] == "POST" and text in json.dumps(r["body"]["messages"][-1])][-1]
+        contents = [m.get("content") for m in req["body"]["messages"]]
+        assert contents.count("SEED-USER: plan my week") == 1, contents
+        assert contents.count("SEED-ASSISTANT: here is your week") == 1, contents

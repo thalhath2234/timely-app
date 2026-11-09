@@ -154,6 +154,12 @@ class Handler(BaseHTTPRequestHandler):
                                      "auth": self.headers.get("Authorization")})
         if not self.path.rstrip("/").endswith("/chat/completions"):
             return self._json({"error": {"message": "not found"}}, 404)
+        try:
+            self._answer(body, raw)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # the worker hung up (a Stop mid-stream)
+
+    def _answer(self, body: dict, raw: bytes) -> None:
         msg, finish, opts = decide(body)
         base = {"id": "c1", "created": int(time.time()), "model": STUB_MODEL}
         usage = USAGE

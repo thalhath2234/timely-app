@@ -288,6 +288,36 @@ def build_agent(msg: dict[str, Any], emit: EmitRef):
     )
 
 
+SEED_ROLES = ("user", "assistant")
+
+
+def _history(agent, conversation: str, seed: Any) -> tuple[Optional[list], bool]:
+    """``(conversation_history, seeded)``. ``state.db`` is the working transcript (plan 5.4): when
+    it already holds messages for the session, they are the history and a ``run.start.history``
+    seed is ignored. When it holds none and Go sent a seed (restore, new machine, deleted cache),
+    the seed's user and assistant messages are written into ``state.db`` first, so every later
+    turn keeps them (Hermes stores only a turn's new messages, never a caller's history)."""
+    db = getattr(agent, "_session_db", None)
+    if db is None or not conversation:
+        return (seed if isinstance(seed, list) and seed else None), False
+    try:
+        stored = db.get_messages_as_conversation(conversation) or []
+    except Exception as exc:
+        logger.debug("history load failed for %s: %s", conversation, exc)
+        stored = []
+    if stored or not (isinstance(seed, list) and seed):
+        return stored, False
+    rows = [{"role": m["role"], "content": m["content"]} for m in seed
+            if isinstance(m, dict) and m.get("role") in SEED_ROLES and isinstance(m.get("content"), str)]
+    try:
+        db.ensure_session(conversation, source="timely", model=getattr(agent, "model", None))
+        db.append_messages_batch(conversation, rows)
+        return db.get_messages_as_conversation(conversation) or rows, True
+    except Exception as exc:
+        logger.warning("history seed for %s could not be stored, used for this turn only: %s", conversation, exc)
+        return rows, True
+
+
 def _closing_text(result: dict[str, Any]) -> str:
     """The closing sentence the model wrote after a recorded proposal: the last non-empty
     assistant text after the ``propose_changes`` call (Hermes appends an empty assistant row when
@@ -325,7 +355,7 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
     session_key = str(msg.get("session_key") or f"timely:{conversation}")
     done: dict[str, Any] = {"final_response": "", "completed": False, "interrupted": False,
                             "turn_exit_reason": "", "tokens": {}, "estimated_cost_usd": None,
-                            "turn_id": None, "tainted_sources": []}
+                            "turn_id": None, "tainted_sources": [], "history_seeded": False}
     key_token = var_tokens = scope_token = None
     sink = DeltaCoalescer(emit)
     ctx = bridge.RunContext(
@@ -358,19 +388,13 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
             return done
         before = _session_tokens(agent)
         cost_before = getattr(agent, "session_estimated_cost_usd", None)
-        history = msg.get("history")
         kwargs: dict[str, Any] = {"task_id": conversation}
         if msg.get("system_text") and SYSTEM_VIA == "system_message":
             kwargs["system_message"] = str(msg["system_text"])
-        if isinstance(history, list) and history:
-            kwargs["conversation_history"] = history
-        else:
-            try:
-                db = agent._session_db if hasattr(agent, "_session_db") else None
-                if db is not None and conversation:
-                    kwargs["conversation_history"] = db.get_messages_as_conversation(conversation)
-            except Exception as exc:
-                logger.debug("history load failed for %s: %s", conversation, exc)
+        stored, seeded = _history(agent, conversation, msg.get("history"))
+        done["history_seeded"] = seeded
+        if stored is not None:
+            kwargs["conversation_history"] = stored
         result = agent.run_conversation(str(msg.get("user_message") or ""), **kwargs) or {}
         after = _session_tokens(agent)
         cost_after = result.get("estimated_cost_usd", getattr(agent, "session_estimated_cost_usd", None))

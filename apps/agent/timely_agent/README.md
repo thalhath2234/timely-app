@@ -14,12 +14,12 @@ Timely's host package around the vendored Hermes copy in `../hermes` (plan `docs
 | `seed.py` | Seed tree of reviewed bundled skills plus overrides, and the read-only Timely skills copy (plan 9.1). Stdlib git tree ids. |
 | `install_guard.py` | Runtime override R1: no package installs in a worker (`../.hermes-sync/patches.md`). |
 | `plugin_dist.py` | Serves the Timely plugins to Hermes' `hermes_agent.plugins` entry-point group. |
-| `plugins/` | `timely_gate`, `timely_tools`, `timely_learning`, `timely_bot`. |
+| `plugins/` | `timely_gate` (tool policy, propose-alone, end of turn), `timely_tools` (Timely tools over `tool.call`), `timely_learning` (read-only Timely skills, learning writes off, taint), `timely_bot` (phase 6 stub). |
 | `selftest.py` | The checks in `ready.self_test`. |
-| `run_chat.py` | One chat turn on `AIAgent.run_conversation`, callbacks as events, a per-conversation agent cache. |
-| `bridge.py`, `policy.py` | Run context shared with the plugins; phase-1 tool name lists. |
+| `run_chat.py` | One chat turn on `AIAgent.run_conversation`: the Timely block as `ephemeral_system_prompt`, Hermes' own turn limit, coalesced `delta` events, end of turn after a proposal, history seeds into `state.db`, a per-conversation agent cache. |
+| `bridge.py`, `policy.py` | Run context shared with the plugins (batches, taint, end of turn, the Timely tool specs); tool name lists and taint sources. |
 
-Tests: `../tests` (`make agent-test`); they start real workers against a stub OpenAI-compatible model.
+Tests: `../tests` (`make agent-test`); they start real workers against a stub OpenAI-compatible model. `../tests/record_events.py --out <dir>` records the worker event fixtures for the Go engine (`make agent-record-fixtures`), and `../tests/measure_prompt.py` reruns the phase 2 measurements below.
 
 ## Phase 1 decisions and findings (Hermes v0.23.0)
 
@@ -32,3 +32,29 @@ Tests: `../tests` (`make agent-test`); they start real workers against a stub Op
 - **Gate ordering.** Hermes applies every plugin's `block`, whatever the order, so `timely_gate` lets `skill_manage` through without asking Go and `timely_learning` owns its policy.
 - **Python.** uv-managed CPython 3.14.9 (the build Hermes pins in `pm/lock.json`), installed from Hermes' own `uv.lock` with `--no-install-project`.
 - **Cost (this machine, warm).** Spawn to `ready` 1.0-1.2 s, including the Hermes import, plugin discovery, seeding 43 skills into a fresh home and the self-test.
+
+## Phase 2 decisions and measurements (Hermes v0.23.0, stub model)
+
+- **Timely block: `ephemeral_system_prompt` (plan 5.3, contract test 6).** Both candidates ran: two turns in one worker, a third in a fresh worker (agent rebuilt from `state.db`), a fourth with a changed block. Both keep the system message byte-identical across turns 1-3 and both start with the Timely identity (no "You are Hermes Agent"). Only `ephemeral_system_prompt` passes the fourth: Hermes stores the first turn's prompt (with `system_message` inside) in `state.db` and restores it verbatim on every later turn, so a changed `system_message` (a new catalog's write schemas, the Q-2.1 scope line) never reaches the conversation again. The ephemeral block is appended at API time, never stored, and the background review fork copies it (cache parity). `run_chat.SYSTEM_VIA = "ephemeral"`; the agent cache key includes the block's hash.
+- **Persona (Q-2.6).** The default `SOUL.md` is Timely's identity ("You are Timely, the assistant inside the Timely app...") with tone only; scope and abilities stay in Go's block. Residual: Hermes always adds `HERMES_AGENT_HELP_GUIDANCE` (a pointer to Hermes' docs for "help with Hermes Agent itself"), with no config switch at v0.23.0; removing it needs a patch point. The managed floor `agent.environment_probe: false` keeps the host's toolchain (python, pip, uv) out of chat prompts.
+- **Batch seam.** A tool handler gets only its arguments. `timely_tools` records each model response's tool calls from the `post_api_request` hook (`assistant_message`), before any of its tools runs, and finds its own call id in `tools.approval_context._approval_tool_call_id`. Hermes renames a reused call id (`call_1` -> `call_1_d2`, `agent_runtime_helpers._dedupe_tool_call_ids`) after the hook, so an unknown id falls back to the latest response holding that tool. Plugin tools run sequentially (they are not path-scoped, so Hermes never parallelizes them). Both seams are in contract test 7.
+- **End of turn (Q-2.4).** After `end_turn`, a further tool call gets a soft interrupt with `tool_reason="timely_end_turn"`; Hermes then appends an empty assistant row, so the closing text is the last non-empty assistant text after the proposal. The interrupt is cleared before the next turn.
+- **Q-2.3.** `DEFAULT_MAX_ITERATIONS` (30) is gone: empty `budgets` give Hermes' `agent.max_turns` through `resolve_turn_limit` (unlimited by default). A 32-iteration turn completes.
+- **Streaming (Q-2.5).** `DeltaCoalescer`: 600 two-character chunks over about 1.3 s arrive as 27 `delta` events (three runs, at most 50 characters each), joined byte-exact, all before `run.done`; without coalescing that is 600 events.
+- **Auxiliary credentials (plan 5.7, contract test 20).** Context compression is the one auxiliary call a phase 2 chat can make. With the run on stub A (`sk-run-A`) and `OPENAI_BASE_URL`/`OPENAI_API_KEY` pointing at stub B in the worker environment, an 8-turn conversation over a 64K window compacted, and every chat-completions request, summaries included, went to A with the run key; B got nothing; no connection left 127.0.0.1 (model metadata GETs may go without a key). Hermes' auto route takes the main provider and its credentials first (`agent/auxiliary_client.py` `_resolve_auto_route`). No provider keys are needed in the worker environment.
+- **History seed.** Hermes stores only a turn's new messages, never a caller's `conversation_history`, so a phase-1 seed was lost after its turn. The worker now writes a seed into `state.db` when the session has no messages there and ignores it otherwise (`run.done.history_seeded`).
+
+### tool_search off vs on (plan 1.4)
+
+The 49 Timely specs (`../tests/fixtures/timely_tools.json`: the 47 Read tools from Go's catalog on 2026-11-09, `propose_changes`, `resolve_target`) with toolsets `timely`, `todo`, `skills`; `tools.tool_search.enabled` forced through `probe_boot --tool-search`. Request size at 4 bytes a token:
+
+| `tool_search` | turn 1 request | turn 2 request | `tools` array | Timely tools listed | direct `get_task` call |
+| --- | --- | --- | --- | --- | --- |
+| off | 40,852 B (~10.2K tokens) | 40,968 B (~10.2K tokens) | 53 tools, 33,062 B | 49 | reaches Go as `tool.call` |
+| on | 18,513 B (~4.6K tokens) | 18,627 B (~4.7K tokens) | 6 tools (3 bridge), 10,797 B | 0 | "Tool 'get_task' does not exist" |
+
+Hermes defers every plugin tool behind `tool_search`/`tool_describe`/`tool_call` (`tools/tool_search.py` `is_deferrable_tool_name`), and `timely_gate` blocks those bridge names, so with it on no Timely tool is callable. The saving (~5.6K tokens a request) is also mostly prompt-cacheable, because the tools array is byte-stable per conversation. Decision: the managed floor stays `tools.tool_search.enabled: off`.
+
+### context_engine (plan 2)
+
+The bundled `plugins/context_engine` package ships no engine at v0.23.0: it only discovers `plugins/context_engine/<name>/` folders (none in the snapshot) and user plugins under `$HERMES_HOME/plugins` (refused by the self-test). `discover_context_engines()` returns `[]`, and the built-in `compressor` is the only engine. On a 10-turn stub conversation (each turn ~22 KB of unique text, 64K window, real usage reported) the compressor compacted at turns 6, 8 and 10, one summary side call each (42, 104 and 134 KB requests to the run's endpoint). Turn requests grew by about 45 KB a turn up to 205 KB (turn 5) and were 172 KB, 151 KB and 181 KB on the compacted turns instead of the about 250, 262 and 241 KB they would have reached. Verdict: nothing to adopt; the managed floor now pins `context.engine: compressor`, so no account config can select an engine Timely has not evaluated. `selftest.EXPECTED_PLUGINS` is unchanged. Re-run `measure_prompt.py context_engine` after a sync that adds an engine.
