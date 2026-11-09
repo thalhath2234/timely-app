@@ -9,6 +9,15 @@ worker's own check of that contract, and the reference list both sides share:
   messaging platform credentials. Any of them present is a refusal, not a warning.
 - ``HERMES_LANGUAGE`` and ``HERMES_BUNDLED_LOCALES`` are forbidden: the copy ships only
   ``locales/en.yaml`` and the managed config pins ``display.language: en`` (sync finding 6).
+  Every other ``HERMES_*`` name outside ``ALLOWED`` is forbidden too: Hermes reads dozens of
+  them as behaviour switches (``HERMES_YOLO_MODE`` turns the approval gate off,
+  ``HERMES_ALLOW_PRIVATE_URLS`` beats ``security.allow_private_urls``).
+- Dotenv files: Hermes loads ``$HERMES_HOME/.env`` (over the environment Go built),
+  ``$HERMES_HOME/.op.env``, ``<agent>/hermes/.env`` and ``$HERMES_MANAGED_DIR/.env`` when
+  ``run_agent`` is imported, after :func:`check` ran. The worker sets the home's files aside
+  before that import (:func:`set_aside_home_dotenv`), the self-test fails while any of them
+  exists (:func:`dotenv_files`), and :func:`drift` reports every name that changed after the
+  start check.
 """
 
 from __future__ import annotations
@@ -34,7 +43,8 @@ ALLOWED = frozenset({
 })
 
 FORBIDDEN = frozenset({
-    "JWT_SECRET", "HERMES_YOLO", "HERMES_SAFE_MODE", "HERMES_CRON_SESSION",
+    "JWT_SECRET", "HERMES_YOLO", "HERMES_YOLO_MODE", "HERMES_ALLOW_PRIVATE_URLS", "HERMES_ACP_AUTO_APPROVE",
+    "HERMES_SAFE_MODE", "HERMES_CRON_SESSION",
     "HERMES_ENABLE_PROJECT_PLUGINS", "HERMES_CONFIG_BACKEND", "HERMES_LANGUAGE",
     "HERMES_BUNDLED_LOCALES", "HERMES_MANAGED", "HERMES_ACCEPT_HOOKS", "HERMES_PROFILE",
     "DATABASE_URL", "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP",
@@ -51,7 +61,56 @@ FORBIDDEN_PREFIXES = (
 
 def _is_forbidden(name: str) -> bool:
     upper = name.upper()
+    if upper.startswith("HERMES_") and upper not in ALLOWED:
+        return True  # Hermes behaviour switches: only the names Go sets may be present
     return upper in FORBIDDEN or upper.startswith(FORBIDDEN_PREFIXES)
+
+
+# Dotenv files Hermes' ``load_hermes_dotenv`` reads. The home's own are set aside before Hermes
+# is imported; the install's and the managed folder's belong to Timely and are only refused.
+HOME_DOTENV = (".env", ".op.env")
+SET_ASIDE_SUFFIX = ".timely-disabled"
+
+
+def dotenv_files(home: os.PathLike | str, hermes_dir: os.PathLike | str,
+                 managed_dir: os.PathLike | str | None) -> list[Path]:
+    """Dotenv files that exist where Hermes would load them."""
+    cands = [Path(home) / n for n in HOME_DOTENV] + [Path(hermes_dir) / ".env"]
+    if managed_dir:
+        cands.append(Path(managed_dir) / ".env")
+    return [p for p in cands if p.exists() or p.is_symlink()]
+
+
+def set_aside_home_dotenv(home: os.PathLike | str) -> list[Path]:
+    """Rename ``<home>/.env`` and ``<home>/.op.env`` to ``*.timely-disabled`` (replacing an older
+    one) so Hermes never loads them; returns the files moved. Timely never writes them, so one
+    there was planted (an approved terminal command can write into the home)."""
+    moved = []
+    for name in HOME_DOTENV:
+        src = Path(home) / name
+        if src.exists() or src.is_symlink():
+            dst = src.with_name(name + SET_ASIDE_SUFFIX)
+            try:
+                if dst.is_dir() and not dst.is_symlink():
+                    raise IsADirectoryError(str(dst))
+                os.replace(src, dst)
+                moved.append(src)
+            except OSError:
+                pass  # left in place: dotenv_files() still sees it and the self-test refuses
+    return moved
+
+
+def drift(before: Mapping[str, str], after: Mapping[str, str], *, ignore: frozenset[str] | set[str] = frozenset()) -> list[str]:
+    """Names added, changed or removed between two environments, minus ``ignore``: the worker's
+    own later changes. Anything else changed the environment Go built (a dotenv file, a secret
+    source), so the self-test fails on it."""
+    out = []
+    for name in sorted(set(before) | set(after)):
+        if name in ignore or before.get(name) == after.get(name):
+            continue
+        state = "added" if name not in before else "removed" if name not in after else "changed"
+        out.append(f"{name} {state}")
+    return out
 
 
 def real_user_home() -> Path | None:

@@ -93,13 +93,22 @@ class Worker:
         if isinstance(settings, dict):
             # Go sent the settings themselves: render here (same code as `boot.py render-account`).
             if msg.get("settings_hash") and actual and actual != msg.get("settings_hash"):
-                self.log("warning", "config.yaml did not match settings_hash (edited since the last render); re-rendered")
+                # stderr, not a protocol "log": the account is not pinned yet, and Go kills a
+                # worker whose line names no account.
+                logger.warning("config.yaml did not match settings_hash (edited since the last render); re-rendered")
             actual = render_account(layout, account, settings)["config_sha256"]
         elif not msg.get("settings_hash") or actual != msg.get("settings_hash"):
             raise P.ProtocolError(P.E_CONFIG, "config.yaml does not match settings_hash: re-render it and respawn", mid)
         self.chan.account = account
 
         started = time.monotonic()
+        # Hermes loads <home>/.env over the environment Go built when run_agent is imported
+        # (hermes_cli/env_loader.py). Timely never writes one, so one there was planted: set it
+        # aside first. The self-test refuses while any dotenv file remains, and compares the
+        # environment from here on (env_drift).
+        for planted in env_check.set_aside_home_dotenv(self.home):
+            logger.warning("set aside %s: Hermes would load it over the worker environment", planted)
+        env_before = dict(os.environ)
         import run_agent  # noqa: F401  (the agent loop; also loads model_tools)
         # Bridge the account's terminal.* config into the TERMINAL_* process env, as Hermes' CLI and
         # gateway do at start: some readers (HOME for children: terminal.home_mode) only look there.
@@ -109,6 +118,12 @@ class Worker:
         apply_terminal_config_to_env()
         home_mode = str((load_config().get("terminal") or {}).get("home_mode") or "profile")
         os.environ["TERMINAL_HOME_MODE"] = home_mode
+        # The terminal bridge (Hermes runs it inside its dotenv load too, then this code) is the
+        # only expected change: TERMINAL_* names holding exactly what the account config gives
+        # them when bridged onto the start environment. Anything else is drift.
+        bridged = apply_terminal_config_to_env(env=dict(env_before))
+        bridged["TERMINAL_HOME_MODE"] = home_mode
+        ours = {n for n, v in bridged.items() if n.startswith("TERMINAL_") and os.environ.get(n) == v}
         from hermes_cli.plugins import discover_plugins
         discover_plugins()
         skills_sync: dict[str, Any] = {}
@@ -119,7 +134,8 @@ class Worker:
         except Exception as exc:
             skills_sync = {"error": f"{type(exc).__name__}: {exc}"}
         from timely_agent import selftest
-        result = selftest.run(expected_home=str(self.home), timely_skills_dir=timely_skills)
+        result = selftest.run(expected_home=str(self.home), timely_skills_dir=timely_skills,
+                              env_before=env_before, env_ignore=ours)
         from hermes_cli.plugins import get_plugin_manager
         loaded = sorted(p.get("key") or p.get("name") for p in get_plugin_manager().list_plugins() if p.get("enabled"))
         self.ready = result["ok"]

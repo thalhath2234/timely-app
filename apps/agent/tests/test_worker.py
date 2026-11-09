@@ -182,6 +182,11 @@ def test_hello_with_settings_renders_config(stub):
         assert ready["config_sha256"] == config_render.sha256_file(cfg_path)
         cfg = json.loads(cfg_path.read_text().split("\n", 1)[1])
         assert cfg["timezone"] == "Asia/Tokyo" and cfg["approvals"]["mode"] == "manual"
+        # The "did not match settings_hash" warning goes to stderr: a protocol line sent before
+        # the account is pinned would carry no account, and Go kills the worker for that.
+        assert "did not match settings_hash" in w.stderr
+        for line in w.raw_lines:
+            assert json.loads(line).get("account") == a.account, line
     finally:
         w.close()
 

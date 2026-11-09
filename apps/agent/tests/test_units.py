@@ -98,12 +98,34 @@ def test_reference_env_passes(tmp_path):
 @pytest.mark.parametrize("name", ["JWT_SECRET", "DB_PASSWORD", "TIMELY_BACKUP_KEY", "API_PORT", "HERMES_YOLO",
                                   "HERMES_SAFE_MODE", "HERMES_CRON_SESSION", "HERMES_ENABLE_PROJECT_PLUGINS",
                                   "HERMES_CONFIG_BACKEND", "HERMES_LANGUAGE", "HERMES_BUNDLED_LOCALES",
-                                  "TELEGRAM_BOT_TOKEN", "DISCORD_BOT_TOKEN", "PYTHONPATH"])
+                                  "TELEGRAM_BOT_TOKEN", "DISCORD_BOT_TOKEN", "PYTHONPATH", "HERMES_YOLO_MODE",
+                                  "HERMES_ALLOW_PRIVATE_URLS", "HERMES_ACP_AUTO_APPROVE", "HERMES_SOMETHING_NEW"])
 def test_forbidden_env_is_refused(tmp_path, name):
     _, env = _good_env(tmp_path)
     env[name] = "x"
     problems, _ = env_check.check(env)
     assert any(name in p for p in problems)
+
+
+def test_dotenv_files_set_aside_and_drift(tmp_path):
+    home, hermes, managed = tmp_path / "home", tmp_path / "hermes", tmp_path / "managed"
+    for d in (home, hermes, managed):
+        d.mkdir()
+    assert env_check.dotenv_files(home, hermes, managed) == []
+    (home / ".env").write_text("HERMES_YOLO_MODE=1\n")
+    (home / ".op.env").write_text("X=1\n")
+    (home / ".env.timely-disabled").write_text("old\n")
+    (hermes / ".env").write_text("Y=1\n")
+    assert len(env_check.dotenv_files(home, hermes, managed)) == 3
+    moved = env_check.set_aside_home_dotenv(home)
+    assert sorted(p.name for p in moved) == [".env", ".op.env"]
+    assert (home / ".env.timely-disabled").read_text() == "HERMES_YOLO_MODE=1\n"
+    assert env_check.dotenv_files(home, hermes, managed) == [hermes / ".env"]
+    before = {"A": "1", "B": "2", "TERMINAL_ENV": "local"}
+    after = {"A": "1", "B": "3", "C": "4", "TERMINAL_ENV": "local", "TERMINAL_X": "y"}
+    assert env_check.drift(before, after, ignore={"TERMINAL_X"}) == ["B changed", "C added"]
+    assert env_check.drift(after, before) == ["B changed", "C added".replace("added", "removed"),
+                                               "TERMINAL_X removed"]
 
 
 def test_env_home_rules(tmp_path):
