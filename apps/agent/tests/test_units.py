@@ -432,3 +432,166 @@ def test_gate_blocks_messaging_and_never_offered_names_without_asking_go():
         assert [m["tool"] for m in asked] == ["terminal"]
     finally:
         bridge.ask = old_ask
+
+
+# ---------------------------------------------------------------- phase 2
+
+class _Clock:
+    def __init__(self):
+        self.now = 100.0
+
+    def __call__(self):
+        return self.now
+
+
+def test_delta_coalescer_rate_size_order_and_flush():
+    from timely_agent.run_chat import DeltaCoalescer
+    clock, out = _Clock(), []
+    c = DeltaCoalescer(lambda kind, payload: out.append((kind, payload)), interval=0.05, max_chars=200, clock=clock)
+    c.push("a")  # first text goes out at once (nothing sent for an interval)
+    assert out == [("delta", {"text": "a"})]
+    for _ in range(10):
+        clock.now += 0.001
+        c.push("bb")  # inside 50 ms: held
+    assert len(out) == 1
+    clock.now += 0.05
+    c.push("c")  # the interval passed: everything held goes out in one delta
+    assert out[-1] == ("delta", {"text": "b" * 20 + "c"})
+    c.push("x" * 250)  # 200 characters waiting: sent without waiting for the interval
+    assert out[-1] == ("delta", {"text": "x" * 250})
+    c.push("tail")
+    c.emit("tool.started", {"tool": "t"})  # any other event flushes first, order kept
+    assert out[-2:] == [("delta", {"text": "tail"}), ("tool.started", {"tool": "t"})]
+    c.push("end")
+    c.close()
+    assert out[-1] == ("delta", {"text": "end"})
+    assert "".join(p["text"] for k, p in out if k == "delta") == "a" + "b" * 20 + "c" + "x" * 250 + "tailend"
+
+
+def test_delta_coalescer_timer_flushes_a_paused_stream():
+    import time
+    from timely_agent.run_chat import DeltaCoalescer
+    out = []
+    c = DeltaCoalescer(lambda kind, payload: out.append(payload["text"]), interval=0.05)
+    c.push("first")
+    c.push("held")
+    assert out == ["first"]
+    deadline = time.monotonic() + 2
+    while len(out) < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert out == ["first", "held"]
+    c.close()
+
+
+def test_run_context_taint_is_append_only_and_deduplicated():
+    from timely_agent import bridge
+    run = bridge.RunContext(run_id="r", session_key="k", conversation_id="c",
+                            tainted_sources=[{"kind": "web", "tool": "web_extract", "host": "a.example"}])
+    sent = []
+    old = bridge.notify
+    bridge.notify = lambda msg: sent.append(msg) or True
+    try:
+        new = bridge.report_taint(run, [{"host": "a.example", "tool": "web_extract", "kind": "web"},
+                                        {"kind": "timely", "tool": "ask_bot"}, {"kind": "timely", "tool": "ask_bot"}])
+        assert new == [{"kind": "timely", "tool": "ask_bot"}]
+        assert sent == [{"type": "taint", "run": "r", "sources": new}]
+        assert bridge.report_taint(run, [{"kind": "timely", "tool": "ask_bot"}]) == [] and len(sent) == 1
+        assert run.taint_snapshot() == [{"kind": "web", "tool": "web_extract", "host": "a.example"},
+                                        {"kind": "timely", "tool": "ask_bot"}]
+    finally:
+        bridge.notify = old
+
+
+def test_run_context_batches_by_id_and_after_a_renamed_id():
+    from timely_agent import bridge
+    run = bridge.RunContext(run_id="r", session_key="k", conversation_id="c")
+    run.record_batch([("call_1", "get_task"), ("call_2", "propose_changes")])
+    batch = run.batch_for("call_2", "propose_changes")
+    assert batch.size == 2 and batch.siblings("call_2", "propose_changes") == ["get_task"]
+    run.record_batch([("call_1", "propose_changes")])  # Hermes runs it as call_1_d2
+    renamed = run.batch_for("call_1_d2", "propose_changes")
+    assert renamed.size == 1 and renamed.siblings("call_1_d2", "propose_changes") == []
+    assert run.batch_for("call_9", "get_task") is None  # not in the latest response
+    assert bridge.RunContext(run_id="r", session_key="k", conversation_id="c").learning_writes is False
+    assert bridge.RunContext(run_id="r", session_key="k", conversation_id="c",
+                             flags={"learning_writes": "true"}).learning_writes is False
+
+
+def _gate(run, name, call_id="t", **kw):
+    from timely_agent import bridge
+    from timely_agent.plugins import timely_gate
+    token = bridge.current_run.set(run)
+    try:
+        return timely_gate.pre_tool_call(tool_name=name, args=kw, tool_call_id=call_id)
+    finally:
+        bridge.current_run.reset(token)
+
+
+def test_gate_propose_changes_alone_and_unknown_batch(monkeypatch):
+    from timely_agent import bridge
+    from timely_agent.plugins import timely_gate
+    monkeypatch.setattr(timely_gate, "_timely_tool", lambda name: name in ("propose_changes", "get_task"))
+    run = bridge.RunContext(run_id="r", session_key="k", conversation_id="c")
+    verdict = _gate(run, "propose_changes", "call_1")
+    assert verdict["action"] == "block" and "could not tell" in verdict["message"]
+    run.record_batch([("call_1", "propose_changes"), ("call_2", "get_task")])
+    verdict = _gate(run, "propose_changes", "call_1")
+    assert verdict == {"action": "block", "message": policy.PROPOSE_ALONE}
+    assert _gate(run, "get_task", "call_2") is None  # the sibling read itself is fine
+    run.record_batch([("call_3", "propose_changes")])
+    assert _gate(run, "propose_changes", "call_3") is None
+
+
+def test_gate_ends_the_turn_on_a_tool_call_after_end_turn(monkeypatch):
+    from timely_agent import bridge
+    from timely_agent.plugins import timely_gate
+    monkeypatch.setattr(timely_gate, "_timely_tool", lambda name: True)
+    calls = []
+
+    class Agent:
+        def interrupt(self, message=None, **kw):
+            calls.append((message, kw))
+    run = bridge.RunContext(run_id="r", session_key="k", conversation_id="c", agent=Agent())
+    run.end_turn = True
+    verdict = _gate(run, "get_task")
+    assert verdict["action"] == "block" and "turn has ended" in verdict["message"]
+    assert run.end_turn_hit is True and calls == [(None, {"tool_reason": "timely_end_turn"})]
+
+
+def test_learning_writes_off_blocks_skill_manage_and_memory(monkeypatch):
+    from timely_agent import bridge
+    from timely_agent.plugins import timely_learning
+    monkeypatch.setattr(timely_learning, "external_skill", lambda name: False)
+    for flags, blocked in (({}, True), ({"learning_writes": False}, True), ({"learning_writes": True}, False)):
+        run = bridge.RunContext(run_id="r", session_key="k", conversation_id="c", flags=flags)
+        token = bridge.current_run.set(run)
+        try:
+            for name, args in (("skill_manage", {"action": "create", "name": "mine"}), ("memory", {"action": "add"})):
+                verdict = timely_learning.pre_tool_call(tool_name=name, args=args)
+                assert (verdict is not None and verdict["message"] == timely_learning.LEARNING_OFF) is blocked, \
+                    (flags, name, verdict)
+        finally:
+            bridge.current_run.reset(token)
+    # outside a run: blocked (fail closed)
+    assert timely_learning.pre_tool_call(tool_name="memory", args={})["message"] == timely_learning.LEARNING_OFF
+
+
+def test_taint_sources_policy():
+    assert policy.taint_kind("web_extract") == "web" and policy.taint_kind("browser_navigate") == "browser"
+    assert policy.taint_kind("read_file") == "file" and policy.taint_kind("delegate_task") == "subagent"
+    assert policy.taint_kind("anything", "mcp-github") == "mcp" and policy.taint_kind("mcp_github_issue") == "mcp"
+    for name in ("todo_list", "skill_view", "get_task", "propose_changes"):
+        assert policy.taint_kind(name) == "", name
+    assert policy.taint_host({"url": "https://Shop.Example:8443/x"}) == "shop.example"
+    assert policy.taint_host({"url": "shop.example/x"}) == "shop.example"
+    assert policy.taint_host({"query": "x"}) == ""
+
+
+def test_phase2_floors_and_soul(tmp_path):
+    f = config_render.managed_floors(timely_skills_dir=tmp_path)
+    assert f["context"] == {"engine": "compressor"}
+    assert f["agent"]["environment_probe"] is False
+    assert f["tools"]["tool_search"]["enabled"] == "off"  # measured, timely_agent/README.md
+    soul = config_render.SOUL_TEXT
+    assert soul.startswith("You are Timely, the assistant inside the Timely app.")
+    assert "Hermes" not in soul and "Nous" not in soul

@@ -1,4 +1,4 @@
-"""timely_learning: learning policy (plan section 9b). Phase 1 ships one real rule.
+"""timely_learning: learning policy and taint reporting (plan section 9b).
 
 **Timely skills are read-only to the agent** (section 9.1, contract test 16). Hermes lets
 ``skill_manage`` patch and edit a skill under ``skills.external_dirs`` in place, and every
@@ -11,7 +11,17 @@ in V4A mode (``mode: patch``, which Hermes accepts from any model) every file th
 names (``*** Update/Add/Delete File:``, ``*** Move File: a -> b``). Relative paths resolve
 against the terminal's working folder (``TERMINAL_CWD``), as Hermes' file tools resolve them.
 
-Taint reporting, staging and review policy arrive in phase 3.
+**Learning writes are off unless the run says otherwise** (plan 9b, phase 2). While
+``run.start.flags.learning_writes`` is not exactly true (phase 2 always sends false), every
+``skill_manage`` action (all of them write) and every ``memory`` call is blocked; outside a run
+too. The read-only rule runs first, so a write to a Timely skill keeps its own message.
+
+**Taint** (plan 5.2, 9b.2). ``post_tool_call`` adds a source for each call of a tool the policy
+marks as a taint source (``policy.TAINT_SOURCES``, ``TAINT_PREFIXES``, any ``mcp-*`` toolset)
+that ran (a blocked call brought nothing in), and sends ``taint`` with the new ones. ``tool.call``
+and ``run.done`` carry the run's whole list, which starts from ``run.start.tainted_sources``.
+
+Staging and review policy arrive in phase 3.
 """
 
 from __future__ import annotations
@@ -28,6 +38,9 @@ PLUGIN = "timely_learning"
 READ_ONLY_MESSAGE = ("Blocked: {name} is a skill shipped with Timely and is read-only. "
                      "Create a learned skill with a new name instead.")
 READ_ONLY_PATH_MESSAGE = "Blocked: {path} belongs to a skill shipped with Timely and is read-only."
+LEARNING_OFF = ("Blocked: Timely is not saving skills or memory yet. Answer without saving; "
+                "do not retry.")
+LEARNING_TOOLS = ("skill_manage", "memory")
 PATH_TOOLS = ("write_file", "patch")
 PATH_ARGS = ("path", "file_path", "target", "filepath")
 
@@ -125,8 +138,40 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, **_: Any) -> di
         logger.warning("read-only skill check failed for %s: %s", tool_name, exc)
         if tool_name == "skill_manage" or tool_name in PATH_TOOLS:
             return {"action": "block", "message": f"Blocked: Timely could not check {tool_name} ({exc})."}
+    if tool_name in LEARNING_TOOLS:
+        from timely_agent import bridge
+        run = bridge.current_run.get()
+        if run is None or not run.learning_writes:
+            return {"action": "block", "message": LEARNING_OFF}
     return None
+
+
+def _toolset(tool_name: str) -> str:
+    try:
+        from tools.registry import registry
+        return str(getattr(registry.get_entry(tool_name), "toolset", "") or "")
+    except Exception:
+        return ""
+
+
+def post_tool_call(tool_name: str = "", args: dict | None = None, status: str | None = None, **_: Any) -> None:
+    """Report outside content that reached the model (a taint source that ran) to Go."""
+    if status == "blocked":
+        return
+    from timely_agent import bridge, policy
+    kind = policy.taint_kind(tool_name, _toolset(tool_name))
+    if not kind:
+        return
+    run = bridge.current_run.get()
+    if run is None:
+        return
+    source: dict[str, Any] = {"kind": kind, "tool": tool_name}
+    host = policy.taint_host(args)
+    if host:
+        source["host"] = host
+    bridge.report_taint(run, [source])
 
 
 def register(ctx) -> None:
     ctx.register_hook("pre_tool_call", pre_tool_call)
+    ctx.register_hook("post_tool_call", post_tool_call)

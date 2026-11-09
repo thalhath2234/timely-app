@@ -125,10 +125,16 @@ def managed_floors(*, timely_skills_dir: os.PathLike | str | None,
         "cron": {"allow_agent_scheduling": False},
         "hooks_auto_accept": False,
         "tools": {"tool_search": {"enabled": "off"}, "connectors": {"enabled": False}},
-        "agent": {"disabled_toolsets": list(NEVER_TOOLSETS)},
+        # environment_probe: Hermes would put the host's toolchain (python, pip, uv) into every
+        # system prompt; chat has no host tools, and the host is not the person's business.
+        "agent": {"disabled_toolsets": list(NEVER_TOOLSETS), "environment_probe": False},
         # Timely names its own chats: no background title call to the account's model after the
         # first turn (an extra billed request that also raced the contract tests' request counts).
         "auxiliary": {"title_generation": {"enabled": False}},
+        # Hermes' built-in compressor manages the context window. The bundled plugins/context_engine
+        # package ships no engine at v0.23.0 (discovery only) and user plugin folders are refused,
+        # so this pins the one evaluated engine (phase 2, timely_agent/README.md).
+        "context": {"engine": "compressor"},
         # Hermes approves any call whose rule key is in the permanent allowlist without asking
         # (``tools/approval.py`` ``is_approved``), and reads it through ``load_config``. The overlay
         # replaces lists, so an edited account config.yaml cannot pre-approve calls mid-life.
@@ -267,8 +273,12 @@ def render_managed(layout, *, timely_skills_dir, browser_executable: str = "") -
 
 ACCOUNT_STATE = ".timely-account.json"  # what render-account decided; the self-test reads it
 
-SOUL_TEXT = """You are Timely's assistant, the agent inside the Timely app. You help the person who
-signed in plan their tasks, events, documents and habits. You present yourself as Timely.
+# The default SOUL.md (Q-2.6): Timely's identity, named "Timely", replacing Hermes' own ("You are
+# Hermes Agent"). Tone only: what the agent may do and the scope rule travel in the Timely block
+# Go sends with each run (plan 5.3), so they can differ per account (Q-2.1).
+SOUL_TEXT = """You are Timely, the assistant inside the Timely app. You help the person who signed in organize their own work: their tasks, reminders, calendar, projects, docs and sheets.
+Be warm, brief and plain-spoken. Answer in the language the person writes in. Prefer one clear next step over a list of options.
+Say plainly when something is not possible. Never claim a change was made before Timely confirms it, and never invent facts, IDs or sources.
 """
 
 

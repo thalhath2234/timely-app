@@ -187,11 +187,62 @@ class Worker:
             return self.proc.wait(5)
 
 
-def ready_worker(agent: Agent, argv: list[str] | None = None, **env_extra: str) -> tuple[Worker, dict]:
+TIMELY_TOOLS_FILE = Path(__file__).resolve().parent / "fixtures" / "timely_tools.json"
+PHASE2_TOOLSETS = ["timely", "todo", "skills"]
+BLOCK_MESSAGE = "That isn't available in Timely yet"
+PROPOSAL_RECORDED = "Proposal recorded; reply to the person in one sentence."
+
+
+def timely_tools(names: list[str] | None = None) -> dict:
+    """``hello.timely_tools`` from the spec fixture (all 49 specs, or only ``names``)."""
+    specs = json.loads(TIMELY_TOOLS_FILE.read_text(encoding="utf-8"))["tools"]
+    if names is not None:
+        specs = [s for s in specs if s["name"] in names]
+    canonical = json.dumps(specs, sort_keys=True, separators=(",", ":")).encode()
+    import hashlib
+    return {"catalog_version": hashlib.sha256(canonical).hexdigest(), "tools": specs}
+
+
+def ready_worker(agent: Agent, argv: list[str] | None = None, hello: dict | None = None,
+                 **env_extra: str) -> tuple[Worker, dict]:
     w = Worker(agent.env(**env_extra), argv)
-    w.send(agent.hello())
+    w.send(agent.hello(**(hello or {})))
     ready, _ = w.until("ready", timeout=120)
     return w, ready
+
+
+def go_answer(name: str, args: dict) -> dict:
+    """What the Go stand-in answers a ``tool.call``: ``{result, outside, end_turn}``."""
+    if name == "propose_changes":
+        return {"result": {"recorded": True, "message": PROPOSAL_RECORDED}, "outside": False, "end_turn": True}
+    if name in ("ask_bot", "preview_bot", "list_bot_findings", "list_bots"):
+        return {"result": {"page": "Outside page text: the price is 42."}, "outside": True, "end_turn": False}
+    return {"result": {"tool": name, "ok": True, "args": args}, "outside": False, "end_turn": False}
+
+
+def drive(worker: Worker, account: str, run_id: str, *, answer=go_answer, verdict: tuple[str, str] = ("block", BLOCK_MESSAGE),
+          on_message=None, timeout: float = 60.0) -> tuple[dict, list[dict]]:
+    """Play Go for one run: answer ``tool.call`` with ``answer(name, args)`` and ``gate.ask`` with
+    ``verdict`` until the run's ``run.done``. ``on_message(msg)`` sees every message first and may
+    send run controls. Returns ``(run.done, every message)``."""
+    seen: list[dict] = []
+    while True:
+        msg = worker.recv(timeout)
+        seen.append(msg)
+        if on_message is not None:
+            on_message(msg)
+        t = msg.get("type")
+        if t == "tool.call" and msg.get("run") == run_id:
+            reply = answer(msg["name"], msg.get("args") or {})
+            if reply is not None:
+                worker.send({"type": "tool.result", "id": msg["id"], "account": account, **reply})
+        elif t == "gate.ask" and msg.get("run") == run_id:
+            worker.send({"type": "gate.verdict", "id": msg["id"], "account": account,
+                         "verdict": verdict[0], "message": verdict[1]})
+        elif t == "run.done" and msg.get("run") == run_id:
+            return msg, seen
+        elif t == "__eof__":
+            raise AssertionError(f"worker exited during {run_id}; seen {seen}; stderr:\n{worker.stderr[-4000:]}")
 
 
 def model_cfg(stub) -> dict:
@@ -209,4 +260,5 @@ def run_start(agent: Agent, stub, run_id: str = "r1", text: str = "hello", conve
     return msg
 
 
-__all__ = ["Agent", "Worker", "ready_worker", "run_start", "new_root", "run_cli", "python", "env_check"]
+__all__ = ["Agent", "Worker", "ready_worker", "run_start", "new_root", "run_cli", "python", "env_check",
+           "timely_tools", "drive", "go_answer"]

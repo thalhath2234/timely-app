@@ -1,4 +1,4 @@
-"""Phase-1 tool policy constants shared by ``timely_gate`` and the self-test (plan section 8.1, 8.3).
+"""Tool policy constants shared by ``timely_gate``, ``timely_learning`` and the self-test (plan 8.1, 8.3, 9b.2).
 
 The full per-tool policy (allow / approve / block per run kind, with reviewed schema hashes)
 is ``.hermes-sync/policy/tools.yaml``; until the gate reads it, these lists are the floor:
@@ -41,6 +41,49 @@ BLOCKED_PREFIXES = ("kanban_", "meet_")  # meet_: the opt-in google_meet plugin 
 # skills; staging comes with phase 3). Hermes applies every plugin's block, so allowing here
 # never overrides timely_learning.
 LOCAL_ALLOW = frozenset({"todo_list", "skills_list", "skill_view", "skill_manage"})
+
+
+# The Timely tool that records a plan (plan 3.4 step 8): it must be the only call in its assistant
+# message, so it never runs next to (or before) the reads it depends on.
+PROPOSE_TOOL = "propose_changes"
+PROPOSE_ALONE = "Call propose_changes alone, after all read tools finish"
+
+# Taint sources (plan 9b.2): tools whose result brings outside content to the model. A call that
+# ran (was not blocked) adds ``{kind, tool, host?}`` to the run's taint and is reported to Go
+# (``taint``). Timely's own tools are not listed: Go marks their outside results (``outside: true``
+# in ``tool.result``). Delegation and session search are listed as sources outright until the
+# child-to-parent map and the tainted-conversation list arrive (phases 3-4).
+TAINT_SOURCES: dict[str, str] = {
+    "web_search": "web", "web_extract": "web", "bot_browse": "browser",
+    "read_file": "file", "search_files": "file",
+    "terminal": "terminal", "process": "terminal", "execute_code": "code",
+    "vision_analyze": "vision", "session_search": "session", "delegate_task": "subagent",
+}
+TAINT_PREFIXES: tuple[tuple[str, str], ...] = (("web_", "web"), ("browser_", "browser"), ("mcp_", "mcp"))
+
+
+def taint_kind(tool: str, toolset: str = "") -> str:
+    """The taint kind a tool's result carries, or "" when it is not a taint source."""
+    if tool in TAINT_SOURCES:
+        return TAINT_SOURCES[tool]
+    if toolset.startswith("mcp-"):
+        return "mcp"
+    for prefix, kind in TAINT_PREFIXES:
+        if tool.startswith(prefix):
+            return kind
+    return ""
+
+
+def taint_host(args: Mapping[str, Any] | None) -> str:
+    """The host a web or browser call names in a ``url`` argument, else ""."""
+    from urllib.parse import urlsplit
+    url = (args or {}).get("url") if isinstance(args, Mapping) else None
+    if not isinstance(url, str) or not url.strip():
+        return ""
+    try:
+        return (urlsplit(url.strip() if "://" in url else "http://" + url.strip()).hostname or "").lower()
+    except ValueError:
+        return ""
 
 
 def is_messaging(tool: str) -> bool:

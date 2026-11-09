@@ -1,6 +1,11 @@
-"""timely_gate: Timely's tool policy at Hermes' ``pre_tool_call`` hook (plan sections 3.5, 8.1).
+"""timely_gate: Timely's tool policy at Hermes' ``pre_tool_call`` hook (plan sections 3.4, 3.5, 8.1).
 
-Hermes runs this hook for every tool call, MCP included, before the tool runs. Phase-1 policy:
+Hermes runs this hook for every tool call, MCP included, before the tool runs. Policy:
+
+0. The turn has ended (Q-2.4): Go answered a recorded ``propose_changes`` with ``end_turn``; the
+   model may write one closing sentence, and any further tool call is blocked and ends the turn
+   (a soft interrupt with ``tool_reason="timely_end_turn"``; ``run_chat`` reports it as
+   ``turn_exit_reason: "end_turn"``, not as a Stop).
 
 1. Messaging and never-offered tools: ``block``.
 1b. A browser tool (``browser_*``) whose arguments name a URL on a private, loopback, link-local
@@ -10,8 +15,13 @@ Hermes runs this hook for every tool call, MCP included, before the tool runs. P
    ``url_safety.is_safe_url`` to every URL literal in the arguments (plan 12; what a literal
    check cannot see, such as URLs built at run time or redirects, is the residual in plan 14).
 2. A call Go pre-approved for a parked-approval continuation (same tool, same args hash): allow.
+2b. ``propose_changes`` that is not the only call of its assistant message: ``block`` with
+   "Call propose_changes alone, after all read tools finish" (plan 3.4 step 8). The batch was
+   recorded from the model response (``timely_tools.post_api_request``) before any of its tools
+   ran, so the decision never depends on whether a sibling ran first; an unknown batch blocks too.
 3. A few read-only bookkeeping tools (``policy.LOCAL_ALLOW``) and the Timely toolset: allow.
-4. Everything else: ask Go (``gate.ask``) and return its verdict; no answer means ``block``.
+4. Everything else: ask Go (``gate.ask``) and return its verdict; no answer means ``block``. In
+   phase 2 Go answers ``block`` ("That isn't available in Timely yet") for every such tool.
 
 An ``approve`` verdict becomes Hermes' human-approval gate with ``rule_key
 timely:<tool_call_id>`` (the approval payload carries no arguments, so the key carries the id).
@@ -30,6 +40,9 @@ PLUGIN = "timely_gate"
 TIMELY_TOOLSET_PREFIX = "timely_"
 NO_RUN = "Blocked: this tool can only run inside a Timely chat or bot run."
 NO_ANSWER = "Blocked: Timely did not answer the permission check in time."
+END_TURN = ("Blocked: the proposal is recorded and this turn has ended. Reply to the person in one "
+            "sentence; do not call more tools.")
+UNKNOWN_BATCH = "Blocked: Timely could not tell which calls came with propose_changes. " + policy.PROPOSE_ALONE + "."
 PRIVATE_TARGET = ("Blocked: {tool} would reach {url}, a private, loopback or internal address. "
                   "Timely's browser only visits public sites.")
 BROWSER_PREFIX = "browser_"
@@ -88,6 +101,17 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, tool_call_id: s
     if target:
         return {"action": "block", "message": PRIVATE_TARGET.format(tool=tool_name, url=target[:200])}
     run = bridge.current_run.get()
+    if run is not None and run.end_turn:
+        return _end_turn(run)
+    if run is not None and tool_call_id:
+        run.note_call(tool_name, tool_call_id)
+    if tool_name == policy.PROPOSE_TOOL and _timely_tool(tool_name):
+        batch = run.batch_for(tool_call_id, tool_name) if run is not None else None
+        if batch is None:
+            logger.warning("propose_changes %r: no recorded batch for this call id", tool_call_id)
+            return {"action": "block", "message": UNKNOWN_BATCH}
+        if batch.size != 1:
+            return {"action": "block", "message": policy.PROPOSE_ALONE}
     pre = run.pre_approved if run else None
     if pre and pre.get("tool") == tool_name and pre.get("args_hash") == policy.args_hash(args):
         run.pre_approved = None  # exactly one matching call
@@ -110,6 +134,18 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, tool_call_id: s
         return {"action": "approve", "message": message or f"Run {tool_name}?",
                 "rule_key": f"timely:{tool_call_id or tool_name}"}
     return {"action": "block", "message": message or f"Blocked: Timely did not allow {tool_name}."}
+
+
+def _end_turn(run) -> dict:
+    """Block the call and stop the loop after this round (soft interrupt, system reason)."""
+    run.end_turn_hit = True
+    agent = run.agent
+    if agent is not None:
+        try:
+            agent.interrupt(None, tool_reason="timely_end_turn")
+        except Exception as exc:
+            logger.warning("ending the turn after propose_changes failed: %s", exc)
+    return {"action": "block", "message": END_TURN}
 
 
 def register(ctx) -> None:

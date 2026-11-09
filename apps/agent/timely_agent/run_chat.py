@@ -1,9 +1,22 @@
 """One chat turn on the vendored Hermes agent loop (plan section 3.4 steps 4-6 and 9).
 
-Phase 1 runs a turn end to end against any OpenAI-compatible endpoint (the tests use a stub
-model): build or reuse the conversation's ``AIAgent``, run ``run_conversation``, forward
-callbacks as ``event`` messages and answer with ``run.done``. Timely tools, the Timely system
-block decision (contract test 6), learning and approvals arrive in later phases.
+Build or reuse the conversation's ``AIAgent``, run ``run_conversation``, forward callbacks as
+``event`` messages and answer with ``run.done``.
+
+- **The Timely block** (``run.start.system_text``) goes in as the constructor's
+  ``ephemeral_system_prompt`` (``SYSTEM_VIA``), chosen with contract test 6 (plan 5.3): Hermes
+  appends it to the system prompt at API-call time, byte-identical every turn and after a rebuild
+  from ``state.db``, and never stores it there, so a changed block (catalog, scope line) reaches
+  the next turn. ``run_conversation(system_message=...)`` is baked into the prompt Hermes persists
+  on the first turn and restored verbatim afterwards, so a changed block is ignored for the rest
+  of the conversation. Evidence: ``timely_agent/README.md``.
+- **No Timely turn cap** (Q-2.3): ``budgets.max_iterations`` only when Go sends one; otherwise
+  Hermes' own ``agent.max_turns`` from config (``resolve_turn_limit``; unlimited by default).
+- **Streaming** (Q-2.5): ``delta`` events are coalesced to at most one per 50 ms or 200
+  characters (``DeltaCoalescer``), never dropping text, flushed before any other event, before a
+  Timely ``tool.call`` and before ``run.done``.
+- **End of turn after a proposal** (Q-2.4): when ``timely_gate`` ended the turn on a tool call
+  after ``end_turn``, ``run.done`` says ``turn_exit_reason: "end_turn"``, ``interrupted: false``.
 """
 
 from __future__ import annotations
@@ -22,8 +35,90 @@ logger = logging.getLogger("timely_agent.run_chat")
 
 TOKEN_KEYS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens",
               "reasoning_tokens", "total_tokens")
-DEFAULT_MAX_ITERATIONS = 30
 AGENT_CACHE_MAX = 16
+# Where the Timely block goes (contract test 6): "ephemeral" = AIAgent(ephemeral_system_prompt=...),
+# "system_message" = run_conversation(system_message=...). The contract test flips it through
+# probe_boot to prove the choice.
+SYSTEM_VIA = "ephemeral"
+DELTA_INTERVAL_S = 0.05
+DELTA_MAX_CHARS = 200
+END_TURN_EXIT = "end_turn"
+
+
+class DeltaCoalescer:
+    """Coalesces streamed reply text: at most one ``delta`` per ``interval`` seconds, or sooner
+    once ``max_chars`` characters wait. Text is never dropped or reordered: pending text goes out
+    when the interval has passed (a timer covers a stream that pauses), before any other event
+    (``emit`` for another kind) and on ``flush``/``close``."""
+
+    def __init__(self, emit: Callable[[str, dict], None], interval: float = DELTA_INTERVAL_S,
+                 max_chars: int = DELTA_MAX_CHARS, clock: Callable[[], float] = time.monotonic):
+        self._emit, self.interval, self.max_chars, self._clock = emit, interval, max_chars, clock
+        self._lock = threading.RLock()
+        self._buf: list[str] = []
+        self._size = 0
+        self._last = float("-inf")
+        self._timer: Optional[threading.Timer] = None
+        self._closed = False
+
+    def push(self, text: str) -> None:
+        if not text:
+            return
+        with self._lock:
+            self._buf.append(text)
+            self._size += len(text)
+            now = self._clock()
+            if self._size >= self.max_chars or now - self._last >= self.interval:
+                self._send_locked(now)
+            elif self._timer is None and not self._closed:
+                wait = max(0.0, self.interval - (now - self._last))
+                self._timer = threading.Timer(wait, self._on_timer)
+                self._timer.daemon = True
+                self._timer.start()
+
+    def _on_timer(self) -> None:
+        with self._lock:
+            self._timer = None
+            if self._buf:
+                self._send_locked(self._clock())
+
+    def _send_locked(self, now: float) -> None:
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
+        if not self._buf:
+            return
+        text = "".join(self._buf)
+        self._buf, self._size, self._last = [], 0, now
+        self._emit("delta", {"text": text})
+
+    def flush(self) -> None:
+        with self._lock:
+            self._send_locked(self._clock())
+
+    def emit(self, kind: str, payload: dict) -> None:
+        """The run's event sink: deltas are coalesced, anything else flushes them first."""
+        if kind == "delta":
+            self.push(str(payload.get("text") or ""))
+            return
+        with self._lock:
+            self._send_locked(self._clock())
+            self._emit(kind, payload)
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+            self._send_locked(self._clock())
+
+
+def turn_limit(budgets: dict[str, Any] | None) -> int:
+    """Q-2.3: ``budgets.max_iterations`` when Go sends a positive one (bots, later), else
+    Hermes' own default: ``agent.max_turns`` from config through ``resolve_turn_limit``."""
+    value = (budgets or {}).get("max_iterations")
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    from hermes_cli.config import load_config, resolve_turn_limit
+    return resolve_turn_limit(((load_config() or {}).get("agent") or {}).get("max_turns"))
 
 
 @dataclass
@@ -81,6 +176,8 @@ def config_signature(msg: dict[str, Any]) -> str:
         "provider": model.get("provider"), "model": model.get("model"), "base_url": model.get("base_url"),
         "api_mode": model.get("api_mode"), "reasoning": model.get("reasoning"),
         "toolsets": sorted(msg.get("toolsets") or []), "system": msg.get("system_hash") or "",
+        # the block itself too: with ephemeral_system_prompt a changed block needs a new agent
+        "system_text": hashlib.sha256(str(msg.get("system_text") or "").encode()).hexdigest(),
     }
     return hashlib.sha256(json.dumps(sig, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
@@ -141,7 +238,6 @@ def build_agent(msg: dict[str, Any], emit: EmitRef):
     from run_agent import AIAgent
 
     model = msg.get("model") or {}
-    budgets = msg.get("budgets") or {}
     toolsets = [str(t) for t in msg.get("toolsets") or []]
 
     def delta(text=None, *_, **__):
@@ -162,13 +258,14 @@ def build_agent(msg: dict[str, Any], emit: EmitRef):
         emit("status", {"kind": str(kind or ""), "message": str(message or "")})
 
     reasoning_cfg = model.get("reasoning")
+    system_text = str(msg.get("system_text") or "")
     return AIAgent(
         base_url=model.get("base_url") or None,
         api_key=model.get("api_key") or None,
         provider=model.get("provider") or None,
         api_mode=model.get("api_mode") or None,
         model=model.get("model") or "",
-        max_iterations=int(budgets.get("max_iterations") or DEFAULT_MAX_ITERATIONS),
+        max_iterations=turn_limit(msg.get("budgets")),
         enabled_toolsets=toolsets,  # explicit, never None (section 8.1)
         # The managed floor agent.disabled_toolsets: AIAgent does not read that key itself (Hermes'
         # CLI and gateway pass it in), so pass it here; subtracted last, after any composite.
@@ -181,6 +278,7 @@ def build_agent(msg: dict[str, Any], emit: EmitRef):
         skip_context_files=True,
         skip_memory=True,  # memory and learning writes stay off until phase 3
         skip_background_review=True,
+        ephemeral_system_prompt=(system_text or None) if SYSTEM_VIA == "ephemeral" else None,
         reasoning_config=reasoning_cfg if isinstance(reasoning_cfg, dict) else None,
         stream_delta_callback=delta,
         tool_start_callback=tool_start,
@@ -188,6 +286,23 @@ def build_agent(msg: dict[str, Any], emit: EmitRef):
         reasoning_callback=reasoning,
         status_callback=status,
     )
+
+
+def _closing_text(result: dict[str, Any]) -> str:
+    """The closing sentence the model wrote after a recorded proposal: the last non-empty
+    assistant text after the ``propose_changes`` call (Hermes appends an empty assistant row when
+    the turn is interrupted), never Hermes' own interruption wording."""
+    for message in reversed(result.get("messages") or []):
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+        names = [((c or {}).get("function") or {}).get("name") for c in message.get("tool_calls") or []
+                 if isinstance(c, dict)]
+        if "propose_changes" in names:
+            return ""
+    return ""
 
 
 def _session_tokens(agent) -> dict[str, int]:
@@ -212,12 +327,15 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
                             "turn_exit_reason": "", "tokens": {}, "estimated_cost_usd": None,
                             "turn_id": None, "tainted_sources": []}
     key_token = var_tokens = scope_token = None
+    sink = DeltaCoalescer(emit)
+    ctx = bridge.RunContext(
+        run_id=run.run_id, session_key=session_key, conversation_id=conversation, kind="chat",
+        tainted_sources=list(msg.get("tainted_sources") or []), pre_approved=msg.get("pre_approved") or None,
+        permission=str(msg.get("permission") or "supervised"), flags=dict(msg.get("flags") or {}),
+        flush=sink.flush)
     try:
-        ctx = bridge.RunContext(
-            run_id=run.run_id, session_key=session_key, conversation_id=conversation, kind="chat",
-            tainted_sources=list(msg.get("tainted_sources") or []), pre_approved=msg.get("pre_approved") or None)
         bridge.current_run.set(ctx)
-        done["tainted_sources"] = ctx.tainted_sources
+        done["tainted_sources"] = ctx.taint_snapshot()
         key_token = set_current_session_key(session_key)
         var_tokens = set_session_vars(platform="timely", session_key=session_key, session_id=conversation,
                                       chat_id=conversation)
@@ -232,7 +350,8 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
             agent = build_agent(msg, ref)
             agent._timely_emit = ref
             cache.put(conversation, signature, agent)
-        agent._timely_emit.emit = emit
+        agent._timely_emit.emit = sink.emit
+        ctx.agent = agent
         run.attach(agent)
         if run.stop_reason:
             done.update(interrupted=True, turn_exit_reason="interrupted")
@@ -241,7 +360,7 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
         cost_before = getattr(agent, "session_estimated_cost_usd", None)
         history = msg.get("history")
         kwargs: dict[str, Any] = {"task_id": conversation}
-        if msg.get("system_text"):
+        if msg.get("system_text") and SYSTEM_VIA == "system_message":
             kwargs["system_message"] = str(msg["system_text"])
         if isinstance(history, list) and history:
             kwargs["conversation_history"] = history
@@ -262,8 +381,12 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
             turn_exit_reason=str(result.get("turn_exit_reason") or ""),
             tokens={k: max(0, after[k] - before[k]) for k in TOKEN_KEYS},
             turn_id=result.get("turn_id"),
-            tainted_sources=ctx.tainted_sources,
         )
+        if ctx.end_turn_hit and not run.stop_reason:
+            # timely_gate ended the turn on a tool call after a recorded proposal (Q-2.4): that is
+            # the turn finishing, not a Stop. The interrupt it raised is cleared below.
+            done.update(interrupted=False, completed=True, turn_exit_reason=END_TURN_EXIT,
+                        final_response=_closing_text(result))
         if isinstance(cost_after, (int, float)):
             base = cost_before if isinstance(cost_before, (int, float)) else 0.0
             done["estimated_cost_usd"] = max(0.0, float(cost_after) - float(base))
@@ -274,6 +397,17 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
         done["error"] = f"{type(exc).__name__}: {exc}"
         cache.drop(conversation)
     finally:
+        done["tainted_sources"] = ctx.taint_snapshot()
+        try:
+            sink.close()  # every delta before run.done
+        except Exception:
+            logger.exception("run %s: flushing stream text failed", run.run_id)
+        if ctx.end_turn_hit and run.agent is not None:
+            try:
+                run.agent.clear_interrupt()
+            except Exception:
+                logger.exception("run %s: clearing the end-of-turn interrupt failed", run.run_id)
+                cache.drop(conversation)
         try:
             run.finish()
         except Exception:

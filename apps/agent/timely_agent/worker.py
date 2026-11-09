@@ -13,6 +13,7 @@ import contextvars
 import json
 import logging
 import os
+import re
 import sys
 import threading
 import time
@@ -91,6 +92,46 @@ def run_start_problem(msg: dict[str, Any]) -> Optional[str]:
         return "tainted_sources must be a list of source objects"
     if any(not isinstance(h, dict) for h in msg.get("history") or []):
         return "history must be a list of message objects"
+    permission = msg.get("permission")
+    if permission is not None and permission not in bridge.PERMISSIONS:
+        return f"permission must be one of {list(bridge.PERMISSIONS)}, not {permission!r}"
+    learning = (msg.get("flags") or {}).get("learning_writes")
+    if learning is not None and not isinstance(learning, bool):
+        return "flags.learning_writes must be a bool"
+    return None
+
+
+TOOL_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,63}$")
+
+
+def timely_tools_problem(value: Any) -> Optional[str]:
+    """Why ``hello.timely_tools`` has the wrong shape, else None (PROTOCOL.md section 6)."""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        return "timely_tools must be an object"
+    if not isinstance(value.get("catalog_version", ""), str):
+        return "timely_tools.catalog_version must be a string"
+    tools = value.get("tools")
+    if not isinstance(tools, list):
+        return "timely_tools.tools must be a list"
+    from timely_agent import policy
+    seen: set[str] = set()
+    for spec in tools:
+        if not isinstance(spec, dict) or not isinstance(spec.get("name"), str):
+            return "each timely_tools.tools entry needs a name"
+        name = spec["name"]
+        if not TOOL_NAME.match(name) or policy.is_blocked(name):
+            return f"timely_tools.tools has a name Timely cannot offer: {name!r}"
+        if name in seen:
+            return f"timely_tools.tools names {name!r} twice"
+        seen.add(name)
+        if not isinstance(spec.get("description", ""), str):
+            return f"timely_tools.tools {name}: description must be a string"
+        if not isinstance(spec.get("parameters", {}), dict):
+            return f"timely_tools.tools {name}: parameters must be an object"
+        if not isinstance(spec.get("outside", False), bool):
+            return f"timely_tools.tools {name}: outside must be a bool"
     return None
 
 
@@ -108,6 +149,7 @@ class Worker:
         self._shutdown_started = False
         self.home = Path(os.environ["HERMES_HOME"]).resolve()
         bridge.ask = self._ask
+        bridge.notify = self.send
 
     # ------------------------------------------------------------ plumbing
     def send(self, msg: dict[str, Any]) -> bool:
@@ -149,6 +191,10 @@ class Worker:
             raise P.ProtocolError(P.E_BAD_MESSAGE, "hello needs prepare's skills_default_off list", mid)
         if not paths.within(layout.root, timely_skills):
             raise P.ProtocolError(P.E_BAD_MESSAGE, "hello.timely_skills_dir is outside the agent folder", mid)
+        problem = timely_tools_problem(msg.get("timely_tools"))
+        if problem:
+            raise P.ProtocolError(P.E_BAD_MESSAGE, f"hello {problem}", mid)
+        timely_tools = msg.get("timely_tools") or {}
         settings = msg.get("settings")
         if isinstance(settings, dict):
             # Go sent the settings themselves: render here (same code as `boot.py render-account`).
@@ -177,6 +223,9 @@ class Worker:
         for planted in env_check.set_aside_home_dotenv(self.home):
             logger.warning("set aside %s: Hermes would load it over the worker environment", planted)
         env_before = dict(os.environ)
+        # Timely tool specs before Hermes discovers plugins (importing run_agent already does):
+        # timely_tools.register reads them (plan 5.2).
+        bridge.set_timely_tools(timely_tools.get("tools") or [], timely_tools.get("catalog_version") or "")
         import run_agent  # noqa: F401  (the agent loop; also loads model_tools)
         from timely_agent import dotenv_guard
         dotenv_guard.install()  # R2: no dotenv reload after this point (MCP config loads call it)
@@ -206,7 +255,8 @@ class Worker:
         from timely_agent import selftest
         result = selftest.run(expected_home=str(self.home), timely_skills_dir=timely_skills,
                               browser_executable=browser, managed_sha256=managed_sha,
-                              env_before=env_before, env_ignore=ours, required_disabled=required_off)
+                              env_before=env_before, env_ignore=ours, required_disabled=required_off,
+                              timely_tools=[t["name"] for t in bridge.timely_tools()])
         from hermes_cli.plugins import get_plugin_manager
         loaded = sorted(p.get("key") or p.get("name") for p in get_plugin_manager().list_plugins() if p.get("enabled"))
         self.ready = result["ok"]
@@ -222,6 +272,8 @@ class Worker:
             "config_sha256": actual,
             "skills_sync": skills_sync, "boot_ms": int((time.monotonic() - started) * 1000),
             "catalog_version": msg.get("catalog_version"),
+            "timely_tools": {"catalog_version": bridge.timely_catalog_version(),
+                             "registered": sorted(result.get("timely_registered") or [])},
         })
         threading.Thread(target=self._heartbeat, name="timely-heartbeat", daemon=True).start()
 
@@ -337,6 +389,7 @@ class Worker:
     def on_run_stop(self, msg: dict[str, Any]) -> None:
         run = self._find_run(msg)
         run.stop(str(msg.get("reason") or "stopped"))
+        self.pending.cancel_run(run.run_id)  # a tool.call or gate.ask waiting on Go ends at once
 
     def on_run_steer(self, msg: dict[str, Any]) -> None:
         run = self._find_run(msg)

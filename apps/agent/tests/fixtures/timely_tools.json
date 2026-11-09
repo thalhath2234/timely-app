@@ -1,0 +1,1137 @@
+{
+ "_comment": "Timely chat tool specs as Go's agent catalog declares them on 2026-11-09 (47 Read tools from agent.NewCatalog, plus propose_changes and resolve_target as chat/runner.go builds them). Test input for timely_tools, the tool_search measurement and the fixture recorder; the live list comes from hello.timely_tools.",
+ "tools": [
+  {
+   "description": "What a bot (id or name) knows now: its latest readings and findings. If the bot is on and its last check is over an hour old, it checks once first (at most once every 5 minutes per bot), which can take up to 30 seconds. It changes nothing.",
+   "name": "ask_bot",
+   "outside": true,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "bot": {
+      "description": "bot id or name",
+      "type": "string"
+     }
+    },
+    "required": [
+     "bot"
+    ],
+    "type": "object"
+   }
+  },
+  {
+   "description": "Preview engine v2 placement without writing. Recurring work occurrences in the horizon are placed as blocks (not new task rows). Returns proposals (with why), skipped (reason+message), changes (add/move/remove/pin), capacity, and risks. Scores are ordering hints, not certainty.",
+   "name": "auto_schedule_preview",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "from": {
+      "type": "string"
+     },
+     "includeManual": {
+      "type": "boolean"
+     },
+     "taskIds": {
+      "items": {
+       "type": "string"
+      },
+      "type": [
+       "null",
+       "array"
+      ]
+     },
+     "timezone": {
+      "type": "string"
+     },
+     "to": {
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  },
+  {
+   "description": "Calendar items, overdue tasks, and unscheduled work for a day or week.",
+   "name": "get_agenda",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "from": {
+      "description": "RFC3339 start, defaults to start of today",
+      "type": "string"
+     },
+     "timezone": {
+      "description": "IANA zone for dates without an offset; a timezone saved in Working hours wins",
+      "type": "string"
+     },
+     "to": {
+      "description": "RFC3339 end, defaults to from+1 day",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  },
+  {
+   "description": "One bot's settings (id or name): its watches with their rules, how often it checks and where it alerts. Read it before proposing update_bot.",
+   "name": "get_bot",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "bot": {
+      "description": "bot id or name",
+      "type": "string"
+     }
+    },
+    "required": [
+     "bot"
+    ],
+    "type": "object"
+   }
+  },
+  {
+   "description": "Unified calendar items in a date range.",
+   "name": "get_calendar",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "from": {
+      "description": "RFC3339 start, defaults to start of today",
+      "type": "string"
+     },
+     "timezone": {
+      "description": "IANA zone for dates without an offset; a timezone saved in Working hours wins",
+      "type": "string"
+     },
+     "to": {
+      "description": "RFC3339 end, defaults to from+1 day",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  },
+  {
+   "description": "Per-day available vs scheduled vs planned minutes. overCapacity and atRisk are flags, not certainty.",
+   "name": "get_capacity",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "from": {
+      "type": "string"
+     },
+     "timezone": {
+      "type": "string"
+     },
+     "to": {
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  },
+  {
+   "description": "User, workspaces (statuses, labels, custom fields), projects with stages and open/done counts, working hours, saved views, and current time. Call this first.",
+   "name": "get_context",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "type": "object"
+   }
+  },
+  {
+   "description": "Get a document as markdown (GFM plus math, callouts, footnotes, frontmatter, [[wiki links]], mermaid/geojson/stl blocks and openui-lang live blocks). Big stl/geojson/topojson blocks and very long code show as a [kept ...] placeholder line with a short summary; keep that line to keep the block. Pass focus (what you are looking for, in a few words from the request) to read a long doc: only its sections about that come back in full, the others as one [section kept out ...] line each. Writing such a line back keeps that section unchanged; call again with full=true to read the whole doc, and do that before rewriting or reorganizing all of it.",
+   "name": "get_doc",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "docId": {
+      "type": "string"
+     },
+     "focus": {
+      "description": "what you are looking for in the doc, in a few words; a long doc then shows only the sections about it",
+      "type": "string"
+     },
+     "full": {
+      "description": "true returns the whole doc even with a focus",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "docId"
+    ],
+    "type": "object"
+   }
+  },
+  {
+   "description": "Documents that link to this one ([[wiki links]] or mentions), with a snippet around each link.",
+   "name": "get_doc_backlinks",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "docId": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "docId"
+    ],
+    "type": "object"
+   }
+  },
+  {
+   "description": "Get one event.",
+   "name": "get_event",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "eventId": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "eventId"
+    ],
+    "type": "object"
+   }
+  },
+  {
+   "description": "Working-hour gaps with no events or task blocks.",
+   "name": "get_free_time",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "from": {
+      "description": "RFC3339 start, defaults to start of today",
+      "type": "string"
+     },
+     "timezone": {
+      "description": "IANA zone for dates without an offset; a timezone saved in Working hours wins",
+      "type": "string"
+     },
+     "to": {
+      "description": "RFC3339 end, defaults to from+1 day",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  },
+  {
+   "description": "For each goal, the open Work that moves it forward, as on Today. Needs smart suggestions; available=false means they are off.",
+   "name": "get_goal_progress",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "type": "object"
+   }
+  },
+  {
+   "description": "Reminder, digest, planning, and quiet-hours preferences.",
+   "name": "get_notification_settings",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "type": "object"
+   }
+  },
+  {
+   "description": "Get a project with stages, progress, and a stage board (Unstaged + stg_ columns).",
+   "name": "get_project",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "projectId": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "projectId"
+    ],
+    "type": "object"
+   }
+  },
+  {
+   "description": "Engine controls: breakMinutes, freezeHours (near-term blocks the engine will not move), excludedWorkspaceIds.",
+   "name": "get_schedule_settings",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "type": "object"
+   }
+  },
+  {
+   "description": "Get a sheet: every tab as a markdown table (tab name and tabId, A1 column letters, row numbers; blank rows left out) with each tab's columns. With tabId (a tab id or name such as \"October\"), or for a one-tab sheet, also that tab's raw grid: row ids, formats, frozen panes and colour rules. Formulas start with = and use A1 coordinates per tab (data starts at row 1, headers excluded). Ranges: N2:N21 (bounded), N:N (whole column), 2:2 (whole row), N2:N (row 2 onward), B2:2 (column B onward); whole and open ranges include future rows. $A$1 and mixed A$1/$A1 refs stay put when a formula is copied. Other tabs: =January!H2, ='Jan Spend'!A1, =SUM(January!H2:H); an unknown tab gives #REF!. Operators: + - * / ^ % & = <> < > <= >=; text compares ignore case; date + 7 and date - date work in days. Functions: SUM, AVERAGE, MIN, MAX, PRODUCT, COUNT, COUNTA, COUNTBLANK, MEDIAN, STDEV, LARGE, SMALL, RANK, SUMPRODUCT; SUMIF, SUMIFS, COUNTIF, COUNTIFS, AVERAGEIF, AVERAGEIFS, MAXIFS, MINIFS (criteria like \">1000\", \"<>\", \"groceries\", or a date); IF, IFS, IFERROR, IFNA, SWITCH, CHOOSE, AND, OR, NOT, ISBLANK, ISNUMBER, ISTEXT, ISERROR; VLOOKUP, HLOOKUP, XLOOKUP, INDEX, MATCH, ROWS, COLUMNS; ABS, ROUND, ROUNDUP, ROUNDDOWN, INT, MOD, POWER, SQRT, CEILING, FLOOR; LEN, LEFT, RIGHT, MID, FIND, SEARCH, SUBSTITUTE, REPLACE, TRIM, UPPER, LOWER, PROPER, CONCAT, TEXTJOIN, VALUE, TEXT; TODAY, NOW, DATE, YEAR, MONTH, DAY, WEEKDAY(date[,type]) (1=Sun..7=Sat; type 2 = 1=Mon..7=Sun), WEEKNUM, DAYS(end,start), DATEDIF, EDATE, EOMONTH, WORKDAY, NETWORKDAYS. TEXT(value,format) takes date tokens dddd/ddd (weekday name), mmmm/mmm (month name), yyyy, mm, dd, so =TEXT(A1,\"dddd\") gives the weekday of a date cell. Use SUM to add ranges: =B5+SUM(N2:N), not =B5+N2:N. Keep a formula cell outside its own range to avoid #CYCLE!. Formulas are stored verbatim; get_sheet and the edit tools return raw formulas, and get_sheet_values returns the worked-out values (it can also work out a one-off formula). References follow inserted and deleted rows and columns and renamed tabs, as in the apps: delete_sheet_rows and delete_sheet_column rewrite formulas on every tab, and references to deleted cells become #REF!. update_sheet stores grids as sent, so rewrite formulas yourself there.",
+   "name": "get_sheet",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "sheetId": {
+      "type": "string"
+     },
+     "tabId": {
+      "description": "one tab's grid with row ids: a tab id or the tab's name such as \"October\"; empty shows every tab as markdown with each tab's columns",
+      "type": "string"
+     }
+    },
+    "required": [
+     "sheetId"
+    ],
+    "type": "object"
+   }
+  },
+  {
+   "description": "Get one sheet template, saved or built in (such as builtin:yearly-expenses).",
+   "name": "get_sheet_template",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "templateId": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "templateId"
+    ],
+    "type": "object"
+   }
+  },
+  {
+   "description": "Read a sheet's worked-out values, the numbers and text the apps show (formulas already calculated), to answer questions about its data: totals, what was bought where, the biggest buy. Every tab, or one with tabId (a tab id or name such as \"October\"), as a markdown table with row numbers; rows without an entry are left out. Pass formula to work out one formula without saving it, e.g. =SUMIF(January!C2:C,\"Groceries\",January!H2:H) or =COUNTIF(D2:D,\"Keells\"). Dates come back as YYYY-MM-DD and percent columns as fractions. Read-only; use get_sheet for formulas and ids before editing.",
+   "name": "get_sheet_values",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "formula": {
+      "description": "work out one formula without saving it, e.g. =SUMIF(C2:C,\"Groceries\",H2:H) or =SUM(January!H2:H); references without a tab read tabId's tab",
+      "type": "string"
+     },
+     "sheetId": {
+      "type": "string"
+     },
+     "tabId": {
+      "description": "tab id from get_sheet, or the tab's name such as \"October\"; empty shows every tab, or works the formula out on the first tab",
+      "type": "string"
+     }
+    },
+    "required": [
+     "sheetId"
+    ],
+    "type": "object"
+   }
+  },
+  {
+   "description": "Get a task with blocks, recurrence, checklist, progress, and recent activity.",
+   "name": "get_task",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "taskId": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "taskId"
+    ],
+    "type": "object"
+   }
+  },
+  {
+   "description": "Today view: scheduled items, overdue, inbox count, today-focus set, active focus, completed today, and unfinished scheduled work.",
+   "name": "get_today",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "date": {
+      "type": "string"
+     },
+     "timezone": {
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  },
+  {
+   "description": "Today's smart suggestions, as on Today: focus picks with their reasons and goal, the next free gap with the Work that fits it, and how many top tasks move each goal. available=false means smart suggestions are off.",
+   "name": "get_today_suggestions",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "timezone": {
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  },
+  {
+   "description": "Weekly availability template.",
+   "name": "get_working_hours",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "timezone": {
+      "description": "IANA timezone fallback, same as HTTP ?tz=",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  },
+  {
+   "description": "Get one workspace.",
+   "name": "get_workspace",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "workspaceId": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "workspaceId"
+    ],
+    "type": "object"
+   }
+  },
+  {
+   "description": "What the bots found, newest first: the findings board. bot (id or name) keeps one bot's; since is RFC 3339; limit is at most 100 (default 50).",
+   "name": "list_bot_findings",
+   "outside": true,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "bot": {
+      "description": "bot id or name; all bots when left out",
+      "type": "string"
+     },
+     "limit": {
+      "description": "at most 100, default 50",
+      "type": "integer"
+     },
+     "since": {
+      "description": "RFC 3339; only findings from then on",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  },
+  {
+   "description": "The person's bots: status, schedule, health and each watch with its rules, a short summary of its last reading and, for a shop page, whether it can be bought (availability).",
+   "name": "list_bots",
+   "outside": true,
+   "parameters": {
+    "additionalProperties": false,
+    "type": "object"
+   }
+  },
+  {
+   "description": "Saved versions of a document, newest first: id, title, words, reason and when it was edited. current marks the version matching the doc now.",
+   "name": "list_doc_versions",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "docId": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "docId"
+    ],
+    "type": "object"
+   }
+  },
+  {
+   "description": "List active documents by default. archived=true lists the archive; archived=false is the default.",
+   "name": "list_docs",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "archived": {
+      "type": [
+       "null",
+       "boolean"
+      ]
+     },
+     "favorite": {
+      "type": [
+       "null",
+       "boolean"
+      ]
+     },
+     "parentId": {
+      "description": "use empty omitted; 'root' for top-level",
+      "type": "string"
+     },
+     "projectId": {
+      "type": "string"
+     },
+     "text": {
+      "type": "string"
+     },
+     "workspaceId": {
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  },
+  {
+   "description": "List all calendar events (no date filter). Use get_calendar for a date range.",
+   "name": "list_events",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "type": "object"
+   }
+  },
+  {
+   "description": "Focus sessions that ended between from and to (YYYY-MM-DD, both days included, in the account's timezone), oldest first, with task name and minutes. taskId keeps one task's sessions.",
+   "name": "list_focus_sessions",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "from": {
+      "description": "first day, YYYY-MM-DD",
+      "type": "string"
+     },
+     "taskId": {
+      "type": "string"
+     },
+     "timezone": {
+      "type": "string"
+     },
+     "to": {
+      "description": "last day, YYYY-MM-DD (included)",
+      "type": "string"
+     }
+    },
+    "required": [
+     "from",
+     "to"
+    ],
+    "type": "object"
+   }
+  },
+  {
+   "description": "The person's goals (up to five, in their own words and order), shown on Today.",
+   "name": "list_goals",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "type": "object"
+   }
+  },
+  {
+   "description": "The person's daily habits with whether each is done today, its current streak in days and the last seven days (oldest first). Today is the account's date unless today (YYYY-MM-DD) is given.",
+   "name": "list_habits",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "timezone": {
+      "type": "string"
+     },
+     "today": {
+      "description": "YYYY-MM-DD; defaults to the account's today",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  },
+  {
+   "description": "List unprocessed inbox items.",
+   "name": "list_inbox",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "type": "object"
+   }
+  },
+  {
+   "description": "In-app notifications, newest first. unread=true lists only unread.",
+   "name": "list_notifications",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "limit": {
+      "type": "integer"
+     },
+     "unread": {
+      "type": "boolean"
+     }
+    },
+    "type": "object"
+   }
+  },
+  {
+   "description": "List projects with open/done/progress summaries. Optional filters: workspaceId, statusId, completed.",
+   "name": "list_projects",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "completed": {
+      "type": [
+       "null",
+       "boolean"
+      ]
+     },
+     "statusId": {
+      "type": "string"
+     },
+     "workspaceId": {
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  },
+  {
+   "description": "List the person's saved sheet templates and the built-in ones (builtins, such as builtin:yearly-expenses). Pass an id to create_sheet.",
+   "name": "list_sheet_templates",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "type": "object"
+   }
+  },
+  {
+   "description": "List active sheets by default (title, id and each tab's name, id and size, no cell data). archived=true lists the archive.",
+   "name": "list_sheets",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "archived": {
+      "type": [
+       "null",
+       "boolean"
+      ]
+     },
+     "favorite": {
+      "type": [
+       "null",
+       "boolean"
+      ]
+     },
+     "projectId": {
+      "type": "string"
+     },
+     "text": {
+      "type": "string"
+     },
+     "workspaceId": {
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  },
+  {
+   "description": "Open Work with no edits, comments or upcoming blocks for three weeks, oldest first, with idle days and a verdict when one is clear (actionable, clarify, blocked or obsolete). available=false means smart suggestions are off.",
+   "name": "list_stale_work",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "type": "object"
+   }
+  },
+  {
+   "description": "Saved task views (list, kanban board or gantt timeline) with their filters and which one is active. In chat from the phone app these are the phone's own views (list and board only); otherwise the web and desktop views. viewsOn in the result says which.",
+   "name": "list_task_views",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "type": "object"
+   }
+  },
+  {
+   "description": "List work tasks. Reminders and inbox items are hidden unless reminders=true, kind=inbox, or inbox=true. Filters: workspace, project, status, labels, priority, stage, completed, overdue, scheduled, recurring, text.",
+   "name": "list_tasks",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "completed": {
+      "type": [
+       "null",
+       "boolean"
+      ]
+     },
+     "dueAfter": {
+      "type": "string"
+     },
+     "dueBefore": {
+      "type": "string"
+     },
+     "inbox": {
+      "type": [
+       "null",
+       "boolean"
+      ]
+     },
+     "kind": {
+      "description": "task, reminder, or inbox",
+      "type": "string"
+     },
+     "labelId": {
+      "type": "string"
+     },
+     "labelIds": {
+      "items": {
+       "type": "string"
+      },
+      "type": [
+       "null",
+       "array"
+      ]
+     },
+     "limit": {
+      "type": "integer"
+     },
+     "offset": {
+      "type": "integer"
+     },
+     "overdue": {
+      "type": [
+       "null",
+       "boolean"
+      ]
+     },
+     "priority": {
+      "type": "string"
+     },
+     "projectId": {
+      "type": "string"
+     },
+     "projectIds": {
+      "items": {
+       "type": "string"
+      },
+      "type": [
+       "null",
+       "array"
+      ]
+     },
+     "recurring": {
+      "type": [
+       "null",
+       "boolean"
+      ]
+     },
+     "reminders": {
+      "description": "true lists duration-0 reminders instead of work tasks",
+      "type": [
+       "null",
+       "boolean"
+      ]
+     },
+     "scheduled": {
+      "type": [
+       "null",
+       "boolean"
+      ]
+     },
+     "sort": {
+      "type": "string"
+     },
+     "stageId": {
+      "type": "string"
+     },
+     "statusId": {
+      "type": "string"
+     },
+     "statusIds": {
+      "items": {
+       "type": "string"
+      },
+      "type": [
+       "null",
+       "array"
+      ]
+     },
+     "text": {
+      "type": "string"
+     },
+     "workspaceId": {
+      "type": "string"
+     },
+     "workspaceIds": {
+      "items": {
+       "type": "string"
+      },
+      "type": [
+       "null",
+       "array"
+      ]
+     }
+    },
+    "type": "object"
+   }
+  },
+  {
+   "description": "List workspaces with statuses, labels, and custom fields.",
+   "name": "list_workspaces",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "type": "object"
+   }
+  },
+  {
+   "description": "Find the tasks a bulk edit is about from a description in words (\"everything about the website launch\"). Searches up to 40 nearby tasks and, when smart suggestions are on, checks each one: matches clearly fit, unsure ones need the person's or your judgement, clear misses are left out. Without smart suggestions every candidate comes back unchecked. Read-only; pass the ids you keep to bulk_update_tasks.",
+   "name": "pick_tasks",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "description": {
+      "description": "the group of tasks in the person's words, e.g. everything about the website launch",
+      "type": "string"
+     },
+     "includeCompleted": {
+      "description": "also consider completed tasks (default false)",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "description"
+    ],
+    "type": "object"
+   }
+  },
+  {
+   "description": "Read up to 5 watches once, the way a bot would, and say what each reads right now: the price (with availability on a shop page: in_stock, out_of_stock, preorder, backorder, limited, discontinued or unknown), the text of the part, or the newest feed items. On a shop page it also lists the other prices it found, each with a selector for read=selector_price. Saves nothing. Use only addresses the person gave you or that you found for them; never put private details in an address.",
+   "name": "preview_bot",
+   "outside": true,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "watches": {
+      "description": "1 to 5 watches to read once, as create_bot takes them",
+      "items": {
+       "additionalProperties": false,
+       "properties": {
+        "currency": {
+         "description": "price watches only: the quote currency, like USD. Leave it out for a page; its currency is read from the page",
+         "type": "string"
+        },
+        "id": {
+         "description": "update_bot: the id of a watch to keep",
+         "type": "string"
+        },
+        "kind": {
+         "description": "page, feed or price",
+         "type": "string"
+        },
+        "read": {
+         "description": "page: text (default), selector, product_price, or selector_price (the price in the part a selector picks)",
+         "type": "string"
+        },
+        "rules": {
+         "description": "when to alert; left out gets a default",
+         "items": {
+          "additionalProperties": false,
+          "properties": {
+           "direction": {
+            "description": "up, down or any (move_pct)",
+            "type": "string"
+           },
+           "kind": {
+            "description": "any_change, above, below, move_pct (any price: price watches and pages read as product_price or selector_price); in_stock (product_price pages: alert when the page says it can be bought again); words_appear, words_disappear (page text); new_item (feeds)",
+            "type": "string"
+           },
+           "onlyInStock": {
+            "description": "product_price pages: price rules stay quiet while the page says it is out of stock or discontinued, and alert once it can be bought (default true); false alerts on the price whatever the stock",
+            "type": [
+             "null",
+             "boolean"
+            ]
+           },
+           "percent": {
+            "description": "the move in percent for move_pct",
+            "type": [
+             "null",
+             "number"
+            ]
+           },
+           "resetPercent": {
+            "description": "above/below: re-arm once back past the line by this much, default 0.5",
+            "type": [
+             "null",
+             "number"
+            ]
+           },
+           "stepPercent": {
+            "description": "above/below: fire again after a further move this big, default 5",
+            "type": [
+             "null",
+             "number"
+            ]
+           },
+           "threshold": {
+            "description": "the price for above and below",
+            "type": [
+             "null",
+             "number"
+            ]
+           },
+           "words": {
+            "description": "words for words_appear and words_disappear, or to filter new_item",
+            "items": {
+             "type": "string"
+            },
+            "type": [
+             "null",
+             "array"
+            ]
+           }
+          },
+          "required": [
+           "kind"
+          ],
+          "type": "object"
+         },
+         "type": [
+          "null",
+          "array"
+         ]
+        },
+        "selector": {
+         "description": "page with read=selector or selector_price: a CSS selector",
+         "type": "string"
+        },
+        "source": {
+         "description": "price: stock (US tickers like NVDA, read from Finnhub; needs the person's free Finnhub key) or crypto (Coinbase)",
+         "type": "string"
+        },
+        "symbol": {
+         "description": "price: the ticker or coin, like AAPL or BTC",
+         "type": "string"
+        },
+        "url": {
+         "description": "page and feed: the public web address",
+         "type": "string"
+        }
+       },
+       "required": [
+        "kind"
+       ],
+       "type": "object"
+      },
+      "type": [
+       "null",
+       "array"
+      ]
+     }
+    },
+    "required": [
+     "watches"
+    ],
+    "type": "object"
+   }
+  },
+  {
+   "description": "Submit the entire ordered plan. Arguments are JSON objects matching the write schemas.",
+   "name": "propose_changes",
+   "outside": false,
+   "parameters": {
+    "properties": {
+     "direct": {
+      "type": "boolean"
+     },
+     "language": {
+      "description": "BCP 47 tag of the language the person writes in, e.g. en, ja, es.",
+      "type": "string"
+     },
+     "remaining": {
+      "description": "When the request needs more than 30 changes: exactly what is left after this batch (Timely continues with it automatically once this batch is applied). Empty string when this proposal completes the request.",
+      "type": "string"
+     },
+     "reply": {
+      "description": "Answer to any question in the person's message that is not about the changes (e.g. what weekday tomorrow is); empty string when there is none. Shown as its own message next to the summary.",
+      "type": "string"
+     },
+     "steps": {
+      "items": {
+       "properties": {
+        "arguments": {
+         "type": "object"
+        },
+        "summary": {
+         "type": "string"
+        },
+        "tool": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "tool",
+        "summary",
+        "arguments"
+       ],
+       "type": "object"
+      },
+      "maxItems": 30,
+      "minItems": 1,
+      "type": "array"
+     },
+     "summary": {
+      "description": "What the changes do, for the person. Name only lengths the person gave: a task without one gets Timely's estimate after you write, so say nothing about its length or duration.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "summary",
+     "steps",
+     "direct",
+     "reply",
+     "remaining",
+     "language"
+    ],
+    "type": "object"
+   }
+  },
+  {
+   "description": "Shortlist the existing items a change may be about when its name could match several, and say which one the person most likely means. Returns up to 8 candidates; a confident pick comes first and is named in pick. Read-only.",
+   "name": "resolve_target",
+   "outside": false,
+   "parameters": {
+    "properties": {
+     "kind": {
+      "enum": [
+       "task",
+       "event",
+       "doc",
+       "sheet",
+       "project"
+      ],
+      "type": "string"
+     },
+     "name": {
+      "description": "The words the person used for the item, e.g. dentist appointment",
+      "type": "string"
+     }
+    },
+    "required": [
+     "kind",
+     "name"
+    ],
+    "type": "object"
+   }
+  },
+  {
+   "description": "Keyword search over tasks, projects, docs, sheets, and events: exact title first, then title prefix, title substring, body substring. No embeddings. key:value terms (status:draft, tags:travel, owner:\"Sam Lee\") keep only docs whose properties (frontmatter) match.",
+   "name": "search",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "limit": {
+      "description": "max hits, default 20",
+      "type": "integer"
+     },
+     "query": {
+      "description": "text to search for",
+      "type": "string"
+     }
+    },
+    "required": [
+     "query"
+    ],
+    "type": "object"
+   }
+  },
+  {
+   "description": "Hybrid search across tasks, projects, docs, sheets, and events: keyword and embedding hits fused, so exact titles and related meaning both rank. Prefer this for most lookups; falls back to keyword-only when no embedding provider is set. Returns ranked chunks; follow with get_task/get_doc/\u2026 for the full record. key:value terms (status:draft, tags:travel) keep only docs whose properties (frontmatter) match; doc properties are also embedded.",
+   "name": "semantic_search",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "kinds": {
+      "description": "optional filter: task, project, doc, sheet, event",
+      "items": {
+       "type": "string"
+      },
+      "type": [
+       "null",
+       "array"
+      ]
+     },
+     "limit": {
+      "description": "max hits, default 20",
+      "type": "integer"
+     },
+     "query": {
+      "description": "natural language query",
+      "type": "string"
+     }
+    },
+    "required": [
+     "query"
+    ],
+    "type": "object"
+   }
+  },
+  {
+   "description": "Show what undo_schedule would change: the engine blocks it removes and the earlier blocks it restores. canUndo=false when there is nothing to undo.",
+   "name": "undo_schedule_preview",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "type": "object"
+   }
+  },
+  {
+   "description": "Count of unread in-app notifications.",
+   "name": "unread_notification_count",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "type": "object"
+   }
+  },
+  {
+   "description": "Ranked unscheduled and overdue tasks to do next.",
+   "name": "what_next",
+   "outside": false,
+   "parameters": {
+    "additionalProperties": false,
+    "properties": {
+     "timezone": {
+      "description": "IANA timezone used for today's date when no Working hours are saved",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  }
+ ]
+}
