@@ -52,7 +52,10 @@
 //     for its write only as long as its ctx (the handshake: HelloTimeout);
 //     Send, Reply, pings and shutdown wait up to WriteTimeout (30 s). A write
 //     still unfinished after WriteTimeout means the worker stopped reading: it
-//     is killed like a missed heartbeat, which also unblocks the write. ready
+//     is killed like a missed heartbeat, which also unblocks the write. A
+//     run.start or bot.run whose write has begun is waited for past its
+//     caller's deadline (writeLoop's own WriteTimeout bounds it), so an error
+//     from Send always means the run never went live. ready
 //     carries the interpreter's pid; Go refuses a worker whose pid is outside
 //     its process group or Job Object, or whose containment cannot be checked
 //     (no pid, a failed check, or a Job Object that could not be set up: the

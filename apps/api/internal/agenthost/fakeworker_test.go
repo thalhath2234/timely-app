@@ -241,6 +241,9 @@ func fakeWorker(mode string) int {
 			busy, _ = m["busy"].(map[string]any)
 			send(map[string]any{"type": "heartbeat", "busy": busy})
 			send(map[string]any{"type": "ack", "id": id})
+		case "stutter": // a slow reader: sleeps after reading, answers nothing
+			secs, _ := m["sleep"].(float64)
+			time.Sleep(time.Duration(secs * float64(time.Second)))
 		case "log-me":
 			send(map[string]any{"type": "log", "level": "info", "text": "hello from the worker"})
 		case "run.start":

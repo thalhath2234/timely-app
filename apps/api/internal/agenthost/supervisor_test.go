@@ -1099,6 +1099,33 @@ func TestWriteToAWorkerThatStoppedReadingIsBounded(t *testing.T) {
 	waitGone(t, exit.PID)
 }
 
+// A run.start that waited in the queue behind a slow write must not report
+// the caller's deadline once its own write is under way: the line reaches a
+// healthy worker and the run goes live, so Send's error would be a lie.
+func TestSendRunStartNeverFailsAfterItsLineWasWritten(t *testing.T) {
+	h := newHarness(t, "ok", func(c *Config) { c.WriteTimeout = time.Second })
+	w := h.ensure("acct-1")
+	pad := strings.Repeat("p", 1<<20) // far past the pipe buffer: the write waits for the reader
+	if err := w.Send("stutter", map[string]any{"sleep": 0.6}); err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = w.Send("stutter", map[string]any{"sleep": 0.6, "pad": pad}) }()
+	time.Sleep(50 * time.Millisecond) // the padded stutter is writeLoop's
+	start := time.Now()
+	err := w.Send(TypeRunStart, map[string]any{"run": "run-B", "conversation_id": "c", "pad": pad})
+	took := time.Since(start)
+	done := h.message("run.done")
+	if done.Run != "run-B" {
+		t.Fatalf("run.done for %q", done.Run)
+	}
+	if err != nil {
+		t.Fatalf("Send(run.start) after %s: %v, but run-B went live and finished on a healthy worker", took, err)
+	}
+	if w.hasExited() {
+		t.Fatal("worker exited")
+	}
+}
+
 func TestReadyPIDOutsideTheProcessGroupIsRefused(t *testing.T) {
 	h := newHarness(t, "foreignpid", nil)
 	err := h.ensureErr("acct-1")

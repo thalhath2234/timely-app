@@ -336,10 +336,24 @@ func (w *Worker) writeCtx(ctx context.Context, typ, id string, fields any) error
 			}
 			return err
 		}
-		// Being written: the worker is not reading its stdin. writeLoop's
-		// WriteTimeout fails the worker, which unblocks the write; a run it
-		// carried ends with the worker (ExitInfo.LiveRuns).
-		return err
+		if run == "" {
+			// Being written: the caller gets its own deadline. writeLoop's
+			// WriteTimeout still bounds the write (it fails the worker).
+			return err
+		}
+		// A line that starts a run is being written: its caller's clock
+		// began while the line waited behind an earlier write, but
+		// writeLoop's own WriteTimeout clock began only when it took this
+		// one. Wait for the write itself, so an error always means the run
+		// never went live: either it was not written, or the worker failed
+		// (writeLoop's timer fails it), taking the run with it
+		// (ExitInfo.LiveRuns).
+		select {
+		case werr := <-req.done:
+			return werr
+		case <-w.done:
+			return ErrWorkerExited
+		}
 	}
 	select {
 	case w.writes <- req:
