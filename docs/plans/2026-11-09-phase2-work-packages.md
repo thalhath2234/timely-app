@@ -3,7 +3,7 @@
 - Date: 2026-11-09. Branch `feature/hermes-phase2`, stacked on `feature/hermes-phase1` (PR #291).
 - Plan: `docs/plans/2026-11-08-timely-agent-from-hermes.md` (called "the plan"), section 13 "Phase 2" and the sections it cites (2, 3.4, 5.1-5.8 incl. 5.5b, 6.x, 9b "learning writes off", 10.4 f tests 6 and 18, 12). ADRs 0007, 0008, 0009, 0020, 0026.
 - Phase 1 facts: `apps/agent/AGENTS.md`, `apps/agent/PROTOCOL.md`, `apps/agent/timely_agent/README.md`, `apps/api/internal/agenthost`.
-- Status: plan only. No product code is written by this document.
+- Status (2026-11-09): all seven packages built and committed on `feature/hermes-phase2` (21 commits after this document's, 0213be94). The `verify` wave ran every suite green, resynced the TLA+ model and ran the end-to-end proof; the record is plan section 13, "Phase 2 status". Open: the 84-scenario parity run with a real model (pending the owner's key) and the flagged items below.
 
 ## Binding owner answers used here
 
@@ -405,3 +405,11 @@ Items that span the stack are split into atomic parts; each part has exactly one
 3. **Full Access in phase 2** behaves like Auto for Timely data (critical changes still ask) and is offered only in the web/desktop picker; the phone shows it disabled. Server-side step-up and "Allowed on" enforcement need the phase 5 shell token.
 4. **Per-account chat settings are not in backups yet** (`agent_chat_settings`); backup schema 3 is phase 3.
 5. **The 84 scenarios are recreated**, not recovered: the 2026-10-02 harness lived in `/tmp/agentqa` and is gone.
+
+### Where each flag stands after the verify wave (2026-11-09)
+
+1. Backup mode: still not built; the phase 2b recommendation stands.
+2. Existing chats on Supervised: shipped that way. On both web and phone, small edits in old chats now wait for Approve; the owner may still prefer Auto for existing chats.
+3. Full Access: behaves as Auto for Timely data. The web and desktop pickers offer it after one confirmation (the plain web browser offers it as well, which the contract did not ask for), the phone shows it disabled, and "Allowed on" is shown read-only (plan 5.5b, phase 2 behaviour).
+4. `agent_chat_settings` in backups: still phase 3.
+5. Scenarios: 84 recreated in `apps/api/scripts/agentqa/scenarios.json`, with a smoke run on the stub model (5/5 on each engine). The live run waits for the owner's key.
