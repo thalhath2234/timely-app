@@ -175,13 +175,29 @@ def _publish(staging: Path, final: Path) -> None:
             raise
 
 
+def symlinks_in(root: Path) -> list[str]:
+    """Symlinks under ``root`` (relative paths). A skill tree id hashes only a link's text, while
+    copying it would follow the link and seed whatever it points at (the repo's ``.env``, say)."""
+    found = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in IGNORED_NAMES]
+        for name in dirnames + filenames:
+            if name not in IGNORED_NAMES and os.path.islink(os.path.join(dirpath, name)):
+                found.append(Path(dirpath, name).relative_to(root).as_posix())
+    return sorted(found)
+
+
 def _copy_tree(src: Path, dst: Path, *, skip_top: set[str] = frozenset()) -> None:
+    links = symlinks_in(src)
+    if links:
+        raise ValueError(f"{src} holds symlinks, which are never copied into a skill tree: {', '.join(links[:5])}")
+
     def ignore(directory: str, names: list[str]) -> set[str]:
         skip = {n for n in names if n in IGNORED_NAMES}
         if Path(directory) == src:
             skip |= {n for n in names if n in skip_top}
         return skip
-    shutil.copytree(src, dst, ignore=ignore, symlinks=False, dirs_exist_ok=True)
+    shutil.copytree(src, dst, ignore=ignore, symlinks=True, dirs_exist_ok=True)
 
 
 def build_timely_skills(layout, src: os.PathLike | str) -> Path:
@@ -199,7 +215,11 @@ def build_timely_skills(layout, src: os.PathLike | str) -> Path:
     layout.timely_skills_root.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".build-", dir=layout.timely_skills_root))
     if src.is_dir():
-        _copy_tree(src, staging, skip_top={"overrides"})
+        try:
+            _copy_tree(src, staging, skip_top={"overrides"})
+        except BaseException:
+            remove_tree(staging)
+            raise
     _make_read_only(staging)
     _publish(staging, final)
     return final
@@ -210,7 +230,8 @@ def build_seed_tree(layout, *, upstream: os.PathLike | str, overrides: os.PathLi
     """Build (or reuse) the seed tree; returns ``(<seed>/<hash>/skills, report)``.
 
     ``reviewed`` comes from :func:`load_reviewed`; ``None`` seeds no upstream skill. The report
-    lists seeded, unreviewed (no entry or a changed tree), overridden and essential-off skills,
+    lists seeded, unreviewed (no entry or a changed tree), overridden, essential-off and symlinked
+    skills (a skill folder holding a symlink is never seeded),
     and ``default_off``: the names of seeded skills whose entry says ``default: off``, which
     the account config puts in ``skills.disabled``.
     """
@@ -218,13 +239,16 @@ def build_seed_tree(layout, *, upstream: os.PathLike | str, overrides: os.PathLi
     overrides_dir = Path(overrides) if overrides else None
     override_dirs = {p.name: p for p in skill_dirs(overrides_dir)} if overrides_dir and overrides_dir.is_dir() else {}
     report: dict[str, list[str]] = {"seeded": [], "unreviewed": [], "overridden": [], "override_only": [],
-                                    "essential_off": [], "default_off": []}
+                                    "essential_off": [], "default_off": [], "symlinked": []}
     keep: list[Path] = []
     labels: list[tuple[str, Path]] = []
     for d in skill_dirs(upstream):
         key = f"{upstream_prefix}/{d.relative_to(upstream).as_posix()}"
         if d.name in override_dirs:
             report["overridden"].append(key)
+            continue
+        if symlinks_in(d):  # never seeded, reviewed or not (symlinks_in)
+            report["symlinked"].append(key)
             continue
         tree = git_tree_id(d)
         entry = (reviewed or {}).get(key) or {}
@@ -255,7 +279,7 @@ def build_seed_tree(layout, *, upstream: os.PathLike | str, overrides: os.PathLi
     # Category DESCRIPTION.md files and other non-skill files sit beside the skill folders.
     skill_set = {d.resolve() for d in skill_dirs(upstream)}
     for path in sorted(upstream.rglob("*")):
-        if any(part in IGNORED_NAMES for part in path.parts) or not path.is_file():
+        if any(part in IGNORED_NAMES for part in path.parts) or path.is_symlink() or not path.is_file():
             continue
         if any(parent.resolve() in skill_set for parent in path.parents):
             continue

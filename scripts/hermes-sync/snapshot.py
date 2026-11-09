@@ -18,7 +18,7 @@ Filter syntax (apps/agent/.hermes-sync/filter):
   keep <path>           copy this path (file or folder) even if a skip or an unlisted dir drops it
   rename <from> <to>    store upstream <from> at <to> (exact path)
 Root files are copied unless a `skip` matches. A top-level directory in neither `dir` nor
-`skip-dir` is left out and reported as new.
+`skip-dir` is left out and reported as new. A symlink the filter would copy refuses the sync.
 """
 import argparse
 import fnmatch
@@ -121,6 +121,11 @@ def main():
     copied, stats = select(entries, rules)
     if not copied:
         die("the filter copied nothing")
+    links = sorted(p for m, _, p in copied if m == "120000")
+    if links:
+        # A skill's reviewed tree id hashes only the link text, but copying a skill follows it.
+        die(f"the release holds {len(links)} symlinks the filter copies ({', '.join(links[:5])}); "
+            "drop them with a `skip` rule in the filter (Timely never vendors a symlink)")
 
     # Copy the blobs the Timely repo lacks, straight from the cache (no checkout, byte-identical).
     shas = sorted({sha for _, sha, _ in copied})

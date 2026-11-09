@@ -856,3 +856,14 @@ class SyncScript(unittest.TestCase):
         script = os.path.join(self.repo, "scripts", "hermes-sync", "snapshot-of.sh")
         res = subprocess.run(["bash", script, "v0.0.2"], capture_output=True, text=True, cwd=self.repo)
         self.assertEqual((res.returncode, res.stdout.strip()), (0, snap2), res.stderr)
+
+    def test_a_symlink_in_the_release_refuses_the_sync(self):
+        os.symlink("../../secret.env", os.path.join(self.up, "tools", "link.md"))
+        self.git(self.up, "add", "-A")
+        self.git(self.up, "commit", "-q", "-m", "link")
+        self.git(self.up, "tag", "v0.0.3")
+        res = self.sync("v0.0.3")
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("symlinks", res.stderr)
+        self.assertIn("tools/link.md", res.stderr)
+        self.assertEqual(self.git(self.repo, "log", "--format=%s", "-n1").strip(), "timely: start")

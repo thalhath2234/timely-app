@@ -332,6 +332,31 @@ def test_seed_tree_without_reviewed_file_seeds_nothing(tmp_path):
     assert not list(out.rglob("SKILL.md")) and report["seeded"] == []
 
 
+@pytest.mark.skipif(os.name != "posix", reason="symlinks need privileges on Windows")
+def test_symlinks_never_reach_a_seeded_or_timely_skill(tmp_path):
+    """A reviewed tree id hashes only a link's text; copying followed the link, so a reviewed
+    skill holding a symlink seeded whatever it pointed at (the repo's .env) into every account."""
+    secret = tmp_path / "secret.env"
+    secret.write_text("JWT_SECRET=topsecret\n")
+    upstream = tmp_path / "up" / "skills"
+    skill = upstream / "cat" / "demo"
+    (skill / "references").mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: demo\ndescription: d\n---\nbody\n")
+    (skill / "references" / "notes.md").symlink_to(secret)
+    (upstream / "cat" / "DESCRIPTION.md").symlink_to(secret)
+    reviewed = {"skills/cat/demo": {"tree": seed.git_tree_id(skill)}}
+    layout = paths.AgentLayout.at(tmp_path / "agent")
+    out, report = seed.build_seed_tree(layout, upstream=upstream, overrides=None, reviewed=reviewed)
+    assert report["symlinked"] == ["skills/cat/demo"] and report["seeded"] == []
+    assert not any("topsecret" in p.read_text() for p in out.rglob("*") if p.is_file())
+    timely_src = tmp_path / "timely-src" / "t"
+    timely_src.mkdir(parents=True)
+    (timely_src / "SKILL.md").write_text("---\nname: t\ndescription: d\n---\n")
+    (timely_src / "leak.md").symlink_to(secret)
+    with pytest.raises(ValueError, match="symlinks"):
+        seed.build_timely_skills(paths.AgentLayout.at(tmp_path / "agent2"), timely_src.parent)
+
+
 def test_timely_skills_copy_is_read_only(tmp_path):
     layout = paths.AgentLayout.at(tmp_path / "agent")
     src = harness.AGENT_DIR / "tests" / "fixtures" / "skills"
