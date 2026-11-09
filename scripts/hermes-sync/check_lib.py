@@ -102,6 +102,40 @@ def snapshot_problems(commit, repo=None, prefix=PREFIX):
     return problems
 
 
+def _trailer(commit, key, repo=None):
+    out = git("log", "-1", f"--format=%(trailers:key={key},valueonly)", commit, repo=repo)
+    return next((ln.strip() for ln in out.splitlines() if ln.strip()), "")
+
+
+def snapshot_of(tag, repo=None, prefix=PREFIX):
+    """``(commit, problem)``: the real snapshot commit of ``tag`` (``make hermes-sync-report``).
+
+    The snapshot HEAD links to when it is that tag's; else the newest real one in HEAD's history
+    (a filter re-snapshot is parented on the one before); else the only real one in any local ref
+    (another branch's sync, ``refs/hermes/vendor``). A rebased replay is never picked, and two
+    unrelated real snapshots of the tag outside HEAD's history are refused, naming both."""
+    linked = previous_snapshot(repo=repo, prefix=prefix)[0]
+    if linked and _trailer(linked, "Hermes-Tag", repo=repo) == tag:
+        return linked, None
+    grep = "^hermes: snapshot " + re.escape(tag) + "$"
+
+    def real(*revs):
+        out = git("log", "--format=%H", "--all-match", f"--grep={grep}", "--grep=^Hermes-Commit: ", *revs,
+                  repo=repo, check=False)
+        return [c for c in out.split() if c and not snapshot_problems(c, repo=repo, prefix=prefix)]
+
+    mine = real("HEAD")
+    if mine:
+        return mine[0], None
+    others = real("--all")
+    if len(others) == 1:
+        return others[0], None
+    if not others:
+        return None, f"no real snapshot commit for {tag} in any local ref"
+    return None, (f"{len(others)} snapshot commits of {tag} outside HEAD's history ("
+                  + ", ".join(c[:12] for c in others) + "); pass the one you mean as a commit")
+
+
 RELINK_HELP = ("Recovery: find the real snapshot commit whose apps/agent/hermes/HERMES_UPSTREAM.json matches "
                "HEAD's: the second parent of the `hermes: sync <tag>` merge on the branch that imported it, or, "
                "for a squash-merged PR, that merge on the PR's branch (`git fetch origin pull/<n>/head`). "
@@ -116,6 +150,7 @@ if __name__ == "__main__":  # used by sync-hermes.sh and check.sh
     # `check_lib.py previous-snapshot [repo]`: prints the linked snapshot (nothing for a first
     # import), warnings on stderr; exit 1 with the reason and RELINK_HELP when nothing links.
     # `check_lib.py verify-snapshot <rev> [repo]`: exit 1 when <rev> is not a real snapshot.
+    # `check_lib.py snapshot-of <tag> [repo]`: prints the real snapshot of <tag> (snapshot_of).
     import sys
     if len(sys.argv) in (2, 3) and sys.argv[1] == "previous-snapshot":
         commit, problems, warnings = previous_snapshot(repo=sys.argv[2] if len(sys.argv) == 3 else None)
@@ -126,8 +161,14 @@ if __name__ == "__main__":  # used by sync-hermes.sh and check.sh
             sys.exit(1)
         print(commit or "")
         sys.exit(0)
+    if len(sys.argv) in (3, 4) and sys.argv[1] == "snapshot-of":
+        commit, problem = snapshot_of(sys.argv[2], repo=sys.argv[3] if len(sys.argv) == 4 else None)
+        if problem:
+            sys.exit(f"snapshot-of: {problem}")
+        print(commit)
+        sys.exit(0)
     if len(sys.argv) not in (3, 4) or sys.argv[1] != "verify-snapshot":
-        sys.exit("usage: check_lib.py verify-snapshot <rev> [repo] | previous-snapshot [repo]")
+        sys.exit("usage: check_lib.py verify-snapshot <rev> [repo] | previous-snapshot [repo] | snapshot-of <tag> [repo]")
     repo_arg = sys.argv[3] if len(sys.argv) == 4 else None
     found = snapshot_problems(git("rev-parse", "--verify", sys.argv[2] + "^{commit}", repo=repo_arg).strip(),
                               repo=repo_arg)

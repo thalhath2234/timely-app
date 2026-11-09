@@ -637,6 +637,20 @@ class SnapshotLink(unittest.TestCase):
         res = self.check_sh()
         self.assertEqual(res.returncode, 0, res.stderr)
 
+    def test_snapshot_of_never_picks_a_rebased_replay(self):
+        self.assertEqual(check_lib.snapshot_of("v1", repo=self.repo), (self.snap, None))
+        self.git("update-ref", "refs/hermes/vendor", self.snap)  # the real one, outside HEAD now
+        replayed = self.replay()
+        self.assertEqual(check_lib.snapshot_of("v1", repo=self.repo), (self.snap, None), replayed)
+        # a second, unrelated real snapshot of v1 outside HEAD's history: refused, both named
+        other = self.snapshot("v1", self.snap, "x = 9\n")
+        self.git("update-ref", "refs/heads/other-sync", other)
+        commit, problem = check_lib.snapshot_of("v1", repo=self.repo)
+        self.assertIsNone(commit)
+        self.assertIn(self.snap[:12], problem)
+        self.assertIn(other[:12], problem)
+        self.assertIsNone(check_lib.snapshot_of("v9", repo=self.repo)[0])
+
     def snapshot(self, tag, parent, body):
         """A real snapshot commit (prefix-only tree, snapshot parent), committed a minute later."""
         snap_dir = tempfile.mkdtemp(prefix="hermes-snap2.")
@@ -831,3 +845,14 @@ class SyncScript(unittest.TestCase):
         self.assertIn("already exists", res.stderr)
         self.assertEqual(self.git(self.repo, "rev-parse", "HEAD"), head)
         self.assertEqual(self.git(self.repo, "branch", "--show-current").strip(), "dev")
+
+    def test_snapshot_of_sh_picks_the_real_snapshot_after_a_rebase(self):
+        for ref in ("v0.0.1", "v0.0.2"):
+            res = self.sync(ref)
+            self.assertEqual(res.returncode, 0, res.stderr)
+        snap2 = self.git(self.repo, "rev-parse", "HEAD^2").strip()
+        first_merge = self.git(self.repo, "log", "--format=%H", "-n1", "--grep=^hermes: sync v0.0.1$").strip()
+        self.git(self.repo, "rebase", "-q", first_merge)
+        script = os.path.join(self.repo, "scripts", "hermes-sync", "snapshot-of.sh")
+        res = subprocess.run(["bash", script, "v0.0.2"], capture_output=True, text=True, cwd=self.repo)
+        self.assertEqual((res.returncode, res.stdout.strip()), (0, snap2), res.stderr)
