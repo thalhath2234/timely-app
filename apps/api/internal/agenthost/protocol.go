@@ -142,6 +142,9 @@ type helloFields struct {
 	SettingsHash   string          `json:"settings_hash"`
 	Settings       json.RawMessage `json:"settings,omitempty"`
 	CatalogVersion string          `json:"catalog_version,omitempty"`
+	// TimelyTools is the Timely tool catalog the worker registers as the
+	// "timely" toolset (phase 2). Absent means no Timely tools.
+	TimelyTools *timelyTools `json:"timely_tools,omitempty"`
 	// Prepare's answer (PrepareResult): the worker's canary renders the
 	// managed floors from these and refuses a managed file that differs, and
 	// its account render keeps SkillsDefaultOff in skills.disabled.
@@ -149,6 +152,14 @@ type helloFields struct {
 	BrowserExecutable string   `json:"browser_executable"`
 	ManagedSHA256     string   `json:"managed_sha256,omitempty"`
 	SkillsDefaultOff  []string `json:"skills_default_off"`
+}
+
+// timelyTools is hello.timely_tools: {catalog_version, tools: [{name,
+// description, parameters, outside}]}. Tools is passed through as the
+// catalog's own JSON array.
+type timelyTools struct {
+	CatalogVersion string          `json:"catalog_version"`
+	Tools          json.RawMessage `json:"tools"`
 }
 
 type logFields struct {

@@ -100,7 +100,28 @@ type Config struct {
 	EvictGrace        time.Duration // 30 s: an idle worker used more recently is never evicted for a queued account
 	Restart           RestartPolicy // 3 crashes in 10 min; backoff 1 s .. 30 s
 
+	// CatalogVersion is hello.catalog_version when TimelyTools is nil.
 	CatalogVersion string
+	// TimelyTools supplies the Timely tool catalog: hello carries it as
+	// timely_tools {catalog_version, tools} and its version as
+	// catalog_version (an empty version is the sha256 of the compacted
+	// tools JSON). Ensure calls it too, so it must be cheap: a worker whose
+	// version differs from the current one is restarted once it is idle
+	// (no live run, hold or reported work, unused for StaleGrace), never
+	// mid-run. Nil: no Timely tools, CatalogVersion is sent as is.
+	TimelyTools func(ctx context.Context) (version string, tools json.RawMessage, err error)
+	// StaleGrace is how long a worker with an old catalog must have been
+	// unused before Ensure restarts it (2 s): a caller may hold a worker
+	// between Ensure and its run.start.
+	StaleGrace time.Duration
+
+	// Worktree is the root of the git worktree checkout the API runs in
+	// ("" when it is not one), and DBSchema its DB_SCHEMA. A worktree API
+	// without its own schema shares chats and bots with the main checkout,
+	// so Available refuses the agent engine there (plan 6.7). ConfigFromEnv
+	// fills both.
+	Worktree string
+	DBSchema string
 
 	// RenderAccount runs the runtime's prepare step once and its
 	// render-account step before every spawn, and sends render-account's
@@ -131,7 +152,8 @@ func positiveInt(getenv func(string) string, name string, fallback int) int {
 // ConfigFromEnv is the env fallback of plan 11.2 (Settings -> Server will win
 // over it once the instance settings store exists): TIMELY_AGENT_RUNTIME,
 // TIMELY_AGENT_MAX_WORKERS, TIMELY_AGENT_IDLE_MINUTES, and the data folder
-// from TIMELY_DATA_DIR. workDir is where the dev runtime search starts.
+// from TIMELY_DATA_DIR. workDir is where the dev runtime search starts, and
+// where the git worktree check (Worktree, with DB_SCHEMA) looks up from.
 func ConfigFromEnv(getenv func(string) string, workDir string) Config {
 	runtime, err := ResolveRuntime(strings.TrimSpace(getenv("TIMELY_AGENT_RUNTIME")), workDir)
 	return Config{
@@ -141,6 +163,8 @@ func ConfigFromEnv(getenv func(string) string, workDir string) Config {
 		Env:           envFromHost(getenv),
 		MaxWorkers:    positiveInt(getenv, "TIMELY_AGENT_MAX_WORKERS", 3),
 		IdleTimeout:   time.Duration(positiveInt(getenv, "TIMELY_AGENT_IDLE_MINUTES", 15)) * time.Minute,
+		Worktree:      GitWorktree(workDir),
+		DBSchema:      strings.TrimSpace(getenv("DB_SCHEMA")),
 		RenderAccount: true,
 	}
 }
@@ -167,6 +191,7 @@ func (c *Config) applyDefaults() {
 	}
 	def(&c.ReapInterval, reap)
 	def(&c.EvictGrace, 30*time.Second)
+	def(&c.StaleGrace, defaultStaleGrace)
 	if c.Restart.MaxCrashes <= 0 {
 		c.Restart.MaxCrashes = 3
 	}
@@ -260,10 +285,16 @@ func (s *Supervisor) Worker(account string) (*Worker, bool) {
 // for the same account share one start. A start keeps going if the caller
 // gives up after the worker was spawned, so the next caller finds it ready;
 // a start still queued for a slot is dropped when every caller has gone.
+//
+// A running worker whose Timely tool catalog is older than the current one
+// (Config.TimelyTools) is stopped and replaced when it is idle; one with a
+// live run, a hold or work of its own, or used within StaleGrace, keeps
+// serving with its old catalog until a later Ensure finds it idle.
 func (s *Supervisor) Ensure(ctx context.Context, account string) (*Worker, error) {
 	if account == "" {
 		return nil, errors.New("agenthost: no account")
 	}
+	current, checkCatalog := s.currentCatalog(ctx)
 	for {
 		s.mu.Lock()
 		if s.closed {
@@ -291,6 +322,16 @@ func (s *Supervisor) Ensure(ctx context.Context, account string) (*Worker, error
 		}
 		if e.w != nil {
 			w := e.w
+			if checkCatalog && w.CatalogVersion() != current && w.stopIfIdle("catalog changed", s.cfg.StaleGrace) {
+				s.mu.Unlock()
+				w.logf("stopping: idle with an old Timely tool catalog")
+				select {
+				case <-w.Done():
+					continue
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			}
 			if w.claim() {
 				s.mu.Unlock()
 				return w, nil
@@ -620,12 +661,17 @@ func settingsHash(settings json.RawMessage) string {
 func (s *Supervisor) handshake(w *Worker, spec AccountSpec, hash string, prep PrepareResult) error {
 	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.HelloTimeout)
 	defer cancel()
+	version, tools, err := s.catalog(ctx)
+	if err != nil {
+		return &StartError{Account: w.account, Err: err, Detail: "reading the Timely tool specs"}
+	}
 	reply, err := w.Request(ctx, TypeHello, helloFields{
 		Protocol:          ProtocolVersion,
 		Home:              w.home,
 		SettingsHash:      hash,
 		Settings:          spec.Settings,
-		CatalogVersion:    s.cfg.CatalogVersion,
+		CatalogVersion:    version,
+		TimelyTools:       tools,
 		TimelySkillsDir:   prep.TimelySkillsDir,
 		BrowserExecutable: prep.BrowserExecutable,
 		ManagedSHA256:     prep.ManagedSHA256,
@@ -683,6 +729,7 @@ func (s *Supervisor) handshake(w *Worker, spec AccountSpec, hash string, prep Pr
 	}
 	w.mu.Lock()
 	w.ready = &ready
+	w.catalogVersion = version
 	w.lastUsed = time.Now()
 	w.mu.Unlock()
 	go w.healthLoop()
