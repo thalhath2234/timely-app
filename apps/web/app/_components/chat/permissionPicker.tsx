@@ -73,8 +73,14 @@ export function PermissionChip({
  * Asks once before Full Access is turned on, saying what still asks in
  * phase 2 (it works like Auto for Timely data), then calls `onConfirm`.
  */
-export function confirmFullAccess(scope: "chat" | "new chats" | "bots", onConfirm: () => void) {
-  const lead = FULL_ACCESS_CONFIRM.replace(/\s*Turn it on for this chat\?$/, "");
+export function confirmFullAccess(
+  scope: "chat" | "new chats" | "bots",
+  onConfirm: () => void,
+) {
+  const lead = FULL_ACCESS_CONFIRM.replace(
+    /\s*Turn it on for this chat\?$/,
+    "",
+  );
   requestConfirm({
     title:
       scope === "chat"
@@ -102,7 +108,11 @@ export function PermissionOptions({
   disabled?: boolean;
 }) {
   return (
-    <div role="radiogroup" aria-label="Permission" className="flex flex-col gap-0.5">
+    <div
+      role="radiogroup"
+      aria-label="Permission"
+      className="flex flex-col gap-0.5"
+    >
       {PERMISSION_MODES.map((mode) => {
         const copy = PERMISSION_COPY[mode];
         const Icon = ICONS[copy.icon];
@@ -211,7 +221,9 @@ export function PermissionPopover({
           }}
           className={cn(
             "absolute z-30 w-[min(25rem,calc(100vw-2rem))] rounded-2xl border border-border bg-popover p-1.5 text-popover-foreground shadow-[0_12px_32px_rgba(0,0,0,0.16)]",
-            placement === "above" ? "bottom-full left-0 mb-2 max-w-full" : "right-0 top-full mt-1",
+            placement === "above"
+              ? "bottom-full left-0 mb-2 max-w-full"
+              : "right-0 top-full mt-1",
           )}
         >
           <p className="px-2.5 pb-1.5 pt-2 text-[11px] font-medium uppercase leading-4 tracking-[0.08em] text-muted-foreground">

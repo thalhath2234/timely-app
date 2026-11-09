@@ -59,9 +59,9 @@ export default function FailureCard({
               ? "Check your AI provider"
               : useClassic
                 ? "The new engine couldn't run this"
-              : chat.errorAction === "none"
-                ? "Couldn't finish this request"
-                : "Something went wrong"}
+                : chat.errorAction === "none"
+                  ? "Couldn't finish this request"
+                  : "Something went wrong"}
       </p>
       <p className="mt-1 text-sm leading-6">{chat.error}</p>
       {(settings || retry || photos || useClassic) && (

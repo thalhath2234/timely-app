@@ -180,8 +180,7 @@ export function usePatchChatSettings() {
       return { before };
     },
     onError: (_error, _patch, context) => {
-      if (context?.before)
-        cache.setQueryData(chatSettingsKey, context.before);
+      if (context?.before) cache.setQueryData(chatSettingsKey, context.before);
     },
     onSuccess: (next) => cache.setQueryData(chatSettingsKey, next),
   });

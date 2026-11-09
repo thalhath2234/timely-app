@@ -1,10 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  ENGINE_COPY,
-  type PermissionMode,
-} from "@timely/contract/agentChat";
+import { ENGINE_COPY, type PermissionMode } from "@timely/contract/agentChat";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { isBotPlan } from "@timely/contract/changeReview";
 import {
@@ -706,10 +703,10 @@ export default function Conversation({
           steering
             ? "Tell it something while it works…"
             : chat?.status === "approval"
-            ? isBotPlan(chat.plan)
-              ? "Reply, or ask for changes to the bot"
-              : "Tell me what to change…"
-            : "Ask Timely to create, plan, or update…"
+              ? isBotPlan(chat.plan)
+                ? "Reply, or ask for changes to the bot"
+                : "Tell me what to change…"
+              : "Ask Timely to create, plan, or update…"
         }
         chips={chips}
         onRemoveChip={(i) =>

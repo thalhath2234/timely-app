@@ -113,7 +113,10 @@ export function LiveReply({ draft }: { draft: ReplyDraft }) {
 
 /** The plan a proposal message applied: the live plan for the newest
  * proposal, else the archive that followed it (Go's appliedPlan). */
-export function appliedSteps(chat: Chat, index: number): { steps: ChatStep[]; archiveId?: string } {
+export function appliedSteps(
+  chat: Chat,
+  index: number,
+): { steps: ChatStep[]; archiveId?: string } {
   const messages = chat.messages ?? [];
   const latest = messages.findLastIndex((m) => m.proposal);
   const plan = chat.plan ?? [];
@@ -249,11 +252,14 @@ export function AutoAppliedCard({
           key={line.key}
           className={cn(
             "flex min-h-[22px] min-w-0 items-center gap-2 text-[13px] leading-[18px]",
-            undone && "text-muted-foreground line-through decoration-muted-foreground/50",
+            undone &&
+              "text-muted-foreground line-through decoration-muted-foreground/50",
           )}
         >
           <span className="flex w-3.5 shrink-0 justify-center">
-            <LineIcon state={line.state === "running" && !busy ? "done" : line.state} />
+            <LineIcon
+              state={line.state === "running" && !busy ? "done" : line.state}
+            />
           </span>
           <span className="min-w-0 flex-1 truncate">{line.label}</span>
           {i === lines.length - 1 && canUndo && (
@@ -278,7 +284,10 @@ export function AutoAppliedCard({
           >
             <ChevronRight
               aria-hidden
-              className={cn("size-3.5 transition-transform", open && "rotate-90")}
+              className={cn(
+                "size-3.5 transition-transform",
+                open && "rotate-90",
+              )}
             />
             {open ? "Hide the changes" : "See the changes"}
           </button>
