@@ -22,7 +22,7 @@ export default function EngineGroup({ settings }: { settings: AgentChatSettings 
     <div data-testid="agent-engine">
       <GroupLabel aside="For new runs">Engine</GroupLabel>
       <ListGroup>
-        <ListRow label="Chats run on" meta={ENGINE_COPY[engine].description}>
+        <ListRow label="Chats run on">
           <SegmentedControl<AccountEngine>
             size="sm"
             aria-label="Engine"
@@ -35,11 +35,18 @@ export default function EngineGroup({ settings }: { settings: AgentChatSettings 
           />
         </ListRow>
         {!settings.engineAvailable && (
-          <ListRow
-            icon={<CircleAlert aria-hidden className="size-4 shrink-0 text-warning-text" />}
-            label={engine === "agent" ? "New can't run here now" : "New isn't available here yet"}
-            meta={settings.engineReason || "The agent engine isn't installed on this server."}
-          />
+          // A row of its own whose reason wraps; ListRow's second line truncates.
+          <div role="status" className="flex items-start gap-2.5 px-3.5 py-2.5">
+            <CircleAlert aria-hidden className="mt-px size-4 shrink-0 text-warning-text" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] font-medium text-foreground">
+                {engine === "agent" ? "New can't run here now" : "New isn't available here yet"}
+              </span>
+              <span className="block text-xs leading-4 text-muted-foreground">
+                {settings.engineReason || "The agent engine isn't installed on this server."}
+              </span>
+            </span>
+          </div>
         )}
       </ListGroup>
       <GroupHint>
@@ -47,7 +54,7 @@ export default function EngineGroup({ settings }: { settings: AgentChatSettings 
           ? patch.error.message
           : engine === "agent" && !settings.engineAvailable
             ? "Chats on New stop with “Use classic for this chat” until it can run."
-            : "Private photo chats and applying changes always run on Classic."}
+            : `${ENGINE_COPY[engine].description} Private photo chats and applying changes always run on Classic.`}
       </GroupHint>
     </div>
   );

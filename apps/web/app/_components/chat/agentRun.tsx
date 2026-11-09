@@ -212,7 +212,7 @@ export function AutoAppliedCard({
       aria-label="Ran on its own"
       data-testid="auto-applied"
       className={cn(
-        "flex max-w-[86%] flex-col gap-1.5 rounded-xl border border-border bg-card px-3.5 py-3",
+        "flex max-w-full flex-col gap-1.5 rounded-xl border sm:max-w-[86%] border-border bg-card px-3.5 py-3",
         undone && "bg-muted/30",
       )}
     >
@@ -238,7 +238,8 @@ export function AutoAppliedCard({
           </span>
         )}
       </div>
-      {message.content && (
+      {/* One change already says it all in its own line. */}
+      {message.content && lines.length > 1 && (
         <p className="text-[13px] font-medium leading-[18px]">
           {message.content}
         </p>

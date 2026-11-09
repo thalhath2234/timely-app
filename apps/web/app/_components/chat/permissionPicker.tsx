@@ -82,7 +82,8 @@ export function confirmFullAccess(scope: "chat" | "new chats" | "bots", onConfir
         : scope === "new chats"
           ? "Start new chats on Full Access?"
           : "Run bots on Full Access?",
-    description: scope === "chat" ? FULL_ACCESS_CONFIRM : lead,
+    // The title asks the question, so the contract's closing one is left off.
+    description: lead,
     confirmLabel: "Turn on Full Access",
     tone: "primary",
     icon: <Zap className="size-5" />,
@@ -210,7 +211,7 @@ export function PermissionPopover({
           }}
           className={cn(
             "absolute z-30 w-[min(25rem,calc(100vw-2rem))] rounded-2xl border border-border bg-popover p-1.5 text-popover-foreground shadow-[0_12px_32px_rgba(0,0,0,0.16)]",
-            placement === "above" ? "bottom-full left-0 mb-2" : "right-0 top-full mt-1",
+            placement === "above" ? "bottom-full left-0 mb-2 max-w-full" : "right-0 top-full mt-1",
           )}
         >
           <p className="px-2.5 pb-1.5 pt-2 text-[11px] font-medium uppercase leading-4 tracking-[0.08em] text-muted-foreground">
@@ -250,6 +251,8 @@ export function ChatPermissionMenu({
       title="Permission for this chat"
       scope="chat"
       disabled={disabled}
+      // Opens over the composer box, not the chip, so it fits a phone-width window.
+      className="static"
       trigger={({ open, toggle }) => (
         <button
           type="button"

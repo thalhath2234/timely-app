@@ -108,6 +108,7 @@ export default function ModelMenu({
         type="button"
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-label={`Model: ${current}`}
         disabled={disabled}
         onClick={() => {
           setBrowsing("");
@@ -119,15 +120,16 @@ export default function ModelMenu({
             : "Uses the default model from Settings → Agent"
         }
         className={cn(
-          "inline-flex max-w-[9rem] items-center sm:max-w-[14rem] gap-1.5 rounded-lg px-2.5 py-2 text-xs font-medium transition-colors disabled:opacity-50",
+          "inline-flex max-w-[14rem] items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-medium transition-colors disabled:opacity-50",
           value.provider
             ? "bg-primary/10 text-primary"
             : "text-muted-foreground hover:bg-muted hover:text-foreground",
         )}
       >
         <Cpu className="size-4 shrink-0" />
-        <span className="truncate">{current}</span>
-        <ChevronDown className="size-3 shrink-0" />
+        {/* Icon only on a phone-width window; the title still names the model. */}
+        <span className="hidden truncate sm:inline">{current}</span>
+        <ChevronDown className="hidden size-3 shrink-0 sm:block" />
       </button>
       {open && (
         <div
