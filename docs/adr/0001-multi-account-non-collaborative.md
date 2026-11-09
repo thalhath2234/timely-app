@@ -3,12 +3,12 @@
 - Status: Accepted
 - Date: 2026-09-12
 
-> Proposed amendment (2026-11-08): ADR 0025 adds a host-trusted account. The
+> Proposed amendment (2026-11-08): ADR 0026 adds a host-trusted account. The
 > person running the host may let one account run approved commands on it.
 > That is not a role and grants no access to other accounts through Timely,
 > but such a command runs as the host's OS user and can read other accounts'
 > files there, so at most one account may be host-trusted on the local
-> terminal backend. Until ADR 0025 is accepted, the text below stands as
+> terminal backend. Until ADR 0026 is accepted, the text below stands as
 > written.
 
 ## Context

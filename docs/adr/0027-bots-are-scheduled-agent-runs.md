@@ -8,7 +8,7 @@ AI judge with no tools that decides whether it is worth an alert. The owner
 decided that every Bot becomes a scheduled agent run instead: when a Bot wakes,
 an agent with tools, skills and a read-only browser does the Bot's task and
 stays silent when nothing qualifies. The agent is the per-account worker of
-ADR 0025. Section 7 of the plan,
+ADR 0026. Section 7 of the plan,
 [`docs/plans/2026-11-08-timely-agent-from-hermes.md`](../plans/2026-11-08-timely-agent-from-hermes.md),
 has the detail.
 
@@ -69,10 +69,10 @@ rule in Q-B2.
 pipeline: quiet hours, which an AI's urgency never breaks; about 3 alerts a day
 per Bot; snooze; one alert per thing ("Also seen by"); Findings with the
 outside-data mark; briefs and the morning digest. The same alert within 7 days
-is held as a duplicate. No messaging platform delivers anything (ADR 0025).
+is held as a duplicate. No messaging platform delivers anything (ADR 0026).
 Whether a run may also propose a change to Timely data, as a proposal inside
 the alert, is an open question (Q-B5 in the plan). Bots never apply anything
-they learn (ADR 0027).
+they learn (ADR 0028).
 
 **Costs and failures stay visible.** Runs are counted in the existing log
 against today's caps: 20 per Bot and 200 per account per local day, 6 per chain
@@ -119,7 +119,7 @@ a passed note now starts an agent run of the receiving Bot. From ADR 0023, Tool
 watches, "Fixed calls first" and refusing every model-picked MCP call in a
 research Bot once it has read outside content are superseded by the egress
 policy above, which still allows read-only Connected service tools the person
-allowed for Bots (ADR 0025 lists the rest of ADR 0023's changes). In ADR 0021,
+allowed for Bots (ADR 0026 lists the rest of ADR 0023's changes). In ADR 0021,
 "Rules spot a change; the AI only judges it" and "Bots work with no AI at all"
 no longer hold; the job queue, the Bot's own next-check time as the only
 schedule, the Bot fetcher, alerts and the size limits stand. When this ADR is
@@ -146,4 +146,4 @@ learned skill.
   (recommended answer to Q-B3 in the plan); it would keep the rules engine
   alive only for outages and send alerts no agent checked.
 - **Posting results into a chat or a messaging app**: rejected for messaging
-  (ADR 0025); posting into a chat thread is an open question (Q-B6).
+  (ADR 0026); posting into a chat thread is an open question (Q-B6).

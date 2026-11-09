@@ -19,7 +19,7 @@ by the agent, the background learning pass after a reply (on a copy of the
 agent that replays the conversation), the skill history with single-step undo,
 the curator that marks unused learned skills stale and archives them (never
 deletes; its AI merging stays off), and search over past chats all come from
-the vendored copy (ADR 0025) and improve with syncs. Timely adds only adapters:
+the vendored copy (ADR 0026) and improve with syncs. Timely adds only adapters:
 per-account settings, one cached agent per conversation so the "time to save a
 skill" counter adds up across turns, a policy plugin, a learning feed, and a
 timer that runs the curator. Nothing learned is shared between accounts.
@@ -56,7 +56,7 @@ one is the account's own copy. A restored learned skill comes back
 threat-scanned and switched off until the person turns it on.
 
 **Enforcement never lives in prompt text.** Approvals are decided by the gate
-and Go when a tool is called (ADR 0025). No skill or memory can grant one, and
+and Go when a tool is called (ADR 0026). No skill or memory can grant one, and
 Hermes' permanent allowlists are never offered, so there is nothing for a
 learned skill to write to.
 
