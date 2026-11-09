@@ -24,6 +24,10 @@ var (
 	ErrLineTooLong = errors.New("agent message is longer than the protocol line limit")
 	// ErrRunLive refuses a run.start or bot.run for a run that is already live.
 	ErrRunLive = errors.New("agent run is already live")
+	// ErrUseSend refuses Request for run.start and bot.run: the worker echoes
+	// the start's id on run.done, so a Request would take the run's end away
+	// from Config.Handler. Send them.
+	ErrUseSend = errors.New("agenthost: run.start and bot.run go through Send, not Request")
 )
 
 // startIDPrefix marks the ids Go gives the run.start and bot.run it sends
@@ -139,8 +143,12 @@ func (w *Worker) Exit() ExitInfo {
 }
 
 // Request sends a request and waits for the reply with the same id. An
-// "error" reply returns a *ReplyError.
+// "error" reply returns a *ReplyError. run.start and bot.run are refused
+// with ErrUseSend.
 func (w *Worker) Request(ctx context.Context, typ string, fields any) (Message, error) {
+	if typ == TypeRunStart || typ == TypeBotRun {
+		return Message{}, ErrUseSend
+	}
 	id := fmt.Sprintf("%s%d", goIDPrefix, w.nextID.Add(1))
 	reply := make(chan Message, 1)
 	w.mu.Lock()

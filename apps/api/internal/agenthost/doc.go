@@ -27,17 +27,21 @@
 //     "error" ({"type":"error","id":...,"code":...,"message":...}) fails the
 //     request with a *ReplyError.
 //   - Run-scoped messages carry "run". Outgoing "run.start" and "bot.run"
-//     mark the run live (Send gives them an id starting "start-"; a second
-//     start of a live run is ErrRunLive); incoming "run.done" and "bot.done"
+//     mark the run live (only Send takes them, giving them an id starting
+//     "start-"; Request refuses them with ErrUseSend, since run.done echoes
+//     that id; a second start of a live run is ErrRunLive); incoming
+//     "run.done" and "bot.done"
 //     end it. A worker with a live run is never reaped.
 //   - Before spawning (Config.RenderAccount): "boot.py prepare --agent-dir
 //     <root>" once, then "boot.py render-account --agent-dir <root> --account
-//     <id>" with the settings JSON on stdin; its config_sha256 is the hello's
+//     <id> --prepared <json>" with the settings JSON on stdin (--prepared is
+//     prepare's answer kept in memory, never runtime/prepared.json, with the
+//     reviewed default-off skills); its config_sha256 is the hello's
 //     settings_hash. Before each spawn managed/config.yaml must still hash to
 //     prepare's managed_sha256 (ErrManagedChanged otherwise).
 //   - Handshake: Go sends "hello" {protocol, account, home, settings_hash,
 //     settings?, catalog_version, timely_skills_dir, browser_executable,
-//     managed_sha256}; the worker answers "ready" {protocol,
+//     managed_sha256, skills_default_off}; the worker answers "ready" {protocol,
 //     hermes_tag, tools[], plugins_loaded[], self_test{ok, failures[],
 //     checks[{name, ok, detail}]}} within Config.HelloTimeout (20 s).
 //     self_test.ok must be true, otherwise the worker is stopped and Ensure

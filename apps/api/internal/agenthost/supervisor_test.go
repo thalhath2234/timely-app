@@ -1126,6 +1126,24 @@ func TestSendRunStartNeverFailsAfterItsLineWasWritten(t *testing.T) {
 	}
 }
 
+// run.done echoes the start's id, so a run started with Request would hand
+// its run.done to the Request (or drop it as a late reply), never to the
+// Handler: Request refuses the lines that start runs.
+func TestRequestRefusesLinesThatStartRuns(t *testing.T) {
+	h := newHarness(t, "ok", nil)
+	w := h.ensure("acct-1")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, typ := range []string{TypeRunStart, TypeBotRun} {
+		if _, err := w.Request(ctx, typ, map[string]any{"run": "run-R", "conversation_id": "c"}); !errors.Is(err, ErrUseSend) {
+			t.Fatalf("Request(%s): %v, want ErrUseSend", typ, err)
+		}
+	}
+	if live := w.LiveRuns(); len(live) != 0 {
+		t.Fatalf("live runs %v after refused Requests", live)
+	}
+}
+
 func TestReadyPIDOutsideTheProcessGroupIsRefused(t *testing.T) {
 	h := newHarness(t, "foreignpid", nil)
 	err := h.ensureErr("acct-1")
