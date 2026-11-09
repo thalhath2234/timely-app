@@ -442,3 +442,18 @@ func TestIntegrationProposalPreview(t *testing.T) {
 		t.Errorf("preview_bot read %s, want %s", previews[0], want)
 	}
 }
+
+// Outside marks come from the catalog's taint classification (agent.OutsideTool):
+// bot alerts carry words a bot read, so list_notifications marks the run too.
+func TestNoteReadsOutsideMarksFromTheCatalog(t *testing.T) {
+	for name, want := range map[string]bool{"list_notifications": true, "ask_bot": true, "preview_bot": true, "list_docs": false, "get_bot": false} {
+		var run botRun
+		if got := run.note(name, []byte(`{"items":[]}`)); got != want || run.outside != want {
+			t.Errorf("%s: outside %v (run %v), want %v", name, got, run.outside, want)
+		}
+		var failed botRun
+		if failed.note(name, []byte(`{"error":"down"}`)) || failed.outside {
+			t.Errorf("%s: a failed read carries nothing", name)
+		}
+	}
+}
