@@ -17,7 +17,9 @@ Checks, each ``{"name", "ok", "detail"}``:
 - ``home``          ``HERMES_HOME`` is the folder Go named in ``hello`` and Hermes resolves it
 - ``no_messaging``  no messaging tool resolves for any toolset a Timely run may enable, no
                     platform plugin is enabled and no platform adapter module is imported
-- ``managed_config`` every leaf of the managed floors reads back through Hermes' loaders (canary)
+- ``managed_config`` the managed file is byte-identical to the floors rendered from the values Go
+                    sent in ``hello`` and every leaf reads back through Hermes' loaders (canary)
+- ``essential_skills`` Hermes' non-disableable skill list matches ``seed.ESSENTIAL_SKILLS``
 - ``install_guard`` every runtime-install override is in place
 - ``dotenv_guard``  Hermes' dotenv loader is a no-op after start (runtime override R2)
 - ``mcp``           no ``command`` MCP server unless the account is host-allowed and approved it
@@ -133,7 +135,7 @@ def user_plugin_entries(home: Path) -> list[str]:
 
 
 def run(*, expected_home: str, timely_skills_dir: str | None, browser_executable: str = "",
-        env_before: dict[str, str] | None = None, env_ignore: frozenset[str] | set[str] = frozenset()) -> dict[str, Any]:
+        managed_sha256: str | None = None, env_before: dict[str, str] | None = None, env_ignore: frozenset[str] | set[str] = frozenset()) -> dict[str, Any]:
     checks: list[dict[str, Any]] = []
     from hermes_cli.plugins import get_plugin_manager
     from hermes_constants import get_hermes_home
@@ -187,7 +189,7 @@ def run(*, expected_home: str, timely_skills_dir: str | None, browser_executable
         checks.append(_check("no_messaging", False, f"could not resolve tools: {exc}"))
 
     try:
-        problems = config_render.canary(timely_skills_dir, browser_executable)
+        problems = config_render.canary(timely_skills_dir, browser_executable, managed_sha256)
     except Exception as exc:
         problems = [f"canary raised {type(exc).__name__}: {exc}"]
     checks.append(_check("managed_config", not problems, "; ".join(problems)))

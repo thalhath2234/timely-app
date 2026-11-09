@@ -188,7 +188,7 @@ type Supervisor struct {
 
 	prepMu   sync.Mutex
 	prepared bool
-	seedDir  string
+	prep     PrepareResult
 
 	slots   chan struct{}
 	closing chan struct{}
@@ -467,13 +467,18 @@ func (s *Supervisor) startWorker(ctx context.Context, account string, e *entry, 
 			return nil, &StartError{Account: account, Err: err, Detail: "preparing the account's agent config"}
 		}
 	}
+	prep, err := s.preparedFor()
+	if err != nil {
+		<-s.slots
+		return nil, &StartError{Account: account, Err: err, Detail: "restart Timely to rewrite it"}
+	}
 	w, err := s.spawn(account, spec)
 	if err != nil {
 		<-s.slots
 		s.recordCrash(account, err.Error())
 		return nil, &StartError{Account: account, Err: err, Detail: "spawning the worker"}
 	}
-	if err := s.handshake(w, spec, hash); err != nil {
+	if err := s.handshake(w, spec, hash, prep); err != nil {
 		w.fail(err.Error())
 		<-w.Done()
 		var se *StartError
@@ -607,15 +612,18 @@ func settingsHash(settings json.RawMessage) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (s *Supervisor) handshake(w *Worker, spec AccountSpec, hash string) error {
+func (s *Supervisor) handshake(w *Worker, spec AccountSpec, hash string, prep PrepareResult) error {
 	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.HelloTimeout)
 	defer cancel()
 	reply, err := w.Request(ctx, TypeHello, helloFields{
-		Protocol:       ProtocolVersion,
-		Home:           w.home,
-		SettingsHash:   hash,
-		Settings:       spec.Settings,
-		CatalogVersion: s.cfg.CatalogVersion,
+		Protocol:          ProtocolVersion,
+		Home:              w.home,
+		SettingsHash:      hash,
+		Settings:          spec.Settings,
+		CatalogVersion:    s.cfg.CatalogVersion,
+		TimelySkillsDir:   prep.TimelySkillsDir,
+		BrowserExecutable: prep.BrowserExecutable,
+		ManagedSHA256:     prep.ManagedSHA256,
 	})
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):

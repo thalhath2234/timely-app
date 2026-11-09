@@ -128,8 +128,15 @@ class Worker:
         actual = sha256_file(config) if config.is_file() else ""
         layout = paths.layout_for_home(self.home)
         from timely_agent.cli import load_prepared, render_account
-        prepared = load_prepared(layout)
-        timely_skills = prepared.get("timely_skills_dir")
+        # What prepare reported, from Go (never from runtime/prepared.json, which sits in the same
+        # writable agent folder): the managed file must be exactly the floors these values render.
+        timely_skills, managed_sha = msg.get("timely_skills_dir"), msg.get("managed_sha256")
+        browser = msg.get("browser_executable", "")
+        if not (isinstance(timely_skills, str) and timely_skills and isinstance(managed_sha, str) and managed_sha
+                and isinstance(browser, str)):
+            raise P.ProtocolError(P.E_BAD_MESSAGE, "hello needs prepare's timely_skills_dir and managed_sha256", mid)
+        if not paths.within(layout.root, timely_skills):
+            raise P.ProtocolError(P.E_BAD_MESSAGE, "hello.timely_skills_dir is outside the agent folder", mid)
         settings = msg.get("settings")
         if isinstance(settings, dict):
             # Go sent the settings themselves: render here (same code as `boot.py render-account`).
@@ -137,7 +144,8 @@ class Worker:
                 # stderr, not a protocol "log": the account is not pinned yet, and Go kills a
                 # worker whose line names no account.
                 logger.warning("config.yaml did not match settings_hash (edited since the last render); re-rendered")
-            actual = render_account(layout, account, settings)["config_sha256"]
+            prepared = {**load_prepared(layout), "timely_skills_dir": timely_skills, "browser_executable": browser}
+            actual = render_account(layout, account, settings, prepared)["config_sha256"]
         elif not msg.get("settings_hash") or actual != msg.get("settings_hash"):
             raise P.ProtocolError(P.E_CONFIG, "config.yaml does not match settings_hash: re-render it and respawn", mid)
         self.chan.account = account
@@ -178,7 +186,7 @@ class Worker:
             skills_sync = {"error": f"{type(exc).__name__}: {exc}"}
         from timely_agent import selftest
         result = selftest.run(expected_home=str(self.home), timely_skills_dir=timely_skills,
-                              browser_executable=str(prepared.get("browser_executable") or ""),
+                              browser_executable=browser, managed_sha256=managed_sha,
                               env_before=env_before, env_ignore=ours)
         from hermes_cli.plugins import get_plugin_manager
         loaded = sorted(p.get("key") or p.get("name") for p in get_plugin_manager().list_plugins() if p.get("enabled"))

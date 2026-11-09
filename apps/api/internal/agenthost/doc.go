@@ -33,9 +33,11 @@
 //   - Before spawning (Config.RenderAccount): "boot.py prepare --agent-dir
 //     <root>" once, then "boot.py render-account --agent-dir <root> --account
 //     <id>" with the settings JSON on stdin; its config_sha256 is the hello's
-//     settings_hash.
+//     settings_hash. Before each spawn managed/config.yaml must still hash to
+//     prepare's managed_sha256 (ErrManagedChanged otherwise).
 //   - Handshake: Go sends "hello" {protocol, account, home, settings_hash,
-//     settings?, catalog_version}; the worker answers "ready" {protocol,
+//     settings?, catalog_version, timely_skills_dir, browser_executable,
+//     managed_sha256}; the worker answers "ready" {protocol,
 //     hermes_tag, tools[], plugins_loaded[], self_test{ok, failures[],
 //     checks[{name, ok, detail}]}} within Config.HelloTimeout (20 s).
 //     self_test.ok must be true, otherwise the worker is stopped and Ensure

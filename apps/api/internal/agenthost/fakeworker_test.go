@@ -52,7 +52,15 @@ func fakeHelper(mode, command string, args []string) int {
 		return 1
 	case command == "prepare":
 		answer["seed_skills_dir"] = filepath.Join(agentDir, "seed", "skills")
+		answer["timely_skills_dir"] = filepath.Join(agentDir, "timely-skills", "fake")
 		answer["env_secret_seen"] = os.Getenv("JWT_SECRET") != ""
+		managed := []byte("{\"plugins\": {\"enabled\": [\"timely_gate\"]}}\n")
+		if err := os.WriteFile(filepath.Join(agentDir, "managed", "config.yaml"), managed, 0o644); err != nil {
+			fmt.Println(`{"ok": false, "error": "cannot write the managed config"}`)
+			return 1
+		}
+		sum := sha256.Sum256(managed)
+		answer["managed_sha256"] = hex.EncodeToString(sum[:])
 	default:
 		sum := sha256.Sum256(input)
 		answer["config_sha256"] = "cfg-" + hex.EncodeToString(sum[:8])

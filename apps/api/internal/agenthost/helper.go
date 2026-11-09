@@ -3,9 +3,12 @@ package agenthost
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -30,11 +33,17 @@ const (
 // ErrHelperFailed is a failed prepare or render-account step.
 var ErrHelperFailed = errors.New("agent runtime step failed")
 
-// PrepareResult is what prepare reports that the supervisor uses.
+// PrepareResult is what prepare reports that the supervisor uses. The
+// supervisor keeps it in memory: the managed file must still hash to
+// ManagedSHA256 before each spawn, and hello carries TimelySkillsDir,
+// BrowserExecutable and ManagedSHA256 so the worker's canary never takes its
+// expected values from the agent folder (runtime/prepared.json is writable
+// by anything running as the same OS user).
 type PrepareResult struct {
-	SeedSkillsDir   string `json:"seed_skills_dir"`
-	TimelySkillsDir string `json:"timely_skills_dir"`
-	ManagedSHA256   string `json:"managed_sha256"`
+	SeedSkillsDir     string `json:"seed_skills_dir"`
+	TimelySkillsDir   string `json:"timely_skills_dir"`
+	BrowserExecutable string `json:"browser_executable"`
+	ManagedSHA256     string `json:"managed_sha256"`
 }
 
 type helperAnswer struct {
@@ -141,8 +150,37 @@ func (s *Supervisor) prepareLocked(ctx context.Context, opts map[string]any) (Pr
 	if res.SeedSkillsDir != "" && !within(s.layout.Root, res.SeedSkillsDir) {
 		return PrepareResult{}, fmt.Errorf("%w: prepare put the seed tree outside %s", ErrHelperFailed, s.layout.Root)
 	}
+	if res.TimelySkillsDir != "" && !within(s.layout.Root, res.TimelySkillsDir) {
+		return PrepareResult{}, fmt.Errorf("%w: prepare put the Timely skills outside %s", ErrHelperFailed, s.layout.Root)
+	}
 	s.prepared = true
-	s.seedDir = res.SeedSkillsDir
+	s.prep = res
+	return res, nil
+}
+
+// ErrManagedChanged means managed/config.yaml no longer hashes to what
+// prepare wrote. The managed overlay wins over every account's config, so a
+// worker is never started on an edited one; restarting the API re-prepares.
+var ErrManagedChanged = errors.New("the agent's managed config changed since the API started")
+
+// preparedFor is prepare's answer for the next spawn, after checking the
+// managed file still hashes to it. Zero when prepare has not run (no
+// Config.RenderAccount): nothing to check and nothing to send.
+func (s *Supervisor) preparedFor() (PrepareResult, error) {
+	s.prepMu.Lock()
+	res, ok := s.prep, s.prepared
+	s.prepMu.Unlock()
+	if !ok || res.ManagedSHA256 == "" {
+		return res, nil
+	}
+	data, err := os.ReadFile(filepath.Join(s.layout.Managed(), "config.yaml"))
+	if err != nil {
+		return res, fmt.Errorf("%w: %v", ErrManagedChanged, err)
+	}
+	sum := sha256.Sum256(data)
+	if got := hex.EncodeToString(sum[:]); got != res.ManagedSHA256 {
+		return res, fmt.Errorf("%w: managed/config.yaml hashes to %s, prepare wrote %s", ErrManagedChanged, got[:12], trimForLog(res.ManagedSHA256, 12))
+	}
 	return res, nil
 }
 
@@ -163,7 +201,7 @@ func (s *Supervisor) hostConfig() EnvConfig {
 	env := s.cfg.Env
 	s.prepMu.Lock()
 	if env.BundledSkills == "" {
-		env.BundledSkills = s.seedDir
+		env.BundledSkills = s.prep.SeedSkillsDir
 	}
 	s.prepMu.Unlock()
 	return env

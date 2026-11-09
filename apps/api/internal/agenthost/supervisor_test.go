@@ -1,6 +1,7 @@
 package agenthost
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -183,6 +184,8 @@ type readyEcho struct {
 		SettingsHash   string `json:"settings_hash"`
 		Settings       any    `json:"settings"`
 		CatalogVersion string `json:"catalog_version"`
+		TimelySkills   string `json:"timely_skills_dir"`
+		ManagedSHA256  string `json:"managed_sha256"`
 	} `json:"hello"`
 	Env   []string `json:"env"`
 	Cwd   string   `json:"cwd"`
@@ -923,6 +926,11 @@ func TestRenderAccountHashGoesInHello(t *testing.T) {
 	if want := "cfg-" + hex.EncodeToString(sum[:8]); echo.Hello.SettingsHash != want {
 		t.Fatalf("hello settings_hash %q, want render-account's %q", echo.Hello.SettingsHash, want)
 	}
+	if echo.Hello.ManagedSHA256 == "" || echo.Hello.ManagedSHA256 != res.ManagedSHA256 ||
+		echo.Hello.TimelySkills != res.TimelySkillsDir {
+		t.Fatalf("hello lacks prepare's answer: managed %q skills %q, prepare %+v",
+			echo.Hello.ManagedSHA256, echo.Hello.TimelySkills, res)
+	}
 	env := strings.Join(echo.Env, "\n")
 	if !strings.Contains(env, "HERMES_BUNDLED_SKILLS="+res.SeedSkillsDir) {
 		t.Fatalf("seed tree not passed to the worker: %s", env)
@@ -930,6 +938,31 @@ func TestRenderAccountHashGoesInHello(t *testing.T) {
 	if strings.Contains(env, "jwt-secret-value") {
 		t.Fatal("secret reached the worker")
 	}
+}
+
+// The managed overlay wins over every account's config, so an edit to
+// managed/config.yaml after prepare (from an approved command in any account)
+// must stop every later spawn, not only fail the worker's own canary.
+func TestEditedManagedConfigStopsTheStart(t *testing.T) {
+	h := newHarness(t, "ok", func(c *Config) { c.RenderAccount = true })
+	h.ensure("acct-1")
+	managed := filepath.Join(h.sup.Layout().Managed(), "config.yaml")
+	data, err := os.ReadFile(managed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := string(bytes.TrimRight(data, "\n}")) + `, "command_allowlist": ["plugin_rule:timely:call_1"]}` + "\n"
+	if err := os.WriteFile(managed, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err = h.ensureErr("acct-2")
+	if !errors.Is(err, ErrManagedChanged) {
+		t.Fatalf("err = %v, want ErrManagedChanged", err)
+	}
+	if err := os.WriteFile(managed, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.ensure("acct-2") // the file prepare wrote is accepted again
 }
 
 func TestRenderAccountFailureStopsTheStart(t *testing.T) {

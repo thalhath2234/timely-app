@@ -93,7 +93,11 @@ class Agent:
     def hello(self, **over: Any) -> dict:
         msg = {"type": "hello", "id": "h1", "account": self.account, "protocol": 1,
                "home": str(self.home), "settings_hash": self.rendered["config_sha256"],
-               "catalog_version": "test-1"}
+               "catalog_version": "test-1",
+               # what Go passes from prepare's answer (PrepareResult)
+               "timely_skills_dir": self.prepared["timely_skills_dir"],
+               "managed_sha256": self.prepared["managed_sha256"],
+               "browser_executable": self.prepared.get("browser_executable", "")}
         msg.update(over)
         return msg
 

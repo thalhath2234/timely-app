@@ -129,6 +129,11 @@ type helloFields struct {
 	SettingsHash   string          `json:"settings_hash"`
 	Settings       json.RawMessage `json:"settings,omitempty"`
 	CatalogVersion string          `json:"catalog_version,omitempty"`
+	// Prepare's answer (PrepareResult): the worker's canary renders the
+	// managed floors from these and refuses a managed file that differs.
+	TimelySkillsDir   string `json:"timely_skills_dir,omitempty"`
+	BrowserExecutable string `json:"browser_executable"`
+	ManagedSHA256     string `json:"managed_sha256,omitempty"`
 }
 
 type logFields struct {

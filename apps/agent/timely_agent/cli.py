@@ -98,7 +98,7 @@ def prepare(layout: paths.AgentLayout, opts: dict[str, Any]) -> dict[str, Any]:
     config_render.write_atomic(canary_home / "config.yaml", config_render.dumps(cfg))
     from timely_agent import install_guard
     install_guard.install()
-    problems = config_render.canary(timely_skills, browser)
+    problems = config_render.canary(timely_skills, browser, managed_sha)
     if problems:
         raise RuntimeError("managed config canary failed: " + "; ".join(problems))
     state = {
@@ -126,8 +126,11 @@ def prepare(layout: paths.AgentLayout, opts: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def render_account(layout: paths.AgentLayout, account: str, settings: dict[str, Any]) -> dict[str, Any]:
-    state = load_prepared(layout)
+def render_account(layout: paths.AgentLayout, account: str, settings: dict[str, Any],
+                   prepared: dict[str, Any] | None = None) -> dict[str, Any]:
+    """``prepared`` replaces ``runtime/prepared.json`` (the worker passes the values Go sent in
+    ``hello`` over the file's)."""
+    state = prepared if prepared is not None else load_prepared(layout)
     # Reviewed bundled skills that are off by default stay off unless the person turned them on.
     enabled = {str(s) for s in settings.get("skills_enabled") or []}
     default_off = [n for n in state.get("skills_default_off") or [] if n not in enabled]

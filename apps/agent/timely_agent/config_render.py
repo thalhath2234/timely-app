@@ -129,6 +129,10 @@ def managed_floors(*, timely_skills_dir: os.PathLike | str | None,
         # Timely names its own chats: no background title call to the account's model after the
         # first turn (an extra billed request that also raced the contract tests' request counts).
         "auxiliary": {"title_generation": {"enabled": False}},
+        # Hermes approves any call whose rule key is in the permanent allowlist without asking
+        # (``tools/approval.py`` ``is_approved``), and reads it through ``load_config``. The overlay
+        # replaces lists, so an edited account config.yaml cannot pre-approve calls mid-life.
+        "command_allowlist": [],
     }
     return floors
 
@@ -146,10 +150,10 @@ def floor_leaves(floors: Mapping, prefix: str = "") -> dict[str, Any]:
     return out
 
 
-# The canary checks every leaf of the managed floors after Hermes loaded the files, so a
-# hand-edited managed/config.yaml cannot loosen a floor that is not read back. Path-valued ones
-# are compared against the layout and prepare's inputs, so a hand-edited managed file cannot
-# pass by agreeing with itself.
+# The canary checks every leaf of the managed floors after Hermes loaded the files, and the
+# managed file's bytes against the floors rendered from values Go passes in ``hello``, so a
+# hand-edited managed/config.yaml can neither loosen a floor nor add a key (``command_allowlist``,
+# ``terminal.home_mode``) that the floors do not name.
 def canary_keys() -> tuple[str, ...]:
     return tuple(floor_leaves(managed_floors(timely_skills_dir=None)))
 
@@ -335,27 +339,55 @@ def _norm(key: str, value: Any) -> Any:
     return value
 
 
-def canary(timely_skills_dir, browser_executable: str = "") -> list[str]:
+def managed_file_problems(path: os.PathLike | str, timely_skills_dir, browser_executable: str = "",
+                          managed_sha256: str | None = None) -> list[str]:
+    """The managed file must be exactly the bytes ``render_managed`` writes for these values (and,
+    when given, hash to ``managed_sha256``). Any added key, not just a loosened floor, fails."""
+    try:
+        data = Path(path).read_bytes()
+    except OSError as exc:
+        return [f"cannot read the managed config: {exc}"]
+    problems: list[str] = []
+    if managed_sha256 is not None and hashlib.sha256(data).hexdigest() != managed_sha256:
+        problems.append("managed config.yaml does not hash to the managed_sha256 prepare reported")
+    floors = managed_floors(timely_skills_dir=timely_skills_dir, browser_executable=browser_executable)
+    if data != dumps(floors):
+        try:
+            got = json.loads(data.decode("utf-8").split("\n", 1)[1])
+        except (ValueError, IndexError, UnicodeDecodeError):
+            got = None
+        extra = sorted(set(floor_leaves(got)) - set(floor_leaves(floors))) if isinstance(got, Mapping) else []
+        problems.append("managed config.yaml is not the file prepare wrote"
+                        + (f" (keys the floors do not have: {extra})" if extra else ""))
+    return problems
+
+
+def canary(timely_skills_dir, browser_executable: str = "", managed_sha256: str | None = None) -> list[str]:
     """Read the managed and effective config back through Hermes; returns the mismatches.
 
-    Every leaf of ``managed_floors`` is compared (``floor_leaves``), with the values ``prepare``
-    used (``timely_skills_dir``, ``browser_executable``), so an edit to the shared managed file
-    between API start and a spawn fails the self-test whatever key it loosens.
+    The managed file must be byte-identical to the floors rendered from ``timely_skills_dir`` and
+    ``browser_executable`` (values Go passes in ``hello``, never read from the agent folder), and
+    hash to ``managed_sha256`` when given, so an edit to the shared managed file between API start
+    and a spawn fails the self-test whatever key it loosens or adds. Every leaf of
+    ``managed_floors`` is also compared after Hermes loaded it (``floor_leaves``).
 
     Checks three readers: the managed file alone (``managed_scope.load_managed_config``), the
     merged config every ``load_config()`` caller sees, and the raw reader skill discovery uses
-    (``agent.skill_utils.get_external_skills_dirs``).
+    (``agent.skill_utils.get_external_skills_dirs``), which must see the Timely skills folder only.
     """
     from hermes_cli import managed_scope
     from hermes_cli.config import load_config
 
     managed_scope.invalidate_managed_cache()
     problems: list[str] = []
-    if managed_scope.get_managed_dir() is None:
+    managed_dir = managed_scope.get_managed_dir()
+    if managed_dir is None:
         return ["HERMES_MANAGED_DIR is not a folder Hermes accepts"]
     managed = managed_scope.load_managed_config()
     if not managed:
         return ["Hermes could not read the managed config (missing or malformed)"]
+    problems += managed_file_problems(Path(managed_dir) / "config.yaml", timely_skills_dir,
+                                      browser_executable, managed_sha256)
     effective = load_config()
     for key, want in expected_canary(timely_skills_dir, browser_executable).items():
         want_n = _norm(key, want)
@@ -377,6 +409,6 @@ def canary(timely_skills_dir, browser_executable: str = "") -> list[str]:
         if callable(clear):
             clear()
         dirs = [str(p.resolve()) for p in skill_utils.get_external_skills_dirs()]
-        if str(Path(timely_skills_dir).resolve()) not in dirs:
-            problems.append(f"skill discovery does not see the Timely skills folder (sees {dirs})")
+        if dirs != [str(Path(timely_skills_dir).resolve())]:
+            problems.append(f"skill discovery must see only the Timely skills folder (sees {dirs})")
     return problems

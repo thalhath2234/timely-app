@@ -544,6 +544,107 @@ def test_c12_managed_file_edited_after_prepare_fails_the_self_test(stub):
         w.close()
 
 
+@pytest.mark.parametrize("added", [
+    {"command_allowlist": ["plugin_rule:timely:call_1"]},  # Hermes would approve call_1 unasked
+    {"terminal": {"home_mode": "real"}},                   # children would get the real HOME
+], ids=["command_allowlist", "terminal_home_mode"])
+def test_c12_managed_file_with_an_added_key_fails_the_self_test(stub, added):
+    """12a3. The managed overlay wins over every account, so a key the floors do not name is as
+    dangerous as a loosened floor. The managed file must be exactly the floors rendered from the
+    values Go sent in ``hello``: an added key fails the self-test and every run is refused."""
+    a = harness.Agent(harness.new_root("c12a3"))
+    managed = a.layout.managed_config
+    cfg = config_render.deep_merge(json.loads(managed.read_text().split("\n", 1)[1]), added)
+    managed.write_text(config_render.HEADER + json.dumps(cfg))
+    w, ready = _ready_fresh(a)
+    try:
+        assert ready["self_test"]["ok"] is False, ready["self_test"]
+        detail = next(c["detail"] for c in ready["self_test"]["checks"] if c["name"] == "managed_config")
+        key = next(iter(config_render.floor_leaves(added)))
+        assert "not the file prepare wrote" in detail and key in detail, detail
+        w.send(harness.run_start(a, stub, run_id="c12a3"))
+        err = w.recv()
+        assert err["type"] == "error" and err["code"] == "refused", err
+    finally:
+        w.close()
+
+
+def test_c12_managed_canary_ignores_prepared_json(stub):
+    """12a4. ``runtime/prepared.json`` sits in the same writable agent folder, so the canary's
+    expected values come from ``hello`` (Go's copy of prepare's answer). A managed file rewritten
+    to agree with an edited prepared.json still fails, on its bytes and its sha256."""
+    a = harness.Agent(harness.new_root("c12a4"))
+    other = a.root / "planted-skills"
+    other.mkdir()
+    state_file = a.layout.runtime_dir / "prepared.json"
+    state = json.loads(state_file.read_text())
+    state["timely_skills_dir"] = str(other)
+    state_file.write_text(json.dumps(state))
+    a.layout.managed_config.write_bytes(config_render.dumps(config_render.managed_floors(timely_skills_dir=other)))
+    w, ready = _ready_fresh(a)
+    try:
+        detail = next(c["detail"] for c in ready["self_test"]["checks"] if c["name"] == "managed_config")
+        assert ready["self_test"]["ok"] is False, ready["self_test"]
+        assert "managed_sha256" in detail and "not the file prepare wrote" in detail, detail
+    finally:
+        w.close()
+
+
+def test_c12_account_command_allowlist_never_skips_an_approval(stub):
+    """12a5. Hermes approves a call whose rule key is in ``command_allowlist`` without asking.
+    The managed floor pins it to ``[]`` and the overlay replaces lists, so an account
+    ``config.yaml`` that pre-approves the call (here with a matching hash) still raises
+    ``approval.request`` after Go's ``approve``."""
+    a = harness.Agent(harness.new_root("c12a5"))
+    acfg = json.loads((a.home / "config.yaml").read_text().split("\n", 1)[1])
+    acfg["command_allowlist"] = ["plugin_rule:timely:call_1", "plugin_rule:timely:terminal"]
+    sha = config_render.write_atomic(a.home / "config.yaml", (config_render.HEADER + json.dumps(acfg)).encode())
+    w = harness.Worker(a.env())
+    try:
+        w.send(a.hello(settings_hash=sha))
+        ready, _ = w.until("ready", timeout=120)
+        assert ready["self_test"]["ok"] is True, ready["self_test"]
+        marker = a.home / "workspace" / "c12a5.txt"
+        w.send(harness.run_start(a, stub, run_id="c12a5", conversation="c-c12a5", toolsets=["terminal"],
+                                 text=f"CALL terminal {json.dumps({'command': f'echo hi > {marker.name}'})}"))
+        ask, _ = w.until("gate.ask")
+        _verdict(a, w, ask, "approve", "Run this command?")
+        while True:
+            msg = w.recv()
+            assert msg.get("type") not in ("run.done", "__eof__"), f"no approval.request before {msg}"
+            if msg.get("type") == "event" and msg.get("kind") == "approval.request":
+                break
+        assert not marker.exists()
+        w.send({"type": "approval.answer", "id": "a-c12a5", "account": a.account, "run": "c12a5",
+                "request_id": msg["payload"].get("request_id") or "", "choice": "deny"})
+        w.until("run.done")
+        assert not marker.exists()
+    finally:
+        w.close()
+
+
+def test_c12_hello_without_prepare_values_is_refused(stub):
+    """12a6. A hello without prepare's ``timely_skills_dir`` and ``managed_sha256`` (or with a
+    skills folder outside the agent folder) is ``bad_message``: the worker never falls back to
+    the writable prepared.json for the canary's expected values."""
+    a = harness.Agent(harness.new_root("c12a6"))
+    w = harness.Worker(a.env())
+    try:
+        hello = a.hello(id="h-no-sha")
+        del hello["managed_sha256"]
+        w.send(hello)
+        err = w.recv()
+        assert err["type"] == "error" and err["code"] == "bad_message" and err["id"] == "h-no-sha", err
+        w.send(a.hello(id="h-outside", timely_skills_dir=str(a.root)))
+        err = w.recv()
+        assert err["type"] == "error" and err["code"] == "bad_message" and err["id"] == "h-outside", err
+        w.send(a.hello(id="h-ok"))
+        ready, _ = w.until("ready", timeout=120)
+        assert ready["self_test"]["ok"] is True, ready["self_test"]
+    finally:
+        w.close()
+
+
 PROBE_BROWSER_GATE = textwrap.dedent("""
     import json, sys
     sys.path[:0] = [sys.argv[1], sys.argv[2]]

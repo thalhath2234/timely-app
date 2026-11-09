@@ -120,3 +120,12 @@ def layout_for_home(home: os.PathLike | str) -> AgentLayout:
     if home.parent.name != "accounts":
         raise ValueError(f"{home} is not inside an 'accounts' folder")
     return AgentLayout(home.parent.parent)
+
+
+def within(root: os.PathLike | str, path: os.PathLike | str) -> bool:
+    """True when ``path`` resolves inside ``root`` (or is ``root``)."""
+    try:
+        Path(path).resolve().relative_to(Path(root).resolve())
+    except (ValueError, OSError):
+        return False
+    return True
