@@ -287,22 +287,48 @@ def deps(files):
     return {k: " | ".join(sorted(v)) for k, v in out.items()}
 
 
+def lock_keys(data):
+    """``[(key, package)]`` for every ``[[package]]`` of a parsed uv.lock. The key is the name, or,
+    for a name uv forks per platform (psutil: PyPI for Linux and Windows, git for Android), the
+    name and its ``resolution-markers``, so each entry is diffed on its own instead of the last
+    one hiding the others."""
+    pkgs = data.get("package", [])
+    counts = {}
+    for p in pkgs:
+        counts[p["name"]] = counts.get(p["name"], 0) + 1
+    out, seen = [], set()
+    for p in pkgs:
+        key = p["name"]
+        if counts[key] > 1:
+            markers = " or ".join(p.get("resolution-markers") or []) or "no markers"
+            key = f"{key} [{markers}]"
+        base, n = key, 2
+        while key in seen:
+            key, n = f"{base} #{n}", n + 1
+        seen.add(key)
+        out.append((key, p))
+    return out
+
+
+def lock_versions(data):
+    """``{key: version}`` for every uv.lock entry (``lock_keys``)."""
+    return {k: p.get("version", "?") for k, p in lock_keys(data)}
+
+
 def lock(files):
-    if "uv.lock" not in files:
-        return {}
-    data = tomllib.loads(blob(files["uv.lock"]).decode())
-    return {p["name"]: p.get("version", "?") for p in data.get("package", [])}
+    return lock_versions(lock_data(files))
 
 
 def lock_sources(data):
-    """``{name: {"source": ..., "sdist": url, "wheels": [urls]}}`` from a parsed uv.lock: where
-    each package comes from, which a same-version change (a git URL, a direct wheel, another
-    index) would not show in the version list."""
+    """``{key: {"name", "source", "sdist": url, "wheels": [urls]}}`` from a parsed uv.lock, one
+    per entry (``lock_keys``): where each package comes from, which a same-version change (a git
+    URL, a direct wheel, another index) would not show in the version list."""
     out = {}
-    for p in data.get("package", []):
+    for key, p in lock_keys(data):
         sdist = p.get("sdist") or {}
-        out[p["name"]] = {"source": p.get("source", {}), "sdist": sdist.get("url", sdist.get("path", "")),
-                          "wheels": sorted(w.get("url", w.get("path", "")) for w in p.get("wheels", []))}
+        out[key] = {"name": p["name"], "source": p.get("source", {}),
+                    "sdist": sdist.get("url", sdist.get("path", "")),
+                    "wheels": sorted(w.get("url", w.get("path", "")) for w in p.get("wheels", []))}
     return out
 
 
@@ -313,21 +339,30 @@ def non_registry(entry):
 
 
 def source_changes(old, new):
-    """Must-review lines for ``lock_sources`` maps: a package whose source or artifact URLs
-    changed, and every non-registry source that is new (``uv sync --frozen`` builds sdists and
-    git sources, so it runs their build code)."""
+    """Must-review lines for ``lock_sources`` maps: an entry whose source or artifact URLs
+    changed, an entry that is new for a package the old lock had (its forks changed) with a source
+    none of the package's old entries used, and every non-registry source that is new
+    (``uv sync --frozen`` builds sdists and git sources, so it runs their build code)."""
     lines = []
-    for name in sorted(new):
-        e, o = new[name], old.get(name)
+    old_sources = {}
+    for e in old.values():
+        old_sources.setdefault(e.get("name"), []).append(e["source"])
+    for key in sorted(new):
+        e, o = new[key], old.get(key)
         if o is None:
-            if non_registry(e):
-                lines.append(f"new non-registry source `{name}`: {json.dumps(e['source'], sort_keys=True)}")
+            known = old_sources.get(e.get("name"))
+            if known is not None and e["source"] not in known:
+                lines.append(f"source of `{key}` is new for `{e.get('name')}`: "
+                             f"{json.dumps(e['source'], sort_keys=True)} (was "
+                             f"{', '.join(json.dumps(s, sort_keys=True) for s in known)})")
+            elif non_registry(e):
+                lines.append(f"new non-registry source `{key}`: {json.dumps(e['source'], sort_keys=True)}")
             continue
         if e["source"] != o["source"]:
-            lines.append(f"source of `{name}` changed: {json.dumps(o['source'], sort_keys=True)} -> "
+            lines.append(f"source of `{key}` changed: {json.dumps(o['source'], sort_keys=True)} -> "
                          f"{json.dumps(e['source'], sort_keys=True)}")
         elif e["sdist"] != o["sdist"] or e["wheels"] != o["wheels"]:
-            lines.append(f"artifact URLs of `{name}` changed at the same source (sdist {o['sdist'] or '-'} -> "
+            lines.append(f"artifact URLs of `{key}` changed at the same source (sdist {o['sdist'] or '-'} -> "
                          f"{e['sdist'] or '-'}, {len(o['wheels'])} -> {len(e['wheels'])} wheels)")
     return lines
 
@@ -598,7 +633,7 @@ def main():
         p("- pyproject.toml dependencies: no change")
     ol, nl = lock(of), lock(nf)
     a_, r_, c_ = diff(ol, nl) if A.old else ([], [], [])
-    p(f"- uv.lock: {len(nl)} packages; added {names([f'{k} {nl[k]}' for k in a_], fmt='{}')}; "
+    p(f"- uv.lock: {len(nl)} package entries; added {names([f'{k} {nl[k]}' for k in a_], fmt='{}')}; "
       f"removed {names(r_)}; version changed {names([f'{k} {ol[k]} -> {nl[k]}' for k in c_], fmt='{}')}")
     osrc, nsrc = (lock_sources(lock_data(of)) if A.old else {}), lock_sources(lock_data(nf))
     if A.old:

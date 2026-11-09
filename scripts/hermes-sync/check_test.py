@@ -113,6 +113,35 @@ class LockSources(unittest.TestCase):
         self.assertTrue(any("new non-registry source `d`" in ln for ln in lines), lines)
         self.assertFalse(any("`c`" in ln or "`e`" in ln for ln in lines), lines)
 
+    def test_a_name_with_two_entries_is_diffed_per_entry(self):
+        """uv.lock forks a package per platform (psutil: PyPI 7.2.2 for Linux and Windows, git 8.0.0
+        for Android). A change to the entry listed first must not hide behind the second."""
+        report = _report_module()
+        reg = {"registry": "https://pypi.org/simple"}
+        git = {"git": "https://github.com/giampaolo/psutil.git?rev=380b#380b"}
+        desk = ["python_full_version >= '3.14' and sys_platform != 'android'"]
+        andr = ["python_full_version >= '3.14' and sys_platform == 'android'"]
+
+        def lock(first_version, first_source, first_wheels):
+            return {"package": [
+                {"name": "psutil", "version": first_version, "source": first_source,
+                 "resolution-markers": desk, "wheels": [{"url": u} for u in first_wheels]},
+                {"name": "psutil", "version": "8.0.0", "source": git, "resolution-markers": andr},
+            ]}
+
+        old = lock("7.2.2", reg, ["https://files/psutil-7.2.2.whl"])
+        evil = lock("5.9.0", {"git": "https://attacker.example/psutil.git?rev=x#abc"}, [])
+        lines = report.source_changes(report.lock_sources(old), report.lock_sources(evil))
+        self.assertTrue(any("source of `psutil" in ln and "attacker.example" in ln for ln in lines), lines)
+        moved = lock("7.2.2", {"registry": "https://evil.example/simple"}, ["https://files/psutil-7.2.2.whl"])
+        lines = report.source_changes(report.lock_sources(old), report.lock_sources(moved))
+        self.assertTrue(any("evil.example" in ln for ln in lines), lines)
+        self.assertEqual(report.source_changes(report.lock_sources(old), report.lock_sources(old)), [])
+        # the version list sees both entries, and counts entries, not names
+        versions = report.lock_versions(evil)
+        self.assertEqual(len(versions), 2)
+        self.assertIn("5.9.0", versions.values())
+
     def test_flatten_tool_uv(self):
         report = _report_module()
         flat = report.flatten({"sources": {"x": {"git": "https://g"}}, "override-dependencies": ["y==1"]})
