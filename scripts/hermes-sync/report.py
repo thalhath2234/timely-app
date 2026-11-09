@@ -294,6 +294,66 @@ def lock(files):
     return {p["name"]: p.get("version", "?") for p in data.get("package", [])}
 
 
+def lock_sources(data):
+    """``{name: {"source": ..., "sdist": url, "wheels": [urls]}}`` from a parsed uv.lock: where
+    each package comes from, which a same-version change (a git URL, a direct wheel, another
+    index) would not show in the version list."""
+    out = {}
+    for p in data.get("package", []):
+        sdist = p.get("sdist") or {}
+        out[p["name"]] = {"source": p.get("source", {}), "sdist": sdist.get("url", sdist.get("path", "")),
+                          "wheels": sorted(w.get("url", w.get("path", "")) for w in p.get("wheels", []))}
+    return out
+
+
+def non_registry(entry):
+    """True for a source that is not a package index (git, direct URL, path, editable)."""
+    source = entry.get("source") or {}
+    return not ("registry" in source or "virtual" in source or "editable" in source)
+
+
+def source_changes(old, new):
+    """Must-review lines for ``lock_sources`` maps: a package whose source or artifact URLs
+    changed, and every non-registry source that is new (``uv sync --frozen`` builds sdists and
+    git sources, so it runs their build code)."""
+    lines = []
+    for name in sorted(new):
+        e, o = new[name], old.get(name)
+        if o is None:
+            if non_registry(e):
+                lines.append(f"new non-registry source `{name}`: {json.dumps(e['source'], sort_keys=True)}")
+            continue
+        if e["source"] != o["source"]:
+            lines.append(f"source of `{name}` changed: {json.dumps(o['source'], sort_keys=True)} -> "
+                         f"{json.dumps(e['source'], sort_keys=True)}")
+        elif e["sdist"] != o["sdist"] or e["wheels"] != o["wheels"]:
+            lines.append(f"artifact URLs of `{name}` changed at the same source (sdist {o['sdist'] or '-'} -> "
+                         f"{e['sdist'] or '-'}, {len(o['wheels'])} -> {len(e['wheels'])} wheels)")
+    return lines
+
+
+def uv_settings(files):
+    """``[tool.uv]`` of pyproject.toml (sources, index, override-dependencies, ...), flattened."""
+    if "pyproject.toml" not in files:
+        return {}
+    data = tomllib.loads(blob(files["pyproject.toml"]).decode())
+    return flatten(data.get("tool", {}).get("uv", {}))
+
+
+def flatten(value, prefix=""):
+    """``{"a.b": json}`` for every leaf of nested tables (lists and empty tables are leaves)."""
+    if isinstance(value, dict) and value:
+        out = {}
+        for k, v in value.items():
+            out.update(flatten(v, f"{prefix}.{k}" if prefix else str(k)))
+        return out
+    return {prefix: json.dumps(value, sort_keys=True)} if prefix else {}
+
+
+def lock_data(files):
+    return tomllib.loads(blob(files["uv.lock"]).decode()) if "uv.lock" in files else {}
+
+
 # ---------------------------------------------------------------- config defaults and env vars
 CONFIG_CODE = r"""
 import json, sys
@@ -525,6 +585,24 @@ def main():
     a_, r_, c_ = diff(ol, nl) if A.old else ([], [], [])
     p(f"- uv.lock: {len(nl)} packages; added {names([f'{k} {nl[k]}' for k in a_], fmt='{}')}; "
       f"removed {names(r_)}; version changed {names([f'{k} {ol[k]} -> {nl[k]}' for k in c_], fmt='{}')}")
+    osrc, nsrc = (lock_sources(lock_data(of)) if A.old else {}), lock_sources(lock_data(nf))
+    if A.old:
+        changed = source_changes(osrc, nsrc)
+        for line in changed:
+            p(f"- **MUST REVIEW** uv.lock {line}")
+        if not changed:
+            p("- uv.lock sources and artifact URLs: no change")
+    else:
+        odd = sorted(n for n, e in nsrc.items() if non_registry(e))
+        p(f"- uv.lock non-registry sources (git, direct URL; `uv sync --frozen` builds them): {names(odd)}")
+    ou, nu = (uv_settings(of) if A.old else {}), uv_settings(nf)
+    a_, r_, c_ = diff(ou, nu) if A.old else ([], [], [])
+    for k in a_ + c_:
+        p(f"- **MUST REVIEW** pyproject [tool.uv] `{k}` = {nu[k][:300]}" + (f" (was {ou[k][:300]})" if k in ou else ""))
+    for k in r_:
+        p(f"- **MUST REVIEW** pyproject [tool.uv] `{k}` removed (was {ou[k][:300]})")
+    if A.old and not (a_ or r_ or c_):
+        p("- pyproject [tool.uv]: no change")
 
     p("\n## 4. Config and environment\n")
     oc, oe, oerr = config(of) if A.old else ({}, [], "")
@@ -629,4 +707,5 @@ def main():
     print("\n".join(out))
 
 
-main()
+if __name__ == "__main__":
+    main()

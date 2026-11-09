@@ -14,12 +14,11 @@ g() { git -C "$REPO_ROOT" "$@"; }
 fail=0
 bad() { echo "hermes-sync-check: $*" >&2; fail=1; }
 
-snap=$(g log -1 --format=%H --all-match --grep='^hermes: snapshot ' --grep='^Hermes-Commit: ' HEAD)
+# a. The snapshot HEAD links to: the newest real one (not one a rebase replayed) whose
+# HERMES_UPSTREAM.json matches HEAD's, the same choice sync-hermes.sh makes.
+snap=$(python3 -I -B "$HELPERS/check_lib.py" previous-snapshot "$REPO_ROOT") ||
+  { echo "hermes-sync-check: HEAD is not linked to a real Hermes snapshot (reason and recovery above)" >&2; exit 1; }
 [[ -n $snap ]] || { echo "hermes-sync-check: no Hermes snapshot in HEAD's history; run make hermes-sync" >&2; exit 1; }
-python3 -I "$HELPERS/check_lib.py" verify-snapshot "$snap" "$REPO_ROOT" ||
-  bad "$snap is not a real snapshot commit (was the branch rebased?)"
-[[ $(g rev-parse "HEAD:$PREFIX/HERMES_UPSTREAM.json") == $(g rev-parse "$snap:$PREFIX/HERMES_UPSTREAM.json") ]] ||
-  bad "$PREFIX/HERMES_UPSTREAM.json differs from snapshot $snap"
 
 # b. Every vendored file that differs from the snapshot (committed or not) is a listed patch point
 # with its TIMELY(Pn) marker. patches.md lists each file as `apps/agent/hermes/<path>` in backticks.
@@ -45,10 +44,12 @@ done <<<"$listed"
 count=$(grep -c . <<<"$listed" || true)
 ((count <= 5)) || bad "$count patch points listed; the hard cap is five"
 
-# e (part). No npm manifests, JS lockfiles or env files inside the copy (uv.lock and pm/lock.json are expected).
+# e (part). No npm manifests, JS lockfiles or env files inside the copy (uv.lock and pm/lock.json are
+# expected): plan 4.2 / 10.4 e `package*.json`, `.env*`, plus the other JS lockfiles. The filter
+# skips the same names, so the filter and this check forbid the same set.
 while IFS= read -r f; do
   case "${f##*/}" in
-    package.json | package-lock.json | pnpm-lock.yaml | yarn.lock | .env | .env.*) bad "$f must not be in the copy (filter it out)" ;;
+    package*.json | npm-shrinkwrap.json | pnpm-lock.yaml | yarn.lock | .env* | *.env) bad "$f must not be in the copy (filter it out)" ;;
   esac
 done < <(g ls-files -- "$PREFIX")
 

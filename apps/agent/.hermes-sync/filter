@@ -83,13 +83,15 @@ skip CONTRIBUTING.*.md
 skip SECURITY.*.md
 # No npm manifests or lockfiles anywhere (repo rule: one root pnpm-lock.yaml). pnpm-*.yaml,
 # install*.sh and the lines below that match nothing at v0.23.0 are guards for later releases.
-skip *package.json
-skip *package-lock.json
+skip package*.json
+skip */package*.json
+skip *npm-shrinkwrap.json
 skip *pnpm-lock.yaml
 skip *yarn.lock
-# No env files anywhere (repo rule: one root .env)
+# No env files anywhere (repo rule: one root .env): .env, .env.*, .envrc, .env_local, foo.env
+skip .env*
+skip */.env*
 skip *.env
-skip *.env.*
 # Node sidecars inside copied dirs (whatsapp-bridge is messaging, decision 6)
 skip scripts/whatsapp-bridge
 skip plugins/platforms/photon/sidecar

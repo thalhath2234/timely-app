@@ -551,7 +551,7 @@ check-qa: ## Check QA script syntax and artifact formatting
 hermes-sync: ## Copy a Hermes Agent release into apps/agent/hermes and merge it (HERMES_REF=<vX.Y.Z>, default newest stable); report in .git/hermes-sync-report.md
 	@HERMES_REF='$(HERMES_REF)' scripts/sync-hermes.sh
 
-hermes-sync-check: ## Check apps/agent after a sync (plan 10.4 a-g): snapshot link, patches, conflict markers, compileall, import smoke, tool/skill policy, seams, then agent-test and agent-contract (HERMES_CHECK_STATIC_ONLY=1 skips the agent venv and the tests; HERMES_CHECK_NO_TESTS=1 only the tests)
+hermes-sync-check: ## Check apps/agent after a sync (plan 10.4 a-f, and g's agent half; CI's api job runs test-api): snapshot link, patches, conflict markers, compileall, import smoke, tool/skill policy, seams, then agent-test and agent-contract (HERMES_CHECK_STATIC_ONLY=1 skips the agent venv and the tests; HERMES_CHECK_NO_TESTS=1 skips agent-test and agent-contract)
 	@scripts/hermes-sync/check.sh
 	@python3 -I -B -m unittest discover -q -s scripts/hermes-sync -p 'check_test.py'
 	@if [ "$(HERMES_CHECK_STATIC_ONLY)" != 1 ] && $(MAKE) -n agent-install >/dev/null 2>&1; then $(MAKE) --no-print-directory agent-install; fi
@@ -562,7 +562,7 @@ hermes-sync-report: ## Upstream-change report between two imported Hermes tags o
 	@test -n "$(NEW)" || { echo "hermes-sync-report: set NEW=<tag or snapshot commit> (and OLD=...)"; exit 1; }
 	@new=$$(scripts/hermes-sync/snapshot-of.sh '$(NEW)') && old="" && \
 	if [ -n "$(OLD)" ]; then old=$$(scripts/hermes-sync/snapshot-of.sh '$(OLD)'); fi && \
-	python3 -I scripts/hermes-sync/report.py --repo "$(CURDIR)" --old "$$old" --new "$$new" --head HEAD \
+	python3 -I -B scripts/hermes-sync/report.py --repo "$(CURDIR)" --old "$$old" --new "$$new" --head HEAD \
 		--prefix apps/agent/hermes --sync-dir apps/agent/.hermes-sync
 
 AGENT_DIR := apps/agent

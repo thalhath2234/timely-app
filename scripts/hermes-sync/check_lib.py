@@ -30,10 +30,49 @@ def git(*args, repo=None, check=True):
 
 
 def snapshot_commit(repo=None):
-    """The last `hermes: snapshot` commit in HEAD's history (same query as check.sh)."""
-    out = git("log", "-1", "--format=%H", "--all-match", "--grep=^hermes: snapshot ",
-              "--grep=^Hermes-Commit: ", "HEAD", repo=repo).strip()
-    return out or None
+    """The snapshot HEAD is linked to (``previous_snapshot``), or None."""
+    return previous_snapshot(repo=repo)[0]
+
+
+def _blob(rev, path, repo=None):
+    return git("rev-parse", "-q", "--verify", f"{rev}:{path}", repo=repo, check=False).strip()
+
+
+def previous_snapshot(repo=None, prefix=PREFIX):
+    """``(commit, problems, warnings)``: the snapshot HEAD is linked to, chosen by validity, not
+    by date.
+
+    Candidates are every `hermes: snapshot` commit reachable from HEAD, newest first. One a
+    rebase replayed (``snapshot_problems``) is skipped with a warning; the first real one whose
+    ``HERMES_UPSTREAM.json`` blob equals HEAD's is the link. So the documented recovery (merge
+    the real snapshot with ``-s ours``) works after a rebase, and after merging a wrong snapshot
+    first. ``commit`` is None with no problems for a first import (no snapshot, no record);
+    otherwise ``problems`` says why nothing links."""
+    record = f"{prefix}/HERMES_UPSTREAM.json"
+    head_rec = _blob("HEAD", record, repo=repo)
+    out = git("log", "--format=%H", "--all-match", "--grep=^hermes: snapshot ", "--grep=^Hermes-Commit: ",
+              "HEAD", repo=repo, check=False)
+    candidates = [c for c in out.split() if c]
+    warnings, real = [], []
+    for c in candidates:
+        found = snapshot_problems(c, repo=repo, prefix=prefix)
+        if found:
+            warnings.append(f"skipping {c[:12]}: not a real snapshot commit (was the branch rebased?): "
+                            + "; ".join(found))
+            continue
+        real.append(c)
+        if head_rec and _blob(c, record, repo=repo) == head_rec:
+            return c, [], warnings
+    if not candidates:
+        if head_rec:
+            return None, [f"HEAD has {record} but no snapshot commit in its history (a squash?)"], warnings
+        return None, [], warnings
+    if not real:
+        return None, [f"{candidates[0]} is not a real snapshot commit (was the branch rebased?)"], warnings
+    if not head_rec:
+        return None, [f"HEAD has no {record}, but its history has snapshot {real[0][:12]}"], warnings
+    return None, [f"HEAD's {record} differs from every snapshot in its history (newest real one "
+                  f"{real[0][:12]}; a squash or rebase cut the link?)"], warnings
 
 
 def _is_snapshot_message(commit, repo=None):
@@ -63,15 +102,30 @@ def snapshot_problems(commit, repo=None, prefix=PREFIX):
     return problems
 
 
-RELINK_HELP = ("Recovery: find the real snapshot commit (the second parent of the `hermes: sync` merge "
-               "on the branch that imported it, or `git rev-parse refs/hermes/vendor` on the machine that "
-               "ran the sync), then `git merge -s ours --allow-unrelated-histories <snapshot>` and re-run.")
+RELINK_HELP = ("Recovery: find the real snapshot commit whose apps/agent/hermes/HERMES_UPSTREAM.json matches "
+               "HEAD's: the second parent of the `hermes: sync <tag>` merge on the branch that imported it, or, "
+               "for a squash-merged PR, that merge on the PR's branch (`git fetch origin pull/<n>/head`). "
+               "`refs/hermes/vendor` is only the last snapshot any sync on this clone made (every worktree "
+               "shares it), so check its tag first. Then `git merge -s ours --allow-unrelated-histories "
+               "<snapshot>` and re-run; a wrong snapshot merged earlier is skipped as long as its record differs.")
 
 
-if __name__ == "__main__":  # `check_lib.py verify-snapshot <rev> [repo]`: used by sync-hermes.sh and check.sh
+if __name__ == "__main__":  # used by sync-hermes.sh and check.sh
+    # `check_lib.py previous-snapshot [repo]`: prints the linked snapshot (nothing for a first
+    # import), warnings on stderr; exit 1 with the reason and RELINK_HELP when nothing links.
+    # `check_lib.py verify-snapshot <rev> [repo]`: exit 1 when <rev> is not a real snapshot.
     import sys
+    if len(sys.argv) in (2, 3) and sys.argv[1] == "previous-snapshot":
+        commit, problems, warnings = previous_snapshot(repo=sys.argv[2] if len(sys.argv) == 3 else None)
+        for line in warnings + problems:
+            print(line, file=sys.stderr)
+        if problems:
+            print(RELINK_HELP, file=sys.stderr)
+            sys.exit(1)
+        print(commit or "")
+        sys.exit(0)
     if len(sys.argv) not in (3, 4) or sys.argv[1] != "verify-snapshot":
-        sys.exit("usage: check_lib.py verify-snapshot <rev> [repo]")
+        sys.exit("usage: check_lib.py verify-snapshot <rev> [repo] | previous-snapshot [repo]")
     repo_arg = sys.argv[3] if len(sys.argv) == 4 else None
     found = snapshot_problems(git("rev-parse", "--verify", sys.argv[2] + "^{commit}", repo=repo_arg).strip(),
                               repo=repo_arg)

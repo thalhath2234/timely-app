@@ -78,6 +78,46 @@ class YamlSubset(unittest.TestCase):
         self.assertEqual(check_policy.check_skill_body(body, policy), [])
 
 
+def _report_module():
+    """report.py parses its arguments at import; give it harmless ones."""
+    import sys
+    from unittest import mock
+    with mock.patch.object(sys, "argv", ["report.py", "--repo", ".", "--new", "x", "--prefix",
+                                         "apps/agent/hermes", "--sync-dir", "apps/agent/.hermes-sync"]):
+        import report
+    return report
+
+
+class LockSources(unittest.TestCase):
+    """The sync report flags same-version source changes in uv.lock (report.py section 3)."""
+
+    def test_source_and_artifact_changes_are_must_review(self):
+        report = _report_module()
+        reg = {"registry": "https://pypi.org/simple"}
+        old = report.lock_sources({"package": [
+            {"name": "a", "version": "1", "source": reg, "sdist": {"url": "https://x/a-1.tar.gz"}},
+            {"name": "b", "version": "1", "source": reg, "wheels": [{"url": "https://x/b-1.whl"}]},
+            {"name": "c", "version": "1", "source": reg},
+        ]})
+        new = report.lock_sources({"package": [
+            {"name": "a", "version": "1", "source": {"git": "https://github.com/evil/a.git?rev=1"}},
+            {"name": "b", "version": "1", "source": reg, "wheels": [{"url": "https://elsewhere/b-1.whl"}]},
+            {"name": "c", "version": "1", "source": reg},
+            {"name": "d", "version": "1", "source": {"url": "https://x/d-1.whl"}},
+            {"name": "e", "version": "1", "source": reg},
+        ]})
+        lines = report.source_changes(old, new)
+        self.assertTrue(any("source of `a` changed" in ln for ln in lines), lines)
+        self.assertTrue(any("artifact URLs of `b` changed" in ln for ln in lines), lines)
+        self.assertTrue(any("new non-registry source `d`" in ln for ln in lines), lines)
+        self.assertFalse(any("`c`" in ln or "`e`" in ln for ln in lines), lines)
+
+    def test_flatten_tool_uv(self):
+        report = _report_module()
+        flat = report.flatten({"sources": {"x": {"git": "https://g"}}, "override-dependencies": ["y==1"]})
+        self.assertEqual(flat, {"sources.x.git": '"https://g"', "override-dependencies": '["y==1"]'})
+
+
 class SchemaHash(unittest.TestCase):
     def test_dump_and_lib_hash_agree(self):
         schema = {"name": "x", "parameters": {"type": "object", "properties": {"b": {}, "a": {"description": "é"}}}}
@@ -506,12 +546,19 @@ class SnapshotLink(unittest.TestCase):
         res = self.check_sh()
         self.assertEqual(res.returncode, 0, res.stderr)
 
-    def test_rebased_snapshot_fails(self):
-        # what `git rebase --force-rebase` does: the snapshot replayed onto a Timely commit
+    def replay(self):
+        """What `git rebase --force-rebase` does: the snapshot replayed onto a Timely commit, with
+        a newer committer date (a rebase always gives one)."""
         self.git("reset", "-q", "--hard", "HEAD~1")
-        self.git("cherry-pick", "--allow-empty", "-X", "theirs", self.snap)
-        replayed = self.git("rev-parse", "HEAD").strip()
-        self.assertEqual(check_lib.snapshot_commit(repo=self.repo), replayed)
+        later = dict(os.environ, GIT_COMMITTER_DATE="2099-01-01T00:00:00Z")
+        self.git("cherry-pick", "--allow-empty", "-X", "theirs", self.snap, env=later)
+        return self.git("rev-parse", "HEAD").strip()
+
+    def test_rebased_snapshot_fails(self):
+        self.check_replayed(self.replay())
+
+    def check_replayed(self, replayed):
+        self.assertIsNone(check_lib.snapshot_commit(repo=self.repo))
         problems = check_lib.snapshot_problems(replayed, repo=self.repo)
         self.assertTrue(any("outside apps/agent/hermes/" in p for p in problems), problems)
         self.assertTrue(any("not a snapshot commit" in p for p in problems), problems)
@@ -519,6 +566,65 @@ class SnapshotLink(unittest.TestCase):
         self.assertNotEqual(res.returncode, 0)
         self.assertIn("not a real snapshot commit", res.stderr)
         self.assertIn("--allow-unrelated-histories", res.stderr)
+
+    def test_documented_recovery_works_after_a_rebase(self):
+        replayed = self.replay()
+        self.check_replayed(replayed)
+        # a later Timely commit, then the printed recovery: merge the real snapshot with -s ours
+        self.write("NOTES.md", "after the rebase\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "timely: later work")
+        self.git("merge", "-q", "-s", "ours", "--allow-unrelated-histories", "-m", "agent: relink", self.snap)
+        commit, problems, warnings = check_lib.previous_snapshot(repo=self.repo)
+        self.assertEqual((commit, problems), (self.snap, []))
+        self.assertTrue(any(replayed[:12] in w for w in warnings), warnings)
+        res = self.check_sh()
+        self.assertEqual(res.returncode, 0, res.stderr)
+
+    def snapshot(self, tag, parent, body):
+        """A real snapshot commit (prefix-only tree, snapshot parent), committed a minute later."""
+        snap_dir = tempfile.mkdtemp(prefix="hermes-snap2.")
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", snap_dir]))
+        env = dict(os.environ, GIT_INDEX_FILE=os.path.join(self.repo, ".git", f"snap-{tag}"), GIT_WORK_TREE=snap_dir,
+                   GIT_COMMITTER_DATE="2099-01-01T00:00:00Z", GIT_AUTHOR_DATE="2099-01-01T00:00:00Z")
+        os.makedirs(os.path.join(snap_dir, check_lib.PREFIX))
+        for name, text in (("HERMES_UPSTREAM.json", f'{{"tag": "{tag}"}}\n'), ("tool.py", body)):
+            with open(os.path.join(snap_dir, check_lib.PREFIX, name), "w") as fh:
+                fh.write(text)
+        self.git("add", "-A", env=env)
+        tree = self.git("write-tree", env=env).strip()
+        return self.git("commit-tree", tree, "-p", parent, "-m", f"hermes: snapshot {tag}", "-m",
+                        f"Hermes-Tag: {tag}\nHermes-Commit: def", env=env).strip()
+
+    def test_a_wrong_snapshot_merged_first_is_skipped(self):
+        # merging a newer, real snapshot of another tag with -s ours (refs/hermes/vendor after a sync
+        # elsewhere) leaves HEAD's record at v1: the link stays the v1 snapshot, not the newest one
+        wrong = self.snapshot("v2", self.snap, "x = 2\n")
+        self.assertEqual(check_lib.snapshot_problems(wrong, repo=self.repo), [])
+        self.git("merge", "-q", "-s", "ours", "-m", "agent: wrong relink", wrong)
+        self.assertEqual(check_lib.snapshot_commit(repo=self.repo), self.snap)
+        res = self.check_sh()
+        self.assertEqual(res.returncode, 0, res.stderr)
+
+    def test_npm_and_env_files_in_the_copy_fail(self):
+        for rel in ("apps/agent/hermes/tools/foo/.envrc", "apps/agent/hermes/tools/foo/.env_local",
+                    "apps/agent/hermes/plugins/x/npm-shrinkwrap.json", "apps/agent/hermes/x/package-lock.json"):
+            self.write(rel, "x\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "agent: stray files")
+        res = self.check_sh()
+        self.assertNotEqual(res.returncode, 0)
+        for rel in (".envrc", ".env_local", "npm-shrinkwrap.json", "package-lock.json"):
+            self.assertIn(f"{rel} must not be in the copy", res.stderr)
+
+    def test_filter_skips_the_names_the_check_forbids(self):
+        import snapshot
+        rules = snapshot.load_filter(os.path.join(check_lib.REPO_ROOT, check_lib.SYNC_DIR, "filter"))
+        for rel in ("tools/foo/.envrc", "tools/foo/.env_local", "plugins/x/npm-shrinkwrap.json",
+                    "a/package.json", "a/b/package-lock.json", ".env", "x/y.env"):
+            self.assertTrue(snapshot.matches(rel, rules["skip"]), rel)
+        for rel in ("tools/environments/local.py", "pm/lock.json", "uv.lock", "pyproject.toml"):
+            self.assertFalse(snapshot.matches(rel, rules["skip"]), rel)
 
     def test_listed_patch_identical_to_upstream_fails(self):
         self.write("apps/agent/.hermes-sync/patches.md", "- P1 `apps/agent/hermes/tool.py` # TIMELY(P1) test\n")

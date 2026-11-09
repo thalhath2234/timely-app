@@ -56,27 +56,20 @@ committed=$(up log -1 --format=%cI "$commit")
 tag_body_commit=""
 if [[ $(up cat-file -t "refs/tags/$REF") == tag ]]; then
   up cat-file tag "refs/tags/$REF" | sed '1,/^$/d' >"$tmp/tag-body"
-  tag_body_commit=$(python3 -I -c 'import json,sys
+  tag_body_commit=$(python3 -I -B -c 'import json,sys
 try: print(json.load(open(sys.argv[1])).get("commit", ""))
 except Exception: print("")' "$tmp/tag-body")
 fi
 
-# 3. The previous snapshot, and the link from HEAD to it.
-prev=$(g log -1 --format=%H --all-match --grep='^hermes: snapshot ' --grep='^Hermes-Commit: ' HEAD)
-head_rec=$(g rev-parse -q --verify "HEAD:$PREFIX/HERMES_UPSTREAM.json" || true)
+# 3. The previous snapshot, and the link from HEAD to it: the newest real snapshot (a rebase
+# replays one onto a Timely commit with its message intact: merging against that would delete
+# every Timely file) whose HERMES_UPSTREAM.json matches HEAD's (check_lib.py previous-snapshot).
+prev=$(python3 -I -B "$HELPERS/check_lib.py" previous-snapshot "$REPO_ROOT") ||
+  die "HEAD is not linked to a real Hermes snapshot (reason and recovery above)"
 prev_commit="" prev_tag=""
-RELINK="Recovery: find the real snapshot commit (the second parent of the 'hermes: sync' merge on the branch that imported it, or 'git rev-parse refs/hermes/vendor' on the machine that ran the sync), then: git merge -s ours --allow-unrelated-histories <snapshot>, and re-run."
 if [[ -n $prev ]]; then
-  # A rebase replays the snapshot onto a Timely commit with its message intact: same blob, but
-  # the whole repo in its tree. Merging against it would delete every Timely file.
-  python3 -I "$HELPERS/check_lib.py" verify-snapshot "$prev" "$REPO_ROOT" >&2 ||
-    die "$prev is not a real snapshot commit (was the branch rebased?)"
-  [[ $head_rec == $(g rev-parse "$prev:$PREFIX/HERMES_UPSTREAM.json") ]] || die \
-    "HEAD's $PREFIX/HERMES_UPSTREAM.json differs from snapshot $prev (a squash or rebase cut the link?). $RELINK"
   prev_commit=$(g log -1 --format='%(trailers:key=Hermes-Commit,valueonly)' "$prev" | head -n1)
   prev_tag=$(g log -1 --format='%(trailers:key=Hermes-Tag,valueonly)' "$prev" | head -n1)
-elif [[ -n $head_rec ]]; then
-  die "HEAD has $PREFIX/HERMES_UPSTREAM.json but no snapshot commit in its history (a squash?). $RELINK"
 fi
 
 # 1b. Verify the tag: release API, tags.json, ancestry. Hermes tags are unsigned and can move.
@@ -96,7 +89,7 @@ if [[ -z ${HERMES_SKIP_RELEASE_API:-} ]]; then
 fi
 [[ -z $tag_body_commit || $tag_body_commit == "$commit" ]] ||
   die "$REF resolves to $commit but its tag body names commit $tag_body_commit"
-known=$({ g show "HEAD:$SYNC_DIR/tags.json" 2>/dev/null || echo "{}"; } | python3 -I -c 'import json,sys
+known=$({ g show "HEAD:$SYNC_DIR/tags.json" 2>/dev/null || echo "{}"; } | python3 -I -B -c 'import json,sys
 try: print(json.load(sys.stdin).get(sys.argv[1], {}).get("commit", ""))
 except Exception: print("")' "$REF")
 if [[ -n $known ]]; then
@@ -113,7 +106,7 @@ elif [[ -n $prev_commit ]]; then
     up fetch -q --depth=1 --no-tags "$URL" "$prev_commit" || true
   fi
   if ! up merge-base --is-ancestor "$prev_commit" "$commit" 2>/dev/null; then
-    since=$(g show "$prev:$PREFIX/HERMES_UPSTREAM.json" | python3 -I -c 'import datetime,json,sys
+    since=$(g show "$prev:$PREFIX/HERMES_UPSTREAM.json" | python3 -I -B -c 'import datetime,json,sys
 d = datetime.datetime.fromisoformat(json.load(sys.stdin)["committed"]) - datetime.timedelta(days=2)
 print(d.strftime("%Y-%m-%d"))')
     up fetch -q --no-tags --shallow-since="$since" "$URL" "+refs/tags/$REF:refs/tags/$REF" || true
@@ -127,13 +120,19 @@ print(d.strftime("%Y-%m-%d"))')
   fi
 fi
 
+# 0 (cont.). On dev the sync makes fix/hermes-sync-<tag>; refuse now, before anything is written,
+# when an earlier attempt left that branch behind.
+if [[ $branch == dev ]] && g show-ref --verify --quiet "refs/heads/fix/hermes-sync-$REF"; then
+  die "branch fix/hermes-sync-$REF already exists (an earlier sync attempt?): switch to it and re-run there, or delete it"
+fi
+
 # 4. The filter, from the committed HEAD copy.
 filter_sha=$(g rev-parse -q --verify "HEAD:$SYNC_DIR/filter") || die "commit $SYNC_DIR/filter first"
 g show "HEAD:$SYNC_DIR/filter" >"$tmp/filter"
 
 # 5. Snapshot tree (plumbing only).
 start=$SECONDS
-tree=$(python3 -I "$HELPERS/snapshot.py" --cache "$CACHE" --repo "$(g rev-parse --absolute-git-dir)" \
+tree=$(python3 -I -B "$HELPERS/snapshot.py" --cache "$CACHE" --repo "$(g rev-parse --absolute-git-dir)" \
   --commit "$commit" --tag "$REF" --committed "$committed" --filter "$tmp/filter" --filter-sha1 "$filter_sha" \
   --prefix "$PREFIX" --index "$tmp/index" --url "${URL%.git}" --stats-out "$tmp/stats.json")
 if [[ -n $prev && $tree == $(g rev-parse "$prev^{tree}") ]]; then
@@ -152,24 +151,28 @@ fi
 new=$(g commit-tree "$tree" ${prev:+-p "$prev"} -m "hermes: snapshot $REF" -m "Hermes-Tag: $REF
 Hermes-Commit: $commit
 Filter-Sha1: $filter_sha")
-# Local convenience ref outside refs/heads: never a branch anyone checks out (or syncs on).
+# Local convenience ref outside refs/heads: never a branch anyone checks out (or syncs on). Shared by
+# every worktree of this clone and moved by every sync (even one that later conflicts), so it is
+# a hint, never the recovery's source of truth.
 g update-ref -m "hermes-sync $REF" refs/hermes/vendor "$new"
 
 # 7. Report (also the PR body).
 report=$(g rev-parse --path-format=absolute --git-path hermes-sync-report.md)
-python3 -I -c 'import json,sys
+python3 -I -B -c 'import json,sys
 json.dump(dict(zip(["tag","commit","tag_body_commit","release_api","tags_check","ancestry","prev_tag","prev_commit"], sys.argv[1:])), sys.stdout)' \
   "$REF" "$commit" "$tag_body_commit" "$release_api" "$tags_check" "$ancestry" "$prev_tag" "$prev_commit" >"$tmp/verify.json"
-python3 -I "$HELPERS/report.py" --repo "$REPO_ROOT" --old "$prev" --new "$new" --head HEAD --prefix "$PREFIX" \
+python3 -I -B "$HELPERS/report.py" --repo "$REPO_ROOT" --old "$prev" --new "$new" --head HEAD --prefix "$PREFIX" \
   --sync-dir "$SYNC_DIR" --verify "$tmp/verify.json" >"$report"
 
 # 8. Merge with a merge commit; record the tag in tags.json inside the same commit.
-merge_args=(--no-ff --no-commit -q)
+# -m: git keeps the message in MERGE_MSG under --no-commit, so a conflicted sync committed by hand
+# is titled `hermes: sync <tag>` too (the recovery text finds snapshots by that title).
+merge_args=(--no-ff --no-commit -q -m "hermes: sync $REF")
 [[ -z $prev ]] && merge_args+=(--allow-unrelated-histories)
 conflicted=0
 g merge "${merge_args[@]}" "$new" || conflicted=1
 mkdir -p "$REPO_ROOT/$SYNC_DIR"
-python3 -I -c 'import json,os,sys
+python3 -I -B -c 'import json,os,sys
 path, tag, commit, committed, api = sys.argv[1:6]
 tags = json.load(open(path)) if os.path.exists(path) else {}
 tags[tag] = {"commit": commit, "committed": committed, "releaseApi": api}
@@ -186,7 +189,7 @@ Merge conflicts in the files listed above. Resolve them (apps/agent/AGENTS.md, "
   - patch point: take upstream, re-apply the change listed in $SYNC_DIR/patches.md, keep the TIMELY(Pn) marker
   - modify/delete: restore the file and disable it by config or policy instead
   - $PREFIX/HERMES_UPSTREAM.json: always take theirs (git checkout --theirs)
-Then: git add <files> && git commit, read $report, and run make hermes-sync-check.
+Then: git add <files> && git commit --no-edit (keeps the title "hermes: sync $REF"), read $report, and run make hermes-sync-check.
 EOF
   exit 2
 fi
@@ -194,4 +197,4 @@ g commit -q -m "hermes: sync $REF"
 
 # 9. Next steps.
 echo "Next: read $report (it is also the PR body), triage new tools, skills, deps and seams, run make hermes-sync-check, then open a PR and merge it with a merge commit (never squash or rebase)."
-echo "Hermes $REF ($commit) merged into $branch in ${elapsed}s: $(python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); print(f"{s["files"]} files, {s["bytes"]/1048576:.1f} MiB")' "$tmp/stats.json"), snapshot $new"
+echo "Hermes $REF ($commit) merged into $branch in ${elapsed}s: $(python3 -I -B -c 'import json,sys; s=json.load(open(sys.argv[1])); print(f"{s["files"]} files, {s["bytes"]/1048576:.1f} MiB")' "$tmp/stats.json"), snapshot $new"
