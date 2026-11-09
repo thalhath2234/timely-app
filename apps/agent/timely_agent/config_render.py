@@ -117,6 +117,9 @@ def managed_floors(*, timely_skills_dir: os.PathLike | str | None,
         "hooks_auto_accept": False,
         "tools": {"tool_search": {"enabled": "off"}, "connectors": {"enabled": False}},
         "agent": {"disabled_toolsets": list(NEVER_TOOLSETS)},
+        # Timely names its own chats: no background title call to the account's model after the
+        # first turn (an extra billed request that also raced the contract tests' request counts).
+        "auxiliary": {"title_generation": {"enabled": False}},
     }
     return floors
 
@@ -130,6 +133,7 @@ CANARY_KEYS = (
     "approvals.unattended_mode", "skills.inline_shell", "skills.guard_agent_created",
     "skills.external_dirs", "web.keyless_fallback", "web.keyless_rescue", "memory.provider",
     "display.language", "auth.adopt_external_logins", "tools.tool_search.enabled",
+    "auxiliary.title_generation.enabled",
 )
 
 
