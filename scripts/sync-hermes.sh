@@ -123,21 +123,16 @@ print(d.strftime("%Y-%m-%d"))')
   fi
 fi
 
-# 0 (cont.). On dev the sync makes fix/hermes-sync-<tag>; refuse now, before anything is written,
-# when an earlier attempt left that branch behind.
-if [[ $branch == dev ]] && g show-ref --verify --quiet "refs/heads/fix/hermes-sync-$REF"; then
-  die "branch fix/hermes-sync-$REF already exists (an earlier sync attempt?): switch to it and re-run there, or delete it"
-fi
-
 # 4. The filter, from the committed HEAD copy.
 filter_sha=$(g rev-parse -q --verify "HEAD:$SYNC_DIR/filter") || die "commit $SYNC_DIR/filter first"
 g show "HEAD:$SYNC_DIR/filter" >"$tmp/filter"
 
-# 5. Snapshot tree (plumbing only).
+# 5. Snapshot tree (plumbing only). The record names the canonical upstream whatever URL was
+# fetched from (a mirror, SSH or a local cache), so the same tag snapshots to the same tree.
 start=$SECONDS
 tree=$(python3 -I -B "$HELPERS/snapshot.py" --cache "$CACHE" --repo "$(g rev-parse --absolute-git-dir)" \
   --commit "$commit" --tag "$REF" --committed "$committed" --filter "$tmp/filter" --filter-sha1 "$filter_sha" \
-  --prefix "$PREFIX" --index "$tmp/index" --url "${URL%.git}" --stats-out "$tmp/stats.json")
+  --prefix "$PREFIX" --index "$tmp/index" --url "https://github.com/$GH_REPO" --stats-out "$tmp/stats.json")
 if [[ -n $prev && $tree == $(g rev-parse "$prev^{tree}") ]]; then
   # Same tree, so the same tag and commit as the linked snapshot. tags.json can still lack it: a
   # rebase drops the `hermes: sync` merge that recorded it, and the documented recovery (relink,
@@ -155,7 +150,13 @@ if [[ -n $prev && $tree == $(g rev-parse "$prev^{tree}") ]]; then
   exit 0
 fi
 
-# 0 (cont.). Branch first when on dev (repo rule: feature/ or fix/ branches only).
+# 0 (cont.). Branch first when on dev (repo rule: feature/ or fix/ branches only). Refuse when an
+# earlier attempt left fix/hermes-sync-<tag> behind; checked only now, so a branch left over from
+# a sync already merged into dev never hides "already up to date". Nothing is committed yet (the
+# snapshot's objects are only in the object store).
+if [[ $branch == dev ]] && g show-ref --verify --quiet "refs/heads/fix/hermes-sync-$REF"; then
+  die "branch fix/hermes-sync-$REF already exists (an earlier sync attempt?): switch to it and re-run there, or delete it"
+fi
 if [[ $branch == dev ]]; then
   g switch -q -c "fix/hermes-sync-$REF"
   branch="fix/hermes-sync-$REF"

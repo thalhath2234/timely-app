@@ -747,7 +747,8 @@ class SyncScript(unittest.TestCase):
 
     def sync(self, ref, **env):
         full = dict(os.environ, HERMES_UPSTREAM_URL="file://" + self.up, HERMES_CACHE=self.cache,
-                    HERMES_SKIP_RELEASE_API="1", HERMES_REF=ref, **env)
+                    HERMES_SKIP_RELEASE_API="1", HERMES_REF=ref)
+        full.update(env)
         return subprocess.run(["bash", os.path.join(self.repo, "scripts", "sync-hermes.sh")],
                               capture_output=True, text=True, env=full)
 
@@ -800,3 +801,33 @@ class SyncScript(unittest.TestCase):
         res = self.sync("v0.0.1", HERMES_ALLOW_NON_DESCENDANT="1")
         self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
         self.assertIn("the tag moved", res.stderr)
+
+    def test_record_names_the_canonical_upstream_whatever_url_was_fetched(self):
+        res = self.sync("v0.0.1")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(self.upstream_record()["repo"], "https://github.com/NousResearch/hermes-agent")
+        head = self.git(self.repo, "rev-parse", "HEAD")
+        # the same tag through another spelling of the URL is a no-op, not a new snapshot
+        res = self.sync("v0.0.1", HERMES_UPSTREAM_URL="file://" + self.up + "/.git")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("already up to date", res.stdout)
+        self.assertEqual(self.git(self.repo, "rev-parse", "HEAD"), head)
+
+    def test_a_leftover_sync_branch_on_dev_does_not_hide_up_to_date(self):
+        self.git(self.repo, "branch", "-m", "dev")
+        res = self.sync("v0.0.1")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(self.git(self.repo, "branch", "--show-current").strip(), "fix/hermes-sync-v0.0.1")
+        self.git(self.repo, "checkout", "-q", "dev")
+        self.git(self.repo, "merge", "-q", "--no-ff", "-m", "Merge sync", "fix/hermes-sync-v0.0.1")
+        res = self.sync("v0.0.1")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("already up to date", res.stdout)
+        # a real new import with the branch left over is still refused, before anything is committed
+        self.git(self.repo, "branch", "fix/hermes-sync-v0.0.2")
+        head = self.git(self.repo, "rev-parse", "HEAD")
+        res = self.sync("v0.0.2")
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("already exists", res.stderr)
+        self.assertEqual(self.git(self.repo, "rev-parse", "HEAD"), head)
+        self.assertEqual(self.git(self.repo, "branch", "--show-current").strip(), "dev")
