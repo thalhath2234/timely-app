@@ -259,8 +259,9 @@ func replayBotRun(transcript []WireMessage) botRun {
 	return run
 }
 
-// note records one tool result as it reached the model.
-func (r *botRun) note(name string, content []byte) {
+// note records one tool result as it reached the model, and reports
+// whether it carried third-party text.
+func (r *botRun) note(name string, content []byte) bool {
 	if name == "ask_bot" {
 		r.asks++
 	}
@@ -268,12 +269,14 @@ func (r *botRun) note(name string, content []byte) {
 		Error *string `json:"error"`
 	}
 	if json.Unmarshal(content, &head) != nil || head.Error != nil {
-		return
+		return false
 	}
-	if outsideReads[name] {
+	outside := outsideReads[name]
+	if outside {
 		r.outside = true
 	}
 	if name == "ask_bot" {
 		r.answers.add(content)
 	}
+	return outside
 }
