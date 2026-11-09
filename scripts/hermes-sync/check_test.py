@@ -950,6 +950,31 @@ class SyncScript(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("v0.0.2", self.tags())
 
+    def test_a_filter_change_that_was_never_re_synced_fails_the_check(self):
+        """HERMES_UPSTREAM.json records the filter the copy was made with (filterSha1); a filter
+        committed later (a security `skip`, say) is not applied until the next sync, so
+        hermes-sync-check fails until `make hermes-sync HERMES_REF=<tag>` re-snapshots."""
+        res = self.sync("v0.0.1")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        check = os.path.join(self.repo, "scripts", "hermes-sync", "check.sh")
+
+        def check_sh():
+            return subprocess.run(["bash", check], capture_output=True, text=True,
+                                  env=dict(os.environ, HERMES_CHECK_REPO=self.repo))
+
+        res = check_sh()
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.write(self.repo, f"{check_lib.SYNC_DIR}/filter", "dir tools\nskip README.md\n")
+        self.git(self.repo, "commit", "-q", "-am", "timely: tighten the filter")
+        res = check_sh()
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("filter changed since the last snapshot", res.stderr)
+        self.assertIn("make hermes-sync HERMES_REF=v0.0.1", res.stderr)
+        res = self.sync("v0.0.1")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        res = check_sh()
+        self.assertEqual(res.returncode, 0, res.stderr)
+
     def test_a_symlink_in_the_release_refuses_the_sync(self):
         os.symlink("../../secret.env", os.path.join(self.up, "tools", "link.md"))
         self.git(self.up, "add", "-A")

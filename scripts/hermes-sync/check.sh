@@ -20,6 +20,21 @@ snap=$(python3 -I -B "$HELPERS/check_lib.py" previous-snapshot "$REPO_ROOT") ||
   { echo "hermes-sync-check: HEAD is not linked to a real Hermes snapshot (reason and recovery above)" >&2; exit 1; }
 [[ -n $snap ]] || { echo "hermes-sync-check: no Hermes snapshot in HEAD's history; run make hermes-sync" >&2; exit 1; }
 
+# a (cont.). The copy was made with the filter in the tree: HERMES_UPSTREAM.json records the filter's
+# blob id (filterSha1). A filter edited since (a security `skip`, say) is not applied until the next
+# sync, so fail until it re-snapshots the same tag.
+FILTER=apps/agent/.hermes-sync/filter
+rec_filter=$(python3 -I -B -c 'import json,sys; print(json.load(open(sys.argv[1])).get("filterSha1") or "")' \
+  "$REPO_ROOT/$PREFIX/HERMES_UPSTREAM.json" 2>/dev/null || true)
+if [[ -n $rec_filter ]]; then
+  have_filter=$( [[ -f $REPO_ROOT/$FILTER ]] && g hash-object -- "$REPO_ROOT/$FILTER" || echo missing)
+  if [[ $have_filter != "$rec_filter" ]]; then
+    rec_tag=$(python3 -I -B -c 'import json,sys; print(json.load(open(sys.argv[1])).get("tag") or "<tag>")' \
+      "$REPO_ROOT/$PREFIX/HERMES_UPSTREAM.json")
+    bad "filter changed since the last snapshot ($FILTER is ${have_filter:0:12}, the copy was made with ${rec_filter:0:12}); run make hermes-sync HERMES_REF=$rec_tag"
+  fi
+fi
+
 # b. Every vendored file that differs from the snapshot (committed or not) is a listed patch point
 # with its TIMELY(Pn) marker. patches.md lists each file as `apps/agent/hermes/<path>` in backticks.
 listed=$( [[ -f $REPO_ROOT/$PATCHES ]] && grep -o "\`$PREFIX/[^\`]*\`" "$REPO_ROOT/$PATCHES" | tr -d '`' | sort -u || true)
