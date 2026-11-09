@@ -291,9 +291,16 @@ class Worker:
                     self.runs.pop(run_id, None)
                 self._send_run_done(mid, run_id, done)
 
-        ctx = contextvars.copy_context()
-        run.thread = threading.Thread(target=ctx.run, args=(body,), name=f"timely-run-{run_id}"[:40], daemon=True)
-        run.thread.start()
+        try:
+            ctx = contextvars.copy_context()
+            run.thread = threading.Thread(target=ctx.run, args=(body,), name=f"timely-run-{run_id}"[:40], daemon=True)
+            run.thread.start()
+        except BaseException:
+            # The internal error serve() sends answers the start's id, which ends the run in Go;
+            # body() never ran, so forget the run here or its conversation stays busy for good.
+            with self.runs_lock:
+                self.runs.pop(run_id, None)
+            raise
 
     def _send_run_done(self, mid: Optional[str], run_id: str, done: Optional[dict[str, Any]]) -> None:
         """Send run.done; Go keeps a run live until it arrives, so this never gives up silently."""

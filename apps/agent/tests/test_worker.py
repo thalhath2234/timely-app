@@ -347,3 +347,23 @@ def test_default_off_skills_never_come_from_prepared_json():
         assert err["code"] == "bad_message" and err["id"] == "h-no-off", err
     finally:
         w.close()
+
+
+def test_run_thread_that_fails_to_start_frees_the_conversation(stub):
+    """A run.start answered with ``internal`` (its thread could not start) has ended in Go, so the
+    worker must forget it too: the next start on that conversation runs, and busy.runs is 0."""
+    a = harness.Agent(harness.new_root("tfail"))
+    wrapper = paths.agent_dir() / "tests" / "fixtures" / "threadfail_boot.py"
+    w, ready = harness.ready_worker(a, argv=[harness.python(), "-I", str(wrapper), "worker"])
+    try:
+        assert ready["self_test"]["ok"], ready["self_test"]
+        w.send(harness.run_start(a, stub, run_id="tf1", conversation="c-tf"))
+        err = w.recv()
+        assert err["type"] == "error" and err["code"] == "internal" and err["run"] == "tf1", err
+        w.send({"type": "ping", "id": "p-tf", "account": a.account})
+        assert w.recv()["busy"]["runs"] == 0
+        w.send(harness.run_start(a, stub, run_id="tf2", conversation="c-tf"))
+        done, _ = w.until("run.done", timeout=60)
+        assert done["run"] == "tf2" and done["completed"], done
+    finally:
+        w.close()
