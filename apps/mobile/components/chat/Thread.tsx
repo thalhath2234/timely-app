@@ -127,8 +127,8 @@ export function Welcome({
       </View>
       <Text style={styles.hero}>What would you like to make happen?</Text>
       <Text style={styles.heroText}>
-        Plan your day, shape a sheet, or attach a receipt. Small changes happen
-        right away; bigger ones wait for your approval.
+        Plan your day, shape a sheet, or attach a receipt. The chat’s
+        permission decides what waits for your review.
       </Text>
       <LoopImage id="ask" style={styles.heroLoop} />
       {needsProvider ? (

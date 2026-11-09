@@ -91,7 +91,7 @@ export function AutoAppliedCard({
   return (
     <View style={styles.card} testID={undone ? "auto-applied-undone" : "auto-applied"}>
       <View style={styles.cardHead}>
-        <Text style={styles.eyebrow}>{undone ? "Undone" : `Applied on its own · ${mode}`}</Text>
+        <Text style={styles.eyebrow}>{undone ? "Undone" : state === "waiting" ? `Applying on its own · ${mode}` : `Applied on its own · ${mode}`}</Text>
         {state === "undo" || state === "waiting" ? (
           <AnimatedPressable
             testID="undo-auto-applied"
