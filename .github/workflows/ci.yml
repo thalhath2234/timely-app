@@ -103,10 +103,13 @@ jobs:
         run: cd apps/api && go build ./...
       - name: Install the agent runtime (make agent-install)
         run: |
+          # Same recipe and pins as the Makefile's agent-install (version read from it, so they cannot drift).
+          version=$(sed -n 's/^AGENT_PYTHON_VERSION ?= *//p' Makefile)
+          test -n "$version"
           extras=$(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' apps/agent/.hermes-sync/extras.txt | sed 's/^/--extra /' | tr '\n' ' ')
           cd apps/agent/hermes
           UV_PROJECT_ENVIRONMENT="$GITHUB_WORKSPACE/apps/agent/.venv" uv sync --frozen --no-install-project \
-            --managed-python --python 3.14.9 --group dev $extras
+            --managed-python --python "$version" --group dev $extras
       - name: Go supervisor tests with the real worker (spawn, hello, ready, run.start on a stub model, shutdown)
         run: cd apps/api && TIMELY_AGENT_TEST_RUNTIME=dev go test ./internal/agenthost/... -count=1 -v
       - name: Contract test 19 (protocol stays clean when tools and children write to stdout)
@@ -136,5 +139,6 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: apps/agent/hermes/uv.lock
+      # agent-test and agent-contract run in the agent job
       - if: steps.changed.outputs.run == 'true'
-        run: make hermes-sync-check
+        run: make hermes-sync-check HERMES_CHECK_NO_TESTS=1
