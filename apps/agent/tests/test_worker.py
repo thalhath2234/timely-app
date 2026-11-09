@@ -68,6 +68,23 @@ def test_plain_turn(agent, worker, stub):
     _all_stdout_is_protocol(worker)
 
 
+def test_nan_in_model_tool_arguments_stays_valid_json(agent, worker, stub):
+    """A model (or a prompt injection steering it) can put NaN in tool arguments; Hermes accepts
+    it. Every line the worker writes must still be strict JSON Go can parse, and the run ends."""
+    first = len(worker.raw_lines)
+    worker.send(harness.run_start(agent, stub, run_id="r-nan", conversation="c-nan", toolsets=["todo"],
+                                  text='CALL todo_list {"todos": [], "merge": NaN}'))
+    done, seen = worker.until("run.done")
+    assert done["run"] == "r-nan", done
+
+    def refuse(token):
+        raise AssertionError(f"non-standard JSON token {token} on the protocol")
+    for line in worker.raw_lines[first:]:
+        json.loads(line, parse_constant=refuse)
+    started = _events(seen, "tool.started")
+    assert started and started[0]["payload"]["args"]["merge"] is None, started
+
+
 def test_second_turn_reuses_session(agent, worker, stub):
     worker.send(harness.run_start(agent, stub, run_id="r-t2", text="second", conversation="c-plain"))
     done, _ = worker.until("run.done")

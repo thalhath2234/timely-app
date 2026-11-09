@@ -128,7 +128,10 @@ func TestParseLineChecksTheEnvelope(t *testing.T) {
 		t.Fatalf("%+v %v", m, err)
 	}
 	for _, bad := range []string{`not json`, `{"account":"a"}`, `{"type":"event"}`, `{"type":"event","account":"b"}`,
-		`[1]`, `{"type":"error","account":"b","message":"x"}`, `{"type":"run.done","account":""}`} {
+		`[1]`, `{"type":"error","account":"b","message":"x"}`, `{"type":"run.done","account":""}`,
+		// Python's json.dumps writes these by default; the worker must never send them
+		// (protocol.encode, allow_nan=False), since one kills the whole worker.
+		`{"type":"event","account":"a","payload":{"x":NaN}}`, `{"type":"event","account":"a","payload":{"x":Infinity}}`} {
 		if _, err := parseLine([]byte(bad), "a"); !errors.Is(err, ErrProtocol) {
 			t.Errorf("%s: err = %v", bad, err)
 		}

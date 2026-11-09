@@ -49,6 +49,22 @@ def test_encode_survives_a_lone_surrogate():
     assert json.loads(data)["payload"]["name"] == "caf\u00e9"
 
 
+def _strict(data: bytes):
+    def refuse(token):
+        raise ValueError(f"non-standard JSON token {token}")
+    return json.loads(data, parse_constant=refuse)
+
+
+def test_encode_never_writes_nan_or_infinity():
+    """Go's encoding/json refuses NaN/Infinity, and a refused line kills the account's worker.
+    Model-made tool arguments can hold them (Hermes parses arguments with json.loads)."""
+    nan, inf = float("nan"), float("inf")
+    data = P.encode({"type": "event", "payload": {"args": {"merge": nan, "n": [1.5, -inf, {"x": inf}],
+                                                            "t": (nan,)}, "ok": 2.0}})
+    msg = _strict(data)
+    assert msg["payload"] == {"args": {"merge": None, "n": [1.5, None, {"x": None}], "t": [None]}, "ok": 2.0}
+
+
 def test_pending_requests_round_trip():
     pending = P.PendingRequests()
     sent = []

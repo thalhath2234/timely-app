@@ -65,7 +65,7 @@ Other unknown names are logged as warnings. `HERMES_EXEC_ASK` is allowed when th
 
 ## 3. Framing
 
-- One JSON object per line, UTF-8, terminated by `\n` (`\r\n` accepted). A line over 32 MiB is refused (`bad_message`). The worker escapes non-ASCII as `\uXXXX`, so its lines are ASCII; a lone surrogate (a model stream split inside an emoji) arrives as an escape Go decodes to U+FFFD.
+- One JSON object per line, UTF-8, terminated by `\n` (`\r\n` accepted). A line over 32 MiB is refused (`bad_message`). The worker escapes non-ASCII as `\uXXXX`, so its lines are ASCII; a lone surrogate (a model stream split inside an emoji) arrives as an escape Go decodes to U+FFFD. Strict JSON only: a NaN or Infinity (model-made tool arguments can hold them) is sent as `null`, because Go refuses those tokens and a line it cannot parse stops the worker.
 - Every message has `type` and `account`. The worker pins the account from `hello`; any later message for another account gets `wrong_account` and is ignored. Every worker message after `hello` carries the worker's account.
 - Requests carry `id`; the reply to a request carries the same `id`. Go's ids start with `go-`; the worker's ids start with `w-`.
 - Run-scoped messages carry `run` (the run id Go chose).

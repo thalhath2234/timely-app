@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import os
 import threading
 from typing import Any, Callable, Optional
@@ -81,11 +82,31 @@ def decode(line: bytes, account: Optional[str]) -> dict[str, Any]:
     return msg
 
 
+def _finite(value: Any) -> Any:
+    """``value`` with every NaN/Infinity float replaced by ``None`` (tuples become lists)."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _finite(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_finite(v) for v in value]
+    return value
+
+
 def encode(msg: dict[str, Any]) -> bytes:
     """One line. Non-ASCII is escaped (``\\uXXXX``): a lone surrogate from a model stream split
     inside an emoji would make a UTF-8 encode raise and lose the message; escaped, Go's decoder
-    turns it into U+FFFD."""
-    return (json.dumps(msg, ensure_ascii=True, separators=(",", ":"), default=str) + "\n").encode("ascii")
+    turns it into U+FFFD.
+
+    Never ``NaN``/``Infinity``: Go's decoder refuses them and a refused line stops the account's
+    whole worker. Model-made tool arguments can hold them (Hermes parses arguments with
+    ``json.loads``), so they are sent as ``null``."""
+    opts: dict[str, Any] = {"ensure_ascii": True, "separators": (",", ":"), "default": str, "allow_nan": False}
+    try:
+        text = json.dumps(msg, **opts)
+    except ValueError:
+        text = json.dumps(_finite(msg), **opts)
+    return (text + "\n").encode("ascii")
 
 
 class Channel:
