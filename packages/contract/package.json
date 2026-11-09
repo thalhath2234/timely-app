@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./account": "./src/account.ts",
+    "./agentChat": "./src/agentChat.ts",
     "./autosaveQueue": "./src/autosaveQueue.ts",
     "./bots": "./src/bots.ts",
     "./bulkEdit": "./src/bulkEdit.ts",
