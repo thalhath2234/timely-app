@@ -26,6 +26,7 @@ import {
   type ProviderRequest,
 } from "../../../components/settings/DefaultChoice";
 import {
+  useAgentChatSettingsQuery,
   useAgentProvidersQuery,
   useConnectProvider,
   useDecisionSettingsQuery,
@@ -64,6 +65,8 @@ import { BOT_KEYS_SECTION } from "../../../components/bots/useBotActions";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
 import { LogoSpinner } from "../../../components/ui/TimelyLogo";
 import { FocusGroup, FocusGroupScrollView } from "../../../components/ui/FocusGroup";
+import EngineCard from "../../../components/settings/EngineCard";
+import PermissionsCard from "../../../components/settings/PermissionsCard";
 
 /** A model row's second line: its id when the name differs, and any note. */
 function modelDetail(option: ModelOption) {
@@ -1524,6 +1527,8 @@ export default function AgentSettings() {
   const insets = useSafeAreaInsets();
   const providers = useAgentProvidersQuery({ watchReindex: true });
   const decisions = useDecisionSettingsQuery();
+  // Engine and Permissions; an older server without them shows neither.
+  const chatSettings = useAgentChatSettingsQuery();
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
   // Choosing the default after a setup, or its replacement on removal.
   const [providerRequest, setProviderRequest] = useState<ProviderRequest | null>(null);
@@ -1564,6 +1569,12 @@ export default function AgentSettings() {
         {data ? (
           <>
             <DefaultProviderGroup data={data} />
+            {chatSettings.data ? (
+              <>
+                <EngineCard settings={chatSettings.data} />
+                <PermissionsCard settings={chatSettings.data} />
+              </>
+            ) : null}
             <OpenRouterCard data={data} ask={setProviderRequest} />
             {decisions.data ? (
               <SmartSuggestionsCard

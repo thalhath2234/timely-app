@@ -34,8 +34,11 @@ import * as FS from "expo-file-system/legacy";
 import { useAuth } from "../../lib/auth/AuthProvider";
 import {
   chatRequest,
+  configureChatAgent,
   deleteChat,
   renameChat,
+  steerChat,
+  undoChatChange,
   uploadChatImage,
 } from "../../lib/api/chat";
 import { isOffline, subscribeOffline } from "../../lib/networkState";
@@ -49,6 +52,7 @@ import { removeLocalImage, retainImage } from "../../lib/chat/storage";
 import type {
   BotTag,
   Chat,
+  ChatMessage,
   ChatStep,
   PendingImage,
 } from "../../lib/chat/types";
@@ -60,7 +64,23 @@ import ConfirmSheet from "../ui/ConfirmSheet";
 import AssistantHeader from "./AssistantHeader";
 import AttachSheet, { type ImageSource } from "./AttachSheet";
 import ModelSheet, { modelLabel, type ModelChoice } from "./ModelSheet";
-import { useBotsQuery } from "../../lib/hooks";
+import {
+  useAgentChatSettingsQuery,
+  useBotsQuery,
+  usePatchAgentChatSettings,
+} from "../../lib/hooks";
+import type { PermissionMode } from "@timely/contract/agentChat";
+import {
+  agentRunLive,
+  composerMode,
+  engineLabel,
+  isUndoPlan,
+  permissionHint,
+  planSummaryHidden,
+} from "../../lib/chat/agentRun";
+import { useReplyStream } from "../../lib/chat/useReplyStream";
+import PermissionSheet, { PermissionChip } from "./PermissionSheet";
+import { LiveRun } from "./AgentRun";
 import { liveBotTags } from "./BotMentionPicker";
 import Composer from "./Composer";
 import HistoryPage from "./HistoryPage";
@@ -88,6 +108,13 @@ export default function Assistant() {
   const [uploading, setUploading] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
+  const [permissionOpen, setPermissionOpen] = useState(false);
+  // Engine and permission defaults; an older server answers 404 and the
+  // chip and stream stay away.
+  const agentSettings = useAgentChatSettingsQuery(assistant.visible);
+  const patchAgentSettings = usePatchAgentChatSettings();
+  // The watch stream is up: changes arrive as events, so polling slows down.
+  const streamLive = useRef(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [preview, setPreview] = useState<{
     uri: string;
@@ -112,7 +139,9 @@ export default function Assistant() {
     initialData: id ? assistant.cache.conversations[id] : undefined,
     refetchInterval: (q) =>
       assistant.foreground && !offline && isBusy(q.state.data?.status)
-        ? 1500
+        ? streamLive.current
+          ? 5000
+          : 1500
         : false,
   });
   const list = useQuery({
@@ -127,6 +156,16 @@ export default function Assistant() {
   });
   const chat = id ? query.data : undefined;
   const busy = isBusy(chat?.status);
+  const stream = useReplyStream({
+    chatId: id,
+    chat,
+    enabled: assistant.visible && assistant.foreground && !offline,
+    accountEngine: agentSettings.data?.engine,
+    refetch: () => void query.refetch(),
+  });
+  streamLive.current = stream.live;
+  // Sending while an agent run is live steers it (POST /steer).
+  const steering = composerMode(chat) === "steer";
   const cachedDraft = assistant.cache.draft;
   const matchingDraft =
     cachedDraft && (cachedDraft.conversationId ?? null) === id;
@@ -159,6 +198,9 @@ export default function Assistant() {
         webSearch: draft.webSearch,
         model: { provider: draft.provider ?? "", model: draft.model ?? "" },
       };
+  const permission: PermissionMode | undefined = chat
+    ? (chat.permission ?? "supervised")
+    : (draft.permission ?? agentSettings.data?.chatPermission);
   const lastRevision = useRef<number | undefined>(undefined);
   const openedReceipt = useRef("");
   const unreadCount = (list.data ?? []).filter(
@@ -355,7 +397,38 @@ export default function Assistant() {
       void queryClient.invalidateQueries({ queryKey: detailKey, exact: true });
     },
   });
-  const pending = mutation.isPending || uploading;
+  // The chat's own permission mode or engine; the answer is the whole chat.
+  const agentMutation = useMutation({
+    scope,
+    mutationFn: (fields: { permission?: PermissionMode; engine?: "classic" }) =>
+      configureChatAgent(id ?? "", fields),
+    onSuccess: (next) => {
+      queryClient.setQueryData(detailKey, next);
+      setError("");
+    },
+    onError: (reason) => {
+      setError(reason.message);
+      void queryClient.invalidateQueries({ queryKey: detailKey, exact: true });
+    },
+  });
+  const undoMutation = useMutation({
+    scope,
+    mutationFn: (message: ChatMessage) =>
+      undoChatChange(id ?? "", chat?.revision ?? 0, message.id),
+    onSuccess: (next) => {
+      queryClient.setQueryData(detailKey, next);
+      setError("");
+    },
+    onError: (reason) => {
+      setError(reason.message);
+      void query.refetch();
+    },
+  });
+  const pending =
+    mutation.isPending ||
+    uploading ||
+    agentMutation.isPending ||
+    undoMutation.isPending;
   function act(action: string, body?: unknown) {
     if (!pending && !offline) mutation.mutate({ action, body });
   }
@@ -454,7 +527,45 @@ export default function Assistant() {
       setError((reason as Error).message);
     }
   }
+  async function steer() {
+    const text = draft.text.trim();
+    if (runningAction.current || pending || offline || !id || !text) return;
+    runningAction.current = true;
+    setError("");
+    try {
+      const next = await steerChat(id, text);
+      queryClient.setQueryData(detailKey, next);
+      assistant.updateCache((cache) => ({
+        ...cache,
+        draft: cache.draft?.conversationId === id ? null : cache.draft,
+      }));
+    } catch (reason) {
+      setError((reason as Error).message);
+      void query.refetch();
+    } finally {
+      runningAction.current = false;
+    }
+  }
+  function pickPermission(mode: PermissionMode) {
+    setPermissionOpen(false);
+    if (id) {
+      if (chat?.permission !== mode) agentMutation.mutate({ permission: mode });
+    } else
+      assistant.setDraft((value) => ({
+        ...value,
+        permission: mode,
+        requestId: undefined,
+      }));
+  }
+  function switchToClassic() {
+    if (pending || offline || !id) return;
+    agentMutation.mutate(
+      { engine: "classic" },
+      { onSuccess: () => mutation.mutate({ action: "/retry" }) },
+    );
+  }
   async function send() {
+    if (steering) return steer();
     if (
       runningAction.current ||
       pending ||
@@ -500,7 +611,14 @@ export default function Assistant() {
           botTags: liveBotTags(draft.text, draft.botTags, bots).map(
             (tag) => tag.id,
           ),
-          ...(!id ? { context, webSearch: search, ...model } : {}),
+          ...(!id
+            ? {
+                context,
+                webSearch: search,
+                ...model,
+                ...(draft.permission ? { permission: draft.permission } : {}),
+              }
+            : {}),
           ...unsavedReceipt(),
         },
       });
@@ -825,7 +943,7 @@ export default function Assistant() {
               : chat?.status === "approval"
                 ? "Waiting for your decision"
                 : chat?.provider
-                  ? `${PROVIDER_LABELS[chat.provider as ProviderId] ?? chat.provider}${chat.model ? ` · ${chat.model}` : ""}`
+                  ? `${PROVIDER_LABELS[chat.provider as ProviderId] ?? chat.provider}${chat.model ? ` · ${chat.model}` : ""}${engineLabel(chat) ? ` · ${engineLabel(chat)}` : ""}`
                   : "Ask about your work";
   return (
     <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
@@ -843,6 +961,13 @@ export default function Assistant() {
           actions={
             page === "chat" && !preview ? (
               <>
+                {permission && (chat?.permission || agentSettings.data) ? (
+                  <PermissionChip
+                    mode={permission}
+                    disabled={offline && !!id}
+                    onPress={() => setPermissionOpen(true)}
+                  />
+                ) : null}
                 <IconButton
                   label={
                     unreadCount
@@ -1009,6 +1134,10 @@ export default function Assistant() {
                       pending={pending}
                       onSimilar={chooseSimilar}
                       onAsk={pending || busy || offline ? undefined : ask}
+                      onUndo={
+                        offline ? undefined : (message) => undoMutation.mutate(message)
+                      }
+                      undoing={undoMutation.isPending}
                     />
                   ) : null}
                   {savedReceipt && review?.receipt ? (
@@ -1086,7 +1215,7 @@ export default function Assistant() {
                       </View>
                     </StatusCard>
                   ) : null}
-                  {chat?.plan?.length ? (
+                  {chat?.plan?.length && !planSummaryHidden(chat) ? (
                     <PlanSummary
                       chat={chat}
                       onLink={openLink}
@@ -1096,7 +1225,11 @@ export default function Assistant() {
                       }}
                     />
                   ) : null}
-                  {chat ? <RunStatus chat={chat} /> : null}
+                  {chat && agentRunLive(chat) ? (
+                    <LiveRun chat={chat} draft={stream.draft} onLink={openLink} />
+                  ) : chat ? (
+                    <RunStatus chat={chat} />
+                  ) : null}
                   {chat ? (
                     <FailureCard
                       chat={chat}
@@ -1104,6 +1237,7 @@ export default function Assistant() {
                       onRetry={() => act("/retry")}
                       onDiscardImages={() => act("/images/discard")}
                       onOpenSettings={() => assistant.openResult("/(app)/settings/agent")}
+                      onUseClassic={switchToClassic}
                     />
                   ) : null}
                 </>
@@ -1124,11 +1258,13 @@ export default function Assistant() {
                 placeholder={
                   draft.images.length
                     ? "Add a note (optional)…"
-                    : chat?.status === "approval"
-                      ? isBotPlan(chat.plan)
-                        ? "Reply, or ask for changes to the bot"
-                        : "Tell me what to change…"
-                      : "Ask Timely…"
+                    : steering
+                      ? "Add something while it works…"
+                      : chat?.status === "approval"
+                        ? isBotPlan(chat.plan)
+                          ? "Reply, or ask for changes to the bot"
+                          : "Tell me what to change…"
+                        : "Ask Timely…"
                 }
                 chips={context}
                 onRemoveChip={(index) =>
@@ -1151,9 +1287,11 @@ export default function Assistant() {
                 pending={pending}
                 uploading={uploading}
                 offline={offline}
-                editable={!pending && !busy}
+                editable={!pending && (!busy || steering)}
                 onSend={() => void send()}
                 onStop={() => act("/stop")}
+                steering={steering}
+                permissionHint={permissionHint(permission)}
                 hasDraft={hasDraft}
                 onDiscardDraft={() => setConfirmDiscard(true)}
                 otherDraft={otherDraft}
@@ -1167,6 +1305,19 @@ export default function Assistant() {
           </>
         )}
       </KeyboardAvoidingView>
+      <PermissionSheet
+        open={permissionOpen}
+        onClose={() => setPermissionOpen(false)}
+        value={permission}
+        defaultMode={agentSettings.data?.chatPermission}
+        saving={agentMutation.isPending}
+        onPick={pickPermission}
+        onPickDefault={
+          agentSettings.data
+            ? (mode) => patchAgentSettings.mutate({ chatPermission: mode })
+            : undefined
+        }
+      />
       <ModelSheet
         open={modelOpen}
         value={model}
@@ -1215,6 +1366,8 @@ function PlanSummary({
   const applying = isBusy(chat.status) && chat.phase === "apply";
   // A plan that only makes or edits bots: "New bot needs your OK".
   const bots = isBotPlan(chat.plan);
+  // An Undo of a change that applied on its own.
+  const undo = isUndoPlan(chat.plan);
   const newBot = chat.plan.every((step) => step.tool === "create_bot");
   // When everything applied changed one screen, open it straight from here.
   const target =
@@ -1237,8 +1390,12 @@ function PlanSummary({
             ? `${newBot ? (total > 1 ? "New bots" : "New bot") : total > 1 ? "Bot changes" : "Bot change"} · Needs your OK`
             : "Changes ready for your review"
           : applying
-            ? "Applying changes"
-            : failed
+            ? undo
+              ? "Undoing changes"
+              : "Applying changes"
+            : undo && done === total
+              ? "Changes undone"
+              : failed
               ? "Some changes did not finish"
               : chat.status === "stopped"
                 ? "Stopped before finishing"

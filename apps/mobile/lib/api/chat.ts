@@ -4,6 +4,12 @@ import { api } from "./client";
 import { isOffline } from "../networkState";
 import { deviceTimezone } from "../format";
 import type { Chat, ChatImage, PendingImage } from "../chat/types";
+import type {
+  AgentChatSettings,
+  AgentChatSettingsPatch,
+  ChatEngine,
+  PermissionMode,
+} from "@timely/contract/agentChat";
 
 export function chatRequest<T = Chat>(
   path: string,
@@ -40,3 +46,27 @@ export const renameChat = (id: string, title: string) =>
   chatRequest(`/${encodeURIComponent(id)}`, "PATCH", { title });
 export const deleteChat = (id: string) =>
   chatRequest<void>(`/${encodeURIComponent(id)}`, "DELETE");
+
+// Chat on the agent engine (Settings → Agent → Engine and Permissions).
+export const getAgentChatSettings = () =>
+  api<AgentChatSettings>("/agent/chat-settings");
+export const patchAgentChatSettings = (patch: AgentChatSettingsPatch) => {
+  if (isOffline())
+    return Promise.reject(new Error("Reconnect to change agent settings."));
+  return api<AgentChatSettings>("/agent/chat-settings", {
+    method: "PATCH",
+    body: patch,
+    queueIfOffline: false,
+  });
+};
+/** A chat's own permission mode or engine ("" follows the account). */
+export const configureChatAgent = (
+  id: string,
+  fields: { permission?: PermissionMode; engine?: ChatEngine },
+) => chatRequest(`/${encodeURIComponent(id)}`, "PATCH", fields);
+/** Adds text to the agent run that is live in this chat (409 once it ended). */
+export const steerChat = (id: string, text: string) =>
+  chatRequest(`/${encodeURIComponent(id)}/steer`, "POST", { text });
+/** Puts back what an auto-applied proposal changed; messageId is that proposal's message. */
+export const undoChatChange = (id: string, revision: number, messageId: string) =>
+  chatRequest(`/${encodeURIComponent(id)}/undo`, "POST", { revision, messageId });

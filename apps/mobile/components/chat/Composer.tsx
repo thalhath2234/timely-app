@@ -87,6 +87,8 @@ export default function Composer({
   editable,
   onSend,
   onStop,
+  steering = false,
+  permissionHint,
   hasDraft,
   onDiscardDraft,
   otherDraft,
@@ -123,6 +125,13 @@ export default function Composer({
   editable: boolean;
   onSend: () => void;
   onStop: () => void;
+  /**
+   * An agent run is live: the message box stays open and Send adds the text
+   * to that run (steer) while Stop stays beside it.
+   */
+  steering?: boolean;
+  /** The line under the box for the chat's permission mode. */
+  permissionHint?: string;
   hasDraft: boolean;
   onDiscardDraft: () => void;
   otherDraft: boolean;
@@ -181,6 +190,9 @@ export default function Composer({
     !uploading &&
     !busy &&
     !offline;
+  // Steer takes text only: photos wait for the next turn.
+  const canSteer =
+    steering && !!text.trim() && !images.length && !pending && !offline;
   const searchOn = search && !privateImages;
   return (
     <View style={styles.wrap}>
@@ -333,6 +345,22 @@ export default function Composer({
                 <Trash2 size={18} color={colors.mutedForeground} />
               </IconButton>
             ) : null}
+            {busy && steering ? (
+              <AnimatedPressable
+                testID="steer-send"
+                accessibilityRole="button"
+                accessibilityLabel="Send to the running reply"
+                disabled={!canSteer}
+                onPress={onSend}
+                style={[styles.send, !canSteer && { opacity: 0.35 }]}
+              >
+                <ArrowUp
+                  size={20}
+                  color={colors.primaryForeground}
+                  strokeWidth={2.5}
+                />
+              </AnimatedPressable>
+            ) : null}
             {busy ? (
               <AnimatedPressable
                 accessibilityRole="button"
@@ -382,7 +410,10 @@ export default function Composer({
               ? "One receipt per message · up to 5 photos · removed after saving or 24 hours"
               : privateImages
                 ? "Image-based changes always need your review."
-                : "Simple changes happen directly. Larger changes are yours to review."}
+                : steering
+                  ? "It reads your message at its next step."
+                  : (permissionHint ??
+                    "Simple changes happen directly. Larger changes are yours to review.")}
       </Text>
     </View>
   );

@@ -81,6 +81,8 @@ import {
   type ProviderId,
   type ProviderPatch,
 } from "./api/agentProviders";
+import { getAgentChatSettings, patchAgentChatSettings } from "./api/chat";
+import type { AgentChatSettings, AgentChatSettingsPatch } from "@timely/contract/agentChat";
 import {
   getDecisionSettings,
   getDecisionsStatus,
@@ -180,6 +182,7 @@ export const keys = {
   event: (id: string) => ["event", id] as const,
   apiKeys: ["api-keys"] as const,
   agentProviders: ["agent-providers"] as const,
+  agentChatSettings: ["agent-chat-settings"] as const,
   decisions: ["decisions"] as const,
   decisionSettings: ["decisions", "settings"] as const,
   decisionsStatus: ["decisions", "status"] as const,
@@ -634,6 +637,35 @@ export const useSetApiProviderKey = () =>
   );
 export const useRemoveApiProviderKey = () =>
   useAgentProviderMutation((id: ApiProviderId) => removeApiProviderKey(id));
+
+/** Settings → Agent → Engine and Permissions (the account's chat defaults). */
+export function useAgentChatSettingsQuery(enabled = true) {
+  return useQuery({
+    queryKey: keys.agentChatSettings,
+    queryFn: getAgentChatSettings,
+    enabled,
+    staleTime: 30_000,
+    // An older server without the route answers 404: no point asking again.
+    retry: (failures, error) => failures < 1 && !(error instanceof ApiError && error.status < 500),
+  });
+}
+
+export function usePatchAgentChatSettings() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: AgentChatSettingsPatch) => patchAgentChatSettings(patch),
+    onMutate: async (patch) => {
+      await client.cancelQueries({ queryKey: keys.agentChatSettings });
+      const before = client.getQueryData<AgentChatSettings>(keys.agentChatSettings);
+      if (before) client.setQueryData<AgentChatSettings>(keys.agentChatSettings, { ...before, ...patch });
+      return { before };
+    },
+    onError: (_error, _patch, context) => {
+      if (context?.before) client.setQueryData(keys.agentChatSettings, context.before);
+    },
+    onSuccess: (data) => client.setQueryData(keys.agentChatSettings, data),
+  });
+}
 
 export function useDecisionSettingsQuery() {
   return useQuery({ queryKey: keys.decisionSettings, queryFn: getDecisionSettings, retry: false });
