@@ -165,7 +165,10 @@ def test_reference_env_passes(tmp_path):
                                   "HERMES_SAFE_MODE", "HERMES_CRON_SESSION", "HERMES_ENABLE_PROJECT_PLUGINS",
                                   "HERMES_CONFIG_BACKEND", "HERMES_LANGUAGE", "HERMES_BUNDLED_LOCALES",
                                   "TELEGRAM_BOT_TOKEN", "DISCORD_BOT_TOKEN", "PYTHONPATH", "HERMES_YOLO_MODE",
-                                  "HERMES_ALLOW_PRIVATE_URLS", "HERMES_ACP_AUTO_APPROVE", "HERMES_SOMETHING_NEW"])
+                                  "HERMES_ALLOW_PRIVATE_URLS", "HERMES_ACP_AUTO_APPROVE", "HERMES_SOMETHING_NEW",
+                                  "YUANBAO_APP_SECRET", "A2A_BEARER_TOKEN", "NTFY_TOKEN", "IRC_NICKSERV_PASSWORD",
+                                  "SIMPLEX_WS_URL", "BUZZ_PRIVATE_KEY", "RAFT_PROFILE",
+                                  "GOOGLE_CHAT_SERVICE_ACCOUNT_JSON", "QQBOT_HOME_CHANNEL", "SMS_ALLOWED_USERS"])
 def test_forbidden_env_is_refused(tmp_path, name):
     _, env = _good_env(tmp_path)
     env[name] = "x"

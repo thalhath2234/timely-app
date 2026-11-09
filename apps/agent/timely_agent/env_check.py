@@ -52,10 +52,14 @@ FORBIDDEN = frozenset({
 
 FORBIDDEN_PREFIXES = (
     "DB_", "TIMELY_", "API_", "POSTGRES", "PG",
-    # Messaging platforms (decision 6): their tokens can never reach a worker.
+    # Messaging platforms (decision 6): their tokens can never reach a worker. Same list as Go's
+    # deniedPrefixes (apps/api/internal/agenthost/env.go); make hermes-sync-check fails when a
+    # kind: platform manifest reads a name either list lets through.
     "TELEGRAM_", "DISCORD_", "SLACK_", "WHATSAPP_", "SIGNAL_", "MATRIX_", "MATTERMOST_",
     "FEISHU_", "LARK_", "WECOM_", "WEIXIN_", "DINGTALK_", "TEAMS_", "MSGRAPH_", "TWILIO_",
     "IMESSAGE_", "BLUEBUBBLES_", "PHOTON_", "LINE_", "EMAIL_", "SMTP_", "IMAP_", "QQ_",
+    "QQBOT_", "SMS_", "YUANBAO_", "A2A_", "NTFY_", "IRC_", "SIMPLEX_", "BUZZ_", "RAFT_",
+    "GOOGLE_CHAT_", "GOOGLE_APPLICATION_",
 )
 
 

@@ -174,6 +174,33 @@ class RecordTag(unittest.TestCase):
         self.assertEqual(list(out), ["v0.9.1", "v0.10.0", "v0.22.7"])
 
 
+class PlatformEnv(unittest.TestCase):
+    """Every env name a bundled messaging platform reads is refused by Go and by the worker."""
+
+    def test_the_vendored_platforms_are_all_refused(self):
+        hermes_dir = check_lib.path(check_lib.PREFIX)
+        platforms = check_policy.platform_env_names(hermes_dir)
+        self.assertIn("platforms/yuanbao", platforms)
+        self.assertIn("YUANBAO_APP_SECRET", platforms["platforms/yuanbao"])
+        with open(check_lib.path(check_policy.GO_ENV), encoding="utf-8") as fh:
+            go_is_denied = check_policy.go_denied(fh.read())
+        self.assertEqual(check_policy.check_platform_env(platforms, go_is_denied, check_policy.worker_forbidden()), [])
+
+    def test_a_platform_missing_from_either_list_fails(self):
+        go = 'var (\n\tdeniedPrefixes = []string{\n\t\t"DB_", // x "NEWCHAT_"\n\t\t"OLD_",\n\t}\n' \
+             '\tdeniedNames = map[string]bool{\n\t\t"JWT_SECRET": true,\n\t}\n)\n'
+        go_is_denied = check_policy.go_denied(go)
+        self.assertTrue(go_is_denied("OLD_TOKEN") and go_is_denied("JWT_SECRET"))
+        self.assertFalse(go_is_denied("NEWCHAT_TOKEN"))  # a commented-out prefix does not count
+        msgs = check_policy.check_platform_env(
+            {"platforms/newchat": ["NEWCHAT_TOKEN", "GOOGLE_CLOUD_PROJECT"], "platforms/old": ["OLD_TOKEN"]},
+            go_is_denied, lambda n: n.startswith("OLD_"))
+        self.assertEqual(len(msgs), 1, msgs)
+        self.assertIn("NEWCHAT_TOKEN", msgs[0])
+        self.assertIn("env.go", msgs[0])
+        self.assertIn("env_check.py", msgs[0])
+
+
 class SchemaHash(unittest.TestCase):
     def test_dump_and_lib_hash_agree(self):
         schema = {"name": "x", "parameters": {"type": "object", "properties": {"b": {}, "a": {"description": "é"}}}}

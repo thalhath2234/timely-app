@@ -24,6 +24,10 @@ func TestBuildEnvRefusesDangerousToolKeys(t *testing.T) {
 		"REQUESTS_CA_BUNDLE", "PERL5OPT", "GCONV_PATH", "UV_INDEX_URL", "PIP_INDEX_URL", "BROWSER",
 		"SSL_KEY", "UV_PUBLISH_TOKEN", "NODE_AUTH_TOKEN", "TELEGRAM_BOT_TOKEN", "SLACK_BOT_TOKEN",
 		"HERMES_YOLO_MODE", "SUDO_PASSWORD", "_KEY",
+		// Messaging platforms bundled at v0.23.0 (decision 6; hermes-sync-check checks every
+		// kind: platform manifest against this list).
+		"YUANBAO_APP_SECRET", "YUANBAO_APP_KEY", "A2A_BEARER_TOKEN", "NTFY_TOKEN", "IRC_NICKSERV_PASSWORD",
+		"GOOGLE_CHAT_SERVICE_ACCOUNT_JSON", "BUZZ_PRIVATE_KEY", "QQBOT_HOME_CHANNEL", "SMS_ALLOWED_USERS",
 	} {
 		if _, err := BuildEnv(layout, "a", EnvConfig{}, map[string]string{name: "x"}); err == nil {
 			t.Errorf("tool key %q accepted", name)

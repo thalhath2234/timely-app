@@ -225,6 +225,13 @@ def main():
     except (OSError, ValueError) as exc:
         e.append(f"{check_seams.SEAMS_JSON}: {exc} (generate it with `{check_policy.REGEN}`)")
     try:
+        with open(check_lib.path(check_policy.GO_ENV), encoding="utf-8") as fh:
+            go_is_denied = check_policy.go_denied(fh.read())
+        e += check_policy.check_platform_env(check_policy.platform_env_names(hermes_dir), go_is_denied,
+                                             check_policy.worker_forbidden())
+    except (OSError, ValueError) as exc:
+        e.append(f"messaging platform env: {exc}")
+    try:
         e += check_policy.check_tags(check_lib.read_json(check_lib.SYNC_DIR + "/tags.json"), upstream)
     except (OSError, ValueError) as exc:
         e.append(f"{check_lib.SYNC_DIR}/tags.json: {exc}")

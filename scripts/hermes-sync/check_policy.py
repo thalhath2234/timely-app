@@ -388,3 +388,65 @@ def check_tags(tags, upstream):
     if entry.get("commit") != commit:
         return [f"{check_lib.SYNC_DIR}/tags.json records {tag} at {entry.get('commit')}, but the copy came from {commit}"]
     return []
+
+
+# ---------------------------------------------------------------- messaging platform env (decision 6)
+GO_ENV = "apps/api/internal/agenthost/env.go"
+WORKER_ENV = check_lib.AGENT_DIR + "/timely_agent/env_check.py"
+# Names a platform manifest lists that are no platform's credential (google_chat reads the
+# shared Google Cloud project id).
+PLATFORM_ENV_SHARED = {"GOOGLE_CLOUD_PROJECT"}
+_KIND_PLATFORM = re.compile(r"(?m)^kind:\s*platform\s*$")
+_ENV_ENTRY = re.compile(r"(?m)^\s*-\s*name:\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def platform_env_names(hermes_dir):
+    """``{manifest folder: [env names]}`` for every ``kind: platform`` plugin manifest (the
+    ``- name:`` entries of its requires_env/optional_env lists)."""
+    root = os.path.join(hermes_dir, "plugins")
+    out = {}
+    for dirpath, _dirs, files in os.walk(root):
+        if "plugin.yaml" not in files:
+            continue
+        with open(os.path.join(dirpath, "plugin.yaml"), encoding="utf-8") as fh:
+            text = fh.read()
+        if _KIND_PLATFORM.search(text):
+            out[os.path.relpath(dirpath, root).replace(os.sep, "/")] = sorted(set(_ENV_ENTRY.findall(text)))
+    return dict(sorted(out.items()))
+
+
+def go_denied(go_source):
+    """A ``Denied(name)`` reading Go's ``deniedPrefixes`` and ``deniedNames`` from env.go."""
+    def block(var):
+        m = re.search(var + r"\s*=\s*(?:\[\]string|map\[string\]bool)\s*\{(.*?)\n\t\}", go_source, re.S)
+        if not m:
+            raise ValueError(f"{GO_ENV}: cannot find {var}")
+        body = re.sub(r"//[^\n]*", "", m.group(1))
+        return re.findall(r'"([^"]+)"', body)
+    prefixes, names = tuple(block("deniedPrefixes")), set(block("deniedNames"))
+    return lambda name: name in names or name.startswith(prefixes)
+
+
+def worker_forbidden():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_timely_env_check", check_lib.path(WORKER_ENV))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod._is_forbidden
+
+
+def check_platform_env(platforms, go_is_denied, worker_is_forbidden):
+    """Every env name a messaging platform reads is refused by Go (never a tool key) and by the
+    worker (refuses to start), so a platform added upstream cannot reach terminal children."""
+    msgs = []
+    for folder, names in platforms.items():
+        for name in names:
+            if name in PLATFORM_ENV_SHARED:
+                continue
+            missing = [where for where, ok in ((GO_ENV + " deniedPrefixes/deniedNames", go_is_denied(name)),
+                                               (WORKER_ENV + " FORBIDDEN_PREFIXES", worker_is_forbidden(name)))
+                       if not ok]
+            if missing:
+                msgs.append(f"platform plugin {folder} reads {name}, which " + " and ".join(missing)
+                            + " let through: add its prefix to both lists (decision 6)")
+    return msgs

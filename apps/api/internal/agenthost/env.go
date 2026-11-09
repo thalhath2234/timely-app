@@ -98,10 +98,13 @@ var (
 		"DB_", "TIMELY_", "API_", "HERMES_", "PYTHON", "LD_", "DYLD_", "XDG_", "TERMINAL_", "GIT_",
 		"SSL_", "UV_", "PIP_", "NODE_", "NPM_", "PERL", "RUBY", "GCONV_", "AWS_", "GOOGLE_APPLICATION_",
 		// Messaging platforms (decision 6): the worker refuses to start with any of them
-		// (apps/agent/timely_agent/env_check.py FORBIDDEN_PREFIXES).
+		// (apps/agent/timely_agent/env_check.py FORBIDDEN_PREFIXES). make hermes-sync-check
+		// fails when a kind: platform manifest reads a name neither list refuses.
 		"TELEGRAM_", "DISCORD_", "SLACK_", "WHATSAPP_", "SIGNAL_", "MATRIX_", "MATTERMOST_",
 		"FEISHU_", "LARK_", "WECOM_", "WEIXIN_", "DINGTALK_", "TEAMS_", "MSGRAPH_", "TWILIO_",
 		"IMESSAGE_", "BLUEBUBBLES_", "PHOTON_", "LINE_", "EMAIL_", "SMTP_", "IMAP_", "QQ_",
+		"QQBOT_", "SMS_", "YUANBAO_", "A2A_", "NTFY_", "IRC_", "SIMPLEX_", "BUZZ_", "RAFT_",
+		"GOOGLE_CHAT_",
 	}
 	deniedNames = map[string]bool{
 		"JWT_SECRET": true, "DATABASE_URL": true, "PGPASSWORD": true, "PGHOST": true, "PGUSER": true,

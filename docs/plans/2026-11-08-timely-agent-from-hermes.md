@@ -875,7 +875,7 @@ Note: Hermes has no agent-callable `send_message` tool (`hermes:toolsets.py:184`
 Decision 6 is met at six layers, none of which edits vendored files:
 
 1. **Never started.** The worker imports `AIAgent` and never constructs the gateway runner, `api_server`, webhooks or the cron ticker. `hermes gateway` is never on the worker's `PATH` (no Hermes launcher at all).
-2. **Never configured.** The managed config enables no platform; platform tokens (`TELEGRAM_BOT_TOKEN` and the like) can never be in the worker environment because the environment is an allowlist.
+2. **Never configured.** The managed config enables no platform; platform tokens (`TELEGRAM_BOT_TOKEN` and the like) can never be in the worker environment because the environment is an allowlist. Go's `deniedPrefixes` (never a tool key) and the worker's `env_check.FORBIDDEN_PREFIXES` (refuses to start) both list every platform's prefix, and `make hermes-sync-check` fails when a `kind: platform` manifest reads a name either list lets through *(phase 1 review: yuanbao, a2a, ntfy, irc, simplex, buzz, raft, google_chat, sms and qqbot were missing)*.
 3. **Never offered.** `enabled_toolsets` is explicit and never includes messaging, desktop_ui, kanban or a2a toolsets.
 4. **Blocked at dispatch.** The tool policy blocks every messaging tool by name and every unknown tool by default.
 5. **Self-test.** `ready.self_test` fails if any messaging tool resolves or any platform adapter is loaded with credentials.
