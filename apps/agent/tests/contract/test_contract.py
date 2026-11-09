@@ -616,6 +616,22 @@ def test_c12_managed_dotenv_fails_the_self_test(stub):
         w.close()
 
 
+@pytest.mark.skipif(IS_WINDOWS, reason="uses a POSIX shell command")
+def test_c12_background_child_keeps_the_worker_busy(agent, worker, stub):
+    """12g. A background terminal process counts in ``busy.children`` (pong and heartbeat), so
+    Go never reaps a worker whose agent left one running (plan 6.2)."""
+    args = {"command": "sleep 4242", "background": True}
+    worker.send(harness.run_start(agent, stub, run_id="c12g", conversation="c-c12g", toolsets=["terminal"],
+                                  text=f"CALL terminal {json.dumps(args)}"))
+    ask, _ = worker.until("gate.ask")
+    _verdict(agent, worker, ask, "allow")
+    worker.until("run.done")
+    worker.send({"type": "ping", "id": "p-c12g", "account": agent.account})
+    pong, _ = worker.until("pong")
+    assert pong["busy"]["children"] >= 1, pong
+    assert pong["busy"]["runs"] == 0, pong
+
+
 # ---------------------------------------------------------------- 15
 
 def test_c15_override_precedence(agent, worker, stub):

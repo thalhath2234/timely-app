@@ -82,7 +82,10 @@ def decode(line: bytes, account: Optional[str]) -> dict[str, Any]:
 
 
 def encode(msg: dict[str, Any]) -> bytes:
-    return (json.dumps(msg, ensure_ascii=False, separators=(",", ":"), default=str) + "\n").encode("utf-8")
+    """One line. Non-ASCII is escaped (``\\uXXXX``): a lone surrogate from a model stream split
+    inside an emoji would make a UTF-8 encode raise and lose the message; escaped, Go's decoder
+    turns it into U+FFFD."""
+    return (json.dumps(msg, ensure_ascii=True, separators=(",", ":"), default=str) + "\n").encode("ascii")
 
 
 class Channel:

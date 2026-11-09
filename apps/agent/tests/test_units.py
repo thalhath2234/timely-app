@@ -42,6 +42,13 @@ def test_encode_is_one_line():
     assert json.loads(data)["payload"]["text"] == "a\nb"
 
 
+def test_encode_survives_a_lone_surrogate():
+    # a streamed delta split inside an emoji: "half \ud83d"
+    data = P.encode({"type": "event", "payload": {"text": "half \ud83d", "name": "caf\u00e9"}})
+    assert data.isascii() and data.count(b"\n") == 1
+    assert json.loads(data)["payload"]["name"] == "caf\u00e9"
+
+
 def test_pending_requests_round_trip():
     pending = P.PendingRequests()
     sent = []

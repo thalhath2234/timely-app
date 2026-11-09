@@ -47,6 +47,25 @@ def hermes_tag() -> str:
         return ""
 
 
+def tracked_children() -> int:
+    """Background processes Hermes' process registry tracks as running (``terminal`` with
+    ``background: true``). Go never reaps a worker while this is above zero: stopping the worker
+    would make Hermes' owner-death supervisor kill them."""
+    reg_mod = sys.modules.get("tools.process_registry")
+    reg = getattr(reg_mod, "process_registry", None)
+    running = getattr(reg, "_running", None)
+    if not isinstance(running, dict):
+        return 0
+    lock = getattr(reg, "_lock", None)
+    try:
+        if lock is not None:
+            with lock:
+                return len(running)
+        return len(running)
+    except Exception:
+        return 0
+
+
 class Worker:
     def __init__(self, chan: P.Channel):
         from timely_agent.run_chat import AgentCache
@@ -157,7 +176,8 @@ class Worker:
         """Work Go cannot see on its own (plan 6.2): live runs, a learning pass, tracked children."""
         with self.runs_lock:
             runs = len(self.runs)
-        return {"runs": runs, "learning": False, "children": 0}
+        # Learning passes arrive in phase 4; until then learning is always False.
+        return {"runs": runs, "learning": False, "children": tracked_children()}
 
     def _heartbeat(self) -> None:
         while not self.chan.closed and not self.stopping:
@@ -210,7 +230,12 @@ class Worker:
                 unregister_gateway_notify(session_key)
                 with self.runs_lock:
                     self.runs.pop(run_id, None)
-            self.send({"type": "run.done", "id": mid, "run": run_id, **done})
+            try:
+                self.send({"type": "run.done", "id": mid, "run": run_id, **done})
+            except Exception as exc:  # Go must always get a run.done, or the run stays live there
+                logger.exception("run.done for %s could not be sent", run_id)
+                self.send({"type": "run.done", "id": mid, "run": run_id, "completed": False,
+                           "interrupted": False, "error": f"run.done could not be encoded: {type(exc).__name__}"})
 
         ctx = contextvars.copy_context()
         run.thread = threading.Thread(target=ctx.run, args=(body,), name=f"timely-run-{run_id}"[:40], daemon=True)
