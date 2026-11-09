@@ -36,6 +36,52 @@ def snapshot_commit(repo=None):
     return out or None
 
 
+def _is_snapshot_message(commit, repo=None):
+    msg = git("log", "-1", "--format=%B", commit, repo=repo)
+    return msg.startswith("hermes: snapshot ") and re.search(r"(?m)^Hermes-Commit: ", msg) is not None
+
+
+def snapshot_problems(commit, repo=None, prefix=PREFIX):
+    """Why `commit` is not a real snapshot commit, or [] when it is.
+
+    A snapshot holds only `prefix/` and its parents are snapshots too (the first has none). A
+    rebase replays a snapshot onto a Timely commit, keeping its message and trailers but giving
+    it the whole repo's tree; the next sync would then merge a prefix-only tree against it and
+    delete every Timely file. A squash leaves no snapshot at all (the callers' other check)."""
+    problems = []
+    if not _is_snapshot_message(commit, repo):
+        problems.append(f"{commit[:12]} is not a `hermes: snapshot` commit with a Hermes-Commit trailer")
+    outside = [p for p in git("ls-tree", "-r", "--name-only", commit, repo=repo).splitlines()
+               if p and not p.startswith(prefix + "/")]
+    if outside:
+        problems.append(f"snapshot {commit[:12]} holds {len(outside)} files outside {prefix}/ "
+                        f"(e.g. {', '.join(outside[:3])}); a rebase replayed it onto a Timely commit")
+    parents = git("rev-list", "--parents", "-n1", commit, repo=repo).split()[1:]
+    for parent in parents:
+        if not _is_snapshot_message(parent, repo):
+            problems.append(f"snapshot {commit[:12]} has parent {parent[:12]}, which is not a snapshot commit")
+    return problems
+
+
+RELINK_HELP = ("Recovery: find the real snapshot commit (the second parent of the `hermes: sync` merge "
+               "on the branch that imported it, or `git rev-parse refs/hermes/vendor` on the machine that "
+               "ran the sync), then `git merge -s ours --allow-unrelated-histories <snapshot>` and re-run.")
+
+
+if __name__ == "__main__":  # `check_lib.py verify-snapshot <rev> [repo]`: used by sync-hermes.sh and check.sh
+    import sys
+    if len(sys.argv) not in (3, 4) or sys.argv[1] != "verify-snapshot":
+        sys.exit("usage: check_lib.py verify-snapshot <rev> [repo]")
+    repo_arg = sys.argv[3] if len(sys.argv) == 4 else None
+    found = snapshot_problems(git("rev-parse", "--verify", sys.argv[2] + "^{commit}", repo=repo_arg).strip(),
+                              repo=repo_arg)
+    for line in found:
+        print(line, file=sys.stderr)
+    if found:
+        print(RELINK_HELP, file=sys.stderr)
+    sys.exit(1 if found else 0)
+
+
 def schema_sha256(schema):
     """sha256 of a tool schema as canonical JSON (sorted keys, no whitespace, UTF-8).
 

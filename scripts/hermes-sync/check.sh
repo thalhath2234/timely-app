@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Post-sync checks for apps/agent (plan section 10.4). `make hermes-sync-check` runs this.
-# Implemented so far: the link to the last snapshot, the patch inventory (10.4 b) and the
-# no-npm-manifest/no-env-file rule (part of 10.4 e). Later phase-1 work adds the rest here:
-# compileall, agent-install + import smoke, tools/skills/seams dumps, policy files, contract tests.
+# Post-sync checks for apps/agent (plan section 10.4). `make hermes-sync-check` runs this first:
+# the link to the last snapshot (and that it is a real snapshot, not one a rebase replayed), the
+# patch inventory both ways (10.4 b) and the no-npm-manifest/no-env-file rule (part of 10.4 e).
+# check_sync.py does compileall, the import smoke, the tools/skills/seams dumps and the policy
+# files; the Makefile target then runs agent-test and agent-contract (10.4 f).
 set -euo pipefail
 
-REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+HELPERS=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT=${HERMES_CHECK_REPO:-$(cd "$HELPERS/../.." && pwd)}  # HERMES_CHECK_REPO: check_test.py only
 PREFIX=apps/agent/hermes
 PATCHES=apps/agent/.hermes-sync/patches.md
 g() { git -C "$REPO_ROOT" "$@"; }
@@ -14,6 +16,8 @@ bad() { echo "hermes-sync-check: $*" >&2; fail=1; }
 
 snap=$(g log -1 --format=%H --all-match --grep='^hermes: snapshot ' --grep='^Hermes-Commit: ' HEAD)
 [[ -n $snap ]] || { echo "hermes-sync-check: no Hermes snapshot in HEAD's history; run make hermes-sync" >&2; exit 1; }
+python3 -I "$HELPERS/check_lib.py" verify-snapshot "$snap" "$REPO_ROOT" ||
+  bad "$snap is not a real snapshot commit (was the branch rebased?)"
 [[ $(g rev-parse "HEAD:$PREFIX/HERMES_UPSTREAM.json") == $(g rev-parse "$snap:$PREFIX/HERMES_UPSTREAM.json") ]] ||
   bad "$PREFIX/HERMES_UPSTREAM.json differs from snapshot $snap"
 
@@ -28,6 +32,16 @@ while IFS= read -r f; do
     bad "$f is listed in $PATCHES but has no TIMELY(Pn) marker"
   fi
 done < <(g diff --name-only "$snap" -- "$PREFIX"; g ls-files --others --exclude-standard -- "$PREFIX")
+# b (other way). Every listed patch point still differs from the snapshot: taking upstream's
+# side of a conflict (git checkout --theirs) silently drops a patch.
+while IFS= read -r f; do
+  [[ -z $f ]] && continue
+  if [[ ! -e $REPO_ROOT/$f ]]; then
+    bad "$f is listed in $PATCHES but does not exist (renamed upstream? update the list)"
+  elif g diff --quiet "$snap" -- "$f" && [[ -z $(g ls-files --others --exclude-standard -- "$f") ]]; then
+    bad "$f is listed in $PATCHES but is identical to upstream (patch lost?)"
+  fi
+done <<<"$listed"
 count=$(grep -c . <<<"$listed" || true)
 ((count <= 5)) || bad "$count patch points listed; the hard cap is five"
 

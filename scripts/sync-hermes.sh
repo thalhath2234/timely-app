@@ -35,6 +35,7 @@ trap 'rm -rf "$tmp"' EXIT
 g rev-parse -q --verify MERGE_HEAD >/dev/null && die "a merge is in progress; finish or abort it first"
 branch=$(g symbolic-ref --quiet --short HEAD) || die "detached HEAD; check out a feature/ or fix/ branch"
 [[ $branch == main ]] && die "never sync on main; branch from dev"
+[[ $branch == dev || $branch =~ ^(feature|fix)/ ]] || die "sync on dev (a fix/hermes-sync-<tag> branch is made) or on a feature/ or fix/ branch, not $branch"
 
 # 1. Which release.
 REF=${HERMES_REF:-}
@@ -64,13 +65,18 @@ fi
 prev=$(g log -1 --format=%H --all-match --grep='^hermes: snapshot ' --grep='^Hermes-Commit: ' HEAD)
 head_rec=$(g rev-parse -q --verify "HEAD:$PREFIX/HERMES_UPSTREAM.json" || true)
 prev_commit="" prev_tag=""
+RELINK="Recovery: find the real snapshot commit (the second parent of the 'hermes: sync' merge on the branch that imported it, or 'git rev-parse refs/hermes/vendor' on the machine that ran the sync), then: git merge -s ours --allow-unrelated-histories <snapshot>, and re-run."
 if [[ -n $prev ]]; then
+  # A rebase replays the snapshot onto a Timely commit with its message intact: same blob, but
+  # the whole repo in its tree. Merging against it would delete every Timely file.
+  python3 -I "$HELPERS/check_lib.py" verify-snapshot "$prev" "$REPO_ROOT" >&2 ||
+    die "$prev is not a real snapshot commit (was the branch rebased?)"
   [[ $head_rec == $(g rev-parse "$prev:$PREFIX/HERMES_UPSTREAM.json") ]] || die \
-    "HEAD's $PREFIX/HERMES_UPSTREAM.json differs from snapshot $prev (a squash or rebase cut the link?). Recovery: git merge -s ours <the lost snapshot commit>, then re-run."
+    "HEAD's $PREFIX/HERMES_UPSTREAM.json differs from snapshot $prev (a squash or rebase cut the link?). $RELINK"
   prev_commit=$(g log -1 --format='%(trailers:key=Hermes-Commit,valueonly)' "$prev" | head -n1)
   prev_tag=$(g log -1 --format='%(trailers:key=Hermes-Tag,valueonly)' "$prev" | head -n1)
 elif [[ -n $head_rec ]]; then
-  die "HEAD has $PREFIX/HERMES_UPSTREAM.json but no snapshot commit in its history. Recovery: git merge -s ours <the lost snapshot commit>, then re-run."
+  die "HEAD has $PREFIX/HERMES_UPSTREAM.json but no snapshot commit in its history (a squash?). $RELINK"
 fi
 
 # 1b. Verify the tag: release API, tags.json, ancestry. Hermes tags are unsigned and can move.
@@ -146,7 +152,8 @@ fi
 new=$(g commit-tree "$tree" ${prev:+-p "$prev"} -m "hermes: snapshot $REF" -m "Hermes-Tag: $REF
 Hermes-Commit: $commit
 Filter-Sha1: $filter_sha")
-g update-ref -m "hermes-sync $REF" refs/heads/vendor/hermes "$new"
+# Local convenience ref outside refs/heads: never a branch anyone checks out (or syncs on).
+g update-ref -m "hermes-sync $REF" refs/hermes/vendor "$new"
 
 # 7. Report (also the PR body).
 report=$(g rev-parse --path-format=absolute --git-path hermes-sync-report.md)

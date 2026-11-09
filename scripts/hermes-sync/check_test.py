@@ -448,3 +448,84 @@ class Misc(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------- snapshot link (check.sh, sync-hermes.sh)
+import subprocess  # noqa: E402
+
+CHECK_SH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "check.sh")
+
+
+class SnapshotLink(unittest.TestCase):
+    """A real snapshot holds only apps/agent/hermes/ and has only snapshot parents; a rebased one
+    keeps its message but not its shape. Patch points are checked both ways."""
+
+    def setUp(self):
+        self.repo = tempfile.mkdtemp(prefix="hermes-link.")
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", self.repo]))
+        self.git("init", "-q", "-b", "feature/x")
+        self.git("config", "user.email", "t@example.com")
+        self.git("config", "user.name", "t")
+        self.git("config", "commit.gpgsign", "false")
+        self.write("README.md", "timely\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "timely: start")
+        # the snapshot: a root commit holding only the prefix, merged in like sync-hermes.sh does
+        snap_dir = tempfile.mkdtemp(prefix="hermes-snap.")
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", snap_dir]))
+        env = dict(os.environ, GIT_INDEX_FILE=os.path.join(self.repo, ".git", "snapshot-index"), GIT_WORK_TREE=snap_dir)
+        os.makedirs(os.path.join(snap_dir, check_lib.PREFIX))
+        for name, body in (("HERMES_UPSTREAM.json", '{"tag": "v1"}\n'), ("tool.py", "x = 1\n")):
+            with open(os.path.join(snap_dir, check_lib.PREFIX, name), "w") as fh:
+                fh.write(body)
+        self.git("add", "-A", env=env)
+        tree = self.git("write-tree", env=env).strip()
+        self.snap = self.git("commit-tree", tree, "-m", "hermes: snapshot v1", "-m", "Hermes-Tag: v1\nHermes-Commit: abc").strip()
+        self.git("merge", "-q", "--no-ff", "--allow-unrelated-histories", "-m", "hermes: sync v1", self.snap)
+
+    def git(self, *args, env=None):
+        res = subprocess.run(["git", "-C", self.repo, *args], capture_output=True, text=True, env=env)
+        if res.returncode:
+            raise AssertionError(f"git {args}: {res.stderr}")
+        return res.stdout
+
+    def write(self, rel, body):
+        full = os.path.join(self.repo, rel)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w") as fh:
+            fh.write(body)
+
+    def check_sh(self):
+        return subprocess.run(["bash", CHECK_SH], capture_output=True, text=True,
+                              env=dict(os.environ, HERMES_CHECK_REPO=self.repo))
+
+    def test_real_snapshot_passes(self):
+        self.assertEqual(check_lib.snapshot_problems(self.snap, repo=self.repo), [])
+        res = self.check_sh()
+        self.assertEqual(res.returncode, 0, res.stderr)
+
+    def test_rebased_snapshot_fails(self):
+        # what `git rebase --force-rebase` does: the snapshot replayed onto a Timely commit
+        self.git("reset", "-q", "--hard", "HEAD~1")
+        self.git("cherry-pick", "--allow-empty", "-X", "theirs", self.snap)
+        replayed = self.git("rev-parse", "HEAD").strip()
+        self.assertEqual(check_lib.snapshot_commit(repo=self.repo), replayed)
+        problems = check_lib.snapshot_problems(replayed, repo=self.repo)
+        self.assertTrue(any("outside apps/agent/hermes/" in p for p in problems), problems)
+        self.assertTrue(any("not a snapshot commit" in p for p in problems), problems)
+        res = self.check_sh()
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("not a real snapshot commit", res.stderr)
+        self.assertIn("--allow-unrelated-histories", res.stderr)
+
+    def test_listed_patch_identical_to_upstream_fails(self):
+        self.write("apps/agent/.hermes-sync/patches.md", "- P1 `apps/agent/hermes/tool.py` # TIMELY(P1) test\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "agent: list a patch point")
+        res = self.check_sh()
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("identical to upstream (patch lost?)", res.stderr)
+        self.write("apps/agent/hermes/tool.py", "x = 2  # TIMELY(P1)\n")
+        self.git("commit", "-q", "-am", "agent: the patch itself")
+        res = self.check_sh()
+        self.assertEqual(res.returncode, 0, res.stderr)

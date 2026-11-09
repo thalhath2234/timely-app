@@ -49,6 +49,6 @@ Rules for tests and experiments:
    - rename/modify: check the marker moved with the file.
    - `hermes/HERMES_UPSTREAM.json`: always theirs.
 4. `make hermes-sync-check`; commit the regenerated dumps and policy changes on the sync branch.
-5. Open the PR with the report as its body and merge it with a **merge commit**. A squash or rebase cuts the link to the snapshot and the next sync refuses to run (recovery: `git merge -s ours <lost snapshot>`).
+5. Open the PR with the report as its body and merge it with a **merge commit**. A squash or rebase cuts the link to the snapshot and the next sync (and `make hermes-sync-check`) refuses to run. Recovery: find the real snapshot commit (the second parent of the `hermes: sync` merge on the branch that imported it, or `git rev-parse refs/hermes/vendor` where the sync ran), then `git merge -s ours --allow-unrelated-histories <snapshot>`. The flag is needed because the first snapshot shares no history with Timely.
 
 How the script works, the filter and the verification records: `.hermes-sync/README.md`.
