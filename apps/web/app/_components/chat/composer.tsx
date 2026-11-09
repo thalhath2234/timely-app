@@ -5,12 +5,22 @@ import TimelyLogo, {
   LogoSpinner,
   SPINNER_LOOP_SECONDS,
 } from "@/app/_components/_ui/timelyLogo";
+import type { PermissionMode } from "@timely/contract/agentChat";
 import type { BotTag, ChatContext, ChatImage } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
 import { BotTagChips, useBotMention } from "./botMentionPicker";
 import { chipIcon } from "./chatMeta";
 import { PendingImages } from "./imageAttachments";
 import ModelMenu, { type ModelChoice } from "./modelMenu";
+import { ChatPermissionMenu } from "./permissionPicker";
+
+/** The chat's permission mode and the account default new chats start on. */
+export type ComposerPermission = {
+  value: PermissionMode;
+  defaultMode: PermissionMode;
+  onChange: (mode: PermissionMode) => void;
+  onChangeDefault: () => void;
+};
 
 export function ContextChips({
   chips,
@@ -68,7 +78,9 @@ export default function Composer({
   onToggleSearch,
   model,
   onChangeModel,
+  permission,
   busy,
+  steering = false,
   pending,
   onSend,
   onStop,
@@ -93,7 +105,10 @@ export default function Composer({
   onToggleSearch: () => void;
   model: ModelChoice;
   onChangeModel: (next: ModelChoice) => void;
+  permission?: ComposerPermission;
   busy: boolean;
+  /** A live agent run takes what is sent now as steering (Send beside Stop). */
+  steering?: boolean;
   pending: boolean;
   onSend: () => void;
   onStop: () => void;
@@ -113,7 +128,7 @@ export default function Composer({
     inputRef,
     tags: botTags,
     setTags: setBotTags,
-    disabled: busy || pending,
+    disabled: (busy && !steering) || pending,
   });
   return (
     <div className={cn("shrink-0", !bar && "px-4 pb-4 pt-1 md:px-8 md:pb-5")}>
@@ -190,7 +205,16 @@ export default function Composer({
             className="max-h-48 min-h-14 w-full resize-none bg-transparent px-1.5 py-1.5 text-sm leading-6 outline-none placeholder:text-muted-foreground"
           />
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-0.5">
+            <div className="flex min-w-0 items-center gap-0.5">
+              {permission && (
+                <ChatPermissionMenu
+                  value={permission.value}
+                  defaultMode={permission.defaultMode}
+                  onChange={permission.onChange}
+                  onChangeDefault={permission.onChangeDefault}
+                  disabled={pending}
+                />
+              )}
               <input
                 ref={fileInput}
                 type="file"
@@ -216,6 +240,7 @@ export default function Composer({
               <button
                 type="button"
                 aria-pressed={searchOn}
+                aria-label={privateImages ? "Private image chat" : "Web search"}
                 disabled={busy || pending || privateImages}
                 onClick={onToggleSearch}
                 title={
@@ -231,7 +256,10 @@ export default function Composer({
                 )}
               >
                 <Globe2 className="size-4" />
-                {privateImages ? "Private image chat" : "Web search"}
+                {/* Icon only on a phone-width window, so the row fits beside the permission chip. */}
+                <span className={permission ? "hidden sm:inline" : undefined}>
+                  {privateImages ? "Private image chat" : "Web search"}
+                </span>
                 {searchOn && <Check className="size-3" />}
               </button>
               <ModelMenu
@@ -240,12 +268,8 @@ export default function Composer({
                 disabled={pending}
               />
             </div>
-            <div className="flex items-center gap-2">
-              <span className="hidden text-[11px] text-muted-foreground sm:block">
-                <kbd className="font-sans">Enter</kbd> to send ·{" "}
-                <kbd className="font-sans">Shift+Enter</kbd> for a new line
-              </span>
-              {busy ? (
+            <div className="flex shrink-0 items-center gap-2">
+              {busy && (
                 <button
                   type="button"
                   aria-label="Stop run"
@@ -255,11 +279,12 @@ export default function Composer({
                 >
                   <Square className="size-3.5 fill-current" />
                 </button>
-              ) : (
+              )}
+              {(!busy || steering) && (
                 <button
                   type="button"
-                  aria-label="Send message"
-                  disabled={!canSend}
+                  aria-label={steering ? "Send to the run" : "Send message"}
+                  disabled={!canSend || (steering && images.length > 0)}
                   onClick={onSend}
                   className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm transition-opacity hover:bg-primary/90 disabled:opacity-30"
                 >

@@ -1,5 +1,12 @@
 import type { BotAnswer } from "@timely/contract/bots";
 import { GENUI_CAPABILITY } from "@timely/contract/genui";
+import type {
+  AgentChatSettings,
+  AgentChatSettingsPatch,
+  ChatActivity,
+  ChatEngine,
+  PermissionMode,
+} from "@timely/contract/agentChat";
 import { apiFetch } from "./client";
 import { browserTimezone } from "./schedule";
 
@@ -14,6 +21,8 @@ export type ChatStep = {
   result?: Record<string, unknown>;
   before?: Record<string, unknown>;
   error?: string;
+  /** A step of an Undo plan: it puts back what an applied proposal changed. */
+  undo?: boolean;
 };
 export type ChatStatus =
   | "queued"
@@ -25,9 +34,10 @@ export type ChatStatus =
   | "stopped";
 /**
  * "" is a turn, "notice" a run event, "archive" a superseded or discarded
- * plan, "similar" a pointer to an earlier chat about the same request.
+ * plan, "similar" a pointer to an earlier chat about the same request, and
+ * "steer" what the person said to a live agent run while it worked.
  */
-export type ChatMessageKind = "" | "notice" | "archive" | "similar";
+export type ChatMessageKind = "" | "notice" | "archive" | "similar" | "steer";
 export type ChatMessage = {
   imageIds?: string[];
   receipt?: ReceiptDraft;
@@ -49,6 +59,11 @@ export type ChatMessage = {
   botTags?: string[];
   /** What the tagged bots know, on the reply written from them. */
   botAnswers?: BotAnswer[];
+  /** A proposal Auto or Full Access applied without asking; it offers Undo. */
+  autoApplied?: boolean;
+  /** When its Undo was asked for, and the notice that records it. */
+  undoneAt?: string;
+  undoMessageId?: string;
 };
 /** A bot picked in the composer's @-picker, sent as `botTags` with one message. */
 export type BotTag = { id: string; name: string };
@@ -90,10 +105,19 @@ export type Chat = {
   error: string;
   /**
    * What the person can do about `error`: "settings" for a key, credit or
-   * provider problem, "none" when the same request would fail again, and
-   * "" (Try again) otherwise.
+   * provider problem, "none" when the same request would fail again,
+   * "use_classic" when the new engine could not run it, and "" (Try again)
+   * otherwise.
    */
-  errorAction?: "" | "settings" | "none";
+  errorAction?: "" | "settings" | "none" | "use_classic";
+  /** How much the agent may change without asking, for this chat. */
+  permission?: PermissionMode;
+  /** The chat's own engine; "" follows Settings → Agent → Engine. */
+  engine?: ChatEngine;
+  /** The engine the current or last run used ("" before the first run). */
+  runEngine?: "" | "classic" | "agent";
+  /** A live agent run's lines and the reply streamed so far. */
+  activity?: ChatActivity;
   /** Stable code of a failure the app can offer a fix for (PROVIDER_NOT_CHOSEN). */
   errorCode?: string;
   updatedAt: string;
@@ -143,6 +167,37 @@ export const renameChat = (id: string, title: string) =>
   chatRequest<Chat>(`/${encodeURIComponent(id)}`, "PATCH", { title });
 export const deleteChat = (id: string) =>
   chatRequest<void>(`/${encodeURIComponent(id)}`, "DELETE");
+
+/** Says something to a live agent run; it reads it before its next step. */
+export const steerChat = (id: string, text: string) =>
+  chatRequest<Chat>(`/${encodeURIComponent(id)}/steer`, "POST", { text });
+
+/** Puts back what an auto-applied proposal changed (messageId is its summary). */
+export const undoChange = (id: string, revision: number, messageId: string) =>
+  chatRequest<Chat>(`/${encodeURIComponent(id)}/undo`, "POST", {
+    revision,
+    messageId,
+  });
+
+/** Settings → Agent: the engine and the permission defaults. */
+async function chatSettingsRequest(
+  method: "GET" | "PATCH",
+  body?: AgentChatSettingsPatch,
+): Promise<AgentChatSettings> {
+  const res = await apiFetch("/agent/chat-settings", {
+    method,
+    headers: { "Content-Type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.message || "Couldn't save chat settings. Try again.");
+  }
+  return res.json();
+}
+export const getChatSettings = () => chatSettingsRequest("GET");
+export const patchChatSettings = (patch: AgentChatSettingsPatch) =>
+  chatSettingsRequest("PATCH", patch);
 
 export type ChatImage = {
   id: string;

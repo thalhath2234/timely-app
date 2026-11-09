@@ -1,9 +1,11 @@
 // The web app's live streams (apps/web/app/utils/api/chatStream.ts): one tab
 // per browser holds GET /chats/watch (and GET /bots/watch, under its own lock)
-// and shares it with the other tabs.
+// and shares it with the other tabs. A live agent run's reply arrives on the
+// chat stream as `delta` events, which ReplyDrafts turns into the growing
+// reply (Q-2.5).
 import assert from "node:assert/strict";
-import test from "node:test";
-import { CHAT_STREAM_LOCK, parseSSE, startChatStream, startLiveStream } from "../apps/web/app/utils/api/chatStream.ts";
+import test, { describe } from "node:test";
+import { CHAT_STREAM_LOCK, ReplyDrafts, parseSSE, startChatStream, startLiveStream } from "../apps/web/app/utils/api/chatStream.ts";
 
 const tick = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -145,4 +147,120 @@ test("a stream under its own lock runs beside the chat stream, not instead of it
   assert.equal(opened.length, 3);
   stopOther();
   stopChat();
+});
+
+const deltaFrame = (id, run, offset, text) =>
+  `event: delta\ndata: ${JSON.stringify({ type: "delta", kind: "chat", id, document: { run, offset, text } })}\n\n`;
+const delta = (run, offset, text, id = "chat_1") => ({ type: "delta", id, run, offset, text });
+
+describe("streamed reply deltas", () => {
+  test("a delta frame reaches the listener as a delta message; malformed ones are dropped", async () => {
+    let stream;
+    const heard = [];
+    const stop = startChatStream((m) => heard.push(m), {
+      open: async () => (stream = watchResponse()).response,
+    });
+    await tick();
+    stream.send(deltaFrame("chat_1", "run-1", 0, "Sure, "));
+    stream.send('event: delta\ndata: {"id":"chat_1","document":{"run":"run-1","offset":"6","text":"x"}}\n\n');
+    stream.send('event: delta\ndata: {"id":"chat_1"}\n\n');
+    stream.send(deltaFrame("chat_1", "run-1", 6, "done."));
+    await tick();
+    assert.deepEqual(heard.slice(1), [delta("run-1", 0, "Sure, "), delta("run-1", 6, "done.")]);
+    stop();
+  });
+
+  test("a chunk that starts where the draft ends is appended", () => {
+    const drafts = new ReplyDrafts();
+    assert.equal(drafts.delta(delta("run-1", 0, "Sure, ")), false);
+    assert.equal(drafts.delta(delta("run-1", 6, "I added it.")), false);
+    assert.deepEqual(drafts.get("chat_1"), { run: "run-1", text: "Sure, I added it.", chars: 17 });
+  });
+
+  test("a chunk that repeats text already there adds only what is new", () => {
+    const drafts = new ReplyDrafts();
+    drafts.delta(delta("run-1", 0, "Moved 3 "));
+    assert.equal(drafts.delta(delta("run-1", 6, "3 tasks")), false, "an overlap needs no refetch");
+    assert.equal(drafts.get("chat_1").text, "Moved 3 tasks");
+    assert.equal(drafts.delta(delta("run-1", 2, "ved")), false, "a chunk wholly inside the draft changes nothing");
+    assert.equal(drafts.get("chat_1").text, "Moved 3 tasks");
+    // Offsets count code points, so an emoji is one character, as in Go.
+    drafts.delta(delta("run-1", 13, " 🎉"));
+    drafts.delta(delta("run-1", 14, "🎉 ok"));
+    assert.deepEqual(drafts.get("chat_1"), { run: "run-1", text: "Moved 3 tasks 🎉 ok", chars: 18 });
+  });
+
+  test("a gap keeps the draft, asks for one refetch, and the fetched activity continues it", () => {
+    let now = 0;
+    const drafts = new ReplyDrafts(() => now);
+    drafts.delta(delta("run-1", 0, "Hello"));
+    assert.equal(drafts.delta(delta("run-1", 12, "there")), true, "a missed chunk refetches the chat");
+    assert.equal(drafts.get("chat_1").text, "Hello", "the draft waits as it was");
+    now = 400;
+    assert.equal(drafts.delta(delta("run-1", 17, "!")), false, "one refetch covers a second of gaps");
+    now = 1500;
+    assert.equal(drafts.delta(delta("run-1", 18, "?")), true, "a gap a second later refetches again");
+
+    // The refetched row's activity.draft (written at most once a second) has the missed text.
+    drafts.seed("chat_1", { run: "run-1", draft: "Hello, friend, there!", lines: [] });
+    assert.equal(drafts.get("chat_1").text, "Hello, friend, there!");
+    assert.equal(drafts.delta(delta("run-1", 21, " Done.")), false, "deltas append again after the refetch");
+    assert.equal(drafts.get("chat_1").text, "Hello, friend, there! Done.");
+
+    drafts.seed("chat_1", { run: "run-1", draft: "Hello" });
+    assert.equal(drafts.get("chat_1").text, "Hello, friend, there! Done.", "an older, shorter activity.draft never rewinds it");
+  });
+
+  test("a new run starts its own draft, and a row whose run ended clears it", () => {
+    const drafts = new ReplyDrafts();
+    let changes = 0;
+    const off = drafts.subscribe(() => changes++);
+    drafts.delta(delta("run-1", 0, "First"));
+    drafts.delta(delta("run-2", 0, "Second"));
+    assert.deepEqual(drafts.get("chat_1"), { run: "run-2", text: "Second", chars: 6 });
+    drafts.seed("chat_1", {});
+    assert.equal(drafts.get("chat_1"), null, "the final reply arrives as a changed row with no activity");
+    assert.equal(changes, 3);
+    off();
+    drafts.delta(delta("run-3", 0, "x"));
+    assert.equal(changes, 3, "an unsubscribed listener hears nothing");
+  });
+
+  test("the tab holding the stream relays deltas to the other tabs, which keep their own drafts", async () => {
+    const locks = fakeLocks();
+    const streams = [];
+    const open = async () => {
+      const stream = watchResponse();
+      streams.push(stream);
+      return stream.response;
+    };
+    const tabs = [new ReplyDrafts(), new ReplyDrafts()];
+    const refetches = [[], []];
+    const listen = (i) => (m) => {
+      if (m.type === "delta" && tabs[i].delta(m)) refetches[i].push(m.id);
+    };
+    const stopA = startChatStream(listen(0), { open, locks, channel: new BroadcastChannel("t-delta") });
+    await tick();
+    const stopB = startChatStream(listen(1), { open, locks, channel: new BroadcastChannel("t-delta") });
+    await tick();
+    assert.equal(streams.length, 1, "one connection for both tabs");
+
+    streams[0].send(deltaFrame("chat_1", "run-1", 0, "Plan"));
+    streams[0].send(deltaFrame("chat_1", "run-1", 4, "ned your week."));
+    await tick();
+    for (const drafts of tabs) assert.equal(drafts.get("chat_1").text, "Planned your week.");
+
+    // A chunk lost on the way is a gap in every tab, and each refetches.
+    streams[0].send(deltaFrame("chat_1", "run-1", 40, "later"));
+    await tick();
+    assert.deepEqual(refetches, [["chat_1"], ["chat_1"]]);
+
+    stopA();
+    await tick();
+    assert.equal(streams.length, 2, "the other tab takes the stream over");
+    streams[1].send(deltaFrame("chat_1", "run-1", 18, " Done."));
+    await tick();
+    assert.equal(tabs[1].get("chat_1").text, "Planned your week. Done.");
+    stopB();
+  });
 });

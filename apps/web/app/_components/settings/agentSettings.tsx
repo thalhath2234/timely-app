@@ -60,6 +60,11 @@ import { controlClass } from "@/app/_components/_ui/field";
 import { ChooseDefaultDialog, RemoveProviderDialog, readyIds } from "@/app/_components/settings/defaultChoice";
 import { buttonClass } from "@/app/_components/_ui/button";
 import { BotSourceKeysGroup } from "@/app/_components/settings/botSourceKeys";
+import EngineGroup from "@/app/_components/settings/agentEngine";
+import PermissionsGroups from "@/app/_components/settings/agentPermissions";
+import { SkeletonRows } from "@/app/_components/_ui/skeleton";
+import LoadError from "@/app/_components/_ui/loadError";
+import { useChatSettings } from "@/app/utils/hooks/chat";
 
 export const CLI_INSTALL_URLS = {
   claude: "https://docs.anthropic.com/en/docs/claude-code/overview",
@@ -1603,19 +1608,55 @@ function DecisionPrefs({ data }: { data: DecisionsView }) {
   );
 }
 
+/**
+ * The assistant's own settings, the drawn "Settings › Assistant" panel: the
+ * engine and the permission modes. A column beside the providers on wide
+ * windows, above them on narrow ones.
+ */
+function AssistantPanel() {
+  const settings = useChatSettings();
+  return (
+    <aside
+      aria-label="Engine and permissions"
+      className="flex min-w-0 flex-col gap-5 xl:sticky xl:top-0"
+    >
+      {settings.data ? (
+        <>
+          <EngineGroup settings={settings.data} />
+          <PermissionsGroups settings={settings.data} />
+        </>
+      ) : settings.error ? (
+        <LoadError
+          what="engine and permission settings"
+          error={settings.error}
+          onRetry={() => void settings.refetch()}
+          retrying={settings.isFetching}
+        />
+      ) : (
+        <SkeletonRows rows={6} />
+      )}
+    </aside>
+  );
+}
+
 export default function AgentSettings() {
   const { data, isLoading, error, refetch } = useAgentProviders({ watchReindex: true });
 
   return (
-    <div className="flex max-w-2xl flex-col gap-6">
-      <div>
+    <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,42rem)_340px] xl:gap-10">
+      <div className="xl:col-span-2">
         <h2 className="text-base font-semibold text-foreground">Agent</h2>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Choose which model runs the in-app assistant. New chats use the
-          default provider and its model; a run already in progress finishes on
-          the provider it started with.
+        <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+          Choose which model runs the in-app assistant, the engine it runs on
+          and how much it may change without asking. New chats use the default
+          provider and its model; a run already in progress finishes on the
+          provider it started with.
         </p>
       </div>
+      <div className="xl:order-last">
+        <AssistantPanel />
+      </div>
+      <div className="flex min-w-0 max-w-2xl flex-col gap-6">
 
       {isLoading && (
         <p className="text-sm text-muted-foreground">Checking providers…</p>
@@ -1663,6 +1704,7 @@ export default function AgentSettings() {
           </div>
         </>
       )}
+      </div>
     </div>
   );
 }
