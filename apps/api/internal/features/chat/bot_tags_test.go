@@ -352,7 +352,7 @@ func TestIntegrationAskBotCap(t *testing.T) {
 }
 
 // A run that read page text has its proposal reviewed, even a single direct
-// change that would otherwise apply at once.
+// change that would otherwise apply at once in Auto.
 func TestIntegrationBotReadForcesReview(t *testing.T) {
 	db := integrationDB(t)
 	propose := call("propose_changes", map[string]any{"summary": "Create Buy a microphone", "direct": true, "language": "en", "reply": "", "remaining": "",
@@ -367,7 +367,7 @@ func TestIntegrationBotReadForcesReview(t *testing.T) {
 			responses = []WireMessage{call(tc.read, map[string]string{"bot": "bot_a"}), propose}
 		}
 		s := New(db, botCatalog(&called), &scripted{responses: responses})
-		c := planFixture(t, db)
+		c := autoFixture(t, db)
 		if err := s.plan(context.Background(), &c); err != nil {
 			t.Fatal(err)
 		}

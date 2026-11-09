@@ -124,6 +124,7 @@ func (s *Service) work(ctx context.Context) {
 		}
 		var c Conversation
 		var providerErr error
+		resumed := false
 		err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			now := time.Now().UTC()
 			result := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Where("status = 'queued' OR (status = 'running' AND lease_until < ?)", now).Order("updated_at").Limit(1).Find(&c)
@@ -133,6 +134,7 @@ func (s *Service) work(ctx context.Context) {
 			if result.RowsAffected == 0 {
 				return gorm.ErrRecordNotFound
 			}
+			resumed = c.Status == "running"
 			// A fresh run takes the model picked for the conversation, else the
 			// account's current default; a resumed lease keeps the provider it
 			// started with.
@@ -142,6 +144,12 @@ func (s *Service) work(ctx context.Context) {
 				} else {
 					c.Provider, c.Model, providerErr = s.completers.Resolve(ctx, c.UserID)
 				}
+			}
+			// A fresh run picks its engine now; a resumed lease keeps the one
+			// it started on. No agent run is live yet.
+			if c.Status == "queued" {
+				c.RunEngine = runEngine(tx, &c)
+				c.AgentRunID, c.AgentInstance = "", ""
 			}
 			// One expired lease can be safely resumed: writes and checkpoints commit together.
 			lease := now.Add(3 * time.Minute)
@@ -157,47 +165,16 @@ func (s *Service) work(ctx context.Context) {
 			log.Printf("chat claim: %v", err)
 			continue
 		}
-		runCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-		if c.Sensitive {
-			// Tools then keep its searches and titles away from Jev.
-			runCtx = decide.WithSensitive(runCtx)
-		}
-		if providerErr == nil && s.completers != nil {
-			var completer Completer
-			completer, providerErr = s.completers.Completer(runCtx, c.UserID, c.Provider, c.Model)
-			if providerErr == nil {
-				runCtx = WithCompleter(runCtx, completer)
-			}
-		}
-		if providerErr != nil && c.Phase == "apply" {
-			// Applying approved changes asks no model, so an unusable
-			// provider must not stop it. A step that does need one (a live
-			// block's program) gets this provider's error, never another
-			// provider in its place.
-			runCtx = WithCompleter(runCtx, unusable{providerErr})
-			providerErr = nil
-		}
-		leaseDone := make(chan struct{})
-		go func(uid, cid, lease string) {
-			defer close(leaseDone)
-			s.keepLease(runCtx, cancel, uid, cid, lease, 5*time.Second)
-		}(c.UserID, c.ID, c.Lease)
-		if providerErr != nil {
-			// The selected provider is unusable; never switch silently (see Settings → Agent).
-			err = NeedsSettings(providerErr.Error())
-		} else if c.Phase == "receipt_edit" {
-			err = s.editReceipt(runCtx, &c)
-		} else if c.Phase == "extract" {
-			err = s.extractImages(runCtx, &c)
-		} else if c.Phase == "receipt_plan" {
-			err = s.refreshReceipt(runCtx, &c)
-		} else if c.Phase == "apply" {
-			err = s.apply(runCtx, &c)
+		if resumed && c.AgentRunID != "" {
+			// The agent run outlived its lease: re-attach or fail it.
+			err = s.lostAgentRun(ctx, &c)
+		} else if c.RunEngine == engineAgent && c.Phase == "plan" {
+			// The engine's follower holds the lease from here (Q-2.3: no
+			// Timely cap on an agent run, so this lane goes back to claiming).
+			err = s.startAgentRun(ctx, &c, providerErr)
 		} else {
-			err = s.plan(runCtx, &c)
+			err = s.runClassic(ctx, &c, providerErr)
 		}
-		cancel()
-		<-leaseDone
 		if err != nil && ctx.Err() == nil {
 			// The error often quotes a provider: drop what Postgres refuses
 			// (invalid UTF-8, NUL) so the failure can be saved.
@@ -233,6 +210,55 @@ func (s *Service) work(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// runClassic runs a claimed row's phase in this lane, as every run did before
+// the agent engine: 12 model turns and 10 minutes at most, the lease kept
+// alive by keepLease until the phase returns.
+func (s *Service) runClassic(ctx context.Context, c *Conversation, providerErr error) error {
+	runCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	if c.Sensitive {
+		// Tools then keep its searches and titles away from Jev.
+		runCtx = decide.WithSensitive(runCtx)
+	}
+	if providerErr == nil && s.completers != nil {
+		var completer Completer
+		completer, providerErr = s.completers.Completer(runCtx, c.UserID, c.Provider, c.Model)
+		if providerErr == nil {
+			runCtx = WithCompleter(runCtx, completer)
+		}
+	}
+	if providerErr != nil && c.Phase == "apply" {
+		// Applying approved changes asks no model, so an unusable
+		// provider must not stop it. A step that does need one (a live
+		// block's program) gets this provider's error, never another
+		// provider in its place.
+		runCtx = WithCompleter(runCtx, unusable{providerErr})
+		providerErr = nil
+	}
+	leaseDone := make(chan struct{})
+	go func(uid, cid, lease string) {
+		defer close(leaseDone)
+		s.keepLease(runCtx, cancel, uid, cid, lease, 5*time.Second)
+	}(c.UserID, c.ID, c.Lease)
+	var err error
+	if providerErr != nil {
+		// The selected provider is unusable; never switch silently (see Settings → Agent).
+		err = NeedsSettings(providerErr.Error())
+	} else if c.Phase == "receipt_edit" {
+		err = s.editReceipt(runCtx, c)
+	} else if c.Phase == "extract" {
+		err = s.extractImages(runCtx, c)
+	} else if c.Phase == "receipt_plan" {
+		err = s.refreshReceipt(runCtx, c)
+	} else if c.Phase == "apply" {
+		err = s.apply(runCtx, c)
+	} else {
+		err = s.plan(runCtx, c)
+	}
+	cancel()
+	<-leaseDone
+	return err
 }
 
 // maxRunErrorBytes bounds the error saved on a failed run.
@@ -899,7 +925,8 @@ func (s *Service) apply(ctx context.Context, c *Conversation) error {
 				if err != nil {
 					return err
 				}
-				if !isWriteTool(row.Plan[i].Tool) {
+				// An undo plan may also call the deletes its inverses need.
+				if !isWriteTool(row.Plan[i].Tool) && (!row.Plan[i].Undo || !agent.UndoTool(row.Plan[i].Tool)) {
 					return fmt.Errorf("Action not permitted")
 				}
 				result, err := catalog[row.Plan[i].Tool].Call(stepCtx, row.UserID, raw(value))
@@ -950,7 +977,11 @@ func (s *Service) apply(ctx context.Context, c *Conversation) error {
 			row.Status = "approval"
 			return nil
 		}
+		s.noteUndoReads(ctx, tx, row)
 		remaining, capped := pendingBatch(row)
+		if undoPlan(row.Plan) {
+			remaining = "" // an undo never continues the request it undid
+		}
 		if remaining != "" && !capped {
 			// A request too large for one proposal continues on its own; each
 			// batch is still checked and, where required, reviewed.
@@ -1065,6 +1096,11 @@ func serializationFailure(err error) bool {
 	// Tool handlers sometimes flatten the driver error into text.
 	text := err.Error()
 	return strings.Contains(text, "SQLSTATE 40001") || strings.Contains(text, "SQLSTATE 40P01") || strings.Contains(text, "SQLSTATE 25P02")
+}
+
+// undoPlan reports whether a plan is an undo (undo.go).
+func undoPlan(plan []Step) bool {
+	return len(plan) > 0 && plan[0].Undo
 }
 
 // maxBatches bounds automatic continuation for one request.

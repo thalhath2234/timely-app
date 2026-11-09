@@ -47,6 +47,10 @@ const (
 	txtNoteContradiction    = "noteContradiction"
 	txtPaused               = "paused"
 	txtReceiptDuplicate     = "receiptDuplicate"
+	txtAgentLost            = "agentLost"
+	txtAgentUnavailable     = "agentUnavailable"
+	txtUndone               = "undone"
+	txtSteered              = "steered"
 )
 
 var texts = map[string]map[string]string{
@@ -89,6 +93,10 @@ var texts = map[string]map[string]string{
 		txtNoteContradiction:    "This edit may contradict what the doc already says:",
 		txtPaused:               "Paused after %d parts. Say “continue” to do the rest.",
 		txtReceiptDuplicate:     "This receipt may already be saved. Choose what to do below.",
+		txtAgentLost:            "This run stopped when the agent restarted. Try again.",
+		txtAgentUnavailable:     "The new engine could not start: %s",
+		txtUndone:               "Undoing that change.",
+		txtSteered:              "Sent to the running reply.",
 	},
 	"ja": {
 		txtDone:                 "完了しました。変更は保存されています。",
@@ -129,6 +137,10 @@ var texts = map[string]map[string]string{
 		txtNoteContradiction:    "この編集はドキュメントの既存の内容と矛盾している可能性があります:",
 		txtPaused:               "%d回分で一時停止しました。残りは「続けて」と送ってください。",
 		txtReceiptDuplicate:     "このレシートは保存済みの可能性があります。下で対応を選んでください。",
+		txtAgentLost:            "エージェントの再起動でこの実行は止まりました。もう一度お試しください。",
+		txtAgentUnavailable:     "新しいエンジンを開始できませんでした: %s",
+		txtUndone:               "その変更を元に戻しています。",
+		txtSteered:              "実行中の返信に送りました。",
 	},
 	"zh": {
 		txtDone:                 "完成——您的更改已保存。",
@@ -169,6 +181,10 @@ var texts = map[string]map[string]string{
 		txtNoteContradiction:    "此修改可能与文档中已有的内容相矛盾:",
 		txtPaused:               "已在 %d 部分后暂停。发送“继续”来完成剩余部分。",
 		txtReceiptDuplicate:     "这张收据可能已经保存过。请在下方选择处理方式。",
+		txtAgentLost:            "代理重新启动，此次运行已停止。请重试。",
+		txtAgentUnavailable:     "新引擎无法启动：%s",
+		txtUndone:               "正在撤销该更改。",
+		txtSteered:              "已发送给正在进行的回复。",
 	},
 	"ko": {
 		txtDone:                 "완료되었습니다. 변경 사항이 저장되었습니다.",
@@ -209,6 +225,10 @@ var texts = map[string]map[string]string{
 		txtNoteContradiction:    "이 수정은 문서에 이미 있는 내용과 모순될 수 있습니다:",
 		txtPaused:               "%d개 부분 후 일시 중지했습니다. 나머지는 “계속”이라고 보내세요.",
 		txtReceiptDuplicate:     "이 영수증은 이미 저장되었을 수 있습니다. 아래에서 처리 방법을 선택하세요.",
+		txtAgentLost:            "에이전트가 다시 시작되어 이 실행이 중지되었습니다. 다시 시도하세요.",
+		txtAgentUnavailable:     "새 엔진을 시작할 수 없습니다: %s",
+		txtUndone:               "해당 변경을 되돌리는 중입니다.",
+		txtSteered:              "진행 중인 답변에 보냈습니다.",
 	},
 	"es": {
 		txtDone:                 "Listo: tus cambios están guardados.",
@@ -249,6 +269,10 @@ var texts = map[string]map[string]string{
 		txtNoteContradiction:    "Esta edición puede contradecir lo que ya dice el documento:",
 		txtPaused:               "En pausa tras %d partes. Escribe “continúa” para hacer el resto.",
 		txtReceiptDuplicate:     "Puede que este recibo ya esté guardado. Elige abajo qué hacer.",
+		txtAgentLost:            "Esta ejecución se detuvo al reiniciarse el agente. Inténtalo de nuevo.",
+		txtAgentUnavailable:     "No se pudo iniciar el nuevo motor: %s",
+		txtUndone:               "Deshaciendo ese cambio.",
+		txtSteered:              "Enviado a la respuesta en curso.",
 	},
 	"fr": {
 		txtDone:                 "Terminé — vos modifications sont enregistrées.",
@@ -289,6 +313,10 @@ var texts = map[string]map[string]string{
 		txtNoteContradiction:    "Cette modification contredit peut-être ce que le document dit déjà :",
 		txtPaused:               "En pause après %d parties. Écrivez « continue » pour faire le reste.",
 		txtReceiptDuplicate:     "Ce reçu est peut-être déjà enregistré. Choisissez quoi faire ci-dessous.",
+		txtAgentLost:            "Cette exécution s’est arrêtée au redémarrage de l’agent. Réessayez.",
+		txtAgentUnavailable:     "Le nouveau moteur n’a pas pu démarrer : %s",
+		txtUndone:               "Annulation de cette modification.",
+		txtSteered:              "Envoyé à la réponse en cours.",
 	},
 	"de": {
 		txtDone:                 "Fertig – deine Änderungen sind gespeichert.",
@@ -329,6 +357,10 @@ var texts = map[string]map[string]string{
 		txtNoteContradiction:    "Diese Änderung widerspricht vielleicht dem, was schon im Dokument steht:",
 		txtPaused:               "Nach %d Teilen pausiert. Schreibe „weiter“, um den Rest zu erledigen.",
 		txtReceiptDuplicate:     "Dieser Beleg ist vielleicht schon gespeichert. Wähle unten, was passieren soll.",
+		txtAgentLost:            "Dieser Lauf wurde beim Neustart des Agenten beendet. Versuche es erneut.",
+		txtAgentUnavailable:     "Die neue Engine konnte nicht starten: %s",
+		txtUndone:               "Diese Änderung wird rückgängig gemacht.",
+		txtSteered:              "An die laufende Antwort gesendet.",
 	},
 	"pt": {
 		txtDone:                 "Pronto — suas alterações foram salvas.",
@@ -369,6 +401,10 @@ var texts = map[string]map[string]string{
 		txtNoteContradiction:    "Esta edição pode contradizer o que o documento já diz:",
 		txtPaused:               "Pausado após %d partes. Escreva “continue” para fazer o resto.",
 		txtReceiptDuplicate:     "Este recibo pode já estar salvo. Escolha abaixo o que fazer.",
+		txtAgentLost:            "Esta execução parou quando o agente reiniciou. Tente novamente.",
+		txtAgentUnavailable:     "O novo motor não pôde iniciar: %s",
+		txtUndone:               "Desfazendo essa alteração.",
+		txtSteered:              "Enviado para a resposta em andamento.",
 	},
 	"it": {
 		txtDone:                 "Fatto: le modifiche sono salvate.",
@@ -409,6 +445,10 @@ var texts = map[string]map[string]string{
 		txtNoteContradiction:    "Questa modifica potrebbe contraddire ciò che il documento dice già:",
 		txtPaused:               "In pausa dopo %d parti. Scrivi «continua» per fare il resto.",
 		txtReceiptDuplicate:     "Questo scontrino potrebbe essere già salvato. Scegli qui sotto cosa fare.",
+		txtAgentLost:            "Questa esecuzione si è interrotta al riavvio dell’agente. Riprova.",
+		txtAgentUnavailable:     "Il nuovo motore non è riuscito ad avviarsi: %s",
+		txtUndone:               "Annullamento di questa modifica.",
+		txtSteered:              "Inviato alla risposta in corso.",
 	},
 	"ru": {
 		txtDone:                 "Готово — изменения сохранены.",
@@ -449,6 +489,10 @@ var texts = map[string]map[string]string{
 		txtNoteContradiction:    "Эта правка, возможно, противоречит тому, что уже сказано в документе:",
 		txtPaused:               "Пауза после %d частей. Напишите «продолжай», чтобы сделать остальное.",
 		txtReceiptDuplicate:     "Возможно, этот чек уже сохранён. Выберите ниже, что сделать.",
+		txtAgentLost:            "Этот запуск остановился при перезапуске агента. Попробуйте ещё раз.",
+		txtAgentUnavailable:     "Не удалось запустить новый движок: %s",
+		txtUndone:               "Отменяю это изменение.",
+		txtSteered:              "Отправлено в текущий ответ.",
 	},
 	"ar": {
 		txtDone:                 "تم — حُفظت تغييراتك.",
@@ -489,6 +533,10 @@ var texts = map[string]map[string]string{
 		txtNoteContradiction:    "قد يتعارض هذا التعديل مع ما يقوله المستند بالفعل:",
 		txtPaused:               "توقّف مؤقتًا بعد %d أجزاء. اكتب «تابع» لإكمال الباقي.",
 		txtReceiptDuplicate:     "ربما يكون هذا الإيصال محفوظًا بالفعل. اختر أدناه ما تريد فعله.",
+		txtAgentLost:            "توقف هذا التشغيل عند إعادة تشغيل الوكيل. حاول مرة أخرى.",
+		txtAgentUnavailable:     "تعذر تشغيل المحرك الجديد: %s",
+		txtUndone:               "جارٍ التراجع عن هذا التغيير.",
+		txtSteered:              "أُرسلت إلى الرد الجاري.",
 	},
 	"hi": {
 		txtDone:                 "हो गया — आपके बदलाव सहेज दिए गए हैं।",
@@ -529,6 +577,10 @@ var texts = map[string]map[string]string{
 		txtNoteContradiction:    "यह बदलाव शायद दस्तावेज़ में पहले से लिखी बात के विपरीत है:",
 		txtPaused:               "%d हिस्सों के बाद रोका गया। बाकी के लिए “जारी रखें” लिखें।",
 		txtReceiptDuplicate:     "यह रसीद शायद पहले से सहेजी गई है। नीचे चुनें कि क्या करना है।",
+		txtAgentLost:            "एजेंट के फिर से शुरू होने पर यह रन रुक गया। फिर से कोशिश करें।",
+		txtAgentUnavailable:     "नया इंजन शुरू नहीं हो सका: %s",
+		txtUndone:               "वह बदलाव वापस लिया जा रहा है।",
+		txtSteered:              "चल रहे जवाब को भेजा गया।",
 	},
 }
 

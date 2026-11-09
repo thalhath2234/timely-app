@@ -239,6 +239,17 @@ type botRun struct {
 	asks    int  // ask_bot calls
 	outside bool // a read of third-party text succeeded
 	answers botAnswers
+	// read are the tools whose third-party text reached the model, each once.
+	read []string
+}
+
+// taint is the run's outside reads as the chat records them.
+func (r *botRun) taint() []TaintSource {
+	out := []TaintSource{}
+	for _, name := range r.read {
+		out = append(out, TaintSource{Kind: "timely", Tool: name})
+	}
+	return out
 }
 
 func replayBotRun(transcript []WireMessage) botRun {
@@ -274,6 +285,9 @@ func (r *botRun) note(name string, content []byte) bool {
 	outside := agent.OutsideTool(name)
 	if outside {
 		r.outside = true
+		if !slices.Contains(r.read, name) {
+			r.read = append(r.read, name)
+		}
 	}
 	if name == "ask_bot" {
 		r.answers.add(content)

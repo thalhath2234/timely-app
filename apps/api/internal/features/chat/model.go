@@ -12,8 +12,9 @@ type ContextChip struct {
 }
 
 // Message kinds: "" is a normal turn, "notice" is a run event (stopped, done,
-// data changed), "archive" carries a superseded or discarded plan and
-// "similar" points at an earlier chat (Chat) about the same request.
+// data changed), "archive" carries a superseded or discarded plan,
+// "similar" points at an earlier chat (Chat) about the same request and
+// "steer" is what the person typed into a live agent run (POST /steer).
 type Message struct {
 	Kind      string        `json:"kind,omitempty"`
 	RequestID string        `json:"requestId,omitempty"`
@@ -43,6 +44,16 @@ type Message struct {
 	// BotAnswers are the ask_bot answers (bots.Answer) a reply was written
 	// from, tagged Bots first, which the apps draw as cards under it.
 	BotAnswers []json.RawMessage `json:"botAnswers,omitempty"`
+	// AutoApplied marks a proposal Auto or Full Access applied without
+	// asking (permission_mode.go); Undo reverses it until UndoneAt is set,
+	// and UndoMessageID is the notice that undo added (undo.go).
+	AutoApplied   bool       `json:"autoApplied,omitempty"`
+	UndoneAt      *time.Time `json:"undoneAt,omitempty"`
+	UndoMessageID string     `json:"undoMessageId,omitempty"`
+	// UndoReads are the reads of what an auto-applied proposal's undo would
+	// change, taken when it finished applying; Undo is refused once one of
+	// them reads differently (the object changed since).
+	UndoReads []Snapshot `json:"undoReads,omitempty"`
 }
 type Step struct {
 	Tool      string          `json:"tool"`
@@ -52,6 +63,9 @@ type Step struct {
 	Status    string          `json:"status"`
 	Error     string          `json:"error,omitempty"`
 	Before    json.RawMessage `json:"before,omitempty"`
+	// Undo marks a step of an undo plan, which may call the delete tools
+	// an inverse needs (agent.UndoTool) besides the chat's Write tools.
+	Undo bool `json:"undo,omitempty"`
 	// Preview is what a proposed Bot reads right now (bots.PreviewResult, or
 	// {"error": ...}), read once by the runner for the review card. It is
 	// for the person only: never part of a snapshot, never sent back to the
@@ -99,8 +113,88 @@ type Conversation struct {
 	ErrorAction string     `json:"errorAction,omitempty"`
 	Lease       string     `json:"-"`
 	LeaseUntil  *time.Time `json:"-"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
+	// Engine is the chat's own engine choice ("" follows the account's
+	// Settings → Agent → Engine, else "classic" or "agent"), RunEngine the
+	// engine of the current or latest run, fixed when a lane claims it.
+	Engine    string `gorm:"not null;default:''" json:"engine"`
+	RunEngine string `gorm:"not null;default:''" json:"runEngine"`
+	// Permission is how much the agent may change without asking:
+	// "supervised", "auto" or "full" (permission_mode.go).
+	Permission string `gorm:"not null;default:'supervised'" json:"permission"`
+	// AgentRunID and AgentInstance name the live agent run and the worker
+	// running it ("<pid>:<start unix ms>"); empty when none is live.
+	AgentRunID    string `gorm:"not null;default:''" json:"-"`
+	AgentInstance string `gorm:"not null;default:''" json:"-"`
+	// Activity is what the live agent run is doing, for the apps.
+	Activity ChatActivity `gorm:"serializer:json;type:jsonb" json:"activity"`
+	// RunReads is the agent run's tool state (toolRun.save).
+	RunReads RunReads `gorm:"serializer:json;type:jsonb" json:"-"`
+	// TaintedSources are the outside sources this chat's runs read, only
+	// ever added to; any at all holds every proposal for review.
+	TaintedSources TaintSources `gorm:"serializer:json;type:jsonb" json:"-"`
+	CreatedAt      time.Time    `json:"createdAt"`
+	UpdatedAt      time.Time    `json:"updatedAt"`
+}
+
+// The engines a chat run can use.
+const (
+	engineClassic = "classic"
+	engineAgent   = "agent"
+)
+
+// ActivityLine is one line of a live agent run's activity: a tool it runs
+// or a status it reports.
+type ActivityLine struct {
+	ID    string    `json:"id"`
+	Kind  string    `json:"kind"` // "tool" or "status"
+	Label string    `json:"label"`
+	State string    `json:"state"` // "running", "done" or "failed"
+	At    time.Time `json:"at"`
+}
+
+// ChatActivity is a live agent run's activity lines and the reply text
+// streamed so far (draft), for apps that join after the stream started.
+type ChatActivity struct {
+	Run   string         `json:"run,omitempty"`
+	Lines []ActivityLine `json:"lines,omitempty"`
+	Draft string         `json:"draft,omitempty"`
+}
+
+// TaintSource is one outside source a chat's run read: a Timely read whose
+// result carries third-party text (kind "timely", with its tool), or a
+// source the agent's worker reported (web, browser, MCP, files...).
+type TaintSource struct {
+	Kind    string `json:"kind"`
+	Tool    string `json:"tool,omitempty"`
+	Host    string `json:"host,omitempty"`
+	Session string `json:"session,omitempty"`
+}
+
+// TaintSources is stored as a JSON array, never null.
+type TaintSources []TaintSource
+
+func (t TaintSources) MarshalJSON() ([]byte, error) {
+	if t == nil {
+		return []byte("[]"), nil
+	}
+	return json.Marshal([]TaintSource(t))
+}
+
+// mergeTaint adds sources the chat has not recorded yet, keeping the order
+// they were first read in. Nothing is ever removed.
+func mergeTaint(row *Conversation, sources []TaintSource) {
+	for _, src := range sources {
+		known := false
+		for _, have := range row.TaintedSources {
+			if have == src {
+				known = true
+				break
+			}
+		}
+		if !known {
+			row.TaintedSources = append(row.TaintedSources, src)
+		}
+	}
 }
 
 func (Conversation) TableName() string { return "agent_conversations" }

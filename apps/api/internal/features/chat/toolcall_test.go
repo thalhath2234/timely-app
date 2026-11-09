@@ -206,3 +206,44 @@ func TestInstructionForDropsOnlyTheScopeLine(t *testing.T) {
 		t.Fatal("instructionFor(true) must differ only by the scope line")
 	}
 }
+
+// An agent run's tool state survives in run_reads for the same run only.
+func TestToolRunSavesAndLoadsRunReads(t *testing.T) {
+	run := &toolRun{reads: map[string]string{`get_doc{"docId":"doc_1"}`: "h1"}}
+	run.bots.note("ask_bot", []byte(`{"outsideData":"m","bot":{"id":"bot_a"}}`))
+	var row Conversation
+	run.save(&row, "run-1")
+	again := &toolRun{reads: map[string]string{}}
+	again.load(&row, "run-1")
+	if again.reads[`get_doc{"docId":"doc_1"}`] != "h1" || again.bots.asks != 1 || !again.bots.outside || len(again.bots.answers.list(nil)) != 1 || len(again.bots.taint()) != 1 {
+		t.Fatalf("loaded %+v", again)
+	}
+	other := &toolRun{reads: map[string]string{}}
+	other.load(&row, "run-2")
+	if len(other.reads) != 0 || other.bots.asks != 0 || other.bots.outside {
+		t.Fatalf("another run took this one's reads: %+v", other)
+	}
+}
+
+// The agent engine's turn input starts after the model's last reply:
+// Timely's notices as data, the person's words as written; steering
+// messages already reached their run.
+func TestSinceLastTurn(t *testing.T) {
+	steer := message("user", "Friday instead")
+	steer.Kind = "steer"
+	archive := message("assistant", "Previous changes")
+	archive.Kind = "archive"
+	archive.Steps = []Step{{Tool: "create_task", Summary: "Buy milk", Arguments: raw(map[string]string{"name": "Buy milk"}), Status: "done"}}
+	got := sinceLastTurn([]Message{
+		message("user", "Add Buy milk"),
+		message("assistant", "Added."),
+		steer,
+		notice("Done — your changes are saved."),
+		archive,
+		message("user", "And bread"),
+	})
+	if len(got) != 4 || got[0] != "System notice (not written by the user): Done — your changes are saved." ||
+		!strings.HasPrefix(got[2], "Historical change records") || got[3] != "And bread" {
+		t.Fatalf("turn input %q", got)
+	}
+}

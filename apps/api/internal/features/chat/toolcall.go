@@ -48,6 +48,19 @@ type toolRun struct {
 	searches, searchFailures int
 }
 
+// RunReads is a run's toolRun as stored in run_reads, for an agent run
+// whose tool calls arrive one at a time and may outlive this process.
+type RunReads struct {
+	// Run is the agent run these belong to; another run starts afresh.
+	Run     string            `json:"run,omitempty"`
+	Reads   map[string]string `json:"reads,omitempty"`
+	Asks    int               `json:"asks,omitempty"`
+	Outside bool              `json:"outside,omitempty"`
+	Read    []string          `json:"read,omitempty"`
+	// Answers are the run's ask_bot answers, in the order first asked.
+	Answers []json.RawMessage `json:"answers,omitempty"`
+}
+
 // newToolRun starts a run's tool state for c: its zone, catalog and tags.
 // The returned context carries the zone and client the tools read.
 func (s *Service) newToolRun(ctx context.Context, c *Conversation) (context.Context, *toolRun) {
@@ -62,6 +75,30 @@ func (s *Service) newToolRun(ctx context.Context, c *Conversation) (context.Cont
 	}
 	run.targets = !run.answerOnly && s.jevOn(ctx, c.UserID)
 	return ctx, run
+}
+
+// load takes up the run's saved state when it belongs to runID.
+func (r *toolRun) load(c *Conversation, runID string) {
+	saved := c.RunReads
+	if saved.Run != runID {
+		return
+	}
+	for key, value := range saved.Reads {
+		r.reads[key] = value
+	}
+	r.bots.asks, r.bots.outside, r.bots.read = saved.Asks, saved.Outside, saved.Read
+	for _, answer := range saved.Answers {
+		r.bots.answers.add(answer)
+	}
+}
+
+// save writes the run's state into row for runID.
+func (r *toolRun) save(row *Conversation, runID string) {
+	answers := []json.RawMessage{}
+	for _, id := range r.bots.answers.order {
+		answers = append(answers, r.bots.answers.byID[id])
+	}
+	row.RunReads = RunReads{Run: runID, Reads: r.reads, Asks: r.bots.asks, Outside: r.bots.outside, Read: r.bots.read, Answers: answers}
 }
 
 // toolCall answers one Read tool call of a run: what the model gets back,
@@ -178,12 +215,16 @@ func (s *Service) prepareAgentProposal(ctx context.Context, c *Conversation, run
 }
 
 // finishTurn is the one checkpoint that ends a turn, on either engine: the
-// reply, or the proposal with its reply, held for review or queued to apply.
-// reply is the model's closing text; with a proposal it follows the
-// proposal's own reply when the two differ.
+// reply, or the proposal with its reply, held for review or queued to apply
+// as the chat's permission mode decides (proposalStatus). reply is the
+// model's closing text; with a proposal it follows the proposal's own reply
+// when the two differ. Outside reads of the run join the chat's
+// tainted_sources, and the run's live state (agent run, activity, reads) is
+// cleared.
 func (s *Service) finishTurn(ctx context.Context, c *Conversation, reply string, pending *pendingProposal, run *toolRun) error {
 	if pending == nil {
 		return s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error {
+			endRun(row, run)
 			m := message("assistant", reply)
 			m.BotAnswers = run.bots.answers.list(run.tags)
 			row.Messages = append(row.Messages, m)
@@ -194,6 +235,7 @@ func (s *Service) finishTurn(ctx context.Context, c *Conversation, reply string,
 	}
 	p := pending.proposal
 	return s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error {
+		endRun(row, run)
 		if run.bots.outside {
 			// Text from a page reached the model in this run.
 			row.ForceReview = true
@@ -202,10 +244,13 @@ func (s *Service) finishTurn(ctx context.Context, c *Conversation, reply string,
 		row.Snapshots = pending.snapshots
 		row.Phase = "apply"
 		row.Transcript = []WireMessage{}
+		// A review note only ever adds a review.
+		row.Status = proposalStatus(row, row.Plan, p.Direct, pending.notes)
 		summary := message("assistant", p.Summary)
 		summary.Proposal = true
 		summary.Remaining = strings.TrimSpace(p.Remaining)
 		summary.Notes = pending.notes
+		summary.AutoApplied = row.Status == "queued"
 		row.Messages = append(row.Messages, summary)
 		answer := strings.TrimSpace(p.Reply)
 		if answer != "" {
@@ -217,14 +262,20 @@ func (s *Service) finishTurn(ctx context.Context, c *Conversation, reply string,
 		if language := supportedLanguage(p.Language); language != "" {
 			row.Language = language
 		}
-		// A review note only ever adds a review.
-		if row.Sensitive || row.ForceReview || len(pending.notes) > 0 || needsApproval(row.Plan, p.Direct) || recurringEdit(row.Plan) {
-			row.Status = "approval"
+		if row.Status == "approval" {
 			return notify(tx, row, tr(row.Language, txtPushReview))
 		}
-		row.Status = "queued"
 		return nil
 	})
+}
+
+// endRun records the run's outside reads on the chat and clears what only
+// a live run needs.
+func endRun(row *Conversation, run *toolRun) {
+	mergeTaint(row, run.bots.taint())
+	row.AgentRunID, row.AgentInstance = "", ""
+	row.Activity = ChatActivity{}
+	row.RunReads = RunReads{}
 }
 
 // renewLease extends a running row's lease for its holder, the same update

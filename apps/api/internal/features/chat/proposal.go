@@ -224,6 +224,7 @@ func (s *Service) prepareProposal(ctx context.Context, catalog agent.Catalog, ui
 		step.Result = nil
 		step.Before = nil
 		step.Preview = nil // only the runner reads one (previewSteps)
+		step.Undo = false  // only an undo plan's own steps (undo.go)
 		step.Error = ""
 	}
 	origins := identityOrigins(len(p.Steps))

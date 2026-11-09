@@ -259,7 +259,7 @@ func TestIntegrationSimilarChatWaitsForAChoice(t *testing.T) {
 
 func TestIntegrationReviewNotesForceReview(t *testing.T) {
 	db := integrationDB(t)
-	// Without notes the same proposal applies directly.
+	// Without notes the same proposal applies directly in Auto.
 	plain := &scripted{responses: []WireMessage{call("propose_changes", map[string]any{
 		"summary": "Create Buy a microphone", "direct": true, "language": "en", "reply": "", "remaining": "",
 		"steps": []any{map[string]any{"tool": "create_task", "summary": "Create Buy a microphone", "arguments": map[string]any{"name": "Buy a microphone"}}},
@@ -269,7 +269,7 @@ func TestIntegrationReviewNotesForceReview(t *testing.T) {
 		return agent.Catalog{"create_task": {Call: func(context.Context, string, json.RawMessage) (any, error) { return nil, nil }}}
 	}, plain)
 	base.SetDecisions(quiet)
-	first := planFixture(t, db)
+	first := autoFixture(t, db)
 	if err := base.plan(context.Background(), &first); err != nil || first.Status != "queued" {
 		t.Fatalf("a requested direct change should apply: %s %v", first.Status, err)
 	}
@@ -287,7 +287,7 @@ func TestIntegrationReviewNotesForceReview(t *testing.T) {
 		}}}
 	}, model)
 	s.SetDecisions(jev)
-	c := planFixture(t, db)
+	c := autoFixture(t, db)
 	if err := s.plan(context.Background(), &c); err != nil {
 		t.Fatal(err)
 	}

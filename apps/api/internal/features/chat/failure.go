@@ -16,6 +16,10 @@ const (
 	// ActionNone offers neither: the same request would fail the same way, so
 	// the person changes the request or the photos instead.
 	ActionNone = "none"
+	// ActionUseClassic offers "Use classic for this chat": the agent engine
+	// could not run it, and the apps switch the chat to classic (PATCH
+	// {engine: "classic"}) and try again. Timely never switches on its own.
+	ActionUseClassic = "use_classic"
 )
 
 // Failure is a run error worded for the person, with what they can do next.
@@ -28,6 +32,9 @@ func (f *Failure) Error() string { return f.Text }
 
 // NeedsSettings is an error fixed in Settings → Agent, not by trying again.
 func NeedsSettings(text string) error { return &Failure{Text: text, Action: ActionSettings} }
+
+// UseClassic is an error the agent engine gives when it cannot run a chat.
+func UseClassic(text string) error { return &Failure{Text: text, Action: ActionUseClassic} }
 
 // Final is an error trying the same request again would repeat.
 func Final(text string) error { return &Failure{Text: text, Action: ActionNone} }
