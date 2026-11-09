@@ -16,7 +16,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
-from timely_agent import bridge
+from timely_agent import bridge, config_render
 
 logger = logging.getLogger("timely_agent.run_chat")
 
@@ -170,6 +170,9 @@ def build_agent(msg: dict[str, Any], emit: EmitRef):
         model=model.get("model") or "",
         max_iterations=int(budgets.get("max_iterations") or DEFAULT_MAX_ITERATIONS),
         enabled_toolsets=toolsets,  # explicit, never None (section 8.1)
+        # The managed floor agent.disabled_toolsets: AIAgent does not read that key itself (Hermes'
+        # CLI and gateway pass it in), so pass it here; subtracted last, after any composite.
+        disabled_toolsets=list(config_render.NEVER_TOOLSETS),
         quiet_mode=True,
         platform="timely",
         session_id=msg.get("conversation_id"),

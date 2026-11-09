@@ -484,6 +484,34 @@ def test_c11_no_messaging_tool_resolves_and_no_platform_adapter_starts(agent, wo
         assert f"Tool '{tool}' does not exist" in reply or "not available in Timely" in reply, done
 
 
+def test_c11b_never_offered_toolsets_and_platform_bundles_are_refused(agent, worker, stub):
+    """11b. A run.start naming a never-offered toolset (``config_render.NEVER_TOOLSETS``: kanban,
+    desktop_ui, browser, ...) or a platform bundle (``hermes-*``: terminal, execute_code,
+    delegate_task and the rest ride along) is refused with ``bad_message`` before any tool reaches
+    the model; the worker also passes the floor as ``disabled_toolsets``, so a composite toolset
+    cannot bring those tools back."""
+    asked = len(stub.requests)
+    names = list(config_render.NEVER_TOOLSETS) + ["hermes-telegram", "hermes-cli", "hermes-gateway"]
+    for i, name in enumerate(names):
+        worker.send(harness.run_start(agent, stub, run_id=f"c11b-{i}", conversation=f"c-c11b-{i}",
+                                      toolsets=["todo", name]))
+        err = worker.recv()
+        assert err["type"] == "error" and err["code"] == "bad_message" and err["id"] == f"s-c11b-{i}", (name, err)
+        assert name in err["message"], err
+    assert len(stub.requests) == asked  # no turn ran
+    # The `coding` posture re-lists browser_* (toolset browser) and manage_connections
+    # (connections); disabled_toolsets strips them before the model sees the tool list.
+    worker.send(harness.run_start(agent, stub, run_id="c11b-coding", conversation="c-c11b-coding",
+                                  toolsets=["coding"]))
+    done, _ = worker.until("run.done")
+    assert done["completed"], done
+    offered = {t["function"]["name"] for r in stub.requests[asked:] if r.get("body")
+               for t in (r["body"].get("tools") or [])}
+    assert "todo_list" in offered, offered
+    stray = sorted(n for n in offered if n.startswith("browser_") or n == "manage_connections")
+    assert not stray, stray
+
+
 # ---------------------------------------------------------------- 12
 
 PROBE_CONFIG = textwrap.dedent("""

@@ -147,7 +147,7 @@ Each run binds Hermes' per-turn terminal policy from `config.yaml` and the manag
 | `code` | When |
 | --- | --- |
 | `bad_json` | the line is not JSON |
-| `bad_message` | not an object, no `type` or `account`, missing required fields, a `run.start` field of the wrong shape (`tainted_sources`, `history`, `toolsets` not lists; `pre_approved`, `budgets`, `flags`, `model` not objects), oversized line, second `hello` |
+| `bad_message` | not an object, no `type` or `account`, missing required fields, a `run.start` field of the wrong shape (`tainted_sources`, `history`, `toolsets` not lists; `pre_approved`, `budgets`, `flags`, `model` not objects), a `run.start` `toolsets` entry that is never offered (`config_render.NEVER_TOOLSETS`) or a Hermes platform bundle (`hermes-*`), oversized line, second `hello` |
 | `unknown_type` | a type this protocol does not define |
 | `wrong_account` | the message names another account, or the home belongs to another account |
 | `protocol_mismatch` | `hello.protocol` is not 1 |

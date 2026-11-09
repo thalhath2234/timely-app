@@ -81,6 +81,12 @@ def run_start_problem(msg: dict[str, Any]) -> Optional[str]:
             return f"{field} must be a {' or '.join(t.__name__ for t in types)}, not {type(value).__name__}"
     if any(not isinstance(t, str) for t in msg.get("toolsets") or []):
         return "toolsets must be a list of strings"
+    from timely_agent.config_render import NEVER_TOOLSETS
+    never = [t for t in msg.get("toolsets") or [] if t in NEVER_TOOLSETS or t.startswith("hermes-")]
+    if never:
+        # never-offered toolsets (decision 6, section 8.1) and Hermes' platform bundles, which
+        # carry terminal, execute_code, delegate_task and the rest along
+        return f"toolsets {never} are never offered in Timely"
     if any(not isinstance(t, (dict, str)) for t in msg.get("tainted_sources") or []):
         return "tainted_sources must be a list of source objects"
     if any(not isinstance(h, dict) for h in msg.get("history") or []):
