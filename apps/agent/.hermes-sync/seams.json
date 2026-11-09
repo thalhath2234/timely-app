@@ -547,6 +547,62 @@
       "signature": "def get_subprocess_home(env: dict[str, str] | None=None) -> str | None",
       "sha256": "ac639732fd2a57db9eb8a50f7714d144dc77bddcb7ceb812584dfa3bd5af1865"
     },
+    "LSP auto-installer (install guard R1)": {
+      "file": "agent/lsp/install.py",
+      "qualname": "try_install",
+      "line": 144,
+      "end_line": 159,
+      "signature": "def try_install(pkg: str, strategy: str='auto') -> Optional[str]",
+      "sha256": "e9988e3f6d6712176d37e25941c62adf4a1e57aa442e95a43c374ffda569fcca"
+    },
+    "LSP installer subprocess (install guard R1)": {
+      "file": "agent/lsp/install.py",
+      "qualname": "_run_installer",
+      "line": 180,
+      "end_line": 195,
+      "signature": "def _run_installer(tool: str, pkg: str, cmd: list, *, timeout: int, env: Optional[dict]=None) -> bool",
+      "sha256": "608e7c0eb894946780c09584bcb369361730b45a2e4f31d5a4b2115b2c4b12a9"
+    },
+    "dotenv loader (dotenv guard R2)": {
+      "file": "hermes_cli/env_loader.py",
+      "qualname": "load_hermes_dotenv",
+      "line": 652,
+      "end_line": 782,
+      "signature": "def load_hermes_dotenv(*, hermes_home: str | os.PathLike | None=None, project_env: str | os.PathLike | None=None, load_external_secrets: bool=True) -> list[Path]",
+      "sha256": "f99cad970629dead451a1e072377eeaf657a021ddd93b13e2564c55112b22af0"
+    },
+    "MCP config load reloads dotenv (R2)": {
+      "file": "tools/mcp_tool_config.py",
+      "qualname": "_load_mcp_config",
+      "line": 709,
+      "end_line": 740,
+      "signature": "def _load_mcp_config() -> dict[str, dict]",
+      "sha256": "883e458a47c2f6ae6520e6a3021866d14499c8a26d6665baa2172ceb1522f68d"
+    },
+    "browser URL policy (local backend skips the private floor)": {
+      "file": "tools/browser_url_policy.py",
+      "qualname": "_url_policy_error",
+      "line": 117,
+      "end_line": 132,
+      "signature": "def _url_policy_error(url: str, *, auto_local: bool=False) -> Optional[dict]",
+      "sha256": "c3372665cf437dfebe777de80b2a2e97f817bf5d4371eb4c1b88f31ecaf36373"
+    },
+    "browser URL literals (timely_gate private-target)": {
+      "file": "tools/browser_url_policy.py",
+      "qualname": "url_literals",
+      "line": 158,
+      "end_line": 175,
+      "signature": "def url_literals(text: str, *, protocol_relative: bool=False) -> list[str]",
+      "sha256": "9c1042eedc7834ada2f2cdd9aff00776f46fe0740e7706fcfdb19b78a393302d"
+    },
+    "V4A patch parser (timely_learning read-only paths)": {
+      "file": "tools/patch_parser.py",
+      "qualname": "parse_v4a_patch",
+      "line": 61,
+      "end_line": 123,
+      "signature": "def parse_v4a_patch(patch_content: str) -> tuple[list[PatchOperation], Optional[str]]",
+      "sha256": "859489d61f72f6d224dac75a2d96e3e8ded1073c8f0afef37d21dd8cbc547d86"
+    },
     "_iters_since_skill reset sites": {
       "file": "",
       "qualname": "",

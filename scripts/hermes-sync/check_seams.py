@@ -102,6 +102,14 @@ TIMELY_SEAMS = [
     ("terminal config bridge to TERMINAL_* env", "hermes_cli/config.py", "apply_terminal_config_to_env"),
     ("per-turn terminal policy scope", "tools/terminal_scope.py", "build_profile_terminal_scope"),
     ("children's HOME (TERMINAL_HOME_MODE)", "hermes_constants.py", "get_subprocess_home"),
+    # Phase-1 review fixes: LSP installs (R1), dotenv reload (R2), browser private targets, V4A paths
+    ("LSP auto-installer (install guard R1)", "agent/lsp/install.py", "try_install"),
+    ("LSP installer subprocess (install guard R1)", "agent/lsp/install.py", "_run_installer"),
+    ("dotenv loader (dotenv guard R2)", "hermes_cli/env_loader.py", "load_hermes_dotenv"),
+    ("MCP config load reloads dotenv (R2)", "tools/mcp_tool_config.py", "_load_mcp_config"),
+    ("browser URL policy (local backend skips the private floor)", "tools/browser_url_policy.py", "_url_policy_error"),
+    ("browser URL literals (timely_gate private-target)", "tools/browser_url_policy.py", "url_literals"),
+    ("V4A patch parser (timely_learning read-only paths)", "tools/patch_parser.py", "parse_v4a_patch"),
 ]
 
 SEAMS = REPORT_SEAMS + TIMELY_SEAMS
