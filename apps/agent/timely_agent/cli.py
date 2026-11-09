@@ -6,10 +6,14 @@ Both read an optional JSON object on stdin and print one JSON object on stdout (
 - ``prepare --agent-dir <data>/agent`` (API start): folders of section 6.1, ``instance.json``
   (layout version only; Go adds its own fields), the read-only Timely skills copy and the seed
   tree (section 9.1), ``managed/config.yaml`` (section 6.3) read back through Hermes as a
-  canary, and ``runtime/prepared.json`` with the paths ``render-account`` and the worker reuse.
+  canary, and ``runtime/prepared.json``, a copy of the answer for people reading the folder
+  (nothing reads it back: its values are policy, and the file is writable).
   Input: ``{"browser_executable": "..."}`` (optional).
-- ``render-account --agent-dir <data>/agent --account <uid>`` (before each spawn): the account
-  home, ``config.yaml`` and ``SOUL.md``. Input: the account settings JSON. Output includes
+- ``render-account --agent-dir <data>/agent --account <uid> --prepared <json>`` (before each
+  spawn): the account home, ``config.yaml`` and ``SOUL.md``. Input: the account settings JSON;
+  ``--prepared`` is prepare's answer as Go keeps it in memory (``timely_skills_dir``,
+  ``seed_skills_dir``, ``browser_executable``, ``skills_default_off``), never read back from
+  ``runtime/prepared.json``, which sits in the writable agent folder. Output includes
   ``config_sha256`` (send it as ``hello.settings_hash``) and ``env``, the worker environment
   values Go merges into its allowlist.
 """
@@ -44,11 +48,33 @@ def prepared_file(layout: paths.AgentLayout) -> Path:
     return layout.runtime_dir / PREPARED
 
 
-def load_prepared(layout: paths.AgentLayout) -> dict[str, Any]:
-    p = prepared_file(layout)
-    if not p.is_file():
-        raise FileNotFoundError(f"{p} is missing: run `boot.py prepare --agent-dir {layout.root}` first")
-    return json.loads(p.read_text(encoding="utf-8"))
+PREPARED_KEYS = ("timely_skills_dir", "seed_skills_dir", "browser_executable", "skills_default_off")
+
+
+def parse_prepared(raw: str) -> dict[str, Any]:
+    """``render-account --prepared``: prepare's answer as Go holds it. Every key is required, so a
+    caller that forgot one fails here instead of rendering without the default-off skills."""
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("--prepared must be a JSON object")
+    missing = [k for k in PREPARED_KEYS if k not in data]
+    if missing:
+        raise ValueError(f"--prepared lacks {', '.join(missing)}")
+    for k in ("timely_skills_dir", "seed_skills_dir", "browser_executable"):
+        if not isinstance(data[k], str):
+            raise ValueError(f"--prepared {k} must be a string")
+    if not data["timely_skills_dir"]:
+        raise ValueError("--prepared timely_skills_dir is empty")
+    off = data["skills_default_off"]
+    if not isinstance(off, list) or any(not isinstance(n, str) for n in off):
+        raise ValueError("--prepared skills_default_off must be a list of names")
+    return {k: data[k] for k in PREPARED_KEYS}
+
+
+def effective_default_off(default_off: list[str], settings: dict[str, Any]) -> list[str]:
+    """Reviewed bundled skills that are off by default stay off unless the person turned them on."""
+    enabled = {str(s) for s in settings.get("skills_enabled") or []}
+    return sorted({str(n) for n in default_off} - enabled)
 
 
 def _write_instance(layout: paths.AgentLayout) -> None:
@@ -127,13 +153,11 @@ def prepare(layout: paths.AgentLayout, opts: dict[str, Any]) -> dict[str, Any]:
 
 
 def render_account(layout: paths.AgentLayout, account: str, settings: dict[str, Any],
-                   prepared: dict[str, Any] | None = None) -> dict[str, Any]:
-    """``prepared`` replaces ``runtime/prepared.json`` (the worker passes the values Go sent in
-    ``hello`` over the file's)."""
-    state = prepared if prepared is not None else load_prepared(layout)
-    # Reviewed bundled skills that are off by default stay off unless the person turned them on.
-    enabled = {str(s) for s in settings.get("skills_enabled") or []}
-    default_off = [n for n in state.get("skills_default_off") or [] if n not in enabled]
+                   prepared: dict[str, Any]) -> dict[str, Any]:
+    """``prepared`` is prepare's answer from Go: ``--prepared`` on the command line, or the
+    values ``hello`` carries in the worker. Never ``runtime/prepared.json``."""
+    state = prepared
+    default_off = effective_default_off(state["skills_default_off"], settings)
     settings = {**settings, "skills_disabled": sorted({*(settings.get("skills_disabled") or []), *default_off})}
     out = config_render.render_account(
         layout, account, settings, timely_skills_dir=state["timely_skills_dir"],
@@ -150,12 +174,17 @@ def main(command: str, argv: list[str]) -> int:
     parser.add_argument("--agent-dir", required=True, help="<TIMELY_DATA_DIR>/agent")
     if command == "render-account":
         parser.add_argument("--account", required=True, help="the account (user) id")
+        parser.add_argument("--prepared", required=True,
+                            help="prepare's answer as JSON (" + ", ".join(PREPARED_KEYS) + ")")
     args = parser.parse_args(argv)
     layout = paths.AgentLayout.at(args.agent_dir)
     out, sys.stdout = sys.stdout, sys.stderr  # Hermes imports may print; stdout carries one JSON line
     try:
         opts = _read_stdin_json()
-        result = prepare(layout, opts) if command == "prepare" else render_account(layout, args.account, opts)
+        if command == "prepare":
+            result = prepare(layout, opts)
+        else:
+            result = render_account(layout, args.account, opts, parse_prepared(args.prepared))
     except Exception as exc:  # one JSON answer either way; the traceback goes to stderr
         import traceback
         traceback.print_exc(file=sys.stderr)

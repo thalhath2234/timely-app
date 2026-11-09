@@ -135,7 +135,8 @@ def user_plugin_entries(home: Path) -> list[str]:
 
 
 def run(*, expected_home: str, timely_skills_dir: str | None, browser_executable: str = "",
-        managed_sha256: str | None = None, env_before: dict[str, str] | None = None, env_ignore: frozenset[str] | set[str] = frozenset()) -> dict[str, Any]:
+        managed_sha256: str | None = None, env_before: dict[str, str] | None = None, env_ignore: frozenset[str] | set[str] = frozenset(),
+        required_disabled: list[str] | None = None) -> dict[str, Any]:
     checks: list[dict[str, Any]] = []
     from hermes_cli.plugins import get_plugin_manager
     from hermes_constants import get_hermes_home
@@ -225,5 +226,17 @@ def run(*, expected_home: str, timely_skills_dir: str | None, browser_executable
         checks.append(_check("mcp", not stdio, f"command servers not approved for this account: {stdio}" if stdio else ""))
     except Exception as exc:
         checks.append(_check("mcp", False, f"could not read mcp_servers: {exc}"))
+
+    if required_disabled is not None:
+        # Reviewed default-off skills (hello's skills_default_off, less what the person turned on)
+        # must all be in the effective skills.disabled.
+        try:
+            from hermes_cli.config import load_config
+            have = {str(n) for n in ((load_config().get("skills") or {}).get("disabled") or [])}
+            gone = sorted(set(required_disabled) - have)
+            checks.append(_check("skills_default_off", not gone,
+                                 f"default-off skills missing from skills.disabled: {gone}" if gone else ""))
+        except Exception as exc:
+            checks.append(_check("skills_default_off", False, f"could not read skills.disabled: {exc}"))
 
     return {"ok": all(c["ok"] for c in checks), "checks": checks, "tools": tools}

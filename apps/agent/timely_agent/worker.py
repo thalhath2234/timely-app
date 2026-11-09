@@ -128,14 +128,19 @@ class Worker:
         from timely_agent.config_render import sha256_file
         actual = sha256_file(config) if config.is_file() else ""
         layout = paths.layout_for_home(self.home)
-        from timely_agent.cli import load_prepared, render_account
+        from timely_agent.cli import effective_default_off, render_account
         # What prepare reported, from Go (never from runtime/prepared.json, which sits in the same
-        # writable agent folder): the managed file must be exactly the floors these values render.
+        # writable agent folder): the managed file must be exactly the floors these values render,
+        # and every reviewed default-off skill stays in skills.disabled unless the person turned
+        # it on.
         timely_skills, managed_sha = msg.get("timely_skills_dir"), msg.get("managed_sha256")
         browser = msg.get("browser_executable", "")
+        default_off = msg.get("skills_default_off")
         if not (isinstance(timely_skills, str) and timely_skills and isinstance(managed_sha, str) and managed_sha
                 and isinstance(browser, str)):
             raise P.ProtocolError(P.E_BAD_MESSAGE, "hello needs prepare's timely_skills_dir and managed_sha256", mid)
+        if not isinstance(default_off, list) or any(not isinstance(n, str) for n in default_off):
+            raise P.ProtocolError(P.E_BAD_MESSAGE, "hello needs prepare's skills_default_off list", mid)
         if not paths.within(layout.root, timely_skills):
             raise P.ProtocolError(P.E_BAD_MESSAGE, "hello.timely_skills_dir is outside the agent folder", mid)
         settings = msg.get("settings")
@@ -145,10 +150,17 @@ class Worker:
                 # stderr, not a protocol "log": the account is not pinned yet, and Go kills a
                 # worker whose line names no account.
                 logger.warning("config.yaml did not match settings_hash (edited since the last render); re-rendered")
-            prepared = {**load_prepared(layout), "timely_skills_dir": timely_skills, "browser_executable": browser}
+            prepared = {"timely_skills_dir": timely_skills, "browser_executable": browser,
+                        "seed_skills_dir": os.environ.get("HERMES_BUNDLED_SKILLS", ""),
+                        "skills_default_off": default_off}
             actual = render_account(layout, account, settings, prepared)["config_sha256"]
+            required_off: Optional[list[str]] = effective_default_off(default_off, settings)
         elif not msg.get("settings_hash") or actual != msg.get("settings_hash"):
             raise P.ProtocolError(P.E_CONFIG, "config.yaml does not match settings_hash: re-render it and respawn", mid)
+        else:
+            # Go rendered config.yaml with render-account from the same list; which skills the
+            # person turned on is not known here, so the self-test skips that check.
+            required_off = None
         self.chan.account = account
 
         started = time.monotonic()
@@ -188,7 +200,7 @@ class Worker:
         from timely_agent import selftest
         result = selftest.run(expected_home=str(self.home), timely_skills_dir=timely_skills,
                               browser_executable=browser, managed_sha256=managed_sha,
-                              env_before=env_before, env_ignore=ours)
+                              env_before=env_before, env_ignore=ours, required_disabled=required_off)
         from hermes_cli.plugins import get_plugin_manager
         loaded = sorted(p.get("key") or p.get("name") for p in get_plugin_manager().list_plugins() if p.get("enabled"))
         self.ready = result["ok"]

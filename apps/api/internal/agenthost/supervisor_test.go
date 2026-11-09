@@ -177,15 +177,16 @@ func waitGone(t *testing.T, pid int) {
 
 type readyEcho struct {
 	Hello struct {
-		Type           string `json:"type"`
-		Account        string `json:"account"`
-		Protocol       int    `json:"protocol"`
-		Home           string `json:"home"`
-		SettingsHash   string `json:"settings_hash"`
-		Settings       any    `json:"settings"`
-		CatalogVersion string `json:"catalog_version"`
-		TimelySkills   string `json:"timely_skills_dir"`
-		ManagedSHA256  string `json:"managed_sha256"`
+		Type           string   `json:"type"`
+		Account        string   `json:"account"`
+		Protocol       int      `json:"protocol"`
+		Home           string   `json:"home"`
+		SettingsHash   string   `json:"settings_hash"`
+		Settings       any      `json:"settings"`
+		CatalogVersion string   `json:"catalog_version"`
+		TimelySkills   string   `json:"timely_skills_dir"`
+		ManagedSHA256  string   `json:"managed_sha256"`
+		DefaultOff     []string `json:"skills_default_off"`
 	} `json:"hello"`
 	Env   []string `json:"env"`
 	Cwd   string   `json:"cwd"`
@@ -965,6 +966,11 @@ func TestRenderAccountHashGoesInHello(t *testing.T) {
 		echo.Hello.TimelySkills != res.TimelySkillsDir {
 		t.Fatalf("hello lacks prepare's answer: managed %q skills %q, prepare %+v",
 			echo.Hello.ManagedSHA256, echo.Hello.TimelySkills, res)
+	}
+	// The default-off skills come from prepare's answer in memory, never from
+	// runtime/prepared.json (the fake render-account fails without them).
+	if strings.Join(echo.Hello.DefaultOff, ",") != "imessage" {
+		t.Fatalf("hello skills_default_off %q, want prepare's [imessage]", echo.Hello.DefaultOff)
 	}
 	env := strings.Join(echo.Env, "\n")
 	if !strings.Contains(env, "HERMES_BUNDLED_SKILLS="+res.SeedSkillsDir) {

@@ -50,7 +50,11 @@ func fakeHelper(mode, command string, args []string) int {
 		fmt.Fprintln(os.Stderr, "Traceback: bad settings")
 		fmt.Println(`{"ok": false, "error": "ValueError: bad settings"}`)
 		return 1
+	case command == "render-account" && !strings.Contains(flagValue(args, "--prepared"), `"skills_default_off":["imessage"]`):
+		fmt.Printf("{\"ok\": false, \"error\": %q}\n", "render-account --prepared lacks prepare's skills_default_off: "+flagValue(args, "--prepared"))
+		return 1
 	case command == "prepare":
+		answer["skills_default_off"] = []string{"imessage"}
 		answer["seed_skills_dir"] = filepath.Join(agentDir, "seed", "skills")
 		answer["timely_skills_dir"] = filepath.Join(agentDir, "timely-skills", "fake")
 		answer["env_secret_seen"] = os.Getenv("JWT_SECRET") != ""
@@ -69,6 +73,15 @@ func fakeHelper(mode, command string, args []string) int {
 	out, _ := json.Marshal(answer)
 	fmt.Println(string(out))
 	return 0
+}
+
+func flagValue(args []string, name string) string {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == name {
+			return args[i+1]
+		}
+	}
+	return ""
 }
 
 func fakeRuntime(t *testing.T, mode string) Runtime {

@@ -307,3 +307,43 @@ def test_shutdown_grace_lets_a_run_waiting_on_go_finish(stub):
         assert w.proc.wait(30) == 0
     finally:
         w.close()
+
+
+def test_default_off_skills_never_come_from_prepared_json():
+    """``runtime/prepared.json`` sits in the writable agent folder, so its ``skills_default_off``
+    list must not decide which reviewed default-off skills stay off: render-account takes the
+    list from Go (``--prepared``) and the worker from ``hello``. A tampered file changes
+    nothing, and the self-test checks every default-off skill is in ``skills.disabled``."""
+    a = harness.Agent(harness.new_root("doff"))
+    off = a.prepared["skills_default_off"]
+    assert "imessage" in off and "himalaya" in off, off
+    state_file = a.layout.runtime_dir / "prepared.json"
+    state = json.loads(state_file.read_text())
+    state["skills_default_off"] = []
+    state_file.write_text(json.dumps(state))
+
+    def disabled() -> list[str]:
+        cfg = json.loads((a.home / "config.yaml").read_text().split("\n", 1)[1])
+        return cfg["skills"]["disabled"]
+
+    a.render({})
+    assert set(off) <= set(disabled()), disabled()
+    w = harness.Worker(a.env())
+    try:
+        w.send(a.hello(settings={"skills_enabled": ["github"]}))
+        ready, _ = w.until("ready", timeout=120)
+        assert ready["self_test"]["ok"], ready["self_test"]
+        assert "skills_default_off" in {c["name"] for c in ready["self_test"]["checks"]}
+        assert set(off) - {"github"} <= set(disabled()) and "github" not in disabled(), disabled()
+    finally:
+        w.close()
+    # hello without the list is refused like one without the other prepare values
+    w = harness.Worker(a.env())
+    try:
+        msg = a.hello(id="h-no-off")
+        del msg["skills_default_off"]
+        w.send(msg)
+        err = w.recv()
+        assert err["code"] == "bad_message" and err["id"] == "h-no-off", err
+    finally:
+        w.close()

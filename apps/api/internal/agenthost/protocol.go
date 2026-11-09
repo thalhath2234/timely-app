@@ -143,10 +143,12 @@ type helloFields struct {
 	Settings       json.RawMessage `json:"settings,omitempty"`
 	CatalogVersion string          `json:"catalog_version,omitempty"`
 	// Prepare's answer (PrepareResult): the worker's canary renders the
-	// managed floors from these and refuses a managed file that differs.
-	TimelySkillsDir   string `json:"timely_skills_dir,omitempty"`
-	BrowserExecutable string `json:"browser_executable"`
-	ManagedSHA256     string `json:"managed_sha256,omitempty"`
+	// managed floors from these and refuses a managed file that differs, and
+	// its account render keeps SkillsDefaultOff in skills.disabled.
+	TimelySkillsDir   string   `json:"timely_skills_dir,omitempty"`
+	BrowserExecutable string   `json:"browser_executable"`
+	ManagedSHA256     string   `json:"managed_sha256,omitempty"`
+	SkillsDefaultOff  []string `json:"skills_default_off"`
 }
 
 type logFields struct {

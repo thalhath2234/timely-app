@@ -71,7 +71,11 @@ class Agent:
         self.render(settings or {})
 
     def render(self, settings: dict) -> dict:
-        self.rendered = run_cli("render-account", self.dir, settings, "--account", self.account)
+        # what Go passes from prepare's answer (PrepareResult), never runtime/prepared.json
+        prepared = {k: self.prepared[k] for k in ("timely_skills_dir", "seed_skills_dir", "browser_executable",
+                                                  "skills_default_off")}
+        self.rendered = run_cli("render-account", self.dir, settings, "--account", self.account,
+                                "--prepared", json.dumps(prepared))
         assert self.rendered.get("ok"), self.rendered
         return self.rendered
 
@@ -97,7 +101,8 @@ class Agent:
                # what Go passes from prepare's answer (PrepareResult)
                "timely_skills_dir": self.prepared["timely_skills_dir"],
                "managed_sha256": self.prepared["managed_sha256"],
-               "browser_executable": self.prepared.get("browser_executable", "")}
+               "browser_executable": self.prepared.get("browser_executable", ""),
+               "skills_default_off": self.prepared["skills_default_off"]}
         msg.update(over)
         return msg
 

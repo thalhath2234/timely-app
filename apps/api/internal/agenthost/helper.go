@@ -35,15 +35,37 @@ var ErrHelperFailed = errors.New("agent runtime step failed")
 
 // PrepareResult is what prepare reports that the supervisor uses. The
 // supervisor keeps it in memory: the managed file must still hash to
-// ManagedSHA256 before each spawn, and hello carries TimelySkillsDir,
-// BrowserExecutable and ManagedSHA256 so the worker's canary never takes its
-// expected values from the agent folder (runtime/prepared.json is writable
-// by anything running as the same OS user).
+// ManagedSHA256 before each spawn, and hello (and render-account's
+// --prepared) carry the rest, so neither the worker's canary nor the account
+// render ever takes its values from the agent folder (runtime/prepared.json
+// is writable by anything running as the same OS user). SkillsDefaultOff is
+// policy: the reviewed bundled skills each account keeps in skills.disabled
+// unless the person turned them on.
 type PrepareResult struct {
-	SeedSkillsDir     string `json:"seed_skills_dir"`
-	TimelySkillsDir   string `json:"timely_skills_dir"`
-	BrowserExecutable string `json:"browser_executable"`
-	ManagedSHA256     string `json:"managed_sha256"`
+	SeedSkillsDir     string   `json:"seed_skills_dir"`
+	TimelySkillsDir   string   `json:"timely_skills_dir"`
+	BrowserExecutable string   `json:"browser_executable"`
+	ManagedSHA256     string   `json:"managed_sha256"`
+	SkillsDefaultOff  []string `json:"skills_default_off"`
+}
+
+// renderInput is prepare's answer as render-account's --prepared takes it.
+func (r PrepareResult) renderInput() (string, error) {
+	b, err := json.Marshal(map[string]any{
+		"timely_skills_dir":  r.TimelySkillsDir,
+		"seed_skills_dir":    r.SeedSkillsDir,
+		"browser_executable": r.BrowserExecutable,
+		"skills_default_off": r.defaultOff(),
+	})
+	return string(b), err
+}
+
+// defaultOff is never nil, so it encodes as a list (the worker refuses null).
+func (r PrepareResult) defaultOff() []string {
+	if r.SkillsDefaultOff == nil {
+		return []string{}
+	}
+	return r.SkillsDefaultOff
 }
 
 type helperAnswer struct {
@@ -221,10 +243,17 @@ func (s *Supervisor) renderAccount(ctx context.Context, account string, settings
 	if len(bytes.TrimSpace(settings)) > 0 {
 		input = settings
 	}
+	s.prepMu.Lock()
+	prep := s.prep
+	s.prepMu.Unlock()
+	prepared, err := prep.renderInput()
+	if err != nil {
+		return "", err
+	}
 	var out struct {
 		ConfigSHA256 string `json:"config_sha256"`
 	}
-	if err := s.runHelper(ctx, renderTimeout, env, input, &out, "render-account", "--agent-dir", s.layout.Root, "--account", account); err != nil {
+	if err := s.runHelper(ctx, renderTimeout, env, input, &out, "render-account", "--agent-dir", s.layout.Root, "--account", account, "--prepared", prepared); err != nil {
 		return "", err
 	}
 	if out.ConfigSHA256 == "" {

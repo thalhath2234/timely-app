@@ -629,6 +629,7 @@ func (s *Supervisor) handshake(w *Worker, spec AccountSpec, hash string, prep Pr
 		TimelySkillsDir:   prep.TimelySkillsDir,
 		BrowserExecutable: prep.BrowserExecutable,
 		ManagedSHA256:     prep.ManagedSHA256,
+		SkillsDefaultOff:  prep.defaultOff(),
 	})
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
