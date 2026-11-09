@@ -64,6 +64,13 @@ SEAMS = [
 ]
 ITERS_RESET = "_iters_since_skill = 0"
 
+# The report covers every seam the check compares: the list above (kept literal, a unit test pins it
+# to check_seams.REPORT_SEAMS) plus the worker-integration seams check_seams.py adds.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import check_seams  # noqa: E402
+
+ALL_SEAMS = SEAMS + check_seams.TIMELY_SEAMS
+
 
 def parse_args():
     ap = argparse.ArgumentParser()
@@ -406,7 +413,7 @@ def seam_values(files):
         return sig(node), ast.get_source_segment(text, node) or ""
 
     out = {}
-    for label, hint, qual in SEAMS:
+    for label, hint, qual in ALL_SEAMS:
         path = locate(hint, qual)
         if path:
             signature, source = lookup(parse(path), qual)
@@ -480,7 +487,8 @@ def main():
     ot, nt = tools(of), tools(nf)
     added, removed, changed = diff({k: v["call"] for k, v in ot.items()}, {k: v["call"] for k, v in nt.items()})
     p(f"Static AST scan of `registry.register(name=..., schema=...)` calls in tools/ and plugins/ found {len(nt)} tools; "
-      "plugins that register in loops are invisible here, so the runtime dump below is authoritative.\n")
+      "plugins that register in loops are invisible here, so the runtime dump that `make hermes-sync-check` "
+      "compares with the committed tools.json is authoritative.\n")
     p("- added: " + (", ".join(f"`{k}` ({nt[k]['toolset']}, {nt[k]['file']})" for k in added) or "none"))
     p("- removed: " + (", ".join(f"`{k}` ({ot[k]['file']})" for k in removed) or "none"))
     p(f"- registration changed: {names(changed)}")
@@ -564,7 +572,7 @@ def main():
 
     p("\n## 8. Seams Timely relies on (static)\n")
     os_, ns = seam_values(of) if A.old else {}, seam_values(nf)
-    missing = [label for label, _, _ in SEAMS if label not in ns]
+    missing = [label for label, _, _ in ALL_SEAMS if label not in ns]
     p(f"- {len(ns)} seams found; missing: {names(missing)}")
     if A.old:
         for label in sorted(set(os_) & set(ns)):
@@ -584,7 +592,9 @@ def main():
             committed = committed.get("seams", committed)
             stale = sorted(k for k, v in committed.items() if isinstance(v, dict) and k in ns
                            and v.get("sha256", v.get("source_sha256")) not in (None, ns[k]["sha256"]))
-            p(f"- vs committed seams.json: {names(stale)} differ (regenerate with `make hermes-tools-dump`)")
+            gone = sorted(k for k, v in committed.items() if isinstance(v, dict) and k not in ns)
+            p(f"- vs committed seams.json: {names(stale)} differ; recorded but not found here: {names(gone)} "
+              "(`make hermes-sync-check` gives the details; regenerate with `check_sync.py --write`)")
         except (json.JSONDecodeError, AttributeError):
             p("- committed seams.json does not parse")
     else:
