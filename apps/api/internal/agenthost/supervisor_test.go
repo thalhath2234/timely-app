@@ -1066,3 +1066,19 @@ func TestReadyPIDOutsideTheProcessGroupIsRefused(t *testing.T) {
 	}
 	waitGone(t, h.exit(5*time.Second).PID)
 }
+
+// A worker whose containment cannot be confirmed (the pid check fails, or
+// ready names no pid) could survive every stop, so it is refused like one
+// outside its group, never accepted with a log line.
+func TestReadyPIDThatCannotBeCheckedIsRefused(t *testing.T) {
+	for _, mode := range []string{"deadpid", "nopid"} {
+		t.Run(mode, func(t *testing.T) {
+			h := newHarness(t, mode, nil)
+			err := h.ensureErr("acct-1")
+			if !errors.Is(err, ErrProtocol) || !strings.Contains(err.Error(), "cannot confirm") {
+				t.Fatalf("err = %v", err)
+			}
+			waitGone(t, h.exit(5*time.Second).PID)
+		})
+	}
+}

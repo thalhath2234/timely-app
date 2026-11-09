@@ -596,7 +596,12 @@ func (s *Supervisor) spawn(account string, spec AccountSpec) (*Worker, error) {
 	w.cmd = cmd
 	group, err := startGroup(cmd)
 	if err != nil {
-		w.logf("process group: %v (stops will end the worker alone)", err)
+		// Without its group or Job Object (KILL_ON_JOB_CLOSE on Windows) a
+		// stop would end the worker alone and leave its children running.
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		group.release()
+		return nil, fmt.Errorf("process group: %w", err)
 	}
 	w.group = group
 	w.lastSeen.Store(time.Now().UnixNano())
@@ -656,17 +661,24 @@ func (s *Supervisor) handshake(w *Worker, spec AccountSpec, hash string, prep Pr
 	if !ready.SelfTest.OK {
 		return &StartError{Account: w.account, Err: ErrSelfTestFailed, Detail: ready.SelfTest.failures()}
 	}
-	if ready.PID > 0 && w.group != nil {
-		// A worker outside its group or job would survive every stop and
-		// keep running approved commands after Timely thinks it is gone.
-		inside, err := w.group.contains(ready.PID)
-		switch {
-		case err != nil:
-			w.logf("could not check that pid %d is in its process group: %v", ready.PID, err)
-		case !inside:
-			return &StartError{Account: w.account, Err: ErrProtocol,
-				Detail: fmt.Sprintf("the worker interpreter (pid %d) is outside its process group or Job Object", ready.PID)}
-		}
+	// A worker outside its group or job would survive every stop and keep
+	// running approved commands after Timely thinks it is gone, so one whose
+	// containment cannot be confirmed is refused too.
+	if ready.PID <= 0 || w.group == nil {
+		return &StartError{Account: w.account, Err: ErrProtocol,
+			Detail: "cannot confirm the worker is inside its process group or Job Object: ready names no pid"}
+	}
+	inside, err := w.group.contains(ready.PID)
+	switch {
+	case err != nil && ready.PID == w.cmd.Process.Pid && exitsWithin(w, time.Second):
+		// Our own child died right after ready: nothing is left to contain.
+		// start sees it has exited and the restart policy decides.
+	case err != nil:
+		return &StartError{Account: w.account, Err: ErrProtocol,
+			Detail: fmt.Sprintf("cannot confirm the worker (pid %d) is inside its process group or Job Object: %v", ready.PID, err)}
+	case !inside:
+		return &StartError{Account: w.account, Err: ErrProtocol,
+			Detail: fmt.Sprintf("the worker interpreter (pid %d) is outside its process group or Job Object", ready.PID)}
 	}
 	w.mu.Lock()
 	w.ready = &ready
@@ -675,6 +687,19 @@ func (s *Supervisor) handshake(w *Worker, spec AccountSpec, hash string, prep Pr
 	go w.healthLoop()
 	w.logf("ready (hermes %s, %d tools)", trimForLog(ready.HermesTag, 40), len(ready.Tools))
 	return nil
+}
+
+// exitsWithin reports whether the worker exits (stdout closed and reaped)
+// within d.
+func exitsWithin(w *Worker, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-w.Done():
+		return true
+	case <-t.C:
+		return false
+	}
 }
 
 // workerExited is called once from each worker's finish.

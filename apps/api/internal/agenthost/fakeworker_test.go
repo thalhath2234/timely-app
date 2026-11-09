@@ -101,6 +101,8 @@ func fakeRuntime(t *testing.T, mode string) Runtime {
 //	noread             never reads stdin (a hung import)
 //	stopreading        ready, then never reads stdin again (a wedged read loop)
 //	foreignpid         ready naming a pid outside its process group
+//	deadpid            ready naming a pid that does not exist (containment cannot be checked)
+//	nopid              ready without a pid
 func fakeWorker(mode string) int {
 	switch mode {
 	case "noread":
@@ -184,6 +186,10 @@ func fakeWorker(mode string) int {
 				ready["protocol"] = 99
 			case "foreignpid":
 				ready["pid"] = os.Getppid() // the test binary: another process group
+			case "deadpid":
+				ready["pid"] = 2147483000 // above any pid_max: the check itself fails
+			case "nopid":
+				delete(ready, "pid")
 			case "spawn-child":
 				exe, _ := os.Executable()
 				child = exec.Command(exe, fakeMarker, "sleeper")

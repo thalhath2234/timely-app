@@ -54,8 +54,10 @@
 //     still unfinished after WriteTimeout means the worker stopped reading: it
 //     is killed like a missed heartbeat, which also unblocks the write. ready
 //     carries the interpreter's pid; Go refuses a worker whose pid is outside
-//     its process group or Job Object (Windows starts the worker suspended,
-//     assigns the job, then resumes it, so a venv launcher's child is inside).
+//     its process group or Job Object, or whose containment cannot be checked
+//     (no pid, a failed check, or a Job Object that could not be set up: the
+//     spawn fails). Windows starts the worker suspended, assigns the job, then
+//     resumes it, so a venv launcher's child is inside.
 //   - "log" {level, text} lines are written to the API log. Everything else
 //     (events, tool.call, gate.ask, taint, run.done, ...) goes to
 //     Config.Handler in arrival order. With no handler, gate.ask gets a
