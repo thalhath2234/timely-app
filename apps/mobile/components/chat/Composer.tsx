@@ -352,7 +352,7 @@ export default function Composer({
                 accessibilityLabel="Send to the running reply"
                 disabled={!canSteer}
                 onPress={onSend}
-                style={[styles.send, !canSteer && { opacity: 0.35 }]}
+                style={[styles.send, { marginRight: 6 }, !canSteer && { opacity: 0.35 }]}
               >
                 <ArrowUp
                   size={20}

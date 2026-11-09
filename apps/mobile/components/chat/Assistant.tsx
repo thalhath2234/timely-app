@@ -943,7 +943,8 @@ export default function Assistant() {
               : chat?.status === "approval"
                 ? "Waiting for your decision"
                 : chat?.provider
-                  ? `${PROVIDER_LABELS[chat.provider as ProviderId] ?? chat.provider}${chat.model ? ` · ${chat.model}` : ""}${engineLabel(chat) ? ` · ${engineLabel(chat)}` : ""}`
+                  ? // The engine first: a long model name would cut it off.
+                    `${engineLabel(chat) ? `${engineLabel(chat)} · ` : ""}${PROVIDER_LABELS[chat.provider as ProviderId] ?? chat.provider}${chat.model ? ` · ${chat.model}` : ""}`
                   : "Ask about your work";
   return (
     <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
@@ -958,6 +959,7 @@ export default function Assistant() {
           phase={chat?.phase}
           back={page !== "chat" || !!preview}
           onBack={close}
+          logo={!(permission && (chat?.permission || agentSettings.data))}
           actions={
             page === "chat" && !preview ? (
               <>
@@ -1403,7 +1405,7 @@ function PlanSummary({
                   ? "Changes applied"
                   : "Your changes"
       }
-      body={`${done} of ${total} ${total === 1 ? "change" : "changes"} applied${discarded ? ` · ${discarded} discarded` : ""}`}
+      body={`${done} of ${total} ${total === 1 ? "change" : "changes"} ${undo ? "undone" : "applied"}${discarded ? ` · ${discarded} discarded` : ""}`}
     >
       <View style={styles.planActions}>
         {target ? (

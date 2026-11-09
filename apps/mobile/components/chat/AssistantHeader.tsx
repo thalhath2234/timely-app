@@ -14,6 +14,7 @@ export default function AssistantHeader({
   back,
   onBack,
   actions,
+  logo = true,
 }: {
   title: string;
   subtitle: string;
@@ -23,6 +24,8 @@ export default function AssistantHeader({
   back: boolean;
   onBack: () => void;
   actions?: ReactNode;
+  /** The mark beside the title; off when the permission chip needs the room. */
+  logo?: boolean;
 }) {
   const meta = status && status !== "idle" ? statusMeta(status) : null;
   const pillLabel = !meta ? "" : status === "running" && phase === "apply" ? "Applying" : meta.label;
@@ -39,23 +42,27 @@ export default function AssistantHeader({
           <X size={22} color={colors.foreground} />
         )}
       </IconButton>
-      {!back ? (
+      {!back && logo ? (
         <View style={styles.logo}>
           <TimelyLogo size={18} />
         </View>
       ) : null}
-      <View style={{ flex: 1, minWidth: 0 }}>
+      <View style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
         <Text numberOfLines={1} style={styles.title}>
           {title}
         </Text>
         <View style={styles.subRow}>
           {meta ? (
-            <Pill
-              label={pillLabel}
-              tone={meta.tone}
-              icon={meta.icon}
-              spin={meta.spin}
-            />
+            // A short status keeps its whole word and the model line gives
+            // way; a long one (shown alone) ends with "…" when room is short.
+            <View style={{ flexShrink: pillLabel.length <= 12 ? 0 : 1, minWidth: 0 }}>
+              <Pill
+                label={pillLabel}
+                tone={meta.tone}
+                icon={meta.icon}
+                spin={meta.spin}
+              />
+            </View>
           ) : null}
           {/* A long status ("Choose where to continue") leaves no room for
               the model line, which would clip to a letter or two. */}
