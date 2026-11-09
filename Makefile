@@ -213,7 +213,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-change-review test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-block-turn test-inbox test-starter-labels test-view-search test-smart-search test-view-language test-dashboard test-genui test-mobile-live-block test-mobile-clearable test-mobile-plain-text test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-push test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-web-api-proxy test-chat-stream test-project-delete test-bulk-edit test-autosave test-client-calls test-mobile-event-occurrence test-calendar-occurrence-done test-mobile-meeting-url test-mobile-back-fallback test-bots test-agent ## Run all tests
+test: test-api test-markdown-parity test-change-review test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-block-turn test-inbox test-starter-labels test-view-search test-smart-search test-view-language test-dashboard test-genui test-mobile-live-block test-mobile-clearable test-mobile-plain-text test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-push test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-web-api-proxy test-chat-stream test-project-delete test-bulk-edit test-autosave test-client-calls test-mobile-event-occurrence test-calendar-occurrence-done test-mobile-meeting-url test-mobile-back-fallback test-bots test-agent test-agent-chat ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -537,6 +537,10 @@ test-web-api-proxy: ## Test that the web /api-proxy route reaches API_ORIGIN as 
 test-chat-stream: ## Test the web app's live chat stream: one tab holds it for the others, and it reconnects
 	@node --experimental-strip-types --test scripts/chat-stream.test.mjs
 
+.PHONY: test-agent-chat
+test-agent-chat: ## Test chat on the agent engine's shared contract: streamed reply deltas and the permission words
+	@node --experimental-strip-types --test scripts/agent-chat.test.mjs
+
 format-qa: ## Format the 2026-10-01 QA scripts and evidence
 	@pnpm exec prettier --write 'docs/qa/2026-10-01*/**/*.{mjs,json,md}'
 
@@ -607,6 +611,22 @@ agent-go-integration: ## Go supervisor end to end with the real worker: spawn, h
 
 agent-go-vet-windows: ## go vet the agent supervisor for Windows (Job Object, process spawning) from any OS
 	@cd $(API) && GOOS=windows GOARCH=amd64 go vet ./internal/agenthost/...
+
+.PHONY: agent-record-fixtures agent-parity
+agent-record-fixtures: ## Record the worker's event fixtures for the Go engine's tests against the stub model, no network (OUT=<dir>, required; ONLY=<scenario>,... picks some)
+	@test -x "$(AGENT_PY)" || { echo "agent-record-fixtures: run make agent-install first"; exit 1; }
+	@if [ -z "$(OUT)" ]; then echo "$(RED)Usage: make agent-record-fixtures OUT=<dir> [ONLY=<scenario>,...]$(RESET)"; exit 1; fi
+	@mkdir -p "$(AGENT_TEST_TMP)"
+	@TMPDIR="$(AGENT_TEST_TMP)" "$(AGENT_PY)" -I $(AGENT_DIR)/tests/record_events.py --out "$(OUT)" $(if $(ONLY),--only "$(ONLY)")
+
+agent-parity: ## Run the agent QA scenarios on classic, the agent engine or both against a running API (ENGINE=classic|agent|both PROVIDER=<id> MODEL=<id> SCENARIOS=<file> OUT=<dir> [ONLY=<ids>]; TIMELY_API, default :8081; the key only from TIMELY_PARITY_KEY exported in your shell, never .env)
+	@case "$(origin TIMELY_PARITY_KEY)" in file|override|command\ line) echo "$(RED)agent-parity: export TIMELY_PARITY_KEY in your shell; it is never read from .env or the command line$(RESET)"; exit 1;; esac
+	@case "$(ENGINE)" in classic|agent|both) ;; *) echo "$(RED)agent-parity: ENGINE must be classic, agent or both$(RESET)"; exit 1;; esac
+	@if [ -z "$(PROVIDER)" ] || [ -z "$(MODEL)" ] || [ -z "$(SCENARIOS)" ] || [ -z "$(OUT)" ]; then \
+		echo "$(RED)Usage: make agent-parity ENGINE=classic|agent|both PROVIDER=<id> MODEL=<id> SCENARIOS=<file> OUT=<dir> [ONLY=<ids>]$(RESET)"; exit 1; fi
+	@test -n "$$TIMELY_PARITY_KEY" || { echo "$(RED)agent-parity: export TIMELY_PARITY_KEY in your shell first$(RESET)"; exit 1; }
+	@cd $(API) && TIMELY_API=$${TIMELY_API:-http://localhost:8081} go run ./scripts/agentqa -engine "$(ENGINE)" -provider "$(PROVIDER)" -model "$(MODEL)" \
+		-scenarios "$(abspath $(SCENARIOS))" -out "$(abspath $(OUT))" $(if $(ONLY),-only "$(ONLY)")
 
 hermes-tools-dump: ## Regenerate apps/agent/.hermes-sync/{tools,skills,seams}.json and skill-body.yaml's tool names from the agent runtime
 	@python3 -I -B scripts/hermes-sync/check_sync.py --write
