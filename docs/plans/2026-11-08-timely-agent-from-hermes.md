@@ -1340,12 +1340,12 @@ Marked by the phase that needs the answer.
 
 **Phase 2**
 
-- Q-2.1 Drop the "stay within Timely; decline code and unrelated requests" rule for host-allowed accounts (recommended), for all accounts, or keep it?
-- Q-2.2 Engine rollout: per-account Settings switch Classic / New during migration, removal of classic one release after phase 8 starts?
-- Q-2.3 Turn and time budget per run (today 12 model turns and 10 minutes; Hermes is effectively unlimited). Recommended 25 iterations, 10 minutes for chat, counting model and tool time only (time waiting for your approval does not count).
-- Q-2.4 When the agent proposes a single clear edit that applies directly, keep today's end-turn-then-apply (recommended for now), or let the agent see the result and continue in the same turn (more Hermes-like, needs a TLA+ change)?
-- Q-2.5 Streamed reply text in web and mobile (Hermes emits deltas), or update-on-change as today?
-- Q-2.6 Agent persona name: "Timely"?
+- Q-2.1 **Answered 2026-11-09: drop it for host-allowed accounts only.** Other accounts keep "stay within Timely; decline code and unrelated requests".
+- Q-2.2 **Answered 2026-11-09: yes.** Per-account Settings switch Classic / New (default Classic) during migration; classic is removed one release after phase 8 starts.
+- Q-2.3 **Answered 2026-11-09: no limit.** Agent-engine chat runs get no turn or time cap of Timely's own (Hermes' defaults apply); Stop always ends a run, and the classic engine keeps its 12 turns and 10 minutes.
+- Q-2.4 **Answered 2026-11-09: keep end-turn-then-apply** (no TLA+ change).
+- Q-2.5 **Answered 2026-11-09: stream reply text** in web and mobile.
+- Q-2.6 **Answered 2026-11-09: yes, "Timely".**
 
 **Phase 3**
 
