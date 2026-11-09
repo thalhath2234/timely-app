@@ -4,7 +4,7 @@
 
 ## Where code goes
 
-- **Timely code** lives beside the copy: `timely_agent/` (worker, adapters, plugins, tests), `skills/` (Timely skills; `skills/overrides/<name>/` replaces an upstream skill of that name), `.hermes-sync/` (filter, sync records, policy files).
+- **Timely code** lives beside the copy: `timely_agent/` (worker, adapters, plugins, tests), `skills/` (Timely skills; `skills/overrides/<name>/` replaces an upstream skill of that name; the folder arrives in phase 2 with the `timely` skill, and until then `prepare` stages an empty read-only copy on purpose), `.hermes-sync/` (filter, sync records, policy files).
 - **Behaviour changes to Hermes** go through runtime seams first: `AIAgent` constructor arguments and callbacks, plugin hooks (`pre_tool_call`, `post_tool_call`, `register_tool`), per-home `config.yaml` and `SOUL.md`, the approval bridge, and the write-approval, skill-ledger and skills-sync APIs.
 - **Patch points** are the last resort: a one-line call into `timely_agent` inside a vendored file, marked `# TIMELY(Pn)` and listed in `.hermes-sync/patches.md`. Budget: zero today, hard cap five. Fixes that belong upstream go upstream.
 
@@ -28,7 +28,7 @@ The Go API spawns one worker per account (`apps/api/internal/agenthost`); the wi
 | `make agent-contract` | the contract tests of plan 10.4 f (`tests/contract/test_contract.py`, numbered `test_cNN_*`), against real workers and the stub model. `ARGS="-k c19"` picks some. |
 | `make agent-go-integration` | the Go supervisor with the real worker: prepare, render-account, spawn, `hello`, `ready`, `run.start` on a Go stub model, `run.done`, `shutdown`. |
 | `make agent-go-vet-windows` | vets the Windows spawn path (Job Object) from any OS. |
-| `make hermes-sync-check` | the post-sync checks (plan 10.4 a-e). |
+| `make hermes-sync-check` | the post-sync checks: plan 10.4 a-f and the agent half of g (`agent-test`, `agent-contract`). The Go half, `make test-api`, runs in CI's api job; run it yourself after a sync. |
 
 Rules for tests and experiments:
 
