@@ -43,14 +43,14 @@ export function useReplyStream({
   };
 
   // A refetched chat: a late join starts from activity.draft, and the run's
-  // end (no activity) drops the draft for the saved reply.
+  // end (no activity) drops the draft for the saved reply. Another chat
+  // starts from its own activity, never from this one's text.
+  const shownChat = useRef(chatId);
   useEffect(() => {
-    setDraft(mergeActivityDraft(draftRef.current, chat?.activity));
-  }, [chat?.activity?.run, chat?.activity?.draft, chat?.status]);
-
-  useEffect(() => {
-    setDraft(null);
-  }, [chatId]);
+    const current = shownChat.current === chatId ? draftRef.current : null;
+    shownChat.current = chatId;
+    setDraft(mergeActivityDraft(current, chat?.id === chatId ? chat?.activity : undefined));
+  }, [chatId, chat?.id, chat?.activity?.run, chat?.activity?.draft, chat?.status]);
 
   useEffect(() => {
     if (!want) {
