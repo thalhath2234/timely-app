@@ -172,13 +172,7 @@ merge_args=(--no-ff --no-commit -q -m "hermes: sync $REF")
 conflicted=0
 g merge "${merge_args[@]}" "$new" || conflicted=1
 mkdir -p "$REPO_ROOT/$SYNC_DIR"
-python3 -I -B -c 'import json,os,sys
-path, tag, commit, committed, api = sys.argv[1:6]
-tags = json.load(open(path)) if os.path.exists(path) else {}
-tags[tag] = {"commit": commit, "committed": committed, "releaseApi": api}
-with open(path, "w") as fh:
-    json.dump(dict(sorted(tags.items(), key=lambda kv: [int(x) for x in kv[0][1:].split(".")])), fh, indent=2)
-    fh.write("\n")' "$REPO_ROOT/$SYNC_DIR/tags.json" "$REF" "$commit" "$committed" "$release_api"
+python3 -I -B "$HELPERS/record_tag.py" "$REPO_ROOT/$SYNC_DIR/tags.json" "$REF" "$commit" "$committed" "$release_api"
 g add "$SYNC_DIR/tags.json"
 elapsed=$((SECONDS - start))
 

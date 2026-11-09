@@ -16,6 +16,7 @@ import check_lib  # noqa: E402
 import check_policy  # noqa: E402
 import check_seams  # noqa: E402
 import check_sync  # noqa: E402
+import record_tag  # noqa: E402
 
 SHA_A = "a" * 64
 SHA_B = "b" * 64
@@ -151,6 +152,26 @@ class ConfigDefaults(unittest.TestCase):
             report.CONFIG_TIMEOUT_S = old
         self.assertEqual((cfg, env), ({}, []))
         self.assertIn("timed out", err)
+
+
+class RecordTag(unittest.TestCase):
+    """sync-hermes.sh step 8 writes tags.json through record_tag.py."""
+
+    def test_skipped_release_api_keeps_a_recorded_check(self):
+        tags = {"v0.23.0": {"commit": "c1", "committed": "t", "releaseApi": "2bd378ed"}}
+        out = record_tag.record(tags, "v0.23.0", "c1", "t", "skipped (HERMES_SKIP_RELEASE_API=1)")
+        self.assertEqual(out["v0.23.0"]["releaseApi"], "2bd378ed")
+
+    def test_a_new_check_or_a_moved_commit_is_written(self):
+        tags = {"v0.23.0": {"commit": "c1", "committed": "t", "releaseApi": "skipped (x)"}}
+        self.assertEqual(record_tag.record(tags, "v0.23.0", "c1", "t", "abc")["v0.23.0"]["releaseApi"], "abc")
+        tags = {"v0.23.0": {"commit": "c1", "committed": "t", "releaseApi": "abc"}}
+        self.assertEqual(record_tag.record(tags, "v0.23.0", "c2", "t", "skipped (x)")["v0.23.0"]["releaseApi"],
+                         "skipped (x)")
+
+    def test_sorted_by_version(self):
+        out = record_tag.record({"v0.10.0": {}, "v0.9.1": {}}, "v0.22.7", "c", "t", "a")
+        self.assertEqual(list(out), ["v0.9.1", "v0.10.0", "v0.22.7"])
 
 
 class SchemaHash(unittest.TestCase):
