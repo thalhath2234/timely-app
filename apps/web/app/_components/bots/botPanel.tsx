@@ -569,8 +569,10 @@ function EditPanel({
       frameRef={frameRef}
       onKeyDown={escapeCloses(() => leave(onClose))}
     >
-      <header className="relative z-20 shrink-0 border-b border-border bg-card pb-4 pl-6 pr-5 pt-4">
-        <div className="flex items-center gap-3">
+      <header className="@container/head relative z-20 shrink-0 border-b border-border bg-card pb-4 pl-6 pr-5 pt-4">
+        {/* A narrow panel (a phone) keeps the name beside the mark and Close,
+            and moves the actions to their own wrapping row below. */}
+        <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-3 @[640px]/head:flex">
           <BotMark
             watches={bot.watches}
             kind={bot.kind}
@@ -581,7 +583,7 @@ function EditPanel({
             value={draft.name}
             onChange={(name) => commit({ ...draft, name }, "text")}
           />
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="col-span-3 row-start-2 flex flex-wrap items-center gap-2 @[640px]/head:shrink-0 @[640px]/head:flex-nowrap">
             <RunNowButton bot={bot} now={now} />
             {bot.status === "active" || bot.snoozedUntil ? (
               <SnoozeMenu bot={bot} now={now} />
@@ -639,8 +641,10 @@ function EditPanel({
             >
               <ChevronDown />
             </Button>
-            <CloseButton onClose={() => leave(onClose)} />
           </div>
+          <span className="col-start-3 row-start-1 @[640px]/head:-ml-1">
+            <CloseButton onClose={() => leave(onClose)} />
+          </span>
         </div>
         {shown.head ? (
           <p className="mt-1 text-xs text-destructive">{shown.head}</p>
