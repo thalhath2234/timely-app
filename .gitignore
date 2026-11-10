@@ -36,7 +36,13 @@ apps/api/bin/
 apps/api/tmp/
 apps/api/.tmp
 apps/api/data/backups/
+# agent worker homes under make dev (state.db, memories, sessions, MCP token files)
+apps/api/data/agent/
 apps/api/build-errors.log
+
+# ---- scripts ----
+# bytecode of the Hermes sync helpers (they run with python3 -B; this catches any other run)
+scripts/hermes-sync/__pycache__/
 
 # ---- apps/mobile (Expo / React Native) ----
 apps/mobile/.expo/

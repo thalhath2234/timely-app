@@ -1,0 +1,97 @@
+# Which parts of NousResearch/hermes-agent are copied into apps/agent/hermes.
+# Timely-owned; read by scripts/sync-hermes.sh from the committed HEAD copy, so commit a change
+# here before running `make hermes-sync`. A filter change re-snapshots the same tag and merges cleanly.
+#
+# Syntax (scripts/hermes-sync/snapshot.py):
+#   dir <name>           copy this top-level directory, whole (never trim inside Python packages)
+#   skip-dir <name>      a top-level directory left out on purpose
+#   skip <glob>          drop upstream paths matching <glob> (fnmatch on the full path or any parent)
+#   keep <path>          copy <path> (a file or folder) even if a skip or an unlisted dir drops it
+#   rename <from> <to>   store upstream <from> at <to> (exact path)
+# Root files are copied unless a `skip` matches. A top-level directory in neither `dir` nor
+# `skip-dir` is left out and listed as new in the sync report, so new upstream areas never arrive
+# silently. Plan: docs/plans/2026-11-08-timely-agent-from-hermes.md section 4.2.
+
+# Python packages a headless turn imports (lazy imports reach tui_gateway, gateway, scripts)
+dir agent
+dir tools
+dir hermes_cli
+dir gateway
+dir tui_gateway
+dir cron
+dir plugins
+dir providers
+dir hermes_platform
+dir pm
+dir acp_adapter
+dir scripts
+dir assets
+# Content: bundled and optional skills, MCP catalog, plugin catalog (kept: owner answer Q-1.4)
+dir skills
+dir optional-skills
+dir optional-mcps
+dir plugin-catalog
+# English strings only (owner answer Q-1.4); the worker pins display.language to en
+dir locales
+skip locales/*
+keep locales/en.yaml
+# Offline model catalog seed inside the otherwise skipped docs site (hermes_cli/model_catalog.py)
+keep website/static/api/model-catalog.json
+# Hermes' root guide stays readable but must not pose as the folder's agent rules
+rename AGENTS.md AGENTS.hermes.md
+
+# Left out on purpose: front ends, docs site, tests, CI, packaging
+skip-dir apps
+skip-dir ui-tui
+skip-dir web
+skip-dir website
+skip-dir tests
+skip-dir tests-js
+skip-dir evals
+skip-dir docker
+skip-dir nix
+skip-dir native
+skip-dir contributors
+skip-dir .github
+
+# Root files are copied (root modules, the `hermes` launcher script, pyproject.toml, uv.lock, LICENSE,
+# SOUL.md, English README/CONTRIBUTING/SECURITY, .gitignore, .gitattributes) except these.
+# Root files Timely does not want (direnv, node, docker, nix, installers, translated docs)
+skip .envrc
+skip .env.example
+skip .coderabbit.yaml
+skip .dockerignore
+skip .hadolint.yaml
+skip .mailmap
+skip .npmrc
+skip .nvmrc
+skip .prettierignore
+skip .prettierrc
+skip pnpm-*.yaml
+skip eslint.config.shared.mjs
+skip lefthook.yml
+skip flake.nix
+skip flake.lock
+skip Dockerfile
+skip docker-compose*.yml
+skip justfile
+skip setup-hermes.*
+skip activate*
+skip install*.sh
+skip README.*.md
+skip CONTRIBUTING.*.md
+skip SECURITY.*.md
+# No npm manifests or lockfiles anywhere (repo rule: one root pnpm-lock.yaml). pnpm-*.yaml,
+# install*.sh and the lines below that match nothing at v0.23.0 are guards for later releases.
+skip package*.json
+skip */package*.json
+skip *npm-shrinkwrap.json
+skip *pnpm-lock.yaml
+skip *yarn.lock
+# No env files anywhere (repo rule: one root .env): .env, .env.*, .envrc, .env_local, foo.env
+skip .env*
+skip */.env*
+skip *.env
+# Node sidecars inside copied dirs (whatsapp-bridge is messaging, decision 6)
+skip scripts/whatsapp-bridge
+skip plugins/platforms/photon/sidecar

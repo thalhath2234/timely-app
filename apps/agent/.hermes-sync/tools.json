@@ -1,0 +1,539 @@
+{
+  "version": 1,
+  "upstream": "v0.23.0",
+  "about": "Runtime tool registry of the Hermes copy with every bundled plugin enabled (scripts/hermes-sync/check_dump.py). Regenerate: python3 -I scripts/hermes-sync/check_sync.py --write",
+  "count": 83,
+  "tools": {
+    "a2a_call": {
+      "module": "hermes_plugins.platforms__a2a.tools",
+      "owner": "plugin:platforms/a2a",
+      "schema_sha256": "6a7c971a4f3382b14b0ce97fb897f514155178dc44a01a2ef7c7f738c88a0875",
+      "toolset": "a2a"
+    },
+    "a2a_discover": {
+      "module": "hermes_plugins.platforms__a2a.tools",
+      "owner": "plugin:platforms/a2a",
+      "schema_sha256": "b477ae3aba418017cbddacbfd6800d432f88ac337da919d74fa94ad53b84e974",
+      "toolset": "a2a"
+    },
+    "a2a_history": {
+      "module": "hermes_plugins.platforms__a2a.tools",
+      "owner": "plugin:platforms/a2a",
+      "schema_sha256": "74ab55a5be0b8da309fba56eb9dc7126cb2b12241f72f76bd81db45935f8c024",
+      "toolset": "a2a"
+    },
+    "a2a_list": {
+      "module": "hermes_plugins.platforms__a2a.tools",
+      "owner": "plugin:platforms/a2a",
+      "schema_sha256": "f4a17c0bdb92a96c2a490f4acc828052d43eb2e18aed001c732bfabe395a8fa7",
+      "toolset": "a2a"
+    },
+    "a2a_orchestrate": {
+      "module": "hermes_plugins.platforms__a2a.tools",
+      "owner": "plugin:platforms/a2a",
+      "schema_sha256": "42922db9fb7bcc0555dbe5d01b49fe2a89691a114121b68ed8e839ed7d35fdd0",
+      "toolset": "a2a"
+    },
+    "annotate_preview": {
+      "module": "tools.annotate_preview_tool",
+      "owner": "core",
+      "schema_sha256": "8875e3ee53af8ed62131496a38e7e9df2d4b4907079c316f5a7bb4250db5a7b6",
+      "toolset": "desktop_ui"
+    },
+    "browser_cdp": {
+      "module": "tools.browser_cdp_tool",
+      "owner": "core",
+      "schema_sha256": "80b51c2449955bd44a19d4d666369e090a5be4704c0251d7477bc4168952e35f",
+      "toolset": "browser-cdp"
+    },
+    "browser_dialog": {
+      "module": "tools.browser_dialog_tool",
+      "owner": "core",
+      "schema_sha256": "50064b9417203040c27260b72fecc8fd1f93aafcb2a9f4f52559d8a46e70fe76",
+      "toolset": "browser-cdp"
+    },
+    "browser_exec": {
+      "module": "tools.browser_use_cli",
+      "owner": "core",
+      "schema_sha256": "573c1df22738a7f6147da5e8d35e23b624518b0e2d08241dacfae070d5335e96",
+      "toolset": "browser-use"
+    },
+    "browser_vault": {
+      "module": "tools.browser_vault_tool",
+      "owner": "core",
+      "schema_sha256": "c21cf3ee8020baff49b30ab9278958f2f3fb07e75dccf3729e3607cd12b0fad5",
+      "toolset": "browser"
+    },
+    "clarify": {
+      "module": "tools.clarify_tool",
+      "owner": "core",
+      "schema_sha256": "060490af42b1acd3ef6201082cffc8e6a2bc94e9fe32fe97ee6b2190a4597f33",
+      "toolset": "clarify"
+    },
+    "close_terminal": {
+      "module": "tools.close_terminal_tool",
+      "owner": "core",
+      "schema_sha256": "b1a82792449fa12622fd6d93a3f0f0d99b705aaf3a0225c6f06ced049113564f",
+      "toolset": "desktop_ui"
+    },
+    "computer_use": {
+      "module": "tools.computer_use_tool",
+      "owner": "core",
+      "schema_sha256": "dc3030cfe5f2f389e1fc6490cc1fd6ba32b84181421af7ce94ba99400841c3f6",
+      "toolset": "computer_use"
+    },
+    "cronjob_manage": {
+      "module": "tools.cronjob_tools",
+      "owner": "core",
+      "schema_sha256": "5bca79cd3f718cd992f9c84715d8ffa56815d9874bc601e68454bcc7a1470f59",
+      "toolset": "cronjob"
+    },
+    "delegate_task": {
+      "module": "tools.delegate_tool",
+      "owner": "core",
+      "schema_sha256": "f0e8cb9f3be2ffcfb848e96c2867e3196dcb53a3cccc6278963570e6fb266371",
+      "toolset": "delegation"
+    },
+    "desktop_preview": {
+      "module": "tools.preview_tool",
+      "owner": "core",
+      "schema_sha256": "4656952e14c7bfa419327672fac29f46c948946c9f9c1784ab2e8d3826203658",
+      "toolset": "desktop_ui"
+    },
+    "desktop_project": {
+      "module": "tools.project_tools",
+      "owner": "core",
+      "schema_sha256": "6211ac93d61e54b8e1099046aabb8e33c9e18b26a69bfb5ece37b58806fc3836",
+      "toolset": "project"
+    },
+    "discord": {
+      "module": "tools.discord_tool",
+      "owner": "core",
+      "schema_sha256": "ed7b085fe3b9ff71b4a41b63e0c015488455b9f7a16c0a5192fbb8f441f8c27c",
+      "toolset": "discord"
+    },
+    "discord_admin": {
+      "module": "tools.discord_tool",
+      "owner": "core",
+      "schema_sha256": "e7125a34cfa4b3cd5f8449b9bb44572a4f24ae2d724818af4954758baaeea921",
+      "toolset": "discord_admin"
+    },
+    "drive_preview": {
+      "module": "tools.drive_preview_tool",
+      "owner": "core",
+      "schema_sha256": "188306a6f3a362d1ab15a6b96a0b3009f380e7e91226e287d870510e62b21e1c",
+      "toolset": "desktop_ui"
+    },
+    "execute_code": {
+      "module": "tools.code_execution_tool",
+      "owner": "core",
+      "schema_sha256": "73964b625ef6eefd63f4df000ca15f9d23127281ccaa60fc7f090996ee0ffc6b",
+      "toolset": "code_execution"
+    },
+    "feishu_doc_read": {
+      "module": "tools.feishu_doc_tool",
+      "owner": "core",
+      "schema_sha256": "39957306f7540e64af0835933cd781f4c9f4704349d95938d78765fc950154aa",
+      "toolset": "feishu_doc"
+    },
+    "feishu_drive_add_comment": {
+      "module": "tools.feishu_drive_tool",
+      "owner": "core",
+      "schema_sha256": "26b1bc6098d627d398aca1ffc5398c5c7cabe04ca455c65876d508def22765cf",
+      "toolset": "feishu_drive"
+    },
+    "feishu_drive_list_comment_replies": {
+      "module": "tools.feishu_drive_tool",
+      "owner": "core",
+      "schema_sha256": "9ed7ec8fad6da4bce6652db0657c917401c957bf08229c8729ff5495be9ecd4d",
+      "toolset": "feishu_drive"
+    },
+    "feishu_drive_list_comments": {
+      "module": "tools.feishu_drive_tool",
+      "owner": "core",
+      "schema_sha256": "fce925ea58576f9731079012d86e2687e3cd84241ac6fe7e1fe057456fe3600d",
+      "toolset": "feishu_drive"
+    },
+    "feishu_drive_reply_comment": {
+      "module": "tools.feishu_drive_tool",
+      "owner": "core",
+      "schema_sha256": "d919cd5a2b3097d6e381de044c4278b18caa69cada445465fe6d7144182a12e5",
+      "toolset": "feishu_drive"
+    },
+    "focus_pane": {
+      "module": "tools.focus_pane_tool",
+      "owner": "core",
+      "schema_sha256": "29bd752bc8ba651fa2d121436f54b07a9cf840b0f9a745535588cf92f35aa177",
+      "toolset": "desktop_ui"
+    },
+    "gui_tour": {
+      "module": "tools.tour_tool",
+      "owner": "core",
+      "schema_sha256": "dd2d08ce48756fb5cf1ac882d955c9d366d80764dcb94cdf4d833791d2acaa1d",
+      "toolset": "desktop_ui"
+    },
+    "image_generate": {
+      "module": "tools.image_generation_tool",
+      "owner": "core",
+      "schema_sha256": "e8192c5ca1c3e30c71769af2b3e7ddba4f247f688e87bc885598b9d80909a442",
+      "toolset": "image_gen"
+    },
+    "kanban_attach": {
+      "module": "tools.kanban_tools",
+      "owner": "core",
+      "schema_sha256": "a665630969f24798c5376cc037d2c3e0da6037c9143d1ce2d57a5a14a3695e90",
+      "toolset": "kanban"
+    },
+    "kanban_attach_url": {
+      "module": "tools.kanban_tools",
+      "owner": "core",
+      "schema_sha256": "6d16aae92b993232921045a45214c0eab0dff33ffe4a3545d1f628c552e07320",
+      "toolset": "kanban"
+    },
+    "kanban_attachments": {
+      "module": "tools.kanban_tools",
+      "owner": "core",
+      "schema_sha256": "743ba9dfb6b61edfd903e41c5b76d57d40491b54fe915d7ee25ec489d9db215e",
+      "toolset": "kanban"
+    },
+    "kanban_block": {
+      "module": "tools.kanban_tools",
+      "owner": "core",
+      "schema_sha256": "135c5ea67c9d0fdf2cf869fffabac7bf82d91d648167f1726d51d6406a119d42",
+      "toolset": "kanban"
+    },
+    "kanban_comment": {
+      "module": "tools.kanban_tools",
+      "owner": "core",
+      "schema_sha256": "fd6ffa43bf3b7d506e18a52e9ed22fae6401a32d2f2f79a0895296a6cb3583d0",
+      "toolset": "kanban"
+    },
+    "kanban_complete": {
+      "module": "tools.kanban_tools",
+      "owner": "core",
+      "schema_sha256": "cb0b8081332907965087016d5c61578eb0395b3c316aec4361e8d5cc6e78acd9",
+      "toolset": "kanban"
+    },
+    "kanban_create": {
+      "module": "tools.kanban_tools",
+      "owner": "core",
+      "schema_sha256": "0dcc86773437f3777dcb53d254cf213655f436d572577f0e675d57dc560435a3",
+      "toolset": "kanban"
+    },
+    "kanban_heartbeat": {
+      "module": "tools.kanban_tools",
+      "owner": "core",
+      "schema_sha256": "17d6a08e0f743d4552002ee7d673900d0484f13c9930aa9b930efa06cea90118",
+      "toolset": "kanban"
+    },
+    "kanban_link": {
+      "module": "tools.kanban_tools",
+      "owner": "core",
+      "schema_sha256": "6781ca04f1889b8f3c2915fabd2bb0a1766379cc8c12b6b48af582d1e829a4c8",
+      "toolset": "kanban"
+    },
+    "kanban_list": {
+      "module": "tools.kanban_tools",
+      "owner": "core",
+      "schema_sha256": "7a4a741675e28fab474e186a5e16823ab707a09993c1e5a6b2a90d82cf338d37",
+      "toolset": "kanban"
+    },
+    "kanban_request_changes": {
+      "module": "tools.kanban_tools",
+      "owner": "core",
+      "schema_sha256": "802dfabc081c804c359e3d0ccdf3ff76b93e759a822323a806679e26d1599506",
+      "toolset": "kanban"
+    },
+    "kanban_request_review": {
+      "module": "tools.kanban_tools",
+      "owner": "core",
+      "schema_sha256": "6e934571c717838a01d3ac820cbf96088df34bf0a01274c4760e0bb0f2c95a2f",
+      "toolset": "kanban"
+    },
+    "kanban_schedule": {
+      "module": "tools.kanban_tools",
+      "owner": "core",
+      "schema_sha256": "c55facabb49abc170ab0e0bd1580622c698d589b8c5c00d29a1a42879f9ec9a1",
+      "toolset": "kanban"
+    },
+    "kanban_show": {
+      "module": "tools.kanban_tools",
+      "owner": "core",
+      "schema_sha256": "ab5f33383b5ceeb02811aaa078c22d2797a79565c5e5f622a97c75b549edc50e",
+      "toolset": "kanban"
+    },
+    "kanban_unblock": {
+      "module": "tools.kanban_tools",
+      "owner": "core",
+      "schema_sha256": "68b8382662a44f846db8b6102705a4f22130a539ce60a59ff3aaf71efaba015d",
+      "toolset": "kanban"
+    },
+    "manage_catalog": {
+      "module": "tools.connectors.tool",
+      "owner": "core",
+      "schema_sha256": "b84968421ada1faccda25a483b0673cffd4ec39eb1aa9ea3be9b820febf183a0",
+      "toolset": "catalog"
+    },
+    "manage_connections": {
+      "module": "tools.connectors.tool",
+      "owner": "core",
+      "schema_sha256": "4d1867eb411293c1201b52c7b1d5c8b1f36f02174827e83e44381f6e4befb5f7",
+      "toolset": "connections"
+    },
+    "meet_join": {
+      "module": "plugins.google_meet.tools",
+      "owner": "plugin:google_meet",
+      "schema_sha256": "9333987859a67ac0eb345f79d92cab8f43eac4d735ec3daa2c4430a89eb21c8b",
+      "toolset": "google_meet"
+    },
+    "meet_leave": {
+      "module": "plugins.google_meet.tools",
+      "owner": "plugin:google_meet",
+      "schema_sha256": "3b799be0d39e39e904831f2717f6f94e7bd9038a63330a9407cf61235ed81c08",
+      "toolset": "google_meet"
+    },
+    "meet_say": {
+      "module": "plugins.google_meet.tools",
+      "owner": "plugin:google_meet",
+      "schema_sha256": "55a18e4a8a4a5ba414fef374085bcddb8c4aa2f2b6998fae1e1bf2ddf657b567",
+      "toolset": "google_meet"
+    },
+    "meet_status": {
+      "module": "plugins.google_meet.tools",
+      "owner": "plugin:google_meet",
+      "schema_sha256": "ec0f3ffbcebf4aeebd4456d25c47651dd0b6553ac7de0a00440602d8a65ed9ee",
+      "toolset": "google_meet"
+    },
+    "meet_transcript": {
+      "module": "plugins.google_meet.tools",
+      "owner": "plugin:google_meet",
+      "schema_sha256": "e326122b61735c9299a4833f90cf9903840ec8530ac5a62537144138d74c61ba",
+      "toolset": "google_meet"
+    },
+    "memory": {
+      "module": "tools.memory_tool",
+      "owner": "core",
+      "schema_sha256": "a63150772bd6fc9d58249a07eb961b01be13f455041d300c1f0476e215376d64",
+      "toolset": "memory"
+    },
+    "patch": {
+      "module": "tools.file_tools",
+      "owner": "core",
+      "schema_sha256": "d1bcb5cf08fc7bf80431445499fa454579396b080a8e8396e78d4cf2a175ef50",
+      "toolset": "file"
+    },
+    "process_manage": {
+      "module": "tools.process_registry",
+      "owner": "core",
+      "schema_sha256": "7baaa07139de31b2ef8a2fa2eb05406649f6845ee8096252ee279a3cb1129fb4",
+      "toolset": "terminal"
+    },
+    "react_to_message": {
+      "module": "tools.react_to_message_tool",
+      "owner": "core",
+      "schema_sha256": "b2b9b00df4d491d8443592bddf4c144c89f793325363928b46ab8f9bf6afb9c8",
+      "toolset": "desktop_ui"
+    },
+    "read_file": {
+      "module": "tools.file_tools",
+      "owner": "core",
+      "schema_sha256": "06698c255917140e2599050110e02efeb2316c3be99b7b2a69bfc95de16d71d9",
+      "toolset": "file"
+    },
+    "read_terminal": {
+      "module": "tools.read_terminal_tool",
+      "owner": "core",
+      "schema_sha256": "5afd519355a43f46415bde6b0f28e9c8963cb497d3f53fc816f7ca5f2d72a760",
+      "toolset": "desktop_ui"
+    },
+    "read_window_below": {
+      "module": "tools.read_window_tool",
+      "owner": "core",
+      "schema_sha256": "05b926d8a343c113b0bfd2d1343f5e0e61843db1ee74a6d11dd16ce237129973",
+      "toolset": "desktop_ui"
+    },
+    "search_files": {
+      "module": "tools.file_tools",
+      "owner": "core",
+      "schema_sha256": "01a3b16a1f15be4e7b2c574cc2b30c8e9ba6e71fcd3fbc34ef0c14587ba36473",
+      "toolset": "file"
+    },
+    "session_search": {
+      "module": "tools.session_search_tool",
+      "owner": "core",
+      "schema_sha256": "170bb5a78d2ba86d3bba150bba5115d1acaf901c1d6d772f52cb05294b9cc28d",
+      "toolset": "session_search"
+    },
+    "set_theme": {
+      "module": "tools.set_theme_tool",
+      "owner": "core",
+      "schema_sha256": "dc25fec2a3c75b779cf5330cb077f94deca8a05e5102e477cf1943371768440a",
+      "toolset": "desktop_ui"
+    },
+    "setup_beat": {
+      "module": "tools.setup_beat_tool",
+      "owner": "core",
+      "schema_sha256": "9996e2628927e69c6e1b475fdf2b7755170dc2535a53e065b764e87be53243ed",
+      "toolset": "onboarding"
+    },
+    "show_tip": {
+      "module": "tools.tip_tool",
+      "owner": "core",
+      "schema_sha256": "e7c2700f9098f02e95ad13c13fd19aa32a872cee1c1401533bd9d9909eaeead1",
+      "toolset": "desktop_ui"
+    },
+    "skill_manage": {
+      "module": "tools.skill_manager_tool",
+      "owner": "core",
+      "schema_sha256": "bfaf7a2923464b8c50659c44564fada6b3f9c2aa91adf7c22f622f12e0a1cae4",
+      "toolset": "skills"
+    },
+    "skill_view": {
+      "module": "tools.skills_tool",
+      "owner": "core",
+      "schema_sha256": "c9cb9fea35a8c30fe3f84d2b3836c675337525c46962d3c04ead549a29fc2488",
+      "toolset": "skills"
+    },
+    "skills_list": {
+      "module": "tools.skills_tool",
+      "owner": "core",
+      "schema_sha256": "b63eb8ddaea7296ac3ab6cb7d6a7b817ea92ba5ec3bd66331770355db313bf57",
+      "toolset": "skills"
+    },
+    "terminal": {
+      "module": "tools.terminal_tool",
+      "owner": "core",
+      "schema_sha256": "6212738e7b72fd5bbb6b201b3a472420369cf830d25389c89b39bc009cb83f8f",
+      "toolset": "terminal"
+    },
+    "text_to_speech": {
+      "module": "tools.tts_tool",
+      "owner": "core",
+      "schema_sha256": "8b416cee0d3ee5780a9019aebc74b60b904df201bdd6c16dc2cbe1f3c75aa3ce",
+      "toolset": "tts"
+    },
+    "todo_list": {
+      "module": "tools.todo_tool",
+      "owner": "core",
+      "schema_sha256": "5244948b0a35418856bbc94e3d5a5ac8ed2210701d776dc6f219677f3d2cab94",
+      "toolset": "todo"
+    },
+    "video_analyze": {
+      "module": "tools.vision_tools",
+      "owner": "core",
+      "schema_sha256": "6181bb609608e17eab2bd5e8d4fe15a570a6e0a6c587fa5857463cd2bc779a7d",
+      "toolset": "video"
+    },
+    "video_generate": {
+      "module": "tools.video_generation_tool",
+      "owner": "core",
+      "schema_sha256": "4eefa0bde35f07bacaddad78a1ee4cab6b48d4f281326f580725e76e75584a13",
+      "toolset": "video_gen"
+    },
+    "vision_analyze": {
+      "module": "tools.vision_tools",
+      "owner": "core",
+      "schema_sha256": "de6149e2b21a2677885026af724209925480affb0a8da2c67d10b8633ec27324",
+      "toolset": "vision"
+    },
+    "web_extract": {
+      "module": "tools.web_tools",
+      "owner": "core",
+      "schema_sha256": "9d493b6fd8a9356bd1e726386f0318446484f6442f8d18c6e1808957a7eddf9d",
+      "toolset": "web"
+    },
+    "web_search": {
+      "module": "tools.web_tools",
+      "owner": "core",
+      "schema_sha256": "9a579750417a577cd4b92368abe07bf5c00e29d10a6e370f6d9a47c99a404c7d",
+      "toolset": "web"
+    },
+    "write_file": {
+      "module": "tools.file_tools",
+      "owner": "core",
+      "schema_sha256": "36c48d4d4c02f950a46c684ba8d20fd2751ffba9f530e6e8e69f8825aa31b54b",
+      "toolset": "file"
+    },
+    "x_search": {
+      "module": "tools.x_search_tool",
+      "owner": "core",
+      "schema_sha256": "d3309bdb0289faec23552406c50694ceb2412b19420800bf247c8742243206a6",
+      "toolset": "x_search"
+    },
+    "xai_video_edit": {
+      "module": "tools.xai_video_tools",
+      "owner": "core",
+      "schema_sha256": "2a9db58a88b78ac2f534e00b8c9f1cc149eca104cc95c658271d4cdbbd258d10",
+      "toolset": "video_gen"
+    },
+    "xai_video_extend": {
+      "module": "tools.xai_video_tools",
+      "owner": "core",
+      "schema_sha256": "dd956f6c5fd39ad2b9a2c584d1778ed70394903e1c1fb1ff1478539cfdf90d5f",
+      "toolset": "video_gen"
+    },
+    "yb_query_group_info": {
+      "module": "tools.yuanbao_tools",
+      "owner": "core",
+      "schema_sha256": "7ce066873a2d63ff0feef7c46da4fe5f1327c8c641b393ab61bb17da5059f5a8",
+      "toolset": "hermes-yuanbao"
+    },
+    "yb_query_group_members": {
+      "module": "tools.yuanbao_tools",
+      "owner": "core",
+      "schema_sha256": "6a84b3b1e874c7d3d420032515e70b4ff410cca908180b3597aec57b816ddd5d",
+      "toolset": "hermes-yuanbao"
+    },
+    "yb_search_sticker": {
+      "module": "tools.yuanbao_tools",
+      "owner": "core",
+      "schema_sha256": "4784295bb0811c61feff538aa3c22b31e7002e9a76d9d460791e7c27010fe881",
+      "toolset": "hermes-yuanbao"
+    },
+    "yb_send_dm": {
+      "module": "tools.yuanbao_tools",
+      "owner": "core",
+      "schema_sha256": "692c6579da3cb3475072c713dbd723ecfe09ab5c2f452a905d55b2b034bd96b6",
+      "toolset": "hermes-yuanbao"
+    },
+    "yb_send_sticker": {
+      "module": "tools.yuanbao_tools",
+      "owner": "core",
+      "schema_sha256": "8ee9d06650558cf785d7ed9c0132ec814e9fd17bae52cfbda1053dce7da56598",
+      "toolset": "hermes-yuanbao"
+    }
+  },
+  "inline": {
+    "agent_loop": [
+      "delegate_task",
+      "memory",
+      "session_search",
+      "todo_list"
+    ],
+    "bridge": [
+      "tool_call",
+      "tool_describe",
+      "tool_search"
+    ],
+    "message_agent": {
+      "name": "message_agent",
+      "schema_sha256": "4676fa4ddd3bd6ac3e6d161d118f18586dda986cee18c76fc4adaf8f6a2319a6"
+    }
+  },
+  "plugins": {
+    "google_meet": [
+      "meet_join",
+      "meet_leave",
+      "meet_say",
+      "meet_status",
+      "meet_transcript"
+    ],
+    "platforms/a2a": [
+      "a2a_call",
+      "a2a_discover",
+      "a2a_history",
+      "a2a_list",
+      "a2a_orchestrate"
+    ]
+  }
+}

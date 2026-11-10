@@ -52,9 +52,10 @@ setup: install tools setup-env ## First-time setup: install dependencies, tools,
 setup-env: ## Copy/create the ignored root .env for this checkout or worktree
 	@scripts/setup-env.sh
 
-install: ## Install workspace JS dependencies (pnpm) and Go modules
+install: ## Install workspace JS dependencies (pnpm), Go modules and the agent runtime (skipped with a notice when uv is missing)
 	@pnpm install
 	@cd $(API) && go mod download
+	@$(MAKE) --no-print-directory agent-install
 
 tools: install-air install-goose ## Install Go CLI tools (air, goose)
 
@@ -196,7 +197,7 @@ emu-status: ## Show emulator cgroup memory, adb, and log
 
 check: lint typecheck test ## Run all lint, typecheck and tests
 
-lint: lint-api lint-web ## Lint all apps
+lint: lint-api lint-web lint-agent ## Lint all apps
 
 lint-api: ## go vet the API
 	@cd $(API) && go vet ./...
@@ -212,7 +213,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-change-review test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-block-turn test-inbox test-starter-labels test-view-search test-smart-search test-view-language test-dashboard test-genui test-mobile-live-block test-mobile-clearable test-mobile-plain-text test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-push test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-web-api-proxy test-chat-stream test-project-delete test-bulk-edit test-autosave test-client-calls test-mobile-event-occurrence test-calendar-occurrence-done test-mobile-meeting-url test-mobile-back-fallback test-bots ## Run all tests
+test: test-api test-markdown-parity test-change-review test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-block-turn test-inbox test-starter-labels test-view-search test-smart-search test-view-language test-dashboard test-genui test-mobile-live-block test-mobile-clearable test-mobile-plain-text test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-push test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-web-api-proxy test-chat-stream test-project-delete test-bulk-edit test-autosave test-client-calls test-mobile-event-occurrence test-calendar-occurrence-done test-mobile-meeting-url test-mobile-back-fallback test-bots test-agent ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -543,3 +544,74 @@ check-qa: ## Check QA script syntax and artifact formatting
 	@node --check docs/qa/2026-10-01/api-audit.mjs
 	@node --check docs/qa/2026-10-01/offline-mutation-probe.mjs
 	@pnpm exec prettier --check 'docs/qa/2026-10-01*/**/*.{mjs,json,md}'
+
+##@ Agent (apps/agent)
+
+.PHONY: hermes-sync hermes-sync-check
+hermes-sync: ## Copy a Hermes Agent release into apps/agent/hermes and merge it (HERMES_REF=<vX.Y.Z>, default newest stable); report in .git/hermes-sync-report.md
+	@HERMES_REF='$(HERMES_REF)' scripts/sync-hermes.sh
+
+hermes-sync-check: ## Check apps/agent after a sync (plan 10.4 a-f, and g's agent half; CI's api job runs test-api): snapshot link, patches, conflict markers, compileall, import smoke, tool/skill policy, seams, then agent-test and agent-contract (HERMES_CHECK_STATIC_ONLY=1 skips the agent venv and the tests; HERMES_CHECK_NO_TESTS=1 skips agent-test and agent-contract)
+	@scripts/hermes-sync/check.sh
+	@python3 -I -B -m unittest discover -q -s scripts/hermes-sync -p 'check_test.py'
+	@if [ "$(HERMES_CHECK_STATIC_ONLY)" != 1 ] && $(MAKE) -n agent-install >/dev/null 2>&1; then $(MAKE) --no-print-directory agent-install; fi
+	@python3 -I -B scripts/hermes-sync/check_sync.py
+	@if [ "$(HERMES_CHECK_STATIC_ONLY)" != 1 ] && [ "$(HERMES_CHECK_NO_TESTS)" != 1 ]; then $(MAKE) --no-print-directory test-agent; fi
+
+hermes-sync-report: ## Upstream-change report between two imported Hermes tags or snapshot commits (OLD=<vX.Y.Z or commit, empty for a first import> NEW=<vX.Y.Z or commit>), to stdout
+	@test -n "$(NEW)" || { echo "hermes-sync-report: set NEW=<tag or snapshot commit> (and OLD=...)"; exit 1; }
+	@new=$$(scripts/hermes-sync/snapshot-of.sh '$(NEW)') && old="" && \
+	if [ -n "$(OLD)" ]; then old=$$(scripts/hermes-sync/snapshot-of.sh '$(OLD)'); fi && \
+	python3 -I -B scripts/hermes-sync/report.py --repo "$(CURDIR)" --old "$$old" --new "$$new" --head HEAD \
+		--prefix apps/agent/hermes --sync-dir apps/agent/.hermes-sync
+
+AGENT_DIR := apps/agent
+AGENT_PYTHON_VERSION ?= 3.14.9
+AGENT_VENV := $(CURDIR)/$(AGENT_DIR)/.venv
+AGENT_PY = $(if $(wildcard $(AGENT_VENV)/Scripts/python.exe),$(AGENT_VENV)/Scripts/python.exe,$(AGENT_VENV)/bin/python)
+AGENT_TEST_TMP ?= $(HOME)/.cache/timely-agent-test/tmp
+
+.PHONY: agent-install agent-lint agent-test agent-contract agent-go-integration agent-go-vet-windows hermes-tools-dump hermes-skills-review hermes-sync-report lint-agent test-agent
+lint-agent: ## agent-lint when the agent runtime is built, else a notice (part of make lint)
+	@if [ -x "$(AGENT_PY)" ]; then $(MAKE) --no-print-directory agent-lint; else echo "lint-agent: skipped, the agent runtime is not built (make agent-install)"; fi
+
+test-agent: ## agent-test and agent-contract when the agent runtime is built, else a notice (part of make test; plan 10.4 g)
+	@if [ -x "$(AGENT_PY)" ]; then $(MAKE) --no-print-directory agent-test agent-contract; else echo "test-agent: skipped, the agent runtime is not built (make agent-install)"; fi
+
+agent-install: ## Build the agent runtime apps/agent/.venv from Hermes' own lock (uv-managed CPython 3.14.9, extras in apps/agent/.hermes-sync/extras.txt, pytest/ruff from Hermes' dev group); only a notice when uv is missing
+	@if ! command -v uv >/dev/null 2>&1; then \
+		echo "agent-install: uv is not installed, so the agent runtime was not built (the classic agent still works). Install uv: https://docs.astral.sh/uv/getting-started/installation/"; \
+		exit 0; \
+	fi; \
+	extras=$$(sed -e 's/#.*//' -e '/^[[:space:]]*$$/d' $(AGENT_DIR)/.hermes-sync/extras.txt | sed 's/^/--extra /' | tr '\n' ' '); \
+	cd $(AGENT_DIR)/hermes && UV_PROJECT_ENVIRONMENT="$(AGENT_VENV)" uv sync --frozen --no-install-project \
+		--managed-python --python $(AGENT_PYTHON_VERSION) --group dev $$extras
+
+agent-lint: ## Lint Timely's agent code (apps/agent/timely_agent, tests, skills) with ruff from the agent runtime
+	@test -x "$(AGENT_PY)" || { echo "agent-lint: run make agent-install first"; exit 1; }
+	@cd $(AGENT_DIR) && "$(AGENT_PY)" -I -m ruff check timely_agent tests $(if $(wildcard $(AGENT_DIR)/skills),skills)
+
+agent-test: ## Test Timely's agent worker (protocol, config render, seed tree, plugins, stub-model runs); test homes under ~/.cache/timely-agent-test
+	@test -x "$(AGENT_PY)" || { echo "agent-test: run make agent-install first"; exit 1; }
+	@mkdir -p "$(AGENT_TEST_TMP)"
+	@cd $(AGENT_DIR) && TMPDIR="$(AGENT_TEST_TMP)" "$(AGENT_PY)" -I -m pytest -q tests --ignore=tests/contract $(ARGS)
+
+agent-contract: ## Contract tests of plan 10.4 f against real workers and a stub model, no network (ARGS=-k c19 picks tests)
+	@test -x "$(AGENT_PY)" || { echo "agent-contract: run make agent-install first"; exit 1; }
+	@mkdir -p "$(AGENT_TEST_TMP)"
+	@cd $(AGENT_DIR) && TMPDIR="$(AGENT_TEST_TMP)" "$(AGENT_PY)" -I -m pytest -q tests/contract $(ARGS)
+
+agent-go-integration: ## Go supervisor end to end with the real worker: spawn, hello, ready, run.start on a stub model, run.done, shutdown
+	@test -x "$(AGENT_PY)" || { echo "agent-go-integration: run make agent-install first"; exit 1; }
+	@cd $(API) && TIMELY_AGENT_TEST_RUNTIME=dev go test ./internal/agenthost -run TestIntegrationRealWorker -count=1 -v
+
+agent-go-vet-windows: ## go vet the agent supervisor for Windows (Job Object, process spawning) from any OS
+	@cd $(API) && GOOS=windows GOARCH=amd64 go vet ./internal/agenthost/...
+
+hermes-tools-dump: ## Regenerate apps/agent/.hermes-sync/{tools,skills,seams}.json and skill-body.yaml's tool names from the agent runtime
+	@python3 -I -B scripts/hermes-sync/check_sync.py --write
+
+hermes-skills-review: ## Record reviewed skill trees in skills-reviewed.json after reading them (NAME=<skill or folder>, or ALL=1)
+	@if [ "$(ALL)" = 1 ]; then python3 -I -B scripts/hermes-sync/check_sync.py --review-all; \
+	elif [ -n "$(NAME)" ]; then python3 -I -B scripts/hermes-sync/check_sync.py --review-skills $(NAME); \
+	else echo "hermes-skills-review: set NAME=<skill or folder> or ALL=1"; exit 1; fi

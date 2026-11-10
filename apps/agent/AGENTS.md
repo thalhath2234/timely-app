@@ -1,0 +1,54 @@
+# apps/agent: Timely's agent, built on a copy of Hermes Agent
+
+`hermes/` is a filtered, byte-identical copy of [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) (MIT). Timely runs it in per-account Python workers that the Go API spawns (ADR 0026). Everything else in this folder is Timely's. The design is `docs/plans/2026-11-08-timely-agent-from-hermes.md`; read its section 4 before changing how the copy is used.
+
+## Where code goes
+
+- **Timely code** lives beside the copy: `timely_agent/` (worker, adapters, plugins, tests), `skills/` (Timely skills; `skills/overrides/<name>/` replaces an upstream skill of that name; the folder arrives in phase 2 with the `timely` skill, and until then `prepare` stages an empty read-only copy on purpose), `.hermes-sync/` (filter, sync records, policy files).
+- **Behaviour changes to Hermes** go through runtime seams first: `AIAgent` constructor arguments and callbacks, plugin hooks (`pre_tool_call`, `post_tool_call`, `register_tool`), per-home `config.yaml` and `SOUL.md`, the approval bridge, and the write-approval, skill-ledger and skills-sync APIs.
+- **Patch points** are the last resort: a one-line call into `timely_agent` inside a vendored file, marked `# TIMELY(Pn)` and listed in `.hermes-sync/patches.md`. Budget: zero today, hard cap five. Fixes that belong upstream go upstream.
+
+## The copy is read-only
+
+`hermes/` changes only through `make hermes-sync`. Treat every file under it as upstream's: edit, rename, move, reformat or delete one only at a listed patch point. That includes `hermes/pyproject.toml`, `hermes/uv.lock` and `hermes/HERMES_UPSTREAM.json`. To turn a Hermes feature off, disable it by config or by the tool policy; a deleted vendored file conflicts on every later sync.
+
+Hermes' own `AGENTS.md` files (`hermes/AGENTS.hermes.md`, `hermes/<pkg>/AGENTS.md`) describe its architecture and are worth reading. Their workflow rules (rebase onto main, `scripts/run_tests.sh`, `hermes pm lock`, `hermes update`) are upstream's process and do not apply here.
+
+Any Hermes process you start, test or script gets fresh `HERMES_HOME` and `HERMES_RUNTIME_DIR` folders under a temp dir such as `$HOME/.cache/timely-agent-test/`. Your own `~/.hermes` stays untouched: never read, write or point anything at it.
+
+## Running and testing the worker
+
+The Go API spawns one worker per account (`apps/api/internal/agenthost`); the wire contract is `PROTOCOL.md`. Commands, all from the repo root (export `TMPDIR=$HOME/.cache/gotmp` first when `/tmp` is a small tmpfs):
+
+| Command | What it does |
+| --- | --- |
+| `make agent-install` | builds `apps/agent/.venv` from Hermes' own `uv.lock` (uv-managed CPython 3.14.9, extras in `.hermes-sync/extras.txt`). Without uv it prints a notice and exits 0. `make install` runs it. |
+| `make agent-lint` | ruff on `timely_agent/` and `tests/`. |
+| `make agent-test` | worker unit and process tests (`tests/`, not `tests/contract`). `ARGS=...` passes pytest arguments. |
+| `make agent-contract` | the contract tests of plan 10.4 f (`tests/contract/test_contract.py`, numbered `test_cNN_*`), against real workers and the stub model. `ARGS="-k c19"` picks some. |
+| `make agent-go-integration` | the Go supervisor with the real worker: prepare, render-account, spawn, `hello`, `ready`, `run.start` on a Go stub model, `run.done`, `shutdown`. |
+| `make agent-go-vet-windows` | vets the Windows spawn path (Job Object) from any OS. |
+| `make hermes-sync-check` | the post-sync checks: plan 10.4 a-f and the agent half of g (`agent-test`, `agent-contract`). The Go half, `make test-api`, runs in CI's api job; run it yourself after a sync. |
+
+Rules for tests and experiments:
+
+- The model is always a stub: `tests/stub_openai.py` (Python) or `stubModel` in `agenthost/integration_test.go`, both on 127.0.0.1 with an OS-picked port. Never point a test at a live provider, and never use ports 8080/4001.
+- Test agent folders go under `$HOME/.cache/timely-agent-test/run-<pid>` and are removed after the session (`TIMELY_AGENT_KEEP=1` keeps them). Go tests use `$HOME/.cache/timely-agent-test/agenthost-*`.
+- Start workers the way Go does: `tests/harness.py` (`Agent` prepares a folder and renders an account; `Worker` spawns `<venv python> -I timely_agent/boot.py worker` with an environment built from scratch). `tests/contract/probe_boot.py` wraps the same boot path for the network probe (test 5) and the stdout tool (test 19).
+- By hand: `boot.py prepare --agent-dir <dir>` once, `boot.py render-account --agent-dir <dir> --account <uid> --prepared <json>` (settings JSON on stdin; `--prepared` holds prepare's `timely_skills_dir`, `seed_skills_dir`, `browser_executable` and `skills_default_off`), then spawn `boot.py worker` with the `env` both print, plus `PATH`, `LANG`, `TMPDIR` and `HERMES_REAL_HOME`. The first stdin line is `hello` with `home` and `settings_hash` from render-account and prepare's values (PROTOCOL.md).
+- Hermes is imported only inside worker and helper subprocesses, never into the pytest process.
+- A new Hermes symbol imported in `timely_agent` is picked up by contract test 7 automatically; a symbol reached through a module or object attribute goes in its `SYMBOLS` table. A Hermes behaviour Timely depends on goes in `TIMELY_SEAMS` (`scripts/hermes-sync/check_seams.py`), then `make hermes-tools-dump`.
+
+## Syncing Hermes
+
+1. `make hermes-sync` (newest stable `vX.Y.Z`) or `make hermes-sync HERMES_REF=v0.23.1`. On `dev` it first creates `fix/hermes-sync-<tag>`. Cadence: a tagged release every one to two weeks, a security fix at once.
+2. Read the report at `.git/hermes-sync-report.md` (it is the PR body): classify new tools in the policy file, review changed skills, check dependencies, config and seams.
+3. Resolve conflicts:
+   - content conflict at a patch point: take upstream, re-apply the change from `patches.md`, keep the marker; if upstream now offers a seam, move the logic into `timely_agent` and drop the patch point.
+   - modify/delete: restore the file, then disable it by config or policy.
+   - rename/modify: check the marker moved with the file.
+   - `hermes/HERMES_UPSTREAM.json`: always theirs.
+4. `make hermes-sync-check`; commit the regenerated dumps and policy changes on the sync branch.
+5. Open the PR with the report as its body and merge it with a **merge commit**. A squash or rebase cuts the link to the snapshot and the next sync (and `make hermes-sync-check`) refuses to run. Recovery: find the real snapshot commit whose `apps/agent/hermes/HERMES_UPSTREAM.json` matches HEAD's. `scripts/hermes-sync/snapshot-of.sh <tag>` searches HEAD, every local ref (each sync sets `refs/hermes/snapshots/<tag>`) and every reflog. By hand: the second parent of the `hermes: sync <tag>` merge on the branch that imported it; when a rebase dropped that merge from your own branch, the branch reflog still has it (`git log -g --format='%H %gs' <branch>`, then `<merge>^2`); for a squash-merged PR, `git fetch origin pull/<n>/head` and take it from there. Then `git merge -s ours --allow-unrelated-histories <snapshot>` and re-run `make hermes-sync HERMES_REF=<tag>`. The flag is needed because the first snapshot shares no history with Timely. The re-run finds nothing to import, but when the rebase dropped the `hermes: sync <tag>` merge (the only commit that recorded the tag in `.hermes-sync/tags.json`), it records the tag again in a commit of its own, so `make hermes-sync-check` passes. A replayed snapshot (rebase) or a wrong one merged earlier is skipped as long as its record differs. `refs/hermes/vendor` is only the last snapshot any sync on this clone made (all worktrees share it), so check its tag before using it.
+
+How the script works, the filter and the verification records: `.hermes-sync/README.md`.

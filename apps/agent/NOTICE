@@ -1,0 +1,17 @@
+Timely agent (apps/agent)
+
+This folder contains a copy of Hermes Agent in apps/agent/hermes/:
+
+  Hermes Agent, Copyright (c) 2025 Nous Research, MIT License.
+  https://github.com/NousResearch/hermes-agent
+  First copied from commit 2bd378ed1b8d6bf2192cb26e0a55ff3091e6bd19 (v0.23.0).
+  The commit of the current copy is in apps/agent/hermes/HERMES_UPSTREAM.json
+  and in the Hermes-Commit trailer of the latest "hermes: snapshot" commit.
+
+The full licence is apps/agent/hermes/LICENSE. Files inside the copy that carry
+their own licence keep it, unmodified, next to them (for example
+plugins/security-guidance is Apache-2.0 with its own NOTICE, and several skill
+folders have their own LICENSE files).
+
+Timely's own code in this folder (timely_agent/, skills/, .hermes-sync/) is
+under the repository's licence (LICENSE at the repo root).

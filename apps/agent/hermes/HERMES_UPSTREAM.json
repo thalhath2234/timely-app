@@ -1,0 +1,38 @@
+{
+  "commit": "2bd378ed1b8d6bf2192cb26e0a55ff3091e6bd19",
+  "committed": "2026-11-05T11:57:38-08:00",
+  "filterSha1": "3dec86785446be877b464a9fd9d9ad0d7859dd18",
+  "repo": "https://github.com/NousResearch/hermes-agent",
+  "stats": {
+    "bytes": 74217605,
+    "caseCollisions": [],
+    "dropped": {
+      "(root)": 30,
+      ".github": 81,
+      "apps": 4910,
+      "contributors": 2317,
+      "docker": 26,
+      "evals": 236,
+      "locales": 34,
+      "native": 5,
+      "nix": 25,
+      "plugins": 8,
+      "scripts": 14,
+      "tests": 7766,
+      "tests-js": 46,
+      "ui-tui": 661,
+      "web": 261,
+      "website": 791
+    },
+    "files": 5340,
+    "gitlinks": [],
+    "longestPath": {
+      "length": 150,
+      "overWindowsWarn": 0,
+      "path": "apps/agent/hermes/plugins/config_backends/remote/vendor/conformance/config-resolution/lock-freezes-inherited-value-with-no-value-at-locking-level.json"
+    },
+    "newTopLevelDirs": [],
+    "symlinks": []
+  },
+  "tag": "v0.23.0"
+}

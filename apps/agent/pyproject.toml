@@ -1,0 +1,17 @@
+# Timely tooling for apps/agent only: no runtime dependencies live here.
+# The runtime is Hermes' own lock (hermes/pyproject.toml + hermes/uv.lock), installed by
+# `make agent-install` into apps/agent/.venv with the extras in .hermes-sync/extras.txt and
+# Hermes' "dev" dependency group (pytest, ruff at Hermes' pinned versions).
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider"
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+extend-exclude = ["hermes", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "PLW1514"]
+ignore = ["E501", "B008"]
+preview = true
