@@ -490,7 +490,9 @@ func (s *Service) stop(c *echo.Context) error {
 			}
 			row.Activity = ChatActivity{}
 			if text := strings.TrimSpace(draft); text != "" {
-				row.Messages = append(row.Messages, message("assistant", text))
+				m := message("assistant", text)
+				m.Cut = true
+				row.Messages = append(row.Messages, m)
 			}
 			row.Messages = append(row.Messages, notice(tr(row.Language, txtStopped)))
 		}

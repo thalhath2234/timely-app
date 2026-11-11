@@ -28,7 +28,11 @@ type Message struct {
 	// Proposal marks a proposal summary. Remaining is what a batched proposal
 	// leaves for the next batch; Timely continues automatically once the batch
 	// is applied, and Continue carries that remainder on the notice it adds.
-	Proposal  bool   `json:"proposal,omitempty"`
+	Proposal bool `json:"proposal,omitempty"`
+	// Cut marks a reply Stop cut short (its streamed text, kept, Q-2.5). It
+	// does not end the turn: Retry and the next message still carry the
+	// person's request.
+	Cut       bool   `json:"cut,omitempty"`
 	Remaining string `json:"remaining,omitempty"`
 	Continue  string `json:"continue,omitempty"`
 	// Notes are a proposal's review notes from Jev (see jev.go).

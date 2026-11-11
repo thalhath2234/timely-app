@@ -520,8 +520,22 @@ func TestIntegrationAgentEngineStopMidRunAppliesNothing(t *testing.T) {
 		t.Fatalf("after Stop: plan %+v, %d items, %d stopped notices, run %q", c.Plan, items(h.db), notices, c.AgentRunID)
 	}
 	// What it streamed before Stop stays as the reply, ahead of the notice.
-	if n := len(c.Messages); n < 2 || c.Messages[n-2].Content != "Drafting" || c.Messages[n-2].Kind != "" {
+	if n := len(c.Messages); n < 2 || c.Messages[n-2].Content != "Drafting" || c.Messages[n-2].Kind != "" || !c.Messages[n-2].Cut {
 		t.Fatalf("streamed text not kept on Stop: %+v", c.Messages)
+	}
+	// Retry sends the request again: the cut reply did not end the turn.
+	if code, body := h.post("/chats/"+c.ID+"/retry", "{}"); code != 200 {
+		t.Fatalf("retry: %d %s", code, body)
+	}
+	starts := h.kit.WaitReceived("run.start", 2, 20*time.Second)
+	var start struct {
+		UserMessage string `json:"user_message"`
+	}
+	if err := starts[1].Decode(&start); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(start.UserMessage, "Add Buy milk\n\n"+cutNotice+"Drafting") {
+		t.Fatalf("retried run.start message %q", start.UserMessage)
 	}
 }
 

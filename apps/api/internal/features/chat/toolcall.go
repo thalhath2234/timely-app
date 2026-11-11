@@ -330,6 +330,9 @@ func (s *Service) turnInput(ctx context.Context, c *Conversation) string {
 	return strings.Join(parts, "\n\n")
 }
 
+// cutNotice introduces a reply Stop cut short.
+const cutNotice = "System notice (not written by the user): your reply was stopped before it finished. It had said: "
+
 // sinceLastTurn renders the messages after the model's last reply or
 // proposal, as classic reads them: the person's words as written, Timely's
 // notices and change records as data. Steering messages already reached the
@@ -337,7 +340,7 @@ func (s *Service) turnInput(ctx context.Context, c *Conversation) string {
 func sinceLastTurn(messages []Message) []string {
 	start := 0
 	for i := len(messages) - 1; i >= 0; i-- {
-		if m := messages[i]; m.Role == "assistant" && m.Kind == "" {
+		if m := messages[i]; m.Role == "assistant" && m.Kind == "" && !m.Cut {
 			start = i + 1
 			break
 		}
@@ -350,6 +353,8 @@ func sinceLastTurn(messages []Message) []string {
 			continue
 		case m.Role == "user":
 			out = append(out, m.Content)
+		case m.Cut:
+			out = append(out, cutNotice+m.Content)
 		default:
 			out = append(out, "System notice (not written by the user): "+m.Content)
 		}

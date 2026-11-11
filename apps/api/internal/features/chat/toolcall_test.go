@@ -225,6 +225,27 @@ func TestToolRunSavesAndLoadsRunReads(t *testing.T) {
 	}
 }
 
+// A reply Stop cut short does not end the turn: Retry, or the next
+// message, still carries the person's request, with the cut text as data.
+func TestSinceLastTurnSkipsACutReply(t *testing.T) {
+	cut := message("assistant", "Drafting")
+	cut.Cut = true
+	got := sinceLastTurn([]Message{
+		message("user", "Plan my week"),
+		message("assistant", "Here is a plan."),
+		message("user", "Add Buy milk"),
+		cut,
+		notice("Stopped."),
+	})
+	if len(got) != 3 || got[0] != "Add Buy milk" || got[1] != cutNotice+"Drafting" || got[2] != "System notice (not written by the user): Stopped." {
+		t.Fatalf("turn input %q", got)
+	}
+	seed := historySeed([]Message{message("user", "Add Buy milk"), cut, notice("Stopped."), message("user", "Try again")})
+	if seed != nil {
+		t.Fatalf("a cut reply ended the seed: %v", seed)
+	}
+}
+
 // The agent engine's turn input starts after the model's last reply:
 // Timely's notices as data, the person's words as written; steering
 // messages already reached their run.

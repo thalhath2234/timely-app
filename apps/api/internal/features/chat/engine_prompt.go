@@ -63,7 +63,7 @@ func blockHash(block string) string {
 func historySeed(messages []Message) []map[string]string {
 	end := 0
 	for i := len(messages) - 1; i >= 0; i-- {
-		if m := messages[i]; m.Role == "assistant" && m.Kind == "" {
+		if m := messages[i]; m.Role == "assistant" && m.Kind == "" && !m.Cut {
 			end = i + 1
 			break
 		}
