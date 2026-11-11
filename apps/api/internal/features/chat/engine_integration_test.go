@@ -490,6 +490,47 @@ func TestIntegrationAgentEngineOutsideReadHoldsADirectProposal(t *testing.T) {
 	}
 }
 
+// Taint the worker reports (a `taint` line, a tool.call's tainted_sources or
+// run.done's) holds a direct proposal in Auto on its own: the only Go read
+// in these runs, get_task, is not outside.
+func TestIntegrationAgentEngineWorkerTaintHoldsADirectProposal(t *testing.T) {
+	web := TaintSource{Kind: "web", Tool: "web_extract", Host: "example.com"}
+	readTask := func() []any {
+		return []any{toolStarted("call_r", "get_task"), toolCallLine("call_r", "get_task", obj{"taskId": "tsk_missing"}, 1), toolCompleted("call_r", "get_task")}
+	}
+	done := obj{"type": "run.done", "final_response": "I drafted the change.", "completed": true, "interrupted": false,
+		"turn_exit_reason": "end_turn", "tokens": obj{}, "estimated_cost_usd": nil, "turn_id": ""}
+	for name, tail := range map[string][]any{
+		"taint line": {obj{"type": "taint", "sources": []TaintSource{web}}, toolCallLine("call_p", "propose_changes", buyMilk(true), 1), reply("I drafted the change.", 0)},
+		"tool.call":  {toolCallLine("call_p", "propose_changes", buyMilk(true), 1, web), reply("I drafted the change.", 0)},
+		"run.done": {toolCallLine("call_p", "propose_changes", buyMilk(true), 1), reply("I drafted the change.", 0),
+			func() obj {
+				d := obj{}
+				for k, v := range done {
+					d[k] = v
+				}
+				d["tainted_sources"] = []TaintSource{web}
+				return d
+			}()},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newEngineHarness(t)
+			c := h.chat("Read the page, then add Buy milk", "auto", "worker-taint", lines(append(readTask(), tail...)...))
+			c = h.wait(c.ID, "held the proposal", ended)
+			if c.Status != "approval" || items(h.db) != 0 {
+				t.Fatalf("status %s, %d items: the tainted proposal applied", c.Status, items(h.db))
+			}
+			found := false
+			for _, src := range c.TaintedSources {
+				found = found || src == web
+			}
+			if !found {
+				t.Fatalf("tainted_sources %+v", c.TaintedSources)
+			}
+		})
+	}
+}
+
 // Stop while the run is live, after it recorded a proposal (in Auto, which
 // would apply it): the run ends, the worker is told, and no step applies.
 func TestIntegrationAgentEngineStopMidRunAppliesNothing(t *testing.T) {
@@ -675,6 +716,31 @@ func TestIntegrationAgentEngineReseedsAfterClassicTurns(t *testing.T) {
 	}
 	if second.Reseed || second.History != nil {
 		t.Fatalf("second run.start: reseed %v history %v", second.Reseed, second.History)
+	}
+}
+
+// A steer no run takes (the run it named is gone) is refused and taken back
+// out of the chat, so sending it again doesn't leave a duplicate.
+func TestIntegrationAgentEngineUndeliveredSteerIsTakenBack(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Plan my week", "supervised", "steer-gone", lines(reply("Working", 0), obj{"fake": "hang"}))
+	c = h.wait(c.ID, "started", func(c Conversation) bool { return c.Activity.Draft == "Working" })
+	live := c.AgentRunID
+	if err := h.db.Model(&Conversation{}).Where("id = ?", c.ID).Update("agent_run_id", "run_gone").Error; err != nil {
+		t.Fatal(err)
+	}
+	if code, body := h.post("/chats/"+c.ID+"/steer", `{"text":"also add eggs"}`); code != 409 {
+		t.Fatalf("steer to a gone run: %d %s", code, body)
+	}
+	_ = h.db.First(&c, "id = ?", c.ID).Error
+	for _, m := range c.Messages {
+		if m.Kind == "steer" {
+			t.Fatalf("the undelivered steer stayed: %+v", c.Messages)
+		}
+	}
+	h.db.Model(&Conversation{}).Where("id = ?", c.ID).Update("agent_run_id", live)
+	if code, body := h.post("/chats/"+c.ID+"/stop", ""); code != 200 {
+		t.Fatalf("stop: %d %s", code, body)
 	}
 }
 

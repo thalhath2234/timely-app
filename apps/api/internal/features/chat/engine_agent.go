@@ -899,8 +899,13 @@ func (e *WorkerEngine) done(r *agentRun, m agenthost.Message) {
 		e.fail(r, emptyAnswer, ActionRetry)
 	default:
 		if len(r.taint) > 0 {
-			// The proposal decision reads the chat's tainted_sources.
+			// The proposal decision reads the chat's tainted_sources: a
+			// flush that did not commit must not let it decide without them.
 			e.flush(r)
+			if len(r.taint) > 0 {
+				e.fail(r, runFailedUnsaved, ActionRetry)
+				return
+			}
 		}
 		r.mu.Lock()
 		r.conv.Lease = r.lease

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"slices"
 	"strings"
 	"sync"
@@ -859,6 +860,26 @@ func (s *Service) steer(c *echo.Context) error {
 		return err
 	}
 	if err := s.engine.Steer(c.Request().Context(), row.UserID, row.ID, runID, in.Text); err != nil {
+		// No run read it: take it back, so the person can send it again
+		// as a new message.
+		steerID := row.Messages[len(row.Messages)-1].ID
+		if derr := s.db.Transaction(func(tx *gorm.DB) error {
+			var latest Conversation
+			if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), row.UserID, row.ID, &latest); err != nil {
+				return err
+			}
+			kept := latest.Messages[:0]
+			for _, m := range latest.Messages {
+				if m.ID != steerID {
+					kept = append(kept, m)
+				}
+			}
+			latest.Messages = kept
+			latest.Revision++
+			return tx.Save(&latest).Error
+		}); derr != nil {
+			log.Printf("chat steer: taking back an undelivered steer: %v", derr)
+		}
 		return echo.NewHTTPError(409, "The run ended before your message reached it")
 	}
 	s.fillImages(&row)
