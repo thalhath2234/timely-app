@@ -1400,14 +1400,14 @@ Marked by the phase that needs the answer.
 
 **Phase 3**
 
-- Q-3.1 Learning default for clean sessions: silent with undo plus a chip, staging only when the session read outside content or the write came from a bot (recommended), or approval for every learned item?
-- Q-3.2 A separate "Learning model" setting for cheaper passes?
-- Q-3.3 Copy "What you use Timely for" into About you once, with your OK?
-- Q-3.4 Include agent state in per-account backups (recommended, 64 MB cap), and bring restored learned skills back disabled until re-enabled (recommended)?
-- Q-3.5 Agent searches past chats by default (recommended)? Bot ticks are never written to the search history (decided for safety; their record is the bot's check log).
-- Q-3.6 Curator auto-archive after 30 days unused: keep, lengthen, or off?
-- Q-3.7 Agent edits to bundled skills: silent with undo (copy-on-write, recommended) or always approval?
-- Q-3.8 Search backend for accounts without a search key: the Timely backend that uses the chat provider's own search (recommended), or require a key?
+- Q-3.1 Learning default for clean sessions: silent with undo plus a chip, staging only when the session read outside content or the write came from a bot (recommended), or approval for every learned item? **Answered 2026-11-11: silent with undo plus a chip; staged only after outside content or a bot's write.**
+- Q-3.2 A separate "Learning model" setting for cheaper passes? **Answered 2026-11-11: no; learning uses the chat's provider and model.**
+- Q-3.3 Copy "What you use Timely for" into About you once, with your OK? **Answered 2026-11-11: yes, copied once when learning turns on; editable in About you.**
+- Q-3.4 Include agent state in per-account backups (recommended, 64 MB cap), and bring restored learned skills back disabled until re-enabled (recommended)? **Answered 2026-11-11: yes to both (64 MB cap; restored skills come back disabled, marked "restored, review").**
+- Q-3.5 Agent searches past chats by default (recommended)? Bot ticks are never written to the search history (decided for safety; their record is the bot's check log). **Answered 2026-11-11: on by default, with a setting to turn it off.**
+- Q-3.6 Curator auto-archive after 30 days unused: keep, lengthen, or off? **Answered 2026-11-11: off. The curator never archives automatically.**
+- Q-3.7 Agent edits to bundled skills: silent with undo (copy-on-write, recommended) or always approval? **Answered 2026-11-11: silent copy-on-write with undo, and "Updated upstream" when the bundled skill changes.**
+- Q-3.8 Search backend for accounts without a search key: the Timely backend that uses the chat provider's own search (recommended), or require a key? **Answered 2026-11-11: the chat provider's own search through the Timely backend; a search key in Settings overrides it.**
 
 **Phase 4**
 
