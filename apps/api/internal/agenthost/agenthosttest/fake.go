@@ -403,14 +403,16 @@ func (f *fake) approvalAnswer(m map[string]any) {
 	r := f.runs[run]
 	waiting := r != nil && r.waitingOK
 	if waiting {
+		// Queued under f.mu, so the wait directive sees it the moment
+		// waitingOK drops. waitingOK is only set while approvals is empty.
 		r.waitingOK = false
+		r.approvals <- id
 	}
 	f.mu.Unlock()
 	switch {
 	case r == nil:
 		f.fail(id, run, "unknown_run", "no live run "+run)
 	case waiting:
-		r.approvals <- id
 		f.send(map[string]any{"type": "ack", "id": id, "ok": true})
 	default:
 		f.send(map[string]any{"type": "ack", "id": id, "ok": false})
@@ -463,6 +465,16 @@ func (f *fake) replay(r *fakeRun, lines []json.RawMessage) {
 	f.send(map[string]any{"type": "run.done", "id": r.startID, "run": r.id, "final_response": r.text.String(),
 		"completed": true, "interrupted": false, "turn_exit_reason": "text_response", "tokens": zeroTokens(),
 		"estimated_cost_usd": nil, "turn_id": "", "tainted_sources": []any{}})
+}
+
+// arm makes the run accept one approval.answer, unless one is already
+// queued for the next wait.
+func (f *fake) arm(r *fakeRun) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(r.approvals) == 0 {
+		r.waitingOK = true
+	}
 }
 
 // forget drops a run from the live table. It runs before the run's run.done
@@ -539,10 +551,15 @@ func (f *fake) step(r *fakeRun, raw json.RawMessage) bool {
 	delete(obj, "_nowait")
 	switch typ {
 	case "event":
-		if str(obj, "kind") == "delta" {
+		switch str(obj, "kind") {
+		case "delta":
 			if p, ok := obj["payload"].(map[string]any); ok {
 				r.text.WriteString(str(p, "text"))
 			}
+		case "approval.request":
+			// Like Hermes, the approval is pending before Go hears of it, so
+			// an answer that beats the fixture's wait line is still taken.
+			f.arm(r)
 		}
 		f.send(obj)
 		return true
@@ -628,9 +645,7 @@ func (f *fake) directive(r *fakeRun, directive string, obj map[string]any) bool 
 			fmt.Fprintln(os.Stderr, "fake worker: unknown wait", str(obj, "for"))
 			return true
 		}
-		f.mu.Lock()
-		r.waitingOK = true
-		f.mu.Unlock()
+		f.arm(r)
 		select {
 		case <-r.approvals:
 			return true
