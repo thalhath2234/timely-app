@@ -13,6 +13,7 @@ import (
 	"timely-api/internal/features/event"
 	"timely-api/internal/features/focus"
 	"timely-api/internal/features/instance"
+	"timely-api/internal/features/learning"
 	"timely-api/internal/features/linkpreview"
 	"timely-api/internal/features/notify"
 	"timely-api/internal/features/portability"
@@ -49,12 +50,15 @@ type Handlers struct {
 	Suggest   *suggest.Service
 	Focus     *focus.Service // habits and goals on Today
 	Bots      *bots.Service
-	Merge     *workspace.Merger
-	Notify    *notify.Handler
-	Portable  *portability.Handler
-	Instance  *instance.Handler
-	MCP       http.Handler
-	Sessions  middleware.SessionGuard
+	// Learning serves /agent/learning/* (what the agent learned; phase 3).
+	// Nil leaves the routes out.
+	Learning *learning.Service
+	Merge    *workspace.Merger
+	Notify   *notify.Handler
+	Portable *portability.Handler
+	Instance *instance.Handler
+	MCP      http.Handler
+	Sessions middleware.SessionGuard
 	// AuthLimiter guards /login, /register and /auth/refresh; nil uses the
 	// production limits (20/min per IP, 8/min per account).
 	AuthLimiter *middleware.RateLimiter
@@ -100,6 +104,9 @@ func SetupRoutes(e *echo.Echo, h Handlers) {
 	}
 	if h.Bots != nil {
 		h.Bots.Routes(protected)
+	}
+	if h.Learning != nil {
+		h.Learning.Routes(protected)
 	}
 	if h.Instance != nil {
 		protected.GET("/instance", h.Instance.Instance)
