@@ -48,6 +48,11 @@ func newAgentEngine(db *gorm.DB, chatService *chat.Service, catalog func() agent
 		log.Printf("agent engine: %v Chats use the classic engine.", err)
 		return engine
 	}
+	// Claude Code and Codex reach the agent engine through the loopback
+	// model gateway (plan 5.7); it lives as long as the API process.
+	if _, err := providers.StartAgentGateway(); err != nil {
+		log.Printf("agent engine: %v. Claude Code and Codex chats use the classic engine.", err)
+	}
 	// The host-wide prepare step moves its cost out of the first chat on
 	// the new engine; Ensure runs it itself if this fails.
 	go func() {

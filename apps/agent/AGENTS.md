@@ -44,15 +44,14 @@ Rules for tests and experiments:
 
 ## Parity run: 84 scenarios on both engines
 
-Phase 2's exit needs the 84 agent QA scenarios run on classic and on the agent engine with a real model. It is the one check that calls a live provider, so it runs only when the owner hands over a key. For Claude, use Haiku and no other model. The harness is `apps/api/scripts/agentqa` (its `README.md` has the scoring and scenario format).
+Phase 2's exit needs the 84 agent QA scenarios run on classic and on the agent engine with a real model. It is the one check that calls a live provider. The owner's choice for it is **Claude Code with Sonnet** (`PROVIDER=claude MODEL=sonnet`): the API host's own signed-in `claude` CLI, so no key is handed over. On the agent engine, Claude Code and Codex go through the loopback model gateway (`apps/api/internal/features/provider/gateway.go`, plan 5.7): an OpenAI-compatible server on 127.0.0.1 and an OS-picked port that answers with the same Completer classic uses. An API-key provider needs the owner's key instead. The harness is `apps/api/scripts/agentqa` (its `README.md` has the scoring and scenario format).
 
 1. Start a worktree API on 8081 with its own schema and the agent runtime (`make agent-install` once). Do not use ports 8080 or 4001:
    `DB_SCHEMA=parity ALLOW_REGISTRATION=true TIMELY_DATA_DIR=$HOME/.cache/timely-parity/data make dev-worktree-api`
-2. In the same shell that runs the harness, export the key. It is read only from `TIMELY_PARITY_KEY`, and `make` refuses a value that comes from `.env` or the command line:
-   `export TIMELY_PARITY_KEY=<the Anthropic key>`
+2. For an API-key provider only: in the same shell that runs the harness, export the key. It is read only from `TIMELY_PARITY_KEY`, and `make` refuses a value that comes from `.env` or the command line. `claude` and `codex` need none: the harness connects the host's CLI.
 3. Run both engines:
-   `make agent-parity ENGINE=both PROVIDER=anthropic MODEL=claude-haiku-5-5 SCENARIOS=apps/api/scripts/agentqa/scenarios.json OUT=$HOME/.cache/timely-parity/$(date +%Y%m%d-%H%M)`
-   - `MODEL` is the Haiku id that Settings → Agent lists for the Anthropic API. Do not use the `haiku` alias: it belongs to the `claude` CLI provider, which the agent engine does not support until phase 4.
+   `make agent-parity ENGINE=both PROVIDER=claude MODEL=sonnet SCENARIOS=apps/api/scripts/agentqa/scenarios.json OUT=$HOME/.cache/timely-parity/$(date +%Y%m%d-%H%M)`
+   - `MODEL` is the id Settings → Agent lists for that provider (`sonnet` for Claude Code).
    - The chats run Supervised, the harness's `-permission` default, so every proposal waits and the scenario approves it.
    - `ONLY=tasks-01,docs` picks scenario ids or whole categories.
    - `TIMELY_API` changes the API, which defaults to `http://localhost:8081`.

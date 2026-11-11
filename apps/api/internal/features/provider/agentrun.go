@@ -16,7 +16,7 @@ import (
 
 // ErrAgentEngineUnsupported means the run's provider cannot drive the agent
 // engine yet, so the chat stays on the classic engine. The host CLIs need the
-// loopback model gateway of phase 4.
+// loopback model gateway (gateway.go) to be running.
 var ErrAgentEngineUnsupported = errors.New("Claude Code and Codex use the classic engine until a later update")
 
 // unsupportedError is ErrAgentEngineUnsupported with a reason of its own.
@@ -117,7 +117,7 @@ func hermesProvider(id, base string) string {
 func (s *Service) AgentModel(ctx context.Context, userID, provider, model string) (AgentModel, error) {
 	switch {
 	case provider == ClaudeCLI || provider == CodexCLI:
-		return AgentModel{}, ErrAgentEngineUnsupported
+		return s.cliAgentModel(ctx, userID, provider, model)
 	case provider == "":
 		return AgentModel{}, errors.New("This run has no AI provider. Try again")
 	case provider != OpenRouter && apiProviderByID(provider) == nil:
@@ -140,6 +140,29 @@ func (s *Service) AgentModel(ctx context.Context, userID, provider, model string
 		return AgentModel{}, fmt.Errorf("%s is not connected. Add its key in Settings → Agent", spec.Label)
 	}
 	return s.apiAgentModel(spec, row, model)
+}
+
+// cliAgentModel sends a Claude Code or Codex run through the loopback
+// gateway: Hermes calls it as a custom OpenAI-compatible endpoint with a
+// secret for this account, provider and model, and the gateway answers
+// with the CLI's Completer. Without a gateway the chat stays classic.
+func (s *Service) cliAgentModel(ctx context.Context, userID, provider, model string) (AgentModel, error) {
+	if s.gateway == nil {
+		return AgentModel{}, ErrAgentEngineUnsupported
+	}
+	if model == "" {
+		row, err := s.load(s.db.WithContext(ctx), userID)
+		if err != nil {
+			return AgentModel{}, err
+		}
+		model = s.chatModel(row, provider)
+	}
+	// The same checks the classic engine makes: CLI on, found, connected.
+	if _, err := s.Completer(ctx, userID, provider, model); err != nil {
+		return AgentModel{}, err
+	}
+	return AgentModel{Provider: "custom", Model: model, BaseURL: s.gateway.BaseURL(),
+		APIKey: s.gateway.grant(userID, provider, model), APIMode: apiModeChat}, nil
 }
 
 // openRouterAgentModel is OpenRouter direct: the account's key, the chat

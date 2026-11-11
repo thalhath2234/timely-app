@@ -624,7 +624,7 @@ agent-parity: ## Run the agent QA scenarios on classic, the agent engine or both
 	@case "$(ENGINE)" in classic|agent|both) ;; *) echo "$(RED)agent-parity: ENGINE must be classic, agent or both$(RESET)"; exit 1;; esac
 	@if [ -z "$(PROVIDER)" ] || [ -z "$(MODEL)" ] || [ -z "$(SCENARIOS)" ] || [ -z "$(OUT)" ]; then \
 		echo "$(RED)Usage: make agent-parity ENGINE=classic|agent|both PROVIDER=<id> MODEL=<id> SCENARIOS=<file> OUT=<dir> [ONLY=<ids>]$(RESET)"; exit 1; fi
-	@test -n "$$TIMELY_PARITY_KEY" || { echo "$(RED)agent-parity: export TIMELY_PARITY_KEY in your shell first$(RESET)"; exit 1; }
+	@case "$(PROVIDER)" in claude|codex) ;; *) test -n "$$TIMELY_PARITY_KEY" || { echo "$(RED)agent-parity: export TIMELY_PARITY_KEY in your shell first (claude and codex need none)$(RESET)"; exit 1; };; esac
 	@cd $(API) && TIMELY_API=$${TIMELY_API:-http://localhost:8081} go run ./scripts/agentqa -engine "$(ENGINE)" -provider "$(PROVIDER)" -model "$(MODEL)" \
 		-scenarios "$(abspath $(SCENARIOS))" -out "$(abspath $(OUT))" $(if $(ONLY),-only "$(ONLY)")
 

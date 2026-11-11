@@ -155,7 +155,13 @@ func Signup(ctx context.Context, cfg Config, engine string) (*client, string, st
 		// Ollama needs no key; the server's OLLAMA_BASE_URL is the address.
 		keyBody = map[string]string{"key": "", "baseUrl": ""}
 	}
-	if err := c.do(ctx, "POST", "/agent/providers/"+cfg.Provider+"/key", keyBody, nil); err != nil {
+	connect := "/agent/providers/" + cfg.Provider + "/key"
+	var body any = keyBody
+	if hostCLI(cfg.Provider) {
+		// Claude Code and Codex use the API host's own signed-in CLI.
+		connect, body = "/agent/providers/"+cfg.Provider+"/connect", nil
+	}
+	if err := c.do(ctx, "POST", connect, body, nil); err != nil {
 		// The answer may quote the request; never print the key.
 		return nil, "", "", fmt.Errorf("connect provider %s: %s", cfg.Provider, scrub(err.Error(), cfg.Key))
 	}
@@ -182,6 +188,9 @@ func Signup(ctx context.Context, cfg Config, engine string) (*client, string, st
 	}
 	return c, email, unavailable, nil
 }
+
+// hostCLI reports a provider that is the API host's own CLI login.
+func hostCLI(provider string) bool { return provider == "claude" || provider == "codex" }
 
 func randomPassword() string {
 	b := make([]byte, 12)

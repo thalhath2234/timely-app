@@ -31,7 +31,7 @@ import (
 
 func main() {
 	engine := flag.String("engine", "both", "classic, agent or both")
-	provider := flag.String("provider", "", "provider id, as Settings → Agent names it (e.g. openrouter, anthropic, ollama)")
+	provider := flag.String("provider", "", "provider id, as Settings → Agent names it (e.g. openrouter, anthropic, ollama, or claude and codex, the host's signed-in CLIs, which need no key)")
 	model := flag.String("model", "", "model id")
 	scenariosPath := flag.String("scenarios", "", "scenarios JSON file")
 	out := flag.String("out", "", "directory for <engine>.json and report.md")
@@ -54,7 +54,7 @@ func main() {
 		fail("-permission must be supervised, auto or full")
 	}
 	key := os.Getenv("TIMELY_PARITY_KEY")
-	if key == "" {
+	if key == "" && !hostCLI(*provider) {
 		fail("export TIMELY_PARITY_KEY in your shell (any non-empty value for a stub model); it is never read from .env")
 	}
 	api := os.Getenv("TIMELY_API")
