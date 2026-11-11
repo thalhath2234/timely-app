@@ -34,7 +34,8 @@ an unlisted or excluded chat by id and refuses another profile's store; ``transf
 drops every hit from an unlisted or excluded chat (Hermes keeps at most 20 excluded ids).
 ``post_tool_call`` taints the searching session with ``{kind: "session", tool: "session_search",
 session: <id>}`` for each hit the model reads from a conversation Go lists in
-``tainted_conversations``. Hermes runs ``transform_tool_result`` after ``post_tool_call`` and
+``tainted_conversations`` or that this worker's own state for it holds taint (a chat running at
+the same time can read a web page after Go built this run's list). Hermes runs ``transform_tool_result`` after ``post_tool_call`` and
 passes the raw result on when a hook fails, so the filter fails closed itself.
 
 **Taint** (plan 5.2, 9b.2). ``post_tool_call`` adds a source for each call of a tool the policy
@@ -380,6 +381,15 @@ def _parse(result):
         return None
 
 
+def _live_taint(session_id: str) -> bool:
+    """Whether this worker saw the conversation read outside content. Go lists tainted chats
+    once, at ``run.start``; another chat of the account that is running at the same time can
+    read a web page after that, and only the worker's own state knows it then."""
+    from timely_agent import bridge
+    state = bridge.session_state(session_id)
+    return state is not None and bool(state.taint_snapshot())
+
+
 def _search_taint(result, session_id: str) -> None:
     """A hit from a tainted conversation taints this one (plan 9b.2): its page text is replayed."""
     from timely_agent import bridge
@@ -394,7 +404,7 @@ def _search_taint(result, session_id: str) -> None:
             continue
         if not view.searchable(ids):
             continue  # transform_tool_result drops it: the model never reads it
-        hits += [i for i in ids if i in view.tainted_conversations]
+        hits += [i for i in ids if i in view.tainted_conversations or _live_taint(i)]
     hits = list(dict.fromkeys(hits))
     if not hits:
         return
