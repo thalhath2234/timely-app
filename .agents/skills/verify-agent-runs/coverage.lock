@@ -1,6 +1,6 @@
 # Fingerprints of the code AgentRunApply describes (comments and formatting ignored).
 # Regenerate only with `run.sh --resync`, after confirming the model matches the code.
-sync 29da2209a54898275a76d7ea860094d0c3555b8f
+sync 944948bf3b7f52017dac844b150fdaa070c2db8e
 apps/api/internal/features/chat/runner.go (*Service).work 8e243f4800bf477a
 apps/api/internal/features/chat/runner.go (*Service).runClassic 92f268cf78651921
 apps/api/internal/features/chat/runner.go (*Service).keepLease 8e59b63d663a411a
@@ -11,7 +11,7 @@ apps/api/internal/features/chat/service.go (*Service).change e875a35df01dbe77
 apps/api/internal/features/chat/service.go (*Service).save d533a99cf407e633
 apps/api/internal/features/chat/service.go (*Service).send 5ed3e56744bca302
 apps/api/internal/features/chat/service.go (*Service).approve 7031e18ca871d7da
-apps/api/internal/features/chat/service.go (*Service).stop 939e525bb7ec73bb
+apps/api/internal/features/chat/service.go (*Service).stop ba99e892c2361d55
 apps/api/internal/features/chat/service.go (*Service).reject 76210541a86b851c
 apps/api/internal/features/chat/service.go (*Service).remove 8eaea2192ef50834
 apps/api/internal/features/chat/service.go (*Service).retry b33293eb55e3c2f3
@@ -25,18 +25,18 @@ apps/api/internal/features/chat/engine.go runEngine d635fd67bf852794
 apps/api/internal/features/chat/engine.go (*Service).startAgentRun 27ed7f35a63a59eb
 apps/api/internal/features/chat/engine.go (*Service).lostAgentRun 5fe42587e88517c3
 apps/api/internal/features/chat/toolcall.go (*Service).toolCall f687f770ac0a351a
-apps/api/internal/features/chat/toolcall.go (*Service).finishTurn a5c6f469faa7f010
+apps/api/internal/features/chat/toolcall.go (*Service).finishTurn 0ad550d50c495753
 apps/api/internal/features/chat/toolcall.go endRun f37a1d32ed4ae698
 apps/api/internal/features/chat/toolcall.go (*Service).renewLease 72b0c8a49818a3f0
 apps/api/internal/features/chat/permission_mode.go proposalStatus bc0708216054507e
 apps/api/internal/features/chat/permission_mode.go holdReason 8a2a4940ff09cfc3
-apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).Start 3e4bc9035ef8e34e
+apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).Start 58b2c2b1f3c45549
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).clearRun 5bee476314429dbc
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).Lost 2b982691c52c1806
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).Stop 37dcf46f929f2bd1
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).loop 4668bb8a3bf97048
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).save 908283c505f533ac
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).renew a3630fc2aaa9f377
-apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).done f1806ab6b3ff5c39
-apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).stopped 0783f80872f637bc
-apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).fail 28c4b769ef353cc0
+apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).done 07f0d11034efc2b5
+apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).stopped bd6b1c42a8faa191
+apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).fail dca5238ffd32703d
