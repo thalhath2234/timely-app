@@ -172,18 +172,9 @@ func main() {
 	// AI-judged Bots ask the account's provider, on its small model.
 	botService.SetJudge(providerService.BotJudge())
 	indexRebuild = providerService.EnsureIndex
-	// A restore replaces every row and drops the search index with them, so
-	// it queues a rebuild, which Settings shows while it runs.
 	// Restored Bots get the checks a save makes, and stay off when an
 	// outside app restored them.
 	portabilityService.SetRestoreVet(botService.VetRestore)
-	portabilityService.SetAfterRestore(func(userID string) {
-		indexer.Invalidate(userID)
-		botService.AfterRestore(userID)
-		if err := providerService.QueueReindex(userID); err != nil {
-			log.Printf("restore: queue search reindex: %v", err)
-		}
-	})
 	// Smart suggestions (Jev): TypeSafe key first, then the OpenRouter key;
 	// with neither, decide answers ErrOff and nothing changes.
 	jev := decide.NewClient(nil)
@@ -261,19 +252,39 @@ func main() {
 	chatService.SetBotNames(chatBotNames(botService))
 	// Chats an account switches to the new engine run in its Hermes worker
 	// (ADR 0026); everything else stays on classic.
-	agentEngine := newAgentEngine(db, chatService, func() agent.Catalog {
+	agentStack := newAgentEngine(db, chatService, func() agent.Catalog {
 		return chatCatalog(db, live, providerService.EmbedCredentials, botService)
-	}, providerService)
+	}, providerService, live)
+	agentEngine := agentStack.engine
+	// Backups carry the account's agent state (plan 6.5): memory, learned
+	// skills, staged writes and chat sessions.
+	portabilityService.SetAgentState(agentStack.sup)
+	// A restore replaces every row and drops the search index with them, so
+	// it queues a rebuild, which Settings shows while it runs. The account's
+	// worker restarts once idle, so its config is rendered from the restored
+	// learning settings.
+	portabilityService.SetAfterRestore(func(userID string) {
+		indexer.Invalidate(userID)
+		botService.AfterRestore(userID)
+		if err := providerService.QueueReindex(userID); err != nil {
+			log.Printf("restore: queue search reindex: %v", err)
+		}
+		agentStack.sup.RestartWhenIdle(userID)
+	})
 
 	authHandler := auth.NewHandler(authService, userRepo)
 	authHandler.SetPairingCodes(auth.NewPairingCodes(db))
 	// Chat images need no step here: the image sweep removes every upload
 	// file within 24 hours of its upload.
+	// What the agent learned goes with the user row (FK cascade); its home
+	// is removed here.
+	removeAgentHome := afterAgentAccountDelete(agentStack.sup)
 	authHandler.SetAfterDelete(func(userID string) {
 		indexer.Invalidate(userID)
 		if err := portabilityService.RemoveAccount(userID); err != nil {
 			log.Printf("delete account: remove backups: %v", err)
 		}
+		removeAgentHome(userID)
 	})
 	port, bind := listenConfig()
 	instanceHandler := instance.NewHandler(instance.Config{
@@ -289,6 +300,7 @@ func main() {
 	handlers := routes.Handlers{
 		Chat:      chatService,
 		Providers: providerService,
+		Learning:  agentStack.learning,
 		Auth:      authHandler,
 		Instance:  instanceHandler,
 		Task:      task.NewHandler(taskService),
