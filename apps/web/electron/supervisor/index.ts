@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import type { DesktopAction, DesktopActionResult, DesktopInstance, DesktopSettingKey } from "../../electron-env";
 import { ApiManager, apiBinds, buildApiEnv } from "./api.ts";
-import { copyDataDir, manualBackupName, preUpgradeBackupName, pruneBackups, KEEP_PRE_UPGRADE_BACKUPS, PRE_UPGRADE_PREFIX } from "./backup.ts";
+import { agentAccountsDir, copyDataDir, manualBackupName, preUpgradeBackupName, pruneBackups, KEEP_PRE_UPGRADE_BACKUPS, PRE_UPGRADE_PREFIX } from "./backup.ts";
 import { ensureSecrets, loadConfig, saveConfig, type DesktopConfig, type Sealer, type Secrets } from "./config.ts";
 import { findOrphans, scanWithCap, setprivPath, stopOrphans } from "./lifetime.ts";
 import { FileLog, createLogger, type Logger } from "./logger.ts";
@@ -428,10 +428,12 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
     if (!this.configExisted || !previous || previous === this.deps.version) return;
     this.log.info(`upgrade: ${previous} → ${this.deps.version}; copying the database folder first`);
     this.progress("postgres", "running", "Backing up before upgrade");
+    // The API has not started yet, so the agent homes are at rest too.
     const target = copyDataDir({
       pgData: this.paths.pgData,
       backupDir: this.paths.backupDir,
       name: preUpgradeBackupName(previous, this.deps.version),
+      agentAccounts: agentAccountsDir(this.paths.dataDir),
       log: this.log,
     });
     this.log.info(`upgrade: backup written to ${target}`);
@@ -633,17 +635,30 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
           await this.restartApi();
           return { ok: true, message: "Server restarted" };
         case "backupNow": {
-          // A cold copy needs the server stopped; the API reconnects on its
-          // own once PostgreSQL is back, so only the database pauses.
+          // A cold copy needs the database stopped, and the agent homes need
+          // the API stopped (it stops their workers), so both pause and come
+          // back in order.
           if (!this.postgresSidecar.isRunning || !this.postgres) return { ok: false, error: "The database is not running" };
-          await this.postgresSidecar.stop();
+          const apiWasRunning = this.apiSidecar.isRunning;
+          if (apiWasRunning) await this.apiSidecar.stop();
           let target: string;
           try {
-            target = copyDataDir({ pgData: this.paths.pgData, backupDir: this.paths.backupDir, name: manualBackupName(), log: this.log });
+            await this.postgresSidecar.stop();
+            try {
+              target = copyDataDir({
+                pgData: this.paths.pgData,
+                backupDir: this.paths.backupDir,
+                name: manualBackupName(),
+                agentAccounts: agentAccountsDir(this.paths.dataDir),
+                log: this.log,
+              });
+            } finally {
+              await this.postgresSidecar.start();
+            }
           } finally {
-            await this.postgresSidecar.start();
+            if (apiWasRunning) await this.apiSidecar.start();
           }
-          return { ok: true, message: `Backup saved to ${target}. The database paused for a moment.` };
+          return { ok: true, message: `Backup saved to ${target}. Timely paused for a moment.` };
         }
         case "openDataFolder":
           return openResult(await this.deps.openPath(this.paths.userData));
