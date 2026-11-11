@@ -874,3 +874,32 @@ func TestIntegrationChipUndoOfCreateThenPatch(t *testing.T) {
 		t.Fatalf("undo of a change the earlier rollback took back: %d %v", code, body)
 	}
 }
+
+// Turning learning off (or on) reaches a running worker at once: its
+// config renders curator.enabled from the switch, and the curator would
+// otherwise keep marking learned skills stale until the worker restarts.
+func TestIntegrationLearningSwitchReachesTheWorker(t *testing.T) {
+	r := newRig(t)
+	a := addUser(t, r.db)
+	r.svc.SetAccountSettings(func(ctx context.Context, uid string) (json.RawMessage, error) {
+		p, err := r.svc.Prefs(ctx, uid)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"learning": p.Learning})
+	})
+	r.worker(a)
+	if code, _, _ := r.call(a, http.MethodPatch, "/agent/learning/settings", map[string]any{"learning": false}); code != http.StatusOK {
+		t.Fatalf("patch %d", code)
+	}
+	updates := requestsFor(r.requests(agenthost.TypeSettingsUpdate), a)
+	if len(updates) != 1 || !strings.Contains(string(updates[0].Raw), `"learning":false`) {
+		t.Fatalf("settings.update %v", updates)
+	}
+	if code, _, _ := r.call(a, http.MethodPatch, "/agent/learning/settings", map[string]any{"searchHistory": false}); code != http.StatusOK {
+		t.Fatalf("patch %d", code)
+	}
+	if n := len(requestsFor(r.requests(agenthost.TypeSettingsUpdate), a)); n != 1 {
+		t.Fatalf("the search switch alone sent %d settings.update", n)
+	}
+}

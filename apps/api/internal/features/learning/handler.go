@@ -106,6 +106,11 @@ func (s *Service) patchSettings(c *echo.Context) error {
 			release()
 		}
 	}
+	if in.Learning != nil {
+		// The worker's config renders curator.enabled from the switch: a
+		// running worker hears it now, not at its next restart.
+		s.pushSettings(ctx, uid)
+	}
 	row, err := loadSettings(ctx, s.db, uid)
 	if err != nil {
 		return err
