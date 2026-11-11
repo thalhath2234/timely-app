@@ -6,7 +6,8 @@
 // The agent's account homes (<data>/agent/accounts, plan 6.5 and 11.4) are
 // copied beside it, into <name>.agent, while the API is stopped too (its
 // agent workers are gone then, so state.db and its WAL are at rest). Only
-// what the agent learned and the chat sessions are kept; config.yaml, SOUL.md,
+// what the agent learned (with the skill ledger's blobs, which Undo reads) and
+// the chat sessions are kept; config.yaml, SOUL.md,
 // sign-ins, scripts, caches and the workspace are rebuilt or left out.
 // restoreDataDir puts both back together. Electron-free.
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
@@ -21,8 +22,12 @@ export const MANUAL_PREFIX = "manual-";
 /** Suffix of the agent homes' folder beside a database backup folder. */
 export const AGENT_SUFFIX = ".agent";
 
-/** The parts of an agent home a folder backup keeps (besides state.db*). */
+/** The parts of an agent home a folder backup keeps (besides state.db* and the ledger blobs). */
 export const AGENT_HOME_PARTS = ["memories", "skills", "pending", "sessions", ".timely"] as const;
+
+/** The skill ledger's blobs: Undo and "what changed" of a learned skill read
+ * them. Only this folder of `.curator_backups` (its snapshots are rebuilt). */
+export const LEDGER_BLOBS = path.join(".curator_backups", "blobs");
 
 /** An account home folder (agenthost.AccountDirName), never a staged restore or trash. */
 const ACCOUNT_DIR = /^account-[0-9a-f]{24}$/;
@@ -103,6 +108,10 @@ function copyTree(source: string, target: string) {
   });
 }
 
+function isRealDir(p: string): boolean {
+  return existsSync(p) && !lstatSync(p).isSymbolicLink() && lstatSync(p).isDirectory();
+}
+
 function accountDirs(dir: string): string[] {
   if (!existsSync(dir)) return [];
   return readdirSync(dir).filter((name) => ACCOUNT_DIR.test(name) && statSync(path.join(dir, name)).isDirectory());
@@ -123,6 +132,10 @@ export function copyAgentHomes(accounts: string, target: string): number {
       const from = path.join(accounts, home, part);
       if (lstatSync(from).isSymbolicLink()) continue;
       copyTree(from, path.join(into, part));
+    }
+    const blobs = path.join(accounts, home, LEDGER_BLOBS);
+    if (isRealDir(path.join(accounts, home, ".curator_backups")) && isRealDir(blobs)) {
+      copyTree(blobs, path.join(into, LEDGER_BLOBS));
     }
   }
   return homes.length;
@@ -240,11 +253,13 @@ export function restoreDataDir(options: RestoreOptions): RestoreResult {
     for (const part of readdirSync(live)) {
       if (isAgentHomePart(part)) rmSync(path.join(live, part), { recursive: true, force: true });
     }
+    rmSync(path.join(live, LEDGER_BLOBS), { recursive: true, force: true });
     const saved = path.join(agentSource, home);
     if (!existsSync(saved)) continue;
     for (const part of readdirSync(saved)) {
       if (isAgentHomePart(part)) copyTree(path.join(saved, part), path.join(live, part));
     }
+    if (isRealDir(path.join(saved, LEDGER_BLOBS))) copyTree(path.join(saved, LEDGER_BLOBS), path.join(live, LEDGER_BLOBS));
   }
   log.info(`restore: put back ${homes.size} agent home(s) from ${agentSource}`);
   return { source, agentHomes: homes.size };

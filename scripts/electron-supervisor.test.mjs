@@ -528,6 +528,8 @@ function plantAgentHome(accounts, dir, marker) {
     ".timely/counters.json": `{"marker": "${marker}"}`,
     "state.db": `db ${marker}`,
     "state.db-wal": `wal ${marker}`,
+    ".curator_backups/blobs/abc123": `blob ${marker}`,
+    ".curator_backups/2026-11-11/skills.tar.gz": "a curator snapshot",
     "config.yaml": "model: x",
     "SOUL.md": "soul",
     ".env": "OPENAI_API_KEY=sk-planted",
@@ -542,8 +544,10 @@ function plantAgentHome(accounts, dir, marker) {
   return home;
 }
 
-const KEPT = ["memories/USER.md", "skills/learned/pantry-steps/SKILL.md", "pending/memory/c0ffee01.json", "sessions/s1.json", ".timely/counters.json", "state.db", "state.db-wal"];
-const LEFT_OUT = ["config.yaml", "SOUL.md", ".env", "mcp-tokens", "workspace", "home"];
+// The skill ledger's blobs come along: Undo and "what changed" of a learned
+// skill read them (Hermes refuses a rollback whose blob is missing).
+const KEPT = ["memories/USER.md", "skills/learned/pantry-steps/SKILL.md", "pending/memory/c0ffee01.json", "sessions/s1.json", ".timely/counters.json", "state.db", "state.db-wal", ".curator_backups/blobs/abc123"];
+const LEFT_OUT = ["config.yaml", "SOUL.md", ".env", "mcp-tokens", "workspace", "home", ".curator_backups/2026-11-11"];
 
 function stoppedDatabase(dir, rows) {
   const pgData = path.join(dir, "postgres", "data");
