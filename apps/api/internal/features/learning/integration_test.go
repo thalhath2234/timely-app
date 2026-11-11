@@ -571,6 +571,34 @@ func TestIntegrationUndoOfASkillChangeUndoesTheLaterOnes(t *testing.T) {
 	}
 }
 
+// An Undo that recreates a skill a backup restored keeps it off and marked
+// "restored, review" (Q-3.4), and the running worker hears so.
+func TestIntegrationUndoOfARestoredSkillKeepsItOff(t *testing.T) {
+	r := newRig(t)
+	a := addUser(t, r.db)
+	r.svc.SetAccountSettings(func(ctx context.Context, uid string) (json.RawMessage, error) {
+		p, err := r.svc.Prefs(ctx, uid)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"skills_disabled": p.SkillsDisabled})
+	})
+	r.kit.LearningReply("learning.rollback", map[string]any{"ok": true, "restored_skills": []string{"pantry-steps"}})
+	r.kit.LearningReply(agenthost.TypeSettingsUpdate, map[string]any{"ok": true})
+	deleted := r.seed(a, map[string]any{"id": "d-1", "kind": "skill", "action": "deleted", "subject": "pantry-steps", "origin": "user", "status": "applied", "ledger_entry_id": "led-restored"})
+	if code, body, _ := r.call(a, http.MethodPost, "/agent/learning/events/"+deleted.ID+"/undo", nil); code != http.StatusOK {
+		t.Fatalf("undo: %d %v", code, body)
+	}
+	row, _ := loadSettings(context.Background(), r.db, a)
+	if !slices.Contains(row.SkillsDisabled, "pantry-steps") || !slices.Contains(row.SkillsRestored, "pantry-steps") {
+		t.Fatalf("the recreated skill is not kept off for review: %+v", row)
+	}
+	updates := requestsFor(r.requests(agenthost.TypeSettingsUpdate), a)
+	if len(updates) == 0 || !strings.Contains(string(updates[len(updates)-1].Raw), `"pantry-steps"`) {
+		t.Fatalf("the worker was not told: %v", updates)
+	}
+}
+
 func TestIntegrationUndoKeepAndDiscard(t *testing.T) {
 	r := newRig(t)
 	a := addUser(t, r.db)
