@@ -203,6 +203,18 @@ func TestIntegrationRestoreAgentStateFailures(t *testing.T) {
 	})
 	t.Run("swap fails", func(t *testing.T) {
 		reset()
+		// The person turned a skill off after the backup, and an earlier
+		// restore left one for review; the feed has a newer event.
+		for _, q := range []string{
+			`UPDATE agent_learning_settings SET skills_disabled = '["mine-off", "unreviewed"]', skills_restored = '["unreviewed"]' WHERE user_id = ?`,
+			`DELETE FROM agent_learning_events WHERE user_id = ?`,
+			`INSERT INTO agent_learning_events (id, user_id, worker_event_id, kind, action, subject, status, tainted_sources)
+			 VALUES ('ale_new', ?, 'w-2', 'memory', 'added', 'About you', 'applied', '[]')`,
+		} {
+			if err := db.Exec(q, uid).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
 		agent.commitErr = errors.New("disk full")
 		result, err := service.Restore(uid, strictCopy(t, backup))
 		if err != nil {
@@ -210,6 +222,17 @@ func TestIntegrationRestoreAgentStateFailures(t *testing.T) {
 		}
 		if !slices.Equal(result.Warnings, []string{warnAgentNotStaged}) {
 			t.Fatalf("warnings %q", result.Warnings)
+		}
+		// The agent home stays the old one, so its lists and feed stay too.
+		if got := learningSettings(t, db, uid); got.SkillsDisabled != `["mine-off", "unreviewed"]` || got.SkillsRestored != `["unreviewed"]` {
+			t.Fatalf("a failed swap replaced the skill lists: %+v", got)
+		}
+		var ids []string
+		if err := db.Raw(`SELECT id FROM agent_learning_events WHERE user_id = ? ORDER BY id`, uid).Scan(&ids).Error; err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(ids, []string{"ale_new"}) {
+			t.Fatalf("a failed swap replaced the feed: %v", ids)
 		}
 	})
 	t.Run("staging fails", func(t *testing.T) {

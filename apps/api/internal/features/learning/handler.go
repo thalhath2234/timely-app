@@ -618,6 +618,13 @@ func (s *Service) decidePending(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusConflict, "Already decided")
 	}
 	data, err := s.ask(c, "learning.pending", map[string]any{"pending_id": ev.PendingID, "choice": in.Choice})
+	var he *echo.HTTPError
+	if err != nil && status == StatusDiscarded && errors.As(err, &he) && he.Code == http.StatusNotFound {
+		// The worker no longer holds the change (a restore whose agent home
+		// did not come back, a pending file removed by hand): there is
+		// nothing to throw away, so Discard just closes it.
+		data, err = json.RawMessage(`{"gone":true}`), nil
+	}
 	if err != nil {
 		s.unclaim(uid, ev.ID, StatusStaged)
 		return err

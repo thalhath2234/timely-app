@@ -917,3 +917,25 @@ func TestIntegrationLearningSwitchReachesTheWorker(t *testing.T) {
 		t.Fatalf("the search switch alone sent %d settings.update", n)
 	}
 }
+
+// A staged change the worker no longer holds (a restore whose agent home
+// did not come back): Discard closes it, Keep says it is gone and leaves it
+// waiting, so it is never stuck in Waiting for you.
+func TestIntegrationDiscardOfAChangeTheWorkerLost(t *testing.T) {
+	r := newRig(t)
+	a := addUser(t, r.db)
+	r.kit.LearningError("", "learning.pending", "not_found", "no pending change 'pend-gone'")
+	r.seed(a, map[string]any{"id": "p-gone", "kind": "skill", "action": "created", "status": "staged", "pending_id": "pend-gone"})
+	if code, _, _ := r.call(a, http.MethodPost, "/agent/learning/pending/pend-gone", map[string]any{"choice": "keep"}); code != http.StatusNotFound {
+		t.Fatalf("keep of a lost change: %d", code)
+	}
+	var status string
+	must(t, r.db.Raw(`SELECT status FROM agent_learning_events WHERE pending_id = 'pend-gone'`).Scan(&status).Error)
+	if status != StatusStaged {
+		t.Fatalf("after a failed keep: %s", status)
+	}
+	code, body, _ := r.call(a, http.MethodPost, "/agent/learning/pending/pend-gone", map[string]any{"choice": "discard"})
+	if code != http.StatusOK || body["event"].(map[string]any)["status"] != StatusDiscarded {
+		t.Fatalf("discard of a lost change: %d %v", code, body)
+	}
+}

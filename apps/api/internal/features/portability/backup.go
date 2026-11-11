@@ -330,7 +330,16 @@ func (s *Service) restore(userID string, backup *Backup, fromMCP bool) (*Restore
 	// person turned off.
 	withAgent := !fromMCP && carriesAgentRows(backup) && staged != nil
 	counts := map[string]int{}
+	// The account's own agent rows, put back if the staged agent home
+	// cannot be swapped in after the commit: the rows must match the home.
+	var agentBefore map[string][]json.RawMessage
 	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if withAgent {
+			var err error
+			if agentBefore, err = agentRows(tx, userID); err != nil {
+				return err
+			}
+		}
 		if err := clearAccountData(tx, userID, withAgent); err != nil {
 			return err
 		}
@@ -402,7 +411,18 @@ func (s *Service) restore(userID string, backup *Backup, fromMCP bool) (*Restore
 	}
 	committed = true
 	if staged != nil {
-		warnings = append(warnings, s.commitAgent(*staged)...)
+		if warn := s.commitAgent(*staged); len(warn) > 0 {
+			warnings = append(warnings, warn...)
+			// The home stays the old one, so its switches, skill lists and
+			// feed stay too: the backup's lists would turn back on skills
+			// the person or an earlier restore turned off, and its staged
+			// items would point at pending files this home lacks.
+			if withAgent {
+				if err := s.putBackAgentRows(userID, agentBefore); err != nil {
+					log.Printf("restore %s: put back the learning rows: %v", safeAccountDirectory(userID), err)
+				}
+			}
+		}
 	}
 	if s.afterRestore != nil {
 		s.afterRestore(userID)
@@ -566,6 +586,53 @@ func insertJSONRow(tx *gorm.DB, table string, raw []byte) error {
 		query += " ON CONFLICT (id) DO NOTHING"
 	}
 	return tx.Exec(query, string(raw)).Error
+}
+
+// agentRows reads the account's agent rows with the export's own queries.
+func agentRows(tx *gorm.DB, userID string) (map[string][]json.RawMessage, error) {
+	out := map[string][]json.RawMessage{}
+	for _, spec := range exportTables {
+		if !agentTables[spec.name] {
+			continue
+		}
+		rows, err := tx.Raw(spec.query, userID).Rows()
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", spec.name, err)
+		}
+		for rows.Next() {
+			var raw []byte
+			if err := rows.Scan(&raw); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("read %s: %w", spec.name, err)
+			}
+			out[spec.name] = append(out[spec.name], append(json.RawMessage(nil), raw...))
+		}
+		rows.Close()
+	}
+	return out, nil
+}
+
+// putBackAgentRows replaces the account's agent rows with rows (what
+// agentRows read before a restore whose agent home was not swapped in).
+func (s *Service) putBackAgentRows(userID string, rows map[string][]json.RawMessage) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		for _, query := range []string{`DELETE FROM agent_learning_events WHERE user_id = ?`, `DELETE FROM agent_learning_settings WHERE user_id = ?`} {
+			if err := tx.Exec(query, userID).Error; err != nil {
+				return err
+			}
+		}
+		for _, spec := range exportTables {
+			if !agentTables[spec.name] {
+				continue
+			}
+			for _, raw := range rows[spec.name] {
+				if err := insertJSONRow(tx, spec.name, raw); err != nil {
+					return fmt.Errorf("put back %s: %w", spec.name, err)
+				}
+			}
+		}
+		return nil
+	})
 }
 
 // clearAccountData deletes the rows a restore replaces; withAgent also
