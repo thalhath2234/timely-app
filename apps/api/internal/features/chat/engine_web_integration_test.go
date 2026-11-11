@@ -446,3 +446,45 @@ func TestIntegrationAgentEngineWebExtractSecondLine(t *testing.T) {
 		t.Fatalf("fetched %q", fetched)
 	}
 }
+
+// Taint the worker reports only in a gate.ask (a keyed backend's
+// web_extract, or a past-chat search hit from a chat with outside text:
+// {kind: session}) taints the run at once: a page path on a site the person
+// typed no longer opens, and a later direct proposal in Auto waits for
+// Approve, though neither tool.call carries the taint.
+func TestIntegrationAgentEngineGateAskTaintHoldsADirectProposal(t *testing.T) {
+	h := newEngineHarness(t)
+	var fetched []string
+	var mu sync.Mutex
+	h.e.opts.Fetch = func(_ context.Context, rawURL string) (Page, error) {
+		mu.Lock()
+		fetched = append(fetched, rawURL)
+		mu.Unlock()
+		return Page{URL: rawURL, Title: "Page", Content: "page text"}, nil
+	}
+	session := TaintSource{Kind: "session", Tool: "session_search", Session: "chat_old"}
+	c := h.chatWith("Find what I said before about typed.example.com, then add Buy milk", "auto", "gate-taint", lines(
+		obj{"type": "gate.ask", "tool_call_id": "g1", "tool": "web_search", "args": obj{}, "tainted_sources": []TaintSource{session}, "run_kind": "chat"},
+		toolCallLine("call_x", "web_extract", obj{"urls": []string{"https://typed.example.com/log/what-i-said"}}, 1),
+		toolCallLine("call_p", "propose_changes", buyMilk(true), 1),
+		reply("I drafted the change.", 0),
+	), func(c *Conversation) { c.WebSearch = true })
+	c = h.wait(c.ID, "held the proposal", ended)
+	if c.Status != "approval" || items(h.db) != 0 {
+		t.Fatalf("status %s, %d items: the proposal after a tainted search applied", c.Status, items(h.db))
+	}
+	if !slices.Contains(c.TaintedSources, session) {
+		t.Fatalf("tainted_sources %+v", c.TaintedSources)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(fetched) != 0 {
+		t.Fatalf("a tainted run opened %q", fetched)
+	}
+	var body struct {
+		Pages []webPage `json:"pages"`
+	}
+	if results := h.toolResults(); len(results) == 0 || json.Unmarshal(results[0].Result, &body) != nil || len(body.Pages) != 1 || body.Pages[0].Error != pasteLink {
+		t.Fatalf("web_extract after gate.ask taint: %+v", body)
+	}
+}
