@@ -150,6 +150,13 @@ func (s *Service) toolCall(ctx context.Context, c *Conversation, run *toolRun, n
 			// a transcript with calls to a tool that is gone.
 			answer, err = s.runSearch(ctx, run, query)
 			result = map[string]any{"answer": answer.Content, "sources": answer.Annotations}
+			if err == nil {
+				// Search text is outside text, as on the agent engine: the
+				// chat's tainted_sources keep it for a later agent turn
+				// (ADR 0028), which reloads this reply into its session.
+				run.web.read, outside = true, true
+				run.web.taint = append(run.web.taint, TaintSource{Kind: "web", Tool: "web_search"})
+			}
 		} else {
 			err = fmt.Errorf("Invalid search query: write the words to search for")
 		}
@@ -311,6 +318,9 @@ func classicSinceAgent(messages []Message) bool {
 // a live run needs.
 func endRun(row *Conversation, run *toolRun) {
 	mergeTaint(row, run.bots.taint())
+	// The agent engine hands web taint over call by call; classic's
+	// searches arrive here.
+	mergeTaint(row, run.web.takeTaint())
 	row.AgentRunID, row.AgentInstance = "", ""
 	row.Activity = ChatActivity{}
 	row.RunReads = RunReads{}
