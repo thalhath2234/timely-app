@@ -4,6 +4,7 @@
 // section 13, phase 2: the parity run).
 //
 //	make agent-parity ENGINE=both PROVIDER=<id> MODEL=<id> SCENARIOS=<file> OUT=<dir> [ONLY=<ids>]
+//	agentqa -merge <dir1>/classic.json,<dir2>/agent.json -scenarios <file> -out <dir>
 //
 // The API comes from TIMELY_API (default http://localhost:8081, the worktree
 // API; never the main checkout's 8080). The provider key comes only from
@@ -24,6 +25,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -41,7 +43,28 @@ func main() {
 	timeout := flag.Duration("timeout", 4*time.Minute, "longest wait for one run to end")
 	phrases := flag.String("stub-phrases", "", "the stub shim's phrase table to write directives into; default $TIMELY_PARITY_STUB_PHRASES")
 	dsn := flag.String("dsn", "", "optional Postgres DSN (with the API's search_path) to read classic's tool trace; default $TIMELY_PARITY_DSN")
+	merge := flag.String("merge", "", "comma-separated <engine>.json files of runs made separately (e.g. both engines at once): write their side-by-side report.md to -out and exit")
 	flag.Parse()
+
+	if *merge != "" {
+		if *scenariosPath == "" || *out == "" {
+			fail("usage: agentqa -merge classic.json,agent.json -scenarios FILE -out DIR [-only IDS]")
+		}
+		all, err := LoadScenarios(*scenariosPath)
+		if err != nil {
+			fail(err.Error())
+		}
+		picked, err := Pick(all, *only)
+		if err != nil {
+			fail(err.Error())
+		}
+		path, err := MergeReports(strings.Split(*merge, ","), picked, *out)
+		if err != nil {
+			fail(err.Error())
+		}
+		fmt.Println(path)
+		return
+	}
 
 	if *provider == "" || *model == "" || *scenariosPath == "" || *out == "" {
 		fail("usage: agentqa -engine classic|agent|both -provider ID -model ID -scenarios FILE -out DIR [-only IDS]")

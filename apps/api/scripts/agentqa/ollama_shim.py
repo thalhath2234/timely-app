@@ -6,19 +6,39 @@ Point the API's OLLAMA_BASE_URL at http://127.0.0.1:<port>; see README.md.
 Classic chat on the "ollama" provider calls native /api/chat; the agent engine's
 worker calls the OpenAI-compatible /v1/chat/completions. Both are the stub's
 decide(). The directive (CALL/SCRIPT/STREAM...) may sit after Timely's turn
-preamble, so user messages are cut to start at it.
+preamble, so user messages are cut to start at it. Hermes' learning-pass
+prompt is left as it is, so the stub plays the conversation's REVIEW list.
 """
 import json
+import os
 import sys
+import time
 from http.server import ThreadingHTTPServer
 
-sys.path.insert(0, sys.argv[2])
+if __name__ == "__main__":
+    sys.path.insert(0, sys.argv[2])
 import stub_openai  # noqa: E402
 
 DIRECTIVES = ("SCRIPT ", "CALL ", "STREAM ", "LOOP ", "SLOW ")
+# Optional: TIMELY_SHIM_LOG names a JSONL file that gets each model request's
+# last messages (each cut at 2,000 characters), to show what the model saw.
+LOG = os.environ.get("TIMELY_SHIM_LOG", "")
+
+
+def log_request(path, body):
+    if not LOG:
+        return
+    tail = []
+    for m in (body.get("messages") or [])[-8:]:
+        tail.append({"role": m.get("role"), "content": stub_openai._text(m.get("content"))[:2000],
+                     "tool_calls": [c.get("function", {}).get("name") for c in m.get("tool_calls") or []]})
+    with open(LOG, "a") as f:
+        f.write(json.dumps({"at": time.time(), "path": path, "messages": tail}) + "\n")
+
+
 # Optional: a JSON file {phrase: directive}; a user message holding the phrase
 # gets that directive, so the chat shows the person's words, not the directive.
-PHRASES = sys.argv[3] if len(sys.argv) > 3 else ""
+PHRASES = sys.argv[3] if __name__ == "__main__" and len(sys.argv) > 3 else ""
 
 
 def phrase_directive(text):
@@ -48,7 +68,9 @@ def cut_body(body):
         if m.get("role") == "user":
             text = stub_openai._text(m.get("content"))
             mapped = phrase_directive(text)
-            if mapped:
+            if stub_openai.is_review(text):
+                pass  # the learning pass: decide() plays the REVIEW list it finds
+            elif mapped:
                 last = mapped
                 m["content"] = last
             elif any(d in text for d in DIRECTIVES):
@@ -75,6 +97,7 @@ class H(stub_openai.Handler):
         if self.path.startswith("/api/show"):
             return self._json({"capabilities": ["completion", "tools"], "model_info": {}})
         if self.path.startswith("/api/chat"):
+            log_request(self.path, body)
             msg, _, _ = stub_openai.decide(cut_body(body))
             calls = []
             for c in msg.get("tool_calls") or []:
@@ -85,6 +108,7 @@ class H(stub_openai.Handler):
                 out["tool_calls"] = calls
             return self._json({"model": stub_openai.STUB_MODEL, "message": out, "done": True, "done_reason": "stop"})
         if self.path.rstrip("/").endswith("/chat/completions"):
+            log_request(self.path, body)
             body = cut_body(body)
             try:
                 return self._answer(body, json.dumps(body).encode())
@@ -93,10 +117,11 @@ class H(stub_openai.Handler):
         return self._json({"error": {"message": "not found"}}, 404)
 
 
-srv = ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), H)
-srv.daemon_threads = True
-srv.requests = []
-srv.context_length = 128000
-srv.real_usage = False
-print(srv.server_address[1], flush=True)
-srv.serve_forever()
+if __name__ == "__main__":
+    srv = ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), H)
+    srv.daemon_threads = True
+    srv.requests = []
+    srv.context_length = 128000
+    srv.real_usage = False
+    print(srv.server_address[1], flush=True)
+    srv.serve_forever()

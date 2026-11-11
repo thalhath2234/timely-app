@@ -306,3 +306,26 @@ func cell(s string) string {
 	}
 	return s
 }
+
+// MergeReports reads <engine>.json files written by separate runs (one per
+// engine, run at the same time) and writes their side-by-side report.md
+// into dir. It returns the report's path.
+func MergeReports(files []string, scenarios []Scenario, dir string) (string, error) {
+	var runs []EngineRun
+	for _, f := range files {
+		raw, err := os.ReadFile(strings.TrimSpace(f))
+		if err != nil {
+			return "", err
+		}
+		var run EngineRun
+		if err := json.Unmarshal(raw, &run); err != nil {
+			return "", fmt.Errorf("%s: %w", f, err)
+		}
+		runs = append(runs, run)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "report.md")
+	return path, os.WriteFile(path, []byte(Markdown(runs, scenarios)), 0o644)
+}

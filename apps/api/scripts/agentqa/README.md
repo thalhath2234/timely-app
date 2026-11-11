@@ -23,6 +23,8 @@ make agent-parity ENGINE=both PROVIDER=openrouter MODEL=<id> \
 - `<OUT>/classic.json` and `<OUT>/agent.json`: the number of accounts made (`accounts`), and per scenario its account, the turn's engine, final status and error, replies, notices, the proposal (summary, steps, held or applied), the plan at the end, what Approve led to (`applied`, `replanned`, `failed`), the tool trace, the time, and pass or fail with the reasons.
 - `<OUT>/report.md`: totals per engine and category, and one row per scenario side by side, with whether both engines ended the same way.
 
+To run the engines at the same time, run `ENGINE=classic` and `ENGINE=agent` into two `OUT` folders, then merge them: `cd apps/api && go run ./scripts/agentqa -merge <dir1>/classic.json,<dir2>/agent.json -scenarios scripts/agentqa/scenarios.json -out <dir>` writes the side-by-side `report.md`.
+
 Scoring (`report.go` `Score`) checks the outcome (`proposal`, `reply`, `any`), the tools the proposal must hold, words one of which the reply must contain, and what Approve must lead to. A pass is a floor, not a judgment of quality: read the replies in the JSON.
 
 The tool trace is what was seen while the run was live: the agent engine's activity lines (written at most once a second, so a fast run may show none), and for classic, only with `-dsn` (or `TIMELY_PARITY_DSN`, a DSN whose `search_path` is the API's schema), the `transcript` column, which the API does not expose and clears when the run ends.
@@ -48,4 +50,4 @@ make agent-parity ENGINE=both PROVIDER=ollama MODEL=stub-model \
 
 Without a phrase table the directive is appended to the message, which works on classic only: the agent engine's turn input adds Timely's notices after the person's words.
 
-`ollama_shim.py` is the shim the phase 2 web, phone and parity proofs used; it imports `stub_openai` from the folder named in its second argument.
+`ollama_shim.py` is the shim the phase 2 web, phone and parity proofs used; it imports `stub_openai` from the folder named in its second argument. It leaves Hermes' learning-pass prompt as it is, so a phrase-table directive `SCRIPT [...] REVIEW [...]` also scripts what the pass writes (phase 3: a learned skill, a staged note). With `TIMELY_SHIM_LOG=<file>` it appends each model request's last messages (each cut at 2,000 characters) to that JSONL file, which shows the tool results the model saw, such as a blocked `web_extract`. `shim_test.go` covers both.

@@ -328,3 +328,31 @@ func TestStubPhrases(t *testing.T) {
 		t.Fatalf("table %s: %v", raw, err)
 	}
 }
+
+// Runs made separately (one engine each, at the same time) merge into one
+// side-by-side report.
+func TestMergeReports(t *testing.T) {
+	dir := t.TempDir()
+	s := []Scenario{{ID: "tasks-01", Category: "tasks"}}
+	classic := EngineRun{Engine: "classic", Accounts: 1, Results: []Result{{ID: "tasks-01", Category: "tasks", Status: "idle", Replies: []string{"hi"}, Pass: true}}}
+	agent := EngineRun{Engine: "agent", Accounts: 1, Results: []Result{{ID: "tasks-01", Category: "tasks", Status: "idle", Replies: []string{"hi"}, Pass: true}}}
+	a, err := WriteJSON(filepath.Join(dir), classic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := WriteJSON(filepath.Join(dir), agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := MergeReports([]string{a, b}, s, filepath.Join(dir, "merged"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(path)
+	if !strings.Contains(string(raw), "| tasks | 1/1 | 1/1 |") || !strings.Contains(string(raw), "0 of 1 scenarios ended differently") {
+		t.Fatalf("report:\n%s", raw)
+	}
+	if _, err := MergeReports([]string{filepath.Join(dir, "missing.json")}, s, dir); err == nil {
+		t.Fatal("a missing run file must fail")
+	}
+}
