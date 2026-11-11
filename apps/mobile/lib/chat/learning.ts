@@ -102,7 +102,8 @@ export function cardTargets(card: PendingCard | null): string[] {
 export function viewHref(chip: LearningChip | null): string | null {
   if (!chip?.view || !chip.eventIds.length) return null;
   if (chip.view.kind === "user") return ABOUT_YOU_ROUTE;
-  return `${ACTIVITY_ROUTE}?event=${encodeURIComponent(chip.eventIds[0])}`;
+  // eventIds is newest first (the order Undo takes them back); View opens the first change.
+  return `${ACTIVITY_ROUTE}?event=${encodeURIComponent(chip.eventIds[chip.eventIds.length - 1])}`;
 }
 
 /** Where a card's View diff opens: its first item on Waiting for you. */

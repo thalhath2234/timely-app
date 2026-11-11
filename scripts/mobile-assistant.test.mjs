@@ -594,6 +594,10 @@ test("a turn's applied change shows as the chip under its reply, with View and U
   assert.equal(turn.card, null);
   assert.deepEqual(learning.undoTargets(turn.chip), ["ev1"]);
   assert.equal(learning.viewHref(turn.chip), "/(app)/settings/learned/activity?event=ev1");
+  // Two changes in one turn: Undo takes the newest back first, View opens the first.
+  const two = learning.turnLearning([lev(), lev({ id: "ev2", action: "patched", createdAt: "2026-11-11T10:00:09Z" })], reply());
+  assert.deepEqual(learning.undoTargets(two.chip), ["ev2", "ev1"]);
+  assert.equal(learning.viewHref(two.chip), "/(app)/settings/learned/activity?event=ev1");
   // A user's message, or a reply with no run, carries nothing.
   assert.equal(learning.turnLearning([lev()], { role: "user", agentRun: "run1" }).chip, null);
   assert.equal(learning.turnLearning([lev()], reply({ agentRun: undefined })).chip, null);
@@ -604,7 +608,7 @@ test("a memory change says it applies from the next chat; About you opens About 
   const turn = learning.turnLearning([lev({ kind: "user", action: "added", subject: "user" }), lev({ id: "ev2", createdAt: "2026-11-11T10:01:00Z" })], reply());
   assert.equal(turn.chip.label, "Learned: About you added and 1 more");
   assert.equal(turn.chip.note, "applies from your next chat");
-  assert.deepEqual(learning.undoTargets(turn.chip), ["ev1", "ev2"]);
+  assert.deepEqual(learning.undoTargets(turn.chip), ["ev2", "ev1"]); // newest first
   assert.equal(learning.viewHref(turn.chip), "/(app)/settings/learned/about");
 });
 
