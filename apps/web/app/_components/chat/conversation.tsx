@@ -52,7 +52,7 @@ import { buttonClass } from "@/app/_components/_ui/button";
 import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
 import { readyProviders } from "./modelMenu";
 import { LiveReply, RunActivity, planShownByAutoCard } from "./agentRun";
-import { useChatLearning } from "@/app/utils/hooks/learning";
+import { useChatLearning, useLearningSettings } from "@/app/utils/hooks/learning";
 import ChatMenu from "./chatMenu";
 import { NO_LEARNING_NOTE } from "@timely/contract/agentLearning";
 import { learnsInChat } from "./learningView";
@@ -162,6 +162,10 @@ export default function Conversation({
     Boolean(chat?.messages?.some((m) => m.agentRun)),
   );
   const learns = learnsInChat(chat, settings?.engine);
+  // "Don't learn from this chat" only means something while learning is on
+  // (or to turn it back off), as on the phone.
+  const learningOn = useLearningSettings().data?.learning;
+  const offersDontLearn = learns && (!!learningOn || !!chat?.noLearning);
   const [draft, setDraft] = useState(initialDraft);
   // Bots picked with "@" for this message only; sent as botTags, then cleared.
   const [botTags, setBotTags] = useState<BotTag[]>([]);
@@ -506,7 +510,7 @@ export default function Conversation({
             </div>
             <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
           </div>
-          {chat && learns && (
+          {chat && offersDontLearn && (
             <ChatMenu
               noLearning={!!chat.noLearning}
               sensitive={!!chat.sensitive}

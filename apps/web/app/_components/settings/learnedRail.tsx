@@ -55,7 +55,8 @@ export default function LearnedRail() {
               <ListRow key="search" label="Search my past chats" meta="So Timely can look back at earlier chats">
                 <ListSwitch
                   label="Search my past chats"
-                  checked={data?.searchHistory ?? false}
+                  // Past-chat search runs only while learning is on (as the phone shows it).
+                  checked={!!data?.learning && !!data?.searchHistory}
                   disabled={!data || !data.learning}
                   onChange={(searchHistory) => patch.mutate({ searchHistory })}
                 />
@@ -67,7 +68,7 @@ export default function LearnedRail() {
           {patch.error
             ? errorText(patch.error, "Couldn't save that.")
             : data && !data.learning
-              ? "Learning is off. Nothing new is saved, and what Timely already learned stays."
+              ? "Learning is off. Nothing new is saved, Timely doesn't search your past chats, and what it already learned stays."
               : "Learning uses the chat's own model. Private photo chats and chats you mark “Don't learn from this chat” never teach it."}
         </GroupHint>
       </div>
