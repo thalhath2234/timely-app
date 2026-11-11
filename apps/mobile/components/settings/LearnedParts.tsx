@@ -114,11 +114,11 @@ export function Block({ label, children }: { label: string; children: ReactNode 
   );
 }
 
-/** Plain text in a quiet box (a memory entry before or after). */
-export function TextBlock({ text }: { text: string }) {
+/** Plain text in a quiet box: a memory entry before or after, or (mono) a skill's whole text. */
+export function TextBlock({ text, mono }: { text: string; mono?: boolean }) {
   return (
     <View style={styles.diff}>
-      <Text selectable style={styles.textBlock}>
+      <Text selectable style={mono ? styles.diffLine : styles.textBlock}>
         {text}
       </Text>
     </View>

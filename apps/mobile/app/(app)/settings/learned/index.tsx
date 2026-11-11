@@ -102,7 +102,8 @@ export default function LearnedSettings() {
               <ListRow
                 testID="learned-waiting"
                 title={WAITING_FOR_YOU}
-                trailing={waiting ? String(waiting) : pending.isError ? undefined : "None"}
+                // Nothing while the list loads (the worker may be starting): "None" only for an empty list.
+                trailing={waiting ? String(waiting) : pending.data ? "None" : undefined}
                 onPress={() => router.push(WAITING_ROUTE)}
               />
               <ListRow

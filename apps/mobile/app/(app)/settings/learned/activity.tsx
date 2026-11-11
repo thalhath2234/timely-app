@@ -8,7 +8,7 @@ import MobileHeader from "../../../../components/ui/MobileHeader";
 import BottomSheet from "../../../../components/ui/BottomSheet";
 import { Button, PrimaryButton } from "../../../../components/ui/primitives";
 import { GroupHint, ListGroup, ListRow } from "../../../../components/settings/SettingsList";
-import { Block, DiffBlock, TextBlock } from "../../../../components/settings/LearnedParts";
+import { Block, TextBlock } from "../../../../components/settings/LearnedParts";
 import { useLearningFeedQuery, useUndoLearning } from "../../../../lib/hooks";
 import { useLearningWatch } from "../../../../lib/chat/useLearningWatch";
 import { activityRow, canUndo } from "../../../../lib/chat/learning";
@@ -105,12 +105,15 @@ function EventSheet({ event: open, onClose }: { event: LearningEvent | null; onC
       {event ? (
         <View style={{ gap: 12 }} testID="learned-event-sheet">
           {event.summary ? <Text style={styles.text}>{event.summary}</Text> : null}
+          {/* A skill's before and after are its whole text, not a diff: a "- step" line is a list item. */}
           {event.before ? (
-            <Block label="Before">{memory ? <TextBlock text={event.before} /> : <DiffBlock text={event.before} />}</Block>
+            <Block label="Before">
+              <TextBlock text={event.before} mono={!memory} />
+            </Block>
           ) : null}
           {event.after ? (
             <Block label={event.before ? "After" : "Added"}>
-              {memory ? <TextBlock text={event.after} /> : <DiffBlock text={event.after} />}
+              <TextBlock text={event.after} mono={!memory} />
             </Block>
           ) : null}
           {memory && undoable ? <GroupHint>{"Changes to what Timely remembers apply from your next chat."}</GroupHint> : null}
