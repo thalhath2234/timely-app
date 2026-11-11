@@ -266,12 +266,9 @@ func (s *Service) listSkills(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	var skills []map[string]any
-	if err := json.Unmarshal(data, &skills); err != nil {
+	skills, err := workerList(data, "skills")
+	if err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, "The agent's skill list could not be read.")
-	}
-	if skills == nil {
-		skills = []map[string]any{}
 	}
 	for _, skill := range skills {
 		name, _ := skill["name"].(string)
@@ -500,7 +497,28 @@ func (s *Service) listPending(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	return c.JSON(http.StatusOK, data)
+	pending, err := workerList(data, "pending")
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway, "The agent's waiting changes could not be read.")
+	}
+	return c.JSON(http.StatusOK, map[string]any{"pending": pending})
+}
+
+// workerList reads a learning.list reply: the worker wraps it as
+// {key: [...]}; a bare list is accepted too. It never answers nil.
+func workerList(data json.RawMessage, key string) ([]map[string]any, error) {
+	var list []map[string]any
+	if err := json.Unmarshal(data, &list); err != nil {
+		var wrapped map[string][]map[string]any
+		if err := json.Unmarshal(data, &wrapped); err != nil {
+			return nil, err
+		}
+		list = wrapped[key]
+	}
+	if list == nil {
+		list = []map[string]any{}
+	}
+	return list, nil
 }
 
 // decidePending keeps or discards a staged change. The pending id must be

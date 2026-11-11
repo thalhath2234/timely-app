@@ -380,8 +380,8 @@ func TestIntegrationOneAccountNeverReachesAnothersLearning(t *testing.T) {
 	r.kit.LearningReplyFor(a, "learning.skill", map[string]any{"content": "A's skill"})
 	r.kit.LearningReplyFor(a, "learning.export", map[string]any{"zip_b64": zipFor("a"), "files": 1})
 	r.kit.LearningReplyFor(b, "learning.export", map[string]any{"zip_b64": zipFor("b"), "files": 1})
-	r.kit.LearningReplyFor(a, "learning.list", []any{map[string]any{"pending_id": "pend-a"}})
-	r.kit.LearningReplyFor(b, "learning.list", []any{})
+	r.kit.LearningReplyFor(a, "learning.list", map[string]any{"pending": []any{map[string]any{"pending_id": "pend-a"}}})
+	r.kit.LearningReplyFor(b, "learning.list", map[string]any{"pending": []any{}})
 	r.kit.LearningError(b, "learning.skill", "not_found", "no skill named a-secret-skill")
 	r.kit.LearningReply("learning.rollback", map[string]any{"ok": true})
 	r.kit.LearningReply("learning.pending", map[string]any{"discarded": true})
@@ -407,7 +407,7 @@ func TestIntegrationOneAccountNeverReachesAnothersLearning(t *testing.T) {
 	if code, body, _ := r.call(b, http.MethodGet, "/agent/learning/skills/a-secret-skill", nil); code != http.StatusNotFound {
 		t.Fatalf("B reading A's skill: %d %v", code, body)
 	}
-	if code, _, raw := r.call(b, http.MethodGet, "/agent/learning/pending", nil); code != http.StatusOK || strings.TrimSpace(string(raw)) != "[]" {
+	if code, _, raw := r.call(b, http.MethodGet, "/agent/learning/pending", nil); code != http.StatusOK || strings.TrimSpace(string(raw)) != `{"pending":[]}` {
 		t.Fatalf("B's pending list: %d %s", code, raw)
 	}
 	code, _, raw := r.call(b, http.MethodGet, "/agent/learning/export", nil)
@@ -661,11 +661,12 @@ func TestIntegrationSkillsOnOffAndRestored(t *testing.T) {
 	if err != nil || !prefs.Learning || !prefs.SearchHistory || !slices.Equal(prefs.SkillsDisabled, []string{"csv-import", "notes"}) {
 		t.Fatalf("prefs %+v %v", prefs, err)
 	}
-	r.kit.LearningReply("learning.list", []any{
+	// The worker's real shape: {skills: [...]}.
+	r.kit.LearningReply("learning.list", map[string]any{"skills": []any{
 		map[string]any{"name": "csv-import", "source": "learned", "enabled": true},
 		map[string]any{"name": "notes", "source": "learned", "enabled": true},
 		map[string]any{"name": "plain", "source": "learned", "enabled": true},
-	})
+	}})
 	code, body, _ := r.call(a, http.MethodGet, "/agent/learning/skills", nil)
 	skills, _ := body["skills"].([]any)
 	if code != http.StatusOK || len(skills) != 3 {
