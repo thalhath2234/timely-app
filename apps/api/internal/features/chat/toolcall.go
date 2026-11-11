@@ -161,7 +161,7 @@ func (s *Service) toolCall(ctx context.Context, c *Conversation, run *toolRun, n
 		if pick != nil {
 			run.picks = append(run.picks, pick)
 		}
-	} else if name == "preview_bot" && !s.fetchGuard(ctx, c).allows(previewWatches(args)) {
+	} else if name == "preview_bot" && !s.runGuard(ctx, c, run).allows(previewWatches(args)) {
 		err = fmt.Errorf("%s", fetchRefusal)
 	} else if name == "ask_bot" && run.bots.asks >= maxAsks {
 		err = fmt.Errorf("That is as many bots as one request may ask (%d). Answer from what they said above", maxAsks)
@@ -223,7 +223,7 @@ func (s *Service) prepareAgentProposal(ctx context.Context, c *Conversation, run
 	}
 	notes := s.reviewNotes(ctx, c, p)
 	s.targetFeedback(c.UserID, run.picks, p.Steps)
-	s.previewSteps(ctx, run.catalog, c.UserID, p.Steps, s.fetchGuard(ctx, c))
+	s.previewSteps(ctx, run.catalog, c.UserID, p.Steps, s.runGuard(ctx, c, run))
 	return &pendingProposal{proposal: p, snapshots: snapshots, notes: notes}, nil
 }
 

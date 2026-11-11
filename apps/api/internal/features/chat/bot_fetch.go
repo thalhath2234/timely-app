@@ -19,6 +19,18 @@ const fetchRefusal = "Timely only reads an address before approval when the pers
 type fetchGuard struct {
 	typed string          // the person's own messages, lower case
 	known map[string]bool // addresses the person's bots read
+	// run, when set, is the run the read is for: once outside text reached
+	// it, only the pages its web rule opens (webRun.mayOpen) are read.
+	run *toolRun
+}
+
+// runGuard is fetchGuard for a read a run makes: preview_bot, or a proposed
+// bot's preview. After taint a page path could carry the person's data as
+// it could in web_extract, so the same rule holds (plan 8.1, 12).
+func (s *Service) runGuard(ctx context.Context, c *Conversation, run *toolRun) *fetchGuard {
+	g := s.fetchGuard(ctx, c)
+	g.run = run
+	return g
 }
 
 func (s *Service) fetchGuard(ctx context.Context, c *Conversation) *fetchGuard {
@@ -75,7 +87,10 @@ func (g *fetchGuard) allowsURL(raw string) bool {
 	}
 	// Data rides out in a query string: one the person did not type is
 	// not theirs to send.
-	return u.RawQuery == "" || strings.Contains(g.typed, strings.ToLower(u.RawQuery))
+	if u.RawQuery != "" && !strings.Contains(g.typed, strings.ToLower(u.RawQuery)) {
+		return false
+	}
+	return g.run == nil || !g.run.tainted() || g.run.web.mayOpen(g, raw)
 }
 
 // typedHost is whether host appears in the person's words as a whole name:
