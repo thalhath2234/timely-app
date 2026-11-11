@@ -2,10 +2,21 @@
 // per browser holds GET /chats/watch (and GET /bots/watch, under its own lock)
 // and shares it with the other tabs. A live agent run's reply arrives on the
 // chat stream as `delta` events, which ReplyDrafts turns into the growing
-// reply (Q-2.5).
+// reply (Q-2.5). Since phase 3 it also carries `learning` events, which make
+// the apps refetch what the agent learned; the chat's chip, Keep / Discard
+// card and the Settings words come from apps/web/app/_components/chat/learningView.ts.
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
 import { CHAT_STREAM_LOCK, ReplyDrafts, parseSSE, startChatStream, startLiveStream } from "../apps/web/app/utils/api/chatStream.ts";
+import {
+  diffRows,
+  learnedHref,
+  learningAnchors,
+  learnsInChat,
+  skillOrigin,
+  turnLearning,
+  webSearchLine,
+} from "../apps/web/app/_components/chat/learningView.ts";
 
 const tick = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -262,5 +273,183 @@ describe("streamed reply deltas", () => {
     await tick();
     assert.equal(tabs[1].get("chat_1").text, "Planned your week. Done.");
     stopB();
+  });
+});
+
+const learningFrame = (id, eventId, status) =>
+  `event: learning\ndata: ${JSON.stringify({ type: "learning", kind: "chat", id, document: { eventId, status } })}\n\n`;
+
+describe("learning events on the chat stream", () => {
+  test("a learning frame reaches the listener, also with no chat id; malformed ones are dropped", async () => {
+    let stream;
+    const heard = [];
+    const stop = startChatStream((m) => heard.push(m), {
+      open: async () => (stream = watchResponse()).response,
+    });
+    await tick();
+    stream.send(learningFrame("chat_1", "lev_1", "applied"));
+    stream.send(learningFrame("", "lev_2", "undone"));
+    stream.send('event: learning\ndata: {"type":"learning","id":"chat_1","document":{"status":"applied"}}\n\n');
+    stream.send('event: learning\ndata: {"type":"changed","id":"chat_1","document":{"eventId":"x","status":"applied"}}\n\n');
+    stream.send('event: learning\ndata: not json\n\n');
+    stream.send('event: nudge\ndata: {"id":"chat_1"}\n\n');
+    stream.send('event: changed\ndata: {"id":"chat_1"}\n\n');
+    await tick();
+    stop();
+    assert.deepEqual(heard.slice(1), [
+      { type: "learning", id: "chat_1", eventId: "lev_1", status: "applied" },
+      { type: "learning", id: "", eventId: "lev_2", status: "undone" },
+      { type: "changed", id: "chat_1" },
+    ]);
+  });
+
+  test("the tab holding the stream relays learning events to the other tabs", async () => {
+    const locks = fakeLocks();
+    const streams = [];
+    const open = async () => {
+      const stream = watchResponse();
+      streams.push(stream);
+      return stream.response;
+    };
+    const heard = { a: [], b: [] };
+    const stopA = startChatStream((m) => heard.a.push(m), { open, locks, channel: new BroadcastChannel("t-learning") });
+    await tick();
+    const stopB = startChatStream((m) => heard.b.push(m), { open, locks, channel: new BroadcastChannel("t-learning") });
+    await tick();
+    streams[0].send(learningFrame("chat_1", "lev_9", "staged"));
+    await tick();
+    stopA();
+    stopB();
+    const learned = (list) => list.filter((m) => m.type === "learning");
+    assert.deepEqual(learned(heard.a), [{ type: "learning", id: "chat_1", eventId: "lev_9", status: "staged" }]);
+    assert.deepEqual(learned(heard.b), learned(heard.a));
+  });
+});
+
+let seq = 0;
+const lev = (fields) => ({
+  id: `lev_${++seq}`,
+  kind: "skill",
+  action: "created",
+  subject: "bank-csv-import",
+  before: "",
+  after: "",
+  origin: "review",
+  conversationId: "chat_1",
+  runId: "run_1",
+  botId: "",
+  taintedSources: [],
+  status: "applied",
+  ledgerEntryId: "led_1",
+  pendingId: "",
+  summary: "",
+  createdAt: `2026-11-11T10:00:${String(seq).padStart(2, "0")}Z`,
+  updatedAt: "2026-11-11T10:00:00Z",
+  ...fields,
+});
+
+describe("what a chat shows of what the agent learned", () => {
+  test("a turn's learning goes after the last message its run wrote", () => {
+    const messages = [
+      { id: "u1" },
+      { id: "p1", agentRun: "run_1" },
+      { id: "a1", agentRun: "run_1" },
+      { id: "u2" },
+      { id: "a2", agentRun: "run_2" },
+      { id: "c1" },
+    ];
+    assert.deepEqual([...learningAnchors(messages)].sort(), [
+      [2, "run_1"],
+      [4, "run_2"],
+    ]);
+    assert.equal(learningAnchors(undefined).size, 0);
+    assert.equal(learningAnchors([{ id: "classic" }]).size, 0);
+  });
+
+  test("a clean turn gets the chip; a staged change gets the card; other runs stay out", () => {
+    const events = [
+      lev({}),
+      lev({ status: "staged", pendingId: "pend_1", subject: "flipkart-price-read", action: "patched", summary: "Reads the sale price" }),
+      lev({ runId: "run_2", subject: "other" }),
+    ];
+    const { chip, card } = turnLearning(events, "run_1");
+    assert.equal(chip.text, "Learned: skill 'bank-csv-import' created · View · Undo");
+    assert.equal(card.title, "Keep what Timely learned?");
+    assert.deepEqual(
+      card.items.map((i) => [i.pendingId, i.line, i.summary]),
+      [["pend_1", "Skill “flipkart-price-read” updated", "Reads the sale price"]],
+    );
+    const none = turnLearning(events, "run_3");
+    assert.equal(none.chip, null);
+    assert.equal(none.card, null);
+  });
+
+  test("once every change is undone, the chip says Undone with no buttons", () => {
+    const { chip } = turnLearning([lev({ status: "undone" })], "run_1");
+    assert.equal(chip.text, "Undone");
+    assert.deepEqual(chip.actions, []);
+  });
+
+  test("View opens the skill, About you or Notes in Settings", () => {
+    assert.equal(learnedHref({ kind: "skill", subject: "bank csv/import" }), "/settings?tab=learned&skill=bank%20csv%2Fimport");
+    assert.equal(learnedHref({ kind: "user", subject: "user" }), "/settings?tab=learned&part=about");
+    assert.equal(learnedHref({ kind: "memory", subject: "memory" }), "/settings?tab=learned&part=notes");
+  });
+
+  test("Don't learn from this chat is offered only where the New engine runs", () => {
+    assert.equal(learnsInChat(undefined, "agent"), false);
+    assert.equal(learnsInChat({ engine: "classic", runEngine: "agent" }, "agent"), false);
+    assert.equal(learnsInChat({ engine: "agent" }, "classic"), true);
+    assert.equal(learnsInChat({ engine: "", runEngine: "agent" }, "classic"), true);
+    assert.equal(learnsInChat({ engine: "", runEngine: "" }, "agent"), true);
+    assert.equal(learnsInChat({ engine: "", runEngine: "classic" }, "classic"), false);
+  });
+});
+
+describe("Settings: What Timely learned and web search", () => {
+  test("a unified diff becomes coloured rows; file headers and the no-newline marker stay apart", () => {
+    const rows = diffRows("--- a/SKILL.md\n+++ b/SKILL.md\n@@ -1,2 +1,2 @@\n # CSV\n-old step\n+new step\n\\ No newline at end of file\n");
+    assert.deepEqual(rows, [
+      { kind: "file", text: "--- a/SKILL.md" },
+      { kind: "file", text: "+++ b/SKILL.md" },
+      { kind: "hunk", text: "@@ -1,2 +1,2 @@" },
+      { kind: "context", text: "# CSV" },
+      { kind: "remove", text: "old step" },
+      { kind: "add", text: "new step" },
+    ]);
+    assert.deepEqual(diffRows(""), []);
+  });
+
+  test("a skill's provenance is its creating event: a chat link, or you", () => {
+    const events = [
+      lev({ subject: "csv", action: "patched", origin: "user", conversationId: "", createdAt: "2026-11-11T11:00:00Z" }),
+      lev({ subject: "csv", action: "created", origin: "chat", conversationId: "chat_7", createdAt: "2026-11-11T09:00:00Z" }),
+      lev({ subject: "mine", action: "edited", origin: "user", conversationId: "" }),
+    ];
+    assert.deepEqual(skillOrigin(events, "csv"), { label: "Learned in a chat", conversationId: "chat_7" });
+    assert.deepEqual(skillOrigin(events, "mine"), { label: "You", conversationId: "" });
+    assert.equal(skillOrigin(events, "unknown"), null);
+    assert.equal(skillOrigin([lev({ kind: "memory", subject: "csv" })], "csv"), null);
+  });
+
+  test("web search names the provider's own search, the key in use, or asks for a key (Q-3.8)", () => {
+    const backends = [{ id: "brave", label: "Brave Search", keyUrl: "https://brave.example", available: true }];
+    assert.deepEqual(webSearchLine({ active: null, backends, usesProvider: true, providerCanSearch: true }, "Claude Code"), {
+      label: "Web search",
+      meta: "Uses Claude Code’s own search",
+      tone: "ok",
+      action: "Add a search key",
+    });
+    const keyed = webSearchLine(
+      { active: { backend: "brave", keyHint: "••••a1b2" }, backends, usesProvider: false, providerCanSearch: true },
+      "Claude Code",
+    );
+    assert.equal(keyed.label, "Search key");
+    assert.equal(keyed.meta, "Brave Search · ••••a1b2");
+    assert.equal(keyed.action, "Change");
+    const cannot = webSearchLine({ active: null, backends, usesProvider: true, providerCanSearch: false }, "Ollama");
+    assert.equal(cannot.tone, "warn");
+    assert.match(cannot.meta, /Ollama can’t search the web/);
+    assert.equal(webSearchLine(undefined, "").meta, "Needs a search key");
   });
 });

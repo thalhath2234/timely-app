@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { isBotPlan } from "@timely/contract/changeReview";
 import {
   ArrowUpRight,
+  BookX,
   ImagePlus,
   PanelLeftOpen,
   Plus,
@@ -51,6 +52,9 @@ import { buttonClass } from "@/app/_components/_ui/button";
 import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
 import { readyProviders } from "./modelMenu";
 import { LiveReply, RunActivity, planShownByAutoCard } from "./agentRun";
+import { useChatLearning } from "@/app/utils/hooks/learning";
+import ChatMenu from "./chatMenu";
+import { learnsInChat } from "./learningView";
 
 const iconButton =
   "rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
@@ -104,6 +108,8 @@ const invalidated = [
   "habits",
   "goals",
   "goal-progress",
+  // What the agent learned in the run (its chips and Settings lists).
+  "agent-learning",
 ];
 
 export default function Conversation({
@@ -149,6 +155,12 @@ export default function Conversation({
   const permission: PermissionMode =
     chat?.permission ?? permissionChoice ?? defaultMode;
   const liveReply = useReplyDraft(chat);
+  // Each agent turn's chip and Keep / Discard card; only chats the agent wrote in have any.
+  const learning = useChatLearning(
+    chat?.id ?? "",
+    Boolean(chat?.messages?.some((m) => m.agentRun)),
+  );
+  const learns = learnsInChat(chat, settings?.engine);
   const [draft, setDraft] = useState(initialDraft);
   // Bots picked with "@" for this message only; sent as botTags, then cleared.
   const [botTags, setBotTags] = useState<BotTag[]>([]);
@@ -493,6 +505,17 @@ export default function Conversation({
             </div>
             <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
           </div>
+          {chat && learns && (
+            <ChatMenu
+              noLearning={!!chat.noLearning}
+              sensitive={!!chat.sensitive}
+              disabled={mutation.isPending}
+              onNoLearning={(next) =>
+                mutation.mutate({ action: "", body: { noLearning: next } })
+              }
+              className={iconButton}
+            />
+          )}
           {onNew && (
             <button
               type="button"
@@ -573,6 +596,28 @@ export default function Conversation({
                 }}
               />
             )}
+            {chat?.noLearning && learns && (
+              <p
+                role="note"
+                data-testid="no-learning-note"
+                className="mx-auto mb-5 flex w-fit max-w-full items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1 text-xs text-muted-foreground"
+              >
+                <BookX aria-hidden className="size-3.5 shrink-0" />
+                <span className="min-w-0 truncate">
+                  Timely won&apos;t learn from this chat.
+                </span>
+                <button
+                  type="button"
+                  disabled={mutation.isPending}
+                  onClick={() =>
+                    mutation.mutate({ action: "", body: { noLearning: false } })
+                  }
+                  className="shrink-0 font-medium text-primary hover:underline disabled:opacity-50"
+                >
+                  Let it learn
+                </button>
+              </p>
+            )}
             {chat && (
               <MessageList
                 chat={chat}
@@ -580,6 +625,8 @@ export default function Conversation({
                 onSimilar={chooseSimilar}
                 onAsk={busy || mutation.isPending ? undefined : ask}
                 onUndo={undo}
+                learning={learning.data}
+                onLeave={onClose}
               />
             )}
             <div ref={receiptAnchor} />

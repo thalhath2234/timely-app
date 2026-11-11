@@ -1,3 +1,4 @@
+import { isLearningWatchEvent } from "@timely/contract/agentLearning";
 import {
   applyDelta,
   draftFromActivity,
@@ -21,7 +22,13 @@ export type LiveStreamMessage =
   | { type: "live"; live: boolean }
   | { type: "changed"; id: string }
   /** One chunk of a live run's reply; offset counts code points before it. */
-  | { type: "delta"; id: string; run: string; offset: number; text: string };
+  | { type: "delta"; id: string; run: string; offset: number; text: string }
+  /**
+   * The agent learned something, or the person decided on it: refetch the
+   * chat's learning (id is the conversation, "" outside a chat) and the
+   * Settings lists.
+   */
+  | { type: "learning"; id: string; eventId: string; status: string };
 
 export type ChatStreamMessage = LiveStreamMessage;
 
@@ -79,8 +86,20 @@ export function parseSSE(text: string): { events: SSEEvent[]; rest: string } {
   return { events, rest };
 }
 
-/** The message a `changed` or `delta` frame carries, or null when it is malformed. */
+/** The frames a stream passes on; any other event name is ignored. */
+const FRAMES = new Set(["changed", "delta", "learning"]);
+
+/** The message a `changed`, `delta` or `learning` frame carries, or null when it is malformed. */
 function readFrame(event: string, frame: unknown): LiveStreamMessage | null {
+  if (event === "learning") {
+    if (!isLearningWatchEvent(frame)) return null;
+    return {
+      type: "learning",
+      id: frame.id,
+      eventId: frame.document.eventId,
+      status: frame.document.status,
+    };
+  }
   const body = (frame ?? {}) as {
     id?: unknown;
     document?: { run?: unknown; offset?: unknown; text?: unknown };
@@ -160,7 +179,7 @@ export function startLiveStream(
         const parsed = parseSSE(buffer + value);
         buffer = parsed.rest;
         for (const { event, data } of parsed.events) {
-          if (event !== "changed" && event !== "delta") continue;
+          if (!FRAMES.has(event)) continue;
           try {
             const message = readFrame(event, JSON.parse(data));
             if (message) emit(message);

@@ -17,6 +17,7 @@ import {
 import { apiFetch } from "../api/client";
 import { ReplyDrafts, startChatStream } from "../api/chatStream";
 import { isBusy } from "@/app/_components/chat/chatMeta";
+import { learningKey } from "./learning";
 export const chatsKey = ["chats"] as const;
 export const chatKey = (id: string) => ["chat", id] as const;
 // The chat stream (useChatStream) says when a chat changes. While it is down,
@@ -83,6 +84,7 @@ export function useChatStream() {
   useEffect(() => {
     const changed = new Set<string>();
     let all = false;
+    let learned = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     // A run writes several times in a row; one refetch covers the burst.
     const flush = () => {
@@ -92,8 +94,13 @@ export function useChatStream() {
       else
         for (const id of changed)
           void cache.invalidateQueries({ queryKey: chatKey(id) });
+      // What the agent learned shows under replies and in Settings; one
+      // refetch of the account's learning covers every place.
+      if (learned || all)
+        void cache.invalidateQueries({ queryKey: learningKey });
       changed.clear();
       all = false;
+      learned = false;
     };
     const channel =
       typeof BroadcastChannel === "undefined"
@@ -111,7 +118,8 @@ export function useChatStream() {
           // chat, whose activity.draft the draft continues from.
           if (!replyDrafts.delta(message)) return;
           changed.add(message.id);
-        } else changed.add(message.id);
+        } else if (message.type === "learning") learned = true;
+        else changed.add(message.id);
         timer ??= setTimeout(flush, 250);
       },
       {
