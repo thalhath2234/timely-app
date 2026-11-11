@@ -47,6 +47,7 @@ import { autoCardArchives, offersUseClassic } from "../../lib/chat/agentRun";
 import {
   cardTargets,
   diffHref,
+  reviewHref,
   learningAnchors,
   looseLearning,
   turnLearning,
@@ -492,6 +493,7 @@ function TurnLearningView({ turn, learning }: { turn: TurnLearning; learning: Th
   const pendingIds = cardTargets(card);
   const view = viewHref(chip);
   const diff = diffHref(card);
+  const review = reviewHref(card);
   const onUndo = learning.onUndo;
   const onDecide = learning.onDecide;
   return (
@@ -510,6 +512,7 @@ function TurnLearningView({ turn, learning }: { turn: TurnLearning; learning: Th
           deciding={pendingIds.some((id) => learning.busy.has(id))}
           onDiff={diff ? () => learning.onOpen(diff) : undefined}
           onDecide={onDecide ? (choice) => onDecide(pendingIds, choice) : undefined}
+          onReview={review ? () => learning.onOpen(review) : undefined}
         />
       ) : null}
     </View>

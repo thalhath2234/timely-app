@@ -109,6 +109,19 @@ export function viewHref(chip: LearningChip | null): string | null {
   return `${ACTIVITY_ROUTE}?event=${encodeURIComponent(chip.eventIds[chip.eventIds.length - 1])}`;
 }
 
+/**
+ * A card with more than one staged change is decided item by item on Waiting for you (each with its
+ * own diff), so no single tap keeps a change the person never saw. Null for a one-change card.
+ */
+export function reviewHref(card: PendingCard | null): string | null {
+  return cardTargets(card).length > 1 ? WAITING_ROUTE : null;
+}
+
+/** The one button such a card shows: "Review 3 changes". */
+export function reviewLabel(card: PendingCard): string {
+  return `Review ${cardTargets(card).length} changes`;
+}
+
 /** Where a card's View diff opens: its first item on Waiting for you. */
 export function diffHref(card: PendingCard | null): string | null {
   const first = card?.items[0]?.pendingId;

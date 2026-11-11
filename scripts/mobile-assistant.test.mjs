@@ -702,6 +702,14 @@ test("Activity rows say what changed, its status, when and where from; Undo only
   assert.equal(learning.nextBefore([lev()], 2), null);
 });
 
+test("a card with several staged changes is reviewed item by item, never kept with one tap", () => {
+  const card = (ids) => ({ items: ids.map((pendingId) => ({ pendingId, line: `change ${pendingId}` })) });
+  assert.equal(learning.reviewHref(card(["p1"])), null);
+  assert.equal(learning.reviewHref(card(["p1", "p2"])), learning.WAITING_ROUTE);
+  assert.equal(learning.reviewLabel(card(["p1", "p2", "p3"])), "Review 3 changes");
+  assert.equal(learning.reviewHref(null), null);
+});
+
 test("About you's meter follows the edit, and Save needs a change that fits", () => {
   const store = { entries: ["I run a bakery"], used: 1370, limit: 1375 };
   // a new entry also adds the separator between entries ("\n§\n"), as the worker counts it

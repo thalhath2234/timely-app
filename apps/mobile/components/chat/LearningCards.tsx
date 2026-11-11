@@ -2,7 +2,7 @@ import { Text, View } from "react-native";
 import { Lightbulb, LightbulbOff, Undo2 } from "lucide-react-native";
 import type { LearningChip as Chip, PendingCard } from "@timely/contract/agentLearning";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
-import { cardMeta, DONT_LEARN, DONT_LEARN_META, NOT_LEARNING_LINE } from "../../lib/chat/learning";
+import { cardMeta, DONT_LEARN, DONT_LEARN_META, NOT_LEARNING_LINE, reviewLabel } from "../../lib/chat/learning";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import BottomSheet from "../ui/BottomSheet";
 import { Button } from "../ui/primitives";
@@ -79,10 +79,13 @@ export function KeepCard({
   deciding,
   onDiff,
   onDecide,
+  onReview,
 }: {
   card: PendingCard;
   deciding: boolean;
   onDiff?: () => void;
+  /** Set when the card holds several changes: one button opens Waiting for you instead of Keep and Discard. */
+  onReview?: () => void;
   /** Missing while offline. */
   onDecide?: (choice: "keep" | "discard") => void;
 }) {
@@ -107,26 +110,33 @@ export function KeepCard({
         </Text>
       ) : null}
       <Text style={styles.cardMeta}>{card.why}</Text>
-      <View style={styles.cardActions}>
-        {onDiff ? <Button testID="learning-diff" label={card.viewDiff} variant="ghost" size="sm" onPress={onDiff} /> : null}
-        <View style={{ flex: 1 }} />
-        <Button
-          testID="learning-discard"
-          label={card.discard}
-          variant="outline"
-          size="sm"
-          disabled={deciding || !onDecide}
-          onPress={() => onDecide?.("discard")}
-        />
-        <Button
-          testID="learning-keep"
-          label={card.keep}
-          size="sm"
-          loading={deciding}
-          disabled={!onDecide}
-          onPress={() => onDecide?.("keep")}
-        />
-      </View>
+      {onReview ? (
+        <View style={styles.cardActions}>
+          <View style={{ flex: 1 }} />
+          <Button testID="learning-review" label={reviewLabel(card)} size="sm" onPress={onReview} />
+        </View>
+      ) : (
+        <View style={styles.cardActions}>
+          {onDiff ? <Button testID="learning-diff" label={card.viewDiff} variant="ghost" size="sm" onPress={onDiff} /> : null}
+          <View style={{ flex: 1 }} />
+          <Button
+            testID="learning-discard"
+            label={card.discard}
+            variant="outline"
+            size="sm"
+            disabled={deciding || !onDecide}
+            onPress={() => onDecide?.("discard")}
+          />
+          <Button
+            testID="learning-keep"
+            label={card.keep}
+            size="sm"
+            loading={deciding}
+            disabled={!onDecide}
+            onPress={() => onDecide?.("keep")}
+          />
+        </View>
+      )}
     </View>
   );
 }
