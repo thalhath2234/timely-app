@@ -888,9 +888,11 @@ func (s *Service) steer(c *echo.Context) error {
 
 // leftoverSteer makes the steering messages a finished run never read (sent
 // while its last reply streamed, Hermes' pending_steer) the person's next
-// turn: they move after the reply as ordinary messages, and an idle chat
-// runs them. text is the newline join of those messages, the last ones the
-// run was sent; text that matches none is left alone.
+// turn: they move to the end as ordinary messages. An idle chat runs them;
+// a held proposal gives way to them, as it does to a new message (send); an
+// Auto proposal still applying runs them once it is applied (apply). text
+// is the newline join of those messages; text that matches none of the
+// run's steers is left alone.
 func (s *Service) leftoverSteer(ctx context.Context, uid, cid, text string) error {
 	text = strings.TrimSpace(text)
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -898,25 +900,15 @@ func (s *Service) leftoverSteer(ctx context.Context, uid, cid, text string) erro
 		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), uid, cid, &row); err != nil {
 			return err
 		}
-		var steers []int
-		matched := false
-		for i := len(row.Messages) - 1; i >= 0 && !matched; i-- {
-			m := row.Messages[i]
-			if m.Role == "user" && m.Kind == "" {
-				break // the run's own request: older steers belong to earlier runs
-			}
-			if m.Kind != "steer" {
-				continue
-			}
-			steers = append([]int{i}, steers...)
-			parts := make([]string, len(steers))
-			for j, k := range steers {
-				parts[j] = row.Messages[k].Content
-			}
-			matched = strings.TrimSpace(strings.Join(parts, "\n")) == text
-		}
-		if !matched {
+		steers := runSteers(row.Messages, text)
+		if steers == nil {
 			return nil
+		}
+		if row.Status == "approval" {
+			row.ForceReview = true
+			archivePlan(&row)
+			row.Phase = "plan"
+			row.Status = "queued"
 		}
 		moved := make([]Message, 0, len(steers))
 		kept := make([]Message, 0, len(row.Messages))
@@ -939,6 +931,42 @@ func (s *Service) leftoverSteer(ctx context.Context, uid, cid, text string) erro
 		row.Revision++
 		return tx.Save(&row).Error
 	})
+}
+
+// runSteers finds, among the steers of the run that just ended (between its
+// request and its reply), the consecutive ones whose newline join is text.
+// A message sent after the reply, or a later steer the run never took, does
+// not get in the way.
+func runSteers(messages []Message, text string) []int {
+	end := len(messages)
+	for i := len(messages) - 1; i >= 0; i-- {
+		if m := messages[i]; m.Role == "assistant" && m.Kind == "" && !m.Cut {
+			end = i
+			break
+		}
+	}
+	var candidates []int
+	for i := end - 1; i >= 0; i-- {
+		m := messages[i]
+		if m.Role == "user" && m.Kind == "" {
+			break // the run's own request: older steers belong to earlier runs
+		}
+		if m.Kind == "steer" {
+			candidates = append([]int{i}, candidates...)
+		}
+	}
+	for to := len(candidates); to > 0; to-- {
+		for from := to - 1; from >= 0; from-- {
+			parts := make([]string, 0, to-from)
+			for _, k := range candidates[from:to] {
+				parts = append(parts, messages[k].Content)
+			}
+			if strings.TrimSpace(strings.Join(parts, "\n")) == text {
+				return candidates[from:to]
+			}
+		}
+	}
+	return nil
 }
 
 func notify(tx *gorm.DB, c *Conversation, body string) error {

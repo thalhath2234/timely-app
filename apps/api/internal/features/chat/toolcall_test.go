@@ -225,6 +225,17 @@ func TestToolRunSavesAndLoadsRunReads(t *testing.T) {
 	}
 }
 
+// A run that failed after taking a steer has no reply: Retry sends the
+// request and the steer again.
+func TestSinceLastTurnKeepsASteerOfAFailedRun(t *testing.T) {
+	steer := message("user", "also add eggs")
+	steer.Kind = "steer"
+	got := sinceLastTurn([]Message{message("user", "Plan my week"), message("assistant", "Here it is."), message("user", "Add Buy milk"), steer})
+	if len(got) != 2 || got[0] != "Add Buy milk" || got[1] != "also add eggs" {
+		t.Fatalf("turn input %q", got)
+	}
+}
+
 // A reply Stop cut short does not end the turn: Retry, or the next
 // message, still carries the person's request, with the cut text as data.
 func TestSinceLastTurnSkipsACutReply(t *testing.T) {
@@ -247,8 +258,8 @@ func TestSinceLastTurnSkipsACutReply(t *testing.T) {
 }
 
 // The agent engine's turn input starts after the model's last reply:
-// Timely's notices as data, the person's words as written; steering
-// messages already reached their run.
+// Timely's notices as data, the person's words as written; a steer before
+// that reply already reached its run.
 func TestSinceLastTurn(t *testing.T) {
 	steer := message("user", "Friday instead")
 	steer.Kind = "steer"
@@ -257,8 +268,8 @@ func TestSinceLastTurn(t *testing.T) {
 	archive.Steps = []Step{{Tool: "create_task", Summary: "Buy milk", Arguments: raw(map[string]string{"name": "Buy milk"}), Status: "done"}}
 	got := sinceLastTurn([]Message{
 		message("user", "Add Buy milk"),
-		message("assistant", "Added."),
 		steer,
+		message("assistant", "Added."),
 		notice("Done — your changes are saved."),
 		archive,
 		message("user", "And bread"),

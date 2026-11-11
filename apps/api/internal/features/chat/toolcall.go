@@ -359,8 +359,9 @@ const cutNotice = "System notice (not written by the user): your reply was stopp
 
 // sinceLastTurn renders the messages after the model's last reply or
 // proposal, as classic reads them: the person's words as written, Timely's
-// notices and change records as data. Steering messages already reached the
-// run they steered.
+// notices and change records as data. Steers before the last reply reached
+// the run they steered; one after it belongs to a run that ended without a
+// reply (failed, lost), so Retry sends it again.
 func sinceLastTurn(messages []Message) []string {
 	start := 0
 	for i := len(messages) - 1; i >= 0; i-- {
@@ -373,7 +374,7 @@ func sinceLastTurn(messages []Message) []string {
 	for i := start; i < len(messages); i++ {
 		m := messages[i]
 		switch {
-		case m.Kind == "similar" || m.Kind == "steer":
+		case m.Kind == "similar":
 			continue
 		case m.Role == "user":
 			out = append(out, m.Content)

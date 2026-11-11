@@ -994,6 +994,11 @@ func (s *Service) apply(ctx context.Context, c *Conversation) error {
 			return notify(tx, row, tr(row.Language, txtPushContinuing))
 		}
 		row.Status = "idle"
+		if !undoPlan(row.Plan) && messageAfterProposal(row.Messages) {
+			// Something the person sent while the proposal was drafted
+			// (leftoverSteer) runs now; it reads the notice below as data.
+			defer func() { row.Status, row.Phase = "queued", "plan" }()
+		}
 		if remaining != "" {
 			// The request is not finished: say so instead of "Done", and keep
 			// what is left so "continue" picks it up.
@@ -1122,11 +1127,28 @@ func continueNotice(remaining string, later []Message) string {
 // pendingBatch returns what the applied proposal left for a next batch, or ""
 // when the request is finished. capped is true when the request has already
 // run maxBatches batches, so the rest waits for the person.
+// messageAfterProposal reports a message from the person after the newest
+// proposal: a steer that arrived as it was drafted (leftoverSteer).
+func messageAfterProposal(messages []Message) bool {
+	for i := len(messages) - 1; i >= 0; i-- {
+		switch m := messages[i]; {
+		case m.Role == "user" && m.Kind == "":
+			return true
+		case m.Proposal:
+			return false
+		}
+	}
+	return false
+}
+
 func pendingBatch(c *Conversation) (remaining string, capped bool) {
 	found, batches := false, 0
 	for i := len(c.Messages) - 1; i >= 0; i-- {
 		m := c.Messages[i]
 		if m.Role == "user" {
+			if !found {
+				continue // a leftover steer moved after the proposal (leftoverSteer)
+			}
 			break
 		}
 		if m.Continue != "" {
