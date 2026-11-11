@@ -46,6 +46,20 @@ type toolRun struct {
 	lookups targetLookups
 	// searches and searchFailures count the runner's web searches.
 	searches, searchFailures int
+	// web is the agent engine's timely web backend in this run (web.go).
+	web webRun
+	// taintSeen is set when the chat or the worker reported outside text
+	// in the run (an agent run only); see tainted.
+	taintSeen bool
+	// agentRun is the agent run these tools serve ("" on classic).
+	agentRun string
+}
+
+// tainted reports whether outside text reached this run: the chat's own
+// tainted_sources, the worker's reports, an outside Timely read or a web
+// page or search.
+func (r *toolRun) tainted() bool {
+	return r.taintSeen || r.bots.outside || r.web.read
 }
 
 // RunReads is a run's toolRun as stored in run_reads, for an agent run
@@ -79,6 +93,7 @@ func (s *Service) newToolRun(ctx context.Context, c *Conversation) (context.Cont
 
 // load takes up the run's saved state when it belongs to runID.
 func (r *toolRun) load(c *Conversation, runID string) {
+	r.agentRun = runID
 	saved := c.RunReads
 	if saved.Run != runID {
 		return
@@ -114,33 +129,26 @@ func (s *Service) toolCall(ctx context.Context, c *Conversation, run *toolRun, n
 	}
 	var result any
 	var err error
-	if name == "web_search" && run.searchOn {
+	// outside is set by a web tool whose result carries a page's or a
+	// search's text.
+	outside := false
+	web := run.web.on && webTools[name]
+	if web && name == "web_search" {
+		// The agent engine's timely web backend (web.go).
+		result, outside, err = s.webSearch(ctx, run, args)
+	} else if web {
+		result, outside, err = s.webExtract(ctx, c, run, args)
+	} else if name == "web_search" && run.searchOn {
 		var in struct {
 			Query string `json:"query"`
 		}
 		err = json.Unmarshal(args, &in)
 		query := strings.TrimSpace(in.Query)
-		if run.searchFailures >= maxSearchFailures {
-			err = fmt.Errorf("Web search is not working right now. Answer without it and tell the person the search failed")
-		} else if run.searches >= maxSearches {
-			err = fmt.Errorf("That is as many searches as one request may make. Answer from the results above")
-		} else if err == nil && len(query) > 0 && len(query) < 2000 {
-			run.searches++
+		if err == nil && len(query) > 0 && len(query) < 2000 {
 			var answer WireMessage
-			answer, err = s.complete(ctx, []WireMessage{{Role: "user", Content: query + "\nInclude source links."}}, nil, true)
-			if err == nil && strings.TrimSpace(answer.Content) == "" {
-				err = fmt.Errorf("The search returned no answer")
-			}
-			if err != nil {
-				if ctx.Err() != nil {
-					return nil, false, ctx.Err()
-				}
-				// Each failed search is a paid request, and the provider
-				// retries it: after two, later calls get an error without
-				// searching. The tool stays listed: some providers refuse a
-				// transcript with calls to a tool that is gone.
-				run.searchFailures++
-			}
+			// A failed search leaves the tool listed: some providers refuse
+			// a transcript with calls to a tool that is gone.
+			answer, err = s.runSearch(ctx, run, query)
 			result = map[string]any{"answer": answer.Content, "sources": answer.Annotations}
 		} else {
 			err = fmt.Errorf("Invalid search query: write the words to search for")
@@ -170,16 +178,21 @@ func (s *Service) toolCall(ctx context.Context, c *Conversation, run *toolRun, n
 	} else {
 		err = fmt.Errorf("Unknown tool %q. Use only the listed read tools, web_search when it is listed, and propose_changes for every change", name)
 	}
+	if err != nil && ctx.Err() != nil && webTools[name] {
+		return nil, false, ctx.Err()
+	}
 	if err != nil {
 		result = map[string]any{"error": err.Error()}
-	} else {
+		outside = false
+	} else if !web {
 		result = localizeTimes(result, run.loc)
 	}
 	encoded := raw(result)
 	if len(encoded) > 90000 {
 		encoded = raw(map[string]any{"error": "Result is too large; narrow the filters, page with limit and offset, or fetch a specific object"})
+		outside = false
 	}
-	outside := run.bots.note(name, encoded)
+	outside = run.bots.note(name, encoded) || outside
 	return encoded, outside, nil
 }
 
@@ -228,7 +241,7 @@ func (s *Service) finishTurn(ctx context.Context, c *Conversation, reply string,
 			m := message("assistant", reply)
 			m.BotAnswers = run.bots.answers.list(run.tags)
 			row.Messages = append(row.Messages, m)
-			markEngine(row, len(row.Messages)-1)
+			markEngine(row, len(row.Messages)-1, run.agentRun)
 			row.Status = "idle"
 			row.Transcript = []WireMessage{}
 			return notify(tx, row, tr(row.Language, txtPushReply))
@@ -247,7 +260,7 @@ func (s *Service) finishTurn(ctx context.Context, c *Conversation, reply string,
 		row.Transcript = []WireMessage{}
 		// A review note only ever adds a review.
 		row.Status = proposalStatus(row, row.Plan, p.Direct, pending.notes)
-		defer markEngine(row, len(row.Messages))
+		defer markEngine(row, len(row.Messages), run.agentRun)
 		summary := message("assistant", p.Summary)
 		summary.Proposal = true
 		summary.Remaining = strings.TrimSpace(p.Remaining)
@@ -272,13 +285,14 @@ func (s *Service) finishTurn(ctx context.Context, c *Conversation, reply string,
 }
 
 // markEngine tags the messages from index from on with the engine of the
-// run that wrote them, when that is the agent engine.
-func markEngine(row *Conversation, from int) {
+// run that wrote them, when that is the agent engine, and with its run id.
+func markEngine(row *Conversation, from int, agentRun string) {
 	if row.RunEngine != engineAgent {
 		return
 	}
 	for i := from; i < len(row.Messages); i++ {
 		row.Messages[i].Engine = engineAgent
+		row.Messages[i].AgentRun = agentRun
 	}
 }
 

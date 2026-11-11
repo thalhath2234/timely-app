@@ -35,7 +35,11 @@ type Message struct {
 	Cut bool `json:"cut,omitempty"`
 	// Engine is "agent" on a turn's reply or proposal the agent engine
 	// wrote; empty for classic's.
-	Engine    string `json:"engine,omitempty"`
+	Engine string `json:"engine,omitempty"`
+	// AgentRun is the agent run that wrote a turn's reply or proposal; the
+	// apps attach that run's learning events (which carry the same run id)
+	// to it.
+	AgentRun  string `json:"agentRun,omitempty"`
 	Remaining string `json:"remaining,omitempty"`
 	Continue  string `json:"continue,omitempty"`
 	// Notes are a proposal's review notes from Jev (see jev.go).
@@ -139,8 +143,11 @@ type Conversation struct {
 	// TaintedSources are the outside sources this chat's runs read, only
 	// ever added to; any at all holds every proposal for review.
 	TaintedSources TaintSources `gorm:"serializer:json;type:jsonb" json:"-"`
-	CreatedAt      time.Time    `json:"createdAt"`
-	UpdatedAt      time.Time    `json:"updatedAt"`
+	// NoLearning is "Don't learn from this chat" (plan 9b.2): its agent
+	// runs write no memory or skills, and past-chat search never returns it.
+	NoLearning bool      `gorm:"not null;default:false" json:"noLearning"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
 // The engines a chat run can use.

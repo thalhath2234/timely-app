@@ -25,9 +25,9 @@ func TestIntegrationChatChangesReachWatchers(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go s.relayChanges(ctx)
-	mine, stopMine := live.Subscribe("user-a", watchKey)
+	mine, stopMine := live.Subscribe("user-a", WatchKey)
 	defer stopMine()
-	theirs, stopTheirs := live.Subscribe("user-b", watchKey)
+	theirs, stopTheirs := live.Subscribe("user-b", WatchKey)
 	defer stopTheirs()
 
 	next := func(within time.Duration) (realtime.Event, bool) {

@@ -78,6 +78,19 @@ type WorkerEngineOptions struct {
 	ActivityEvery time.Duration
 	RenewEvery    time.Duration
 	Logf          func(format string, args ...any)
+	// Learning reads the account's learning switches (learning.Service.Prefs,
+	// plan 9b.2); nil, or an error, leaves learning off for the run.
+	Learning func(ctx context.Context, uid string) (LearningPrefs, error)
+	// Fetch reads pages for the timely web backend's web_extract; nil is
+	// NetguardFetcher. FixtureFetcher serves test pages.
+	Fetch PageFetcher
+}
+
+// LearningPrefs are the account's learning switches a run reads.
+type LearningPrefs struct {
+	// Learning is "Learn from my chats" (default on, Q-3.1); SearchHistory
+	// "Search my past chats" (default on, Q-3.5).
+	Learning, SearchHistory bool
 }
 
 // NewWorkerEngine makes the engine for s. Wire its Handle and WorkerExited
@@ -97,6 +110,9 @@ func NewWorkerEngine(s *Service, opts WorkerEngineOptions) *WorkerEngine {
 	}
 	if opts.Unsupported == nil {
 		opts.Unsupported = func(error) bool { return false }
+	}
+	if opts.Fetch == nil {
+		opts.Fetch = NetguardFetcher()
 	}
 	return &WorkerEngine{s: s, opts: opts, runs: map[string]*agentRun{}, chats: map[string]*agentRun{},
 		seeded: map[string]bool{}, unsettled: map[string]bool{}, forgetting: map[string]bool{}, started: map[*agenthost.Worker]int64{}}
@@ -133,7 +149,7 @@ const (
 	stopWait = 30 * time.Second
 )
 
-var slowTools = map[string]bool{"preview_bot": true, "ask_bot": true}
+var slowTools = map[string]bool{"preview_bot": true, "ask_bot": true, "web_search": true, "web_extract": true}
 
 // agentRun is one live run this process follows.
 type agentRun struct {
@@ -278,6 +294,12 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 	if language != "" {
 		c.Language = language
 	}
+	setup := e.runSetup(ctx, c, tools)
+	if tools.web.on {
+		// The timely web backend searches with the chat's own provider
+		// (Q-3.8), as classic's web_search does.
+		toolCtx = e.s.withRunCompleter(toolCtx, c)
+	}
 	block := timelyBlock(c, tools, e.opts.HostAllowed(c.UserID))
 	input := e.s.turnInput(ctx, c)
 	r := &agentRun{id: id("run_"), uid: c.UserID, cid: c.ID, instance: e.instance(w), worker: w,
@@ -313,13 +335,16 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		"system_text":     block,
 		"system_hash":     blockHash(block),
 		"model":           model,
-		"toolsets":        chatToolsets,
-		"flags": map[string]any{"sensitive": false, "answer_only": tools.answerOnly, "web": false,
-			"rich_ui": c.RichUI, "from_bot": false, "learning_writes": false},
+		"toolsets":        setup.toolsets,
+		"flags": map[string]any{"sensitive": c.Sensitive, "answer_only": tools.answerOnly, "web": tools.web.on,
+			"rich_ui": c.RichUI, "from_bot": false, "learning_writes": setup.learningWrites, "search_history": setup.searchHistory},
 		// No Timely cap (Q-2.3): Hermes' own turn limit applies.
-		"budgets":         map[string]any{},
-		"permission":      c.Permission,
-		"tainted_sources": c.TaintedSources,
+		"budgets":               map[string]any{},
+		"permission":            c.Permission,
+		"tainted_sources":       c.TaintedSources,
+		"tainted_conversations": setup.taintedConversations,
+		"search_exclude":        setup.searchExclude,
+		"person_hosts":          setup.personHosts,
 	}
 	e.mu.Lock()
 	seeded, unsettled := e.seeded[c.ID], e.unsettled[c.ID]
@@ -770,7 +795,7 @@ func (e *WorkerEngine) publish(r *agentRun, d *liveDelta) {
 	if e.s.live == nil {
 		return
 	}
-	e.s.live.Publish(r.uid, watchKey, realtime.Event{Type: "delta", Kind: "chat", ID: r.cid, Document: d})
+	e.s.live.Publish(r.uid, WatchKey, realtime.Event{Type: "delta", Kind: "chat", ID: r.cid, Document: d})
 }
 
 // step handles one item; true when the run is over.
@@ -807,7 +832,7 @@ func (e *WorkerEngine) step(r *agentRun, it runItem) bool {
 	case agenthost.TypeToolCall:
 		e.toolCall(r, m)
 	case agenthost.TypeGateAsk:
-		_ = r.worker.Reply(m, agenthost.TypeGateVerdict, map[string]any{"verdict": "block", "message": gateBlocked})
+		e.gate(r, m)
 	case agenthost.TypeRunDone:
 		e.done(r, m)
 		return true
@@ -843,10 +868,7 @@ func (e *WorkerEngine) toolCall(r *agentRun, m agenthost.Message) {
 		_ = r.worker.Reply(m, agenthost.TypeToolResult, map[string]any{"result": map[string]string{"error": "Unreadable tool call"}, "outside": false, "end_turn": false})
 		return
 	}
-	if len(call.Tainted) > 0 {
-		r.taint = append(r.taint, call.Tainted...)
-		r.dirty = true
-	}
+	r.noteTaint(call.Tainted)
 	if call.Batch < 1 {
 		call.Batch = 1
 	}
@@ -881,6 +903,9 @@ func (e *WorkerEngine) toolCall(r *agentRun, m agenthost.Message) {
 	if err != nil {
 		result, outside = raw(map[string]string{"error": toolTimedOut}), false
 	}
+	// A page or search the timely web backend read is the chat's taint
+	// whatever the worker reports.
+	r.noteTaint(r.tools.web.takeTaint())
 	r.dirty = true // run_reads changed
 	_ = r.worker.Reply(m, agenthost.TypeToolResult, map[string]any{"result": result, "outside": outside, "end_turn": false})
 }

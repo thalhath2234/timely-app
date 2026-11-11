@@ -7,8 +7,9 @@ import (
 	"timely-api/internal/realtime"
 )
 
-// watchKey is the Hub topic for all of one person's chats.
-const watchKey = "chats"
+// WatchKey is the Hub topic for all of one person's chats: GET /chats/watch
+// streams it, and other features (learning events) publish to it.
+const WatchKey = "chats"
 
 // SetLive turns on GET /chats/watch. Run then relays chat changes to it.
 func (s *Service) SetLive(live *realtime.Hub) { s.live = live }
@@ -24,7 +25,7 @@ func (s *Service) watch(c *echo.Context) error {
 	if s.live == nil {
 		return echo.NewHTTPError(503, "realtime unavailable")
 	}
-	events, cancel := s.live.Subscribe(uid, watchKey)
+	events, cancel := s.live.Subscribe(uid, WatchKey)
 	defer cancel()
 	realtime.Stream(c.Request().Context(), c.Response(), realtime.Event{Type: "hello", Kind: "chat"}, events)
 	return nil
@@ -35,5 +36,5 @@ func (s *Service) watch(c *echo.Context) error {
 // process on this database, so a run another process claimed still reaches
 // this one's streams.
 func (s *Service) relayChanges(ctx context.Context) {
-	realtime.RelayPG(ctx, s.db, s.live, "timely_chats", watchKey, "chat")
+	realtime.RelayPG(ctx, s.db, s.live, "timely_chats", WatchKey, "chat")
 }

@@ -56,7 +56,7 @@ func TestIntegrationAgentEngineRealWorker(t *testing.T) {
 	if err := h.db.Create(&testItem{ID: "tsk_real", Value: "Water the plants"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	deltas, cancel := h.hub.Subscribe("user-a", watchKey)
+	deltas, cancel := h.hub.Subscribe("user-a", WatchKey)
 	t.Cleanup(cancel)
 
 	// 1. Streamed reply: the deltas the worker coalesced reach the watch

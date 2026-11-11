@@ -98,7 +98,7 @@ func (s *Service) find(db *gorm.DB, uid, cid string, c *Conversation) error {
 }
 func (s *Service) list(c *echo.Context) error {
 	rows := []Conversation{}
-	err := s.db.Select("id", "title", "status", "phase", "web_search", "revision", "unread", "error", "permission", "engine", "run_engine", "created_at", "updated_at").Where("user_id = ?", user(c)).Order("updated_at DESC").Limit(200).Find(&rows).Error
+	err := s.db.Select("id", "title", "status", "phase", "web_search", "no_learning", "revision", "unread", "error", "permission", "engine", "run_engine", "created_at", "updated_at").Where("user_id = ?", user(c)).Order("updated_at DESC").Limit(200).Find(&rows).Error
 	if err != nil {
 		return err
 	}
@@ -726,6 +726,9 @@ func (s *Service) configure(c *echo.Context) error {
 		// engine ("" follows the account).
 		Permission *string `json:"permission"`
 		Engine     *string `json:"engine"`
+		// NoLearning is "Don't learn from this chat"; it applies from the
+		// chat's next run.
+		NoLearning *bool `json:"noLearning"`
 	}
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(400, "Invalid settings")
@@ -786,6 +789,9 @@ func (s *Service) configure(c *echo.Context) error {
 		}
 		if in.Title != nil {
 			row.Title = title
+		}
+		if in.NoLearning != nil {
+			row.NoLearning = *in.NoLearning
 		}
 		if in.WebSearch != nil {
 			row.WebSearch = *in.WebSearch

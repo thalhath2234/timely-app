@@ -24,15 +24,18 @@ const timelySkill = "\nThe timely skill (skill_view timely) holds Timely's own n
 
 // timelyBlock is the conversation's Timely block: the instruction (without
 // the scope line for the host-allowed account, Q-2.1), the client note, the
-// reply-card kit, resolve_target's hint when it is offered, the write tool
-// schemas and the timely skill pointer. Classic's web search line is absent:
-// web tools arrive in phase 3. The write schemas are listed in answer-only
+// reply-card kit, resolve_target's hint when it is offered, classic's web
+// search line when the run has the web (flags.web), the write tool schemas
+// and the timely skill pointer. The write schemas are listed in answer-only
 // turns too, so the block does not change when a message tags a Bot; the
 // tools refuse every change in such a turn (toolCall).
 func timelyBlock(c *Conversation, run *toolRun, hostAllowed bool) string {
 	system := instructionFor(hostAllowed) + clientNote(c.Client) + replyCards(c.RichUI, c.Messages)
 	if run.targets {
 		system += targetHint
+	}
+	if run.web.on {
+		system += webSearchOn
 	}
 	names := make([]string, 0, len(run.catalog))
 	for name := range run.catalog {
