@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -32,6 +33,7 @@ type Service struct {
 	key          [32]byte
 	afterRestore func(userID string)
 	vetRestore   RestoreVet
+	agent        AgentStore
 }
 
 // RestoreVet checks restored rows inside the restore's transaction; an
@@ -120,32 +122,41 @@ func (s *Service) UpdateSettings(userID string, input models.BackupSettings) (mo
 	return normalized, err
 }
 
+// CreateEncrypted writes an encrypted backup of the account, its agent
+// state included (ExportAccount).
 func (s *Service) CreateEncrypted(userID string) (*models.BackupFile, error) {
-	backup, err := s.Export(userID)
+	row, _, err := s.createEncrypted(context.Background(), userID)
+	return row, err
+}
+
+// createEncrypted is CreateEncrypted that also returns the backup's
+// warnings (what it left out).
+func (s *Service) createEncrypted(ctx context.Context, userID string) (*models.BackupFile, []string, error) {
+	backup, err := s.ExportAccount(ctx, userID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	plain, err := json.MarshalIndent(backup, "", "  ")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	sealed, err := s.encrypt(plain)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	id := utils.NewBackupID()
 	accountDir := filepath.Join(s.dir, safeAccountDirectory(userID))
 	if err := utils.EnsureDir(accountDir); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	path := filepath.Join(accountDir, id+".tlbk")
 	temporary := path + ".tmp"
 	if err := os.WriteFile(temporary, sealed, 0600); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := os.Rename(temporary, path); err != nil {
 		_ = os.Remove(temporary)
-		return nil, err
+		return nil, nil, err
 	}
 	row := &models.BackupFile{
 		ID: id, UserID: userID, Path: path, ByteSize: int64(len(sealed)),
@@ -153,13 +164,13 @@ func (s *Service) CreateEncrypted(userID string) (*models.BackupFile, error) {
 	}
 	if err := s.db.Create(row).Error; err != nil {
 		_ = os.Remove(path)
-		return nil, err
+		return nil, nil, err
 	}
 	settings, _ := s.GetSettings(userID)
 	if err := s.prune(userID, settings.RetentionCount); err != nil {
-		return row, err
+		return row, backup.Warnings, err
 	}
-	return row, nil
+	return row, backup.Warnings, nil
 }
 
 // RemoveAccount deletes every backup file kept for a deleted account.
@@ -296,8 +307,22 @@ func (s *Service) HandleBackup(ctx context.Context, job *models.Job) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if _, err := s.CreateEncrypted(job.UserID); err != nil {
+	_, warnings, err := s.createEncrypted(ctx, job.UserID)
+	if err != nil {
 		return err
+	}
+	// The job's result: what the backup left out (the agent state above
+	// the 64 MB cap, or when it could not be read).
+	if len(warnings) > 0 {
+		payload := models.JobPayload{}
+		for k, v := range job.Payload {
+			payload[k] = v
+		}
+		payload["warnings"] = warnings
+		if err := s.db.Model(&models.Job{}).Where("id = ?", job.ID).Update("payload", payload).Error; err != nil {
+			log.Printf("backup %s: record warnings: %v", safeAccountDirectory(job.UserID), err)
+		}
+		job.Payload = payload
 	}
 	settings, err := s.GetSettings(job.UserID)
 	if err != nil || !settings.Enabled {

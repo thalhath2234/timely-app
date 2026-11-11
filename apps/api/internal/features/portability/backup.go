@@ -6,17 +6,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
+	"timely-api/internal/agenthost"
+	"timely-api/internal/features/learning"
 	"timely-api/internal/models"
 
 	"gorm.io/gorm"
 )
 
+// Schema 3 adds the account's agent state (Backup.Agent) and what the agent
+// learned (agent_learning_*); 1 and 2 still restore.
 const (
 	backupFormat     = "timely-backup"
-	schemaVersion    = 2
+	schemaVersion    = 3
 	minSchemaVersion = 1
 	maxRows          = 250000
 )
@@ -33,6 +38,21 @@ type Backup struct {
 	ExportedAt    time.Time                    `json:"exportedAt"`
 	Source        SourceAccount                `json:"sourceAccount"`
 	Rows          map[string][]json.RawMessage `json:"rows"`
+	// Agent is the account's agent state (memory, learned skills, staged
+	// writes, chat sessions; plan 6.5), absent when the account never used
+	// the agent or the export left it out (Warnings says why). Restore
+	// decodes with DisallowUnknownFields, so both fields are declared.
+	Agent    *AgentState `json:"agent,omitempty"`
+	Warnings []string    `json:"warnings,omitempty"`
+}
+
+// AgentState is the zip agent-export wrote (agenthost.ExportState), base64
+// in the JSON, with its sha256.
+type AgentState struct {
+	Format  string `json:"format"`
+	Version int    `json:"version"`
+	SHA256  string `json:"sha256"`
+	Zip     []byte `json:"zip"`
 }
 
 type tableSpec struct {
@@ -86,7 +106,18 @@ var exportTables = []tableSpec{
 	{"bot_links", `SELECT to_jsonb(x) FROM bot_links x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
 	{"bot_findings", `SELECT to_jsonb(x) FROM bot_findings x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
 	{"bot_price_days", `SELECT to_jsonb(x) || jsonb_build_object('id', x.watch_id || ':' || x.day::text) FROM bot_price_days x WHERE x.user_id = ? ORDER BY x.watch_id, x.day`},
+	// What the agent learned (plan 9b.7): the account's learning switches and
+	// skill lists (the settings row is named by its user; restore ignores
+	// that key) and the learning feed. Web search keys (agent_web_keys) stay
+	// out, like MCP sign-ins: keys are never in a backup.
+	{"agent_learning_settings", `SELECT to_jsonb(x) || jsonb_build_object('id', x.user_id) FROM agent_learning_settings x WHERE x.user_id = ?`},
+	{"agent_learning_events", `SELECT to_jsonb(x) FROM agent_learning_events x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
 }
+
+// agentTables are the exportTables that belong to the agent. A restore an
+// outside app asked for (RestoreFromMCP) neither clears nor writes them, as
+// it never touches the agent's home.
+var agentTables = map[string]bool{"agent_learning_settings": true, "agent_learning_events": true}
 
 func (s *Service) Export(userID string) (*Backup, error) {
 	if userID == "" {
@@ -124,6 +155,10 @@ func (s *Service) Export(userID string) (*Backup, error) {
 type RestoreResult struct {
 	RestoredAt time.Time      `json:"restoredAt"`
 	Counts     map[string]int `json:"counts"`
+	// Warnings are what the restore left out, in plain words (the agent
+	// state when the assistant is not available here, skills the threat
+	// scan refused).
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 func validateBackup(backup *Backup) error {
@@ -233,14 +268,46 @@ func (s *Service) restore(userID string, backup *Backup, fromMCP bool) (*Restore
 	if err := validateBackup(backup); err != nil {
 		return nil, err
 	}
+	var warnings []string
+	// The agent state is staged beside the live home before the
+	// transaction, so a bad zip or a threat-scan refusal is known before any
+	// row changes, and swapped in only after the rows committed.
+	var staged *agenthost.Staged
+	switch {
+	case backup.Agent == nil:
+	case fromMCP:
+		warnings = append(warnings, warnAgentNotFromApps)
+	default:
+		if err := validateAgentState(backup.Agent); err != nil {
+			return nil, err
+		}
+		var warn []string
+		staged, warn = s.stageAgent(userID, backup.Agent)
+		warnings = append(warnings, warn...)
+	}
+	committed := false
+	defer func() {
+		if staged != nil && !committed {
+			if err := s.agent.DiscardRestore(*staged); err != nil {
+				log.Printf("restore: drop the staged agent state: %v", err)
+			}
+		}
+	}()
+	// What the agent learned is replaced only by a backup that carries it
+	// (schema 3) and never by an outside app; an older backup keeps the
+	// account's learning switches and skill lists as they are.
+	withAgent := !fromMCP && carriesAgentRows(backup)
 	counts := map[string]int{}
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		if err := clearAccountData(tx, userID); err != nil {
+		if err := clearAccountData(tx, userID, withAgent); err != nil {
 			return err
 		}
 		var refs []deferredRef
 		owned := newRestoreOwnership(tx, userID)
 		for _, spec := range exportTables {
+			if agentTables[spec.name] && !withAgent {
+				continue
+			}
 			for _, raw := range backup.Rows[spec.name] {
 				var row map[string]any
 				if err := json.Unmarshal(raw, &row); err != nil {
@@ -283,6 +350,14 @@ func (s *Service) restore(userID string, backup *Backup, fromMCP bool) (*Restore
 				return fmt.Errorf("restore relationship %s.%s: %w", ref.table, ref.column, err)
 			}
 		}
+		// Restored skills stay off, shown as "restored, review", until the
+		// person turns them on (Q-3.4). After the rows: the backup's own
+		// settings row is the one marked.
+		if staged != nil {
+			if err := learning.MarkRestored(tx, userID, staged.RestoredSkills); err != nil {
+				return fmt.Errorf("restore: mark restored skills: %w", err)
+			}
+		}
 		if s.vetRestore != nil {
 			if err := s.vetRestore(tx, userID, fromMCP); err != nil {
 				return err
@@ -293,10 +368,25 @@ func (s *Service) restore(userID string, backup *Backup, fromMCP bool) (*Restore
 	if err != nil {
 		return nil, err
 	}
+	committed = true
+	if staged != nil {
+		warnings = append(warnings, s.commitAgent(*staged)...)
+	}
 	if s.afterRestore != nil {
 		s.afterRestore(userID)
 	}
-	return &RestoreResult{RestoredAt: time.Now().UTC(), Counts: counts}, nil
+	return &RestoreResult{RestoredAt: time.Now().UTC(), Counts: counts, Warnings: warnings}, nil
+}
+
+// carriesAgentRows reports whether the backup has the agent's tables at all
+// (every schema 3 export lists them, empty or not).
+func carriesAgentRows(backup *Backup) bool {
+	for table := range agentTables {
+		if _, ok := backup.Rows[table]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // restoreDefaults fills NOT NULL columns added after older backups were
@@ -446,7 +536,9 @@ func insertJSONRow(tx *gorm.DB, table string, raw []byte) error {
 	return tx.Exec(query, string(raw)).Error
 }
 
-func clearAccountData(tx *gorm.DB, userID string) error {
+// clearAccountData deletes the rows a restore replaces; withAgent also
+// deletes what the agent learned (restore writes the backup's in its place).
+func clearAccountData(tx *gorm.DB, userID string, withAgent bool) error {
 	queries := []string{
 		`DELETE FROM recurrence_exceptions WHERE rule_id IN (SELECT id FROM recurrence_rules WHERE user_id = ?)`,
 		`DELETE FROM custom_field_values WHERE custom_field_id IN (SELECT f.id FROM custom_fields f JOIN workspaces w ON w.id = f.workspace_id WHERE w.user_id = ?)`,
@@ -481,6 +573,11 @@ func clearAccountData(tx *gorm.DB, userID string) error {
 		// checks before queueing the same work again.
 		`DELETE FROM jobs WHERE user_id = ? AND status <> 'succeeded'`,
 		`DELETE FROM embeddings WHERE user_id = ?`,
+	}
+	if withAgent {
+		queries = append(queries,
+			`DELETE FROM agent_learning_events WHERE user_id = ?`,
+			`DELETE FROM agent_learning_settings WHERE user_id = ?`)
 	}
 	for _, query := range queries {
 		if err := tx.Exec(query, userID).Error; err != nil {
