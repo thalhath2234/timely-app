@@ -273,6 +273,13 @@ func TestHandshakeSendsHelloAndBuildsTheEnvironmentFromScratch(t *testing.T) {
 		for _, name := range append(windowsBaseNames, "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP") {
 			allowed[name] = true
 		}
+		// Set by Go so Hermes' Windows bootstrap changes nothing (env_drift).
+		for name, want := range map[string]string{"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"} {
+			allowed[name] = true
+			if env[name] != want {
+				t.Errorf("%s = %q, want %q", name, env[name], want)
+			}
+		}
 	}
 	for name := range env {
 		if !allowed[name] {

@@ -168,6 +168,11 @@ func hostEnv(layout Layout, host EnvConfig) map[string]string {
 		env["PYTHONDONTWRITEBYTECODE"] = "1"
 	}
 	if runtime.GOOS == "windows" {
+		// Hermes' Windows bootstrap setdefaults these two once it is imported;
+		// set here, the worker's environment is the same before and after
+		// the import, as the self-test's env_drift check requires.
+		env["PYTHONUTF8"] = "1"
+		env["PYTHONIOENCODING"] = "utf-8"
 		for _, name := range windowsBaseNames {
 			value, ok := host.windowsBase[name]
 			if !ok {

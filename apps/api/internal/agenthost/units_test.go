@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -73,6 +74,14 @@ func TestBuildEnvInheritsNothing(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(env, "\n"), "PYTHONDONTWRITEBYTECODE=1") {
 		t.Error("packaged runtime without PYTHONDONTWRITEBYTECODE")
+	}
+	if runtime.GOOS == "windows" {
+		// Hermes' Windows bootstrap would add them after the start check.
+		for _, kv := range []string{"PYTHONUTF8=1", "PYTHONIOENCODING=utf-8"} {
+			if !slices.Contains(env, kv) {
+				t.Errorf("Windows worker environment lacks %s", kv)
+			}
+		}
 	}
 }
 

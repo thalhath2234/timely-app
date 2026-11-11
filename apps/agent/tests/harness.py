@@ -47,6 +47,8 @@ def run_cli(command: str, agent_dir: Path, stdin: dict | None = None, *extra: st
     for name in ("SYSTEMROOT", "TMPDIR", "TEMP", "TMP"):
         if os.environ.get(name):
             env[name] = os.environ[name]
+    if os.name == "nt":
+        env["USERPROFILE"] = env["HOME"]
     proc = subprocess.run([python(), "-I", str(BOOT), command, "--agent-dir", str(agent_dir), *extra],
                           input=json.dumps(stdin or {}), capture_output=True, text=True, env=env, timeout=120)
     lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
@@ -91,6 +93,19 @@ class Agent:
         env["TMPDIR"] = str(self.root / "tmp")
         (self.root / "tmp").mkdir(exist_ok=True)
         env["HERMES_REAL_HOME"] = str(self.root / "real-home")
+        if os.name == "nt":
+            # What Go's BuildEnv adds on Windows: CPython finds the home folder
+            # through USERPROFILE (not HOME), and Hermes' Windows bootstrap would
+            # add the two UTF-8 names after the start check (env_drift).
+            profile = env["HOME"]
+            env["USERPROFILE"] = profile
+            env["APPDATA"] = str(Path(profile) / "AppData" / "Roaming")
+            env["LOCALAPPDATA"] = str(Path(profile) / "AppData" / "Local")
+            env["TEMP"] = env["TMP"] = env["TMPDIR"]
+            env["PYTHONUTF8"] = "1"
+            env["PYTHONIOENCODING"] = "utf-8"
+            if os.environ.get("SYSTEMDRIVE"):
+                env["SYSTEMDRIVE"] = os.environ["SYSTEMDRIVE"]
         env.update(extra)
         return env
 
