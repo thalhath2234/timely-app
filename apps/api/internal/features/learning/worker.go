@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -66,6 +67,9 @@ func replyError(err error) error {
 			return echo.NewHTTPError(http.StatusNotImplemented, "This needs a newer agent runtime: "+msg)
 		case "conflict", "locked", "busy":
 			return echo.NewHTTPError(http.StatusConflict, msg)
+		case "internal":
+			slog.Warn("learning: the agent failed a request", "error", re.Message)
+			return echo.NewHTTPError(http.StatusBadGateway, "Something went wrong in Timely's assistant. Try again.")
 		}
 		return echo.NewHTTPError(http.StatusBadGateway, msg)
 	case errors.Is(err, context.DeadlineExceeded):

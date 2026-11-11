@@ -447,6 +447,28 @@ export function budgetMeter(used: number, limit: number): BudgetMeter {
   return { text: `${count(u)} of ${count(l)}`, ratio, tone };
 }
 
+/** What separates entries in About you and Notes; the budget counts it (Hermes' ENTRY_DELIMITER). */
+export const MEMORY_ENTRY_DELIMITER = "\n§\n";
+
+/**
+ * Characters About you or Notes will use after an edit replaces `old` with `next`
+ * (`old` empty: a new entry, which also adds a separator when there are entries already).
+ * Counts code points, as the worker does; the worker checks again.
+ */
+export function projectedMemoryUse(store: { used: number } | undefined, old: string, next: string): number {
+  const used = store?.used ?? 0;
+  const text = [...next.trim()].length;
+  if (!old) return used + text + (used > 0 ? [...MEMORY_ENTRY_DELIMITER].length : 0);
+  return Math.max(0, used - [...old].length + text);
+}
+
+/** An About you or Notes edit is sendable: something written, changed, and inside the budget. */
+export function canSaveMemoryEntry(store: { used: number; limit: number } | undefined, old: string, next: string): boolean {
+  const text = next.trim();
+  if (!text || text === old.trim()) return false;
+  return projectedMemoryUse(store, old, next) <= (store?.limit ?? 0);
+}
+
 /** 1104 -> "1,104", the same on every device. */
 function count(n: number): string {
   return String(Math.trunc(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");

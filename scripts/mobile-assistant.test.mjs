@@ -700,7 +700,10 @@ test("Activity rows say what changed, its status, when and where from; Undo only
 
 test("About you's meter follows the edit, and Save needs a change that fits", () => {
   const store = { entries: ["I run a bakery"], used: 1370, limit: 1375 };
-  assert.equal(learning.projectedBudget(store, "", "hi").text, "1,372 of 1,375");
+  // a new entry also adds the separator between entries ("\n§\n"), as the worker counts it
+  assert.equal(learning.projectedBudget(store, "", "hi").text, "1,375 of 1,375");
+  assert.equal(learning.canSaveEntry(store, "", "hi!"), false);
+  assert.equal(learning.canSaveEntry({ entries: [], used: 0, limit: 3 }, "", "abc"), true);
   assert.equal(learning.projectedBudget(store, "I run a bakery", "I bake").text, "1,362 of 1,375");
   assert.equal(learning.projectedBudget(store, "", "0123456789").tone, "full");
   assert.equal(learning.canSaveEntry(store, "", "hi"), true);

@@ -23,6 +23,7 @@ from typing import Any, Callable, Iterator, Optional
 
 from timely_agent.learning import feed as feed_mod
 from timely_agent.learning import files
+from timely_agent.learning import plain
 
 EXPORT_MAX_BYTES = 16 * 1024 * 1024
 SKILL_STATES = ("lock", "unlock", "archive", "restore", "delete")
@@ -298,7 +299,7 @@ def skill(msg: dict[str, Any], host: Host) -> dict[str, Any]:
     name = msg["name"]
     path = _skill_dir(name) or _archived_dir(host.home, name)
     if path is None:
-        raise ApiError("not_found", f"no skill named {name!r}")
+        raise ApiError("not_found", plain.NO_SKILL)
     try:
         content = (path / "SKILL.md").read_text(encoding="utf-8")
     except OSError:
@@ -309,7 +310,7 @@ def skill(msg: dict[str, Any], host: Host) -> dict[str, Any]:
     if entry_id:
         entry = next((e for e in history if e.get("id") == entry_id), None)
         if entry is None:
-            raise ApiError("not_found", f"no history entry {entry_id!r} for {name!r}")
+            raise ApiError("not_found", plain.NO_ENTRY)
         out["diff"] = _entry_diff(host.home, entry)
     return out
 
@@ -409,7 +410,7 @@ def rollback(msg: dict[str, Any], host: Host) -> dict[str, Any]:
             feed.claim_ledger(since=seen, actors=("user",))  # Go marks the event undone itself
     _clear_skill_caches()
     if not ok:
-        raise Failed({"ok": False, "message": message})
+        raise Failed({"ok": False, "message": plain.person_facing(message)})
     return {"ok": True, "message": message, "restored_skills": [skill_name] if restored else []}
 
 
@@ -433,13 +434,13 @@ def edit(msg: dict[str, Any], host: Host) -> dict[str, Any]:
     name = msg["name"]
     path = _skill_dir(name)
     if path is None:
-        raise ApiError("not_found", f"no skill named {name!r}")
+        raise ApiError("not_found", plain.NO_SKILL)
     if _is_timely(path):
         raise Failed({"ok": False, "message": f"{name} is shipped with Timely and is read-only."})
     with _user_writes() as own:
         result = _skill_manage(action="edit", name=name, content=msg["content"])
     if not result.get("success"):
-        raise Failed({"ok": False, "message": str(result.get("error") or result.get("message") or result)})
+        raise Failed({"ok": False, "message": plain.skill_failure(result.get("error") or result.get("message"))})
     events = own.events
     _clear_skill_caches()
     entries = [e for e in reversed(files.read_ledger(host.home)) if e.get("skill") == name]
@@ -455,11 +456,13 @@ def skill_state(msg: dict[str, Any], host: Host) -> dict[str, Any]:
     path = _skill_dir(name)
     archived = _archived_dir(host.home, name) if path is None else None
     if state != "restore" and path is None and archived is None:
-        raise ApiError("not_found", f"no skill named {name!r}")
+        raise ApiError("not_found", plain.NO_SKILL)
     if _is_timely(path):
         raise Failed({"ok": False, "message": f"{name} is shipped with Timely and is read-only."})
     if archived is not None and state in ("lock", "unlock", "archive"):
         raise Failed({"ok": False, "message": RESTORE_FIRST})
+    if state in ("archive", "delete") and files.usage(host.home).get(name, {}).get("locked"):
+        raise Failed({"ok": False, "message": plain.LOCKED})  # Settings asks to unlock first, as Hermes does for delete
     reset = state == "delete" and archived is None and name in _manifest(host.home)
     with _user_writes() as own:
         if archived is not None and state == "delete":
@@ -481,7 +484,7 @@ def skill_state(msg: dict[str, Any], host: Host) -> dict[str, Any]:
             message = str(result.get("message") or f"{name} deleted") if ok else \
                 str(result.get("error") or result.get("message") or result)
     if not ok:
-        raise Failed({"ok": False, "message": message})
+        raise Failed({"ok": False, "message": plain.skill_failure(message)})
     events = own.events
     _clear_skill_caches()
     rec = files.usage(host.home).get(name, {})
@@ -537,6 +540,15 @@ def _limits() -> dict[str, int]:
         return dict(files.MEMORY_LIMITS)
 
 
+def _memory_failure_class() -> str:
+    """Hermes' class for the memory store's last failure in this context (over_budget, ...)."""
+    try:
+        from tools.memory_tool_store import FAILURE_CLASS
+        return str(FAILURE_CLASS.get())
+    except Exception:
+        return "other"
+
+
 def memory_view(home: Path) -> dict[str, Any]:
     limits = _limits()
     out = {}
@@ -566,7 +578,7 @@ def memory(msg: dict[str, Any], host: Host) -> dict[str, Any]:
         else:
             result = store.remove(target, old)
         if not isinstance(result, dict) or not result.get("success"):
-            raise Failed({"ok": False, "message": str((result or {}).get("error") or result)})
+            raise Failed({"ok": False, "message": plain.memory_failure(target, _memory_failure_class())})
         after = files.read_memory(host.home, target)
         removed, added = _memory_delta(before, after)
         events = feed_mod.memory_events(target, removed, added, _user_ctx(), origin="user")
@@ -658,7 +670,7 @@ def pending(msg: dict[str, Any], host: Host) -> dict[str, Any]:
     pending_id = msg["pending_id"]
     subsystem = files.pending_ids(host.home).get(pending_id)
     if subsystem is None:
-        raise ApiError("not_found", f"nothing waiting with id {pending_id!r}")
+        raise ApiError("not_found", plain.NO_PENDING)
     record = files.read_pending(host.home, subsystem, pending_id) or {}
     payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
     meta = _meta(host.home, pending_id)
@@ -690,7 +702,9 @@ def pending(msg: dict[str, Any], host: Host) -> dict[str, Any]:
             from tools.memory_tool import apply_memory_pending, load_on_disk_store
             result = apply_memory_pending(payload, load_on_disk_store())
         if not isinstance(result, dict) or not result.get("success"):
-            raise Failed({"ok": False, "message": str((result or {}).get("error") or result)})
+            message = (result or {}).get("error") if isinstance(result, dict) else result
+            raise Failed({"ok": False, "message": plain.skill_failure(message) if subsystem == "skills" else
+                          plain.memory_failure(str(payload.get("target") or "memory"), _memory_failure_class())})
         wa.discard_pending(subsystem, pending_id)
         meta_path.unlink(missing_ok=True)
         if subsystem == "skills":

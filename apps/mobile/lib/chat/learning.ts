@@ -8,11 +8,13 @@
 import {
   ABOUT_YOU,
   budgetMeter,
+  canSaveMemoryEntry,
   cardLine,
   eventsForRun,
   learnedSummary,
   learningChip,
   pendingCard,
+  projectedMemoryUse,
   statusWord,
   type BudgetMeter,
   type LearnedSkill,
@@ -176,20 +178,14 @@ export function nextBefore(page: LearningEvent[], limit: number): string | null 
   return page[page.length - 1]?.createdAt ?? null;
 }
 
-function projectedUse(store: Pick<MemoryStore, "used"> | undefined, old: string, next: string): number {
-  return Math.max(0, (store?.used ?? 0) - [...old].length + [...next.trim()].length);
-}
-
 /** About you's meter, as the store will be after an edit replaces `old` with `next` (the worker checks again). */
 export function projectedBudget(store: Pick<MemoryStore, "used" | "limit"> | undefined, old: string, next: string): BudgetMeter {
-  return budgetMeter(projectedUse(store, old, next), store?.limit ?? 0);
+  return budgetMeter(projectedMemoryUse(store, old, next), store?.limit ?? 0);
 }
 
 /** An About you edit is sendable: something written, changed, and inside the budget. */
 export function canSaveEntry(store: Pick<MemoryStore, "used" | "limit"> | undefined, old: string, next: string): boolean {
-  const text = next.trim();
-  if (!text || text === old.trim()) return false;
-  return projectedUse(store, old, next) <= (store?.limit ?? 0);
+  return canSaveMemoryEntry(store, old, next);
 }
 
 /** A Waiting for you item (the worker's snake_case) as the event the contract's card words take. */

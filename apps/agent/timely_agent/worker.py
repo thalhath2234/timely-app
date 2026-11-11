@@ -349,7 +349,7 @@ class Worker:
     def on_learning(self, msg: dict[str, Any]) -> None:
         """``learning.*`` and ``settings.update``: answered on a thread of their own (an export or
         a skill sync takes a moment) with ``learning.result {id, ok, data}`` or ``error``."""
-        from timely_agent.learning import api
+        from timely_agent.learning import api, plain
         mid = msg.get("id")
         self._require_ready(mid)
         if not isinstance(mid, str) or not mid:
@@ -365,7 +365,9 @@ class Worker:
                 data = api.handle(msg, host)
                 self.send({"type": "learning.result", "id": mid, "ok": True, "data": data})
             except api.Failed as exc:
-                self.send({"type": "learning.result", "id": mid, "ok": False, "data": exc.data})
+                data = dict(exc.data) if isinstance(exc.data, dict) else {}
+                data["message"] = plain.person_facing(data.get("message"))  # Settings shows it as it is
+                self.send({"type": "learning.result", "id": mid, "ok": False, "data": data})
             except api.ApiError as exc:
                 self.chan.error(exc.code, exc.message, mid)
             except Exception as exc:  # noqa: BLE001 - Go waits for an answer

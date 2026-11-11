@@ -110,6 +110,16 @@ func TestReplyErrorsBecomeHTTPStatuses(t *testing.T) {
 	}
 }
 
+// A worker crash inside a request names a Python exception; the person
+// sees plain words instead.
+func TestAnInternalWorkerErrorIsShownInPlainWords(t *testing.T) {
+	var he *echo.HTTPError
+	err := replyError(&agenthost.ReplyError{Code: "internal", Message: "KeyError: 'operations'"})
+	if !errors.As(err, &he) || he.Code != http.StatusBadGateway || he.Message != "Something went wrong in Timely's assistant. Try again." {
+		t.Fatalf("%v", err)
+	}
+}
+
 type stubWorker struct{ reply agenthost.Message }
 
 func (s stubWorker) Request(context.Context, string, any) (agenthost.Message, error) {

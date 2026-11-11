@@ -4,6 +4,7 @@ import {
   ABOUT_YOU,
   NOTES,
   budgetMeter,
+  projectedMemoryUse,
   type MemoryEdit,
   type MemoryStore,
 } from "@timely/contract/agentLearning";
@@ -107,6 +108,8 @@ function MemoryGroup({
     if (focused) ref.current?.scrollIntoView({ block: "start" });
   }, [focused]);
   const meter = store ? budgetMeter(store.used, store.limit) : null;
+  const editingOld = typeof editing === "number" ? (store?.entries[editing] ?? "") : "";
+  const tooLong = !!store && !!draft.trim() && projectedMemoryUse(store, editingOld, draft) > store.limit;
 
   async function apply(change: MemoryEdit, done: string) {
     setFormError("");
@@ -131,7 +134,7 @@ function MemoryGroup({
   function onSubmit(event: FormEvent) {
     event.preventDefault();
     const content = draft.trim();
-    if (!content || !store) return;
+    if (!content || !store || tooLong) return;
     if (editing === "new") void apply({ target, action: "add", content }, `Added to ${copy.title}`);
     else if (typeof editing === "number") {
       const old = store.entries[editing];
@@ -167,15 +170,15 @@ function MemoryGroup({
         maxLength={2200}
       />
       <div className="flex items-center gap-2">
-        <Button type="submit" size="sm" loading={edit.isPending} disabled={!draft.trim()}>
+        <Button type="submit" size="sm" loading={edit.isPending} disabled={!draft.trim() || tooLong}>
           Save
         </Button>
         <Button variant="ghost" size="sm" disabled={edit.isPending} onClick={() => setEditing(null)}>
           Cancel
         </Button>
-        {formError && (
+        {(formError || tooLong) && (
           <span role="alert" className="text-xs text-destructive">
-            {formError}
+            {formError || `${copy.title} is full. Shorten this, or delete or shorten another entry first.`}
           </span>
         )}
       </div>

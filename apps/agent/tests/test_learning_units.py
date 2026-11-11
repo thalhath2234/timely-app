@@ -13,7 +13,7 @@ import pytest
 
 from timely_agent import bridge, config_render, plugin_dist, policy
 from timely_agent import protocol as P
-from timely_agent.learning import api, counters, feed, files, passes, rules
+from timely_agent.learning import api, counters, feed, files, passes, plain, rules
 
 NO_THREAT = staticmethod(lambda _t: None)
 
@@ -452,3 +452,21 @@ def test_fork_finds_the_session_by_id(learning_plugin, monkeypatch):
                                 session_id="unknown")["message"] == tl.LEARNING_OFF
     finally:
         bridge.forget_session("conv-f")
+
+
+def test_learning_refusals_reach_the_person_in_plain_words():
+    hermes_budget = ("Memory at 1,300/1,375 chars; adding this entry (200 chars) would exceed the limit by 128 chars. "
+                     "Retry as ONE 'operations' batch that removes or shortens (patch) stale entries")
+    assert plain.person_facing(hermes_budget) == plain.GENERIC
+    assert plain.memory_failure("user", "over_budget") == "About you is full. Delete or shorten an entry first."
+    assert plain.memory_failure("memory", "over_budget") == "Notes is full. Delete or shorten an entry first."
+    assert plain.skill_failure("Refusing delete: Skill 'x' is locked by the user, so the agent cannot change it: "
+                               "`hermes curator unlock x`") == plain.LOCKED
+    assert plain.skill_failure("skill 'apple-notes' is a bundled built-in; enable curator.prune_builtins to allow "
+                               "pruning it") == plain.NO_ARCHIVE
+    assert plain.skill_failure("Blocked: content matches threat pattern 'x'.") == plain.BLOCKED
+    # the person's own words and Timely's plain messages pass as they are
+    assert plain.person_facing("timely is shipped with Timely and is read-only.") == \
+        "timely is shipped with Timely and is read-only."
+    assert plain.skill_failure("SKILL.md must start with a name and a description.") == \
+        "SKILL.md must start with a name and a description."

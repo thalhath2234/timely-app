@@ -178,6 +178,33 @@ def test_deleting_an_edited_built_in_skill_brings_the_shipped_copy_back(la, lw):
     assert ask(lw, la, "learning.skill", name=name)["data"]["content"] == shipped
 
 
+def test_refusals_reach_settings_in_plain_words(la, lw, stub):
+    # About you over its budget: Hermes words it for the model ("Retry as ONE 'operations' batch")
+    filler = "x" * 1300
+    assert ask(lw, la, "learning.memory", target="user", action="add", content=filler)["ok"]
+    try:
+        full = ask(lw, la, "learning.memory", target="user", action="add", content="y" * 200)
+        assert full["ok"] is False and full["data"]["message"] == \
+            "About you is full. Delete or shorten an entry first.", full
+        missing = ask(lw, la, "learning.memory", target="user", action="remove", old="never written")
+        assert missing["ok"] is False and "Retry" not in missing["data"]["message"], missing
+    finally:
+        assert ask(lw, la, "learning.memory", target="user", action="remove", old=filler)["ok"]
+    # a locked skill: Hermes names its CLI ("hermes curator unlock")
+    name = "lw-locked"
+    run(lw, la, stub, "lw-lk1", "c-lw-lk", script([{"calls": [["skill_manage", {
+        "action": "create", "name": name, "content": BODY.format(n=name)}]]}], "tag-lw-lk1"))
+    assert ask(lw, la, "learning.skill_state", name=name, state="lock")["ok"]
+    for state in ("delete", "archive"):
+        res = ask(lw, la, "learning.skill_state", name=name, state=state)
+        assert res["ok"] is False and res["data"]["message"] == "This skill is locked. Unlock it first.", (state, res)
+    edited = ask(lw, la, "learning.edit", name=name, content=BODY.format(n=name) + "More.\n")
+    assert edited["ok"] is False and edited["data"]["message"] == "This skill is locked. Unlock it first.", edited
+    assert ask(lw, la, "learning.skill_state", name=name, state="unlock")["ok"]
+    gone = ask(lw, la, "learning.skill", name="no-such-skill")
+    assert gone["message"] == "Timely can't find that skill anymore.", gone
+
+
 def test_pending_keep_and_discard(la, lw, stub):
     taint = [{"kind": "web", "tool": "web_extract", "host": "a.example"}]
     staged = []
