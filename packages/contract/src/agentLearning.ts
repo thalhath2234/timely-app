@@ -107,6 +107,8 @@ export type LearnedSkill = {
   enabled: boolean;
   locked: boolean;
   archived: boolean;
+  /** Whether Archive works for it (a learned skill; shipped ones are turned off instead). */
+  archivable?: boolean;
   stale: boolean;
   restored: boolean;
   last_used?: string | null;

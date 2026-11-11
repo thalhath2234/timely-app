@@ -174,6 +174,14 @@ def _need(name: Any, rows: dict[str, dict[str, Any]]) -> dict[str, Any]:
     return rows[name]
 
 
+def forget(name: str) -> None:
+    """Drop a skill's Keep mine choice once the shipped copy is back."""
+    state = _read_state()
+    state["kept"].pop(name, None)
+    state["seen"].pop(name, None)
+    _write_state(state)
+
+
 def _use_new(name: str, row: dict[str, Any]) -> dict[str, Any]:
     from tools.skill_ledger import capture_before, record_mutation
     from tools.skills_sync_bundled_ops import reset_bundled_skill
@@ -188,10 +196,7 @@ def _use_new(name: str, row: dict[str, Any]) -> dict[str, Any]:
                                    evidence={"upstream": "use_new"})
     learning_api._clear_skill_caches()
     events = own.events
-    state = _read_state()
-    state["kept"].pop(name, None)
-    state["seen"].pop(name, None)
-    _write_state(state)
+    forget(name)
     return {"ok": True, "name": name, "message": result.get("message") or "", "ledger_entry_id": entry_id or "",
             "events": events, "count": len(pending())}
 

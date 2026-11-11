@@ -137,6 +137,47 @@ def test_skill_requests(la, lw, stub):
     assert missing["type"] == "error" and missing["code"] == "not_found", missing
 
 
+def skills_by_name(w, a) -> dict:
+    return {s["name"]: s for s in ask(w, a, "learning.list", what="skills")["data"]["skills"]}
+
+
+def test_an_archived_skill_opens_and_deletes_and_only_learned_ones_archive(la, lw, stub):
+    name = "lw-archived"
+    run(lw, la, stub, "lw-ar1", "c-lw-ar", script([{"calls": [["skill_manage", {
+        "action": "create", "name": name, "content": BODY.format(n=name)}]]}], "tag-lw-ar1"))
+    skills = skills_by_name(lw, la)
+    assert skills[name]["archivable"] is True, skills[name]
+    bundled = next(s for s in skills.values() if s["source"] == "bundled")
+    assert bundled["archivable"] is False and skills["timely"]["archivable"] is False
+    assert ask(lw, la, "learning.skill_state", name=name, state="archive")["ok"]
+    row = skills_by_name(lw, la)[name]
+    assert row["archived"] and row["archivable"] is False, row
+    # its content and history still open, from the archive
+    got = ask(lw, la, "learning.skill", name=name)
+    assert got["type"] == "learning.result" and "Sort it." in got["data"]["content"], got
+    # lock asks for Restore first, in plain words
+    locked = ask(lw, la, "learning.skill_state", name=name, state="lock")
+    assert locked["ok"] is False and locked["data"]["message"] == "This skill is archived. Restore it first.", locked
+    # delete removes it for good, with a ledger entry Undo can roll back
+    gone = ask(lw, la, "learning.skill_state", name=name, state="delete")
+    assert gone["ok"] and [e["action"] for e in gone["data"]["events"]] == ["deleted"], gone
+    assert name not in skills_by_name(lw, la)
+    assert not (la.home / "skills" / ".archive" / name).exists()
+
+
+def test_deleting_an_edited_built_in_skill_brings_the_shipped_copy_back(la, lw):
+    name = next(s["name"] for s in skills_by_name(lw, la).values() if s["source"] == "bundled")
+    shipped = ask(lw, la, "learning.skill", name=name)["data"]["content"]
+    edited = ask(lw, la, "learning.edit", name=name, content=shipped + "\nMy own step.\n")
+    assert edited["ok"], edited
+    assert skills_by_name(lw, la)[name]["source"] == "edited"
+    res = ask(lw, la, "learning.skill_state", name=name, state="delete")
+    assert res["ok"] and res["data"]["reset"] is True, res
+    assert [e["action"] for e in res["data"]["events"]] == ["edited"], res
+    assert skills_by_name(lw, la)[name]["source"] == "bundled"
+    assert ask(lw, la, "learning.skill", name=name)["data"]["content"] == shipped
+
+
 def test_pending_keep_and_discard(la, lw, stub):
     taint = [{"kind": "web", "tool": "web_extract", "host": "a.example"}]
     staged = []

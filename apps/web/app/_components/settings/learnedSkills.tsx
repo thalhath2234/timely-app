@@ -214,6 +214,11 @@ const ACTION_WORDS: Record<string, string> = {
   restore: "Restored",
 };
 
+/** Archive works only for a learned skill; a built-in one is turned off with its switch. */
+function canArchive(skill: LearnedSkill) {
+  return skill.archivable ?? skill.source === "learned";
+}
+
 function actorWord(actor: string) {
   return actor === "user" ? "you" : "Timely";
 }
@@ -251,15 +256,15 @@ function SkillDetail({
       { onError: (err) => setError(errorText(err, "Couldn't change that skill.")) },
     );
   }
+  const resets = skill.source === "edited";
   function remove() {
     requestConfirm({
-      title: `Delete “${skill.name}”?`,
-      description:
-        skill.source === "edited"
-          ? "Your changes are removed and the built-in skill comes back."
-          : "Timely forgets this skill. Download what Timely learned first if you want a copy.",
-      confirmLabel: "Delete",
-      pendingLabel: "Deleting…",
+      title: resets ? `Remove your changes to “${skill.name}”?` : `Delete “${skill.name}”?`,
+      description: resets
+        ? "The built-in skill comes back as it shipped. Undo in Activity brings your changes back."
+        : "Timely forgets this skill. Download what Timely learned first if you want a copy.",
+      confirmLabel: resets ? "Remove changes" : "Delete",
+      pendingLabel: resets ? "Removing…" : "Deleting…",
       onConfirm: async () => {
         try {
           await state.mutateAsync({ name: skill.name, state: "delete" });
@@ -282,7 +287,7 @@ function SkillDetail({
       )}
       {!readOnly && (
         <div className="flex flex-wrap items-center gap-1">
-          {draft === null ? (
+          {draft === null && !skill.archived ? (
             <Button
               variant="outline"
               size="sm"
@@ -292,26 +297,38 @@ function SkillDetail({
               Edit
             </Button>
           ) : null}
-          <Button variant="ghost" size="sm" disabled={state.isPending} onClick={() => change(skill.locked ? "unlock" : "lock")}>
-            {skill.locked ? "Unlock" : "Lock"}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={state.isPending}
-            onClick={() => change(skill.archived ? "restore" : "archive")}
-          >
-            {skill.archived ? "Restore" : "Archive"}
-          </Button>
+          {!skill.archived && (
+            <Button variant="ghost" size="sm" disabled={state.isPending} onClick={() => change(skill.locked ? "unlock" : "lock")}>
+              {skill.locked ? "Unlock" : "Lock"}
+            </Button>
+          )}
+          {skill.archived ? (
+            <Button variant="ghost" size="sm" disabled={state.isPending} onClick={() => change("restore")}>
+              Restore
+            </Button>
+          ) : (
+            canArchive(skill) && (
+              <Button variant="ghost" size="sm" disabled={state.isPending || skill.locked} onClick={() => change("archive")}>
+                Archive
+              </Button>
+            )
+          )}
           {OWN.has(skill.source) && (
-            <Button variant="destructive-ghost" size="sm" disabled={state.isPending} onClick={remove}>
-              Delete
+            <Button
+              variant="destructive-ghost"
+              size="sm"
+              disabled={state.isPending || skill.locked}
+              onClick={remove}
+            >
+              {resets ? "Remove my changes" : "Delete"}
             </Button>
           )}
         </div>
       )}
       {skill.locked && !readOnly && (
-        <p className="text-xs text-muted-foreground">Locked: Timely doesn&apos;t change it. Unlock it to edit.</p>
+        <p className="text-xs text-muted-foreground">
+          Locked: Timely doesn&apos;t change it. Unlock it to edit, archive or delete it.
+        </p>
       )}
       {detail.isPending ? (
         <SkeletonLines lines={4} />

@@ -409,7 +409,13 @@ func (s *Service) skillState(c *echo.Context) error {
 		if err != nil {
 			return err
 		}
-		if in.State == "delete" {
+		// A delete the worker answered with reset brought a built-in skill's
+		// shipped copy back: the skill is still there, so its marks stay.
+		var answer struct {
+			Reset bool `json:"reset"`
+		}
+		_ = json.Unmarshal(data, &answer)
+		if in.State == "delete" && !answer.Reset {
 			if err := s.forgetSkill(c.Request().Context(), uid, name); err != nil {
 				return err
 			}

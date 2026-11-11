@@ -195,6 +195,23 @@ def _skill_dir(name: str) -> Optional[Path]:
     return Path(found["path"]) if found else None
 
 
+def _archived_dir(home: Path, name: str) -> Optional[Path]:
+    """An archived skill's folder (Hermes flattens ``.archive/<name>``), or None."""
+    if not name or "/" in name or "\\" in name or name.startswith("."):
+        return None
+    path = home / "skills" / ".archive" / name
+    return path if (path / "SKILL.md").is_file() else None
+
+
+def _archivable(name: str, path: Optional[Path]) -> bool:
+    """Whether Archive works for this skill (Hermes refuses shipped and optional ones)."""
+    from tools import skill_usage as su
+    try:
+        return bool(su.is_curation_eligible(name, path))
+    except Exception:
+        return False
+
+
 def _is_timely(path: Optional[Path]) -> bool:
     if path is None:
         return False
@@ -223,8 +240,10 @@ def list_skills(home: Path) -> list[dict[str, Any]]:
             except ValueError:
                 category = ""
         state = rec.get("state")
+        archived = archived or state == "archived"
         return {"name": name, "category": category, "source": source, "enabled": name not in disabled,
-                "locked": bool(rec.get("locked")), "archived": archived or state == "archived",
+                "locked": bool(rec.get("locked")), "archived": archived,
+                "archivable": not archived and source == "learned" and _archivable(name, path),
                 "stale": state == "stale", "restored": name in restored,
                 "last_used": rec.get("last_used_at") or None, "created_by_event": created.get(name, "")}
 
@@ -277,7 +296,7 @@ def _entry_diff(home: Path, entry: dict[str, Any]) -> str:
 
 def skill(msg: dict[str, Any], host: Host) -> dict[str, Any]:
     name = msg["name"]
-    path = _skill_dir(name)
+    path = _skill_dir(name) or _archived_dir(host.home, name)
     if path is None:
         raise ApiError("not_found", f"no skill named {name!r}")
     try:
@@ -427,16 +446,27 @@ def edit(msg: dict[str, Any], host: Host) -> dict[str, Any]:
     return {"entry": _history_row(entries[0]) if entries else None, "events": events}
 
 
+RESTORE_FIRST = "This skill is archived. Restore it first."
+
+
 def skill_state(msg: dict[str, Any], host: Host) -> dict[str, Any]:
     from tools import skill_usage as su
     name, state = msg["name"], msg["state"]
     path = _skill_dir(name)
-    if state != "restore" and path is None:
+    archived = _archived_dir(host.home, name) if path is None else None
+    if state != "restore" and path is None and archived is None:
         raise ApiError("not_found", f"no skill named {name!r}")
     if _is_timely(path):
         raise Failed({"ok": False, "message": f"{name} is shipped with Timely and is read-only."})
+    if archived is not None and state in ("lock", "unlock", "archive"):
+        raise Failed({"ok": False, "message": RESTORE_FIRST})
+    reset = state == "delete" and archived is None and name in _manifest(host.home)
     with _user_writes() as own:
-        if state in ("lock", "unlock"):
+        if archived is not None and state == "delete":
+            ok, message = _delete_archived(name, archived)
+        elif reset:
+            ok, message = _reset_shipped(name, path)
+        elif state in ("lock", "unlock"):
             ok = su.set_locked(name, state == "lock")
             message = f"{name} {state}ed" if ok else f"could not {state} {name}"
         elif state == "archive":
@@ -456,7 +486,43 @@ def skill_state(msg: dict[str, Any], host: Host) -> dict[str, Any]:
     _clear_skill_caches()
     rec = files.usage(host.home).get(name, {})
     return {"name": name, "state": state, "message": message, "locked": bool(rec.get("locked")),
-            "archived": rec.get("state") == "archived", "events": events}
+            "archived": rec.get("state") == "archived", "reset": reset, "events": events}
+
+
+def _delete_archived(name: str, path: Path) -> tuple[bool, str]:
+    """Delete an archived skill's folder, recorded in the ledger so Undo brings it back."""
+    import shutil
+
+    from tools.skill_ledger import capture_before, record_mutation
+    before = capture_before(path, complete_package=True, skill=name)
+    try:
+        shutil.rmtree(path)
+    except OSError as exc:
+        return False, f"Timely could not delete {name} ({exc.strerror or type(exc).__name__})."
+    with _actor("user"):
+        record_mutation("delete", name, before=before, before_root=path, actor="user")
+    return True, f"{name} deleted"
+
+
+def _reset_shipped(name: str, path: Optional[Path]) -> tuple[bool, str]:
+    """Delete on a shipped skill removes the person's changes: the shipped copy comes back
+    (Hermes' sync would never seed a deleted shipped skill again). Recorded as an edit, so Undo
+    brings the person's copy back."""
+    from tools.skill_ledger import capture_before, record_mutation
+    from tools.skills_sync_bundled_ops import reset_bundled_skill
+    before = capture_before(path) if path is not None else None
+    result = reset_bundled_skill(name, restore=True)
+    if not result.get("ok"):
+        return False, f"Timely could not bring back the built-in {name}."
+    dest = _skill_dir(name)
+    with _actor("user"):
+        record_mutation("edit", name, before=before, after_root=dest, actor="user", evidence={"reset": "shipped"})
+    try:
+        from timely_agent import skills_admin
+        skills_admin.forget(name)
+    except ImportError:
+        pass
+    return True, f"Your changes to {name} are removed; the built-in skill is back."
 
 
 # ---------------------------------------------------------------- memory

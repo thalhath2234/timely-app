@@ -771,6 +771,15 @@ func TestIntegrationSkillsOnOffAndRestored(t *testing.T) {
 	if row, _ := loadSettings(context.Background(), r.db, a); slices.Contains(row.SkillsDisabled, "notes") || len(row.SkillsRestored) != 0 {
 		t.Fatalf("after delete %+v", row)
 	}
+	// Deleting the person's copy of a built-in skill brings the shipped copy
+	// back (the worker answers reset): it keeps the person's on/off choice.
+	r.kit.LearningReply("learning.skill_state", map[string]any{"state": "delete", "reset": true})
+	if code, _, _ := r.call(a, http.MethodPost, "/agent/learning/skills/csv-import/state", map[string]any{"state": "delete"}); code != http.StatusOK {
+		t.Fatalf("reset %d", code)
+	}
+	if p, _ := r.svc.Prefs(context.Background(), a); !slices.Contains(p.SkillsEnabled, "csv-import") {
+		t.Fatalf("a reset built-in skill lost its on switch %+v", p)
+	}
 	if code, _, _ := r.call(a, http.MethodPost, "/agent/learning/skills/notes/state", map[string]any{"state": "explode"}); code != http.StatusBadRequest {
 		t.Fatalf("unknown state %d", code)
 	}
