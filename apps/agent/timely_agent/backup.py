@@ -14,7 +14,7 @@ Three helpers that ``boot.py`` runs for Go, each printing one JSON object:
   beside the live home, drops every path the export would never write (a hand-made zip cannot
   plant ``config.yaml`` or ``hooks/``), threat-scans skills (a hit drops the skill and lists it in
   ``blocked``; so does a name Timely could not keep turned off: not a plain name, or one Hermes'
-  YAML reads differently), memory entries, staged writes and the skill ledger's blobs (a blob
+  YAML reads differently, or one of Timely's own skills' names), memory entries, staged writes and the skill ledger's blobs (a blob
   whose content is not its sha256 name, or that the scan hits, is dropped with every ledger entry
   that needs it), keeps only ledger entries whose paths lie under ``skills/`` and rewrites them to
   the account's home, and writes ``.timely/restored.json`` with the restored skills, which Go
@@ -329,6 +329,18 @@ def _check_blobs(staged: Path, dropped: list[str]) -> set[str]:
     return kept
 
 
+def _timely_skill_names(layout: paths.AgentLayout) -> set[str]:
+    """Names of Timely's own skills (prepare's read-only copies). They are reserved, as
+    ``timely_learning.external_skill`` reserves them for writes: a restored local skill of that name
+    would shadow Timely's, and while it waits for review its name in ``skills.disabled`` would turn
+    Timely's own skill off."""
+    from tools.skill_usage import read_skill_name
+    root = layout.timely_skills_root
+    if not root.is_dir():
+        return set()
+    return {n for md in root.rglob("SKILL.md") for n in (md.parent.name, read_skill_name(md, md.parent.name))}
+
+
 def _name_problem(skill_md: Path, fallback: str) -> str:
     """Why a restored skill's name could not be kept turned off, else ""."""
     from agent.skill_utils import parse_frontmatter
@@ -448,8 +460,10 @@ def import_state(layout: paths.AgentLayout, account: str, zip_path: Path) -> dic
             skills = staged / "skills"
             manifest = _manifest(staged)
             if skills.is_dir():
+                reserved = _timely_skill_names(layout)
                 for d in list(_skill_folders(skills)):
-                    if d.is_dir() and (_folder_threats(d) or _name_problem(d / "SKILL.md", d.name)):
+                    if d.is_dir() and (_folder_threats(d) or _name_problem(d / "SKILL.md", d.name)
+                                       or {d.name, read_skill_name(d / "SKILL.md", d.name)} & reserved):
                         name = read_skill_name(d / "SKILL.md", d.name)
                         blocked.append(name)
                         manifest.pop(name, None)
