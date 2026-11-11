@@ -82,13 +82,20 @@ def effective_default_off(default_off: list[str], settings: dict[str, Any]) -> l
     return sorted({str(n) for n in default_off} - enabled)
 
 
-@functools.lru_cache(maxsize=1)
-def denied_skill_names() -> tuple[str, ...]:
+@functools.lru_cache(maxsize=8)
+def denied_skill_names(seed_dir: str = "") -> tuple[str, ...]:
     """The denied bundled skills (Hermes-self, or needing a tool Timely never offers), always off:
-    a home seeded before they were denied keeps its copies. Nothing when the policy file is absent."""
+    a home seeded before they were denied keeps its copies. A skill the seed tree holds is not
+    among them (a Timely override replaces the upstream one and is seeded). Nothing when the
+    policy file is absent."""
     try:
         denied = seed.load_denied(seed.denied_file_for(paths.skills_reviewed_file()))
-        return tuple(seed.denied_bundled_names(denied, paths.hermes_dir() / "skills"))
+        names = seed.denied_bundled_names(denied, paths.hermes_dir() / "skills")
+        seeded: set[str] = set()
+        if seed_dir and Path(seed_dir).is_dir():
+            for d in seed.skill_dirs(Path(seed_dir)):
+                seeded |= seed.skill_names(d)
+        return tuple(n for n in names if n not in seeded)
     except (OSError, ValueError):
         return ()
 
@@ -180,7 +187,7 @@ def render_account(layout: paths.AgentLayout, account: str, settings: dict[str, 
     state = prepared
     default_off = effective_default_off(state["skills_default_off"], settings)
     settings = {**settings, "skills_disabled": sorted({*(settings.get("skills_disabled") or []), *default_off,
-                                                       *denied_skill_names()})}
+                                                       *denied_skill_names(str(state.get("seed_skills_dir") or ""))})}
     out = config_render.render_account(
         layout, account, settings, timely_skills_dir=state["timely_skills_dir"],
         browser_executable=state.get("browser_executable", ""))

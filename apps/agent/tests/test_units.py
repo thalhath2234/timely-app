@@ -291,6 +291,12 @@ def test_denied_bundled_skills_are_always_off(tmp_path):
     text = (Path(out["home"]) / "config.yaml").read_text()
     disabled = json.loads(text[text.index("{"):])["skills"]["disabled"]
     assert {"hermes-agent", "github", "mine"} <= set(disabled), disabled
+    # a denied skill Timely overrides is seeded (the override wins) and stays loadable
+    seeded = tmp_path / "seed" / "productivity" / "product-price-monitor"
+    seeded.mkdir(parents=True)
+    (seeded / "SKILL.md").write_text("---\nname: product-price-monitor\ndescription: x\n---\nTimely's.\n")
+    assert "product-price-monitor" in names
+    assert "product-price-monitor" not in cli.denied_skill_names(str(tmp_path / "seed"))
 
 
 # ---------------------------------------------------------------- policy
