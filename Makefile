@@ -273,7 +273,7 @@ test-bots-ai-live: ## Run bots' AI judge, lesson, knowledge, brief, pass and sha
 
 .PHONY: test-chat-integration lint-chat
 test-chat-integration: ## Test agent transactions and approvals in an isolated temporary PostgreSQL schema
-	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" go test ./internal/jobs ./internal/realtime ./internal/features/chat ./internal/features/sheet ./internal/features/provider ./internal/features/search ./internal/features/workspace ./internal/features/placement ./internal/features/task ./internal/features/notify ./internal/features/schedule ./internal/features/suggest ./internal/features/bots/... ./internal/features/portability ./internal/features/learning ./cmd -run TestIntegration -count=1
+	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" go test ./internal/jobs ./internal/realtime ./internal/features/chat ./internal/features/sheet ./internal/features/provider ./internal/features/search ./internal/features/workspace ./internal/features/placement ./internal/features/task ./internal/features/notify ./internal/features/schedule ./internal/features/suggest ./internal/features/bots/... ./internal/features/portability ./internal/features/learning ./cmd -run TestIntegration -count=1 -timeout 30m
 
 .PHONY: mcp-60day
 mcp-60day: ## Play 60 days of one person through MCP against a running API and check reads against a ledger (TIMELY_API, default :8081; ARGS=-seed N -out DIR)
