@@ -64,6 +64,9 @@ export const configureChatAgent = (
   id: string,
   fields: { permission?: PermissionMode; engine?: ChatEngine },
 ) => chatRequest(`/${encodeURIComponent(id)}`, "PATCH", fields);
+/** "Don't learn from this chat" (PATCH /chats/:id {noLearning}); the answer is the whole chat. */
+export const setChatNoLearning = (id: string, noLearning: boolean) =>
+  chatRequest(`/${encodeURIComponent(id)}`, "PATCH", { noLearning });
 /** Adds text to the agent run that is live in this chat (409 once it ended). */
 export const steerChat = (id: string, text: string) =>
   chatRequest(`/${encodeURIComponent(id)}/steer`, "POST", { text });

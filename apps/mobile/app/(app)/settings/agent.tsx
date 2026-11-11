@@ -67,6 +67,7 @@ import { LogoSpinner } from "../../../components/ui/TimelyLogo";
 import { FocusGroup, FocusGroupScrollView } from "../../../components/ui/FocusGroup";
 import EngineCard from "../../../components/settings/EngineCard";
 import PermissionsCard from "../../../components/settings/PermissionsCard";
+import { LearnedRow } from "../../../components/settings/LearnedParts";
 
 /** A model row's second line: its id when the name differs, and any note. */
 function modelDetail(option: ModelOption) {
@@ -1573,6 +1574,7 @@ export default function AgentSettings() {
               <>
                 <EngineCard settings={chatSettings.data} />
                 <PermissionsCard settings={chatSettings.data} />
+                <LearnedRow agent={chatSettings.data.engine === "agent"} />
               </>
             ) : null}
             <OpenRouterCard data={data} ask={setProviderRequest} />

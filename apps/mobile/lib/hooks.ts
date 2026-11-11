@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { AppState } from "react-native";
-import { keepPreviousData, useMutation, useMutationState, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useMutationState, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { getMe, listSessions, revokeOtherSessions, revokeSession } from "./api/auth";
 import { getTasks, getTask, updateTask, deleteTask, createTask, captureInbox, getTaskActivity, addTaskComment, editTaskOccurrence, splitTaskSeries, bulkUpdateTasks, duplicateTask, addChecklistItem, updateChecklistItem, deleteChecklistItem, startFocus, pauseFocus, stopFocus, setTodayFocus, getFocusSessions } from "./api/tasks";
 import { getDocs, getDoc, getDocBacklinks, createDoc, updateDoc, deleteDoc, setChecklistItem, watchDoc, type DocWatchEvent } from "./api/docs";
@@ -82,6 +82,19 @@ import {
   type ProviderPatch,
 } from "./api/agentProviders";
 import { getAgentChatSettings, patchAgentChatSettings } from "./api/chat";
+import {
+  decidePendingLearning,
+  editLearnedMemory,
+  getLearnedMemory,
+  getLearnedSkills,
+  getLearningEvents,
+  getLearningSettings,
+  getPendingLearning,
+  patchLearningSettings,
+  undoLearning,
+} from "./api/learning";
+import type { LearningSettings, LearningSettingsPatch, MemoryEdit } from "@timely/contract/agentLearning";
+import { nextBefore } from "./chat/learning";
 import type { AgentChatSettings, AgentChatSettingsPatch } from "@timely/contract/agentChat";
 import {
   getDecisionSettings,
@@ -183,6 +196,14 @@ export const keys = {
   apiKeys: ["api-keys"] as const,
   agentProviders: ["agent-providers"] as const,
   agentChatSettings: ["agent-chat-settings"] as const,
+  /** Prefix of every "What Timely learned" query: an undo, keep or edit invalidates it. */
+  agentLearning: ["agent-learning"] as const,
+  agentLearningSettings: ["agent-learning", "settings"] as const,
+  agentLearningChat: (conversationId: string) => ["agent-learning", "chat", conversationId] as const,
+  agentLearningFeed: ["agent-learning", "feed"] as const,
+  agentLearningSkills: ["agent-learning", "skills"] as const,
+  agentLearningMemory: ["agent-learning", "memory"] as const,
+  agentLearningPending: ["agent-learning", "pending"] as const,
   decisions: ["decisions"] as const,
   decisionSettings: ["decisions", "settings"] as const,
   decisionsStatus: ["decisions", "status"] as const,
@@ -2291,4 +2312,131 @@ export function useBotStream() {
       clearTimeout(timer);
     };
   }, [client]);
+}
+
+// What Timely learned (plan 9b.4): the chat chip and card, and Settings →
+// Agent → What Timely learned on the phone (Activity, About you, Waiting for
+// you, the switches). An older server answers 404 and the row stays away.
+const noRetryOn4xx = (failures: number, error: Error) => failures < 1 && !(error instanceof ApiError && error.status < 500);
+
+export function useLearningSettingsQuery(enabled = true) {
+  return useQuery({
+    queryKey: keys.agentLearningSettings,
+    queryFn: getLearningSettings,
+    enabled,
+    staleTime: 30_000,
+    retry: noRetryOn4xx,
+  });
+}
+
+export function usePatchLearningSettings() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: LearningSettingsPatch) => patchLearningSettings(patch),
+    onMutate: async (patch) => {
+      await client.cancelQueries({ queryKey: keys.agentLearningSettings });
+      const before = client.getQueryData<LearningSettings>(keys.agentLearningSettings);
+      if (before) client.setQueryData<LearningSettings>(keys.agentLearningSettings, { ...before, ...patch });
+      return { before };
+    },
+    onError: (_error, _patch, context) => {
+      if (context?.before) client.setQueryData(keys.agentLearningSettings, context.before);
+    },
+    onSuccess: (data, patch) => {
+      client.setQueryData(keys.agentLearningSettings, data);
+      // Turning learning on copies "What you use Timely for" into About you once (Q-3.3).
+      if (patch.learning) void client.invalidateQueries({ queryKey: keys.agentLearningMemory });
+    },
+  });
+}
+
+/** One chat's learning events, for its chips and cards. `poll` says the watch stream is down: refetch now and then. */
+export function useChatLearningQuery(conversationId: string | null, enabled: boolean, poll: () => boolean) {
+  return useQuery({
+    queryKey: keys.agentLearningChat(conversationId ?? ""),
+    queryFn: async () => (await getLearningEvents({ conversationId: conversationId ?? "", limit: 200 })).events,
+    enabled: enabled && !!conversationId,
+    staleTime: 0,
+    refetchInterval: () => (poll() ? 15_000 : false),
+    retry: noRetryOn4xx,
+  });
+}
+
+export const LEARNING_FEED_PAGE = 50;
+
+/** Activity: the account's feed, newest first, a page at a time. */
+export function useLearningFeedQuery() {
+  return useInfiniteQuery({
+    queryKey: keys.agentLearningFeed,
+    initialPageParam: "",
+    queryFn: async ({ pageParam }) =>
+      (await getLearningEvents({ before: pageParam || undefined, limit: LEARNING_FEED_PAGE })).events,
+    getNextPageParam: (page) => nextBefore(page, LEARNING_FEED_PAGE) ?? undefined,
+    retry: noRetryOn4xx,
+  });
+}
+
+/** The account's skills (the phone only counts the learned ones); asking starts the agent. */
+export function useLearnedSkillsQuery(enabled = true) {
+  return useQuery({
+    queryKey: keys.agentLearningSkills,
+    queryFn: async () => (await getLearnedSkills()).skills,
+    enabled,
+    staleTime: 60_000,
+    retry: noRetryOn4xx,
+  });
+}
+
+export function useLearnedMemoryQuery(enabled = true) {
+  return useQuery({ queryKey: keys.agentLearningMemory, queryFn: getLearnedMemory, enabled, retry: noRetryOn4xx });
+}
+
+export function usePendingLearningQuery(enabled = true) {
+  return useQuery({
+    queryKey: keys.agentLearningPending,
+    queryFn: async () => (await getPendingLearning()).pending ?? [],
+    enabled,
+    retry: noRetryOn4xx,
+  });
+}
+
+/** Runs each request in turn and fails with the first error once all were tried. */
+async function eachInTurn(ids: string[], run: (id: string) => Promise<unknown>) {
+  let first: unknown = null;
+  for (const id of ids) {
+    try {
+      await run(id);
+    } catch (error) {
+      first ??= error;
+    }
+  }
+  if (first) throw first;
+}
+
+/** Undo: takes back every change it is given (a chip's turn, or one Activity row). */
+export function useUndoLearning() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (eventIds: string[]) => eachInTurn(eventIds, undoLearning),
+    onSettled: () => client.invalidateQueries({ queryKey: keys.agentLearning }),
+  });
+}
+
+/** Keep or Discard staged changes (a chat's card, or one item of Waiting for you). */
+export function useDecidePendingLearning() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ pendingIds, choice }: { pendingIds: string[]; choice: "keep" | "discard" }) =>
+      eachInTurn(pendingIds, (id) => decidePendingLearning(id, choice)),
+    onSettled: () => client.invalidateQueries({ queryKey: keys.agentLearning }),
+  });
+}
+
+/** Add, change or remove an About you entry. */
+export function useEditLearnedMemory() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (edit: MemoryEdit) => editLearnedMemory(edit),
+    onSettled: () => client.invalidateQueries({ queryKey: keys.agentLearning }),
+  });
 }

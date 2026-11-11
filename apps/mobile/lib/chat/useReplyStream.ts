@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReplyDraft } from "@timely/contract/agentChat";
 import { watchChats } from "../api/chatStream";
 import { mergeActivityDraft, onDelta, visibleDraft, wantsReplyStream } from "./agentRun";
+import { learningForChat } from "./learning";
 import type { Chat } from "./types";
 
 /** At most one refetch a second when chunks go missing. */
@@ -14,6 +15,10 @@ const REFETCH_GAP = 1000;
  * from `activity.draft`. A `changed` event for this chat refetches it too.
  * When the stream can't be read, `live` stays false and the chat keeps
  * polling as before; the final reply always arrives as the refetched chat.
+ *
+ * With `followLearning` the stream stays open while the chat is open, not
+ * only while a run is live: the learning pass writes after the reply, and
+ * each `learning` frame for this chat calls `onLearning` (refetch its events).
  */
 export function useReplyStream({
   chatId,
@@ -21,6 +26,8 @@ export function useReplyStream({
   enabled,
   accountEngine,
   refetch,
+  followLearning = false,
+  onLearning,
 }: {
   chatId: string | null;
   chat: Chat | undefined;
@@ -28,13 +35,18 @@ export function useReplyStream({
   enabled: boolean;
   accountEngine: string | undefined;
   refetch: () => void;
+  /** The chat is on the agent engine: keep the stream open for its learning events. */
+  followLearning?: boolean;
+  onLearning?: () => void;
 }): { draft: string; live: boolean } {
-  const want = enabled && !!chatId && wantsReplyStream(chat, accountEngine);
+  const want = enabled && !!chatId && (wantsReplyStream(chat, accountEngine) || followLearning);
   const [draft, setDraftState] = useState<ReplyDraft | null>(null);
   const [live, setLive] = useState(false);
   const draftRef = useRef<ReplyDraft | null>(null);
   const refetchRef = useRef(refetch);
   refetchRef.current = refetch;
+  const learningRef = useRef(onLearning);
+  learningRef.current = onLearning;
   const lastRefetch = useRef(0);
   const setDraft = (next: ReplyDraft | null) => {
     if (next === draftRef.current) return;
@@ -68,6 +80,8 @@ export function useReplyStream({
       if (message.type === "live") setLive(message.live);
       else if (message.type === "changed") {
         if (message.id === chatId) refetchRef.current();
+      } else if (message.type === "learning") {
+        if (learningForChat(chatId, message)) learningRef.current?.();
       } else {
         const result = onDelta(chatId, draftRef.current, message.event);
         setDraft(result.draft);

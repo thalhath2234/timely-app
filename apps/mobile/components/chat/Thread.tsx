@@ -42,7 +42,19 @@ import { LogoSpinner } from "../ui/TimelyLogo";
 import { useAgentProvidersQuery, useChatPromptsQuery, useDecisionFeedback } from "../../lib/hooks";
 import { readyProviders } from "./ModelSheet";
 import { AutoAppliedCard } from "./AgentRun";
+import { KeepCard, LearningChip, NotLearningLine } from "./LearningCards";
 import { autoCardArchives, offersUseClassic } from "../../lib/chat/agentRun";
+import {
+  cardTargets,
+  diffHref,
+  learningAnchors,
+  looseLearning,
+  turnLearning,
+  undoTargets,
+  viewHref,
+  type TurnLearning,
+} from "../../lib/chat/learning";
+import type { LearningEvent } from "@timely/contract/agentLearning";
 import { USE_CLASSIC_LABEL } from "@timely/contract/agentChat";
 
 /** Chat needs a connected provider; the rest of Timely works without one. */
@@ -275,6 +287,7 @@ export default function Thread({
   onAsk,
   onUndo,
   undoing = false,
+  learning,
 }: {
   chat: Chat;
   onLink: (href: string) => void;
@@ -287,8 +300,12 @@ export default function Thread({
   /** Undoes a proposal that applied on its own (Auto, Full Access). */
   onUndo?: (message: ChatMessage) => void;
   undoing?: boolean;
+  /** What each agent turn learned: the chip and the Keep / Discard card. */
+  learning?: ThreadLearning;
 }) {
   let lastDay = "";
+  const anchors = learningAnchors(chat.messages);
+  const loose = looseLearning(learning?.events, chat.messages);
   const last = chat.messages[chat.messages.length - 1];
   const shownByCards = autoCardArchives(chat);
   // Only the newest reply, with nothing the person said after it, keeps live answer chips.
@@ -297,6 +314,7 @@ export default function Thread({
   );
   return (
     <View style={{ gap: 18 }}>
+      {chat.noLearning ? <NotLearningLine /> : null}
       {chat.messages.map((message) => {
         const day = dayLabel(message.createdAt);
         const separator = day !== lastDay;
@@ -437,12 +455,63 @@ export default function Thread({
                       onUndo={onUndo}
                     />
                   ) : null}
+                  {learning && anchors.has(message.id) ? (
+                    <TurnLearningView turn={turnLearning(learning.events, message)} learning={learning} />
+                  ) : null}
                 </View>
               </View>
             )}
           </View>
         );
       })}
+      {learning && (loose.chip || loose.card) ? (
+        <View style={{ paddingLeft: 38 }}>
+          <TurnLearningView turn={loose} learning={learning} />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/** The chat's learning events and what the chip and card do with them. */
+export type ThreadLearning = {
+  events: LearningEvent[];
+  /** The ids being undone or decided now. */
+  busy: Set<string>;
+  /** Missing while offline: the chip and card show with their buttons off. */
+  onUndo?: (eventIds: string[]) => void;
+  onDecide?: (pendingIds: string[], choice: "keep" | "discard") => void;
+  /** Opens a Settings screen (closes the assistant; back returns to the chat). */
+  onOpen: (href: string) => void;
+};
+
+function TurnLearningView({ turn, learning }: { turn: TurnLearning; learning: ThreadLearning }) {
+  const { chip, card } = turn;
+  if (!chip && !card) return null;
+  const undoIds = undoTargets(chip);
+  const pendingIds = cardTargets(card);
+  const view = viewHref(chip);
+  const diff = diffHref(card);
+  const onUndo = learning.onUndo;
+  const onDecide = learning.onDecide;
+  return (
+    <View style={{ gap: 8 }}>
+      {chip ? (
+        <LearningChip
+          chip={chip}
+          undoing={undoIds.some((id) => learning.busy.has(id))}
+          onView={view ? () => learning.onOpen(view) : undefined}
+          onUndo={onUndo && undoIds.length ? () => onUndo(undoIds) : undefined}
+        />
+      ) : null}
+      {card ? (
+        <KeepCard
+          card={card}
+          deciding={pendingIds.some((id) => learning.busy.has(id))}
+          onDiff={diff ? () => learning.onOpen(diff) : undefined}
+          onDecide={onDecide ? (choice) => onDecide(pendingIds, choice) : undefined}
+        />
+      ) : null}
     </View>
   );
 }

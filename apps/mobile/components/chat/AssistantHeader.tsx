@@ -1,6 +1,7 @@
 import { type ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { ArrowLeft, X } from "lucide-react-native";
+import { ArrowLeft, ChevronDown, X } from "lucide-react-native";
+import AnimatedPressable from "../ui/AnimatedPressable";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import TimelyLogo from "../ui/TimelyLogo";
 import { IconButton, Pill } from "./shared";
@@ -15,6 +16,7 @@ export default function AssistantHeader({
   onBack,
   actions,
   logo = true,
+  onTitlePress,
 }: {
   title: string;
   subtitle: string;
@@ -26,6 +28,8 @@ export default function AssistantHeader({
   actions?: ReactNode;
   /** The mark beside the title; off when the permission chip needs the room. */
   logo?: boolean;
+  /** Opens the chat menu ("Don't learn from this chat"); the title shows a small chevron. */
+  onTitlePress?: () => void;
 }) {
   const meta = status && status !== "idle" ? statusMeta(status) : null;
   const pillLabel = !meta ? "" : status === "running" && phase === "apply" ? "Applying" : meta.label;
@@ -48,9 +52,25 @@ export default function AssistantHeader({
         </View>
       ) : null}
       <View style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
-        <Text numberOfLines={1} style={styles.title}>
-          {title}
-        </Text>
+        {onTitlePress ? (
+          <AnimatedPressable
+            testID="chat-menu-button"
+            accessibilityRole="button"
+            accessibilityLabel={`${title}. Chat options`}
+            onPress={onTitlePress}
+            hitSlop={6}
+            style={styles.titleButton}
+          >
+            <Text numberOfLines={1} style={[styles.title, { flexShrink: 1 }]}>
+              {title}
+            </Text>
+            <ChevronDown size={16} color={colors.mutedForeground} />
+          </AnimatedPressable>
+        ) : (
+          <Text numberOfLines={1} style={styles.title}>
+            {title}
+          </Text>
+        )}
         <View style={styles.subRow}>
           {meta ? (
             // A short status keeps its whole word and the model line gives
@@ -98,6 +118,7 @@ const styles = createThemedStyleSheet(() => ({
     alignItems: "center",
     justifyContent: "center",
   },
+  titleButton: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", maxWidth: "100%" },
   subRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
   title: {
     color: colors.foreground,
