@@ -57,7 +57,7 @@ Phase 2's exit needs the 84 agent QA scenarios run on classic and on the agent e
    - `ONLY=tasks-01,docs` picks scenario ids or whole categories.
    - `TIMELY_API` changes the API, which defaults to `http://localhost:8081`.
    - `TIMELY_PARITY_DSN` (a DSN whose `search_path` is `parity`) adds classic's tool trace.
-   - Each engine gets its own throwaway account, `agentqa+<engine>-<n>@example.invalid`, in that schema.
+   - Every scenario runs in its own fresh account on each engine (sign-up, workspace, provider, engine), in that schema; each result records its account. `-merge` combines engine runs made separately into one report.
 4. Results go to `OUT`:
    - `classic.json` and `agent.json`: per scenario, the engine, status, replies, the proposal (held or applied), what Approve led to, the tool trace, the time, and pass or fail with the reasons.
    - `report.md`: totals per engine and category, plus every scenario side by side with whether the two engines ended the same way.

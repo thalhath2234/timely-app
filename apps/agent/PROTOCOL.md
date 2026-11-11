@@ -299,6 +299,8 @@ For `memory` and `skill_manage`, in the turn and in Hermes' learning pass (which
 
 The model calls Hermes' `web_search`/`web_extract`; with backend `timely` the provider sends `tool.call` through `RunContext.tool_call`: `name: "web_search"`, `args: {query, limit}` → `tool.result {result: {answer, results: [{url, title, description}]}, outside: true}`; `name: "web_extract"`, `args: {urls: [url]}` → `{result: {pages: [{url, title, content, error}]}, outside: true}`; or `{result: {error}}`. `batch_size` is 1 and `sibling_tools` empty (the call is the backend's, not the model's).
 
+The exfiltration rule (plan 9.4, BLOCK in phase 3) runs in `timely_gate`'s `pre_tool_call` before Go is asked: once the session is tainted, a `web_extract` (or `browser_*` URL) to a host neither in `person_hosts` nor returned by a `web_search` of this conversation, a URL carrying text from a Timely read or memory, and a `web_search` query carrying such text are refused in the worker; Go sees no `gate.ask` and no `tool.call`. `timely_gate`'s `post_tool_call` also adds `{kind: web, tool: web_extract, host}` to the session's taint for each host a `web_extract` read, with any backend. Matching rules: `timely_agent/plugins/timely_web/README.md`.
+
 ### 10.8 Helper commands (worker-skills-backup)
 
 Same rules as `prepare`: one JSON object on stdout, logs on stderr.
