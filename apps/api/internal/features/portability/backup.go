@@ -119,7 +119,27 @@ var exportTables = []tableSpec{
 // it never touches the agent's home.
 var agentTables = map[string]bool{"agent_learning_settings": true, "agent_learning_events": true}
 
+// OutsideBackup strips what Timely learned from a decoded backup an outside
+// app is about to receive: the agent zip and the agent's rows (memory and
+// About you texts ride in agent_learning_events). What Timely learned stays
+// in Timely (plan 9b.7).
+func OutsideBackup(backup map[string]any) {
+	delete(backup, "agent")
+	if rows, ok := backup["rows"].(map[string]any); ok {
+		for table := range agentTables {
+			delete(rows, table)
+		}
+	}
+}
+
+// Export is the account's rows as an outside app gets them (MCP
+// export_account): without the agent's tables. ExportAccount, the person's
+// own backup, adds them and the agent state.
 func (s *Service) Export(userID string) (*Backup, error) {
+	return s.export(userID, false)
+}
+
+func (s *Service) export(userID string, withAgent bool) (*Backup, error) {
 	if userID == "" {
 		return nil, errors.New("user not authenticated")
 	}
@@ -133,6 +153,9 @@ func (s *Service) Export(userID string) (*Backup, error) {
 		Rows:   map[string][]json.RawMessage{},
 	}
 	for _, spec := range exportTables {
+		if agentTables[spec.name] && !withAgent {
+			continue
+		}
 		rows, err := s.db.Raw(spec.query, userID).Rows()
 		if err != nil {
 			return nil, fmt.Errorf("export %s: %w", spec.name, err)
@@ -275,6 +298,12 @@ func (s *Service) restore(userID string, backup *Backup, fromMCP bool) (*Restore
 	var staged *agenthost.Staged
 	switch {
 	case backup.Agent == nil:
+		if !fromMCP && len(backup.Warnings) > 0 {
+			// The export left what Timely learned out (over the cap, the
+			// assistant unavailable): say so, and keep the account's own.
+			warnings = append(warnings, backup.Warnings...)
+			warnings = append(warnings, warnAgentKept)
+		}
 	case fromMCP:
 		warnings = append(warnings, warnAgentNotFromApps)
 	default:
@@ -294,9 +323,12 @@ func (s *Service) restore(userID string, backup *Backup, fromMCP bool) (*Restore
 		}
 	}()
 	// What the agent learned is replaced only by a backup that carries it
-	// (schema 3) and never by an outside app; an older backup keeps the
-	// account's learning switches and skill lists as they are.
-	withAgent := !fromMCP && carriesAgentRows(backup)
+	// (schema 3 rows and an agent state that staged) and never by an
+	// outside app. Otherwise the account keeps its learning switches, skill
+	// lists and feed as they are, as its agent home stays as it is: the
+	// backup's lists would turn back on skills an earlier restore or the
+	// person turned off.
+	withAgent := !fromMCP && carriesAgentRows(backup) && staged != nil
 	counts := map[string]int{}
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		if err := clearAccountData(tx, userID, withAgent); err != nil {

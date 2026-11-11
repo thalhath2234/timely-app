@@ -35,6 +35,7 @@ var (
 	warnAgentNotHere     = "What Timely learned was not restored because the assistant is not available on this server. Everything else was restored."
 	warnAgentNotStaged   = "What Timely learned could not be restored from this backup. Everything else was restored."
 	warnAgentNotFromApps = "What Timely learned is never restored by an outside app, so it was left as it is."
+	warnAgentKept        = "What Timely learned was not in this backup, so it was left as it is."
 )
 
 func warnSkillsBlocked(names []string) string {
@@ -45,12 +46,13 @@ func warnSkillsBlocked(names []string) string {
 }
 
 // ExportAccount is Export with the account's agent state: the person's own
-// download and the stored backups. Export alone (what an outside app gets
-// from export_account) carries only the rows. Above the 64 MB cap, or when
+// download and the stored backups, with the agent's rows. Export alone
+// (what an outside app gets from export_account) carries only the other
+// rows. Above the 64 MB cap, or when
 // the agent state cannot be read, the backup leaves it out and says so in
 // Warnings; an account that never used the agent has none and no warning.
 func (s *Service) ExportAccount(ctx context.Context, userID string) (*Backup, error) {
-	backup, err := s.Export(userID)
+	backup, err := s.export(userID, true)
 	if err != nil {
 		return nil, err
 	}

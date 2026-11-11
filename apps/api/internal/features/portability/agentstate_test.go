@@ -148,3 +148,16 @@ func TestExportAgentWarnings(t *testing.T) {
 		t.Fatalf("cap warning %q", warnAgentTooLarge)
 	}
 }
+
+// What an outside app downloads keeps nothing of what Timely learned.
+func TestOutsideBackupStripsWhatTimelyLearned(t *testing.T) {
+	backup := map[string]any{"agent": map[string]any{"zip": "x"}, "rows": map[string]any{
+		"agent_learning_events":   []any{map[string]any{"after": "Has a cardiology appointment"}},
+		"agent_learning_settings": []any{}, "workspaces": []any{map[string]any{"id": "w"}},
+	}}
+	OutsideBackup(backup)
+	rows := backup["rows"].(map[string]any)
+	if _, ok := backup["agent"]; ok || rows["agent_learning_events"] != nil || rows["agent_learning_settings"] != nil || rows["workspaces"] == nil {
+		t.Fatalf("outside backup %v", backup)
+	}
+}

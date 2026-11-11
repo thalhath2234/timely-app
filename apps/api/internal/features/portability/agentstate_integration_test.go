@@ -102,9 +102,19 @@ func TestIntegrationBackupCarriesAgentState(t *testing.T) {
 	if _, ok := backup.Rows["agent_web_keys"]; ok {
 		t.Fatal("the backup carries the web search key")
 	}
-	// What an outside app exports has the rows only.
-	if rowsOnly, err := service.Export(uid); err != nil || rowsOnly.Agent != nil {
+	// What an outside app exports has the other rows only: the learning
+	// feed holds memory and About you texts.
+	rowsOnly, err := service.Export(uid)
+	if err != nil || rowsOnly.Agent != nil {
 		t.Fatalf("Export: agent %v, err %v", rowsOnly.Agent, err)
+	}
+	for table := range agentTables {
+		if _, ok := rowsOnly.Rows[table]; ok {
+			t.Fatalf("an outside app's export carries %s", table)
+		}
+	}
+	if len(rowsOnly.Rows["workspaces"]) == 0 {
+		t.Fatal("an outside app's export lost the account's rows")
 	}
 
 	// Change things after the backup.
@@ -204,6 +214,11 @@ func TestIntegrationRestoreAgentStateFailures(t *testing.T) {
 	})
 	t.Run("staging fails", func(t *testing.T) {
 		reset()
+		// An earlier restore left a skill off for review; the agent home
+		// stays as it is, so must the lists.
+		if err := db.Exec(`UPDATE agent_learning_settings SET skills_disabled = '["unreviewed"]', skills_restored = '["unreviewed"]' WHERE user_id = ?`, uid).Error; err != nil {
+			t.Fatal(err)
+		}
 		agent.stageErr = fmt.Errorf("%w: agent-import: not a zip", agenthost.ErrHelperFailed)
 		result, err := service.Restore(uid, strictCopy(t, backup))
 		if err != nil {
@@ -212,8 +227,8 @@ func TestIntegrationRestoreAgentStateFailures(t *testing.T) {
 		if !slices.Equal(result.Warnings, []string{warnAgentNotStaged}) {
 			t.Fatalf("warnings %q", result.Warnings)
 		}
-		if got := learningSettings(t, db, uid); got.SkillsRestored != "[]" {
-			t.Fatalf("skills were marked restored without an agent state: %+v", got)
+		if got := learningSettings(t, db, uid); got.SkillsRestored != `["unreviewed"]` || got.SkillsDisabled != `["unreviewed"]` {
+			t.Fatalf("an agent-less restore changed the skill lists: %+v", got)
 		}
 	})
 	t.Run("no assistant here", func(t *testing.T) {
@@ -325,9 +340,21 @@ func TestIntegrationOverCapBackupWarns(t *testing.T) {
 	if written.Agent != nil || !slices.Equal(written.Warnings, []string{warnAgentTooLarge}) {
 		t.Fatalf("stored backup: agent %v warnings %q", written.Agent != nil, written.Warnings)
 	}
-	// The written backup still restores.
-	if _, err := service.Restore(uid, &written); err != nil {
+	// The written backup still restores. Its agent state is not in it, so
+	// the agent home stays as it is and so do the account's skill lists: a
+	// skill an earlier restore left off for review stays off.
+	if err := db.Exec(`UPDATE agent_learning_settings SET skills_disabled = '["old-off", "unreviewed"]', skills_restored = '["unreviewed"]' WHERE user_id = ?`, uid).Error; err != nil {
 		t.Fatal(err)
+	}
+	result, err := service.Restore(uid, &written)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(result.Warnings, []string{warnAgentTooLarge, warnAgentKept}) {
+		t.Fatalf("restore warnings %q", result.Warnings)
+	}
+	if got := learningSettings(t, db, uid); got.SkillsRestored != `["unreviewed"]` || got.SkillsDisabled != `["old-off", "unreviewed"]` {
+		t.Fatalf("an over-cap restore turned skills back on: %+v", got)
 	}
 }
 
