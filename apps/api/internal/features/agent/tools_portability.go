@@ -211,10 +211,13 @@ func (s *Server) downloadBackup(ctx context.Context, req *mcp.CallToolRequest, i
 	if err != nil {
 		return fail(err)
 	}
-	var backup any
+	var backup map[string]any
 	if err := json.Unmarshal(plain, &backup); err != nil {
 		return fail(err)
 	}
+	// What Timely learned (memory, skills, chat sessions) stays in Timely, as
+	// export_account leaves it out: an outside app gets the rows only.
+	delete(backup, "agent")
 	return reply("backup downloaded", map[string]any{"file": row, "backup": backup})
 }
 
