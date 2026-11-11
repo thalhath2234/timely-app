@@ -155,18 +155,26 @@ func Signup(ctx context.Context, cfg Config, engine string) (*client, string, st
 		// Ollama needs no key; the server's OLLAMA_BASE_URL is the address.
 		keyBody = map[string]string{"key": "", "baseUrl": ""}
 	}
-	connect := "/agent/providers/" + cfg.Provider + "/key"
-	var body any = keyBody
 	if hostCLI(cfg.Provider) {
-		// Claude Code and Codex use the API host's own signed-in CLI.
-		connect, body = "/agent/providers/"+cfg.Provider+"/connect", nil
-	}
-	if err := c.do(ctx, "POST", connect, body, nil); err != nil {
-		// The answer may quote the request; never print the key.
-		return nil, "", "", fmt.Errorf("connect provider %s: %s", cfg.Provider, scrub(err.Error(), cfg.Key))
-	}
-	if err := c.do(ctx, "PATCH", "/agent/providers", map[string]any{"defaultProvider": cfg.Provider, "models": map[string]string{cfg.Provider: cfg.Model}}, nil); err != nil {
-		return nil, "", "", fmt.Errorf("default provider: %s", scrub(err.Error(), cfg.Key))
+		// Claude Code and Codex use the API host's own signed-in CLI: the
+		// model is recorded first, then Connect tests it.
+		if err := c.do(ctx, "PATCH", "/agent/providers", map[string]any{cfg.Provider + "Model": cfg.Model}, nil); err != nil {
+			return nil, "", "", fmt.Errorf("%s model: %w", cfg.Provider, err)
+		}
+		if err := c.do(ctx, "POST", "/agent/providers/"+cfg.Provider+"/connect", nil, nil); err != nil {
+			return nil, "", "", fmt.Errorf("connect provider %s: %w", cfg.Provider, err)
+		}
+		if err := c.do(ctx, "PATCH", "/agent/providers", map[string]any{"defaultProvider": cfg.Provider}, nil); err != nil {
+			return nil, "", "", fmt.Errorf("default provider: %w", err)
+		}
+	} else {
+		if err := c.do(ctx, "POST", "/agent/providers/"+cfg.Provider+"/key", keyBody, nil); err != nil {
+			// The answer may quote the request; never print the key.
+			return nil, "", "", fmt.Errorf("connect provider %s: %s", cfg.Provider, scrub(err.Error(), cfg.Key))
+		}
+		if err := c.do(ctx, "PATCH", "/agent/providers", map[string]any{"defaultProvider": cfg.Provider, "models": map[string]string{cfg.Provider: cfg.Model}}, nil); err != nil {
+			return nil, "", "", fmt.Errorf("default provider: %s", scrub(err.Error(), cfg.Key))
+		}
 	}
 	var settings struct {
 		Engine          string `json:"engine"`
