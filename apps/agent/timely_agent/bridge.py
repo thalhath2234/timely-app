@@ -153,6 +153,24 @@ def bind_session(session_id: str, *, kind: str = "chat", flags: dict | None = No
     return state
 
 
+def stop_learning(session_id: str = "") -> list[SessionState]:
+    """Turn learning off now for one conversation (``session_id``) or for every one this worker
+    knows: the person chose "Don't learn from this chat" or turned learning off while a run or its
+    learning pass may still write. Both read ``state.flags`` at each write, so later writes are
+    blocked; the next ``run.start`` sets the flags afresh."""
+    with _sessions_lock:
+        states = [_sessions.get(session_id)] if session_id else list(_sessions.values())
+    out = []
+    for state in states:
+        if state is None:
+            continue
+        flags = dict(state.flags)
+        flags["learning_writes"] = False
+        state.flags = flags
+        out.append(state)
+    return out
+
+
 def forget_session(session_id: str) -> None:
     with _sessions_lock:
         _sessions.pop(session_id, None)

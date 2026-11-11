@@ -259,6 +259,9 @@ func main() {
 	// Backups carry the account's agent state (plan 6.5): memory, learned
 	// skills, staged writes and chat sessions.
 	portabilityService.SetAgentState(agentStack.sup)
+	chatService.SetStopLearning(func(uid, cid string) {
+		agentStack.learning.StopLearning(context.Background(), uid, cid)
+	})
 	// A restore replaces every row and drops the search index with them, so
 	// it queues a rebuild, which Settings shows while it runs. The account's
 	// worker restarts once idle, so its config is rendered from the restored

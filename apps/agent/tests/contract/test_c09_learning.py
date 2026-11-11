@@ -445,3 +445,29 @@ def test_c09_learning_pass_uses_the_run_credentials():
     assert {r["auth"] for r in posts} == {"Bearer sk-run-A"}, {r["auth"] for r in posts}
     assert stub_b.requests == [], stub_b.requests
     assert (skill_dir(a, "c09q-skill") / "SKILL.md").is_file()
+
+
+# ---------------------------------------------------------------- learning turned off mid-pass
+
+@pytest.mark.parametrize("scope", ["chat", "account"])
+def test_c09_learning_stop_blocks_a_running_pass(lagent, lworker, stub, scope):
+    """"Don't learn from this chat" (``learning.stop`` with the chat's id) or learning turned off
+    (``learning.stop`` without one) while the learning pass still runs: its later writes are
+    blocked, nothing is applied or reported (ADR 0028)."""
+    conv, tag = f"c-c09stop-{scope}", f"tag-c09stop-{scope}"
+    name = f"c09stop-{scope}"
+    turn(lworker, lagent, stub, f"c09stop-{scope}-1", conv, text(todo(6, tag), tag))
+    settle(lworker, lagent)
+    review = [{"sleep": 3, "calls": [create(name)]}, {"text": "Saved."}]
+    done, events, _ = turn(lworker, lagent, stub, f"c09stop-{scope}-2", conv, text(todo(6, tag), tag + "-2", review))
+    assert done["completed"], done
+    deadline = time.monotonic() + 30
+    while not review_starts(stub, tag) and time.monotonic() < deadline:  # the pass is waiting on the model
+        time.sleep(0.05)
+    fields = {"conversation_id": conv} if scope == "chat" else {}
+    res = request(lworker, lagent, "learning.stop", **fields)
+    assert res["type"] == "learning.result" and res["ok"] and res["data"]["stopped"] >= 1, res
+    events += settle(lworker, lagent)
+    assert len(review_starts(stub, tag)) == 1
+    assert not skill_dir(lagent, name).exists()
+    assert [e for e in events if e.get("subject") == name] == [], events

@@ -960,6 +960,18 @@ func TestIntegrationLearningSwitchReachesTheWorker(t *testing.T) {
 	if n := len(requestsFor(r.requests(agenthost.TypeSettingsUpdate), a)); n != 1 {
 		t.Fatalf("the search switch alone sent %d settings.update", n)
 	}
+	// A run or learning pass still going stops writing (learning.stop
+	// without a chat: every chat of the account).
+	stops := requestsFor(r.requests("learning.stop"), a)
+	if len(stops) != 1 || strings.Contains(string(stops[0].Raw), "conversation_id") {
+		t.Fatalf("learning.stop %v", stops)
+	}
+	if code, _, _ := r.call(a, http.MethodPatch, "/agent/learning/settings", map[string]any{"learning": true}); code != http.StatusOK {
+		t.Fatalf("patch %d", code)
+	}
+	if n := len(requestsFor(r.requests("learning.stop"), a)); n != 1 {
+		t.Fatalf("turning learning on sent learning.stop (%d)", n)
+	}
 }
 
 // A staged change the worker no longer holds (a restore whose agent home

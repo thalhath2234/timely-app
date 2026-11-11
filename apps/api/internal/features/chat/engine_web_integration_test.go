@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // Phase 3 on the agent engine: learning and web flags in run.start, Go's gate
@@ -169,10 +170,22 @@ func TestIntegrationAgentEngineNoLearningChat(t *testing.T) {
 	// The first run learns; the person then turns learning off for the chat,
 	// and the next message's run does not.
 	h.wait(c.ID, "replied", statusIs("idle"))
+	// The learning pass of that first run may still be going: the worker
+	// is told at once, so it writes nothing more.
+	stopped := make(chan [2]string, 2)
+	h.s.SetStopLearning(func(uid, cid string) { stopped <- [2]string{uid, cid} })
 	code, body := serve(t, h.s, "PATCH", "/chats/"+c.ID, `{"noLearning":true}`)
 	var patched map[string]any
 	if code != 200 || json.Unmarshal(body, &patched) != nil || patched["noLearning"] != true {
 		t.Fatalf("PATCH noLearning: %d %s", code, body)
+	}
+	select {
+	case got := <-stopped:
+		if got != [2]string{c.UserID, c.ID} {
+			t.Fatalf("stopped learning for %v", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Don't learn from this chat did not reach the worker")
 	}
 	code, body = serve(t, h.s, "GET", "/chats", "")
 	if code != 200 || !strings.Contains(string(body), `"noLearning":true`) {

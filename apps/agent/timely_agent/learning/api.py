@@ -14,6 +14,8 @@ import base64
 import difflib
 import io
 import json
+import logging
+import threading
 import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -25,11 +27,14 @@ from timely_agent.learning import feed as feed_mod
 from timely_agent.learning import files
 from timely_agent.learning import plain
 
+logger = logging.getLogger("timely_agent.learning.api")
+
 EXPORT_MAX_BYTES = 16 * 1024 * 1024
 SKILL_STATES = ("lock", "unlock", "archive", "restore", "delete")
 MEMORY_ACTIONS = ("add", "replace", "remove")
 TYPES = ("learning.list", "learning.skill", "learning.rollback", "learning.edit", "learning.skill_state",
-         "learning.memory", "learning.pending", "learning.export", "learning.upstream", "settings.update")
+         "learning.memory", "learning.pending", "learning.export", "learning.upstream", "learning.stop",
+         "settings.update")
 
 
 class ApiError(Exception):
@@ -101,11 +106,36 @@ def problem(msg: dict[str, Any]) -> Optional[str]:
                 return "settings.update needs a settings object"
         elif t == "learning.export":
             pass
+        elif t == "learning.stop":
+            if msg.get("conversation_id") is not None and not isinstance(msg.get("conversation_id"), str):
+                return "learning.stop conversation_id must be a string"
         else:
             return f"unknown learning request {t!r}"
     except ApiError as exc:
         return exc.message
     return None
+
+
+def stop(conversation_id: str) -> dict[str, Any]:
+    """``learning.stop``: no more memory or skill writes from this conversation's run or learning
+    pass (or every conversation's, without an id), and a running pass is cancelled. ADR 0028: a
+    chat marked "Don't learn from this chat", or an account with learning off, learns nothing."""
+    from timely_agent import bridge
+    states = bridge.stop_learning(conversation_id)
+    for state in states:
+        agent = state.agent
+        if agent is None:
+            continue
+
+        def cancel(agent=agent) -> None:
+            try:
+                from agent.background_review import cancel_background_review_for_live_turn
+                cancel_background_review_for_live_turn(agent, message="learning turned off",
+                                                       tool_reason="learning turned off")
+            except Exception as exc:  # the writes are blocked whatever happens here
+                logger.debug("cancelling a learning pass: %s", exc)
+        threading.Thread(target=cancel, name="timely-learning-stop", daemon=True).start()
+    return {"stopped": len(states)}
 
 
 @contextmanager
@@ -808,6 +838,8 @@ def handle(msg: dict[str, Any], host: Host) -> dict[str, Any]:
             pass
         host.after_settings()
         return {"config_sha256": sha}
+    if t == "learning.stop":
+        return stop(str(msg.get("conversation_id") or ""))
     if t == "learning.upstream":
         try:
             from timely_agent import skills_admin  # worker-skills-backup

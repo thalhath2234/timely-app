@@ -34,7 +34,9 @@ type Service struct {
 	live       *realtime.Hub
 	botNames   func(ctx context.Context, userID string) ([]BotName, error)
 	engine     AgentEngine
-	wg         sync.WaitGroup
+	// stopLearning tells the worker a chat no longer learns (SetStopLearning).
+	stopLearning func(uid, cid string)
+	wg           sync.WaitGroup
 }
 
 // SetRehearsal supplies a catalog without live side effects (no realtime
@@ -772,7 +774,7 @@ func (s *Service) configure(c *echo.Context) error {
 			return echo.NewHTTPError(400, "Title must be between 1 and 120 characters")
 		}
 	}
-	return s.save(c, func(tx *gorm.DB, row *Conversation) error {
+	err := s.save(c, func(tx *gorm.DB, row *Conversation) error {
 		if (in.Context != nil || in.WebSearch != nil) && busy(row) {
 			return echo.NewHTTPError(409, "Wait or stop before changing context")
 		}
@@ -810,7 +812,18 @@ func (s *Service) configure(c *echo.Context) error {
 		}
 		return nil
 	})
+	if err == nil && in.NoLearning != nil && *in.NoLearning && s.stopLearning != nil {
+		// A run or learning pass of this chat still going writes nothing
+		// more ("Timely won't learn from this chat").
+		uid, cid := user(c), c.Param("id")
+		go s.stopLearning(uid, cid)
+	}
+	return err
 }
+
+// SetStopLearning lets "Don't learn from this chat" stop a run or learning
+// pass of the chat that is still going (learning.Service.StopLearning).
+func (s *Service) SetStopLearning(fn func(uid, cid string)) { s.stopLearning = fn }
 
 // newChatPermission is a new chat's permission mode: the one asked for,
 // else the account's default for new chats.

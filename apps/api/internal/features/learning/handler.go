@@ -111,6 +111,10 @@ func (s *Service) patchSettings(c *echo.Context) error {
 		// running worker hears it now, not at its next restart.
 		s.pushSettings(ctx, uid)
 	}
+	if in.Learning != nil && !*in.Learning {
+		// A run or learning pass still going writes nothing more.
+		s.StopLearning(ctx, uid, "")
+	}
 	row, err := loadSettings(ctx, s.db, uid)
 	if err != nil {
 		return err
@@ -470,6 +474,32 @@ func (s *Service) forgetSkill(ctx context.Context, uid, name string) error {
 		}
 		return saveSkillLists(tx, uid, without(row.SkillsDisabled, name), without(row.SkillsRestored, name))
 	})
+}
+
+// StopLearning tells a running worker to write no more memory or skills
+// from the chat cid (every chat when cid is ""), and to cancel a learning
+// pass still going: the person chose "Don't learn from this chat" or turned
+// learning off (ADR 0028). A worker that is not running has no pass to stop,
+// and its next run.start carries the switch.
+func (s *Service) StopLearning(ctx context.Context, uid, cid string) {
+	if s.workers == nil {
+		return
+	}
+	w, ok := s.workers.Worker(uid)
+	if !ok {
+		return
+	}
+	fields := map[string]any{}
+	if cid != "" {
+		fields["conversation_id"] = cid
+	}
+	ctx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	release := w.Hold()
+	defer release()
+	if _, err := askWorker(ctx, w, "learning.stop", fields); err != nil {
+		s.logf("learning: learning.stop: %v", err)
+	}
 }
 
 // pushSettings brings a running worker's config.yaml up to date. A worker
