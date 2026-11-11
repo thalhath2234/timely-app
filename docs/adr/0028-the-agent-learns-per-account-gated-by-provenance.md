@@ -1,6 +1,6 @@
 # The agent learns per account, gated by provenance
 
-- Status: Proposed
+- Status: Accepted (2026-11-11, with the owner's phase 3 answers below; built in phase 3)
 - Date: 2026-11-08
 
 The owner wants Timely's agent to learn the way Hermes does, per account:
@@ -17,8 +17,8 @@ has the detail.
 Agent notes (`MEMORY.md`) and About you (`USER.md`), skills created and patched
 by the agent, the background learning pass after a reply (on a copy of the
 agent that replays the conversation), the skill history with single-step undo,
-the curator that marks unused learned skills stale and archives them (never
-deletes; its AI merging stays off), and search over past chats all come from
+the curator that marks unused learned skills stale (it never archives or
+deletes anything on its own; its AI merging stays off), and search over past chats all come from
 the vendored copy (ADR 0026) and improve with syncs. Timely adds only adapters:
 per-account settings, one cached agent per conversation so the "time to save a
 skill" counter adds up across turns, a policy plugin, a learning feed, and a
@@ -66,8 +66,9 @@ changes say they apply from the next chat; staged items from the turn show as a
 Keep / Discard card. Settings → Agent → What Timely learned lists learned
 skills with where each came from, its history and diffs, Undo, Edit, Lock,
 Archive and Delete; About you and Notes with their size limits; Waiting for
-you, the staged items; and an Activity feed. Switches cover learning on or off,
-a separate learning model, searching past chats and curator archiving. The
+you, the staged items; and an Activity feed. Switches cover learning on or off
+and searching past chats. There is no learning model to choose: the learning
+pass uses the chat's own provider and model. The
 phone shows Activity, About you and Waiting for you, and notifies when a Bot
 suggests something. Go keeps every learning event with its origin, chat, Bot,
 taint and status, and keeps the memory undo history Hermes lacks.
@@ -85,14 +86,43 @@ deleting the account deletes the agent home.
 ## Consequences
 
 - A learning pass costs about 30,000 tokens, mostly cache reads on the same
-  model. A cheaper learning model can be set, and learning tokens are shown
-  apart in usage.
+  model. There is no cheaper learning model (Q-3.2): the pass runs on the
+  chat's own provider and model.
 - Taint is broad: once a chat reads a page, every later proposal in it is
   reviewed and every learned item waits. That is accepted for safety and tuned
   after use.
 - Taint is only as complete as the list of sources. A Go test fails when a
   Timely read tool lacks an outside-data classification, and a Python test does
   the same for every tool chat may call without approval.
+
+## The owner's answers (2026-11-11)
+
+- **Q-3.1** Learning in a clean chat applies on its own, with a chip under the
+  reply and Undo. It is staged (Keep or Discard) only when the chat read
+  outside content (taint) or the write came from a Bot; the skill-body rule
+  and an unattended memory edit or removal also stage, and a threat-scan hit
+  is blocked.
+- **Q-3.2** No separate learning model: the learning pass uses the chat's
+  provider and model. The "Learning model" setting is gone.
+- **Q-3.3** "What you use Timely for" is copied into About you once, when
+  learning is first on for the account, and is edited there afterwards; it is
+  never copied again.
+- **Q-3.4** Per-account backups include the agent state (up to 64 MB; above
+  that the backup leaves it out and says so). Restored learned skills come
+  back switched off, marked "Restored, review".
+- **Q-3.5** Searching past chats is on by default, with a switch to turn it
+  off. Bot runs are never written to the search history.
+- **Q-3.6** The curator never archives on its own; it only marks unused
+  learned skills. No archive switch is shown.
+- **Q-3.7** The agent's edit to a skill Timely ships is the account's own copy,
+  silent with Undo (and staged under the Q-3.1 rule); "Updated upstream" with
+  Compare, Keep mine and Use new shows when the shipped skill changes.
+- **Q-3.8** Web search without a search key uses the chat provider's own search
+  through Timely's web backend; a search key saved in Settings overrides it.
+  Searches and pages are taint. In a tainted chat the agent may not open a
+  site the person did not name or a search did not return, nor search with
+  the person's own data; until host approvals exist (phase 5) such a call is
+  blocked with "Paste the link yourself if you want me to open it."
 
 ## Considered Options
 

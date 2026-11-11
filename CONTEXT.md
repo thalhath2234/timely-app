@@ -119,6 +119,18 @@ _Avoid_: autonomy level, trust level, YOLO (in copy)
 The changes Auto always asks about first: deleting or overwriting (deletes, more than 10 items at once, whole-content replacements), sending the person's data out, buying, paying or signing in, installing software, changing settings or permissions (Bots included), and any change after the chat read outside pages. It lives in Go (`agent/permission.go`).
 _Avoid_: dangerous actions, blocklist (the floors no mode lifts are separate)
 
+**Taint**:
+The mark a chat carries once outside content reached the agent in it: a web page or search, a Timely read of outside data (a Bot's findings), or a past-chat search hit from a chat that carries the mark. It stays with the chat for good, through restarts. In a tainted chat every change is held for review, every learning write is Staged, and the agent cannot open a site the person did not name or search with the person's own data.
+_Avoid_: dirty, unsafe, untrusted chat (in copy, say "this chat read something from outside Timely")
+
+**Learning pass**:
+The agent's look back over a chat after it replied, on the chat's own provider and model, deciding whether to save or fix a skill or a note about the person. It runs once enough work built up in a chat (about ten tool steps for skills, ten turns for notes), never in Sensitive chats, chats marked "Don't learn from this chat", or when learning is off.
+_Avoid_: background review, reflection, training (nothing about the model changes)
+
+**Staged change**:
+A learned skill or note (About you, Notes) written but not applied, waiting for the person to Keep or Discard in the chat's card or in Waiting for you. A change is staged when its chat is tainted or it came from a Bot, when it edits or removes notes with nobody there, or when a skill names a tool or claims approval; otherwise it applies at once with a chip and Undo. Discard leaves nothing behind.
+_Avoid_: pending approval (Agent proposals are approved), draft, suggestion (except "Suggested by bot")
+
 **Smart suggestions**:
 Pre-filled fields and hints from Jev, TypeSafe's decision model, such as the Clarify form's type, effort, priority, project, labels and possible duplicates, or the Agent's default length for new Work. They use the account's TypeSafe key first and its OpenRouter key otherwise, and change nothing until the person saves. With neither key, or turned off in Settings → Agent, Timely behaves as it does without them.
 _Avoid_: AI autofill, auto-classify, Jev (in copy, except where the key is set up)

@@ -3,7 +3,7 @@
 - Date: 2026-11-11. Branch `feature/hermes-phase3`, stacked on `feature/hermes-phase2` (PR #292, open). Phase 1 is PR #291 (merged).
 - Plan: `docs/plans/2026-11-08-timely-agent-from-hermes.md` (called "the plan"), section 13 "Phase 3" and the sections it cites: 2, 3.3-3.6, 4.4, 5.1-5.8, 6.1-6.6, 8.1, 8.2, 8.4, 9, 9b, 10.4 (contract tests 9 and 13), 11, 12. ADRs 0007, 0008, 0009, 0020, 0026, 0027, 0028.
 - Phase 1/2 facts: `apps/agent/AGENTS.md`, `apps/agent/PROTOCOL.md`, `apps/agent/timely_agent/README.md`, `apps/api/internal/agenthost`, `apps/api/internal/features/chat/engine_agent.go`, `docs/plans/2026-11-09-phase2-work-packages.md`.
-- Status: plan only. No product code is written by this document.
+- Status (2026-11-12): all nine packages are committed on `feature/hermes-phase3`, and `verify` ran last. What ran, the counts and the open findings are in the plan's section 13, "Phase 3 status". Open before the phase can exit: `GET /agent/learning/skills` cannot read the worker's `{skills: [...]}` answer (`go-learning`), `make test` fails on `test-mobile-scrollbars` for the four new phone screens (`mobile-ui`), and fixture pages need a hosts override to get past Hermes' SSRF floor in end-to-end runs (flag 2 below). This document wrote no product code.
 
 ## Binding owner answers used here
 
@@ -453,7 +453,7 @@ Each row has one owner. "Uses" names packages that only carry a value the owner'
 ## Flagged for the coordinator or the owner
 
 1. **Learning defaults on** for accounts that use the agent engine (decision 7, Q-3.1); Q-3.3's copy happens at that first moment. Turning learning off stops writes and the pass; nothing learned is deleted.
-2. **Fixture pages for end-to-end runs.** The SSRF floor blocks loopback, so a local test page cannot be fetched. `chat.FixtureFetcher` serves `https://<name>.fixture.invalid/...` from files, wired only when both `TIMELY_AGENT_WEB_FIXTURES` and `DB_SCHEMA` are set. `.invalid` never resolves, so it cannot shadow a real host.
+2. **Fixture pages for end-to-end runs.** The SSRF floor blocks loopback, so a local test page cannot be fetched. `chat.FixtureFetcher` serves `https://<name>.fixture.invalid/...` from files, wired only when both `TIMELY_AGENT_WEB_FIXTURES` and `DB_SCHEMA` are set. `.invalid` never resolves, so it cannot shadow a real host. *(verify, 2026-11-12: Hermes' SSRF floor in the worker resolves each `web_extract` host first and fails closed, so `.invalid` names are blocked before Go is asked. The end-to-end runs started the API in a private mount namespace whose `/etc/hosts` maps the fixture names to a public documentation address; nothing connects to it.)*
 3. **The `timely` skill is still missing.** `apps/agent/skills/` does not exist on this branch (phase 2 shipped none; only test fixtures), so the agent has no Timely skill pointer. It is not in phase 3's list; whoever adds it next also gets the read-only path tested with real content.
 4. **Bot sub-cases of contract test 9** (bot tick, bot feedback review) are tested at the policy level until `bot.run` (phase 6) and feedback reviews (phase 7) exist; the `delegate_task` case waits for phase 4.
 5. **Hermes-self skills are left out of the seed tree**, not just disabled: stronger than the plan's "disabled by default", and nobody can turn one on.
