@@ -5,7 +5,7 @@ import { ChevronRight } from "lucide-react";
 import {
   WAITING_FOR_YOU,
   cardLine,
-  pendingCard,
+  pendingItemWhy,
   type LearningEvent,
 } from "@timely/contract/agentLearning";
 import Button from "@/app/_components/_ui/button";
@@ -47,7 +47,7 @@ export default function LearnedPending() {
           <PendingRow key={ev.id} event={ev} />
         ))}
       </ListGroup>
-      <GroupHint>{pendingCard(events)?.why} Nothing is used until you keep it.</GroupHint>
+      <GroupHint>Nothing is used until you keep it.</GroupHint>
     </section>
   );
 }
@@ -66,16 +66,14 @@ function PendingRow({ event }: { event: LearningEvent }) {
       setError(errorText(err, "Couldn't save that."));
     }
   }
-  const from = [
-    event.summary,
-    event.botId || event.origin === "bot" ? "Suggested by a bot" : "",
-    when(event.createdAt),
-  ].filter(Boolean);
+  // Each change gives its own reason: the list mixes chats.
+  const from = [event.summary, pendingItemWhy(event), when(event.createdAt)].filter(Boolean);
+  const line = cardLine(event);
   return (
     <div className="px-3.5 py-2.5">
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
         <span className="min-w-0 flex-1 basis-56">
-          <span className="block text-[13px] font-medium leading-[18px]">{cardLine(event)}</span>
+          <span className="block text-[13px] font-medium leading-[18px]">{line}</span>
           <span className="block text-xs leading-4 text-muted-foreground">
             {from.join(" · ")}
             {event.conversationId ? (
@@ -93,34 +91,46 @@ function PendingRow({ event }: { event: LearningEvent }) {
             variant="ghost"
             size="sm"
             aria-expanded={open}
+            aria-controls={`waiting-diff-${event.id}`}
+            aria-label={`View diff: ${line}`}
             onClick={() => setOpen(!open)}
             leading={<ChevronRight aria-hidden className={cn("transition-transform", open && "rotate-90")} />}
           >
             View diff
           </Button>
-          <Button variant="ghost" size="sm" disabled={decide.isPending} onClick={() => void choose("discard")}>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={decide.isPending}
+            aria-label={`Discard: ${line}`}
+            onClick={() => void choose("discard")}
+          >
             Discard
           </Button>
           <Button
             size="sm"
             loading={decide.isPending && decide.variables?.choice === "keep"}
             disabled={decide.isPending}
+            aria-label={`Keep: ${line}`}
             onClick={() => void choose("keep")}
           >
             Keep
           </Button>
         </span>
       </div>
-      {open &&
-        (pending.isPending ? (
-          <SkeletonLines lines={3} className="mt-2" />
-        ) : pending.error ? (
-          <div className="-mx-3.5 mt-1">
-            <ErrorRow error={pending.error} what="the change" onRetry={() => void pending.refetch()} />
-          </div>
-        ) : (
-          <DiffView diff={diff} className="mt-2" />
-        ))}
+      {open && (
+        <div id={`waiting-diff-${event.id}`}>
+          {pending.isPending ? (
+            <SkeletonLines lines={3} className="mt-2" />
+          ) : pending.error ? (
+            <div className="-mx-3.5 mt-1">
+              <ErrorRow error={pending.error} what="the change" onRetry={() => void pending.refetch()} />
+            </div>
+          ) : (
+            <DiffView diff={diff} className="mt-2" />
+          )}
+        </div>
+      )}
       {error && (
         <p role="alert" className="mt-1.5 text-xs text-destructive">
           {error}

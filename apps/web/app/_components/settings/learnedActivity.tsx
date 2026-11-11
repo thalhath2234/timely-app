@@ -110,6 +110,7 @@ function ActivityRow({ event, events }: { event: LearningEvent; events: Learning
           variant="ghost"
           size="sm"
           loading={undo.isPending}
+          aria-label={`Undo: ${cardLine(event)}`}
           onClick={run}
         >
           Undo

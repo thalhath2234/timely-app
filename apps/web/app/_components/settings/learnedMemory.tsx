@@ -212,10 +212,22 @@ function MemoryGroup({
               ) : (
                 <div key={`e${index}`} className="flex items-start gap-2 px-3.5 py-2">
                   <p className="min-w-0 flex-1 whitespace-pre-wrap break-words py-1 text-[13px] leading-[18px]">{entry}</p>
-                  <Button variant="ghost" size="sm" disabled={edit.isPending} onClick={() => open(index)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={edit.isPending}
+                    aria-label={`Edit: ${clip(entry)}`}
+                    onClick={() => open(index)}
+                  >
                     Edit
                   </Button>
-                  <Button variant="ghost" size="sm" disabled={edit.isPending} onClick={() => remove(entry)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={edit.isPending}
+                    aria-label={`Delete: ${clip(entry)}`}
+                    onClick={() => remove(entry)}
+                  >
                     Delete
                   </Button>
                 </div>
@@ -232,4 +244,10 @@ function MemoryGroup({
       <GroupHint>{meter?.tone === "full" ? `${copy.title} is full. Delete or shorten something to make room.` : hint}</GroupHint>
     </section>
   );
+}
+
+/** An entry as a button's accessible name names it: its first 60 characters. */
+function clip(entry: string) {
+  const line = entry.replace(/\s+/g, " ").trim();
+  return line.length > 60 ? `${line.slice(0, 59)}…` : line;
 }

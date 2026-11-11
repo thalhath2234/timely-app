@@ -691,6 +691,11 @@ test("Activity rows say what changed, its status, when and where from; Undo only
     title: "About you updated",
     meta: "Undone · 3 min ago · by you",
   });
+  // the person's own change in effect is not something Timely "learned"
+  assert.deepEqual(learning.activityRow(lev({ kind: "user", action: "added", origin: "user", status: "applied", createdAt: "2026-11-11T11:54:00Z" }), now), {
+    title: "About you added",
+    meta: "6 min ago · by you",
+  });
   assert.equal(learning.canUndo({ status: "applied" }), true);
   assert.equal(learning.canUndo({ status: "kept" }), true);
   for (const status of ["staged", "blocked", "undone", "discarded"]) assert.equal(learning.canUndo({ status }), false);

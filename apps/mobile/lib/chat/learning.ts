@@ -16,7 +16,8 @@ import {
   learningChip,
   pendingCard,
   projectedMemoryUse,
-  statusWord,
+  activityStatus,
+  learnedSkillCount,
   type BudgetMeter,
   type LearnedSkill,
   type LearningChip,
@@ -135,10 +136,8 @@ export function cardMeta(card: PendingCard): string {
   return more > 0 ? `${first} and ${more} more` : first;
 }
 
-/** Skills the agent learned or the person's copies of bundled ones, not archived: the "14 skills" of the Settings row. */
-export function learnedSkillCount(skills: Pick<LearnedSkill, "source" | "archived">[] | undefined): number {
-  return (skills ?? []).filter((s) => (s.source === "learned" || s.source === "edited") && !s.archived).length;
-}
+/** Skills the agent learned or the person's copies of bundled ones, not archived: the "14 skills" of the Settings row (one rule with the web). */
+export { learnedSkillCount };
 
 /** "14 skills · About you · 1 waiting", "Off" for an account that does not learn and has nothing waiting. */
 export function learnedRowMeta(
@@ -177,7 +176,8 @@ export function ago(iso: string, now = Date.now()): string {
 
 /** An Activity row: what changed, then "Learned · 2 h ago · from a chat". */
 export function activityRow(ev: LearningEvent, now = Date.now()): { title: string; meta: string } {
-  const meta = [statusWord(ev.status), ago(ev.createdAt, now), ORIGIN_WORDS[ev.origin] ?? ""].filter(Boolean).join(" · ");
+  // The person's own change says "by you", not "Learned" (activityStatus).
+  const meta = [activityStatus(ev), ago(ev.createdAt, now), ORIGIN_WORDS[ev.origin] ?? ""].filter(Boolean).join(" · ");
   return { title: cardLine(ev), meta };
 }
 

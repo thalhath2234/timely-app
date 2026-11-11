@@ -28,7 +28,10 @@ export default function LearnedSettings({
   const chat = useChatSettings().data;
   const classic = chat?.engine === "classic";
   return (
-    <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,42rem)_340px] xl:gap-10" data-testid="learned-settings">
+    <div
+      className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-[minmax(0,42rem)_340px] xl:gap-10"
+      data-testid="learned-settings"
+    >
       <div className="xl:col-span-2">
         <h2 className="text-base font-semibold text-foreground">{LEARNED_TITLE}</h2>
         <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
@@ -48,7 +51,7 @@ export default function LearnedSettings({
           </p>
         )}
       </div>
-      <div className="xl:order-last">
+      <div className="min-w-0 xl:order-last">
         <LearnedRail />
       </div>
       <div className="flex min-w-0 max-w-2xl flex-col gap-6">
