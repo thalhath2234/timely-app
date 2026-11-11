@@ -466,8 +466,9 @@ def import_state(layout: paths.AgentLayout, account: str, zip_path: Path) -> dic
             if lost:
                 dropped.append(f"skills/{LEDGER}: {lost} entr{'y' if lost == 1 else 'ies'} that could not be "
                                "restored safely")
-            restored = sorted({read_skill_name(d / "SKILL.md", d.name) for d in _skill_folders(skills)
-                               if d.relative_to(skills).parts[0] != ".archive"}) if skills.is_dir() else []
+            # Archived skills too (Q-3.4): Restore in Settings would otherwise turn one on unreviewed.
+            restored = sorted({read_skill_name(d / "SKILL.md", d.name) for d in _skill_folders(skills)}) \
+                if skills.is_dir() else []
             for name in paths.HOME_DIRS:
                 (staged / name).mkdir(exist_ok=True)
             timely = staged / ".timely"

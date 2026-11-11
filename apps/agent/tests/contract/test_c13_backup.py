@@ -120,6 +120,8 @@ def test_c13_export_leaves_out_config_secrets_signins_scripts_and_hooks(src, exp
     assert desc["home"] == str(src.home)
 
 
+ARCHIVED = "old-steps"
+ARCHIVED_BODY = f"---\nname: {ARCHIVED}\ndescription: Older steps.\n---\n# Old\n\n1. Check the shelf.\n"
 KEPT_NOTES = "---\nname: kept-notes\ndescription: Notes steps.\n---\n# Notes\n\n1. Write it down.\n"
 FAKE_BLOB = "0" * 64  # a blob whose content does not hash to its name
 
@@ -167,6 +169,7 @@ def _handmade(exported_zip: Path, dest: Path) -> Path:
         link.external_attr = (stat.S_IFLNK | 0o777) << 16
         zout.writestr(link, "/etc/passwd")
         zout.writestr("skills/evil/injected/SKILL.md", INJECTED)
+        zout.writestr(f"skills/.archive/{ARCHIVED}/SKILL.md", ARCHIVED_BODY)  # the person archived it
     return dest
 
 
@@ -195,9 +198,10 @@ def test_c13_import_strips_never_restore_paths_and_blocks_an_injected_skill(rest
     assert not (dst.layout.accounts_dir / "escape.txt").exists() and not (staged.parent.parent / "escape.txt").exists()
     # an injected skill, and skills Hermes would load by a name Timely cannot keep turned off
     assert res["blocked"] == ["Pantry steps", "injected", "notes-steps # mine"], res["blocked"]
-    assert res["restored_skills"] == [SKILL]
+    # an archived learned skill comes back for review too: Restore in Settings must not turn it on
+    assert res["restored_skills"] == [ARCHIVED, SKILL]
     data = json.loads((staged / ".timely" / "restored.json").read_text(encoding="utf-8"))
-    assert data["skills"] == [SKILL] and data["blocked"] == res["blocked"]
+    assert data["skills"] == [ARCHIVED, SKILL] and data["blocked"] == res["blocked"]
     # ledger blobs: the injected one and the one whose content is not its name are dropped, with every
     # entry that needs them and the entry that would write outside skills/
     assert not (staged / ".curator_backups" / "blobs" / _sha(INJECTED)).exists()
@@ -241,7 +245,7 @@ def test_c13_committed_restore_is_swapped_in_and_undo_works_in_the_new_home(src,
     backup.commit_marker(Path(res["staged_dir"]))
     rec = cli("agent-reconcile", dst)
     assert rec["swapped"] == [paths.account_dir_name(UID)]
-    dst.render({"skills_disabled": [SKILL]})  # what Go renders for a restored skill (Q-3.4)
+    dst.render({"skills_disabled": res["restored_skills"]})  # what Go renders for restored skills (Q-3.4)
     home = dst.home
     assert (home / "config.yaml").is_file() and not (home / ".env").exists() and not (home / "auth.json").exists()
     w, ready = harness.ready_worker(dst, hello={"timely_tools": harness.timely_tools()})
@@ -249,6 +253,10 @@ def test_c13_committed_restore_is_swapped_in_and_undo_works_in_the_new_home(src,
         assert ready["self_test"]["ok"], ready["self_test"]
         rows = {s["name"]: s for s in ask(w, dst, "learning.list", what="skills")["data"]["skills"]}
         assert rows[SKILL]["restored"] and not rows[SKILL]["enabled"], rows[SKILL]
+        assert rows[ARCHIVED]["archived"] and rows[ARCHIVED]["restored"] and not rows[ARCHIVED]["enabled"]
+        assert ask(w, dst, "learning.skill_state", name=ARCHIVED, state="restore")["ok"]
+        rows = {s["name"]: s for s in ask(w, dst, "learning.list", what="skills")["data"]["skills"]}
+        assert not rows[ARCHIVED]["archived"] and rows[ARCHIVED]["restored"] and not rows[ARCHIVED]["enabled"]
         hist = ask(w, dst, "learning.skill", name=SKILL)["data"]["history"]
         assert src.create_entry in [h["id"] for h in hist]
         undo = ask(w, dst, "learning.rollback", ledger_entry_id=src.create_entry)
