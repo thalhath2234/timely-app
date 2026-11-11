@@ -136,6 +136,10 @@ func TestAskWorkerReadsTheResult(t *testing.T) {
 	if _, err := askWorker(context.Background(), refused, "learning.skill", nil); !errors.As(err, &he) || he.Code != http.StatusNotFound || !strings.Contains(he.Message, "no such skill") {
 		t.Fatalf("ok false: %v", err)
 	}
+	gone := stubWorker{agenthost.Message{Type: agenthost.TypeLearningResult, Raw: json.RawMessage(`{"type":"learning.result","ok":false,"data":{"code":"not_found","message":"gone"}}`)}}
+	if _, err := askWorker(context.Background(), gone, "learning.memory", nil); !errors.As(err, &he) || he.Code != http.StatusNotFound {
+		t.Fatalf("data code not_found: %v", err)
+	}
 	other := stubWorker{agenthost.Message{Type: "ack", Raw: json.RawMessage(`{"type":"ack"}`)}}
 	if _, err := askWorker(context.Background(), other, "learning.skill", nil); !errors.As(err, &he) || he.Code != http.StatusBadGateway {
 		t.Fatalf("wrong type: %v", err)

@@ -608,7 +608,11 @@ def memory(msg: dict[str, Any], host: Host) -> dict[str, Any]:
         else:
             result = store.remove(target, old)
         if not isinstance(result, dict) or not result.get("success"):
-            raise Failed({"ok": False, "message": plain.memory_failure(target, _memory_failure_class())})
+            failure = _memory_failure_class()
+            data = {"ok": False, "message": plain.memory_failure(target, failure)}
+            if failure in ("no_match", "stale_entry"):
+                data["code"] = "not_found"  # Go: an Undo of a change whose entry is gone is spent
+            raise Failed(data)
         after = files.read_memory(host.home, target)
         removed, added = _memory_delta(before, after)
         events = feed_mod.memory_events(target, removed, added, _user_ctx(), origin="user")

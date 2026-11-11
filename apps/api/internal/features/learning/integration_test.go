@@ -995,3 +995,35 @@ func TestIntegrationDiscardOfAChangeTheWorkerLost(t *testing.T) {
 		t.Fatalf("discard of a lost change: %d %v", code, body)
 	}
 }
+
+// An About you entry the person edits or deletes in Settings takes back the
+// Undo of the change that wrote it (it could only fail now), and an Undo
+// that finds its entry gone marks the change undone instead of offering
+// itself again.
+func TestIntegrationMemoryUndoAfterTheEntryChanged(t *testing.T) {
+	r := newRig(t)
+	a := addUser(t, r.db)
+	r.kit.LearningReply("learning.memory", map[string]any{"user": map[string]any{"entries": []string{}}})
+	added := r.seed(a, map[string]any{"id": "m-add", "kind": "user", "action": "added", "after": "Prefers short answers.", "status": "applied", "conversation_id": "chat_1"})
+	other := r.seed(a, map[string]any{"id": "m-other", "kind": "user", "action": "added", "after": "Lives in Kochi", "status": "applied"})
+	if code, _, _ := r.call(a, http.MethodPost, "/agent/learning/memory", map[string]any{"target": "user", "action": "remove", "old": "Prefers short answers."}); code != http.StatusOK {
+		t.Fatalf("remove: %d", code)
+	}
+	status := func(id string) string {
+		var ev Event
+		must(t, r.db.First(&ev, "id = ?", id).Error)
+		return ev.Status
+	}
+	if status(added.ID) != StatusUndone || status(other.ID) != StatusApplied {
+		t.Fatalf("after the person removed the entry: added %s, other %s", status(added.ID), status(other.ID))
+	}
+	// The entry went some other way (a later chat): the Undo is spent.
+	r.kit.LearningError(a, "learning.memory", "not_found", "Timely can't find that entry in About you anymore.")
+	code, body, _ := r.call(a, http.MethodPost, "/agent/learning/events/"+other.ID+"/undo", nil)
+	if code != http.StatusConflict || !strings.Contains(body["message"].(string), "already changed") {
+		t.Fatalf("undo of a gone entry: %d %v", code, body)
+	}
+	if status(other.ID) != StatusUndone {
+		t.Fatalf("the spent Undo stays offered: %s", status(other.ID))
+	}
+}

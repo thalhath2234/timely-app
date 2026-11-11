@@ -41,7 +41,7 @@ func askWorker(ctx context.Context, w requester, typ string, fields any) (json.R
 	if !res.OK {
 		msg := firstNonEmpty(res.Message, res.Error, dataMessage(res.Data), "The agent could not do that.")
 		code := http.StatusUnprocessableEntity
-		if res.Code == "not_found" {
+		if res.Code == "not_found" || dataCode(res.Data) == "not_found" {
 			code = http.StatusNotFound
 		}
 		return nil, echo.NewHTTPError(code, cut(msg, 500))
@@ -78,6 +78,16 @@ func replyError(err error) error {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "The request was cancelled.")
 	}
 	return echo.NewHTTPError(http.StatusServiceUnavailable, "The agent stopped before it answered. Try again.")
+}
+
+// dataCode is the code a refused request's data carries (learning.memory:
+// "not_found" for an entry that is no longer there).
+func dataCode(data json.RawMessage) string {
+	var body struct {
+		Code string `json:"code"`
+	}
+	_ = json.Unmarshal(data, &body)
+	return body.Code
 }
 
 func dataMessage(data json.RawMessage) string {

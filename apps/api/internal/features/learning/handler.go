@@ -248,6 +248,14 @@ func (s *Service) undo(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusConflict, "This change was just changed. Refresh and try again.")
 	}
 	data, err := s.ask(c, typ, fields)
+	var he *echo.HTTPError
+	if err != nil && ev.Kind != KindSkill && errors.As(err, &he) && he.Code == http.StatusNotFound {
+		// The entry was changed or deleted since (in Settings, or by a
+		// later chat): nothing is left to undo, and Undo must not stay.
+		ev.Status = StatusUndone
+		s.publishEvent(uid, ev)
+		return echo.NewHTTPError(http.StatusConflict, "That entry was already changed or deleted, so there is nothing to undo")
+	}
 	if err != nil {
 		s.unclaim(uid, ev.ID, ev.Status)
 		return err
@@ -257,6 +265,8 @@ func (s *Service) undo(c *echo.Context) error {
 	if ev.Kind == KindSkill {
 		s.supersede(ctx, uid, ev)
 		s.keepRestoredOff(ctx, uid, data)
+	} else {
+		s.supersedeMemory(ctx, uid, ev.Kind, ev.After, ev.ID)
 	}
 	return c.JSON(http.StatusOK, map[string]any{"event": ev, "result": data})
 }
@@ -295,6 +305,30 @@ func (s *Service) supersede(ctx context.Context, uid string, ev Event) {
 		if ok, err := s.claim(ctx, uid, l.ID, []string{l.Status}, StatusUndone); err == nil && ok {
 			l.Status = StatusUndone
 			s.publishEvent(uid, l)
+		}
+	}
+}
+
+// supersedeMemory marks the account's applied or kept About you or Notes
+// changes that wrote the entry old as undone, once a person's edit or an
+// Undo replaced or removed it: their Undo could only fail now ("can't find
+// that entry").
+func (s *Service) supersedeMemory(ctx context.Context, uid, target, old, except string) {
+	if strings.TrimSpace(old) == "" {
+		return
+	}
+	var earlier []Event
+	if err := s.db.WithContext(ctx).
+		Where("user_id = ? AND kind = ? AND status IN ? AND \"after\" = ? AND id <> ?",
+			uid, target, []string{StatusApplied, StatusKept}, old, except).
+		Find(&earlier).Error; err != nil {
+		s.logf("learning: superseding memory changes: %v", err)
+		return
+	}
+	for _, e := range earlier {
+		if ok, err := s.claim(ctx, uid, e.ID, []string{e.Status}, StatusUndone); err == nil && ok {
+			e.Status = StatusUndone
+			s.publishEvent(uid, e)
 		}
 	}
 }
@@ -584,6 +618,10 @@ func (s *Service) editMemory(c *echo.Context) error {
 	data, err := s.ask(c, "learning.memory", map[string]any{"target": in.Target, "action": in.Action, "content": in.Content, "old": in.Old})
 	if err != nil {
 		return err
+	}
+	if in.Action != "add" {
+		// What wrote the old entry can no longer be undone.
+		s.supersedeMemory(c.Request().Context(), user(c), in.Target, in.Old, "")
 	}
 	return c.JSON(http.StatusOK, data)
 }
