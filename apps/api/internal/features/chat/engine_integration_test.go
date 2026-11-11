@@ -719,6 +719,41 @@ func TestIntegrationAgentEngineReseedsAfterClassicTurns(t *testing.T) {
 	}
 }
 
+// After a restore replaced the agent home, a chat the worker already holds
+// sends its own messages with reseed on its next run (state.db has the
+// backup's transcript, not the turns since), once; the mark is kept in
+// Postgres, so a new process still reseeds.
+func TestIntegrationAgentEngineReseedsAfterARestore(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Plan my week", "supervised", "restored", lines(reply("Here is your week", 0)))
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	if err := h.s.AgentStateRestored(context.Background(), c.UserID); err != nil {
+		t.Fatal(err)
+	}
+	type start struct {
+		History []map[string]string `json:"history"`
+		Reseed  bool                `json:"reseed"`
+	}
+	for i, want := range []bool{true, false} {
+		if code, body := h.post("/chats/"+c.ID+"/messages", `{"content":"And Friday?"}`); code != 200 {
+			t.Fatalf("send: %d %s", code, body)
+		}
+		starts := h.kit.WaitReceived("run.start", i+2, 20*time.Second)
+		var got start
+		if err := starts[i+1].Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Reseed != want || want && (len(got.History) < 2 || got.History[1]["content"] != "Here is your week") {
+			t.Fatalf("run.start %d after the restore: reseed %v history %v", i+1, got.Reseed, got.History)
+		}
+		c = h.wait(c.ID, "replied", statusIs("idle"))
+	}
+	var row Conversation
+	if err := h.db.First(&row, "id = ?", c.ID).Error; err != nil || row.AgentReseed {
+		t.Fatalf("the reseed mark stayed: %v %v", row.AgentReseed, err)
+	}
+}
+
 // A steer no run takes (the run it named is gone) is refused and taken back
 // out of the chat, so sending it again doesn't leave a duplicate.
 func TestIntegrationAgentEngineUndeliveredSteerIsTakenBack(t *testing.T) {

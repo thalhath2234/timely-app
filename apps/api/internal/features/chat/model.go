@@ -145,9 +145,13 @@ type Conversation struct {
 	TaintedSources TaintSources `gorm:"serializer:json;type:jsonb" json:"-"`
 	// NoLearning is "Don't learn from this chat" (plan 9b.2): its agent
 	// runs write no memory or skills, and past-chat search never returns it.
-	NoLearning bool      `gorm:"not null;default:false" json:"noLearning"`
-	CreatedAt  time.Time `json:"createdAt"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	NoLearning bool `gorm:"not null;default:false" json:"noLearning"`
+	// AgentReseed is set when a restore replaced the account's agent home:
+	// its state.db holds the backup's transcript, so the next agent run
+	// reseeds the session from Messages (AgentStateRestored).
+	AgentReseed bool      `gorm:"not null;default:false" json:"-"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 // The engines a chat run can use.

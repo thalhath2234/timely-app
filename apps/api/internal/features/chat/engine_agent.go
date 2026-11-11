@@ -307,11 +307,14 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 	r.live = newLiveRun(r.id)
 	r.queue.signal = make(chan struct{}, 1)
 	// The row names the run before the worker hears of it, so Stop and
-	// Delete always reach it.
+	// Delete always reach it. A restore's reseed is taken here: this run's
+	// run.start carries it.
+	restored := false
 	if err := e.s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error {
 		if language != "" {
 			row.Language = language
 		}
+		restored, row.AgentReseed = row.AgentReseed, false
 		row.AgentRunID, row.AgentInstance = r.id, r.instance
 		row.Activity = ChatActivity{Run: r.id}
 		row.RunReads = RunReads{Run: r.id}
@@ -323,6 +326,9 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 	r.conv, r.lease = *c, c.Lease
 	tools.load(c, r.id)
 	if !e.follow(r) {
+		if restored {
+			e.unsettle(c.ID)
+		}
 		cancel()
 		e.clearRun(ctx, c)
 		return unavailable(c, agenthost.ErrClosed.Error())
@@ -355,11 +361,12 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 	seeded, unsettled := e.seeded[c.ID], e.unsettled[c.ID]
 	delete(e.unsettled, c.ID)
 	e.mu.Unlock()
-	// state.db may lack the session (a restore, a new machine): the worker
-	// keeps a seed only when it has no messages for it. After classic turns,
-	// or a run whose turn was not saved, the seed replaces what it has.
+	// state.db may lack the session (a new machine): the worker keeps a seed
+	// only when it has no messages for it. After classic turns, a run whose
+	// turn was not saved, or a restore (whose state.db holds the backup's
+	// transcript, not the turns since), the seed replaces what it has.
 	seed := historySeed(c.Messages)
-	if reseed := unsettled || classicSinceAgent(c.Messages); reseed {
+	if reseed := unsettled || restored || classicSinceAgent(c.Messages); reseed {
 		if seed == nil {
 			seed = []map[string]string{}
 		}
@@ -368,6 +375,9 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		fields["history"] = seed
 	}
 	if err := w.Send(agenthost.TypeRunStart, fields); err != nil {
+		if restored {
+			e.unsettle(c.ID) // the next run reseeds instead
+		}
 		r.queue.push(runItem{end: "abandon"})
 		e.clearRun(ctx, c)
 		return unavailable(c, workerReason(err))

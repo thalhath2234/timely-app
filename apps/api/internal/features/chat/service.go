@@ -1001,6 +1001,15 @@ func notify(tx *gorm.DB, c *Conversation, body string) error {
 	return err
 }
 
+// AgentStateRestored marks every chat of the account for a reseed: a
+// restore replaced the agent home, whose state.db now holds the backup's
+// transcripts and not the turns since (chats are not in a backup), so each
+// chat's next agent run sends its own messages with reseed. It is kept in
+// Postgres, so an API restart before that run keeps it.
+func (s *Service) AgentStateRestored(ctx context.Context, uid string) error {
+	return s.db.WithContext(ctx).Model(&Conversation{}).Where("user_id = ?", uid).UpdateColumn("agent_reseed", true).Error
+}
+
 // keepTaint adds outside sources to a chat whatever its status or lease:
 // tainted_sources only grows, so no fence guards it.
 func (s *Service) keepTaint(ctx context.Context, uid, cid string, sources []TaintSource) error {

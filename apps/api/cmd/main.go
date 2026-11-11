@@ -269,6 +269,11 @@ func main() {
 		if err := providerService.QueueReindex(userID); err != nil {
 			log.Printf("restore: queue search reindex: %v", err)
 		}
+		// The restored agent home's state.db holds the backup's
+		// transcripts: each chat's next agent run reseeds from its messages.
+		if err := chatService.AgentStateRestored(context.Background(), userID); err != nil {
+			log.Printf("restore: mark chats for a reseed: %v", err)
+		}
 		agentStack.sup.RestartWhenIdle(userID)
 	})
 
