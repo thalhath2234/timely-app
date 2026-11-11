@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -119,7 +121,8 @@ func TestScore(t *testing.T) {
 }
 
 // fakeAPI answers the routes the harness calls: a chat records a held
-// create_task proposal, and Approve applies it.
+// create_task proposal, and Approve applies it. Every sign-up gets its own
+// token, and the fake remembers which account made each task and chat.
 type fakeAPI struct {
 	mu        sync.Mutex
 	engine    string
@@ -127,6 +130,9 @@ type fakeAPI struct {
 	chats     map[string]map[string]any
 	polls     int
 	approvals int
+	accounts  []string          // tokens, in sign-up order
+	tasks     map[string]int    // token -> tasks it made
+	chatOwner map[string]string // chat id -> token
 }
 
 func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -139,13 +145,16 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(code)
 		_ = json.NewEncoder(w).Encode(v)
 	}
-	if r.URL.Path != "/register" && r.Header.Get("Authorization") != "Bearer tok" {
+	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if r.URL.Path != "/register" && !slices.Contains(f.accounts, token) {
 		send(401, map[string]string{"message": "unauthorized"})
 		return
 	}
 	switch {
 	case r.Method == "POST" && r.URL.Path == "/register":
-		send(201, map[string]any{"token": "tok"})
+		token = fmt.Sprintf("tok-%d", len(f.accounts)+1)
+		f.accounts = append(f.accounts, token)
+		send(201, map[string]any{"token": token})
 	case r.URL.Path == "/workspaces":
 		send(200, []map[string]any{{"id": "ws_1", "name": "Home"}})
 	case strings.HasPrefix(r.URL.Path, "/agent/providers/"):
@@ -157,9 +166,17 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.engine, _ = body["engine"].(string)
 		send(200, map[string]any{"engine": f.engine, "engineAvailable": true})
 	case r.Method == "POST" && r.URL.Path == "/tasks":
+		if f.tasks == nil {
+			f.tasks = map[string]int{}
+		}
+		f.tasks[token]++
 		send(201, map[string]any{"task": map[string]any{"id": "task_9"}})
 	case r.Method == "POST" && r.URL.Path == "/chats":
-		id := "chat_1"
+		id := fmt.Sprintf("chat_%d", len(f.chats)+1)
+		if f.chatOwner == nil {
+			f.chatOwner = map[string]string{}
+		}
+		f.chatOwner[id] = token
 		f.chats[id] = map[string]any{"id": id, "status": "queued", "revision": 1, "runEngine": f.engine,
 			"messages": []any{map[string]any{"role": "user", "content": body["content"]}}, "plan": []any{}}
 		send(201, f.chats[id])
@@ -179,7 +196,7 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		send(200, c)
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/approve"):
 		f.approvals++
-		c := f.chats["chat_1"]
+		c := f.chats[strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/chats/"), "/approve")]
 		c["status"] = "idle"
 		c["plan"] = []any{map[string]any{"tool": "create_task", "summary": "Add", "status": "done"}}
 		c["messages"] = append(c["messages"].([]any), map[string]any{"role": "system", "kind": "notice", "content": "Done"})
@@ -231,6 +248,54 @@ func TestRunAgainstAFakeAPI(t *testing.T) {
 	}
 	if !strings.Contains(report, "| tasks | 0/1 | 1/1 |") || !strings.Contains(report, "1 of 1 scenarios ended differently") {
 		t.Fatalf("report:\n%s", report)
+	}
+}
+
+// Every scenario runs in a fresh account of its own, so a setup that makes
+// a "Groceries" task in one scenario is not in the next scenario's account.
+func TestEveryScenarioGetsItsOwnAccount(t *testing.T) {
+	fake := &fakeAPI{chats: map[string]map[string]any{}}
+	srv := httptest.NewServer(fake)
+	defer srv.Close()
+	cfg := Config{API: srv.URL, Provider: "openrouter", Model: "m", Key: "k-test", Permission: "supervised", Timeout: 5 * time.Second, Poll: time.Millisecond}
+	setup := []Request{{As: "t1", Method: "POST", Path: "/tasks", Body: map[string]any{"name": "Groceries", "workspaceId": "{{workspace}}"}}}
+	picked := []Scenario{
+		{ID: "tasks-01", Category: "tasks", Message: "Add {{t1.id}}", Setup: setup, Approve: true, Expect: Expect{Outcome: "proposal"}},
+		{ID: "sheets-01", Category: "sheets", Message: "Add {{t1.id}} again", Setup: setup, Approve: true, Expect: Expect{Outcome: "proposal"}},
+	}
+	run, err := RunEngine(context.Background(), cfg, "agent", picked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.accounts) != 2 || run.Accounts != 2 || len(run.Results) != 2 {
+		t.Fatalf("sign-ups %d, accounts %d, results %d; want one account per scenario", len(fake.accounts), run.Accounts, len(run.Results))
+	}
+	for _, tok := range fake.accounts {
+		if fake.tasks[tok] != 1 {
+			t.Fatalf("account %s made %d setup tasks, want 1 (setups piled up)", tok, fake.tasks[tok])
+		}
+	}
+	if fake.chatOwner["chat_1"] == fake.chatOwner["chat_2"] {
+		t.Fatalf("both chats ran in account %s", fake.chatOwner["chat_1"])
+	}
+	a, b := run.Results[0], run.Results[1]
+	if a.Account == "" || a.Account == b.Account || !a.Pass || !b.Pass {
+		t.Fatalf("results: %+v / %+v", a, b)
+	}
+	if fake.engine != "agent" || len(fake.keys) != 2 {
+		t.Fatalf("engine %q, provider keys sent %d; each account connects the provider", fake.engine, len(fake.keys))
+	}
+}
+
+// A sign-up that fails on the first scenario stops the run.
+func TestRunEngineStopsWhenTheFirstSignupFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"registration closed"}`, http.StatusForbidden)
+	}))
+	defer srv.Close()
+	cfg := Config{API: srv.URL, Provider: "openrouter", Model: "m", Key: "k", Permission: "supervised", Timeout: time.Second, Poll: time.Millisecond}
+	if _, err := RunEngine(context.Background(), cfg, "classic", []Scenario{{ID: "tasks-01"}}); err == nil || !strings.Contains(err.Error(), "403") {
+		t.Fatalf("err = %v, want the sign-up's 403", err)
 	}
 }
 

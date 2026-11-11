@@ -16,7 +16,9 @@ type Result struct {
 	Category string `json:"category"`
 	Message  string `json:"message"`
 	Engine   string `json:"engine"`
-	ChatID   string `json:"chatId,omitempty"`
+	// Account is the fresh account the scenario ran in (one per scenario).
+	Account string `json:"account,omitempty"`
+	ChatID  string `json:"chatId,omitempty"`
 	// TurnEngine ran the message's turn; RunEngine ran the last run (an
 	// approved apply always runs classic).
 	TurnEngine string   `json:"turnEngine,omitempty"`
@@ -130,15 +132,17 @@ func orNone(s string) string {
 
 // EngineRun is one engine's results, written as <engine>.json.
 type EngineRun struct {
-	Engine     string    `json:"engine"`
-	API        string    `json:"api"`
-	Provider   string    `json:"provider"`
-	Model      string    `json:"model"`
-	Permission string    `json:"permission"`
-	Stub       bool      `json:"stub"`
-	Account    string    `json:"account"`
-	Started    time.Time `json:"started"`
-	Seconds    float64   `json:"seconds"`
+	Engine     string `json:"engine"`
+	API        string `json:"api"`
+	Provider   string `json:"provider"`
+	Model      string `json:"model"`
+	Permission string `json:"permission"`
+	Stub       bool   `json:"stub"`
+	// Accounts is how many fresh accounts the run signed up: one per
+	// scenario, each named in its Result.
+	Accounts int       `json:"accounts"`
+	Started  time.Time `json:"started"`
+	Seconds  float64   `json:"seconds"`
 	// Unavailable is why the engine could not run (Settings' engineReason).
 	Unavailable string   `json:"unavailable,omitempty"`
 	Results     []Result `json:"results"`

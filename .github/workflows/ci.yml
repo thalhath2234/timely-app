@@ -93,6 +93,7 @@ jobs:
       - run: make test-electron-supervisor
       - run: make test-desktop-instance
       - run: make test-agent-chat
+      - run: make test-agent-learning
 
   # The agent runtime (apps/agent: vendored Hermes + timely_agent) and the Go
   # supervisor that spawns it. Stub model only: no AI provider is called.
@@ -110,6 +111,8 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: apps/agent/hermes/uv.lock
+      # agent-contract includes contract tests 9 (learning) and 13 (agent-state
+      # backup) and the web tests (timely_web, the exfiltration rule).
       - run: make agent-install agent-lint agent-test agent-contract
       # spawn -> hello -> ready -> run.start (stub model) -> run.done -> shutdown
       - run: make agent-go-integration
