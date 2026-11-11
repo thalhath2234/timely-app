@@ -155,3 +155,59 @@ func TestProposalStepsAreNeverUndoSteps(t *testing.T) {
 		t.Fatal("a proposal reached an MCP-only delete")
 	}
 }
+
+// habitCatalog keeps habits as testItem rows: add_habit adds one, check_habit
+// marks it done today, list_habits reads them all and update_habit remove
+// deletes one with its check-ins.
+func habitCatalog(tx *gorm.DB) agent.Catalog {
+	return agent.Catalog{
+		"add_habit": {Call: func(_ context.Context, _ string, args json.RawMessage) (any, error) {
+			var in struct {
+				Name string `json:"name"`
+			}
+			_ = json.Unmarshal(args, &in)
+			item := testItem{ID: id("hab_"), Value: in.Name}
+			return map[string]string{"id": item.ID, "name": item.Value}, tx.Create(&item).Error
+		}},
+		"list_habits": {Call: func(context.Context, string, json.RawMessage) (any, error) {
+			var all []testItem
+			err := tx.Order("id").Find(&all).Error
+			return map[string]any{"habits": all}, err
+		}},
+		"update_habit": {Call: func(_ context.Context, _ string, args json.RawMessage) (any, error) {
+			var in struct {
+				Habit string `json:"habit"`
+			}
+			_ = json.Unmarshal(args, &in)
+			return map[string]bool{"removed": true}, tx.Delete(&testItem{}, "id = ?", in.Habit).Error
+		}},
+	}
+}
+
+// Undo of an auto-applied add_habit reads the habits first: a check-in made
+// after the apply refuses the Undo instead of deleting it with the habit.
+func TestIntegrationUndoAHabitGuardsLaterCheckIns(t *testing.T) {
+	db := integrationDB(t)
+	add := call("propose_changes", map[string]any{"summary": "Add Walk", "direct": true, "language": "en", "reply": "", "remaining": "",
+		"steps": []any{map[string]any{"tool": "add_habit", "summary": "Add Walk", "arguments": map[string]any{"name": "Walk"}}}})
+	s := New(db, habitCatalog, &scripted{responses: []WireMessage{add}})
+	c := autoFixture(t, db)
+	if err := s.plan(context.Background(), &c); err != nil || c.Status != "queued" {
+		t.Fatalf("Auto did not apply at once: %s %v", c.Status, err)
+	}
+	claimed(t, db, &c)
+	if err := s.apply(context.Background(), &c); err != nil || c.Status != "idle" || items(db) != 1 {
+		t.Fatalf("apply: %s, %d items, %v", c.Status, items(db), err)
+	}
+	proposal := latestProposal(c.Messages)
+	if len(proposal.UndoReads) != 1 || proposal.UndoReads[0].Tool != "list_habits" {
+		t.Fatalf("undo reads %+v", proposal.UndoReads)
+	}
+	db.Model(&testItem{}).Where("1 = 1").Update("value", "Walk (done today)") // a check-in
+	if code, body := serve(t, s, "POST", "/chats/"+c.ID+"/undo", fmt.Sprintf(`{"messageId":%q}`, proposal.ID)); code != 409 || !strings.Contains(string(body), "changed after it was applied") {
+		t.Fatalf("undo after a check-in: %d %s", code, body)
+	}
+	if items(db) != 1 {
+		t.Fatal("a refused undo removed the habit")
+	}
+}

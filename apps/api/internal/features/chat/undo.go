@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -56,11 +57,43 @@ func (s *Service) noteUndoReads(ctx context.Context, tx *gorm.DB, row *Conversat
 	if !ok {
 		return
 	}
-	reads, err := s.snapshots(ctx, tx, catalog, row.UserID, steps)
+	reads, err := s.undoReads(ctx, tx, catalog, row.UserID, steps)
 	if err != nil {
 		return
 	}
 	m.UndoReads = reads
+}
+
+// undoLists are the reads that guard an undo step whose target the usual
+// snapshots don't read: removing a habit or goal also removes the
+// check-ins made since, so a changed list refuses the Undo.
+var undoLists = map[string]string{"update_habit": "list_habits", "set_goal": "list_goals"}
+
+// undoReads are an undo plan's snapshots plus the lists that guard its
+// habit and goal removals.
+func (s *Service) undoReads(ctx context.Context, tx *gorm.DB, catalog agent.Catalog, uid string, steps []Step) ([]Snapshot, error) {
+	reads, err := s.snapshots(ctx, tx, catalog, uid, steps)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	for _, step := range steps {
+		tool, ok := undoLists[step.Tool]
+		if !ok || seen[tool] {
+			continue
+		}
+		seen[tool] = true
+		if catalog[tool].Call == nil {
+			return nil, fmt.Errorf("undo of %s cannot read %s", step.Tool, tool)
+		}
+		args := raw(map[string]any{})
+		result, err := catalog[tool].Call(ctx, uid, args)
+		if err != nil {
+			return nil, err
+		}
+		reads = append(reads, Snapshot{Tool: tool, Arguments: args, Hash: hash(result)})
+	}
+	return reads, nil
 }
 
 // latestProposal is the conversation's newest proposal summary.
@@ -124,7 +157,7 @@ func (s *Service) undo(c *echo.Context) error {
 		if !ok || row.Messages[index].UndoReads == nil {
 			return echo.NewHTTPError(409, "This change can't be undone")
 		}
-		now, err := s.snapshots(ctx, tx, catalog, row.UserID, steps)
+		now, err := s.undoReads(ctx, tx, catalog, row.UserID, steps)
 		if err != nil || !sameReads(now, row.Messages[index].UndoReads) {
 			return echo.NewHTTPError(409, "This changed after it was applied, so it can't be undone. Ask for the change you want instead")
 		}
