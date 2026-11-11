@@ -2,14 +2,17 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ChevronRight, Lightbulb, Undo2 } from "lucide-react";
-import type {
-  LearningChip,
-  LearningEvent,
-  PendingCard,
+import {
+  chipUndoAlso,
+  type LearningChip,
+  type LearningEvent,
+  type PendingCard,
 } from "@timely/contract/agentLearning";
 import Button from "@/app/_components/_ui/button";
 import { SkeletonLines } from "@/app/_components/_ui/skeleton";
 import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
+import { requestConfirm } from "@/app/_store/confirmStore";
+import { listLearningEvents } from "@/app/utils/api/learning";
 import { cn } from "@/app/utils/cn";
 import {
   useDecidePending,
@@ -52,6 +55,7 @@ function Chip({ chip, onLeave }: { chip: LearningChip; onLeave?: () => void }) {
   const undo = useUndoLearning();
   const [error, setError] = useState("");
   const undone = chip.actions.length === 0;
+  const [checking, setChecking] = useState(false);
   async function undoAll() {
     setError("");
     try {
@@ -60,6 +64,35 @@ function Chip({ chip, onLeave }: { chip: LearningChip; onLeave?: () => void }) {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't undo that.");
     }
+  }
+  // Undo of a skill change also takes back later changes to that skill
+  // (the person's own edits in Settings included): say so first, as
+  // Settings does. Those changes are outside this chat, so ask the
+  // account's recent ones.
+  async function askUndo() {
+    setError("");
+    setChecking(true);
+    let also = "";
+    try {
+      also = chipUndoAlso(
+        await listLearningEvents({ limit: 200 }),
+        chip.eventIds,
+      );
+    } catch {
+      also = "";
+    } finally {
+      setChecking(false);
+    }
+    if (!also) return void undoAll();
+    requestConfirm({
+      title: "Undo what Timely learned?",
+      description: also,
+      confirmLabel: "Undo",
+      pendingLabel: "Undoing…",
+      tone: "primary",
+      icon: <Undo2 aria-hidden className="size-4" />,
+      onConfirm: undoAll,
+    });
   }
   return (
     <div className="flex flex-col gap-1">
@@ -103,11 +136,12 @@ function Chip({ chip, onLeave }: { chip: LearningChip; onLeave?: () => void }) {
         {chip.actions.includes("Undo") && (
           <button
             type="button"
-            disabled={undo.isPending}
-            onClick={() => void undoAll()}
+            disabled={undo.isPending || checking}
+            onClick={() => void askUndo()}
+            aria-label={`Undo: ${chip.label}`}
             className={textButton}
           >
-            {undo.isPending ? (
+            {undo.isPending || checking ? (
               <LogoSpinner size={12} tone="mono" label="Undoing" />
             ) : (
               "Undo"
@@ -185,6 +219,8 @@ export function StagedCard({ card }: { card: PendingCard }) {
                   variant="ghost"
                   size="sm"
                   aria-expanded={shown}
+                  aria-controls={`learning-diff-${item.eventId}`}
+                  aria-label={`${card.viewDiff}: ${item.line}`}
                   onClick={() => setOpen(shown ? null : item.pendingId)}
                   leading={
                     <ChevronRight
@@ -202,6 +238,7 @@ export function StagedCard({ card }: { card: PendingCard }) {
                   variant="ghost"
                   size="sm"
                   disabled={decide.isPending}
+                  aria-label={`${card.discard}: ${item.line}`}
                   onClick={() => void choose(item.pendingId, "discard")}
                 >
                   {card.discard}
@@ -210,22 +247,26 @@ export function StagedCard({ card }: { card: PendingCard }) {
                   size="sm"
                   loading={deciding && decide.variables?.choice === "keep"}
                   disabled={decide.isPending}
+                  aria-label={`${card.keep}: ${item.line}`}
                   onClick={() => void choose(item.pendingId, "keep")}
                 >
                   {card.keep}
                 </Button>
               </span>
             </div>
-            {shown &&
-              (pending.isPending ? (
-                <SkeletonLines lines={3} className="mt-2" />
-              ) : pending.error ? (
-                <p role="alert" className="mt-2 text-xs text-destructive">
-                  {pending.error.message}
-                </p>
-              ) : (
-                <DiffView diff={diffOf(item.pendingId)} className="mt-2" />
-              ))}
+            {shown && (
+              <div id={`learning-diff-${item.eventId}`}>
+                {pending.isPending ? (
+                  <SkeletonLines lines={3} className="mt-2" />
+                ) : pending.error ? (
+                  <p role="alert" className="mt-2 text-xs text-destructive">
+                    {pending.error.message}
+                  </p>
+                ) : (
+                  <DiffView diff={diffOf(item.pendingId)} className="mt-2" />
+                )}
+              </div>
+            )}
           </div>
         );
       })}

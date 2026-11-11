@@ -17,6 +17,10 @@ import {
   pendingCard,
   statusWord,
   undoAlsoText,
+  chipUndoAlso,
+  learnedSkillCount,
+  pendingItemWhy,
+  activityStatus,
 } from "../packages/contract/src/agentLearning.ts";
 
 let seq = 0;
@@ -300,10 +304,47 @@ describe("Undo", () => {
     assert.equal(undoAlsoText(mine, laterSkillChanges(events, mine)), "");
   });
 
+  test("a chat chip's Undo warns about later changes from elsewhere, not the turn's own", () => {
+    const made = ev({ id: "a1", subject: "weekly-review", ledgerEntryId: "led-1", runId: "run-a", createdAt: "2026-11-11T10:00:00Z" });
+    const sameTurn = ev({ id: "a2", subject: "weekly-review", action: "patched", ledgerEntryId: "led-2", runId: "run-a", createdAt: "2026-11-11T10:00:30Z" });
+    const mine = ev({ id: "u1", subject: "weekly-review", action: "edited", origin: "user", ledgerEntryId: "led-3", conversationId: "", runId: "", createdAt: "2026-11-11T10:05:00Z" });
+    const elsewhere = ev({ id: "b1", subject: "meals", action: "patched", ledgerEntryId: "led-4", createdAt: "2026-11-11T09:00:00Z" });
+    const chip = learningChip([made, sameTurn]);
+    assert.equal(chipUndoAlso([mine, sameTurn, made, elsewhere], chip.eventIds), "Undo also takes back 1 later change to weekly-review, including your edit.");
+    assert.equal(chipUndoAlso([sameTurn, made, elsewhere], chip.eventIds), "");
+    assert.equal(chipUndoAlso([], chip.eventIds), "");
+  });
+
   test("the curator's unused note has nothing to undo", () => {
     assert.equal(canUndoLearning(ev({ action: "stale", status: "applied", ledgerEntryId: "" })), false);
     assert.equal(canUndoLearning(ev({ status: "applied", ledgerEntryId: "led-1" })), true);
     assert.equal(canUndoLearning(ev({ kind: "memory", status: "applied", ledgerEntryId: "" })), true);
     assert.equal(canUndoLearning(ev({ status: "staged", ledgerEntryId: "led-1" })), false);
+  });
+});
+
+describe("Settings rows", () => {
+  test("the skill count leaves out archived skills, as on the phone", () => {
+    const skills = [
+      { source: "learned", archived: false },
+      { source: "learned", archived: true },
+      { source: "edited", archived: false },
+      { source: "bundled", archived: false },
+    ];
+    assert.equal(learnedSkillCount(skills), 2);
+    assert.equal(learnedSkillCount(undefined), 0);
+  });
+
+  test("each waiting change gives its own reason", () => {
+    assert.equal(pendingItemWhy(ev({ status: "staged", reason: "tainted" })), "The chat read something from outside Timely.");
+    assert.equal(pendingItemWhy(ev({ status: "staged", reason: "unattended" })), "This changes or removes something Timely already knows.");
+    assert.equal(pendingItemWhy(ev({ status: "staged", origin: "bot", reason: "bot" })), "A bot suggested this, so it waits for you.");
+    assert.equal(pendingItemWhy(ev({ status: "staged", reason: "skill_body" })), "These steps use tools that need your OK.");
+  });
+
+  test("the person's own change has no 'Learned' status word", () => {
+    assert.equal(activityStatus({ status: "applied", origin: "user" }), "");
+    assert.equal(activityStatus({ status: "undone", origin: "user" }), statusWord("undone"));
+    assert.equal(activityStatus({ status: "applied", origin: "review" }), statusWord("applied"));
   });
 });

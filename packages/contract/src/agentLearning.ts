@@ -480,6 +480,51 @@ export function undoAlsoText(ev: LearningEvent, later: LearningEvent[]): string 
   return `Undo also takes back ${n === 1 ? "1 later change" : `${n} later changes`} to ${ev.subject}${yours}.`;
 }
 
+/**
+ * What a chat chip's Undo also takes back beyond the turn's own changes (`eventIds`, the chip's): later
+ * changes to the same skills from other chats or the person's own edits, which nothing brings back.
+ * `events` are the account's recent changes, not only the chat's. "" when there are none.
+ */
+export function chipUndoAlso(events: LearningEvent[], eventIds: string[]): string {
+  const own = new Set(eventIds);
+  const later = new Map<string, LearningEvent>();
+  const skills: string[] = [];
+  for (const id of eventIds) {
+    const ev = events.find((e) => e.id === id);
+    if (!ev) continue;
+    for (const other of laterSkillChanges(events, ev)) {
+      if (own.has(other.id) || later.has(other.id)) continue;
+      later.set(other.id, other);
+      if (!skills.includes(other.subject)) skills.push(other.subject);
+    }
+  }
+  if (!later.size) return "";
+  const n = later.size;
+  const yours = [...later.values()].some((other) => other.origin === "user") ? ", including your edit" : "";
+  return `Undo also takes back ${n === 1 ? "1 later change" : `${n} later changes`} to ${skills.join(", ")}${yours}.`;
+}
+
+/** Skills the agent learned or the person's copies of bundled ones, not archived: the "14 skills" of the summary row. */
+export function learnedSkillCount(skills: Pick<LearnedSkill, "source" | "archived">[] | undefined): number {
+  return (skills ?? []).filter((s) => (s.source === "learned" || s.source === "edited") && !s.archived).length;
+}
+
+/** Why one waiting change waits, for its own row in Waiting for you (Settings lists several chats). */
+export function pendingItemWhy(ev: LearningEvent): string {
+  if (ev.botId || ev.origin === "bot" || ev.reason === "bot") return WAIT_WHY.bot;
+  if (ev.reason === "tainted" || (ev.taintedSources ?? []).length > 0)
+    return "The chat read something from outside Timely.";
+  if (ev.reason === "skill_body") return "These steps use tools that need your OK.";
+  if (ev.reason === "unattended") return "This changes or removes something Timely already knows.";
+  return "Timely waits for you before saving this.";
+}
+
+/** An Activity row's status word: none for the person's own change still in effect ("by you" says it). */
+export function activityStatus(ev: Pick<LearningEvent, "status" | "origin">): string {
+  if (ev.origin === "user" && (ev.status === "applied" || ev.status === "kept")) return "";
+  return statusWord(ev.status);
+}
+
 /** What separates entries in About you and Notes; the budget counts it (Hermes' ENTRY_DELIMITER). */
 export const MEMORY_ENTRY_DELIMITER = "\n§\n";
 

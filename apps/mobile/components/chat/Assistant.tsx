@@ -19,6 +19,7 @@ import {
   MessageCircle,
   Plus,
   ReceiptText,
+  Undo2,
   WifiOff,
 } from "lucide-react-native";
 import {
@@ -75,6 +76,8 @@ import {
   useUndoLearning,
 } from "../../lib/hooks";
 import { offersDontLearn } from "../../lib/chat/learning";
+import { getLearningEvents } from "../../lib/api/learning";
+import { chipUndoAlso } from "@timely/contract/agentLearning";
 import { ChatMenuSheet } from "./LearningCards";
 import type { PermissionMode } from "@timely/contract/agentChat";
 import {
@@ -125,6 +128,9 @@ export default function Assistant() {
   // The watch stream is up: changes arrive as events, so polling slows down.
   const streamLive = useRef(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // A chip's Undo that also takes back later changes to a skill (the
+  // person's own edits included) asks first, as Activity says.
+  const [undoAsk, setUndoAsk] = useState<{ ids: string[]; text: string } | null>(null);
   const [preview, setPreview] = useState<{
     uri: string;
     candidate?: PendingImage;
@@ -193,6 +199,21 @@ export default function Assistant() {
   }, [followLearning, chat?.status, chat?.revision, learningRefetch]);
   const undoLearning = useUndoLearning();
   const decideLearning = useDecidePendingLearning();
+  const undoNow = (ids: string[]) =>
+    undoLearning.mutate(ids, {
+      onError: (reason) => setError(reason.message),
+    });
+  // The later changes are outside this chat: ask the account's recent ones.
+  async function askUndoLearning(ids: string[]) {
+    let text = "";
+    try {
+      text = chipUndoAlso((await getLearningEvents({ limit: 200 })).events, ids);
+    } catch {
+      text = "";
+    }
+    if (text) setUndoAsk({ ids, text });
+    else undoNow(ids);
+  }
   const learningBusy = new Set<string>([
     ...(undoLearning.isPending ? (undoLearning.variables ?? []) : []),
     ...(decideLearning.isPending
@@ -205,10 +226,7 @@ export default function Assistant() {
         busy: learningBusy,
         onUndo: offline
           ? undefined
-          : (ids) =>
-              undoLearning.mutate(ids, {
-                onError: (reason) => setError(reason.message),
-              }),
+          : (ids) => void askUndoLearning(ids),
         onDecide: offline
           ? undefined
           : (pendingIds, choice) =>
@@ -1427,6 +1445,18 @@ export default function Assistant() {
         message="Its text, context and attachments will be removed."
         confirmLabel="Discard"
         onConfirm={discardDraft}
+      />
+      <ConfirmSheet
+        open={!!undoAsk}
+        onClose={() => setUndoAsk(null)}
+        title="Undo what Timely learned?"
+        message={undoAsk?.text}
+        confirmLabel="Undo"
+        tone="primary"
+        icon={<Undo2 size={16} color={colors.primaryForeground} />}
+        onConfirm={() => {
+          if (undoAsk) undoNow(undoAsk.ids);
+        }}
       />
     </SafeAreaView>
   );
