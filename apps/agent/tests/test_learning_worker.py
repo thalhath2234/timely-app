@@ -342,7 +342,7 @@ def test_shutdown_waits_for_a_learning_pass_and_reports_it(stub):
         w.send({"type": "shutdown", "id": "s", "account": a.account, "grace": 30})
         rest = []
         while True:
-            m = w.recv(60)
+            m = w.recv(60, skip=("heartbeat",))
             rest.append(m)
             if m.get("type") == "__eof__":
                 break
@@ -351,6 +351,9 @@ def test_shutdown_waits_for_a_learning_pass_and_reports_it(stub):
     events = [m["event"] for m in seen + rest if m.get("type") == "learning"]
     assert [(e["subject"], e["action"], e["origin"]) for e in events if e["subject"] == "stop-skill"] == \
         [("stop-skill", "created", "review")], events
+    # the pass's tokens are counted apart from the turn's (plan 9b.8)
+    logs = [m["text"] for m in seen + rest if m.get("type") == "log" and "learning pass for" in m.get("text", "")]
+    assert logs and logs[0].startswith(f"learning pass for {conv}: ") and "call(s)" in logs[0], logs
 
 
 def test_a_new_worker_reports_what_an_earlier_one_left_unreported(stub):

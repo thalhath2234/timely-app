@@ -417,6 +417,21 @@ def _report_pass(conversation: str) -> None:
         tainted_sources=state.taint_snapshot() if state is not None else []))
 
 
+def _log_pass_usage(conversation: str, spent: dict[str, Any]) -> None:
+    """A learning pass's tokens, apart from the turn's (plan 9b.8): Go writes ``log`` lines to the
+    API log, as it logs each turn's tokens from ``run.done``. Nothing shows them in the apps yet."""
+    if bridge.notify is None:
+        return
+    cost = spent.get("estimated_cost_usd")
+    text = (f"learning pass for {conversation}: {spent.get('input_tokens', 0)} input, "
+            f"{spent.get('output_tokens', 0)} output tokens in {spent.get('api_calls', 0)} call(s)"
+            f" ({spent.get('model') or 'the chat model'}), cost {'unknown' if cost is None else f'${cost:.4f}'}")
+    try:
+        bridge.notify({"type": "log", "level": "info", "text": text})
+    except Exception:
+        logger.exception("logging a learning pass's tokens failed")
+
+
 def _review_callback(conversation: str) -> Callable[[str], None]:
     """``AIAgent.background_review_callback``: Hermes calls it with the pass's summary once the
     fork's writes are done; the feed re-diffs then (the watcher re-diffs again when the pass ends)."""
@@ -497,7 +512,8 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
         result = agent.run_conversation(str(msg.get("user_message") or ""), **kwargs) or {}
         # Hermes may have started the learning pass on a daemon thread: busy until it ends, then
         # report what it learned.
-        learning_passes.watch(agent, lambda: _report_pass(conversation))
+        learning_passes.watch(agent, lambda: _report_pass(conversation),
+                              on_usage=lambda spent: _log_pass_usage(conversation, spent))
         after = _session_tokens(agent)
         cost_after = result.get("estimated_cost_usd", getattr(agent, "session_estimated_cost_usd", None))
         done.update(

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from contextlib import contextmanager
 from typing import Any, Callable, Iterator
 
@@ -53,9 +54,26 @@ def pending_review(agent: Any) -> Any:
     return token
 
 
-def watch(agent: Any, after: Callable[[], None], timeout: float = PASS_TIMEOUT_S) -> bool:
+USAGE_KEYS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "reasoning_tokens",
+              "api_calls")
+
+
+def usage(fork: Any) -> dict[str, Any]:
+    """The pass's own token use (Hermes' review fork counters; plan 9b.8: learning tokens are
+    counted apart from the turn's, which ``run.done`` carries)."""
+    if fork is None:
+        return {}
+    out: dict[str, Any] = {k: int(getattr(fork, f"session_{k}", 0) or 0) for k in USAGE_KEYS}
+    out["model"] = str(getattr(fork, "model", "") or "")
+    cost = getattr(fork, "session_estimated_cost_usd", None)
+    out["estimated_cost_usd"] = cost if isinstance(cost, (int, float)) else None
+    return out
+
+
+def watch(agent: Any, after: Callable[[], None], timeout: float = PASS_TIMEOUT_S,
+          on_usage: Callable[[dict[str, Any]], None] | None = None) -> bool:
     """When a learning pass is running on ``agent``, mark the worker busy until it ends, then run
-    ``after``. Returns whether a pass was found."""
+    ``after`` and hand the pass's token use to ``on_usage``. Returns whether a pass was found."""
     token = pending_review(agent)
     if token is None:
         return False
@@ -66,8 +84,15 @@ def watch(agent: Any, after: Callable[[], None], timeout: float = PASS_TIMEOUT_S
     def wait() -> None:
         global _active
         try:
-            token.request_done.wait(timeout)
+            # Hermes drops the token's fork when the request finishes: keep hold of it meanwhile.
+            fork = getattr(token, "_review_agent", None)
+            deadline = time.monotonic() + timeout
+            while not token.request_done.wait(0.1) and time.monotonic() < deadline:
+                fork = getattr(token, "_review_agent", None) or fork
             after()
+            spent = usage(fork)
+            if on_usage is not None and any(spent.get(k) for k in USAGE_KEYS):
+                on_usage(spent)
         except Exception:
             logger.exception("after the learning pass")
         finally:
