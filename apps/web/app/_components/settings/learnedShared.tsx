@@ -1,6 +1,6 @@
 "use client";
 import type { ReactNode } from "react";
-import { CircleAlert } from "lucide-react";
+import { CircleAlert, Undo2 } from "lucide-react";
 import { laterSkillChanges, undoAlsoText, type LearningEvent } from "@timely/contract/agentLearning";
 import Button from "@/app/_components/_ui/button";
 import { requestConfirm } from "@/app/_store/confirmStore";
@@ -107,5 +107,13 @@ export function confirmUndo(event: LearningEvent, events: LearningEvent[], undo:
   };
   const also = undoAlsoText(event, laterSkillChanges(events, event));
   if (!also) return void go();
-  requestConfirm({ title: "Undo this change?", description: also, confirmLabel: "Undo", pendingLabel: "Undoing…", onConfirm: go });
+  requestConfirm({
+    title: "Undo this change?",
+    description: also,
+    confirmLabel: "Undo",
+    pendingLabel: "Undoing…",
+    tone: "primary",
+    icon: <Undo2 aria-hidden className="size-4" />,
+    onConfirm: go,
+  });
 }
