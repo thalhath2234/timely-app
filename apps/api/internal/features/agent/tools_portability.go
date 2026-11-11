@@ -211,15 +211,24 @@ func (s *Server) downloadBackup(ctx context.Context, req *mcp.CallToolRequest, i
 	if err != nil {
 		return fail(err)
 	}
-	var backup map[string]any
-	if err := json.Unmarshal(plain, &backup); err != nil {
+	backup, err := outsideDownload(plain)
+	if err != nil {
 		return fail(err)
 	}
-	// What Timely learned (memory, skills, chat sessions, the learning feed)
-	// stays in Timely, as export_account leaves it out: an outside app gets
-	// the other rows only.
-	portability.OutsideBackup(backup)
 	return reply("backup downloaded", map[string]any{"file": row, "backup": backup})
+}
+
+// outsideDownload is a stored backup as download_backup hands it to an
+// outside app. What Timely learned (memory, skills, chat sessions, the
+// learning feed) stays in Timely, as export_account leaves it out: the app
+// gets the other rows only.
+func outsideDownload(plain []byte) (map[string]any, error) {
+	var backup map[string]any
+	if err := json.Unmarshal(plain, &backup); err != nil {
+		return nil, err
+	}
+	portability.OutsideBackup(backup)
+	return backup, nil
 }
 
 type deleteBackupIn struct {

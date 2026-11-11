@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -24,5 +25,22 @@ func TestRestoreAccountNeedsTheReplaceStep(t *testing.T) {
 		if name != "no confirm" && !strings.Contains(err.Error(), `mode="replace"`) {
 			t.Fatalf("%s: %v", name, err)
 		}
+	}
+}
+
+// download_backup gives an outside app a stored backup without what Timely
+// learned: no agent zip and no learning rows, the person's other rows whole.
+func TestDownloadBackupLeavesOutWhatTimelyLearned(t *testing.T) {
+	plain := []byte(`{"format":"timely-backup","schemaVersion":3,"agent":{"zip":"UEsDBA=="},` +
+		`"rows":{"workspaces":[{"id":"w1"}],"agent_learning_events":[{"id":"e1","after":"Has a cardiology appointment"}],` +
+		`"agent_learning_settings":[{"id":"u1"}]}}`)
+	got, err := outsideDownload(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(got)
+	if strings.Contains(string(raw), "cardiology") || strings.Contains(string(raw), `"agent"`) ||
+		strings.Contains(string(raw), "agent_learning") || !strings.Contains(string(raw), `"w1"`) {
+		t.Fatalf("outside download %s", raw)
 	}
 }
