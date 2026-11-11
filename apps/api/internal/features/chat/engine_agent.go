@@ -669,6 +669,20 @@ func (e *WorkerEngine) save(r *agentRun, fn func(*gorm.DB, *Conversation) error)
 	return err
 }
 
+// saveTaint is save for a write that carries taint. A fenced save (Stop,
+// Delete, a lease another lane took) still adds the taint: the worker's
+// session holds the outside text whatever happens to the run, and
+// tainted_sources only grows.
+func (e *WorkerEngine) saveTaint(r *agentRun, taint []TaintSource, fn func(*gorm.DB, *Conversation) error) error {
+	err := e.save(r, fn)
+	if err != nil && fenced(err) && len(taint) > 0 {
+		if kerr := e.s.keepTaint(context.Background(), r.uid, r.cid, taint); kerr != nil && !fenced(kerr) {
+			e.opts.Logf("agent engine: keeping run %s taint: %v", r.id, kerr)
+		}
+	}
+	return err
+}
+
 // fenced reports a checkpoint refused because the row is no longer this
 // run's: stopped, deleted or claimed again.
 func fenced(err error) bool {
@@ -685,7 +699,7 @@ func (e *WorkerEngine) flush(r *agentRun) {
 	r.taint = nil
 	activity := r.live.activity()
 	e.activityWrites.Add(1)
-	err := e.save(r, func(tx *gorm.DB, row *Conversation) error {
+	err := e.saveTaint(r, taint, func(tx *gorm.DB, row *Conversation) error {
 		row.Activity = activity
 		r.tools.save(row, r.id)
 		mergeTaint(row, taint)
@@ -897,7 +911,7 @@ func (e *WorkerEngine) done(r *agentRun, m agenthost.Message) {
 // running (a Stop the row already shows fails the fence: nothing to add).
 func (e *WorkerEngine) stopped(r *agentRun) {
 	taint := r.taint
-	_ = e.save(r, func(tx *gorm.DB, row *Conversation) error {
+	_ = e.saveTaint(r, taint, func(tx *gorm.DB, row *Conversation) error {
 		mergeTaint(row, taint)
 		endRun(row, r.tools)
 		row.Status = "stopped"
@@ -910,7 +924,7 @@ func (e *WorkerEngine) stopped(r *agentRun) {
 func (e *WorkerEngine) fail(r *agentRun, text, action string) {
 	taint := r.taint
 	msg := utils.StorableText(text, maxRunErrorBytes)
-	_ = e.save(r, func(tx *gorm.DB, row *Conversation) error {
+	_ = e.saveTaint(r, taint, func(tx *gorm.DB, row *Conversation) error {
 		mergeTaint(row, taint)
 		endRun(row, r.tools)
 		row.Status = "failed"

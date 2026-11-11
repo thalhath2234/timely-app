@@ -889,6 +889,23 @@ func notify(tx *gorm.DB, c *Conversation, body string) error {
 	return err
 }
 
+// keepTaint adds outside sources to a chat whatever its status or lease:
+// tainted_sources only grows, so no fence guards it.
+func (s *Service) keepTaint(ctx context.Context, uid, cid string, sources []TaintSource) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var latest Conversation
+		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), uid, cid, &latest); err != nil {
+			return err
+		}
+		known := len(latest.TaintedSources)
+		mergeTaint(&latest, sources)
+		if len(latest.TaintedSources) == known {
+			return nil
+		}
+		return tx.Model(&latest).Select("TaintedSources").Updates(&latest).Error
+	})
+}
+
 // A fenced lease prevents a stopped or recovered worker from publishing results.
 func (s *Service) checkpoint(ctx context.Context, c *Conversation, fn func(*gorm.DB, *Conversation) error) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {

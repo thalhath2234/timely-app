@@ -525,6 +525,33 @@ func TestIntegrationAgentEngineStopMidRunAppliesNothing(t *testing.T) {
 	}
 }
 
+// Stop before the throttled activity checkpoint writes a fresh outside
+// read: the chat still keeps the taint, because the worker's session holds
+// the outside text and the next proposal must be held.
+func TestIntegrationAgentEngineStopKeepsUnflushedTaint(t *testing.T) {
+	h := newEngineHarness(t)
+	h.e.opts.ActivityEvery = time.Minute // the read's taint is never flushed by the throttle
+	askBot := TaintSource{Kind: "timely", Tool: "ask_bot"}
+	c := h.chat("What does the price bot say?", "auto", "stop-taint", lines(
+		reply("Reading", 0),
+		toolStarted("call_1", "ask_bot"),
+		toolCallLine("call_1", "ask_bot", obj{"bot": "bot_1", "question": "What is the price?"}, 1),
+		obj{"type": "taint", "sources": []TaintSource{askBot}},
+		obj{"fake": "hang"},
+	))
+	h.kit.WaitReceived("tool.result", 1, 20*time.Second)
+	c = h.wait(c.ID, "streamed", func(c Conversation) bool { return c.Activity.Draft == "Reading" })
+	time.Sleep(200 * time.Millisecond) // the taint line reaches the follower
+	if code, body := h.post("/chats/"+c.ID+"/stop", ""); code != 200 {
+		t.Fatalf("stop: %d %s", code, body)
+	}
+	h.kit.WaitReceived("run.stop", 1, 10*time.Second)
+	c = h.wait(c.ID, "kept the taint", func(c Conversation) bool { return len(c.TaintedSources) > 0 })
+	if c.Status != "stopped" || len(c.TaintedSources) != 1 || c.TaintedSources[0] != askBot {
+		t.Fatalf("after Stop: status %s, tainted_sources %+v", c.Status, c.TaintedSources)
+	}
+}
+
 // A message typed while the run is live reaches the worker as run.steer.
 func TestIntegrationAgentEngineSteerReachesTheWorker(t *testing.T) {
 	h := newEngineHarness(t)
