@@ -197,7 +197,7 @@ var anchors = []anchor{
 		`r.conv.Lease = r.lease r.mu.Unlock() err := e.s.checkpoint(context.Background(), &r.conv, fn)`,
 		"every follower write is a fenced checkpoint under the run's current lease"},
 	{"", worker, "(*WorkerEngine).done",
-		`r.conv.Lease = r.lease r.mu.Unlock() err := e.s.finishTurn(context.Background(), &r.conv, final, r.pending, r.tools) if err != nil && !fenced(err) {`,
+		`r.conv.Lease = r.lease r.mu.Unlock() err := e.s.finishTurn(context.Background(), &r.conv, final, r.pending, r.tools) if err != nil {`,
 		"the follower ends the turn with finishTurn under the run's current lease"},
 	{"", worker, "(*WorkerEngine).done",
 		`if err == nil && strings.TrimSpace(d.PendingSteer) != "" {`,

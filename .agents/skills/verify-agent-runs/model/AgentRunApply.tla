@@ -321,7 +321,8 @@ Allowed(l) ==
     /\ (CheckpointFenced => Fenced(row, l))
 
 \* Plan loop finished: the final checkpoint publishes "Done".
-\* (A batch continuation goes to queued/plan instead; not modelled.)
+\* (A batch continuation, or a leftover steer after the proposal, goes to
+\* queued/plan instead; not modelled: it is FinishApply then a Send.)
 FinishApply(w) ==
     /\ pc[w] = "apply"
     /\ cursor[w] = NSteps + 1
