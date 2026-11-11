@@ -609,9 +609,9 @@ agent-contract: ## Contract tests of plan 10.4 f against real workers and a stub
 	@mkdir -p "$(AGENT_TEST_TMP)"
 	@cd $(AGENT_DIR) && TMPDIR="$(AGENT_TEST_TMP)" "$(AGENT_PY)" -I -m pytest -q tests/contract $(ARGS)
 
-agent-go-integration: ## Go supervisor end to end with the real worker: spawn, hello, ready, run.start on a stub model, run.done, shutdown
+agent-go-integration: ## Go supervisor end to end with the real worker: spawn, hello, ready, run.start on a stub model, run.done, shutdown; and the agent-state backup round trip in PostgreSQL (the root .env; AGENT_REQUIRE_DB=1 fails instead of skipping without one)
 	@test -x "$(AGENT_PY)" || { echo "agent-go-integration: run make agent-install first"; exit 1; }
-	@cd $(API) && TIMELY_AGENT_TEST_RUNTIME=dev go test ./internal/agenthost -run TestIntegrationRealWorker -count=1 -v
+	@cd $(API) && TIMELY_AGENT_TEST_RUNTIME=dev CHAT_TEST_ENV="$(CURDIR)/.env" TIMELY_AGENT_TEST_REQUIRE_DB="$(AGENT_REQUIRE_DB)" go test ./internal/agenthost -run TestIntegrationRealWorker -count=1 -v
 
 agent-go-vet-windows: ## go vet the agent supervisor for Windows (Job Object, process spawning) from any OS
 	@cd $(API) && GOOS=windows GOARCH=amd64 go vet ./internal/agenthost/...

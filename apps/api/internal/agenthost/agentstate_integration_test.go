@@ -402,9 +402,15 @@ func agentRoot(t *testing.T) string {
 	return filepath.Join(made, "agent")
 }
 
-// freshSchema runs the whole goose chain in a new schema of its own.
+// freshSchema runs the whole goose chain in a new schema of its own. Without
+// a database it skips, unless TIMELY_AGENT_TEST_REQUIRE_DB=1 (CI's agent job)
+// makes that a failure, so the round trip cannot pass by not running.
 func freshSchema(t *testing.T) *gorm.DB {
 	t.Helper()
+	skip := t.Skip
+	if os.Getenv("TIMELY_AGENT_TEST_REQUIRE_DB") == "1" {
+		skip = t.Fatal
+	}
 	file := os.Getenv("CHAT_TEST_ENV")
 	if file == "" {
 		if wd, err := os.Getwd(); err == nil {
@@ -413,18 +419,18 @@ func freshSchema(t *testing.T) *gorm.DB {
 	}
 	env, err := godotenv.Read(file)
 	if err != nil {
-		t.Skip("set CHAT_TEST_ENV (make test-chat-integration's .env) for the backup round trip")
+		skip("set CHAT_TEST_ENV (make test-chat-integration's .env) for the backup round trip")
 	}
 	u := &url.URL{Scheme: "postgres", Host: env["DB_HOST"] + ":" + env["DB_PORT"], Path: env["DB_NAME"], User: url.UserPassword(env["DB_USER"], env["DB_PASSWORD"])}
 	q := url.Values{"sslmode": []string{env["DB_SSLMODE"]}}
 	u.RawQuery = q.Encode()
 	root, err := gorm.Open(postgres.Open(u.String()), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
-		t.Skip("test database unavailable")
+		skip("test database unavailable")
 	}
 	schema := "agentstate_test_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	if err := root.Exec("CREATE SCHEMA " + schema).Error; err != nil {
-		t.Skipf("test database unavailable: %v", err)
+		skip("test database unavailable: ", err)
 	}
 	t.Cleanup(func() { root.Exec("DROP SCHEMA " + schema + " CASCADE"); sqlDB, _ := root.DB(); sqlDB.Close() })
 	q.Set("search_path", schema+",public")
