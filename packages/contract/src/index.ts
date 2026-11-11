@@ -26,6 +26,7 @@
  *   changeReview   an Agent proposal grouped for review: one item per sheet, tasks, doc
  *   bots           Bots: the /bots wire types, limits, board rules, card lines, starters
  *   agentChat      chat on the agent engine: engine, permission modes, live activity, streamed replies
+ *   agentLearning  what the agent learned: events, skills, memory, Keep / Discard, the chip, web search keys
  */
 
 /**

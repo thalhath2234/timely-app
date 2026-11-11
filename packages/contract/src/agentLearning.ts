@@ -1,0 +1,408 @@
+/**
+ * What the agent learned (phase 3 of docs/plans/2026-11-08-timely-agent-from-hermes.md,
+ * section 9b.4): the /agent/learning/* wire shapes, the web search key, and the
+ * words both apps use for the chat chip, the Keep / Discard card, budget meters
+ * and statuses. Wire shapes mirror apps/api/internal/features/learning
+ * (model.go, handler.go); the skill, memory, pending and upstream lists come
+ * from the agent worker as is (apps/agent/PROTOCOL.md section 10), so their
+ * fields are snake_case.
+ */
+
+/** What changed: a skill, Notes (MEMORY.md) or About you (USER.md). */
+export type LearningKind = "skill" | "memory" | "user";
+
+/** applied, staged and blocked come from the agent; the person makes the rest. */
+export type LearningStatus =
+  | "applied"
+  | "staged"
+  | "blocked"
+  | "undone"
+  | "kept"
+  | "discarded";
+
+/** Where a change came from. */
+export type LearningOrigin =
+  | "chat"
+  | "review"
+  | "bot"
+  | "user"
+  | "curator"
+  | "sync"
+  | "restore";
+
+/** An outside source a chat read before the change (why it was staged). */
+export type LearningTaintSource = {
+  kind: string;
+  tool?: string;
+  host?: string;
+  session?: string;
+};
+
+/** One row of GET /agent/learning/events. */
+export type LearningEvent = {
+  id: string;
+  kind: LearningKind;
+  /** created, patched, edited, deleted, added, replaced, removed, archived, restored, stale. */
+  action: string;
+  /** The skill name, or the memory target. */
+  subject: string;
+  /** The text before and after (an entry for memory), each at most 20,000 characters. */
+  before: string;
+  after: string;
+  origin: LearningOrigin | string;
+  /** "" when the change came from outside a chat (Settings, the curator, a restore). */
+  conversationId: string;
+  /** The agent run whose turn it came from: a message's agentRun. */
+  runId: string;
+  botId: string;
+  taintedSources: LearningTaintSource[];
+  status: LearningStatus;
+  ledgerEntryId: string;
+  pendingId: string;
+  summary: string;
+  /** RFC 3339 times. */
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** GET /agent/learning/events?conversationId=&status=&before=&limit=. before is
+ * the createdAt of the last event already shown. */
+export type LearningEventsResponse = { events: LearningEvent[] };
+
+/** GET and PATCH /agent/learning/settings. */
+export type LearningSettings = {
+  learning: boolean;
+  /** "Search my past chats" (Q-3.5). */
+  searchHistory: boolean;
+  /** "What you use Timely for" was copied into About you (Q-3.3); read only. */
+  useCaseCopied: boolean;
+};
+
+/** The fields of PATCH /agent/learning/settings. */
+export type LearningSettingsPatch = Partial<
+  Pick<LearningSettings, "learning" | "searchHistory">
+>;
+
+/** Where a skill comes from. */
+export type LearnedSkillSource =
+  | "learned"
+  | "edited"
+  | "bundled"
+  | "timely"
+  | "optional";
+
+/** One skill of GET /agent/learning/skills ({skills}). enabled and restored are
+ * Timely's: restored means "restored, review" until the person turns it on. */
+export type LearnedSkill = {
+  name: string;
+  category?: string;
+  source: LearnedSkillSource;
+  enabled: boolean;
+  locked: boolean;
+  archived: boolean;
+  stale: boolean;
+  restored: boolean;
+  last_used?: string | null;
+  created_by_event?: string | null;
+};
+
+export type LearnedSkillsResponse = { skills: LearnedSkill[] };
+
+/** POST /agent/learning/skills/:name/state {state}. */
+export type SkillState =
+  | "enable"
+  | "disable"
+  | "lock"
+  | "unlock"
+  | "archive"
+  | "restore"
+  | "delete";
+
+/** One memory file: its entries and its budget in characters. */
+export type MemoryStore = { entries: string[]; used: number; limit: number };
+
+/** GET /agent/learning/memory: Notes (memory) and About you (user). */
+export type MemoryView = { memory: MemoryStore; user: MemoryStore };
+
+/** POST /agent/learning/memory. old names the entry to replace or remove. */
+export type MemoryEdit = {
+  target: "memory" | "user";
+  action: "add" | "replace" | "remove";
+  content?: string;
+  old?: string;
+};
+
+/** One item of GET /agent/learning/pending: a staged change waiting for Keep or Discard. */
+export type PendingItem = {
+  pending_id: string;
+  kind: LearningKind;
+  subject: string;
+  action: string;
+  diff: string;
+  origin: LearningOrigin | string;
+  conversation_id: string;
+  created_at: string;
+};
+
+/** One item of GET /agent/learning/upstream: a bundled skill the person edited
+ * whose shipped copy changed ("Updated upstream", Q-3.7). */
+export type UpstreamSkill = { name: string; upstream_changed_at: string };
+
+/** GET /agent/learning/upstream/:name. */
+export type UpstreamCompare = { mine: string; upstream: string; diff: string };
+
+/** POST /agent/learning/upstream/:name {choice}. */
+export type UpstreamChoice = "keep_mine" | "use_new";
+
+/** One web search backend a key can be saved for. */
+export type WebSearchBackend = {
+  id: string;
+  label: string;
+  keyUrl: string;
+  available: boolean;
+};
+
+/** GET /agent/web-keys (Q-3.8): without a key, web search uses the chat
+ * provider's own search when it can. */
+export type WebSearchKeys = {
+  active: { backend: string; keyHint: string } | null;
+  backends: WebSearchBackend[];
+  usesProvider: boolean;
+  providerCanSearch: boolean;
+};
+
+/** A `learning` event on GET /chats/watch: refetch the chat's events (id is
+ * the conversation, "" outside a chat) or the Settings lists. */
+export type LearningWatchEvent = {
+  type: "learning";
+  kind: "chat";
+  id: string;
+  document: { eventId: string; status: LearningStatus };
+};
+
+export function isLearningWatchEvent(
+  value: unknown,
+): value is LearningWatchEvent {
+  if (!value || typeof value !== "object") return false;
+  const v = value as {
+    type?: unknown;
+    id?: unknown;
+    document?: { eventId?: unknown; status?: unknown };
+  };
+  return (
+    v.type === "learning" &&
+    typeof v.id === "string" &&
+    typeof v.document?.eventId === "string" &&
+    typeof v.document?.status === "string"
+  );
+}
+
+/** The word for each status, for the Activity list. */
+export const LEARNING_STATUS_WORDS: Record<LearningStatus, string> = {
+  applied: "Learned",
+  staged: "Waiting for you",
+  blocked: "Blocked",
+  undone: "Undone",
+  kept: "Kept",
+  discarded: "Discarded",
+};
+
+export function statusWord(status: string): string {
+  return (LEARNING_STATUS_WORDS as Record<string, string>)[status] ?? status;
+}
+
+/** Settings → Agent: the section, its parts, and the lines it shows. */
+export const LEARNED_TITLE = "What Timely learned";
+export const ABOUT_YOU = "About you";
+export const NOTES = "Notes";
+export const WAITING_FOR_YOU = "Waiting for you";
+export const ACTIVITY = "Activity";
+export const RESTORED_REVIEW = "Restored, review";
+export const UPDATED_UPSTREAM = "Updated upstream";
+/** Q-3.6: the curator marks unused skills, and never archives them. */
+export const NEVER_ARCHIVES =
+  "Timely never archives skills on its own. Skills you have not used for a while are marked unused.";
+/** Memory is frozen into a chat when it starts. */
+export const NEXT_CHAT_NOTE = "applies from your next chat";
+export const DOWNLOAD_LEARNED = "Download what Timely learned";
+
+/** "14 skills · About you · 1 waiting": the Settings row that opens the section. */
+export function learnedSummary(skills: number, waiting: number): string {
+  const parts = [
+    `${count(skills)} ${skills === 1 ? "skill" : "skills"}`,
+    ABOUT_YOU,
+  ];
+  if (waiting > 0) parts.push(`${count(waiting)} waiting`);
+  return parts.join(" · ");
+}
+
+const SKILL_VERBS: Record<string, string> = {
+  created: "created",
+  patched: "updated",
+  edited: "updated",
+  deleted: "deleted",
+  archived: "archived",
+  restored: "restored",
+  stale: "marked unused",
+};
+
+const MEMORY_VERBS: Record<string, string> = {
+  added: "added",
+  replaced: "updated",
+  removed: "removed",
+};
+
+/** What changed, for the chip: "skill 'bank-csv-import' created", "note
+ * added", "About you updated". */
+export function changeLine(
+  ev: Pick<LearningEvent, "kind" | "action" | "subject">,
+): string {
+  if (ev.kind === "skill")
+    return `skill '${ev.subject}' ${SKILL_VERBS[ev.action] ?? "changed"}`;
+  const verb = MEMORY_VERBS[ev.action] ?? "updated";
+  return ev.kind === "user" ? `About you ${verb}` : `note ${verb}`;
+}
+
+/** What changed, for a card line: "Skill “flipkart-price-read” updated". */
+export function cardLine(
+  ev: Pick<LearningEvent, "kind" | "action" | "subject">,
+): string {
+  if (ev.kind === "skill")
+    return `Skill “${ev.subject}” ${SKILL_VERBS[ev.action] ?? "changed"}`;
+  const verb = MEMORY_VERBS[ev.action] ?? "updated";
+  return ev.kind === "user" ? `About you ${verb}` : `Note ${verb}`;
+}
+
+/** The events of one agent turn (a message's agentRun), oldest first. */
+export function eventsForRun(
+  events: LearningEvent[],
+  runId: string,
+): LearningEvent[] {
+  if (!runId) return [];
+  return events
+    .filter((ev) => ev.runId === runId)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+/** The chip under an agent reply. */
+export type LearningChip = {
+  /** "Learned: skill 'bank-csv-import' created", "… and 2 more", or "Undone". */
+  label: string;
+  /** NEXT_CHAT_NOTE when a memory change is among them, else null. */
+  note: string | null;
+  /** The buttons, in order: View opens the first change in Settings, Undo takes back every live one. */
+  actions: ("View" | "Undo")[];
+  /** The events View opens and Undo takes back. */
+  eventIds: string[];
+  /** The first live change, for View. */
+  view: { kind: LearningKind; subject: string } | null;
+  /** label, note and actions joined with " · ". */
+  text: string;
+};
+
+const LIVE: LearningStatus[] = ["applied", "kept"];
+
+/** The chip for a turn's events (eventsForRun): what was learned and kept,
+ * or "Undone" once every change is taken back. Staged and blocked changes are
+ * not on the chip (staged ones are on the Keep / Discard card). Null when the
+ * turn learned nothing. */
+export function learningChip(events: LearningEvent[]): LearningChip | null {
+  const shown = events.filter(
+    (ev) => LIVE.includes(ev.status) || ev.status === "undone",
+  );
+  if (shown.length === 0) return null;
+  const live = shown.filter((ev) => LIVE.includes(ev.status));
+  if (live.length === 0) {
+    return {
+      label: "Undone",
+      note: null,
+      actions: [],
+      eventIds: [],
+      view: null,
+      text: "Undone",
+    };
+  }
+  const first = live[0];
+  const more = live.length - 1;
+  const label =
+    `Learned: ${changeLine(first)}` +
+    (more > 0 ? ` and ${count(more)} more` : "");
+  const note = live.some((ev) => ev.kind !== "skill") ? NEXT_CHAT_NOTE : null;
+  const actions: ("View" | "Undo")[] = ["View", "Undo"];
+  const text = [label, ...(note ? [note] : []), ...actions].join(" · ");
+  return {
+    label,
+    note,
+    actions,
+    eventIds: live.map((ev) => ev.id),
+    view: { kind: first.kind, subject: first.subject },
+    text,
+  };
+}
+
+/** One staged change on the Keep / Discard card. */
+export type PendingCardItem = {
+  eventId: string;
+  pendingId: string;
+  line: string;
+  summary: string;
+};
+
+/** The card after a reply when the turn's changes wait for the person (Q-3.1:
+ * the chat read outside content, or a bot wrote it). */
+export type PendingCard = {
+  /** "Keep what Timely learned?", or "Keep what Deals feed learned?" for a bot. */
+  title: string;
+  items: PendingCardItem[];
+  keep: "Keep";
+  discard: "Discard";
+  viewDiff: "View diff";
+  /** Why it waits, in one line. */
+  why: string;
+};
+
+/** The Keep / Discard card for a turn's events, or null when none is staged. */
+export function pendingCard(
+  events: LearningEvent[],
+  botName?: string,
+): PendingCard | null {
+  const staged = events.filter((ev) => ev.status === "staged" && ev.pendingId);
+  if (staged.length === 0) return null;
+  const fromBot =
+    Boolean(botName) || staged.some((ev) => ev.botId || ev.origin === "bot");
+  return {
+    title: `Keep what ${botName || "Timely"} learned?`,
+    items: staged.map((ev) => ({
+      eventId: ev.id,
+      pendingId: ev.pendingId,
+      line: cardLine(ev),
+      summary: ev.summary,
+    })),
+    keep: "Keep",
+    discard: "Discard",
+    viewDiff: "View diff",
+    why: fromBot
+      ? "A bot suggested this, so it waits for you."
+      : "This chat read something from outside Timely, so it waits for you.",
+  };
+}
+
+/** A memory budget: "1,104 of 1,375". */
+export type BudgetMeter = {
+  text: string;
+  ratio: number;
+  tone: "ok" | "near" | "full";
+};
+
+export function budgetMeter(used: number, limit: number): BudgetMeter {
+  const u = Math.max(0, Math.round(used || 0));
+  const l = Math.max(0, Math.round(limit || 0));
+  const ratio = l > 0 ? Math.min(1, u / l) : 1;
+  const tone = u >= l ? "full" : ratio >= 0.9 ? "near" : "ok";
+  return { text: `${count(u)} of ${count(l)}`, ratio, tone };
+}
+
+/** 1104 -> "1,104", the same on every device. */
+function count(n: number): string {
+  return String(Math.trunc(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
