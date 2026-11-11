@@ -170,11 +170,13 @@ class Run:
 
 
 def config_signature(msg: dict[str, Any]) -> str:
-    """Agent cache key part: model, provider, toolsets and the Timely block hash (section 3.3)."""
+    """Agent cache key part: model, provider, key, toolsets and the Timely block hash (section 3.3).
+    The key enters only as a hash: a key changed in Settings must reach the next turn."""
     model = msg.get("model") or {}
     sig = {
         "provider": model.get("provider"), "model": model.get("model"), "base_url": model.get("base_url"),
         "api_mode": model.get("api_mode"), "reasoning": model.get("reasoning"),
+        "key": hashlib.sha256(str(model.get("api_key") or "").encode()).hexdigest(),
         "toolsets": sorted(msg.get("toolsets") or []), "system": msg.get("system_hash") or "",
         # the block itself too: with ephemeral_system_prompt a changed block needs a new agent
         "system_text": hashlib.sha256(str(msg.get("system_text") or "").encode()).hexdigest(),
@@ -307,7 +309,8 @@ def _history(agent, conversation: str, seed: Any, reseed: bool = False) -> tuple
     except Exception as exc:
         logger.debug("history load failed for %s: %s", conversation, exc)
         stored = []
-    if not (isinstance(seed, list) and seed) or (stored and not reseed):
+    seed = seed if isinstance(seed, list) else []
+    if not (seed or (stored and reseed)) or (stored and not reseed):
         return stored, False
     rows = [{"role": m["role"], "content": m["content"]} for m in seed
             if isinstance(m, dict) and m.get("role") in SEED_ROLES and isinstance(m.get("content"), str)]

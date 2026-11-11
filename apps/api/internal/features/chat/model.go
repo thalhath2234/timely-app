@@ -206,6 +206,16 @@ func mergeTaint(row *Conversation, sources []TaintSource) {
 
 func (Conversation) TableName() string { return "agent_conversations" }
 
+// AgentSessionForget is a deleted chat whose session in the account's agent
+// worker is still to be deleted (WorkerEngine.Forget).
+type AgentSessionForget struct {
+	UserID         string    `gorm:"primaryKey"`
+	ConversationID string    `gorm:"primaryKey"`
+	CreatedAt      time.Time `gorm:"not null"`
+}
+
+func (AgentSessionForget) TableName() string { return "agent_session_forgets" }
+
 // MarshalJSON adds errorCode, a stable name for a failure the apps answer
 // with their own action: "provider_not_chosen" opens Settings → Agent.
 func (c Conversation) MarshalJSON() ([]byte, error) {

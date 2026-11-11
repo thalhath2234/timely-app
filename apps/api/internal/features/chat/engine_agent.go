@@ -13,6 +13,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"timely-api/internal/agenthost"
 	"timely-api/internal/realtime"
 	"timely-api/internal/utils"
@@ -38,14 +39,20 @@ type WorkerEngine struct {
 	opts WorkerEngineOptions
 	sup  *agenthost.Supervisor
 
-	mu      sync.Mutex
-	runs    map[string]*agentRun // live runs this process follows, by run id
-	chats   map[string]*agentRun // the same, by conversation id
-	seeded  map[string]bool      // conversations a worker finished a turn of since this process started
-	forget  map[string]map[string]bool
-	started map[*agenthost.Worker]int64
-	closing bool
-	wg      sync.WaitGroup
+	mu     sync.Mutex
+	runs   map[string]*agentRun // live runs this process follows, by run id
+	chats  map[string]*agentRun // the same, by conversation id
+	seeded map[string]bool      // conversations a worker finished a turn of since this process started
+	// unsettled are conversations whose last agent run ended without its
+	// turn saved (failed, stopped, lost): the worker's session may hold a
+	// turn the chat doesn't, so the next run reseeds it.
+	unsettled map[string]bool
+	// forgetting are the deleted chats whose session.delete is in flight
+	// (the waiting ones are rows of agent_session_forgets).
+	forgetting map[string]bool
+	started    map[*agenthost.Worker]int64
+	closing    bool
+	wg         sync.WaitGroup
 
 	// activityWrites counts activity checkpoints (tests check the throttle).
 	activityWrites atomic.Int64
@@ -91,7 +98,7 @@ func NewWorkerEngine(s *Service, opts WorkerEngineOptions) *WorkerEngine {
 		opts.Unsupported = func(error) bool { return false }
 	}
 	return &WorkerEngine{s: s, opts: opts, runs: map[string]*agentRun{}, chats: map[string]*agentRun{},
-		seeded: map[string]bool{}, forget: map[string]map[string]bool{}, started: map[*agenthost.Worker]int64{}}
+		seeded: map[string]bool{}, unsettled: map[string]bool{}, forgetting: map[string]bool{}, started: map[*agenthost.Worker]int64{}}
 }
 
 // Attach gives the engine its supervisor (built with Handle and
@@ -314,16 +321,20 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		"tainted_sources": c.TaintedSources,
 	}
 	e.mu.Lock()
-	seeded := e.seeded[c.ID]
+	seeded, unsettled := e.seeded[c.ID], e.unsettled[c.ID]
+	delete(e.unsettled, c.ID)
 	e.mu.Unlock()
-	if reseed := classicSinceAgent(c.Messages); !seeded || reseed {
-		// state.db may lack the session (a restore, a new machine): the
-		// worker keeps a seed only when it has no messages for it. After
-		// classic turns the seed replaces what it has (reseed).
-		if seed := historySeed(c.Messages); len(seed) > 0 {
-			fields["history"] = seed
-			fields["reseed"] = reseed
+	// state.db may lack the session (a restore, a new machine): the worker
+	// keeps a seed only when it has no messages for it. After classic turns,
+	// or a run whose turn was not saved, the seed replaces what it has.
+	seed := historySeed(c.Messages)
+	if reseed := unsettled || classicSinceAgent(c.Messages); reseed {
+		if seed == nil {
+			seed = []map[string]string{}
 		}
+		fields["history"], fields["reseed"] = seed, true
+	} else if !seeded && len(seed) > 0 {
+		fields["history"] = seed
 	}
 	if err := w.Send(agenthost.TypeRunStart, fields); err != nil {
 		r.queue.push(runItem{end: "abandon"})
@@ -524,17 +535,19 @@ func (e *WorkerEngine) Steer(ctx context.Context, uid, cid, runID, text string) 
 }
 
 // Forget implements AgentEngine (after Delete): session.delete in the
-// account's worker, once the chat's run is over. With no worker running it
-// waits for the account's next run in this process.
+// account's worker, once the chat's run is over. The request waits in
+// agent_session_forgets until a worker acknowledges it, so an idle account
+// or an API restart only delays it to the account's next run.
 func (e *WorkerEngine) Forget(uid, cid string) {
 	e.mu.Lock()
 	delete(e.seeded, cid)
-	if e.forget[uid] == nil {
-		e.forget[uid] = map[string]bool{}
-	}
-	e.forget[uid][cid] = true
+	delete(e.unsettled, cid)
 	_, live := e.chats[cid]
 	e.mu.Unlock()
+	row := AgentSessionForget{UserID: uid, ConversationID: cid, CreatedAt: time.Now().UTC()}
+	if err := e.s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&row).Error; err != nil {
+		e.opts.Logf("agent engine: keeping a session delete: %v", err)
+	}
 	if live || e.sup == nil {
 		return // the follower sends it when the run ends
 	}
@@ -543,23 +556,41 @@ func (e *WorkerEngine) Forget(uid, cid string) {
 	}
 }
 
-// sendForgets sends the account's waiting session.deletes, except for keep.
+// sendForgets sends the account's waiting session.deletes, except for keep
+// and chats with a live run; each row goes once the worker answers.
 func (e *WorkerEngine) sendForgets(w *agenthost.Worker, uid, keep string) {
+	var rows []AgentSessionForget
+	if err := e.s.db.Where("user_id = ?", uid).Find(&rows).Error; err != nil {
+		e.opts.Logf("agent engine: session deletes: %v", err)
+		return
+	}
 	e.mu.Lock()
 	var cids []string
-	for cid := range e.forget[uid] {
-		if cid != keep && e.chats[cid] == nil {
+	for _, row := range rows {
+		cid := row.ConversationID
+		if cid != keep && e.chats[cid] == nil && !e.forgetting[cid] {
 			cids = append(cids, cid)
-			delete(e.forget[uid], cid)
+			e.forgetting[cid] = true
 		}
 	}
 	e.mu.Unlock()
 	for _, cid := range cids {
 		go func(cid string) {
+			defer func() {
+				e.mu.Lock()
+				delete(e.forgetting, cid)
+				e.mu.Unlock()
+			}()
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
+			// An ack, ok or not (no such session), settles it; an error
+			// (busy, a worker gone) leaves the row for the next try.
 			if _, err := w.Request(ctx, "session.delete", map[string]any{"conversation_id": cid}); err != nil {
 				e.opts.Logf("agent engine: session.delete: %v", err)
+				return
+			}
+			if err := e.s.db.Where("user_id = ? AND conversation_id = ?", uid, cid).Delete(&AgentSessionForget{}).Error; err != nil {
+				e.opts.Logf("agent engine: session delete done: %v", err)
 			}
 		}(cid)
 	}
@@ -911,6 +942,9 @@ func (e *WorkerEngine) done(r *agentRun, m agenthost.Message) {
 		r.conv.Lease = r.lease
 		r.mu.Unlock()
 		err := e.s.finishTurn(context.Background(), &r.conv, final, r.pending, r.tools)
+		if err != nil {
+			e.unsettle(r.cid) // a Stop or Delete got there first, or the save failed
+		}
 		if err != nil && !fenced(err) {
 			e.opts.Logf("agent engine: finishing run %s: %v", r.id, err)
 			e.fail(r, runFailedUnsaved, ActionRetry)
@@ -926,6 +960,8 @@ func (e *WorkerEngine) done(r *agentRun, m agenthost.Message) {
 // stopped ends a run the worker interrupted while Timely still had it
 // running (a Stop the row already shows fails the fence: nothing to add).
 func (e *WorkerEngine) stopped(r *agentRun) {
+	e.unsettle(r.cid)
+	e.keepRunTaint(r)
 	taint := r.taint
 	_ = e.saveTaint(r, taint, func(tx *gorm.DB, row *Conversation) error {
 		mergeTaint(row, taint)
@@ -936,8 +972,30 @@ func (e *WorkerEngine) stopped(r *agentRun) {
 	})
 }
 
+// keepRunTaint saves a run's taint, the worker's reports and Go's own
+// outside reads, ahead of the fenced save that ends it: a fence or a failed
+// write there must not lose it, since the worker's session keeps the text.
+func (e *WorkerEngine) keepRunTaint(r *agentRun) {
+	taint := append(append([]TaintSource{}, r.taint...), r.tools.bots.taint()...)
+	if len(taint) == 0 {
+		return
+	}
+	if err := e.s.keepTaint(context.Background(), r.uid, r.cid, taint); err != nil && !fenced(err) {
+		e.opts.Logf("agent engine: keeping run %s taint: %v", r.id, err)
+	}
+}
+
+// unsettle marks a chat whose last agent run's turn was not saved.
+func (e *WorkerEngine) unsettle(cid string) {
+	e.mu.Lock()
+	e.unsettled[cid] = true
+	e.mu.Unlock()
+}
+
 // fail ends a run with an error the person can act on.
 func (e *WorkerEngine) fail(r *agentRun, text, action string) {
+	e.unsettle(r.cid)
+	e.keepRunTaint(r)
 	taint := r.taint
 	msg := utils.StorableText(text, maxRunErrorBytes)
 	_ = e.saveTaint(r, taint, func(tx *gorm.DB, row *Conversation) error {

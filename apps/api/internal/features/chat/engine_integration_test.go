@@ -744,6 +744,141 @@ func TestIntegrationAgentEngineUndeliveredSteerIsTakenBack(t *testing.T) {
 	}
 }
 
+// steerDuringClosing is a proposal turn whose closing sentence streams long
+// enough for a steer to land, which Hermes hands back as pending_steer.
+func steerDuringClosing(proposal obj) []byte {
+	return lines(
+		toolCallLine("call_p", "propose_changes", proposal, 1),
+		reply("I drafted it.", 0),
+		pause(2500),
+		obj{"type": "run.done", "final_response": "I drafted it.", "completed": true, "interrupted": false,
+			"turn_exit_reason": "end_turn", "tokens": obj{}, "estimated_cost_usd": nil, "turn_id": "",
+			"tainted_sources": []any{}, "pending_steer": "also add eggs"},
+	)
+}
+
+// startAfter waits for the nth run.start and returns its user_message.
+func (h *engineHarness) startAfter(n int) string {
+	h.t.Helper()
+	starts := h.kit.WaitReceived("run.start", n, 30*time.Second)
+	var start struct {
+		UserMessage string `json:"user_message"`
+	}
+	if err := starts[n-1].Decode(&start); err != nil {
+		h.t.Fatal(err)
+	}
+	return start.UserMessage
+}
+
+// A steer sent while an Auto proposal's closing sentence streams runs once
+// the proposal is applied, and the request's next batch still follows.
+func TestIntegrationAgentEngineLeftoverSteerAfterAnAutoProposal(t *testing.T) {
+	h := newEngineHarness(t)
+	batch := buyMilk(true)
+	batch["remaining"] = "Create Buy bread"
+	h.kit.Fixture("answer", lines(reply("Added eggs as well.", 0)))
+	c := h.chat("Add Buy milk and Buy bread", "auto", "closing-steer", steerDuringClosing(batch))
+	c = h.wait(c.ID, "closing", func(c Conversation) bool { return c.Activity.Draft == "I drafted it." })
+	if code, body := h.post("/chats/"+c.ID+"/steer", `{"text":"also add eggs"}`); code != 200 {
+		t.Fatalf("steer: %d %s", code, body)
+	}
+	h.kit.ForConversation(c.ID, "answer")
+	next := h.startAfter(2)
+	if !strings.Contains(next, "also add eggs") || !strings.Contains(next, "Create Buy bread") {
+		t.Fatalf("the next run lost the steer or the next batch: %q", next)
+	}
+	h.wait(c.ID, "answered", statusIs("idle"))
+	if items(h.db) != 1 {
+		t.Fatalf("%d items", items(h.db))
+	}
+}
+
+// In Supervised the same steer gives the held proposal way to a new turn, as
+// a message sent during review does; nothing is applied.
+func TestIntegrationAgentEngineLeftoverSteerSupersedesAHeldProposal(t *testing.T) {
+	h := newEngineHarness(t)
+	h.kit.Fixture("answer", lines(reply("Tell me which eggs.", 0)))
+	c := h.chat("Add Buy milk", "supervised", "closing-steer-held", steerDuringClosing(buyMilk(true)))
+	c = h.wait(c.ID, "closing", func(c Conversation) bool { return c.Activity.Draft == "I drafted it." })
+	if code, body := h.post("/chats/"+c.ID+"/steer", `{"text":"also add eggs"}`); code != 200 {
+		t.Fatalf("steer: %d %s", code, body)
+	}
+	h.kit.ForConversation(c.ID, "answer")
+	if next := h.startAfter(2); !strings.Contains(next, "Historical change records") || !strings.Contains(next, "\n\nalso add eggs\n\n") {
+		t.Fatalf("next run.start message %q", next)
+	}
+	c = h.wait(c.ID, "answered", statusIs("idle"))
+	if items(h.db) != 0 || len(c.Plan) != 0 {
+		t.Fatalf("%d items, plan %+v", items(h.db), c.Plan)
+	}
+}
+
+// A run that fails after the worker saved part of its turn: Retry reseeds
+// the session from the chat, and still sends the steer the run took.
+func TestIntegrationAgentEngineRetryAfterAFailureReseeds(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Plan my week", "supervised", "fails", lines(
+		reply("Working", 0), pause(2500),
+		obj{"type": "run.done", "final_response": "", "completed": false, "interrupted": false, "turn_exit_reason": "error",
+			"tokens": obj{}, "estimated_cost_usd": nil, "turn_id": "", "tainted_sources": []any{}, "error": "the model failed"},
+	))
+	c = h.wait(c.ID, "started", func(c Conversation) bool { return c.Activity.Draft == "Working" })
+	if code, body := h.post("/chats/"+c.ID+"/steer", `{"text":"also add eggs"}`); code != 200 {
+		t.Fatalf("steer: %d %s", code, body)
+	}
+	h.wait(c.ID, "failed", statusIs("failed"))
+	h.kit.Fixture("ok", lines(reply("Here is your week.", 0)))
+	h.kit.ForConversation(c.ID, "ok")
+	if code, body := h.post("/chats/"+c.ID+"/retry", "{}"); code != 200 {
+		t.Fatalf("retry: %d %s", code, body)
+	}
+	starts := h.kit.WaitReceived("run.start", 2, 20*time.Second)
+	var start struct {
+		UserMessage string            `json:"user_message"`
+		Reseed      bool              `json:"reseed"`
+		History     []json.RawMessage `json:"history"`
+	}
+	if err := starts[1].Decode(&start); err != nil {
+		t.Fatal(err)
+	}
+	if !start.Reseed || start.History == nil || !strings.Contains(start.UserMessage, "also add eggs") {
+		t.Fatalf("retried run.start: reseed %v history %v message %q", start.Reseed, start.History, start.UserMessage)
+	}
+}
+
+// A chat deleted while the account has no worker keeps its session delete
+// in agent_session_forgets until a worker acknowledges it at the next run.
+func TestIntegrationAgentEngineDeleteWaitsForAWorker(t *testing.T) {
+	h := newEngineHarness(t)
+	h.e.Forget("user-a", "chat_gone")
+	var waiting int64
+	h.db.Model(&AgentSessionForget{}).Where("user_id = ? AND conversation_id = ?", "user-a", "chat_gone").Count(&waiting)
+	if waiting != 1 {
+		t.Fatalf("%d waiting session deletes", waiting)
+	}
+	c := h.chat("Plan my week", "supervised", "after-delete", lines(reply("Here it is", 0)))
+	h.wait(c.ID, "replied", statusIs("idle"))
+	deletes := h.kit.WaitReceived("session.delete", 1, 20*time.Second)
+	var body struct {
+		ConversationID string `json:"conversation_id"`
+	}
+	_ = deletes[0].Decode(&body)
+	if body.ConversationID != "chat_gone" {
+		t.Fatalf("session.delete for %q", body.ConversationID)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		h.db.Model(&AgentSessionForget{}).Where("user_id = ?", "user-a").Count(&waiting)
+		if waiting == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the acknowledged session delete stayed waiting")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // A worker that dies mid-run fails the run with Try again.
 func TestIntegrationAgentEngineWorkerCrashOffersTryAgain(t *testing.T) {
 	h := newEngineHarness(t)

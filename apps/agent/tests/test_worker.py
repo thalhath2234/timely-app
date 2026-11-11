@@ -667,3 +667,30 @@ def test_reseed_replaces_a_session_that_missed_classic_turns(agent, worker, stub
     contents = [m.get("content") for m in req["body"]["messages"]]
     assert contents.count("CLASSIC-ASSISTANT: Friday is free") == 1, contents
     assert contents.count("AGENT-TURN") == 1, contents
+
+
+def test_a_changed_key_reaches_the_next_turn(agent, worker, stub):
+    """The cached agent is rebuilt when the run's key changes (a key rotated in Settings)."""
+    conv = "c-rotate"
+    worker.send(harness.run_start(agent, stub, run_id="r-key-1", conversation=conv, text="KEY-ONE"))
+    worker.until("run.done")
+    rotated = {**harness.model_cfg(stub), "api_key": "sk-rotated"}
+    worker.send(harness.run_start(agent, stub, run_id="r-key-2", conversation=conv, text="KEY-TWO", model=rotated))
+    worker.until("run.done")
+    auth = [r["auth"] for r in stub.requests if r["method"] == "POST" and "KEY-TWO" in json.dumps(r["body"]["messages"][-1])]
+    assert auth and set(auth) == {"Bearer sk-rotated"}, auth
+
+
+def test_reseed_with_no_history_clears_an_unsaved_turn(agent, worker, stub):
+    """A first turn the chat never saved (it failed or was stopped): Go reseeds with an empty
+    history, and the retried turn doesn't see the abandoned one."""
+    conv = "c-reseed-empty"
+    worker.send(harness.run_start(agent, stub, run_id="r-gone-1", conversation=conv, text="ABANDONED-TURN"))
+    worker.until("run.done")
+    worker.send(harness.run_start(agent, stub, run_id="r-gone-2", conversation=conv, text="RETRIED-TURN",
+                                  history=[], reseed=True))
+    done, _ = worker.until("run.done")
+    assert done["history_seeded"] is True, done
+    req = [r for r in stub.requests if r["method"] == "POST"
+           and "RETRIED-TURN" in json.dumps(r["body"]["messages"][-1])][-1]
+    assert "ABANDONED-TURN" not in json.dumps(req["body"]["messages"]), req["body"]["messages"]
