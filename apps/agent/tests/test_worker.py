@@ -646,3 +646,24 @@ def test_history_seed_is_stored_once_and_kept_by_later_turns(agent, worker, stub
         contents = [m.get("content") for m in req["body"]["messages"]]
         assert contents.count("SEED-USER: plan my week") == 1, contents
         assert contents.count("SEED-ASSISTANT: here is your week") == 1, contents
+
+
+def test_reseed_replaces_a_session_that_missed_classic_turns(agent, worker, stub):
+    """A chat that ran on classic since its session's last turn: ``run.start.reseed`` makes the
+    seed (which has the classic turns) replace what ``state.db`` holds, so the model sees them."""
+    conv = "c-reseed"
+    worker.send(harness.run_start(agent, stub, run_id="r-reseed-1", conversation=conv, text="AGENT-TURN"))
+    done, _ = worker.until("run.done")
+    assert done["history_seeded"] is False
+    seed = [{"role": "user", "content": "AGENT-TURN"}, {"role": "assistant", "content": "Stub reply: AGENT-TURN"},
+            {"role": "user", "content": "CLASSIC-USER: and on Friday?"},
+            {"role": "assistant", "content": "CLASSIC-ASSISTANT: Friday is free"}]
+    worker.send(harness.run_start(agent, stub, run_id="r-reseed-2", conversation=conv, text="back on the agent",
+                                  history=seed, reseed=True))
+    done, _ = worker.until("run.done")
+    assert done["history_seeded"] is True, done
+    req = [r for r in stub.requests if r["method"] == "POST"
+           and "back on the agent" in json.dumps(r["body"]["messages"][-1])][-1]
+    contents = [m.get("content") for m in req["body"]["messages"]]
+    assert contents.count("CLASSIC-ASSISTANT: Friday is free") == 1, contents
+    assert contents.count("AGENT-TURN") == 1, contents

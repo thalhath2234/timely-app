@@ -291,12 +291,14 @@ def build_agent(msg: dict[str, Any], emit: EmitRef):
 SEED_ROLES = ("user", "assistant")
 
 
-def _history(agent, conversation: str, seed: Any) -> tuple[Optional[list], bool]:
+def _history(agent, conversation: str, seed: Any, reseed: bool = False) -> tuple[Optional[list], bool]:
     """``(conversation_history, seeded)``. ``state.db`` is the working transcript (plan 5.4): when
     it already holds messages for the session, they are the history and a ``run.start.history``
     seed is ignored. When it holds none and Go sent a seed (restore, new machine, deleted cache),
     the seed's user and assistant messages are written into ``state.db`` first, so every later
-    turn keeps them (Hermes stores only a turn's new messages, never a caller's history)."""
+    turn keeps them (Hermes stores only a turn's new messages, never a caller's history).
+    ``reseed`` (the chat had turns on classic since this session's last turn) replaces the stored
+    messages with the seed; the replaced ones are soft-archived, as Hermes' rewind does."""
     db = getattr(agent, "_session_db", None)
     if db is None or not conversation:
         return (seed if isinstance(seed, list) and seed else None), False
@@ -305,13 +307,16 @@ def _history(agent, conversation: str, seed: Any) -> tuple[Optional[list], bool]
     except Exception as exc:
         logger.debug("history load failed for %s: %s", conversation, exc)
         stored = []
-    if stored or not (isinstance(seed, list) and seed):
+    if not (isinstance(seed, list) and seed) or (stored and not reseed):
         return stored, False
     rows = [{"role": m["role"], "content": m["content"]} for m in seed
             if isinstance(m, dict) and m.get("role") in SEED_ROLES and isinstance(m.get("content"), str)]
     try:
         db.ensure_session(conversation, source="timely", model=getattr(agent, "model", None))
-        db.append_messages_batch(conversation, rows)
+        if stored:
+            db.replace_messages(conversation, rows, archive_dropped=True)
+        else:
+            db.append_messages_batch(conversation, rows)
         return db.get_messages_as_conversation(conversation) or rows, True
     except Exception as exc:
         logger.warning("history seed for %s could not be stored, used for this turn only: %s", conversation, exc)
@@ -392,7 +397,7 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
         kwargs: dict[str, Any] = {"task_id": conversation}
         if msg.get("system_text") and SYSTEM_VIA == "system_message":
             kwargs["system_message"] = str(msg["system_text"])
-        stored, seeded = _history(agent, conversation, msg.get("history"))
+        stored, seeded = _history(agent, conversation, msg.get("history"), msg.get("reseed") is True)
         done["history_seeded"] = seeded
         if stored is not None:
             kwargs["conversation_history"] = stored

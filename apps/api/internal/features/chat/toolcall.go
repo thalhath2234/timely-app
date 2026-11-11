@@ -228,6 +228,7 @@ func (s *Service) finishTurn(ctx context.Context, c *Conversation, reply string,
 			m := message("assistant", reply)
 			m.BotAnswers = run.bots.answers.list(run.tags)
 			row.Messages = append(row.Messages, m)
+			markEngine(row, len(row.Messages)-1)
 			row.Status = "idle"
 			row.Transcript = []WireMessage{}
 			return notify(tx, row, tr(row.Language, txtPushReply))
@@ -246,6 +247,7 @@ func (s *Service) finishTurn(ctx context.Context, c *Conversation, reply string,
 		row.Transcript = []WireMessage{}
 		// A review note only ever adds a review.
 		row.Status = proposalStatus(row, row.Plan, p.Direct, pending.notes)
+		defer markEngine(row, len(row.Messages))
 		summary := message("assistant", p.Summary)
 		summary.Proposal = true
 		summary.Remaining = strings.TrimSpace(p.Remaining)
@@ -267,6 +269,28 @@ func (s *Service) finishTurn(ctx context.Context, c *Conversation, reply string,
 		}
 		return nil
 	})
+}
+
+// markEngine tags the messages from index from on with the engine of the
+// run that wrote them, when that is the agent engine.
+func markEngine(row *Conversation, from int) {
+	if row.RunEngine != engineAgent {
+		return
+	}
+	for i := from; i < len(row.Messages); i++ {
+		row.Messages[i].Engine = engineAgent
+	}
+}
+
+// classicSinceAgent reports a chat whose latest finished turn came from the
+// classic engine: the agent engine's session has not seen it.
+func classicSinceAgent(messages []Message) bool {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if m := messages[i]; m.Role == "assistant" && m.Kind == "" && !m.Cut {
+			return m.Engine != engineAgent
+		}
+	}
+	return false
 }
 
 // endRun records the run's outside reads on the chat and clears what only

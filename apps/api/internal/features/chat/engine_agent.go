@@ -316,11 +316,13 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 	e.mu.Lock()
 	seeded := e.seeded[c.ID]
 	e.mu.Unlock()
-	if !seeded {
+	if reseed := classicSinceAgent(c.Messages); !seeded || reseed {
 		// state.db may lack the session (a restore, a new machine): the
-		// worker keeps a seed only when it has no messages for it.
+		// worker keeps a seed only when it has no messages for it. After
+		// classic turns the seed replaces what it has (reseed).
 		if seed := historySeed(c.Messages); len(seed) > 0 {
 			fields["history"] = seed
+			fields["reseed"] = reseed
 		}
 	}
 	if err := w.Send(agenthost.TypeRunStart, fields); err != nil {

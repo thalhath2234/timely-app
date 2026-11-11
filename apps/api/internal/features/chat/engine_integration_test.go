@@ -632,6 +632,52 @@ func TestIntegrationAgentEngineLeftoverSteerRunsNext(t *testing.T) {
 	}
 }
 
+// A chat that answered on classic since its last agent turn: the next agent
+// run sends the whole history with reseed, so the session sees the classic
+// turns; its reply is tagged as the agent's, and the next run needs no seed.
+func TestIntegrationAgentEngineReseedsAfterClassicTurns(t *testing.T) {
+	h := newEngineHarness(t)
+	agentReply := message("assistant", "Here is your week")
+	agentReply.Engine = engineAgent
+	h.kit.Fixture("reseed", lines(reply("Friday is free", 0)))
+	c := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Agent", Status: "queued", Phase: "plan", Engine: engineAgent,
+		Permission: "supervised", Provider: "openrouter", Model: "stub-model", Client: "web", Context: []ContextChip{},
+		Messages: []Message{message("user", "Plan my week"), agentReply,
+			message("user", "And Friday?"), message("assistant", "Friday is free on classic"),
+			message("user", "Back on the agent")},
+		Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+	h.kit.ForConversation(c.ID, "reseed")
+	if err := h.db.Create(&c).Error; err != nil {
+		t.Fatal(err)
+	}
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	type start struct {
+		History []map[string]string `json:"history"`
+		Reseed  bool                `json:"reseed"`
+	}
+	var first start
+	if err := h.kit.ReceivedOf("run.start")[0].Decode(&first); err != nil {
+		t.Fatal(err)
+	}
+	if !first.Reseed || len(first.History) != 4 || first.History[3]["content"] != "Friday is free on classic" {
+		t.Fatalf("run.start after classic turns: reseed %v history %v", first.Reseed, first.History)
+	}
+	if last := lastMessage(c); last.Content != "Friday is free" || last.Engine != engineAgent {
+		t.Fatalf("agent reply %+v", last)
+	}
+	if code, body := h.post("/chats/"+c.ID+"/messages", `{"content":"Thanks"}`); code != 200 {
+		t.Fatalf("send: %d %s", code, body)
+	}
+	starts := h.kit.WaitReceived("run.start", 2, 20*time.Second)
+	var second start
+	if err := starts[1].Decode(&second); err != nil {
+		t.Fatal(err)
+	}
+	if second.Reseed || second.History != nil {
+		t.Fatalf("second run.start: reseed %v history %v", second.Reseed, second.History)
+	}
+}
+
 // A worker that dies mid-run fails the run with Try again.
 func TestIntegrationAgentEngineWorkerCrashOffersTryAgain(t *testing.T) {
 	h := newEngineHarness(t)

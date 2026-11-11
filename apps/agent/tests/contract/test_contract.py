@@ -323,6 +323,9 @@ SYMBOLS: dict[str, list[str] | None] = {
     "tools.registry:registry.get_tool_names_for_toolset": ["toolset"],
     "hermes_state:SessionDB.get_messages_as_conversation": [],
     "hermes_state:SessionDB.delete_session": [],
+    "hermes_state:SessionDB.ensure_session": ["source", "model"],
+    "hermes_state:SessionDB.append_messages_batch": [],
+    "hermes_state:SessionDB.replace_messages": ["archive_dropped"],  # run.start.reseed
     "hermes_cli.plugins:PluginManager.list_plugins": [],
     "hermes_cli.plugins:PluginManager.iter_hook_callbacks": [],
     "hermes_cli.managed_scope:get_managed_dir": [],

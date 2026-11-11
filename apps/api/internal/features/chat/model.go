@@ -32,7 +32,10 @@ type Message struct {
 	// Cut marks a reply Stop cut short (its streamed text, kept, Q-2.5). It
 	// does not end the turn: Retry and the next message still carry the
 	// person's request.
-	Cut       bool   `json:"cut,omitempty"`
+	Cut bool `json:"cut,omitempty"`
+	// Engine is "agent" on a turn's reply or proposal the agent engine
+	// wrote; empty for classic's.
+	Engine    string `json:"engine,omitempty"`
 	Remaining string `json:"remaining,omitempty"`
 	Continue  string `json:"continue,omitempty"`
 	// Notes are a proposal's review notes from Jev (see jev.go).
