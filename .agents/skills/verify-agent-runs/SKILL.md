@@ -89,7 +89,7 @@ TLC prints numbered states, each labelled with the action that produced it. Tran
 
 ## Coverage record
 
-Sync commit: `f4834e9f20a4cac604c77ad980a8fe86b0ba203a` (the model was last confirmed to describe the code at this commit; `coverage.lock` holds the per-function fingerprints).
+Sync commit: `2004c35cd63a7e83589a97ecce8db996acedb5d8` (the model was last confirmed to describe the code at this commit; `coverage.lock` holds the per-function fingerprints).
 
 - `apps/api/internal/features/chat/runner.go`: `(*Service).work` (claim, engine dispatch, failure checkpoint), `runClassic`, `keepLease`, `apply`, `retrySerializable`, `serializationFailure`
 - `apps/api/internal/features/chat/service.go`: `(*Service).change`, `save`, `send`, `approve`, `stop`, `reject`, `remove`, `retry`, `checkpoint`, `configure`, `steer`, `busy`
@@ -99,6 +99,8 @@ Sync commit: `f4834e9f20a4cac604c77ad980a8fe86b0ba203a` (the model was last conf
 - `apps/api/internal/features/chat/toolcall.go`: `(*Service).toolCall` (reads only), `finishTurn`, `endRun`, `renewLease`
 - `apps/api/internal/features/chat/permission_mode.go`: `proposalStatus`, `holdReason`
 - `apps/api/cmd/agent_deps.go`: `chatCatalog`; `apps/api/cmd/main.go`: the `chat.New(...)` wiring (anchor only)
+
+Resynced 2026-11-12 (phase 3 review round 2): `Start` (run.start carries `person_links`, the links the person typed, for the page rule every web backend now shares) changed; it does not change how a run is claimed, leased, checkpointed, held or applied, so the model did not change, and `--mutants` caught all eight guards.
 
 Resynced 2026-11-12 (phase 3 review fixes): `toolCall` (web_search gets the conversation for the exfiltration rule's host check) and `Start` (run.start carries `search_allow` and `private_context`) changed; neither changes how a run is claimed, leased, checkpointed, held or applied, so the model did not change, and `--mutants` caught all eight guards.
 
