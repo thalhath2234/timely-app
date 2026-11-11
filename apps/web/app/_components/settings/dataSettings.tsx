@@ -40,7 +40,11 @@ export default function DataSettings() {
   });
   const create = useMutation({
     mutationFn: createBackup,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["backups"] }),
+    onSuccess: (created) => {
+      // What the backup left out (what Timely learned, when it could not be read or is too large).
+      setMessage(created.warnings?.length ? `Backup saved. ${created.warnings.join(" ")}` : null);
+      return queryClient.invalidateQueries({ queryKey: ["backups"] });
+    },
   });
   const remove = useMutation({
     mutationFn: deleteBackup,
@@ -82,7 +86,7 @@ export default function DataSettings() {
       const result = await restoreBackup(file);
       await queryClient.invalidateQueries();
       const count = Object.values(result.counts).reduce((sum, value) => sum + value, 0);
-      setMessage(`Restore complete. ${plural(count, "record")} loaded.`);
+      setMessage([`Restore complete. ${plural(count, "record")} loaded.`, ...(result.warnings ?? [])].join(" "));
     } catch (cause) {
       setMessage(null);
       setError(cause instanceof Error ? cause.message : "Restore failed.");

@@ -21,7 +21,14 @@ export default function DataSettingsScreen() {
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
   const current: BackupSettings = settingsQ.data ?? { enabled: false, intervalDays: 1, retentionCount: 7 };
   const save = useMutation({ mutationFn: updateBackupSettings, onSuccess: (next) => client.setQueryData(["backup-settings"], next) });
-  const create = useMutation({ mutationFn: createBackup, onSuccess: () => client.invalidateQueries({ queryKey: ["backups"] }) });
+  const create = useMutation({
+    mutationFn: createBackup,
+    onSuccess: (created) => {
+      // What the backup left out (what Timely learned, when it could not be read or is too large).
+      setMessage(created.warnings?.length ? `Backup saved · ${created.warnings.join(" ")}` : "");
+      return client.invalidateQueries({ queryKey: ["backups"] });
+    },
+  });
   const remove = useMutation({ mutationFn: deleteBackup, onSuccess: () => client.invalidateQueries({ queryKey: ["backups"] }) });
 
   async function run(label: string, action: () => Promise<void>) {
@@ -43,7 +50,7 @@ export default function DataSettingsScreen() {
         const restored = await restoreBackupJSON(contents);
         await client.invalidateQueries();
         const count = Object.values(restored.counts).reduce((sum, value) => sum + value, 0);
-        setMessage(`Restore complete · ${count} records loaded.`);
+        setMessage([`Restore complete · ${count} records loaded.`, ...(restored.warnings ?? [])].join(" "));
       }),
     });
   }
