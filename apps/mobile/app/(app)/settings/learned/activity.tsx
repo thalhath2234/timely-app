@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ACTIVITY, type LearningEvent } from "@timely/contract/agentLearning";
+import { ACTIVITY, laterSkillChanges, undoAlsoText, type LearningEvent } from "@timely/contract/agentLearning";
 import Screen from "../../../../components/ui/Screen";
 import MobileHeader from "../../../../components/ui/MobileHeader";
 import BottomSheet from "../../../../components/ui/BottomSheet";
@@ -67,13 +67,21 @@ export default function LearnedActivity() {
           </ListGroup>
         ) : null}
       </ScrollView>
-      <EventSheet event={shown} onClose={() => setShownId(null)} />
+      <EventSheet event={shown} events={events} onClose={() => setShownId(null)} />
     </Screen>
   );
 }
 
 /** One change: its summary, before and after, and Undo while it is in effect. */
-function EventSheet({ event: open, onClose }: { event: LearningEvent | null; onClose: () => void }) {
+function EventSheet({
+  event: open,
+  events,
+  onClose,
+}: {
+  event: LearningEvent | null;
+  events: LearningEvent[];
+  onClose: () => void;
+}) {
   const undo = useUndoLearning();
   // The last change shown stays drawn while the sheet slides away.
   const last = useRef(open);
@@ -82,6 +90,8 @@ function EventSheet({ event: open, onClose }: { event: LearningEvent | null; onC
   const row = event ? activityRow(event) : null;
   const undoable = !!event && canUndo(event);
   const memory = event ? event.kind !== "skill" : false;
+  // Undo of a skill change also takes back later changes to that skill: say so before the tap.
+  const also = event && undoable ? undoAlsoText(event, laterSkillChanges(events, event)) : "";
   return (
     <BottomSheet
       open={!!open}
@@ -116,6 +126,7 @@ function EventSheet({ event: open, onClose }: { event: LearningEvent | null; onC
               <TextBlock text={event.after} mono={!memory} />
             </Block>
           ) : null}
+          {also ? <GroupHint>{also}</GroupHint> : null}
           {memory && undoable ? <GroupHint>{"Changes to what Timely remembers apply from your next chat."}</GroupHint> : null}
           {undo.error && undo.variables?.[0] === event.id ? <Text style={styles.error}>{undo.error.message || "Could not undo."}</Text> : null}
         </View>

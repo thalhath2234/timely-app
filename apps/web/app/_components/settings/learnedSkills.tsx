@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import {
   NEVER_ARCHIVES,
+  canUndoLearning,
   RESTORED_REVIEW,
   UPDATED_UPSTREAM,
   type LearnedSkill,
@@ -31,7 +32,7 @@ import {
   useUpstream,
   useUpstreamCompare,
 } from "@/app/utils/hooks/learning";
-import { EmptyRow, ErrorRow, Tag, errorText, when } from "./learnedShared";
+import { EmptyRow, ErrorRow, Tag, confirmUndo, errorText, when } from "./learnedShared";
 
 /** Skills the agent wrote or the person's own copies of built-in ones. */
 const OWN = new Set(["learned", "edited"]);
@@ -392,7 +393,7 @@ function HistoryRow({
   const undo = useUndoLearning();
   // Undo goes through the change's event, which records that it was undone.
   const event = events.find((ev) => ev.ledgerEntryId === entry.id);
-  const undoable = event && (event.status === "applied" || event.status === "kept");
+  const undoable = event && canUndoLearning(event);
   return (
     <div className="px-3.5 py-1.5">
       <div className="flex min-h-8 items-center gap-2">
@@ -413,11 +414,7 @@ function HistoryRow({
             variant="ghost"
             size="sm"
             loading={undo.isPending}
-            onClick={() =>
-              undo.mutate(event.id, {
-                onError: (err) => useToastStore.getState().show(errorText(err, "Couldn't undo that.")),
-              })
-            }
+            onClick={() => confirmUndo(event, events, undo.mutateAsync)}
           >
             Undo
           </Button>

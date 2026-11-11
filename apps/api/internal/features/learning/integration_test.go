@@ -563,6 +563,12 @@ func TestIntegrationUndoOfASkillChangeUndoesTheLaterOnes(t *testing.T) {
 	if got := requestsFor(r.requests("learning.rollback"), a); len(got) != 1 {
 		t.Fatalf("%d rollbacks, want only the one undone", len(got))
 	}
+	// The curator's "unused" note has no history entry: Undo says so plainly.
+	stale := r.seed(a, map[string]any{"id": "st-1", "kind": "skill", "action": "stale", "subject": "pantry", "status": "applied", "origin": "curator"})
+	if code, body, _ := r.call(a, http.MethodPost, "/agent/learning/events/"+stale.ID+"/undo", nil); code != http.StatusConflict ||
+		body["message"] != "Timely only noted that this skill went unused; there is nothing to undo" {
+		t.Fatalf("undo a stale note: %d %v", code, body)
+	}
 }
 
 func TestIntegrationUndoKeepAndDiscard(t *testing.T) {

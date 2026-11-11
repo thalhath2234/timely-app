@@ -9,11 +9,14 @@ import {
   cardLine,
   changeLine,
   eventsForRun,
+  canUndoLearning,
   isLearningWatchEvent,
+  laterSkillChanges,
   learnedSummary,
   learningChip,
   pendingCard,
   statusWord,
+  undoAlsoText,
 } from "../packages/contract/src/agentLearning.ts";
 
 let seq = 0;
@@ -282,5 +285,25 @@ describe("events and the watch stream", () => {
       false,
     );
     assert.equal(isLearningWatchEvent(null), false);
+  });
+});
+
+describe("Undo", () => {
+  test("a skill change's Undo warns about the later changes it also takes back", () => {
+    const first = ev({ subject: "aisles", status: "applied", ledgerEntryId: "led-1", createdAt: "2026-11-11T10:00:00Z" });
+    const mine = ev({ subject: "aisles", action: "edited", origin: "user", status: "applied", ledgerEntryId: "led-2", createdAt: "2026-11-11T11:00:00Z" });
+    const undone = ev({ subject: "aisles", status: "undone", ledgerEntryId: "led-3", createdAt: "2026-11-11T12:00:00Z" });
+    const other = ev({ subject: "meals", status: "applied", ledgerEntryId: "led-4", createdAt: "2026-11-11T12:00:00Z" });
+    const events = [other, undone, mine, first];
+    assert.deepEqual(laterSkillChanges(events, first).map((e) => e.id), [mine.id]);
+    assert.equal(undoAlsoText(first, laterSkillChanges(events, first)), "Undo also takes back 1 later change to aisles, including your edit.");
+    assert.equal(undoAlsoText(mine, laterSkillChanges(events, mine)), "");
+  });
+
+  test("the curator's unused note has nothing to undo", () => {
+    assert.equal(canUndoLearning(ev({ action: "stale", status: "applied", ledgerEntryId: "" })), false);
+    assert.equal(canUndoLearning(ev({ status: "applied", ledgerEntryId: "led-1" })), true);
+    assert.equal(canUndoLearning(ev({ kind: "memory", status: "applied", ledgerEntryId: "" })), true);
+    assert.equal(canUndoLearning(ev({ status: "staged", ledgerEntryId: "led-1" })), false);
   });
 });

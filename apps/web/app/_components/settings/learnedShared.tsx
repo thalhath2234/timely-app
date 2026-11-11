@@ -1,7 +1,10 @@
 "use client";
 import type { ReactNode } from "react";
 import { CircleAlert } from "lucide-react";
+import { laterSkillChanges, undoAlsoText, type LearningEvent } from "@timely/contract/agentLearning";
 import Button from "@/app/_components/_ui/button";
+import { requestConfirm } from "@/app/_store/confirmStore";
+import { useToastStore } from "@/app/_store/toastStore";
 import { cn } from "@/app/utils/cn";
 
 /**
@@ -88,4 +91,21 @@ export function when(value: string | number | undefined | null): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/**
+ * Undo, after a confirm when it would also take back later changes to the same skill (the person's
+ * own edits included), which nothing offers a way back from.
+ */
+export function confirmUndo(event: LearningEvent, events: LearningEvent[], undo: (id: string) => Promise<unknown>) {
+  const go = async () => {
+    try {
+      await undo(event.id);
+    } catch (err) {
+      useToastStore.getState().show(errorText(err, "Couldn't undo that."));
+    }
+  };
+  const also = undoAlsoText(event, laterSkillChanges(events, event));
+  if (!also) return void go();
+  requestConfirm({ title: "Undo this change?", description: also, confirmLabel: "Undo", pendingLabel: "Undoing…", onConfirm: go });
 }

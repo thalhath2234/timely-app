@@ -1,14 +1,19 @@
 "use client";
 import Link from "next/link";
 import { BookOpen, Lightbulb, UserRound } from "lucide-react";
-import { ACTIVITY, cardLine, statusWord, type LearningEvent } from "@timely/contract/agentLearning";
+import {
+  ACTIVITY,
+  canUndoLearning,
+  cardLine,
+  statusWord,
+  type LearningEvent,
+} from "@timely/contract/agentLearning";
 import Button from "@/app/_components/_ui/button";
 import { GroupHint, GroupLabel, ListGroup } from "@/app/_components/_ui/groupedList";
 import { SkeletonRows } from "@/app/_components/_ui/skeleton";
-import { useToastStore } from "@/app/_store/toastStore";
 import { cn } from "@/app/utils/cn";
 import { useLearningActivity, useUndoLearning } from "@/app/utils/hooks/learning";
-import { EmptyRow, ErrorRow, Tag, errorText, when } from "./learnedShared";
+import { EmptyRow, ErrorRow, Tag, confirmUndo, when } from "./learnedShared";
 
 const ORIGIN: Record<string, string> = {
   chat: "in a chat",
@@ -38,7 +43,7 @@ export default function LearnedActivity() {
           <EmptyRow>Nothing yet. Each change Timely makes to its skills and notes shows here.</EmptyRow>
         ) : (
           [
-            ...events.map((ev) => <ActivityRow key={ev.id} event={ev} />),
+            ...events.map((ev) => <ActivityRow key={ev.id} event={ev} events={events} />),
             ...(feed.hasNextPage
               ? [
                   <div key="more" className="flex justify-center px-3.5 py-1.5">
@@ -61,10 +66,11 @@ export default function LearnedActivity() {
   );
 }
 
-function ActivityRow({ event }: { event: LearningEvent }) {
+function ActivityRow({ event, events }: { event: LearningEvent; events: LearningEvent[] }) {
   const undo = useUndoLearning();
+  const run = () => confirmUndo(event, events, undo.mutateAsync);
   const Icon = event.kind === "skill" ? Lightbulb : event.kind === "user" ? UserRound : BookOpen;
-  const live = event.status === "applied" || event.status === "kept";
+  const live = canUndoLearning(event);
   const blocked = event.status === "blocked";
   const meta = [ORIGIN[event.origin] ?? "", when(event.createdAt)].filter(Boolean).join(" · ");
   return (
@@ -104,11 +110,7 @@ function ActivityRow({ event }: { event: LearningEvent }) {
           variant="ghost"
           size="sm"
           loading={undo.isPending}
-          onClick={() =>
-            undo.mutate(event.id, {
-              onError: (err) => useToastStore.getState().show(errorText(err, "Couldn't undo that.")),
-            })
-          }
+          onClick={run}
         >
           Undo
         </Button>
@@ -118,3 +120,4 @@ function ActivityRow({ event }: { event: LearningEvent }) {
     </div>
   );
 }
+

@@ -222,6 +222,9 @@ func (s *Service) undo(c *echo.Context) error {
 	var fields map[string]any
 	switch ev.Kind {
 	case KindSkill:
+		if ev.Action == "stale" {
+			return echo.NewHTTPError(http.StatusConflict, "Timely only noted that this skill went unused; there is nothing to undo")
+		}
 		if ev.LedgerEntryID == "" {
 			return echo.NewHTTPError(http.StatusConflict, "This change has no history entry to undo")
 		}

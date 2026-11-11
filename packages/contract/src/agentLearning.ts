@@ -447,6 +447,39 @@ export function budgetMeter(used: number, limit: number): BudgetMeter {
   return { text: `${count(u)} of ${count(l)}`, ratio, tone };
 }
 
+/**
+ * Undo is offered for a change that is in effect (learned, or kept from Waiting for you) and has
+ * something to take back: a skill change needs its history entry (the curator's "unused" note has none).
+ */
+export function canUndoLearning(ev: Pick<LearningEvent, "status"> & Partial<Pick<LearningEvent, "kind" | "ledgerEntryId">>): boolean {
+  if (ev.status !== "applied" && ev.status !== "kept") return false;
+  return ev.kind !== "skill" || !!ev.ledgerEntryId;
+}
+
+/**
+ * Undo of a skill change puts the skill back as it was before it, so it also takes back every later
+ * change to that skill still in effect (the server marks them undone). Those later changes, newest first.
+ */
+export function laterSkillChanges(events: LearningEvent[], ev: LearningEvent): LearningEvent[] {
+  if (ev.kind !== "skill" || !ev.subject) return [];
+  return events.filter(
+    (other) =>
+      other.id !== ev.id &&
+      other.kind === "skill" &&
+      other.subject === ev.subject &&
+      other.createdAt > ev.createdAt &&
+      canUndoLearning(other),
+  );
+}
+
+/** The warning before such an Undo: "Undo also takes back 2 later changes to aisles, including your edit." */
+export function undoAlsoText(ev: LearningEvent, later: LearningEvent[]): string {
+  if (!later.length) return "";
+  const n = later.length;
+  const yours = later.some((other) => other.origin === "user") ? ", including your edit" : "";
+  return `Undo also takes back ${n === 1 ? "1 later change" : `${n} later changes`} to ${ev.subject}${yours}.`;
+}
+
 /** What separates entries in About you and Notes; the budget counts it (Hermes' ENTRY_DELIMITER). */
 export const MEMORY_ENTRY_DELIMITER = "\n§\n";
 

@@ -9,6 +9,7 @@ import {
   ABOUT_YOU,
   budgetMeter,
   canSaveMemoryEntry,
+  canUndoLearning,
   cardLine,
   eventsForRun,
   learnedSummary,
@@ -167,9 +168,9 @@ export function activityRow(ev: LearningEvent, now = Date.now()): { title: strin
   return { title: cardLine(ev), meta };
 }
 
-/** Undo is offered for a change that is in effect (learned, or kept from Waiting for you). */
-export function canUndo(ev: Pick<LearningEvent, "status">): boolean {
-  return ev.status === "applied" || ev.status === "kept";
+/** Undo is offered for a change that is in effect and has something to take back (canUndoLearning). */
+export function canUndo(ev: Pick<LearningEvent, "status"> & Partial<Pick<LearningEvent, "kind" | "ledgerEntryId">>): boolean {
+  return canUndoLearning(ev);
 }
 
 /** The next page's `before`: the oldest createdAt shown, or null when the page was short. */

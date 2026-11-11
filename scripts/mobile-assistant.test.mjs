@@ -694,6 +694,10 @@ test("Activity rows say what changed, its status, when and where from; Undo only
   assert.equal(learning.canUndo({ status: "applied" }), true);
   assert.equal(learning.canUndo({ status: "kept" }), true);
   for (const status of ["staged", "blocked", "undone", "discarded"]) assert.equal(learning.canUndo({ status }), false);
+  // the curator's "unused" note on a skill has no history entry: nothing to undo
+  assert.equal(learning.canUndo({ status: "applied", kind: "skill", ledgerEntryId: "" }), false);
+  assert.equal(learning.canUndo({ status: "applied", kind: "skill", ledgerEntryId: "led-1" }), true);
+  assert.equal(learning.canUndo({ status: "applied", kind: "user", ledgerEntryId: "" }), true);
   assert.equal(learning.nextBefore([lev(), lev({ createdAt: "2026-11-10T00:00:00Z" })], 2), "2026-11-10T00:00:00Z");
   assert.equal(learning.nextBefore([lev()], 2), null);
 });
