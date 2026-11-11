@@ -142,7 +142,7 @@ def memory_events(target: str, old: list[str], new: list[str], ctx: Context,
 
 
 INFLIGHT_MAX_S = 120.0  # a memory write whose hook never finished stops holding diffs back
-BASELINE = "feed-baseline.json"  # under <home>/.timely/: what was last reported (never in a backup)
+BASELINE = "feed-baseline.json"  # under <home>/.timely/: what was last reported (never in an agent-state zip)
 
 
 class Feed:
