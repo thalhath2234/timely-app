@@ -409,7 +409,11 @@ func TestIntegrationAgentEngineWebExtractSecondLine(t *testing.T) {
 		mu.Unlock()
 		return Page{URL: rawURL, Title: "Page", Content: "page text"}, nil
 	}
-	searching := &fakeSearch{can: true, answer: WireMessage{Role: "assistant", Content: "See https://found.example.net/a"}}
+	// The run is tainted when it searches: only the citation is a result,
+	// not the link the search model wrote in its text.
+	citation, _ := json.Marshal(obj{"type": "url_citation", "url_citation": obj{"url": "https://found.example.net/a", "title": "Found"}})
+	searching := &fakeSearch{can: true, answer: WireMessage{Role: "assistant", Content: "See https://found.example.net/a and https://written.example.org/x",
+		Annotations: []json.RawMessage{citation}}}
 	h.s.SetCompleters(searchCompleters{searching})
 	extract := func(callID, link string) obj {
 		return toolCallLine(callID, "web_extract", obj{"urls": []string{link}}, 1)
@@ -424,6 +428,7 @@ func TestIntegrationAgentEngineWebExtractSecondLine(t *testing.T) {
 		extract("x6", "https://found.example.net/b?q=secret"),
 		extract("x7", "https://found.example.net/"),
 		extract("x8", "https://typed.example.com/log/ivf-consult-okonkwo"),
+		extract("x9", "https://written.example.org/x"),
 		reply("Done.", 0),
 	), func(c *Conversation) { c.WebSearch = true })
 	h.wait(c.ID, "replied", statusIs("idle"))
@@ -444,7 +449,7 @@ func TestIntegrationAgentEngineWebExtractSecondLine(t *testing.T) {
 	// After taint a path no search returned and the person did not type
 	// could carry their data to the site: only front pages and exact
 	// results open.
-	want := []string{notPublic, "", pasteLink, "", pasteLink, pasteLink, "", pasteLink}
+	want := []string{notPublic, "", pasteLink, "", pasteLink, pasteLink, "", pasteLink, pasteLink}
 	if !slices.Equal(pageErrors, want) {
 		t.Fatalf("page errors\n%q\nwant\n%q", pageErrors, want)
 	}

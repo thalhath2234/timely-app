@@ -200,8 +200,12 @@ var (
 )
 
 // searchResults lists a search answer's sources: the provider's url
-// citations, then the links in its text, each address once, at most limit.
-func searchResults(answer WireMessage, limit int) []webResult {
+// citations, then (with textLinks) the links in its text, each address once,
+// at most limit. The text is the search model's own writing from the query,
+// so in a tainted run, whose query outside text may have written, its links
+// are not results: a query could have the model spell out an address that
+// carries the person's data (plan 8.1, 12).
+func searchResults(answer WireMessage, limit int, textLinks bool) []webResult {
 	if limit <= 0 || limit > maxResults {
 		limit = maxResults
 	}
@@ -228,6 +232,9 @@ func searchResults(answer WireMessage, limit int) []webResult {
 			add(a.Citation.URL, a.Citation.Title, a.Citation.Content)
 		}
 	}
+	if !textLinks {
+		return out
+	}
 	for _, m := range markdownLink.FindAllStringSubmatch(answer.Content, -1) {
 		add(m[2], m[1], "")
 	}
@@ -251,7 +258,8 @@ func (s *Service) webSearch(ctx context.Context, c *Conversation, run *toolRun, 
 	if json.Unmarshal(args, &in) != nil || len(strings.TrimSpace(in.Query)) == 0 || len(in.Query) >= 2000 {
 		return nil, false, errors.New("Invalid search query: write the words to search for")
 	}
-	if run.tainted() {
+	tainted := run.tainted()
+	if tainted {
 		if run.web.searchNamesOtherSite(s.fetchGuard(ctx, c), in.Query) != "" {
 			// Second line of the worker's rule: the query could have the
 			// provider open a page that carries the person's data.
@@ -262,7 +270,10 @@ func (s *Service) webSearch(ctx context.Context, c *Conversation, run *toolRun, 
 	if err != nil {
 		return nil, false, err
 	}
-	results := searchResults(answer, in.Limit)
+	// After taint only the provider's citations are results (pages a tainted
+	// run may open); Claude Code and Codex cite nothing, so their links stay
+	// in the answer text only.
+	results := searchResults(answer, in.Limit, !tainted)
 	for _, r := range results {
 		run.web.seen(r.URL)
 	}
@@ -415,6 +426,11 @@ func (w *webRun) mayOpen(guard *fetchGuard, raw string) bool {
 // and no search of this run returned: a provider's own search may open what
 // a query names. "" when there is none.
 func (w *webRun) searchNamesOtherSite(guard *fetchGuard, query string) string {
+	for _, ip := range ipLiterals(query) {
+		if !guard.typedHost(ip) && !w.hosts[ip] {
+			return ip
+		}
+	}
 	for _, m := range hostRef.FindAllStringSubmatch(query, -1) {
 		host := m[1] + m[2]
 		host = strings.TrimPrefix(strings.TrimSuffix(strings.ToLower(host), "."), "www.")
@@ -428,6 +444,32 @@ func (w *webRun) searchNamesOtherSite(guard *fetchGuard, query string) string {
 // hostRef finds the sites a search query names so that a search could open
 // them, as the worker's egress.query_hosts does.
 var hostRef = regexp.MustCompile(`(?i)(?:[a-z][a-z0-9+.-]*://|//|\bsite:)((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24})|\b((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24})(?::\d+)?/`)
+
+// ipCandidate finds what could be an IP address in a query: digits and dots,
+// or hex digits and colons, bracketed or not.
+var ipCandidate = regexp.MustCompile(`(?i)\[?[0-9a-f:.]*[.:][0-9a-f:.]*\]?`)
+
+// ipLiterals are the IP addresses a query names anywhere, normalised: an
+// address is a site whether or not a scheme or path goes with it, so a query
+// that splits a link around one ("http:// 203.0.113.5 /c?d=...") still names
+// it.
+func ipLiterals(query string) []string {
+	out := []string{}
+	for _, m := range ipCandidate.FindAllString(query, -1) {
+		bracketed := strings.HasPrefix(m, "[") && strings.HasSuffix(m, "]")
+		m = strings.Trim(strings.Trim(m, "[]"), ".")
+		hex := len(m) - strings.Count(m, ":") - strings.Count(m, ".")
+		ip, err := netip.ParseAddr(m)
+		// "std::vector" holds "d::", an address by syntax only: a bare IPv6
+		// address needs two colons and four digits.
+		if err == nil && (ip.Is4() && strings.Count(m, ".") == 3 || ip.Is6() && (bracketed || strings.Count(m, ":") >= 2 && hex >= 4)) {
+			if s := ip.String(); !slices.Contains(out, s) {
+				out = append(out, s)
+			}
+		}
+	}
+	return out
+}
 
 // takeTaint hands over the web sources read since the last call.
 func (w *webRun) takeTaint() []TaintSource {
