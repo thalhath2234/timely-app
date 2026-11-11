@@ -132,7 +132,7 @@ def test_prepare_runs_reconcile_both_ways(tmp_path):
     ("skills/.locks/ledger.lock", "not agent state"), (".curator_backups/2026/skills.tar.gz", "not agent state"),
     ("memories/USER.md", ""), ("skills/cat/x/SKILL.md", ""), ("skills/.curator_ledger.jsonl", ""),
     ("skills/.usage.json", ""), (".curator_backups/blobs/abc", ""), ("pending/skills/1.json", ""),
-    (".timely/counters.json", ""), ("state.db", ""),
+    (".timely/counters.json", ""), ("state.db", ""), (".timely/feed-baseline.json", "not agent state"),
 ])
 def test_never_restore_rules(rel, why):
     assert backup.why_never(tuple(rel.split("/"))) == why

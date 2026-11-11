@@ -112,7 +112,15 @@ def memory_events(target: str, old: list[str], new: list[str], ctx: Context,
     return out
 
 
+BASELINE = "feed-baseline.json"  # under <home>/.timely/: what was last reported (never in a backup)
+
+
 class Feed:
+    """The baseline is also kept on disk (``.timely/feed-baseline.json``), so a worker that stopped
+    before reporting (a shutdown during a learning pass, a crash) leaves its changes to the next
+    worker: :meth:`catch_up` reports them once ``ready`` is sent. With no saved baseline (the first
+    start, a restored home) the current home is the baseline."""
+
     def __init__(self, home: Path, send: Callable[[dict], Any]):
         self.home = Path(home)
         self.send = send
@@ -120,7 +128,32 @@ class Feed:
         self._ledger: set[str] = set()
         self._memory: dict[str, list[str]] = {}
         self._pending: set[str] = set()
-        self.prime()
+        self._resumed = self._load()
+        if not self._resumed:
+            self.prime()
+
+    def _path(self) -> Path:
+        return files.timely_dir(self.home) / BASELINE
+
+    def _load(self) -> bool:
+        data = files.read_json(self._path(), None)
+        if not isinstance(data, dict) or data.get("version") != 1:
+            return False
+        ledger, memory, pending = data.get("ledger"), data.get("memory"), data.get("pending")
+        if not isinstance(ledger, list) or not isinstance(memory, dict) or not isinstance(pending, list):
+            return False
+        self._ledger = {str(i) for i in ledger}
+        self._memory = {t: [str(e) for e in memory.get(t) or [] if isinstance(e, str)] for t in files.MEMORY_FILES}
+        self._pending = {str(i) for i in pending}
+        return True
+
+    def _save(self) -> None:
+        """Keep the baseline on disk (called with the lock held); a failure only costs the catch-up."""
+        try:
+            files.write_json(self._path(), {"version": 1, "ledger": sorted(self._ledger), "memory": self._memory,
+                                            "pending": sorted(self._pending)})
+        except Exception:
+            logger.exception("saving the learning feed's baseline failed")
 
     def prime(self) -> None:
         """Take the current home as the baseline (nothing in it is reported)."""
@@ -128,6 +161,16 @@ class Feed:
             self._ledger = {str(e["id"]) for e in files.read_ledger(self.home)}
             self._memory = {t: files.read_memory(self.home, t) for t in files.MEMORY_FILES}
             self._pending = set(files.pending_ids(self.home))
+            self._save()
+
+    def catch_up(self) -> list[dict[str, Any]]:
+        """Report what changed since the saved baseline: writes an earlier worker made but stopped
+        before reporting (origin ``review``: a learning pass is the only writer that outlives a
+        run). Run once, after ``ready``."""
+        if not self._resumed:
+            return []
+        self._resumed = False
+        return self.diff(Context(origin="review"))
 
     # ------------------------------------------------------------ claims (self-reported writes)
     def ledger_ids(self) -> set[str]:
@@ -147,6 +190,8 @@ class Feed:
                    and (actors is None or e.get("actor") in actors)
                    and (keep is None or keep(e))]
             self._ledger.update(str(e["id"]) for e in new)
+            if new:
+                self._save()
             return new
 
     def claim_memory_change(self, target: str, removed: list[str], added: list[str]) -> None:
@@ -155,14 +200,17 @@ class Feed:
         with self.lock:
             base = [e for e in self._memory.get(target, []) if e not in removed]
             self._memory[target] = base + [e for e in added if e not in base]
+            self._save()
 
     def claim_pending(self, pending_id: str) -> None:
         with self.lock:
             self._pending.add(pending_id)
+            self._save()
 
     def forget_pending(self, pending_id: str) -> None:
         with self.lock:
             self._pending.discard(pending_id)
+            self._save()
 
     # ------------------------------------------------------------ sending
     def emit(self, event: dict[str, Any]) -> dict[str, Any]:
@@ -193,6 +241,8 @@ class Feed:
                 ev = self._pending_event(pending_id, subsystem, ctx)
                 if ev is not None:
                     events.append(ev)
+            if events:
+                self._save()
             for ev in events:
                 self.emit(ev)
         return events

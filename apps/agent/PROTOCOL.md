@@ -86,7 +86,7 @@ Other unknown names are logged as warnings. `HERMES_EXEC_ASK` is allowed when th
 | `tool.result` | `id` (the worker's `tool.call` id), `result` (any JSON; a string reaches the model as is), `outside` (bool: the result carries third-party text, section 9.4), `end_turn` (bool, phase 2: set after a recorded `propose_changes`, section 9.5) | none |
 | `gate.verdict` | `id` (the worker's `gate.ask` id), `verdict` (`allow`, `block`, `approve`), `message`. Phase 2: Go answers `block` with "That isn't available in Timely yet" for every tool (section 9.7) | none |
 | `session.delete` | `id`, `conversation_id` | `ack` (`busy` error while the conversation has a live run) |
-| `shutdown` | `grace` (seconds, default 5) | none: the worker waits up to `grace` for live runs, interrupts the rest (up to 2 s more), and exits 0. Go sends its own stop budget minus 3 s, so a worker following this exits before Go sends SIGTERM. The worker keeps reading during the grace (a live run may still need `tool.result`, `gate.verdict` or `approval.answer`, and `run.stop` still works) and refuses new work with `not_ready`; Go keeps stdin open and writes only those replies and run controls until the worker exits or the grace ends |
+| `shutdown` | `grace` (seconds, default 5) | none: the worker waits up to `grace` for live runs, interrupts the rest (up to 2 s more), waits for a learning pass within what is left of `grace`, reports what learning changed (`learning` events), and exits 0. Go sends its own stop budget minus 3 s, so a worker following this exits before Go sends SIGTERM. The worker keeps reading during the grace (a live run may still need `tool.result`, `gate.verdict` or `approval.answer`, and `run.stop` still works) and refuses new work with `not_ready`; Go keeps stdin open and writes only those replies and run controls until the worker exits or the grace ends |
 | `learning.*`, `settings.update` | section 10.3 | `learning.result` or `error` |
 | `bot.run` | phase 6 | `error` `unsupported` |
 
@@ -254,7 +254,7 @@ The worker validates each: a flag that is present must be a bool, each list a li
 | `pending_id` | a staged write's id (`learning.pending`) |
 | `summary` | one line |
 
-When they are sent: a `staged` or `blocked` event at the moment `timely_learning` decides; `applied` events after the run (after the last `delta`, before `run.done`) and again when a learning pass ends; `stale` from the curator. Each change is reported once: the worker keeps a baseline of the home's ledger ids, memory entries and staged ids from `ready` on, and every diff moves it.
+When they are sent: a `staged` or `blocked` event at the moment `timely_learning` decides; `applied` events after the run (after the last `delta`, before `run.done`) and again when a learning pass ends; `stale` from the curator. Each change is reported once: the worker keeps a baseline of the home's ledger ids, memory entries and staged ids, and every diff moves it. The baseline is also saved in `<home>/.timely/feed-baseline.json` (never in a backup): a new worker reports, right after `ready` and with origin `review`, what an earlier worker wrote but stopped before reporting. Without a saved baseline (first start, a restored home) the home at `ready` is the baseline. A `learning.*` request reports and claims only its own writes (ledger entries new across the call with the person's actor; its own memory delta). A worker sends a `heartbeat` right after `run.done` when the run's learning pass is still going.
 
 ### 10.3 Go → worker requests
 

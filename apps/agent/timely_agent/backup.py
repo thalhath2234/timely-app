@@ -88,6 +88,8 @@ def why_never(parts: tuple[str, ...]) -> str:
     if any(secret_part(p) for p in parts):
         return "secret"
     top = parts[0]
+    if parts == (".timely", "feed-baseline.json"):
+        return "not agent state"  # this worker's own bookkeeping (learning/feed.py): a restore primes afresh
     if len(parts) == 1 and top in KEEP_FILES:
         return ""
     if top == ".curator_backups":

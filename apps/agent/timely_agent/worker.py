@@ -320,6 +320,10 @@ class Worker:
         })
         threading.Thread(target=self._heartbeat, name="timely-heartbeat", daemon=True).start()
         threading.Thread(target=self._maintenance, name="timely-maintenance", daemon=True).start()
+        try:
+            learning_feed.current().catch_up()  # an earlier worker's unreported writes
+        except Exception:
+            logger.exception("reporting an earlier worker's learning changes failed")
 
     def busy(self) -> dict[str, Any]:
         """Work Go cannot see on its own (plan 6.2): live runs, a learning pass or curator run,
@@ -385,6 +389,13 @@ class Worker:
             if conversation not in live:
                 self.cache.drop(conversation)
 
+    def _heartbeat_if_learning(self) -> None:
+        """A learning pass the run started keeps going after run.done: say so now, not at the next
+        heartbeat, so Go does not stop the worker in between (plan 3.6)."""
+        from timely_agent.learning import passes
+        if passes.active():
+            self.send({"type": "heartbeat", "busy": self.busy()})
+
     def _heartbeat(self) -> None:
         # Also during the shutdown grace: Go still watches a stopping worker.
         while not self.chan.closed:
@@ -449,6 +460,7 @@ class Worker:
                 with self.runs_lock:
                     self.runs.pop(run_id, None)
                 self._send_run_done(mid, run_id, done)
+                self._heartbeat_if_learning()
 
         try:
             ctx = contextvars.copy_context()
@@ -555,9 +567,15 @@ class Worker:
     def _shutdown(self, grace: float) -> None:
         code = 0
         try:
+            deadline = time.monotonic() + max(0.0, grace)
             self.wait_runs(grace)
             self.stop_all("shutdown")
             self.wait_runs(2.0)
+            # A learning pass outlives its run: let it finish within the grace and report, so its
+            # change gets its chip and Undo. What it wrote by the deadline is reported below; a
+            # write after that is the next worker's catch-up (the baseline is on disk).
+            self.wait_passes(max(0.0, deadline - time.monotonic()))
+            self._report_leftovers()
             self.cache.store_all()  # review counters survive the restart (plan 3.3)
         except BaseException:  # noqa: BLE001 - exit whatever happens
             logger.exception("shutdown failed")
@@ -567,6 +585,21 @@ class Worker:
             self.chan.close_output()
             sys.stderr.flush()
             os._exit(code)
+
+    def wait_passes(self, grace: float) -> None:
+        from timely_agent.learning import passes
+        deadline = time.monotonic() + max(0.0, grace)
+        while passes.active() and time.monotonic() < deadline:
+            time.sleep(0.05)
+
+    def _report_leftovers(self) -> None:
+        from timely_agent.learning import feed as learning_feed
+        feed = learning_feed.current()
+        if feed is not None:
+            try:
+                feed.diff(learning_feed.Context(origin="review"))
+            except Exception:
+                logger.exception("reporting learning changes at shutdown failed")
 
     def wait_runs(self, grace: float) -> None:
         deadline = time.monotonic() + max(0.0, grace)
@@ -623,6 +656,7 @@ class Worker:
                 self.stopping = True
                 self.stop_all("host closed the pipe")
                 self.wait_runs(2.0)
+                self._report_leftovers()  # nobody may read it; the saved baseline covers that
                 self.cache.store_all()
                 return 0
             if not line.strip():

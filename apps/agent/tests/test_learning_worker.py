@@ -319,3 +319,72 @@ def test_requests_during_a_run_leave_the_runs_learning_writes_to_it(stub):
     assert ("skill", "race-skill", "chat") in [x[:3] for x in events], events
     assert ("memory", "memory", "chat", "chat learned: likes tea") in events, events
     assert [x for x in events if x[2] == "user"] == [("memory", "memory", "user", "person typed: works mornings")], events
+
+
+def test_shutdown_waits_for_a_learning_pass_and_reports_it(stub):
+    """A graceful shutdown while the learning pass still works: the worker waits within the grace,
+    and the pass's skill arrives as a learning event (origin review) before it exits."""
+    a = harness.Agent(harness.new_root("lw-pass-stop"))
+    conv, tag = "c-pass-stop", "tag-pass-stop"
+    w, _ready = harness.ready_worker(a)
+    review = [{"calls": [["skill_manage", {"action": "create", "name": "stop-skill",
+                                           "content": BODY.format(n="stop-skill")}]]},
+              {"sleep": 3, "text": "saved"}]
+    try:
+        w.send(harness.run_start(a, stub, run_id="ps1", conversation=conv, text=script(todo(11, tag), tag, review),
+                                 budgets={}, toolsets=TOOLSETS, flags=dict(LEARN)))
+        _done, seen = harness.drive(w, a.account, "ps1", timeout=120)
+        skill = a.home / "skills" / "stop-skill" / "SKILL.md"
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline and not skill.is_file():
+            time.sleep(0.05)
+        assert skill.is_file()
+        w.send({"type": "shutdown", "id": "s", "account": a.account, "grace": 30})
+        rest = []
+        while True:
+            m = w.recv(60)
+            rest.append(m)
+            if m.get("type") == "__eof__":
+                break
+    finally:
+        w.close()
+    events = [m["event"] for m in seen + rest if m.get("type") == "learning"]
+    assert [(e["subject"], e["action"], e["origin"]) for e in events if e["subject"] == "stop-skill"] == \
+        [("stop-skill", "created", "review")], events
+
+
+def test_a_new_worker_reports_what_an_earlier_one_left_unreported(stub):
+    """The feed's baseline is on disk: a change written after the last report (a worker killed
+    during a learning pass) is reported by the next worker once it is ready."""
+    a = harness.Agent(harness.new_root("lw-catch-up"))
+    w, _ready = harness.ready_worker(a)
+    w.close()
+    assert (a.home / ".timely" / "feed-baseline.json").is_file()
+    with open(a.home / "skills" / ".curator_ledger.jsonl", "a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"id": "left-1", "ts": 1, "actor": "curator", "action": "create", "skill": "left-skill",
+                             "evidence": {"session_id": "c-left"}, "before": [], "after": []}) + "\n")
+    w, _ready = harness.ready_worker(a)
+    try:
+        got = []
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and not got:
+            m = w.recv(30)
+            if m.get("type") == "learning":
+                got.append(m["event"])
+    finally:
+        w.close()
+    assert [(e["subject"], e["origin"], e["conversation_id"], e["ledger_entry_id"]) for e in got] == \
+        [("left-skill", "review", "c-left", "left-1")], got
+    # and once only: a third worker has nothing to say
+    w, _ready = harness.ready_worker(a)
+    try:
+        w.send({"type": "ping", "id": "p", "account": a.account})
+        msgs = []
+        while True:
+            m = w.recv(30)
+            msgs.append(m)
+            if m.get("type") == "pong":
+                break
+    finally:
+        w.close()
+    assert not [m for m in msgs if m.get("type") == "learning"], msgs
