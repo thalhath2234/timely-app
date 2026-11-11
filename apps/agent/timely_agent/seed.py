@@ -133,6 +133,22 @@ def load_denied(path: os.PathLike | str) -> frozenset[str] | None:
     return frozenset(str(k) for k in skills)
 
 
+def denied_bundled_names(denied: Iterable[str] | None, upstream: os.PathLike | str) -> list[str]:
+    """What ``skills.disabled`` must list for each denied bundled skill (``skills/<cat>/<name>``
+    keys): its folder name and frontmatter name. A home phase 2 seeded may still hold a pristine
+    copy that Hermes' sync keeps on disk, so leaving it out of the seed tree alone is not enough."""
+    out: set[str] = set()
+    for key in denied or ():
+        parts = str(key).split("/")
+        if len(parts) < 3 or parts[0] != "skills":
+            continue
+        out.add(parts[-1])
+        folder = Path(upstream).joinpath(*parts[1:])
+        if (folder / SKILL_FILE).is_file():
+            out |= skill_names(folder)
+    return sorted(out)
+
+
 def skill_names(skill_dir: Path) -> set[str]:
     """The folder name and the frontmatter ``name:`` (what ``skills.disabled`` may list)."""
     names = {skill_dir.name}

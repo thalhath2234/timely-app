@@ -278,6 +278,21 @@ def test_render_account_writes_home_and_stable_hash(tmp_path):
         assert stat.S_IMODE((home / "config.yaml").stat().st_mode) == 0o600
 
 
+def test_denied_bundled_skills_are_always_off(tmp_path):
+    """A home seeded before a skill was denied keeps its copy (Hermes' sync keeps a dropped
+    built-in on disk): render_account lists every denied bundled skill in skills.disabled."""
+    from timely_agent import cli
+    names = cli.denied_skill_names()
+    assert {"hermes-agent", "claude-code", "codex", "github"} <= set(names), names
+    layout = paths.AgentLayout.at(tmp_path / "agent")
+    out = cli.render_account(layout, "u1", {"skills_disabled": ["mine"]},
+                             {"timely_skills_dir": str(tmp_path), "seed_skills_dir": str(tmp_path),
+                              "browser_executable": "", "skills_default_off": []})
+    text = (Path(out["home"]) / "config.yaml").read_text()
+    disabled = json.loads(text[text.index("{"):])["skills"]["disabled"]
+    assert {"hermes-agent", "github", "mine"} <= set(disabled), disabled
+
+
 # ---------------------------------------------------------------- policy
 
 def test_messaging_and_blocked_names():

@@ -25,6 +25,7 @@ Both read an optional JSON object on stdin and print one JSON object on stdout (
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import sys
@@ -79,6 +80,17 @@ def effective_default_off(default_off: list[str], settings: dict[str, Any]) -> l
     """Reviewed bundled skills that are off by default stay off unless the person turned them on."""
     enabled = {str(s) for s in settings.get("skills_enabled") or []}
     return sorted({str(n) for n in default_off} - enabled)
+
+
+@functools.lru_cache(maxsize=1)
+def denied_skill_names() -> tuple[str, ...]:
+    """The denied bundled skills (Hermes-self, or needing a tool Timely never offers), always off:
+    a home seeded before they were denied keeps its copies. Nothing when the policy file is absent."""
+    try:
+        denied = seed.load_denied(seed.denied_file_for(paths.skills_reviewed_file()))
+        return tuple(seed.denied_bundled_names(denied, paths.hermes_dir() / "skills"))
+    except (OSError, ValueError):
+        return ()
 
 
 def _write_instance(layout: paths.AgentLayout) -> None:
@@ -167,7 +179,8 @@ def render_account(layout: paths.AgentLayout, account: str, settings: dict[str, 
     values ``hello`` carries in the worker. Never ``runtime/prepared.json``."""
     state = prepared
     default_off = effective_default_off(state["skills_default_off"], settings)
-    settings = {**settings, "skills_disabled": sorted({*(settings.get("skills_disabled") or []), *default_off})}
+    settings = {**settings, "skills_disabled": sorted({*(settings.get("skills_disabled") or []), *default_off,
+                                                       *denied_skill_names()})}
     out = config_render.render_account(
         layout, account, settings, timely_skills_dir=state["timely_skills_dir"],
         browser_executable=state.get("browser_executable", ""))
