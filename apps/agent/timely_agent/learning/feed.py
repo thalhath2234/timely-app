@@ -10,7 +10,9 @@ claim their ids, so a later diff skips them. A request claims only what it wrote
 entries new across the call with its own actor; its own memory delta): a chat's or a learning
 pass's write that lands meanwhile still reaches the next diff.
 
-A ledger entry names the conversation it came from (``evidence.session_id``, set by
+An applied change carries no summary: the apps name it from its kind, action and subject (a
+staged one carries a plain one-line summary of what would change). A ledger entry names the
+conversation it came from (``evidence.session_id``, set by
 ``skill_manage``); memory has no ledger, so a memory change is attributed to the run whose diff
 found it.
 """
@@ -88,14 +90,12 @@ def ledger_event(home: Path, entry: dict[str, Any], ctx: Context) -> Optional[di
         before=_skill_text(home, entry.get("before") or [], skill),
         after=_skill_text(home, entry.get("after") or [], skill),
         conversation_id=str(evidence.get("session_id") or ctx.conversation_id), run_id=ctx.run_id,
-        bot_id=ctx.bot_id, tainted_sources=ctx.tainted_sources, ledger_entry_id=str(entry.get("id")),
-        summary=f"skill '{skill}' {verb}")
+        bot_id=ctx.bot_id, tainted_sources=ctx.tainted_sources, ledger_entry_id=str(entry.get("id")))
 
 
 def memory_events(target: str, old: list[str], new: list[str], ctx: Context,
                   origin: Optional[str] = None) -> list[dict[str, Any]]:
     kind = "user" if target == "user" else "memory"
-    label = "About you" if target == "user" else "notes"
     removed = [e for e in old if e not in new]
     added = [e for e in new if e not in old]
     out = []
@@ -104,11 +104,11 @@ def memory_events(target: str, old: list[str], new: list[str], ctx: Context,
                   tainted_sources=ctx.tainted_sources)
     pairs = min(len(removed), len(added))
     for before, after in zip(removed[:pairs], added[:pairs], strict=True):
-        out.append(make_event(action="replaced", before=before, after=after, summary=f"{label} changed", **common))
+        out.append(make_event(action="replaced", before=before, after=after, **common))
     for after in added[pairs:]:
-        out.append(make_event(action="added", after=after, summary=f"{label}: added", **common))
+        out.append(make_event(action="added", after=after, **common))
     for before in removed[pairs:]:
-        out.append(make_event(action="removed", before=before, summary=f"{label}: removed", **common))
+        out.append(make_event(action="removed", before=before, **common))
     return out
 
 
