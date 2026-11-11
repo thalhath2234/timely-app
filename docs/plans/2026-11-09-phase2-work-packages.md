@@ -4,6 +4,7 @@
 - Plan: `docs/plans/2026-11-08-timely-agent-from-hermes.md` (called "the plan"), section 13 "Phase 2" and the sections it cites (2, 3.4, 5.1-5.8 incl. 5.5b, 6.x, 9b "learning writes off", 10.4 f tests 6 and 18, 12). ADRs 0007, 0008, 0009, 0020, 0026.
 - Phase 1 facts: `apps/agent/AGENTS.md`, `apps/agent/PROTOCOL.md`, `apps/agent/timely_agent/README.md`, `apps/api/internal/agenthost`.
 - Status (2026-11-09): all seven packages built and committed on `feature/hermes-phase2` (21 commits after this document's, 0213be94). The `verify` wave ran every suite green, resynced the TLA+ model and ran the end-to-end proof; the record is plan section 13, "Phase 2 status". Open: the 84-scenario parity run with a real model (pending the owner's key) and the flagged items below.
+- Update (2026-11-11): the owner chose Claude Code + Sonnet for the parity run, so no key is needed. The CLI model gateway of plan 5.7 was built for it (`provider/gateway.go`), and `AgentModel` now gives Claude Code and Codex runs a gateway endpoint; `ErrAgentEngineUnsupported` remains only for when the gateway is not running. Review rounds 1 and 2 and their fixes are in plan section 13, "Phase 2 status". Where this document says the live run waits for the owner's key, read: it runs on Claude Code.
 
 ## Binding owner answers used here
 
@@ -270,7 +271,7 @@ Contract copy (`packages/contract/src/agentChat.ts`, used by both apps): mode na
    - **`run.done`** → `finishTurn` (reply, or the recorded proposal held or applied per `proposalStatus`, Q-2.4 end-turn-then-apply); usage recorded; `agent_run_id` cleared.
    - **Stop** (`run.stop`, `interrupted` → today's stopped notice), **steer** (`run.steer`), **Forget** (`session.delete`).
    - **Lost-run rule** (plan 5.4, ADR 0008): `Lost` re-attaches when this process still follows the run; otherwise fails with Try again (`txtAgentLost`). `OnExit` fails every live run of a dead worker the same way.
-   - **Available**: `agenthost` availability, `ErrAgentEngineUnsupported` for CLI providers, Sensitive and photo phases.
+   - **Available**: `agenthost` availability, `ErrAgentEngineUnsupported` for CLI providers without the gateway (see the 2026-11-11 update), Sensitive and photo phases.
 2. **Wiring** in `cmd/main.go` / `cmd/agent_engine.go`: supervisor from `agenthost.ConfigFromEnv` with `TimelyTools` = `chat.AgentToolSpecs`, `Account` = rendered settings (toolsets, timezone, learning off; provider keys in `ToolKeys` only if `worker` reported auxiliary calls need env), `Handler`/`OnExit` to the engine, `Prepare` at start, shutdown before the database closes, `chatService.SetAgentEngine`. The API must start and serve classic exactly as before when the runtime is missing.
 3. **Recorded event fixtures**: run `make agent-record-fixtures OUT=apps/api/internal/features/chat/testdata/agent` and commit them.
 4. **Go unit tests mapping fixtures to conversation updates** (phase 2 verification): each fixture replayed through the follower yields the expected row (messages, status, activity lines, draft, tainted_sources, proposal held/applied).

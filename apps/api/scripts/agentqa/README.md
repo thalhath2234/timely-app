@@ -3,13 +3,18 @@
 Runs the agent QA scenarios on the classic engine, the agent engine or both, against a running Timely API, and writes what each chat did (plan section 13, phase 2: "parity within an agreed margin on the 84 scenarios").
 
 ```bash
+# The owner's choice: the API host's signed-in Claude Code CLI with Sonnet, no key.
+make agent-parity ENGINE=both PROVIDER=claude MODEL=sonnet \
+  SCENARIOS=apps/api/scripts/agentqa/scenarios.json OUT=<dir> [ONLY=tasks-01,docs]
+
+# An API-key provider instead:
 export TIMELY_PARITY_KEY=...    # the provider key, from your shell only; never .env, never a flag
 make agent-parity ENGINE=both PROVIDER=openrouter MODEL=<id> \
   SCENARIOS=apps/api/scripts/agentqa/scenarios.json OUT=<dir> [ONLY=tasks-01,docs]
 ```
 
 - The API is `TIMELY_API` (default `http://localhost:8081`, the worktree API). Never point it at `:8080`.
-- Each engine gets its own disposable account (`agentqa+<engine>-<n>@example.invalid`, so the API needs `ALLOW_REGISTRATION=true`) with a `Home` workspace, the provider connected with the key, the model as default, and Settings → Agent → Engine set to that engine. The key is sent once, to `POST /agent/providers/<id>/key`, and is never printed or written. An error that echoes it is scrubbed.
+- Each engine gets its own disposable account (`agentqa+<engine>-<n>@example.invalid`, so the API needs `ALLOW_REGISTRATION=true`) with a `Home` workspace, the provider connected (with the key, or for `claude` and `codex` with `POST /agent/providers/<id>/connect`, which checks the host's CLI login), the model as default, and Settings → Agent → Engine set to that engine. The key is sent once, to `POST /agent/providers/<id>/key`, and is never printed or written. An error that echoes it is scrubbed.
 - Each scenario: its setup requests (REST), a new chat (`POST /chats` with the scenario's time zone and `-permission`, default `supervised`), a wait for the run to end, then, when the scenario says `approve` and a proposal waits, its `between` requests (stale data) and Approve, and a second wait.
 - `ONLY` takes scenario ids or whole categories, comma-separated.
 
