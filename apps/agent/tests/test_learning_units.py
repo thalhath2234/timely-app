@@ -470,3 +470,71 @@ def test_learning_refusals_reach_the_person_in_plain_words():
         "timely is shipped with Timely and is read-only."
     assert plain.skill_failure("SKILL.md must start with a name and a description.") == \
         "SKILL.md must start with a name and a description."
+
+
+def _stand_in_write_approval(home, on_write=None):
+    """tools.write_approval as far as staging uses it: stage_write puts pending/<subsystem>/<id>.json."""
+    wa = types.ModuleType("tools.write_approval")
+    wa.SKILLS, wa.MEMORY = "skills", "memory"
+    wa.skill_gist = lambda action, name, **k: f"{action} {name}"
+
+    def stage_write(subsystem, payload, summary="", origin=""):
+        d = home / "pending" / subsystem
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "pend0001.json").write_text(json.dumps({"id": "pend0001", "summary": summary, "payload": payload}))
+        if on_write:
+            on_write()
+        return {"id": "pend0001"}
+
+    wa.stage_write = stage_write
+    return wa
+
+
+def test_a_staged_write_is_reported_once_even_when_another_chat_ends_meanwhile(tmp_path, monkeypatch):
+    from timely_agent.learning import staging
+    home = _home(tmp_path)
+    sent = []
+    f = feed.Feed(home, sent.append)
+    monkeypatch.setattr(feed, "_current", f)
+    other = []
+
+    def other_chat_ends():  # another chat's run ends between Hermes' pending file and the claim
+        t = threading.Thread(target=lambda: other.extend(f.diff(feed.Context(origin="chat", conversation_id="chat-OTHER",
+                                                                            run_id="run-O"))))
+        t.start()
+        t.join(0.3)
+        other_chat_ends.thread = t
+
+    monkeypatch.setitem(sys.modules, "tools", types.ModuleType("tools"))
+    monkeypatch.setitem(sys.modules, "tools.write_approval", _stand_in_write_approval(home, other_chat_ends))
+    staging.stage("skill_manage", {"action": "create", "name": "garden-tips", "content": "x"}, origin="chat",
+                  reason="tainted", conversation_id="chat-T", run_id="run-T", bot_id="",
+                  tainted_sources=[{"kind": "web"}], home=home)
+    other_chat_ends.thread.join(5)
+    staged = [m["event"] for m in sent if m["event"]["status"] == "staged"]
+    assert [(e["conversation_id"], e["pending_id"]) for e in staged] == [("chat-T", "pend0001")], staged
+    assert other == []
+
+
+def test_a_staged_skill_batch_names_each_change_and_shows_what_it_replaces(tmp_path):
+    from timely_agent.learning import staging
+    home = _home(tmp_path)
+    (home / "skills" / "weekly-review").mkdir(parents=True)
+    (home / "skills" / "weekly-review" / "SKILL.md").write_text("---\nname: weekly-review\n---\nOld steps")
+    payload = staging.skill_payload({"operations": [{"action": "create", "name": "garden-tips", "content": "new"},
+                                                    {"action": "edit", "name": "weekly-review", "content": "rewrite"}]})
+    assert staging.plain_summary("skill_manage", payload) == "Adds garden-tips; rewrites weekly-review"
+    assert staging._skill_verb(payload) == "patched"
+    assert staging._batch_before(home, payload) == "weekly-review:\n---\nname: weekly-review\n---\nOld steps"
+    only_new = staging.skill_payload({"operations": [{"action": "create", "name": "a", "content": "x"},
+                                                     {"action": "create", "name": "b", "content": "y"}]})
+    assert staging._skill_verb(only_new) == "created" and staging._batch_before(home, only_new) == ""
+
+
+def test_a_blocked_change_reads_plainly_in_activity(monkeypatch):
+    from timely_agent.learning import staging
+    monkeypatch.setattr(feed, "_current", None)
+    model_text = rules.THREAT_MESSAGE.format(reason="content matches threat pattern 'exfil'")
+    ev = staging.blocked_event("memory", {"action": "add", "target": "memory", "content": "x"}, origin="chat",
+                               message=model_text, conversation_id="c", run_id="r", bot_id="", tainted_sources=[])
+    assert ev["summary"] == staging.BLOCKED_SUMMARY and "Blocked" not in ev["summary"]

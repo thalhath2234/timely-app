@@ -150,7 +150,7 @@ def decide(tool: str, args: dict[str, Any], *, learning_writes: bool, tainted: b
     for text in write_texts(args):
         hit = threat(text)
         if hit:
-            return Decision(BLOCK, "threat", THREAT_MESSAGE.format(reason=str(hit)[:200]))
+            return Decision(BLOCK, "threat", THREAT_MESSAGE.format(reason=str(hit).removeprefix("Blocked: ")[:200]))
     if tainted:
         return Decision(STAGE, "tainted", STAGED_MESSAGE)
     if from_bot or kind in BOT_KINDS:

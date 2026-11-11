@@ -219,6 +219,9 @@ def test_pending_keep_and_discard(la, lw, stub):
     first = listed[staged[0]["pending_id"]]
     assert first["kind"] == "skill" and first["origin"] == "chat" and first["conversation_id"] == "c-lw-p"
     assert "Sort it." in first["diff"] and first["action"] == "created", first
+    # a new skill's diff is a unified diff, every line added (the frontmatter's --- included)
+    assert first["diff"].startswith("--- /dev/null\n+++ lw-pending-0/SKILL.md\n@@"), first["diff"]
+    assert "\n+---\n" in first["diff"] and "\n+2. Sort it.\n" in first["diff"], first["diff"]
     # why it waits, and when (RFC 3339, as the apps read it; Hermes keeps epoch seconds)
     assert first["reason"] == "tainted" and first["tainted_sources"] == taint, first
     assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", first["created_at"]), first

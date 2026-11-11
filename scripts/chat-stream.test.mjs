@@ -418,6 +418,16 @@ describe("Settings: What Timely learned and web search", () => {
       { kind: "add", text: "new step" },
     ]);
     assert.deepEqual(diffRows(""), []);
+    // a new skill: every line added, its frontmatter's --- lines included
+    assert.deepEqual(diffRows("--- /dev/null\n+++ tips/SKILL.md\n@@ -0,0 +1,3 @@\n+---\n+name: tips\n+---\n"), [
+      { kind: "file", text: "--- /dev/null" },
+      { kind: "file", text: "+++ tips/SKILL.md" },
+      { kind: "hunk", text: "@@ -0,0 +1,3 @@" },
+      { kind: "add", text: "---" },
+      { kind: "add", text: "name: tips" },
+      { kind: "add", text: "---" },
+    ]);
+    assert.deepEqual(diffRows("@@ -1 +1 @@\n----\n++++\n").map((r) => r.kind), ["hunk", "remove", "add"]);
   });
 
   test("a skill's provenance is its creating event: a chat link, or you", () => {

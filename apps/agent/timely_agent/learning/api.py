@@ -599,6 +599,12 @@ def _meta(home: Path, pending_id: str) -> dict[str, Any]:
 def _pending_diff(subsystem: str, record: dict[str, Any]) -> str:
     if subsystem == "skills":
         from tools.write_approval import skill_pending_diff
+        payload = record.get("payload") or {}
+        if payload.get("action") == "create" and isinstance(payload.get("content"), str):
+            # Hermes gives a new skill's raw text; the apps read a unified diff (all lines added)
+            name = str(payload.get("name") or "skill")
+            return "".join(difflib.unified_diff([], payload["content"].splitlines(keepends=True),
+                                                fromfile="/dev/null", tofile=f"{name}/SKILL.md"))
         try:
             return skill_pending_diff(record)
         except Exception as exc:

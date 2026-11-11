@@ -60,9 +60,13 @@ export type DiffRow = {
 /** Splits a unified diff into rows; the file headers are kept apart. */
 export function diffRows(diff: string): DiffRow[] {
   const rows: DiffRow[] = [];
-  for (const line of diff.replace(/\r\n?/g, "\n").split("\n")) {
-    if (line.startsWith("+++") || line.startsWith("---"))
-      rows.push({ kind: "file", text: line });
+  const lines = diff.replace(/\r\n?/g, "\n").split("\n");
+  for (const [i, line] of lines.entries()) {
+    // File headers come in a ---/+++ pair; a lone "---" is a removed or added line (a skill's frontmatter).
+    const header =
+      (line.startsWith("--- ") && lines[i + 1]?.startsWith("+++ ")) ||
+      (line.startsWith("+++ ") && lines[i - 1]?.startsWith("--- "));
+    if (header) rows.push({ kind: "file", text: line });
     else if (line.startsWith("@@")) rows.push({ kind: "hunk", text: line });
     else if (line.startsWith("+"))
       rows.push({ kind: "add", text: line.slice(1) });

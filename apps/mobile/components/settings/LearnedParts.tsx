@@ -88,8 +88,12 @@ export function DiffBlock({ text, testID }: { text: string; testID?: string }) {
   return (
     <View style={styles.diff} testID={testID}>
       {lines.map((line, i) => {
-        const added = line.startsWith("+") && !line.startsWith("+++");
-        const removed = line.startsWith("-") && !line.startsWith("---");
+        // file headers come in a ---/+++ pair; a lone "---" is a changed line (a skill's frontmatter)
+        const header =
+          (line.startsWith("--- ") && lines[i + 1]?.startsWith("+++ ")) ||
+          (line.startsWith("+++ ") && lines[i - 1]?.startsWith("--- "));
+        const added = line.startsWith("+") && !header;
+        const removed = line.startsWith("-") && !header;
         return (
           <Text
             key={i}
