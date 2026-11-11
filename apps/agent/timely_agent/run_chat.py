@@ -355,7 +355,8 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
     session_key = str(msg.get("session_key") or f"timely:{conversation}")
     done: dict[str, Any] = {"final_response": "", "completed": False, "interrupted": False,
                             "turn_exit_reason": "", "tokens": {}, "estimated_cost_usd": None,
-                            "turn_id": None, "tainted_sources": [], "history_seeded": False}
+                            "turn_id": None, "tainted_sources": [], "history_seeded": False,
+                            "pending_steer": ""}
     key_token = var_tokens = scope_token = None
     sink = DeltaCoalescer(emit)
     ctx = bridge.RunContext(
@@ -405,6 +406,9 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
             turn_exit_reason=str(result.get("turn_exit_reason") or ""),
             tokens={k: max(0, after[k] - before[k]) for k in TOKEN_KEYS},
             turn_id=result.get("turn_id"),
+            # A steer sent while the last reply streamed, which no tool batch took in: Go makes it
+            # the person's next turn.
+            pending_steer=str(result.get("pending_steer") or ""),
         )
         if ctx.end_turn_hit and not run.stop_reason:
             # timely_gate ended the turn on a tool call after a recorded proposal (Q-2.4): that is

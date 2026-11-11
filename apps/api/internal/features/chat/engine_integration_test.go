@@ -595,6 +595,43 @@ func TestIntegrationAgentEngineSteerReachesTheWorker(t *testing.T) {
 	}
 }
 
+// A steer that lands while the model streams its last reply has no tool
+// batch to join; Hermes hands it back as pending_steer, and it becomes the
+// person's next turn instead of being lost.
+func TestIntegrationAgentEngineLeftoverSteerRunsNext(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Plan my week", "supervised", "late-steer", lines(
+		reply("Here is your week", 0),
+		pause(2500),
+		obj{"type": "run.done", "final_response": "Here is your week", "completed": true, "interrupted": false,
+			"turn_exit_reason": "text_response", "tokens": obj{}, "estimated_cost_usd": nil, "turn_id": "",
+			"tainted_sources": []any{}, "pending_steer": "also add eggs"},
+	))
+	c = h.wait(c.ID, "started", func(c Conversation) bool { return c.Activity.Draft == "Here is your week" })
+	if code, body := h.post("/chats/"+c.ID+"/steer", `{"text":"also add eggs"}`); code != 200 {
+		t.Fatalf("steer: %d %s", code, body)
+	}
+	starts := h.kit.WaitReceived("run.start", 2, 20*time.Second)
+	var start struct {
+		UserMessage string `json:"user_message"`
+	}
+	if err := starts[1].Decode(&start); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(start.UserMessage, "also add eggs\n\n") {
+		t.Fatalf("next run.start message %q", start.UserMessage)
+	}
+	c = h.wait(c.ID, "answered the steer", func(c Conversation) bool { return c.Status == "idle" && len(c.Messages) >= 4 })
+	var got []string
+	for _, m := range c.Messages {
+		got = append(got, m.Role+":"+m.Kind+":"+m.Content)
+	}
+	want := []string{"user::Plan my week", "assistant::Here is your week", "user::also add eggs", "assistant::Here is your week"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("messages %q", got)
+	}
+}
+
 // A worker that dies mid-run fails the run with Try again.
 func TestIntegrationAgentEngineWorkerCrashOffersTryAgain(t *testing.T) {
 	h := newEngineHarness(t)

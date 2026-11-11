@@ -497,6 +497,24 @@ def test_steer_reaches_a_run_waiting_on_a_timely_tool(tagent, tworker, stub):
     assert "Steered: " in done["final_response"] and "STEER also add eggs" in done["final_response"], done
 
 
+def test_steer_during_the_last_reply_comes_back_as_pending_steer(tagent, tworker, stub):
+    """A steer that lands while the final reply streams has no tool batch to join: run.done hands
+    it back so Go can make it the next turn."""
+    sent = []
+
+    def on_message(msg):
+        if msg["type"] == "event" and msg.get("kind") == "delta" and not sent:
+            sent.append(1)
+            tworker.send({"type": "run.steer", "id": "go-late-steer", "account": tagent.account,
+                          "run": "w-late-steer", "text": "also add eggs"})
+    tworker.send(_phase2_start(tagent, stub, "w-late-steer", _script(
+        {"text": "Here is your week, planned day by day.", "stream": [2, 60]})))
+    done, seen = harness.drive(tworker, tagent.account, "w-late-steer", on_message=on_message)
+    assert sent and any(m["type"] == "ack" and m["id"] == "go-late-steer" and m["ok"] for m in seen), seen
+    assert done["pending_steer"] == "also add eggs", done
+    assert done["completed"] is True and done["interrupted"] is False, done
+
+
 def test_stop_while_a_timely_tool_waits_on_go_ends_the_run(tagent, tworker, stub):
     """Go never answers the ``tool.call``; ``run.stop`` wakes the waiting call at once."""
     import time

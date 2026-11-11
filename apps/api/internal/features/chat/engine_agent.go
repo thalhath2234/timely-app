@@ -862,6 +862,9 @@ type runDone struct {
 	Cost        *float64       `json:"estimated_cost_usd"`
 	Tainted     []TaintSource  `json:"tainted_sources"`
 	Seeded      bool           `json:"history_seeded"`
+	// PendingSteer is what the person sent while the last reply streamed,
+	// which no tool batch took in (Hermes' pending_steer).
+	PendingSteer string `json:"pending_steer"`
 }
 
 // done ends the turn: the reply, or the recorded proposal held or applied
@@ -900,9 +903,15 @@ func (e *WorkerEngine) done(r *agentRun, m agenthost.Message) {
 		r.mu.Lock()
 		r.conv.Lease = r.lease
 		r.mu.Unlock()
-		if err := e.s.finishTurn(context.Background(), &r.conv, final, r.pending, r.tools); err != nil && !fenced(err) {
+		err := e.s.finishTurn(context.Background(), &r.conv, final, r.pending, r.tools)
+		if err != nil && !fenced(err) {
 			e.opts.Logf("agent engine: finishing run %s: %v", r.id, err)
 			e.fail(r, runFailedUnsaved, ActionRetry)
+		}
+		if err == nil && strings.TrimSpace(d.PendingSteer) != "" {
+			if err := e.s.leftoverSteer(context.Background(), r.uid, r.cid, d.PendingSteer); err != nil && !fenced(err) {
+				e.opts.Logf("agent engine: run %s leftover steer: %v", r.id, err)
+			}
 		}
 	}
 }

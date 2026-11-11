@@ -865,6 +865,61 @@ func (s *Service) steer(c *echo.Context) error {
 	return c.JSON(200, row)
 }
 
+// leftoverSteer makes the steering messages a finished run never read (sent
+// while its last reply streamed, Hermes' pending_steer) the person's next
+// turn: they move after the reply as ordinary messages, and an idle chat
+// runs them. text is the newline join of those messages, the last ones the
+// run was sent; text that matches none is left alone.
+func (s *Service) leftoverSteer(ctx context.Context, uid, cid, text string) error {
+	text = strings.TrimSpace(text)
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row Conversation
+		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), uid, cid, &row); err != nil {
+			return err
+		}
+		var steers []int
+		matched := false
+		for i := len(row.Messages) - 1; i >= 0 && !matched; i-- {
+			m := row.Messages[i]
+			if m.Role == "user" && m.Kind == "" {
+				break // the run's own request: older steers belong to earlier runs
+			}
+			if m.Kind != "steer" {
+				continue
+			}
+			steers = append([]int{i}, steers...)
+			parts := make([]string, len(steers))
+			for j, k := range steers {
+				parts[j] = row.Messages[k].Content
+			}
+			matched = strings.TrimSpace(strings.Join(parts, "\n")) == text
+		}
+		if !matched {
+			return nil
+		}
+		moved := make([]Message, 0, len(steers))
+		kept := make([]Message, 0, len(row.Messages))
+		next := 0
+		for i, m := range row.Messages {
+			if next < len(steers) && steers[next] == i {
+				m.Kind = ""
+				moved = append(moved, m)
+				next++
+				continue
+			}
+			kept = append(kept, m)
+		}
+		row.Messages = append(kept, moved...)
+		if row.Status == "idle" {
+			row.Status = "queued"
+			row.Phase = "plan"
+			row.Error = ""
+		}
+		row.Revision++
+		return tx.Save(&row).Error
+	})
+}
+
 func notify(tx *gorm.DB, c *Conversation, body string) error {
 	c.Unread = true
 	kind := "chat"
