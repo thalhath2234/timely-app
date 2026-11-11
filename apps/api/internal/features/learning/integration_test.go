@@ -843,3 +843,34 @@ func TestIntegrationSettingsAndNoRuntime(t *testing.T) {
 		t.Fatalf("disable without a worker: %d", code)
 	}
 }
+
+// The chat chip undoes a turn's changes newest first (learningChip): a
+// skill created and then patched in one turn comes back 200 twice, with no
+// "Already undone" in between. Oldest first, the create's rollback takes the
+// patch back too, so its own Undo answers 409 Already undone (which the apps
+// read as done).
+func TestIntegrationChipUndoOfCreateThenPatch(t *testing.T) {
+	r := newRig(t)
+	a := addUser(t, r.db)
+	r.kit.LearningReply("learning.rollback", map[string]any{"ok": true})
+	seedTurn := func(run string) (Event, Event) {
+		created := r.seed(a, map[string]any{"id": run + "-c", "kind": "skill", "action": "created", "subject": "aisles-" + run, "status": "applied", "ledger_entry_id": run + "-l1", "run_id": run})
+		time.Sleep(5 * time.Millisecond)
+		patched := r.seed(a, map[string]any{"id": run + "-p", "kind": "skill", "action": "patched", "subject": "aisles-" + run, "status": "applied", "ledger_entry_id": run + "-l2", "run_id": run})
+		return created, patched
+	}
+	created, patched := seedTurn("run-1")
+	for _, ev := range []Event{patched, created} {
+		if code, body, _ := r.call(a, http.MethodPost, "/agent/learning/events/"+ev.ID+"/undo", nil); code != http.StatusOK {
+			t.Fatalf("undo %s newest first: %d %v", ev.Action, code, body)
+		}
+	}
+	created, patched = seedTurn("run-2")
+	if code, _, _ := r.call(a, http.MethodPost, "/agent/learning/events/"+created.ID+"/undo", nil); code != http.StatusOK {
+		t.Fatalf("undo created: %d", code)
+	}
+	code, body, _ := r.call(a, http.MethodPost, "/agent/learning/events/"+patched.ID+"/undo", nil)
+	if code != http.StatusConflict || body["message"] != "Already undone" {
+		t.Fatalf("undo of a change the earlier rollback took back: %d %v", code, body)
+	}
+}

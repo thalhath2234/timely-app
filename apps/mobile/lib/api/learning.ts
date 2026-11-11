@@ -8,7 +8,8 @@ import type {
   MemoryView,
   PendingItem,
 } from "@timely/contract/agentLearning";
-import { api } from "./client";
+import { ALREADY_UNDONE } from "@timely/contract/agentLearning";
+import { api, ApiError } from "./client";
 import { isOffline } from "../networkState";
 
 /**
@@ -42,8 +43,15 @@ export function getLearningEvents(params: { conversationId?: string; status?: st
 }
 
 /** Takes a change back: a skill through its ledger, a memory entry to what it was. */
-export const undoLearning = (eventId: string) =>
-  write<{ event: LearningEvent; result: unknown }>(`/agent/learning/events/${encodeURIComponent(eventId)}/undo`, "POST");
+/** Undo one change. One a later Undo already took back (the same skill's newer change) is done, not an error: null. */
+export async function undoLearning(eventId: string): Promise<{ event: LearningEvent; result: unknown } | null> {
+  try {
+    return await write<{ event: LearningEvent; result: unknown }>(`/agent/learning/events/${encodeURIComponent(eventId)}/undo`, "POST");
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 409 && err.message === ALREADY_UNDONE) return null;
+    throw err;
+  }
+}
 
 export const getLearnedSkills = () => api<LearnedSkillsResponse>("/agent/learning/skills");
 

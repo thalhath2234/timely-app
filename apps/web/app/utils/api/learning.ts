@@ -12,6 +12,7 @@ import type {
   UpstreamCompare,
   UpstreamSkill,
 } from "@timely/contract/agentLearning";
+import { ALREADY_UNDONE } from "@timely/contract/agentLearning";
 import { apiFetch } from "./client";
 import { downloadPortable } from "./portability";
 
@@ -71,8 +72,16 @@ export async function listLearningEvents(
 /** What undo and Keep / Discard answer: the event as it is now. */
 export type DecidedEvent = { event: LearningEvent; result: unknown };
 
-export const undoLearningEvent = (id: string) =>
-  learningRequest<DecidedEvent>(`/events/${encodeURIComponent(id)}/undo`, "POST");
+/** Undo one change. One a later Undo already took back (the same skill's
+ * newer change) is done, not an error: null. */
+export async function undoLearningEvent(id: string): Promise<DecidedEvent | null> {
+  try {
+    return await learningRequest<DecidedEvent>(`/events/${encodeURIComponent(id)}/undo`, "POST");
+  } catch (err) {
+    if (err instanceof Error && err.message === ALREADY_UNDONE) return null;
+    throw err;
+  }
+}
 
 export async function listLearnedSkills(): Promise<LearnedSkill[]> {
   const data = await learningRequest<{ skills?: LearnedSkill[] }>("/skills");

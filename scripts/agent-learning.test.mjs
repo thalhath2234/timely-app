@@ -78,8 +78,15 @@ describe("learningChip", () => {
     assert.equal(chip.note, NEXT_CHAT_NOTE);
     assert.deepEqual(
       chip.eventIds,
-      events.map((e) => e.id),
+      events.map((e) => e.id).reverse(),
     );
+  });
+
+  test("Undo takes a turn's changes back newest first (a skill created, then patched)", () => {
+    const created = ev({ action: "created", createdAt: "2026-11-11T10:00:00Z" });
+    const patched = ev({ action: "patched", createdAt: "2026-11-11T10:00:05Z" });
+    const chip = learningChip(eventsForRun([patched, created], created.runId));
+    assert.deepEqual(chip.eventIds, [patched.id, created.id]);
   });
 
   test("staged and blocked changes stay off the chip; kept ones are on it", () => {

@@ -224,6 +224,10 @@ export const NEVER_ARCHIVES =
   "Timely never archives skills on its own. Skills you have not used for a while are marked unused.";
 /** Memory is frozen into a chat when it starts. */
 export const NEXT_CHAT_NOTE = "applies from your next chat";
+/** The server's answer to an Undo of a change already taken back (a later
+ * Undo of the same skill took it back too): the change is undone, so the
+ * apps read it as done, not as an error. */
+export const ALREADY_UNDONE = "Already undone";
 export const DOWNLOAD_LEARNED = "Download what Timely learned";
 /** The account switch, the same words on every device. */
 export const LEARN_SWITCH = "Learn from chats";
@@ -297,7 +301,9 @@ export type LearningChip = {
   note: string | null;
   /** The buttons, in order: View opens the first change in Settings, Undo takes back every live one. */
   actions: ("View" | "Undo")[];
-  /** The events View opens and Undo takes back. */
+  /** The events Undo takes back, newest first: undoing a skill's change also
+   * takes back that skill's later changes (the rollback writes the skill as
+   * it was), so the newest go first and none is already undone when asked. */
   eventIds: string[];
   /** The first live change, for View. */
   view: { kind: LearningKind; subject: string } | null;
@@ -339,7 +345,7 @@ export function learningChip(events: LearningEvent[]): LearningChip | null {
     label,
     note,
     actions,
-    eventIds: live.map((ev) => ev.id),
+    eventIds: live.map((ev) => ev.id).reverse(),
     view: { kind: first.kind, subject: first.subject },
     text,
   };
