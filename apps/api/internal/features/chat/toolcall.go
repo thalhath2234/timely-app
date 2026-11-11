@@ -135,7 +135,7 @@ func (s *Service) toolCall(ctx context.Context, c *Conversation, run *toolRun, n
 	web := run.web.on && webTools[name]
 	if web && name == "web_search" {
 		// The agent engine's timely web backend (web.go).
-		result, outside, err = s.webSearch(ctx, run, args)
+		result, outside, err = s.webSearch(ctx, c, run, args)
 	} else if web {
 		result, outside, err = s.webExtract(ctx, c, run, args)
 	} else if name == "web_search" && run.searchOn {
@@ -348,24 +348,41 @@ func imageNotice(review *ImageReview) string {
 // the per-turn context classic sends after the stored conversation (the
 // clock, attached context, the current get_context result, a tag notice).
 // The stable Timely block is the system part; this is everything that
-// changes from one message to the next.
-func (s *Service) turnInput(ctx context.Context, c *Conversation) string {
+// changes from one message to the next. private are Timely's parts of it
+// but the clock: the person's data the worker's exfiltration rule keeps from
+// leaving a tainted chat (run.start.private_context). The person's own
+// words are not in it: "search for X" stays a search for X.
+func (s *Service) turnInput(ctx context.Context, c *Conversation) (input string, private []string) {
 	ctx, loc, source := s.zoned(ctx, c)
 	catalog := s.factory(s.db.WithContext(ctx))
-	parts := []string{}
-	if c.ImageReview != nil {
-		parts = append(parts, imageNotice(c.ImageReview))
+	parts, private := []string{}, []string{}
+	add := func(part string, isPrivate bool) {
+		parts = append(parts, part)
+		if isPrivate {
+			private = append(private, part)
+		}
 	}
-	parts = append(parts, sinceLastTurn(c.Messages)...)
-	parts = append(parts, timeNotice(time.Now(), loc, source))
-	parts = append(parts, chipsNotice(c.Context, s.unneededChips(ctx, c)))
+	if c.ImageReview != nil {
+		add(imageNotice(c.ImageReview), true)
+	}
+	own := map[string]bool{}
+	for _, m := range c.Messages {
+		if m.Role == "user" {
+			own[m.Content] = true
+		}
+	}
+	for _, part := range sinceLastTurn(c.Messages) {
+		add(part, !own[part])
+	}
+	add(timeNotice(time.Now(), loc, source), false)
+	add(chipsNotice(c.Context, s.unneededChips(ctx, c)), true)
 	if current := s.currentContext(ctx, catalog, c.UserID, loc); current != "" {
-		parts = append(parts, current)
+		add(current, true)
 	}
 	if tags := latestTags(c); len(tags) > 0 {
-		parts = append(parts, s.tagNotice(ctx, c.UserID, tags))
+		add(s.tagNotice(ctx, c.UserID, tags), true)
 	}
-	return strings.Join(parts, "\n\n")
+	return strings.Join(parts, "\n\n"), private
 }
 
 // cutNotice introduces a reply Stop cut short.

@@ -58,7 +58,10 @@ type runStartFields struct {
 	} `json:"flags"`
 	TaintedConversations []string `json:"tainted_conversations"`
 	SearchExclude        []string `json:"search_exclude"`
+	SearchAllow          []string `json:"search_allow"`
 	PersonHosts          []string `json:"person_hosts"`
+	UserMessage          string   `json:"user_message"`
+	PrivateContext       []string `json:"private_context"`
 }
 
 func (h *engineHarness) runStart(cid string) runStartFields {
@@ -90,6 +93,7 @@ func TestIntegrationAgentEngineRunStartCarriesLearningAndWeb(t *testing.T) {
 		c.TaintedSources = TaintSources{{Kind: "web", Tool: "web_extract", Host: "example.net"}}
 	})
 	quiet := h.idleChat(func(c *Conversation) { c.NoLearning = true })
+	private := h.idleChat(func(c *Conversation) { c.Sensitive = true })
 	clean := h.idleChat(func(*Conversation) {})
 	c := h.chatWith("Compare https://shop.example.org/p and news.example.com for me", "supervised", "flags", lines(reply("Done.", 0)),
 		func(c *Conversation) { c.WebSearch = true })
@@ -110,6 +114,29 @@ func TestIntegrationAgentEngineRunStartCarriesLearningAndWeb(t *testing.T) {
 	}
 	if !slices.Equal(start.PersonHosts, []string{"news.example.com", "shop.example.org"}) {
 		t.Fatalf("person_hosts %v", start.PersonHosts)
+	}
+	// Past-chat search may return the account's chats only, never a
+	// Sensitive or "Don't learn" one: a session state.db holds without a
+	// chat (restored, deleted) is not on the list, so it is never a hit.
+	allow := slices.Clone(start.SearchAllow)
+	slices.Sort(allow)
+	want := []string{tainted.ID, clean.ID, c.ID}
+	slices.Sort(want)
+	if !slices.Equal(allow, want) || slices.Contains(allow, quiet.ID) || slices.Contains(allow, private.ID) {
+		t.Fatalf("search_allow %v, want %v", start.SearchAllow, want)
+	}
+	// private_context is Timely's part of the message (attached context,
+	// get_context), never the person's own words.
+	if len(start.PrivateContext) == 0 {
+		t.Fatal("run.start has no private_context")
+	}
+	for _, part := range start.PrivateContext {
+		if strings.Contains(part, "Compare https://shop.example.org/p") || strings.HasPrefix(part, "System notice (not written by the user):\nCurrent UTC time") {
+			t.Fatalf("private_context carries %q", part)
+		}
+		if !strings.Contains(start.UserMessage, part) {
+			t.Fatalf("private part %q is not in user_message", part)
+		}
 	}
 	var block struct {
 		SystemText string `json:"system_text"`
@@ -389,6 +416,8 @@ func TestIntegrationAgentEngineWebExtractSecondLine(t *testing.T) {
 		extract("x4", "https://found.example.net/a"),
 		extract("x5", "https://found.example.net/b"),
 		extract("x6", "https://found.example.net/b?q=secret"),
+		extract("x7", "https://found.example.net/"),
+		extract("x8", "https://typed.example.com/log/ivf-consult-okonkwo"),
 		reply("Done.", 0),
 	), func(c *Conversation) { c.WebSearch = true })
 	h.wait(c.ID, "replied", statusIs("idle"))
@@ -406,11 +435,14 @@ func TestIntegrationAgentEngineWebExtractSecondLine(t *testing.T) {
 		}
 		pageErrors = append(pageErrors, body.Pages[0].Error)
 	}
-	want := []string{notPublic, "", pasteLink, "", "", pasteLink}
+	// After taint a path no search returned and the person did not type
+	// could carry their data to the site: only front pages and exact
+	// results open.
+	want := []string{notPublic, "", pasteLink, "", pasteLink, pasteLink, "", pasteLink}
 	if !slices.Equal(pageErrors, want) {
 		t.Fatalf("page errors\n%q\nwant\n%q", pageErrors, want)
 	}
-	if !slices.Equal(fetched, []string{"https://typed.example.com/", "https://found.example.net/a", "https://found.example.net/b"}) {
+	if !slices.Equal(fetched, []string{"https://typed.example.com/", "https://found.example.net/a", "https://found.example.net/"}) {
 		t.Fatalf("fetched %q", fetched)
 	}
 }

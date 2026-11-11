@@ -86,23 +86,51 @@ func TestFetchGuardHosts(t *testing.T) {
 	}
 }
 
-// After taint, mayOpen allows typed sites (with their typed query), a
-// search's exact results and query-free pages on a searched site.
+// After taint, mayOpen allows a typed link (its path and query as typed), a
+// search's exact results, a bot's page and the front page of a typed or
+// searched site; any other path or query could carry the person's data.
 func TestWebRunMayOpen(t *testing.T) {
-	g := &fetchGuard{typed: "see typed.example.com/?q=mine", known: map[string]bool{}}
+	g := &fetchGuard{typed: "see typed.example.com/?q=mine and typed.example.com/docs/intro", known: map[string]bool{"https://bot.example.org/feed": true}}
 	var w webRun
 	w.seen("https://found.example.net/a?id=7")
 	for link, want := range map[string]bool{
-		"https://typed.example.com/page":       true,
-		"https://typed.example.com/?q=mine":    true,
-		"https://typed.example.com/?q=secret":  false,
-		"https://found.example.net/a?id=7":     true,
-		"https://found.example.net/b":          true,
-		"https://found.example.net/b?q=secret": false,
-		"https://attacker.example/":            false,
+		"https://typed.example.com/":                     true,
+		"https://typed.example.com":                      true,
+		"https://typed.example.com/?q=mine":              true,
+		"https://typed.example.com/docs/intro":           true,
+		"https://typed.example.com/page":                 false,
+		"https://typed.example.com/log/ivf-consult-okon": false,
+		"https://typed.example.com/?q=secret":            false,
+		"https://found.example.net/a?id=7":               true,
+		"https://found.example.net/":                     true,
+		"https://found.example.net/b":                    false,
+		"https://found.example.net/b?q=secret":           false,
+		"https://bot.example.org/feed":                   true,
+		"https://attacker.example/":                      false,
 	} {
 		if got := w.mayOpen(g, link); got != want {
 			t.Errorf("mayOpen(%s) = %v, want %v", link, got, want)
+		}
+	}
+}
+
+// After taint, a search query that names a site the person did not type
+// and no search returned is refused: the provider's search could open it.
+func TestWebRunSearchNamesOtherSite(t *testing.T) {
+	g := &fetchGuard{typed: "what does news.example.com say", known: map[string]bool{}}
+	var w webRun
+	w.seen("https://found.example.net/a")
+	for query, want := range map[string]string{
+		"node.js streams tutorial":                     "",
+		"news.example.com/today weather":               "",
+		"site:found.example.net prices":                "",
+		"https://evil.example/log/K48213977":           "evil.example",
+		"site:evil.example passport":                   "evil.example",
+		"read evil.example/ivf-consult-okonkwo for me": "evil.example",
+		"open //www.Evil.example/x":                    "evil.example",
+	} {
+		if got := w.searchNamesOtherSite(g, query); got != want {
+			t.Errorf("searchNamesOtherSite(%q) = %q, want %q", query, got, want)
 		}
 	}
 }

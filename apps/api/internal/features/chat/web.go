@@ -240,7 +240,7 @@ func searchResults(answer WireMessage, limit int) []webResult {
 // webSearch is the timely backend's web_search: the chat provider's own
 // search, within classic's caps (maxSearches a run, maxSearchFailures
 // failures). Its sources become pages this run may open after taint.
-func (s *Service) webSearch(ctx context.Context, run *toolRun, args json.RawMessage) (result any, outside bool, err error) {
+func (s *Service) webSearch(ctx context.Context, c *Conversation, run *toolRun, args json.RawMessage) (result any, outside bool, err error) {
 	if !canSearch(ctx) {
 		return nil, false, errors.New(needsSearchKey)
 	}
@@ -250,6 +250,13 @@ func (s *Service) webSearch(ctx context.Context, run *toolRun, args json.RawMess
 	}
 	if json.Unmarshal(args, &in) != nil || len(strings.TrimSpace(in.Query)) == 0 || len(in.Query) >= 2000 {
 		return nil, false, errors.New("Invalid search query: write the words to search for")
+	}
+	if run.tainted() {
+		if run.web.searchNamesOtherSite(s.fetchGuard(ctx, c), in.Query) != "" {
+			// Second line of the worker's rule: the query could have the
+			// provider open a page that carries the person's data.
+			return nil, false, errors.New(pasteLink)
+		}
 	}
 	answer, err := s.runSearch(ctx, run, strings.TrimSpace(in.Query))
 	if err != nil {
@@ -374,17 +381,53 @@ func (w *webRun) seen(link string) {
 	}
 }
 
-// mayOpen is whether a tainted run may read raw: the person typed its site
-// (and any query string) or one of their bots reads it, a search of this run
-// returned it, or it is a page without a query string on a site a search
-// returned.
+// mayOpen is whether a tainted run may read raw: one of their bots reads
+// it, a search of this run returned it word for word, the person typed it
+// (its site and path, and any query string), or it is the front page of a
+// site the person typed or a search returned. Any other path or query could
+// carry the person's data to the site (plan 8.1, 12).
 func (w *webRun) mayOpen(guard *fetchGuard, raw string) bool {
-	if guard.allowsURL(raw) || w.results[raw] {
+	raw = strings.TrimSpace(raw)
+	if w.results[raw] || guard.known[strings.ToLower(raw)] {
 		return true
 	}
 	u, err := url.Parse(raw)
-	return err == nil && u.RawQuery == "" && w.hosts[hostOf(raw)]
+	if err != nil || u.Hostname() == "" {
+		return false
+	}
+	host := hostOf(raw)
+	typed := guard.typedHost(host)
+	if !typed && !w.hosts[host] {
+		return false
+	}
+	if u.RawQuery != "" && !(typed && strings.Contains(guard.typed, strings.ToLower(u.RawQuery))) {
+		return false
+	}
+	if p := strings.TrimSuffix(u.EscapedPath(), "/"); p == "" {
+		return true
+	}
+	return typed && (strings.Contains(guard.typed, strings.ToLower(host+u.EscapedPath())) ||
+		strings.Contains(guard.typed, strings.ToLower(host+u.Path)))
 }
+
+// searchNamesOtherSite is the first site a tainted run's search query names
+// (a link, site:host, or a name with a path) that the person did not type
+// and no search of this run returned: a provider's own search may open what
+// a query names. "" when there is none.
+func (w *webRun) searchNamesOtherSite(guard *fetchGuard, query string) string {
+	for _, m := range hostRef.FindAllStringSubmatch(query, -1) {
+		host := m[1] + m[2]
+		host = strings.TrimPrefix(strings.TrimSuffix(strings.ToLower(host), "."), "www.")
+		if host != "" && !guard.typedHost(host) && !w.hosts[host] {
+			return host
+		}
+	}
+	return ""
+}
+
+// hostRef finds the sites a search query names so that a search could open
+// them, as the worker's egress.query_hosts does.
+var hostRef = regexp.MustCompile(`(?i)(?:[a-z][a-z0-9+.-]*://|//|\bsite:)((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24})|\b((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24})(?::\d+)?/`)
 
 // takeTaint hands over the web sources read since the last call.
 func (w *webRun) takeTaint() []TaintSource {

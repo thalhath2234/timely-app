@@ -323,18 +323,24 @@ def learning_plugin(monkeypatch):
 def test_search_hook_adds_excluded_chats_and_refuses_them(learning_plugin):
     tl = learning_plugin
     state = bridge.bind_session("conv-q", flags={"learning_writes": True, "search_history": True},
-                                search_exclude=["priv-1", "priv-2"], tainted_conversations=["dirty"])
+                                search_exclude=["priv-1", "priv-2"], tainted_conversations=["dirty"],
+                                search_allow=["dirty", "ok", "conv-q"])
     token = bridge.current_run.set(bridge.RunContext(run_id="r", session_key="k", conversation_id="conv-q", session=state))
     try:
         mod = tl.pre_tool_call(tool_name="session_search", args={"query": "x", "exclude_session_ids": ["mine"]})
         assert mod == {"action": "modify", "args": {"exclude_session_ids": ["priv-1", "priv-2", "mine"]}}
         assert tl.pre_tool_call(tool_name="session_search", args={"session_id": "priv-1"})["message"] == tl.SEARCH_EXCLUDED
+        # a session Go does not list (restored without its chat, or deleted) cannot be read by id
+        assert tl.pre_tool_call(tool_name="session_search", args={"session_id": "restored"})["message"] \
+            == tl.SEARCH_EXCLUDED
         assert tl.pre_tool_call(tool_name="session_search", args={"query": "x", "profile": "other"})["message"] \
             == tl.SEARCH_PROFILE
-        result = json.dumps({"success": True, "mode": "discover", "count": 3, "results": [
-            {"session_id": "priv-2", "snippet": "secret"}, {"session_id": "dirty"}, {"session_id": "ok"}]})
+        result = json.dumps({"success": True, "mode": "discover", "count": 5, "results": [
+            {"session_id": "priv-2", "snippet": "secret"}, {"session_id": "dirty"}, {"session_id": "ok"},
+            {"session_id": "restored", "snippet": "page text from a restored chat"},
+            {"session_id": "ok-child", "parent_session_id": "ok"}]})
         cleaned = json.loads(tl.transform_tool_result(tool_name="session_search", result=result, session_id="conv-q"))
-        assert [r["session_id"] for r in cleaned["results"]] == ["dirty", "ok"] and cleaned["count"] == 2
+        assert [r["session_id"] for r in cleaned["results"]] == ["dirty", "ok", "ok-child"] and cleaned["count"] == 3
         sent = []
         old = bridge.notify
         bridge.notify = sent.append
@@ -342,8 +348,11 @@ def test_search_hook_adds_excluded_chats_and_refuses_them(learning_plugin):
             tl.post_tool_call(tool_name="session_search", args={}, status="ok", result=result, session_id="conv-q")
         finally:
             bridge.notify = old
+        # only the hits the model reads taint (the restored one is dropped)
         assert sent == [{"type": "taint", "run": "r", "sources": [
             {"kind": "session", "tool": "session_search", "session": "dirty"}]}]
+        assert json.loads(tl.transform_tool_result(tool_name="session_search", result="not json",
+                                                   session_id="conv-q"))["success"] is False
     finally:
         bridge.current_run.reset(token)
     off = bridge.bind_session("conv-q", flags={"learning_writes": True})

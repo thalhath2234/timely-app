@@ -25,12 +25,17 @@ learning pass (Hermes' background review fork, a daemon thread after the run) th
 the hook finds the conversation's taint and flags through ``bridge.session_state(session_id)``.
 
 **Past-chat search** (``session_search``, Q-3.5): only when the run says ``flags.search_history``.
-``pre_tool_call`` adds the account's "Don't learn from this chat" conversations
+Go lists the chats a search may return (``run.start.search_allow``: the account's chats that are
+neither Sensitive nor "Don't learn from this chat"); a session it does not list (one a restore
+brought back without its chat, a deleted chat whose ``session.delete`` is still pending, a bot's)
+is never a hit. ``pre_tool_call`` adds the account's "Don't learn from this chat" conversations
 (``run.start.search_exclude``) to ``exclude_session_ids`` (a ``modify`` directive), refuses to read
-one of them by id and refuses another profile's store; ``transform_tool_result`` drops any of them
-from the results as a second line (Hermes keeps at most 20 excluded ids). ``post_tool_call``
-taints the searching session with ``{kind: "session", tool: "session_search", session: <id>}``
-for each hit from a conversation Go lists in ``tainted_conversations``.
+an unlisted or excluded chat by id and refuses another profile's store; ``transform_tool_result``
+drops every hit from an unlisted or excluded chat (Hermes keeps at most 20 excluded ids).
+``post_tool_call`` taints the searching session with ``{kind: "session", tool: "session_search",
+session: <id>}`` for each hit the model reads from a conversation Go lists in
+``tainted_conversations``. Hermes runs ``transform_tool_result`` after ``post_tool_call`` and
+passes the raw result on when a hook fails, so the filter fails closed itself.
 
 **Taint** (plan 5.2, 9b.2). ``post_tool_call`` adds a source for each call of a tool the policy
 marks as a taint source (``policy.TAINT_SOURCES``, ``TAINT_PREFIXES``, any ``mcp-*`` toolset)
@@ -178,6 +183,7 @@ class _View:
         self.run_id = run.run_id if run is not None else (state.run_id if state is not None else "")
         self.agent = (run.agent if run is not None else None) or (state.agent if state is not None else None)
         self.search_exclude = set(state.search_exclude) if state is not None else set()
+        self.search_allow = set(state.search_allow or []) if state is not None else set()
         self.tainted_conversations = set(state.tainted_conversations) if state is not None else set()
 
     @property
@@ -187,6 +193,13 @@ class _View:
     @property
     def from_bot(self) -> bool:
         return self.flags.get("from_bot") is True
+
+    def searchable(self, ids: Iterable[str]) -> bool:
+        """Whether a hit naming these session ids (its own, its lineage root) may be returned:
+        Go lists one of them, and none is excluded."""
+        ids = {i for i in ids if i}
+        allowed = self.search_allow | ({self.conversation_id} if self.conversation_id else set())
+        return bool(ids & allowed) and not ids & self.search_exclude
 
     @property
     def origin(self) -> str:
@@ -273,7 +286,7 @@ def _search(args: dict, session_id: str) -> dict | None:
         return {"action": "block", "message": SEARCH_OFF}
     if isinstance(args.get("profile"), str) and args["profile"].strip():
         return {"action": "block", "message": SEARCH_PROFILE}
-    if isinstance(args.get("session_id"), str) and args["session_id"] in view.search_exclude:
+    if isinstance(args.get("session_id"), str) and args["session_id"] and not view.searchable([args["session_id"]]):
         return {"action": "block", "message": SEARCH_EXCLUDED}
     if not view.search_exclude:
         return None
@@ -289,7 +302,7 @@ def session_ids_in(value) -> list[str]:
     out: list[str] = []
     if isinstance(value, dict):
         for key, item in value.items():
-            if key in ("session_id", "lineage_root") and isinstance(item, str) and item:
+            if key in ("session_id", "lineage_root", "parent_session_id") and isinstance(item, str) and item:
                 out.append(item)
             else:
                 out += session_ids_in(item)
@@ -299,14 +312,21 @@ def session_ids_in(value) -> list[str]:
     return out
 
 
-def _drop_excluded(value, excluded: set):
-    """``value`` without any list item that names an excluded session."""
+def _drop_unsearchable(value, view):
+    """``value`` without any list item that names a session the view may not return."""
     if isinstance(value, dict):
-        return {k: _drop_excluded(v, excluded) for k, v in value.items()}
+        return {k: _drop_unsearchable(v, view) for k, v in value.items()}
     if isinstance(value, list):
-        return [_drop_excluded(v, excluded) for v in value
-                if not (isinstance(v, dict) and set(session_ids_in(v)) & excluded)]
+        return [_drop_unsearchable(v, view) for v in value
+                if not (isinstance(v, dict) and session_ids_in(v) and not view.searchable(_own_ids(v)))]
     return value
+
+
+def _own_ids(item: dict) -> list[str]:
+    """The ids that name the chat a hit comes from: its session and lineage root (nested
+    messages name the same chat)."""
+    ids = [item.get(k) for k in ("session_id", "lineage_root", "parent_session_id")]
+    return [i for i in ids if isinstance(i, str) and i] or session_ids_in(item)
 
 
 def _toolset(tool_name: str) -> str:
@@ -338,6 +358,19 @@ def post_tool_call(tool_name: str = "", args: dict | None = None, status: str | 
     bridge.report_taint(run, [source])
 
 
+def _hit_ids(value) -> list[list[str]]:
+    """The ids of each hit (the innermost dicts that name a session), or of the whole result."""
+    out: list[list[str]] = []
+    if isinstance(value, dict):
+        nested = [ids for v in value.values() for ids in _hit_ids(v)]
+        own = [value.get(k) for k in ("session_id", "lineage_root", "parent_session_id")]
+        own = [i for i in own if isinstance(i, str) and i]
+        out += ([own] if own else []) + nested
+    elif isinstance(value, list):
+        out += [ids for v in value for ids in _hit_ids(v)]
+    return out
+
+
 def _parse(result):
     if isinstance(result, (dict, list)):
         return result
@@ -354,8 +387,15 @@ def _search_taint(result, session_id: str) -> None:
     view = _view(session_id)
     if view is None:
         return
-    hits = [sid for sid in dict.fromkeys(session_ids_in(_parse(result)))
-            if sid in view.tainted_conversations and sid not in view.search_exclude]
+    hits: list[str] = []
+    for ids in _hit_ids(_parse(result)):
+        ids = [i for i in ids if i != view.conversation_id]
+        if not ids or set(ids) & view.search_exclude:
+            continue
+        if not view.searchable(ids):
+            continue  # transform_tool_result drops it: the model never reads it
+        hits += [i for i in ids if i in view.tainted_conversations]
+    hits = list(dict.fromkeys(hits))
     if not hits:
         return
     sources = [{"kind": "session", "tool": SEARCH_TOOL, "session": sid} for sid in hits]
@@ -366,19 +406,26 @@ def _search_taint(result, session_id: str) -> None:
 
 
 def transform_tool_result(tool_name: str = "", result: Any = None, session_id: str = "", **_: Any):
-    """Second line for ``search_exclude``: drop excluded conversations from a search result."""
+    """Drop every hit from a chat Go does not list as searchable (``search_allow``) or excludes."""
     if tool_name != SEARCH_TOOL:
         return None
-    view = _view(str(session_id or ""))
-    if view is None or not view.search_exclude:
-        return None
-    data = _parse(result)
-    if data is None or not set(session_ids_in(data)) & view.search_exclude:
-        return None
-    cleaned = _drop_excluded(data, view.search_exclude)
-    if isinstance(cleaned, dict) and isinstance(cleaned.get("results"), list) and "count" in cleaned:
-        cleaned["count"] = len(cleaned["results"])
-    return json.dumps(cleaned, ensure_ascii=False)
+    refused = json.dumps({"success": False, "error": "Timely could not check which chats this search may return."})
+    try:
+        view = _view(str(session_id or ""))
+        data = _parse(result)
+        if view is None or (data is None and isinstance(result, str) and result.strip()):
+            return refused  # fail closed: Hermes passes the raw result on when a hook fails
+        if data is None:
+            return None
+        cleaned = _drop_unsearchable(data, view)
+        if cleaned == data:
+            return None
+        if isinstance(cleaned, dict) and isinstance(cleaned.get("results"), list) and "count" in cleaned:
+            cleaned["count"] = len(cleaned["results"])
+        return json.dumps(cleaned, ensure_ascii=False)
+    except Exception:
+        logger.exception("filtering a past-chat search result failed")
+        return refused
 
 
 def register(ctx) -> None:

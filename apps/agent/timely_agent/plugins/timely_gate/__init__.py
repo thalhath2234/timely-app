@@ -29,9 +29,10 @@ Hermes runs this hook for every tool call, MCP included, before the tool runs. P
 4. Everything else: ask Go (``gate.ask``) and return its verdict; no answer means ``block``. In
    phase 2 Go answers ``block`` ("That isn't available in Timely yet") for every such tool.
 
-``post_tool_call`` feeds the rule: the hosts and URLs a ``web_search`` returned, Timely read results
-and tainted results, kept per conversation (``egress.Record``; earlier turns come from the session's
-``state.db`` transcript), and it reports ``{kind: "web", tool: "web_extract", host}`` for each host a
+``post_tool_call`` feeds the rule: the hosts and URLs a ``web_search`` returned, Timely read results,
+past-chat search hits and tainted results, kept per conversation (``egress.Record``; earlier turns,
+with Timely's paragraphs of each stored user message, come from the session's ``state.db``
+transcript); this turn's Timely paragraphs come from ``run.start.private_context``. It reports ``{kind: "web", tool: "web_extract", host}`` for each host a
 ``web_extract`` that ran named.
 
 An ``approve`` verdict becomes Hermes' human-approval gate with ``rule_key
@@ -221,7 +222,8 @@ def _egress(run, tool_name: str, args: dict) -> str | None:
         rec = _record(run)
         _load_stored(run, rec)
         return egress.check(tool_name, args, tainted=True, person_hosts=run.person_hosts, rec=rec,
-                            memory=_memory_docs(), browser_urls=lambda a: list(dict.fromkeys(_url_literals(a))))
+                            memory=_memory_docs(), private=run.private_context,
+                            browser_urls=lambda a: list(dict.fromkeys(_url_literals(a))))
     except Exception as exc:  # fail closed
         logger.warning("exfiltration check failed for %s: %s", tool_name, exc)
         return egress.CHECK_FAILED.format(tool=tool_name, error=type(exc).__name__)
@@ -243,7 +245,7 @@ def post_tool_call(tool_name: str = "", args: dict | None = None, result: Any = 
             hosts = list(dict.fromkeys(h for h in map(egress.url_host, egress.extract_urls(args)) if h))
             if hosts:
                 bridge.report_taint(run, [{"kind": "web", "tool": "web_extract", "host": h} for h in hosts])
-        if not (timely or kind or tool_name == "web_search"):
+        if not (timely or kind or tool_name in ("web_search", egress.SESSION_SEARCH)):
             return
         rec = _record(run)
         with rec.lock:

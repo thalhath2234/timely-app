@@ -301,7 +301,7 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		toolCtx = e.s.withRunCompleter(toolCtx, c)
 	}
 	block := timelyBlock(c, tools, e.opts.HostAllowed(c.UserID))
-	input := e.s.turnInput(ctx, c)
+	input, private := e.s.turnInput(ctx, c)
 	r := &agentRun{id: id("run_"), uid: c.UserID, cid: c.ID, instance: e.instance(w), worker: w,
 		ctx: toolCtx, cancel: cancel, tools: tools, live: nil}
 	r.live = newLiveRun(r.id)
@@ -344,7 +344,11 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		"tainted_sources":       c.TaintedSources,
 		"tainted_conversations": setup.taintedConversations,
 		"search_exclude":        setup.searchExclude,
+		"search_allow":          setup.searchAllow,
 		"person_hosts":          setup.personHosts,
+		// Timely's parts of user_message (the exfiltration rule's private
+		// text): everything but the person's own words.
+		"private_context": private,
 	}
 	e.mu.Lock()
 	seeded, unsettled := e.seeded[c.ID], e.unsettled[c.ID]

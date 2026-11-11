@@ -18,8 +18,13 @@ type runSetup struct {
 	// past-chat search hit from one taints the run), searchExclude its
 	// "Don't learn from this chat" chats (never search hits), personHosts
 	// the sites the person typed here or their bots read (the
-	// exfiltration rule allows them after taint).
-	taintedConversations, searchExclude, personHosts []string
+	// exfiltration rule allows them after taint). searchAllow are the
+	// chats a past-chat search may return at all: the account's chats that
+	// are neither Sensitive nor "Don't learn from this chat". The worker
+	// drops a hit from any other session in state.db (a restore brought it
+	// back without its chat, or the chat was deleted and its session.delete
+	// is still pending).
+	taintedConversations, searchExclude, searchAllow, personHosts []string
 }
 
 // runSetup decides a run's flags from the account's learning switches and
@@ -42,7 +47,7 @@ func (e *WorkerEngine) runSetup(ctx context.Context, c *Conversation, tools *too
 			prefs = LearningPrefs{}
 		}
 	}
-	out := runSetup{taintedConversations: []string{}, searchExclude: []string{}}
+	out := runSetup{taintedConversations: []string{}, searchExclude: []string{}, searchAllow: []string{}}
 	out.learningWrites = prefs.Learning && !c.Sensitive && !c.NoLearning && !tools.answerOnly
 	out.searchHistory = prefs.SearchHistory && out.learningWrites
 	tools.web.on = c.WebSearch && !c.Sensitive && !tools.answerOnly
@@ -59,6 +64,14 @@ func (e *WorkerEngine) runSetup(ctx context.Context, c *Conversation, tools *too
 		Order("updated_at DESC").Limit(5000).Pluck("id", &out.taintedConversations).Error; err != nil {
 		e.opts.Logf("agent engine: chats with outside text: %v", err)
 		out.searchHistory = false
+	}
+	if err := e.s.db.WithContext(ctx).Model(&Conversation{}).Where("user_id = ? AND NOT no_learning AND NOT sensitive", c.UserID).
+		Order("updated_at DESC").Limit(5000).Pluck("id", &out.searchAllow).Error; err != nil {
+		e.opts.Logf("agent engine: chats past-chat search may return: %v", err)
+		out.searchHistory = false
+	}
+	if out.searchAllow == nil {
+		out.searchAllow = []string{}
 	}
 	if out.searchExclude == nil {
 		out.searchExclude = []string{}
