@@ -1,4 +1,5 @@
 import type { BotAnswer } from "@timely/contract/bots";
+import type { ChatActivity, ChatEngine, PermissionMode } from "@timely/contract/agentChat";
 
 export type ChatContext = { kind: string; label: string; value: string };
 /** pending → done, or failed (retry resets it), or discarded in an archived plan. */
@@ -11,9 +12,12 @@ export type ChatStep = {
   result?: Record<string, unknown>;
   before?: Record<string, unknown>;
   error?: string;
+  /** A step of an Undo: it puts back what an auto-applied proposal changed. */
+  undo?: boolean;
 };
-/** "" is a turn, "notice" a run event, "archive" a superseded or discarded plan. */
-export type ChatMessageKind = "" | "notice" | "archive" | "similar";
+/** "" is a turn, "notice" a run event, "archive" a superseded or discarded plan,
+ * "steer" what the person typed into a live agent run. */
+export type ChatMessageKind = "" | "notice" | "archive" | "similar" | "steer";
 export type ChatMessage = {
   imageIds?: string[];
   receipt?: ReceiptDraft;
@@ -35,6 +39,15 @@ export type ChatMessage = {
   botTags?: string[];
   /** What the tagged bots know, on the reply written from them. */
   botAnswers?: BotAnswer[];
+  /** A proposal Auto or Full Access applied without asking; Undo reverses it until undoneAt is set. */
+  autoApplied?: boolean;
+  /** A reply Stop cut short: the text it had streamed. */
+  cut?: boolean;
+  /** "agent" on a reply or proposal the new engine wrote. */
+  engine?: string;
+  undoneAt?: string;
+  /** The notice the undo added. */
+  undoMessageId?: string;
 };
 /** A bot picked in the composer's @-picker, sent as `botTags` with one message. */
 export type BotTag = { id: string; name: string };
@@ -62,11 +75,19 @@ export type Chat = {
   /**
    * What the person can do about `error`: "settings" for a key, credit or
    * provider problem, "none" when the same request would fail again, and
-   * "" (Try again) otherwise.
+   * "" (Try again) otherwise, and "use_classic" when the agent engine
+   * could not start (Use classic for this chat, then Try again).
    */
-  errorAction?: "" | "settings" | "none";
+  errorAction?: "" | "settings" | "none" | "use_classic";
   /** Set with some errors, such as "provider_not_chosen" (ADR 0020). */
   errorCode?: string;
+  /** How much the agent may change without asking; Supervised on older servers. */
+  permission?: PermissionMode;
+  /** The chat's own engine ("" follows Settings → Agent → Engine) and the current or last run's. */
+  engine?: ChatEngine;
+  runEngine?: "" | "classic" | "agent";
+  /** A live agent run's activity lines and the reply streamed so far. */
+  activity?: ChatActivity;
   updatedAt: string;
   createdAt: string;
 };
@@ -147,6 +168,8 @@ export type AssistantDraft = {
   images: PendingImage[];
   /** Bots picked with "@" for this message only. */
   botTags?: BotTag[];
+  /** Permission picked before the conversation exists; unset uses the account's default for new chats. */
+  permission?: PermissionMode;
   requestId?: string;
   conversationId?: string;
 };

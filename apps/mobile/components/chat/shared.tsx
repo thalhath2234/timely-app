@@ -121,7 +121,8 @@ export function Pill({
   return (
     <View style={[styles.pill, { backgroundColor: `${color}22` }]}>
       {spin ? <LogoSpinner size={12} color={color} /> : Icon ? <Icon size={12} color={color} /> : null}
-      <Text style={[styles.pillText, { color }]}>{label}</Text>
+      {/* A narrow header (the permission chip beside it) ends it with "…". */}
+      <Text numberOfLines={1} style={[styles.pillText, { color, flexShrink: 1 }]}>{label}</Text>
     </View>
   );
 }
@@ -262,6 +263,8 @@ export const styles = createThemedStyleSheet(() => ({
     paddingHorizontal: 8,
     paddingVertical: 3,
     alignSelf: "flex-start",
+    flexShrink: 1,
+    minWidth: 0,
   },
   pillText: { fontSize: 11, fontWeight: "600" },
   text: { color: colors.foreground, fontSize: 14, lineHeight: 22 },

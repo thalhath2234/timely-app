@@ -21,6 +21,7 @@ import ChangeCards from "./changeCards";
 import { ImagePreview } from "./imageAttachments";
 import { ReceiptSummary } from "./receiptReview";
 import { timeOfDay } from "./chatMeta";
+import { AutoAppliedCard, autoCardArchives } from "./agentRun";
 
 function NoticeIcon({ content }: { content: string }) {
   const className = "size-3.5 shrink-0";
@@ -172,14 +173,19 @@ export default function MessageList({
   pending = false,
   onSimilar,
   onAsk,
+  onUndo,
 }: {
   chat: Chat;
   pending?: boolean;
   onSimilar?: (action: "move" | "stay") => void;
   /** Sends a reply card's text as a message; unset while the chat can't take one. */
   onAsk?: (text: string) => void;
+  /** Undoes an auto-applied proposal by its summary message. */
+  onUndo?: (messageId: string) => void;
 }) {
   let lastDay = "";
+  // Plans an auto-applied card already shows, archived when it was undone.
+  const shownByCards = autoCardArchives(chat);
   const last = chat.messages?.[chat.messages.length - 1];
   // Only the newest reply, with nothing the person said after it, keeps live answer chips.
   const newest = chat.messages?.findLast(
@@ -193,11 +199,12 @@ export default function MessageList({
       aria-live="polite"
       aria-label="Conversation messages"
     >
-      {chat.messages?.map((m) => {
+      {chat.messages?.map((m, index) => {
+        if (shownByCards.has(m.id)) return null;
         const day = dayLabel(m.createdAt);
         const separator = day !== lastDay;
         lastDay = day;
-        const isUser = m.role === "user" && !m.kind;
+        const isUser = m.role === "user" && (!m.kind || m.kind === "steer");
         return (
           <div key={m.id} className="space-y-5">
             {separator && (
@@ -218,6 +225,14 @@ export default function MessageList({
               />
             ) : m.kind === "archive" ? (
               <Archive message={m} />
+            ) : m.proposal && m.autoApplied ? (
+              <AutoAppliedCard
+                chat={chat}
+                message={m}
+                index={index}
+                pending={pending}
+                onUndo={onUndo}
+              />
             ) : isUser ? (
               <div className="group flex flex-col items-end gap-1">
                 <div className="max-w-[85%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-primary-foreground shadow-sm">
@@ -236,9 +251,15 @@ export default function MessageList({
                     </div>
                   )}
                 </div>
-                <span className="pr-1 text-[11px] tabular-nums text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                  {timeOfDay(m.createdAt)}
-                </span>
+                {m.kind === "steer" ? (
+                  <span className="pr-1 text-[11px] text-muted-foreground">
+                    Sent while it worked · {timeOfDay(m.createdAt)}
+                  </span>
+                ) : (
+                  <span className="pr-1 text-[11px] tabular-nums text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                    {timeOfDay(m.createdAt)}
+                  </span>
+                )}
               </div>
             ) : (
               <div className="group flex gap-3">

@@ -107,6 +107,18 @@ _Avoid_: embed (that is a video or page from a link), widget, dashboard in a doc
 An item from a doc's checklist shown in a Reply card, a Described card or a Live block. Its tick box ticks the item in the doc and its words open the doc. The row shows the item as the doc has it now, and a tick changes only that item, so an older copy of the doc never overwrites newer edits (ADR 0017).
 _Avoid_: task (a checklist item is not a Task), todo
 
+**Engine**:
+What runs a chat's turns: Classic (Timely's own loop, the default) or New (the agent engine, a Hermes-derived agent in a per-account worker, ADR 0026). Each account picks one in Settings → Agent; a chat can be set to the other. Private photo chats, Sensitive chats and applying approved changes always run on Classic. When New can't run a chat, the run fails with the reason and "Use classic for this chat"; Timely never switches engines on its own.
+_Avoid_: backend, provider (that is the Agent provider), model
+
+**Permission mode**:
+How much a chat's agent may do without asking: Supervised (every change waits for Approve), Auto (changes apply at once with Undo, except the Critical list), or Full Access (meant to ask about nothing once host tools arrive; in phase 2 it behaves as Auto for Timely data; offered in the web and desktop apps, shown disabled on the phone). New chats take the account's default (Supervised unless changed); each chat can be switched from the composer chip. A looser mode never approves a change already waiting; a stricter one holds the next.
+_Avoid_: autonomy level, trust level, YOLO (in copy)
+
+**Critical list**:
+The changes Auto always asks about first: deleting or overwriting (deletes, more than 10 items at once, whole-content replacements), sending the person's data out, buying, paying or signing in, installing software, changing settings or permissions (Bots included), and any change after the chat read outside pages. It lives in Go (`agent/permission.go`).
+_Avoid_: dangerous actions, blocklist (the floors no mode lifts are separate)
+
 **Smart suggestions**:
 Pre-filled fields and hints from Jev, TypeSafe's decision model, such as the Clarify form's type, effort, priority, project, labels and possible duplicates, or the Agent's default length for new Work. They use the account's TypeSafe key first and its OpenRouter key otherwise, and change nothing until the person saves. With neither key, or turned off in Settings → Agent, Timely behaves as it does without them.
 _Avoid_: AI autofill, auto-classify, Jev (in copy, except where the key is set up)

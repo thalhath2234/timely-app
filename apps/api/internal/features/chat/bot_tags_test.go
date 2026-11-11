@@ -352,7 +352,7 @@ func TestIntegrationAskBotCap(t *testing.T) {
 }
 
 // A run that read page text has its proposal reviewed, even a single direct
-// change that would otherwise apply at once.
+// change that would otherwise apply at once in Auto.
 func TestIntegrationBotReadForcesReview(t *testing.T) {
 	db := integrationDB(t)
 	propose := call("propose_changes", map[string]any{"summary": "Create Buy a microphone", "direct": true, "language": "en", "reply": "", "remaining": "",
@@ -367,7 +367,7 @@ func TestIntegrationBotReadForcesReview(t *testing.T) {
 			responses = []WireMessage{call(tc.read, map[string]string{"bot": "bot_a"}), propose}
 		}
 		s := New(db, botCatalog(&called), &scripted{responses: responses})
-		c := planFixture(t, db)
+		c := autoFixture(t, db)
 		if err := s.plan(context.Background(), &c); err != nil {
 			t.Fatal(err)
 		}
@@ -440,5 +440,20 @@ func TestIntegrationProposalPreview(t *testing.T) {
 	}
 	if want := `{"watches":[{"kind":"page","url":"https://books.example/a"}]}`; previews[0] != want {
 		t.Errorf("preview_bot read %s, want %s", previews[0], want)
+	}
+}
+
+// Outside marks come from the catalog's taint classification (agent.OutsideTool):
+// bot alerts carry words a bot read, so list_notifications marks the run too.
+func TestNoteReadsOutsideMarksFromTheCatalog(t *testing.T) {
+	for name, want := range map[string]bool{"list_notifications": true, "ask_bot": true, "preview_bot": true, "list_docs": false, "get_bot": false} {
+		var run botRun
+		if got := run.note(name, []byte(`{"items":[]}`)); got != want || run.outside != want {
+			t.Errorf("%s: outside %v (run %v), want %v", name, got, run.outside, want)
+		}
+		var failed botRun
+		if failed.note(name, []byte(`{"error":"down"}`)) || failed.outside {
+			t.Errorf("%s: a failed read carries nothing", name)
+		}
 	}
 }

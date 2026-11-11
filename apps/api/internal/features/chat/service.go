@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"slices"
 	"strings"
 	"sync"
@@ -32,6 +33,7 @@ type Service struct {
 	estimates  func(ctx context.Context, userID string, names, descriptions []string) []int
 	live       *realtime.Hub
 	botNames   func(ctx context.Context, userID string) ([]BotName, error)
+	engine     AgentEngine
 	wg         sync.WaitGroup
 }
 
@@ -77,6 +79,11 @@ func (s *Service) Routes(g *echo.Group) {
 	g.POST("/chats/:id/read", s.read)
 	g.PATCH("/chats/:id", s.configure)
 	g.POST("/chats/:id/similar", s.similar)
+	g.POST("/chats/:id/steer", s.steer)
+	g.POST("/chats/:id/undo", s.undo)
+	g.GET("/agent/chat-settings", s.getChatSettings)
+	g.PATCH("/agent/chat-settings", s.patchChatSettings)
+	g.GET("/agent/tool-specs", s.toolSpecs)
 }
 func user(c *echo.Context) string { v, _ := c.Get("userID").(string); return v }
 func (s *Service) find(db *gorm.DB, uid, cid string, c *Conversation) error {
@@ -91,7 +98,7 @@ func (s *Service) find(db *gorm.DB, uid, cid string, c *Conversation) error {
 }
 func (s *Service) list(c *echo.Context) error {
 	rows := []Conversation{}
-	err := s.db.Select("id", "title", "status", "phase", "web_search", "revision", "unread", "error", "created_at", "updated_at").Where("user_id = ?", user(c)).Order("updated_at DESC").Limit(200).Find(&rows).Error
+	err := s.db.Select("id", "title", "status", "phase", "web_search", "revision", "unread", "error", "permission", "engine", "run_engine", "created_at", "updated_at").Where("user_id = ?", user(c)).Order("updated_at DESC").Limit(200).Find(&rows).Error
 	if err != nil {
 		return err
 	}
@@ -132,6 +139,9 @@ type sendInput struct {
 	// for this message only. Typed tags are found in Content as well
 	// (bot_tags.go).
 	BotTags []string `json:"botTags"`
+	// Permission is the new chat's permission mode; empty takes the
+	// account's default for new chats (POST /chats only).
+	Permission string `json:"permission"`
 }
 
 // ProviderIDs is implemented by Completers that can tell a provider id they
@@ -228,6 +238,10 @@ func (s *Service) create(c *echo.Context) error {
 		return err
 	}
 	in.Provider = provider
+	permission, err := s.newChatPermission(user(c), in.Permission)
+	if err != nil {
+		return err
+	}
 	if in.Context == nil {
 		in.Context = []ContextChip{}
 	}
@@ -249,7 +263,7 @@ func (s *Service) create(c *echo.Context) error {
 	firstMessage := message("user", in.Content)
 	firstMessage.RequestID = in.RequestID
 	firstMessage.BotTags = tags
-	row := Conversation{ID: cid, UserID: user(c), Title: string(title), Status: "queued", Phase: "plan", WebSearch: in.WebSearch, ChosenProvider: in.Provider, ChosenModel: in.Model, Timezone: validTimezone(in.Timezone), Client: agent.NormalizeClient(in.Client), RichUI: in.UI == genuiCapability, Context: in.Context, Messages: []Message{firstMessage}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+	row := Conversation{ID: cid, UserID: user(c), Title: string(title), Status: "queued", Phase: "plan", WebSearch: in.WebSearch, ChosenProvider: in.Provider, ChosenModel: in.Model, Timezone: validTimezone(in.Timezone), Client: agent.NormalizeClient(in.Client), RichUI: in.UI == genuiCapability, Permission: permission, Context: in.Context, Messages: []Message{firstMessage}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
 	noteLanguage(&row, in.Content)
 	if err := s.db.Transaction(func(tx *gorm.DB) error {
 		result := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).Create(&row)
@@ -459,15 +473,36 @@ func (s *Service) approve(c *echo.Context) error {
 	})
 }
 func (s *Service) stop(c *echo.Context) error {
-	return s.change(c, func(tx *gorm.DB, row *Conversation) error {
+	runID := ""
+	err := s.change(c, func(tx *gorm.DB, row *Conversation) error {
 		if busy(row) || row.Status == "approval" {
 			row.Status = "stopped"
 			row.Lease = ""
 			row.LeaseUntil = nil
+			// The agent run ends once this commits (engine Stop below).
+			runID, row.AgentRunID, row.AgentInstance = row.AgentRunID, "", ""
+			// What it streamed stays as the reply (Q-2.5): the engine's
+			// copy when it follows the run, else the row's, which lags.
+			draft := row.Activity.Draft
+			if dr, ok := s.engine.(draftReader); ok && runID != "" {
+				if live := dr.Draft(user(c), row.ID, runID); len(live) > len(draft) {
+					draft = live
+				}
+			}
+			row.Activity = ChatActivity{}
+			if text := strings.TrimSpace(draft); text != "" {
+				m := message("assistant", text)
+				m.Cut = true
+				row.Messages = append(row.Messages, m)
+			}
 			row.Messages = append(row.Messages, notice(tr(row.Language, txtStopped)))
 		}
 		return nil
 	})
+	if err == nil && runID != "" && s.engine != nil {
+		s.engine.Stop(user(c), c.Param("id"), runID)
+	}
+	return err
 }
 
 // discardSteps sets changes of a proposal aside before applying it (keep
@@ -574,11 +609,13 @@ func (s *Service) reject(c *echo.Context) error {
 // Deleting removes history, temporary images and notifications together. A run
 // in progress loses its row, so its next checkpoint fails and no result is published.
 func (s *Service) remove(c *echo.Context) error {
+	runID := ""
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var row Conversation
 		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), user(c), c.Param("id"), &row); err != nil {
 			return err
 		}
+		runID = row.AgentRunID
 		var imageIDs []string
 		if err := tx.Model(&ImageAttachment{}).Where("user_id = ? AND conversation_id = ? AND deleted_at IS NULL", row.UserID, row.ID).Pluck("id", &imageIDs).Error; err != nil {
 			return err
@@ -593,6 +630,13 @@ func (s *Service) remove(c *echo.Context) error {
 	})
 	if err != nil {
 		return err
+	}
+	if s.engine != nil {
+		// The row is gone: end its live run and drop its worker session.
+		if runID != "" {
+			s.engine.Stop(user(c), c.Param("id"), runID)
+		}
+		s.engine.Forget(user(c), c.Param("id"))
 	}
 	return c.NoContent(204)
 }
@@ -621,6 +665,8 @@ func (s *Service) retry(c *echo.Context) error {
 		}
 		row.Error = ""
 		row.Unread = false
+		// A retried run starts afresh; an agent run it had is over.
+		row.AgentRunID, row.AgentInstance = "", ""
 		if row.Phase == "apply" && len(row.Plan) > 0 && !hasPending(row.Plan) {
 			// Stopped after the last change was saved: finish the apply, which
 			// continues with the next batch or says the request is done.
@@ -664,8 +710,9 @@ func (s *Service) read(c *echo.Context) error { // Reading must not invalidate p
 	return c.NoContent(204)
 }
 
-// Omitted fields are left unchanged. Renaming is allowed at any time; context
-// and web search wait for the current run, which already read them. A model
+// Omitted fields are left unchanged. Renaming is allowed at any time; context,
+// web search and the engine wait for the current run, which already read
+// them; the permission mode may change at any time. A model
 // choice may change at any time and applies from the next run; provider and
 // model are set together, and an empty provider returns to the default.
 func (s *Service) configure(c *echo.Context) error {
@@ -675,9 +722,23 @@ func (s *Service) configure(c *echo.Context) error {
 		Context   *[]ContextChip `json:"context"`
 		Provider  *string        `json:"provider"`
 		Model     *string        `json:"model"`
+		// Permission and Engine are the chat's own permission mode and
+		// engine ("" follows the account).
+		Permission *string `json:"permission"`
+		Engine     *string `json:"engine"`
 	}
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(400, "Invalid settings")
+	}
+	if in.Permission != nil {
+		mode, err := agent.ParseMode(*in.Permission)
+		if err != nil {
+			return echo.NewHTTPError(400, "Permission must be supervised, auto or full")
+		}
+		*in.Permission = string(mode)
+	}
+	if in.Engine != nil && *in.Engine != "" && *in.Engine != engineClassic && *in.Engine != engineAgent {
+		return echo.NewHTTPError(400, "Engine must be classic, agent or empty")
 	}
 	if in.Provider != nil {
 		model := ""
@@ -712,6 +773,17 @@ func (s *Service) configure(c *echo.Context) error {
 		if (in.Context != nil || in.WebSearch != nil) && busy(row) {
 			return echo.NewHTTPError(409, "Wait or stop before changing context")
 		}
+		if in.Engine != nil && *in.Engine != row.Engine && busy(row) {
+			return echo.NewHTTPError(409, "Wait or stop before changing the engine")
+		}
+		if in.Engine != nil {
+			row.Engine = *in.Engine
+		}
+		if in.Permission != nil {
+			// Any time: a looser mode approves nothing already waiting, and
+			// the next proposal reads the new mode (permission_mode.go).
+			row.Permission = *in.Permission
+		}
 		if in.Title != nil {
 			row.Title = title
 		}
@@ -733,6 +805,170 @@ func (s *Service) configure(c *echo.Context) error {
 		return nil
 	})
 }
+
+// newChatPermission is a new chat's permission mode: the one asked for,
+// else the account's default for new chats.
+func (s *Service) newChatPermission(uid, asked string) (string, error) {
+	if asked != "" {
+		mode, err := agent.ParseMode(asked)
+		if err != nil {
+			return "", echo.NewHTTPError(400, "Permission must be supervised, auto or full")
+		}
+		return string(mode), nil
+	}
+	prefs, err := chatSettings(s.db, uid)
+	if err != nil {
+		// Without saved settings (or their table), new chats are Supervised.
+		return string(agent.Supervised), nil
+	}
+	return prefs.ChatPermission, nil
+}
+
+// steer passes a message the person types while an agent run is live into
+// that run (plan 3.4); it is stored as a user message of kind "steer".
+func (s *Service) steer(c *echo.Context) error {
+	var in struct {
+		Text string `json:"text"`
+	}
+	if err := c.Bind(&in); err != nil {
+		return echo.NewHTTPError(400, "Invalid message")
+	}
+	in.Text = strings.TrimSpace(dropNUL(in.Text))
+	if in.Text == "" || utf8.RuneCountInString(in.Text) > 16000 {
+		return echo.NewHTTPError(400, "Message must be between 1 and 16,000 characters")
+	}
+	if s.engine == nil {
+		return echo.NewHTTPError(409, "Nothing is running in this chat")
+	}
+	var row Conversation
+	runID := ""
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), user(c), c.Param("id"), &row); err != nil {
+			return err
+		}
+		if row.Status != "running" || row.AgentRunID == "" {
+			return echo.NewHTTPError(409, "Nothing is running in this chat")
+		}
+		runID = row.AgentRunID
+		m := message("user", in.Text)
+		m.Kind = "steer"
+		row.Messages = append(row.Messages, m)
+		row.Revision++
+		return tx.Save(&row).Error
+	})
+	if err != nil {
+		return err
+	}
+	if err := s.engine.Steer(c.Request().Context(), row.UserID, row.ID, runID, in.Text); err != nil {
+		// No run read it: take it back, so the person can send it again
+		// as a new message.
+		steerID := row.Messages[len(row.Messages)-1].ID
+		if derr := s.db.Transaction(func(tx *gorm.DB) error {
+			var latest Conversation
+			if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), row.UserID, row.ID, &latest); err != nil {
+				return err
+			}
+			kept := latest.Messages[:0]
+			for _, m := range latest.Messages {
+				if m.ID != steerID {
+					kept = append(kept, m)
+				}
+			}
+			latest.Messages = kept
+			latest.Revision++
+			return tx.Save(&latest).Error
+		}); derr != nil {
+			log.Printf("chat steer: taking back an undelivered steer: %v", derr)
+		}
+		return echo.NewHTTPError(409, "The run ended before your message reached it")
+	}
+	s.fillImages(&row)
+	return c.JSON(200, row)
+}
+
+// leftoverSteer makes the steering messages a finished run never read (sent
+// while its last reply streamed, Hermes' pending_steer) the person's next
+// turn: they move to the end as ordinary messages. An idle chat runs them;
+// a held proposal gives way to them, as it does to a new message (send); an
+// Auto proposal still applying runs them once it is applied (apply). text
+// is the newline join of those messages; text that matches none of the
+// run's steers is left alone.
+func (s *Service) leftoverSteer(ctx context.Context, uid, cid, text string) error {
+	text = strings.TrimSpace(text)
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row Conversation
+		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), uid, cid, &row); err != nil {
+			return err
+		}
+		steers := runSteers(row.Messages, text)
+		if steers == nil {
+			return nil
+		}
+		if row.Status == "approval" {
+			row.ForceReview = true
+			archivePlan(&row)
+			row.Phase = "plan"
+			row.Status = "queued"
+		}
+		moved := make([]Message, 0, len(steers))
+		kept := make([]Message, 0, len(row.Messages))
+		next := 0
+		for i, m := range row.Messages {
+			if next < len(steers) && steers[next] == i {
+				m.Kind = ""
+				moved = append(moved, m)
+				next++
+				continue
+			}
+			kept = append(kept, m)
+		}
+		row.Messages = append(kept, moved...)
+		if row.Status == "idle" {
+			row.Status = "queued"
+			row.Phase = "plan"
+			row.Error = ""
+		}
+		row.Revision++
+		return tx.Save(&row).Error
+	})
+}
+
+// runSteers finds, among the steers of the run that just ended (between its
+// request and its reply), the consecutive ones whose newline join is text.
+// A message sent after the reply, or a later steer the run never took, does
+// not get in the way.
+func runSteers(messages []Message, text string) []int {
+	end := len(messages)
+	for i := len(messages) - 1; i >= 0; i-- {
+		if m := messages[i]; m.Role == "assistant" && m.Kind == "" && !m.Cut {
+			end = i
+			break
+		}
+	}
+	var candidates []int
+	for i := end - 1; i >= 0; i-- {
+		m := messages[i]
+		if m.Role == "user" && m.Kind == "" {
+			break // the run's own request: older steers belong to earlier runs
+		}
+		if m.Kind == "steer" {
+			candidates = append([]int{i}, candidates...)
+		}
+	}
+	for to := len(candidates); to > 0; to-- {
+		for from := to - 1; from >= 0; from-- {
+			parts := make([]string, 0, to-from)
+			for _, k := range candidates[from:to] {
+				parts = append(parts, messages[k].Content)
+			}
+			if strings.TrimSpace(strings.Join(parts, "\n")) == text {
+				return candidates[from:to]
+			}
+		}
+	}
+	return nil
+}
+
 func notify(tx *gorm.DB, c *Conversation, body string) error {
 	c.Unread = true
 	kind := "chat"
@@ -757,6 +993,23 @@ func notify(tx *gorm.DB, c *Conversation, body string) error {
 	}
 	_, err := jobs.NewQueue(tx).Enqueue(jobs.Enqueue{UserID: c.UserID, Kind: models.JobSendPush, DedupeKey: "push:" + n.ID, RunAt: runAt, Payload: models.JobPayload{"notificationId": n.ID}})
 	return err
+}
+
+// keepTaint adds outside sources to a chat whatever its status or lease:
+// tainted_sources only grows, so no fence guards it.
+func (s *Service) keepTaint(ctx context.Context, uid, cid string, sources []TaintSource) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var latest Conversation
+		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), uid, cid, &latest); err != nil {
+			return err
+		}
+		known := len(latest.TaintedSources)
+		mergeTaint(&latest, sources)
+		if len(latest.TaintedSources) == known {
+			return nil
+		}
+		return tx.Model(&latest).Select("TaintedSources").Updates(&latest).Error
+	})
 }
 
 // A fenced lease prevents a stopped or recovered worker from publishing results.

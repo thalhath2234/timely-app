@@ -49,3 +49,19 @@ def worker(agent):
     w.ready_msg = ready
     yield w
     w.close()
+
+
+@pytest.fixture(scope="module")
+def tagent():
+    """An agent folder for a worker that gets the Timely tool specs in hello (phase 2)."""
+    return harness.Agent(harness.new_root("tmod"))
+
+
+@pytest.fixture(scope="module")
+def tworker(tagent):
+    """A worker with every Timely tool spec from ``fixtures/timely_tools.json`` registered."""
+    w, ready = harness.ready_worker(tagent, hello={"timely_tools": harness.timely_tools()})
+    assert ready["self_test"]["ok"], ready["self_test"]
+    w.ready_msg = ready
+    yield w
+    w.close()

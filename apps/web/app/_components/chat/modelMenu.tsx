@@ -108,6 +108,7 @@ export default function ModelMenu({
         type="button"
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-label={`Model: ${current}`}
         disabled={disabled}
         onClick={() => {
           setBrowsing("");
@@ -126,8 +127,9 @@ export default function ModelMenu({
         )}
       >
         <Cpu className="size-4 shrink-0" />
-        <span className="truncate">{current}</span>
-        <ChevronDown className="size-3 shrink-0" />
+        {/* Icon only on a phone-width window; the title still names the model. */}
+        <span className="hidden truncate sm:inline">{current}</span>
+        <ChevronDown className="hidden size-3 shrink-0 sm:block" />
       </button>
       {open && (
         <div

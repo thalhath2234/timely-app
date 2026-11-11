@@ -100,12 +100,14 @@ type Worker struct {
 	busy     Busy
 	lastUsed time.Time
 	ready    *Ready
-	stopping bool
-	exited   bool
-	lastErr  string
-	reason   string
-	crashed  bool
-	exit     ExitInfo
+	// catalogVersion is the Timely tool catalog version sent in hello.
+	catalogVersion string
+	stopping       bool
+	exited         bool
+	lastErr        string
+	reason         string
+	crashed        bool
+	exit           ExitInfo
 
 	queue      *msgQueue
 	dispatched chan struct{}
@@ -129,6 +131,14 @@ func (w *Worker) Ready() Ready {
 		return Ready{}
 	}
 	return *w.ready
+}
+
+// CatalogVersion is the Timely tool catalog version the worker was started
+// with (hello.catalog_version; empty before the handshake).
+func (w *Worker) CatalogVersion() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.catalogVersion
 }
 
 // Done closes when the worker has exited and its exit has been processed

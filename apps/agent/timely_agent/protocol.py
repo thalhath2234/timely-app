@@ -182,6 +182,7 @@ class PendingRequests:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._waiters: dict[str, tuple[threading.Event, list]] = {}
+        self._runs: dict[str, str] = {}  # request id -> run id
         self._seq = 0
 
     def new_id(self, prefix: str = "w") -> str:
@@ -195,6 +196,8 @@ class PendingRequests:
         event, box = threading.Event(), []
         with self._lock:
             self._waiters[msg_id] = (event, box)
+            if isinstance(msg.get("run"), str):
+                self._runs[msg_id] = msg["run"]
         try:
             if not send(msg):
                 return None
@@ -203,6 +206,7 @@ class PendingRequests:
         finally:
             with self._lock:
                 self._waiters.pop(msg_id, None)
+                self._runs.pop(msg_id, None)
 
     def resolve(self, msg: dict[str, Any]) -> bool:
         with self._lock:
@@ -212,6 +216,13 @@ class PendingRequests:
         waiter[1].append(msg)
         waiter[0].set()
         return True
+
+    def cancel_run(self, run_id: str) -> None:
+        """Wake every request of one run (its waiters return None)."""
+        with self._lock:
+            waiters = [self._waiters[i] for i, r in self._runs.items() if r == run_id and i in self._waiters]
+        for event, _ in waiters:
+            event.set()
 
     def cancel_all(self) -> None:
         with self._lock:

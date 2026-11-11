@@ -1,15 +1,18 @@
 """Contract tests (plan section 10.4 f): the parts of Hermes Timely relies on, checked against
 real worker processes and the stub model. No network beyond 127.0.0.1, no live AI provider.
 
-Run with ``make agent-contract``. Phase 1 builds tests 1-8, 11, 12, 15, 16 and 19. Where a test
-needs a later phase, the phase-1 part is here and the docstring says exactly what is deferred.
-Tests 9, 10, 10b, 13, 14, 17 and 18 belong to later phases (14's literal-address part is a unit
-test in ``tests/test_units.py``).
+Run with ``make agent-contract``. Phase 1 built tests 1-8, 11, 12, 15, 16 and 19; phase 2 adds
+1b (a Timely tool through ``tool.call``), completes 6 (the ``ephemeral_system_prompt`` decision),
+adds 18 (``propose_changes`` alone, taint on a direct proposal) and 20 (auxiliary calls use the
+run's credentials, plan 5.7). Where a test needs a later phase, the docstring says exactly what is
+deferred. Tests 9, 10, 10b, 13, 14 and 17 belong to later phases (14's literal-address part is a
+unit test in ``tests/test_units.py``).
 """
 
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import os
 import subprocess
@@ -21,6 +24,7 @@ from pathlib import Path
 import pytest
 
 import harness
+from stub_openai import StubServer
 from timely_agent import config_render, paths, policy, selftest
 
 HERE = Path(__file__).resolve().parent
@@ -91,6 +95,21 @@ def test_c01_headless_turn_with_tool_call(agent, worker, stub):
     assert started and started[0]["payload"]["tool"] == "todo_list"
     assert completed and "check stub" in json.dumps(completed[0]["payload"])
     assert done["tokens"]["input_tokens"] > 0
+
+
+def test_c01_timely_tool_turn_through_tool_call(tagent, tworker, stub):
+    """1b. The same turn with a Timely tool: ``timely_tools`` sends ``tool.call`` (run, session key,
+    call id, args, taint, batch) and Go's ``result`` reaches the model."""
+    tworker.send(harness.run_start(tagent, stub, run_id="c1b", conversation="c-c1b", toolsets=harness.PHASE2_TOOLSETS,
+                                   budgets={}, text='CALL get_task {"id": "t-1"}'))
+    done, seen = harness.drive(tworker, tagent.account, "c1b")
+    calls = [m for m in seen if m["type"] == "tool.call"]
+    assert len(calls) == 1, calls
+    call = calls[0]
+    assert call["name"] == "get_task" and call["args"] == {"id": "t-1"} and call["run"] == "c1b"
+    assert call["session_key"] == f"timely:{tagent.account}:c-c1b" and call["tool_call_id"]
+    assert call["batch_size"] == 1 and call["sibling_tools"] == [] and call["tainted_sources"] == []
+    assert done["completed"] is True and '"tool": "get_task"' in done["final_response"], done
 
 
 # ---------------------------------------------------------------- 2
@@ -213,46 +232,77 @@ def test_c05_no_dns_beyond_configured_hosts(stub):
 
 # ---------------------------------------------------------------- 6
 
-SOUL = "You are TESTSOUL-6, Timely's assistant in a contract test. Answer briefly.\n"
-BLOCK = "TIMELY-BLOCK-6: today is fixed for this test; Timely tools arrive in phase 2."
+BLOCK = "TIMELY-BLOCK-6: the Timely block for this conversation (instruction, client note, cards, write schemas)."
+BLOCK_CHANGED = "TIMELY-BLOCK-6b: the Timely block after a catalog change."
+
+
+def _c06_turns(stub, mode: str) -> dict:
+    """Turns 1-2 in one worker, turn 3 in a fresh worker (agent rebuilt from state.db), turn 4 in
+    that worker with a changed block. Returns the system text of each turn's request."""
+    a = harness.Agent(harness.new_root(f"c6-{mode}"))
+    assert (a.home / "SOUL.md").read_text() == config_render.SOUL_TEXT
+    argv = [harness.python(), "-I", str(PROBE_BOOT), "--system-via", mode, "worker"]
+    systems, conv, w = [], f"c-c6-{mode}", None
+    try:
+        for i, block in enumerate((BLOCK, BLOCK, BLOCK, BLOCK_CHANGED)):
+            if i in (0, 2):
+                if w is not None:
+                    w.close()
+                w, ready = harness.ready_worker(a, argv=argv)
+                assert ready["self_test"]["ok"], ready["self_test"]
+            marker = f"c6 {mode} turn {i + 1}"
+            w.send(harness.run_start(a, stub, run_id=f"c6-{mode}-{i}", conversation=conv, text=marker,
+                                     system_text=block, system_hash=hashlib.sha256(block.encode()).hexdigest()))
+            done, _ = w.until("run.done")
+            assert done["final_response"] == f"Stub reply: {marker}", done
+            reqs = _chat_requests(stub, marker)
+            assert len(reqs) == 1, len(reqs)
+            systems.append(_system_text(reqs[0]))
+            if i == 2:
+                # The rebuild really loaded state.db: the fresh worker's request carries turns 1-2.
+                history = [(m.get("role"), m.get("content")) for m in reqs[0]["body"]["messages"][1:]]
+                for n in (1, 2):
+                    assert ("user", f"c6 {mode} turn {n}") in history, history
+                    assert ("assistant", f"Stub reply: c6 {mode} turn {n}") in history, history
+    finally:
+        if w is not None:
+            w.close()
+    return {"turns": systems}
 
 
 def test_c06_soul_and_timely_block_stable_across_turns_and_rebuild(stub):
-    """6. ``SOUL.md`` replaces the default identity; the Timely block is byte-identical across
-    two turns and after a rebuild from ``state.db``.
+    """6. ``SOUL.md`` (Timely's default persona, Q-2.6) replaces Hermes' identity, and the Timely
+    block is byte-identical across two turns and after a rebuild from ``state.db``.
 
-    Phase 1 sends the block the way ``run_chat`` does today (``run_conversation(system_message=...)``).
-    Deferred to phase 2: the choice between ``system_message`` and ``ephemeral_system_prompt``
-    (plan 5.3); whichever it picks, this test is re-pointed at it."""
-    a = harness.Agent(harness.new_root("c6"), settings={"soul": SOUL})
-    assert (a.home / "SOUL.md").read_text() == SOUL
-    systems = []
-    for i in range(3):
-        if i in (0, 2):
-            w, ready = harness.ready_worker(a)  # turn 3 runs in a fresh worker: agent rebuilt from state.db
-            assert ready["self_test"]["ok"], ready["self_test"]
-        marker = f"c6 turn {i + 1}"
-        w.send(harness.run_start(a, stub, run_id=f"c6-{i}", conversation="c-c6", text=marker,
-                                 system_text=BLOCK, system_hash="block-6"))
-        done, _ = w.until("run.done")
-        assert done["final_response"] == f"Stub reply: {marker}", done
-        reqs = _chat_requests(stub, marker)
-        assert len(reqs) == 1, len(reqs)
-        systems.append(_system_text(reqs[0]))
-        if i == 2:
-            # The rebuild really loaded state.db: the fresh worker's request carries turns 1-2.
-            history = [(m.get("role"), m.get("content")) for m in reqs[0]["body"]["messages"][1:]]
-            for n in (1, 2):
-                assert ("user", f"c6 turn {n}") in history, history
-                assert ("assistant", f"Stub reply: c6 turn {n}") in history, history
-        if i in (1, 2):
-            w.close()
-    for text in systems:
-        assert "TESTSOUL-6" in text
-        assert "You are Hermes Agent, built by Nous Research" not in text
-        assert BLOCK in text
-    assert systems[0] == systems[1], "the system prompt changed between two turns of one agent"
-    assert systems[1] == systems[2], "the system prompt changed after the agent was rebuilt from state.db"
+    Plan 5.3 decision, both candidates run here:
+
+    - (a) prefix stable across two turns of one agent, (b) identical after the agent is rebuilt from
+      ``state.db`` in a fresh worker: both ``ephemeral_system_prompt`` and
+      ``run_conversation(system_message=...)`` pass.
+    - (c) a changed block (Go's catalog or the Q-2.1 scope line) reaches the next turn: only
+      ``ephemeral_system_prompt`` does. ``system_message`` is baked into the prompt Hermes stores on
+      the first turn and restored verbatim afterwards, so the old block stays for good.
+
+    So ``run_chat.SYSTEM_VIA`` is ``ephemeral`` (recorded in PROTOCOL.md and timely_agent/README.md)."""
+    from timely_agent import run_chat
+    assert run_chat.SYSTEM_VIA == "ephemeral"
+    results = {mode: _c06_turns(stub, mode) for mode in ("ephemeral", "system_message")}
+    for mode, res in results.items():
+        t1, t2, t3, t4 = res["turns"]
+        for text in (t1, t2, t3):
+            assert text.startswith("You are Timely, the assistant inside the Timely app."), (mode, text[:200])
+            assert "You are Hermes Agent" not in text, mode
+            assert "Python toolchain" not in text, mode  # agent.environment_probe floor
+            assert BLOCK in text, mode
+        assert t1 == t2, f"{mode}: the system prompt changed between two turns of one agent"
+        assert t2 == t3, f"{mode}: the system prompt changed after the agent was rebuilt from state.db"
+        assert "You are Hermes Agent" not in t4, mode
+    eph, sysm = results["ephemeral"]["turns"], results["system_message"]["turns"]
+    assert eph[0].endswith(BLOCK), "ephemeral_system_prompt is appended after Hermes' prompt"
+    assert BLOCK_CHANGED in eph[3] and BLOCK not in eph[3], "ephemeral: the changed block reaches the next turn"
+    assert eph[3] == eph[0][: -len(BLOCK)] + BLOCK_CHANGED, "ephemeral: only the block changed"
+    assert BLOCK in sysm[3] and BLOCK_CHANGED not in sysm[3], \
+        "system_message now follows a changed block: re-evaluate SYSTEM_VIA (plan 5.3)"
 
 
 # ---------------------------------------------------------------- 7
@@ -262,10 +312,20 @@ def test_c06_soul_and_timely_block_stable_across_turns_and_rebuild(stub):
 # name (a name swallowed by **kwargs does not count). ``None`` = must exist (not called by name).
 SYMBOLS: dict[str, list[str] | None] = {
     "run_agent:AIAgent.run_conversation": ["system_message", "conversation_history", "task_id"],
-    "run_agent:AIAgent.interrupt": [],
+    "run_agent:AIAgent.interrupt": ["message", "tool_reason"],  # timely_gate ends the turn (Q-2.4)
+    "run_agent:AIAgent.clear_interrupt": [],
     "run_agent:AIAgent.steer": [],
+    # timely_tools: its own call id inside a handler, and the hook that sees each model response
+    "tools.approval_context:_approval_tool_call_id": None,
+    "hermes_cli.plugins:VALID_HOOKS": None,
+    "hermes_cli.plugins:PluginContext.register_tool": ["name", "toolset", "schema", "handler", "description"],
+    "hermes_cli.plugins:PluginContext.register_hook": ["hook_name", "callback"],
+    "tools.registry:registry.get_tool_names_for_toolset": ["toolset"],
     "hermes_state:SessionDB.get_messages_as_conversation": [],
     "hermes_state:SessionDB.delete_session": [],
+    "hermes_state:SessionDB.ensure_session": ["source", "model"],
+    "hermes_state:SessionDB.append_messages_batch": [],
+    "hermes_state:SessionDB.replace_messages": ["archive_dropped"],  # run.start.reseed
     "hermes_cli.plugins:PluginManager.list_plugins": [],
     "hermes_cli.plugins:PluginManager.iter_hook_callbacks": [],
     "hermes_cli.managed_scope:get_managed_dir": [],
@@ -382,6 +442,15 @@ def test_c07_timely_imported_hermes_symbols_exist(agent):
         elif params and info.get("params") is None:
             problems.append(f"{spec}: cannot read its signature ({info.get('note', 'not callable')})")
     assert not problems, "Hermes changed under Timely's adapters:\n" + "\n".join(problems)
+    # The hooks the Timely plugins register must still be ones Hermes fires.
+    hooks = subprocess.run(
+        [harness.python(), "-I", "-c", "import sys, json; sys.path[:0] = sys.argv[1:3]; "
+         "from hermes_cli.plugins import VALID_HOOKS; print(json.dumps(sorted(VALID_HOOKS)))",
+         str(paths.hermes_dir()), str(paths.agent_dir())],
+        capture_output=True, text=True, env=agent.env(), timeout=180)
+    assert hooks.returncode == 0, hooks.stderr[-3000:]
+    valid = set(json.loads(hooks.stdout.strip().splitlines()[-1]))
+    assert {"pre_tool_call", "post_tool_call", "post_api_request"} <= valid, sorted(valid)
 
 
 # ---------------------------------------------------------------- 8
@@ -1046,3 +1115,134 @@ def test_c19_protocol_survives_terminal_tool_output(agent, worker, stub):
     done, _ = worker.until("run.done")
     assert "hi-from-child" in done["final_response"], done
     _all_stdout_is_protocol(worker)
+
+
+# ---------------------------------------------------------------- 18
+
+PROPOSAL = {"summary": "Add a task", "steps": [{"tool": "create_task", "summary": "Add Buy milk",
+                                                "arguments": {"title": "Buy milk"}}],
+            "direct": True, "reply": "", "remaining": "", "language": "en"}
+
+
+def _tool_messages(stub, marker):
+    """The tool results the model saw in the turn's last request, in order."""
+    reqs = _chat_requests(stub, marker)
+    assert reqs, f"no request for {marker}"
+    return [m for m in reqs[-1]["body"]["messages"] if m.get("role") == "tool"]
+
+
+@pytest.mark.parametrize("order", ["propose_first", "read_first"])
+def test_c18_propose_changes_in_a_batch_is_blocked_before_any_sibling_runs(tagent, tworker, stub, order):
+    """18a. ``propose_changes`` with a sibling read in one assistant message is blocked by
+    ``timely_gate`` with "Call propose_changes alone, after all read tools finish" and never
+    reaches Go. The batch was recorded from the model response (``post_api_request``) before any
+    of its tools ran, so the block never depends on the sibling: with propose_changes first, its
+    block is the first tool result and the read runs only afterwards; with the read first, the
+    read runs (as in classic) and propose_changes is still refused. Go sees the read's real
+    ``batch_size`` and ``sibling_tools`` (its second line)."""
+    pair = [["propose_changes", PROPOSAL], ["get_context", {}]]
+    if order == "read_first":
+        pair.reverse()
+    marker = f"SCRIPT-c18a-{order}"
+    script = [{"calls": pair}, {"text": f"after {marker}"}]
+    run_id = f"c18a-{order}"
+    tworker.send(harness.run_start(tagent, stub, run_id=run_id, conversation=f"c-{run_id}",
+                                   toolsets=harness.PHASE2_TOOLSETS, budgets={},
+                                   text="SCRIPT " + json.dumps(script) + f"\n{marker}"))
+    done, seen = harness.drive(tworker, tagent.account, run_id)
+    calls = [m for m in seen if m["type"] == "tool.call"]
+    assert [c["name"] for c in calls] == ["get_context"], calls
+    assert calls[0]["batch_size"] == 2 and calls[0]["sibling_tools"] == ["propose_changes"], calls[0]
+    results = _tool_messages(stub, marker)
+    assert len(results) == 2, results
+    blocked = results[0 if order == "propose_first" else 1]
+    assert policy.PROPOSE_ALONE in blocked["content"], results
+    if order == "propose_first":
+        assert "get_context" in results[1]["content"], results  # the read ran after the block
+    assert done["completed"] is True and done["final_response"] == f"after {marker}", done
+
+
+def test_c18_direct_proposal_after_a_taint_source_carries_tainted_sources(stub):
+    """18b. After a tool the policy marks as a taint source (``taint_probe``, kind ``web``), the
+    worker sends ``taint`` and a ``direct=true`` proposal's ``tool.call`` carries the non-empty
+    ``tainted_sources``, so Go holds it for review; ``run.done`` carries them too. The
+    ``web_extract`` variant is re-run in phase 3, when web tools are offered."""
+    a = harness.Agent(harness.new_root("c18b"))
+    argv = [harness.python(), "-I", str(PROBE_BOOT), "--taint-tool", "worker"]
+    w, ready = harness.ready_worker(a, argv=argv, hello={"timely_tools": harness.timely_tools()})
+    try:
+        assert ready["self_test"]["ok"], ready["self_test"]
+        script = [{"calls": [[probe_boot.TAINT_TOOL, {"url": "https://shop.example/deal"}]]},
+                  {"calls": [["propose_changes", PROPOSAL]]}, {"text": "Added it."}]
+        w.send(harness.run_start(a, stub, run_id="c18b", conversation="c-c18b", budgets={},
+                                 toolsets=harness.PHASE2_TOOLSETS + [probe_boot.PROBE_TOOLSET],
+                                 text="SCRIPT " + json.dumps(script)))
+        done, seen = harness.drive(w, a.account, "c18b", verdict=("allow", ""))  # Go allows the probe
+    finally:
+        w.close()
+    source = {"kind": "web", "tool": probe_boot.TAINT_TOOL, "host": "shop.example"}
+    taints = [m for m in seen if m["type"] == "taint"]
+    assert [t["sources"] for t in taints] == [[source]], taints
+    proposal = [m for m in seen if m["type"] == "tool.call" and m["name"] == "propose_changes"]
+    assert len(proposal) == 1 and proposal[0]["args"]["direct"] is True, proposal
+    assert proposal[0]["tainted_sources"] == [source], proposal[0]
+    assert proposal[0]["batch_size"] == 1 and proposal[0]["sibling_tools"] == []
+    assert seen.index(taints[0]) < seen.index(proposal[0])
+    assert done["tainted_sources"] == [source] and done["final_response"] == "Added it.", done
+
+
+# ---------------------------------------------------------------- 20
+
+def _words(i: int, n: int = 2500) -> str:
+    """Text that never repeats (Hermes stops a reply it sees repeating itself)."""
+    return " ".join(hashlib.sha1(f"{i}-{j}".encode()).hexdigest()[:8] for j in range(n))
+
+
+def test_c20_auxiliary_calls_use_run_credentials():
+    """20. Plan 5.7: the auxiliary calls that can fire in phase 2 use the run's ``base_url`` and
+    ``api_key``, never provider settings from the environment. Compression is the one that fires
+    (titles are floored off, vision and learning are not offered). Two stub endpoints: the run
+    names A with ``sk-run-A``; the worker's environment carries ``OPENAI_BASE_URL`` = B and
+    ``OPENAI_API_KEY=sk-env-B``. A conversation grown past the threshold (64K context, real usage
+    reported) compresses; every request, the summary calls included, goes to A with the run key,
+    B gets nothing, and no connection leaves 127.0.0.1."""
+    stub_a = StubServer(context_length=64000, real_usage=True).start()
+    stub_b = StubServer(context_length=64000, real_usage=True).start()
+    root = harness.new_root("c20")
+    a = harness.Agent(root)
+    log = root / "net.jsonl"
+    w, ready = harness.ready_worker(a, argv=[harness.python(), "-I", str(PROBE_BOOT), "--net-log", str(log), "worker"],
+                                    OPENAI_API_KEY="sk-env-B", OPENAI_BASE_URL=stub_b.base_url)
+    statuses = []
+    try:
+        assert ready["self_test"]["ok"], ready["self_test"]
+        for i in range(8):
+            msg = harness.run_start(a, stub_a, run_id=f"c20-{i}", conversation="c-c20", budgets={},
+                                    text=f"turn {i} " + _words(i))
+            msg["model"]["api_key"] = "sk-run-A"
+            w.send(msg)
+            done, seen = harness.drive(w, a.account, f"c20-{i}", timeout=180)
+            assert done["completed"] is True, done
+            statuses += [m["payload"] for m in seen if m.get("type") == "event" and m.get("kind") == "status"]
+    finally:
+        w.close()
+        stub_a.shutdown()
+        stub_b.shutdown()
+    assert any(s["kind"] == "compacted" for s in statuses), statuses
+    posts = [r for r in stub_a.requests if r["method"] == "POST" and r["path"].endswith("/chat/completions")]
+
+    def opens_as_timely(r):
+        first = (r["body"].get("messages") or [{}])[0]
+        return first.get("role") == "system" and str(first.get("content")).startswith("You are Timely")
+    turns = [r for r in posts if opens_as_timely(r)]
+    summaries = [r for r in posts if r not in turns]
+    assert len(turns) == 8 and summaries, (len(turns), len(summaries))
+    assert {r["auth"] for r in posts} == {"Bearer sk-run-A"}, [(r["path"], r["auth"]) for r in posts]
+    # Model metadata probes (GET) may go without a key, never with another one.
+    assert {r["auth"] for r in stub_a.requests} <= {"Bearer sk-run-A", None}, \
+        [(r["method"], r["path"], r["auth"]) for r in stub_a.requests if r["auth"] != "Bearer sk-run-A"]
+    assert stub_b.requests == [], stub_b.requests
+    entries = [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+    remote = {str(e.get("host") or e.get("address")) for e in entries
+              if (e.get("host") or (e.get("address") or [None])[0]) not in ("127.0.0.1", "::1", "localhost", None, "")}
+    assert not remote, remote

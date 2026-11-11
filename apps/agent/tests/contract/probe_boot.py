@@ -1,6 +1,7 @@
-"""Test-only wrapper around ``timely_agent/boot.py`` for contract tests 5 and 19.
+"""Test-only wrapper around ``timely_agent/boot.py`` for contract tests 5, 6, 18 and 19.
 
-    python -I probe_boot.py [--net-log FILE] [--stdout-tool] worker
+    python -I probe_boot.py [--net-log FILE] [--stdout-tool] [--taint-tool] [--system-via MODE]
+                            [--tool-search MODE] worker
 
 ``--net-log FILE`` records every name lookup and every outgoing IP connection the worker
 process makes (``socket.getaddrinfo``, ``gethostbyname``, ``gethostbyname_ex``,
@@ -10,6 +11,15 @@ process makes (``socket.getaddrinfo``, ``gethostbyname``, ``gethostbyname_ex``,
 It writes to standard output four ways: ``print``, ``sys.__stdout__``, ``os.write(1, ...)`` and
 a child process that inherits the worker's fd 1 (no pipe, unlike Hermes' terminal backend)
 (contract test 19). The worker must keep all of it off the protocol.
+
+``--taint-tool`` registers ``taint_probe`` (toolset ``probe``), which returns outside page text,
+and marks it as a taint source in ``policy.TAINT_SOURCES`` (kind ``web``) (contract test 18b).
+
+``--system-via ephemeral|system_message`` sets ``run_chat.SYSTEM_VIA``, where the Timely block
+goes (contract test 6 runs both).
+
+``--tool-search off|on`` makes Hermes read ``tools.tool_search.enabled`` as given, whatever the
+managed floor says (the tool_search measurement in ``tests/measure_prompt.py``; never a product path).
 
 Everything else is the real boot path: the wrapper loads ``boot.py`` from its own file and
 calls ``boot.main``, so the descriptor move and ``sys.path`` fix run exactly as in production.
@@ -29,6 +39,8 @@ AGENT = os.path.dirname(os.path.dirname(HERE))
 BOOT = os.path.join(AGENT, "timely_agent", "boot.py")
 
 PROBE_TOOL = "stdout_probe"
+TAINT_TOOL = "taint_probe"
+TAINT_PAGE = "Outside page text from taint_probe: buy now."
 PROBE_TOOLSET = "probe"
 PRINT_MARK = "PROBE-PRINT-TO-STDOUT"
 DUNDER_MARK = "PROBE-SYS-DUNDER-STDOUT"
@@ -93,14 +105,57 @@ def _install_stdout_tool() -> None:
     worker.Worker.on_hello = on_hello
 
 
+def _install_taint_tool() -> None:
+    from timely_agent import policy, worker
+    policy.TAINT_SOURCES[TAINT_TOOL] = "web"
+    original = worker.Worker.on_hello
+
+    def on_hello(self, msg):
+        from tools.registry import registry
+        registry.register(
+            name=TAINT_TOOL, toolset=PROBE_TOOLSET, handler=lambda args, **_: json.dumps({"page": TAINT_PAGE}),
+            schema={"name": TAINT_TOOL, "description": "Contract test 18: returns outside page text.",
+                    "parameters": {"type": "object", "properties": {"url": {"type": "string"}}}})
+        return original(self, msg)
+
+    worker.Worker.on_hello = on_hello
+
+
+def _install_system_via(mode: str) -> None:
+    from timely_agent import run_chat
+    run_chat.SYSTEM_VIA = mode
+
+
+def _install_tool_search(mode: str) -> None:
+    from timely_agent import worker
+    original = worker.Worker.on_hello
+
+    def on_hello(self, msg):
+        import tools.tool_search as ts
+        forced = ts.ToolSearchConfig.from_raw({"enabled": mode})
+        ts.load_config = lambda: forced
+        ts.load_config_readonly = lambda: forced
+        return original(self, msg)
+
+    worker.Worker.on_hello = on_hello
+
+
 def main(argv: list[str]) -> int:
-    net_log, stdout_tool = None, False
+    net_log, patches = None, []
     while argv and argv[0].startswith("--"):
         flag = argv.pop(0)
         if flag == "--net-log":
             net_log = argv.pop(0)
         elif flag == "--stdout-tool":
-            stdout_tool = True
+            patches.append(_install_stdout_tool)
+        elif flag == "--taint-tool":
+            patches.append(_install_taint_tool)
+        elif flag == "--system-via":
+            mode = argv.pop(0)
+            patches.append(lambda mode=mode: _install_system_via(mode))
+        elif flag == "--tool-search":
+            mode = argv.pop(0)
+            patches.append(lambda mode=mode: _install_tool_search(mode))
         else:
             sys.stderr.write(f"probe_boot: unknown flag {flag}\n")
             return 2
@@ -111,12 +166,13 @@ def main(argv: list[str]) -> int:
     spec = importlib.util.spec_from_file_location("timely_boot", BOOT)
     boot = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(boot)
-    if stdout_tool:
+    if patches:
         fix = boot._fix_sys_path
 
         def fix_and_patch() -> None:
             fix()
-            _install_stdout_tool()
+            for patch in patches:
+                patch()
         boot._fix_sys_path = fix_and_patch
     return boot.main(argv)
 

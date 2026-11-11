@@ -91,6 +91,9 @@ type Service struct {
 	claude   *Tool
 	codex    *Tool
 	localCLI bool
+	// gateway serves Claude Code and Codex chats on the agent engine
+	// (gateway.go); nil keeps them on classic.
+	gateway  *Gateway
 	envChat  string
 	envEmbed string
 

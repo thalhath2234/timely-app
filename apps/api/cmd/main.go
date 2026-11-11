@@ -259,6 +259,11 @@ func main() {
 	chatService.SetDecisions(decisions)
 	chatService.SetEstimates(suggestions.EstimateMany)
 	chatService.SetBotNames(chatBotNames(botService))
+	// Chats an account switches to the new engine run in its Hermes worker
+	// (ADR 0026); everything else stays on classic.
+	agentEngine := newAgentEngine(db, chatService, func() agent.Catalog {
+		return chatCatalog(db, live, providerService.EmbedCredentials, botService)
+	}, providerService)
 
 	authHandler := auth.NewHandler(authService, userRepo)
 	authHandler.SetPairingCodes(auth.NewPairingCodes(db))
@@ -386,6 +391,15 @@ func main() {
 	log.Println("Shutting down")
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelShutdown()
+	// Agent workers get their shutdown grace while the servers drain; runs
+	// they interrupt are marked Try again while the database is still open.
+	agentStopped := make(chan struct{})
+	go func() {
+		defer close(agentStopped)
+		if err := agentEngine.Shutdown(shutdownCtx); err != nil {
+			log.Printf("agent engine shutdown: %v", err)
+		}
+	}()
 	for _, srv := range servers {
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			log.Printf("http shutdown: %v", err)
@@ -395,6 +409,7 @@ func main() {
 	go func() {
 		background.Wait()
 		chatService.Wait()
+		<-agentStopped
 		close(stopped)
 	}()
 	select {

@@ -138,8 +138,8 @@ export default function EmptyHero({
             What would you like to make happen?
           </h2>
           <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
-            Turn an idea into a project, shape a sheet, or plan your week. Small
-            changes happen right away; bigger ones wait for your approval.
+            Turn an idea into a project, shape a sheet, or plan your week. The
+            chat’s permission decides what waits for your review.
           </p>
         </div>
         {!compact ? (

@@ -1,0 +1,516 @@
+{
+  "account": "fixture-user",
+  "catalog_version": "f526b4d2b80723efbcabe0e61f32c0de6edff5ed641b926295b2c531c9e944ef",
+  "hermes_tag": "v0.23.0",
+  "scenarios": {
+    "blocked_non_timely_tool": {
+      "controls": [],
+      "description": "A Hermes tool outside the local allow list and the timely toolset (session_search, offered here only to reach the gate): gate.ask, Go's block verdict, the model replies with the block message.",
+      "gate_verdict": {
+        "message": "That isn't available in Timely yet",
+        "verdict": "block"
+      },
+      "run_done": {
+        "completed": true,
+        "final_response": "Done after tool: {\"error\": \"That isn't available in Timely yet\"}",
+        "interrupted": false,
+        "tainted_sources": [],
+        "turn_exit_reason": "text_response(finish_reason=stop)"
+      },
+      "run_start": {
+        "account": "fixture-user",
+        "budgets": {},
+        "conversation_id": "conv-blocked_non_timely_tool",
+        "flags": {
+          "learning_writes": false
+        },
+        "id": "start-blocked_non_timely_tool",
+        "model": {
+          "api_mode": "chat_completions",
+          "model": "stub-model",
+          "provider": "custom"
+        },
+        "permission": "supervised",
+        "run": "run-blocked_non_timely_tool",
+        "session_key": "timely:fixture-user:conv-blocked_non_timely_tool",
+        "tainted_sources": [],
+        "toolsets": [
+          "timely",
+          "todo",
+          "skills",
+          "session_search"
+        ],
+        "type": "run.start",
+        "user_message": "CALL session_search {\"query\": \"groceries\"}"
+      },
+      "tool_results": []
+    },
+    "outside_read_then_direct_proposal": {
+      "controls": [],
+      "description": "An outside Timely read (Go answers outside: true) sends taint; the direct=true proposal's tool.call carries tainted_sources, so Go holds it (approval).",
+      "gate_verdict": {
+        "message": "That isn't available in Timely yet",
+        "verdict": "block"
+      },
+      "run_done": {
+        "completed": true,
+        "final_response": "I drafted the change.",
+        "interrupted": false,
+        "tainted_sources": [
+          {
+            "kind": "timely",
+            "tool": "ask_bot"
+          }
+        ],
+        "turn_exit_reason": "text_response(finish_reason=stop)"
+      },
+      "run_start": {
+        "account": "fixture-user",
+        "budgets": {},
+        "conversation_id": "conv-outside_read_then_direct_proposal",
+        "flags": {
+          "learning_writes": false
+        },
+        "id": "start-outside_read_then_direct_proposal",
+        "model": {
+          "api_mode": "chat_completions",
+          "model": "stub-model",
+          "provider": "custom"
+        },
+        "permission": "supervised",
+        "run": "run-outside_read_then_direct_proposal",
+        "session_key": "timely:fixture-user:conv-outside_read_then_direct_proposal",
+        "tainted_sources": [],
+        "toolsets": [
+          "timely",
+          "todo",
+          "skills"
+        ],
+        "type": "run.start",
+        "user_message": "SCRIPT [{\"calls\": [[\"ask_bot\", {\"bot\": \"price-watch\", \"question\": \"What is the price?\"}]]}, {\"calls\": [[\"propose_changes\", {\"summary\": \"Add the task Buy milk to Inbox\", \"direct\": true, \"reply\": \"\", \"remaining\": \"\", \"language\": \"en\", \"steps\": [{\"tool\": \"create_task\", \"summary\": \"Add Buy milk\", \"arguments\": {\"title\": \"Buy milk\"}}]}]]}, {\"text\": \"I drafted the change.\"}]"
+      },
+      "tool_results": [
+        {
+          "end_turn": false,
+          "outside": true,
+          "result": {
+            "page": "Outside page text: the price is 42."
+          },
+          "tool": "ask_bot"
+        },
+        {
+          "end_turn": true,
+          "outside": false,
+          "result": {
+            "message": "Proposal recorded; reply to the person in one sentence.",
+            "recorded": true
+          },
+          "tool": "propose_changes"
+        }
+      ]
+    },
+    "plain_reply_deltas": {
+      "controls": [],
+      "description": "A plain reply streamed in small chunks: coalesced delta events, then run.done.",
+      "gate_verdict": {
+        "message": "That isn't available in Timely yet",
+        "verdict": "block"
+      },
+      "run_done": {
+        "completed": true,
+        "final_response": "abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghi",
+        "interrupted": false,
+        "tainted_sources": [],
+        "turn_exit_reason": "text_response(finish_reason=stop)"
+      },
+      "run_start": {
+        "account": "fixture-user",
+        "budgets": {},
+        "conversation_id": "conv-plain_reply_deltas",
+        "flags": {
+          "learning_writes": false
+        },
+        "id": "start-plain_reply_deltas",
+        "model": {
+          "api_mode": "chat_completions",
+          "model": "stub-model",
+          "provider": "custom"
+        },
+        "permission": "supervised",
+        "run": "run-plain_reply_deltas",
+        "session_key": "timely:fixture-user:conv-plain_reply_deltas",
+        "tainted_sources": [],
+        "toolsets": [
+          "timely",
+          "todo",
+          "skills"
+        ],
+        "type": "run.start",
+        "user_message": "STREAM 900 3 2"
+      },
+      "tool_results": []
+    },
+    "propose_in_a_batch_is_blocked": {
+      "controls": [],
+      "description": "propose_changes next to a read in one message: blocked by timely_gate (never reaches Go); the read's tool.call has batch_size 2, sibling_tools [propose_changes].",
+      "gate_verdict": {
+        "message": "That isn't available in Timely yet",
+        "verdict": "block"
+      },
+      "run_done": {
+        "completed": true,
+        "final_response": "Let me read first and propose after.",
+        "interrupted": false,
+        "tainted_sources": [],
+        "turn_exit_reason": "text_response(finish_reason=stop)"
+      },
+      "run_start": {
+        "account": "fixture-user",
+        "budgets": {},
+        "conversation_id": "conv-propose_in_a_batch_is_blocked",
+        "flags": {
+          "learning_writes": false
+        },
+        "id": "start-propose_in_a_batch_is_blocked",
+        "model": {
+          "api_mode": "chat_completions",
+          "model": "stub-model",
+          "provider": "custom"
+        },
+        "permission": "supervised",
+        "run": "run-propose_in_a_batch_is_blocked",
+        "session_key": "timely:fixture-user:conv-propose_in_a_batch_is_blocked",
+        "tainted_sources": [],
+        "toolsets": [
+          "timely",
+          "todo",
+          "skills"
+        ],
+        "type": "run.start",
+        "user_message": "SCRIPT [{\"calls\": [[\"propose_changes\", {\"summary\": \"Add the task Buy milk to Inbox\", \"direct\": false, \"reply\": \"\", \"remaining\": \"\", \"language\": \"en\", \"steps\": [{\"tool\": \"create_task\", \"summary\": \"Add Buy milk\", \"arguments\": {\"title\": \"Buy milk\"}}]}], [\"get_context\", {}]]}, {\"text\": \"Let me read first and propose after.\"}]"
+      },
+      "tool_results": [
+        {
+          "end_turn": false,
+          "outside": false,
+          "result": {
+            "args": {},
+            "ok": true,
+            "tool": "get_context"
+          },
+          "tool": "get_context"
+        }
+      ]
+    },
+    "propose_then_closing_sentence": {
+      "controls": [],
+      "description": "propose_changes alone; Go answers end_turn: true; the model writes one closing sentence and the turn ends (Q-2.4).",
+      "gate_verdict": {
+        "message": "That isn't available in Timely yet",
+        "verdict": "block"
+      },
+      "run_done": {
+        "completed": true,
+        "final_response": "I drafted adding Buy milk for you to approve.",
+        "interrupted": false,
+        "tainted_sources": [],
+        "turn_exit_reason": "text_response(finish_reason=stop)"
+      },
+      "run_start": {
+        "account": "fixture-user",
+        "budgets": {},
+        "conversation_id": "conv-propose_then_closing_sentence",
+        "flags": {
+          "learning_writes": false
+        },
+        "id": "start-propose_then_closing_sentence",
+        "model": {
+          "api_mode": "chat_completions",
+          "model": "stub-model",
+          "provider": "custom"
+        },
+        "permission": "supervised",
+        "run": "run-propose_then_closing_sentence",
+        "session_key": "timely:fixture-user:conv-propose_then_closing_sentence",
+        "tainted_sources": [],
+        "toolsets": [
+          "timely",
+          "todo",
+          "skills"
+        ],
+        "type": "run.start",
+        "user_message": "SCRIPT [{\"calls\": [[\"propose_changes\", {\"summary\": \"Add the task Buy milk to Inbox\", \"direct\": false, \"reply\": \"\", \"remaining\": \"\", \"language\": \"en\", \"steps\": [{\"tool\": \"create_task\", \"summary\": \"Add Buy milk\", \"arguments\": {\"title\": \"Buy milk\"}}]}]]}, {\"text\": \"I drafted adding Buy milk for you to approve.\"}]"
+      },
+      "tool_results": [
+        {
+          "end_turn": true,
+          "outside": false,
+          "result": {
+            "message": "Proposal recorded; reply to the person in one sentence.",
+            "recorded": true
+          },
+          "tool": "propose_changes"
+        }
+      ]
+    },
+    "propose_then_tool_call_ends_turn": {
+      "controls": [],
+      "description": "After end_turn the model calls another tool: the gate blocks it (no tool.call) and run.done has turn_exit_reason end_turn, interrupted false, the closing text kept.",
+      "gate_verdict": {
+        "message": "That isn't available in Timely yet",
+        "verdict": "block"
+      },
+      "run_done": {
+        "completed": true,
+        "final_response": "Drafted it.",
+        "interrupted": false,
+        "tainted_sources": [],
+        "turn_exit_reason": "end_turn"
+      },
+      "run_start": {
+        "account": "fixture-user",
+        "budgets": {},
+        "conversation_id": "conv-propose_then_tool_call_ends_turn",
+        "flags": {
+          "learning_writes": false
+        },
+        "id": "start-propose_then_tool_call_ends_turn",
+        "model": {
+          "api_mode": "chat_completions",
+          "model": "stub-model",
+          "provider": "custom"
+        },
+        "permission": "supervised",
+        "run": "run-propose_then_tool_call_ends_turn",
+        "session_key": "timely:fixture-user:conv-propose_then_tool_call_ends_turn",
+        "tainted_sources": [],
+        "toolsets": [
+          "timely",
+          "todo",
+          "skills"
+        ],
+        "type": "run.start",
+        "user_message": "SCRIPT [{\"calls\": [[\"propose_changes\", {\"summary\": \"Add the task Buy milk to Inbox\", \"direct\": false, \"reply\": \"\", \"remaining\": \"\", \"language\": \"en\", \"steps\": [{\"tool\": \"create_task\", \"summary\": \"Add Buy milk\", \"arguments\": {\"title\": \"Buy milk\"}}]}]]}, {\"text\": \"Drafted it.\", \"calls\": [[\"get_context\", {}]]}, {\"text\": \"never sent\"}]"
+      },
+      "tool_results": [
+        {
+          "end_turn": true,
+          "outside": false,
+          "result": {
+            "message": "Proposal recorded; reply to the person in one sentence.",
+            "recorded": true
+          },
+          "tool": "propose_changes"
+        }
+      ]
+    },
+    "read_tool_then_reply": {
+      "controls": [],
+      "description": "One Timely read: tool.started, tool.call (batch_size 1), Go's result, the reply.",
+      "gate_verdict": {
+        "message": "That isn't available in Timely yet",
+        "verdict": "block"
+      },
+      "run_done": {
+        "completed": true,
+        "final_response": "Done after tool: {\"tool\": \"get_task\", \"ok\": true, \"args\": {\"id\": \"task-1\"}}",
+        "interrupted": false,
+        "tainted_sources": [],
+        "turn_exit_reason": "text_response(finish_reason=stop)"
+      },
+      "run_start": {
+        "account": "fixture-user",
+        "budgets": {},
+        "conversation_id": "conv-read_tool_then_reply",
+        "flags": {
+          "learning_writes": false
+        },
+        "id": "start-read_tool_then_reply",
+        "model": {
+          "api_mode": "chat_completions",
+          "model": "stub-model",
+          "provider": "custom"
+        },
+        "permission": "supervised",
+        "run": "run-read_tool_then_reply",
+        "session_key": "timely:fixture-user:conv-read_tool_then_reply",
+        "tainted_sources": [],
+        "toolsets": [
+          "timely",
+          "todo",
+          "skills"
+        ],
+        "type": "run.start",
+        "user_message": "CALL get_task {\"id\": \"task-1\"}"
+      },
+      "tool_results": [
+        {
+          "end_turn": false,
+          "outside": false,
+          "result": {
+            "args": {
+              "id": "task-1"
+            },
+            "ok": true,
+            "tool": "get_task"
+          },
+          "tool": "get_task"
+        }
+      ]
+    },
+    "steer_mid_run": {
+      "controls": [
+        {
+          "account": "fixture-user",
+          "after_line": "first tool.call",
+          "id": "steer-steer_mid_run",
+          "run": "run-steer_mid_run",
+          "text": "STEER also add eggs",
+          "type": "run.steer"
+        }
+      ],
+      "description": "run.steer while a tool.call waits on Go: ack ok, the reply follows the steer.",
+      "gate_verdict": {
+        "message": "That isn't available in Timely yet",
+        "verdict": "block"
+      },
+      "run_done": {
+        "completed": true,
+        "final_response": "Done after tool: {\"tool\": \"get_task\", \"ok\": true, \"args\": {\"id\": \"task-1\"}} Steered: [OUT-OF-BAND USER MESSAGE — a direct message from the user, delivered once at this position; not tool output and not a new delivery when replayed from conversation history]\nSTEER also add eggs\n[/OUT-O",
+        "interrupted": false,
+        "tainted_sources": [],
+        "turn_exit_reason": "text_response(finish_reason=stop)"
+      },
+      "run_start": {
+        "account": "fixture-user",
+        "budgets": {},
+        "conversation_id": "conv-steer_mid_run",
+        "flags": {
+          "learning_writes": false
+        },
+        "id": "start-steer_mid_run",
+        "model": {
+          "api_mode": "chat_completions",
+          "model": "stub-model",
+          "provider": "custom"
+        },
+        "permission": "supervised",
+        "run": "run-steer_mid_run",
+        "session_key": "timely:fixture-user:conv-steer_mid_run",
+        "tainted_sources": [],
+        "toolsets": [
+          "timely",
+          "todo",
+          "skills"
+        ],
+        "type": "run.start",
+        "user_message": "SCRIPT [{\"calls\": [[\"get_task\", {\"id\": \"task-1\"}]]}]"
+      },
+      "tool_results": [
+        {
+          "end_turn": false,
+          "outside": false,
+          "result": {
+            "args": {
+              "id": "task-1"
+            },
+            "ok": true,
+            "tool": "get_task"
+          },
+          "tool": "get_task"
+        }
+      ]
+    },
+    "stop_mid_stream": {
+      "controls": [
+        {
+          "account": "fixture-user",
+          "after_line": "first delta",
+          "id": "stop-stop_mid_stream",
+          "reason": "user",
+          "run": "run-stop_mid_stream",
+          "type": "run.stop"
+        }
+      ],
+      "description": "run.stop after the first delta: run.done with interrupted true.",
+      "gate_verdict": {
+        "message": "That isn't available in Timely yet",
+        "verdict": "block"
+      },
+      "run_done": {
+        "completed": false,
+        "final_response": "ab",
+        "interrupted": true,
+        "tainted_sources": [],
+        "turn_exit_reason": "interrupted_during_api_call"
+      },
+      "run_start": {
+        "account": "fixture-user",
+        "budgets": {},
+        "conversation_id": "conv-stop_mid_stream",
+        "flags": {
+          "learning_writes": false
+        },
+        "id": "start-stop_mid_stream",
+        "model": {
+          "api_mode": "chat_completions",
+          "model": "stub-model",
+          "provider": "custom"
+        },
+        "permission": "supervised",
+        "run": "run-stop_mid_stream",
+        "session_key": "timely:fixture-user:conv-stop_mid_stream",
+        "tainted_sources": [],
+        "toolsets": [
+          "timely",
+          "todo",
+          "skills"
+        ],
+        "type": "run.start",
+        "user_message": "STREAM 4000 2 5"
+      },
+      "tool_results": []
+    },
+    "unoffered_tool": {
+      "controls": [],
+      "description": "A tool not in the run's toolsets (terminal): Hermes refuses it itself; no gate.ask, no tool.call.",
+      "gate_verdict": {
+        "message": "That isn't available in Timely yet",
+        "verdict": "block"
+      },
+      "run_done": {
+        "completed": true,
+        "final_response": "Done after tool: Tool 'terminal' does not exist. Available tools: ask_bot, auto_schedule_preview, get_agenda, get_bot, get_calendar, get_capacity, get_context, get_doc, get_doc_backlinks, get_event, get_free_time, get",
+        "interrupted": false,
+        "tainted_sources": [],
+        "turn_exit_reason": "text_response(finish_reason=stop)"
+      },
+      "run_start": {
+        "account": "fixture-user",
+        "budgets": {},
+        "conversation_id": "conv-unoffered_tool",
+        "flags": {
+          "learning_writes": false
+        },
+        "id": "start-unoffered_tool",
+        "model": {
+          "api_mode": "chat_completions",
+          "model": "stub-model",
+          "provider": "custom"
+        },
+        "permission": "supervised",
+        "run": "run-unoffered_tool",
+        "session_key": "timely:fixture-user:conv-unoffered_tool",
+        "tainted_sources": [],
+        "toolsets": [
+          "timely",
+          "todo",
+          "skills"
+        ],
+        "type": "run.start",
+        "user_message": "CALL terminal {\"command\": \"ls\"}"
+      },
+      "tool_results": []
+    }
+  }
+}

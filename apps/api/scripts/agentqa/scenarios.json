@@ -1,0 +1,1596 @@
+{
+  "about": "Agent QA parity scenarios (plan section 13, phase 2), recreated 2026-11-09 from the 2026-10-02 run's categories. Run with make agent-parity; see apps/api/scripts/agentqa/README.md.",
+  "scenarios": [
+    {
+      "id": "tasks-01",
+      "category": "tasks",
+      "message": "Add a task to call the plumber",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "create_task"
+        ]
+      },
+      "stub": "CALL propose_changes {\"summary\": \"Add “Call the plumber”\", \"direct\": true, \"reply\": \"\", \"remaining\": \"\", \"language\": \"en\", \"steps\": [{\"tool\": \"create_task\", \"summary\": \"Add “Call the plumber”\", \"arguments\": {\"name\": \"Call the plumber\", \"workspaceId\": \"{{workspace}}\"}}]}"
+    },
+    {
+      "id": "tasks-02",
+      "category": "tasks",
+      "message": "Create a task 'Renew passport' due {{today+14}}, high priority",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "create_task"
+        ]
+      }
+    },
+    {
+      "id": "tasks-03",
+      "category": "tasks",
+      "message": "Mark 'Buy printer ink' as done",
+      "setup": [
+        {
+          "as": "t1",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Buy printer ink",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "complete_task"
+        ]
+      }
+    },
+    {
+      "id": "tasks-04",
+      "category": "tasks",
+      "message": "Rename the task 'Email Sam' to 'Email Sam about the lease'",
+      "setup": [
+        {
+          "as": "t1",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Email Sam",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "update_task"
+        ]
+      }
+    },
+    {
+      "id": "tasks-05",
+      "category": "tasks",
+      "message": "Delete the task 'Old draft cleanup'",
+      "setup": [
+        {
+          "as": "t1",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Old draft cleanup",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "delete_task"
+        ]
+      }
+    },
+    {
+      "id": "tasks-06",
+      "category": "tasks",
+      "message": "Add a 45 minute task to review the budget, scheduled for {{today+2}}",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "create_task"
+        ]
+      }
+    },
+    {
+      "id": "tasks-07",
+      "category": "tasks",
+      "message": "Make 'Pack for Lisbon' blocked by 'Book flights to Lisbon'",
+      "setup": [
+        {
+          "as": "t1",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Book flights to Lisbon",
+            "workspaceId": "{{workspace}}"
+          }
+        },
+        {
+          "as": "t2",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Pack for Lisbon",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "reminders-01",
+      "category": "reminders",
+      "message": "Remind me to take the bins out tomorrow at 7pm",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "reminders-02",
+      "category": "reminders",
+      "message": "Remind me on {{today+3}} at 9am to call the dentist",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "reminders-03",
+      "category": "reminders",
+      "message": "Set a reminder for the 'Pay rent' task the day before it's due",
+      "setup": [
+        {
+          "as": "t1",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Pay rent",
+            "workspaceId": "{{workspace}}",
+            "deadline": "{{today+5}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "reminders-04",
+      "category": "reminders",
+      "message": "Remind me every Monday at 8am to plan the week",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "reminders-05",
+      "category": "reminders",
+      "message": "Push the 'Water the plants' reminder to tomorrow morning",
+      "setup": [
+        {
+          "as": "t1",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Water the plants",
+            "workspaceId": "{{workspace}}",
+            "deadline": "{{today+1}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "reminders-06",
+      "category": "reminders",
+      "message": "Which reminders do I have this week?",
+      "approve": false,
+      "expect": {
+        "outcome": "reply"
+      }
+    },
+    {
+      "id": "reminders-07",
+      "category": "reminders",
+      "message": "Remind me in two hours to stretch",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "events-01",
+      "category": "events",
+      "message": "Put lunch with Ana on {{today+1}} from 12:30 to 13:30 on my calendar",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "create_event"
+        ]
+      },
+      "stub": "CALL propose_changes {\"summary\": \"Add lunch with Ana\", \"direct\": true, \"reply\": \"\", \"remaining\": \"\", \"language\": \"en\", \"steps\": [{\"tool\": \"create_event\", \"summary\": \"Lunch with Ana\", \"arguments\": {\"title\": \"Lunch with Ana\", \"start\": \"{{today+1T12:30}}\", \"end\": \"{{today+1T13:30}}\", \"workspaceId\": \"{{workspace}}\"}}]}"
+    },
+    {
+      "id": "events-02",
+      "category": "events",
+      "message": "Add an all-day event 'Conference' on {{today+7}}",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "create_event"
+        ]
+      }
+    },
+    {
+      "id": "events-03",
+      "category": "events",
+      "message": "Move 'Dentist' to an hour later",
+      "setup": [
+        {
+          "as": "e1",
+          "method": "POST",
+          "path": "/events",
+          "body": {
+            "title": "Dentist",
+            "start": "{{today+2T10:00}}",
+            "end": "{{today+2T11:00}}",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "update_event"
+        ]
+      }
+    },
+    {
+      "id": "events-04",
+      "category": "events",
+      "message": "Cancel the 'Team sync' event",
+      "setup": [
+        {
+          "as": "e1",
+          "method": "POST",
+          "path": "/events",
+          "body": {
+            "title": "Team sync",
+            "start": "{{today+1T15:00}}",
+            "end": "{{today+1T15:30}}",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "delete_event"
+        ]
+      }
+    },
+    {
+      "id": "events-05",
+      "category": "events",
+      "message": "Rename 'Call' on my calendar to 'Call with the bank'",
+      "setup": [
+        {
+          "as": "e1",
+          "method": "POST",
+          "path": "/events",
+          "body": {
+            "title": "Call",
+            "start": "{{today+3T09:00}}",
+            "end": "{{today+3T09:30}}",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "update_event"
+        ]
+      }
+    },
+    {
+      "id": "events-06",
+      "category": "events",
+      "message": "Block 2 hours of focus time on {{today+2}} afternoon",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "events-07",
+      "category": "events",
+      "message": "What is on my calendar on {{today+2}}?",
+      "setup": [
+        {
+          "as": "e1",
+          "method": "POST",
+          "path": "/events",
+          "body": {
+            "title": "Dentist",
+            "start": "{{today+2T10:00}}",
+            "end": "{{today+2T11:00}}",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": false,
+      "expect": {
+        "outcome": "reply",
+        "replyAny": [
+          "Dentist",
+          "nothing",
+          "free"
+        ]
+      }
+    },
+    {
+      "id": "recurring-01",
+      "category": "recurring",
+      "message": "Make 'Gym' repeat every Tuesday at 6pm",
+      "setup": [
+        {
+          "as": "t1",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Gym",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "recurring-02",
+      "category": "recurring",
+      "message": "Move only next week's 'Choir practice' to 7pm",
+      "setup": [
+        {
+          "as": "e1",
+          "method": "POST",
+          "path": "/events",
+          "body": {
+            "title": "Choir practice",
+            "start": "{{today+1T18:00}}",
+            "end": "{{today+1T19:00}}",
+            "workspaceId": "{{workspace}}",
+            "recurrence": {
+              "rrule": "FREQ=WEEKLY;BYDAY=TU",
+              "dtstart": "{{today+1T18:00}}",
+              "timezone": "{{timezone}}"
+            }
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "recurring-03",
+      "category": "recurring",
+      "message": "Skip 'Choir practice' the week after next",
+      "setup": [
+        {
+          "as": "e1",
+          "method": "POST",
+          "path": "/events",
+          "body": {
+            "title": "Choir practice",
+            "start": "{{today+1T18:00}}",
+            "end": "{{today+1T19:00}}",
+            "workspaceId": "{{workspace}}",
+            "recurrence": {
+              "rrule": "FREQ=WEEKLY;BYDAY=TU",
+              "dtstart": "{{today+1T18:00}}",
+              "timezone": "{{timezone}}"
+            }
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "recurring-04",
+      "category": "recurring",
+      "message": "From next month on, 'Choir practice' starts at 18:30",
+      "setup": [
+        {
+          "as": "e1",
+          "method": "POST",
+          "path": "/events",
+          "body": {
+            "title": "Choir practice",
+            "start": "{{today+1T18:00}}",
+            "end": "{{today+1T19:00}}",
+            "workspaceId": "{{workspace}}",
+            "recurrence": {
+              "rrule": "FREQ=WEEKLY;BYDAY=TU",
+              "dtstart": "{{today+1T18:00}}",
+              "timezone": "{{timezone}}"
+            }
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "recurring-05",
+      "category": "recurring",
+      "message": "Stop repeating 'Morning run'",
+      "setup": [
+        {
+          "as": "e1",
+          "method": "POST",
+          "path": "/events",
+          "body": {
+            "title": "Morning run",
+            "start": "{{today+1T07:00}}",
+            "end": "{{today+1T07:30}}",
+            "workspaceId": "{{workspace}}",
+            "recurrence": {
+              "rrule": "FREQ=DAILY",
+              "dtstart": "{{today+1T07:00}}",
+              "timezone": "{{timezone}}"
+            }
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "recurring-06",
+      "category": "recurring",
+      "message": "Change 'Morning run' to weekdays only",
+      "setup": [
+        {
+          "as": "e1",
+          "method": "POST",
+          "path": "/events",
+          "body": {
+            "title": "Morning run",
+            "start": "{{today+1T07:00}}",
+            "end": "{{today+1T07:30}}",
+            "workspaceId": "{{workspace}}",
+            "recurrence": {
+              "rrule": "FREQ=DAILY",
+              "dtstart": "{{today+1T07:00}}",
+              "timezone": "{{timezone}}"
+            }
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "recurring-07",
+      "category": "recurring",
+      "message": "Add a task 'Haircut' that repeats every 4 weeks",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "create_task"
+        ]
+      }
+    },
+    {
+      "id": "sheets-01",
+      "category": "sheets",
+      "message": "Create a sheet 'Reading list' with columns Title, Author and Done",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "create_sheet"
+        ]
+      }
+    },
+    {
+      "id": "sheets-02",
+      "category": "sheets",
+      "message": "Add a row to 'Groceries': milk, 2 litres",
+      "setup": [
+        {
+          "as": "s1",
+          "method": "POST",
+          "path": "/sheets",
+          "body": {
+            "title": "Groceries",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "sheets-03",
+      "category": "sheets",
+      "message": "Add a column 'Price' to the 'Groceries' sheet",
+      "setup": [
+        {
+          "as": "s1",
+          "method": "POST",
+          "path": "/sheets",
+          "body": {
+            "title": "Groceries",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "add_sheet_column"
+        ]
+      }
+    },
+    {
+      "id": "sheets-04",
+      "category": "sheets",
+      "message": "Rename the sheet 'Groceries' to 'Weekly shop'",
+      "setup": [
+        {
+          "as": "s1",
+          "method": "POST",
+          "path": "/sheets",
+          "body": {
+            "title": "Groceries",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "sheets-05",
+      "category": "sheets",
+      "message": "Add a tab 'March' to the 'Budget' sheet",
+      "setup": [
+        {
+          "as": "s1",
+          "method": "POST",
+          "path": "/sheets",
+          "body": {
+            "title": "Budget",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "add_sheet_tab"
+        ]
+      }
+    },
+    {
+      "id": "sheets-06",
+      "category": "sheets",
+      "message": "What sheets do I have?",
+      "setup": [
+        {
+          "as": "s1",
+          "method": "POST",
+          "path": "/sheets",
+          "body": {
+            "title": "Budget",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": false,
+      "expect": {
+        "outcome": "reply",
+        "replyAny": [
+          "Budget",
+          "sheet"
+        ]
+      }
+    },
+    {
+      "id": "sheets-07",
+      "category": "sheets",
+      "message": "Archive the 'Old budget' sheet",
+      "setup": [
+        {
+          "as": "s1",
+          "method": "POST",
+          "path": "/sheets",
+          "body": {
+            "title": "Old budget",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "archive_sheet"
+        ]
+      }
+    },
+    {
+      "id": "docs-01",
+      "category": "docs",
+      "message": "Write a doc 'Trip ideas' with three ideas for a weekend in Porto",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "create_doc"
+        ]
+      }
+    },
+    {
+      "id": "docs-02",
+      "category": "docs",
+      "message": "Append 'Bring the charger' to my 'Packing' doc",
+      "setup": [
+        {
+          "as": "d1",
+          "method": "POST",
+          "path": "/docs",
+          "body": {
+            "title": "Packing",
+            "plainText": "Passport\nTickets",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "append_to_doc"
+        ]
+      }
+    },
+    {
+      "id": "docs-03",
+      "category": "docs",
+      "message": "Summarise my 'Meeting notes' doc",
+      "setup": [
+        {
+          "as": "d1",
+          "method": "POST",
+          "path": "/docs",
+          "body": {
+            "title": "Meeting notes",
+            "plainText": "We agreed to ship the beta on Friday. Ana owns the release notes. Budget review moves to next week.",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": false,
+      "expect": {
+        "outcome": "reply"
+      }
+    },
+    {
+      "id": "docs-04",
+      "category": "docs",
+      "message": "Add a checklist to 'Packing' with socks, shoes and a hat",
+      "setup": [
+        {
+          "as": "d1",
+          "method": "POST",
+          "path": "/docs",
+          "body": {
+            "title": "Packing",
+            "plainText": "Passport",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "docs-05",
+      "category": "docs",
+      "message": "Rename the doc 'Untitled' to 'Garden plan'",
+      "setup": [
+        {
+          "as": "d1",
+          "method": "POST",
+          "path": "/docs",
+          "body": {
+            "title": "Untitled",
+            "plainText": "Tomatoes by the fence",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "docs-06",
+      "category": "docs",
+      "message": "Archive the doc 'Scratch'",
+      "setup": [
+        {
+          "as": "d1",
+          "method": "POST",
+          "path": "/docs",
+          "body": {
+            "title": "Scratch",
+            "plainText": "temp",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "archive_doc"
+        ]
+      }
+    },
+    {
+      "id": "docs-07",
+      "category": "docs",
+      "message": "Turn the tasks in my 'Weekend' doc into real tasks",
+      "setup": [
+        {
+          "as": "d1",
+          "method": "POST",
+          "path": "/docs",
+          "body": {
+            "title": "Weekend",
+            "plainText": "- Fix the bike\n- Call grandma\n- Clean the fridge",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "bulk-01",
+      "category": "bulk",
+      "message": "Add 'Water the plants' and 'Renew the passport'",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "create_task"
+        ]
+      },
+      "stub": "CALL propose_changes {\"summary\": \"Add two tasks\", \"direct\": true, \"reply\": \"\", \"remaining\": \"\", \"language\": \"en\", \"steps\": [{\"tool\": \"create_task\", \"summary\": \"Add “Water the plants”\", \"arguments\": {\"name\": \"Water the plants\", \"workspaceId\": \"{{workspace}}\"}}, {\"tool\": \"create_task\", \"summary\": \"Add “Renew the passport”\", \"arguments\": {\"name\": \"Renew the passport\", \"workspaceId\": \"{{workspace}}\"}}]}"
+    },
+    {
+      "id": "bulk-02",
+      "category": "bulk",
+      "message": "Mark all my 'Errand:' tasks as done",
+      "setup": [
+        {
+          "as": "t1",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Errand: post office",
+            "workspaceId": "{{workspace}}"
+          }
+        },
+        {
+          "as": "t2",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Errand: bank",
+            "workspaceId": "{{workspace}}"
+          }
+        },
+        {
+          "as": "t3",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Errand: pharmacy",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "bulk-03",
+      "category": "bulk",
+      "message": "Move every task due {{today+1}} to {{today+2}}",
+      "setup": [
+        {
+          "as": "t1",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Draft report",
+            "workspaceId": "{{workspace}}",
+            "deadline": "{{today+1}}"
+          }
+        },
+        {
+          "as": "t2",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Send invoice",
+            "workspaceId": "{{workspace}}",
+            "deadline": "{{today+1}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "bulk-04",
+      "category": "bulk",
+      "message": "Set the priority of all 'Client' tasks to high",
+      "setup": [
+        {
+          "as": "t1",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Client: call back",
+            "workspaceId": "{{workspace}}"
+          }
+        },
+        {
+          "as": "t2",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Client: send quote",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "bulk-05",
+      "category": "bulk",
+      "message": "Create tasks for each day next week: 'Practice Spanish'",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "create_task"
+        ]
+      }
+    },
+    {
+      "id": "bulk-06",
+      "category": "bulk",
+      "message": "Delete all tasks named 'test'",
+      "setup": [
+        {
+          "as": "t1",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "test",
+            "workspaceId": "{{workspace}}"
+          }
+        },
+        {
+          "as": "t2",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "test",
+            "workspaceId": "{{workspace}}"
+          }
+        },
+        {
+          "as": "t3",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "test",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal"
+      }
+    },
+    {
+      "id": "bulk-07",
+      "category": "bulk",
+      "message": "Add 12 tasks: 'Chapter 1' to 'Chapter 12' for my reading plan",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "create_task"
+        ]
+      }
+    },
+    {
+      "id": "bots-01",
+      "category": "bots",
+      "message": "Watch the price of the Kindle Paperwhite on amazon.com and tell me when it drops below $120",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "create_bot"
+        ]
+      }
+    },
+    {
+      "id": "bots-02",
+      "category": "bots",
+      "message": "Make a bot that tells me each morning if it will rain in Lisbon",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "create_bot"
+        ]
+      }
+    },
+    {
+      "id": "bots-03",
+      "category": "bots",
+      "message": "What bots do I have?",
+      "approve": false,
+      "expect": {
+        "outcome": "reply",
+        "replyAny": [
+          "bot"
+        ]
+      }
+    },
+    {
+      "id": "bots-04",
+      "category": "bots",
+      "message": "Track new posts on https://go.dev/blog and send me a summary weekly",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "create_bot"
+        ]
+      }
+    },
+    {
+      "id": "bots-05",
+      "category": "bots",
+      "message": "Watch AAPL and alert me if it moves more than 5% in a day",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "create_bot"
+        ]
+      }
+    },
+    {
+      "id": "bots-06",
+      "category": "bots",
+      "message": "Pause all my bots",
+      "approve": false,
+      "expect": {
+        "outcome": "reply"
+      },
+      "note": "no bots exist: expect a reply that says so"
+    },
+    {
+      "id": "bots-07",
+      "category": "bots",
+      "message": "Create a bot that checks https://example.com/status every hour for the word 'outage'",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "create_bot"
+        ]
+      }
+    },
+    {
+      "id": "questions-01",
+      "category": "questions",
+      "message": "How many tasks do I have?",
+      "setup": [
+        {
+          "as": "t1",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Plan the garden",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": false,
+      "expect": {
+        "outcome": "reply",
+        "replyAny": [
+          "task"
+        ]
+      },
+      "stub": "SCRIPT [{\"calls\": [[\"list_tasks\", {}]]}, {\"text\": \"You have one task: Plan the garden.\"}]"
+    },
+    {
+      "id": "questions-02",
+      "category": "questions",
+      "message": "What's due this week?",
+      "setup": [
+        {
+          "as": "t1",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Send invoice",
+            "workspaceId": "{{workspace}}",
+            "deadline": "{{today+2}}"
+          }
+        }
+      ],
+      "approve": false,
+      "expect": {
+        "outcome": "reply"
+      }
+    },
+    {
+      "id": "questions-03",
+      "category": "questions",
+      "message": "Am I free on {{today+3}} at 2pm?",
+      "approve": false,
+      "expect": {
+        "outcome": "reply"
+      }
+    },
+    {
+      "id": "questions-04",
+      "category": "questions",
+      "message": "Which projects do I have?",
+      "approve": false,
+      "expect": {
+        "outcome": "reply"
+      }
+    },
+    {
+      "id": "questions-05",
+      "category": "questions",
+      "message": "What did I write in my 'Ideas' doc?",
+      "setup": [
+        {
+          "as": "d1",
+          "method": "POST",
+          "path": "/docs",
+          "body": {
+            "title": "Ideas",
+            "plainText": "Start a podcast about gardening",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": false,
+      "expect": {
+        "outcome": "reply",
+        "replyAny": [
+          "podcast"
+        ]
+      }
+    },
+    {
+      "id": "questions-06",
+      "category": "questions",
+      "message": "What should I work on first today?",
+      "setup": [
+        {
+          "as": "t1",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Finish slides",
+            "workspaceId": "{{workspace}}",
+            "deadline": "{{today+0}}",
+            "priorityLevel": "high"
+          }
+        },
+        {
+          "as": "t2",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Tidy desk",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": false,
+      "expect": {
+        "outcome": "reply"
+      }
+    },
+    {
+      "id": "questions-07",
+      "category": "questions",
+      "message": "How much free time do I have tomorrow?",
+      "approve": false,
+      "expect": {
+        "outcome": "reply"
+      }
+    },
+    {
+      "id": "declines-01",
+      "category": "declines",
+      "message": "Write me a Python script that renames all files in a folder",
+      "approve": false,
+      "expect": {
+        "outcome": "reply"
+      },
+      "stub": "SCRIPT [{\"text\": \"I can help with your tasks, calendar, docs and sheets in Timely, but writing code is outside what I do here.\"}]"
+    },
+    {
+      "id": "declines-02",
+      "category": "declines",
+      "message": "What's the capital of Australia?",
+      "approve": false,
+      "expect": {
+        "outcome": "reply"
+      }
+    },
+    {
+      "id": "declines-03",
+      "category": "declines",
+      "message": "Write a SQL query to find duplicate emails",
+      "approve": false,
+      "expect": {
+        "outcome": "reply"
+      }
+    },
+    {
+      "id": "declines-04",
+      "category": "declines",
+      "message": "Translate 'good morning' into Japanese",
+      "approve": false,
+      "expect": {
+        "outcome": "reply"
+      }
+    },
+    {
+      "id": "declines-05",
+      "category": "declines",
+      "message": "Help me debug my React app",
+      "approve": false,
+      "expect": {
+        "outcome": "reply"
+      }
+    },
+    {
+      "id": "declines-06",
+      "category": "declines",
+      "message": "Tell me a joke",
+      "approve": false,
+      "expect": {
+        "outcome": "reply"
+      }
+    },
+    {
+      "id": "declines-07",
+      "category": "declines",
+      "message": "Book me a flight to Paris",
+      "approve": false,
+      "expect": {
+        "outcome": "reply"
+      }
+    },
+    {
+      "id": "stale-01",
+      "category": "stale",
+      "message": "Rename 'Quarterly review' to 'Q3 review'",
+      "setup": [
+        {
+          "as": "t1",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Quarterly review",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "between": [
+        {
+          "method": "PUT",
+          "path": "/tasks/{{t1.id}}",
+          "body": {
+            "name": "Quarterly review (edited)"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "update_task"
+        ],
+        "afterApprove": "replanned"
+      },
+      "stub": "CALL propose_changes {\"summary\": \"Rename the review\", \"direct\": true, \"reply\": \"\", \"remaining\": \"\", \"language\": \"en\", \"steps\": [{\"tool\": \"update_task\", \"summary\": \"Rename to “Q3 review”\", \"arguments\": {\"taskId\": \"{{t1.id}}\", \"name\": \"Q3 review\"}}]}"
+    },
+    {
+      "id": "stale-02",
+      "category": "stale",
+      "message": "Append 'Agenda item: hiring' to the 'Board notes' doc",
+      "setup": [
+        {
+          "as": "d1",
+          "method": "POST",
+          "path": "/docs",
+          "body": {
+            "title": "Board notes",
+            "plainText": "Intro",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "between": [
+        {
+          "method": "PUT",
+          "path": "/docs/{{d1.id}}",
+          "body": {
+            "plainText": "Intro\nEdited elsewhere"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "append_to_doc"
+        ],
+        "afterApprove": "replanned"
+      }
+    },
+    {
+      "id": "stale-03",
+      "category": "stale",
+      "message": "Move 'Dentist' to {{today+4}}",
+      "setup": [
+        {
+          "as": "e1",
+          "method": "POST",
+          "path": "/events",
+          "body": {
+            "title": "Dentist",
+            "start": "{{today+2T10:00}}",
+            "end": "{{today+2T11:00}}",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "between": [
+        {
+          "method": "PUT",
+          "path": "/events/{{e1.id}}",
+          "body": {
+            "title": "Dentist (moved by phone)"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "afterApprove": "replanned"
+      }
+    },
+    {
+      "id": "stale-04",
+      "category": "stale",
+      "message": "Mark 'Send contract' as done",
+      "setup": [
+        {
+          "as": "t1",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Send contract",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "between": [
+        {
+          "method": "PUT",
+          "path": "/tasks/{{t1.id}}",
+          "body": {
+            "name": "Send signed contract"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "complete_task"
+        ],
+        "afterApprove": "replanned"
+      }
+    },
+    {
+      "id": "stale-05",
+      "category": "stale",
+      "message": "Delete the task 'Draft v1'",
+      "setup": [
+        {
+          "as": "t1",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Draft v1",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "between": [
+        {
+          "method": "PUT",
+          "path": "/tasks/{{t1.id}}",
+          "body": {
+            "name": "Draft v1 (keep)"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "delete_task"
+        ],
+        "afterApprove": "replanned"
+      }
+    },
+    {
+      "id": "stale-06",
+      "category": "stale",
+      "message": "Rename 'Q2 plan' to 'H2 plan'",
+      "setup": [
+        {
+          "as": "t1",
+          "method": "POST",
+          "path": "/tasks",
+          "body": {
+            "name": "Q2 plan",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "afterApprove": "applied"
+      },
+      "note": "no edit in between: applies as proposed"
+    },
+    {
+      "id": "stale-07",
+      "category": "stale",
+      "message": "Change 'Weekly sync' to 30 minutes",
+      "setup": [
+        {
+          "as": "e1",
+          "method": "POST",
+          "path": "/events",
+          "body": {
+            "title": "Weekly sync",
+            "start": "{{today+1T10:00}}",
+            "end": "{{today+1T11:00}}",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "between": [
+        {
+          "method": "PUT",
+          "path": "/events/{{e1.id}}",
+          "body": {
+            "title": "Weekly sync (renamed)"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "afterApprove": "replanned"
+      }
+    },
+    {
+      "id": "timezones-01",
+      "category": "timezones",
+      "message": "Add a call with Tokyo at 9am tomorrow my time",
+      "timezone": "Asia/Tokyo",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "create_event"
+        ]
+      }
+    },
+    {
+      "id": "timezones-02",
+      "category": "timezones",
+      "message": "What time is it for me right now?",
+      "timezone": "America/Los_Angeles",
+      "approve": false,
+      "expect": {
+        "outcome": "reply"
+      }
+    },
+    {
+      "id": "timezones-03",
+      "category": "timezones",
+      "message": "Schedule 'Standup' at 10:00 on {{today+1}}",
+      "timezone": "Europe/Berlin",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "create_event"
+        ]
+      }
+    },
+    {
+      "id": "timezones-04",
+      "category": "timezones",
+      "message": "Add 'Pay taxes' due tomorrow",
+      "timezone": "Pacific/Auckland",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "create_task"
+        ]
+      }
+    },
+    {
+      "id": "timezones-05",
+      "category": "timezones",
+      "message": "Book 'Call New York' at 3pm New York time on {{today+2}}",
+      "timezone": "Europe/Lisbon",
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "create_event"
+        ]
+      }
+    },
+    {
+      "id": "timezones-06",
+      "category": "timezones",
+      "message": "What's on my calendar tomorrow?",
+      "timezone": "Asia/Kolkata",
+      "setup": [
+        {
+          "as": "e1",
+          "method": "POST",
+          "path": "/events",
+          "body": {
+            "title": "Yoga",
+            "start": "{{today+1T07:00}}",
+            "end": "{{today+1T08:00}}",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": false,
+      "expect": {
+        "outcome": "reply"
+      }
+    },
+    {
+      "id": "timezones-07",
+      "category": "timezones",
+      "message": "Move 'Yoga' to 6:30 tomorrow",
+      "timezone": "Asia/Kolkata",
+      "setup": [
+        {
+          "as": "e1",
+          "method": "POST",
+          "path": "/events",
+          "body": {
+            "title": "Yoga",
+            "start": "{{today+1T07:00}}",
+            "end": "{{today+1T08:00}}",
+            "workspaceId": "{{workspace}}"
+          }
+        }
+      ],
+      "approve": true,
+      "expect": {
+        "outcome": "proposal",
+        "tools": [
+          "update_event"
+        ]
+      }
+    }
+  ]
+}

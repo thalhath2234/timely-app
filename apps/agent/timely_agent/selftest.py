@@ -23,6 +23,8 @@ Checks, each ``{"name", "ok", "detail"}``:
 - ``install_guard`` every runtime-install override is in place
 - ``dotenv_guard``  Hermes' dotenv loader is a no-op after start (runtime override R2)
 - ``mcp``           no ``command`` MCP server unless the account is host-allowed and approved it
+- ``timely_tools``  every spec from ``hello.timely_tools`` is registered under toolset ``timely``
+                    with timely_tools' own handler, and nothing else is in that toolset
 
 If any check fails the worker answers ``ready`` with ``self_test.ok = false`` and refuses runs.
 """
@@ -136,7 +138,7 @@ def user_plugin_entries(home: Path) -> list[str]:
 
 def run(*, expected_home: str, timely_skills_dir: str | None, browser_executable: str = "",
         managed_sha256: str | None = None, env_before: dict[str, str] | None = None, env_ignore: frozenset[str] | set[str] = frozenset(),
-        required_disabled: list[str] | None = None) -> dict[str, Any]:
+        required_disabled: list[str] | None = None, timely_tools: list[str] | None = None) -> dict[str, Any]:
     checks: list[dict[str, Any]] = []
     from hermes_cli.plugins import get_plugin_manager
     from hermes_constants import get_hermes_home
@@ -239,4 +241,28 @@ def run(*, expected_home: str, timely_skills_dir: str | None, browser_executable
         except Exception as exc:
             checks.append(_check("skills_default_off", False, f"could not read skills.disabled: {exc}"))
 
-    return {"ok": all(c["ok"] for c in checks), "checks": checks, "tools": tools}
+    registered: list[str] = []
+    try:
+        problems, registered = timely_tool_problems(list(timely_tools or []))
+        checks.append(_check("timely_tools", not problems, "; ".join(problems)))
+    except Exception as exc:
+        checks.append(_check("timely_tools", False, f"{type(exc).__name__}: {exc}"))
+
+    return {"ok": all(c["ok"] for c in checks), "checks": checks, "tools": tools,
+            "timely_registered": registered}
+
+
+def timely_tool_problems(expected: list[str]) -> tuple[list[str], list[str]]:
+    """``(problems, registered names)``: the ``timely`` toolset must hold exactly the specs Go
+    sent, each with timely_tools' handler (a same-name tool from anywhere else is a failure)."""
+    from tools.registry import registry
+    from timely_agent.plugins import timely_tools as plugin
+    problems: list[str] = []
+    have = sorted(registry.get_tool_names_for_toolset(plugin.TOOLSET) or [])
+    if sorted(expected) != have:
+        problems.append(f"timely toolset {have} differs from hello.timely_tools {sorted(expected)}")
+    for name in have:
+        handler = getattr(registry.get_entry(name), "handler", None)
+        if getattr(handler, "__module__", "") != plugin.__name__ or getattr(handler, "__name__", "") != f"timely_{name}":
+            problems.append(f"{name} is not timely_tools' handler")
+    return problems, have

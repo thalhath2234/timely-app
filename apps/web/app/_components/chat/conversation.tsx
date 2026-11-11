@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { ENGINE_COPY, type PermissionMode } from "@timely/contract/agentChat";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { isBotPlan } from "@timely/contract/changeReview";
 import {
@@ -21,7 +23,13 @@ import {
   type ChatContext,
   type ReceiptDraft,
 } from "@/app/utils/api/chat";
-import { chatKey, chatsKey, useChat } from "@/app/utils/hooks/chat";
+import {
+  chatKey,
+  chatsKey,
+  useChat,
+  useChatSettings,
+  useReplyDraft,
+} from "@/app/utils/hooks/chat";
 import { cn } from "@/app/utils/cn";
 import LoadError from "@/app/_components/_ui/loadError";
 import { useBots } from "@/app/utils/hooks/bots";
@@ -42,6 +50,7 @@ import {
 import { buttonClass } from "@/app/_components/_ui/button";
 import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
 import { readyProviders } from "./modelMenu";
+import { LiveReply, RunActivity, planShownByAutoCard } from "./agentRun";
 
 const iconButton =
   "rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
@@ -65,7 +74,7 @@ export function StatusPill({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
+        "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium",
         toneClass[meta.tone],
       )}
     >
@@ -130,7 +139,16 @@ export default function Conversation({
   const needsProvider =
     Boolean(providers.data) && readyProviders(providers.data).length === 0;
   const cache = useQueryClient();
+  const router = useRouter();
   const chat = query.data;
+  const settings = useChatSettings().data;
+  const defaultMode: PermissionMode = settings?.chatPermission ?? "supervised";
+  // A new chat's own mode; unset starts it on the account default.
+  const [permissionChoice, setPermissionChoice] =
+    useState<PermissionMode | null>(null);
+  const permission: PermissionMode =
+    chat?.permission ?? permissionChoice ?? defaultMode;
+  const liveReply = useReplyDraft(chat);
   const [draft, setDraft] = useState(initialDraft);
   // Bots picked with "@" for this message only; sent as botTags, then cleared.
   const [botTags, setBotTags] = useState<BotTag[]>([]);
@@ -165,6 +183,11 @@ export default function Conversation({
     return pending.current.id;
   };
   const busy = isBusy(chat?.status);
+  // What is sent while an agent run works steers it (POST /chats/:id/steer).
+  const steering =
+    chat?.status === "running" &&
+    chat.runEngine === "agent" &&
+    chat.phase !== "apply";
   const chips = chat?.context || context;
   const webSearch = chat?.webSearch ?? search;
   const model: ModelChoice = chat
@@ -193,6 +216,7 @@ export default function Conversation({
           webSearch: search,
           provider: choice.provider,
           model: choice.model,
+          ...(permissionChoice ? { permission: permissionChoice } : {}),
         });
       }
       return chatRequest<Chat>(
@@ -206,7 +230,11 @@ export default function Conversation({
       cache.setQueryData(chatKey(next.id), next);
       void cache.invalidateQueries({ queryKey: chatsKey });
       if (!id) onCreated(next.id);
-      if (!id || (vars.action === "/messages" && !vars.keepDraft)) {
+      if (
+        !id ||
+        (vars.action === "/messages" && !vars.keepDraft) ||
+        vars.action === "/steer"
+      ) {
         setDraft("");
         setBotTags([]);
         uploads.sent();
@@ -259,6 +287,11 @@ export default function Conversation({
     return () => window.removeEventListener("focus", markRead);
   }, [chat, cache]);
   function send() {
+    if (steering) {
+      if (!draft.trim() || uploads.images.length || mutation.isPending) return;
+      mutation.mutate({ action: "/steer", body: { text: draft.trim() } });
+      return;
+    }
     if (
       (!draft.trim() && !uploads.images.length) ||
       uploads.uploading ||
@@ -328,6 +361,26 @@ export default function Conversation({
   }
   const act = (action: string, body?: unknown) =>
     mutation.mutate({ action, body });
+  // Applies from the next tool call; a looser mode approves nothing waiting.
+  function choosePermission(next: PermissionMode) {
+    if (id) mutation.mutate({ action: "", body: { permission: next } });
+    else setPermissionChoice(next);
+  }
+  function changeDefaultPermission() {
+    onClose?.();
+    router.push("/settings?tab=agent");
+  }
+  // "Use classic for this chat": the engine change waits for no run here,
+  // since the run failed; then the same request runs again on classic.
+  function switchToClassic() {
+    if (!id) return;
+    mutation.mutate(
+      { action: "", body: { engine: "classic" } },
+      { onSuccess: () => act("/retry") },
+    );
+  }
+  const undo = (messageId: string) =>
+    chat && act("/undo", { revision: chat.revision, messageId });
   // "Continue there" sends the message to the earlier chat and removes this
   // one, so the view follows it the way it follows a newly created chat.
   function chooseSimilar(action: "move" | "stay") {
@@ -345,8 +398,17 @@ export default function Conversation({
   }
   const error = uploads.error || mutation.error?.message;
   const title = chat?.title || (id ? "" : "New conversation");
+  // The engine shows beside the model once a person uses more than one.
+  const engineShown =
+    chat?.runEngine &&
+    (chat.runEngine === "agent" ||
+      !!chat.engine ||
+      settings?.engine === "agent");
+  const engineLabel = engineShown
+    ? `${ENGINE_COPY[chat.runEngine === "agent" ? "agent" : "classic"].name} engine`
+    : "";
   const providerLabel = chat?.provider
-    ? `${PROVIDER_LABELS[chat.provider as ProviderId] ?? chat.provider}${chat.model ? ` · ${chat.model}` : ""}`
+    ? `${PROVIDER_LABELS[chat.provider as ProviderId] ?? chat.provider}${chat.model ? ` · ${chat.model}` : ""}${engineLabel ? ` · ${engineLabel}` : ""}`
     : "";
   const subtitle = busy
     ? phaseLabel(chat?.phase)
@@ -357,7 +419,11 @@ export default function Conversation({
     ? "One receipt per message · up to 5 photos · images removed after confirmation or 24 hours"
     : chat?.sensitive
       ? "Image-based changes always need your review."
-      : "Simple changes happen directly. Larger changes are yours to review.";
+      : steering
+        ? "It reads what you send now before its next step."
+        : permission === "supervised"
+          ? "Every change waits for your review."
+          : "Everyday changes apply on their own, with Undo. Deleting and other big changes wait for you.";
   return (
     <div
       className={cn(
@@ -513,6 +579,7 @@ export default function Conversation({
                 pending={mutation.isPending}
                 onSimilar={chooseSimilar}
                 onAsk={busy || mutation.isPending ? undefined : ask}
+                onUndo={undo}
               />
             )}
             <div ref={receiptAnchor} />
@@ -562,7 +629,7 @@ export default function Conversation({
                   </div>
                 </section>
               )}
-            {!!chat?.plan?.length && (
+            {!!chat?.plan?.length && !planShownByAutoCard(chat) && (
               <ProposalPanel
                 chat={chat}
                 pending={mutation.isPending}
@@ -571,7 +638,11 @@ export default function Conversation({
                 reply={{ send: ask, compose }}
               />
             )}
-            {busy && chat?.phase !== "apply" && (
+            {busy && chat?.phase !== "apply" && chat?.runEngine === "agent" && (
+              <RunActivity chat={chat} />
+            )}
+            {liveReply && <LiveReply draft={liveReply} />}
+            {busy && chat?.phase !== "apply" && chat?.runEngine !== "agent" && (
               <div
                 role="status"
                 className="mt-5 flex items-center gap-3 rounded-xl border border-border bg-card px-3.5 py-3 text-sm"
@@ -599,6 +670,7 @@ export default function Conversation({
                 needsProvider={needsProvider}
                 pending={mutation.isPending}
                 act={act}
+                onUseClassic={switchToClassic}
               />
             )}
             {chat?.error && !!chat.plan?.length && (
@@ -630,11 +702,13 @@ export default function Conversation({
         botTags={botTags}
         setBotTags={setBotTags}
         placeholder={
-          chat?.status === "approval"
-            ? isBotPlan(chat.plan)
-              ? "Reply, or ask for changes to the bot"
-              : "Tell me what to change…"
-            : "Ask Timely to create, plan, or update…"
+          steering
+            ? "Tell it something while it works…"
+            : chat?.status === "approval"
+              ? isBotPlan(chat.plan)
+                ? "Reply, or ask for changes to the bot"
+                : "Tell me what to change…"
+              : "Ask Timely to create, plan, or update…"
         }
         chips={chips}
         onRemoveChip={(i) =>
@@ -652,7 +726,14 @@ export default function Conversation({
         onToggleSearch={() => configure(chips, !webSearch)}
         model={model}
         onChangeModel={chooseModel}
+        permission={{
+          value: permission,
+          defaultMode,
+          onChange: choosePermission,
+          onChangeDefault: changeDefaultPermission,
+        }}
         busy={busy}
+        steering={steering}
         pending={mutation.isPending}
         onSend={send}
         onStop={() => act("/stop")}

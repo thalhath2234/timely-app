@@ -12,6 +12,29 @@ import {
   stepIconKind,
   stepTarget,
 } from "../apps/mobile/components/chat/stepTarget.ts";
+import {
+  agentRunLive,
+  appliedSteps,
+  autoAppliedState,
+  autoCardArchives,
+  canPickPermission,
+  chatPermission,
+  composerMode,
+  effectiveEngine,
+  engineLabel,
+  fullAccessDisabledOnPhone,
+  isChatDelta,
+  isUndoPlan,
+  mergeActivityDraft,
+  offersUseClassic,
+  onDelta,
+  permissionChip,
+  permissionHint,
+  permissionOptions,
+  planSummaryHidden,
+  visibleDraft,
+  wantsReplyStream,
+} from "../apps/mobile/lib/chat/agentRun.ts";
 
 test("agent notification targets its chat and retains existing reminder routing", () => {
   assert.equal(
@@ -346,4 +369,177 @@ test("a settings tap saves only what differs from what the composer shows", () =
   assert.deepEqual(changed({ model: { provider: "", model: "" } }, shown), {
     model: { provider: "", model: "" },
   });
+});
+
+// Chat on the agent engine (phase 2): streamed reply, permission chip and
+// picker, steer, Undo and Use classic (apps/mobile/lib/chat/agentRun.ts).
+const delta = (run, offset, text, id = "chat_1") => ({ type: "delta", kind: "chat", id, document: { run, offset, text } });
+const live = (over = {}) => ({ id: "chat_1", status: "running", phase: "plan", runEngine: "agent", engine: "", activity: { run: "run_1" }, ...over });
+
+test("deltas for the open chat append, drop overlaps, and ask for a refetch after a gap", () => {
+  let state = onDelta("chat_1", null, delta("run_1", 0, "Hel"));
+  assert.deepEqual(state, { draft: { run: "run_1", text: "Hel", chars: 3 }, refetch: false });
+  state = onDelta("chat_1", state.draft, delta("run_1", 3, "lo "));
+  assert.equal(state.draft.text, "Hello ");
+  // A repeated chunk adds only what is new.
+  state = onDelta("chat_1", state.draft, delta("run_1", 4, "o wo"));
+  assert.equal(state.draft.text, "Hello wo");
+  assert.equal(state.refetch, false);
+  // A missed chunk keeps the text and refetches.
+  const gap = onDelta("chat_1", state.draft, delta("run_1", 20, "late"));
+  assert.equal(gap.refetch, true);
+  assert.equal(gap.draft.text, "Hello wo");
+  // Offsets count code points, not UTF-16 units.
+  const emoji = onDelta("chat_1", { run: "run_1", text: "Hi 👋", chars: 4 }, delta("run_1", 4, "!"));
+  assert.deepEqual(emoji, { draft: { run: "run_1", text: "Hi 👋!", chars: 5 }, refetch: false });
+});
+
+test("deltas of another chat change nothing, and only well-formed frames count", () => {
+  const draft = { run: "run_1", text: "Hi", chars: 2 };
+  assert.deepEqual(onDelta("chat_1", draft, delta("run_9", 0, "other", "chat_2")), { draft, refetch: false });
+  assert.deepEqual(onDelta(null, draft, delta("run_1", 2, "!")), { draft, refetch: false });
+  assert.equal(isChatDelta(delta("run_1", 0, "x")), true);
+  assert.equal(isChatDelta({ type: "changed", id: "chat_1" }), false);
+  assert.equal(isChatDelta({ type: "delta", id: "chat_1", document: { run: "r", offset: "0", text: "x" } }), false);
+});
+
+test("a refetch continues from activity.draft only when it knows more, and the run's end drops the draft", () => {
+  const ours = { run: "run_1", text: "Hello wo", chars: 8 };
+  assert.equal(mergeActivityDraft(ours, { run: "run_1", draft: "Hello" }), ours);
+  assert.deepEqual(mergeActivityDraft(ours, { run: "run_1", draft: "Hello world" }), { run: "run_1", text: "Hello world", chars: 11 });
+  assert.deepEqual(mergeActivityDraft(ours, { run: "run_2", draft: "New" }), { run: "run_2", text: "New", chars: 3 });
+  assert.deepEqual(mergeActivityDraft(null, { run: "run_1" }), { run: "run_1", text: "", chars: 0 });
+  assert.equal(mergeActivityDraft(ours, {}), null);
+  assert.equal(mergeActivityDraft(ours, undefined), null);
+});
+
+test("streamed text shows only while its run is live in the chat", () => {
+  const draft = { run: "run_1", text: "Writing", chars: 7 };
+  assert.equal(visibleDraft(live(), draft), "Writing");
+  assert.equal(visibleDraft(live({ status: "idle", activity: {} }), draft), "");
+  assert.equal(visibleDraft(live({ activity: { run: "run_2" } }), draft), "");
+  assert.equal(visibleDraft(live({ phase: "apply" }), draft), "");
+  assert.equal(visibleDraft(live(), null), "");
+});
+
+test("the stream follows a live agent run or a queued run that will start on the agent engine", () => {
+  assert.equal(wantsReplyStream(live(), "classic"), true);
+  assert.equal(wantsReplyStream(live({ status: "idle" }), "agent"), false);
+  assert.equal(wantsReplyStream(live({ runEngine: "classic", activity: {} }), "classic"), false);
+  assert.equal(wantsReplyStream(live({ status: "queued", runEngine: "", activity: {} }), "agent"), true);
+  assert.equal(wantsReplyStream(live({ status: "queued", runEngine: "", activity: {}, engine: "classic" }), "agent"), false);
+  // Sensitive chats always run classic.
+  assert.equal(effectiveEngine({ engine: "agent", sensitive: true }, "agent"), "classic");
+  assert.equal(effectiveEngine({ engine: "" }, "agent"), "agent");
+  assert.equal(effectiveEngine({ engine: "" }, undefined), "classic");
+  assert.equal(agentRunLive(live({ phase: "apply" })), false);
+});
+
+test("sending while an agent run is live steers it; a classic run or an apply only offers Stop", () => {
+  assert.equal(composerMode(undefined), "send");
+  assert.equal(composerMode(live({ status: "idle" })), "send");
+  assert.equal(composerMode(live()), "steer");
+  assert.equal(composerMode(live({ status: "queued" })), "none");
+  assert.equal(composerMode(live({ runEngine: "classic", activity: {} })), "none");
+  assert.equal(composerMode(live({ phase: "apply" })), "none");
+});
+
+test("the header chip maps each mode to its drawn glyph and tone, Supervised for older rows", () => {
+  assert.deepEqual(
+    ["supervised", "auto", "full"].map((mode) => {
+      const chip = permissionChip(mode);
+      return [chip.label, chip.icon, chip.tone];
+    }),
+    [
+      ["Supervised", "eye", "green"],
+      ["Auto", "shield", "indigo"],
+      ["Full Access", "bolt", "amber"],
+    ],
+  );
+  assert.equal(permissionChip(undefined).mode, "supervised");
+  assert.equal(permissionChip("everything").mode, "supervised");
+  assert.equal(chatPermission("auto"), "auto");
+  assert.match(permissionChip("auto").accessibilityLabel, /^Permission: Auto/);
+  assert.equal(permissionHint("supervised"), "Every change waits for your review.");
+  assert.match(permissionHint("auto"), /Undo/);
+});
+
+test("the phone can't turn on Full Access in phase 2, but a chat already on it keeps it chosen", () => {
+  assert.equal(fullAccessDisabledOnPhone(), true);
+  const options = permissionOptions("auto");
+  assert.deepEqual(options.map((o) => [o.mode, o.selected, o.disabled]), [
+    ["supervised", false, false],
+    ["auto", true, false],
+    ["full", false, true],
+  ]);
+  assert.match(options[2].line, /Turn on from the desktop app/);
+  assert.doesNotMatch(options[2].line, /never asks/i);
+  assert.equal(canPickPermission("auto", "full"), false);
+  assert.equal(canPickPermission("auto", "supervised"), true);
+  assert.equal(canPickPermission("auto", "auto"), false);
+  const onFull = permissionOptions("full");
+  assert.deepEqual(onFull.map((o) => [o.mode, o.selected, o.disabled]), [
+    ["supervised", false, false],
+    ["auto", false, false],
+    ["full", true, false],
+  ]);
+  assert.equal(canPickPermission("full", "auto"), true);
+});
+
+test("an auto-applied change offers Undo while the chat is idle, and the bottom plan card steps aside", () => {
+  const proposal = { id: "p1", role: "assistant", content: "Added two tasks", proposal: true, autoApplied: true, createdAt: "" };
+  const plan = [
+    { tool: "create_task", summary: "Add “Call Sam”", status: "done", arguments: {} },
+    { tool: "create_task", summary: "Add “Book flights”", status: "done", arguments: {} },
+  ];
+  const chat = { status: "idle", messages: [{ id: "u1", role: "user", content: "add", createdAt: "" }, proposal], plan };
+  assert.equal(autoAppliedState(proposal, chat), "undo");
+  // A later run or review: Undo waits (the server refuses it then).
+  assert.equal(autoAppliedState(proposal, { ...chat, status: "running" }), "undoLater");
+  assert.equal(autoAppliedState(proposal, { ...chat, status: "approval" }), "undoLater");
+  // While its own changes apply it says so; a change that did not go in has no Undo.
+  const applying = { ...chat, status: "running", plan: [plan[0], { ...plan[1], status: "pending" }] };
+  assert.equal(autoAppliedState(proposal, applying), "applying");
+  const partial = { ...chat, status: "failed", plan: [plan[0], { ...plan[1], status: "failed" }] };
+  assert.equal(autoAppliedState(proposal, partial), "applied");
+  // An older auto-applied card keeps "Applied" while a newer proposal applies.
+  const newer = { ...proposal, id: "p2" };
+  const later = { status: "running", messages: [...chat.messages, { id: "a0", role: "assistant", kind: "archive", content: "Previous changes", steps: plan, createdAt: "" }, newer], plan: [{ ...plan[0], status: "pending" }] };
+  assert.equal(autoAppliedState(proposal, later), "undoLater");
+  assert.equal(autoAppliedState({ ...proposal, autoApplied: false }, chat), "none");
+  assert.deepEqual(appliedSteps(chat, proposal), plan);
+  assert.equal(planSummaryHidden(chat), true);
+  // Held proposals keep the review card.
+  const held = { ...chat, status: "approval", messages: [chat.messages[0], { ...proposal, autoApplied: false }], plan: plan.map((s) => ({ ...s, status: "pending" })) };
+  assert.equal(planSummaryHidden(held), false);
+
+  // After Undo: the original plan is archived and the live plan is the undo.
+  const undone = { ...proposal, undoneAt: "2026-11-09T10:00:00Z", undoMessageId: "n1" };
+  const undoPlan = [{ tool: "delete_task", summary: "Remove “Call Sam”", status: "pending", arguments: {}, undo: true }];
+  const after = {
+    status: "queued",
+    messages: [chat.messages[0], undone, { id: "a1", role: "assistant", kind: "archive", content: "Previous changes", steps: plan, createdAt: "" }, { id: "n1", role: "assistant", kind: "notice", content: "Undoing", createdAt: "" }],
+    plan: undoPlan,
+  };
+  // The server marks it undone when Undo is asked: "Undoing" until the undo
+  // plan applies, "Undo didn't finish" if it stops short.
+  assert.equal(autoAppliedState(undone, after), "undoing");
+  assert.equal(autoAppliedState(undone, { ...after, status: "failed" }), "undoFailed");
+  assert.equal(autoAppliedState(undone, { ...after, status: "idle", plan: undoPlan.map((s) => ({ ...s, status: "done" })) }), "undone");
+  assert.deepEqual(appliedSteps(after, undone), plan);
+  // The card shows those steps, so the thread skips that archive.
+  assert.deepEqual([...autoCardArchives(after)], ["a1"]);
+  assert.equal(autoCardArchives(chat).size, 0);
+  assert.equal(isUndoPlan(after.plan), true);
+  assert.equal(planSummaryHidden(after), false);
+});
+
+test("the engine shows beside the model, and a run the new engine couldn't start offers Use classic", () => {
+  assert.equal(engineLabel({ engine: "", runEngine: "agent" }), "New engine");
+  assert.equal(engineLabel({ engine: "classic", runEngine: "classic" }), "Classic engine");
+  assert.equal(engineLabel({ engine: "", runEngine: "classic" }), "");
+  assert.equal(engineLabel({ engine: "", runEngine: "" }), "");
+  assert.equal(offersUseClassic({ status: "failed", errorAction: "use_classic" }), true);
+  assert.equal(offersUseClassic({ status: "failed", errorAction: "" }), false);
+  assert.equal(offersUseClassic({ status: "running", errorAction: "use_classic" }), false);
 });

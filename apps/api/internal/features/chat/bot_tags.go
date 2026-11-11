@@ -8,6 +8,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"timely-api/internal/features/agent"
 )
 
 // A person tags a Bot in a message ("@Go news feed, anything new?", or the
@@ -35,11 +37,6 @@ var answerTools = map[string]bool{"get_context": true, "list_bots": true, "get_b
 
 // answerOnlyRefusal is the result of any other call in such a run.
 const answerOnlyRefusal = "A tagged bot only answers. Nothing can be changed or looked up beyond the bot in this turn."
-
-// outsideReads are the reads whose results carry text from third-party
-// pages. A run that called one has its proposal reviewed, so text a page
-// planted cannot steer a change that would otherwise apply directly.
-var outsideReads = map[string]bool{"preview_bot": true, "ask_bot": true, "list_bot_findings": true, "list_bots": true}
 
 // SetBotNames lets messages tag the person's Bots; without it no message
 // is tagged.
@@ -242,6 +239,17 @@ type botRun struct {
 	asks    int  // ask_bot calls
 	outside bool // a read of third-party text succeeded
 	answers botAnswers
+	// read are the tools whose third-party text reached the model, each once.
+	read []string
+}
+
+// taint is the run's outside reads as the chat records them.
+func (r *botRun) taint() []TaintSource {
+	out := []TaintSource{}
+	for _, name := range r.read {
+		out = append(out, TaintSource{Kind: "timely", Tool: name})
+	}
+	return out
 }
 
 func replayBotRun(transcript []WireMessage) botRun {
@@ -259,8 +267,9 @@ func replayBotRun(transcript []WireMessage) botRun {
 	return run
 }
 
-// note records one tool result as it reached the model.
-func (r *botRun) note(name string, content []byte) {
+// note records one tool result as it reached the model, and reports
+// whether it carried third-party text.
+func (r *botRun) note(name string, content []byte) bool {
 	if name == "ask_bot" {
 		r.asks++
 	}
@@ -268,12 +277,20 @@ func (r *botRun) note(name string, content []byte) {
 		Error *string `json:"error"`
 	}
 	if json.Unmarshal(content, &head) != nil || head.Error != nil {
-		return
+		return false
 	}
-	if outsideReads[name] {
+	// A read whose result carries third-party text (agent.OutsideTool) has
+	// the run's proposal reviewed, so text a page planted cannot steer a
+	// change that would otherwise apply on its own.
+	outside := agent.OutsideTool(name)
+	if outside {
 		r.outside = true
+		if !slices.Contains(r.read, name) {
+			r.read = append(r.read, name)
+		}
 	}
 	if name == "ask_bot" {
 		r.answers.add(content)
 	}
+	return outside
 }

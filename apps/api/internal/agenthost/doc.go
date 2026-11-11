@@ -40,8 +40,8 @@
 //     settings_hash. Before each spawn managed/config.yaml must still hash to
 //     prepare's managed_sha256 (ErrManagedChanged otherwise).
 //   - Handshake: Go sends "hello" {protocol, account, home, settings_hash,
-//     settings?, catalog_version, timely_skills_dir, browser_executable,
-//     managed_sha256, skills_default_off}; the worker answers "ready" {protocol,
+//     settings?, catalog_version, timely_tools?, timely_skills_dir,
+//     browser_executable, managed_sha256, skills_default_off}; the worker answers "ready" {protocol,
 //     hermes_tag, tools[], plugins_loaded[], self_test{ok, failures[],
 //     checks[{name, ok, detail}]}} within Config.HelloTimeout (20 s).
 //     self_test.ok must be true, otherwise the worker is stopped and Ensure
@@ -86,6 +86,32 @@
 //     waits KillWait, then SIGKILLs the group (Unix) or terminates the Job
 //     Object (Windows).
 //
-// The package is not wired into the API yet (phase 1 has no user-visible
-// change); phase 2's chat engine is its first caller.
+// # Phase 2 additions
+//
+//   - Timely tools: Config.TimelyTools supplies the catalog the worker
+//     registers as the "timely" toolset. hello carries it as timely_tools
+//     {catalog_version, tools: [{name, description, parameters, outside}]}
+//     and its version as catalog_version (an empty version is the sha256 of
+//     the compacted tools JSON); without TimelyTools, CatalogVersion is sent
+//     and timely_tools is left out (no Timely tools). Ensure compares each
+//     running worker's version (Worker.CatalogVersion) with the current one: a
+//     stale worker that is idle (no live run, hold or reported work, unused
+//     for StaleGrace, 2 s) is stopped with reason "catalog changed" and
+//     replaced; a busy one keeps serving until a later Ensure finds it idle,
+//     so a catalog change never cuts a run short.
+//   - Availability: Supervisor.Available says, in a sentence for Settings and
+//     the failed-run card, why this API cannot run the agent engine at all
+//     (*UnavailableError wrapping ErrNoRuntime, ErrWorktreeShared or
+//     ErrClosed): no runtime, a git worktree checkout (GitWorktree) without a
+//     DB_SCHEMA of its own (plan 6.7), or shutting down. It starts nothing.
+//   - Host-allowed account: HostAccounts reads TIMELY_AGENT_HOST_ACCOUNTS
+//     (the server fallback until Settings -> Server, phase 5) and honours
+//     only the first account on the local backend (plan 12), logging any
+//     other it ignores.
+//   - Tests: package agenthosttest is a scriptable fake worker (protocol 1,
+//     no Python) that other packages run under a real Supervisor by
+//     re-executing their test binary; it replays JSONL fixtures per run.start.
+//
+// The package is not wired into the API by itself; phase 2's chat engine
+// (chat/engine_agent.go, cmd/agent_engine.go) is its first caller.
 package agenthost

@@ -25,6 +25,7 @@
  *   genui          reply cards: the OpenUI components the agent may use in a reply
  *   changeReview   an Agent proposal grouped for review: one item per sheet, tasks, doc
  *   bots           Bots: the /bots wire types, limits, board rules, card lines, starters
+ *   agentChat      chat on the agent engine: engine, permission modes, live activity, streamed replies
  */
 
 /**

@@ -367,3 +367,330 @@ def test_run_thread_that_fails_to_start_frees_the_conversation(stub):
         assert done["run"] == "tf2" and done["completed"], done
     finally:
         w.close()
+
+
+# ---------------------------------------------------------------- phase 2: Timely tools, taint, end of turn
+
+PROPOSAL = {"summary": "Add a task", "steps": [{"tool": "create_task", "summary": "Add Buy milk",
+                                                "arguments": {"title": "Buy milk"}}],
+            "direct": True, "reply": "", "remaining": "", "language": "en"}
+
+
+def _script(*steps) -> str:
+    return "SCRIPT " + json.dumps(list(steps))
+
+
+def _phase2_start(agent, stub, run_id, text, **extra):
+    return harness.run_start(agent, stub, run_id=run_id, conversation=extra.pop("conversation", f"c-{run_id}"),
+                             toolsets=harness.PHASE2_TOOLSETS, budgets=extra.pop("budgets", {}), text=text, **extra)
+
+
+def test_hello_timely_tools_are_registered_and_reported(tagent, tworker):
+    ready = tworker.ready_msg
+    hello = harness.timely_tools()
+    names = sorted(t["name"] for t in hello["tools"])
+    assert len(names) == 49 and "propose_changes" in names and "get_task" in names
+    assert ready["timely_tools"] == {"catalog_version": hello["catalog_version"], "registered": names}
+    check = next(c for c in ready["self_test"]["checks"] if c["name"] == "timely_tools")
+    assert check["ok"], check
+    assert {"get_task", "propose_changes", "resolve_target"} <= set(ready["tools"])
+    # write tools never arrive as Hermes tools
+    assert not {"create_task", "update_doc", "delete_sheet_rows"} & set(ready["tools"])
+
+
+def test_hello_timely_tools_of_the_wrong_shape_are_refused():
+    a = harness.Agent(harness.new_root("tt-bad"))
+    w = harness.Worker(a.env())
+    try:
+        good = harness.timely_tools(["get_task"])
+        for bad in ([], {"tools": "x"}, {"tools": [{"description": "no name"}]},
+                    {"tools": [{"name": "todo_list x"}]}, {"tools": [{"name": "send_message"}]},
+                    {"tools": [good["tools"][0], good["tools"][0]]},
+                    {"tools": [{"name": "get_x", "parameters": []}]}, {"tools": [{"name": "get_x", "outside": "yes"}]},
+                    {"tools": [], "catalog_version": 7}):
+            w.send(a.hello(timely_tools=bad))
+            err = w.recv()
+            assert err["type"] == "error" and err["code"] == "bad_message" and "timely_tools" in err["message"], (bad, err)
+        w.send(a.hello(timely_tools=good))
+        ready, _ = w.until("ready", timeout=120)
+        assert ready["self_test"]["ok"] and ready["timely_tools"]["registered"] == ["get_task"], ready["self_test"]
+    finally:
+        w.close()
+
+
+def test_hello_without_timely_tools_registers_none(agent, worker):
+    assert worker.ready_msg["timely_tools"] == {"catalog_version": "", "registered": []}
+    assert worker.ready_msg["self_test"]["ok"]
+
+
+def test_outside_result_taints_the_run(tagent, tworker, stub):
+    """``tool.result {outside: true}`` adds ``{kind: timely, tool}`` and sends ``taint`` once."""
+    tworker.send(_phase2_start(tagent, stub, "w-out", _script(
+        {"calls": [["ask_bot", {"bot": "b1", "question": "price?"}]]},
+        {"calls": [["ask_bot", {"bot": "b1", "question": "again?"}]]}, {"text": "It is 42."})))
+    done, seen = harness.drive(tworker, tagent.account, "w-out")
+    source = {"kind": "timely", "tool": "ask_bot"}
+    assert [m["sources"] for m in seen if m["type"] == "taint"] == [[source]]  # deduplicated
+    calls = [m for m in seen if m["type"] == "tool.call"]
+    assert [c["tainted_sources"] for c in calls] == [[], [source]]
+    assert done["tainted_sources"] == [source] and done["final_response"] == "It is 42."
+
+
+def test_restarted_worker_keeps_tainted_sources_from_run_start(tagent, tworker, stub):
+    """Plan 9b.2: taint survives a reaped worker or Go restart because ``run.start`` hands the
+    persisted list back. Every ``tool.call`` and ``run.done`` carries it; a new source is added
+    after it and only the new one goes out as ``taint``."""
+    earlier = [{"kind": "web", "tool": "web_extract", "host": "shop.example"}]
+    tworker.send(_phase2_start(tagent, stub, "w-restart", _script(
+        {"calls": [["get_task", {"id": "t1"}]]}, {"calls": [["ask_bot", {"bot": "b"}]]},
+        {"calls": [["propose_changes", PROPOSAL]]}, {"text": "Done."}), tainted_sources=earlier))
+    done, seen = harness.drive(tworker, tagent.account, "w-restart")
+    new = {"kind": "timely", "tool": "ask_bot"}
+    calls = {c["name"]: c for c in seen if c["type"] == "tool.call"}
+    assert calls["get_task"]["tainted_sources"] == earlier
+    assert calls["propose_changes"]["tainted_sources"] == earlier + [new]
+    assert [m["sources"] for m in seen if m["type"] == "taint"] == [[new]]
+    assert done["tainted_sources"] == earlier + [new]
+
+
+def test_end_turn_allows_one_closing_sentence(tagent, tworker, stub):
+    """Q-2.4: Go answers a recorded proposal with ``end_turn``; a plain closing reply ends the
+    turn normally."""
+    tworker.send(_phase2_start(tagent, stub, "w-close", _script(
+        {"calls": [["propose_changes", PROPOSAL]]}, {"text": "I added Buy milk for you to approve."})))
+    done, seen = harness.drive(tworker, tagent.account, "w-close")
+    assert [c["name"] for c in seen if c["type"] == "tool.call"] == ["propose_changes"]
+    assert done["final_response"] == "I added Buy milk for you to approve."
+    assert done["completed"] is True and done["interrupted"] is False
+
+
+def test_tool_call_after_end_turn_ends_the_turn_without_a_stop(tagent, tworker, stub):
+    """Q-2.4: after ``end_turn`` any further tool call is blocked (never reaches Go) and ends the
+    turn: ``turn_exit_reason: end_turn``, not interrupted, the closing text kept. The next turn
+    on the conversation starts clean."""
+    conv = "c-w-endturn"
+    tworker.send(_phase2_start(tagent, stub, "w-endturn", _script(
+        {"calls": [["propose_changes", PROPOSAL]]},
+        {"text": "Recorded it.", "calls": [["get_context", {}]]}, {"text": "never reached"}), conversation=conv))
+    done, seen = harness.drive(tworker, tagent.account, "w-endturn")
+    assert [c["name"] for c in seen if c["type"] == "tool.call"] == ["propose_changes"]
+    assert done["turn_exit_reason"] == "end_turn" and done["interrupted"] is False and done["completed"] is True
+    assert done["final_response"] == "Recorded it.", done
+    tworker.send(_phase2_start(tagent, stub, "w-endturn-2", "and now a plain question", conversation=conv))
+    done, _ = harness.drive(tworker, tagent.account, "w-endturn-2")
+    assert done["final_response"] == "Stub reply: and now a plain question" and done["interrupted"] is False
+
+
+def test_steer_reaches_a_run_waiting_on_a_timely_tool(tagent, tworker, stub):
+    sent = []
+
+    def on_message(msg):
+        if msg["type"] == "tool.call" and not sent:
+            sent.append(1)
+            tworker.send({"type": "run.steer", "id": "go-steer", "account": tagent.account, "run": "w-steer",
+                          "text": "STEER also add eggs"})
+    tworker.send(_phase2_start(tagent, stub, "w-steer", _script({"calls": [["get_task", {"id": "t1"}]]})))
+    done, seen = harness.drive(tworker, tagent.account, "w-steer", on_message=on_message)
+    acks = [m for m in seen if m["type"] == "ack" and m["id"] == "go-steer"]
+    assert acks and acks[0]["ok"] is True, seen
+    # Hermes wraps the steer as an out-of-band user message the model sees after the tool result
+    assert "Steered: " in done["final_response"] and "STEER also add eggs" in done["final_response"], done
+
+
+def test_steer_during_the_last_reply_comes_back_as_pending_steer(tagent, tworker, stub):
+    """A steer that lands while the final reply streams has no tool batch to join: run.done hands
+    it back so Go can make it the next turn."""
+    sent = []
+
+    def on_message(msg):
+        if msg["type"] == "event" and msg.get("kind") == "delta" and not sent:
+            sent.append(1)
+            tworker.send({"type": "run.steer", "id": "go-late-steer", "account": tagent.account,
+                          "run": "w-late-steer", "text": "also add eggs"})
+    tworker.send(_phase2_start(tagent, stub, "w-late-steer", _script(
+        {"text": "Here is your week, planned day by day.", "stream": [2, 60]})))
+    done, seen = harness.drive(tworker, tagent.account, "w-late-steer", on_message=on_message)
+    assert sent and any(m["type"] == "ack" and m["id"] == "go-late-steer" and m["ok"] for m in seen), seen
+    assert done["pending_steer"] == "also add eggs", done
+    assert done["completed"] is True and done["interrupted"] is False, done
+
+
+def test_stop_while_a_timely_tool_waits_on_go_ends_the_run(tagent, tworker, stub):
+    """Go never answers the ``tool.call``; ``run.stop`` wakes the waiting call at once."""
+    import time
+    stopped = []
+
+    def on_message(msg):
+        if msg["type"] == "tool.call" and not stopped:
+            stopped.append(time.monotonic())
+            tworker.send({"type": "run.stop", "id": "go-stop", "account": tagent.account, "run": "w-stop",
+                          "reason": "user"})
+    tworker.send(_phase2_start(tagent, stub, "w-stop", _script({"calls": [["get_task", {"id": "t1"}]]})))
+    done, _ = harness.drive(tworker, tagent.account, "w-stop", answer=lambda name, args: None, on_message=on_message)
+    assert done["interrupted"] is True, done
+    assert time.monotonic() - stopped[0] < 5, "run.done came long after run.stop"
+
+
+def test_learning_writes_off_blocks_every_skill_manage_write(tagent, tworker, stub):
+    """Phase 2 (plan 9b): ``flags.learning_writes`` false blocks skill_manage (all actions write)
+    before anything is written; the flag set true lets the call through to Hermes (phase 3)."""
+    content = "---\nname: my-notes\ndescription: Notes the agent keeps.\n---\nBody\n"
+    args = json.dumps({"action": "create", "name": "my-notes", "content": content})
+    tworker.send(_phase2_start(tagent, stub, "w-learn", f"CALL skill_manage {args}"))
+    done, _ = harness.drive(tworker, tagent.account, "w-learn")
+    assert "not saving skills or memory yet" in done["final_response"], done
+    assert not list((tagent.home / "skills").rglob("my-notes"))
+    tworker.send(_phase2_start(tagent, stub, "w-learn-on", f"CALL skill_manage {args}",
+                               flags={"learning_writes": True}))
+    done, _ = harness.drive(tworker, tagent.account, "w-learn-on")
+    assert "not saving skills or memory yet" not in done["final_response"], done
+
+
+def test_permission_and_learning_flag_are_validated(tagent, tworker, stub):
+    for run_id, extra in (("w-perm-bad", {"permission": "yolo"}), ("w-flag-bad", {"flags": {"learning_writes": "no"}})):
+        tworker.send(_phase2_start(tagent, stub, run_id, "hi", **extra))
+        err = tworker.recv()
+        assert err["type"] == "error" and err["code"] == "bad_message" and err["run"] == run_id, err
+    for mode in ("supervised", "auto", "full"):
+        tworker.send(_phase2_start(tagent, stub, f"w-perm-{mode}", f"mode {mode}", permission=mode))
+        done, _ = harness.drive(tworker, tagent.account, f"w-perm-{mode}")
+        assert done["final_response"] == f"Stub reply: mode {mode}"
+
+
+def test_empty_budgets_use_hermes_own_turn_limit(tagent, tworker, stub):
+    """Q-2.3: no Timely turn cap. With ``budgets: {}`` a turn runs past phase 1's old default of 30
+    iterations; ``budgets.max_iterations`` still caps a run when Go sends one."""
+    tworker.send(_phase2_start(tagent, stub, "w-loop", "LOOP 32"))
+    done, _ = harness.drive(tworker, tagent.account, "w-loop", timeout=180)
+    assert done["final_response"] == "Looped 32 times" and done["completed"] is True, done
+    tworker.send(_phase2_start(tagent, stub, "w-loop-capped", "LOOP 32", budgets={"max_iterations": 3}))
+    done, _ = harness.drive(tworker, tagent.account, "w-loop-capped", timeout=180)
+    assert done["final_response"] != "Looped 32 times", done
+
+
+PROBE_TURN_LIMIT = """
+import json, sys
+sys.path[:0] = [sys.argv[1], sys.argv[2]]
+from hermes_cli.config import TURN_LIMIT_UNLIMITED, load_config, resolve_turn_limit
+from timely_agent import run_chat
+print(json.dumps({"empty": run_chat.turn_limit({}), "none": run_chat.turn_limit(None),
+                  "given": run_chat.turn_limit({"max_iterations": 7}),
+                  "hermes": resolve_turn_limit((load_config().get("agent") or {}).get("max_turns")),
+                  "unlimited": TURN_LIMIT_UNLIMITED,
+                  "old_default": hasattr(run_chat, "DEFAULT_MAX_ITERATIONS")}))
+"""
+
+
+def test_turn_limit_is_hermes_default_from_config(agent):
+    proc = subprocess.run([harness.python(), "-I", "-c", PROBE_TURN_LIMIT, str(paths.hermes_dir()), str(paths.agent_dir())],
+                          capture_output=True, text=True, env=agent.env(), timeout=180)
+    assert proc.returncode == 0, proc.stderr[-3000:]
+    got = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert got["empty"] == got["none"] == got["hermes"] == got["unlimited"], got
+    assert got["given"] == 7 and got["old_default"] is False, got
+
+
+def test_stream_deltas_are_coalesced_and_never_lose_text(tagent, tworker, stub):
+    """Q-2.5: 600 two-character chunks arrive over about 1.2 s; the worker sends at most one
+    ``delta`` per 50 ms or 200 characters, the chunks join to the exact reply, and every delta
+    comes before ``run.done``."""
+    import time
+    from stub_openai import stream_text
+    started = time.monotonic()
+    tworker.send(_phase2_start(tagent, stub, "w-stream", "STREAM 1200 2 2"))
+    done, seen = harness.drive(tworker, tagent.account, "w-stream")
+    elapsed = time.monotonic() - started
+    deltas = [m for m in seen if m["type"] == "event" and m["kind"] == "delta"]
+    text = "".join(d["payload"]["text"] for d in deltas)
+    assert text == stream_text(1200) == done["final_response"]
+    assert 2 <= len(deltas) <= 1200 // 200 + int(elapsed / 0.05) + 3, (len(deltas), elapsed)
+    assert len(deltas) < 120, len(deltas)  # 600 chunks without coalescing
+    assert all(len(d["payload"]["text"]) <= 200 + 2 for d in deltas)
+    assert seen.index(deltas[-1]) < seen.index(done)
+
+
+def test_record_events_writes_one_jsonl_per_scenario(tmp_path):
+    """``record_events.py`` (``make agent-record-fixtures``): worker -> Go lines per scenario,
+    ending with the run's ``run.done``, plus a manifest of what Go sent."""
+    import record_events
+    names = {"read_tool_then_reply", "propose_then_tool_call_ends_turn"}
+    manifest = record_events.record(tmp_path, only=names)
+    assert set(manifest["scenarios"]) == names
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted([f"{n}.jsonl" for n in names] + ["manifest.json"])
+    for name in names:
+        lines = [json.loads(line) for line in (tmp_path / f"{name}.jsonl").read_text().splitlines()]
+        assert lines[-1]["type"] == "run.done" and lines[-1]["run"] == f"run-{name}"
+        assert all(m["account"] == record_events.ACCOUNT for m in lines)
+        assert not {m["type"] for m in lines} & {"heartbeat", "log", "ready"}
+        assert "api_key" not in json.dumps(manifest["scenarios"][name]["run_start"])
+    ended = [json.loads(line) for line in (tmp_path / "propose_then_tool_call_ends_turn.jsonl").read_text().splitlines()]
+    assert ended[-1]["turn_exit_reason"] == "end_turn"
+    assert [m["name"] for m in ended if m["type"] == "tool.call"] == ["propose_changes"]
+
+
+def test_history_seed_is_stored_once_and_kept_by_later_turns(agent, worker, stub):
+    """Plan 5.4: Go sends ``history`` when ``state.db`` lacks the session. The worker writes the
+    seed into ``state.db`` (Hermes stores only a turn's new messages), so the next turn still has
+    it; a seed sent again for a known session is ignored, never duplicated."""
+    seed = [{"role": "user", "content": "SEED-USER: plan my week"},
+            {"role": "assistant", "content": "SEED-ASSISTANT: here is your week"}]
+    conv = "c-seed"
+    for run_id, text, history, seeded in (("r-seed-1", "first after restore", seed, True),
+                                          ("r-seed-2", "second after restore", None, False),
+                                          ("r-seed-3", "third with a stale seed", seed, False)):
+        extra = {"history": history} if history else {}
+        worker.send(harness.run_start(agent, stub, run_id=run_id, conversation=conv, text=text, **extra))
+        done, _ = worker.until("run.done")
+        assert done["history_seeded"] is seeded and done["final_response"] == f"Stub reply: {text}", done
+        req = [r for r in stub.requests if r["method"] == "POST" and text in json.dumps(r["body"]["messages"][-1])][-1]
+        contents = [m.get("content") for m in req["body"]["messages"]]
+        assert contents.count("SEED-USER: plan my week") == 1, contents
+        assert contents.count("SEED-ASSISTANT: here is your week") == 1, contents
+
+
+def test_reseed_replaces_a_session_that_missed_classic_turns(agent, worker, stub):
+    """A chat that ran on classic since its session's last turn: ``run.start.reseed`` makes the
+    seed (which has the classic turns) replace what ``state.db`` holds, so the model sees them."""
+    conv = "c-reseed"
+    worker.send(harness.run_start(agent, stub, run_id="r-reseed-1", conversation=conv, text="AGENT-TURN"))
+    done, _ = worker.until("run.done")
+    assert done["history_seeded"] is False
+    seed = [{"role": "user", "content": "AGENT-TURN"}, {"role": "assistant", "content": "Stub reply: AGENT-TURN"},
+            {"role": "user", "content": "CLASSIC-USER: and on Friday?"},
+            {"role": "assistant", "content": "CLASSIC-ASSISTANT: Friday is free"}]
+    worker.send(harness.run_start(agent, stub, run_id="r-reseed-2", conversation=conv, text="back on the agent",
+                                  history=seed, reseed=True))
+    done, _ = worker.until("run.done")
+    assert done["history_seeded"] is True, done
+    req = [r for r in stub.requests if r["method"] == "POST"
+           and "back on the agent" in json.dumps(r["body"]["messages"][-1])][-1]
+    contents = [m.get("content") for m in req["body"]["messages"]]
+    assert contents.count("CLASSIC-ASSISTANT: Friday is free") == 1, contents
+    assert contents.count("AGENT-TURN") == 1, contents
+
+
+def test_a_changed_key_reaches_the_next_turn(agent, worker, stub):
+    """The cached agent is rebuilt when the run's key changes (a key rotated in Settings)."""
+    conv = "c-rotate"
+    worker.send(harness.run_start(agent, stub, run_id="r-key-1", conversation=conv, text="KEY-ONE"))
+    worker.until("run.done")
+    rotated = {**harness.model_cfg(stub), "api_key": "sk-rotated"}
+    worker.send(harness.run_start(agent, stub, run_id="r-key-2", conversation=conv, text="KEY-TWO", model=rotated))
+    worker.until("run.done")
+    auth = [r["auth"] for r in stub.requests if r["method"] == "POST" and "KEY-TWO" in json.dumps(r["body"]["messages"][-1])]
+    assert auth and set(auth) == {"Bearer sk-rotated"}, auth
+
+
+def test_reseed_with_no_history_clears_an_unsaved_turn(agent, worker, stub):
+    """A first turn the chat never saved (it failed or was stopped): Go reseeds with an empty
+    history, and the retried turn doesn't see the abandoned one."""
+    conv = "c-reseed-empty"
+    worker.send(harness.run_start(agent, stub, run_id="r-gone-1", conversation=conv, text="ABANDONED-TURN"))
+    worker.until("run.done")
+    worker.send(harness.run_start(agent, stub, run_id="r-gone-2", conversation=conv, text="RETRIED-TURN",
+                                  history=[], reseed=True))
+    done, _ = worker.until("run.done")
+    assert done["history_seeded"] is True, done
+    req = [r for r in stub.requests if r["method"] == "POST"
+           and "RETRIED-TURN" in json.dumps(r["body"]["messages"][-1])][-1]
+    assert "ABANDONED-TURN" not in json.dumps(req["body"]["messages"]), req["body"]["messages"]

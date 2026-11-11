@@ -158,9 +158,14 @@ func TestIntegrationRealWorker(t *testing.T) {
 		Runtime:       rt,
 		RenderAccount: true,
 		HelloTimeout:  60 * time.Second, // a cold first import is slower than the 20 s default
-		Logf:          log.logf,
-		OnExit:        func(e ExitInfo) { exits <- e },
-		Handler:       func(_ *Worker, m Message) { msgs <- m },
+		// hello carries timely_tools (phase 2). An empty catalog passes a
+		// worker that ignores the field and one that registers its tools.
+		TimelyTools: func(context.Context) (string, json.RawMessage, error) {
+			return "", json.RawMessage("[]"), nil
+		},
+		Logf:    log.logf,
+		OnExit:  func(e ExitInfo) { exits <- e },
+		Handler: func(_ *Worker, m Message) { msgs <- m },
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -174,6 +179,9 @@ func TestIntegrationRealWorker(t *testing.T) {
 	t.Logf("ready: hermes %s, %d tools, plugins %v", ready.HermesTag, len(ready.Tools), ready.PluginsLoaded)
 	if !ready.SelfTest.OK || ready.HermesTag == "" {
 		t.Errorf("ready = %+v", ready)
+	}
+	if w.CatalogVersion() != toolsVersion(json.RawMessage("[]")) {
+		t.Errorf("catalog version %q", w.CatalogVersion())
 	}
 	for _, p := range ready.PluginsLoaded {
 		if strings.HasPrefix(p, "platforms/") {

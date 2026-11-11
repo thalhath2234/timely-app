@@ -41,6 +41,9 @@ import ReplyBody from "./ReplyCards";
 import { LogoSpinner } from "../ui/TimelyLogo";
 import { useAgentProvidersQuery, useChatPromptsQuery, useDecisionFeedback } from "../../lib/hooks";
 import { readyProviders } from "./ModelSheet";
+import { AutoAppliedCard } from "./AgentRun";
+import { autoCardArchives, offersUseClassic } from "../../lib/chat/agentRun";
+import { USE_CLASSIC_LABEL } from "@timely/contract/agentChat";
 
 /** Chat needs a connected provider; the rest of Timely works without one. */
 function useNeedsProvider() {
@@ -124,8 +127,8 @@ export function Welcome({
       </View>
       <Text style={styles.hero}>What would you like to make happen?</Text>
       <Text style={styles.heroText}>
-        Plan your day, shape a sheet, or attach a receipt. Small changes happen
-        right away; bigger ones wait for your approval.
+        Plan your day, shape a sheet, or attach a receipt. The chat’s
+        permission decides what waits for your review.
       </Text>
       <LoopImage id="ask" style={styles.heroLoop} />
       {needsProvider ? (
@@ -270,6 +273,8 @@ export default function Thread({
   pending,
   onSimilar,
   onAsk,
+  onUndo,
+  undoing = false,
 }: {
   chat: Chat;
   onLink: (href: string) => void;
@@ -279,9 +284,13 @@ export default function Thread({
   onSimilar: (action: "move" | "stay") => void;
   /** Sends a reply card's text as a message; unset while the chat can't take one. */
   onAsk?: (text: string) => void;
+  /** Undoes a proposal that applied on its own (Auto, Full Access). */
+  onUndo?: (message: ChatMessage) => void;
+  undoing?: boolean;
 }) {
   let lastDay = "";
   const last = chat.messages[chat.messages.length - 1];
+  const shownByCards = autoCardArchives(chat);
   // Only the newest reply, with nothing the person said after it, keeps live answer chips.
   const newest = chat.messages.findLast(
     (m) => (m.role === "user" && !m.kind) || (m.role === "assistant" && !m.kind),
@@ -292,7 +301,8 @@ export default function Thread({
         const day = dayLabel(message.createdAt);
         const separator = day !== lastDay;
         lastDay = day;
-        const isUser = message.role === "user" && !message.kind;
+        const steer = message.role === "user" && message.kind === "steer";
+        const isUser = message.role === "user" && (!message.kind || steer);
         const images = (chat.images ?? []).filter((image) =>
           message.imageIds?.includes(image.id),
         );
@@ -354,7 +364,9 @@ export default function Thread({
                 ) : null}
               </View>
             ) : message.kind === "archive" ? (
-              <Archive message={message} onReview={onReviewArchive} />
+              shownByCards.has(message.id) ? null : (
+                <Archive message={message} onReview={onReviewArchive} />
+              )
             ) : isUser ? (
               <View style={styles.userWrap}>
                 <View style={styles.userBubble}>
@@ -373,7 +385,9 @@ export default function Thread({
                     </View>
                   ) : null}
                 </View>
-                <Text style={styles.time}>{timeOfDay(message.createdAt)}</Text>
+                <Text style={styles.time}>
+                  {steer ? `Sent while it worked · ${timeOfDay(message.createdAt)}` : timeOfDay(message.createdAt)}
+                </Text>
               </View>
             ) : (
               <View style={styles.assistantRow}>
@@ -414,6 +428,14 @@ export default function Thread({
                   {message.receipt ? <ReceiptCard message={message} /> : null}
                   {message.steps?.length ? (
                     <ChangeCards steps={message.steps} onLink={onLink} />
+                  ) : null}
+                  {message.proposal && message.autoApplied ? (
+                    <AutoAppliedCard
+                      chat={chat}
+                      message={message}
+                      undoing={undoing}
+                      onUndo={onUndo}
+                    />
                   ) : null}
                 </View>
               </View>
@@ -489,12 +511,15 @@ export function FailureCard({
   onRetry,
   onDiscardImages,
   onOpenSettings,
+  onUseClassic,
 }: {
   chat: Chat;
   locked: boolean;
   onRetry: () => void;
   onDiscardImages: () => void;
   onOpenSettings: () => void;
+  /** The agent engine could not start: run this chat on Classic, then Try again. */
+  onUseClassic?: () => void;
 }) {
   const needsProvider = useNeedsProvider();
   // The run waited for the person to choose a default provider (ADR 0020).
@@ -502,6 +527,7 @@ export function FailureCard({
   if (!chat.error || chat.plan.length) return null;
   const settings = needsProvider || notChosen || chat.errorAction === "settings";
   const stopped = ["failed", "stopped"].includes(chat.status);
+  const useClassic = !!onUseClassic && !needsProvider && offersUseClassic(chat);
   // Once a provider is chosen, the waiting chat can run.
   const retry = stopped && !needsProvider && (notChosen || (!settings && chat.errorAction !== "none"));
   // Photos that failed before their review opened; an open review has its
@@ -520,12 +546,23 @@ export function FailureCard({
               ? "Check your AI provider"
               : chat.errorAction === "none"
                 ? "Couldn't finish this request"
-                : "Something went wrong"
+                : useClassic
+                  ? "The new engine couldn't start"
+                  : "Something went wrong"
       }
       body={chat.error}
     >
-      {settings || retry || photos ? (
+      {settings || retry || photos || useClassic ? (
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+          {useClassic ? (
+            <Action
+              label={USE_CLASSIC_LABEL}
+              primary
+              compact
+              disabled={locked}
+              onPress={onUseClassic!}
+            />
+          ) : null}
           {settings ? (
             <Action
               label={notChosen ? "Choose provider" : "Open Agent settings"}
