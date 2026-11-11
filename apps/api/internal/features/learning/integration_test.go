@@ -621,10 +621,16 @@ func TestIntegrationUndoKeepAndDiscard(t *testing.T) {
 		}
 	}
 
+	// The worker's real keep reply: {pending_id, event, events}, the applied
+	// change with its ledger entry.
+	r.kit.LearningReply("learning.pending", map[string]any{"pending_id": "pend-1",
+		"event": map[string]any{"id": "w-kept", "kind": "skill", "action": "created", "subject": "x", "status": "applied", "ledger_entry_id": "led-77", "after": "# x", "pending_id": "pend-1"},
+		"events": []any{map[string]any{"id": "w-kept", "kind": "skill", "action": "created", "subject": "x", "status": "applied", "ledger_entry_id": "led-77", "after": "# x", "pending_id": "pend-1"}}})
 	if code, body, _ := r.call(a, http.MethodPost, "/agent/learning/pending/pend-1", map[string]any{"choice": "keep"}); code != http.StatusOK ||
-		body["event"].(map[string]any)["status"] != StatusKept {
+		body["event"].(map[string]any)["status"] != StatusKept || body["event"].(map[string]any)["ledgerEntryId"] != "led-77" {
 		t.Fatalf("keep: %d %v", code, body)
 	}
+	r.kit.LearningReply("learning.pending", map[string]any{"ok": true})
 	if code, _, _ := r.call(a, http.MethodPost, "/agent/learning/pending/pend-1", map[string]any{"choice": "discard"}); code != http.StatusConflict {
 		t.Fatalf("deciding twice: %d", code)
 	}
@@ -638,16 +644,26 @@ func TestIntegrationUndoKeepAndDiscard(t *testing.T) {
 	if len(pend) != 2 || fields(t, pend[0])["pending_id"] != "pend-1" || fields(t, pend[0])["choice"] != "keep" || fields(t, pend[1])["choice"] != "discard" {
 		t.Fatalf("pending requests %v", pend)
 	}
-	// A kept change can be undone like an applied one.
-	r.kit.LearningReply("learning.rollback", map[string]any{"ok": true})
+	// A kept change can be undone like an applied one: through the ledger
+	// entry the keep wrote.
 	keptEv, _ := r.svc.find(context.Background(), a, keep.ID)
-	if keptEv.Status != StatusKept {
-		t.Fatalf("kept event is %s", keptEv.Status)
+	if keptEv.Status != StatusKept || keptEv.LedgerEntryID != "led-77" {
+		t.Fatalf("kept event is %s, ledger %q", keptEv.Status, keptEv.LedgerEntryID)
+	}
+	r.kit.LearningReply("learning.rollback", map[string]any{"ok": true})
+	if code, body, _ := r.call(a, http.MethodPost, "/agent/learning/events/"+keep.ID+"/undo", nil); code != http.StatusOK {
+		t.Fatalf("undo of a kept skill change: %d %v", code, body)
+	}
+	if rb := requestsFor(r.requests("learning.rollback"), a); len(rb) == 0 || fields(t, rb[len(rb)-1])["ledger_entry_id"] != "led-77" {
+		t.Fatalf("rollback requests %v", rb)
+	}
+	if code, _, _ := r.call(a, http.MethodPost, "/agent/learning/events/"+keep.ID+"/undo", nil); code != http.StatusConflict {
+		t.Fatalf("second undo of the kept change: %d", code)
 	}
 
 	// The feed filters by status, chat, time and count.
 	code, body, _ = r.call(a, http.MethodGet, "/agent/learning/events?status=undone", nil)
-	if events := body["events"].([]any); code != http.StatusOK || len(events) != 3 {
+	if events := body["events"].([]any); code != http.StatusOK || len(events) != 4 {
 		t.Fatalf("undone events: %d %v", code, body)
 	}
 	code, body, _ = r.call(a, http.MethodGet, "/agent/learning/events?conversationId=chat_1", nil)

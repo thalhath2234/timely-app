@@ -11,8 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func user(c *echo.Context) string { v, _ := c.Get("userID").(string); return v }
@@ -608,8 +610,58 @@ func (s *Service) decidePending(c *echo.Context) error {
 		return err
 	}
 	ev.Status = status
+	if status == StatusKept {
+		s.keptAsApplied(ctx, uid, &ev, data)
+	}
 	s.publishEvent(uid, ev)
 	return c.JSON(http.StatusOK, map[string]any{"event": ev, "result": data})
+}
+
+// keptAsApplied gives a kept change what Undo needs from the worker's keep
+// reply (the applied events, which the worker reports nowhere else): the
+// row takes the last change's ledger entry and before and after texts, and
+// any earlier change of the same keep (a memory batch) becomes a kept row of
+// its own, so each can be undone.
+func (s *Service) keptAsApplied(ctx context.Context, uid string, ev *Event, data json.RawMessage) {
+	var reply struct {
+		Events []wireEvent `json:"events"`
+	}
+	if json.Unmarshal(data, &reply) != nil || len(reply.Events) == 0 {
+		return
+	}
+	var applied []Event
+	for _, w := range reply.Events {
+		if a, err := eventFromWire(w); err == nil && a.Status == StatusApplied {
+			applied = append(applied, a)
+		}
+	}
+	if len(applied) == 0 {
+		return
+	}
+	last := applied[len(applied)-1]
+	ev.LedgerEntryID = last.LedgerEntryID
+	if last.Before != "" || last.After != "" {
+		ev.Before, ev.After = last.Before, last.After
+	}
+	if err := s.db.WithContext(ctx).Model(&Event{}).Where("id = ? AND user_id = ?", ev.ID, uid).
+		Updates(map[string]any{"ledger_entry_id": ev.LedgerEntryID, "before": ev.Before, "after": ev.After, "updated_at": time.Now()}).Error; err != nil {
+		s.logf("learning: a kept change's history entry: %v", err)
+	}
+	for _, extra := range applied[:len(applied)-1] {
+		extra.ID, extra.UserID, extra.Status, extra.PendingID = "lev_"+uuid.NewString(), uid, StatusKept, ev.PendingID
+		if extra.ConversationID == "" {
+			extra.ConversationID = ev.ConversationID
+		}
+		res := s.db.WithContext(ctx).Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "user_id"}, {Name: "worker_event_id"}},
+			DoNothing: true,
+		}).Create(&extra)
+		if res.Error != nil {
+			s.logf("learning: a kept change's other part: %v", res.Error)
+		} else if res.RowsAffected == 1 {
+			s.publishEvent(uid, extra)
+		}
+	}
 }
 
 func (s *Service) listUpstream(c *echo.Context) error {
