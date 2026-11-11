@@ -6,7 +6,12 @@ through the web tools. So, in a tainted session only:
 
 - ``web_extract`` (and every ``browser_*`` URL, ready for phase 5) to a host that is neither one
   the person typed in this chat (``run.start.person_hosts``) nor one a ``web_search`` in this
-  conversation returned is blocked: ``PASTE_LINK``.
+  conversation returned is blocked: ``PASTE_LINK``. A search returned a URL only when it is one of
+  the result's rows (``data.web[].url``), never a link in a search model's answer text.
+- a ``web_extract`` or ``browser_*`` URL that a fetching service could read differently from this
+  rule (a user name, a backslash, white space, a percent escape in the host, a port other than the
+  scheme's, a scheme other than http(s), or a host Hermes' ``normalize_url_for_request`` changes) is
+  blocked: ``PAGE_BLOCKED``.
 - on an allowed host, a ``web_extract`` URL opens only when it is the site's front page (no path,
   query or fragment), a link the person typed in this chat or their bots read
   (``run.start.person_links``: the URL's host and path, with any query or fragment, start one of
@@ -178,14 +183,126 @@ def person_page(url: str, links: Iterable[str]) -> bool:
     return False
 
 
+def search_rows(result: Any) -> list[str]:
+    """The URLs of a web_search result's rows: ``data.web`` / ``data.news`` (Hermes' shape) or
+    ``results`` (Go's), each row's ``url``. Nothing else in the result counts."""
+    if not isinstance(result, dict):
+        return []
+    lists = []
+    data = result.get("data")
+    if isinstance(data, dict):
+        lists += [data.get("web"), data.get("news")]
+    lists.append(result.get("results"))
+    out = []
+    for rows in lists:
+        for row in rows if isinstance(rows, list) else []:
+            url = row.get("url") if isinstance(row, dict) else None
+            if isinstance(url, str) and url.strip():
+                out.append(url.strip())
+    return out
+
+
+# Hermes' normalize_url_for_request repairs model-written space after the scheme ("https:// x").
+_SCHEME_SPACE = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*://)\s+")
+_SCHEME = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*):")
+_DEFAULT_PORT = {"http": "80", "https": "443", "": ""}
+
+
+def unsafe_url(url: str) -> bool:
+    """Whether a page address could be read differently by the service that fetches it than by
+    this rule: a scheme other than http(s), a backslash, white space or a control character, a
+    user name or password (``@`` before the host), a percent escape in the host, or a port other
+    than the scheme's own. WHATWG parsers (Node, browsers, the keyed backends' services) read
+    ``https://evil.example\\x@blog.example/`` as host ``evil.example``; ``urlsplit`` as
+    ``blog.example``. Go's ``publicURL`` refuses the same for the ``timely`` backend."""
+    raw = _SCHEME_SPACE.sub(r"\1", (url or "").strip())
+    if not raw or "\\" in raw or any(c.isspace() or ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F for c in raw):
+        return True
+    scheme = ""
+    if raw.startswith("//"):
+        rest = raw[2:]
+    else:
+        m = _SCHEME.match(raw)
+        if m and raw[m.end():m.end() + 2] == "//":
+            scheme, rest = m.group(1).lower(), raw[m.end() + 2:]
+        elif m and not raw[m.end():m.end() + 1].isdigit():
+            return True  # mailto:, javascript:, https:host (no slashes) ...
+        else:
+            rest = raw
+    if scheme not in ("", "http", "https"):
+        return True
+    authority = re.split(r"[/?#]", rest, maxsplit=1)[0]
+    if not authority or "@" in authority or "%" in authority:
+        return True
+    host_port = authority
+    if host_port.startswith("["):
+        end = host_port.find("]")
+        if end < 0:
+            return True
+        port = host_port[end + 1:]
+        if port and not port.startswith(":"):
+            return True
+        port = port[1:]
+    else:
+        _, _, port = host_port.partition(":")
+    if port and port != _DEFAULT_PORT.get(scheme or "http"):
+        return True
+    return False
+
+
+def _hermes_normalize(url: str) -> str:
+    try:
+        from tools.url_safety import normalize_url_for_request  # the worker's Hermes
+    except ImportError:  # the pytest process has no Hermes on its path
+        return _SCHEME_SPACE.sub(r"\1", (url or "").strip())
+    return normalize_url_for_request(url)
+
+
+def _idna(host: str) -> str:
+    try:
+        return host.encode("idna").decode("ascii").lower()
+    except UnicodeError:
+        return host
+
+
+def same_page(url: str) -> bool:
+    """Whether Hermes sends the backend the host this rule reads (fails closed when they differ)."""
+    sent = _hermes_normalize(url)
+    return isinstance(sent, str) and not unsafe_url(sent) and _idna(url_host(sent)) == _idna(url_host(url))
+
+
 def urls_in(text: str) -> list[str]:
     return [u.rstrip(".,;:") for u in _URL.findall(text or "")]
 
 
+_IP_CANDIDATE = re.compile(r"\[?[0-9a-f:.]*[.:][0-9a-f:.]*\]?", re.IGNORECASE)
+
+
+def ip_literals(text: str) -> list[str]:
+    """The IP addresses a text names anywhere, normalised. An address is a site whether or not a
+    scheme or path goes with it, so a query that splits a link around one still names it. A bare
+    IPv6 address needs two colons and four digits ("std::vector" holds "d::")."""
+    import ipaddress
+    out = []
+    for m in _IP_CANDIDATE.findall(text or ""):
+        bracketed = m.startswith("[") and m.endswith("]")
+        m = m.strip("[]").strip(".")
+        digits = len(m) - m.count(":") - m.count(".")
+        try:
+            ip = ipaddress.ip_address(m)
+        except ValueError:
+            continue
+        if (ip.version == 4 and m.count(".") == 3) or (ip.version == 6 and (bracketed or (m.count(":") >= 2 and digits >= 4))):
+            out.append(str(ip))
+    return list(dict.fromkeys(out))
+
+
 def query_hosts(query: str) -> list[str]:
-    """The sites a search query names (links, ``site:`` and bare names), normalised."""
+    """The sites a search query names (IP addresses anywhere, links, ``site:`` and bare names),
+    normalised."""
     found = [a or b for a, b in _HOST_REF.findall(query or "")]
-    return list(dict.fromkeys(norm_host(h) for h in found if norm_host(h)))
+    hosts = ip_literals(query) + [norm_host(h) for h in found]
+    return list(dict.fromkeys(h for h in hosts if h))
 
 
 def strip_notice(text: str) -> str:
@@ -327,14 +444,20 @@ class Part:
     tainted_results: list[str] = field(default_factory=list)
 
     def add_search(self, result: Any) -> None:
+        """Keep a search's result rows (``data.web[].url`` as Hermes answers, or ``results[].url``),
+        never a link in its answer text: the text is a search model's writing from the query,
+        which outside text may have written, so a link there can carry the person's data."""
         if isinstance(result, str):
+            text = result.strip()
+            if text.startswith("<untrusted_tool_result"):  # how state.db stores an outside result
+                text = text[text.find("\n{") + 1:text.rfind("}") + 1]
             try:  # a JSON string escapes characters a URL holds ("\u0026"); read the values
-                result = json.loads(result)
+                result = json.loads(text)
             except ValueError:
-                pass
-        for url in urls_in(_text(result)):
+                return
+        for url in search_rows(result):
             host = url_host(url)
-            if host:
+            if host and not unsafe_url(url):
                 self.search_hosts.add(host)
                 self.search_urls.add(url)
 
@@ -475,6 +598,8 @@ def check(tool: str, args: dict, *, tainted: bool, person_hosts: Iterable[str], 
     seen_urls = rec.search_urls
     links = [str(link) for link in person_links if isinstance(link, str)]
     for url in urls:
+        if unsafe_url(url) or not same_page(url):
+            return PAGE_BLOCKED
         host = url_host(url)
         if not host or host not in allowed:
             return EXTRACT_BLOCKED.format(host=host or "that address")
