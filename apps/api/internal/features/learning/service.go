@@ -278,11 +278,16 @@ func (s *Service) Prefs(ctx context.Context, uid string) (Prefs, error) {
 
 // MarkRestored marks skills a backup restore brought back: disabled, and
 // shown as "restored, review" until the person turns them on (Q-3.4). It
-// runs inside the restore's transaction.
+// runs inside the restore's transaction. A name it cannot store is an
+// error, so the restore rolls back rather than leave that skill on (the
+// worker's import blocks such names first).
 func MarkRestored(tx *gorm.DB, uid string, names []string) error {
 	var clean []string
 	for _, name := range names {
-		if validName(name) && !slices.Contains(clean, name) {
+		if !validName(name) {
+			return fmt.Errorf("a restored skill's name %q cannot be kept turned off", cut(name, 80))
+		}
+		if !slices.Contains(clean, name) {
 			clean = append(clean, name)
 		}
 	}

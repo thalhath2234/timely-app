@@ -13,9 +13,13 @@ Three helpers that ``boot.py`` runs for Go, each printing one JSON object:
 - :func:`import_state` (``agent-import``): extracts a zip into ``accounts/.restore-<dir>-<ts>/``
   beside the live home, drops every path the export would never write (a hand-made zip cannot
   plant ``config.yaml`` or ``hooks/``), threat-scans skills (a hit drops the skill and lists it in
-  ``blocked``), memory entries and staged writes, rewrites the skill ledger's absolute paths to
-  the account's home and writes ``.timely/restored.json`` with the restored skills, which Go keeps
-  disabled until the person reviews them (Q-3.4).
+  ``blocked``; so does a name Timely could not keep turned off: not a plain name, or one Hermes'
+  YAML reads differently), memory entries, staged writes and the skill ledger's blobs (a blob
+  whose content is not its sha256 name, or that the scan hits, is dropped with every ledger entry
+  that needs it), keeps only ledger entries whose paths lie under ``skills/`` and rewrites them to
+  the account's home, and writes ``.timely/restored.json`` with the restored skills, which Go
+  keeps disabled until the person reviews them (Q-3.4), and the restored ledger entry ids (an
+  Undo of one brings its skill back disabled and marked the same way).
 - :func:`reconcile` (``agent-reconcile``, also run by ``prepare``): a ``.restore-*`` folder that
   holds a ``COMMITTED`` marker (Go writes it after the Postgres restore commits) is swapped in, the
   old home going to ``.trash``; one without the marker is deleted. A folder staged for another
@@ -56,6 +60,11 @@ BUNDLED_MANIFEST = ".bundled_manifest"
 LEDGER = ".curator_ledger.jsonl"
 MEMORY_FILES = ("MEMORY.md", "USER.md")
 MEMORY_DELIMITER = "\n§\n"  # tools/memory_tool_store.py ENTRY_DELIMITER
+
+# A skill name Go can keep turned off (learning.validName); Hermes loads a skill by its frontmatter
+# name and matches skills.disabled against it, so any other name would come back on.
+SKILL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+BLOB_NAME_RE = re.compile(r"^[0-9a-f]{64}$")
 
 MAX_MEMBERS = 200_000
 MAX_UNCOMPRESSED = 1024 * 1024 * 1024  # a zip bomb stops here; Go caps the zip itself at 64 MB
@@ -244,13 +253,17 @@ def rewrite_path(path: str, old_home: str, new_home: str) -> Optional[str]:
     return str(Path(new_home).joinpath(*rest.split("/")))
 
 
-def _rewrite_ledger(ledger: Path, old_home: str, new_home: str) -> tuple[int, int]:
+def _rewrite_ledger(ledger: Path, old_home: str, new_home: str, blobs: set[str]) -> tuple[int, int, list[str]]:
     """Rewrite every before/after path of the skill ledger to the new home; returns
-    ``(paths rewritten, paths left out)``. A path that cannot be placed under the new home is
-    dropped from its entry (Hermes refuses to roll back an entry naming a path outside the home)."""
+    ``(paths rewritten, entries left out, ids kept)``. An entry is left out whole when one of its
+    paths cannot be placed under the new home's ``skills/`` (Hermes would refuse it, or an Undo
+    would write outside the skills), or a file it would restore has no blob that passed the
+    checks (``blobs``): an Undo writes those bytes back."""
     if not ledger.is_file():
-        return 0, 0
+        return 0, 0, []
     rewritten = lost = 0
+    kept: list[str] = []
+    skills = Path(new_home) / "skills"
     lines = []
     for line in ledger.read_text(encoding="utf-8", errors="replace").splitlines():
         try:
@@ -259,21 +272,76 @@ def _rewrite_ledger(ledger: Path, old_home: str, new_home: str) -> tuple[int, in
             continue
         if not isinstance(row, dict):
             continue
+        ok, moved = True, 0
         for side in ("before", "after"):
             items = []
             for item in row.get(side) or []:
                 if not isinstance(item, dict):
+                    ok = False
                     continue
                 new = rewrite_path(str(item.get("path", "")), old_home, new_home)
-                if new is None:
-                    lost += 1
+                if new is None or not Path(new).is_relative_to(skills) or ".." in Path(new).parts:
+                    ok = False
                     continue
-                rewritten += 1
+                if side == "before" and str(item.get("sha256") or "") not in blobs:
+                    ok = False
+                    continue
+                moved += 1
                 items.append({**item, "path": new})
             row[side] = items
+        if not ok:
+            lost += 1
+            continue
+        rewritten += moved
+        kept.append(str(row.get("id") or ""))
         lines.append(json.dumps(row, ensure_ascii=False))
     ledger.write_text("".join(x + "\n" for x in lines), encoding="utf-8")
-    return rewritten, lost
+    return rewritten, lost, [k for k in kept if k]
+
+
+def _check_blobs(staged: Path, dropped: list[str]) -> set[str]:
+    """Keep a ledger blob only when its content hashes to its name and, as text, passes the strict
+    threat scan; returns the names kept."""
+    root = staged / ".curator_backups" / "blobs"
+    kept: set[str] = set()
+    if not root.is_dir():
+        return kept
+    for p in sorted(x for x in root.rglob("*") if x.is_file()):
+        rel = p.relative_to(staged).as_posix()
+        why = ""
+        if p.parent != root or not BLOB_NAME_RE.match(p.name):
+            why = "not a ledger blob"
+        elif _sha256(p) != p.name:
+            why = "content does not match its name"
+        else:
+            try:
+                if _threats(p.read_bytes().decode("utf-8")):
+                    why = "threat scan"
+            except UnicodeDecodeError:
+                pass  # a binary file in a skill: nothing for the model to read
+        if why:
+            p.unlink()
+            dropped.append(f"{rel} ({why})")
+        else:
+            kept.add(p.name)
+    return kept
+
+
+def _name_problem(skill_md: Path, fallback: str) -> str:
+    """Why a restored skill's name could not be kept turned off, else ""."""
+    from agent.skill_utils import parse_frontmatter
+    from tools.skill_usage import read_skill_name
+    name = read_skill_name(skill_md, fallback)
+    if not SKILL_NAME_RE.match(name):
+        return "not a plain skill name"
+    try:
+        front, _ = parse_frontmatter(skill_md.read_text(encoding="utf-8-sig", errors="replace"))
+    except OSError:
+        front = {}
+    declared = front.get("name") if isinstance(front, dict) else None
+    if declared is not None and str(declared).strip() != name:
+        return "its name reads differently to Hermes"
+    return ""
 
 
 def _scan_memory(staged: Path, dropped: list[str]) -> None:
@@ -379,7 +447,7 @@ def import_state(layout: paths.AgentLayout, account: str, zip_path: Path) -> dic
             manifest = _manifest(staged)
             if skills.is_dir():
                 for d in list(_skill_folders(skills)):
-                    if d.is_dir() and _folder_threats(d):
+                    if d.is_dir() and (_folder_threats(d) or _name_problem(d / "SKILL.md", d.name)):
                         name = read_skill_name(d / "SKILL.md", d.name)
                         blocked.append(name)
                         manifest.pop(name, None)
@@ -390,9 +458,12 @@ def import_state(layout: paths.AgentLayout, account: str, zip_path: Path) -> dic
             _scan_memory(staged, dropped)
             _scan_pending(staged, dropped)
             _check_db(staged / "state.db", dropped)
-            rewritten, lost = _rewrite_ledger(skills / LEDGER, str(desc.get("home") or ""), str(final_home))
+            blobs = _check_blobs(staged, dropped)
+            rewritten, lost, entries = _rewrite_ledger(skills / LEDGER, str(desc.get("home") or ""), str(final_home),
+                                                       blobs)
             if lost:
-                dropped.append(f"skills/{LEDGER}: {lost} path(s) outside the old home")
+                dropped.append(f"skills/{LEDGER}: {lost} entr{'y' if lost == 1 else 'ies'} that could not be "
+                               "restored safely")
             restored = sorted({read_skill_name(d / "SKILL.md", d.name) for d in _skill_folders(skills)
                                if d.relative_to(skills).parts[0] != ".archive"}) if skills.is_dir() else []
             for name in paths.HOME_DIRS:
@@ -401,7 +472,8 @@ def import_state(layout: paths.AgentLayout, account: str, zip_path: Path) -> dic
             timely.mkdir(exist_ok=True)
             (timely / "restored.json").write_text(json.dumps({
                 "version": 1, "restored_at": datetime.now(UTC).isoformat(), "skills": restored,
-                "blocked": sorted(blocked)}, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+                "blocked": sorted(blocked), "ledger_entries": entries}, indent=1, sort_keys=True) + "\n",
+                encoding="utf-8")
             (staged / RESTORE_META).write_text(json.dumps({
                 "account_dir": final_home.name, "instance": _instance_id(layout),
                 "staged_at": datetime.now(UTC).isoformat(), "ledger_paths": rewritten}, sort_keys=True) + "\n",

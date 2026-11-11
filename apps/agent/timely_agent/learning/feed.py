@@ -128,10 +128,20 @@ class Feed:
             self._pending = set(files.pending_ids(self.home))
 
     # ------------------------------------------------------------ claims (self-reported writes)
-    def claim_ledger(self) -> list[dict[str, Any]]:
-        """Mark every ledger entry not seen yet as reported; returns them (oldest first)."""
+    def ledger_ids(self) -> set[str]:
+        """The ids the ledger holds now (a request's snapshot before it writes)."""
+        return {str(e["id"]) for e in files.read_ledger(self.home)}
+
+    def claim_ledger(self, since: Optional[set[str]] = None,
+                     actors: Optional[tuple[str, ...]] = None) -> list[dict[str, Any]]:
+        """Mark ledger entries not seen yet as reported; returns them (oldest first). A request
+        that reports its own writes passes ``since`` (the ids before it wrote) and ``actors`` (the
+        ledger actor it wrote as): a chat's or a learning pass's entry written meanwhile is left
+        for the next diff, which reports it with its chip and Undo."""
         with self.lock:
-            new = [e for e in files.read_ledger(self.home) if str(e["id"]) not in self._ledger]
+            new = [e for e in files.read_ledger(self.home) if str(e["id"]) not in self._ledger
+                   and (since is None or str(e["id"]) not in since)
+                   and (actors is None or e.get("actor") in actors)]
             self._ledger.update(str(e["id"]) for e in new)
             return new
 

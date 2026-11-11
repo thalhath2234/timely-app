@@ -298,20 +298,89 @@ def _prune_empty_skill_dirs(home: Path, skill: str) -> None:
                 pass
 
 
+def _rollback_problem(home: Path, entry: dict[str, Any]) -> str:
+    """Why an Undo must not write this entry's before files, else "": a file outside ``skills/``,
+    a blob whose content is not its sha256, or text the strict threat scan hits (a ledger that
+    came from elsewhere, such as a backup, is not trusted)."""
+    import hashlib
+    from tools.threat_patterns import scan_for_threats
+    skills = (home / "skills").resolve()
+    for item in entry.get("before") or []:
+        if not isinstance(item, dict):
+            return "the history entry is damaged"
+        path = Path(str(item.get("path") or ""))
+        try:
+            inside = path.resolve().is_relative_to(skills)
+        except (OSError, RuntimeError):
+            inside = False
+        if not inside:
+            return "it would write outside the skills folder"
+        sha = str(item.get("sha256") or "")
+        try:
+            data = (home / ".curator_backups" / "blobs" / sha).read_bytes() if sha else b""
+        except OSError:
+            continue  # Hermes refuses a missing blob itself, changing nothing
+        if hashlib.sha256(data).hexdigest() != sha:
+            return "a saved copy does not match its history entry"
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        if scan_for_threats(text, scope="strict"):
+            return "the saved copy failed Timely's safety check"
+    return ""
+
+
+def _restored_entries(home: Path) -> set[str]:
+    data = files.read_json(files.timely_dir(home) / "restored.json", {})
+    ids = data.get("ledger_entries") if isinstance(data, dict) else None
+    return {str(i) for i in ids} if isinstance(ids, list) else set()
+
+
+def _mark_restored(home: Path, name: str) -> None:
+    """Add a skill to ``restored.json``'s list (shown "restored, review")."""
+    path = files.timely_dir(home) / "restored.json"
+    data = files.read_json(path, {})
+    data = data if isinstance(data, dict) else {"version": 1}
+    names = [n for n in data.get("skills") or [] if isinstance(n, str)]
+    if name not in names:
+        data["skills"] = sorted(names + [name])
+        files.write_json(path, data)
+
+
 def rollback(msg: dict[str, Any], host: Host) -> dict[str, Any]:
+    """Undo a skill change. An entry a backup restore brought back recreates its skill turned off and
+    "restored, review" (``restored_skills`` in the answer; Go keeps it off, Q-3.4)."""
     from tools.skill_ledger import rollback_entry
-    entry = next((e for e in files.read_ledger(host.home) if str(e.get("id")) == str(msg["ledger_entry_id"])), {})
-    with _actor("user"):
-        ok, message = rollback_entry(msg["ledger_entry_id"])
-    if ok:
-        _prune_empty_skill_dirs(host.home, str(entry.get("skill") or ""))
+    entry_id = str(msg["ledger_entry_id"])
+    entry = next((e for e in files.read_ledger(host.home) if str(e.get("id")) == entry_id), {})
+    problem = _rollback_problem(host.home, entry) if entry else ""
+    if problem:
+        raise Failed({"ok": False, "message": f"This change cannot be undone: {problem}."})
+    skill_name = str(entry.get("skill") or "")
+    recreates = any(isinstance(i, dict) and Path(str(i.get("path") or "")).name == "SKILL.md"
+                    for i in entry.get("before") or [])
+    restored = entry_id in _restored_entries(host.home) and bool(skill_name) and recreates
     feed = _feed()
-    if feed is not None:
-        feed.claim_ledger()  # the rollback's own entries: Go marks the event undone itself
+    with (feed.lock if feed is not None else _nolock()):
+        seen = feed.ledger_ids() if feed is not None else set()
+        with _actor("user"):
+            ok, message = rollback_entry(entry_id)
+        if ok:
+            _prune_empty_skill_dirs(host.home, skill_name)
+            if restored:
+                _mark_restored(host.home, skill_name)
+        if feed is not None:
+            feed.claim_ledger(since=seen, actors=("user",))  # Go marks the event undone itself
     _clear_skill_caches()
     if not ok:
         raise Failed({"ok": False, "message": message})
-    return {"ok": True, "message": message}
+    return {"ok": True, "message": message, "restored_skills": [skill_name] if restored else []}
+
+
+@contextmanager
+def _nolock() -> Iterator[None]:
+    yield
 
 
 def _skill_manage(**kwargs) -> dict[str, Any]:

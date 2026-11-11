@@ -144,3 +144,13 @@ func TestSkillNamesNeverReachOutsideTheSkillsFolder(t *testing.T) {
 		}
 	}
 }
+
+// A restored skill whose name Timely cannot store would stay on: the
+// restore fails instead.
+func TestMarkRestoredRefusesANameItCannotKeepOff(t *testing.T) {
+	for _, name := range []string{"Pantry steps", "notes-steps # mine", "../x", ""} {
+		if err := MarkRestored(nil, "u1", []string{"fine", name}); err == nil {
+			t.Errorf("MarkRestored accepted %q", name)
+		}
+	}
+}

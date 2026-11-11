@@ -120,11 +120,45 @@ def test_c13_export_leaves_out_config_secrets_signins_scripts_and_hooks(src, exp
     assert desc["home"] == str(src.home)
 
 
+KEPT_NOTES = "---\nname: kept-notes\ndescription: Notes steps.\n---\n# Notes\n\n1. Write it down.\n"
+FAKE_BLOB = "0" * 64  # a blob whose content does not hash to its name
+
+
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def _crafted_ledger(old_home: str) -> list[dict]:
+    """Ledger rows a hand-made zip adds: an Undo of each would write unscanned text (or text outside
+    skills/) into the home; and one honest deleted skill whose Undo brings it back."""
+    skills = f"{old_home}/skills"
+    return [
+        {"id": "evil-entry-1", "ts": 1, "actor": "agent", "action": "delete", "skill": "injected2",
+         "before": [{"path": f"{skills}/evil/injected2/SKILL.md", "sha256": _sha(INJECTED)}], "after": []},
+        {"id": "evil-entry-2", "ts": 2, "actor": "agent", "action": "edit", "skill": "notes",
+         "before": [{"path": f"{old_home}/memories/USER.md", "sha256": _sha(KEPT_NOTES)}], "after": []},
+        {"id": "evil-entry-3", "ts": 3, "actor": "agent", "action": "delete", "skill": "fake",
+         "before": [{"path": f"{skills}/learned/fake/SKILL.md", "sha256": FAKE_BLOB}], "after": []},
+        {"id": "restored-delete-1", "ts": 4, "actor": "agent", "action": "delete", "skill": "kept-notes",
+         "before": [{"path": f"{skills}/learned/kept-notes/SKILL.md", "sha256": _sha(KEPT_NOTES)}], "after": []},
+    ]
+
+
 def _handmade(exported_zip: Path, dest: Path) -> Path:
-    """The exported zip plus everything an export never writes, and an injected skill."""
+    """The exported zip plus everything an export never writes, an injected skill, skills whose
+    names Timely could not keep turned off, and crafted ledger rows with their blobs."""
     with zipfile.ZipFile(exported_zip) as zin, zipfile.ZipFile(dest, "w") as zout:
+        old_home = json.loads(zin.read(backup.MANIFEST))["home"]
         for info in zin.infolist():
-            zout.writestr(info, zin.read(info))
+            data = zin.read(info)
+            if info.filename == "skills/.curator_ledger.jsonl":
+                data += "".join(json.dumps(r) + "\n" for r in _crafted_ledger(old_home)).encode()
+            zout.writestr(info, data)
+        for blob in (INJECTED, KEPT_NOTES):
+            zout.writestr(f".curator_backups/blobs/{_sha(blob)}", blob)
+        zout.writestr(f".curator_backups/blobs/{FAKE_BLOB}", "not what the name says\n")
+        zout.writestr("skills/learned/spaced/SKILL.md", "---\nname: Pantry steps\ndescription: x\n---\nBody.\n")
+        zout.writestr("skills/learned/commented/SKILL.md", "---\nname: notes-steps # mine\ndescription: x\n---\nBody.\n")
         for name in ("config.yaml", "SOUL.md", ".env", "auth.json", "mcp-tokens/server.json", "scripts/x.sh",
                      "hooks/h.py", "plugins/p/__init__.py", "home/.bashrc", "workspace/a.txt",
                      "skills/lists/x/.env", "../escape.txt", "/abs/path.txt"):
@@ -159,10 +193,21 @@ def test_c13_import_strips_never_restore_paths_and_blocks_an_injected_skill(rest
                 "home/.bashrc", "workspace/a.txt", "skills/lists/x/.env", "skills/lists/link", "skills/evil/injected"):
         assert not (staged / rel).exists(), rel
     assert not (dst.layout.accounts_dir / "escape.txt").exists() and not (staged.parent.parent / "escape.txt").exists()
-    assert res["blocked"] == ["injected"]
+    # an injected skill, and skills Hermes would load by a name Timely cannot keep turned off
+    assert res["blocked"] == ["Pantry steps", "injected", "notes-steps # mine"], res["blocked"]
     assert res["restored_skills"] == [SKILL]
     data = json.loads((staged / ".timely" / "restored.json").read_text(encoding="utf-8"))
-    assert data["skills"] == [SKILL] and data["blocked"] == ["injected"]
+    assert data["skills"] == [SKILL] and data["blocked"] == res["blocked"]
+    # ledger blobs: the injected one and the one whose content is not its name are dropped, with every
+    # entry that needs them and the entry that would write outside skills/
+    assert not (staged / ".curator_backups" / "blobs" / _sha(INJECTED)).exists()
+    assert not (staged / ".curator_backups" / "blobs" / FAKE_BLOB).exists()
+    assert (staged / ".curator_backups" / "blobs" / _sha(KEPT_NOTES)).exists()
+    ids = [json.loads(line)["id"] for line in
+           (staged / "skills" / ".curator_ledger.jsonl").read_text(encoding="utf-8").splitlines() if line]
+    assert not {"evil-entry-1", "evil-entry-2", "evil-entry-3"} & set(ids), ids
+    assert "restored-delete-1" in ids and "restored-delete-1" in data["ledger_entries"]
+    assert any("threat scan" in d for d in res["dropped"]) and any("does not match" in d for d in res["dropped"])
     assert "Shops on Saturdays." in (staged / "memories" / "USER.md").read_text(encoding="utf-8")
 
 
@@ -208,8 +253,24 @@ def test_c13_committed_restore_is_swapped_in_and_undo_works_in_the_new_home(src,
         assert src.create_entry in [h["id"] for h in hist]
         undo = ask(w, dst, "learning.rollback", ledger_entry_id=src.create_entry)
         assert undo["type"] == "learning.result" and undo["ok"], undo
+        assert undo["data"]["restored_skills"] == []  # undoing a creation brings nothing back
         assert not (home / "skills" / "lists" / SKILL / "SKILL.md").exists() and \
             not list(home.joinpath("skills").rglob(f"{SKILL}/SKILL.md"))
+        # Undo of a restored entry brings its skill back "restored, review" (Go keeps it off)
+        undo = ask(w, dst, "learning.rollback", ledger_entry_id="restored-delete-1")
+        assert undo["ok"] and undo["data"]["restored_skills"] == ["kept-notes"], undo
+        rows = {s["name"]: s for s in ask(w, dst, "learning.list", what="skills")["data"]["skills"]}
+        assert rows["kept-notes"]["restored"], rows.get("kept-notes")
+        # a ledger entry planted after the restore is still scanned before Undo writes it
+        blob = home / ".curator_backups" / "blobs" / _sha(INJECTED)
+        blob.write_text(INJECTED, encoding="utf-8")
+        with (home / "skills" / ".curator_ledger.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"id": "planted-1", "ts": 9, "actor": "agent", "action": "delete", "skill": "x",
+                                 "before": [{"path": str(home / "skills" / "evil" / "x" / "SKILL.md"),
+                                             "sha256": _sha(INJECTED)}], "after": []}) + "\n")
+        undo = ask(w, dst, "learning.rollback", ledger_entry_id="planted-1")
+        assert not undo["ok"] and "safety check" in json.dumps(undo), undo
+        assert not (home / "skills" / "evil" / "x").exists()
     finally:
         w.close()
 

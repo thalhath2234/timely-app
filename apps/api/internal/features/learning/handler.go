@@ -242,8 +242,28 @@ func (s *Service) undo(c *echo.Context) error {
 	s.publishEvent(uid, ev)
 	if ev.Kind == KindSkill {
 		s.supersede(ctx, uid, ev)
+		s.keepRestoredOff(ctx, uid, data)
 	}
 	return c.JSON(http.StatusOK, map[string]any{"event": ev, "result": data})
+}
+
+// keepRestoredOff turns off, and marks "restored, review", the skills an
+// Undo of a history entry a backup brought back recreated (the worker's
+// restored_skills, Q-3.4), and tells the worker.
+func (s *Service) keepRestoredOff(ctx context.Context, uid string, data json.RawMessage) {
+	var res struct {
+		RestoredSkills []string `json:"restored_skills"`
+	}
+	if json.Unmarshal(data, &res) != nil || len(res.RestoredSkills) == 0 {
+		return
+	}
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return MarkRestored(tx, uid, res.RestoredSkills)
+	}); err != nil {
+		s.logf("learning: keeping restored skills off after an Undo: %v", err)
+		return
+	}
+	s.pushSettings(ctx, uid)
 }
 
 // supersede marks the later changes to the same skill undone too: the

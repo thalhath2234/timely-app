@@ -675,8 +675,14 @@ func TestIntegrationUndoKeepAndDiscard(t *testing.T) {
 func TestIntegrationSkillsOnOffAndRestored(t *testing.T) {
 	r := newRig(t)
 	a := addUser(t, r.db)
+	// A name Timely cannot store fails the restore rather than stay on.
+	if err := r.db.Transaction(func(tx *gorm.DB) error {
+		return MarkRestored(tx, a, []string{"csv-import", "../etc"})
+	}); err == nil {
+		t.Fatal("MarkRestored kept a name it cannot store")
+	}
 	must(t, r.db.Transaction(func(tx *gorm.DB) error {
-		return MarkRestored(tx, a, []string{"csv-import", "csv-import", "../etc", "notes"})
+		return MarkRestored(tx, a, []string{"csv-import", "csv-import", "notes"})
 	}))
 	prefs, err := r.svc.Prefs(context.Background(), a)
 	if err != nil || !prefs.Learning || !prefs.SearchHistory || !slices.Equal(prefs.SkillsDisabled, []string{"csv-import", "notes"}) {
