@@ -1,6 +1,6 @@
 # The agent learns per account, gated by provenance
 
-- Status: Accepted (2026-11-11, with the owner's phase 3 answers below; built in phase 3)
+- Status: Accepted (2026-11-11, with the owner's phase 3 answers below). Chat learning built in phase 3; the Bot parts (phone notices for Bot suggestions, a deleted Bot taking its skill, Lessons moving into the bot skill) come in phases 6 and 7
 - Date: 2026-11-08
 
 The owner wants Timely's agent to learn the way Hermes does, per account:
