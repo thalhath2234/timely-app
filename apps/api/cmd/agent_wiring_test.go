@@ -76,7 +76,7 @@ func TestWorkerMuxSendsLearningToTheLearningService(t *testing.T) {
 // account's web search key (the timely backend without one).
 func TestIntegrationAccountSettingsRenderLearningAndWeb(t *testing.T) {
 	db, uid := agentToolsDB(t)
-	prefs := learning.Prefs{Learning: true, SearchHistory: true, SkillsDisabled: []string{"pantry-steps"}}
+	prefs := learning.Prefs{Learning: true, SearchHistory: true, SkillsDisabled: []string{"pantry-steps"}, SkillsEnabled: []string{"himalaya"}}
 	webBackend, webEnv, webErr := provider.TimelyWebBackend, map[string]string(nil), error(nil)
 	settings := accountSettings(db,
 		func(context.Context, string) (learning.Prefs, error) { return prefs, nil },
@@ -111,6 +111,11 @@ func TestIntegrationAccountSettingsRenderLearningAndWeb(t *testing.T) {
 	if l := got["learning"].(map[string]any); l["memory"] != true || l["user_profile"] != true || len(l) != 2 {
 		t.Errorf("learning = %v (no separate learning model, Q-3.2)", l)
 	}
+	// A bundled skill that is off by default loads only when listed in
+	// skills_enabled (the worker's effective_default_off).
+	if e := strs(got["skills_enabled"]); !slices.Equal(e, []string{"himalaya"}) {
+		t.Errorf("skills_enabled = %v", e)
+	}
 	if d := strs(got["skills_disabled"]); !slices.Equal(d, []string{"pantry-steps"}) {
 		t.Errorf("skills_disabled = %v", d)
 	}
@@ -127,10 +132,13 @@ func TestIntegrationAccountSettingsRenderLearningAndWeb(t *testing.T) {
 	if got, _ = render(); !slices.Equal(strs(got["toolsets"]), []string{"timely", "todo", "skills", "memory", "web"}) {
 		t.Errorf("search off: toolsets = %v", got["toolsets"])
 	}
-	prefs.Learning, prefs.SkillsDisabled = false, nil
+	prefs.Learning, prefs.SkillsDisabled, prefs.SkillsEnabled = false, nil, nil
 	got, _ = render()
 	if !slices.Equal(strs(got["toolsets"]), []string{"timely", "todo", "skills", "web"}) || got["curator"].(map[string]any)["enabled"] != false {
 		t.Errorf("learning off: toolsets %v, curator %v", got["toolsets"], got["curator"])
+	}
+	if e, ok := got["skills_enabled"].([]any); !ok || len(e) != 0 {
+		t.Errorf("skills_enabled must be a list: %v", got["skills_enabled"])
 	}
 	if d, ok := got["skills_disabled"].([]any); !ok || len(d) != 0 {
 		t.Errorf("skills_disabled must be a list: %v", got["skills_disabled"])

@@ -65,6 +65,7 @@ type Settings struct {
 	UseCaseCopiedAt *time.Time `gorm:"column:use_case_copied_at"`
 	SkillsDisabled  []string   `gorm:"serializer:json;type:jsonb;not null;default:'[]'"`
 	SkillsRestored  []string   `gorm:"serializer:json;type:jsonb;not null;default:'[]'"`
+	SkillsEnabled   []string   `gorm:"serializer:json;type:jsonb;not null;default:'[]'"`
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
@@ -79,6 +80,10 @@ type Prefs struct {
 	// SkillsDisabled are the skills the person turned off, and the ones a
 	// restore brought back until the person turns them on.
 	SkillsDisabled []string
+	// SkillsEnabled are the skills the person turned on: a reviewed bundled
+	// skill that is off by default loads only when listed here (the
+	// worker's settings.skills_enabled).
+	SkillsEnabled []string
 }
 
 // settingsJSON is GET/PATCH /agent/learning/settings.

@@ -419,9 +419,11 @@ func (s *Service) skillState(c *echo.Context) error {
 	return echo.NewHTTPError(http.StatusBadRequest, "State must be enable, disable, lock, unlock, archive, restore or delete")
 }
 
-// setSkillEnabled turns a skill on (also clearing "restored, review") or
-// off, and tells a running worker: settings.update with the account's
-// settings, or, without a settings source, a restart once it is idle.
+// setSkillEnabled turns a skill on (also clearing "restored, review", and
+// listing it in skills_enabled so a bundled skill that is off by default
+// loads) or off, and tells a running worker: settings.update with the
+// account's settings, or, without a settings source, a restart once it is
+// idle.
 func (s *Service) setSkillEnabled(ctx context.Context, uid, name string, enabled bool) ([]string, error) {
 	var disabled []string
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -429,11 +431,14 @@ func (s *Service) setSkillEnabled(ctx context.Context, uid, name string, enabled
 		if err != nil {
 			return err
 		}
-		restored := row.SkillsRestored
+		restored, on := row.SkillsRestored, without(row.SkillsEnabled, name)
 		if enabled {
-			disabled, restored = without(row.SkillsDisabled, name), without(row.SkillsRestored, name)
+			disabled, restored, on = without(row.SkillsDisabled, name), without(row.SkillsRestored, name), union(row.SkillsEnabled, name)
 		} else {
 			disabled = union(row.SkillsDisabled, name)
+		}
+		if err := saveSkillsEnabled(tx, uid, on); err != nil {
+			return err
 		}
 		return saveSkillLists(tx, uid, disabled, restored)
 	})
@@ -449,6 +454,9 @@ func (s *Service) forgetSkill(ctx context.Context, uid, name string) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		row, err := lockedSettings(tx, uid)
 		if err != nil {
+			return err
+		}
+		if err := saveSkillsEnabled(tx, uid, without(row.SkillsEnabled, name)); err != nil {
 			return err
 		}
 		return saveSkillLists(tx, uid, without(row.SkillsDisabled, name), without(row.SkillsRestored, name))

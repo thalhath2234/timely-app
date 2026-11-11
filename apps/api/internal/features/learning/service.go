@@ -217,6 +217,9 @@ func loadSettings(ctx context.Context, db *gorm.DB, uid string) (Settings, error
 	if row.SkillsRestored == nil {
 		row.SkillsRestored = []string{}
 	}
+	if row.SkillsEnabled == nil {
+		row.SkillsEnabled = []string{}
+	}
 	return row, nil
 }
 
@@ -243,6 +246,13 @@ func saveSkillLists(tx *gorm.DB, uid string, disabled, restored []string) error 
 	r, _ := json.Marshal(nonNil(restored))
 	return tx.Exec(`UPDATE agent_learning_settings SET skills_disabled = ?::jsonb, skills_restored = ?::jsonb, updated_at = now() WHERE user_id = ?`,
 		string(d), string(r), uid).Error
+}
+
+// saveSkillsEnabled stores the skills the person turned on.
+func saveSkillsEnabled(tx *gorm.DB, uid string, enabled []string) error {
+	e, _ := json.Marshal(nonNil(enabled))
+	return tx.Exec(`UPDATE agent_learning_settings SET skills_enabled = ?::jsonb, updated_at = now() WHERE user_id = ?`,
+		string(e), uid).Error
 }
 
 func nonNil(list []string) []string {
@@ -273,7 +283,8 @@ func (s *Service) Prefs(ctx context.Context, uid string) (Prefs, error) {
 	if err != nil {
 		return Prefs{}, err
 	}
-	return Prefs{Learning: row.Learning, SearchHistory: row.SearchHistory, SkillsDisabled: row.SkillsDisabled}, nil
+	return Prefs{Learning: row.Learning, SearchHistory: row.SearchHistory, SkillsDisabled: row.SkillsDisabled,
+		SkillsEnabled: row.SkillsEnabled}, nil
 }
 
 // MarkRestored marks skills a backup restore brought back: disabled, and

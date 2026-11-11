@@ -188,6 +188,8 @@ func timelyTools(catalog func() agent.Catalog) func(context.Context) (string, js
 //   - curator: on while learning is, and it never archives (Q-3.6).
 //   - skills_disabled: the learned skills the person turned off and the
 //     restored ones still waiting for review (Q-3.4).
+//   - skills_enabled: the skills the person turned on; a reviewed bundled
+//     skill that is off by default loads only when listed here.
 //   - web: the account's keyed backend for search and extract, or timely
 //     (the chat provider's own search through Go, Q-3.8); the key goes in
 //     the worker's environment under its Hermes name.
@@ -213,9 +215,12 @@ func accountSettings(db *gorm.DB, prefs func(context.Context, string) (learning.
 			}
 		}
 		toolsets = append(toolsets, "web")
-		disabled := p.SkillsDisabled
+		disabled, enabled := p.SkillsDisabled, p.SkillsEnabled
 		if disabled == nil {
 			disabled = []string{}
+		}
+		if enabled == nil {
+			enabled = []string{}
 		}
 		backend, keys, err := webKeys(ctx, uid)
 		if err != nil {
@@ -232,6 +237,7 @@ func accountSettings(db *gorm.DB, prefs func(context.Context, string) (learning.
 			"learning":        map[string]bool{"memory": true, "user_profile": true},
 			"curator":         map[string]bool{"enabled": p.Learning, "auto_archive": false},
 			"skills_disabled": disabled,
+			"skills_enabled":  enabled,
 			"web":             map[string]string{"search_backend": backend, "extract_backend": backend},
 		}
 		if zone := config.WorkingHours.Timezone; zone != "" {

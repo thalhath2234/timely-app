@@ -624,7 +624,7 @@ func TestIntegrationUndoKeepAndDiscard(t *testing.T) {
 	// The worker's real keep reply: {pending_id, event, events}, the applied
 	// change with its ledger entry.
 	r.kit.LearningReply("learning.pending", map[string]any{"pending_id": "pend-1",
-		"event": map[string]any{"id": "w-kept", "kind": "skill", "action": "created", "subject": "x", "status": "applied", "ledger_entry_id": "led-77", "after": "# x", "pending_id": "pend-1"},
+		"event":  map[string]any{"id": "w-kept", "kind": "skill", "action": "created", "subject": "x", "status": "applied", "ledger_entry_id": "led-77", "after": "# x", "pending_id": "pend-1"},
 		"events": []any{map[string]any{"id": "w-kept", "kind": "skill", "action": "created", "subject": "x", "status": "applied", "ledger_entry_id": "led-77", "after": "# x", "pending_id": "pend-1"}}})
 	if code, body, _ := r.call(a, http.MethodPost, "/agent/learning/pending/pend-1", map[string]any{"choice": "keep"}); code != http.StatusOK ||
 		body["event"].(map[string]any)["status"] != StatusKept || body["event"].(map[string]any)["ledgerEntryId"] != "led-77" {
@@ -727,24 +727,38 @@ func TestIntegrationSkillsOnOffAndRestored(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(map[string]any{"skills_disabled": p.SkillsDisabled})
+		return json.Marshal(map[string]any{"skills_disabled": p.SkillsDisabled, "skills_enabled": p.SkillsEnabled})
 	})
 	code, body, _ = r.call(a, http.MethodPost, "/agent/learning/skills/csv-import/state", map[string]any{"state": "enable"})
 	if code != http.StatusOK || body["enabled"] != true {
 		t.Fatalf("enable %d %v", code, body)
 	}
 	row, _ := loadSettings(context.Background(), r.db, a)
-	if !slices.Equal(row.SkillsDisabled, []string{"notes"}) || !slices.Equal(row.SkillsRestored, []string{"notes"}) {
+	if !slices.Equal(row.SkillsDisabled, []string{"notes"}) || !slices.Equal(row.SkillsRestored, []string{"notes"}) ||
+		!slices.Equal(row.SkillsEnabled, []string{"csv-import"}) {
 		t.Fatalf("after enable %+v", row)
 	}
 	updates := requestsFor(r.requests(agenthost.TypeSettingsUpdate), a)
-	if len(updates) != 1 || !strings.Contains(string(updates[0].Raw), `"skills_disabled":["notes"]`) {
+	if len(updates) != 1 || !strings.Contains(string(updates[0].Raw), `"skills_disabled":["notes"]`) ||
+		!strings.Contains(string(updates[0].Raw), `"skills_enabled":["csv-import"]`) {
 		t.Fatalf("settings.update %v", updates)
+	}
+	// A bundled skill that is off by default (himalaya) is turned on by
+	// listing it in skills_enabled; turning it off again drops it there.
+	if code, _, _ := r.call(a, http.MethodPost, "/agent/learning/skills/himalaya/state", map[string]any{"state": "enable"}); code != http.StatusOK {
+		t.Fatalf("enable a default-off skill %d", code)
+	}
+	if p, _ := r.svc.Prefs(context.Background(), a); !slices.Equal(p.SkillsEnabled, []string{"csv-import", "himalaya"}) {
+		t.Fatalf("after enabling himalaya %+v", p)
+	}
+	if code, _, _ := r.call(a, http.MethodPost, "/agent/learning/skills/himalaya/state", map[string]any{"state": "disable"}); code != http.StatusOK {
+		t.Fatalf("disable himalaya %d", code)
 	}
 	if code, _, _ := r.call(a, http.MethodPost, "/agent/learning/skills/plain/state", map[string]any{"state": "disable"}); code != http.StatusOK {
 		t.Fatalf("disable %d", code)
 	}
-	if p, _ := r.svc.Prefs(context.Background(), a); !slices.Equal(p.SkillsDisabled, []string{"notes", "plain"}) {
+	if p, _ := r.svc.Prefs(context.Background(), a); !slices.Equal(p.SkillsDisabled, []string{"notes", "himalaya", "plain"}) ||
+		!slices.Equal(p.SkillsEnabled, []string{"csv-import"}) {
 		t.Fatalf("after disable %+v", p)
 	}
 	// Lock, archive, restore and delete are the worker's; deleting also
