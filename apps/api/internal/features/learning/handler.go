@@ -240,7 +240,29 @@ func (s *Service) undo(c *echo.Context) error {
 	}
 	ev.Status = StatusUndone
 	s.publishEvent(uid, ev)
+	if ev.Kind == KindSkill {
+		s.supersede(ctx, uid, ev)
+	}
 	return c.JSON(http.StatusOK, map[string]any{"event": ev, "result": data})
+}
+
+// supersede marks the later changes to the same skill undone too: the
+// rollback writes the skill back to what it was before ev, so an edit made
+// after it (the person's or Timely's) is gone with it.
+func (s *Service) supersede(ctx context.Context, uid string, ev Event) {
+	var later []Event
+	if err := s.db.WithContext(ctx).
+		Where("user_id = ? AND kind = ? AND subject = ? AND status IN ? AND created_at > ? AND id <> ?",
+			uid, KindSkill, ev.Subject, []string{StatusApplied, StatusKept}, ev.CreatedAt, ev.ID).
+		Find(&later).Error; err != nil {
+		return
+	}
+	for _, l := range later {
+		if ok, err := s.claim(ctx, uid, l.ID, []string{l.Status}, StatusUndone); err == nil && ok {
+			l.Status = StatusUndone
+			s.publishEvent(uid, l)
+		}
+	}
 }
 
 func undoRefusal(status string) string {

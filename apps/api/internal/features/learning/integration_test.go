@@ -543,6 +543,27 @@ func TestIntegrationUseCaseIsCopiedIntoAboutYouOnce(t *testing.T) {
 	}
 }
 
+func TestIntegrationUndoOfASkillChangeUndoesTheLaterOnes(t *testing.T) {
+	r := newRig(t)
+	a := addUser(t, r.db)
+	r.kit.LearningReply("learning.rollback", map[string]any{"ok": true})
+	created := r.seed(a, map[string]any{"id": "s-1", "kind": "skill", "action": "created", "subject": "aisles", "status": "applied", "ledger_entry_id": "led-1"})
+	time.Sleep(5 * time.Millisecond)
+	edited := r.seed(a, map[string]any{"id": "s-2", "kind": "skill", "action": "edited", "subject": "aisles", "origin": "user", "status": "applied", "ledger_entry_id": "led-2"})
+	other := r.seed(a, map[string]any{"id": "s-3", "kind": "skill", "action": "created", "subject": "meals", "status": "applied", "ledger_entry_id": "led-3"})
+	if code, body, _ := r.call(a, http.MethodPost, "/agent/learning/events/"+created.ID+"/undo", nil); code != http.StatusOK {
+		t.Fatalf("undo: %d %v", code, body)
+	}
+	for id, want := range map[string]string{created.ID: StatusUndone, edited.ID: StatusUndone, other.ID: StatusApplied} {
+		if ev, _ := r.svc.find(context.Background(), a, id); ev.Status != want {
+			t.Fatalf("%s is %s, want %s", id, ev.Status, want)
+		}
+	}
+	if got := requestsFor(r.requests("learning.rollback"), a); len(got) != 1 {
+		t.Fatalf("%d rollbacks, want only the one undone", len(got))
+	}
+}
+
 func TestIntegrationUndoKeepAndDiscard(t *testing.T) {
 	r := newRig(t)
 	a := addUser(t, r.db)
