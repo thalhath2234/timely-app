@@ -92,16 +92,19 @@ def _quote(text: Any, limit: int = 120) -> str:
 def plain_summary(tool: str, payload: dict[str, Any]) -> str:
     """One plain line on what a staged write would do, for the Keep / Discard card."""
     action = str(payload.get("action") or "")
+    ops = [o for o in payload.get("operations") or [] if isinstance(o, dict)] if action == "batch" else []
+    if len(ops) == 1:  # one change sent as a batch reads as that change
+        return plain_summary(tool, {**{k: v for k, v in payload.items() if k != "operations"}, **ops[0]})
     if tool == "skill_manage":
         if action == "batch":
-            n = len([o for o in payload.get("operations") or [] if isinstance(o, dict)])
+            n = len(ops)
             return f"{n} change{'' if n == 1 else 's'} to the skill"
         return {"create": "A new skill", "edit": "Rewrites the skill", "patch": "Changes part of the skill",
                 "delete": "Deletes the skill", "remove_file": "Removes a file from the skill",
                 "write_file": f"Adds the file {payload.get('file_path') or ''} to the skill".replace("  ", " "),
                 }.get(action, "Changes the skill")
     if action == "batch":
-        n = len([o for o in payload.get("operations") or [] if isinstance(o, dict)])
+        n = len(ops)
         return f"{n} change{'' if n == 1 else 's'}"
     if action == "add":
         return f"Adds {_quote(payload.get('content'))}"
@@ -146,8 +149,10 @@ def stage(tool: str, args: dict[str, Any], *, origin: str, reason: str, conversa
         summary = f"{payload['action']} in {label}"
         record = wa.stage_write(wa.MEMORY, payload, summary=summary, origin=origin)
         kind = "user" if payload["target"] == "user" else "memory"
-        subject, verb = payload["target"], MEMORY_VERBS.get(payload["action"], "replaced")
-        before = payload.get("matched_entry") or payload.get("old_text") or ""
+        ops = (payload.get("operations") or []) if payload["action"] == "batch" else [payload]
+        one = ops[0] if len(ops) == 1 and isinstance(ops[0], dict) else payload
+        subject, verb = payload["target"], MEMORY_VERBS.get(str(one.get("action") or ""), "replaced")
+        before = one.get("matched_entry") or one.get("old_text") or ""
     summary = plain_summary(tool, payload)
     pending_id = str(record.get("id") or "")
     if not pending_id or files.read_pending(home, wa.SKILLS if tool == "skill_manage" else wa.MEMORY,
