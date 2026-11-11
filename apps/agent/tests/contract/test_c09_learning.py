@@ -255,8 +255,28 @@ def test_c09_rollback_restores(lagent, lworker, stub):
     res = request(lworker, lagent, "learning.rollback", ledger_entry_id=created[0]["ledger_entry_id"])
     assert res["ok"], res
     assert not path.exists()
+    assert not skill_dir(lagent, name).exists(), "an undone skill leaves no empty folder"
     history = request(lworker, lagent, "learning.list", what="skills")
     assert name not in [s["name"] for s in history["data"]["skills"]]
+
+
+def test_c09_staged_patch_carries_the_skill_before_and_plain_words(lagent, lworker, stub):
+    """A staged patch shows what the skill says now (``before``) and a plain one-line summary,
+    not Hermes' own wording."""
+    name = "c09g-aisle-list"
+    _, first, _ = turn(lworker, lagent, stub, "c09gs-1", "c-c09gs-1", text([{"calls": [create(name)]}], "tag-c09gs"))
+    assert [e["status"] for e in first if e["subject"] == name] == ["applied"], first
+    original = (skill_dir(lagent, name) / "SKILL.md").read_text()
+    patch = ["skill_manage", {"action": "patch", "name": name, "old_string": "2. Sort it.",
+                              "new_string": "2. Sort it by aisle."}]
+    _, events, _ = turn(lworker, lagent, stub, "c09gs-2", "c-c09gs-2", text([{"calls": [patch]}], "tag-c09gs-2"),
+                        tainted_sources=[WEB_TAINT])
+    staged = [e for e in events if e["subject"] == name and e["status"] == "staged"]
+    assert len(staged) == 1, events
+    assert staged[0]["before"] == original and staged[0]["summary"] == "Changes part of the skill", staged
+    pending = request(lworker, lagent, "learning.list", what="pending")["data"]["pending"]
+    assert [p["summary"] for p in pending if p["pending_id"] == staged[0]["pending_id"]] == \
+        ["Changes part of the skill"], pending
 
 
 # ---------------------------------------------------------------- 9h

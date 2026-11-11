@@ -67,6 +67,49 @@ def _after_text(payload: dict[str, Any]) -> str:
                        for o in ops if isinstance(o, dict)).strip()
 
 
+def _skill_file(home: Path, name: str, file_path: str = "") -> str:
+    """The skill's current text (SKILL.md, or the support file a patch names), or "" when it is new."""
+    if not name or "/" in name or "\\" in name or name.startswith("."):
+        return ""
+    rel = Path(file_path) if file_path else Path("SKILL.md")
+    if rel.is_absolute() or ".." in rel.parts:
+        return ""
+    for skill_md in sorted((home / "skills").glob(f"**/{name}/SKILL.md")):
+        if ".archive" in skill_md.parts:
+            continue
+        try:
+            return files.cut(skill_md.parent.joinpath(rel).read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            return ""
+    return ""
+
+
+def _quote(text: Any, limit: int = 120) -> str:
+    text = " ".join(str(text or "").split())
+    return f"“{text[:limit - 1]}…”" if len(text) > limit else f"“{text}”"
+
+
+def plain_summary(tool: str, payload: dict[str, Any]) -> str:
+    """One plain line on what a staged write would do, for the Keep / Discard card."""
+    action = str(payload.get("action") or "")
+    if tool == "skill_manage":
+        if action == "batch":
+            n = len([o for o in payload.get("operations") or [] if isinstance(o, dict)])
+            return f"{n} change{'' if n == 1 else 's'} to the skill"
+        return {"create": "A new skill", "edit": "Rewrites the skill", "patch": "Changes part of the skill",
+                "delete": "Deletes the skill", "remove_file": "Removes a file from the skill",
+                "write_file": f"Adds the file {payload.get('file_path') or ''} to the skill".replace("  ", " "),
+                }.get(action, "Changes the skill")
+    if action == "batch":
+        n = len([o for o in payload.get("operations") or [] if isinstance(o, dict)])
+        return f"{n} change{'' if n == 1 else 's'}"
+    if action == "add":
+        return f"Adds {_quote(payload.get('content'))}"
+    if action == "remove":
+        return f"Removes {_quote(payload.get('matched_entry') or payload.get('old_text'))}"
+    return f"Changes it to {_quote(payload.get('content'))}"
+
+
 def stage(tool: str, args: dict[str, Any], *, origin: str, reason: str, conversation_id: str, run_id: str,
           bot_id: str, tainted_sources: list, home: Optional[Path] = None) -> dict[str, Any]:
     """Stage ``tool``'s write; returns the ``staged`` learning event (already sent). Raises
@@ -85,7 +128,9 @@ def stage(tool: str, args: dict[str, Any], *, origin: str, reason: str, conversa
                                     old_string=str(payload.get("old_string") or ""),
                                     new_string=str(payload.get("new_string") or ""))
         record = wa.stage_write(wa.SKILLS, payload, summary=summary, origin=origin)
-        kind, subject, verb, before = "skill", _skill_subject(payload), _skill_verb(payload), ""
+        kind, subject, verb = "skill", _skill_subject(payload), _skill_verb(payload)
+        before = "" if payload.get("action") in ("create", "batch") else _skill_file(
+            home, str(payload.get("name") or ""), str(payload.get("file_path") or ""))
     else:
         from tools.memory_tool import _pin_matched_entries, load_on_disk_store
         payload = memory_payload(args)
@@ -103,6 +148,7 @@ def stage(tool: str, args: dict[str, Any], *, origin: str, reason: str, conversa
         kind = "user" if payload["target"] == "user" else "memory"
         subject, verb = payload["target"], MEMORY_VERBS.get(payload["action"], "replaced")
         before = payload.get("matched_entry") or payload.get("old_text") or ""
+    summary = plain_summary(tool, payload)
     pending_id = str(record.get("id") or "")
     if not pending_id or files.read_pending(home, wa.SKILLS if tool == "skill_manage" else wa.MEMORY,
                                             pending_id) is None:
@@ -110,7 +156,7 @@ def stage(tool: str, args: dict[str, Any], *, origin: str, reason: str, conversa
     meta = {"pending_id": pending_id, "tool": tool, "origin": origin, "reason": reason,
             "conversation_id": conversation_id, "run_id": run_id, "bot_id": bot_id,
             "tainted_sources": list(tainted_sources or []), "kind": kind, "subject": subject, "action": verb,
-            "created_at": time.time()}
+            "summary": summary, "created_at": time.time()}
     files.write_json(files.pending_meta_path(home, pending_id), meta)
     event = feed_mod.make_event(kind=kind, action=verb, subject=subject, status="staged", origin=origin,
                                 before=before, after=_after_text(payload), conversation_id=conversation_id,

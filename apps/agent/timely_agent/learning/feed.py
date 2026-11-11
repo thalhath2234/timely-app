@@ -198,7 +198,15 @@ class Feed:
                           after=payload.get("content") or payload.get("new_string") or "",
                           conversation_id=ctx.conversation_id, run_id=ctx.run_id, bot_id=ctx.bot_id,
                           tainted_sources=ctx.tainted_sources, pending_id=pending_id,
-                          summary=str(record.get("summary") or ""))
+                          summary=_plain(subsystem, payload) or str(record.get("summary") or ""))
+
+
+def _plain(subsystem: str, payload: dict[str, Any]) -> str:
+    from timely_agent.learning.staging import plain_summary
+    try:
+        return plain_summary("skill_manage" if subsystem == "skills" else "memory", payload)
+    except Exception:
+        return ""
 
 
 _current: Optional[Feed] = None

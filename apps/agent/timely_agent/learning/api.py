@@ -279,10 +279,32 @@ def skill(msg: dict[str, Any], host: Host) -> dict[str, Any]:
     return out
 
 
+def _prune_empty_skill_dirs(home: Path, skill: str) -> None:
+    """Undoing a learned skill's creation leaves its folder (and maybe its category) empty; remove them."""
+    root = home / "skills"
+    if not skill or not root.is_dir():
+        return
+    for path in sorted(root.glob(f"**/{skill}"), key=lambda p: len(p.parts), reverse=True):
+        if not path.is_dir() or path.is_symlink() or any(part.startswith(".") for part in path.relative_to(root).parts) \
+                or (path / "SKILL.md").exists():
+            continue
+        for d in sorted((p for p in path.rglob("*") if p.is_dir() and not p.is_symlink()),
+                        key=lambda p: len(p.parts), reverse=True) + [path, path.parent]:
+            if d == root or root not in d.parents:
+                continue
+            try:
+                d.rmdir()  # only an empty folder goes
+            except OSError:
+                pass
+
+
 def rollback(msg: dict[str, Any], host: Host) -> dict[str, Any]:
     from tools.skill_ledger import rollback_entry
+    entry = next((e for e in files.read_ledger(host.home) if str(e.get("id")) == str(msg["ledger_entry_id"])), {})
     with _actor("user"):
         ok, message = rollback_entry(msg["ledger_entry_id"])
+    if ok:
+        _prune_empty_skill_dirs(host.home, str(entry.get("skill") or ""))
     feed = _feed()
     if feed is not None:
         feed.claim_ledger()  # the rollback's own entries: Go marks the event undone itself
@@ -450,7 +472,8 @@ def list_pending(home: Path) -> list[dict[str, Any]]:
                     "diff": _pending_diff(subsystem, record),
                     "origin": meta.get("origin") or ("review" if record.get("origin") == "background_review"
                                                      else "chat"),
-                    "conversation_id": meta.get("conversation_id") or "", "summary": record.get("summary") or "",
+                    "conversation_id": meta.get("conversation_id") or "",
+                    "summary": meta.get("summary") or record.get("summary") or "",
                     "created_at": record.get("created_at")})
     return sorted(out, key=lambda r: r.get("created_at") or 0)
 
