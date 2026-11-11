@@ -13,13 +13,36 @@ from __future__ import annotations
 
 import importlib.abc
 import importlib.metadata as md
+import re
 import sys
 from pathlib import Path
 from typing import Iterable
 
 DIST_NAME = "timely-agent-plugins"
 GROUP = "hermes_agent.plugins"
-PLUGINS = ("timely_gate", "timely_tools", "timely_learning", "timely_bot")
+# The phase 1 plugins keep their order (hook registration order); any other folder follows, sorted.
+_FIRST = ("timely_gate", "timely_tools", "timely_learning", "timely_bot")
+_REGISTER = re.compile(r"^def register\(", re.MULTILINE)
+
+
+def plugin_names(root: Path | None = None) -> tuple[str, ...]:
+    """Every package folder under ``timely_agent/plugins/`` whose ``__init__.py`` defines
+    ``register`` (read as text: nothing is imported). A new plugin is enabled by adding its folder."""
+    root = root or Path(__file__).resolve().parent / "plugins"
+    found = set()
+    for init in root.glob("*/__init__.py"):
+        name = init.parent.name
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", name):
+            continue
+        try:
+            if _REGISTER.search(init.read_text(encoding="utf-8")):
+                found.add(name)
+        except OSError:
+            continue
+    return tuple(n for n in _FIRST if n in found) + tuple(sorted(found - set(_FIRST)))
+
+
+PLUGINS = plugin_names()
 
 
 def _entry_points_txt() -> str:

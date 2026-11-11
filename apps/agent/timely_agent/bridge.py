@@ -8,6 +8,15 @@ no context and the gate fails closed.
 
 The Timely tool specs from ``hello.timely_tools`` are kept here (``set_timely_tools``) before
 Hermes discovers the plugins, so ``timely_tools.register`` can register them.
+
+**Sessions outlive runs (phase 3).** Each conversation has a :class:`SessionState` in a registry
+keyed by its session id (``session_state``): the taint list, the latest run's flags and kind,
+``person_hosts``, ``tainted_conversations``, ``search_exclude`` and the cached agent. A run's
+context shares the session's taint list, so Hermes' learning pass, which runs on a daemon thread
+after the run ended under the same session id, still finds the taint and the policy through
+``session_state(session_id)``. Inside that pass ``current_run.get()`` answers ``None``: the fork
+copied the finished run's context, and nothing in it may act for that run any more (end the turn,
+ask Go about a tool, flush its stream).
 """
 
 from __future__ import annotations
@@ -48,12 +57,100 @@ class Batch:
         return out
 
 
+RUN_KINDS = ("chat", "bot", "bot_review")
+SESSIONS_MAX = 2048  # remembered sessions (oldest dropped first; Go resends taint in every run.start)
+
+
+def _str_list(value: Any) -> list[str]:
+    return [str(v) for v in value if isinstance(v, str) and v] if isinstance(value, (list, tuple)) else []
+
+
+@dataclass
+class SessionState:
+    """What the learning policy needs about one conversation, beyond any single run."""
+    session_id: str
+    kind: str = "chat"
+    flags: dict[str, Any] = field(default_factory=dict)
+    tainted: list[Any] = field(default_factory=list)
+    person_hosts: list[str] = field(default_factory=list)
+    tainted_conversations: list[str] = field(default_factory=list)
+    search_exclude: list[str] = field(default_factory=list)
+    run_id: str = ""
+    agent: Any = None
+    lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+
+    @property
+    def learning_writes(self) -> bool:
+        return self.flags.get("learning_writes") is True
+
+    @property
+    def search_history(self) -> bool:
+        return self.flags.get("search_history") is True and self.learning_writes
+
+    @property
+    def from_bot(self) -> bool:
+        return self.flags.get("from_bot") is True
+
+    def add_taint(self, sources: list[Any]) -> list[Any]:
+        new = []
+        with self.lock:
+            seen = {_source_key(s) for s in self.tainted}
+            for source in sources:
+                key = _source_key(source)
+                if key not in seen:
+                    seen.add(key)
+                    self.tainted.append(source)
+                    new.append(source)
+        return new
+
+    def taint_snapshot(self) -> list[Any]:
+        with self.lock:
+            return list(self.tainted)
+
+
+_sessions: dict[str, SessionState] = {}
+_sessions_lock = threading.Lock()
+
+
+def session_state(session_id: str | None) -> Optional[SessionState]:
+    """The conversation's state, or None when no run of it was seen by this worker."""
+    if not session_id:
+        return None
+    with _sessions_lock:
+        return _sessions.get(str(session_id))
+
+
+def bind_session(session_id: str, *, kind: str = "chat", flags: dict | None = None,
+                 tainted_sources: list | None = None, person_hosts: Any = None,
+                 tainted_conversations: Any = None, search_exclude: Any = None, run_id: str = "") -> SessionState:
+    """Create or refresh the state at a run's start: the run's flags and lists replace the
+    previous ones, the taint only grows (``tainted_sources`` from ``run.start`` merged in)."""
+    with _sessions_lock:
+        state = _sessions.pop(session_id, None) or SessionState(session_id=session_id)
+        _sessions[session_id] = state  # most recently used last
+        while len(_sessions) > SESSIONS_MAX:
+            _sessions.pop(next(iter(_sessions)))
+    state.kind = kind if kind in RUN_KINDS else "chat"
+    state.flags = dict(flags or {})
+    state.person_hosts = _str_list(person_hosts)
+    state.tainted_conversations = _str_list(tainted_conversations)
+    state.search_exclude = _str_list(search_exclude)
+    state.run_id = run_id
+    state.add_taint([s for s in (tainted_sources or []) if isinstance(s, (dict, str))])
+    return state
+
+
+def forget_session(session_id: str) -> None:
+    with _sessions_lock:
+        _sessions.pop(session_id, None)
+
+
 @dataclass
 class RunContext:
     run_id: str
     session_key: str
     conversation_id: str
-    kind: str = "chat"  # "chat" | "bot"
+    kind: str = "chat"  # "chat" | "bot" | "bot_review"
     tainted_sources: list[dict[str, Any]] = field(default_factory=list)
     pre_approved: Optional[dict[str, Any]] = None
     # run.start.permission: stored, not acted on in phase 2 (Go applies it to proposals).
@@ -70,11 +167,67 @@ class RunContext:
     _last_batch: Optional[Batch] = field(default=None, repr=False)
     _last_call: dict[str, str] = field(default_factory=dict, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    # The conversation's state (phase 3): the run shares its taint list, so the learning pass
+    # that outlives the run sees every source the run added.
+    session: Optional[SessionState] = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.session is not None:
+            self.session.add_taint(list(self.tainted_sources))
+            self.tainted_sources = self.session.tainted
+            self._lock = self.session.lock
 
     @property
     def learning_writes(self) -> bool:
-        """``flags.learning_writes`` is exactly true (phase 2: always false, so writes are off)."""
+        """``flags.learning_writes`` is exactly true (Go: account learning on, not Sensitive, not
+        "Don't learn from this chat", not answer-only)."""
         return self.flags.get("learning_writes") is True
+
+    @property
+    def tainted(self) -> list[Any]:
+        return self.taint_snapshot()
+
+    @property
+    def person_hosts(self) -> list[str]:
+        return list(self.session.person_hosts) if self.session else []
+
+    @property
+    def tainted_conversations(self) -> list[str]:
+        return list(self.session.tainted_conversations) if self.session else []
+
+    @property
+    def search_exclude(self) -> list[str]:
+        return list(self.session.search_exclude) if self.session else []
+
+    def tool_call(self, name: str, args: dict | None = None,
+                  timeout: float | None = None) -> tuple[Any, bool]:
+        """Ask Go to run ``name`` for this run (``tool.call``); returns ``(result, outside)``.
+        Used by backends that run inside Go (``timely_web``'s ``web_search``/``web_extract``).
+        An outside result adds ``{kind, tool}`` to the taint. No answer raises ``TimeoutError``."""
+        if ask is None:
+            raise TimeoutError("no Go connection")
+        call_id = ""
+        try:
+            from tools.approval_context import _approval_tool_call_id
+            call_id = str(_approval_tool_call_id.get() or "")
+        except Exception:
+            pass
+        if self.flush is not None:
+            try:
+                self.flush()
+            except Exception:
+                pass
+        reply = ask({"type": "tool.call", "run": self.run_id, "session_key": self.session_key,
+                     "tool_call_id": call_id, "name": name, "args": dict(args or {}),
+                     "tainted_sources": self.taint_snapshot(), "batch_size": 1, "sibling_tools": []},
+                    timeout if timeout is not None else TOOL_ANSWER_TIMEOUT_S)
+        if not reply or reply.get("type") != "tool.result":
+            raise TimeoutError(f"Timely did not answer {name}")
+        outside = reply.get("outside") is True
+        if outside:
+            from timely_agent import policy
+            report_taint(self, [{"kind": policy.taint_kind(name) or "timely", "tool": name}])
+        return reply.get("result"), outside
 
     # ------------------------------------------------------------ batches
     def record_batch(self, calls: list[tuple[str, str]]) -> Batch:
@@ -114,6 +267,8 @@ class RunContext:
     def add_taint(self, sources: list[Any]) -> list[Any]:
         """Append the sources not seen yet (append-only, deduplicated by canonical JSON); returns
         the new ones."""
+        if self.session is not None:
+            return self.session.add_taint(sources)
         new = []
         with self._lock:
             seen = {_source_key(s) for s in self.tainted_sources}
@@ -134,7 +289,41 @@ def _source_key(source: Any) -> str:
     return json.dumps(source, sort_keys=True, separators=(",", ":"), default=str)
 
 
-current_run: contextvars.ContextVar[Optional[RunContext]] = contextvars.ContextVar("timely_run", default=None)
+def in_review_fork() -> bool:
+    """True inside Hermes' learning pass (the background review fork), whose turn binds the
+    ``background_review`` write origin. Never imports Hermes: outside a worker it is False."""
+    import sys
+    prov = sys.modules.get("tools.skill_provenance")
+    if prov is None:
+        return False
+    try:
+        return bool(prov.is_background_review())
+    except Exception:
+        return False
+
+
+class _CurrentRun:
+    """``current_run``: the run of this thread's context. ``get()`` is None inside the learning
+    pass: the fork's thread copied the context of the run that spawned it, after which that run
+    may already be over, so a hook there must use ``session_state(session_id)`` instead."""
+
+    def __init__(self) -> None:
+        self._var: contextvars.ContextVar[Optional[RunContext]] = contextvars.ContextVar("timely_run", default=None)
+
+    def get(self) -> Optional[RunContext]:
+        run = self._var.get()
+        if run is not None and in_review_fork():
+            return None
+        return run
+
+    def set(self, value: Optional[RunContext]) -> contextvars.Token:
+        return self._var.set(value)
+
+    def reset(self, token: contextvars.Token) -> None:
+        self._var.reset(token)
+
+
+current_run = _CurrentRun()
 
 # Set by the worker: ask(message, timeout) -> reply dict or None.
 ask: Optional[Callable[[dict, float], Optional[dict]]] = None

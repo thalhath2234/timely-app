@@ -1,0 +1,593 @@
+"""Go's ``learning.*`` requests and ``settings.update`` (PROTOCOL.md section 10; plan 9b.4).
+
+Each handler takes the request and a :class:`Host` (the worker's home, account and helpers) and
+returns the ``data`` of ``learning.result``; :class:`ApiError` becomes an ``error`` reply, and
+``Failed`` a ``learning.result`` with ``ok: false``. Everything runs inside the worker after
+``ready`` (Hermes imported). Changes the person makes here are reported once: the feed's baseline
+claims them, and those with no other answer (an edit, a state change, a memory write) are sent as
+``learning`` events with origin ``user``.
+"""
+
+from __future__ import annotations
+
+import base64
+import difflib
+import io
+import json
+import zipfile
+from contextlib import contextmanager
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable, Iterator, Optional
+
+from timely_agent.learning import feed as feed_mod
+from timely_agent.learning import files
+
+EXPORT_MAX_BYTES = 16 * 1024 * 1024
+SKILL_STATES = ("lock", "unlock", "archive", "restore", "delete")
+MEMORY_ACTIONS = ("add", "replace", "remove")
+TYPES = ("learning.list", "learning.skill", "learning.rollback", "learning.edit", "learning.skill_state",
+         "learning.memory", "learning.pending", "learning.export", "learning.upstream", "settings.update")
+
+
+class ApiError(Exception):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code, self.message = code, message
+
+
+class Failed(Exception):
+    """The request was valid but did not succeed (``learning.result`` with ``ok: false``)."""
+
+    def __init__(self, data: dict[str, Any]):
+        super().__init__(str(data.get("message") or data))
+        self.data = data
+
+
+@dataclass
+class Host:
+    home: Path
+    account: str
+    render: Callable[[dict], str]  # settings -> config_sha256 (re-renders config.yaml in place)
+    after_settings: Callable[[], None]  # e.g. drop idle cached agents
+
+
+def _need_str(msg: dict, key: str) -> str:
+    value = msg.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ApiError("bad_message", f"{msg.get('type')} needs {key}")
+    return value
+
+
+def problem(msg: dict[str, Any]) -> Optional[str]:
+    """Why a request has the wrong shape, else None (checked before it is handled)."""
+    t = msg.get("type")
+    try:
+        if t == "learning.list":
+            if msg.get("what") not in ("skills", "memory", "pending"):
+                return "learning.list what must be skills, memory or pending"
+        elif t == "learning.skill":
+            _need_str(msg, "name")
+            if msg.get("entry") is not None and not isinstance(msg.get("entry"), str):
+                return "learning.skill entry must be a string"
+        elif t == "learning.rollback":
+            _need_str(msg, "ledger_entry_id")
+        elif t == "learning.edit":
+            _need_str(msg, "name")
+            _need_str(msg, "content")
+        elif t == "learning.skill_state":
+            _need_str(msg, "name")
+            if msg.get("state") not in SKILL_STATES:
+                return f"learning.skill_state state must be one of {list(SKILL_STATES)}"
+        elif t == "learning.memory":
+            if msg.get("target") not in files.MEMORY_FILES:
+                return "learning.memory target must be memory or user"
+            if msg.get("action") not in MEMORY_ACTIONS:
+                return f"learning.memory action must be one of {list(MEMORY_ACTIONS)}"
+            for key in ("content", "old"):
+                if msg.get(key) is not None and not isinstance(msg.get(key), str):
+                    return f"learning.memory {key} must be a string"
+        elif t == "learning.pending":
+            _need_str(msg, "pending_id")
+            if msg.get("choice") not in ("keep", "discard"):
+                return "learning.pending choice must be keep or discard"
+        elif t == "learning.upstream":
+            if msg.get("action") not in ("list", "compare", "keep_mine", "use_new"):
+                return "learning.upstream action must be list, compare, keep_mine or use_new"
+        elif t == "settings.update":
+            if not isinstance(msg.get("settings"), dict):
+                return "settings.update needs a settings object"
+        elif t == "learning.export":
+            pass
+        else:
+            return f"unknown learning request {t!r}"
+    except ApiError as exc:
+        return exc.message
+    return None
+
+
+@contextmanager
+def _actor(actor: str) -> Iterator[None]:
+    from tools.skill_ledger import reset_ledger_actor, set_ledger_actor
+    token = set_ledger_actor(actor)
+    try:
+        yield
+    finally:
+        reset_ledger_actor(token)
+
+
+def _feed() -> Optional[feed_mod.Feed]:
+    return feed_mod.current()
+
+
+def _user_ctx() -> feed_mod.Context:
+    return feed_mod.Context(origin="user")
+
+
+def _clear_skill_caches() -> None:
+    try:
+        from agent.prompt_builder import clear_skills_system_prompt_cache
+        clear_skills_system_prompt_cache(clear_snapshot=True)
+    except Exception:
+        pass
+
+
+def _emit_ledger(skill: str) -> list[dict[str, Any]]:
+    """Report the ledger entries a user request just wrote (origin ``user``)."""
+    feed = _feed()
+    if feed is None:
+        return []
+    out = []
+    for entry in feed.claim_ledger():
+        ev = feed_mod.ledger_event(feed.home, entry, _user_ctx())
+        if ev is not None:
+            ev["origin"] = "user"
+            out.append(feed.emit(ev))
+    return out
+
+
+# ---------------------------------------------------------------- skills
+
+def _manifest(home: Path) -> dict[str, str]:
+    out = {}
+    try:
+        for line in (home / "skills" / ".bundled_manifest").read_text(encoding="utf-8").splitlines():
+            if ":" in line:
+                name, digest = line.split(":", 1)
+                out[name.strip()] = digest.strip()
+    except OSError:
+        pass
+    return out
+
+
+def _restored(home: Path) -> set[str]:
+    data = files.read_json(files.timely_dir(home) / "restored.json", {})
+    names = data.get("skills") if isinstance(data, dict) else data
+    return {str(n) if not isinstance(n, dict) else str(n.get("name")) for n in names or []} \
+        if isinstance(names, list) else set()
+
+
+def _disabled() -> set[str]:
+    from hermes_cli.config import load_config
+    skills = (load_config() or {}).get("skills") or {}
+    return {str(s) for s in skills.get("disabled") or []}
+
+
+def _skill_dir(name: str) -> Optional[Path]:
+    from tools.skill_manager_tool import _find_skill
+    found = _find_skill(name)
+    return Path(found["path"]) if found else None
+
+
+def _is_timely(path: Optional[Path]) -> bool:
+    if path is None:
+        return False
+    from agent.skill_utils import is_external_skill_path
+    return bool(is_external_skill_path(path))
+
+
+def list_skills(home: Path) -> list[dict[str, Any]]:
+    from agent.skill_utils import get_external_skills_dirs
+    from tools import skill_usage as su
+    from tools.skills_sync import dir_hash
+    manifest, restored, disabled = _manifest(home), _restored(home), _disabled()
+    created = {}
+    for entry in files.read_ledger(home):
+        if entry.get("action") == "create":
+            created.setdefault(str(entry.get("skill")), str(entry["id"]))
+    rows = []
+    skills_root = home / "skills"
+
+    def row(name: str, path: Optional[Path], rec: dict, source: str, archived: bool = False) -> dict[str, Any]:
+        category = ""
+        if path is not None:
+            try:
+                rel = path.relative_to(skills_root).parts
+                category = "/".join(rel[:-1]) if len(rel) > 1 and rel[0] != ".archive" else ""
+            except ValueError:
+                category = ""
+        state = rec.get("state")
+        return {"name": name, "category": category, "source": source, "enabled": name not in disabled,
+                "locked": bool(rec.get("locked")), "archived": archived or state == "archived",
+                "stale": state == "stale", "restored": name in restored,
+                "last_used": rec.get("last_used_at") or None, "created_by_event": created.get(name, "")}
+
+    seen = set()
+    for rec in su.usage_report():
+        name = str(rec.get("name"))
+        path = _skill_dir(name)
+        prov = rec.get("provenance")
+        if name in manifest:
+            source = "edited" if path is not None and dir_hash(path) != manifest[name] else "bundled"
+        elif prov == "hub":
+            source = "optional"
+        elif prov == "external":
+            source = "timely"
+        else:
+            source = "learned"
+        seen.add(name)
+        rows.append(row(name, path, rec, source))
+    usage = files.usage(home)
+    for name in su.list_archived_skill_names():
+        if name not in seen:
+            seen.add(name)
+            rows.append(row(name, None, usage.get(name, {}), "bundled" if name in manifest else "learned", True))
+    for root in get_external_skills_dirs():
+        for skill_md in sorted(Path(root).rglob("SKILL.md")):
+            name = su.read_skill_name(skill_md, fallback=skill_md.parent.name)
+            if name not in seen:
+                seen.add(name)
+                rows.append(row(name, None, usage.get(name, {}), "timely"))
+    return sorted(rows, key=lambda r: (r["source"] not in ("learned", "edited"), r["name"]))
+
+
+def _history_row(entry: dict[str, Any]) -> dict[str, Any]:
+    return {k: entry.get(k) for k in ("id", "ts", "actor", "action", "skill", "evidence")}
+
+
+def _entry_diff(home: Path, entry: dict[str, Any]) -> str:
+    def side(items):
+        return {str(i.get("path")): files.read_blob(home, str(i.get("sha256") or "")) or ""
+                for i in items or [] if isinstance(i, dict)}
+    before, after = side(entry.get("before")), side(entry.get("after"))
+    out = []
+    for path in sorted(set(before) | set(after)):
+        label = Path(path).name
+        out += difflib.unified_diff(before.get(path, "").splitlines(keepends=True),
+                                    after.get(path, "").splitlines(keepends=True),
+                                    fromfile=f"a/{label}", tofile=f"b/{label}")
+    return "".join(out)
+
+
+def skill(msg: dict[str, Any], host: Host) -> dict[str, Any]:
+    name = msg["name"]
+    path = _skill_dir(name)
+    if path is None:
+        raise ApiError("not_found", f"no skill named {name!r}")
+    try:
+        content = (path / "SKILL.md").read_text(encoding="utf-8")
+    except OSError:
+        content = ""
+    history = [e for e in reversed(files.read_ledger(host.home)) if e.get("skill") == name]
+    out: dict[str, Any] = {"name": name, "content": content, "history": [_history_row(e) for e in history]}
+    entry_id = msg.get("entry")
+    if entry_id:
+        entry = next((e for e in history if e.get("id") == entry_id), None)
+        if entry is None:
+            raise ApiError("not_found", f"no history entry {entry_id!r} for {name!r}")
+        out["diff"] = _entry_diff(host.home, entry)
+    return out
+
+
+def rollback(msg: dict[str, Any], host: Host) -> dict[str, Any]:
+    from tools.skill_ledger import rollback_entry
+    with _actor("user"):
+        ok, message = rollback_entry(msg["ledger_entry_id"])
+    feed = _feed()
+    if feed is not None:
+        feed.claim_ledger()  # the rollback's own entries: Go marks the event undone itself
+    _clear_skill_caches()
+    if not ok:
+        raise Failed({"ok": False, "message": message})
+    return {"ok": True, "message": message}
+
+
+def _skill_manage(**kwargs) -> dict[str, Any]:
+    from tools.skill_manager_tool import skill_manage
+    with _actor("user"):
+        raw = skill_manage(**kwargs)
+    try:
+        result = json.loads(raw)
+    except (TypeError, ValueError):
+        result = {"success": False, "error": str(raw)}
+    return result if isinstance(result, dict) else {"success": False, "error": str(result)}
+
+
+def edit(msg: dict[str, Any], host: Host) -> dict[str, Any]:
+    name = msg["name"]
+    path = _skill_dir(name)
+    if path is None:
+        raise ApiError("not_found", f"no skill named {name!r}")
+    if _is_timely(path):
+        raise Failed({"ok": False, "message": f"{name} is shipped with Timely and is read-only."})
+    result = _skill_manage(action="edit", name=name, content=msg["content"])
+    if not result.get("success"):
+        raise Failed({"ok": False, "message": str(result.get("error") or result.get("message") or result)})
+    events = _emit_ledger(name)
+    _clear_skill_caches()
+    entries = [e for e in reversed(files.read_ledger(host.home)) if e.get("skill") == name]
+    return {"entry": _history_row(entries[0]) if entries else None, "events": events}
+
+
+def skill_state(msg: dict[str, Any], host: Host) -> dict[str, Any]:
+    from tools import skill_usage as su
+    name, state = msg["name"], msg["state"]
+    path = _skill_dir(name)
+    if state != "restore" and path is None:
+        raise ApiError("not_found", f"no skill named {name!r}")
+    if _is_timely(path):
+        raise Failed({"ok": False, "message": f"{name} is shipped with Timely and is read-only."})
+    if state in ("lock", "unlock"):
+        if not su.set_locked(name, state == "lock"):
+            raise Failed({"ok": False, "message": f"could not {state} {name}"})
+        message = f"{name} {state}ed"
+    elif state == "archive":
+        with _actor("user"):
+            ok, message = su.archive_skill(name)
+        if not ok:
+            raise Failed({"ok": False, "message": message})
+    elif state == "restore":
+        with _actor("user"):
+            ok, message = su.restore_skill(name)
+        if not ok:
+            raise Failed({"ok": False, "message": message})
+    else:
+        result = _skill_manage(action="delete", name=name)
+        if not result.get("success"):
+            raise Failed({"ok": False, "message": str(result.get("error") or result.get("message") or result)})
+        message = str(result.get("message") or f"{name} deleted")
+    events = _emit_ledger(name)
+    _clear_skill_caches()
+    rec = files.usage(host.home).get(name, {})
+    return {"name": name, "state": state, "message": message, "locked": bool(rec.get("locked")),
+            "archived": rec.get("state") == "archived", "events": events}
+
+
+# ---------------------------------------------------------------- memory
+
+def _limits() -> dict[str, int]:
+    try:
+        from hermes_cli.config import load_config
+        mem = (load_config() or {}).get("memory") or {}
+        return {"memory": int(mem.get("memory_char_limit") or files.MEMORY_LIMITS["memory"]),
+                "user": int(mem.get("user_char_limit") or files.MEMORY_LIMITS["user"])}
+    except Exception:
+        return dict(files.MEMORY_LIMITS)
+
+
+def memory_view(home: Path) -> dict[str, Any]:
+    limits = _limits()
+    out = {}
+    for target in files.MEMORY_FILES:
+        entries = files.read_memory(home, target)
+        out[target] = {"entries": entries, "used": len(files.ENTRY_DELIMITER.join(entries)),
+                       "limit": limits[target]}
+    return out
+
+
+def memory(msg: dict[str, Any], host: Host) -> dict[str, Any]:
+    from tools.memory_tool import load_on_disk_store
+    target, action = msg["target"], msg["action"]
+    content, old = str(msg.get("content") or ""), str(msg.get("old") or "")
+    if action in ("add", "replace") and not content.strip():
+        raise ApiError("bad_message", f"learning.memory {action} needs content")
+    if action in ("replace", "remove") and not old.strip():
+        raise ApiError("bad_message", f"learning.memory {action} needs old")
+    before = files.read_memory(host.home, target)
+    store = load_on_disk_store()
+    if action == "add":
+        result = store.add(target, content)
+    elif action == "replace":
+        result = store.replace(target, old, content)
+    else:
+        result = store.remove(target, old)
+    if not isinstance(result, dict) or not result.get("success"):
+        raise Failed({"ok": False, "message": str((result or {}).get("error") or result)})
+    after = files.read_memory(host.home, target)
+    events = feed_mod.memory_events(target, before, after, _user_ctx(), origin="user")
+    feed = _feed()
+    if feed is not None:
+        feed.claim_memory(target)
+        for ev in events:
+            feed.emit(ev)
+    return {**memory_view(host.home)[target], "target": target, "events": events}
+
+
+# ---------------------------------------------------------------- pending
+
+def _meta(home: Path, pending_id: str) -> dict[str, Any]:
+    data = files.read_json(files.pending_meta_path(home, pending_id), {})
+    return data if isinstance(data, dict) else {}
+
+
+def _pending_diff(subsystem: str, record: dict[str, Any]) -> str:
+    if subsystem == "skills":
+        from tools.write_approval import skill_pending_diff
+        try:
+            return skill_pending_diff(record)
+        except Exception as exc:
+            return f"(no diff: {type(exc).__name__}: {exc})"
+    payload = record.get("payload") or {}
+    ops = payload.get("operations") if payload.get("action") == "batch" else [payload]
+    lines = []
+    for op in ops or []:
+        if not isinstance(op, dict):
+            continue
+        old = op.get("matched_entry") or op.get("old_text")
+        if old:
+            lines.append(f"- {old}")
+        if op.get("action") != "remove" and (op.get("content") or op.get("new_text")):
+            lines.append(f"+ {op.get('content') or op.get('new_text')}")
+    return "\n".join(lines)
+
+
+def list_pending(home: Path) -> list[dict[str, Any]]:
+    out = []
+    for pending_id, subsystem in files.pending_ids(home).items():
+        record = files.read_pending(home, subsystem, pending_id)
+        if record is None:
+            continue
+        payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+        meta = _meta(home, pending_id)
+        if subsystem == "skills":
+            kind = "skill"
+            subject = meta.get("subject") or payload.get("name") or ""
+        else:
+            kind = "user" if payload.get("target") == "user" else "memory"
+            subject = payload.get("target") or "memory"
+        out.append({"pending_id": pending_id, "kind": meta.get("kind") or kind, "subject": subject,
+                    "action": meta.get("action") or str(payload.get("action") or ""),
+                    "diff": _pending_diff(subsystem, record),
+                    "origin": meta.get("origin") or ("review" if record.get("origin") == "background_review"
+                                                     else "chat"),
+                    "conversation_id": meta.get("conversation_id") or "", "summary": record.get("summary") or "",
+                    "created_at": record.get("created_at")})
+    return sorted(out, key=lambda r: r.get("created_at") or 0)
+
+
+def pending(msg: dict[str, Any], host: Host) -> dict[str, Any]:
+    from tools import write_approval as wa
+    pending_id = msg["pending_id"]
+    subsystem = files.pending_ids(host.home).get(pending_id)
+    if subsystem is None:
+        raise ApiError("not_found", f"nothing waiting with id {pending_id!r}")
+    record = files.read_pending(host.home, subsystem, pending_id) or {}
+    payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+    meta = _meta(host.home, pending_id)
+    meta_path = files.pending_meta_path(host.home, pending_id)
+    if msg["choice"] == "discard":
+        wa.discard_pending(subsystem, pending_id)
+        meta_path.unlink(missing_ok=True)
+        return {"discarded": True, "pending_id": pending_id}
+    before_memory = {t: files.read_memory(host.home, t) for t in files.MEMORY_FILES}
+    if subsystem == "skills":
+        from tools.skill_manager_tool import apply_skill_pending
+        raw = apply_skill_pending(payload)
+        try:
+            result = json.loads(raw)
+        except (TypeError, ValueError):
+            result = {"success": False, "error": str(raw)}
+    else:
+        from tools.memory_tool import apply_memory_pending, load_on_disk_store
+        result = apply_memory_pending(payload, load_on_disk_store())
+    if not isinstance(result, dict) or not result.get("success"):
+        raise Failed({"ok": False, "message": str((result or {}).get("error") or result)})
+    wa.discard_pending(subsystem, pending_id)
+    meta_path.unlink(missing_ok=True)
+    feed = _feed()
+    ctx = feed_mod.Context(origin=str(meta.get("origin") or "chat"), conversation_id=str(meta.get("conversation_id") or ""),
+                           run_id=str(meta.get("run_id") or ""), bot_id=str(meta.get("bot_id") or ""),
+                           tainted_sources=list(meta.get("tainted_sources") or []))
+    events: list[dict[str, Any]] = []
+    if subsystem == "skills":
+        entries = feed.claim_ledger() if feed is not None else []
+        events = [ev for ev in (feed_mod.ledger_event(host.home, e, ctx) for e in entries) if ev is not None]
+        for ev in events:
+            ev["origin"] = ctx.origin
+        _clear_skill_caches()
+    else:
+        for target in files.MEMORY_FILES:
+            events += feed_mod.memory_events(target, before_memory[target], files.read_memory(host.home, target), ctx)
+        if feed is not None:
+            feed.claim_memory()
+    for ev in events:
+        ev["pending_id"] = pending_id
+    return {"pending_id": pending_id, "event": events[-1] if events else None, "events": events}
+
+
+# ---------------------------------------------------------------- export
+
+def export(home: Path) -> dict[str, Any]:
+    """"Download what Timely learned": learned and edited skills plus ``memories/``."""
+    from tools.skills_sync import dir_hash
+    manifest = _manifest(home)
+    buf = io.BytesIO()
+    names: list[str] = []
+    total = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for row in list_skills(home):
+            if row["source"] not in ("learned", "edited") or row["archived"]:
+                continue
+            path = _skill_dir(row["name"])
+            if path is None:
+                continue
+            if row["name"] in manifest and dir_hash(path) == manifest[row["name"]]:
+                continue
+            for f in sorted(p for p in path.rglob("*") if p.is_file()):
+                rel = Path("skills") / f.relative_to(home / "skills")
+                data = f.read_bytes()
+                total += len(data)
+                if total > EXPORT_MAX_BYTES:
+                    raise Failed({"ok": False, "message": "what Timely learned is larger than 16 MB"})
+                zf.writestr(rel.as_posix(), data)
+                names.append(rel.as_posix())
+        for target, fname in files.MEMORY_FILES.items():
+            p = files.memory_path(home, target)
+            if p.is_file():
+                zf.writestr(f"memories/{fname}", p.read_bytes())
+                names.append(f"memories/{fname}")
+    data = buf.getvalue()
+    if len(data) > EXPORT_MAX_BYTES:
+        raise Failed({"ok": False, "message": "what Timely learned is larger than 16 MB"})
+    return {"zip_b64": base64.b64encode(data).decode("ascii"), "files": names, "size": len(data)}
+
+
+# ---------------------------------------------------------------- dispatch
+
+def handle(msg: dict[str, Any], host: Host) -> dict[str, Any]:
+    """The ``data`` of the answer (raises ApiError / Failed)."""
+    bad = problem(msg)
+    if bad:
+        raise ApiError("bad_message", bad)
+    t = msg["type"]
+    if t == "learning.list":
+        what = msg["what"]
+        if what == "skills":
+            return {"skills": list_skills(host.home)}
+        if what == "memory":
+            return memory_view(host.home)
+        return {"pending": list_pending(host.home)}
+    if t == "learning.skill":
+        return skill(msg, host)
+    if t == "learning.rollback":
+        return rollback(msg, host)
+    if t == "learning.edit":
+        return edit(msg, host)
+    if t == "learning.skill_state":
+        return skill_state(msg, host)
+    if t == "learning.memory":
+        return memory(msg, host)
+    if t == "learning.pending":
+        return pending(msg, host)
+    if t == "learning.export":
+        return export(host.home)
+    if t == "settings.update":
+        sha = host.render(msg["settings"])
+        _clear_skill_caches()
+        try:
+            from agent import skill_utils
+            clear = getattr(skill_utils, "_external_dirs_cache_clear", None)
+            if callable(clear):
+                clear()
+        except Exception:
+            pass
+        host.after_settings()
+        return {"config_sha256": sha}
+    if t == "learning.upstream":
+        try:
+            from timely_agent import skills_admin  # worker-skills-backup
+        except ImportError:
+            raise ApiError("unsupported", "learning.upstream is not supported by this worker yet") from None
+        result = skills_admin.handle(msg)
+        return result if isinstance(result, dict) else {"result": result}
+    raise ApiError("unknown_type", f"unknown learning request {t!r}")

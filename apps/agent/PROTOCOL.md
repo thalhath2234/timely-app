@@ -26,7 +26,7 @@ On Windows the interpreter is `<venv>\Scripts\python.exe`.
 | `seed` | counts: `seeded`, `unreviewed`, `overridden`, `override_only`, `essential_off`, `default_off` |
 | `env` | `HERMES_MANAGED_DIR`, `HERMES_RUNTIME_DIR`, `HERMES_GATEWAY_LOCK_DIR`, `XDG_STATE_HOME`, `HERMES_BUNDLED_SKILLS` for every worker |
 
-The managed file pins `plugins.enabled` to the four Timely plugins and lists in `plugins.disabled` every bundled `kind: platform` plugin (messaging adapters, a2a) plus `image_gen/*`, `video_gen/*` and `dashboard_auth/*`, read from the snapshot's manifests: Hermes auto-loads bundled backends and registers bundled platforms whatever `plugins.enabled` says, and only `plugins.disabled` overrides that. Web search and browser backends and `delegation/default` stay loaded for later phases.
+The managed file pins `plugins.enabled` to the Timely plugins (every folder under `timely_agent/plugins/` with a `register`) and lists in `plugins.disabled` every bundled `kind: platform` plugin (messaging adapters, a2a) plus `image_gen/*`, `video_gen/*` and `dashboard_auth/*`, read from the snapshot's manifests: Hermes auto-loads bundled backends and registers bundled platforms whatever `plugins.enabled` says, and only `plugins.disabled` overrides that. Web search and browser backends and `delegation/default` stay loaded for later phases.
 
 `prepare` also writes `<agent>/runtime/prepared.json`, a copy of its answer for people reading the folder. Nothing reads it back: it sits in the same writable folder, and its values are policy. Go keeps the answer in memory, so `prepare` must have run once per API start before any `render-account` or spawn; `render-account` takes it as `--prepared` (a JSON object with `timely_skills_dir`, `seed_skills_dir`, `browser_executable` and `skills_default_off`, all required) and the worker from `hello`.
 
@@ -37,8 +37,9 @@ The managed file pins `plugins.enabled` to the four Timely plugins and lists in 
 | `model` | `{default, provider, base_url, api_mode}` | account model defaults |
 | `toolsets` | `[string]` | account default toolsets (never-offered ones are dropped) |
 | `skills_disabled` / `skills_enabled` | `[string]` | skill names off / turned on (reviewed bundled skills marked `default: off` stay off unless listed in `skills_enabled`) |
-| `learning` | `{memory: bool, user_profile: bool}` | memory toggles (phase 3) |
-| `curator` | bool | curator on/off |
+| `learning` | `{memory: bool, user_profile: bool}` | memory toggles (default on; section 10.6) |
+| `curator` | `{enabled: bool, auto_archive: false}` or bool | curator on/off; it never archives (section 10.6) |
+| `web` | `{search_backend, extract_backend}` | `timely` (Go runs it) or a keyed backend id (section 10.6) |
 | `timezone` | string | IANA zone |
 | `approval_timeout_s` | number | Hermes approval timeout (default 600) |
 | `terminal_home_mode` | string | default `profile` |
@@ -86,7 +87,8 @@ Other unknown names are logged as warnings. `HERMES_EXEC_ASK` is allowed when th
 | `gate.verdict` | `id` (the worker's `gate.ask` id), `verdict` (`allow`, `block`, `approve`), `message`. Phase 2: Go answers `block` with "That isn't available in Timely yet" for every tool (section 9.7) | none |
 | `session.delete` | `id`, `conversation_id` | `ack` (`busy` error while the conversation has a live run) |
 | `shutdown` | `grace` (seconds, default 5) | none: the worker waits up to `grace` for live runs, interrupts the rest (up to 2 s more), and exits 0. Go sends its own stop budget minus 3 s, so a worker following this exits before Go sends SIGTERM. The worker keeps reading during the grace (a live run may still need `tool.result`, `gate.verdict` or `approval.answer`, and `run.stop` still works) and refuses new work with `not_ready`; Go keeps stdin open and writes only those replies and run controls until the worker exits or the grace ends |
-| `bot.run`, `learning.*` | later phases | `error` `unsupported` in phase 1 |
+| `learning.*`, `settings.update` | section 10.3 | `learning.result` or `error` |
+| `bot.run` | phase 6 | `error` `unsupported` |
 
 Every `run.start` the worker accepts ends in exactly one `run.done`, whatever fails inside the run (a failure outside the turn itself arrives as `run.done` with `completed: false` and `error`). An `error` that carries `run` and the `id` of that run's own `run.start` (a refusal: `busy`, `refused`, `bad_message`, `not_ready`, `internal`) ends that run: no `run.done` follows. Go stops counting the run as live and hands the error to the run's owner. `duplicate_run` does not end the run (the first start is still running), and neither does an error answering `run.stop`, `run.steer` or `approval.answer`, even though it carries `run`. Go never sends a line over 32 MiB: it refuses such a `run.start` before marking the run live, because the worker's `bad_message` for an oversized line cannot name the run.
 
@@ -107,10 +109,12 @@ Closing the worker's stdin is the lifeline: the worker interrupts live runs and 
 | `taint` | `run`, `sources` (the new ones only, `[{kind, tool, host?, session?}]`; phase 2, section 9.4) |
 | `run.done` | `id` (the run.start's), `run`, `final_response`, `completed`, `interrupted`, `turn_exit_reason`, `tokens` `{input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, total_tokens}` (this turn only), `estimated_cost_usd` (this turn, or null), `turn_id`, `tainted_sources`, `history_seeded` (bool: this run wrote `run.start.history` into `state.db`), `pending_steer` (the `run.steer` text no tool batch took in, because it arrived while the last reply streamed; "" when none. Go makes it the person's next turn), optional `error` (the turn failed; `final_response` may be empty). `turn_exit_reason` is `end_turn` when the turn ended on a tool call after `end_turn` (section 9.5); that is not a Stop: `interrupted` is false |
 | `ack` | `id`, `ok` (bool) |
+| `learning` | `event` (section 10.2): one learned, staged or blocked change; not run-scoped |
+| `learning.result` | `id` (the request's), `ok`, `data` (section 10.3) |
 | `log` | `level`, `text` |
 | `error` | optional `id` (the request it answers), optional `run`, `code`, `message` |
 
-`busy` is `{runs, learning, children}`: live runs, a learning pass in progress, tracked child processes (`children` counts the background processes in Hermes' process registry; phase 1 always reports `learning: false`). A busy worker must not be reaped.
+`busy` is `{runs, learning, children}`: live runs, a learning pass or curator pass in progress (phase 3), tracked child processes (`children` counts the background processes in Hermes' process registry). A busy worker must not be reaped.
 
 **Event kinds** (`event.payload`):
 
@@ -122,9 +126,9 @@ Closing the worker's stdin is the lifeline: the worker interrupts live runs and 
 | `tool.completed` | `{tool_call_id, tool, result}` (long values are cut at 4,000 characters) |
 | `status` | `{kind, message}`: Hermes lifecycle notes (compaction, retries) |
 | `approval.request` | Hermes' approval data: `request_id`, `pattern_key`, `description`, `timeout_s` and the other scalar fields; answer with `approval.answer` |
-| `learning`, `subagent` | later phases |
+| `subagent` | phase 4 (learning changes are the top-level `learning` message, section 10.2) |
 
-**Gate.** Every tool call passes `timely_gate`. Messaging and never-offered tools are blocked locally; after `end_turn` every tool call is blocked (section 9.5); `propose_changes` is blocked unless it is the only call of its assistant message (section 9.4); `todo_list`, `skills_list`, `skill_view`, `skill_manage` and the `timely` toolset run without asking (other plugins can still block them: `timely_learning` blocks every `skill_manage` write to a Timely-shipped skill, and every `skill_manage` and `memory` call while `flags.learning_writes` is not true); everything else sends `gate.ask`. Go must answer within 25 s (Hermes' hook timeout is 30 s and fails closed); no answer means block. `approve` makes Hermes raise its approval gate (rule key `timely:<tool_call_id>`), which arrives as an `approval.request` event.
+**Gate.** Every tool call passes `timely_gate`. Messaging and never-offered tools are blocked locally; after `end_turn` every tool call is blocked (section 9.5); `propose_changes` is blocked unless it is the only call of its assistant message (section 9.4); `todo_list`, `skills_list`, `skill_view`, `skill_manage`, `memory`, `session_search` and the `timely` toolset run without asking (other plugins can still block them: `timely_learning` blocks every `skill_manage` write to a Timely-shipped skill, decides every `skill_manage` and `memory` write (section 10.4), and refuses `session_search` without `flags.search_history`); everything else sends `gate.ask`. Go must answer within 25 s (Hermes' hook timeout is 30 s and fails closed); no answer means block. `approve` makes Hermes raise its approval gate (rule key `timely:<tool_call_id>`), which arrives as an `approval.request` event.
 
 ## 6. Hello
 
@@ -138,7 +142,7 @@ The worker checks, in order, and answers `error` (with the hello's `id` and `acc
 
 Then it imports Hermes, bridges the account's `terminal.*` config into the `TERMINAL_*` process environment (Hermes' own `apply_terminal_config_to_env`, plus `TERMINAL_HOME_MODE`, which that bridge leaves out), loads the plugins, seeds bundled skills into the home (`sync_skills`) and runs the self-test. A failed `hello` leaves the worker waiting for a correct one; a second `hello` after `ready` is `bad_message`.
 
-**Self-test checks** (`self_test.checks[].name`): `plugins` (the four Timely plugins loaded without errors from Timely's own entry points, and the enabled set equal to `selftest.EXPECTED_PLUGINS`), `user_plugins` (`$HERMES_HOME/plugins` is empty and project plugins are off: a folder there replaces an entry-point plugin with the same key), `gate_hook` (`pre_tool_call` holds timely_gate's and timely_learning's own functions, compared by identity), `dotenv` (no `.env` Hermes would load exists: the worker sets `<home>/.env` and `<home>/.op.env` aside as `*.timely-disabled` before importing Hermes; `<agent>/hermes/.env` and `$HERMES_MANAGED_DIR/.env` only fail the check), `env_drift` (no environment name changed after the start check, besides the `TERMINAL_*` names the terminal bridge sets from the account config), `home` (Hermes resolves the expected `HERMES_HOME`), `no_messaging` (no messaging tool resolves, no platform plugin is enabled, no platform adapter module is imported), `managed_config` (the managed file is byte-for-byte the floors rendered from `hello`'s `timely_skills_dir` and `browser_executable` and hashes to `managed_sha256`, so an added key fails as well as a loosened one; every floor reads back through Hermes' loaders: managed file, merged `load_config()`, and the raw reader skill discovery uses, which must see only the Timely skills folder), `essential_skills` (Hermes' non-disableable skill list matches Timely's copy), `install_guard` (runtime installs blocked), `dotenv_guard` (Hermes' dotenv loader is a no-op after start, runtime override R2), `mcp` (no unapproved stdio MCP server), `timely_tools` (toolset `timely` holds exactly the specs of `hello.timely_tools`, each with `timely_tools`' own handler; a name Hermes already uses fails here), and when `hello` carried `settings`, `skills_default_off` (every name in `hello.skills_default_off`, less the settings' `skills_enabled`, is in the effective `skills.disabled`). When `self_test.ok` is false the worker answers every `run.start` with `error` `refused` and Go should stop it and show "The agent could not start" with `self_test.failures`.
+**Self-test checks** (`self_test.checks[].name`): `plugins` (every Timely plugin (each folder under `timely_agent/plugins/` with a `register`) loaded without errors from Timely's own entry points, and the enabled set equal to `selftest.EXPECTED_PLUGINS`), `user_plugins` (`$HERMES_HOME/plugins` is empty and project plugins are off: a folder there replaces an entry-point plugin with the same key), `gate_hook` (`pre_tool_call` holds timely_gate's and timely_learning's own functions, compared by identity), `dotenv` (no `.env` Hermes would load exists: the worker sets `<home>/.env` and `<home>/.op.env` aside as `*.timely-disabled` before importing Hermes; `<agent>/hermes/.env` and `$HERMES_MANAGED_DIR/.env` only fail the check), `env_drift` (no environment name changed after the start check, besides the `TERMINAL_*` names the terminal bridge sets from the account config), `home` (Hermes resolves the expected `HERMES_HOME`), `no_messaging` (no messaging tool resolves, no platform plugin is enabled, no platform adapter module is imported), `managed_config` (the managed file is byte-for-byte the floors rendered from `hello`'s `timely_skills_dir` and `browser_executable` and hashes to `managed_sha256`, so an added key fails as well as a loosened one; every floor reads back through Hermes' loaders: managed file, merged `load_config()`, and the raw reader skill discovery uses, which must see only the Timely skills folder), `essential_skills` (Hermes' non-disableable skill list matches Timely's copy), `install_guard` (runtime installs blocked), `dotenv_guard` (Hermes' dotenv loader is a no-op after start, runtime override R2), `mcp` (no unapproved stdio MCP server), `timely_tools` (toolset `timely` holds exactly the specs of `hello.timely_tools`, each with `timely_tools`' own handler; a name Hermes already uses fails here), and when `hello` carried `settings`, `skills_default_off` (every name in `hello.skills_default_off`, less the settings' `skills_enabled`, is in the effective `skills.disabled`). When `self_test.ok` is false the worker answers every `run.start` with `error` `refused` and Go should stop it and show "The agent could not start" with `self_test.failures`.
 
 Each run binds Hermes' per-turn terminal policy from `config.yaml` and the managed floors (`tools.terminal_scope.install_profile_terminal_scope`, as Hermes' gateway does): local backend, `cwd` = `<home>/workspace`, `home_mode: profile`, so terminal children get `HOME=<home>/home`, never the OS user's home. An unreadable config installs Hermes' refusal scope and terminal tools fail closed.
 
@@ -158,7 +162,8 @@ Each run binds Hermes' per-turn terminal policy from `config.yaml` and the manag
 | `busy` | the account already has 3 live runs, or the conversation already has one |
 | `duplicate_run` | `run.start` with a run id that is live |
 | `unknown_run` | `run.stop`, `run.steer`, `approval.answer` for no live run |
-| `unsupported` | a later-phase message (`bot.run`, `learning.*`) |
+| `unsupported` | a later-phase message (`bot.run`), or `learning.upstream` before `timely_agent.skills_admin` exists |
+| `not_found` | a `learning.*` request names a skill, history entry or staged write that does not exist |
 | `internal` | an unexpected worker failure while handling the message |
 
 ## 8. Timeouts Go applies (plan 5.1)
@@ -189,7 +194,7 @@ The default `SOUL.md` makes the identity "Timely" (Q-2.6). Hermes still adds one
 
 - `batch_size` and `sibling_tools` come from the assistant message that produced the call. `timely_tools` records each model response's calls from Hermes' `post_api_request` hook (`assistant_message`), which fires before any tool of that response runs; a call id Hermes renamed because the conversation already used it (`call_1` -> `call_1_d2`) is matched to the latest response.
 - `propose_changes` that is not the only call of its message is blocked by `timely_gate` with "Call propose_changes alone, after all read tools finish" and never reaches Go (contract test 18a). The decision rests on the recorded message, so it never depends on whether a sibling ran first. Go keeps the same check on `batch_size` as a second line.
-- Taint: each `tool.result` with `outside: true` adds `{kind: "timely", tool}`; each call that ran (was not blocked) of a Hermes tool the worker's policy marks as a taint source adds `{kind, tool, host?}` (`timely_agent/policy.py` `TAINT_SOURCES`: web, browser, MCP, file, terminal, code, vision, session search, delegation; phase 2 offers none of them). The list starts from `run.start.tainted_sources`, is append-only and deduplicated, and each new source is sent once as `taint`. Every `tool.call` and `run.done` carries the whole list (contract test 18b).
+- Taint: each `tool.result` with `outside: true` adds `{kind: "timely", tool}`; each call that ran (was not blocked) of a Hermes tool the worker's policy marks as a taint source adds `{kind, tool, host?}` (`timely_agent/policy.py` `TAINT_SOURCES`: web, browser, MCP, file, terminal, code, vision, delegation; phase 2 offers none of them). Phase 3: a `session_search` hit from a conversation in `run.start.tainted_conversations` adds `{kind: "session", tool: "session_search", session: <id>}` (section 10.4). The list starts from `run.start.tainted_sources`, is append-only and deduplicated, and each new source is sent once as `taint`. Every `tool.call` and `run.done` carries the whole list (contract test 18b).
 
 ### 9.5 End of turn after a proposal (Q-2.4)
 
@@ -201,10 +206,108 @@ Go answers a recorded `propose_changes` with `end_turn: true`. The model may the
 
 ### 9.7 Learning writes off, host tools off, permission
 
-- Chat toolsets in phase 2: `timely`, `todo`, `skills`. `skip_memory=True`; `skill_view` and `skills_list` read; every `skill_manage` action and every `memory` call is blocked while `flags.learning_writes` is not exactly true (phase 2 always sends false), and outside a run.
+- Chat toolsets in phase 2: `timely`, `todo`, `skills`. `skip_memory=True`; `skill_view` and `skills_list` read; every `skill_manage` action and every `memory` call is blocked while `flags.learning_writes` is not exactly true (phase 2 always sends false), and outside a run. Phase 3 turns learning on per run: section 10.
 - Tools outside the local allow list and the `timely` toolset reach Go as `gate.ask`; phase 2 Go answers `block` ("That isn't available in Timely yet"), and the worker passes the message to the model. A tool that is not in the run's toolsets never gets that far: Hermes answers that it does not exist.
 - `permission` is stored on the run and not acted on by the worker in phase 2 (Go applies it to proposals; host tools follow it from phase 5).
 
 ### 9.8 Auxiliary calls (plan 5.7, contract test 20)
 
 The only auxiliary call that can fire in a phase 2 chat run is context compression (titles are floored off; vision and learning are not offered). It uses the run's `base_url` and `api_key`: with `OPENAI_BASE_URL` and `OPENAI_API_KEY` pointing at a second endpoint in the worker environment, every request, the summary calls included, went to the run's endpoint with the run's key. So Go needs no provider keys in the worker environment for phase 2.
+
+## 10. Phase 3: learning, past-chat search, web, backups
+
+Version stays 1; every field is additive and optional for an older peer. Plan section 9b, the owner's answers Q-3.1 to Q-3.8, and `docs/plans/2026-11-11-phase3-work-packages.md` contract 1.
+
+### 10.1 `run.start` additions
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `toolsets` | `[string]` | chat: `["timely", "todo", "skills"]` plus `memory` when `flags.learning_writes`, `session_search` when `flags.search_history`, `web` when `flags.web`. Never-offered toolsets are still refused (`bad_message`) |
+| `flags.learning_writes` | bool | account learning on, chat not Sensitive, not "Don't learn from this chat", not answer-only. True builds the agent with memory and Hermes' learning pass (`skip_memory` and `skip_background_review` are its negation). False: no memory in the prompt, no pass, every `memory` and `skill_manage` call blocked |
+| `flags.search_history` | bool | "Search my past chats" (Q-3.5, default on) and `learning_writes`. False: `session_search` is refused in the worker |
+| `flags.web` | bool | the chat's web toggle, not Sensitive, not answer-only (Go's gate decides; worker-web) |
+| `flags.from_bot` | bool | the chat was opened from a bot (false until phase 6): every learning write stages from the first turn |
+| `tainted_conversations` | `[conversation id]` | the account's chats with non-empty `tainted_sources`: a `session_search` hit from one taints this session |
+| `search_exclude` | `[conversation id]` | the account's "Don't learn from this chat" chats: never returned by `session_search` |
+| `person_hosts` | `[host]` | hosts the person typed in this chat (the exfiltration rule allows them after taint; worker-web) |
+
+The worker validates each: a flag that is present must be a bool, each list a list of strings (`bad_message` otherwise). Taint starts from `run.start.tainted_sources`, merged into what the worker already holds for the conversation (append-only), so a chat resumed in a new worker still stages.
+
+### 10.2 `learning` (worker → Go)
+
+`{type: "learning", event: LearningEventW}`, not run-scoped (a learning pass that ends after `run.done` still reports). Every field is always present:
+
+| Field | Values |
+| --- | --- |
+| `id` | worker uuid (32 hex); Go dedupes by it |
+| `kind` | `skill`, `memory` (MEMORY.md, the agent's notes), `user` (USER.md, About you) |
+| `action` | `created`, `patched`, `edited`, `deleted`, `added`, `replaced`, `removed`, `archived`, `restored`, `stale` |
+| `subject` | the skill name, or `memory`/`user` |
+| `before`, `after` | text, each cut at 20,000 characters (`""` when not applicable) |
+| `origin` | `chat` (the turn), `review` (the learning pass), `bot`, `user` (a `learning.*` request), `curator`, `sync`, `restore` |
+| `conversation_id`, `run_id`, `bot_id` | where it came from (`""` when unknown) |
+| `tainted_sources` | the conversation's taint when it happened |
+| `status` | `applied` (silent, with Undo), `staged` (waits for Keep/Discard), `blocked` (threat scan; nothing saved) |
+| `ledger_entry_id` | the skill-ledger entry of an applied skill change (Undo = `learning.rollback`) |
+| `pending_id` | a staged write's id (`learning.pending`) |
+| `summary` | one line |
+
+When they are sent: a `staged` or `blocked` event at the moment `timely_learning` decides; `applied` events after the run (after the last `delta`, before `run.done`) and again when a learning pass ends; `stale` from the curator. Each change is reported once: the worker keeps a baseline of the home's ledger ids, memory entries and staged ids from `ready` on, and every diff moves it.
+
+### 10.3 Go → worker requests
+
+Each is answered by `learning.result {id, ok, data}`, or `error` with the request's `id` (`bad_message` for a wrong shape, `not_found`, `unsupported`, `not_ready`, `internal`). `ok: false` means a valid request that did not succeed; `data.message` says why. Handled on a worker thread, after `ready`.
+
+| Type | Fields | `data` |
+| --- | --- | --- |
+| `learning.list` | `what`: `skills` / `memory` / `pending` | skills: `{skills: [{name, category, source: "learned"\|"edited"\|"bundled"\|"timely"\|"optional", enabled, locked, archived, stale, restored, last_used, created_by_event}]}`; memory: `{memory: {entries, used, limit}, user: {entries, used, limit}}` (limits 2,200 and 1,375); pending: `{pending: [{pending_id, kind, subject, action, diff, origin, conversation_id, summary, created_at}]}` |
+| `learning.skill` | `name`, optional `entry` | `{name, content, history: [{id, ts, actor, action, skill, evidence}], diff}` (`diff`, a unified diff, only with `entry`) |
+| `learning.rollback` | `ledger_entry_id` | `{ok, message}` (Hermes' `rollback_entry`, actor `user`); Go marks the event undone, no `learning` event |
+| `learning.edit` | `name`, `content` | `{entry, events}`: the ledger entry (actor `user`); a `learning` event (`edited`, origin `user`) is also sent. A Timely skill answers `ok: false` (read-only) |
+| `learning.skill_state` | `name`, `state`: `lock`/`unlock`/`archive`/`restore`/`delete` | `{name, state, message, locked, archived, events}`; archive, restore and delete also send `learning` events (origin `user`) |
+| `learning.memory` | `target`: `memory`/`user`, `action`: `add`/`replace`/`remove`, `content`, `old` | `{target, entries, used, limit, events}`; sends the events (origin `user`). Hermes' scan refuses an injection (`ok: false`) |
+| `learning.pending` | `pending_id`, `choice`: `keep`/`discard` | keep: `{pending_id, event, events}` (the applied change, `status: applied`, no separate `learning` message: Go marks the staged event kept); discard: `{pending_id, discarded: true}` |
+| `learning.export` | - | `{zip_b64, files, size}`: learned and edited skills plus `memories/`, at most 16 MB (`ok: false` above it) |
+| `learning.upstream` | `action`: `list`/`compare`/`keep_mine`/`use_new`, `name` | handled by `timely_agent.skills_admin.handle` (worker-skills-backup); `error` `unsupported` while that module is missing |
+| `settings.update` | `settings` (the `render-account` shape) | `{config_sha256}`: `config.yaml` re-rendered in place (skills on/off, web backends, learning); cached agents of idle chats are rebuilt on their next turn (counters kept) |
+
+### 10.4 What `timely_learning` decides (plan 9b.2, Q-3.1, Q-3.7)
+
+For `memory` and `skill_manage`, in the turn and in Hermes' learning pass (which has no run; the hook finds the conversation by the hook's `session_id`, and `bridge.session_state` outlives the run):
+
+1. A `skill_manage` target or a `write_file`/`patch` path under the Timely skills folder: blocked (read-only).
+2. `flags.learning_writes` not true, or no run and no session: blocked ("Timely is not saving skills or memory yet").
+3. A strict threat-scan hit in any text the write carries: blocked, `learning` event `status: blocked`.
+4. Staged (Hermes' pending store, `learning` event `status: staged` with `pending_id`; the model reads "Saved for the person to confirm in Timely; do not retry."): the conversation is tainted; `flags.from_bot`, or a `bot`/`bot_review` run; an unattended memory `patch`/`remove` in the learning pass; or the text matches the skill-body rule (`.hermes-sync/policy/skill-body.yaml`: a tool name the chat policy approves or blocks, as a whole token, or an authority phrase, case-insensitive). After staging in the turn the agent's review counter for that tool is reset.
+5. Otherwise applied silently; the feed reports it (`applied`, with the ledger entry for Undo). An edit to a bundled skill changes the account's own copy (copy-on-write).
+
+`session_search` runs only with `flags.search_history`: the worker adds `search_exclude` to `exclude_session_ids`, refuses to read an excluded chat by id or another profile's store, drops excluded chats from any result, and taints the session for each hit in `tainted_conversations`. Bot ticks never reach the search store (phase 6: `bot.run` without a session store).
+
+### 10.5 `ready` and `busy` additions
+
+`ready.web_backends` (`[backend id]`, from `timely_agent.web_backends.available()`, `[]` while that module is missing) and `ready.skills_upstream` (int, from `skills_admin.upstream_count()`, 0 while missing). `busy.learning` is true while a learning pass or the curator runs.
+
+### 10.6 `render-account` / `hello.settings` keys
+
+- `learning: {memory, user_profile}` (default on): renders `memory.memory_enabled`/`user_profile_enabled`, `write_approval: false` (the policy stages, not Hermes' gate), limits 2,200 and 1,375, `nudge_interval: 10`, `skills.creation_nudge_interval: 10`, `skills.ledger: true`. No `auxiliary.background_review`: the learning pass uses the run's provider, model, `base_url` and key (Q-3.2).
+- `curator: {enabled, auto_archive: false}` (a bool is read as `enabled`): `consolidate: false`, `interval_hours: 24`, `stale_after_days: 14`, `archive_after_days: 36500`. Hermes has no switch to stop archiving; with that cutoff nothing archives (Q-3.6). The worker's maintenance tick (every 10 minutes, only while no run is live) calls Hermes' `maybe_run_curator`; each skill that turns stale is a `learning` event (`stale`, origin `curator`).
+- `web: {search_backend, extract_backend}`: `timely` (default) or a keyed backend id.
+- `skills_disabled`: also the learned skills the person turned off and restored ones (Go adds them).
+- The Timely plugin set (`plugins.enabled`, the self-test's expected set) is every package folder under `timely_agent/plugins/` whose `__init__.py` defines `register`.
+
+### 10.7 The `timely_web` backend's calls (worker-web)
+
+The model calls Hermes' `web_search`/`web_extract`; with backend `timely` the provider sends `tool.call` through `RunContext.tool_call`: `name: "web_search"`, `args: {query, limit}` → `tool.result {result: {answer, results: [{url, title, description}]}, outside: true}`; `name: "web_extract"`, `args: {urls: [url]}` → `{result: {pages: [{url, title, content, error}]}, outside: true}`; or `{result: {error}}`. `batch_size` is 1 and `sibling_tools` empty (the call is the backend's, not the model's).
+
+### 10.8 Helper commands (worker-skills-backup)
+
+Same rules as `prepare`: one JSON object on stdout, logs on stderr.
+
+- `boot.py agent-export --agent-dir <root> --account <uid> --out <zip>` → `{ok, format: "timely-agent-state", version: 1, sha256, size, files}`. Included: `memories/`, `skills/` minus pristine bundled copies, `skills/.usage.json`, the ledger and `.curator_backups/blobs`, `pending/`, a WAL-safe `state.db` snapshot, `.timely/`. Excluded: `config.yaml`, `.env*`, `auth.json`, `mcp-tokens/`, `SOUL.md`, `scripts/`, `hooks/`, `plugins/`, `home/`, `workspace/`, checkpoints, caches, logs, runtime.
+- `boot.py agent-import --agent-dir <root> --account <uid> --zip <path>` → `{ok, staged_dir, restored_skills, dropped, blocked}`: extracts to `accounts/.restore-<dir>-<ts>/`, drops never-restore paths, threat-scans skills (a hit is dropped and listed in `blocked`), rewrites the ledger's absolute paths, writes `.timely/restored.json`.
+- `boot.py agent-reconcile --agent-dir <root>` (also run by `prepare`): a `.restore-*` folder holding a `COMMITTED` marker is swapped in; one without it is deleted.
+
+### 10.9 Files the worker keeps in the account home
+
+- `.timely/counters.json`: `{version: 1, conversations: {<id>: {iters_since_skill, turns_since_memory, updated}}}`, written after every turn, when an agent leaves the cache and at shutdown, and read when an agent is built, so the review fires across turns, cache evictions and worker restarts.
+- `.timely/pending/<pending_id>.json`: the Timely context of a staged write (conversation, run, origin, taint, why it was staged).

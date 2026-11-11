@@ -17,6 +17,12 @@ Build or reuse the conversation's ``AIAgent``, run ``run_conversation``, forward
   Timely ``tool.call`` and before ``run.done``.
 - **End of turn after a proposal** (Q-2.4): when ``timely_gate`` ended the turn on a tool call
   after ``end_turn``, ``run.done`` says ``turn_exit_reason: "end_turn"``, ``interrupted: false``.
+- **Learning** (phase 3, plan 9b): ``flags.learning_writes`` builds the agent with memory and the
+  learning pass on (``skip_memory`` / ``skip_background_review`` are its negation). The review
+  counters survive the agent cache and worker restarts (``learning.counters``). After the turn the
+  feed reports what changed before ``run.done``; a learning pass Hermes started is watched
+  (``busy.learning``) and reported when it ends. The pass uses the run's own model and
+  credentials: Timely never sets ``auxiliary.background_review`` (Q-3.2).
 """
 
 from __future__ import annotations
@@ -30,6 +36,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from timely_agent import bridge, config_render
+from timely_agent.learning import feed as learning_feed
+from timely_agent.learning import passes as learning_passes
 
 logger = logging.getLogger("timely_agent.run_chat")
 
@@ -178,6 +186,8 @@ def config_signature(msg: dict[str, Any]) -> str:
         "api_mode": model.get("api_mode"), "reasoning": model.get("reasoning"),
         "key": hashlib.sha256(str(model.get("api_key") or "").encode()).hexdigest(),
         "toolsets": sorted(msg.get("toolsets") or []), "system": msg.get("system_hash") or "",
+        # memory and the learning pass are constructor choices (skip_memory, skip_background_review)
+        "learning": (msg.get("flags") or {}).get("learning_writes") is True,
         # the block itself too: with ephemeral_system_prompt a changed block needs a new agent
         "system_text": hashlib.sha256(str(msg.get("system_text") or "").encode()).hexdigest(),
     }
@@ -185,12 +195,20 @@ def config_signature(msg: dict[str, Any]) -> str:
 
 
 class AgentCache:
-    """One ``AIAgent`` per conversation, rebuilt when the signature changes (LRU, bounded)."""
+    """One ``AIAgent`` per conversation, rebuilt when the signature changes (LRU, bounded).
 
-    def __init__(self, limit: int = AGENT_CACHE_MAX):
+    An agent leaving the cache (LRU eviction, a changed signature, ``drop``) hands its review
+    counters to ``counters`` first (plan 3.3), so the next agent of that conversation resumes them."""
+
+    def __init__(self, limit: int = AGENT_CACHE_MAX, counters: Any = None):
         self._lock = threading.Lock()
         self._items: dict[str, tuple[str, Any]] = {}
         self.limit = limit
+        self.counters = counters
+
+    def _evicted(self, conversation: str, agent: Any) -> None:
+        if self.counters is not None and agent is not None:
+            self.counters.store(conversation, agent)
 
     def get(self, conversation: str, signature: str) -> Any:
         with self._lock:
@@ -198,18 +216,37 @@ class AgentCache:
             if item and item[0] == signature:
                 self._items[conversation] = item
                 return item[1]
-            return None
+        if item:
+            self._evicted(conversation, item[1])
+        return None
 
     def put(self, conversation: str, signature: str, agent: Any) -> None:
+        gone = []
         with self._lock:
-            self._items.pop(conversation, None)
+            old = self._items.pop(conversation, None)
+            if old is not None and old[1] is not agent:
+                gone.append((conversation, old[1]))
             self._items[conversation] = (signature, agent)
             while len(self._items) > self.limit:
-                self._items.pop(next(iter(self._items)))
+                key = next(iter(self._items))
+                gone.append((key, self._items.pop(key)[1]))
+        for key, old_agent in gone:
+            self._evicted(key, old_agent)
 
-    def drop(self, conversation: str) -> None:
+    def drop(self, conversation: str, keep_counters: bool = True) -> None:
         with self._lock:
-            self._items.pop(conversation, None)
+            item = self._items.pop(conversation, None)
+        if item and keep_counters:
+            self._evicted(conversation, item[1])
+
+    def items(self) -> list[tuple[str, Any]]:
+        with self._lock:
+            return [(k, v[1]) for k, v in self._items.items()]
+
+    def store_all(self) -> None:
+        """Every cached agent's counters (worker shutdown)."""
+        for conversation, agent in self.items():
+            self._evicted(conversation, agent)
 
 
 def _short(value: Any, limit: int = 4000) -> Any:
@@ -241,6 +278,7 @@ def build_agent(msg: dict[str, Any], emit: EmitRef):
 
     model = msg.get("model") or {}
     toolsets = [str(t) for t in msg.get("toolsets") or []]
+    learning = (msg.get("flags") or {}).get("learning_writes") is True
 
     def delta(text=None, *_, **__):
         if text:
@@ -278,8 +316,10 @@ def build_agent(msg: dict[str, Any], emit: EmitRef):
         session_db=SessionDB(),
         load_soul_identity=True,
         skip_context_files=True,
-        skip_memory=True,  # memory and learning writes stay off until phase 3
-        skip_background_review=True,
+        # Phase 3: memory in the prompt and Hermes' learning pass only for learning runs; the
+        # timely_learning policy decides each write (plan 9b.2).
+        skip_memory=not learning,
+        skip_background_review=not learning,
         ephemeral_system_prompt=(system_text or None) if SYSTEM_VIA == "ephemeral" else None,
         reasoning_config=reasoning_cfg if isinstance(reasoning_cfg, dict) else None,
         stream_delta_callback=delta,
@@ -351,6 +391,43 @@ def _session_tokens(agent) -> dict[str, int]:
     return out
 
 
+def _report_run(ctx: bridge.RunContext) -> None:
+    """What the turn changed, as learning events, before ``run.done`` (never raises)."""
+    feed = learning_feed.current()
+    if feed is None:
+        return
+    try:
+        origin = "bot" if ctx.flags.get("from_bot") is True or ctx.kind != "chat" else "chat"
+        feed.diff(learning_feed.Context(origin=origin, conversation_id=ctx.conversation_id, run_id=ctx.run_id,
+                                        tainted_sources=ctx.taint_snapshot()))
+    except Exception:
+        logger.exception("run %s: reporting learning changes failed", ctx.run_id)
+
+
+def _report_pass(conversation: str) -> None:
+    """What a learning pass changed (origin ``review``; ``bot`` for a bot's conversation)."""
+    feed = learning_feed.current()
+    if feed is None:
+        return
+    state = bridge.session_state(conversation)
+    from_bot = state is not None and (state.from_bot or state.kind != "chat")
+    feed.diff(learning_feed.Context(
+        origin="bot" if from_bot else "review", conversation_id=conversation,
+        run_id=state.run_id if state is not None else "",
+        tainted_sources=state.taint_snapshot() if state is not None else []))
+
+
+def _review_callback(conversation: str) -> Callable[[str], None]:
+    """``AIAgent.background_review_callback``: Hermes calls it with the pass's summary once the
+    fork's writes are done; the feed re-diffs then (the watcher re-diffs again when the pass ends)."""
+    def callback(_summary: Any = None, *_: Any, **__: Any) -> None:
+        try:
+            _report_pass(conversation)
+        except Exception:
+            logger.exception("learning pass report for %s failed", conversation)
+    return callback
+
+
 def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> dict[str, Any]:
     """Run one turn; returns the ``run.done`` fields (never raises)."""
     from gateway.session_context import clear_session_vars, set_session_vars
@@ -367,11 +444,18 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
                             "pending_steer": ""}
     key_token = var_tokens = scope_token = None
     sink = DeltaCoalescer(emit)
+    flags = dict(msg.get("flags") or {})
+    state = bridge.bind_session(
+        conversation, kind="chat", flags=flags, tainted_sources=list(msg.get("tainted_sources") or []),
+        person_hosts=msg.get("person_hosts"), tainted_conversations=msg.get("tainted_conversations"),
+        search_exclude=msg.get("search_exclude"), run_id=run.run_id)
     ctx = bridge.RunContext(
         run_id=run.run_id, session_key=session_key, conversation_id=conversation, kind="chat",
         tainted_sources=list(msg.get("tainted_sources") or []), pre_approved=msg.get("pre_approved") or None,
-        permission=str(msg.get("permission") or "supervised"), flags=dict(msg.get("flags") or {}),
-        flush=sink.flush)
+        permission=str(msg.get("permission") or "supervised"), flags=flags,
+        flush=sink.flush, session=state)
+    counters = getattr(cache, "counters", None)
+    turn_ran = False
     try:
         bridge.current_run.set(ctx)
         done["tainted_sources"] = ctx.taint_snapshot()
@@ -388,9 +472,13 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
             ref = EmitRef()
             agent = build_agent(msg, ref)
             agent._timely_emit = ref
+            if counters is not None:
+                counters.apply(conversation, agent)  # resume the review counters (plan 3.3)
+            agent.background_review_callback = _review_callback(conversation)
             cache.put(conversation, signature, agent)
         agent._timely_emit.emit = sink.emit
         ctx.agent = agent
+        state.agent = agent
         run.attach(agent)
         if run.stop_reason:
             done.update(interrupted=True, turn_exit_reason="interrupted")
@@ -404,7 +492,11 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
         done["history_seeded"] = seeded
         if stored is not None:
             kwargs["conversation_history"] = stored
+        turn_ran = True
         result = agent.run_conversation(str(msg.get("user_message") or ""), **kwargs) or {}
+        # Hermes may have started the learning pass on a daemon thread: busy until it ends, then
+        # report what it learned.
+        learning_passes.watch(agent, lambda: _report_pass(conversation))
         after = _session_tokens(agent)
         cost_after = result.get("estimated_cost_usd", getattr(agent, "session_estimated_cost_usd", None))
         done.update(
@@ -431,13 +523,16 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
     except Exception as exc:
         logger.exception("run %s failed", run.run_id)
         done["error"] = f"{type(exc).__name__}: {exc}"
-        cache.drop(conversation)
+        cache.drop(conversation)  # stores the counters first
     finally:
         done["tainted_sources"] = ctx.taint_snapshot()
+        if turn_ran and counters is not None and run.agent is not None:
+            counters.store(conversation, run.agent)  # after every turn (plan 3.3)
         try:
             sink.close()  # every delta before run.done
         except Exception:
             logger.exception("run %s: flushing stream text failed", run.run_id)
+        _report_run(ctx)  # after the stream text, before run.done
         if ctx.end_turn_hit and run.agent is not None:
             try:
                 run.agent.clear_interrupt()

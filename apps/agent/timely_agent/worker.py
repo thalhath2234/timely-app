@@ -27,6 +27,7 @@ logger = logging.getLogger("timely_agent.worker")
 
 MAX_RUNS = 3  # per-account run cap (section 3.3)
 HEARTBEAT_S = 10.0
+MAINTENANCE_S = 600.0  # curator tick (its own gates decide whether a pass is due)
 EXIT_REFUSED_ENV = 3
 
 
@@ -67,6 +68,34 @@ def tracked_children() -> int:
         return 0
 
 
+def web_backends() -> list[str]:
+    """``ready.web_backends``: keyed web backends this runtime can use (``timely_agent.web_backends``,
+    worker-web's module; [] while it is missing)."""
+    try:
+        from timely_agent import web_backends as wb
+    except ImportError:
+        return []
+    try:
+        return sorted(str(b) for b in wb.available())
+    except Exception:
+        logger.exception("web_backends.available failed")
+        return []
+
+
+def skills_upstream() -> int:
+    """``ready.skills_upstream``: edited bundled skills whose upstream changed
+    (``timely_agent.skills_admin``; 0 while it is missing)."""
+    try:
+        from timely_agent import skills_admin
+    except ImportError:
+        return 0
+    try:
+        return int(skills_admin.upstream_count())
+    except Exception:
+        logger.exception("skills_admin.upstream_count failed")
+        return 0
+
+
 def run_start_problem(msg: dict[str, Any]) -> Optional[str]:
     """Why a run.start's optional fields have the wrong shape, else None. Checked before the run
     thread starts, so a malformed start is refused with an error answering its id instead of
@@ -95,9 +124,14 @@ def run_start_problem(msg: dict[str, Any]) -> Optional[str]:
     permission = msg.get("permission")
     if permission is not None and permission not in bridge.PERMISSIONS:
         return f"permission must be one of {list(bridge.PERMISSIONS)}, not {permission!r}"
-    learning = (msg.get("flags") or {}).get("learning_writes")
-    if learning is not None and not isinstance(learning, bool):
-        return "flags.learning_writes must be a bool"
+    flags = msg.get("flags") or {}
+    for name in P.RUN_START_BOOL_FLAGS:
+        if flags.get(name) is not None and not isinstance(flags.get(name), bool):
+            return f"flags.{name} must be a bool"
+    for name in P.RUN_START_LISTS:
+        value = msg.get(name)
+        if value is not None and (not isinstance(value, list) or any(not isinstance(v, str) for v in value)):
+            return f"{name} must be a list of strings"
     return None
 
 
@@ -137,17 +171,20 @@ def timely_tools_problem(value: Any) -> Optional[str]:
 
 class Worker:
     def __init__(self, chan: P.Channel):
+        from timely_agent.learning.counters import Counters
         from timely_agent.run_chat import AgentCache
         self.chan = chan
         self.pending = P.PendingRequests()
-        self.cache = AgentCache()
+        self.home = Path(os.environ["HERMES_HOME"]).resolve()
+        self.counters = Counters.for_home(self.home)
+        self.cache = AgentCache(counters=self.counters)
+        self.prepared: dict[str, Any] = {}
         self.runs: dict[str, Any] = {}
         self.runs_lock = threading.Lock()
         self.ready = False
         self.refused_reason: Optional[str] = None
         self.stopping = False
         self._shutdown_started = False
-        self.home = Path(os.environ["HERMES_HOME"]).resolve()
         bridge.ask = self._ask
         bridge.notify = self.send
 
@@ -264,6 +301,11 @@ class Worker:
             self.refused_reason = "; ".join(f"{c['name']}: {c['detail']}" for c in result["checks"] if not c["ok"])
             logger.error("self-test failed, refusing to serve: %s", self.refused_reason)
         failures = [f"{c['name']}: {c['detail']}" for c in result["checks"] if not c["ok"]]
+        self.prepared = {"timely_skills_dir": timely_skills, "browser_executable": browser,
+                         "seed_skills_dir": os.environ.get("HERMES_BUNDLED_SKILLS", ""),
+                         "skills_default_off": default_off}
+        from timely_agent.learning import feed as learning_feed
+        learning_feed.install(learning_feed.Feed(self.home, self.send))
         self.send({
             "type": "ready", "id": mid, "protocol": P.PROTOCOL_VERSION, "hermes_tag": hermes_tag(),
             "pid": os.getpid(),  # Go checks this interpreter is in its process group / Job Object
@@ -274,15 +316,74 @@ class Worker:
             "catalog_version": msg.get("catalog_version"),
             "timely_tools": {"catalog_version": bridge.timely_catalog_version(),
                              "registered": sorted(result.get("timely_registered") or [])},
+            "web_backends": web_backends(), "skills_upstream": skills_upstream(),
         })
         threading.Thread(target=self._heartbeat, name="timely-heartbeat", daemon=True).start()
+        threading.Thread(target=self._maintenance, name="timely-maintenance", daemon=True).start()
 
     def busy(self) -> dict[str, Any]:
-        """Work Go cannot see on its own (plan 6.2): live runs, a learning pass, tracked children."""
+        """Work Go cannot see on its own (plan 6.2): live runs, a learning pass or curator run,
+        tracked children."""
+        from timely_agent.learning import passes
         with self.runs_lock:
             runs = len(self.runs)
-        # Learning passes arrive in phase 4; until then learning is always False.
-        return {"runs": runs, "learning": False, "children": tracked_children()}
+        return {"runs": runs, "learning": passes.active(), "children": tracked_children()}
+
+    def _maintenance(self) -> None:
+        """The maintenance tick (plan 9b.2 item 6): Hermes' curator, while nothing else runs."""
+        from timely_agent.learning import curator, passes
+        while not self.chan.closed and not self.stopping:
+            time.sleep(MAINTENANCE_S)
+            if not self.ready or self.stopping or passes.active():
+                continue
+            with self.runs_lock:
+                if self.runs:
+                    continue
+            curator.tick(self.home)
+
+    # ------------------------------------------------------------ learning (PROTOCOL.md section 10)
+    def on_learning(self, msg: dict[str, Any]) -> None:
+        """``learning.*`` and ``settings.update``: answered on a thread of their own (an export or
+        a skill sync takes a moment) with ``learning.result {id, ok, data}`` or ``error``."""
+        from timely_agent.learning import api
+        mid = msg.get("id")
+        self._require_ready(mid)
+        if not isinstance(mid, str) or not mid:
+            raise P.ProtocolError(P.E_BAD_MESSAGE, f"{msg['type']} needs an id", mid)
+        problem = api.problem(msg)
+        if problem:
+            raise P.ProtocolError(P.E_BAD_MESSAGE, problem, mid)
+        host = api.Host(home=self.home, account=str(self.chan.account), render=self._render_settings,
+                        after_settings=self._drop_idle_agents)
+
+        def body() -> None:
+            try:
+                data = api.handle(msg, host)
+                self.send({"type": "learning.result", "id": mid, "ok": True, "data": data})
+            except api.Failed as exc:
+                self.send({"type": "learning.result", "id": mid, "ok": False, "data": exc.data})
+            except api.ApiError as exc:
+                self.chan.error(exc.code, exc.message, mid)
+            except Exception as exc:  # noqa: BLE001 - Go waits for an answer
+                logger.exception("%s failed", msg.get("type"))
+                self.chan.error(P.E_INTERNAL, f"{type(exc).__name__}: {exc}", mid)
+
+        threading.Thread(target=contextvars.copy_context().run, args=(body,), name="timely-learning-api",
+                         daemon=True).start()
+
+    def _render_settings(self, settings: dict[str, Any]) -> str:
+        from timely_agent.cli import render_account
+        layout = paths.layout_for_home(self.home)
+        return render_account(layout, str(self.chan.account), settings, self.prepared)["config_sha256"]
+
+    def _drop_idle_agents(self) -> None:
+        """After a settings change: cached agents of conversations without a live run are rebuilt
+        on their next turn (counters kept), so the new skills list and backends reach them."""
+        with self.runs_lock:
+            live = {r.msg.get("conversation_id") for r in self.runs.values()}
+        for conversation, _agent in self.cache.items():
+            if conversation not in live:
+                self.cache.drop(conversation)
 
     def _heartbeat(self) -> None:
         # Also during the shutdown grace: Go still watches a stopping worker.
@@ -419,7 +520,9 @@ class Worker:
         with self.runs_lock:
             if any(r.msg.get("conversation_id") == conversation for r in self.runs.values()):
                 raise P.ProtocolError(P.E_BUSY, "the conversation has a live run; stop it first", msg.get("id"))
-        self.cache.drop(conversation)
+        self.cache.drop(conversation, keep_counters=False)
+        self.counters.forget(conversation)
+        bridge.forget_session(conversation)
         ok = False
         try:
             from hermes_state import SessionDB
@@ -455,6 +558,7 @@ class Worker:
             self.wait_runs(grace)
             self.stop_all("shutdown")
             self.wait_runs(2.0)
+            self.cache.store_all()  # review counters survive the restart (plan 3.3)
         except BaseException:  # noqa: BLE001 - exit whatever happens
             logger.exception("shutdown failed")
             code = 1
@@ -497,11 +601,13 @@ class Worker:
             self.on_approval_answer(msg)
         elif t == "session.delete":
             self.on_session_delete(msg)
+        elif t.startswith("learning.") or t == "settings.update":
+            self.on_learning(msg)
         elif t == "shutdown":
             grace = msg.get("grace")
             self.begin_shutdown(float(grace) if isinstance(grace, (int, float)) and not isinstance(grace, bool)
                                 else 5.0)
-        else:  # bot.run, learning.*: later phases
+        else:  # bot.run: phase 6
             raise P.ProtocolError(P.E_UNSUPPORTED, f"{t} is not supported by this worker yet", msg.get("id"))
         return True
 
@@ -517,6 +623,7 @@ class Worker:
                 self.stopping = True
                 self.stop_all("host closed the pipe")
                 self.wait_runs(2.0)
+                self.cache.store_all()
                 return 0
             if not line.strip():
                 continue

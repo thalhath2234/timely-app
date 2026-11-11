@@ -36,11 +36,12 @@ BLOCKED_PREFIXES = ("kanban_", "meet_")  # meet_: the opt-in google_meet plugin 
 # Every tools.yaml entry with `phase: never` must be blocked by the names above;
 # scripts/hermes-sync/check_policy.py fails the sync check when one is not.
 
-# Tools that run without a Go round trip in phase 1: read-only agent bookkeeping, and
-# skill_manage, whose policy belongs to timely_learning (it blocks writes to Timely-shipped
-# skills; staging comes with phase 3). Hermes applies every plugin's block, so allowing here
-# never overrides timely_learning.
-LOCAL_ALLOW = frozenset({"todo_list", "skills_list", "skill_view", "skill_manage"})
+# Tools that run without a Go round trip: read-only agent bookkeeping, and the learning tools
+# (skill_manage, memory, session_search), whose policy belongs to timely_learning: it blocks
+# writes to Timely-shipped skills, blocks or stages learning writes (plan 9b.2), and decides past-
+# chat search from the run's flags. Hermes applies every plugin's block, so allowing here never
+# overrides timely_learning.
+LOCAL_ALLOW = frozenset({"todo_list", "skills_list", "skill_view", "skill_manage", "memory", "session_search"})
 
 
 # The Timely tool that records a plan (plan 3.4 step 8): it must be the only call in its assistant
@@ -51,13 +52,14 @@ PROPOSE_ALONE = "Call propose_changes alone, after all read tools finish"
 # Taint sources (plan 9b.2): tools whose result brings outside content to the model. A call that
 # ran (was not blocked) adds ``{kind, tool, host?}`` to the run's taint and is reported to Go
 # (``taint``). Timely's own tools are not listed: Go marks their outside results (``outside: true``
-# in ``tool.result``). Delegation and session search are listed as sources outright until the
-# child-to-parent map and the tainted-conversation list arrive (phases 3-4).
+# in ``tool.result``). Delegation is listed as a source outright until the child-to-parent map
+# arrives (phase 4). Session search is not listed (phase 3): timely_learning taints the session
+# per hit, only when a hit comes from a conversation Go lists in ``tainted_conversations``.
 TAINT_SOURCES: dict[str, str] = {
     "web_search": "web", "web_extract": "web", "bot_browse": "browser",
     "read_file": "file", "search_files": "file",
     "terminal": "terminal", "process": "terminal", "execute_code": "code",
-    "vision_analyze": "vision", "session_search": "session", "delegate_task": "subagent",
+    "vision_analyze": "vision", "delegate_task": "subagent",
 }
 TAINT_PREFIXES: tuple[tuple[str, str], ...] = (("web_", "web"), ("browser_", "browser"), ("mcp_", "mcp"))
 

@@ -16,6 +16,11 @@ in). "After the directive" means the messages that follow that user message in t
   ``"stream": [<chunk>, <delay ms>]`` for text. Past the last step the answer is ``STUB_FINAL`` +
   the last tool result (200 characters), or ``STUB_REPLY``; a steer after the directive adds
   ``Steered: <text>``.
+- ``REVIEW <json list>`` (anywhere in a user message, usually after a ``SCRIPT`` list): what the
+  stub answers in Hermes' learning pass. A request whose last user message is Hermes' review
+  prompt (it ends "Other tools will be denied at runtime") plays the steps of the last ``REVIEW``
+  list found in the earlier user messages, like ``SCRIPT``; without one it answers
+  ``REVIEW_NOTHING``.
 - anything else: ``STUB_REPLY`` + the message.
 
 Streaming (``stream: true``) and plain responses are both supported. Usage is a fixed
@@ -41,6 +46,12 @@ STEERED = "Steered: "
 USAGE = {"prompt_tokens": 1234, "completion_tokens": 56, "total_tokens": 1290}
 ALPHABET = "abcdefghijklmnopqrstuvwxyz "
 STEER_MARK = "STEER"
+REVIEW_MARK = "Other tools will be denied"  # Hermes' suffix on every learning-pass prompt
+REVIEW_NOTHING = "Nothing to save."
+
+
+def is_review(text: str) -> bool:
+    return REVIEW_MARK in text
 
 
 def _text(content) -> str:
@@ -77,6 +88,16 @@ def decide(body: dict) -> tuple[dict, str, dict]:
     answers = sum(1 for m in after if m.get("role") == "assistant")
     steers = [_text(m.get("content")) for m in after if m.get("role") == "user"]
     stream: dict = {}
+
+    if is_review(directive):
+        directive = ""
+        for m in reversed(msgs[:anchor]):
+            text = _text(m.get("content")) if m.get("role") == "user" else ""
+            if "REVIEW " in text:
+                directive = "SCRIPT " + text[text.index("REVIEW ") + len("REVIEW "):]
+                break
+        if not directive:
+            return {"role": "assistant", "content": REVIEW_NOTHING}, "stop", stream
 
     def final() -> dict:
         text = STUB_FINAL + _text(tool_results[-1].get("content"))[:200] if tool_results else STUB_REPLY + directive

@@ -12,9 +12,9 @@ import subprocess
 
 
 import harness
-from timely_agent import config_render, paths
+from timely_agent import config_render, paths, plugin_dist
 
-TIMELY_PLUGINS = {"timely_gate", "timely_tools", "timely_learning", "timely_bot"}
+TIMELY_PLUGINS = set(plugin_dist.PLUGINS)
 
 
 def _events(seen, kind=None):
