@@ -197,6 +197,36 @@ def test_a_request_claims_only_its_own_writes(tmp_path):
     assert events[-1]["after"] == "chat learned: likes tea"
 
 
+def test_overlapping_chats_each_keep_their_own_changes(tmp_path):
+    """Chat A's run ends while chat B's learning pass is writing: A's diff must not take B's
+    changes. A skill takes B's run from B's session state; a memory write in flight is left to B's
+    own report, which carries B's run (Q-3.1: the chip goes under B's reply)."""
+    home = _home(tmp_path)
+    f = feed.Feed(home, lambda m: None)
+    bridge.bind_session("chat-B-overlap", run_id="run-B", tainted_sources=[])
+    try:
+        ctx_a = feed.Context(origin="chat", conversation_id="chat-A-overlap", run_id="run-A")
+        ctx_b = feed.Context(origin="review", conversation_id="chat-B-overlap", run_id="run-B")
+        _ledger(home, {"id": "led-B", "action": "create", "skill": "bank-csv", "actor": "curator",
+                       "evidence": {"session_id": "chat-B-overlap"}, "before": [], "after": []})
+        before = f.begin_memory_write("chat-B-overlap:call-1")
+        files.memory_path(home, "user").write_text("Prefers metric units")
+        events = f.diff(ctx_a)
+        assert [(e["kind"], e["conversation_id"], e["run_id"], e["origin"]) for e in events] == [
+            ("skill", "chat-B-overlap", "run-B", "review")], events
+        mine = f.end_memory_write("chat-B-overlap:call-1", before, ctx_b)
+        assert [(e["kind"], e["action"], e["after"], e["conversation_id"], e["run_id"]) for e in mine] == [
+            ("user", "added", "Prefers metric units", "chat-B-overlap", "run-B")], mine
+        assert f.diff(ctx_a) == [] and f.diff(ctx_b) == []
+        # a write whose hook was blocked reports nothing itself; the next diff finds what is on disk
+        before = f.begin_memory_write("chat-B-overlap:call-2")
+        assert f.end_memory_write("chat-B-overlap:call-2", before, None) == []
+        files.memory_path(home, "memory").write_text("Older worker wrote this")
+        assert [e["kind"] for e in f.diff(ctx_b)] == ["memory"]
+    finally:
+        bridge.forget_session("chat-B-overlap")
+
+
 # ---------------------------------------------------------------- counters
 
 class FakeAgent:

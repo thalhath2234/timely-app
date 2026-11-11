@@ -50,6 +50,7 @@ import json
 import logging
 import os
 import re
+import threading
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -164,7 +165,10 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, **_: Any) -> di
         if tool_name == "skill_manage" or tool_name in PATH_TOOLS:
             return {"action": "block", "message": f"Blocked: Timely could not check {tool_name} ({exc})."}
     if tool_name in LEARNING_TOOLS:
-        return _learning_write(tool_name, args, str(_.get("session_id") or ""))
+        verdict = _learning_write(tool_name, args, str(_.get("session_id") or ""))
+        if verdict is None and tool_name == "memory":
+            _begin_memory_write(str(_.get("session_id") or ""), str(_.get("tool_call_id") or ""))
+        return verdict
     if tool_name == SEARCH_TOOL:
         return _search(args, str(_.get("session_id") or ""))
     return None
@@ -281,6 +285,50 @@ def _learning_write(tool_name: str, args: dict, session_id: str) -> dict | None:
     return None
 
 
+_memory_writes: dict[str, tuple[dict, Any]] = {}
+_memory_writes_lock = threading.Lock()
+
+
+def _write_key(session_id: str, tool_call_id: str) -> str:
+    return f"{session_id}:{tool_call_id or threading.get_ident()}"
+
+
+def _begin_memory_write(session_id: str, tool_call_id: str) -> None:
+    """A ``memory`` call the policy lets apply: the feed reports its change with this
+    conversation's chip (``end_memory_write`` in ``post_tool_call``), not with whichever run's diff
+    finds it first."""
+    from timely_agent.learning import feed as feed_mod
+    feed = feed_mod.current()
+    view = _view(session_id)
+    if feed is None or view is None:
+        return
+    key = _write_key(session_id, tool_call_id)
+    ctx = feed_mod.Context(origin=view.origin, conversation_id=view.conversation_id, run_id=view.run_id,
+                           tainted_sources=list(view.taint))
+    try:
+        before = feed.begin_memory_write(key)
+    except Exception:
+        logger.exception("noting a memory write for the learning feed failed")
+        return
+    with _memory_writes_lock:
+        _memory_writes[key] = (before, ctx)
+
+
+def _end_memory_write(session_id: str, tool_call_id: str, status: str | None) -> None:
+    from timely_agent.learning import feed as feed_mod
+    with _memory_writes_lock:
+        noted = _memory_writes.pop(_write_key(session_id, tool_call_id), None)
+    feed = feed_mod.current()
+    if noted is None or feed is None:
+        return
+    before, ctx = noted
+    try:
+        feed.end_memory_write(_write_key(session_id, tool_call_id), before,
+                              None if status == "blocked" else ctx)
+    except Exception:
+        logger.exception("reporting a memory write to the learning feed failed")
+
+
 def _search(args: dict, session_id: str) -> dict | None:
     view = _view(session_id)
     if view is None or view.state is None or not view.state.search_history:
@@ -339,7 +387,10 @@ def _toolset(tool_name: str) -> str:
 
 
 def post_tool_call(tool_name: str = "", args: dict | None = None, status: str | None = None, **_: Any) -> None:
-    """Report outside content that reached the model (a taint source that ran) to Go."""
+    """Report outside content that reached the model (a taint source that ran) to Go, and a
+    ``memory`` write's own change to the learning feed."""
+    if tool_name == "memory":
+        _end_memory_write(str(_.get("session_id") or ""), str(_.get("tool_call_id") or ""), status)
     if status == "blocked":
         return
     from timely_agent import bridge, policy

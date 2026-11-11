@@ -11,16 +11,24 @@ entries new across the call with its own actor; its own memory delta): a chat's 
 pass's write that lands meanwhile still reaches the next diff.
 
 An applied change carries no summary: the apps name it from its kind, action and subject (a
-staged one carries a plain one-line summary of what would change). A ledger entry names the
-conversation it came from (``evidence.session_id``, set by
-``skill_manage``); memory has no ledger, so a memory change is attributed to the run whose diff
-found it.
+staged one carries a plain one-line summary of what would change).
+
+**Attribution** (Q-3.1: the chip and Undo go under the reply of the chat that learned it). A
+ledger entry names the conversation it came from (``evidence.session_id``, set by
+``skill_manage``); when that is not the diff's own conversation, the event takes that
+conversation's run, origin and taint from its session state (``session_context``), so a skill
+another chat's learning pass wrote while this run ended keeps that chat's chip. Memory has no
+ledger, so each ``memory`` call that applies reports its own change: ``timely_learning`` calls
+:meth:`Feed.begin_memory_write` before it runs and :meth:`Feed.end_memory_write` after, with the
+writer's context. While a write is in flight a diff leaves memory alone; a diff reports only
+memory changes nobody reported (an older worker's, a write whose hook did not finish).
 """
 
 from __future__ import annotations
 
 import logging
 import threading
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -75,15 +83,33 @@ def _skill_text(home: Path, items: list[dict], skill: str) -> str:
     return files.read_blob(home, str(main.get("sha256") or "")) or ""
 
 
-def ledger_event(home: Path, entry: dict[str, Any], ctx: Context) -> Optional[dict[str, Any]]:
+def session_context(session_id: str) -> Optional[Context]:
+    """The context of a conversation this worker runs: its latest run, origin and taint."""
+    from timely_agent import bridge
+    state = bridge.session_state(session_id)
+    if state is None:
+        return None
+    origin = "bot" if state.from_bot or state.kind in ("bot", "bot_review") else "chat"
+    return Context(origin=origin, conversation_id=state.session_id, run_id=state.run_id,
+                   tainted_sources=state.taint_snapshot())
+
+
+def ledger_event(home: Path, entry: dict[str, Any], ctx: Context,
+                 resolve: Callable[[str], Optional[Context]] = session_context) -> Optional[dict[str, Any]]:
     action = str(entry.get("action") or "")
     if action in SKIPPED_LEDGER_ACTIONS:
         return None
     skill = str(entry.get("skill") or "")
     actor = entry.get("actor")
+    evidence = entry.get("evidence") if isinstance(entry.get("evidence"), dict) else {}
+    session = str(evidence.get("session_id") or "")
+    if session and session != ctx.conversation_id and ctx.origin in ("chat", "review", "bot"):
+        try:
+            ctx = resolve(session) or ctx
+        except Exception:
+            logger.exception("finding the conversation of a ledger entry failed")
     origin = "user" if actor == "user" else ("review" if actor == "curator" and ctx.origin == "chat"
                                               else ctx.origin)
-    evidence = entry.get("evidence") if isinstance(entry.get("evidence"), dict) else {}
     verb = LEDGER_ACTIONS.get(action, "patched")
     return make_event(
         kind="skill", action=verb, subject=skill, status="applied", origin=origin,
@@ -112,6 +138,7 @@ def memory_events(target: str, old: list[str], new: list[str], ctx: Context,
     return out
 
 
+INFLIGHT_MAX_S = 120.0  # a memory write whose hook never finished stops holding diffs back
 BASELINE = "feed-baseline.json"  # under <home>/.timely/: what was last reported (never in a backup)
 
 
@@ -128,6 +155,7 @@ class Feed:
         self._ledger: set[str] = set()
         self._memory: dict[str, list[str]] = {}
         self._pending: set[str] = set()
+        self._inflight: dict[str, float] = {}
         self._resumed = self._load()
         if not self._resumed:
             self.prime()
@@ -202,6 +230,47 @@ class Feed:
             self._memory[target] = base + [e for e in added if e not in base]
             self._save()
 
+    # ------------------------------------------------------------ memory writes (self-reported)
+    def begin_memory_write(self, key: str) -> dict[str, list[str]]:
+        """A ``memory`` call is about to apply: hold diffs off memory until it reports, and return
+        what the files hold now."""
+        with self.lock:
+            self._inflight[key] = time.monotonic()
+            return {t: files.read_memory(self.home, t) for t in files.MEMORY_FILES}
+
+    def end_memory_write(self, key: str, before: Optional[dict[str, list[str]]],
+                         ctx: Optional[Context]) -> list[dict[str, Any]]:
+        """The call ended: report its own change with the writer's context (only entries the
+        baseline does not hold yet) and claim it. ``ctx`` None (blocked, failed) reports nothing."""
+        events: list[dict[str, Any]] = []
+        with self.lock:
+            self._inflight.pop(key, None)
+            if before is None or ctx is None:
+                return events
+            for target in files.MEMORY_FILES:
+                after = files.read_memory(self.home, target)
+                base = self._memory.get(target, [])
+                old = before.get(target, [])
+                removed = [e for e in old if e not in after and e in base]
+                added = [e for e in after if e not in old and e not in base]
+                if not removed and not added:
+                    continue
+                events += memory_events(target, removed, added, ctx)
+                kept = [e for e in base if e not in removed]
+                self._memory[target] = kept + [e for e in added if e not in kept]
+            if events:
+                self._save()
+            for ev in events:
+                self.emit(ev)
+        return events
+
+    def _memory_busy(self) -> bool:
+        now = time.monotonic()
+        for key, started in list(self._inflight.items()):
+            if now - started > INFLIGHT_MAX_S:
+                del self._inflight[key]
+        return bool(self._inflight)
+
     def claim_pending(self, pending_id: str) -> None:
         with self.lock:
             self._pending.add(pending_id)
@@ -228,7 +297,7 @@ class Feed:
                 ev = ledger_event(self.home, entry, ctx)
                 if ev is not None:
                     events.append(ev)
-            for target in files.MEMORY_FILES:
+            for target in files.MEMORY_FILES if not self._memory_busy() else ():
                 new = files.read_memory(self.home, target)
                 old = self._memory.get(target, [])
                 if new != old:
