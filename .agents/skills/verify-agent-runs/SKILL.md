@@ -89,7 +89,7 @@ TLC prints numbered states, each labelled with the action that produced it. Tran
 
 ## Coverage record
 
-Sync commit: `31c7c80949a5ef65864178f0663e31e56a4e828d` (the model was last confirmed to describe the code at this commit; `coverage.lock` holds the per-function fingerprints).
+Sync commit: `e3a51182e61db18d10c34b766787865b6e2bee52` (the model was last confirmed to describe the code at this commit; `coverage.lock` holds the per-function fingerprints).
 
 - `apps/api/internal/features/chat/runner.go`: `(*Service).work` (claim, engine dispatch, failure checkpoint), `runClassic`, `keepLease`, `apply`, `retrySerializable`, `serializationFailure`
 - `apps/api/internal/features/chat/service.go`: `(*Service).change`, `save`, `send`, `approve`, `stop`, `reject`, `remove`, `retry`, `checkpoint`, `configure`, `steer`, `busy`
@@ -99,6 +99,8 @@ Sync commit: `31c7c80949a5ef65864178f0663e31e56a4e828d` (the model was last conf
 - `apps/api/internal/features/chat/toolcall.go`: `(*Service).toolCall` (reads only), `finishTurn`, `endRun`, `renewLease`
 - `apps/api/internal/features/chat/permission_mode.go`: `proposalStatus`, `holdReason`
 - `apps/api/cmd/agent_deps.go`: `chatCatalog`; `apps/api/cmd/main.go`: the `chat.New(...)` wiring (anchor only)
+
+Resynced 2026-11-11 (phase 3): `configure` (the `noLearning` field), `toolCall` (the web branches), `finishTurn` (messages carry the agent run id) and `Start` (the run's learning and web setup) changed; none of them changes how a run is claimed, leased, checkpointed, held or applied, so the model did not change, and `--mutants` caught all eight guards.
 
 Last proven able to fail (2026-11-09, phase 2): with `HoldsSupervised` removed, the turn check gave a SupervisedHolds trace in 5 states (a lane claims the new message, its turn records the proposal as queued in a Supervised chat, a lane claims it and the step transaction writes); with `CheckpointFenced` removed, the turn check alone gave DoneMeansComplete in 6 states (a lane claims, its lease expires, a second lane claims, both plan turns commit). Every guard's mutant is caught (`--mutants`): seven in the apply check, `HoldsSupervised` in the turn check.
 
@@ -113,8 +115,8 @@ A pass covers every interleaving within these bounds, not every size.
 Assumed, not checked here:
 - Postgres row locks and `SERIALIZABLE` behave as documented, and lease ids never repeat.
 - Every write tool reaches the database only through the transaction `chatCatalog(tx, ...)` is built on (anchored at the wiring, not proven per tool). A tool that writes through another handle, a goroutine or an external service breaks at-most-once; review new write tools for this.
-- A turn writes no Timely data: `toolCall` runs read tools and refuses write tools (anchored), and the agent engine's worker reaches Timely only through `tool.call` (ADR 0007). The DB audit in the phase 2 record (plan section 13) checks this on a live run.
-- Full Access lifts nothing more than Auto for Timely data in phase 2, so the model has two modes.
+- A turn writes no Timely data: `toolCall` runs read tools and refuses write tools (anchored), and the agent engine's worker reaches Timely only through `tool.call` (ADR 0007). The DB audit in the phase 2 record (plan section 13) checks this on a live run. Phase 3's web branches of `toolCall` (the timely backend's `web_search` and `web_extract`) only read a search answer or a page; the taint they add can only hold a proposal for review, which the model's free hold choice already covers.
+- Full Access lifts nothing more than Auto for Timely data in phases 2 and 3, so the model has two modes.
 - Lost re-attaches only in the API process that runs the follower; the model lets any lane re-attach the follower of the run the row names, which is more than the code allows.
 
 Left out:
