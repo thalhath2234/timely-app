@@ -56,9 +56,9 @@ PROPOSE_ALONE = "Call propose_changes alone, after all read tools finish"
 # arrives (phase 4). Session search is not listed (phase 3): timely_learning taints the session
 # per hit, only when a hit comes from a conversation Go lists in ``tainted_conversations``.
 TAINT_SOURCES: dict[str, str] = {
-    "web_search": "web", "web_extract": "web", "bot_browse": "browser",
+    "web_search": "web", "web_extract": "web", "x_search": "web", "bot_browse": "browser",
     "read_file": "file", "search_files": "file",
-    "terminal": "terminal", "process": "terminal", "execute_code": "code",
+    "terminal": "terminal", "process": "terminal", "process_manage": "terminal", "execute_code": "code",
     "vision_analyze": "vision", "delegate_task": "subagent",
 }
 TAINT_PREFIXES: tuple[tuple[str, str], ...] = (("web_", "web"), ("browser_", "browser"), ("mcp_", "mcp"))

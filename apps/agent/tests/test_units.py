@@ -8,6 +8,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -613,6 +614,35 @@ def test_skill_manage_refuses_names_timely_cannot_keep(monkeypatch, name):
             assert verdict and verdict["action"] == "block" and "can't keep a skill named" in verdict["message"], args
     finally:
         bridge.current_run.reset(token)
+
+
+# Tools chat may call that bring no outside text into the session: Timely's own skills and memory, the
+# to-do list, file writes (their result is what was written), and past-chat search, whose taint the
+# session-taint gate gives per hit.
+NOT_TAINT = frozenset({"skills_list", "skill_view", "skill_manage", "memory", "todo_list", "session_search",
+                       "write_file", "patch"})
+
+
+def test_every_tool_chat_may_call_has_a_taint_classification():
+    """ADR 0028 / plan 9b.5: a tool chat may call (allow or approve) either carries a taint kind or is
+    named in NOT_TAINT, so a new outside-text tool cannot slip in as clean."""
+    scripts = Path(__file__).resolve().parents[3] / "scripts" / "hermes-sync"
+    sys.path.insert(0, str(scripts))
+    try:
+        import check_lib
+    finally:
+        sys.path.remove(str(scripts))
+    tools_yaml = Path(__file__).resolve().parents[1] / ".hermes-sync" / "policy" / "tools.yaml"
+    entries = check_lib.yaml_load(tools_yaml.read_text(encoding="utf-8"), "tools.yaml")
+    entries = entries.get("tools", entries)
+    missing = []
+    for key, entry in entries.items():
+        if not isinstance(entry, dict) or entry.get("chat") == "block":
+            continue
+        name = key.partition("@")[0]
+        if name not in NOT_TAINT and not policy.taint_kind(name, str(entry.get("toolset") or "")):
+            missing.append(key)
+    assert missing == [], f"classify these tools' taint in policy.TAINT_SOURCES or list them in NOT_TAINT: {missing}"
 
 
 def test_taint_sources_policy():
