@@ -31,9 +31,9 @@ export const ABOUT_YOU_ROUTE = "/(app)/settings/learned/about";
 export const WAITING_ROUTE = "/(app)/settings/learned/waiting";
 
 /** The chat menu's switch and the line the thread shows while it is on. */
-export const DONT_LEARN = "Don't learn from this chat";
+export { DONT_LEARN } from "@timely/contract/agentLearning";
 export const DONT_LEARN_META = "Timely won't remember anything from it or find it when it searches your past chats.";
-export const NOT_LEARNING_LINE = "Timely isn't learning from this chat.";
+export { NO_LEARNING_NOTE as NOT_LEARNING_LINE } from "@timely/contract/agentLearning";
 /** Skills are managed on the computer (plan 9b.4: mobile mirrors Activity, About you and Waiting for you). */
 export const SKILLS_ON_COMPUTER = "Skills are managed in Timely on your computer.";
 

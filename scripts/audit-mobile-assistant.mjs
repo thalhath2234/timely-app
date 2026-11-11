@@ -621,7 +621,7 @@ else {
     await page
       .getByRole("switch", { name: "Don't learn from this chat" })
       .click();
-    await page.getByText("Timely isn't learning from this chat.").waitFor();
+    await page.getByText("Timely won't learn from this chat.").waitFor();
     assert(
       (await actions()).some(
         (a) =>

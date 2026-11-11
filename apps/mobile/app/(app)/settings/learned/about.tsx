@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ABOUT_YOU, budgetMeter, NEXT_CHAT_NOTE, type MemoryStore } from "@timely/contract/agentLearning";
+import { ABOUT_YOU, budgetMeter, type MemoryStore } from "@timely/contract/agentLearning";
 import Screen from "../../../../components/ui/Screen";
 import MobileHeader from "../../../../components/ui/MobileHeader";
 import BottomSheet from "../../../../components/ui/BottomSheet";
@@ -39,6 +39,7 @@ export default function AboutYou() {
     <Screen>
       <MobileHeader title={ABOUT_YOU} back large={false} />
       <ScrollView
+        showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ padding: 16, paddingBottom: 24 + insets.bottom, gap: 6 }}
       >
@@ -54,7 +55,7 @@ export default function AboutYou() {
             <ListGroup>
               <MeterRow label="Space used" meter={budgetMeter(store.used, store.limit)} />
             </ListGroup>
-            <GroupHint>{`Timely reads this at the start of every chat. Changes ${NEXT_CHAT_NOTE}.`}</GroupHint>
+            <GroupHint>{"Timely reads this at the start of every chat. Changes apply from your next chat."}</GroupHint>
             <ListGroup testID="about-entries">
               {store.entries.map((entry, i) => (
                 <TextRow key={`${i}:${entry}`} testID={`about-entry-${i}`} text={entry} onPress={() => open({ old: entry })} />

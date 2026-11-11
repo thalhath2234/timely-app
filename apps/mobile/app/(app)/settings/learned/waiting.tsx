@@ -41,6 +41,7 @@ export default function Waiting() {
     <Screen>
       <MobileHeader title={WAITING_FOR_YOU} back large={false} />
       <ScrollView
+        showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ padding: 16, paddingBottom: 24 + insets.bottom, gap: 6 }}
       >

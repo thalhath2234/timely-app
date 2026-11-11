@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ACTIVITY, NEXT_CHAT_NOTE, type LearningEvent } from "@timely/contract/agentLearning";
+import { ACTIVITY, type LearningEvent } from "@timely/contract/agentLearning";
 import Screen from "../../../../components/ui/Screen";
 import MobileHeader from "../../../../components/ui/MobileHeader";
 import BottomSheet from "../../../../components/ui/BottomSheet";
@@ -36,6 +36,7 @@ export default function LearnedActivity() {
     <Screen>
       <MobileHeader title={ACTIVITY} back large={false} />
       <ScrollView
+        showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ padding: 16, paddingBottom: 24 + insets.bottom, gap: 6 }}
       >
@@ -112,7 +113,7 @@ function EventSheet({ event: open, onClose }: { event: LearningEvent | null; onC
               {memory ? <TextBlock text={event.after} /> : <DiffBlock text={event.after} />}
             </Block>
           ) : null}
-          {memory && undoable ? <GroupHint>{`Changes to what Timely remembers ${NEXT_CHAT_NOTE}.`}</GroupHint> : null}
+          {memory && undoable ? <GroupHint>{"Changes to what Timely remembers apply from your next chat."}</GroupHint> : null}
           {undo.error && undo.variables?.[0] === event.id ? <Text style={styles.error}>{undo.error.message || "Could not undo."}</Text> : null}
         </View>
       ) : null}

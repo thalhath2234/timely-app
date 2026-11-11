@@ -5,6 +5,7 @@ import {
   ABOUT_YOU,
   ACTIVITY,
   LEARNED_TITLE,
+  LEARN_SWITCH,
   NEVER_ARCHIVES,
   WAITING_FOR_YOU,
   budgetMeter,
@@ -57,6 +58,7 @@ export default function LearnedSettings() {
     <Screen>
       <MobileHeader title={LEARNED_TITLE} back large={false} />
       <ScrollView
+        showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ padding: 16, paddingBottom: 24 + insets.bottom, gap: 6 }}
       >
@@ -71,7 +73,7 @@ export default function LearnedSettings() {
           <>
             <ListGroup testID="learned-switches">
               <SwitchRow
-                title="Learning"
+                title={LEARN_SWITCH}
                 meta="Timely remembers what helps, from your chats"
                 value={data.learning}
                 onChange={(learning) => patch.mutate({ learning })}

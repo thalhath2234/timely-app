@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Download } from "lucide-react";
-import { DOWNLOAD_LEARNED } from "@timely/contract/agentLearning";
+import { DOWNLOAD_LEARNED, LEARN_SWITCH } from "@timely/contract/agentLearning";
 import Button from "@/app/_components/_ui/button";
 import { GroupHint, GroupLabel, ListGroup, ListRow, ListSwitch } from "@/app/_components/_ui/groupedList";
 import { downloadLearned } from "@/app/utils/api/learning";
@@ -44,9 +44,9 @@ export default function LearnedRail() {
             />
           ) : (
             [
-              <ListRow key="learning" label="Learn from chats" meta="Skills and notes from your chats">
+              <ListRow key="learning" label={LEARN_SWITCH} meta="Skills and notes from your chats">
                 <ListSwitch
-                  label="Learn from chats"
+                  label={LEARN_SWITCH}
                   checked={data?.learning ?? false}
                   disabled={!data}
                   onChange={(learning) => patch.mutate({ learning })}

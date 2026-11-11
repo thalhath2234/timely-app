@@ -2,7 +2,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   ABOUT_YOU,
-  NEXT_CHAT_NOTE,
   NOTES,
   budgetMeter,
   type MemoryEdit,
@@ -71,7 +70,7 @@ export default function LearnedMemory({ part }: { part: string | null }) {
           hint={
             target === "user" && settings.data?.useCaseCopied
               ? "It started with what you use Timely for. Change it here; it is not copied again. Changes apply from your next chat."
-              : `Changes ${NEXT_CHAT_NOTE}.`
+              : "Changes apply from your next chat."
           }
         />
       ))}

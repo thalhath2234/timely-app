@@ -54,6 +54,7 @@ import { readyProviders } from "./modelMenu";
 import { LiveReply, RunActivity, planShownByAutoCard } from "./agentRun";
 import { useChatLearning } from "@/app/utils/hooks/learning";
 import ChatMenu from "./chatMenu";
+import { NO_LEARNING_NOTE } from "@timely/contract/agentLearning";
 import { learnsInChat } from "./learningView";
 
 const iconButton =
@@ -603,9 +604,7 @@ export default function Conversation({
                 className="mx-auto mb-5 flex w-fit max-w-full items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1 text-xs text-muted-foreground"
               >
                 <BookX aria-hidden className="size-3.5 shrink-0" />
-                <span className="min-w-0 truncate">
-                  Timely won&apos;t learn from this chat.
-                </span>
+                <span className="min-w-0 truncate">{NO_LEARNING_NOTE}</span>
                 <button
                   type="button"
                   disabled={mutation.isPending}

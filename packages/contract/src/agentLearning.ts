@@ -225,6 +225,11 @@ export const NEVER_ARCHIVES =
 /** Memory is frozen into a chat when it starts. */
 export const NEXT_CHAT_NOTE = "applies from your next chat";
 export const DOWNLOAD_LEARNED = "Download what Timely learned";
+/** The account switch, the same words on every device. */
+export const LEARN_SWITCH = "Learn from chats";
+/** The per-chat switch and the line the chat shows while it is on. */
+export const DONT_LEARN = "Don't learn from this chat";
+export const NO_LEARNING_NOTE = "Timely won't learn from this chat.";
 
 /** "14 skills · About you · 1 waiting": the Settings row that opens the section. */
 export function learnedSummary(skills: number, waiting: number): string {
