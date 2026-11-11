@@ -172,8 +172,28 @@ def test_feed_claims_skip_self_reported_writes(tmp_path):
     files.memory_path(home, "user").write_text("x")
     assert [e["ledger_entry_id"] for e in map(lambda e: feed.ledger_event(home, e, feed.Context()), f.claim_ledger())] \
         == ["e1"]
-    f.claim_memory("user")
+    f.claim_memory_change("user", [], ["x"])
     assert f.diff(feed.Context()) == []
+
+
+def test_a_request_claims_only_its_own_writes(tmp_path):
+    """A chat's skill and memory writes that land before the person's request (not reported yet)
+    still reach the next diff with the chat's origin; the request claims only its own."""
+    home = _home(tmp_path)
+    f = feed.Feed(home, lambda m: None)
+    _ledger(home, {"id": "chat-1", "action": "create", "skill": "race-skill", "actor": "agent",
+                   "evidence": {"session_id": "c-race"}, "before": [], "after": []})
+    files.memory_path(home, "memory").write_text("chat learned: likes tea")
+    seen = f.ledger_ids()
+    _ledger(home, {"id": "user-1", "action": "edit", "skill": "mine", "actor": "user", "before": [], "after": []})
+    _ledger(home, {"id": "chat-2", "action": "patch", "skill": "race-skill", "actor": "agent", "before": [], "after": []})
+    assert [e["id"] for e in f.claim_ledger(since=seen, actors=("user",))] == ["user-1"]
+    files.memory_path(home, "memory").write_text("chat learned: likes tea\n§\nperson typed: works mornings")
+    f.claim_memory_change("memory", [], ["person typed: works mornings"])
+    events = f.diff(feed.Context(origin="chat", conversation_id="c-race"))
+    assert [(e["kind"], e["subject"], e["origin"]) for e in events] == [
+        ("skill", "race-skill", "chat"), ("skill", "race-skill", "chat"), ("memory", "memory", "chat")]
+    assert events[-1]["after"] == "chat learned: likes tea"
 
 
 # ---------------------------------------------------------------- counters

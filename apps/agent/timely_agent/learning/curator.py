@@ -49,6 +49,8 @@ def tick(home: Optional[Path] = None, *, force: bool = False) -> list[dict[str, 
         return []
     with passes.busy():
         before = _states(home)
+        feed = feed_mod.current()
+        seen = feed.ledger_ids() if feed is not None else set()
         try:
             if force:
                 run_curator_review(synchronous=True, trigger="manual")
@@ -57,9 +59,12 @@ def tick(home: Optional[Path] = None, *, force: bool = False) -> list[dict[str, 
         except Exception:
             logger.exception("curator pass failed")
         events = stale_events(before, _states(home))
-        feed = feed_mod.current()
         if feed is not None:
             for ev in events:
                 feed.emit(ev)
-            feed.claim_ledger()  # a curator archive (none with Timely's config) is not a chat's change
+            # A curator archive (none with Timely's config) is not a chat's change. Only the
+            # curator's own entries: a learning pass's write (also actor "curator", but with the
+            # chat's session) or a chat's that lands meanwhile still reaches the next diff.
+            feed.claim_ledger(since=seen, actors=("curator",),
+                              keep=lambda e: not (e.get("evidence") or {}).get("session_id"))
     return events

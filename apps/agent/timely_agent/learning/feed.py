@@ -6,7 +6,9 @@ ready. ``diff`` compares the home with it, sends one event per change, and moves
 under one lock. It runs after each run (before ``run.done``) and after each learning pass, so a
 change is reported exactly once even when runs of different chats overlap. Writes that Timely's
 own code makes (staging in ``timely_learning``, Go's ``learning.*`` requests) report themselves and
-claim their ids, so a later diff skips them.
+claim their ids, so a later diff skips them. A request claims only what it wrote itself (ledger
+entries new across the call with its own actor; its own memory delta): a chat's or a learning
+pass's write that lands meanwhile still reaches the next diff.
 
 A ledger entry names the conversation it came from (``evidence.session_id``, set by
 ``skill_manage``); memory has no ledger, so a memory change is attributed to the run whose diff
@@ -132,23 +134,27 @@ class Feed:
         """The ids the ledger holds now (a request's snapshot before it writes)."""
         return {str(e["id"]) for e in files.read_ledger(self.home)}
 
-    def claim_ledger(self, since: Optional[set[str]] = None,
-                     actors: Optional[tuple[str, ...]] = None) -> list[dict[str, Any]]:
+    def claim_ledger(self, since: Optional[set[str]] = None, actors: Optional[tuple[str, ...]] = None,
+                     keep: Optional[Callable[[dict], bool]] = None) -> list[dict[str, Any]]:
         """Mark ledger entries not seen yet as reported; returns them (oldest first). A request
         that reports its own writes passes ``since`` (the ids before it wrote) and ``actors`` (the
-        ledger actor it wrote as): a chat's or a learning pass's entry written meanwhile is left
-        for the next diff, which reports it with its chip and Undo."""
+        ledger actor it wrote as), and may narrow further with ``keep``: a chat's or a learning
+        pass's entry written meanwhile is left for the next diff, which reports it with its chip
+        and Undo. Only the diff itself claims everything."""
         with self.lock:
             new = [e for e in files.read_ledger(self.home) if str(e["id"]) not in self._ledger
                    and (since is None or str(e["id"]) not in since)
-                   and (actors is None or e.get("actor") in actors)]
+                   and (actors is None or e.get("actor") in actors)
+                   and (keep is None or keep(e))]
             self._ledger.update(str(e["id"]) for e in new)
             return new
 
-    def claim_memory(self, target: Optional[str] = None) -> None:
+    def claim_memory_change(self, target: str, removed: list[str], added: list[str]) -> None:
+        """Move the memory baseline by one request's own change only: a chat's write that is on
+        disk but not reported yet stays for the next diff (re-reading the file would swallow it)."""
         with self.lock:
-            for t in ([target] if target else list(files.MEMORY_FILES)):
-                self._memory[t] = files.read_memory(self.home, t)
+            base = [e for e in self._memory.get(target, []) if e not in removed]
+            self._memory[target] = base + [e for e in added if e not in base]
 
     def claim_pending(self, pending_id: str) -> None:
         with self.lock:

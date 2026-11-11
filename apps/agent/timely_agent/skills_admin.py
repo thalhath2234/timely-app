@@ -179,14 +179,15 @@ def _use_new(name: str, row: dict[str, Any]) -> dict[str, Any]:
     from tools.skills_sync_bundled_ops import reset_bundled_skill
     from timely_agent.learning import api as learning_api
     dest: Path = row["dest"]
-    before = capture_before(dest)
-    result = reset_bundled_skill(name, restore=True)
-    if not result.get("ok"):
-        raise learning_api.Failed({"message": result.get("message") or "the shipped version could not be restored"})
-    entry_id = record_mutation("edit", name, before=before, after_root=dest, actor="user",
-                                            evidence={"upstream": "use_new"})
+    with learning_api._user_writes() as own:
+        before = capture_before(dest)
+        result = reset_bundled_skill(name, restore=True)
+        if not result.get("ok"):
+            raise learning_api.Failed({"message": result.get("message") or "the shipped version could not be restored"})
+        entry_id = record_mutation("edit", name, before=before, after_root=dest, actor="user",
+                                   evidence={"upstream": "use_new"})
     learning_api._clear_skill_caches()
-    events = learning_api._emit_ledger(name)
+    events = own.events
     state = _read_state()
     state["kept"].pop(name, None)
     state["seen"].pop(name, None)

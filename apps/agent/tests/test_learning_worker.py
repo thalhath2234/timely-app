@@ -288,3 +288,34 @@ def test_curator_never_archives_a_31_day_unused_learned_skill():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_requests_during_a_run_leave_the_runs_learning_writes_to_it(stub):
+    """The person's Undo and About-you edit arrive while a clean run is still working, after it
+    wrote a skill and a memory entry: the run's own writes are still reported (origin chat, with
+    Undo) and the person's add is reported once, as theirs."""
+    a = harness.Agent(harness.new_root("lw-race"))
+    w, _ready = harness.ready_worker(a)
+    steps = [{"calls": [["skill_manage", {"action": "create", "name": "race-skill",
+                                          "content": BODY.format(n="race-skill")}]]},
+             {"calls": [["memory", {"action": "add", "target": "memory", "content": "chat learned: likes tea"}]]},
+             {"sleep": 4, "text": "done"}]
+    try:
+        w.send(harness.run_start(a, stub, run_id="race1", conversation="c-race", text=script(steps, "tag-race"),
+                                 budgets={}, toolsets=TOOLSETS, flags=dict(LEARN)))
+        skill = a.home / "skills" / "race-skill" / "SKILL.md"
+        mem = a.home / "memories" / "MEMORY.md"
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline and not (skill.is_file() and mem.is_file() and "tea" in mem.read_text()):
+            time.sleep(0.05)
+        w.send({"type": "learning.rollback", "id": "rb", "account": a.account, "ledger_entry_id": "no-such-entry"})
+        w.send({"type": "learning.memory", "id": "mm", "account": a.account, "target": "memory", "action": "add",
+                "content": "person typed: works mornings", "old": ""})
+        _done, seen = harness.drive(w, a.account, "race1", timeout=120)
+    finally:
+        w.close()
+    events = [(e["kind"], e["subject"], e["origin"], e["after"][:40]) for e in
+              (m["event"] for m in seen if m.get("type") == "learning")]
+    assert ("skill", "race-skill", "chat") in [x[:3] for x in events], events
+    assert ("memory", "memory", "chat", "chat learned: likes tea") in events, events
+    assert [x for x in events if x[2] == "user"] == [("memory", "memory", "user", "person typed: works mornings")], events

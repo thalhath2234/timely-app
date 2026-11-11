@@ -132,18 +132,33 @@ def _clear_skill_caches() -> None:
         pass
 
 
-def _emit_ledger(skill: str) -> list[dict[str, Any]]:
-    """Report the ledger entries a user request just wrote (origin ``user``)."""
+class _Own:
+    """What one user request wrote, reported once (see :func:`_user_writes`)."""
+
+    def __init__(self) -> None:
+        self.events: list[dict[str, Any]] = []
+
+
+@contextmanager
+def _user_writes() -> Iterator[_Own]:
+    """Hold the feed while a user request writes, then report (origin ``user``) and claim only the
+    ledger entries it wrote: new across the call, with the ``user`` actor. A chat's or a learning
+    pass's entry written meanwhile is left for the next diff, with its chip and Undo."""
     feed = _feed()
-    if feed is None:
-        return []
-    out = []
-    for entry in feed.claim_ledger():
-        ev = feed_mod.ledger_event(feed.home, entry, _user_ctx())
-        if ev is not None:
-            ev["origin"] = "user"
-            out.append(feed.emit(ev))
-    return out
+    own = _Own()
+    with (feed.lock if feed is not None else _nolock()):
+        seen = feed.ledger_ids() if feed is not None else set()
+        yield own
+        if feed is not None:
+            for entry in feed.claim_ledger(since=seen, actors=("user",)):
+                ev = feed_mod.ledger_event(feed.home, entry, _user_ctx())
+                if ev is not None:
+                    ev["origin"] = "user"
+                    own.events.append(feed.emit(ev))
+
+
+def _memory_delta(before: list[str], after: list[str]) -> tuple[list[str], list[str]]:
+    return [e for e in before if e not in after], [e for e in after if e not in before]
 
 
 # ---------------------------------------------------------------- skills
@@ -401,10 +416,11 @@ def edit(msg: dict[str, Any], host: Host) -> dict[str, Any]:
         raise ApiError("not_found", f"no skill named {name!r}")
     if _is_timely(path):
         raise Failed({"ok": False, "message": f"{name} is shipped with Timely and is read-only."})
-    result = _skill_manage(action="edit", name=name, content=msg["content"])
+    with _user_writes() as own:
+        result = _skill_manage(action="edit", name=name, content=msg["content"])
     if not result.get("success"):
         raise Failed({"ok": False, "message": str(result.get("error") or result.get("message") or result)})
-    events = _emit_ledger(name)
+    events = own.events
     _clear_skill_caches()
     entries = [e for e in reversed(files.read_ledger(host.home)) if e.get("skill") == name]
     return {"entry": _history_row(entries[0]) if entries else None, "events": events}
@@ -418,26 +434,24 @@ def skill_state(msg: dict[str, Any], host: Host) -> dict[str, Any]:
         raise ApiError("not_found", f"no skill named {name!r}")
     if _is_timely(path):
         raise Failed({"ok": False, "message": f"{name} is shipped with Timely and is read-only."})
-    if state in ("lock", "unlock"):
-        if not su.set_locked(name, state == "lock"):
-            raise Failed({"ok": False, "message": f"could not {state} {name}"})
-        message = f"{name} {state}ed"
-    elif state == "archive":
-        with _actor("user"):
-            ok, message = su.archive_skill(name)
-        if not ok:
-            raise Failed({"ok": False, "message": message})
-    elif state == "restore":
-        with _actor("user"):
-            ok, message = su.restore_skill(name)
-        if not ok:
-            raise Failed({"ok": False, "message": message})
-    else:
-        result = _skill_manage(action="delete", name=name)
-        if not result.get("success"):
-            raise Failed({"ok": False, "message": str(result.get("error") or result.get("message") or result)})
-        message = str(result.get("message") or f"{name} deleted")
-    events = _emit_ledger(name)
+    with _user_writes() as own:
+        if state in ("lock", "unlock"):
+            ok = su.set_locked(name, state == "lock")
+            message = f"{name} {state}ed" if ok else f"could not {state} {name}"
+        elif state == "archive":
+            with _actor("user"):
+                ok, message = su.archive_skill(name)
+        elif state == "restore":
+            with _actor("user"):
+                ok, message = su.restore_skill(name)
+        else:
+            result = _skill_manage(action="delete", name=name)
+            ok = bool(result.get("success"))
+            message = str(result.get("message") or f"{name} deleted") if ok else \
+                str(result.get("error") or result.get("message") or result)
+    if not ok:
+        raise Failed({"ok": False, "message": message})
+    events = own.events
     _clear_skill_caches()
     rec = files.usage(host.home).get(name, {})
     return {"name": name, "state": state, "message": message, "locked": bool(rec.get("locked")),
@@ -474,23 +488,25 @@ def memory(msg: dict[str, Any], host: Host) -> dict[str, Any]:
         raise ApiError("bad_message", f"learning.memory {action} needs content")
     if action in ("replace", "remove") and not old.strip():
         raise ApiError("bad_message", f"learning.memory {action} needs old")
-    before = files.read_memory(host.home, target)
-    store = load_on_disk_store()
-    if action == "add":
-        result = store.add(target, content)
-    elif action == "replace":
-        result = store.replace(target, old, content)
-    else:
-        result = store.remove(target, old)
-    if not isinstance(result, dict) or not result.get("success"):
-        raise Failed({"ok": False, "message": str((result or {}).get("error") or result)})
-    after = files.read_memory(host.home, target)
-    events = feed_mod.memory_events(target, before, after, _user_ctx(), origin="user")
     feed = _feed()
-    if feed is not None:
-        feed.claim_memory(target)
-        for ev in events:
-            feed.emit(ev)
+    with (feed.lock if feed is not None else _nolock()):
+        before = files.read_memory(host.home, target)
+        store = load_on_disk_store()
+        if action == "add":
+            result = store.add(target, content)
+        elif action == "replace":
+            result = store.replace(target, old, content)
+        else:
+            result = store.remove(target, old)
+        if not isinstance(result, dict) or not result.get("success"):
+            raise Failed({"ok": False, "message": str((result or {}).get("error") or result)})
+        after = files.read_memory(host.home, target)
+        removed, added = _memory_delta(before, after)
+        events = feed_mod.memory_events(target, removed, added, _user_ctx(), origin="user")
+        if feed is not None:
+            feed.claim_memory_change(target, removed, added)
+            for ev in events:
+                feed.emit(ev)
     return {**memory_view(host.home)[target], "target": target, "events": events}
 
 
@@ -561,37 +577,44 @@ def pending(msg: dict[str, Any], host: Host) -> dict[str, Any]:
         wa.discard_pending(subsystem, pending_id)
         meta_path.unlink(missing_ok=True)
         return {"discarded": True, "pending_id": pending_id}
-    before_memory = {t: files.read_memory(host.home, t) for t in files.MEMORY_FILES}
-    if subsystem == "skills":
-        from tools.skill_manager_tool import apply_skill_pending
-        raw = apply_skill_pending(payload)
-        try:
-            result = json.loads(raw)
-        except (TypeError, ValueError):
-            result = {"success": False, "error": str(raw)}
-    else:
-        from tools.memory_tool import apply_memory_pending, load_on_disk_store
-        result = apply_memory_pending(payload, load_on_disk_store())
-    if not isinstance(result, dict) or not result.get("success"):
-        raise Failed({"ok": False, "message": str((result or {}).get("error") or result)})
-    wa.discard_pending(subsystem, pending_id)
-    meta_path.unlink(missing_ok=True)
     feed = _feed()
     ctx = feed_mod.Context(origin=str(meta.get("origin") or "chat"), conversation_id=str(meta.get("conversation_id") or ""),
                            run_id=str(meta.get("run_id") or ""), bot_id=str(meta.get("bot_id") or ""),
                            tainted_sources=list(meta.get("tainted_sources") or []))
     events: list[dict[str, Any]] = []
-    if subsystem == "skills":
-        entries = feed.claim_ledger() if feed is not None else []
-        events = [ev for ev in (feed_mod.ledger_event(host.home, e, ctx) for e in entries) if ev is not None]
-        for ev in events:
-            ev["origin"] = ctx.origin
-        _clear_skill_caches()
-    else:
-        for target in files.MEMORY_FILES:
-            events += feed_mod.memory_events(target, before_memory[target], files.read_memory(host.home, target), ctx)
-        if feed is not None:
-            feed.claim_memory()
+    # Hold the feed while the kept change is written, and claim only what it wrote: its ledger
+    # entries (new across the call, written as the person) or its target file's own delta.
+    with (feed.lock if feed is not None else _nolock()):
+        seen = feed.ledger_ids() if feed is not None else set()
+        targets = [t for t in files.MEMORY_FILES if t == payload.get("target")] or list(files.MEMORY_FILES)
+        before_memory = {t: files.read_memory(host.home, t) for t in targets}
+        if subsystem == "skills":
+            from tools.skill_manager_tool import apply_skill_pending
+            with _actor("user"):
+                raw = apply_skill_pending(payload)
+            try:
+                result = json.loads(raw)
+            except (TypeError, ValueError):
+                result = {"success": False, "error": str(raw)}
+        else:
+            from tools.memory_tool import apply_memory_pending, load_on_disk_store
+            result = apply_memory_pending(payload, load_on_disk_store())
+        if not isinstance(result, dict) or not result.get("success"):
+            raise Failed({"ok": False, "message": str((result or {}).get("error") or result)})
+        wa.discard_pending(subsystem, pending_id)
+        meta_path.unlink(missing_ok=True)
+        if subsystem == "skills":
+            entries = feed.claim_ledger(since=seen, actors=("user",)) if feed is not None else []
+            events = [ev for ev in (feed_mod.ledger_event(host.home, e, ctx) for e in entries) if ev is not None]
+            for ev in events:
+                ev["origin"] = ctx.origin
+            _clear_skill_caches()
+        else:
+            for target in targets:
+                removed, added = _memory_delta(before_memory[target], files.read_memory(host.home, target))
+                events += feed_mod.memory_events(target, removed, added, ctx)
+                if feed is not None:
+                    feed.claim_memory_change(target, removed, added)
     for ev in events:
         ev["pending_id"] = pending_id
     return {"pending_id": pending_id, "event": events[-1] if events else None, "events": events}
