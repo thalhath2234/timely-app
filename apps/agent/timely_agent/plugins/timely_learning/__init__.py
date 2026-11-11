@@ -54,11 +54,15 @@ import threading
 from pathlib import Path
 from typing import Any, Iterable
 
+from timely_agent import seed
+
 logger = logging.getLogger("timely_agent.plugins.timely_learning")
 
 PLUGIN = "timely_learning"
 READ_ONLY_MESSAGE = ("Blocked: {name} is a skill shipped with Timely and is read-only. "
                      "Create a learned skill with a new name instead.")
+NAME_MESSAGE = ("Blocked: Timely can't keep a skill named {name} ({why}). Use a plain name of letters, "
+                "digits and dashes, such as weekly-review.")
 READ_ONLY_PATH_MESSAGE = "Blocked: {path} belongs to a skill shipped with Timely and is read-only."
 LEARNING_OFF = ("Blocked: Timely is not saving skills or memory yet. Answer without saving; "
                 "do not retry.")
@@ -148,6 +152,9 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, **_: Any) -> di
     try:
         if tool_name == "skill_manage":
             for name in _skill_targets(args):
+                if why := seed.learned_name_problem(Path(name).name):
+                    # Go could not store it or keep it turned off (hermes-agent never turns off).
+                    return {"action": "block", "message": NAME_MESSAGE.format(name=name, why=why)}
                 if external_skill(name):
                     return {"action": "block", "message": READ_ONLY_MESSAGE.format(name=name)}
             fp = args.get("file_path")

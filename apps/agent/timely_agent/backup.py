@@ -42,7 +42,7 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Optional
 
-from timely_agent import paths
+from timely_agent import paths, seed
 
 FORMAT = "timely-agent-state"
 VERSION = 1
@@ -61,9 +61,10 @@ LEDGER = ".curator_ledger.jsonl"
 MEMORY_FILES = ("MEMORY.md", "USER.md")
 MEMORY_DELIMITER = "\n§\n"  # tools/memory_tool_store.py ENTRY_DELIMITER
 
-# A skill name Go can keep turned off (learning.validName); Hermes loads a skill by its frontmatter
-# name and matches skills.disabled against it, so any other name would come back on.
-SKILL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+# A skill name Go can keep turned off (seed.learned_name_problem, Go's learning.validName); Hermes
+# loads a skill by its frontmatter name and matches skills.disabled against it, so any other name
+# would come back on.
+SKILL_NAME_RE = seed.SKILL_NAME_RE
 BLOB_NAME_RE = re.compile(r"^[0-9a-f]{64}$")
 
 MAX_MEMBERS = 200_000
@@ -346,8 +347,9 @@ def _name_problem(skill_md: Path, fallback: str) -> str:
     from agent.skill_utils import parse_frontmatter
     from tools.skill_usage import read_skill_name
     name = read_skill_name(skill_md, fallback)
-    if not SKILL_NAME_RE.match(name):
-        return "not a plain skill name"
+    for candidate in dict.fromkeys((fallback, name)):
+        if problem := seed.learned_name_problem(candidate):
+            return problem
     try:
         front, _ = parse_frontmatter(skill_md.read_text(encoding="utf-8-sig", errors="replace"))
     except OSError:

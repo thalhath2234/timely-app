@@ -597,6 +597,24 @@ def test_learning_writes_off_blocks_skill_manage_and_memory(monkeypatch):
     assert timely_learning.pre_tool_call(tool_name="memory", args={})["message"] == timely_learning.LEARNING_OFF
 
 
+@pytest.mark.parametrize("name", ["hermes-agent", "release..notes", "notes/../hermes-agent", "Pantry steps"])
+def test_skill_manage_refuses_names_timely_cannot_keep(monkeypatch, name):
+    """Hermes accepts ``release..notes`` and ``hermes-agent``; Go cannot store the first, and the second is
+    never turned off (a restored one would sit in every chat's skills index), so neither is learned."""
+    from timely_agent import bridge
+    from timely_agent.plugins import timely_learning
+    monkeypatch.setattr(timely_learning, "external_skill", lambda n: False)
+    run = bridge.RunContext(run_id="r", session_key="k", conversation_id="c", flags={"learning_writes": True})
+    token = bridge.current_run.set(run)
+    try:
+        for args in ({"action": "create", "name": name, "content": "x"},
+                     {"action": "create", "name": "", "operations": [{"action": "create", "name": name}]}):
+            verdict = timely_learning.pre_tool_call(tool_name="skill_manage", args=args)
+            assert verdict and verdict["action"] == "block" and "can't keep a skill named" in verdict["message"], args
+    finally:
+        bridge.current_run.reset(token)
+
+
 def test_taint_sources_policy():
     assert policy.taint_kind("web_extract") == "web" and policy.taint_kind("browser_navigate") == "browser"
     assert policy.taint_kind("read_file") == "file" and policy.taint_kind("delegate_task") == "subagent"

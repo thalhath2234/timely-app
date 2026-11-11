@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import sys
@@ -92,6 +93,20 @@ def content_hash(paths: Iterable[tuple[str, Path]]) -> str:
 # the worker self-test checks this copy still matches). A reviewed "default: off" entry for one
 # of them therefore keeps it out of the seed tree altogether.
 ESSENTIAL_SKILLS = frozenset({"hermes-agent"})
+
+# A learned or restored skill's name as Go stores it and keeps it turned off (learning.validName:
+# one folder name, no ".."). Hermes accepts more (``release..notes``), so names are checked here
+# when a skill is learned (timely_learning) and when one is restored (backup).
+SKILL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def learned_name_problem(name: str) -> str:
+    """Why Timely cannot keep a learned or restored skill of this name, else ""."""
+    if name in ESSENTIAL_SKILLS:
+        return "Hermes never lets a skill of that name be turned off"
+    if not SKILL_NAME_RE.match(name or "") or ".." in name:
+        return "not a plain skill name"
+    return ""
 
 
 def load_reviewed(path: os.PathLike | str) -> dict[str, dict] | None:
