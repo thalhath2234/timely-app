@@ -330,11 +330,13 @@ def test_default_off_skills_never_come_from_prepared_json():
     assert set(off) <= set(disabled()), disabled()
     w = harness.Worker(a.env())
     try:
-        w.send(a.hello(settings={"skills_enabled": ["github"]}))
+        w.send(a.hello(settings={"skills_enabled": ["himalaya", "github"]}))
         ready, _ = w.until("ready", timeout=120)
         assert ready["self_test"]["ok"], ready["self_test"]
         assert "skills_default_off" in {c["name"] for c in ready["self_test"]["checks"]}
-        assert set(off) - {"github"} <= set(disabled()) and "github" not in disabled(), disabled()
+        assert set(off) - {"himalaya"} <= set(disabled()) and "himalaya" not in disabled(), disabled()
+        # a denied bundled skill (github) stays off whatever the settings say
+        assert "github" in disabled(), disabled()
     finally:
         w.close()
     # hello without the list is refused like one without the other prepare values
