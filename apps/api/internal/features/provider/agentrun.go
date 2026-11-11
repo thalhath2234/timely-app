@@ -15,8 +15,8 @@ import (
 // account's own decrypted key. There is no fallback to another provider.
 
 // ErrAgentEngineUnsupported means the run's provider cannot drive the agent
-// engine yet, so the chat stays on the classic engine. The host CLIs need the
-// loopback model gateway (gateway.go) to be running.
+// engine, so the chat stays on the classic engine: Claude Code and Codex when
+// the loopback model gateway (gateway.go) is not running.
 var ErrAgentEngineUnsupported = errors.New("Claude Code and Codex use the classic engine until a later update")
 
 // unsupportedError is ErrAgentEngineUnsupported with a reason of its own.
@@ -112,8 +112,9 @@ func hermesProvider(id, base string) string {
 // provider and model the chat fixed at claim: every API-key provider in the
 // registry and OpenRouter, with the account's decrypted key. An empty model
 // takes the account's chosen model for that provider, as Completer does, so
-// both engines run the same model. Claude Code and Codex return
-// ErrAgentEngineUnsupported.
+// both engines run the same model. Claude Code and Codex go through the
+// loopback gateway (cliAgentModel), or return ErrAgentEngineUnsupported
+// without one.
 func (s *Service) AgentModel(ctx context.Context, userID, provider, model string) (AgentModel, error) {
 	switch {
 	case provider == ClaudeCLI || provider == CodexCLI:
@@ -158,7 +159,7 @@ func (s *Service) cliAgentModel(ctx context.Context, userID, provider, model str
 		model = s.chatModel(row, provider)
 	}
 	// The same checks the classic engine makes: CLI on, found, connected.
-	if _, err := s.Completer(ctx, userID, provider, model); err != nil {
+	if _, err := s.gateway.completer(ctx, userID, provider, model); err != nil {
 		return AgentModel{}, err
 	}
 	return AgentModel{Provider: "custom", Model: model, BaseURL: s.gateway.BaseURL(),

@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"timely-api/internal/features/chat"
 )
 
@@ -172,5 +174,45 @@ func TestGatewayRefusesOtherCallers(t *testing.T) {
 	}
 	if json.NewDecoder(resp.Body).Decode(&list) != nil || len(list.Data) != 1 || list.Data[0].ID != "sonnet" || list.Data[0].ContextLength == 0 {
 		t.Fatalf("models %+v", list)
+	}
+}
+
+// With the gateway running, AgentModel gives a Claude Code run a custom
+// OpenAI endpoint on the gateway and a key that works there; without it the
+// chat stays classic.
+func TestAgentModelSendsCLIRunsThroughTheGateway(t *testing.T) {
+	fake := &gatewayFake{reply: chat.WireMessage{Role: "assistant", Content: "Hi."}}
+	g, _ := startTestGateway(t, fake)
+	s := agentTestService(t)
+	s.gateway = g
+	m, err := s.AgentModel(context.Background(), "user-a", ClaudeCLI, "sonnet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Provider != "custom" || m.APIMode != apiModeChat || m.BaseURL != g.BaseURL() || m.Model != "sonnet" || !strings.HasPrefix(m.APIKey, "tgw-") {
+		t.Fatalf("agent model %v", m)
+	}
+	if strings.Contains(m.String(), m.APIKey) {
+		t.Fatal("String shows the gateway key")
+	}
+	if resp := gatewayPost(t, g, m.APIKey, strings.Replace(gatewayRequest, "%s", "", 1)); resp.StatusCode != 200 {
+		t.Fatalf("the key AgentModel gave: %d", resp.StatusCode)
+	}
+	if _, err := s.AgentModel(context.Background(), "user-a", ClaudeCLI, "opus"); err == nil {
+		t.Fatal("a model the account can't run got a key")
+	}
+}
+
+// The gateway is its own loopback server: the API's router (the provider
+// routes included) never serves its paths.
+func TestGatewayIsNotOnTheMainRouter(t *testing.T) {
+	e := echo.New()
+	agentTestService(t).Routes(e.Group(""))
+	for _, path := range []string{"/v1/chat/completions", "/internal/agent/v1/chat/completions", "/v1/models"} {
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, httptest.NewRequest("POST", path, strings.NewReader(`{}`)))
+		if rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("main router answered %s with %d", path, rec.Code)
+		}
 	}
 }

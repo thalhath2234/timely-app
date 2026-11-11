@@ -879,6 +879,24 @@ func TestIntegrationAgentEngineDeleteWaitsForAWorker(t *testing.T) {
 	}
 }
 
+// The host-allowed account's run.start drops the scope line (Q-2.1);
+// every other account keeps it.
+func TestIntegrationAgentEngineHostAllowedDropsTheScopeLine(t *testing.T) {
+	h := newEngineHarness(t)
+	h.e.opts.HostAllowed = func(uid string) bool { return uid == "user-a" }
+	c := h.chat("Write me a poem", "supervised", "host", lines(reply("A poem", 0)))
+	h.wait(c.ID, "replied", statusIs("idle"))
+	var start struct {
+		SystemText string `json:"system_text"`
+	}
+	if err := h.kit.ReceivedOf("run.start")[0].Decode(&start); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(start.SystemText, scopeLine) || !strings.HasPrefix(start.SystemText, instructionIntro+instructionRules) {
+		t.Fatal("the host-allowed account's run.start kept the scope line")
+	}
+}
+
 // A worker that dies mid-run fails the run with Try again.
 func TestIntegrationAgentEngineWorkerCrashOffersTryAgain(t *testing.T) {
 	h := newEngineHarness(t)

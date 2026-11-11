@@ -65,8 +65,9 @@ type WorkerEngineOptions struct {
 	// goes on the worker's stdin and nowhere else.
 	Model func(ctx context.Context, uid, provider, model string) (any, error)
 	// Unsupported reports a Model error meaning the provider cannot drive
-	// the agent engine yet (provider.ErrAgentEngineUnsupported: Claude Code,
-	// Codex); the run then fails with "Use classic for this chat".
+	// the agent engine (provider.ErrAgentEngineUnsupported: Claude Code or
+	// Codex without the loopback gateway); the run then fails with "Use
+	// classic for this chat".
 	Unsupported func(error) bool
 	// HostAllowed reports the account the host allows on its computer
 	// (agenthost.HostAccounts), whose Timely block drops the scope line
