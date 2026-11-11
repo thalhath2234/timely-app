@@ -440,6 +440,34 @@ func (w *webRun) takeTaint() []TaintSource {
 // name such as example.com.
 var hostWord = regexp.MustCompile(`(?i)(?:https?://)?((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24})\b`)
 
+// linkWord finds the links a person's words name with a path, query or
+// fragment (a front page needs none: the rule allows it on any allowed site).
+var linkWord = regexp.MustCompile(`(?i)(?:https?://)?((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24})(?::\d+)?([/?#][^\s"'<>()\[\]{}]*)`)
+
+// links is the guard's list of pages as the worker's exfiltration rule
+// reads them (run.start person_links): the links the person typed in this
+// chat, lower case and without a scheme, and the addresses their bots read.
+// After taint the worker opens a page with a path or query only when the
+// person typed it, a search returned it, or it is a site's front page; this
+// is mayOpen's rule, applied the same way to every web backend.
+func (g *fetchGuard) links() []string {
+	out := []string{}
+	add := func(link string) {
+		link = strings.TrimRight(link, ".,;:!?")
+		if link != "" && !slices.Contains(out, link) {
+			out = append(out, link)
+		}
+	}
+	for _, m := range linkWord.FindAllStringSubmatch(g.typed, -1) {
+		add(strings.ToLower(m[1]) + m[2])
+	}
+	for link := range g.known {
+		add(link)
+	}
+	slices.Sort(out)
+	return out
+}
+
 // hosts is the guard's list as the worker's exfiltration rule reads it
 // (run.start person_hosts): the sites the person typed in this chat and the
 // sites their bots read.

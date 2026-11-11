@@ -25,6 +25,11 @@ type runSetup struct {
 	// back without its chat, or the chat was deleted and its session.delete
 	// is still pending).
 	taintedConversations, searchExclude, searchAllow, personHosts []string
+	// personLinks are the pages (links with a path or query) the person
+	// typed here or their bots read: after taint only these, a search's
+	// own results and a site's front page may be opened, whichever backend
+	// reads them (a saved search key's included).
+	personLinks []string
 }
 
 // runSetup decides a run's flags from the account's learning switches and
@@ -79,7 +84,8 @@ func (e *WorkerEngine) runSetup(ctx context.Context, c *Conversation, tools *too
 	if out.taintedConversations == nil {
 		out.taintedConversations = []string{}
 	}
-	out.personHosts = e.s.fetchGuard(ctx, c).hosts()
+	guard := e.s.fetchGuard(ctx, c)
+	out.personHosts, out.personLinks = guard.hosts(), guard.links()
 	out.toolsets = runToolsets(out.learningWrites, out.searchHistory, tools.web.on)
 	return out
 }

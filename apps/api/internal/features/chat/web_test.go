@@ -86,6 +86,18 @@ func TestFetchGuardHosts(t *testing.T) {
 	}
 }
 
+// person_links are the pages the person typed (with a path, query or
+// fragment, without the scheme, trailing punctuation dropped) and the pages
+// their bots read, each once.
+func TestFetchGuardLinks(t *testing.T) {
+	g := &fetchGuard{typed: strings.ToLower("Look at https://www.Shop.example.org/p?x=1, news.example.com and news.example.com/a/b.\n(see typed.example.com/#top) not a host: v1.2/3"), known: map[string]bool{"https://feeds.example.net/rss": true}}
+	got := g.links()
+	want := []string{"https://feeds.example.net/rss", "news.example.com/a/b", "typed.example.com/#top", "www.shop.example.org/p?x=1"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("links %v, want %v", got, want)
+	}
+}
+
 // After taint, mayOpen allows a typed link (its path and query as typed), a
 // search's exact results, a bot's page and the front page of a typed or
 // searched site; any other path or query could carry the person's data.

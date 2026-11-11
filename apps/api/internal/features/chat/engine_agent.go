@@ -346,6 +346,7 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		"search_exclude":        setup.searchExclude,
 		"search_allow":          setup.searchAllow,
 		"person_hosts":          setup.personHosts,
+		"person_links":          setup.personLinks,
 		// Timely's parts of user_message (the exfiltration rule's private
 		// text): everything but the person's own words.
 		"private_context": private,

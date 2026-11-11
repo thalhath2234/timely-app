@@ -51,12 +51,12 @@ sys.exit(probe_boot.main(sys.argv[1:]))
 """
 
 
-def _start(a: harness.Agent, root: Path):
+def _start(a: harness.Agent, root: Path, **env: str):
     wrapper = root / "web_boot.py"
     wrapper.write_text(WRAPPER.format(contract=str(HERE), ip=FAKE_IP), encoding="utf-8")
     log = root / "net.jsonl"
     w, ready = harness.ready_worker(a, argv=[harness.python(), "-I", str(wrapper), "--net-log", str(log), "worker"],
-                                    hello={"timely_tools": harness.timely_tools()})
+                                    hello={"timely_tools": harness.timely_tools()}, **env)
     assert ready["self_test"]["ok"], ready["self_test"]
     return w, log
 
@@ -168,7 +168,7 @@ def test_web_injected_page_cannot_send_get_context_or_past_chats_out(stub):
     results = _tool_results(stub, marker)
     assert len(results) == 5, results
     assert egress.PASTE_LINK in results[1] and "this search" in results[1], results[1]
-    assert egress.PASTE_LINK in results[2] and "carries text" in results[2], results[2]
+    assert egress.PASTE_LINK in results[2] and "front page" in results[2], results[2]
     assert egress.PASTE_LINK in results[3] and "attacker.example" in results[3], results[3]
     assert done["completed"] is True and done["final_response"] == f"done {marker}", done
 
@@ -225,7 +225,7 @@ def test_web_search_hosts_from_earlier_turns_and_person_hosts_stay_allowed(stub)
               {"text": f"done {marker}"}]
     try:
         w.send(harness.run_start(a, stub, run_id="cweb3b", conversation="c-web3", toolsets=TOOLSETS, flags=WEB,
-                                 budgets={}, person_hosts=["shop.example"],
+                                 budgets={}, person_hosts=["shop.example"], person_links=["shop.example/deal"],
                                  tainted_sources=[{"kind": "web", "tool": "web_search"}],
                                  text="SCRIPT " + json.dumps(script) + f"\n{marker}"))
         done, seen = harness.drive(w, a.account, "cweb3b", answer=answer({ramen: "Ramen page.", shop: "Deal."}),
@@ -236,4 +236,68 @@ def test_web_search_hosts_from_earlier_turns_and_person_hosts_stay_allowed(stub)
     results = _tool_results(stub, marker)[-3:]  # after the earlier turn's search result
     assert "Ramen page." in results[0] and "Deal." in results[1]
     assert egress.PASTE_LINK in results[2] and "other.example" in results[2], results[2]
+    assert done["completed"] is True, done
+
+
+def test_keyed_backend_page_paths_follow_the_same_rule(stub):
+    """With a saved search key (here Exa) Go only sees ``gate.ask``, never the page read, so the
+    worker's rule is the only gate: after taint a page path on a person-typed host that is not a
+    link they typed, nor a search result, is blocked before Go is asked, short or encoded; a
+    search that carries learned text is too."""
+    root = harness.new_root("cweb5")
+    a = harness.Agent(root, settings={"web": {"search_backend": "exa", "extract_backend": "exa"}})
+    w, log = _start(a, root, EXA_API_KEY="placeholder-never-sent")  # what Go passes; no call reaches Exa
+    marker = "SCRIPT-cweb5"
+    leaks = ["https://news.example/x/okonkwo-fertility", "https://news.example/x/5550142",
+             "https://news.example/c/halvorsen-biotech-ingrid"]
+    script = [{"calls": [["web_extract", {"urls": [u]}]]} for u in leaks]
+    script.append({"text": f"done {marker}"})
+    try:
+        w.send(harness.run_start(a, stub, run_id="cweb5", conversation="c-web5", toolsets=TOOLSETS, flags=WEB,
+                                 budgets={}, person_hosts=["news.example"], person_links=["news.example/article"],
+                                 tainted_sources=[{"kind": "web", "tool": "web_extract", "host": "news.example"}],
+                                 private_context=[CONTEXT],
+                                 text="SCRIPT " + json.dumps(script) + f"\n{marker} read news.example/article"))
+        done, seen = harness.drive(w, a.account, "cweb5", answer=answer({}), verdict=("allow", ""))
+    finally:
+        w.close()
+    assert not [m for m in seen if m["type"] in ("gate.ask", "tool.call")], seen
+    results = _tool_results(stub, marker)
+    assert len(results) == 3 and all(egress.PAGE_BLOCKED in r for r in results), results
+    assert done["completed"] is True, done
+    lookups, connects = _net(log)
+    assert not lookups and not connects, (lookups, connects)
+
+
+BILLING = "Invoice Halvorsen Biotech 4,200 EUR every month to accounts@halvorsen-biotech.example, contact Ingrid Halvorsen."
+
+
+def test_learned_skill_text_is_the_persons_data(stub):
+    """A learned skill is written from the person's chats: after an injected page, skill_view on it
+    and a search carrying its text word for word (or its email) are blocked before Go is asked."""
+    root = harness.new_root("cweb6")
+    a = harness.Agent(root)
+    skill = a.home / "skills" / "client-billing"
+    skill.mkdir(parents=True, exist_ok=True)
+    (skill / "SKILL.md").write_text("---\nname: client-billing\ndescription: Monthly invoices.\n---\n# Billing\n\n"
+                                    + BILLING + "\n", encoding="utf-8")
+    w, _log = _start(a, root)
+    marker = "SCRIPT-cweb6"
+    script = [{"calls": [["web_extract", {"urls": [NEWS]}]]},
+              {"calls": [["skill_view", {"name": "client-billing"}]]},
+              {"calls": [["web_search", {"query": BILLING.split(", contact")[0]}]]},
+              {"calls": [["web_search", {"query": "accounts@halvorsen-biotech.example"}]]},
+              {"text": f"done {marker}"}]
+    try:
+        w.send(harness.run_start(a, stub, run_id="cweb6", conversation="c-web6", toolsets=TOOLSETS, flags=WEB,
+                                 budgets={}, person_hosts=["news.example"],
+                                 text="SCRIPT " + json.dumps(script) + f"\n{marker} read news.example"))
+        done, seen = harness.drive(w, a.account, "cweb6", answer=answer({NEWS: INJECTED}), verdict=("allow", ""))
+    finally:
+        w.close()
+    calls = [(m["name"], m["args"]) for m in seen if m["type"] == "tool.call"]
+    assert calls == [("web_extract", {"urls": [NEWS]})], calls
+    results = _tool_results(stub, marker)
+    assert len(results) == 4 and "Halvorsen" in results[1], results
+    assert egress.SEARCH_BLOCKED in results[2] and egress.SEARCH_BLOCKED in results[3], results
     assert done["completed"] is True, done

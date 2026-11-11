@@ -7,11 +7,16 @@ through the web tools. So, in a tainted session only:
 - ``web_extract`` (and every ``browser_*`` URL, ready for phase 5) to a host that is neither one
   the person typed in this chat (``run.start.person_hosts``) nor one a ``web_search`` in this
   conversation returned is blocked: ``PASTE_LINK``.
-- a ``web_extract`` URL to an allowed host whose path or query carries text from a Timely read or
-  from memory is blocked too (an injected page can make a search return its own host first);
-  a URL that a search returned word for word is exempt.
+- on an allowed host, a ``web_extract`` URL opens only when it is the site's front page (no path,
+  query or fragment), a link the person typed in this chat or their bots read
+  (``run.start.person_links``: the URL's host and path, with any query or fragment, start one of
+  them), or a URL a ``web_search`` returned word for word. Any other path or query could carry the
+  person's data, however short or encoded (an injected page can make a search return its own host
+  first): ``PAGE_BLOCKED``. This is Go's ``webRun.mayOpen`` for the ``timely`` backend; here it
+  holds for every backend, so a saved search key (Exa, Firecrawl, Parallel), whose page reads Go
+  never sees, keeps the same rule.
 - a ``web_search`` whose query carries text from a Timely read, from memory (``MEMORY.md``,
-  ``USER.md``) or from a tainted tool result other than the web tools' own (public web text going
+  ``USER.md``, and every learned or edited skill's files in the account home) or from a tainted tool result other than the web tools' own (public web text going
   back to a search engine leaks nothing) is blocked.
 - a ``web_search`` whose query names a site (a link, ``site:host``, or a bare name with a path
   such as ``evil.example/x``) that is neither one the person typed nor one a search returned is blocked: a
@@ -53,13 +58,13 @@ import threading
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Optional
-from urllib.parse import unquote_plus, urlsplit
+from urllib.parse import urlsplit
 
 PASTE_LINK = "Paste the link yourself if you want me to open it."
 EXTRACT_BLOCKED = ("Blocked: this chat has read outside content, and {host} is not a site the person named "
                    "or one a web search in this chat returned. " + PASTE_LINK)
-URL_TEXT_BLOCKED = ("Blocked: this link carries text from the person's Timely data or memory, and this chat "
-                    "has read outside content. " + PASTE_LINK)
+PAGE_BLOCKED = ("Blocked: this chat has read outside content, so Timely opens only a link the person gave, "
+                "one a web search in this chat returned, or a site's front page. " + PASTE_LINK)
 SEARCH_BLOCKED = ("Blocked: this search would send text from the person's Timely data or memory to the web, "
                   "and this chat has read outside content. Search for it yourself. " + PASTE_LINK)
 SEARCH_HOST_BLOCKED = ("Blocked: this search names {host}, which is not a site the person named or one a web "
@@ -132,13 +137,45 @@ def url_host(url: str) -> str:
         return ""
 
 
-def url_text(url: str) -> str:
-    """The parts of a URL that can carry data: path, query and fragment, decoded."""
+def page_key(url: str) -> str:
+    """A page's address as the rule compares it: lower case, no scheme, no ``www.``, the host
+    normalised, then the path (without a trailing ``/``), ``?query`` and ``#fragment``."""
+    raw = (url or "").strip()
+    if raw.startswith("//"):
+        raw = "http:" + raw
+    elif "://" not in raw:
+        raw = "http://" + raw
     try:
-        parts = urlsplit(url.strip())
+        parts = urlsplit(raw)
+        host = norm_host(parts.hostname or "")
     except ValueError:
-        return url
-    return unquote_plus(" ".join(p for p in (parts.path, parts.query, parts.fragment) if p))
+        return ""
+    if not host:
+        return ""
+    out = host + parts.path.rstrip("/")
+    if parts.query:
+        out += "?" + parts.query
+    if parts.fragment:
+        out += "#" + parts.fragment
+    return out.lower()
+
+
+def front_page(url: str) -> bool:
+    key = page_key(url)
+    return bool(key) and key == url_host(url)
+
+
+def person_page(url: str, links: Iterable[str]) -> bool:
+    """Whether the person typed this page (or a longer link that starts with it), or a bot reads it."""
+    key = page_key(url)
+    if not key:
+        return False
+    for link in links:
+        other = page_key(link) if isinstance(link, str) else ""
+        if other and (other == key or other.startswith(key + ("" if "?" in key or "#" in key else "/"))
+                      or (("?" in key or "#" in key) and other.startswith(key))):
+            return True
+    return False
 
 
 def urls_in(text: str) -> list[str]:
@@ -290,6 +327,11 @@ class Part:
     tainted_results: list[str] = field(default_factory=list)
 
     def add_search(self, result: Any) -> None:
+        if isinstance(result, str):
+            try:  # a JSON string escapes characters a URL holds ("\u0026"); read the values
+                result = json.loads(result)
+            except ValueError:
+                pass
         for url in urls_in(_text(result)):
             host = url_host(url)
             if host:
@@ -406,9 +448,11 @@ def forget(session_id: str) -> None:
 
 def check(tool: str, args: dict, *, tainted: bool, person_hosts: Iterable[str], rec: Record,
           memory: Iterable[str], private: Iterable[str] = (),
-          browser_urls: Callable[[dict], list[str]] = lambda a: []) -> Optional[str]:
+          browser_urls: Callable[[dict], list[str]] = lambda a: [],
+          person_links: Iterable[str] = ()) -> Optional[str]:
     """The block message for this call, or None. Only a tainted session is restricted.
-    ``private`` is Timely's part of this turn's message (``run.start.private_context``)."""
+    ``private`` is Timely's part of this turn's message (``run.start.private_context``),
+    ``person_links`` the pages the person typed or their bots read (``run.start.person_links``)."""
     if not tainted:
         return None
     allowed = {norm_host(h) for h in person_hosts if isinstance(h, str)} | rec.search_hosts
@@ -429,10 +473,11 @@ def check(tool: str, args: dict, *, tainted: bool, person_hosts: Iterable[str], 
     else:
         return None
     seen_urls = rec.search_urls
+    links = [str(link) for link in person_links if isinstance(link, str)]
     for url in urls:
         host = url_host(url)
         if not host or host not in allowed:
             return EXTRACT_BLOCKED.format(host=host or "that address")
-        if url not in seen_urls and carries(url_text(url), own):
-            return URL_TEXT_BLOCKED
+        if url not in seen_urls and not front_page(url) and not person_page(url, links):
+            return PAGE_BLOCKED
     return None

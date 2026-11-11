@@ -60,6 +60,7 @@ type runStartFields struct {
 	SearchExclude        []string `json:"search_exclude"`
 	SearchAllow          []string `json:"search_allow"`
 	PersonHosts          []string `json:"person_hosts"`
+	PersonLinks          []string `json:"person_links"`
 	UserMessage          string   `json:"user_message"`
 	PrivateContext       []string `json:"private_context"`
 }
@@ -114,6 +115,11 @@ func TestIntegrationAgentEngineRunStartCarriesLearningAndWeb(t *testing.T) {
 	}
 	if !slices.Equal(start.PersonHosts, []string{"news.example.com", "shop.example.org"}) {
 		t.Fatalf("person_hosts %v", start.PersonHosts)
+	}
+	// The pages the person typed: after taint the worker opens these, a
+	// search's results and front pages, on every web backend.
+	if !slices.Equal(start.PersonLinks, []string{"shop.example.org/p"}) {
+		t.Fatalf("person_links %v", start.PersonLinks)
 	}
 	// Past-chat search may return the account's chats only, never a
 	// Sensitive or "Don't learn" one: a session state.db holds without a

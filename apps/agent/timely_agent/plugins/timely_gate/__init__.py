@@ -16,7 +16,9 @@ Hermes runs this hook for every tool call, MCP included, before the tool runs. P
    check cannot see, such as URLs built at run time or redirects, is the residual in plan 14).
 1c. The exfiltration rule (phase 3, ``egress``; plan 8.1 web row, 12): in a tainted session,
    ``web_extract`` and ``browser_*`` URLs to a host the person did not type and no search in this
-   conversation returned, a ``web_extract`` URL carrying Timely or memory text, and a
+   conversation returned, and on an allowed host any page other than its front page, a link the
+   person typed (``run.start.person_links``) or a result a search returned word for word (the same
+   rule for every web backend: a saved search key only changes who reads the page), and a
    ``web_search`` query carrying text from a Timely read, memory or a tainted result: ``block``
    with "Paste the link yourself if you want me to open it", before Go is asked. No approval path
    until phase 5. A clean session is not restricted beyond the SSRF floor.
@@ -168,14 +170,59 @@ def _end_turn(run) -> dict:
 # ---------------------------------------------------------------- exfiltration rule (egress)
 
 def _memory_docs() -> list[str]:
-    """MEMORY.md and USER.md: each entry, and each file whole."""
+    """MEMORY.md and USER.md (each entry, and each file whole), and what Timely learned in skills."""
     from timely_agent.learning import files
     home = files.home_dir()
     docs: list[str] = []
     for target in ("memory", "user"):
         entries = files.read_memory(home, target)
         docs += entries + (["\n".join(entries)] if len(entries) > 1 else [])
+    return docs + _skill_docs(home)
+
+
+SKILL_FILE_CAP = 200_000  # bytes of one skill file read for the rule
+_pristine_cache: dict[str, tuple[tuple, bool]] = {}
+
+
+def _skill_docs(home) -> list[str]:
+    """The text of every skill in the account home that is not a pristine shipped copy: learned
+    skills and the person's edited copies are written from their chats, so they hold names,
+    clients and amounts just like memory. Archived skills (``.archive``) and Hermes' own folders
+    (``.hub`` and the like) are left out; the Timely skills live outside the home."""
+    from timely_agent.learning.api import _manifest
+    root = home / "skills"
+    manifest = _manifest(home)
+    docs: list[str] = []
+    for skill_md in sorted(root.rglob("SKILL.md")) if root.is_dir() else []:
+        folder = skill_md.parent
+        rel = folder.relative_to(root).parts
+        if any(part.startswith(".") for part in rel):
+            continue
+        if folder.name in manifest and _pristine(folder, manifest[folder.name]):
+            continue
+        for path in sorted(p for p in folder.rglob("*") if p.is_file()):
+            try:
+                if path.stat().st_size > SKILL_FILE_CAP:
+                    continue
+                docs.append(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError):
+                continue  # binary or unreadable: nothing a query could copy word for word
     return docs
+
+
+def _pristine(folder, digest: str) -> bool:
+    """Whether a shipped skill's folder is still the shipped copy (cached by file sizes and times)."""
+    from tools.skills_sync import dir_hash
+    try:
+        sig = tuple(sorted((str(p), p.stat().st_mtime_ns, p.stat().st_size) for p in folder.rglob("*") if p.is_file()))
+    except OSError:
+        return False
+    cached = _pristine_cache.get(str(folder))
+    if cached is not None and cached[0] == sig:
+        return cached[1]
+    same = dir_hash(folder) == digest
+    _pristine_cache[str(folder)] = (sig, same)
+    return same
 
 
 def _record(run) -> egress.Record:
@@ -221,7 +268,8 @@ def _egress(run, tool_name: str, args: dict) -> str | None:
             return None
         rec = _record(run)
         _load_stored(run, rec)
-        return egress.check(tool_name, args, tainted=True, person_hosts=run.person_hosts, rec=rec,
+        return egress.check(tool_name, args, tainted=True, person_hosts=run.person_hosts,
+                            person_links=run.person_links, rec=rec,
                             memory=_memory_docs(), private=run.private_context,
                             browser_urls=lambda a: list(dict.fromkeys(_url_literals(a))))
     except Exception as exc:  # fail closed

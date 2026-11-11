@@ -11,7 +11,7 @@ Hermes discovers the plugins, so ``timely_tools.register`` can register them.
 
 **Sessions outlive runs (phase 3).** Each conversation has a :class:`SessionState` in a registry
 keyed by its session id (``session_state``): the taint list, the latest run's flags and kind,
-``person_hosts``, ``tainted_conversations``, ``search_exclude``, ``search_allow``,
+``person_hosts``, ``person_links``, ``tainted_conversations``, ``search_exclude``, ``search_allow``,
 ``private_context`` and the cached agent. A run's
 context shares the session's taint list, so Hermes' learning pass, which runs on a daemon thread
 after the run ended under the same session id, still finds the taint and the policy through
@@ -74,6 +74,8 @@ class SessionState:
     flags: dict[str, Any] = field(default_factory=dict)
     tainted: list[Any] = field(default_factory=list)
     person_hosts: list[str] = field(default_factory=list)
+    # The pages the person typed in this chat or their bots read (``run.start.person_links``).
+    person_links: list[str] = field(default_factory=list)
     tainted_conversations: list[str] = field(default_factory=list)
     search_exclude: list[str] = field(default_factory=list)
     # Phase 3 fixes: the chats past-chat search may return (anything else is dropped), and Timely's
@@ -128,7 +130,8 @@ def session_state(session_id: str | None) -> Optional[SessionState]:
 def bind_session(session_id: str, *, kind: str = "chat", flags: dict | None = None,
                  tainted_sources: list | None = None, person_hosts: Any = None,
                  tainted_conversations: Any = None, search_exclude: Any = None, run_id: str = "",
-                 search_allow: Any = None, private_context: Any = None) -> SessionState:
+                 search_allow: Any = None, private_context: Any = None,
+                 person_links: Any = None) -> SessionState:
     """Create or refresh the state at a run's start: the run's flags and lists replace the
     previous ones, the taint only grows (``tainted_sources`` from ``run.start`` merged in)."""
     with _sessions_lock:
@@ -139,6 +142,7 @@ def bind_session(session_id: str, *, kind: str = "chat", flags: dict | None = No
     state.kind = kind if kind in RUN_KINDS else "chat"
     state.flags = dict(flags or {})
     state.person_hosts = _str_list(person_hosts)
+    state.person_links = _str_list(person_links)
     state.tainted_conversations = _str_list(tainted_conversations)
     state.search_exclude = _str_list(search_exclude)
     # No list (an older Go) allows no hit: a session Go does not know (restored, deleted) is dropped.
@@ -199,6 +203,10 @@ class RunContext:
     @property
     def person_hosts(self) -> list[str]:
         return list(self.session.person_hosts) if self.session else []
+
+    @property
+    def person_links(self) -> list[str]:
+        return list(self.session.person_links) if self.session else []
 
     @property
     def tainted_conversations(self) -> list[str]:

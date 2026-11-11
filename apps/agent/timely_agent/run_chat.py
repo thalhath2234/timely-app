@@ -464,7 +464,7 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
         conversation, kind="chat", flags=flags, tainted_sources=list(msg.get("tainted_sources") or []),
         person_hosts=msg.get("person_hosts"), tainted_conversations=msg.get("tainted_conversations"),
         search_exclude=msg.get("search_exclude"), run_id=run.run_id, search_allow=msg.get("search_allow"),
-        private_context=msg.get("private_context"))
+        private_context=msg.get("private_context"), person_links=msg.get("person_links"))
     ctx = bridge.RunContext(
         run_id=run.run_id, session_key=session_key, conversation_id=conversation, kind="chat",
         tainted_sources=list(msg.get("tainted_sources") or []), pre_approved=msg.get("pre_approved") or None,
