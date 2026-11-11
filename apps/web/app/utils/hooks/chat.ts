@@ -70,10 +70,10 @@ export function useReplyDraft(chat: Chat | undefined): ReplyDraft | null {
     () => null,
   );
   if (!chat || chat.runEngine !== "agent") return null;
-  if (chat.status !== "running" && chat.status !== "queued") return null;
-  // A newer row without the run's activity ended it; seed clears it next fetch.
-  if (chat.activity?.run && draft && draft.run !== chat.activity.run)
-    return null;
+  if (chat.status !== "running") return null;
+  // Only the live run's draft: a row without its activity (a stopped run,
+  // then a new message) must not bring the old cut-off text back.
+  if (!draft || draft.run !== chat.activity?.run) return null;
   return draft?.text ? draft : null;
 }
 

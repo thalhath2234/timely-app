@@ -41,6 +41,10 @@ export type ChatMessage = {
   botAnswers?: BotAnswer[];
   /** A proposal Auto or Full Access applied without asking; Undo reverses it until undoneAt is set. */
   autoApplied?: boolean;
+  /** A reply Stop cut short: the text it had streamed. */
+  cut?: boolean;
+  /** "agent" on a reply or proposal the new engine wrote. */
+  engine?: string;
   undoneAt?: string;
   /** The notice the undo added. */
   undoMessageId?: string;

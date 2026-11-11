@@ -16,6 +16,7 @@ import {
   agentRunLive,
   appliedSteps,
   autoAppliedState,
+  autoCardArchives,
   canPickPermission,
   chatPermission,
   composerMode,
@@ -493,8 +494,18 @@ test("an auto-applied change offers Undo while the chat is idle, and the bottom 
   ];
   const chat = { status: "idle", messages: [{ id: "u1", role: "user", content: "add", createdAt: "" }, proposal], plan };
   assert.equal(autoAppliedState(proposal, chat), "undo");
-  assert.equal(autoAppliedState(proposal, { status: "running" }), "waiting");
-  assert.equal(autoAppliedState(proposal, { status: "approval" }), "waiting");
+  // A later run or review: Undo waits (the server refuses it then).
+  assert.equal(autoAppliedState(proposal, { ...chat, status: "running" }), "undoLater");
+  assert.equal(autoAppliedState(proposal, { ...chat, status: "approval" }), "undoLater");
+  // While its own changes apply it says so; a change that did not go in has no Undo.
+  const applying = { ...chat, status: "running", plan: [plan[0], { ...plan[1], status: "pending" }] };
+  assert.equal(autoAppliedState(proposal, applying), "applying");
+  const partial = { ...chat, status: "failed", plan: [plan[0], { ...plan[1], status: "failed" }] };
+  assert.equal(autoAppliedState(proposal, partial), "applied");
+  // An older auto-applied card keeps "Applied" while a newer proposal applies.
+  const newer = { ...proposal, id: "p2" };
+  const later = { status: "running", messages: [...chat.messages, { id: "a0", role: "assistant", kind: "archive", content: "Previous changes", steps: plan, createdAt: "" }, newer], plan: [{ ...plan[0], status: "pending" }] };
+  assert.equal(autoAppliedState(proposal, later), "undoLater");
   assert.equal(autoAppliedState({ ...proposal, autoApplied: false }, chat), "none");
   assert.deepEqual(appliedSteps(chat, proposal), plan);
   assert.equal(planSummaryHidden(chat), true);
@@ -510,8 +521,15 @@ test("an auto-applied change offers Undo while the chat is idle, and the bottom 
     messages: [chat.messages[0], undone, { id: "a1", role: "assistant", kind: "archive", content: "Previous changes", steps: plan, createdAt: "" }, { id: "n1", role: "assistant", kind: "notice", content: "Undoing", createdAt: "" }],
     plan: undoPlan,
   };
-  assert.equal(autoAppliedState(undone, after), "undone");
+  // The server marks it undone when Undo is asked: "Undoing" until the undo
+  // plan applies, "Undo didn't finish" if it stops short.
+  assert.equal(autoAppliedState(undone, after), "undoing");
+  assert.equal(autoAppliedState(undone, { ...after, status: "failed" }), "undoFailed");
+  assert.equal(autoAppliedState(undone, { ...after, status: "idle", plan: undoPlan.map((s) => ({ ...s, status: "done" })) }), "undone");
   assert.deepEqual(appliedSteps(after, undone), plan);
+  // The card shows those steps, so the thread skips that archive.
+  assert.deepEqual([...autoCardArchives(after)], ["a1"]);
+  assert.equal(autoCardArchives(chat).size, 0);
   assert.equal(isUndoPlan(after.plan), true);
   assert.equal(planSummaryHidden(after), false);
 });

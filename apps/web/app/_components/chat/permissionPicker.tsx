@@ -197,6 +197,12 @@ export function PermissionPopover({
       if (!wrap.current?.contains(event.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", onDown);
+    // Keyboard users start on the chosen option.
+    wrap.current
+      ?.querySelector<HTMLElement>(
+        '[role="dialog"] [aria-checked="true"], [role="dialog"] button',
+      )
+      ?.focus();
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
   const pick = (mode: PermissionMode) => {
@@ -206,19 +212,29 @@ export function PermissionPopover({
     else onChange(mode);
   };
   return (
-    <div ref={wrap} className={cn("relative", className)}>
+    <div
+      ref={wrap}
+      className={cn("relative", className)}
+      onKeyDown={(e) => {
+        if (!open || e.key !== "Escape") return;
+        // Close only the picker, not the chat dialog around it, whether focus
+        // is on the trigger or inside.
+        e.preventDefault();
+        e.stopPropagation();
+        setOpen(false);
+      }}
+      onBlur={(e) => {
+        // Tabbing out closes it; a click elsewhere is the mousedown above
+        // (Safari doesn't focus a clicked button, so relatedTarget is null).
+        const next = e.relatedTarget as Node | null;
+        if (open && next && !wrap.current?.contains(next)) setOpen(false);
+      }}
+    >
       {trigger({ open, toggle: () => !disabled && setOpen((o) => !o) })}
       {open && (
         <div
           role="dialog"
           aria-label={title}
-          onKeyDown={(e) => {
-            if (e.key !== "Escape") return;
-            // Close only the picker, not the chat dialog around it.
-            e.preventDefault();
-            e.stopPropagation();
-            setOpen(false);
-          }}
           className={cn(
             "absolute z-30 w-[min(25rem,calc(100vw-2rem))] rounded-2xl border border-border bg-popover p-1.5 text-popover-foreground shadow-[0_12px_32px_rgba(0,0,0,0.16)]",
             placement === "above"

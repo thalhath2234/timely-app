@@ -4,6 +4,7 @@ import { CreditCard, Globe, Package, Send, Settings2, Trash2, type LucideIcon } 
 import {
   AUTO_ASKS_BEFORE,
   FULL_ACCESS_PHONE_NOTE,
+  PERMISSION_COPY,
   type AgentChatSettings,
   type CriticalRow,
   type PermissionMode,
@@ -52,14 +53,14 @@ export default function PermissionsCard({ settings }: { settings: AgentChatSetti
           testID="permissions-chats"
           title="New chats"
           trailing={<PermissionBadge mode={settings.chatPermission} />}
-          accessibilityLabel={`New chats start on ${settings.chatPermission}`}
+          accessibilityLabel={`New chats start on ${PERMISSION_COPY[settings.chatPermission]?.name ?? settings.chatPermission}`}
           onPress={() => setPicking("chatPermission")}
         />
         <ListRow
           testID="permissions-bots"
           title="Bots"
           trailing={<PermissionBadge mode={settings.botPermission} />}
-          accessibilityLabel={`Bots run on ${settings.botPermission}`}
+          accessibilityLabel={`Bots run on ${PERMISSION_COPY[settings.botPermission]?.name ?? settings.botPermission}`}
           onPress={() => setPicking("botPermission")}
         />
       </ListGroup>

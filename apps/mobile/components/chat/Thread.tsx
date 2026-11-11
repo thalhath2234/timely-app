@@ -42,7 +42,7 @@ import { LogoSpinner } from "../ui/TimelyLogo";
 import { useAgentProvidersQuery, useChatPromptsQuery, useDecisionFeedback } from "../../lib/hooks";
 import { readyProviders } from "./ModelSheet";
 import { AutoAppliedCard } from "./AgentRun";
-import { offersUseClassic } from "../../lib/chat/agentRun";
+import { autoCardArchives, offersUseClassic } from "../../lib/chat/agentRun";
 import { USE_CLASSIC_LABEL } from "@timely/contract/agentChat";
 
 /** Chat needs a connected provider; the rest of Timely works without one. */
@@ -290,6 +290,7 @@ export default function Thread({
 }) {
   let lastDay = "";
   const last = chat.messages[chat.messages.length - 1];
+  const shownByCards = autoCardArchives(chat);
   // Only the newest reply, with nothing the person said after it, keeps live answer chips.
   const newest = chat.messages.findLast(
     (m) => (m.role === "user" && !m.kind) || (m.role === "assistant" && !m.kind),
@@ -363,7 +364,9 @@ export default function Thread({
                 ) : null}
               </View>
             ) : message.kind === "archive" ? (
-              <Archive message={message} onReview={onReviewArchive} />
+              shownByCards.has(message.id) ? null : (
+                <Archive message={message} onReview={onReviewArchive} />
+              )
             ) : isUser ? (
               <View style={styles.userWrap}>
                 <View style={styles.userBubble}>
@@ -426,7 +429,7 @@ export default function Thread({
                   {message.steps?.length ? (
                     <ChangeCards steps={message.steps} onLink={onLink} />
                   ) : null}
-                  {message.proposal && message.autoApplied && onUndo ? (
+                  {message.proposal && message.autoApplied ? (
                     <AutoAppliedCard
                       chat={chat}
                       message={message}

@@ -163,17 +163,37 @@ export function offersUseClassic(chat: Pick<Chat, "errorAction" | "status"> | un
   return chat?.errorAction === USE_CLASSIC_ACTION && (chat.status === "failed" || chat.status === "stopped");
 }
 
-export type AutoAppliedState = "undo" | "undone" | "waiting" | "none";
+export type AutoAppliedState = "applying" | "applied" | "undo" | "undoLater" | "undoing" | "undoFailed" | "undone" | "none";
 
 /**
- * What an auto-applied proposal's card offers: Undo while the chat is idle
- * and it was not undone, "undone" after, "waiting" while a run, apply or
- * review is going (the server refuses Undo then).
+ * What an auto-applied proposal's card shows, as the server will answer:
+ * - "applying" while its own changes apply (the newest proposal only);
+ * - "applied" when not every change went in (the server keeps no Undo then);
+ * - "undo" when every change went in and the chat is idle;
+ * - "undoLater" the same while another run, apply or review is going, when
+ *   the server refuses Undo;
+ * - "undoing" / "undoFailed" while its undo applies or after it stopped short
+ *   (the server marks it undone as soon as Undo is asked);
+ * - "undone" once the undo went through.
  */
-export function autoAppliedState(message: Pick<ChatMessage, "proposal" | "autoApplied" | "undoneAt">, chat: Pick<Chat, "status">): AutoAppliedState {
+export function autoAppliedState(
+  message: ChatMessage,
+  chat: Pick<Chat, "status" | "plan" | "messages">,
+): AutoAppliedState {
   if (!message.proposal || !message.autoApplied) return "none";
-  if (message.undoneAt) return "undone";
-  if (busy(chat.status) || chat.status === "approval") return "waiting";
+  const newest = latestProposal(chat.messages) === message;
+  const plan = chat.plan ?? [];
+  if (message.undoneAt) {
+    const undoPlan = newest && plan.some((step) => step.undo);
+    if (undoPlan && busy(chat.status)) return "undoing";
+    if (undoPlan && (chat.status === "failed" || chat.status === "stopped")) return "undoFailed";
+    return "undone";
+  }
+  const steps = appliedSteps(chat, message);
+  const allDone = steps.length > 0 && steps.every((step) => step.status === "done");
+  if (newest && busy(chat.status) && !allDone) return "applying";
+  if (!allDone) return "applied";
+  if (busy(chat.status) || chat.status === "approval") return "undoLater";
   return "undo";
 }
 
@@ -194,6 +214,28 @@ export function isChatDelta(event: { type?: string; id?: string; kind?: string; 
 export function latestProposal(messages: ChatMessage[]): ChatMessage | undefined {
   for (let i = messages.length - 1; i >= 0; i--) if (messages[i].proposal) return messages[i];
   return undefined;
+}
+
+/**
+ * The archives an auto-applied card already shows (its applied steps after
+ * Undo or a later proposal): the thread skips them, as the web does.
+ */
+export function autoCardArchives(chat: Pick<Chat, "messages" | "plan">): Set<string> {
+  const out = new Set<string>();
+  const plan = chat.plan ?? [];
+  const newest = latestProposal(chat.messages);
+  chat.messages.forEach((message, index) => {
+    if (!message.proposal || !message.autoApplied) return;
+    if (!message.undoneAt && newest === message && plan.length && !plan.every((step) => step.undo)) return;
+    for (const next of chat.messages.slice(index + 1)) {
+      if (next.proposal) return;
+      if (next.kind === "archive" && next.steps?.length) {
+        out.add(next.id);
+        return;
+      }
+    }
+  });
+  return out;
 }
 
 /**

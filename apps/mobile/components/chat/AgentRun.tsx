@@ -81,26 +81,38 @@ export function AutoAppliedCard({
   chat: Chat;
   message: ChatMessage;
   undoing: boolean;
-  onUndo: (message: ChatMessage) => void;
+  /** Missing while offline: the card still shows, with Undo off. */
+  onUndo?: (message: ChatMessage) => void;
 }) {
   const state = autoAppliedState(message, chat);
   if (state === "none") return null;
   const steps = appliedSteps(chat, message).filter((step) => step.status === "done");
   const mode = PERMISSION_COPY[chatPermission(chat.permission) === "full" ? "full" : "auto"].name;
   const undone = state === "undone";
+  const eyebrow =
+    state === "undone"
+      ? "Undone"
+      : state === "undoing"
+        ? "Undoing…"
+        : state === "undoFailed"
+          ? "Undo didn't finish"
+          : state === "applying"
+            ? `Applying on its own · ${mode}`
+            : `Applied on its own · ${mode}`;
+  const undoOff = state === "undoLater" || undoing || !onUndo;
   return (
     <View style={styles.card} testID={undone ? "auto-applied-undone" : "auto-applied"}>
       <View style={styles.cardHead}>
-        <Text style={styles.eyebrow}>{undone ? "Undone" : state === "waiting" ? `Applying on its own · ${mode}` : `Applied on its own · ${mode}`}</Text>
-        {state === "undo" || state === "waiting" ? (
+        <Text style={styles.eyebrow}>{eyebrow}</Text>
+        {state === "undo" || state === "undoLater" ? (
           <AnimatedPressable
             testID="undo-auto-applied"
             accessibilityRole="button"
             accessibilityLabel="Undo these changes"
-            disabled={state === "waiting" || undoing}
-            onPress={() => onUndo(message)}
+            disabled={undoOff}
+            onPress={() => onUndo?.(message)}
             hitSlop={8}
-            style={[styles.undo, (state === "waiting" || undoing) && { opacity: 0.45 }]}
+            style={[styles.undo, undoOff && { opacity: 0.45 }]}
           >
             {undoing ? <LogoSpinner size={14} color={colors.foreground} /> : <Undo2 size={14} color={colors.foreground} />}
             <Text style={styles.undoText}>Undo</Text>

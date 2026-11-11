@@ -128,7 +128,8 @@ export default function Composer({
     inputRef,
     tags: botTags,
     setTags: setBotTags,
-    disabled: (busy && !steering) || pending,
+    // /steer sends only the text, so no @bot picker while steering.
+    disabled: busy || steering || pending,
   });
   return (
     <div className={cn("shrink-0", !bar && "px-4 pb-4 pt-1 md:px-8 md:pb-5")}>

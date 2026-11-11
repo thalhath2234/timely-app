@@ -185,7 +185,9 @@ export default function Conversation({
   const busy = isBusy(chat?.status);
   // What is sent while an agent run works steers it (POST /chats/:id/steer).
   const steering =
-    busy && chat?.runEngine === "agent" && chat.phase !== "apply";
+    chat?.status === "running" &&
+    chat.runEngine === "agent" &&
+    chat.phase !== "apply";
   const chips = chat?.context || context;
   const webSearch = chat?.webSearch ?? search;
   const model: ModelChoice = chat
