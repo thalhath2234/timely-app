@@ -1,0 +1,414 @@
+{
+  "version": 1,
+  "upstream": "v0.23.0",
+  "about": "Hermes-self skills (they run `hermes <command>` or name a literal ~/.hermes path) and skills that need a tool Timely never offers (messaging, kanban). Bundled ones are left out of every account's seed tree; optional ones are never offered. Regenerate: python3 -I scripts/hermes-sync/check_sync.py --write",
+  "mention_only_commands": [
+    "chat",
+    "pm",
+    "skills"
+  ],
+  "skills": {
+    "optional-skills/autonomous-ai-agents/agent-merge-conflict-arbiter": {
+      "reasons": [
+        "hermes-cli:kanban",
+        "uses-tool:kanban_complete",
+        "uses-tool:kanban_create"
+      ]
+    },
+    "optional-skills/autonomous-ai-agents/blackbox": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/autonomous-ai-agents/grok": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/autonomous-ai-agents/opencode": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/autonomous-ai-agents/openhands": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/blockchain/evm": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/blockchain/hyperliquid": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/blockchain/solana": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/creative/ascii-art": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/creative/hyperframes": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/creative/ip-as-logo": {
+      "reasons": [
+        "hermes-cli:tools"
+      ]
+    },
+    "optional-skills/creative/kanban-video-orchestrator": {
+      "reasons": [
+        "hermes-cli:dashboard",
+        "hermes-cli:kanban",
+        "hermes-cli:plugins",
+        "hermes-cli:profile",
+        "hermes-cli:status",
+        "hermes-cli:tools",
+        "home-path",
+        "uses-tool:kanban_comment",
+        "uses-tool:kanban_create",
+        "uses-tool:kanban_heartbeat",
+        "uses-tool:kanban_list",
+        "uses-tool:kanban_show"
+      ]
+    },
+    "optional-skills/creative/meme-generation": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/creative/pixel-art": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/creative/pretext": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/creative/unreal-mcp": {
+      "reasons": [
+        "hermes-cli:mcp",
+        "home-path"
+      ]
+    },
+    "optional-skills/data-science/jupyter-notebook": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/devops/actual-setup": {
+      "reasons": [
+        "hermes-cli:config",
+        "hermes-cli:status",
+        "home-path"
+      ]
+    },
+    "optional-skills/devops/hermes-s6-container-supervision": {
+      "reasons": [
+        "hermes-cli:dashboard",
+        "hermes-cli:gateway",
+        "hermes-cli:profile"
+      ]
+    },
+    "optional-skills/devops/pinggy-tunnel": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/devops/watchers": {
+      "reasons": [
+        "hermes-cli:cron",
+        "home-path"
+      ]
+    },
+    "optional-skills/finance/stocks": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/gaming/pokemon-player": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/mcp/fastmcp": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/mcp/mcp-oauth-remote-gateway": {
+      "reasons": [
+        "hermes-cli:dashboard",
+        "home-path"
+      ]
+    },
+    "optional-skills/mlops/training/axolotl": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/payments/stripe-link-cli": {
+      "reasons": [
+        "hermes-cli:mcp",
+        "hermes-cli:plugins",
+        "home-path"
+      ]
+    },
+    "optional-skills/productivity/box": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/productivity/canvas": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/productivity/memento-flashcards": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/productivity/shop": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/productivity/siyuan": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/productivity/telephony": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/research/bioinformatics": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/research/darwinian-evolver": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/research/parallel-cli": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/research/qmd": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/security/godmode": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/security/oss-forensics": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/security/unbroker": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/security/web-pentest": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/smart-home/openhue": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/social-media/reddit-reading": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/software-development/ast-grep": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/software-development/code-wiki": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/software-development/hermes-agent-skill-authoring": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/software-development/inspecting-hermes-desktop-dom": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/software-development/node-inspect-debugger": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/software-development/pr-lens": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/software-development/python-debugpy": {
+      "reasons": [
+        "hermes-cli:gateway",
+        "home-path"
+      ]
+    },
+    "optional-skills/web-development/har-derived-api-client": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "optional-skills/yuanbao": {
+      "reasons": [
+        "uses-tool:yb_query_group_info",
+        "uses-tool:yb_query_group_members",
+        "uses-tool:yb_send_dm"
+      ]
+    },
+    "skills/apple/findmy": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "skills/autonomous-ai-agents/claude-code": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "skills/autonomous-ai-agents/codex": {
+      "reasons": [
+        "hermes-cli:auth",
+        "home-path"
+      ]
+    },
+    "skills/autonomous-ai-agents/computer-use": {
+      "reasons": [
+        "hermes-cli:computer-use",
+        "hermes-cli:tools",
+        "hermes-cli:update",
+        "home-path"
+      ]
+    },
+    "skills/autonomous-ai-agents/hermes-agent": {
+      "reasons": [
+        "hermes-cli:acp",
+        "hermes-cli:auth",
+        "hermes-cli:claw",
+        "hermes-cli:config",
+        "hermes-cli:cron",
+        "hermes-cli:curator",
+        "hermes-cli:dashboard",
+        "hermes-cli:desktop",
+        "hermes-cli:doctor",
+        "hermes-cli:gateway",
+        "hermes-cli:kanban",
+        "hermes-cli:login",
+        "hermes-cli:logs",
+        "hermes-cli:mcp",
+        "hermes-cli:memory",
+        "hermes-cli:model",
+        "hermes-cli:pairing",
+        "hermes-cli:plugins",
+        "hermes-cli:profile",
+        "hermes-cli:sessions",
+        "hermes-cli:setup",
+        "hermes-cli:status",
+        "hermes-cli:tools",
+        "hermes-cli:update",
+        "hermes-cli:webhook",
+        "home-path",
+        "uses-tool:discord_admin",
+        "uses-tool:kanban_block",
+        "uses-tool:kanban_comment",
+        "uses-tool:kanban_complete",
+        "uses-tool:kanban_create",
+        "uses-tool:kanban_heartbeat",
+        "uses-tool:kanban_link",
+        "uses-tool:kanban_list",
+        "uses-tool:kanban_show",
+        "uses-tool:kanban_unblock"
+      ]
+    },
+    "skills/devops/sdlc-review": {
+      "reasons": [
+        "needs-toolset:kanban",
+        "uses-tool:kanban_block",
+        "uses-tool:kanban_comment",
+        "uses-tool:kanban_complete",
+        "uses-tool:kanban_request_changes",
+        "uses-tool:kanban_show"
+      ]
+    },
+    "skills/productivity/google-workspace": {
+      "reasons": [
+        "hermes-cli:setup",
+        "home-path"
+      ]
+    },
+    "skills/productivity/maps": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "skills/productivity/product-price-monitor": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "skills/productivity/teams-meeting-pipeline": {
+      "reasons": [
+        "hermes-cli:cron",
+        "hermes-cli:teams-pipeline",
+        "session-platforms"
+      ]
+    },
+    "skills/research/competitor-news-monitor": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "skills/research/grounded-citations": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "skills/software-development/github": {
+      "reasons": [
+        "home-path"
+      ]
+    },
+    "skills/web/blocked-page-recovery": {
+      "reasons": [
+        "home-path"
+      ]
+    }
+  }
+}

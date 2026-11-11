@@ -2,7 +2,7 @@
   "version": 1,
   "upstream": "v0.23.0",
   "about": "Reviewed git tree id per skill folder (plan 9.3). Bundled: default on/off in every account. Optional: offered in Settings (off until the person enables it) or not offered. A skill tree that changes upstream fails make hermes-sync-check until its entry is re-recorded; a skill with no entry is left out of the seed tree and stays off.",
-  "basis": "v0.23.0 first import (phase 1): defaults and offered flags come from a phase-1 pass over each skill's description and its Hermes-self signals in skills.json (hermes CLI use, literal ~/.hermes paths), messaging (decision 6) and blocked tools. It was not a line-by-line read of every skill; a developer confirms the bundled defaults before phase 2 seeds skills into accounts.",
+  "basis": "line-by-line, phase 3 (2026-11-11): every bundled SKILL.md was read in full and every offered optional skill's description; table and reasons in docs/plans/2026-11-11-phase3-skills-review.md. A bundled skill is on by default only when its core job works in a phase 3 chat (Timely tools, todo, skills, memory, past-chat search, web) and it points the agent at nothing Timely refuses (Hermes itself, ~/.hermes, messaging, kanban, the host's own logins); skills whose core job needs terminal, file or browser tools are off until phase 5 re-reviews them. Denied skills (policy/skills-denied.json) are off and never seeded; denied optional skills are never offered. A person can still turn on any reviewed, not-denied skill in Settings.",
   "skills": {
     "optional-skills/autonomous-ai-agents/agent-merge-conflict-arbiter": {
       "tree": "48c44ef49d28b96fc2a13419fea87d72a65d63f7",
@@ -11,7 +11,8 @@
     },
     "optional-skills/autonomous-ai-agents/antigravity-cli": {
       "tree": "8440a6290afab71a5dd964e3c17ba34933edafdf",
-      "offered": true
+      "offered": false,
+      "reason": "drives another agent CLI with its own login and sandbox, like codex and claude-code (off); CLI providers reach Timely through the Go gateway"
     },
     "optional-skills/autonomous-ai-agents/blackbox": {
       "tree": "f087024233778f5f99d2421b48b03715259a4dc2",
@@ -302,7 +303,8 @@
     },
     "optional-skills/mcp/mcporter": {
       "tree": "fdfe248218864fb8ab0584c3c0941b9b562a4482",
-      "offered": true
+      "offered": false,
+      "reason": "lists, authorizes and calls MCP servers from the terminal, around Timely's per-account MCP settings and sign-ins"
     },
     "optional-skills/media/gif-search": {
       "tree": "6b66816ef99990600861a2896a04ce74be770e23",
@@ -358,7 +360,8 @@
     },
     "optional-skills/mlops/obliteratus": {
       "tree": "d77ce4a5dde79274126656318120517e65493827",
-      "offered": true
+      "offered": false,
+      "reason": "removes refusal behaviour from model weights; outside what a personal planner offers"
     },
     "optional-skills/mlops/peft": {
       "tree": "3f1f4fa277b816e5e2c577af242cd67d97968172",
@@ -444,7 +447,8 @@
     },
     "optional-skills/productivity/property-listings": {
       "tree": "906a4c4828b0f370b7ccbabd75c4f630414f52f2",
-      "offered": true
+      "offered": false,
+      "reason": "a recipe for Hermes desktop transcript cards, which Timely's apps do not render"
     },
     "optional-skills/productivity/shop": {
       "tree": "59d26960a8e5838b2cad87cf34b8d7fd0c2edef9",
@@ -493,7 +497,8 @@
     },
     "optional-skills/research/osint-investigation": {
       "tree": "9df7201bb0c196107ea09ff1596216da3315a231",
-      "offered": true
+      "offered": false,
+      "reason": "cross-references people through property, court and identity records; investigating individuals is outside what Timely offers"
     },
     "optional-skills/research/parallel-cli": {
       "tree": "25e3f841a6cfd8997221b0641d07f20a71441d56",
@@ -515,7 +520,8 @@
     },
     "optional-skills/research/scrapling": {
       "tree": "12a861cea24a76410d449f350970b8c366aa8272",
-      "offered": true
+      "offered": false,
+      "reason": "stealth browsing and Cloudflare bypass, which would route around Timely's web gate and sites' access controls"
     },
     "optional-skills/security/1password": {
       "tree": "1266fc783cbe4c60f35077d9a6a914d1d7477c28",
@@ -633,196 +639,222 @@
     "skills/apple/apple-notes": {
       "tree": "a44bf261f6c4d5a0ec60426e1b81c1719cc076cb",
       "default": "off",
-      "reason": "macOS only; Timely ships no macOS build"
+      "reason": "macOS only (memo CLI through terminal); Timely ships no macOS build, and Timely's own docs are the notes store"
     },
     "skills/apple/apple-reminders": {
       "tree": "715c5c777667ed1e91581ea81dc4e481712393c9",
       "default": "off",
-      "reason": "macOS only; Timely ships no macOS build"
+      "reason": "macOS only (remindctl through terminal); Timely's own tasks and reminders cover this"
     },
     "skills/apple/findmy": {
       "tree": "3a0231e2318c9936941de6d2716240df857c6cf2",
       "default": "off",
-      "reason": "macOS only; also writes to a literal ~/.hermes path"
+      "reason": "denied (home-path): screenshots into ~/.hermes/cache; macOS only; tracks device and AirTag locations through UI automation and a cron loop"
     },
     "skills/apple/imessage": {
       "tree": "64492659a012989db62320a799af2320bf79fdf8",
       "default": "off",
-      "reason": "macOS only and messaging (decision 6)"
+      "reason": "messaging (decision 6): sends iMessage/SMS; macOS only; needs Full Disk Access for the terminal"
     },
     "skills/autonomous-ai-agents/claude-code": {
       "tree": "cc2e05d23617439d9584568a76cb3b933e21bb24",
       "default": "off",
-      "reason": "drives another agent CLI through terminal and writes to a literal ~/.hermes path; CLI providers come through the Go gateway (phase 4)"
+      "reason": "denied (home-path): writes to ~/.hermes/cache; drives another agent CLI in tmux with the host's own Claude login; CLI providers reach Timely through the Go gateway (phase 4)"
     },
     "skills/autonomous-ai-agents/codex": {
       "tree": "7e85952ac26f1a2b5b3142aaa781ebdc8281e5d0",
       "default": "off",
-      "reason": "drives another agent CLI with Hermes-managed auth (~/.hermes/auth.json, hermes auth)"
+      "reason": "denied (hermes-cli:auth, home-path): Hermes-managed Codex OAuth in ~/.hermes/auth.json; drives another agent CLI, recommends sandbox-bypass flags"
     },
     "skills/autonomous-ai-agents/computer-use": {
       "tree": "11b3a9b45bf15c13a1c0699be215b309f0335ca1",
       "default": "off",
-      "reason": "needs computer_use, which tools.yaml blocks; runs hermes computer-use/tools"
+      "reason": "denied (hermes-cli, home-path): needs computer_use, which tools.yaml blocks; tells the person to run hermes computer-use doctor"
     },
     "skills/autonomous-ai-agents/hermes-agent": {
       "tree": "8742cf11de2c21a7f63fd77154138affae6cf5bb",
       "default": "off",
-      "reason": "Hermes-self: operating Hermes itself (hermes CLI, ~/.hermes)"
+      "reason": "denied (Hermes-self): operating Hermes itself (hermes setup/config/gateway/cron/kanban, ~/.hermes paths, spawning hermes in tmux); essential in Hermes, so it is left out of the seed tree"
     },
     "skills/creative/architecture-diagram": {
       "tree": "ef341eda975e4b1f96babced447db85045885f4d",
-      "default": "on"
+      "default": "on",
+      "reason": "text in, text out: the HTML/SVG diagram can come back in the reply; saving a file waits for phase 5 file tools (approve); no outside calls, no Hermes paths"
     },
     "skills/creative/ascii-video": {
       "tree": "2e53b2910dcdd981cc03a75da29871d6f81718ab",
-      "default": "on"
+      "default": "off",
+      "reason": "the whole pipeline is a Python + NumPy + ffmpeg script run in the terminal; nothing of it works in a phase 3 chat; revisit when terminal and file tools ship (phase 5, approve in chat)"
     },
     "skills/creative/baoyu-infographic": {
       "tree": "0d0ef37b25e925bd9032ab000e87fd1bcb3ec205",
-      "default": "on"
+      "default": "off",
+      "reason": "its result is an image from image_generate, which Timely blocks (phase later); every step writes files and it asks through clarify (blocked in chat until phase 4)"
     },
     "skills/creative/claude-design": {
       "tree": "1651167d8707efea07120b9e6e5bac779895db0e",
-      "default": "on"
+      "default": "on",
+      "reason": "design process and taste; the HTML artifact can come back in the reply until file tools ship (phase 5); its install pointer (hermes skills install design-md) is a mention, not a step"
     },
     "skills/creative/humanizer": {
       "tree": "bdc0a20bff83e7ac657b95e5de9d4bb2357ca88f",
-      "default": "on"
+      "default": "on",
+      "reason": "pure writing guidance on text the person pastes; file edits are optional and go through approval later"
     },
     "skills/creative/manim-video": {
       "tree": "c1731c688bd68440ee45a6f29cc49322c8a5a143",
-      "default": "on"
+      "default": "off",
+      "reason": "renders with Manim, LaTeX and ffmpeg in the terminal (pip install manim); revisit when terminal and file tools ship (phase 5, approve in chat)"
     },
     "skills/creative/p5js": {
       "tree": "532cf8f04ae4b9ecd23766563c3dd59b71456563",
-      "default": "on"
+      "default": "on",
+      "reason": "the deliverable is one self-contained HTML sketch that can come back in the reply; preview servers and headless export are terminal steps that wait for phase 5 approval"
     },
     "skills/creative/popular-web-designs": {
       "tree": "b5d08979b8af4e32d2871502f7f7f4c96636a3fd",
-      "default": "on"
+      "default": "on",
+      "reason": "design tokens read with skill_view; HTML comes back in the reply; the cloudflared-tunnel and browser verification steps need tools a chat does not have and are skipped"
     },
     "skills/creative/songwriting-and-ai-music": {
       "tree": "90da32755484ad32d33cfc1f3d34c6ebefc4c5d2",
-      "default": "on"
+      "default": "on",
+      "reason": "pure writing craft (lyrics, structure, Suno prompts); its install pointers are mentions"
     },
     "skills/devops/sdlc-review": {
       "tree": "d4773e96c78b80085d0a35bf0444582c4e900a9a",
-      "default": "on"
+      "default": "off",
+      "reason": "denied (needs-toolset:kanban): runs only as a Hermes kanban review worker; every kanban tool is never offered"
     },
     "skills/email/email-inbox-triage": {
       "tree": "b5a24d9d684c4b7468dcc855802e624abd1f1ac5",
       "default": "off",
-      "reason": "email sending is messaging (decision 6)"
+      "reason": "no mail connector in Timely (himalaya and google-workspace are off); sending mail is messaging (decision 6)"
     },
     "skills/email/himalaya": {
       "tree": "eb3fd363cfcf281169fb0f0b7c5b9d7475b6513f",
       "default": "off",
-      "reason": "email sending is messaging (decision 6)"
+      "reason": "messaging (decision 6): sends and deletes mail through the himalaya CLI; needs IMAP/SMTP credentials on the host and curl|sh install"
     },
     "skills/media/youtube-content": {
       "tree": "1a3d97d23ed2f707ae407d7bc73c8a255c659092",
-      "default": "on"
+      "default": "off",
+      "reason": "its setup runs inside a Hermes source checkout (source ./activate, pm.sync_venv): Hermes' own package manager, which the worker does not have; then terminal"
     },
     "skills/note-taking/obsidian": {
       "tree": "056805bcfb91aed2b8fbd8ae9226fb42631de7bb",
-      "default": "on"
+      "default": "off",
+      "reason": "resolves the vault from $HERMES_HOME/.env or ~/Documents (the account home in a worker), so it cannot find the person's vault; all steps are file tools; Timely docs are the notes store; revisit when terminal and file tools ship (phase 5, approve in chat)"
     },
     "skills/productivity/document-to-action-items": {
       "tree": "0ecdcfc759e709d4c6a703772449e5bc9adedcf5",
-      "default": "on"
+      "default": "on",
+      "reason": "fits Timely: turns pasted or fetched documents into cited facts and proposed tasks, and asks before any write (Timely's proposal flow)"
     },
     "skills/productivity/google-workspace": {
       "tree": "e8a6df26c31a06e05904a3b0666f8505449f8382",
       "default": "off",
-      "reason": "Hermes-self OAuth setup (hermes setup, ~/.hermes) and Gmail sending"
+      "reason": "denied (hermes-cli:setup, home-path): Hermes-managed OAuth with tokens in ~/.hermes; asks the person for OAuth client secrets in chat; Gmail sending is messaging"
     },
     "skills/productivity/maps": {
       "tree": "b3be9fd19dba964893cd4c654c627d72dd8b040a",
       "default": "off",
-      "reason": "points at a literal ~/.hermes/skills path (the host user's home)"
+      "reason": "denied (home-path): runs its script from ~/.hermes/skills; requires the terminal toolset; written for Telegram location pins"
     },
     "skills/productivity/meeting-action-items": {
       "tree": "6fe27b1d479f8acd10e2becce2f69d3f7542dd80",
-      "default": "on"
+      "default": "on",
+      "reason": "fits Timely: decisions, owners and dates from notes the person shares; never invents owners or dates; drafts first and writes only what is approved"
     },
     "skills/productivity/microsoft-office": {
       "tree": "95821ee4e8276f19a9b009c0172c4a12f965751f",
-      "default": "on"
+      "default": "off",
+      "reason": "every operation runs Python helpers in the terminal (and may pip install into ~/.cache); revisit when terminal and file tools ship (phase 5, approve in chat)"
     },
     "skills/productivity/pdf": {
       "tree": "cb8cd8fccf17a5d42c75ed6672b9e584c145eb56",
-      "default": "on"
+      "default": "off",
+      "reason": "every operation runs Python helpers in the terminal (pypdf, reportlab, pdfplumber); revisit when terminal and file tools ship (phase 5, approve in chat)"
     },
     "skills/productivity/product-price-monitor": {
       "tree": "378efe6cb03c2dc364703ef2b4d7268efee42e75",
       "default": "off",
-      "reason": "keeps state under ~/.hermes and creates Hermes cron jobs; Timely override planned (plan 9.2)"
+      "reason": "denied (home-path): state under ~/.hermes/price-watches and Hermes cron jobs; the Timely override for the converted price bot is planned (plan 9.2)"
     },
     "skills/productivity/teams-meeting-pipeline": {
       "tree": "977970ca4193a42d7f6a1c4c56d7d8725059bdd8",
       "default": "off",
-      "reason": "Microsoft Graph webhooks and hermes cron; messaging (decision 6)"
+      "reason": "denied (hermes-cli:teams-pipeline, hermes-cli:cron, session-platforms): operates a Hermes Teams/Graph pipeline; messaging (decision 6)"
     },
     "skills/productivity/weekly-review-planning": {
       "tree": "f0eea47488fc8dd0b59766e863ba1b3b25f4491c",
-      "default": "on"
+      "default": "on",
+      "reason": "fits Timely: a weekly review over tasks, calendar and notes; recommends first and changes only what is approved"
     },
     "skills/research/arxiv": {
       "tree": "ab1a960256ce2fb02194792060e39404d449c940",
-      "default": "on"
+      "default": "on",
+      "reason": "read-only research: web_extract reads abstracts and PDFs in a phase 3 chat; the curl API calls wait for terminal (phase 5)"
     },
     "skills/research/competitor-news-monitor": {
       "tree": "8f266b5fd368cc00c920a774c30822e265e2b9cb",
       "default": "off",
-      "reason": "keeps state under ~/.hermes and runs as a Hermes cron job; needs a Timely override like product-price-monitor"
+      "reason": "denied (home-path): state under ~/.hermes/competitor-watches and Hermes cron jobs; needs a Timely override like product-price-monitor"
     },
     "skills/research/grounded-citations": {
       "tree": "13bf36817196b06f7422ee5a786415e851a83336",
-      "default": "on"
+      "default": "off",
+      "reason": "denied (home-path): every step runs a ledger script from ~/.hermes/skills through the terminal; in a worker that path does not exist"
     },
     "skills/social-media/xurl": {
       "tree": "e6e822d02bccbb497deadf82ec2087091e51ac0e",
       "default": "off",
-      "reason": "posts to X; outbound social posting is out with messaging (decision 6)"
+      "reason": "messaging (decision 6): posts, replies and DMs on X; installs with curl|bash; credentials in ~/.xurl"
     },
     "skills/software-development/codebase-inspection": {
       "tree": "8dd5ae79720eaea75da4654ed8e46d187bef9b28",
-      "default": "on"
+      "default": "off",
+      "reason": "its first step is pip install --break-system-packages through the terminal; repository metrics are outside a phase 3 chat"
     },
     "skills/software-development/dogfood": {
       "tree": "e4fc63a14e96629b869ca210072d9b89a1a83010",
-      "default": "on"
+      "default": "off",
+      "reason": "every step uses browser_exec (approve, phase 5) and writes report files; revisit when terminal and file tools ship (phase 5, approve in chat)"
     },
     "skills/software-development/github": {
       "tree": "ad99744f9a9c0be810818c180e629fb1ef3f48e4",
       "default": "off",
-      "reason": "references write to literal ~/.hermes paths and read tokens from the Hermes .env; review again when terminal ships (phase 5)"
+      "reason": "denied (home-path): references write to ~/.hermes paths and read tokens from the Hermes .env; gh CLI through the terminal (phase 5)"
     },
     "skills/software-development/requesting-code-review": {
       "tree": "730409acf6d9911f4621f682849a78702fa49afc",
-      "default": "on"
+      "default": "off",
+      "reason": "git, linters and tests in the terminal, reviewer subagents (phase 4), and it ends with git add -A and a commit; revisit when terminal and file tools ship (phase 5, approve in chat)"
     },
     "skills/software-development/simplify-code": {
       "tree": "49f79427a878431a87379f523cc91ae3e4006c47",
-      "default": "on"
+      "default": "off",
+      "reason": "git diff, four delegate_task reviewers (phase 4) and file edits; revisit when terminal and file tools ship (phase 5, approve in chat)"
     },
     "skills/software-development/spike": {
       "tree": "b1d7fbc0dddfe1002220146d37c84972aad0c19f",
-      "default": "on"
+      "default": "off",
+      "reason": "builds throwaway code with terminal, write_file and delegate_task; revisit when terminal and file tools ship (phase 5, approve in chat)"
     },
     "skills/software-development/systematic-debugging": {
       "tree": "2c2b42523ac9c62d61c40b199e16a166a920b6ec",
-      "default": "on"
+      "default": "off",
+      "reason": "its required first phase is a reproduction loop run in the terminal with read_file/search_files; revisit when terminal and file tools ship (phase 5, approve in chat)"
     },
     "skills/software-development/test-driven-development": {
       "tree": "b96071449e8154309741821665fe49a25410cf0d",
-      "default": "on"
+      "default": "off",
+      "reason": "every cycle runs tests in the terminal and it tells the agent to delete code written before a test; revisit when terminal and file tools ship (phase 5, approve in chat)"
     },
     "skills/web/blocked-page-recovery": {
       "tree": "d31fe3255997c2401dd45cfe35307174042a5510",
       "default": "off",
-      "reason": "writes to a literal ~/.hermes/cache path"
+      "reason": "denied (home-path): writes to ~/.hermes/cache; routes around paywalls and bot walls through third-party archives with curl, which would send URLs past Timely's web gate"
     }
   }
 }

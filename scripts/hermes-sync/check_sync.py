@@ -10,7 +10,8 @@ npm or env files), then the unit tests of these scripts, then this file:
   d  import smoke test with a fresh HERMES_HOME/HERMES_RUNTIME_DIR (check_dump.py in the agent venv)
   e  runtime tool dump vs tools.json; every tool classified by name and owner in policy/tools.yaml
      with current reviewed schema hashes; skills.json current; every bundled and offered optional
-     skill tree matches policy/skills-reviewed.json; skill-body.yaml tokens match tools.yaml;
+     skill tree matches policy/skills-reviewed.json; policy/skills-denied.json is current and no denied
+     skill is default on or offered; skill-body.yaml tokens match tools.yaml;
      seams.json matches; tags.json records the imported tag
 
 The agent interpreter is $HERMES_CHECK_PYTHON, else apps/agent/.venv (made by `make agent-install`).
@@ -18,8 +19,9 @@ HERMES_CHECK_STATIC_ONLY=1 (or --static-only) skips d and the runtime half of e 
 policy against the committed tools.json instead; CI never sets it.
 
 Other modes:
-  --write                  regenerate tools.json, skills.json, seams.json and the generated block
-                           of skill-body.yaml (what `make hermes-tools-dump` runs), then check
+  --write                  regenerate tools.json, skills.json, seams.json, policy/skills-denied.json
+                           and the generated block of skill-body.yaml (what `make hermes-tools-dump`
+                           runs), then check
   --review-skills F [F..]  record the current tree of skill folders (or bare names) in
                            skills-reviewed.json after reading them (`make hermes-skills-review`)
   --review-all             the same for every skill
@@ -177,12 +179,14 @@ def main():
         check_lib.write_json(check_policy.SKILLS_JSON, skills_doc)
         check_lib.write_json(check_seams.SEAMS_JSON, check_seams.document(seams_now, tag))
         policy = check_lib.read_yaml(check_policy.TOOLS_YAML)
+        check_lib.write_json(check_policy.SKILLS_DENIED, check_policy.denied_document(trees, hermes_dir, tag, policy))
         with open(check_lib.path(check_policy.SKILL_BODY), encoding="utf-8") as fh:
             body_text = fh.read()
         with open(check_lib.path(check_policy.SKILL_BODY), "w", encoding="utf-8", newline="\n") as fh:
             fh.write(check_policy.render_tokens(body_text, check_policy.chat_gated_tokens(policy)))
-        say(f"wrote {check_policy.TOOLS_JSON}, {check_policy.SKILLS_JSON}, {check_seams.SEAMS_JSON} and the "
-            f"tool_tokens block of {check_policy.SKILL_BODY}; review the diff before committing")
+        say(f"wrote {check_policy.TOOLS_JSON}, {check_policy.SKILLS_JSON}, {check_policy.SKILLS_DENIED}, "
+            f"{check_seams.SEAMS_JSON} and the tool_tokens block of {check_policy.SKILL_BODY}; review the diff "
+            "before committing")
 
     e = []
     try:
@@ -207,10 +211,19 @@ def main():
     except (OSError, ValueError) as exc:
         e.append(f"{check_policy.SKILLS_JSON}: {exc} (generate it with `{check_policy.REGEN}`)")
     try:
-        e += check_policy.check_skills(check_lib.read_json(check_policy.SKILLS_REVIEWED), trees,
-                                       dump.get("skills") if dump else None)
+        reviewed_doc = check_lib.read_json(check_policy.SKILLS_REVIEWED)
+        e += check_policy.check_skills(reviewed_doc, trees, dump.get("skills") if dump else None)
     except (OSError, ValueError) as exc:
+        reviewed_doc = None
         e.append(f"{check_policy.SKILLS_REVIEWED}: {exc}")
+    if policy is not None:
+        try:
+            denied_doc = check_lib.read_json(check_policy.SKILLS_DENIED)
+            e += check_policy.compare_dump(denied_doc, check_policy.denied_document(trees, hermes_dir, tag, policy),
+                                           check_policy.SKILLS_DENIED, ["upstream", "mention_only_commands", "skills"])
+            e += check_policy.check_denied(reviewed_doc, denied_doc)
+        except (OSError, ValueError) as exc:
+            e.append(f"{check_policy.SKILLS_DENIED}: {exc} (generate it with `{check_policy.REGEN}`)")
     if policy is not None:
         try:
             e += check_policy.check_skill_body(check_lib.read_yaml(check_policy.SKILL_BODY), policy)
