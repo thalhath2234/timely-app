@@ -230,6 +230,9 @@ def test_c09_skill_body_rule_stages(lagent, lworker, stub, line):
     done, events, _ = turn(lworker, lagent, stub, f"r-{name}", f"c-{name}",
                            text([{"calls": [create(name, body)]}], f"tag-{name}"))
     assert [e["status"] for e in events if e["subject"] == name] == ["staged"], events
+    # a clean chat: the card must give the skill-body reason, not "read something from outside"
+    (ev,) = [e for e in events if e["subject"] == name]
+    assert ev["reason"] == "skill_body" and ev["tainted_sources"] == [], ev
     assert not skill_dir(lagent, name).exists()
 
 

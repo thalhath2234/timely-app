@@ -166,7 +166,8 @@ def stage(tool: str, args: dict[str, Any], *, origin: str, reason: str, conversa
     event = feed_mod.make_event(kind=kind, action=verb, subject=subject, status="staged", origin=origin,
                                 before=before, after=_after_text(payload), conversation_id=conversation_id,
                                 run_id=run_id, bot_id=bot_id, tainted_sources=tainted_sources,
-                                pending_id=pending_id, summary=summary)
+                                pending_id=pending_id, summary=summary,
+                                reason=reason if reason in feed_mod.REASONS else "")
     feed = feed_mod.current()
     if feed is not None:
         feed.claim_pending(pending_id)

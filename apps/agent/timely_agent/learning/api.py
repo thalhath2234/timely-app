@@ -17,6 +17,7 @@ import json
 import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
@@ -559,8 +560,31 @@ def list_pending(home: Path) -> list[dict[str, Any]]:
                                                      else "chat"),
                     "conversation_id": meta.get("conversation_id") or "",
                     "summary": meta.get("summary") or record.get("summary") or "",
-                    "created_at": record.get("created_at")})
-    return sorted(out, key=lambda r: r.get("created_at") or 0)
+                    "reason": meta.get("reason") if meta.get("reason") in feed_mod.REASONS else "",
+                    "tainted_sources": list(meta.get("tainted_sources") or []),
+                    "created_at": _rfc3339(record.get("created_at") or meta.get("created_at")),
+                    "_t": _seconds(record.get("created_at") or meta.get("created_at"))})
+    out.sort(key=lambda r: r["_t"])
+    for row in out:
+        del row["_t"]
+    return out
+
+
+def _seconds(value: Any) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def _rfc3339(value: Any) -> str:
+    """Hermes keeps a pending write's time as epoch seconds; the apps read RFC 3339."""
+    seconds = _seconds(value)
+    if not seconds:
+        return ""
+    return datetime.fromtimestamp(seconds, UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def pending(msg: dict[str, Any], host: Host) -> dict[str, Any]:

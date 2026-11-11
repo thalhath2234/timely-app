@@ -322,6 +322,7 @@ func TestIntegrationRecordsWorkerLearningMessages(t *testing.T) {
 		learningLine(map[string]any{"id": "w-2", "kind": "memory", "status": "staged"}), // no pending_id
 		learningLine(map[string]any{"id": "w-3", "kind": "memory", "status": "undone"}), // not a worker status
 		learningLine(map[string]any{"id": "w-4", "kind": "user", "status": "staged", "pending_id": "p-4", "conversation_id": "chat_1",
+			"reason":          "tainted",
 			"tainted_sources": []any{map[string]any{"kind": "web", "tool": "web_extract", "host": "example.com"}}}),
 	)
 	ev := r.waitEvent(a, "w-1")
@@ -330,7 +331,7 @@ func TestIntegrationRecordsWorkerLearningMessages(t *testing.T) {
 		ev.RunID != "run_1" || ev.LedgerEntryID != "led-1" || ev.Status != StatusApplied || !strings.HasPrefix(ev.ID, "lev_") {
 		t.Fatalf("recorded %+v", ev)
 	}
-	if staged.PendingID != "p-4" || !strings.Contains(string(staged.TaintedSources), "web_extract") {
+	if staged.PendingID != "p-4" || !strings.Contains(string(staged.TaintedSources), "web_extract") || staged.Reason != "tainted" || ev.Reason != "" {
 		t.Fatalf("staged %+v", staged)
 	}
 	if n := count(t, r.db, "agent_learning_events", "user_id = ?", a); n != 2 {

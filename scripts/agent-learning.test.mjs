@@ -132,6 +132,8 @@ describe("pendingCard", () => {
         action: "patched",
         subject: "flipkart-price-read",
         summary: "Reads the price box",
+        reason: "tainted",
+        taintedSources: [{ kind: "web", tool: "web_extract" }],
       }),
       ev({ status: "applied" }),
       ev({ status: "staged", pendingId: "", subject: "no-pending-id" }),
@@ -149,6 +151,23 @@ describe("pendingCard", () => {
     assert.equal(card.discard, "Discard");
     assert.equal(card.viewDiff, "View diff");
     assert.match(card.why, /outside Timely/);
+  });
+
+  test("a clean chat's staged change gives its own reason", () => {
+    const card = (fields) =>
+      pendingCard([ev({ status: "staged", pendingId: "p", origin: "chat", ...fields })]);
+    assert.equal(
+      card({ reason: "skill_body" }).why,
+      "These steps use tools that need your OK, so they wait for you.",
+    );
+    assert.equal(
+      card({ reason: "unattended", origin: "review" }).why,
+      "This changes or removes something Timely already knows, so it waits for you.",
+    );
+    assert.equal(card({}).why, "Timely waits for you before saving this.");
+    assert.match(card({ reason: "tainted" }).why, /outside Timely/);
+    // a row from before reasons were kept, with the chat's taint
+    assert.match(card({ taintedSources: [{ kind: "web" }] }).why, /outside Timely/);
   });
 
   test("a bot's suggestion names the bot", () => {

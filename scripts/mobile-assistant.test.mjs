@@ -715,8 +715,13 @@ test("Waiting for you rows read the worker's items with the card's words", () =>
   const item = { pending_id: "p1", kind: "skill", subject: "flipkart-price-read", action: "patched", diff: "-old\n+new", origin: "chat", conversation_id: "c1", created_at: "2026-11-11T11:00:00Z" };
   assert.equal(learning.pendingMeta(item, now), "from a chat · 1 h ago");
   assert.equal(learning.pendingMeta({ ...item, summary: "Reads the deal price" }, now), "Reads the deal price · 1 h ago");
-  assert.equal(learning.pendingWhy(item), "This chat read something from outside Timely, so it waits for you.");
+  const tainted = { ...item, reason: "tainted", tainted_sources: [{ kind: "web", tool: "web_extract" }] };
+  assert.equal(learning.pendingWhy(tainted), "This chat read something from outside Timely, so it waits for you.");
   assert.equal(learning.pendingWhy({ ...item, origin: "bot" }), "A bot suggested this, so it waits for you.");
+  // a clean chat stages for its own reasons, never "read something from outside"
+  assert.equal(learning.pendingWhy({ ...item, reason: "skill_body" }), "These steps use tools that need your OK, so they wait for you.");
+  assert.equal(learning.pendingWhy({ ...item, reason: "unattended" }), "This changes or removes something Timely already knows, so it waits for you.");
+  assert.equal(learning.pendingWhy(item), "Timely waits for you before saving this.");
   assert.equal(learning.pendingAsEvent(item).pendingId, "p1");
 });
 

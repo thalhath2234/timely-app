@@ -60,10 +60,17 @@ export type LearningEvent = {
   ledgerEntryId: string;
   pendingId: string;
   summary: string;
+  /** Why a staged change waits; "" on other events and on older rows. */
+  reason?: LearningReason | string;
   /** RFC 3339 times. */
   createdAt: string;
   updatedAt: string;
 };
+
+/** Why a staged change waits for the person: the chat read outside content, a
+ * bot wrote it, the learning pass would change or remove what Timely already
+ * knows, or the steps name tools that need the person's OK. */
+export type LearningReason = "tainted" | "bot" | "unattended" | "skill_body";
 
 /** GET /agent/learning/events?conversationId=&status=&before=&limit=. before is
  * the createdAt of the last event already shown. */
@@ -141,6 +148,10 @@ export type PendingItem = {
   diff: string;
   origin: LearningOrigin | string;
   conversation_id: string;
+  summary?: string;
+  reason?: LearningReason | string;
+  tainted_sources?: LearningTaintSource[];
+  /** RFC 3339. */
   created_at: string;
 };
 
@@ -360,7 +371,8 @@ export type PendingCardItem = {
 };
 
 /** The card after a reply when the turn's changes wait for the person (Q-3.1:
- * the chat read outside content, or a bot wrote it). */
+ * the chat read outside content or a bot wrote it; also steps that name tools
+ * needing the person's OK, and the learning pass changing what Timely knows). */
 export type PendingCard = {
   /** "Keep what Timely learned?", or "Keep what Deals feed learned?" for a bot. */
   title: string;
@@ -380,7 +392,8 @@ export function pendingCard(
   const staged = events.filter((ev) => ev.status === "staged" && ev.pendingId);
   if (staged.length === 0) return null;
   const fromBot =
-    Boolean(botName) || staged.some((ev) => ev.botId || ev.origin === "bot");
+    Boolean(botName) ||
+    staged.some((ev) => ev.botId || ev.origin === "bot" || ev.reason === "bot");
   return {
     title: `Keep what ${botName || "Timely"} learned?`,
     items: staged.map((ev) => ({
@@ -392,10 +405,29 @@ export function pendingCard(
     keep: "Keep",
     discard: "Discard",
     viewDiff: "View diff",
-    why: fromBot
-      ? "A bot suggested this, so it waits for you."
-      : "This chat read something from outside Timely, so it waits for you.",
+    why: fromBot ? WAIT_WHY.bot : waitWhy(staged),
   };
+}
+
+/** Why a staged change waits, in one line. */
+export const WAIT_WHY = {
+  bot: "A bot suggested this, so it waits for you.",
+  tainted: "This chat read something from outside Timely, so it waits for you.",
+  skill_body: "These steps use tools that need your OK, so they wait for you.",
+  unattended: "This changes or removes something Timely already knows, so it waits for you.",
+  other: "Timely waits for you before saving this.",
+} as const;
+
+function waitWhy(staged: LearningEvent[]): string {
+  if (
+    staged.some(
+      (ev) => ev.reason === "tainted" || (ev.taintedSources ?? []).length > 0,
+    )
+  )
+    return WAIT_WHY.tainted;
+  if (staged.some((ev) => ev.reason === "skill_body")) return WAIT_WHY.skill_body;
+  if (staged.some((ev) => ev.reason === "unattended")) return WAIT_WHY.unattended;
+  return WAIT_WHY.other;
 }
 
 /** A memory budget: "1,104 of 1,375". */

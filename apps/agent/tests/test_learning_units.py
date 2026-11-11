@@ -139,7 +139,7 @@ def test_feed_reports_each_change_once(tmp_path):
     assert by[("user", "replaced")]["before"] == "Name is Ana" and by[("user", "replaced")]["after"] == "Name is Ana Maria"
     for e in events:
         assert set(e) == {"id", "kind", "action", "subject", "before", "after", "origin", "conversation_id", "run_id",
-                          "bot_id", "tainted_sources", "status", "ledger_entry_id", "pending_id", "summary"}
+                          "bot_id", "tainted_sources", "status", "ledger_entry_id", "pending_id", "summary", "reason"}
         assert e["status"] == "applied" and e["run_id"] == "r1"
         assert e["summary"] == ""  # the apps name an applied change themselves; no Hermes-style restatement
     assert f.diff(ctx) == []  # never twice

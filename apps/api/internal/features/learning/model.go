@@ -48,8 +48,11 @@ type Event struct {
 	LedgerEntryID  string          `gorm:"not null;default:''" json:"ledgerEntryId"`
 	PendingID      string          `gorm:"not null;default:''" json:"pendingId"`
 	Summary        string          `gorm:"not null;default:''" json:"summary"`
-	CreatedAt      time.Time       `json:"createdAt"`
-	UpdatedAt      time.Time       `json:"updatedAt"`
+	// Reason is why a staged change waits: tainted, bot, unattended or
+	// skill_body ("" otherwise, and on rows from before it was kept).
+	Reason    string    `gorm:"not null;default:''" json:"reason"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 func (Event) TableName() string { return "agent_learning_events" }
@@ -111,4 +114,5 @@ type wireEvent struct {
 	LedgerEntryID  string          `json:"ledger_entry_id"`
 	PendingID      string          `json:"pending_id"`
 	Summary        string          `json:"summary"`
+	Reason         string          `json:"reason"`
 }

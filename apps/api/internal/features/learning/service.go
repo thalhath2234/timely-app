@@ -186,7 +186,18 @@ func eventFromWire(in wireEvent) (Event, error) {
 		LedgerEntryID:  cut(in.LedgerEntryID, 128),
 		PendingID:      cut(in.PendingID, 128),
 		Summary:        cut(in.Summary, 2000),
+		Reason:         stagingReason(in.Reason),
 	}, nil
+}
+
+// stagingReason keeps a reason the worker names (PROTOCOL.md section 10),
+// else "".
+func stagingReason(reason string) string {
+	switch reason {
+	case "tainted", "bot", "unattended", "skill_body":
+		return reason
+	}
+	return ""
 }
 
 // cut keeps at most n characters, never splitting one, and only valid UTF-8

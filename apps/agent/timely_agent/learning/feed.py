@@ -46,6 +46,9 @@ ACTIONS = ("created", "patched", "edited", "deleted", "added", "replaced", "remo
            "stale")
 ORIGINS = ("chat", "review", "bot", "user", "curator", "sync", "restore")
 STATUSES = ("applied", "staged", "blocked")
+# Why a staged change waits (learning.rules): the chat read outside content, a bot wrote it, the
+# learning pass would change or remove what memory holds, or the skill-body rule matched.
+REASONS = ("", "tainted", "bot", "unattended", "skill_body")
 
 
 @dataclass
@@ -61,16 +64,16 @@ class Context:
 def make_event(*, kind: str, action: str, subject: str, status: str, origin: str = "chat",
                before: Any = "", after: Any = "", conversation_id: str = "", run_id: str = "", bot_id: str = "",
                tainted_sources: Optional[list] = None, ledger_entry_id: str = "", pending_id: str = "",
-               summary: str = "") -> dict[str, Any]:
+               summary: str = "", reason: str = "") -> dict[str, Any]:
     """A ``LearningEventW`` (PROTOCOL.md section 10) with every field present."""
-    assert kind in KINDS and action in ACTIONS and status in STATUSES and origin in ORIGINS, \
-        (kind, action, status, origin)
+    assert kind in KINDS and action in ACTIONS and status in STATUSES and origin in ORIGINS \
+        and reason in REASONS, (kind, action, status, origin, reason)
     return {"id": uuid.uuid4().hex, "kind": kind, "action": action, "subject": str(subject or ""),
             "before": files.cut(before), "after": files.cut(after), "origin": origin,
             "conversation_id": str(conversation_id or ""), "run_id": str(run_id or ""), "bot_id": str(bot_id or ""),
             "tainted_sources": list(tainted_sources or []), "status": status,
             "ledger_entry_id": str(ledger_entry_id or ""), "pending_id": str(pending_id or ""),
-            "summary": str(summary or "")[:500]}
+            "summary": str(summary or "")[:500], "reason": reason}
 
 
 def _skill_text(home: Path, items: list[dict], skill: str) -> str:

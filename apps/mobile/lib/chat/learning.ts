@@ -194,7 +194,8 @@ export function canSaveEntry(store: Pick<MemoryStore, "used" | "limit"> | undefi
 
 /** A Waiting for you item (the worker's snake_case) as the event the contract's card words take. */
 export function pendingAsEvent(
-  item: Pick<PendingItem, "pending_id" | "kind" | "action" | "subject" | "origin" | "conversation_id" | "created_at"> & { summary?: string },
+  item: Pick<PendingItem, "pending_id" | "kind" | "action" | "subject" | "origin" | "conversation_id" | "created_at"> &
+    Pick<PendingItem, "summary" | "reason" | "tainted_sources">,
 ): LearningEvent {
   return {
     id: item.pending_id,
@@ -207,11 +208,12 @@ export function pendingAsEvent(
     conversationId: item.conversation_id ?? "",
     runId: "",
     botId: "",
-    taintedSources: [],
+    taintedSources: item.tainted_sources ?? [],
     status: "staged",
     ledgerEntryId: "",
     pendingId: item.pending_id,
     summary: item.summary ?? "",
+    reason: item.reason ?? "",
     createdAt: item.created_at ?? "",
     updatedAt: item.created_at ?? "",
   };
@@ -225,7 +227,7 @@ export function pendingMeta(
   return [item.summary || ORIGIN_WORDS[item.origin] || "", ago(item.created_at, now)].filter(Boolean).join(" · ");
 }
 
-/** Why it waits, in the card's words: a bot suggested it, or the chat read outside content. */
+/** Why it waits, in the card's words (the worker's reason, or the chat's outside content). */
 export function pendingWhy(item: Parameters<typeof pendingAsEvent>[0]): string {
   return pendingCard([pendingAsEvent(item)])?.why ?? "";
 }

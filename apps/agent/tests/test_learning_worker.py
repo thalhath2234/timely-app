@@ -7,6 +7,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import re
 import subprocess
 import sys
 import time
@@ -150,6 +151,10 @@ def test_pending_keep_and_discard(la, lw, stub):
     first = listed[staged[0]["pending_id"]]
     assert first["kind"] == "skill" and first["origin"] == "chat" and first["conversation_id"] == "c-lw-p"
     assert "Sort it." in first["diff"] and first["action"] == "created", first
+    # why it waits, and when (RFC 3339, as the apps read it; Hermes keeps epoch seconds)
+    assert first["reason"] == "tainted" and first["tainted_sources"] == taint, first
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", first["created_at"]), first
+    assert staged[0]["reason"] == "tainted", staged[0]
     kept = ask(lw, la, "learning.pending", pending_id=staged[0]["pending_id"], choice="keep")
     assert kept["ok"] and kept["data"]["event"]["status"] == "applied", kept
     assert (la.home / "skills" / "lw-pending-0" / "SKILL.md").is_file()
