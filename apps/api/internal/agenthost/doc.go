@@ -112,6 +112,26 @@
 //     no Python) that other packages run under a real Supervisor by
 //     re-executing their test binary; it replays JSONL fixtures per run.start.
 //
+// # Phase 3 additions
+//
+//   - Learning (PROTOCOL.md section 10): the worker reports what it learned
+//     as "learning" messages (not run-scoped, so a learning pass that ends
+//     after run.done still reaches Go); they go to Config.Handler like any
+//     other message. Go's learning.* and settings.update requests are
+//     answered by "learning.result" {id, ok, data} or an error, through
+//     Request.
+//   - Ready: ready.web_backends (the keyed web backends the runtime can use)
+//     and ready.skills_upstream (bundled skills the account edited whose
+//     upstream changed) are read into Ready.
+//   - Config.OnReady runs once per worker after its handshake, on its own
+//     goroutine (the learning service's one-time copy into About you).
+//   - RestartWhenIdle replaces an account's worker once it is idle (a web
+//     search key changed; tool keys live in its environment), never mid-run.
+//   - Suspend stops an account's worker and refuses Ensure (ErrSuspended)
+//     until its resume is called, so a backup restore can swap the home.
+//   - agenthosttest scripts learning.* and settings.update replies and emits
+//     learning messages (Kit.LearningReply, Kit.Emit).
+//
 // The package is not wired into the API by itself; phase 2's chat engine
 // (chat/engine_agent.go, cmd/agent_engine.go) is its first caller.
 package agenthost

@@ -41,6 +41,13 @@ const (
 	TypeRunStop        = "run.stop"
 	TypeRunSteer       = "run.steer"
 	TypeApprovalAnswer = "approval.answer"
+
+	// Phase 3 (PROTOCOL.md section 10): a learning event the worker reports
+	// (not run-scoped), the answer to Go's learning.* requests, and the
+	// request that re-renders config.yaml in place.
+	TypeLearning       = "learning"
+	TypeLearningResult = "learning.result"
+	TypeSettingsUpdate = "settings.update"
 )
 
 // allowedWhileStopping are the messages Go still writes during a graceful
@@ -134,6 +141,12 @@ type Ready struct {
 	// child, so Go checks this pid, not its own child's, is inside the
 	// worker's Job Object (process group on Unix).
 	PID int `json:"pid,omitempty"`
+	// WebBackends are the keyed web backends the runtime can use (phase 3:
+	// timely_agent.web_backends.available()); empty when it offers none.
+	WebBackends []string `json:"web_backends,omitempty"`
+	// SkillsUpstream counts the bundled skills the account edited whose
+	// upstream copy changed since ("Updated upstream", Q-3.7).
+	SkillsUpstream int `json:"skills_upstream,omitempty"`
 }
 
 type helloFields struct {

@@ -102,12 +102,15 @@ type Worker struct {
 	ready    *Ready
 	// catalogVersion is the Timely tool catalog version sent in hello.
 	catalogVersion string
-	stopping       bool
-	exited         bool
-	lastErr        string
-	reason         string
-	crashed        bool
-	exit           ExitInfo
+	// restart is set by Supervisor.RestartWhenIdle: the worker is stopped
+	// the next time it is idle, and the next Ensure starts a fresh one.
+	restart  bool
+	stopping bool
+	exited   bool
+	lastErr  string
+	reason   string
+	crashed  bool
+	exit     ExitInfo
 
 	queue      *msgQueue
 	dispatched chan struct{}

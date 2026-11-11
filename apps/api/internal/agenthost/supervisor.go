@@ -139,7 +139,13 @@ type Config struct {
 	// have failed and before Worker.Done closes (so it must not wait on
 	// Done). ExitInfo.LiveRuns lists the runs to fail.
 	OnExit func(ExitInfo)
-	Logf   func(format string, args ...any)
+	// OnReady is called once per worker after its handshake passed, on a
+	// goroutine of its own, so it may make requests to the worker (phase 3:
+	// the learning service's one-time copy into About you, Q-3.3). It does
+	// not hold the worker: call Worker.Hold for work that must not be
+	// reaped midway.
+	OnReady func(w *Worker)
+	Logf    func(format string, args ...any)
 }
 
 func positiveInt(getenv func(string) string, name string, fallback int) int {
@@ -225,6 +231,9 @@ type Supervisor struct {
 	workers map[string]*entry
 	crashes map[string]*crashRecord
 	removed map[string]bool
+	// suspended counts Suspend calls not yet resumed per account; Ensure
+	// refuses the account while it is above zero.
+	suspended map[string]int
 }
 
 type entry struct {
@@ -252,14 +261,15 @@ func New(cfg Config) *Supervisor {
 		}
 	}
 	s := &Supervisor{
-		cfg:     cfg,
-		layout:  Layout{Root: cfg.Root},
-		slots:   make(chan struct{}, cfg.MaxWorkers),
-		closing: make(chan struct{}),
-		reaped:  make(chan struct{}),
-		workers: map[string]*entry{},
-		crashes: map[string]*crashRecord{},
-		removed: map[string]bool{},
+		cfg:       cfg,
+		layout:    Layout{Root: cfg.Root},
+		slots:     make(chan struct{}, cfg.MaxWorkers),
+		closing:   make(chan struct{}),
+		reaped:    make(chan struct{}),
+		workers:   map[string]*entry{},
+		crashes:   map[string]*crashRecord{},
+		removed:   map[string]bool{},
+		suspended: map[string]int{},
 	}
 	go s.reapLoop()
 	return s
@@ -305,6 +315,10 @@ func (s *Supervisor) Ensure(ctx context.Context, account string) (*Worker, error
 			s.mu.Unlock()
 			return nil, ErrAccountRemoved
 		}
+		if s.suspended[account] > 0 {
+			s.mu.Unlock()
+			return nil, ErrSuspended
+		}
 		e := s.workers[account]
 		if e == nil {
 			var backoff time.Duration
@@ -322,9 +336,14 @@ func (s *Supervisor) Ensure(ctx context.Context, account string) (*Worker, error
 		}
 		if e.w != nil {
 			w := e.w
-			if checkCatalog && w.CatalogVersion() != current && w.stopIfIdle("catalog changed", s.cfg.StaleGrace) {
+			stale := checkCatalog && w.CatalogVersion() != current
+			if (stale || w.restartPending()) && w.stopIfIdle(replaceReason(stale), s.cfg.StaleGrace) {
 				s.mu.Unlock()
-				w.logf("stopping: idle with an old Timely tool catalog")
+				if stale {
+					w.logf("stopping: idle with an old Timely tool catalog")
+				} else {
+					w.logf("stopping: idle, and asked to restart")
+				}
 				select {
 				case <-w.Done():
 					continue
@@ -446,6 +465,9 @@ func (s *Supervisor) start(ctx context.Context, account string, e *entry, backof
 	close(e.starting)
 	s.mu.Unlock()
 	e.cancel()
+	if err == nil && s.cfg.OnReady != nil {
+		go s.onReady(w)
+	}
 	if err != nil && w != nil {
 		// Shut down while the handshake ran: Shutdown waits for starts, so
 		// this worker must be gone before the start counts as finished.
