@@ -53,6 +53,7 @@ func TestDeleteUserPostgresRemovesEverything(t *testing.T) {
 			{`INSERT INTO jobs (id,user_id,kind,run_at) VALUES (?,?,?,now())`, []any{id("job"), id("usr"), "create_backup"}},
 			{`INSERT INTO user_sessions (id,user_id,refresh_token_hash,created_at,last_used_at,expires_at) VALUES (?,?,?,?,?,?)`, []any{id("ses"), id("usr"), id("hash"), now, now, "2099-01-01T00:00:00Z"}},
 			{`INSERT INTO push_devices (id,user_id,session_id,token) VALUES (?,?,?,?)`, []any{id("psh"), id("usr"), id("ses"), id("token")}},
+			{`INSERT INTO agent_session_forgets (user_id,conversation_id) VALUES (?,?)`, []any{id("usr"), id("chat")}},
 		}
 		for _, statement := range statements {
 			if err := tx.Exec(statement.sql, statement.args...).Error; err != nil {
