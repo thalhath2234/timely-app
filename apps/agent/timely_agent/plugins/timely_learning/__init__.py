@@ -130,6 +130,16 @@ def _skill_targets(args: dict) -> Iterable[str]:
                 yield op["name"]
 
 
+def _names_kept_off() -> set[str]:
+    """Hermes' skills.disabled for this home (empty in a process without Hermes, such as the unit
+    tests; the worker always has it)."""
+    try:
+        from agent.skill_utils import get_disabled_skill_names
+    except ImportError:
+        return set()
+    return get_disabled_skill_names()
+
+
 def _created_names(args: dict) -> list[str]:
     """The skills a skill_manage call creates: its own name, and each batch operation's."""
     out = [args["name"]] if args.get("action") == "create" and isinstance(args.get("name"), str) else []
@@ -173,8 +183,7 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, **_: Any) -> di
             if created:
                 # A name Timely keeps off (a denied bundled skill, whatever skills_enabled says) would
                 # show as learned and never load.
-                from agent.skill_utils import get_disabled_skill_names
-                off = get_disabled_skill_names()
+                off = _names_kept_off()
                 for name in created:
                     if Path(name).name in off:
                         return {"action": "block", "message": OFF_NAME_MESSAGE.format(name=name)}
