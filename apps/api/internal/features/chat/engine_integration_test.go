@@ -868,7 +868,13 @@ func TestIntegrationAgentEngineRetryAfterAFailureReseeds(t *testing.T) {
 	if code, body := h.post("/chats/"+c.ID+"/steer", `{"text":"also add eggs"}`); code != 200 {
 		t.Fatalf("steer: %d %s", code, body)
 	}
-	h.wait(c.ID, "failed", statusIs("failed"))
+	c = h.wait(c.ID, "failed", statusIs("failed"))
+	// The failed run leaves a notice that carries it (review round 7): what
+	// it learned shows under the notice, not under the retried reply.
+	failedRun := h.runStart(c.ID).Run
+	if last := lastMessage(c); last.Kind != "notice" || last.Content != tr("", txtRunFailed) || last.AgentRun != failedRun || last.Engine != engineAgent {
+		t.Fatalf("failed run's last message %+v, want the failed notice of %s", last, failedRun)
+	}
 	h.kit.Fixture("ok", lines(reply("Here is your week.", 0)))
 	h.kit.ForConversation(c.ID, "ok")
 	if code, body := h.post("/chats/"+c.ID+"/retry", "{}"); code != 200 {
@@ -885,6 +891,16 @@ func TestIntegrationAgentEngineRetryAfterAFailureReseeds(t *testing.T) {
 	}
 	if !start.Reseed || start.History == nil || !strings.Contains(start.UserMessage, "also add eggs") {
 		t.Fatalf("retried run.start: reseed %v history %v message %q", start.Reseed, start.History, start.UserMessage)
+	}
+	c = h.wait(c.ID, "answered", statusIs("idle"))
+	runs := map[string]string{}
+	for _, m := range c.Messages {
+		if m.AgentRun != "" {
+			runs[m.Content] = m.AgentRun
+		}
+	}
+	if runs[tr("", txtRunFailed)] != failedRun || runs["Here is your week."] == "" || runs["Here is your week."] == failedRun {
+		t.Fatalf("message runs %v: the failed notice keeps %s, the reply its own run", runs, failedRun)
 	}
 }
 
@@ -1037,6 +1053,14 @@ func TestIntegrationAgentEngineRecordedFixtures(t *testing.T) {
 		}
 		if c.AgentRunID != "" || c.Activity.Run != "" || c.RunEngine != engineAgent {
 			t.Errorf("%s: live state left: run %q activity %+v engine %q", name, c.AgentRunID, c.Activity, c.RunEngine)
+		}
+		if w.status == "stopped" {
+			// The worker ended the run interrupted with no Stop from the
+			// person (WorkerEngine.stopped): its notice carries the run, so
+			// what it learned stays under it.
+			if last := lastMessage(c); last.AgentRun == "" || last.AgentRun != h.runStart(c.ID).Run || last.Engine != engineAgent {
+				t.Errorf("%s: Stopped notice %+v does not carry run %s", name, last, h.runStart(c.ID).Run)
+			}
 		}
 	}
 	// Go answered the recorded gate.ask with phase 2's block.

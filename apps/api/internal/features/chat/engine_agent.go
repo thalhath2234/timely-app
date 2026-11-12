@@ -882,9 +882,9 @@ func (e *WorkerEngine) step(r *agentRun, it runItem) bool {
 		}
 		_ = m.Decode(&body)
 		if body.Code == "busy" {
-			e.fail(r, engineBusy, ActionRetry)
+			e.refused(r, engineBusy, ActionRetry)
 		} else {
-			e.fail(r, fmt.Sprintf(tr(r.conv.Language, txtAgentUnavailable), strings.TrimRight(body.Message, ".")), ActionUseClassic)
+			e.refused(r, fmt.Sprintf(tr(r.conv.Language, txtAgentUnavailable), strings.TrimRight(body.Message, ".")), ActionUseClassic)
 		}
 		return true
 	}
@@ -1068,8 +1068,21 @@ func (e *WorkerEngine) unsettle(cid string) {
 	e.mu.Unlock()
 }
 
-// fail ends a run with an error the person can act on.
+// fail ends a run with an error the person can act on. A run the worker
+// ran (not one it refused) leaves a "This reply failed" notice that carries
+// the run, as Stop's notice does: what the run learned before it failed (its
+// chip or Keep / Discard card) stays under it, not under a later reply.
 func (e *WorkerEngine) fail(r *agentRun, text, action string) {
+	e.failWith(r, text, action, true)
+}
+
+// refused ends a run the worker never started (busy, unavailable): it
+// learned nothing, so no notice marks it.
+func (e *WorkerEngine) refused(r *agentRun, text, action string) {
+	e.failWith(r, text, action, false)
+}
+
+func (e *WorkerEngine) failWith(r *agentRun, text, action string, ran bool) {
 	e.unsettle(r.cid)
 	e.keepRunTaint(r)
 	taint := r.taint
@@ -1080,6 +1093,10 @@ func (e *WorkerEngine) fail(r *agentRun, text, action string) {
 		row.Status = "failed"
 		row.Error = msg
 		row.ErrorAction = action
+		if ran {
+			row.Messages = append(row.Messages, notice(tr(row.Language, txtRunFailed)))
+			markStopped(row, len(row.Messages)-1, r.id)
+		}
 		return notify(tx, row, tr(row.Language, txtPushAttention))
 	})
 }

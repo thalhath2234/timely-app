@@ -673,6 +673,20 @@ test("a stopped run's learning shows under its Stopped notice, not under a later
   assert.equal(learning.turnLearning([stopped], messages[6]).chip, null);
 });
 
+test("a failed run's learning shows under its failed notice, not under the retried reply (review round 7)", () => {
+  const messages = [
+    { id: "m1", role: "user" },
+    { id: "m2", role: "user" },
+    { id: "m3", role: "assistant", kind: "notice", content: "This reply failed.", agentRun: "run-b" },
+    reply({ id: "m4", agentRun: "run-c" }),
+  ];
+  assert.deepEqual([...learning.learningAnchors(messages)].sort(), ["m3", "m4"]);
+  const failed = lev({ id: "ev-b", runId: "run-b", kind: "user", subject: "user", action: "added", after: "Shops at Ward Street." });
+  assert.equal(learning.looseLearning([failed], messages).chip, null);
+  assert.ok(learning.turnLearning([failed], messages[2]).chip);
+  assert.equal(learning.turnLearning([failed], messages[3]).chip, null);
+});
+
 test("the chat follows its learning on the agent engine; Don't learn is offered only where it matters", () => {
   const chat = { messages: [reply()], runEngine: "agent", engine: "", sensitive: false, noLearning: false };
   assert.equal(followsLearning(chat, "classic"), true);
