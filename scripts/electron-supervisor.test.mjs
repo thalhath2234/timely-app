@@ -505,6 +505,24 @@ test("api env: the supervisor hands the API resources/agent only when it holds b
   }
 });
 
+test("api env: a packaged supervisor sets TIMELY_AGENT_RUNTIME even when resources/agent has no boot.py", async () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    const sup = makeSupervisor(dir, undefined, { packaged: true });
+    sup.secrets = { jwtSecret: "jwt", backupKey: "bk", dbPassword: "pw" };
+    const agent = path.join(dir, "res-agent");
+    assert.equal(sup.apiEnv({ PATH: "/bin", HOME: dir }).TIMELY_AGENT_RUNTIME, agent);
+    await assert.rejects(sup.boot(), (error) => error.step === "postgres");
+    sup.log.close();
+    const logDir = userPaths(dir).logDir;
+    const text = readdirSync(logDir).map((name) => readFileSync(path.join(logDir, name), "utf8")).join("");
+    const line = text.split("\n").find((l) => l.includes("boot: resources "));
+    assert.ok(line?.endsWith(` agent=${agent} (no boot.py: the agent engine is unavailable)`), `boot line: ${line}`);
+  } finally {
+    cleanup();
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Backups, paths, shell env, guards
 // ---------------------------------------------------------------------------
@@ -803,6 +821,19 @@ test("paths: the agent runtime is handed over only when boot.py is there", () =>
     assert.equal(agentRuntime(path.join(dir, "missing")), undefined);
     writeFileSync(path.join(agent, "boot.py"), "");
     assert.equal(agentRuntime(agent), agent);
+  } finally {
+    cleanup();
+  }
+});
+
+test("paths: a packaged app hands over resources/agent even without boot.py, so the API never searches above its data folder", () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    const agent = path.join(dir, "resources", "agent");
+    assert.equal(agentRuntime(agent, { packaged: true }), agent, "missing folder");
+    mkdirSync(agent, { recursive: true });
+    assert.equal(agentRuntime(agent, { packaged: true }), agent, "folder without boot.py");
+    assert.equal(agentRuntime(agent, { packaged: false }), undefined, "unpackaged runs keep the dev discovery");
   } finally {
     cleanup();
   }

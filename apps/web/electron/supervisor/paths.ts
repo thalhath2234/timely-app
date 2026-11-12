@@ -70,11 +70,19 @@ export function resolveResourceDirs(input: ResourceInputs): ResourceDirs {
 }
 
 /**
- * The agent root to hand the API as TIMELY_AGENT_RUNTIME, or undefined when
- * `<dir>/boot.py` is missing (a build without the runtime, or an unstaged
- * checkout). The API then falls back to its own discovery (agenthost).
+ * The agent root to hand the API as TIMELY_AGENT_RUNTIME. A packaged app
+ * always hands over `<resources>/agent`, even without boot.py (a damaged
+ * install): the API then reports the runtime missing instead of searching
+ * for one, because its own discovery walks up from the data folder and would
+ * run any apps/agent/.venv it finds there. Unpackaged, undefined when
+ * `<dir>/boot.py` is missing (an unstaged checkout), so the API falls back to
+ * that discovery (agenthost) and finds the developer's apps/agent.
  */
-export function agentRuntime(dir: string, exists: (file: string) => boolean = existsSync): string | undefined {
+export function agentRuntime(
+  dir: string,
+  { packaged = false, exists = existsSync }: { packaged?: boolean; exists?: (file: string) => boolean } = {},
+): string | undefined {
+  if (packaged) return dir;
   return exists(path.join(dir, "boot.py")) ? dir : undefined;
 }
 

@@ -144,7 +144,7 @@ stored with the `plain:` prefix and the file is created with mode 0600.
 | `ALLOW_REGISTRATION` | `allowRegistration` |
 | `PATH`, `HOME` | login-shell PATH on macOS/Linux; process env on Windows |
 | `TIMELY_LIFELINE` | `stdin` (exit when the app's stdin pipe closes; see Boot order). The API unsets it at start so the programs it runs do not inherit it. |
-| `TIMELY_AGENT_RUNTIME` | `<resources>/agent` when `<resources>/agent/boot.py` exists (`paths.ts` `agentRuntime`); otherwise unset, and a value inherited from the shell is dropped, so a packaged app never runs a developer's runtime. The API starts `<agent>/python/bin/python3 -I <agent>/boot.py` (`python\python.exe` on Windows) with `PYTHONDONTWRITEBYTECODE=1`. The `boot: resources` line in `supervisor.log` ends with `agent=<dir>`. |
+| `TIMELY_AGENT_RUNTIME` | Packaged: always `<resources>/agent` (`paths.ts` `agentRuntime`), even when a damaged install lacks `boot.py`: the API then reports the runtime missing instead of searching for an `apps/agent` above its data folder. Unpackaged hosted runs: the staged `.electron-agent/<os>-<arch>` when it holds `boot.py`, otherwise unset so the API finds the checkout's `apps/agent`. A value inherited from the shell is always dropped, so a packaged app never runs a developer's runtime. The API starts `<agent>/python/bin/python3 -I <agent>/boot.py` (`python\python.exe` on Windows) with `PYTHONDONTWRITEBYTECODE=1`. The `boot: resources` line in `supervisor.log` ends with `agent=<dir>`. |
 
 `TIMELY_SHELL_TOKEN` (plan section 12: the desktop window's proof for `PUT /instance/host-accounts`)
 is not passed yet. It comes with phase 5, together with the host-allowed account setting that

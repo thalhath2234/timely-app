@@ -623,6 +623,7 @@ async function bootHosted() {
   supervisor = new Supervisor({
     userData,
     resources,
+    packaged: app.isPackaged,
     version: app.getVersion(),
     sealer: makeSealer({
       available: encryptionAvailable,
