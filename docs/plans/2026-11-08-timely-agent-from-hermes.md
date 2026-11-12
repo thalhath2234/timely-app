@@ -1213,7 +1213,7 @@ New `agent` job on ubuntu: setup-uv (pinned SHA), uv cache, `make agent-install 
 | Keyless third-party services | `web.keyless_fallback: false` and `keyless_rescue: false`; DNS contract test. |
 | Telemetry | Forced off in managed config. |
 | Sensitive chat content stored in plaintext SQLite | Sensitive chats stay on classic until a no-persist path is proven (section 5.6). |
-| Worker process memory inspection | `PR_SET_DUMPABLE=0` on Linux; still same-uid readable `/proc/<pid>/environ`. |
+| Worker process memory inspection | `PR_SET_DUMPABLE=0` on Linux; still same-uid readable `/proc/<pid>/environ`. The API itself is non-dumpable on Linux too (`internal/procguard`, phase 3b review round 5), so a worker or approved command running as its uid (10001 in the Docker image) cannot read the API's environment: `JWT_SECRET`, `DB_PASSWORD` and every key compose loads from the shared `.env` (`docker-agent-smoke` checks it). A desktop sidecar is left readable, because the app's orphan sweep identifies a leftover API by its environment, and there the commands run as the person who owns the app anyway. |
 
 ---
 

@@ -24,6 +24,8 @@
 #      answers, the API's background prepare writes
 #      /data/agent/runtime/prepared.json from /app/agent, and the log has no
 #      "agent engine:" line (that is where ErrNoRuntime and prepare failures go);
+#      a uid 10001 process cannot read the API's /proc/1/environ (the API is
+#      non-dumpable);
 #      then, as a control, the API with TIMELY_AGENT_RUNTIME on a missing path
 #      must log that line, so the silence above means something.
 #
@@ -263,6 +265,13 @@ if [[ $healthy -ne 1 ]]; then
   fail "/health did not answer"
 fi
 echo "/health: $(head -c 200 "$scratch/health")"
+# Workers and their terminal commands run as uid 10001 like the API: none may read
+# its environment (JWT_SECRET, DB_PASSWORD, compose's .env keys) through /proc.
+[[ "$(docker exec "$api" cat /proc/1/comm)" == timely-api ]] || fail "PID 1 is not the API"
+if docker exec "$api" env -i /bin/sh -c 'cat /proc/1/environ' >/dev/null 2>&1; then
+  fail "a uid 10001 process can read the API's /proc/1/environ (procguard.Harden did not run)"
+fi
+echo "ok: a uid 10001 process cannot read the API's environment"
 prepared=0
 for _ in $(seq 1 120); do
   if docker exec "$api" test -s /data/agent/runtime/prepared.json 2>/dev/null; then prepared=1; break; fi

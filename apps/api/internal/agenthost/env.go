@@ -193,7 +193,10 @@ func hostEnv(layout Layout, host EnvConfig) map[string]string {
 // sorted). It starts from nothing: no variable of the API's own environment
 // is inherited except PATH, LANG and TZ (and the Windows base names on
 // Windows), so JWT_SECRET, DB_PASSWORD and TIMELY_BACKUP_KEY never reach the
-// worker or its terminal children.
+// worker or its terminal children through their environment. On Linux they
+// run as the API's uid, so the API also marks itself non-dumpable
+// (procguard.Harden) to keep its /proc/<pid>/environ from them; a desktop
+// sidecar stays readable for the app's orphan sweep.
 //
 // Deliberate differences from the plan's 6.4 list:
 //   - HERMES_BUNDLED_LOCALES is not set: the copy keeps only locales/en.yaml
