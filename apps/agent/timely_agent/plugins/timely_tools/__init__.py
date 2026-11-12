@@ -25,7 +25,7 @@ Go's answer, ``tool.result {result, outside, end_turn}``: ``outside: true`` adds
 ``timely_gate`` ends the turn on any further tool call.
 
 **Outside text is untrusted data** (owner decision Q-3.9). An ``outside: true`` result (``ask_bot``,
-``preview_bot``, ``list_bot_findings``, ``list_notifications``: they quote pages, feeds and other
+``preview_bot``, ``list_bots``, ``list_bot_findings``, ``list_notifications``: they quote pages, feeds and other
 people's words) reaches the model wrapped as Hermes wraps a web result
 (``<untrusted_tool_result source="<tool>">``, ``timely_agent.untrusted.wrap``): the handler notes the
 call, and ``transform_tool_result``, which Hermes runs after ``post_tool_call`` and before the result

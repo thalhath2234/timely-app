@@ -4,8 +4,9 @@ Hermes wraps the results of ``web_search``, ``web_extract``, ``browser_*`` and `
 ``<untrusted_tool_result source="...">`` block when it builds the tool message
 (``agent/tool_dispatch_helpers.py`` ``make_tool_result_message`` -> ``_maybe_wrap_untrusted``),
 which tells the model to treat the block as data and defangs any copy of the delimiter inside it.
-Timely's own tools that quote outside text (``ask_bot``, ``preview_bot``, ``list_bot_findings``,
-``list_notifications``: Go answers them ``outside: true``) and past-chat search hits from a tainted
+Timely's own tools that quote outside text (``ask_bot``, ``preview_bot``, ``list_bots``,
+``list_bot_findings``, ``list_notifications``: Go answers them ``outside: true``, as its
+``agent.OutsideTool`` lists) and past-chat search hits from a tainted
 chat are not on Hermes' list, so the ``transform_tool_result`` hooks of ``timely_tools`` and
 ``timely_learning`` wrap them here (owner decision Q-3.9; a runtime seam, no vendored edit).
 
