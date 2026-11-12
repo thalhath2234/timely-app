@@ -588,7 +588,7 @@ run on the test's stub model, run.done, shutdown). It needs Go on `PATH`; no AI 
 
 ```bash
 make stage-agent
-make smoke-agent READ_ONLY=1        # chmod a-w on every entry (Windows: an icacls deny-write ACE for Everyone),
+make smoke-agent READ_ONLY=1        # chmod a-w on every entry (Windows: an inherited deny ACE for Everyone on write and delete, set through .NET: icacls would add SYNCHRONIZE),
                                     # every step, then fails on any file created, removed or changed
 make smoke-agent AGENT_ROOT=$PWD/apps/web/release/linux-unpacked/resources/agent READ_ONLY=1   # the packed copy
 make clean-agent-stage
