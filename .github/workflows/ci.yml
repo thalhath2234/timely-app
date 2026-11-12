@@ -283,10 +283,10 @@ jobs:
           if [[ "$EVENT" != pull_request ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           # Everything the image copies (apps/api holds the Dockerfile; the Makefile gives
-          # AGENT_PYTHON_VERSION) and what the smoke reads; scripts/stage-agent.test.mjs checks it.
+          # AGENT_PYTHON_VERSION), what the smoke reads, and this job; scripts/stage-agent.test.mjs checks it.
           elif git diff --quiet "origin/$BASE_REF...HEAD" -- apps/api .dockerignore Makefile apps/agent \
               apps/web/electron/stage-agent.mjs apps/web/electron/stage-agent-lib.mjs apps/web/electron/targets.mjs \
-              scripts/docker-agent-smoke.sh docker-compose.yml; then
+              scripts/docker-agent-smoke.sh docker-compose.yml .github/workflows/ci.yml; then
             echo "run=false" >> "$GITHUB_OUTPUT"
           else
             echo "run=true" >> "$GITHUB_OUTPUT"

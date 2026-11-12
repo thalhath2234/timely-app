@@ -806,7 +806,7 @@ test("every stage of the API image is pinned by digest", () => {
   for (const line of froms) assert.match(line, /@sha256:[0-9a-f]{64}(\s|$)/, line);
 });
 
-test("the docker CI job runs on a PR that changes anything the image copies or its smoke test reads", () => {
+test("the docker CI job runs on a PR that changes anything the image copies, its smoke test reads, or the job itself", () => {
   const ci = readFileSync(path.join(repo, ".github/workflows/ci.yml"), "utf8");
   const job = ci.slice(ci.indexOf("\n  docker:"));
   const list = /git diff --quiet "origin\/\$BASE_REF\.\.\.HEAD" -- ((?:[^;]|\\\n)+?); then/.exec(job)?.[1];
@@ -819,7 +819,7 @@ test("the docker CI job runs on a PR that changes anything the image copies or i
     .filter((line) => /^COPY\s/.test(line) && !/--from=/.test(line))
     .flatMap((line) => line.trim().split(/\s+/).slice(1, -1));
   assert.ok(sources.includes("Makefile") && sources.includes("apps/api"));
-  for (const src of [...sources, "apps/api/Dockerfile", "scripts/docker-agent-smoke.sh"]) assert.ok(covered(src), `${src} is not in the docker job's filter`);
+  for (const src of [...sources, "apps/api/Dockerfile", "scripts/docker-agent-smoke.sh", ".github/workflows/ci.yml"]) assert.ok(covered(src), `${src} is not in the docker job's filter`);
 });
 
 test("docker compose pins the image's agent runtime, so the shared root .env cannot point it at a host path", () => {
