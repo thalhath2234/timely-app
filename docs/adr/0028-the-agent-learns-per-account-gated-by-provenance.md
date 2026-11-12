@@ -133,9 +133,8 @@ deleting the account deletes the agent home.
   wrapped as untrusted data, the advisory threat scan, a URL carrying a key or
   token refused, the private-address (SSRF) floor (Hermes' website blocklist
   is opt-in and Timely sets none, so nothing verifies it; owner to confirm;
-  also owner to confirm: the after-taint path rule for `preview_bot`, a bot's
-  page fetch before approval, was not restored, though Q-3.9 lifts the rule
-  only for the web tools),
+  `preview_bot`, a bot's page fetch before approval, follows the web tools
+  after taint too, with no path rule (owner, Q-3.10, 2026-11-12)),
   and the strict threat scan on memory and
   skill writes. Timely's results that
   quote outside text (Bot answers, findings and last readings, notifications, past-chat hits
