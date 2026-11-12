@@ -388,6 +388,9 @@ def test_requests_during_a_run_leave_the_runs_learning_writes_to_it(stub):
         w.send({"type": "learning.rollback", "id": "rb", "account": a.account, "ledger_entry_id": "no-such-entry"})
         w.send({"type": "learning.memory", "id": "mm", "account": a.account, "target": "memory", "action": "add",
                 "content": "person typed: works mornings", "old": ""})
+        # the person edits the skill the run just made: their edit claims only its own ledger entry
+        w.send({"type": "learning.edit", "id": "ed", "account": a.account, "name": "race-skill",
+                "content": BODY.format(n="race-skill").replace("Sort it", "Sort by aisle")})
         _done, seen = harness.drive(w, a.account, "race1", timeout=120)
     finally:
         w.close()
@@ -395,7 +398,10 @@ def test_requests_during_a_run_leave_the_runs_learning_writes_to_it(stub):
               (m["event"] for m in seen if m.get("type") == "learning")]
     assert ("skill", "race-skill", "chat") in [x[:3] for x in events], events
     assert ("memory", "memory", "chat", "chat learned: likes tea") in events, events
-    assert [x for x in events if x[2] == "user"] == [("memory", "memory", "user", "person typed: works mornings")], events
+    assert [x for x in events if x[2] == "user" and x[0] == "memory"] == [
+        ("memory", "memory", "user", "person typed: works mornings")], events
+    assert sorted(x[:3] for x in events if x[0] == "skill") == [("skill", "race-skill", "chat"),
+                                                                 ("skill", "race-skill", "user")], events
 
 
 def test_shutdown_waits_for_a_learning_pass_and_reports_it(stub):
