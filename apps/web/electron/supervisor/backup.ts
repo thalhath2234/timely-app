@@ -9,8 +9,10 @@
 // copied beside it, into <name>.agent, while the API is stopped too (its
 // agent workers are gone then, so state.db and its WAL are at rest). Only
 // what the agent learned (with the skill ledger's blobs, which Undo reads) and
-// the chat sessions are kept; config.yaml, SOUL.md,
-// sign-ins, scripts, caches and the workspace are rebuilt or left out.
+// the chat sessions (state.db) are kept; config.yaml, SOUL.md, sign-ins,
+// scripts, caches, the workspace and sessions/ (Hermes' request dumps: a
+// failed request's whole body, nothing a restore needs) are rebuilt or left
+// out.
 // restoreDataDir puts both back together. Electron-free.
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
@@ -25,7 +27,7 @@ export const MANUAL_PREFIX = "manual-";
 export const AGENT_SUFFIX = ".agent";
 
 /** The parts of an agent home a folder backup keeps (besides state.db* and the ledger blobs). */
-export const AGENT_HOME_PARTS = ["memories", "skills", "pending", "sessions", ".timely"] as const;
+export const AGENT_HOME_PARTS = ["memories", "skills", "pending", ".timely"] as const;
 
 /** The skill ledger's blobs: Undo and "what changed" of a learned skill read
  * them. Only this folder of `.curator_backups` (its snapshots are rebuilt). */

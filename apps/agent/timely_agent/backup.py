@@ -169,31 +169,57 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def _drop_sessions(db: Path, ids: Iterable[str]) -> list[str]:
-    """Delete ``ids`` from a database copy with Hermes' own ``delete_session`` (what ``session.delete``
-    runs for a deleted chat), then rewrite the file so no deleted page keeps their text. Returns the
-    ids that were there."""
+def remove_session_files(sessions_dir: Optional[Path], session_id: str) -> None:
+    """Remove a chat's files under the home's ``sessions/`` (Hermes' own sweep: ``<id>.json(l)``,
+    ``session_<id>.json`` and every ``request_dump_<id>_*.json``, which holds a failed request's
+    whole body: the system prompt, every message and tool result). ``delete_session`` runs it only
+    for a session row it found, and a run that failed before its first message was saved has a
+    dump but no row (review round 8)."""
+    from hermes_state import SessionDB
+    if sessions_dir is not None and session_id:
+        SessionDB._remove_session_files(Path(sessions_dir), session_id)
+
+
+def _drop_sessions(db: Path, ids: Iterable[str], sessions_dir: Optional[Path] = None) -> list[str]:
+    """Delete ``ids`` from a database with Hermes' own ``delete_session`` (what ``session.delete``
+    runs for a deleted chat), and their files under ``sessions_dir`` when given, then rewrite the
+    file so no deleted page keeps their text. Returns the ids that were there."""
     from hermes_state import SessionDB
     gone: list[str] = []
     sdb = SessionDB(db_path=db)
     try:
         for sid in dict.fromkeys(i for i in ids if isinstance(i, str) and i):
-            if sdb.delete_session(sid):
+            if sdb.delete_session(sid, sessions_dir=sessions_dir):
                 gone.append(sid)
+            remove_session_files(sessions_dir, sid)
     finally:
         sdb.close()
     compact_copy(db)
     return gone
 
 
+def _optimize_fts(conn) -> None:
+    """Merge every FTS5 index's segments. A delete from an FTS5 table only adds a delete marker
+    and keeps the old segment, a live page that VACUUM keeps, so a deleted chat's words (lower
+    case, prefix-compressed) stay in the file until the segments merge (review round 8)."""
+    rows = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND sql LIKE 'CREATE VIRTUAL TABLE%'"
+                        " AND lower(sql) LIKE '%using fts5%'").fetchall()
+    for (name,) in rows:
+        quoted = '"' + str(name).replace('"', '""') + '"'
+        conn.execute(f"INSERT INTO {quoted}({quoted}) VALUES('optimize')")
+    conn.commit()
+
+
 def compact_copy(db: Path) -> None:
-    """Rewrite a database copy so no free page keeps deleted text: a chat deleted earlier (Hermes'
-    ``delete_session`` frees its pages without zeroing them) must not reach a backup from them."""
+    """Rewrite a database copy so no page keeps deleted text: a chat deleted earlier (Hermes'
+    ``delete_session`` frees its pages without zeroing them, and FTS5 keeps its words until its
+    segments merge) must not reach a backup from them."""
     import sqlite3
     conn = sqlite3.connect(db)
     try:
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         conn.execute("PRAGMA journal_mode=DELETE")
+        _optimize_fts(conn)
         conn.execute("VACUUM")
     finally:
         conn.close()
@@ -202,15 +228,17 @@ def compact_copy(db: Path) -> None:
 
 
 def scrub_deleted(db: Path, timeout: float = 10.0) -> bool:
-    """After a live ``delete_session``: rewrite ``state.db`` (VACUUM) and empty its WAL, so the
-    deleted chat's text leaves the home's files, which the desktop's folder backup copies raw.
-    Best effort: a busy database is left for the next export, which compacts its copy anyway."""
+    """After a live ``delete_session``: merge the search index's segments, rewrite ``state.db``
+    (VACUUM) and empty its WAL, so the deleted chat's text leaves the home's files, which the
+    desktop's folder backup copies raw. Best effort: a busy database is left for the next export,
+    which compacts its copy anyway."""
     import sqlite3
     if not db.is_file():
         return False
     try:
         conn = sqlite3.connect(db, timeout=timeout)
         try:
+            _optimize_fts(conn)
             conn.execute("VACUUM")
             busy = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
         finally:
@@ -218,6 +246,27 @@ def scrub_deleted(db: Path, timeout: float = 10.0) -> bool:
     except sqlite3.Error:
         return False
     return not busy or busy[0] == 0
+
+
+def forget_sessions(home: Path, ids: Iterable[str]) -> list[str]:
+    """``agent-forget``: what ``session.delete`` does, for chats deleted while the account had no
+    worker (Go's waiting ``agent_session_forgets``): delete them from the home's live ``state.db``
+    with their ``sessions/`` files, then scrub the file. Returns the ids that were there."""
+    ids = [i for i in dict.fromkeys(ids) if isinstance(i, str) and i]
+    db, sessions = home / "state.db", home / "sessions"
+    gone: list[str] = []
+    if db.is_file() and ids:
+        from hermes_state import SessionDB
+        sdb = SessionDB(db_path=db)
+        try:
+            gone = [sid for sid in ids if sdb.delete_session(sid, sessions_dir=sessions)]
+        finally:
+            sdb.close()
+        if not scrub_deleted(db):
+            raise BackupError("state.db is busy; the deletes are kept for the next try")
+    for sid in ids:
+        remove_session_files(sessions, sid)
+    return gone
 
 
 def chat_sessions(db: Path) -> list[str]:
@@ -281,7 +330,7 @@ def export_state(layout: paths.AgentLayout, account: str, out: Path,
                         if not _safe_copy_db(abs_path, snap):
                             raise BackupError(f"no consistent snapshot of {rel.as_posix()} (database busy?)")
                         if drop and rel.as_posix() == "state.db":
-                            _drop_sessions(snap, drop)
+                            _drop_sessions(snap, drop, sessions_dir=home / "sessions")
                         else:
                             compact_copy(snap)
                         _write_zip_file(zf, snap, rel.as_posix())

@@ -20,7 +20,7 @@ Tracking issue: #61.
   data/agent/                 the agent's folder: accounts/account-<id>/ is each account's home (memory, learned skills, chat sessions)
   backups/pre-upgrade-*/      folder copy of PGDATA taken before the first run of a new version (last 3 kept)
   backups/manual-*/           folder copies from "Back up now" (the API and PostgreSQL pause for a moment, so chats and agent runs stop until they are back)
-  backups/<name>.agent/       beside each folder copy: the agent homes' kept parts (memories, skills, pending, sessions, .timely, state.db and the skill ledger's blobs)
+  backups/<name>.agent/       beside each folder copy: the agent homes' kept parts (memories, skills, pending, .timely, state.db with the chat sessions, and the skill ledger's blobs)
   logs/                       sidecar logs
 ```
 

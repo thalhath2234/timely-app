@@ -7,6 +7,7 @@ Commands (plan sections 3.3, 6.3, 9.1; the wire format is ``apps/agent/PROTOCOL.
 - ``render-account``  before each spawn: account home layout, ``config.yaml``, ``SOUL.md``
 - ``agent-export``, ``agent-import``, ``agent-reconcile``  an account's agent state in a backup
   (plan 6.5; ``timely_agent.backup``)
+- ``agent-forget``    delete chats the person deleted while the account had no worker
 
 This file must stay importable before anything else: it runs with ``-I`` (no
 ``PYTHONPATH``, no user site, no script-dir surprises once we fix ``sys.path``),
@@ -69,7 +70,7 @@ def _fix_sys_path() -> None:
 
 USAGE = ("usage: boot.py worker | prepare --agent-dir DIR | render-account --agent-dir DIR --account UID --prepared JSON"
          " | agent-export --agent-dir DIR --account UID --out ZIP | agent-import --agent-dir DIR --account UID --zip ZIP"
-         " | agent-reconcile --agent-dir DIR\n")
+         " | agent-reconcile --agent-dir DIR | agent-forget --agent-dir DIR --account UID --sessions JSON\n")
 
 
 def main(argv: list[str]) -> int:
@@ -82,7 +83,7 @@ def main(argv: list[str]) -> int:
     if command == "worker":
         from timely_agent import worker
         return worker.main(fds)
-    if command in ("prepare", "render-account", "agent-export", "agent-import", "agent-reconcile"):
+    if command in ("prepare", "render-account", "agent-export", "agent-import", "agent-reconcile", "agent-forget"):
         from timely_agent import cli
         return cli.main(command, rest)
     sys.stderr.write(USAGE)

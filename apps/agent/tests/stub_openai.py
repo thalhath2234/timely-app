@@ -21,6 +21,8 @@ in). "After the directive" means the messages that follow that user message in t
   prompt (it ends "Other tools will be denied at runtime") plays the steps of the last ``REVIEW``
   list found in the earlier user messages, like ``SCRIPT``; without one it answers
   ``REVIEW_NOTHING``.
+- ``REFUSE <code>``: answers HTTP ``<code>`` with an error body (a provider refusing the request;
+  Hermes writes a request dump for a 4xx it does not retry).
 - anything else: ``STUB_REPLY`` + the message.
 
 Streaming (``stream: true``) and plain responses are both supported. Usage is a fixed
@@ -74,6 +76,17 @@ def _calls(pairs) -> dict:
         calls.append({"id": f"call_{i + 1}", "type": "function",
                       "function": {"name": name, "arguments": args if isinstance(args, str) else json.dumps(args)}})
     return {"role": "assistant", "content": None, "tool_calls": calls}
+
+
+def _refusal(body: dict) -> int:
+    """The HTTP status a ``REFUSE <code>`` in the last user message asks for, else 0."""
+    users = [m for m in body.get("messages") or [] if m.get("role") == "user"]
+    text = _text(users[-1].get("content")) if users else ""
+    if "REFUSE " in text:
+        word = text[text.index("REFUSE ") + len("REFUSE "):].split()[:1]
+        if word and word[0].isdigit():
+            return int(word[0])
+    return 0
 
 
 def decide(body: dict) -> tuple[dict, str, dict]:
@@ -175,6 +188,9 @@ class Handler(BaseHTTPRequestHandler):
                                      "auth": self.headers.get("Authorization")})
         if not self.path.rstrip("/").endswith("/chat/completions"):
             return self._json({"error": {"message": "not found"}}, 404)
+        refuse = _refusal(body)
+        if refuse:
+            return self._json({"error": {"message": "bad request", "type": "invalid_request_error"}}, refuse)
         try:
             self._answer(body, raw)
         except (BrokenPipeError, ConnectionResetError):

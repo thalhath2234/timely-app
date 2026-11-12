@@ -179,3 +179,31 @@ def test_compact_copy_and_scrub_leave_no_deleted_text(tmp_path):
         conn = sqlite3.connect(db)
         assert conn.execute("SELECT t FROM m").fetchall() == [("kept",)]
         conn.close()
+
+
+def test_compact_copy_and_scrub_drop_a_deleted_rows_words_from_the_search_index(tmp_path):
+    """Review round 8: an FTS5 delete only adds a delete marker and keeps the old segment, a live
+    page VACUUM keeps, so the deleted row's words (lower case) stay in the file until the index's
+    segments merge. compact_copy (every export) and scrub_deleted (session.delete, agent-forget)
+    merge them first."""
+    import sqlite3
+    word = b"zqxjvwombatlentil"
+    for name, fix in (("snap.db", backup.compact_copy), ("live.db", backup.scrub_deleted)):
+        db = tmp_path / name
+        conn = sqlite3.connect(db)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("CREATE VIRTUAL TABLE messages_fts USING fts5(content)")
+        conn.executemany("INSERT INTO messages_fts(content) VALUES (?)",
+                         [(f"chat {i} about the weather and doctor visits",) for i in range(20)]
+                         + [("my secret word is ZQXJVWOMBATLENTIL",)])
+        conn.commit()
+        conn.execute("DELETE FROM messages_fts WHERE content LIKE '%ZQXJ%'")
+        conn.commit()
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.close()
+        assert word in b"".join(p.read_bytes() for p in tmp_path.glob(name + "*")).lower()
+        fix(db)
+        assert word not in b"".join(p.read_bytes() for p in tmp_path.glob(name + "*")).lower(), name
+        conn = sqlite3.connect(db)
+        assert conn.execute("SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'weather'").fetchone()[0] == 20
+        conn.close()

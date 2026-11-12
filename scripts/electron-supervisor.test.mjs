@@ -546,8 +546,10 @@ function plantAgentHome(accounts, dir, marker) {
 
 // The skill ledger's blobs come along: Undo and "what changed" of a learned
 // skill read them (Hermes refuses a rollback whose blob is missing).
-const KEPT = ["memories/USER.md", "skills/learned/pantry-steps/SKILL.md", "pending/memory/c0ffee01.json", "sessions/s1.json", ".timely/counters.json", "state.db", "state.db-wal", ".curator_backups/blobs/abc123"];
-const LEFT_OUT = ["config.yaml", "SOUL.md", ".env", "mcp-tokens", "workspace", "home", ".curator_backups/2026-11-11"];
+// sessions/ (Hermes' request dumps: a failed request's whole body) stays out
+// (review round 8): a deleted chat's dump must not ride into every backup.
+const KEPT = ["memories/USER.md", "skills/learned/pantry-steps/SKILL.md", "pending/memory/c0ffee01.json", ".timely/counters.json", "state.db", "state.db-wal", ".curator_backups/blobs/abc123"];
+const LEFT_OUT = ["config.yaml", "SOUL.md", ".env", "mcp-tokens", "workspace", "home", "sessions", ".curator_backups/2026-11-11"];
 
 function stoppedDatabase(dir, rows) {
   const pgData = path.join(dir, "postgres", "data");

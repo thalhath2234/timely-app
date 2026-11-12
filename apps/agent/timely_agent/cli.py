@@ -20,6 +20,10 @@ Both read an optional JSON object on stdin and print one JSON object on stdout (
   --account <uid> --zip <zip>`` and ``agent-reconcile --agent-dir <root>``: an account's agent
   state in a backup (``timely_agent.backup``; PROTOCOL.md section 10.8). ``prepare`` runs the
   reconcile too, so a restore that crashed between staging and the swap is finished or dropped.
+- ``agent-forget --agent-dir <root> --account <uid> --sessions <json>``: ``session.delete`` for
+  chats deleted while the account had no worker (Go's waiting ``agent_session_forgets``): the
+  rows, their ``sessions/`` files and the search index's words leave the live home. Output
+  ``{"ok": true, "gone": [ids that were there]}``.
 """
 
 from __future__ import annotations
@@ -198,7 +202,7 @@ def render_account(layout: paths.AgentLayout, account: str, settings: dict[str, 
     return {"ok": True, "account_dir": paths.account_dir_name(account), **out, "env": env}
 
 
-STATE_COMMANDS = ("agent-export", "agent-import", "agent-reconcile")
+STATE_COMMANDS = ("agent-export", "agent-import", "agent-reconcile", "agent-forget")
 COMMANDS = ("prepare", "render-account", *STATE_COMMANDS)
 
 
@@ -210,6 +214,12 @@ def agent_state(command: str, layout: paths.AgentLayout, args: argparse.Namespac
     if not layout.instance_file.is_file():
         raise backup.BackupError(f"{layout.root} has no instance.json; run prepare first")
     _isolate_for_hermes(layout)
+    if command == "agent-forget":
+        ids = json.loads(Path(args.sessions).read_text(encoding="utf-8"))
+        if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+            raise backup.BackupError("--sessions must name a JSON list of conversation ids")
+        home = layout.account_home(args.account)
+        return {"ok": True, "gone": backup.forget_sessions(home, ids) if home.is_dir() else []}
     if command == "agent-export":
         drop: list[str] = []
         if args.drop_sessions:
@@ -223,8 +233,11 @@ def agent_state(command: str, layout: paths.AgentLayout, args: argparse.Namespac
 def main(command: str, argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog=f"boot.py {command}")
     parser.add_argument("--agent-dir", required=True, help="<TIMELY_DATA_DIR>/agent")
-    if command in ("render-account", "agent-export", "agent-import"):
+    if command in ("render-account", "agent-export", "agent-import", "agent-forget"):
         parser.add_argument("--account", required=True, help="the account (user) id")
+    if command == "agent-forget":
+        parser.add_argument("--sessions", required=True,
+                            help="a JSON file listing deleted chats' conversation ids to delete from the home")
     if command == "render-account":
         parser.add_argument("--prepared", required=True,
                             help="prepare's answer as JSON (" + ", ".join(PREPARED_KEYS) + ")")

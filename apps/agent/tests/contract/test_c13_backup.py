@@ -362,24 +362,72 @@ def test_c13_an_open_wal_database_exports_consistently():
         check.close()
 
 
+WORD = "zqxjvwombatlentil"  # a word no other token shares a prefix with
+
+
+def _leaks(home: Path, words: tuple[bytes, ...]) -> list[str]:
+    """Every file under the home that still holds one of ``words`` (lower-cased bytes), except
+    ``logs/`` (Hermes' log, which no backup copies)."""
+    out = []
+    for p in sorted(home.rglob("*")):
+        rel = p.relative_to(home).as_posix()
+        if p.is_file() and not rel.startswith("logs/"):
+            raw = p.read_bytes().lower()
+            if any(w in raw for w in words):
+                out.append(rel)
+    return out
+
+
+def _chat(w, a, stub, conversation: str, marker: str, runs: int = 4) -> None:
+    for i in range(runs):
+        w.send(harness.run_start(a, stub, run_id=f"{conversation}-{i}", conversation=conversation, toolsets=TOOLSETS,
+                                 text=f"turn {i}: my secret is {marker} {WORD} " + "pad " * 400))
+        done, _seen = harness.drive(w, a.account, f"{conversation}-{i}")
+        assert done["completed"] is True, done
+    # A run the provider refuses (a 4xx it does not retry): Hermes dumps the whole request body
+    # under sessions/ (review round 8).
+    w.send(harness.run_start(a, stub, run_id=f"{conversation}-x", conversation=conversation, toolsets=TOOLSETS,
+                             text=f"REFUSE 400 my secret is {marker} {WORD}"))
+    done, _seen = harness.drive(w, a.account, f"{conversation}-x")
+    assert done["completed"] is False, done
+
+
+def _export_holds_nothing(a, words: tuple[bytes, ...], name: str) -> None:
+    out = a.dir / name
+    cli("agent-export", a, "--account", a.account, "--out", str(out))
+    with zipfile.ZipFile(out) as zf:
+        for entry in zf.namelist():
+            raw = zf.read(entry).lower()
+            assert not any(w in raw for w in words), f"export {entry} holds the deleted chat's words"
+        raw = zf.read("state.db")
+    snap = a.dir / (name + ".db")
+    snap.write_bytes(raw)
+    conn = sqlite3.connect(snap)
+    try:
+        assert conn.execute("PRAGMA freelist_count").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM sessions WHERE id = 'c-keep'").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
 def test_c13_a_deleted_chat_leaves_the_home_files_and_every_later_export(stub):
-    """Review round 7: the usual delete (the worker runs, session.delete is acknowledged and the
-    forget row goes) must not leave the chat's text in state.db's free pages or its WAL, which the
-    desktop's folder backup copies raw, nor in a later export made without --drop-sessions."""
+    """Review rounds 7 and 8: the usual delete (the worker runs, session.delete is acknowledged and
+    the forget row goes) must leave none of the chat's words in any file the desktop's folder
+    backup copies raw (state.db, its WAL, the search index's segments, a failed request's dump
+    under sessions/), nor in a later export made without --drop-sessions. FTS5 keeps words lower
+    case and prefix-compressed, so the check reads lower-cased bytes for a word with no shared
+    prefix and the marker's own tail."""
     a = harness.Agent(harness.new_root("c13del"), account="user-c13del")
     w, ready = harness.ready_worker(a, hello={"timely_tools": harness.timely_tools()})
     assert ready["self_test"]["ok"], ready["self_test"]
     marker = "SECRETMARKQ7"
+    words = (WORD.encode(), b"markq7")
     try:
-        for i in range(4):
-            w.send(harness.run_start(a, stub, run_id=f"c13del-{i}", conversation="c-del", toolsets=TOOLSETS,
-                                     text=f"turn {i}: my secret is {marker} " + "pad " * 400))
-            done, _seen = harness.drive(w, a.account, f"c13del-{i}")
-            assert done["completed"] is True, done
+        _chat(w, a, stub, "c-del", marker)
         w.send(harness.run_start(a, stub, run_id="c13keep", conversation="c-keep", toolsets=TOOLSETS, text="hello"))
         harness.drive(w, a.account, "c13keep")
-        before = b"".join(p.read_bytes() for p in a.home.glob("state.db*") if p.is_file())
-        assert marker.encode() in before  # the probe sees the text before the delete
+        assert "state.db" in _leaks(a.home, words)  # the probe sees the words before the delete
+        assert any(p.startswith("sessions/request_dump_c-del_") for p in _leaks(a.home, words))
         w.send({"type": "session.delete", "id": "del-1", "account": a.account, "conversation_id": "c-del"})
         while True:
             msg = w.recv(60)
@@ -388,19 +436,32 @@ def test_c13_a_deleted_chat_leaves_the_home_files_and_every_later_export(stub):
         assert msg["type"] == "ack" and msg["ok"] is True, msg
     finally:
         w.close()
-    for part in a.home.glob("state.db*"):
-        if part.is_file():
-            assert marker.encode() not in part.read_bytes(), part.name
-    out = a.dir / "after-delete.zip"
-    cli("agent-export", a, "--account", a.account, "--out", str(out))
-    with zipfile.ZipFile(out) as zf:
-        raw = zf.read("state.db")
-    assert marker.encode() not in raw
-    snap = a.dir / "snap.db"
-    snap.write_bytes(raw)
-    conn = sqlite3.connect(snap)
+    assert _leaks(a.home, words) == []
+    _export_holds_nothing(a, words, "after-delete.zip")
+
+
+def test_c13_agent_forget_deletes_a_chat_with_no_worker_running(stub):
+    """Review round 8: a chat deleted while the account had no worker (idle, or back on Classic)
+    waits in Go's agent_session_forgets; Go runs ``agent-forget`` for it rather than waiting for the
+    account's next agent run, so the desktop's folder backup (and the pre-upgrade copy) never finds
+    its words in the home."""
+    a = harness.Agent(harness.new_root("c13fgt"), account="user-c13fgt")
+    w, ready = harness.ready_worker(a, hello={"timely_tools": harness.timely_tools()})
+    assert ready["self_test"]["ok"], ready["self_test"]
+    words = (WORD.encode(), b"markq8")
     try:
-        assert conn.execute("PRAGMA freelist_count").fetchone()[0] == 0
-        assert conn.execute("SELECT COUNT(*) FROM sessions WHERE id = 'c-keep'").fetchone()[0] == 1
+        _chat(w, a, stub, "c-gone", "SECRETMARKQ8", runs=2)
+        w.send(harness.run_start(a, stub, run_id="c13keep", conversation="c-keep", toolsets=TOOLSETS, text="hello"))
+        harness.drive(w, a.account, "c13keep")
     finally:
-        conn.close()
+        w.close()
+    assert "state.db" in _leaks(a.home, words)
+    ids = a.dir / "forget.json"
+    ids.write_text(json.dumps(["c-gone", "c-never-here"]), encoding="utf-8")
+    res = cli("agent-forget", a, "--account", a.account, "--sessions", str(ids))
+    assert res["gone"] == ["c-gone"], res
+    assert _leaks(a.home, words) == []
+    _export_holds_nothing(a, words, "after-forget.zip")
+    # An account with no home has nothing to delete.
+    res = cli("agent-forget", a, "--account", "user-no-home", "--sessions", str(ids))
+    assert res["gone"] == [], res

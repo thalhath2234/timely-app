@@ -558,17 +558,22 @@ class Worker:
         bridge.forget_session(conversation)
         ok = False
         try:
+            from hermes_constants import get_hermes_home
             from hermes_state import SessionDB
+            from timely_agent import backup
+            # Hermes' sweep of the chat's sessions/ files (request dumps hold a failed request's
+            # whole body), also when the chat never got a row (review round 8).
+            sessions = Path(get_hermes_home()) / "sessions"
             sdb = SessionDB()
             try:
-                ok = bool(sdb.delete_session(conversation))
+                ok = bool(sdb.delete_session(conversation, sessions_dir=sessions))
             finally:
                 sdb.close()
+            backup.remove_session_files(sessions, conversation)
             if ok:
                 # Hermes frees the rows' pages without zeroing them, and the WAL keeps them too:
                 # rewrite the file so the deleted chat's text leaves the home (the desktop's
                 # folder backup copies state.db and its WAL raw).
-                from timely_agent import backup
                 if not backup.scrub_deleted(Path(sdb.db_path)):
                     logger.warning("session.delete %s: state.db is busy; its next export compacts it", conversation)
         except Exception as exc:
